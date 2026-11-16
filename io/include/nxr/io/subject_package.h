@@ -46,6 +46,7 @@ struct PackageRecord {
   int schema_version = 0;
   int store_format = 0;
   Json template_reference;     // null, or {name, edition, version, content_hash, subject_id} of the template this subject is registered to (section 4.3)
+  Json members;                // a group package: the subjects it was computed from, [{subject_id, name, content_hash}] (section 5); null otherwise
   std::string content_hash;    // empty until a writer has closed the package
   std::string hashed_utc;      // when it was computed
   Json to_json() const;
