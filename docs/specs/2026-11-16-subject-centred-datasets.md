@@ -263,8 +263,8 @@ differ.
   is used; one with the right name and version but another hash is skipped and reported (both hashes). None found: refused, listing every location
   searched. The search path says only WHERE to look; WHICH template is used is fixed by the reference (name, version, hash), so the setting never
   chooses data. `template list` prints every template on the search path with its version and hash.
-- **Which template a dataset uses** is the caller's choice at `dataset create --template NAME@VERSION` (recorded in the catalogue), never a default of
-  the code.
+- **Which template a dataset uses** is the template its data were computed in, named by the caller at `dataset create --template NAME@VERSION` (or by
+  the importer, section 4.5) and recorded in the catalogue; never a default of the code.
 - **Several datasets, one template**: two datasets registered to `fsaverage5@1.0` with the same hash used the same anatomy, the same group tree and
   the same eigenmodes, and that is checkable.
 - **Building one** is what `dataset create --templates` does today (surfaces, parcellations, frames, group tree, `--modes`), retargeted:
@@ -282,7 +282,7 @@ differ.
   byte for byte from the released template. This is exactly the set the Studio's `bundleOf` already returns as "following the template"
   (`related_subjects`, the other subject's manifolds and their parts, `lineage_fields`, `lineage_operators`); no arrays are copied. Registration
   checks every anchor row against the template's own. Because the anchor rows are in the package, **a subject's bundle is complete without opening
-  its template**; the template package is opened only when a template's ARRAYS are read (to draw its pial, to read its tiles). (Alternatives: open
+  its template**; the template package is opened only when a template's ARRAYS are read (to draw its pial, to read its tiles). (Alternatives: technical
   question 2.)
 - **The registration itself stays nodes of the subject**, as today: its registered sphere (`<surface>_sphere`), its group tree per subject
   (`<surface>_group_tiles`, with `sphere_match_median` and `sphere_match_max`), and anything carried to the template (resampled scalars, rotated
@@ -291,6 +291,43 @@ differ.
   the template version is part of every such node's cache key). Old nodes keep naming the old version until removed. A released version is never
   changed, so a subject is never invalidated by a template under it; it is moved to a new version only when the caller asks (`subject retemplate
   --package PATH --template NAME@VERSION`; decided 2026-11-16). A cohort is never pooled across template versions.
+
+### 4.4 Several templates, two editions, and registrations between templates (decided 2026-11-16)
+
+- **More than one template.** fsaverage (at its resolutions) is one template; Brainstorm's default anatomy **ICBM152 (2023b)**, FreeSurfer-derived
+  surfaces with their registration spheres, is another template package of its own; others can follow. Each is built by `template create` from its
+  sources, with an `origin` record on every item, and released by name and version.
+- **Two editions of one template.** A template may exist as a **full** edition (every item, for use where its terms allow) and a
+  **redistributable** edition (only the items whose `origin` records allow redistribution). The edition is part of the package record and of every
+  reference: `NAME@VERSION` names the full edition, `NAME@VERSION:redistributable` the other; each has its own content hash. `template release
+  --edition redistributable` makes the second from the first: it keeps an item only when its `origin` licence allows redistribution, refuses an item
+  with no `origin` record, and lists what it left out. Items kept are byte for byte the full edition's (their `key_digest` entries are equal), so an
+  analysis that reads only kept items gives the same result on either edition, and that is checkable.
+- **Registrations between templates are their own versioned packages.** A registration from one template to another (e.g. ICBM152's sphere to
+  fsaverage's sphere) is a package of the new kind **`registration`** (schema 51 adds the kind), released and versioned like a template, found on
+  the template search path as `<name>@<version>.nxr.zarr`. It holds:
+  - the resampling operators between the two templates' surfaces (the model's `operator` rows, `from_manifold_id` on one template and
+    `to_manifold_id` on the other, reached through anchor rows of both; the arrays a sparse matrix, as the model stores operators), in each
+    direction it supports;
+  - its record: both templates by name, edition, version and hash; the method (e.g. nearest vertex or barycentric weights on the registered
+    spheres); its `origin`; and what it cannot resolve (`producer_json.warnings`: the correspondence is the spheres', not anatomy's; values are
+    smoothed by resampling).
+  `registration create --from NAME@VERSION --to NAME@VERSION --method METHOD` builds one (the operator is computed by compute's functions,
+  composed by the pipelines, stored by io), and `registration release` freezes it.
+- **Datasets in different template spaces are compared by resampling RESULTS through a registration, never by converting a dataset.** A dataset's
+  kernels, source estimates and results stay on the surfaces they were computed on. Only what a group analysis reads (section 5) is resampled, at
+  the moment it is read, and the resampled values carry the registration in their provenance.
+
+### 4.5 The importer rule (decided 2026-11-16)
+
+- **A subject without its own MRI**, whose data were source-mapped on a default anatomy (Brainstorm's "use default anatomy"), gets that anatomy as
+  **its own anatomy**: the importer writes the anatomy's surfaces (and spheres) into the subject's package as the subject's own nodes, each with the
+  `origin` record of the template item it came from, so its kernels and results sit on surfaces of the subject, exactly as they were computed. Its
+  registration to that template is the identity, recorded as such.
+- **The dataset's template is the template package its data were computed in**, recorded by name, edition and version. The importer finds it by
+  comparing the source's anatomy with the released templates on the search path (surfaces byte for byte, or by their digests); it never records
+  "whatever the source protocol had", and it never falls back to a default. When no released template matches, the import is refused, naming what
+  was found, until the caller names one (`--template NAME@VERSION`) or a matching template is created and released.
 
 ## 5. Between-subject analysis
 
@@ -317,6 +354,11 @@ from its package → write the group result.**
    - one group package per analysis the caller names (`--into GROUP_NAME`), never a default one; a re-run replaces its group fields as today.
    - The group statistics (the group map, sign-flip and random-rotation nulls, covariates from the participants table) are statistic nodes of the
      same group package.
+5. **Across template spaces** (decided 2026-11-16): a group analysis whose members are registered to different templates (from one dataset or from
+   several) must name **the target template** (`--target-template NAME@VERSION`) and **the registration** for every other template space it
+   reads (`--registration NAME@VERSION`, repeatable; one per source template). Each member's inputs are resampled into the target space through
+   that registration as they are read; the members' own packages are not changed. Without both, members in different spaces are refused, naming
+   their templates. The target template and every registration used (name, edition, version, hash) are recorded with the result.
 
 ## 6. Writing on clusters
 
@@ -424,7 +466,7 @@ place, under the dataset's writer lock, **subject by subject, verified byte for 
    database, compared table by table (`test_split`: synthetic datasets at 50, 51 and 52, a crash at each stage, idempotence, the round trip).
 
 **The version step**: store format **53** (packages and catalogue) and the model's schema version **51** (the new tables: `subject_entry`,
-`template_reference`, `key_digest`, the package record in `meta`), added to `model.sql` in all three implementations at once. Every reader refuses a
+`template_reference`, `key_digest`, the package record in `meta`, the subject kind `registration`), added to `model.sql` in all three implementations at once. Every reader refuses a
 version above the newest it knows (`schema_version` error), so a build from before this change refuses a format-53 package instead of misreading it,
 and a format-53 build still opens 50–52 datasets as today.
 
@@ -456,9 +498,9 @@ reading it, only after phase G and its three-way parity tests; until then it is 
 | A | the subject module in io (`SubjectPackage`, `subject_bundle` over a package), reading packages made by a test from a format-52 dataset | bundle from package = bundle from the database |
 | B | format 53 writing: `SubjectWriter` on a package (per-package lock), `key_digest`, the content hash, `subject create --package`, `subject verify` | node procedure, crash recovery, hash stable and sensitive |
 | C | the catalogue: `dataset create` (catalogue), `dataset register`, `participants import/export`, `--subjects` and `--where` (the filter language, version 1), `dataset index` | conflict rules, idempotence, id and vocabulary clashes |
-| D | templates: `template create`, `template release`, `template list`, the template search path, resolution by name + version + hash, anchor rows | refusal of a wrong hash, anchor checks |
+| D | templates: `template create`, `template release` (both editions), `template list`, the template search path, resolution by name + edition + version + hash, anchor rows; `registration create` and `release`; the importer rule | refusal of a wrong hash, anchor checks, the redistributable edition's items equal the full one's, a registration's round trip on synthetic spheres |
 | E | migration: `dataset split`, `dataset join`, `dataset retemplate` | round trip at 50/51/52, crash at each stage |
-| F | group: `pyramid reduce` over a catalogue cohort into a group package | the existing reduce tests and nxr parity, unchanged sums |
+| F | group: `pyramid reduce` over a catalogue cohort into a group package; `--target-template` and `--registration` across template spaces | the existing reduce tests and nxr parity, unchanged sums; refusal without a registration; resampled inputs equal the operator applied by hand |
 | G | nxr and the Studio: the same source, catalogue and package writer, parity tests on the same synthetic datasets; the WebAssembly client | three-way parity |
 
 **Decided 2026-11-16** (each is written into the sections above):
@@ -478,6 +520,13 @@ reading it, only after phase G and its three-way parity tests; until then it is 
   holds it.
 - **Migration** (8): all at once by `dataset split`, not on first use; nxr-neuro first, then nxr, then the Studio, each with parity first.
 - **Stability** (8): the format is declared stable after phase G's three-way parity, not before.
+- **Several templates** (4.4): fsaverage and ICBM152 (2023b) are template packages, each possibly in a full and a redistributable edition (the
+  `origin` records decide what the second keeps), both named and versioned.
+- **Registrations between templates** (4.4): their own versioned packages (kind `registration`); datasets in different template spaces are compared
+  by resampling results through them, never by converting a dataset.
+- **The importer rule** (4.5): a subject without its own MRI gets the default anatomy it was mapped on as its own; the dataset's template is the
+  template its data were computed in, recorded by name and version, never inferred from the source protocol, never a silent default.
+- **Group analyses across template spaces** (5): name the target template and the registration; both are recorded with the result.
 
 **Technical questions still open** (each with its recommendation):
 
