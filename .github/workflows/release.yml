@@ -1,0 +1,213 @@
+name: release
+
+# Release builds of the `nxr-neuro` command.
+# - On a version tag (`v*`): build a portable Linux binary (x86_64, glibc 2.28 baseline) and a macOS binary (arm64), check them, and attach
+#   `nxr-neuro-<version>-linux-x86_64.tar.gz`, `nxr-neuro-<version>-macos-arm64.tar.gz` and `SHA256SUMS` to a GitHub release.
+# - By hand (`workflow_dispatch`): the same builds and checks, uploaded as workflow artefacts; no release is made.
+# Each tarball holds the binary, LICENSE, THIRD_PARTY_NOTICES.md and a short README (.github/release/README.txt).
+# Compiled objects are cached with ccache, as in ci.yml.
+on:
+  push:
+    tags: ["v*"]
+    branches: [ci/release]   # TEMPORARY: test runs of this branch
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_COMPRESS: "true"
+
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    # an old glibc (2.28) baseline: the binary runs on every distribution newer than that
+    container: quay.io/pypa/manylinux_2_28_x86_64
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Version
+        id: version
+        shell: bash
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          cmake_version=$(sed -n 's/^project(nxr_neuro VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+            [ "$version" = "$cmake_version" ] || { echo "tag $GITHUB_REF_NAME does not match the version in CMakeLists.txt ($cmake_version)"; exit 1; }
+          else
+            version="$cmake_version-dev.$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "$cmake_version" > cmake-version.txt
+      - name: Build tools
+        run: |
+          /opt/python/cp312-cp312/bin/pip install --quiet cmake ninja
+          echo "/opt/python/cp312-cp312/bin" >> "$GITHUB_PATH"
+          (yum install -y epel-release && yum install -y ccache) > /dev/null 2>&1 || echo "ccache not available; building without it"
+          ls /usr/lib64/libz.a
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-release-linux-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-release-linux-${{ github.ref_name }}-
+            ccache-release-linux-
+      - name: Configure
+        run: |
+          launcher=""
+          if command -v ccache > /dev/null; then launcher="-DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"; fi
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release $launcher \
+            -DNXR_NEURO_PORTABLE=ON -DNXR_NEURO_BUILD_TESTS=OFF -DNXR_NEURO_BUILD_BINDINGS=OFF \
+            -DZLIB_LIBRARY=/usr/lib64/libz.a -DZLIB_INCLUDE_DIR=/usr/include \
+            -DCMAKE_EXE_LINKER_FLAGS="-static-libstdc++ -static-libgcc"
+      - name: Build
+        run: cmake --build build --target nxr-neuro
+      - name: Compiler cache statistics
+        run: ccache --show-stats 2>/dev/null | head -20 || true
+      - name: Portability check (linked libraries and glibc baseline)
+        shell: bash
+        run: |
+          strip --strip-unneeded build/cli/nxr-neuro
+          ldd build/cli/nxr-neuro | tee ldd.txt
+          # only the system's libc, libm, libpthread, libdl and the loader may be linked
+          bad=$(grep -v -E 'linux-vdso|ld-linux|libc\.so|libm\.so|libpthread\.so|libdl\.so' ldd.txt || true)
+          if [ -n "$bad" ]; then echo "unexpected shared libraries:"; echo "$bad"; exit 1; fi
+          newest=$(objdump -T build/cli/nxr-neuro | grep -o 'GLIBC_[0-9.]*' | sort -Vu | tail -1)
+          echo "newest glibc symbol version needed: $newest"
+          [ "$(printf '%s\nGLIBC_2.28\n' "$newest" | sort -V | tail -1)" = "GLIBC_2.28" ] || { echo "needs a glibc newer than 2.28"; exit 1; }
+      - name: Smoke test in the build container
+        run: sh .github/smoke/smoke.sh build/cli/nxr-neuro "$RUNNER_TEMP/smoke"
+      - name: Package
+        shell: bash
+        run: |
+          name=nxr-neuro-${{ steps.version.outputs.version }}-linux-x86_64
+          mkdir -p "dist/$name"
+          cp build/cli/nxr-neuro LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+          cp .github/release/README.txt "dist/$name/README"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -r "dist/$name"
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  linux-verify:
+    # the portable binary on a plain Ubuntu 20.04 (glibc 2.31) with nothing installed
+    needs: linux
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-x86_64
+          path: dist
+      - name: Unpack
+        run: tar -C dist -xzf dist/*.tar.gz
+      - name: Run in a plain ubuntu:20.04 container
+        run: |
+          bin=$(ls -d dist/nxr-neuro-*-linux-x86_64)
+          docker run --rm -v "$PWD/dist:/dist:ro" -v "$PWD/.github/smoke:/smoke:ro" ubuntu:20.04 sh -c "
+            ldd /dist/$(basename "$bin")/nxr-neuro
+            /dist/$(basename "$bin")/nxr-neuro --version
+            sh /smoke/smoke.sh /dist/$(basename "$bin")/nxr-neuro /tmp/smoke"
+
+  macos:
+    runs-on: macos-14
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "12.0"
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Version
+        id: version
+        run: |
+          cmake_version=$(sed -n 's/^project(nxr_neuro VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version=${GITHUB_REF_NAME#v}
+            [ "$version" = "$cmake_version" ] || { echo "tag $GITHUB_REF_NAME does not match the version in CMakeLists.txt ($cmake_version)"; exit 1; }
+          else
+            version="$cmake_version-dev.$(git rev-parse --short HEAD)"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Build tools
+        run: brew install ninja ccache
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-release-macos-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-release-macos-${{ github.ref_name }}-
+            ccache-release-macos-
+      - name: Configure
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
+            -DNXR_NEURO_PORTABLE=ON -DNXR_NEURO_BUILD_TESTS=OFF -DNXR_NEURO_BUILD_BINDINGS=OFF -DCMAKE_OSX_ARCHITECTURES=arm64
+      - name: Build
+        run: cmake --build build --target nxr-neuro
+      - name: Compiler cache statistics
+        run: ccache --show-stats | head -20
+      - name: Portability check (linked libraries)
+        run: |
+          strip -x build/cli/nxr-neuro
+          file build/cli/nxr-neuro
+          otool -L build/cli/nxr-neuro | tee otool.txt
+          # only system libraries (/usr/lib, /System): no Homebrew or other path
+          bad=$(tail -n +2 otool.txt | grep -v -E '^\s*(/usr/lib/|/System/)' || true)
+          if [ -n "$bad" ]; then echo "unexpected libraries:"; echo "$bad"; exit 1; fi
+      - name: Smoke test
+        run: sh .github/smoke/smoke.sh build/cli/nxr-neuro "$RUNNER_TEMP/smoke"
+      - name: Package
+        run: |
+          name=nxr-neuro-${{ steps.version.outputs.version }}-macos-arm64
+          mkdir -p "dist/$name"
+          cp build/cli/nxr-neuro LICENSE THIRD_PARTY_NOTICES.md "dist/$name/"
+          cp .github/release/README.txt "dist/$name/README"
+          tar -C dist -czf "dist/$name.tar.gz" "$name"
+          rm -r "dist/$name"
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: macos-arm64
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  publish:
+    # only on a version tag: the release, with the two tarballs and their checksums
+    if: github.ref_type == 'tag'
+    needs: [linux, linux-verify, macos]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+      - name: Checksums
+        run: |
+          cd dist
+          sha256sum nxr-neuro-*.tar.gz > SHA256SUMS
+          cat SHA256SUMS
+      - name: Create the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" dist/*.tar.gz dist/SHA256SUMS --repo "$GITHUB_REPOSITORY" --title "nxr-neuro ${GITHUB_REF_NAME#v}" \
+            --notes "Binaries of the \`nxr-neuro\` command: Linux x86_64 (glibc 2.28 or newer) and macOS arm64 (not signed or notarised). Check the SHA-256 sums in \`SHA256SUMS\`; installation is described in the README."

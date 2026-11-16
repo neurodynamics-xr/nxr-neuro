@@ -44,6 +44,20 @@ c-blosc, HDF5 and matio are fetched into the build directory; geometry-central i
 The tests use synthetic data only. Tests that need data of your own (a real recording, a Brainstorm protocol, reference checkouts) read it from environment
 variables and are skipped, with a reason, when the variables are not set; see [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Install a release
+
+Each release (https://github.com/neurodynamics-xr/nxr-neuro/releases) has a tarball for Linux (`nxr-neuro-<version>-linux-x86_64.tar.gz`, x86_64, glibc 2.28
+or newer; no other library is needed) and for macOS (`nxr-neuro-<version>-macos-arm64.tar.gz`, Apple silicon, macOS 12 or newer), and a `SHA256SUMS` file.
+
+    sha256sum -c --ignore-missing SHA256SUMS        # macOS: shasum -a 256 -c --ignore-missing SHA256SUMS
+    tar -xzf nxr-neuro-<version>-<platform>.tar.gz
+    mkdir -p ~/.local/bin && cp nxr-neuro-<version>-<platform>/nxr-neuro ~/.local/bin/     # and have ~/.local/bin on your PATH
+    nxr-neuro --version
+
+The macOS binary is **not signed or notarised yet**, so Gatekeeper may refuse a downloaded copy ("cannot be opened because the developer cannot be
+verified"). After checking the SHA-256 sum, remove the quarantine mark once with `xattr -d com.apple.quarantine nxr-neuro`, or allow it in System Settings,
+Privacy & Security.
+
 ## The command
 
 One command, verb first: `nxr-neuro <verb> <what> [options]`.
