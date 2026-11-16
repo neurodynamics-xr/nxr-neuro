@@ -1,296 +1,341 @@
 # The structural connectome on the cortex (`compute connectome`)
 
-Status: **spec, for the maintainers' review.** No code yet. Asked for by the maintainers (2026-11-16): the structural connectome is a native
-computation of nxr-neuro whenever a subject has fibres, or can borrow a template's; nothing calls MATLAB or Brainstorm, and there are no wrappers.
+Status: **spec, for the maintainers' review.** No code yet. Revised 2026-11-16 to follow the maintainers' decisions of that day; each is marked
+"decided 2026-11-16".
 
-**Reference:** the maintainers' `tess_connectome` (MATLAB), the reference. The default of every option reproduces it; every departure is a named
-option recorded in the provenance and the cache key (the method rule, `CONTRIBUTING.md`). Its helpers come from Brainstorm (GPLv3): none is ported;
-each is replaced by an existing nxr-neuro function or written from the mathematics (section 4).
+**Reference:** the maintainers' `tess_connectome` (MATLAB), the reference. The default of every option reproduces it, except where a decision below
+says otherwise and the spec names the difference (section 8). Every departure is a named option recorded in the provenance and the cache key (the
+method rule, `CONTRIBUTING.md`).
 
 ## 1. Why
 
 Activity on the cortex can move in two ways: along the sheet, from one patch to its neighbours (the paths the mesh and its operators describe), and
-across it, through the white-matter fibres that join distant regions. A travelling, rotating or standing pattern measured on the sheet alone cannot
-say which of the two carries it. The structural connectome is the second set of paths, written on the same cortex and the same vertices as every
-other measurement: W(u, v) says how many fibres join the place u to the place v.
+across it, through the white-matter fibers that join distant regions. A travelling, rotating or standing pattern measured on the sheet alone cannot
+say which of the two carries it. The structural connectome is the second set of paths, written on the same cortex as every other measurement.
 
 With it, the measurements of spatiotemporal patterns can be put against anatomy:
-- whether a pattern's path, or the coupling between two regions, follows the fibres between them or only the sheet;
-- the connectome's own spatial modes (graph harmonics of W) as a basis beside the mesh's eigenmodes;
-- the coupling of homologous regions of the two hemispheres, which are joined by fibres and not by the sheet;
-- the same comparisons at any declared scale: a vertex, a tile of the dyadic ladder, a region of a parcellation.
+- whether a pattern's path, or the coupling between two regions, follows the fibers between them or only the sheet;
+- the connectome's own spatial modes (graph harmonics of the connection weights) as a basis beside the mesh's eigenmodes;
+- the coupling of homologous regions of the two hemispheres, which are joined by fibers and not by the sheet;
+- the same comparisons at any declared scale: a vertex, a tile of the dyadic ladder, a region of a partition.
 
-What it is: streamline counts from tractography, placed on the cortex by the fibres' ends. A subject without its own tractography borrows a
-template's, carried onto its cortex through the registration sphere: then W is the template's anatomy on the subject's cortex, not the subject's
-own, and the provenance says so (`registration`).
+What it is: fiber counts from tractography, placed on the cortex by the fibers' ends. A subject without its own tractography uses the template's,
+carried onto its cortex through the registration: the result is then the template's anatomy on the subject's cortex, not the subject's own, and the
+provenance says so.
 
-## 2. Inputs
+## 2. What was decided (2026-11-16)
+
+1. **Native compute** (decided 2026-11-16), for subjects whose packages hold fibers. Nothing calls MATLAB or Brainstorm at run time. The helpers the
+   reference takes from Brainstorm (GPLv3) are replaced natively, written from the mathematics and never ported: the Shepard weights from Franke &
+   Nielson (1980), the nearest-vertex search, connected components, Eigen sparse algebra.
+2. **The pointwise object is each fiber's pair of end vertices** on a chosen surface (decided 2026-11-16). Counting fibers per pair of places is a
+   **measurement over a partition**, reduced at readback without materialising the vertex matrix (section 4). The vertex connectome is the finest
+   partition, materialised only on request. Tiles are stored at the finest level and rolled up at read, as the measurement pyramid does.
+3. **Smoothing over neighbouring vertices is linear, so it is pushed onto the partition's memberships** (decided 2026-11-16): smooth the memberships,
+   then count. The smoothed vertex matrix is never formed for a partition result. Pruning weak connections and keeping the largest component apply to a
+   materialised connectome only.
+4. **Partitions, not "atlas" or "roi"** (decided 2026-11-16): a fiber end belongs to the region of its vertex. The reference's nearest-centroid
+   assignment is dropped; region results therefore differ from the reference's wherever an end lies nearer another region's centre than its own
+   region's (section 8).
+5. **The reference's quirk is fixed** (decided 2026-11-16): a template vertex with no subject neighbour sends its ends to subject vertex 0. Here such
+   an end goes to its nearest subject vertex on the registration sphere (section 5.1).
+6. **One storage form; no older connectome schema** (decided 2026-11-16, section 6).
+7. **Precision follows the input** (decided 2026-11-16): no silent change of precision anywhere in the chain (section 5.4).
+8. **Descriptive names** (decided 2026-11-16): "fiber counts" for the raw counts, "connection weights" for the smoothed and pruned result. Single
+   letters are never names; a symbol appears only inside a formula whose terms are defined in words.
+9. **Template fibers** (decided 2026-11-16): the template package carries HCP-1065 (section 7).
+10. **The distance gate** (decided 2026-11-16): `--max-end-distance`, default 5 mm (section 5.2).
+11. **Golden tests** (decided 2026-11-16): section 9.
+
+## 3. Inputs
 
 All inputs are the caller's, named explicitly. There is no default for which data is used.
 
 | input | what | where it comes from (io, by name) |
 |---|---|---|
-| **the surface** | the cortex W is written on: positions [V × 3] and faces [F × 3] | a surface (manifold) of the subject, by name |
-| **the fibres** | a fibre bundle: nF polylines of nP points, SCS metres | the subject's own bundle (`curve/<fibers>`, written by `convert` from a Brainstorm fibres file), or a bundle of the template subject (e.g. the default subject) |
-| **the template surface** (template fibres only) | the template's cortex on which the template fibres' ends are placed | a surface of the subject that holds the fibres, by name |
-| **the registration spheres** (template fibres only) | `<surface>_sphere` of both surfaces (FreeSurfer's `sphere.reg`), one vertex per cortex vertex, the pieces (left, right) as contiguous runs | stored with each surface, as `frames compute` and the group tree read them |
-| **the parcellation** (`--resolution roi` only) | a partition: one region code per vertex, the region names from its dictionary | a stored atlas Selection of the surface, by name |
+| **the fibers** (`--fibers`, required) | a fiber bundle: nF polylines of nP points, SCS metres | the subject's own bundle (`curve/<fibers>`), or a bundle of its template (`<template>:<fibers>`, section 7) |
+| **the end surface** (`--end-surface`, required) | the surface on which each fiber's ends are placed: a location on the cortex, not a claim about the depth at which a fiber ends. The pial surface is the surface source maps are written on; others are allowed | a surface by name; for template fibers, the same name on the template and on the subject |
+| **the partition** (`--over`, required) | what the counts are reduced over: `vertices`, a tile level of the dyadic ladder, or a stored partition Selection of the end surface (a parcellation) | by name |
+| **the registration** (template fibers only) | the subject's `<surface>_sphere` registered to its template (FreeSurfer's `sphere.reg`), left and right pieces as contiguous runs | stored with each surface, as `frames compute` and the group tree read them; for a subject whose template differs from the fibers' template, a `registration` package (`docs/specs/2026-11-16-subject-centred-datasets.md`, section 4.4) |
 
-**Type checks before anything runs** (preparation; each refusal names its reason): the fibres and both surfaces are in the same coordinate system
-(SCS, metres); `nP ≥ 2`; each sphere has as many vertices as its surface and the same pieces, in the same order (left, right), as the other sphere;
-the parcellation is a partition of THIS surface; the fibres belong to the subject (own) or to the subject's template (`template_id`); fibres of
-another subject that is not the template are refused.
+`--fibers`, `--end-surface` and `--over` are required because each is a choice of data (decided 2026-11-16). A command that omits one refuses and names
+it and its valid values.
 
-**Own or template fibres.** The reference looks for the subject's own fibres and falls back on the default anatomy's. nxr-neuro does not choose:
-`--from` names the bundle. A bundle of the template subject REQUIRES `--template-surface`; a bundle of the subject itself refuses it. When the
-template surface IS the target surface (computing on the template itself), no registration is made, as in the reference.
+**Type checks before anything runs** (preparation; each refusal names its reason): the fibers and the surfaces are in the same coordinate system
+(SCS, metres); `nP ≥ 2`; the partition is a partition of THIS end surface; each registration sphere has as many vertices as its surface and the same
+pieces, in the same order, as the other; the fibers belong to the subject or to its template (fibers of any other subject are refused); with template
+fibers, the end surface exists under the same name on both.
 
-**Options** (names as `tess_connectome` names them; the options struct uses snake_case, the command line kebab-case, the provenance both):
+**Options** (the options struct uses snake_case, the command line kebab-case, the provenance both):
 
-| option | reference name | default (the reference's) | meaning |
-|---|---|---|---|
-| `resolution` | `Resolution` | `vertex` | `vertex`: a vertex × vertex connectome · `roi`: region × region over a parcellation |
-| `atlas` | `Atlas` | the reference's default is `Desikan-Killiany`; here REQUIRED with `roi` (it names data: open question 3) | the parcellation of `roi` |
-| `smooth_hops` | `SmoothHops` | `3` | the hops p of the mesh smoothing (`vertex`); 0 = none |
-| `edge_thr` | `EdgeThr` | `1e-4` | edges below `edge_thr · max(W)` are removed (`vertex`); 0 = none |
-| `registration` | (none: new) | `shepard` (the reference's) | how template ends reach the subject: `shepard` (section 3.4) · `nearest` (nxr's group-tree correspondence, a named alternative) |
+| option | default | meaning |
+|---|---|---|
+| `max_end_distance` | `5` (mm; `none` = no gate, the reference's behaviour) | a fiber with an end farther than this from the end surface is left out (section 5.2) |
+| `smooth_hops` | `3` (the reference's; `0` = none) | the hops of the mesh smoothing, applied to the partition's memberships (section 4.2) |
+| `prune_below` | `1e-4` (the reference's; `0` = none) | **materialised connectome only:** connection weights below this fraction of the strongest are removed |
+| `keep_largest_component` | on (the reference's) | **materialised connectome only:** also stores the largest connected component's vertices |
+| `store` | off | with `--over vertices`: materialise and store the vertex connectome |
 
-## 3. The graph
+`prune_below`, `keep_largest_component` and `store` are refused with any partition other than `vertices`.
+
+## 4. The graph
 
 Every node is a pure function of matrices in `compute/` (matrices in, matrices out; callable with arrays made anywhere; no file, no subject, no
-knowledge of where the fibres came from). Preparation reads the inputs and type-checks them; the graph runs once (there is no recording, so no
-chunk loop); readback hands the outputs to io.
+knowledge of where the fibers came from). Preparation reads the inputs and type-checks them; the graph runs once (there is no recording, so no chunk
+loop); readback reduces and hands the outputs to io.
 
-    fibres [nF·nP × 3] ──fibreEnds──▶ end points [2nF × 3]
-        (template fibres)  ──nearestVertex(template surface)──▶ template ends [2nF] ──carryEnds(match)──▶ ends [2nF]
-        (own fibres)       ──nearestVertex(surface)──────────────────────────────────────────────────▶ ends [2nF]
-            match = strongestDestination(shepardWeights(subject sphere, template sphere, pieces, K = 8))     (registration = shepard)
-                  | sphereNearest(template sphere, subject sphere, pieces)                                     (registration = nearest)
+    fibers [nF·nP × 3] ──fiberEnds──▶ end points [2nF × 3]
+        ──nearestVertex(end surface)──▶ end vertices [2nF] and end distances [2nF]              (the pointwise object, stored)
+        (template fibers)  ──carryEnds(registration match)──▶ end vertices on the subject [2nF]
 
-    vertex:  ends ──endConnectome──▶ A [V × V] (self pairs dropped) ──sparseCongruence(Sᵖ)──▶ Sᵖ A Sᵖᵀ ──symmetrize, offDiagonal──▶ W₀
-             W₀ ──measure max──▶ m ;  W₀, edge_thr·m ──thresholdBelow──▶ W ──componentsOf──▶ labels ──measure count──▶ sizes ──largest──▶ keep
-             where S = smoothingOperator(faces) = D⁻¹(Adj + I)
-    roi:     end points (own) | positions of ends (template) ──nearestCentroid(regionCentroids(surface, partition))──▶ region per end [2nF]
-             ──regionPairs──▶ (a, b) per fibre ──measure streamlines over the region × region partition──▶ C [R × R]
+    readback (a measurement over the partition, `--over`):
+        memberships [V × R] (one-hot) ──smoothMemberships(hops)──▶ smoothed memberships [V × R]
+        end vertices, gate ──fiberPairs──▶ per fiber: smoothed membership rows of its two ends
+        measure fiber count over the region × region partition ──▶ result [R × R]
 
-### 3.1 The ends (`fibreEnds`, `nearestVertex`)
+    materialised, on request (`--over vertices --store`):
+        end vertices ──endConnectome──▶ fiber counts [V × V] ──smoothingOperator(hops)──▶ connection weights
+        ──pruneBelow──▶ ──componentsOf──▶ labels ──measure count──▶ sizes ──largest──▶ vertices kept
 
-- `fibreEnds(points, nP)`: the first and the last point of each fibre, [2nF × 3] (rows f and nF + f, the importer's order). Pure indexing.
-- `nearestVertex(positions, query)`: for each query point the vertex at the smallest Euclidean distance; the lowest index on a tie. The reference
-  is MATLAB's `dsearchn`. Exists as `nxr::crossings::nearestVertex` (brute force); moved to a general home (`compute/include/nxr/nearest.h`) and
-  given a k-d tree (Bentley 1975) for 10⁵ fibres on 10⁴–10⁵ vertices; same answers, tested against the brute force.
-- The ends are stored as the Studio's bundle ends: int32 [2nF], fibre f's ends at 2f and 2f + 1, `-1` for an end on no vertex (none here: every
-  end has a nearest vertex; `-1` appears only if a later option gates ends by distance).
+### 4.1 The ends (`fiberEnds`, `nearestVertex`)
 
-### 3.2 The vertex connectome before smoothing (`endConnectome`)
+- `fiberEnds(points, nP)`: the first and the last point of each fiber, [2nF × 3] (rows f and nF + f). Pure indexing.
+- `nearestVertex(positions, query)`: for each query point the nearest vertex (Euclidean; the lowest index on a tie) and its distance. Exists as
+  `nxr::crossings::nearestVertex` (brute force); moved to a general home (`compute/include/nxr/nearest.h`) and given a k-d tree (Bentley 1975) for
+  10⁵ fibers on 10⁴–10⁵ vertices; same answers, tested against the brute force.
+- The pointwise object is stored per bundle and end surface: int32 end vertices [2nF] (fiber f's ends at 2f and 2f + 1) and the distance of each end
+  to the end surface (section 6). It does not depend on the gate, so one stored pair serves every gate and partition.
 
-A(u, v) = the fibres with one end at u and the other at v, symmetric:
+### 4.2 Counting over a partition, with smoothing
 
-    A = E₁ᵀ E₂ + E₂ᵀ E₁,   E₁, E₂ [nF × V] the one-hot rows of each fibre's first and second end.
+Raw ends leave most of the cortex without an edge: tractography stops at the grey/white boundary, so ends cluster on gyral crowns and miss the sulcal
+banks. The reference bridges this by smoothing the vertex matrix over the mesh. Let the smoothing operator be the average of a vertex with its
+neighbours (each row: the vertex and its neighbours, equal weights summing to 1; the random-walk normalisation of the mesh's adjacency, written from its
+definition), applied `smooth_hops` times. In words:
 
-The reference then drops the diagonal (a fibre whose two ends fall on one vertex adds 2 at (u, u), removed). This is the field the importer already
-stores (`<fibers>_connectome`) minus its diagonal; it is also the Studio's vertex connectome `A` (`connectome.ts`), whose `tileConnectome`
-counts a fibre inside one node ONCE on the diagonal. Returned as an Eigen sparse matrix (duplicates summed, as MATLAB's `sparse`). The sum over
-fibres is the definition of the field (the sparse product above, general algebra), not a reduction over time or cortical space; see open question 6.
+    connection weight between vertex u and vertex v  =  sum over fibers of
+        (smoothing of the first end onto u) x (smoothing of the second end onto v)  +  the same with the two ends swapped.
 
-### 3.3 The mesh smoothing (`smoothingOperator`, `sparseCongruence`)
+Counting over a partition sums those weights over the vertices of each pair of regions. Because the sum is linear, the smoothing moves onto the
+memberships (decided 2026-11-16):
 
-Raw ends leave most of the cortex without an edge: tractography stops at the grey/white boundary, so the ends cluster on gyral crowns and miss the
-sulcal banks. The reference bridges this with a diffusion on the mesh:
+    smoothed membership of a vertex in a region  =  the smoothed one-hot membership: how much of the region its neighbourhood reaches
+    result for regions a and b  =  sum over fibers of
+        (smoothed membership of the first end in a) x (smoothed membership of the second end in b)  +  the same with the ends swapped,   a != b
 
-- `smoothingOperator(faces, V)`: Adj the binary vertex adjacency of the mesh's edges (both directions, a vertex's own row excluded), and
-  S = D⁻¹ (Adj + I), D = diag(degree + 1): a row-stochastic one-hop average of a vertex with its neighbours. Written from the definition (the
-  random-walk normalisation of a graph); the edges come from the faces as `ladder::tileAdjacency` reads them.
-- Sᵖ for p = `smooth_hops` by p sparse products (p = 0: the identity).
-- `sparseCongruence(P, A)` = P A Pᵀ, P and A sparse: a new general-algebra function beside `nxr::algebra::congruence` (which is dense, on a pattern).
-  This is the Studio's `frameConnectome` C_ψ = Ψᵀ A Ψ with Ψ = (Sᵖ)ᵀ: an end at vertex a is spread over the vertices i with weight Sᵖ(i, a).
-- then W = (W + Wᵀ)/2 and the diagonal removed (`offDiagonal`), as the reference.
+so the vertex matrix is never formed. With `smooth_hops = 0` the memberships are the one-hot ones and the result is the plain fiber count between
+regions. It is one sparse product per side: take, for each fiber, the smoothed membership row of its first end and of its second end ([nF × R] each,
+sparse), and multiply one by the transpose of the other, then add its transpose. The cost is bounded by the number of fibers times the support of a
+row, never by V². Between two different regions no vertex pair is a self-pair, so removing the vertex diagonal (as the reference does) changes nothing
+here; it is a fact of the materialised path only.
 
-Units: streamlines, spread over the mesh (fractional counts). The total is not conserved: the columns of a row-stochastic Sᵖ do not sum to 1 on an
-irregular mesh. This is the reference's definition, kept.
+This is a **measurement over a partition**, the `fiber_count` measure (its smoothed form `connection_weight`), reduced at readback by the measurement
+functions: the fibers are the elements, the region pairs the members. It is not a node's own reduction (the cardinal rule). A smoothed membership is a
+fractional membership; the measure sums the weights. Units: fibers (fractional when smoothed).
 
-**Memory (stated in the options struct).** Sᵖ holds ~|p-ring| non-zeros a row (about 37 at p = 3 on a regular mesh); W holds up to nF·|p-ring|²
-non-zeros before the threshold (10⁵ fibres: ~10⁸, ~1.6 GB as float64 CSC with int64 indices). The congruence is formed column block by column
-block and thresholded before the next block is formed, so the peak is the kept W plus one block; the threshold needs max(W) first, so the first
-pass measures the max per block and the second forms and thresholds (two passes, the same result as the reference's one-shot product).
+**Tiles.** `--over` a tile level of the dyadic ladder stores the result at the finest tile level; coarser levels are rolled up at read as sums of
+2ˢ × 2ˢ blocks, as the measurement pyramid does, never recomputed and never stored per level. A region partition that is not a tile level is counted
+directly.
 
-### 3.4 Template fibres onto the subject (`shepardWeights`, `strongestDestination`, `carryEnds`)
+### 4.3 The materialised vertex connectome (`endConnectome`, `smoothingOperator`, `pruneBelow`, `componentsOf`, `largest`)
 
-The reference places each template end on the template surface, then sends it to the subject vertex that the registration associates most strongly
-with that template vertex:
+On request (`--over vertices --store`), the vertex connectome is formed:
+- `endConnectome(ends)`: the sparse symmetric matrix of fiber counts (one entry for each fiber, at its two end vertices, in both orders); the diagonal
+  dropped (a fiber with both ends on one vertex leaves no entry). Eigen sparse, duplicates summed.
+- `smoothingOperator(faces, V)` as above, raised to the power `smooth_hops` by sparse products (0: the identity); `sparseCongruence(P, A)` = P A Pᵀ
+  with P and A sparse, a general-algebra function beside `nxr::algebra::congruence`. Then the diagonal is removed: the connection weights.
+- `pruneBelow(weights, t)`, t = `prune_below` times the strongest connection weight (a `max` measurement read back first; with no entry nothing is
+  removed). Entries below t are dropped from the pattern.
+- `componentsOf`: the connected components of the graph whose edges are the non-zero connection weights, over all V vertices (an isolated vertex is its
+  own component): `nxr::regions::detectRegions` with one value per vertex, numbered by their lowest vertex. The sizes are a `count` measurement over that
+  labelling; `largest` takes the biggest (the lowest-numbered on a tie). The connection weights themselves are not restricted to it.
 
-1. `nearestVertex(template positions, end points)` → a template vertex per end.
-2. `shepardWeights(dest sphere, src sphere, pieces, K)` → a sparse interpolation [V_subject × V_template], piece by piece (left to left, right to
-   right): for each subject vertex, its K = 8 nearest template vertices on the registered sphere (unit-normalised; the weights are scale-free), with
-   squared chord distances d₁ ≤ … ≤ d_K and the modified Shepard weights of Franke & Nielson (1980) on them:
-   w_k = ((d_K − d_k) / (d_K d_k))², k = 1 … K − 1, normalised to sum 1 (the K-th neighbour sets the radius and takes no weight; a zero distance is
-   replaced by the smallest positive double; a vertex whose K − 1 weights are all 0 gives its nearest neighbour weight 1). Written from the paper's
-   formula, with these choices stated; never from Brainstorm's code.
-3. `strongestDestination(Wmat)` → for each template vertex, the subject vertex with the largest weight in its column (the lowest index on a tie).
-   A template vertex that no subject vertex counts among its neighbours has an empty column: the reference then sends it to subject vertex 0 (the
-   first index MATLAB's `max` returns). The default reproduces this; open question 1.
-4. `carryEnds(templateEnds, match)` → the subject vertex of each end. The reference then re-snaps the end to the nearest subject vertex of that
-   vertex's position, which returns the same vertex; the native chain uses the index directly.
+**Memory** (stated in the options struct). The smoothing operator holds about 37 non-zeros a row at 3 hops on a regular mesh; the smoothed matrix up to
+nF times the square of that before pruning (10⁵ fibers: about 10⁸ non-zeros, about 1.6 GB in float64). The congruence is formed in column blocks and
+pruned before the next is formed; the pruning threshold needs the strongest weight first, so there are two passes (the same result as one product).
+This cost belongs to `--store` only: a partition result never forms the matrix.
 
-`registration = nearest` (named alternative): the template vertex's sphere point → the nearest subject sphere vertex, piece by piece: the
-correspondence of the group tree (`nxr::ladder::groupTreeFor`, nxr's `Template.tree_for`) and of nxr's template tractography (`pipelines/atlas/hcp.py`).
-It has no empty columns.
+## 5. Template fibers, the gate, and precision
 
-### 3.5 Threshold and the largest component (`thresholdBelow`, `componentsOf`, `largest`)
+### 5.1 Placing template ends on the subject
 
-- `m = max(W₀)` over all entries: a measurement (`max`) of the field over the one-member partition, read back before the threshold (the
-  reductions rule). If W₀ has no entry, m = 0 and nothing is removed (the reference: `W < 0` is never true).
-- `thresholdBelow(W₀, t)`, t = `edge_thr` · m: entries below t set to 0 and dropped from the pattern. Pointwise.
-- `componentsOf(W)`: the connected components of the graph whose edges are W's non-zeros, over all V vertices (an isolated vertex is its own
-  component). This is `nxr::regions::detectRegions` with one value per vertex (1), the non-zeros as pairs and enter = exit = 1: components numbered
-  by their lowest vertex (MATLAB's `conncomp` numbers them in the same order).
-- sizes: the vertex count of each component, a `count` measurement over that labelling.
-- `keep`: the vertices of the largest component; on a tie the lowest-numbered (the reference's `max` over `tabulate`). W itself is NOT restricted
-  to `keep` (the reference returns the whole W and the indices beside it).
+The template's ends are first placed on the template's end surface (`nearestVertex`), then carried to the subject through the registration of the
+spheres, piece by piece (left to left, right to right):
 
-### 3.6 The region connectome (`regionCentroids`, `nearestCentroid`, `regionPairs`)
+1. `shepardWeights(destination sphere, source sphere, pieces, K)`: a sparse interpolation [V_subject × V_template]. For each subject vertex, its
+   K = 8 nearest template vertices on the registered sphere (unit-normalised, so the weights are scale-free), squared chord distances d₁ ≤ … ≤ d_K, and
+   the modified Shepard weights of Franke & Nielson (1980): weight k = ((d_K − d_k) / (d_K · d_k))², for k = 1 … K − 1, normalised to sum 1 (the K-th
+   neighbour sets the radius and takes no weight; a zero distance is replaced by the smallest positive number of the type; a vertex whose weights are
+   all 0 gives its nearest neighbour weight 1). Written from the paper's formula with these choices stated.
+2. `strongestDestination(weights)`: for each template vertex, the subject vertex with the largest weight in its column (the lowest index on a tie).
+3. **Template vertices with no subject neighbour** (an empty column: it happens whenever the template is denser than the subject) go to **their nearest
+   subject vertex on the registration sphere** (decided 2026-11-16), a `nearestVertex` query on the sphere, piece by piece. The reference sends them to
+   subject vertex 0; that is a defect of the reference, not a behaviour kept as an option.
+4. `carryEnds(template end vertices, match)`: the subject vertex of each end.
 
-The reference's `roi` path does not use the vertex connectome:
-- `regionCentroids(positions, codes, R)`: the unweighted mean position of each region's vertices (the reference averages vertex positions; not
-  `ladder::tileCentres`, which is area-weighted and returns a vertex). A region with no vertex is refused.
-- `nearestCentroid(centroids, end points)`: each end goes to the region whose CENTROID is nearest (Euclidean, the lowest region on a tie), not to the
-  region that holds its nearest vertex. Own fibres use their raw end points; template fibres use the subject positions of their carried ends.
-- `regionPairs`: each fibre's two regions; fibres with both ends in one region are left out (the reference: `asg(:,1) ~= asg(:,2)`).
-- C(a, b) = the fibres between regions a and b, symmetric (C + Cᵀ), zero diagonal: the `streamlines` measurement over the region × region
-  partition, the rows the importer writes for Brainstorm's own region connectomes (`code`, `within_code`).
-- Named alternative `assign = vertex` (open question 4): an end takes the region of its nearest vertex, which is the Studio's `tileConnectome`
-  P ᵀ A P and works for any partition, the dyadic tile ladder included (and then rolls up the ladder by `rollUp`).
+A subject's own fibers take `nearestVertex` on the end surface directly; no registration is made. The same holds when the fibers' surface IS the end
+surface (computing on the template itself).
+
+### 5.2 The distance gate
+
+`--max-end-distance` (mm; default **5**, the distance the existing template import uses; decided 2026-11-16):
+- a fiber with an end farther than this from the end surface is **left out**; the number left out, of nF, is reported in the command's output and
+  stored in the provenance (`n_fibers_left_out`, with the gate used);
+- **each end's distance is stored either way** (section 4.1), so the gate can be changed, or the fibers left out looked at, without recomputing the ends;
+- `none` applies no gate and reproduces the reference, where every end takes its nearest vertex however far it is.
+
+For template fibers the distance is that of the end to the template's end surface, before the registration; the registration's own displacement is not
+gated. The gate is part of the cache key.
+
+### 5.3 What the instrument cannot resolve
+
+Written into the provenance's `warnings` and the method's section in `docs/reference.md`: tractography ends are not the fibers' cortical terminations
+(streamlines stop at the grey/white boundary); an end's vertex is a location on the chosen surface, not a depth; smoothing spreads ends over the mesh
+and is not conserving (the rows of the smoothing operator sum to 1, its columns do not on an irregular mesh); a template's fibers on a subject's cortex
+carry the template's anatomy through a spherical correspondence, not the subject's own white matter.
+
+### 5.4 Precision
+
+Precision follows the input (decided 2026-11-16): fibers in float32 give end distances and results in float32; float64 give float64. The smoothing
+operator, the memberships and the Shepard weights are built in the precision of the surface positions they come from. No node casts silently; where two
+inputs differ in precision, preparation refuses and names both, unless the caller converts one explicitly. The cache key includes the precision.
+
+## 6. What is stored
+
+One storage form (decided 2026-11-16): the schema `io/schema/nxr.connectome.schema.json` (a connectome under `manifold/` with a `keep` array) never
+had a writer and is retired. Names and kinds are those the importer writes for the same thing, so a reader tells a native result from an imported one
+only by its producer.
+
+- **The pointwise object**, per bundle and end surface: `<fibers>_ends_<surface>`, int32 [2nF], and `<fibers>_end_distance_<surface>`, the distance of
+  each end to the surface, in metres, in the precision of the fibers.
+- **A partition result** (`--over` a partition or a tile level): `fiber_count` measurement rows on the partition Selection, two codes a row (`code`, the
+  region; `within_code`, the other), both orders, value the count (`connection_weight` when `smooth_hops > 0`). For tiles, only the finest level is stored
+  and coarser ones are rolled up at read. The rows belong to a byte-less Field `<name>` of kind `connectome` that carries the provenance (the precedent of
+  the tile-map fields: rows of a computed measure point to a Field).
+- **The vertex connectome** (`--over vertices --store` only): a Field of kind `connectome`, SPARSE (CSC) on the product manifold surface × surface at
+  `source-source/<name>`, unit `fibers`, in the input's precision; and `<name>_component`, a Selection of the largest component's vertices naming the
+  connectome field in its `params_json`. Without `--store`, `--over vertices` is refused with a message that says so (the vertex matrix is large).
+- `<name>` defaults to `<fibers>_<surface>_fiber_counts` (with `smooth_hops = 0`) or `<fibers>_<surface>_connection_weights_h<hops>`, with `_on_<surface>`
+  for template fibers; `--name` sets it. The importer's own unsmoothed `<fibers>_connectome` is never overwritten.
+
+**Provenance** (`producer_json`, and every option in the cache key): `method` (`"fiber end counts over a partition"`), `reference`
+(`"tess_connectome (MATLAB)"`), `over`, `end_surface`, `max_end_distance`, `smooth_hops`, `prune_below`, `keep_largest_component`, `registration` (`none`
+or the registration used, with its name, version and content hash), `fibers` (the bundle's subject, name and id), `n_fibers`, `n_fibers_left_out`,
+`precision`, and, for template fibers, the bundle's `origin` and licence (section 7). A rerun with the same inputs and options is a cache hit;
+`--replace` recomputes. The warnings of section 5.3 are written.
+
+## 7. Template fibers: HCP-1065
+
+The template package carries **HCP-1065**, the population-average tractography of DSI Studio (Yeh 2022, *Nat Commun* 13:4933), imported natively by
+`import template` (decided 2026-11-16) with its full `origin` record: source, version, citation, and licence **CC BY-SA 4.0 together with the WU-Minn
+HCP Data Use Terms**.
+- A derived connectome carries the bundle's licence and attribution in its provenance (ShareAlike: a result derived from it is shared under the same
+  terms); preparation copies the `origin` into the result's record, and `template release` already refuses an item without one.
+- A subject without its own fibers names the template's bundle (`--fibers <template>:<fibers>`) and uses it through the registration between the
+  template and the subject (section 3). A subject that has its own fibers uses them by naming them: nxr-neuro never falls back from one to the other.
+- `--end-surface` is the user's choice and is read on the template and on the subject by the same name. The pial surface is the one source maps are
+  written on, and is the natural choice for comparing with them; the assignment is a location on the cortex, not a claim about the depth at which a
+  fiber ends.
+- Which edition of the template carries it, full or redistributable, follows its `origin` licence: the licence permits redistribution with attribution
+  and ShareAlike, so both editions hold it.
+
+## 8. The command line
+
+Verb first (`docs/specs/2026-11-16-command-line.md`); the help of this command is per command, from its options struct's comments (meaning, default,
+unit), with the examples below.
+
+    nxr-neuro compute connectome --fibers <bundle> --end-surface <surface> --over <partition>
+                                 [--smooth-hops N] [--max-end-distance MM|none]
+                                 [--name NAME] [--replace] --dataset D --subject S
+
+Materialised vertex connectome (the pruning options only here):
+
+    nxr-neuro compute connectome --fibers tracts --end-surface pial --over vertices --store \
+                                 [--prune-below 1e-4] [--no-keep-largest-component]
+
+Examples:
+
+    # fiber counts between the regions of a parcellation, no smoothing, own fibers, no gate (the reference's ends)
+    nxr-neuro compute connectome --fibers tracts --end-surface pial --over desikan-killiany \
+                                 --smooth-hops 0 --max-end-distance none --dataset d --subject s
+    # a subject without fibers: the template's, on the pial surface, tiles at the finest ladder level
+    nxr-neuro compute connectome --fibers hcp1065:tracts --end-surface pial --over tiles:7 --dataset d --subject s
+
+- `--fibers`, `--end-surface` and `--over` are required; `--prune-below`, `--keep-largest-component` and `--store` are refused with any other `--over`
+  than `vertices`.
+- Output: JSON lines (progress: `ends`, `registration`, `counting`; then `"stage": "result"` with the names written, the number of fibers left out by
+  the gate and `cache`).
+- Until the verb-first grammar lands, the same verb is also `connectome compute`; one parser, one dispatch.
+
+**How results differ from the reference.** (1) A fiber end belongs to the region of its vertex; the reference assigned it to the region whose
+centroid was nearest. The two differ wherever an end is nearer another region's centre than its own region's (long or curved regions): region results
+differ from the reference's there, and this is intended. (2) Unmatched template vertices go to their nearest subject vertex, not to vertex 0. (3) The
+gate defaults to 5 mm; `none` reproduces the reference's ends.
+
+Files: `compute/include/nxr/connectome.h` (+ `nearest.h`, `shepard.h`, the sparse congruence in `congruence.h`),
+`pipelines/include/nxr/pipelines/connectome.h` (`ConnectomeOptions`, `connectome_compute(ds, sub, opt, progress)`), `cli/connectome_command.cpp`, and the
+method's section in `docs/reference.md`.
 
 ### Checked against the Studio's chain
 
-The Studio's `connectome.ts` has the same pieces, and they are ported with its names: the bundle's `ends` (int32, two a curve, −1 off the
-surface), the vertex connectome `A` as a pass over the curves, `tileConnectome` (Pᵀ A P), `rollUp` (a coarser ladder level as a sum of
-2ˢ × 2ˢ blocks) and `frameConnectome` (Ψᵀ A Ψ). The smoothing is a `frameConnectome` with sparse atoms; the threshold and the components are new
-nodes the Studio does not have. No stage needs the Studio to change.
+The Studio's `connectome.ts` has the same pieces, ported with its names: the bundle's `ends` (int32, two a curve, −1 off the surface), the vertex
+connectome as a pass over the curves, `tileConnectome` (a partition's matrix times the vertex matrix times its transpose), `rollUp` (a coarser ladder
+level as a sum of 2ˢ × 2ˢ blocks) and `frameConnectome`. Counting over a partition with smoothed memberships is `frameConnectome` with the smoothing as
+its atoms, applied to the ends rather than to the formed matrix. The gate, the pruning and the components are new nodes the Studio does not have; no
+stage needs the Studio to change.
 
-## 4. The Brainstorm helpers, and what replaces each
+## 9. Tests
 
-`tess_connectome` calls these Brainstorm functions (and MATLAB built-ins). None is ported.
+Synthetic data only (spheres, lattices, generated fibers); nothing from a real dataset.
 
-| called by the reference | what it does there | native replacement | status |
-|---|---|---|---|
-| `in_tess_bst` | loads the surface (vertices, faces, atlases) | io: the surface read by name (`read_surface`), the atlas Selection by name | existing |
-| `bst_get('SurfaceFile' / 'Subject', 0)` | finds the subject, its fibres, the default anatomy | io: the subject's stored nodes and its `template_id`; the bundle named by `--from` | existing |
-| `file_fullpath`, `load(...,'Points')` | reads the fibres file | io: the curve manifold `curve/<fibers>` and its `points` (written by `convert` from the Brainstorm file, natively) | existing |
-| `tess_interp_tess2tess` | the subject × template interpolation on the registered spheres, per hemisphere | `shepardWeights` (new, from Franke & Nielson 1980) over the stored spheres `<surface>_sphere`, the pieces from `nxr::ladder::pieceRuns` | new |
-| ↳ `bst_shepards`, `bst_nearest` (inside it) | modified Shepard weights on the K nearest | `shepardWeights` with a k-nearest query (new: the k-d tree of 3.1) | new |
-| `fibers_helper('AssignToScouts')` | each end → the nearest scout centroid | `regionCentroids` + `nearestCentroid` (new; the nearest query of 3.1) | new |
-| `dsearchn` (MATLAB) | nearest vertex | `nearestVertex` (existing `nxr::crossings::nearestVertex`, moved and given a k-d tree) | existing, extended |
-| `sparse`, `accumarray`, `spdiags`, `mpower` (MATLAB) | the sparse algebra | Eigen sparse (triplets sum duplicates) in `endConnectome`, `smoothingOperator`, `sparseCongruence` (new, general algebra) | new |
-| `graph`, `conncomp`, `tabulate` (MATLAB) | components and the largest | `nxr::regions::detectRegions` (existing) + a `count` measurement + `largest` | existing |
+**Unit tests, one a node** (`compute/test/test_connectome.cpp`):
+- `fiberEnds`: the first and last rows, order f then nF + f.
+- `nearestVertex` (k-d tree): equal to the brute force on random clouds; the lowest index on exact ties; the distances.
+- `endConnectome`: symmetric; the total is 2 times the fibers with distinct end vertices; a self-pair leaves no entry; two fibers on one pair give 2.
+- `smoothingOperator`: rows sum to 1; 0 hops gives the identity; on a regular lattice the support after p hops is the p-ring.
+- `sparseCongruence`: equals the dense P A Pᵀ on small random sparse matrices.
+- `pruneBelow`, `componentsOf` + `largest`: by hand on a 4 × 4; two blocks of different sizes; a tie goes to the lowest; isolated vertices are components.
+- `shepardWeights`: rows sum to 1; a destination on a source point gives weight 1; the K-th neighbour has weight 0; invariant to the sphere's radius;
+  the pieces never mix.
+- `strongestDestination`: ties to the lowest.
 
-## 5. What is stored
+**Golden tests against the reference** (decided 2026-11-16; `compute/test/golden/connectome_golden.txt`, its generator `gen_connectome_golden.m` beside
+it). The generator is run ONCE by a developer in MATLAB with the reference's Brainstorm environment, never at run time and never by a test. It builds a
+throwaway protocol of SYNTHETIC data: two icospheres (left and right pieces), their spheres, and bundles of straight fibers with a random bend, some
+within a hemisphere, some across, a few with both ends on one vertex and a few duplicated, with ends drawn clear of ties between two vertices. It writes
+its inputs and outputs as text (sorted triplets to 17 significant digits).
+- **The vertex-level fiber counts, with the gate `none`, on quirk-free cases** (own fibers; template fibers where no template vertex has an empty column,
+  i.e. the template is not denser than the subject) are compared with the reference's: identical in pattern and value. The reference's smoothed
+  connection weights, pruning and largest component are compared at the same cases (0, 1 and 3 hops; pruning 0 and 1e-4): pattern identical, values to
+  1e-12 relative (the order of sparse sums differs from MATLAB's).
+- The registration map on those cases (template vertex to subject vertex) is identical.
+- Cases with empty columns are not in the golden: the reference's result there is the quirk, which is fixed.
 
-Names and kinds are those the importer writes for the same thing, so a reader tells a native connectome from an imported one only by its producer.
+**Region results** (`test_connectome_partition`): equal to **a direct sum over the partition** of the vertex fiber counts (and, smoothed, of the vertex
+connection weights, formed in the test only) for random partitions, a tile level and a hemisphere pair; equal at 0, 1 and 3 hops to 1e-12; rolling the
+finest tile level up to a coarser one equals counting over the coarser level directly; the result does not depend on the order of the fibers.
 
-**`resolution = vertex`:**
-- a Field of kind `connectome`, SPARSE (CSC: `indptr`, `indices`, `data` float32 as the importer's, or float64: open question 5) on the product
-  manifold surface × surface, at `source-source/<name>`; unit `streamlines`; the description says smoothed over `smooth_hops` hops and
-  thresholded at `edge_thr` of the max.
-- `<name>_component`: a Selection (indices) of the largest component's vertices (`keep`), as a reliability mask is stored, its `params_json`
-  naming the connectome field.
-- `<name>` defaults to `<fibers>_connectome_s<p>` (own) or `<fibers>_on_<surface>_connectome_s<p>` (template), so the importer's unsmoothed
-  `<fibers>_connectome` is never overwritten; `--name` sets it.
-
-**`resolution = roi`:** `streamlines` measurement rows on the atlas Selection (`code` a, `within_code` b, value the count; both orders, as the
-importer writes Brainstorm's region connectomes), OF a byte-less Field `<name>` of kind `connectome` that carries the provenance (the precedent of the
-`tile map` fields: rows of a computed measure point to a Field). The region labels are the atlas dictionary's.
-
-**Provenance** (`producer_json`, and every option in the cache key): `method: "tess_connectome"`, `reference: "tess_connectome (MATLAB)"`,
-`resolution`, `atlas`, `smooth_hops`, `edge_thr`, `registration` (`none` | `shepard` | `nearest`), `fibers` (the bundle's subject, name and id),
-`n_fibers`, `surface` and `template_surface` (ids), `n_edges` (upper triangle), `n_keep`, and, under the reference's own names, `Resolution`,
-`Atlas`, `SmoothHops`, `EdgeThr`. A rerun with the same inputs and options is a cache hit; `--replace` recomputes. No instrument warnings are
-written.
-
-The schema `io/schema/nxr.connectome.schema.json` (a connectome under `manifold/` with `keep` as an array) has no writer; open question 2.
-
-## 6. The command line
-
-Verb first, as the command line is moving to (`docs/specs/2026-11-16-distribution-and-interoperability.md`, section 7):
-
-    nxr-neuro compute connectome <surface> --from <fibers> [--template-surface <surface>]
-                                 [--resolution vertex|roi] [--atlas <atlas>] [--smooth-hops 3] [--edge-thr 1e-4]
-                                 [--registration shepard|nearest] [--name NAME] [--replace]
-                                 --dataset D/N --subject S        (until the context of section 7, point 2, exists)
-
-- `<surface>` and `--from` are REQUIRED: which cortex and which fibres are the caller's. `--from <fibers>` names a bundle of the subject;
-  `--from <template>:<fibers>` a bundle of its template subject, and then `--template-surface` is required.
-- `--atlas` is required with `--resolution roi` and refused with `vertex`; `--smooth-hops` and `--edge-thr` are refused with `roi`.
-- Until the verb-first grammar lands, the same verb is also `connectome compute` (today's noun-first form); one parser, one dispatch.
-- Output: JSON lines (progress: `ends`, `registration`, `connectome`, `components`; then `"stage": "result"` with the names written, `n_edges`,
-  `n_keep`, `cache`).
-
-Files: `compute/include/nxr/connectome.h` (+ `nearest.h`, `shepard.h`, the sparse congruence in `congruence.h`),
-`pipelines/include/nxr/pipelines/connectome.h` (`ConnectomeOptions`, `connectome_compute(ds, sub, opt, progress)`), `cli/connectome_command.cpp`,
-and the method's section in `docs/reference.md`.
-
-## 7. Tests
-
-**Unit tests, one a node** (`compute/test/test_connectome.cpp`, synthetic arrays only):
-- `fibreEnds`: the first and last rows, order f then nF + f.
-- `nearestVertex` (k-d tree): equal to the brute force on random clouds; the lowest index on exact ties.
-- `endConnectome`: symmetric; Σ A = 2 × (fibres with distinct end vertices); a self-pair leaves no entry; two fibres on one pair give 2.
-- `smoothingOperator`: rows sum to 1; p = 0 gives the identity; on a regular lattice Sᵖ's support is the p-ring.
-- `sparseCongruence`: equals the dense P A Pᵀ on small random sparse matrices; symmetric for symmetric A.
-- `thresholdBelow`, `offDiagonal`: by hand on a 4 × 4.
-- `componentsOf` + `largest`: two blocks of different sizes; a tie goes to the lowest; isolated vertices are components.
-- `shepardWeights`: rows sum to 1; a destination on a source point gives weight 1 to it; the K-th neighbour has weight 0; invariant to the sphere's
-  radius; pieces never mix (a left vertex never weights a right one).
-- `strongestDestination`: ties to the lowest; an empty column gives 0 (the reference's behaviour).
-- `regionCentroids`, `nearestCentroid`, `regionPairs`: by hand; same-region fibres left out.
-
-**The golden against the reference** (`compute/test/golden/connectome_golden.txt`, generator `gen_connectome_golden.m` beside it). The generator
-is run ONCE by a developer in MATLAB with the maintainers' Brainstorm (the one holding `tess_connectome`), never at run time and never by a test.
-It builds a throwaway Brainstorm protocol with SYNTHETIC data only, calls `tess_connectome`, and writes its inputs and outputs as text:
-- **the cortex:** two icospheres (642 vertices each, radius 80 mm, centres 100 mm apart) as left and right pieces, their `Reg.Sphere` the unit
-  icosphere positions, a synthetic atlas of 8 regions a piece (by longitude), so the hemispheres and regions are exact.
-- **own fibres:** 400 fibres of 20 points between random pairs of points placed 1–3 mm off the surface (straight polylines with a random bend),
-  some within one hemisphere, some across, a few with both ends at one vertex and a few duplicated; points drawn so that no end is within 10⁻⁶ m of
-  a tie between two vertices or two centroids.
-- **template fibres:** a template subject (the default anatomy of the protocol) with its own two-icosphere cortex at another resolution
-  (2562 vertices a piece) and its sphere randomly rotated by a few degrees per piece, so that `tess_interp_tess2tess` does real work, and with a
-  denser template than subject so that some template vertices have empty columns.
-- **cases:** own · vertex at `SmoothHops` 0, 1, 3 and `EdgeThr` 0 and 1e-4; own · roi; template · vertex (default options); template · roi;
-  template fibres on the template surface itself (no registration).
-- **written:** the meshes, spheres, atlas codes, fibre points, each case's options, W as sorted triplets (i < j, value to 17 significant digits),
-  `keep`, C and its labels, and, as intermediates the generator reads directly from the Brainstorm functions, `tess_interp_tess2tess`'s matrix as
-  triplets and the template-vertex → subject-vertex map.
-- `test_connectome_golden`: ends, assignments, `keep`, C and the registration map identical; W's pattern identical and its values to 1e-12
-  relative (the sum order of the sparse products differs from MATLAB's).
+**The gate and the quirk fix, each its own test** (`test_connectome_gate`, `test_connectome_registration`):
+- the gate: fibers with an end farther than the gate are left out and counted in the reported number and the provenance; their distances are stored;
+  `none` leaves none out; a changed gate is a cache miss and reuses the stored ends; a gate between two distances separates exactly those fibers.
+- the quirk: with a template denser than the subject, every template vertex of an empty column sends its ends to its nearest subject vertex on the
+  sphere (checked against a brute-force search), and no end goes to vertex 0 unless that is the nearest.
 
 **Pipeline test** (`pipelines/test/test_connectome_pipeline.cpp`, registered in `pipelines/CMakeLists.txt`): a synthetic dataset with a subject, its
-template, the surfaces, spheres, an atlas and fibres written through io. Own and template fibres, both resolutions; the stored field equals the
-compute chain's W; with `--smooth-hops 0 --edge-thr 0`, the stored W equals the importer's `<fibers>_connectome` minus its diagonal; a rerun is a
-cache hit and a changed option a miss; refusals (no `--from`; template fibres without `--template-surface`; a sphere of the wrong size or pieces;
-a missing atlas; `--atlas` with `vertex`; a bundle of an unrelated subject; mismatched coordinate systems).
+template, surfaces, spheres, a partition and fibers written through io. Own and template fibers; every `--over` kind; a stored vertex connectome with
+`--smooth-hops 0 --prune-below 0` equals the importer's `<fibers>_connectome` minus its diagonal; precision follows the input (float32 in, float32
+out); the template bundle's licence and attribution are in the result's provenance; a rerun is a cache hit and a changed option a miss; refusals
+(`--fibers`, `--end-surface` or `--over` missing; template fibers without a registration; a sphere of the wrong size or pieces; a partition of another
+surface; `--prune-below` with a partition; `--over vertices` without `--store`; fibers of an unrelated subject; mismatched coordinate system or precision).
 
 Tests run through `tools/tests.py run connectome`, scoped to these.
 
-## 8. Open questions for the maintainers
+## 10. Open questions for the maintainers
 
-1. **Empty columns of the registration.** With `registration = shepard`, a template vertex that no subject vertex counts among its 8 nearest
-   neighbours sends its fibre ends to subject vertex 0 (the reference's `max` over an all-zero column). This happens whenever the template is denser
-   than the subject. Reproduce it by default (the method rule), and add a named option (`unmatched = nearest`: the nearest subject vertex on the
-   sphere), or correct the reference itself and regenerate the golden?
-2. **One storage for connectomes.** The importer writes a sparse `connectome` Field on the product manifold; the schema
-   `nxr.connectome.schema.json` (W under `manifold/`, `keep` as an array) has no writer. This spec follows the importer and stores `keep` as a
-   Selection. Retire the schema, or write it as well?
-3. **`--atlas` without a default.** The reference defaults to Desikan-Killiany. Here the atlas is data, so it is required. Keep it required, or
-   accept the reference's name as the default when the surface holds an atlas of that name?
-4. **Region assignment.** The reference assigns an end to the nearest region CENTROID, which can place an end in a region that does not contain its
-   nearest vertex (long or curved regions). Add `assign = vertex` (the region of the nearest vertex: the Studio's `tileConnectome`, and the dyadic
-   tile ladder with `rollUp`) as a named option now, or later?
-5. **Precision of the stored W.** float32 as the importer's counts (exact for integer counts) or float64 (the smoothed weights are fractional)?
-6. **The sum over fibres.** W = E₁ᵀE₂ + E₂ᵀE₁ sums over the fibre set. This spec treats it as the definition of the field (sparse algebra, as the
-   importer and the Studio do), not as a reduction over time or cortical space. Agreed, or should the fibre set be a partition and the count a
-   `streamlines` measurement over it?
-7. **Template fibres in the default subject.** nxr-neuro's default subject does not yet carry a template bundle (`docs/reference.md`, "Not done
-   yet": HCP-1065). Is importing one (nxr's `fibre/hcp1065` and its ends) part of this work, and onto which template surface: the template's pial,
-   or a white surface where tractography ends (nxr places the template ends on a white surface)?
-8. **Distance gate.** The reference assigns every end to a vertex however far it is; nxr's template import drops ends farther than 5 mm from the
-   cortex. Add a named option (`gate`, metres; default none, the reference's)?
+1. **Within-region counts.** The reference leaves out fibers with both ends in one region, and the partition result keeps that (rows for a ≠ b only).
+   Store the within-region count too (a row with `code` = `within_code`)? It is cheap and says how much of a region's fibers stay inside it.
+2. **The default of `--smooth-hops` for partitions.** The reference smooths over 3 hops, and the default here follows it so that the vertex golden
+   holds. For counts over regions, 0 (plain fiber counts) may be the better default; keep 3, or default to 0 for partitions?
+3. **Gate and registration.** The gate measures an end's distance to the template's end surface, before the registration, and does not gate the
+   registration's own displacement. Is a second gate, on the distance between a template vertex and the subject vertex it is carried to on the sphere,
+   wanted?
