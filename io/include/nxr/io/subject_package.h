@@ -46,6 +46,7 @@ struct PackageRecord {
   int schema_version = 0;
   int store_format = 0;
   Json template_reference;     // null, or {name, edition, version, content_hash, subject_id} of the template this subject is registered to (section 4.3)
+  Json members;                // a group package: the subjects it was computed from, [{subject_id, name, content_hash}] (section 5); null otherwise
   std::string content_hash;    // empty until a writer has closed the package
   std::string hashed_utc;      // when it was computed
   Json to_json() const;
@@ -102,6 +103,8 @@ DatasetWriter create_package(const std::filesystem::path& folder, const std::str
 // OPEN a package for writing: its lock taken before it recovers (pending rows rolled back, deleting rows finished), as `open_writer` does for a dataset.
 DatasetWriter open_package_writer(const std::filesystem::path& folder, const OpenOptions& opt = {});
 
+// The tables a package adds to the model's (key_digest, anchor_row), created in a fresh database (the migration builds packages itself).
+void create_package_tables(Database& db);
 // The content hash of a package's open database, and the record stored from it (what a writer's close does). Both are for the writer and the migration.
 std::string package_content_hash(const Database& db);
 PackageRecord read_package_record(const Database& db);

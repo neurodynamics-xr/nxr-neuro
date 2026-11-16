@@ -77,6 +77,8 @@ class Database {
   // A database at another `user_version` is refused (D139). `read_only`: SQLITE_OPEN_READONLY.
   static Database open(const std::filesystem::path& file, bool create = false, const std::string& built_by = "nxr-convert",
                        bool read_only = false);
+  // Open (or create) a SQLite file that is NOT a model database (no schema, no version check): the participants table's file. Foreign keys are on.
+  static Database open_plain(const std::filesystem::path& file, bool create = false, bool read_only = false);
   Database(Database&&) noexcept;
   Database& operator=(Database&&) noexcept;
   ~Database();

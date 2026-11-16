@@ -219,6 +219,25 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
   return d;
 }
 
+Database Database::open_plain(const fs::path& file, bool create, bool read_only) {
+  const std::string p = file.string();
+  if (!create && !fs::is_regular_file(file)) throw Error(code::not_found, p + ": no such database");
+  Database d;
+  d.path_ = file;
+  d.read_only_ = read_only;
+  sqlite3* h = nullptr;
+  const int flags = read_only ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | (create ? SQLITE_OPEN_CREATE : 0));
+  if (sqlite3_open_v2(p.c_str(), &h, flags, nullptr) != SQLITE_OK) {
+    const std::string m = h ? sqlite3_errmsg(h) : "cannot open";
+    if (h) sqlite3_close(h);
+    throw Error(code::sqlite, p + ": " + m);
+  }
+  sqlite3_busy_timeout(h, 5000);
+  exec(h, "PRAGMA foreign_keys = ON");
+  d.db_ = h;
+  return d;
+}
+
 void Database::tx(const std::function<void()>& body) {
   sqlite3* db = H(db_);
   if (depth_ == 0) exec(db, "BEGIN");
