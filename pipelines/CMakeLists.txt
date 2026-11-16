@@ -32,6 +32,7 @@ file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/definitions.inc "${_defs}")
 add_library(nxr_pipelines
   src/cache.cpp
   src/definition.cpp
+  src/dispatch.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
@@ -149,10 +150,12 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_phasegradient_band PRIVATE nxr_pipelines)
   target_include_directories(test_phasegradient_band PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_phasegradient_band COMMAND test_phasegradient_band)
+  set_tests_properties(test_phasegradient_band PROPERTIES LABELS slow)   # minutes long: CI runs it on main and nightly, not on every pull request
   add_executable(test_cyclepattern test/test_cyclepattern.cpp)
   target_link_libraries(test_cyclepattern PRIVATE nxr_pipelines)
   target_include_directories(test_cyclepattern PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_cyclepattern COMMAND test_cyclepattern)
+  set_tests_properties(test_cyclepattern PROPERTIES LABELS slow)   # minutes long: CI runs it on main and nightly, not on every pull request
   add_executable(test_measure_pipeline test/test_measure_pipeline.cpp)
   target_link_libraries(test_measure_pipeline PRIVATE nxr_pipelines)
   target_include_directories(test_measure_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
@@ -256,10 +259,12 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_spatial_events_planted PRIVATE nxr_pipelines)
   target_include_directories(test_spatial_events_planted PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_spatial_events_planted COMMAND test_spatial_events_planted)
+  set_tests_properties(test_spatial_events_planted PROPERTIES LABELS slow)   # minutes long: CI runs it on main and nightly, not on every pull request
   add_executable(test_spatial_threshold test/test_spatial_threshold.cpp)
   target_link_libraries(test_spatial_threshold PRIVATE nxr_pipelines)
   target_include_directories(test_spatial_threshold PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_spatial_threshold COMMAND test_spatial_threshold)
+  set_tests_properties(test_spatial_threshold PROPERTIES LABELS slow)   # minutes long: CI runs it on main and nightly, not on every pull request
 
   add_executable(test_cell_phase_current test/test_cell_phase_current.cpp)
   target_link_libraries(test_cell_phase_current PRIVATE nxr_pipelines)
@@ -295,6 +300,10 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_runner_plan PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_runner_plan COMMAND test_runner_plan)
+  add_executable(test_node_traits test/test_node_traits.cpp)
+  target_link_libraries(test_node_traits PRIVATE nxr_pipelines)
+  target_include_directories(test_node_traits PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_node_traits COMMAND test_node_traits)
   
   add_executable(test_runner_execute test/test_runner_execute.cpp)
   target_link_libraries(test_runner_execute PRIVATE nxr_pipelines)

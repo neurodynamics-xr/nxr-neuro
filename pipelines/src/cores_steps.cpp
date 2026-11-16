@@ -108,6 +108,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "core_histogram"; s.kind = "accumulate";
+    s.traits = node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "buffers the first range_frames good frames until the histogram's range is fixed, so what a block adds depends on the blocks before it", {});
     s.inputs = {"x", "exclude"}; s.optional = {"exclude"}; s.outputs = {"y"};
     s.parameters = Json{{"bins", 4096}, {"range_frames", 3000}, {"block_frames", 256}, {"bad_segments", "exclude"}};
     s.matches = "nxr vortex._core_threshold (4096 log bins, hi = 4 × the first chunk's maximum, lo = hi·1e-6; the first 3000 frames); compute nxr::histogram (logBinsFor, histogramTiles)";
@@ -242,6 +243,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "cores"; s.kind = "accumulate";
+    s.traits = node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "finds the cores of each frame on its own, but appends them to one list in frame order, so the blocks must meet in time order", {});
     s.inputs = {"x", "threshold", "exclude"}; s.optional = {"exclude"};
     s.outputs = {"spans", "frame", "sense", "centre_vertex", "centre", "area", "peak"};
     s.parameters = Json{{"percentile", 98.0}, {"block_frames", 256}, {"bad_segments", "exclude"}};

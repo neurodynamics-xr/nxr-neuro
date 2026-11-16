@@ -66,6 +66,7 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "power_series"; s.kind = "accumulate";
+    s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "adds each good sample's power into its time tile's sum and count: keyed sums, whatever the order of the blocks (up to rounding)", {});
     s.inputs = {"x", "cross_spectrum", "exclude"}; s.optional = {"exclude"}; s.outputs = {"series"};
     s.parameters = Json{{"level", 7}, {"bad_segments", "exclude"}};
     s.matches = "nxr vortex.envelope_matched_null's one-cycle RMS envelope (the sensors' band power, per tile of 2^level samples: the nearest power of two to a cycle); the dyadic time tiles of the recording's line";
@@ -132,6 +133,7 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "lagfree_surrogate"; s.kind = "chunk";
+    s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the draw is a function of the sample index (a counter-based generator), made on whatever halo the later steps ask; it reads no sample of its input, so any block split gives the same values. Internally it filters its own noise with the shaping taps, which is why the classification is flagged", {}, true);
     s.inputs = {"x", "psd", "cross_spectrum", "power_series"}; s.outputs = {"y"};
     s.parameters = Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"taps_half", 0}, {"seed", 0}};
     s.matches = "nxr vortex.lagfree_real and envelope_matched_null (Gaussian noise with the data's mean spectrum, mixed by sqrt(Re cov), rescaled to the data's one-cycle envelope); compute nxr::surrogate (lagfreeBlock, shapingTaps, sqrtPsd, interpolateSeries); the scale is pointwise (expected, not realised)";

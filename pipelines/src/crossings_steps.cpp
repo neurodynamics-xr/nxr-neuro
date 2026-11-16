@@ -53,6 +53,7 @@ const char* const kWarnings[] = {
 void add_crossings_steps(std::vector<StepSpec>& r) {
   StepSpec s;
   s.name = "tile_crossings"; s.kind = "after";
+  s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64, "each step of a track is read from the previous core of the same track", "one core back along the same track (a step runs from the previous core's centre)", true);
   s.inputs = {"events", "frame", "sense", "centre", "track", "tiles", "onset", "within", "offset"};
   s.optional = {"onset", "within", "offset"};
   s.outputs = {"crossings"};

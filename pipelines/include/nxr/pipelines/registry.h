@@ -11,6 +11,8 @@
 //   inputs      its ports (`in:` maps them to the definition's things); `optional` the ports that may be absent
 //   outputs     what it makes (`out:` names them)
 //   parameters  its parameters and their defaults (`with:` sets them)
+//   traits      its TIME BEHAVIOUR and NUMERIC PRECISION (`NodeTraits` below): declared once, read and checked by the executor, so a backend that runs blocks
+//               in parallel or in single precision knows what each node allows (docs/specs/2026-11-12-chain-graph.md, "Node traits and the dispatch point")
 //   matches     the Studio's, nxr's or Rheome's function it is held equal to
 //   plan        the arrows checked on the MODEL DESCRIPTION of each input (`finder::Value`: a field on its manifolds, of a type, ℝ or ℂ, inside the loop or
 //               not; an operator from one manifold to another; a selection on one), before any data is read: what it makes, or a refusal with its reason
@@ -20,6 +22,7 @@
 #include <functional>
 #include <map>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "nxr/io/database.h"
@@ -75,6 +78,40 @@ struct FramePlace {
 using Blocks = std::map<std::string, Block>;
 using Arrays = std::map<std::string, Array>;
 
+/** How a node depends on time. A node must DECLARE one (a node that does not is refused by the executor, and the registry test fails). */
+enum class TimeBehaviour {
+  undeclared,   // not yet declared: refused
+  pointwise,    // each timestep (frame, tile or event) is computed on its own, from its own columns: any block order, any block split, gives the same values
+  windowed,     // each timestep needs a halo or a window around it (an FFT or FIR filter, the analytic signal, a Welch segment, an event's margin): the rule is stated in `window_rule`
+  stateful      // carries state forward in time (a recursive filter, a state machine over frames, an accumulation that depends on the order of the blocks): blocks must meet in time order
+};
+/** The precision a node computes in, and what it hands on. */
+enum class Precision { undeclared, float32, float64 };
+enum class OutputPrecision {
+  undeclared,
+  follows_input,   // the output has the precision of the node's input (the stored precision follows the input)
+  float64          // the output is double whatever the input is (an accumulated statistic, a table of events)
+};
+/** What a node declares about itself, where it is registered. The executor reads it (`check_traits`) and the dispatch point records it; nothing here changes a result. */
+struct NodeTraits {
+  TimeBehaviour time = TimeBehaviour::undeclared;
+  std::string window_rule;                              // windowed: the halo or window, in words and units ("half the taps' length each side"); empty otherwise
+  Precision computes_in = Precision::undeclared;        // the precision its arithmetic runs in
+  OutputPrecision output = OutputPrecision::undeclared;
+  bool uncertain = false;                               // the classification is a judgement the maintainers should confirm (listed in the PR that added it)
+  std::string note;                                     // why, in a sentence: what makes it this time behaviour; what is accumulated in double
+  bool declared() const { return time != TimeBehaviour::undeclared && computes_in != Precision::undeclared && output != OutputPrecision::undeclared && (time != TimeBehaviour::windowed || !window_rule.empty()); }
+};
+/** a declaration, written compactly where a node is registered */
+inline NodeTraits node_traits(TimeBehaviour time, Precision computes_in, OutputPrecision output, std::string note, std::string window_rule = {}, bool uncertain = false) {
+  NodeTraits t;
+  t.time = time; t.computes_in = computes_in; t.output = output; t.note = std::move(note); t.window_rule = std::move(window_rule); t.uncertain = uncertain;
+  return t;
+}
+const char* to_string(TimeBehaviour t);
+const char* to_string(Precision p);
+const char* to_string(OutputPrecision p);
+
 struct StepSpec {
   std::string name, kind;
   std::vector<std::string> inputs, optional, outputs;
@@ -105,7 +142,16 @@ struct StepSpec {
   std::function<Arrays(const std::any& state, std::any& acc)> finish;
   /** a setup or after step: once, on arrays */
   std::function<Arrays(const std::any& state, const Arrays& ins, ExecContext& ctx)> run;
+  /** the node's declared time behaviour and precision (see NodeTraits); set where the node is registered */
+  NodeTraits traits;
+  /** true when the node computes in double on float32 input: the maintainers' rule (stored precision follows the input) makes such a node flagged. Blocks inside the loop are float32; arrays outside are double. */
+  bool computes_double_on_float_input() const { return traits.computes_in == Precision::float64 && (kind == "chunk" || kind == "accumulate"); }
 };
+
+/** the names of the registered nodes whose traits are not fully declared (empty when every node declares them) */
+std::vector<std::string> undeclared_traits();
+/** the executor's check before it runs a node: refuses (invalid_argument) a node with undeclared traits, naming it */
+void check_traits(const StepSpec& node);
 
 /** every registered step, by name */
 const std::vector<StepSpec>& registry();
