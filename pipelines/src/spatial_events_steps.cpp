@@ -101,6 +101,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "at_level"; s.kind = "chunk";
+    s.traits = node_traits(TimeBehaviour::pointwise, Precision::float32, OutputPrecision::follows_input, "copies the rows of one level, per sample: no arithmetic", {});
     s.inputs = {"x"}; s.outputs = {"y"};
     s.parameters = Json{{"level", nullptr}};
     s.matches = "a row selection of apply_kernel's [vertex × level] output (the hat level's rows of every vertex)";
@@ -145,6 +146,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "baseline"; s.kind = "accumulate";
+    s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "a per-row sum and a count of the good samples, in double: block order changes the result only by rounding", {});
     s.inputs = {"x", "exclude", "outside"}; s.optional = {"exclude", "outside"}; s.outputs = {"y"};
     s.parameters = Json{{"bad_segments", "exclude"}};
     s.matches = "nxr-neuro's own (spec 2026-11-14-spatial-events.md, piece 1): the Studio's `mean` measure (reduceTiles) over a time Selection, folded chunk by chunk; the lookup's `mean` of a statistic";
@@ -206,6 +208,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "relative"; s.kind = "chunk";
+    s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "divides each row by a stored constant, per sample; the quotient is formed in double and stored as float32", {});
     s.inputs = {"x", "baseline"}; s.outputs = {"y"};
     s.parameters = Json::object();
     s.matches = "nxr-neuro's own (spec 2026-11-14-spatial-events.md, piece 2); compute nxr::scaling::divideRows (a diagonal scaling, general algebra)";
@@ -253,6 +256,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "scale"; s.kind = "chunk";
+    s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the characteristic level of each vertex and sample, chosen over the level axis only; double arithmetic, float32 result", {});
     s.inputs = {"x"}; s.outputs = {"y"};
     s.parameters = Json{{"transform", "auto"}, {"modes", 0}, {"order", 0}, {"tolerance", 0.01}};
     s.matches = "Lindeberg (1998) scale selection with L2-normalised responses (spatial-events spec, decision 4); compute nxr::scalespace::selectLevel; the atoms are nxr `vortex_cores.hat_operator`'s columns (the bands of apply_kernel)";
@@ -344,6 +348,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "patches"; s.kind = "accumulate";
+    s.traits = node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "finds the patches of each frame on its own, but appends them to one list in frame order and adds to counts, so the blocks must meet in time order", {});
     s.inputs = {"x", "scale", "bursts", "outside", "exclude", "threshold"}; s.optional = {"bursts", "outside", "exclude", "threshold"};
     s.outputs = {"spans", "frame", "burst", "centre_vertex", "centre", "area", "diameter_cm", "characteristic_level", "size_cm", "relative_peak", "home", "summary"};
     s.parameters = Json{{"threshold", "percentile"}, {"percentile", 99.0}, {"ratio", 2.0}, {"min_area", 0.0}, {"block_frames", 256}, {"bad_segments", "exclude"}, {"events", true}};

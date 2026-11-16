@@ -29,6 +29,7 @@ const std::vector<std::string> kAttributes = {"first_frame", "last_frame", "n_fr
 void add_tracks_steps(std::vector<StepSpec>& r) {
   StepSpec s;
   s.name = "tracks"; s.kind = "after";
+  s.traits = node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "links each frame's cores to the open tracks of the previous frame: the open tracks are carried forward in time, and a frame with no core closes them all", {});
   s.inputs = {"events", "frame", "sense", "centre"};
   s.outputs = {"spans", "first_frame", "last_frame", "n_frames", "path_length", "displacement", "sense", "track"};
   s.parameters = Json{{"link_mm", 15.0}, {"min_frames", 2}};
