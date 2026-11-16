@@ -150,7 +150,7 @@ std::string seconds_text(double s) {
 std::string option_help(const OptionDoc& d) {   // meaning, then the default and unit
   std::string t = d.meaning;
   std::string extra;
-  if (!d.def.empty() && d.def != "none" && d.def != "off") extra += "default: " + d.def;
+  if (!d.def.empty() && d.def != "none" && d.def != "off" && d.def != "required") extra += "default: " + d.def;
   if (!d.unit.empty() && d.unit != "-") extra += std::string(extra.empty() ? "" : "; ") + "unit: " + d.unit;
   if (!extra.empty()) t += " (" + extra + ")";
   return t;
@@ -356,6 +356,26 @@ int run_command_line(int argc, char** argv) {
     auto j = [](const std::set<std::string>& s) { std::string t; for (const auto& x : s) t += (t.empty() ? "" : " ") + x; return t; };
     std::cout << "valued: " << j(p.valued) << "\nmulti: " << j(p.multi) << "\nflags: " << j(p.flags) << "\nrequired: " << j(p.required) << "\nnpos: " << p.npos << "\n";
     return 0;
+  }
+  if (argc >= 2 && std::string(argv[1]) == "__check-help") {   // every option of every command carries its own description (except the few that mean the same everywhere)
+    static const std::set<std::string> shared = {"--dataset", "--subject", "--replace", "--json", "--quiet", "--no-color", "--from", "--to", "--all"};
+    int bad = 0;
+    for (const CommandDoc& c : commands()) {
+      for (const auto& u : c.options) {
+        if (span_hidden(c, u.name) || shared.count(u.name)) continue;
+        const auto it = table().options.find(u.name + "@" + c.path());
+        if (it == table().options.end()) { std::cout << c.path() << ": " << u.name << " has no description of its own\n"; ++bad; continue; }
+        const OptionDoc& d = it->second;
+        if (trim(d.meaning).size() < 10) { std::cout << c.path() << ": " << u.name << " has an empty description\n"; ++bad; }
+        if (d.def.empty() || d.unit.empty()) { std::cout << c.path() << ": " << u.name << " has no default or unit column\n"; ++bad; }
+        const std::string h = option_help(d);
+        if (!d.def.empty() && d.def != "none" && d.def != "off" && d.def != "required" && h.find("default: " + d.def) == std::string::npos) { std::cout << c.path() << ": " << u.name << " help lacks its default\n"; ++bad; }
+        if (!d.unit.empty() && d.unit != "-" && h.find("unit: " + d.unit) == std::string::npos) { std::cout << c.path() << ": " << u.name << " help lacks its unit\n"; ++bad; }
+        if (d.value.empty() != is_flag(u.name)) { std::cout << c.path() << ": " << u.name << " flag and value disagree\n"; ++bad; }
+      }
+    }
+    std::cout << (bad ? "some options lack their own description\n" : "every option has its own description\n");
+    return bad ? 1 : 0;
   }
   if (argc >= 2 && std::string(argv[1]) == "__commands") {   // for the tests: `new words | old words | span or nospan | seconds or all-only`
     for (const auto& c : commands()) {

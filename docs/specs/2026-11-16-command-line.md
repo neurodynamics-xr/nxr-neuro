@@ -117,7 +117,7 @@ is `--exceedances` (descriptive names everywhere); `--h` still works through the
 
 `nxr-neuro --help` lists the verbs; `nxr-neuro <verb> --help` the commands of a verb (for `compute`, grouped by topic); `nxr-neuro <verb> <what> --help`
 one command: its summary, each option with its meaning, default and unit, an example, the time-range rule and the old spelling.
-The text comes from the options structs' comments (the meaning, default and unit of each option), written once in the table. `nxr-neuro completion bash|zsh|fish`
+The text of each option is **per command**, taken from that command's own options struct (the field comments: meaning, default and unit); only options that mean the same everywhere (`--dataset`, `--subject`, `--replace`, `--json`, the time range) share one text. A test (`nxr-neuro __check-help`) requires every option of every command to have its own description, and that the help prints the default and the unit when they exist. `nxr-neuro completion bash|zsh|fish`
 prints the completion script; `nxr-neuro __man DIR` writes the man pages (one for the command, one per verb, one per command). The build generates both into
 `share/` and installs them.
 
@@ -134,7 +134,7 @@ read chunk 0), so every front end and test states its range. The tests that reli
 The range actually used, after snapping to the method's boundaries, is in the result and in the stored provenance (the producer's `span` record: samples,
 seconds, chunks read, halo, tile level, and the seconds asked); the readable output prints it.
 
-`compute null` and `compute spatialnull` read whole recordings, so they take `--all`.
+`compute null` and `compute spatialnull` need a range too (`--from/--to` or `--all`): their options structs have no default span either.
 
 ## 6. Output
 
@@ -150,4 +150,4 @@ seconds, chunks read, halo, tile level, and the seconds asked); the readable out
 `cli/test/cli_tests.cmake` (ctest `cli_*`): the verbs parse and dispatch; `--help` renders for every command and verb; every old alias still runs and prints its
 notice; the time range is refused when missing; the readable and JSON forms switch (the readable one is forced with a hidden `--human` since a test's stdout is
 never a terminal); the JSON of a few commands is the same under the old and the new spelling; the table matches the parsers (`__check-options`); man pages and
-completion are generated.
+completion are generated; every option of every command has its own description, printed with its default and unit (`cli_helptext`).
