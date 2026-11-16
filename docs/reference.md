@@ -111,65 +111,162 @@ reads and writes the real disk; the browser's file connection (a folder the user
 
 ## The command `nxr-neuro`
 
-`build/cli/nxr-neuro`: every verb the old `nxr-io` command had, with the same arguments and JSON output, and the pipelines.
+`build/cli/nxr-neuro`: one grammar, **verb first**: `nxr-neuro <verb> <what> [options]`. `nxr-neuro --help` lists the verbs, `nxr-neuro <verb> --help` the commands of a verb
+(`compute` groups them by topic: source imaging, geometry, time, spectra, cortical flow and patterns, measurements, nulls), and `nxr-neuro <verb> <what> --help` one command: each
+option with its meaning, default and unit, and an example. The help, the man pages (`nxr-neuro __man DIR`) and the shell completion (`nxr-neuro completion bash|zsh|fish`) are made from
+one table (`cli/command_table.cpp`), checked against the parsers by a test. The grammar, the old spellings and the rules are in `docs/specs/2026-11-16-command-line.md`.
 
-    nxr-neuro dataset create|list|show|delete|recover|compact ...
-    nxr-neuro dataset compact --dataset D/N [--subject S] [--dry-run] [--no-shard] [--no-small-files]   rewrite a format-50 dataset's arrays as format 51, then move each subject's small keys into its small_files.sqlite (format 52) (*Compacting a dataset*)
-    nxr-neuro constantq compute --dataset D/N --subject S (--recording R | --line NAME | --all) [--method hertz|cycles] [--voices N] [--cycles C] [--fmax HZ] [--fmin HZ]
-    nxr-neuro dataset create --datastore D --name N --templates FS_SUBJECTS [--default fsaverage5] [--modes K] [--atlas-depth 8] [--lc-levels 4,6]   with its default subject
-    nxr-neuro pyramid spatial-bands --dataset D/N --subject S [--surface NAME]   the surface's spatial bands (one per ladder level, on the Eigenvalue line): the within key of a measurement's spatial scale
-    nxr-neuro pyramid build --dataset D/N --subject S --recording R [--kernel K] [--tree subject|group] [--depth D] [--bands LO-HI,...] [--shape morlet|power_partition] [--halo-seconds 8] [--frame-level -18] [--chunks ...] [--replace]   the measurement pyramid's band power per band x leaf x frame
-    nxr-neuro pyramid reduce --dataset D/N --subjects A,B,C [--kernels SPEC] [--depth D]   the group reduce: the named subjects' group-tree pyramids summed cell for cell into the default subject (`pyramid build --tree group`)
-    nxr-neuro measure query --dataset D/N --subject S --selection JOINT --measure M [--field F] [--band I] [--spatial-band K] [--space-level L] [--time-level M]   a pyramid measure read at any scale (rolled up at read)
-    nxr-neuro subject create|list|show|delete ...
-    nxr-neuro surface add --dataset D/N --subject S FILE
-    nxr-neuro convert list|scan|subject|surface|... ...          (Brainstorm)
-    nxr-neuro read <dataset folder> [--array <subject> <path> [--region a:b,c:d] [--out FILE]]
-    nxr-neuro eigen solve --dataset D/N --subject S [--modes K] [--surface NAME] [--replace]
-                          [--shift absolute|relative] [--sigma S] [--slice N] [--normalize] [--star1-floor F]
-                          [--mollify D] [--flip-eps E]
-    nxr-neuro headmodel compute --dataset D/N --subject S [--meg overlapping|single|none] [--no-eeg] [--meg-surface NAME] [--eeg-surface NAME] [--replace]
-    nxr-neuro noisecov compute --dataset D/N --subject S --recording R [--chunks K|A-B|all | --start SEC --stop SEC] [--block-seconds SEC] [--replace]
-    nxr-neuro psd compute --dataset D/N --subject S --recording R [--name N] [--chunks K|A-B|all | --start SEC --stop SEC] [--set tiles|brainstorm|scipy|nxr-chain] [--through OPERATOR]
-                          [--segment-seconds SEC | --segment-samples N | --segment-level K] [--overlap F] [--window hann|hamming|blackman|rectangular] [--periodic | --symmetric]
-                          [--detrend none|constant|linear] [--scaling density|spectrum|chain] [--no-bad-segments] [--replace]
-    nxr-neuro inverse compute --dataset D/N --subject S (--noise-cov NAME | --recording R) [--forward NAME] [--name NAME] [--mne] [--replace]
-                              [--depth-exponent P] [--depth-limit L] [--snr S] [--regularisation ridge|diagonal|none] [--ridge-fraction E] ...
-    nxr-neuro lowpass|highpass|bandpass|bandstop|notch --dataset D/N --subject S --recording R --fpass HZ[,HZ] | --fstop LO,HI | --frequencies F,.. | --line F [--harmonics N]
-    nxr-neuro sourcepsd compute --dataset D/N --subject S --recording R [--kernel NAME] [--bands alpha:8-12,...] [--normalisation none|relative] [the psd options] [--replace]
-    nxr-neuro sourcetensor compute --dataset D/N --subject S --recording R [--kernel NAME] [--bands alpha:8-12,...] [the psd options] [--replace]
-    nxr-neuro phasegradient compute --dataset D/N --subject S --cross-spectrum NAME [--kernel NAME] [--signal ambient|normal] [--depth D] [--name STEM] [--replace]
-    nxr-neuro cyclepattern compute --dataset D/N --subject S --cross-spectrum NAME [--kernel NAME] [--package STEM] [--spatial-band modes|weyl:J|weyl:all] [--patterns Q] [--timing-of stream,potential,normal] [--level K | --window-seconds SEC] [--name STEM] [--replace]
-    nxr-neuro crossspectrum compute --dataset D/N --subject S --recording R [--channels-of KERNEL | --types T,..] [--name STEM] [--bands alpha:8-12,...] [the psd options | --estimator analytic [--level K | --window-seconds SEC]] [--resolve band|bins] [--replace]
-    nxr-neuro crossspectrum read --dataset D/N --subject S --name <stem>_<band>_bins (--pair A,B | --seed A) [--reading coherency|imag|phase|delay|psi] [--weights coherence|none]
-    nxr-neuro quadrature compute --dataset D/N --subject S --recording R [--kernel NAME] [--bands ...] [--pairs K] [the psd options] [--tiles ...] [--replace]
-    nxr-neuro hodgepower compute --dataset D/N --subject S --recording R [--kernel NAME] [--package STEM] [--modes N] [--bands ...] [the psd options] [--replace]
-    nxr-neuro opticalflow compute --dataset D/N --subject S --recording R --family F --gain G --freq HZ [--kernel NAME] [--package STEM] [--start S] [--stop S]
-                                  [--alpha A] [--method pcg|direct|perscale] [--regulariser connection|ambient] [--datafit auto|gauge|triangle] [--input amplitude|signed]
-                                  [--depth D] [--frame-level L] [--start-s S] [the time-bank options] [--tiles [--tile-levels 1,2,3 | --tile-max-level N] [--no-levi-civita]] [--replace]
-    nxr-neuro frames compute --dataset D/N --subject S [--surface NAME] [--template SUBJECT [--template-surface NAME]] [--convention scs|ras] [--side auto|left|right]
-                             [--min-projection P] [--max-condition C] [--replace]
-    nxr-neuro tiles compute --dataset D/N --subject S [--surface NAME] [--depth L] [--replace]
-    nxr-neuro patches compute --dataset D/N --subject S --map FIELD --level L [--sign positive|negative|magnitude] [--enter-sd 1.5] [--exit-sd 1.0] [--min-area M2] [--max-area M2]
-                              [--transform auto|eigen|chebyshev|exact] [--modes N] [--order N] [--tolerance T] [--summaries count,sum,median,mean,sd,percentile:25,..] [--replace]
-    nxr-neuro joint compute --dataset D/N --subject S --recording R --space-level L --time-level M [--surface NAME] [--replace]
-    nxr-neuro cellquadrature compute --dataset D/N --subject S --cross-spectrum NAME --space-level L [--kernel NAME] [--joint NAME] [--bursts NAME] [--weights area|none] [--tile-pairs on|off]
-                                     [--transform auto|eigen|chebyshev|exact] [--modes N] [--order N] [--tolerance T] [--replace]
-    nxr-neuro scaleselection compute --dataset D/N --subject S --recording R --space-levels L,L,.. --time-levels M,M,.. [--source cortical_event_pairs] [--response peak|mean] [--min-link 1]
-                                     [--name NAME] [--replace]
-    nxr-neuro run DEFINITION --dataset D/N --subject S [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--block-samples N] [--block-frames N] [--replace] [--dry-run]
-    nxr-neuro run --list
-    nxr-neuro measure compute --dataset D/N --subject S --labelling L --fields PATTERN --weight none|barycentric|voronoi [--measures mean,max,min,mean_square,abs_max,sum] [--recipe NAME] [--gradient] [--replace]
-    nxr-neuro measure compute --dataset D/N --subject S --over TILING [--level K] --fields PATTERN [--measures mean,mean_square,max,min,abs_max] [--chunks K|A-B|all | --start S --stop S] [--replace]
-    nxr-neuro statistic compute --dataset D/N --subject S --over SELECTION --of FIELD|MAP --measure M --summaries median,mad,.. [--combine each|pool|mean] [--ddof N] [--name NAME] [--members-own] [--replace]
-    nxr-neuro measure export --dataset D/N --labelling L --fields PATTERN --table NAME --out DIR [--statistics mean,sd,variance,rms,max,min,area,n_elements] [--subjects A,B] [--recipe NAME[@V]] [--exclude NAMES | --keep-all] [--layout split|wide] [--scaling stored|density|power|amplitude|amplitude-density|db|db-density]
-    nxr-neuro speedspectrum compute --dataset D/N --subject S --recording R --graph-family mexhat|heat|itersine|logitersine --family F --gain G --sides analytic|two-sided
-                                    [--kernel NAME] [--package STEM] [--modes N] [--fmin HZ --fmax HZ] [--speed-bins N] [--speed-min C] [--speed-max C] [the psd options] [--replace]
-    nxr-neuro --version
+**A time range is required** for every computation over a recording: `--from <s> --to <s>` (seconds or `m:ss`) or `--all`. Without one the command refuses and names the options.
+The engine still reads one chunk at a time with bounded memory, whatever the range, and records the range it used (after snapping to the method's boundaries) in the result and the provenance.
 
-`nxr-neuro --help` prints the one-line summary of each verb. The full option list of each verb is in the comment heading its file (`cli/meeg_command.cpp`, `cli/speedspectrum_command.cpp`,
-`cli/eigen_command.cpp`), and each option's meaning and default in the options struct of its pipeline (`pipelines/include/nxr/pipelines/*.h`). Every pipeline verb writes JSON lines (progress
-events, then one `"stage": "result"` line with `"cache": "hit" | "miss"`); a rerun with the same options is a cache hit, and `--replace` recomputes. Details of the dataset verbs and of the format: `io/README.md`.
+**Output.** In a terminal: a progress bar on stderr, then a result line (done, `cache hit` or `computed`, seconds, the range) and what was stored. With `--json`, or when stdout is not a terminal,
+the JSON lines (`"stage"` keyed; the result line has `"cache": "hit" | "miss"`) are unchanged. `--quiet` prints only the result line; colour only in a terminal and never with `NO_COLOR`.
+A failure is a message on stderr (a `"stage": "error"` object, with its `code`, under `--json`) and a non-zero exit status (1 a failure, 2 a usage error).
+
+**The old spellings** (`psd compute`, `dataset list`, `convert subject`, `eigen solve`, ...) keep working as hidden aliases for a deprecation period and print a one-line notice on stderr.
+
+### `compute`: Compute something from a recording or from stored results (psd, crossspectrum, phasegradient, pyramid, ...)
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro compute noisecov` | The noise covariance of a recording's good channels. | `noisecov compute` |
+| `nxr-neuro compute inverse` | The depth-weighted minimum-norm inverse kernel, from a noise covariance and a head model. | `inverse compute` |
+| `nxr-neuro compute headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
+| `nxr-neuro compute pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
+| `nxr-neuro compute eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface (cached). | `eigen solve` |
+| `nxr-neuro compute frames` | The canonical (north, west) and anatomical frames of a surface. | `frames compute` |
+| `nxr-neuro compute tiles` | The dyadic equal-area tile ladder of a surface. | `tiles compute` |
+| `nxr-neuro compute constantq` | The constant-Q tiling of a time line (a ladder of dyadic windows). | `constantq compute` |
+| `nxr-neuro compute frametiling` | The frame tiling on the time tower: the cycles of one tower level over a recording. | `frametiling compute` |
+| `nxr-neuro compute joint` | The joint partition of space and time: cells of a spatial tile level by a time tile level. | `joint compute` |
+| `nxr-neuro compute lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
+| `nxr-neuro compute highpass` | A zero-phase high-pass filter, written as a new recording. | `highpass` |
+| `nxr-neuro compute bandpass` | A zero-phase band-pass filter, written as a new recording. | `bandpass` |
+| `nxr-neuro compute bandstop` | A zero-phase band-stop filter, written as a new recording. | `bandstop` |
+| `nxr-neuro compute notch` | A zero-phase notch filter (line noise and harmonics), written as a new recording. | `notch` |
+| `nxr-neuro compute psd` | The Welch power spectral density of a recording, bad segments left out. | `psd compute` |
+| `nxr-neuro compute sourcepsd` | The band power maps of the sources (the Welch PSD of the sources, grouped in bands). | `sourcepsd compute` |
+| `nxr-neuro compute sourcetensor` | The band cross-spectral tensor of the current, its Stokes quaternion, normal power and share. | `sourcetensor compute` |
+| `nxr-neuro compute crossspectrum` | The sensor cross-spectral density per band (Welch, or per time window with the analytic estimator). | `crossspectrum compute` |
+| `nxr-neuro compute quadrature` | The quadrature spectrum of the sources per band: fraction, energy map and leading pairs. | `quadrature compute` |
+| `nxr-neuro compute hodgepower` | The band power of the Hodge-Dirac eigenmode coefficients of a free-orientation kernel. | `hodgepower compute` |
+| `nxr-neuro compute speedspectrum` | The speed spectrum: mode energy per phase speed from the joint eigenvalue and frequency bank. | `speedspectrum compute` |
+| `nxr-neuro compute phasegradient` | The phase gradient of a band from a stored cross-spectrum: phase current, power, speed and travelling index. | `phasegradient compute` |
+| `nxr-neuro compute cyclepattern` | The most consistent cycle patterns of the current from a cross-spectrum per window. | `cyclepattern compute` |
+| `nxr-neuro compute opticalflow` | Optical flow (Horn-Schunck) of the source estimate: where and how fast the activity moves. | `opticalflow compute` |
+| `nxr-neuro compute cellquadrature` | Quadrature (travelling vs standing) per joint cell and per burst, from the stored cross-spectrum. | `cellquadrature compute` |
+| `nxr-neuro compute patches` | Patches on a static cortical map: where it stands out from its surroundings, at the size of its tiles. | `patches compute` |
+| `nxr-neuro compute scaleselection` | Each event's own size and rhythm: the best spatial and temporal level by standardised response. | `scaleselection compute` |
+| `nxr-neuro compute pyramid` | The measurement pyramid of a recording's cortical current, from space and time tiles. | `pyramid build` |
+| `nxr-neuro compute measure` | Stored fields measured over a partition's members, with their recipe. | `measure compute` |
+| `nxr-neuro compute statistic` | A stored measurement summarised over its partition's members. | `statistic compute` |
+| `nxr-neuro compute wishart` | The Wishart null of the second-moment measures of bursts. | `wishart compute` |
+| `nxr-neuro compute spatialnull` | The lag-free null of the spatial events: draws with early stopping, per-vertex p and q. | `spatialnull compute` |
+| `nxr-neuro compute null` | The lag-free null's tests of the vortex cores' crossings, per tile. | `null compute` |
+| `nxr-neuro compute repeat` | The vortex cores' run-to-run repeat: two recordings' stored tile crossings compared. | `repeat compute` |
+
+### `run`: Run a pipeline definition on a subject
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro run PIPELINE` | Run a pipeline definition (a YAML file or one of the built-in definitions) on a subject. |  |
+
+### `list`: List datasets, subjects, recordings, kernels, results or pipelines
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro list datasets` | List the datasets of a datastore. | `dataset list` |
+| `nxr-neuro list subjects` | List the subjects of a dataset. | `subject list` |
+| `nxr-neuro list recordings` | List the recordings of a subject. |  |
+| `nxr-neuro list kernels` | List the inverse kernels of a subject. |  |
+| `nxr-neuro list results` | List the fields and statistics the computations stored for a subject. |  |
+| `nxr-neuro list pipelines` | List the pipeline definitions and the steps they are made of. | `run --list` |
+| `nxr-neuro list spatial-bands` | List a surface's spatial bands (one per level of its tile ladder). | `pyramid spatial-bands` |
+
+### `show`: Show a dataset or a subject
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro show dataset` | Show a dataset: its subjects by kind, its source and its creation date. | `dataset show` |
+| `nxr-neuro show subject` | Show how many manifolds, fields, operators and selections a subject holds. | `subject show` |
+
+### `read`: Read stored arrays and derived readings
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro read dataset FOLDER` | Read an nxr dataset folder: list its arrays, or read one array or region. | `read` |
+| `nxr-neuro read crossspectrum` | Read coherency, phase, delay or phase-slope index from a stored band-resolved cross-spectrum. | `crossspectrum read` |
+
+### `query`: Query stored measurements
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro query measurements` | Query a stored measurement pyramid at any spatial and temporal scale. | `measure query` |
+
+### `export`: Export stored measurements as a table
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro export measurements` | Export stored measurements as a table for statistics (a row per subject), with its dictionary and provenance. | `measure export` |
+
+### `import`: Import data from Brainstorm into a dataset
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro import list PROTOCOL` | List the subjects of a Brainstorm protocol. | `convert list` |
+| `nxr-neuro import scan PROTOCOL` | Scan a Brainstorm protocol and describe what it holds. | `convert scan` |
+| `nxr-neuro import subject PROTOCOL` | Import a Brainstorm subject's anatomy into a dataset. | `convert subject` |
+| `nxr-neuro import template PROTOCOL` | Import a Brainstorm protocol's template subject into a dataset. | `convert template` |
+| `nxr-neuro import group PROTOCOL` | Import a Brainstorm protocol's group subject into a dataset. | `convert group` |
+| `nxr-neuro import templates TEMPLATES_DIR` | Import the fsaverage reference templates (and optional fibre tracts) into a dataset. | `convert templates` |
+| `nxr-neuro import surface` | Import Brainstorm tessellation files as surfaces of a subject. | `convert surface` |
+| `nxr-neuro import mri` | Import an anatomical MRI of a subject. | `convert mri` |
+| `nxr-neuro import condition PROTOCOL` | Import a Brainstorm condition (its recordings, channels and head models) into a dataset. | `convert convert` |
+| `nxr-neuro import inverse` | Import a Brainstorm inverse kernel as an operator of a subject. | `convert inverse` |
+| `nxr-neuro import map` | Import Brainstorm source or matrix maps as fields of a subject. | `convert map` |
+| `nxr-neuro import resample` | Resample a recording to a new sampling rate, as a new recording. | `convert resample` |
+| `nxr-neuro import badsegments` | Import a recording's bad segments from a file. | `convert badsegments` |
+| `nxr-neuro import events` | Import a recording's events from a file. | `convert events` |
+
+### `create`: Create a dataset or a subject
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro create dataset` | Create an empty dataset in a datastore, optionally with its default subject (surfaces, frames, group tree). | `dataset create` |
+| `nxr-neuro create subject` | Create a subject (or a template or group subject) in a dataset. | `subject create` |
+
+### `delete`: Delete a dataset or a subject
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro delete dataset` | Delete a dataset from its datastore. | `dataset delete` |
+| `nxr-neuro delete subject` | Delete a subject, or one of its nodes, from a dataset. | `subject delete` |
+
+### `compact`: Compact a dataset
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro compact dataset` | Pack a dataset's small files and shards to save space (a dry run shows what would change). | `dataset compact` |
+
+### `recover`: Recover a dataset after an interrupted write
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro recover dataset` | Finish or roll back an interrupted write in a dataset. | `dataset recover` |
+
+### `reduce`: Reduce stored results across subjects
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro reduce pyramid` | Reduce several subjects' group-tree pyramids into the group's pyramid. | `pyramid reduce` |
+
+### `add`: Add a surface to a subject
+
+| command | what it does | old spelling |
+|---|---|---|
+| `nxr-neuro add surface FILE` | Add a mesh file (OBJ, PLY or STL) to a subject as a surface. | `surface add` |
+
+Every pipeline command writes JSON lines (progress events, then one `"stage": "result"` line with `"cache": "hit" | "miss"`); a rerun with the same options is a cache hit, and `--replace` recomputes. Details of the dataset commands and of the format: `io/README.md`.
 
 ## The default subject (`io/include/nxr/io/default_subject.h`; spec `docs/specs/2026-11-11-default-subject.md`)
 

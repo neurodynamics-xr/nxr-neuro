@@ -67,7 +67,7 @@
 #include <iostream>
 #include <sstream>
 
-int nxr_neuro_cli_main(int argc, char** argv);   // cli/nxr_neuro.cpp's main, compiled into this module
+int nxr_neuro_cli_main(int argc, char** argv);   // cli/main.cpp's main, compiled into this module
 
 using emscripten::val;
 using namespace nxr::io;
