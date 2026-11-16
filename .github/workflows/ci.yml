@@ -1,15 +1,29 @@
 name: ci
 
-# Build and test nxr-neuro. Linux on every push to main, every tag and every pull request; macOS on pushes to main and on tags.
+# Build and test nxr-neuro.
+# - Linux: every pull request (the fast tests), every push to main and every night (all tests, the slow ones included).
+# - macOS: pushes to main, tags and every night (all tests).
+# Compiled objects are cached with ccache (keyed by branch, falling back to main), so a pull request recompiles only what it changed,
+# the bundled dependencies (HDF5, matio, c-blosc, geometry-central) included.
 on:
   push:
     branches: [main]
     tags: ["v*"]
   pull_request:
+  schedule:
+    - cron: "0 6 * * *"
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_COMPRESS: "true"
+  # tests labelled `slow` (minutes each) run on main, nightly and on demand; pull requests run the rest
+  CTEST_SELECT: ${{ github.event_name == 'pull_request' && '-LE slow' || '' }}
 
 jobs:
   linux:
@@ -21,36 +35,54 @@ jobs:
       - name: Build tools and system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build libsqlite3-dev zlib1g-dev libzstd-dev pkg-config
-      - name: Cache fetched dependencies
+          sudo apt-get install -y --no-install-recommends ninja-build ccache libsqlite3-dev zlib1g-dev libzstd-dev pkg-config
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-linux-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-linux-${{ github.ref_name }}-
+            ccache-linux-main-
+      - name: Fetched dependencies
         uses: actions/cache@v4
         with:
           path: build/_deps
           key: deps-linux-${{ hashFiles('**/CMakeLists.txt', 'cmake/**') }}
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
         run: cmake --build build
+      - name: Compiler cache statistics
+        run: ccache --show-stats --verbose | head -20
       - name: Test
-        run: ctest --test-dir build --output-on-failure -j 4
+        run: ctest --test-dir build --output-on-failure -j 4 $CTEST_SELECT
 
   macos:
-    if: github.event_name == 'push'
+    if: github.event_name != 'pull_request'
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
       - name: Build tools and system libraries
-        run: brew install ninja zstd pkg-config
-      - name: Cache fetched dependencies
+        run: brew install ninja ccache zstd pkg-config
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-macos-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-macos-${{ github.ref_name }}-
+            ccache-macos-main-
+      - name: Fetched dependencies
         uses: actions/cache@v4
         with:
           path: build/_deps
           key: deps-macos-${{ hashFiles('**/CMakeLists.txt', 'cmake/**') }}
       - name: Configure
-        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
       - name: Build
         run: cmake --build build
       - name: Test
-        run: ctest --test-dir build --output-on-failure -j 4
+        run: ctest --test-dir build --output-on-failure -j 3
