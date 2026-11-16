@@ -1,8 +1,9 @@
 # Subject-centred datasets: the subject as the unit, the dataset as a catalogue, templates as shared subjects (spec, 2026-11-16)
 
-Status: **design, no code.** The maintainers approved the direction on 2026-11-16 (a subject-centred design). This spec says what the format becomes,
-what replaces the staging and merge of `docs/specs/2026-11-14-dataset-wide-runs.md` section 2 (designed, never built), how existing datasets move, and
-what is left for the maintainers to decide (section 10).
+Status: **design, no code.** The maintainers approved the direction on 2026-11-16 (a subject-centred design) and decided its open questions the same
+day; each decision is marked "decided 2026-11-16" where it applies, and section 10 lists them. This spec says what the format becomes, what replaces
+the staging and merge of `docs/specs/2026-11-14-dataset-wide-runs.md` section 2 (designed, never built), how existing datasets move, and the
+technical questions still open (section 10).
 
 ## 1. Why
 
@@ -52,7 +53,9 @@ archived, moved, shared and opened on its own.
     `geometry_dimension`, `selection_element`, `selection_extent`, `selection_measurement`, `selection_span`, `operator_factor`,
     `dictionary_entry`). This is exactly the row set nxr's `shared_dataset.fragment` selects for one subject (its `CHILD` table and its owner
     tables), ported;
-  - its **home** `datastore` and `dataset` rows (where it was created: provenance, not membership; section 3);
+  - its **home** `dataset` row (the dataset it was created in: provenance, not membership; section 3). The model's `datastore` table stays in the
+    schema for now and holds one row recording where the package was made, as a hint only: nothing reads it to find data (the datastore is
+    obsolete, section 3);
   - copies of the **shared vocabulary** rows its rows name: app- and dataset-scope dictionaries with their entries (atlas levels, `frequency bands`,
     `recipes`), as nxr's fragment carries "the shared rows";
   - **anchor rows** of the template it is registered to (section 4.3): the few rows of another package its own rows point at.
@@ -62,7 +65,7 @@ archived, moved, shared and opened on its own.
   (`set`, and a streamed writer's `close`, which hashes as it streams). It is what the content hash (section 2.3) and the migration's verification
   are computed from without re-reading the shards.
 
-**Why one file for rows and small keys** (open question 1): the rows and the keys a node writes are then in ONE SQLite database, so a node's rows
+**Why one file for rows and small keys** (technical question 1): the rows and the keys a node writes are then in ONE SQLite database, so a node's rows
 and its small keys commit together (the dataset-wide-runs spec noted that an ATTACH across two databases is not atomic in WAL mode; one database
 needs no ATTACH). A subject goes from 3 files (format 52: its database, its medium chunks, its shards) plus its share of the dataset database to 2 +
 its shards. The node procedure (`pending` → keys → `complete`, recovery by key prefix) is unchanged.
@@ -79,14 +82,14 @@ its shards. The node procedure (`pending` → keys → `complete`, recovery by k
   that names them, each copy with its own id. Across packages they are matched by their unique key (`scope, name`, and `dataset_id` for a dataset
   scope), exactly as nxr's merge matches `SHARED_KEYED` rows, and the cross-subject index (section 3.3) maps each copy's references onto one row. Two
   copies under one key with different entries are a conflict, reported by name and never merged silently. (Deterministic ids for these rows are the
-  alternative: open question 3.)
+  alternative: technical question 3.)
 
 ### 2.2 The schema version, per subject
 
 - A package carries its own versions: `PRAGMA user_version` (the model's schema version) and `meta.store_format` (53).
 - **A reader refuses a package at a version it does not know**, by name, as today a reader refuses a dataset database (`schema_version` error). It
   never opens it partly.
-- The model's rule that "a datastore is at one version, entirely" becomes: **a reader works on packages at versions it knows; an operation across
+- The model's rule that one database is at one version, entirely, becomes: **a reader works on packages at versions it knows; an operation across
   subjects (an index build, a group analysis) refuses a cohort containing any package at a version it does not know**, naming each. A dataset may
   hold packages at two versions only while a migration is under way (section 8).
 
@@ -104,19 +107,24 @@ template reference (section 4.3), and the **content hash**:
 
 ## 3. The dataset: a light catalogue
 
-A dataset is the dataset module's files: a **catalogue**, optionally a **participants table** and an **index**, and group packages. Its subjects'
-packages usually sit in the same folder, but nothing in a package depends on that (open question a):
+A dataset is the dataset module's files: a **catalogue**, optionally a **participants table** and an **index**, and group packages, in one folder
+that lives anywhere and is addressed by its own path (`--dataset PATH`).
+
+**The datastore is obsolete** (decided 2026-11-16). Datasets no longer share a parent folder, and nothing requires one: two datasets on two disks,
+or a dataset inside a project folder, are equally datasets. The datastore's `catalog.json` (its list of datasets) retires with it: no build reads or
+writes it. A list of recently opened datasets is a per-user convenience of an application (section 7.1), never part of the format.
+
+**What a dataset is** (decided 2026-11-16): a folder holding its catalogue and, by default, its subjects' packages, so it is copied and archived as
+one. A catalogue may also list packages outside its folder, by path, read-only to it (section 3.2).
 
 ```
-<datastore>/
-  catalog.json                        the datastore's list of datasets (unchanged in role; each entry now names a catalogue)
-  <dataset>/
-    catalogue.sqlite                  the dataset: its subjects and its template references
-    participants.sqlite               the participants table (section 3.1); optional, its own file so it can be withheld
-    .writer.lock                      held only while the dataset module's files are written (registration, participants), seconds
-    index.sqlite                      a CACHE (section 3.3); deletable
-    <group>.nxr.zarr/                 group packages (section 5)
-    <subject>.nxr.zarr/               subject packages (the subject module)
+<dataset>/                            any path
+  catalogue.sqlite                    the dataset: its subjects and its template references
+  participants.sqlite                 the participants table (section 3.1); optional, its own file so it can be withheld
+  .writer.lock                        held only while the dataset module's files are written (registration, participants), seconds
+  index.sqlite                        a CACHE (section 3.3); deletable
+  <group>.nxr.zarr/                   group packages (section 5)
+  <subject>.nxr.zarr/                 subject packages (the subject module)
 ```
 
 ### 3.1 What the catalogue holds
@@ -127,7 +135,7 @@ implementations read it with code they already have:
 | table | from | holds |
 |---|---|---|
 | `meta` | model | `catalogue_version`, `built_by` |
-| `datastore`, `dataset` | model | the dataset's own row (id, name, path, source) |
+| `dataset` | model | the dataset's own row (id, name, source); its `path` is the folder's name, the dataset is found by the path the caller gives |
 | `subject` | model | one row per member: id, name, `path` (relative to the dataset folder, or a location outside it: section 3.2), kind (`subject`, `template`, `group`), `template_id`, provenance columns. A COPY of the package's own row, refreshed at registration |
 | `subject_entry` | new | per member: `subject_id`, `schema_version`, `store_format`, `content_hash`, `registered_utc`, `registered_by`, `status` (`registered`, `missing`, `stale`, `replaced`), and the package's counts taken at registration (`n_acquisitions`, `n_recordings`, `n_surfaces`, `n_fields`, `n_operators`: the columns of the model's `subject_status` view, so a dataset's subject list needs no package opened) |
 | `template_reference` | new | the templates the dataset's subjects are registered to: template name, version, the template package's subject id, content hash, a location hint (section 4) |
@@ -140,29 +148,75 @@ name, type, unit, levels; BIDS `participants.json`) and `subject_variable` (each
 tables since its first version; nothing wrote them. It is separate because participant variables (age, sex, diagnosis, group) can be the most
 sensitive part of a dataset: a dataset can be shared, published or copied to a cluster with its catalogue and packages and WITHOUT its participants
 table, and the subjects and the catalogue never need it. Which variables it may hold, where they come from and when it may travel with a dataset are
-open question d; io never copies it implicitly (a copy or export of a dataset names it explicitly, `--with-participants`).
+decided 2026-11-16: the table is its own file, never copied, exported or published unless the command names it (`--with-participants`), and never
+needed to open or compute on a subject. Its variables come from BIDS `participants.tsv` (and its JSON sidecar) or a cohort's own records, imported
+by `participants import`.
 
-**Participants**: `participants import --dataset DATASTORE/NAME --from participants.tsv [--sidecar participants.json]` writes the variables (BIDS's
+**Participants**: `participants import --dataset PATH --from participants.tsv [--sidecar participants.json]` writes the variables (BIDS's
 `participant_id` column matched to subject names; an unknown participant is refused by name, a subject without a row has no values: a missing value
 is a missing row, as the model says); `participants export` writes the TSV and JSON back. Values are typed (`number`, `string`, `boolean`) as the
 model's `variable_dictionary.type` says.
 
-**Cohorts by filtering**: `--where` on any command that takes subjects (`--where "group = 'control' AND age >= 60"`, over the participants table's variables by name; refused when the dataset has no participants table)
-resolves, in io, to a list of subjects; the command then runs exactly as if those subjects had been named. The resolved list (ids and content hashes)
-and the filter text both go into the result's provenance. There is no default cohort: a command across subjects is given `--subjects` or `--where`,
-never "all" by default (`--subjects all` is an explicit choice, recorded as such).
+#### Selecting subjects: `--subjects` and `--where` (decided 2026-11-16)
+
+Every command that works across subjects takes **exactly one** of:
+- `--subjects NAME,NAME,...`: an explicit list of subject names (or ids) of the catalogue. An unknown name is refused, by name.
+- `--where FILTER`: a filter over the **participant variables only**, in the small language below. It is parsed and type-checked by nxr-neuro's io
+  and evaluated over the participants table; it is never passed to SQL as text, and it cannot reach any other table.
+
+Giving neither is refused; there is no "all subjects" default and no `all` keyword. Giving both is refused. A selection that matches no subject is
+refused. Before computing, the command prints the matched subjects (name, id, package content hash) and their number; the same list, the filter
+text and the filter language's version go into the result's provenance.
+
+**The filter language, version 1** (EBNF; keywords are lower-case words; whitespace separates tokens):
+
+```
+filter      = disjunction ;
+disjunction = conjunction , { "or" , conjunction } ;
+conjunction = negation , { "and" , negation } ;
+negation    = "not" , negation | primary ;
+primary     = "(" , disjunction , ")" | test ;
+test        = variable , comparator , value
+            | variable , "in" , "(" , value , { "," , value } , ")"
+            | variable , "is" , "missing" ;
+comparator  = "==" | "!=" | "<" | "<=" | ">" | ">=" ;
+variable    = name | "`" , { any character except "`" } , "`" ;     (* a name with spaces or symbols is quoted with backticks *)
+name        = letter , { letter | digit | "_" } ;
+value       = number | string | "true" | "false" ;
+number      = [ "-" ] , digit , { digit } , [ "." , digit , { digit } ] , [ ( "e" | "E" ) , [ "+" | "-" ] , digit , { digit } ] ;
+string      = "'" , { any character except "'" | "''" } , "'" ;        (* '' is a quote inside a string *)
+```
+
+Precedence: `not` binds tightest, then `and`, then `or`; parentheses group. Examples: `group == 'control' and age >= 60`,
+`site in ('a', 'b') and not (diagnosis is missing)`, `` `handedness score` > 40 or group != 'patient' ``.
+
+**Checks, before anything is read** (each refusal names what is wrong):
+- **Unknown variable**: refused, naming the variables the participants table has. No participants table: refused, saying so.
+- **Types**, from `variable_dictionary.type`: a `number` variable takes numbers and every comparator; a `string` variable takes strings with `==`,
+  `!=` and `in` (no ordering of text); a `boolean` variable takes `true` / `false` with `==` and `!=`. A mismatch is refused (e.g. `age == 'old'`).
+- **Levels**: a categorical variable (`levels_json`) refuses a value outside its levels, naming them.
+- **Syntax**: an error names its position and what was expected (`=` alone is refused with a hint to write `==`).
+
+**Missing values** follow SQL's three-valued logic, so a filter never selects a subject by accident: a comparison or `in` on a missing value is
+*unknown*; `not unknown` is unknown; `unknown and false` is false, `unknown or true` is true; a subject is selected only when the whole filter is
+TRUE. `is missing` is the one test that is true on a missing value.
+
+**Expandable later**: a new construct (functions, ranges, variables of another table) is a new language version, recorded in provenance; a
+version-1 filter keeps its meaning.
 
 ### 3.2 Membership and location
 
 - A subject is a member of a dataset when the catalogue has its entry. Its package is usually inside the dataset folder; a package elsewhere
   (another dataset's, a shared read-only location) can be listed by path. **A catalogue writes only packages inside its own folder**; one it lists from
-  elsewhere is read-only to it (open questions a and e).
+  elsewhere is read-only to it (decided 2026-11-16, as is the next point).
 - The package's `dataset` row is its **home** (where it was made). Listing a subject in another catalogue does not change the package.
+- **A subject's UUID is global**: one subject, one id, wherever its package is copied. A copy that is then changed is a new content hash under the
+  same id (registration reports it `updated`); a deliberate fork takes a new id (`subject fork`).
 
 ### 3.3 The cross-subject index is a cache
 
 Some readers want SQL across subjects (the Studio's views over a dataset, `measure query` across a cohort). For them `dataset index --dataset
-DATASTORE/NAME` builds `index.sqlite`: a database in the model's schema holding every registered package's rows and its templates' rows, in the
+PATH` builds `index.sqlite`: a database in the model's schema holding every registered package's rows and its templates' rows, in the
 shape of today's `dataset.sqlite` (so every existing reader of a format-52 dataset database reads it unchanged).
 - **Built from the packages, never written otherwise.** Its `meta` records the content hash of every package it was built from; a reader that finds
   a package whose hash differs (or a new member) rebuilds it (or the part for that package) before trusting it. Deleting it loses nothing.
@@ -192,11 +246,25 @@ differ.
 - **A template is released**: `template release --package PATH --name NAME --version VERSION` freezes a template package: it computes the content
   hash, writes `name`, `version` and the hash into the package record, and from then on io opens it **read-only** (a released template is never
   written again; a change is a new version, a new package with a new subject id).
-- **Where templates live**: in a templates folder (a datastore-level `templates/<name>/<version>/<name>.nxr.zarr`, or any folder the caller
-  names). A dataset does not copy a template: its catalogue's `template_reference` names it by **name + version + content hash** with a location
-  hint. io resolves it from the hint, then from the template folders the caller names (`--templates PATH`, repeatable); a package found with another
-  hash is refused, by name and both hashes. Which template a dataset uses is the caller's choice at `dataset create --template NAME@VERSION`
-  (recorded in the catalogue), never a default of the code.
+- **Released versions are frozen** (decided 2026-11-16). `template release` is the only way to publish a version; it records who released it (the
+  program and the releaser's stated name) and refuses an item without an `origin` record (source, licence, attribution), so a template's licences
+  are checked before it is shared. The version string is the releaser's (e.g. `1.0`); `name@version` must be unique, and its content hash decides.
+- **Where templates live: anywhere, found through the template search path** (decided 2026-11-16). A dataset never copies a template: its
+  catalogue's `template_reference` (and each package's record) names it by **name + version + content hash**. io finds it by looking, in order, in:
+  1. the locations the command names (`--templates PATH`, repeatable);
+  2. the environment variable **`NXR_TEMPLATE_PATH`**: a list of folders separated by the platform's path separator (`:` on Linux and macOS, `;` on
+     Windows), as `PATH` is;
+  3. the user setting **`template_path`** (a JSON list of folders) in nxr's per-user settings file, `$XDG_CONFIG_HOME/nxr/settings.json`
+     (`~/.config/nxr/settings.json` when unset) on Linux, `~/Library/Application Support/nxr/settings.json` on macOS,
+     `%APPDATA%\nxr\settings.json` on Windows; the Studio's settings page edits the same file;
+  4. the location hint recorded in the catalogue entry (where the template was when the dataset was made).
+
+  In each folder a released template is the package **`<name>@<version>.nxr.zarr`**. The first one found whose content hash equals the reference's
+  is used; one with the right name and version but another hash is skipped and reported (both hashes). None found: refused, listing every location
+  searched. The search path says only WHERE to look; WHICH template is used is fixed by the reference (name, version, hash), so the setting never
+  chooses data. `template list` prints every template on the search path with its version and hash.
+- **Which template a dataset uses** is the caller's choice at `dataset create --template NAME@VERSION` (recorded in the catalogue), never a default of
+  the code.
 - **Several datasets, one template**: two datasets registered to `fsaverage5@1.0` with the same hash used the same anatomy, the same group tree and
   the same eigenmodes, and that is checkable.
 - **Building one** is what `dataset create --templates` does today (surfaces, parcellations, frames, group tree, `--modes`), retargeted:
@@ -222,7 +290,7 @@ differ.
 - **Changing template version** is a re-registration: the subject's carried nodes are recomputed against the new version (new nodes, new cache keys;
   the template version is part of every such node's cache key). Old nodes keep naming the old version until removed. A released version is never
   changed, so a subject is never invalidated by a template under it; it is moved to a new version only when the caller asks (`subject retemplate
-  --package PATH --template NAME@VERSION`). Who publishes versions and how subjects are moved in bulk: open question b.
+  --package PATH --template NAME@VERSION`; decided 2026-11-16). A cohort is never pooled across template versions.
 
 ## 5. Between-subject analysis
 
@@ -237,7 +305,7 @@ from its package → write the group result.**
 3. **`pyramid reduce`** keeps its sums, merge rules, refusals, memory bound and parity with nxr exactly as `docs/reference.md` describes them. What
    changes is where it reads (each member's package) and where it writes (below). Its provenance gains the members' content hashes and the template's
    name, version and hash.
-4. **Where group results live: a group package** (open question c; recommended). Today `pyramid reduce` writes into the default subject's store. A
+4. **Where group results live: a group package** (decided 2026-11-16). Today `pyramid reduce` writes into the default subject's store. A
    released template is read-only, and a group result is not part of an anatomy, so the result goes to a package of kind `group` (the model's own
    kind for "group averages and statistics": Brainstorm's `Group_analysis`) inside the dataset, registered in the catalogue like any member:
    - its fields are the same rows `pyramid reduce` writes today (`group <kind>`, `function = sum`, `field_contribution` rows, measurements on the
@@ -254,7 +322,7 @@ from its package → write the group result.**
 
 **One job writes one subject package, with no shared lock.**
 
-- **The job** opens the subject's package (`--package PATH`; `--dataset DATASTORE/NAME --subject NAME` is a convenience that looks the path up in the
+- **The job** opens the subject's package (`--package PATH`; `--dataset PATH --subject NAME` is a convenience that looks the path up in the
   catalogue, read-only), takes **the package's** writer lock (`<subject>.nxr.zarr/.writer.lock`, the existing lock file and its rules: same-host
   stale detection, the handshake), and writes rows and keys into `subject.sqlite` and its shards. It needs no catalogue, reads its template only when
   a template's arrays are inputs, and never writes either. Two jobs on two subjects share no file they write.
@@ -262,7 +330,7 @@ from its package → write the group result.**
   WAL is safe when every connection is on one host), or on the node's local disk and moved into the package when the job closes (one rename on the
   same file system, else copy, verify the digest, then replace). Either way the shards go straight to the package.
 - **Creating a subject** on a cluster: `subject create --package PATH --template NAME@VERSION` makes a package without touching any catalogue.
-- **Registering** replaces staging and merge: `dataset register --dataset DATASTORE/NAME --package PATH [PATH ...]` (or `--scan`, every package in
+- **Registering** replaces staging and merge: `dataset register --dataset PATH --package PATH [PATH ...]` (or `--scan`, every package in
   the dataset folder), run once after the jobs (the workflow's last step), or by a job itself at its end. It takes the catalogue's writer lock for one
   short transaction per package (no array is read or moved; it reads the package record and checks rows) and:
   - checks: the schema version and store format are known; the package is complete (no `pending` node, no `.writer.lock` held); its anchor rows
@@ -276,8 +344,8 @@ from its package → write the group result.**
   - a failed check registers nothing for that package and does not stop the others; the output names each package and its result.
 - **The chunk-queue lock** (`.nxr-chunk-queue.lock`, today one per datastore, so parallel jobs on one datastore wait for each other) exists to keep
   one machine from running two chunk loops at once. Its scope becomes **the machine, not the storage**: a file the caller names (`--queue FILE`) on
-  local disk, or none (on a cluster the scheduler already places one job per allocation). It is never a datastore-wide file on a shared file system
-  (open question 5).
+  local disk, or none (on a cluster the scheduler already places one job per allocation). It is never a shared file on shared storage (technical
+  question 5).
 
 What becomes of the dataset-wide-runs spec: section 1 (few files, format 52) stands and is extended here; **section 2 (staging and merge) is
 superseded** (no merge of rows is needed when no shared database exists); section 3 (the group scope) is kept with section 5 above.
@@ -302,11 +370,12 @@ the change is WHERE it reads, not how it works:
 | `Model.fromBundle`, the entities, the Studio screen | built from the bundle | **unchanged** |
 | the model service (`backend/src/service/model.ts`) | `sets`: one open `ModelDatabase` per dataset; `bundle(storePath)` picks the dataset's database by the path's first segment; `owner` / `forSubject` find the database that holds a row | one `ModelDatabase` per OPEN SUBJECT package, opened on demand; `bundle(storePath)` opens the package the path names; `owner` / `forSubject` resolve to that package's database (a row belongs to exactly one package) |
 | the writer lock (`backend/src/service/writer-lock.ts`) | one per dataset | the same file, one per package (a subject's edits lock that subject only) |
-| `writeCatalog()` after a write | rewrites `catalog.json` from every dataset database | registers the changed package in its catalogue (section 6) |
+| choosing where data is (`app/src/platform/electron.ts`; Home and the File menu: "Change datastore") | a datastore folder, holding datasets, configured once | **"Open dataset"**: the user picks a dataset folder at any path; the app keeps a list of recently opened datasets in its per-user settings (a convenience, not part of the format) |
+| `writeCatalog()` after a write | rewrites the datastore's `catalog.json` from every dataset database | registers the changed package in its dataset's catalogue (section 6); `catalog.json` is retired |
 | the default subject | a subject of the dataset's database | a template package, opened by the same `bundle(storePath)`; its arrays read from its own store (`Model.readFor` resolves the template's package from the reference instead of `<dataset>/<template path>`) |
 | the Datasets and Subjects pages (`dataset`, `subject_status` views) | views over each dataset database | read from the catalogue: its `dataset` and `subject` rows, and `subject_entry`'s counts (the `subject_status` columns) |
 | the cross-subject pages (Acquisitions, Recordings, Fields, Manifolds, Selections, Operators, …: `*_view`) | views over a dataset's database, every subject at once | the same views, over the open subject's package, or over `index.sqlite` (section 3.3) when a page asks for the whole dataset |
-| the served build (`backend/src/served.ts`, `app/src/services/servedDatabase.ts`) | fetches `catalog.json` and each dataset's whole `dataset.sqlite`, then runs `bundleByPath` | fetches `catalog.json`, the catalogue, and ONE `subject.sqlite` when a subject is opened (smaller downloads); the same `bundleByPath` |
+| the served build (`backend/src/served.ts`, `app/src/services/servedDatabase.ts`) | fetches the root's `catalog.json` and each dataset's whole `dataset.sqlite`, then runs `bundleByPath` | is given a published dataset's URL, fetches its `catalogue.sqlite`, and ONE `subject.sqlite` when a subject is opened (smaller downloads); the same `bundleByPath` |
 | imports and conversions (`backend/src/db/import.ts`) | write into the dataset's database | write a package (section 6: `subject create --package`), then register it |
 
 Nothing in the Studio's renderer, its engine or its GPU chains changes. The parity scripts (bundle, views, writes) run against packages.
@@ -319,7 +388,7 @@ Nothing in the Studio's renderer, its engine or its GPU chains changes. The pari
 - **nxr**: `nxr.io.reader` opens a package directly (`open_subject(path)`), and a catalogue (`open_dataset(path)`, giving members' packages);
   `nxr.io.small_files` already reads the `small_files` table and now opens it in `subject.sqlite`.
 - **The WebAssembly data client** (`wasmClient`): `bundle(storePath)` opens the package; `read`, `create`, `put`, `remove` act on its store;
-  `status()` reads `catalog.json` and the catalogues; `view(name, …)` runs on the open package or the index.
+  `status()` reads the open dataset's catalogue (a dataset is opened by its path or URL); `view(name, …)` runs on the open package or the index.
 - **Arrays**: a member's keys are read from its package (`SmallFileStore` over the package folder, as format 52); a template's from the template
   package.
 - **Parity**: the bundle from a package equals, row for row, the bundle of the same subject from a format-52 dataset database (synthetic datasets,
@@ -327,7 +396,9 @@ Nothing in the Studio's renderer, its engine or its GPU chains changes. The pari
 
 ## 8. Migration
 
-Existing datasets (one `dataset.sqlite`, store format 50, 51 or 52) move to the new layout with **`dataset split --dataset DATASTORE/NAME`**, in
+Existing datasets (one `dataset.sqlite`, store format 50, 51 or 52) move to the new layout with **`dataset split --dataset PATH`**. A datastore
+folder's datasets are each split into a self-contained dataset **where they are**: nothing has to be moved, and the old `catalog.json` is left as it
+was and no longer read. Each split runs in
 place, under the dataset's writer lock, **subject by subject, verified byte for byte, resumable, and reversible**, as `dataset compact` is:
 
 1. **Format first**: a dataset below 52 is brought to 52 by `dataset compact` (unchanged), so every subject has its `small_files` table.
@@ -345,10 +416,10 @@ place, under the dataset's writer lock, **subject by subject, verified byte for 
    run); after it, the subject is done and is skipped (a second run changes no byte).
 6. **The end**: `meta.store_format` 53 in every package and the catalogue; the original database is kept, renamed `dataset.sqlite.format52`, and is
    removed only with the maintainers' OK (never delete data without it). Groups: group fields that `pyramid reduce` wrote into the default subject are
-   moved into a group package (open question c), verified as above.
-7. **All at once, not on first use** (recommended; open question f): a dataset is split by one explicit command, never silently when a newer build
+   moved into a group package (decided 2026-11-16), verified as above.
+7. **All at once, not on first use** (decided 2026-11-16): a dataset is split by one explicit command, never silently when a newer build
    opens it, so no reader meets a dataset half in one layout without being told. A build that knows format 53 still reads 50–52 as today.
-8. **Reverse**: `dataset join --dataset DATASTORE/NAME` writes a format-52 `dataset.sqlite` from the packages (the index build, written as the
+8. **Reverse**: `dataset join --dataset PATH` writes a format-52 `dataset.sqlite` from the packages (the index build, written as the
    dataset database) and removes the packages' row tables, leaving `small_files` as format 52 had it. `split` then `join` gives back the original
    database, compared table by table (`test_split`: synthetic datasets at 50, 51 and 52, a crash at each stage, idempotence, the round trip).
 
@@ -356,6 +427,12 @@ place, under the dataset's writer lock, **subject by subject, verified byte for 
 `template_reference`, `key_digest`, the package record in `meta`), added to `model.sql` in all three implementations at once. Every reader refuses a
 version above the newest it knows (`schema_version` error), so a build from before this change refuses a format-53 package instead of misreading it,
 and a format-53 build still opens 50–52 datasets as today.
+
+**Order across the implementations** (decided 2026-11-16): nxr-neuro's io and its WebAssembly client first, behind the version step; then nxr; then
+the Studio; each with parity on the same synthetic datasets before any real dataset is split.
+
+**Stability** (decided 2026-11-16): the subject package format (store format 53, schema 51) is declared STABLE, with a promise that later builds keep
+reading it, only after phase G and its three-way parity tests; until then it is experimental and may change.
 
 ## 9. What it does not change
 
@@ -369,7 +446,7 @@ and a format-53 build still opens 50–52 datasets as today.
   cohorts and templates as the caller gave them and never open a file; compute is untouched (it never knew about subjects). The layering guard keeps
   failing when pipelines, cli or bindings reach a subject's folder.
 
-## 10. Phases and open questions
+## 10. Phases, decisions and the technical questions still open
 
 **Phases** (each its own PR, with its tests; nothing on a real dataset without the maintainers' OK):
 
@@ -378,34 +455,31 @@ and a format-53 build still opens 50–52 datasets as today.
 | 0 | the canary measurement (dataset-wide-runs section 0), extended: in-place vs node-local `subject.sqlite` | timings per phase |
 | A | the subject module in io (`SubjectPackage`, `subject_bundle` over a package), reading packages made by a test from a format-52 dataset | bundle from package = bundle from the database |
 | B | format 53 writing: `SubjectWriter` on a package (per-package lock), `key_digest`, the content hash, `subject create --package`, `subject verify` | node procedure, crash recovery, hash stable and sensitive |
-| C | the catalogue: `dataset create` (catalogue), `dataset register`, `participants import/export`, `--where`, `dataset index` | conflict rules, idempotence, id and vocabulary clashes |
-| D | templates: `template create`, `template release`, resolution by name + version + hash, anchor rows | refusal of a wrong hash, anchor checks |
+| C | the catalogue: `dataset create` (catalogue), `dataset register`, `participants import/export`, `--subjects` and `--where` (the filter language, version 1), `dataset index` | conflict rules, idempotence, id and vocabulary clashes |
+| D | templates: `template create`, `template release`, `template list`, the template search path, resolution by name + version + hash, anchor rows | refusal of a wrong hash, anchor checks |
 | E | migration: `dataset split`, `dataset join`, `dataset retemplate` | round trip at 50/51/52, crash at each stage |
 | F | group: `pyramid reduce` over a catalogue cohort into a group package | the existing reduce tests and nxr parity, unchanged sums |
 | G | nxr and the Studio: the same source, catalogue and package writer, parity tests on the same synthetic datasets; the WebAssembly client | three-way parity |
 
-**Open questions for the maintainers.** The first seven are about the design's shape; the numbered ones after them are technical.
+**Decided 2026-11-16** (each is written into the sections above):
 
-a. **What a dataset is**: a folder of subject packages with its catalogue (simple to copy and archive as one), or a catalogue that can reference
-   packages anywhere (a cohort shared without copying, packages on several file systems). Recommended: the folder by default, with entries by path
-   outside it allowed read-only (section 3.2).
-b. **Shared templates**: where released templates live (a datastore-level `templates/` folder, a separate download, both), who publishes a version,
-   how versions are named, that a released version is frozen (recommended: always), how the `origin` records' licences are checked before a template
-   is shared, and what happens to subjects when a new version appears (recommended: nothing until the caller moves them with `subject retemplate`;
-   a cohort is never pooled across versions).
-c. **Where group results live**: a group package in the dataset (recommended), the catalogue, or the template (today; impossible once templates are
-   released read-only). And whether existing group fields in default subjects are moved at migration.
-d. **The participants table**: which variables it may hold, where they come from (BIDS `participants.tsv`, a cohort's own records), and the
-   data-protection rules: participant variables of a restricted cohort can identify people, so does the table ever ship with a dataset, or does it
-   always stay separate (recommended: its own file, never copied or published unless named, and never needed to open or compute on a subject)?
-e. **Subject identity**: is a subject's UUID global (one subject, one id, wherever its package is copied; recommended) and may one subject be a
-   member of several datasets (recommended: yes, read-only in all but the one whose folder holds it)? What a copy of a package that is then changed
-   becomes (recommended: a new content hash under the same id, which registration reports as `updated`; a deliberate fork takes a new id).
-f. **Migration order** across the three implementations (recommended: nxr-neuro's io and its WebAssembly client first, behind the version step;
-   then nxr; then the Studio; each with parity on the same synthetic datasets before any real dataset is split), and all-at-once (`dataset split`,
-   recommended) versus on first use.
-g. **Stability**: is the subject package format (format 53, schema 51) declared STABLE when the code is public, with a promise that later builds
-   keep reading it (recommended: after phase G and its parity tests, not before), or kept experimental until then?
+- **What a dataset is** (3): a folder of subject packages with its catalogue, by default; a catalogue may list packages outside it by path, read-only.
+- **The datastore is obsolete** (3): datasets live anywhere and are addressed by their own path; `catalog.json` retires; recent datasets are an
+  application's per-user list. Existing datastore folders' datasets are split in place (8).
+- **Shared templates** (4.2, 4.3): released versions are frozen, published only by `template release` (which requires an `origin` record on every
+  item), found anywhere by name + version + hash through the template search path (`--templates`, `NXR_TEMPLATE_PATH`, the user setting
+  `template_path`, the recorded hint); a subject moves to a new version only when the caller asks (`subject retemplate`); a cohort is never pooled
+  across versions.
+- **Group results** (5): in a group package of the dataset; existing group fields in default subjects move into one at migration.
+- **The participants table** (3.1): its own file, never copied, exported or published unless named, never needed for one subject.
+- **Selecting subjects** (3.1): `--subjects` (an explicit list) or `--where` (the filter language, version 1, over participant variables only,
+  parsed and checked by io, never SQL); neither is refused; the matched subjects and hashes are printed and recorded.
+- **Subject identity** (3.2): a subject's UUID is global; one subject may be a member of several datasets, read-only in all but the one whose folder
+  holds it.
+- **Migration** (8): all at once by `dataset split`, not on first use; nxr-neuro first, then nxr, then the Studio, each with parity first.
+- **Stability** (8): the format is declared stable after phase G's three-way parity, not before.
+
+**Technical questions still open** (each with its recommendation):
 
 1. **One file or two per subject**: rows and small keys in one `subject.sqlite` (recommended: one transaction for a node's rows and keys, one file
    fewer), or rows in their own file beside format 52's `small_files.sqlite` (no change to the small-key file's name).
@@ -416,11 +490,9 @@ g. **Stability**: is the subject package format (format 53, schema 51) declared 
    scope, name and entries) so every copy has the same id.
 4. **The catalogue's form**: SQLite with the model's tables (recommended: every implementation already reads them), or text files (a BIDS-like TSV
    and JSON pair, easy to diff and edit by hand). Participants import and export TSV either way.
-5. **The chunk-queue lock**: per machine, named by the caller (recommended), per package, or kept per datastore on a workstation only.
+5. **The chunk-queue lock**: per machine, named by the caller (recommended), or per package.
 6. **The content hash**: digests written at every key write (recommended: no re-read of shards to verify), or computed on demand by `subject
    verify` only (no write cost, slow to check).
-7. **The datastore level**: does `catalog.json` stay as the datastore's list of datasets (recommended), and does a datastore also list its
-   templates?
 
 ## Checklist (the architecture policy)
 
@@ -429,7 +501,7 @@ g. **Stability**: is the subject package format (format 53, schema 51) declared 
 - Two modules in io, one dependency direction: the subject module never includes the dataset module; one subject is opened and computed on with its
   package alone.
 - Every file access stays in io: a pipeline names a subject, a cohort or a template; io resolves and opens them.
-- The caller names the data: the cohort (`--subjects` or `--where`, never all by default), the template (name and version), the group package, the
+- The caller names the data: the cohort (`--subjects` or `--where`; neither is refused), the template (name and version), the group package, the
   packages to register.
 - Ported, not redesigned: the row set of a subject and the vocabulary remap (nxr's `shared_dataset` fragment and merge), the bundle's queries and its
   "following the template" (the Studio's `bundleOf`), the participants tables (the model's `variable_dictionary` and `subject_variable`), the writer
