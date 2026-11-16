@@ -637,6 +637,7 @@ int main() {
       CrossSpectrumOptions cb; cb.recording = "rest_b"; cb.channels_of = "free"; cb.chunks = "all"; cb.segment_level = 8; cb.bands = {{"alpha", 8.0, 12.0}}; crossspectrum_compute(ds, sub, cb);
       g::run(ds, sub, denv, set_of({{"recording", "rest_b"}, {"cross_spectrum", "rest_b_crossspectrum_alpha"}, {"level", 5}}), all);
       NullOptions no;
+      no.chunks = "all";                 // the whole recording, stated
       no.recording_a = "rest"; no.recording_b = "rest_b"; no.batch = 3; no.min_draws = 3; no.max_draws = 6; no.h = 10; no.min_crossings = 5; no.replace = true;   // draws 1 and 2 above were made with other parameters
       no.set = set_of({{"space_level", level}, {"transform", "exact"}, {"bursts", "window"}, {"cross_spectrum", "{recording}_crossspectrum_alpha"}});
       const auto nr = null_compute(ds, sub, no);

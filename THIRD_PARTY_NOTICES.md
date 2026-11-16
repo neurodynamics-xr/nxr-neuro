@@ -11,6 +11,7 @@ licence texts are in the source trees named below or at the project URLs. Versio
 | pocketfft (C++ header-only) | commit `4d865cba24359b05b37da4e75aee24498c3b78e7` | vendored, `compute/deps/pocketfft/` (licence: `LICENSE.md` there) | BSD-3-Clause | Copyright (C) 2010-2018 Max-Planck-Society |
 | nlohmann/json | 3.11.3 | vendored, `io/extern/nlohmann/json.hpp` | MIT | Copyright (c) 2013-2023 Niels Lohmann |
 | rapidyaml (ryml, single header) | 0.15.2 | vendored, `io/extern/ryml/` (licence: `LICENSE.txt` there) | MIT | Copyright (c) 2018, Joao Paulo Magalhaes |
+| CLI11 (single header) | 2.4.2 | vendored, `cli/extern/CLI11/` (licence: `LICENSE` there) | BSD-3-Clause | Copyright (c) 2017-2024 University of Cincinnati, developed by Henry Schreiner under NSF award 1414736 |
 | c-blosc | v1.21.6 | fetched (`io/CMakeLists.txt`) | BSD-3-Clause | Copyright (c) Francesc Alted and the Blosc Development Team |
 | zstd | the copy carried by c-blosc, or a system libzstd | linked | BSD-3-Clause (dual-licensed with GPL-2.0; used under BSD-3-Clause) | Copyright (c) Meta Platforms, Inc. and affiliates |
 | zlib | system zlib (Emscripten's port in the WebAssembly build) | linked | zlib licence | Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler |

@@ -65,7 +65,7 @@ SpatialNullResult spatial_null_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   if (!opt.replace)
     if (const auto hit = find_cached(sub.db(), sub.id(), "statistic", key, p_home)) { res.hit = true; res.info = Json{{"cache", "hit"}, {"home_p", base + ".home_p"}}; say(Json{{"stage", "cache"}, {"hit", true}}); return res; }
   graph::RunOptions ro;
-  ro.chunks = opt.chunks; ro.replace = opt.replace;
+  ro.chunks = opt.chunks; ro.start = opt.start; ro.stop = opt.stop; ro.replace = opt.replace;
   Eigen::VectorXd ex_home = Eigen::VectorXd::Zero(V0), sum_home = Eigen::VectorXd::Zero(V0);
   std::vector<double> ex_up(NE, 0.0), ex_lo(NE, 0.0), sum_size(NE, 0.0), n_size(NE, 0.0);
   std::int64_t nd = 0;

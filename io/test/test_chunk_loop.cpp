@@ -41,7 +41,8 @@ int main() {
   const fs::path big = store(root / "big", x, C, T, W), small = store(root / "small", x, C, T, 700);
   const FolderStore rootstore(root);
   // THE SPAN
-  const Span d = resolve_span({}, T, sfreq, t0, W);
+  CHECK_EQ(code_of([&] { resolve_span({}, T, sfreq, t0, W); }), std::string(code::invalid_argument));   // no default span: the caller states its range
+  const Span d = resolve_span({std::string("0"), {}, {}}, T, sfreq, t0, W);   // the first chunk's samples, stated
   CHECK(d.s0 == 0 && d.s1 == W && d.what == "chunk 0");
   const Span k2 = resolve_span({std::string("2"), {}, {}}, T, sfreq, t0, W);
   CHECK(k2.s0 == 2 * W && k2.s1 == T);                                             // the last chunk is partial
