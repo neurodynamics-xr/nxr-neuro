@@ -1,0 +1,40 @@
+name: debug
+on:
+  push:
+    branches: [ci/build-and-test]
+concurrency:
+  group: debug-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  linux:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libsqlite3-dev zlib1g-dev libzstd-dev pkg-config
+      - uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-linux-${{ hashFiles('**/CMakeLists.txt', 'cmake/**') }}
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake --build build --target nxr-neuro-scenario test_crossings test_patches_pipeline test_vortex_cores_pipeline test_spatial_analytic
+      - name: scenario
+        continue-on-error: true
+        run: |
+          rm -rf /tmp/w; mkdir /tmp/w
+          build/io/nxr-neuro-scenario scenario /tmp/w/ds io/test/data/identity_sphere.obj; echo rc=$?
+      - name: crossings
+        continue-on-error: true
+        run: build/compute/test_crossings 2>&1 | tail -20
+      - name: patches
+        continue-on-error: true
+        run: build/pipelines/test_patches_pipeline 2>&1 | tail -60
+      - name: vortex
+        continue-on-error: true
+        run: build/pipelines/test_vortex_cores_pipeline 2>&1 | tail -40
+      - name: analytic
+        continue-on-error: true
+        run: build/pipelines/test_spatial_analytic 2>&1 | tail -40
