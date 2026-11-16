@@ -1,0 +1,54 @@
+name: ci
+
+# Build and test nxr-neuro. Linux on every push and pull request; macOS on pushes to main and on tags.
+on:
+  push:
+    branches: [main]
+    tags: ["v*"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+          - os: macos-14
+            mac: true
+    runs-on: ${{ matrix.os }}
+    # macOS only outside pull requests
+    if: ${{ !matrix.mac || github.event_name == 'push' }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build tools and system libraries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build libsqlite3-dev zlib1g-dev libzstd-dev pkg-config
+
+      - name: Build tools and system libraries (macOS)
+        if: runner.os == 'macOS'
+        run: brew install ninja zstd pkg-config
+
+      - name: Cache fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-${{ runner.os }}-${{ hashFiles('**/CMakeLists.txt', 'cmake/**') }}
+
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+
+      - name: Build
+        run: cmake --build build
+
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -j 4
