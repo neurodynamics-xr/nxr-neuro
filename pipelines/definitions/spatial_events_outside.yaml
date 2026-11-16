@@ -1,0 +1,64 @@
+# THE NOISE REFERENCE OF THE SPATIAL EVENTS (spec docs/specs/2026-11-14-spatial-events.md, "Statistics and nulls"): the SAME patch statistics as `run spatial_events` (count, area distribution, characteristic level, patches per frame) on the frames OUTSIDE the
+# named bursts (and outside the bad segments), stored as a STATISTIC beside the recording, so a reader compares a band's patches inside the bursts with the patches the same threshold finds where no burst is on. The chain, the stored baseline and the stored threshold are `run spatial_events`':
+# `frames` without `within`, and `patches` with `outside` the bursts instead of `bursts` (the run leaves them out), `events: false` (outside the bursts the threshold, a percentile of the relative power there, makes patches on about 1 % of the vertices of every frame: they are counted, never stored as events).
+# Both runs store `summary` (`spatial_events.summary.<recording>`: inside; `spatial_events_outside.summary.<recording>`: outside), the same layout: area_bin_0..31, level_<l>, per_frame_0..16, frames, patches. Inside and outside are compared per frame (the frames differ in number).
+# WHAT IT CANNOT SAY: the reference is the band outside the bursts under the same instrument (the inverse's spread, volume conduction); it says what the threshold finds on non-burst frames, not that the patches inside the bursts are anything else than larger or more numerous than that.
+#
+#   nxr-neuro run spatial_events_outside --dataset <folder> --subject sub-01 --set bursts=<bursts> --chunks all
+pipeline: spatial_events_outside
+version: 1
+description: the patch statistics of a band's power above its baseline on the frames OUTSIDE the bursts (the noise reference of the spatial events), a statistic
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
+  tiles:     {selection: ladder, manifold: kernel.to}
+  tiling:    {selection: spans, manifold: recording.time, where: {name: $tiling}}
+  bursts:    {selection: spans, manifold: recording.time, where: {name: $bursts}}
+  baseline:  {statistic: mean, where: {name: $baseline_statistic}}
+  threshold: {statistic: histogram, where: {name: $threshold_statistic}, required: false}   # read only by `threshold: percentile` (refused there when it is not stored)
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: none            # the recording's name, or none: every recording of the subject, one run each
+  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
+  band: [8.0, 12.0]
+  shape: morlet
+  spatial_shape: mexhat
+  levels: [2, 3, 4, 5, 6, 7, 8]   # the scale space: one hat each (2 and 3 reach the coarse sizes level 4 cut off;); must be the baseline's
+  reference_level: 6         # the level whose relative power the patches are cut from
+  method: MNE
+  transform: auto
+  modes: 0
+  order: 0
+  tolerance: 0.01
+  tiling: "{recording} frames 0.00257492 s"
+  bursts: "global_bursts.bursts_kept.{recording}"
+  baseline_statistic: "spatial_baseline.baseline.{recording}"   # the stored baseline (`run spatial_baseline`), by name
+  threshold_statistic: "spatial_threshold.histogram.{recording}"   # the stored distribution of the relative power outside the bursts (`run spatial_threshold`), by name
+  threshold: percentile      # percentile (the default: the false-alarm rate, measured) | ratio (a multiple of the vertex's baseline)
+  percentile: 99.0           # threshold percentile: the relative power's 99th percentile outside the bursts (about 1 % of vertices above it on frames with no event)
+  ratio: 2.0                 # threshold ratio: the patches are where the relative power is at least this multiple of the vertex's baseline (about 13.5 % of vertices on noise alone)
+  min_area: 0.0              # m²: smaller patches are dropped
+  bad_segments: exclude
+  block_frames: 256          # the frames cut at once by the finder (memory only: the result does not depend on it)
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {step: analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
+      - {step: frames, in: {x: z, tiling: tiling}, out: z_frames}
+      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles}, with: {levels: $levels, glued: true, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
+      - {step: power, in: {x: j}, out: p}
+      - {step: relative, in: {x: p, baseline: baseline}, out: r}
+      - {step: at_level, in: {x: r}, with: {level: $reference_level}, out: r_ref}
+      - {step: scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
+      - step: patches
+        in:   {x: r_ref, scale: sc, outside: bursts, exclude: bad, threshold: threshold}
+        with: {threshold: $threshold, percentile: $percentile, ratio: $ratio, min_area: $min_area, block_frames: $block_frames, bad_segments: $bad_segments, events: false}
+        out:  [events, frame, burst, centre_vertex, centre, area, diameter_cm, characteristic_level, size_cm, relative_peak, home, summary]
+
+outputs:
+  summary: {kind: statistic}

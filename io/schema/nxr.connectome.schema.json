@@ -1,0 +1,22 @@
+{
+  "$schema": "./nxr.meta.schema.json",
+  "$id": "https://nxr.dev/schema/nxr.connectome.schema.json",
+  "kind": "nxr.connectome",
+  "version": "1.0",
+  "title": "NXR Connectome (on-disk)",
+  "description": "Structural connectome derived from fibers: a sparse vertex x vertex weight matrix W indexed to the subject's manifold mesh vertices, plus the largest-connected-component vertex indices. Lives under manifold/ because W is only valid against this store's mesh.",
+  "dims": { "V": "number of manifold vertices", "nKeep": "vertices in the largest connected component" },
+  "attributes": {
+    "schema": { "type": "string", "const": "nxr.connectome@1.0", "required": true },
+    "resolution": { "type": "string", "description": "'vertex' | 'roi'." },
+    "atlas": { "type": "string" },
+    "n_fibers": { "type": "int" },
+    "smooth_hops": { "type": "int" },
+    "edge_thr": { "type": "float" },
+    "registration": { "type": "string", "description": "Fiber provenance string from tess_connectome, e.g. 'own:<comment>' (subject's own fibers) or 'default:HCP-1065' / 'default:HCP-1065 (registered)' (template fibers)." }
+  },
+  "sparse": { "W": { "required": true } },
+  "arrays": {
+    "keep": { "dtype": "int32", "shape": ["nKeep"], "storage": "row_major", "description": "Largest-CC vertex indices W is defined on." }
+  }
+}

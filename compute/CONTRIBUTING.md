@@ -1,0 +1,762 @@
+# CONTRIBUTING.md — nxr-compute
+
+> **In nxr-neuro** (imported with its history): this folder is the compute library only (`nxr_compute`: `src/`, `include/`, `deps/`, `test/`, `docs/`). The bindings
+> moved to `../bindings/` (with their `package.json`, `scripts/` and prebuilt `dist/`), and the build is the top-level one (`cmake -S . -B build -G Ninja` at the root,
+> options `NXR_NEURO_BUILD_*`; see `../README.md`). Paths below that name `bindings/`, `scripts/` or `dist/` are now under `../bindings/`; the dependency policy is amended (2026-11-10, below).
+
+
+C++ compute engine for cortical surface analysis, shipped with four
+bindings (N-API addon, WASM/Embind, MATLAB MEX, CLI). All four wrap
+the same `nxr_compute` static library — same source, same numerical
+contract.
+
+> **Dependency policy:** Eigen + Spectra + geometry-central **+ pocketfft** (header-only, BSD-3, vendored as the single
+> header `deps/pocketfft/pocketfft_hdronly.h` with its license). Vendored rather than fetched so every build (offline, the wasm build, CI) has it
+> byte-identical to the pin recorded in `deps/pocketfft/README.md`. Nothing else. pocketfft is the FFT inside NumPy and SciPy, so `nxr::fft` equals
+> `numpy.fft` to rounding (`test_fft`), and the time transforms of nxr, Rheome and the Studio have one maths.
+>
+> **FFT and filterbanks (2026-11-10):** `include/nxr/fft.h` (`nxr::fft`: c2c/r2c/c2r along an axis, numpy's norms, `fftfreq`/`rfftfreq`, `nextFastLen`) and
+> `include/nxr/filterbank.h` (`nxr::filterbank`: the graph filterbank, exact-eigenbasis and Chebyshev transforms, frame bounds; Meyer's dyadic frame).
+> Design and the Rheome/nxr/Studio comparison: `../docs/specs/2026-11-10-filterbanks.md`. Parity goldens: `test/golden/` (each has its generator).
+
+---
+
+## Overview
+
+The library lives in `src/` and `include/nxr/compute.h`. The four
+binding shells live under `bindings/`:
+
+| Path | Artifact |
+|---|---|
+| `bindings/node/src/addon.cpp` | `nxr_compute_addon.node` (N-API) |
+| `bindings/wasm/src/nxr_compute_wasm.cpp` | `nxr_compute.wasm` (Embind) |
+| `bindings/mex/src/nxr_compute_mex.cpp` | `nxr_compute.mexw64` (MATLAB MEX) |
+| `bindings/cli/src/main.cpp` | `nxr_compute.exe` (CLI smoke harness) |
+
+All four are **context-based**: each mesh is bound once via
+`createContext(vertices, faces)` and the resulting opaque handle holds
+the assembled operator structs and a `CholeskyCache` for the rest of
+its lifetime. There are no JS-side handles for individual factors —
+the cache is internal to the C++ side.
+
+`MeshOperators` and `DECOperators` mix view and value semantics. Field
+names match geometry-central's canonical cache names where the concept
+maps directly (`cotanLaplacian`, `vertexDualAreas`, `vertexNormals`,
+all `DECOperators` fields):
+
+- **View fields** — const-references into geometry-central's cached
+  matrices: `MeshOperators::cotanLaplacian` and every field on
+  `DECOperators`. `assembleMeshOperators` / `assembleDECOperators`
+  pin the caches via `require*` and bind the references.
+- **Value-owned fields** — `ManifoldOperators::mass` is variant-aware
+  (`MixedVoronoi` (default) / `Galerkin` / `Barycentric`). Held by
+  value so the struct shape is uniform across variants.
+  `vertexDualAreas` and `vertexNormals` are also value-owned
+  (`vertexNormals` uses the row-major `VertexNormalsMatrix` alias so
+  the §11 row-major binding output is a direct memcpy).
+
+  Mass names: `MixedVoronoi` is Meyer et al.'s mixed Voronoi area of the mollified INPUT, recorded before the first flip
+  (`delaunay::Mesh::mass`) — the Studio's, nxr's and Rheome's "lumped" mass, and the default. `Barycentric` is A_T/3 per vertex on the operator
+  mesh (geometry-central's `vertexLumpedMassMatrix`, formerly this library's `Lumped`; the name `lumped` is retired, no alias, and
+  `parseMassMatrixVariant("lumped")` throws). `Galerkin` is the consistent P1 mass on the operator mesh.
+
+Lifetime contract: the binding holders (`ContextHolder` /
+`ContextWrapper`) keep the operator structs and the owning
+`ComputeContext` together, and no code path should call `unrequire*`
+on the geometry while the views are alive. See the comment block
+above `MeshOperators` in `include/nxr/compute.h`.
+
+---
+
+## MATLAB Reference Functions
+
+Every C++ function here has a MATLAB reference in `../bioctree/toolbox/+bct/`.
+When implementing or debugging, consult these files:
+
+| C++ function | MATLAB reference |
+|---|---|
+| `assembleMeshOperators` | `+bct.+manifold.+operator.laplacebeltrami`, `+bct.+manifold.+operator.mass` |
+| `assembleDECOperators` | `+bct.+manifold.+operator.dec` |
+| `solveEigenmodes` | `+bct.+manifold.+eigen.solve` |
+| `normalizeEigenmodes` | `+bct.+manifold.+eigen.normalize` |
+| `removeDC` | `+bct.+manifold.+eigen.removeDC` |
+| `solvePoisson` | `+bct.+manifold.+solve.poisson` |
+| `hodgeDecompose` | Helmholtz/Hodge — α (gradient), β (curl), γ (harmonic) |
+| `computeGeodesicDistance` | `+bct.+manifold.+solve.heatdistance` |
+| `computeCurvatures` | `+bct.+manifold.+geometry.curvatures` |
+| `computeDirectionField` | trivial connections (Crane / de Goes / Desbrun) |
+| `whitneyInterpolate` / `scalarGradient` | `+bct.+field.+generate.gradient` |
+| mesh health checks | `+bct.+manifold.+health.*` |
+
+---
+
+## MATLAB coordinate-system bundle (Topology / Geometry / Gauge)
+
+The MEX binding exposes four commands that hand Brainstorm a halfedge-mesh
+coordinate system for MEG leadfield analysis (design:
+`docs/superpowers/specs/2026-06-08-topology-geometry-gauge-bundle-design.md`):
+
+| MEX command | Returns |
+|---|---|
+| `nxr_compute('topology', h)` | element-grouped halfedge struct-of-arrays (1-based; `0` = none/boundary) |
+| `nxr_compute('geometry', h)` | light per-element geometry; frames are the complex `grid` (`c = e1+i·e2`, normal = `real×imag`); curvature is the 2-RoSy deviatoric `q` + `meanCurvature` |
+| `nxr_compute('gauge', h, type[, opts])` | gauge as a transform of the Levi-Civita grid: `euclidean`/`levi-civita`/`trivial`. Returns `vertex.rotation` [V×1] AND `face.rotation` [F×1] (identity except `trivial`, which also carries singularities). Rotations are COMBING multipliers: `rotation .* grid` is the combed (trivially-parallel) frame and `real(rotation .* grid)` is the trivial parallel field on that domain — i.e. the *conjugate* of the accumulated transport coefficient (anchored byte-exact to `directionField`'s `vertexVectors`/`directionVectors`) |
+| `nxr_compute('bundle', h, gaugeType[, opts])` | `{Topology, Geometry, Gauge}` in one call |
+| `nxr_compute('operators', h, family[, subtype])` | a single named operator as native sparse — `laplacian` (`cotan`/`graph`/`connection`/`covariant`), `mass` (`lumped`/`galerkin`), `hodge` (`h0`/`h1`/`h2`/`h1inv`), `dec` (struct `{d0,d1}`), `gradient3D` (the covariant gradient `G`, `[3E×3N]`, cached), `dirac` (the relative-Dirac family `L(τ) = (1−τ)·cotan⊗I₄ + τ·D_N`, real `[4V×4V]`, `τ∈[0,1]`; the 4th arg is a numeric `τ`, not a string subtype), `diracFace` (the FACE-domain dual relative-Dirac family `L̃(τ) = (1−τ)·K̃⊗I₄ + τ·Ẽ`, real `[4F×4F]`, `τ∈[0,1]` numeric; exact face normals, face-supported eigenbasis), `diracD` (the *first-order* rectangular Dirac `D`, real `[4F×4V]`, cached, τ-free — `DᵀW_F D == dirac(1)`), `diracFaceD` (the first-order face-domain dual Dirac `D̃`, real `[4V×4F]`, cached — `D̃ᵀW_V D̃ == diracFace(1)`; throws on open boundary, like `diracFace`); `connection` is complex. Same matrix the internal solvers use (single source of truth). **WASM parity:** the WASM/Embind `Manifold` exposes the identical surface as `manifold.operators(family, arg)` (`bindings/wasm/src/nxr_compute_wasm.cpp`) — `arg` is the subtype string, a numeric `τ`, or omitted; outputs are COO (`{row,col,data,rows,cols,nnz}`; complex COO with `realData`/`imagData` for `connection`; `{d0,d1}` for `dec`). The N-API addon now exposes the same surface (`bindings/node/index.mjs` → `nxr.operators` / `manifoldContext.operators`), with one intentional difference: the addon's named-operator eigensolve `eigs` is **async** (returns a Promise, matching the addon's own `solve()`), whereas WASM's `eigs` is synchronous. |
+| `nxr_compute('frameTransport', h, i, j)` | `3×3` orthogonal `Fⱼᵀ Fᵢ` — flat full-frame transport between any two vertex frames (1-based `i,j`) |
+| `nxr_compute('liftToWorld', h, Lloc)` / `('liftToFrame', h, Lworld)` | `[nV×3]` local↔Cartesian frame lift (inverse of `G·cᵀ`) |
+
+**Named-operator eigensolve (`solve::eigenProblemFor` / `solve::eigenOperator`).**
+Single source of truth for "named operator → generalized eigenproblem `(K, M, σ)`":
+each operator's *natural* generalized mass (the metric its eigenproblem is posed
+against) lives in the library, not in every consumer. `eigenProblemFor(m, spec)`
+returns `{K, M, σ, blockSize}` for `LaplacianCotan` (`(cotanL, mass)`),
+`LaplacianGraph` (`(graphL, I)`), `Dirac` (`(dirac(τ), M_galerkin ⊗ I₄)`), and
+`DiracFace` (`(diracFace(τ), diag(faceArea) ⊗ I₄)`) — masses built via
+`blockKron(M, b)` = interleaved `kron(M, I_b)` matching the Dirac 4v+c storage.
+`eigenOperator(m, spec, k, σ, normalize, reconstructMultiplets, dense)` assembles
++ eigensolves: with `reconstructMultiplets` on a blockSize-4 operator it closes
+each eigenvalue cluster under **right-quaternion multiplication** to recover exact
+4-fold multiplets (Spectra miscounts the degenerate clusters — this fixes both the
+*count* and a cluster truncated at the k-boundary); with `dense=true` it runs
+Eigen's `GeneralizedSelfAdjointEigenSolver` for an exact small-mesh cross-check
+(size-capped at 4096 — verification-only, not the cortical path). Exposed in WASM
+as `manifold.eigs({operator, subtype?, tau?, mass?, k, sigma?, normalize?,
+multiplets?, dense?})` → `{eigenvectors (vMajor n·k), eigenvalues, k, nConverged,
+blockSize}` — the operator AND its mass are assembled C++-side, so consumers never
+build `M⊗I₄` and there is one boundary crossing (results only).
+`solveEigenmodesFromTriplets` remains the bring-your-own-matrix escape hatch.
+Covariant (component-major, `kron(I₃,M)`) and the complex connection Laplacian
+(needs the real2N embedding) are deferred. Design:
+`docs/superpowers/specs/2026-06-15-operator-eigensolve-design.md`.
+
+**Covariant differential operators (`nxr::manifold::differential`).** Artifact-free
+transport + differentiation of a 3-vector cortical field (e.g. a leadfield) expressed in
+per-vertex frames `Fᵥ = [e1|e2|n]` (from `geometry::vertexFrames`). The connection is the
+flat full-frame transport `P_ij = Fⱼᵀ Fᵢ` — it accounts for the tangent rotation AND the
+normal tilt, is **path-independent** (zero holonomy: `Fᵢᵀ Fₖ·Fₖᵀ Fⱼ·Fⱼᵀ Fᵢ = I`), and so
+removes the frame-rotation artifact (Cartesian-parallel leadfields on opposite sulcal walls
+reading as antiparallel). `differential::covariantGradient` is the sparse `[3E×3N]` covariant
+difference `δ_e = L_j − P_ij L_i` (`+I₃` at `j`, `−P_ij` at `i`, component-major `[a;b;c]`);
+a Cartesian-constant field has `G·L = 0`, and `GᵀWG` (W = edge cotan weights) equals the
+existing Ambient covariant Laplacian (a built-in consistency anchor — verified to <1e-9).
+Use `G` as a **gradient** (first-order); its degenerate Ambient spectrum is irrelevant. The
+*frame*-coupled curvature-spectral operator (α-coupled / shell) remains a separate, deferred
+question — only transport/gradients are canonical and parameter-free here. (The *extrinsic*
+relative-Dirac spectral family — a different, Gauss-map-based construction — IS implemented;
+see "Extrinsic Dirac operator" below.) Design:
+`docs/superpowers/specs/2026-06-10-cortical-covariant-differential-operators-design.md`.
+
+Library backing (all in `nxr::manifold`): `geometry::vertexGrid`/`faceGrid`,
+`geometry::vertexCurvature`, `geometry::meshTopology`, `geometry::meshGeometry`,
+`connection::integrateTrivialGaugeRotations`. Indices are 0-based in C++ and
+converted to 1-based at the single MEX marshal boundary (`indexVectorToMx1Based`);
+complex arrays cross via the R2018a interleaved API. The Cartesian↔intrinsic
+leadfield correspondence is `G_intrinsic = G·cᵀ` (exact, invertible — verified
+in `bindings/mex/test/test_bundle.m`).
+
+**Operators surface (opt-in).** Passing `opts.operators = true` to any of the
+four commands attaches an `.operators` sub-struct of live native MATLAB sparse
+operators to each surface, cached on the handle (design:
+`docs/superpowers/specs/2026-06-08-operators-surface-design.md`). Each surface
+owns the operators whose highest ingredient is that surface — the
+`operators.laplacian` through-line is graph → cotan → connection:
+`Topology.operators` = `laplacian` (graph `D−A` = `d0ᵀd0`, via
+`ops::graphLaplacian`) + `dec.{d0,d1}`; `Geometry.operators` = `laplacian`
+(cotan) + `mass.{mixedVoronoi,barycentric,galerkin}` + `hodge.{h0,h1,h2,h1inv}`; `Gauge.operators`
+= `laplacian` (vertex connection Laplacian *in the current gauge* — Levi-Civita
+for euclidean/levi-civita, trivial for trivial — native **complex** sparse,
+`nSym=1`) + `covariantLaplacian` (the 3-frame covariant Laplacian, `3N×3N` real
+sparse on `[a;b;c] = [Re z; Im z; normal]`; `coupling ∈ {product, ambient}`,
+default `ambient` — `ambient`'s world-coords form is `kron(I₃, cotanLaplacian)`;
+design: `docs/superpowers/specs/2026-06-08-vector-laplacian-3d-design.md`). Light
+by default (no flag ⇒ byte-identical, no `.operators` field). `MeshData` and
+`Gauge.face.rotation` remain deferred.
+
+**Extrinsic Dirac operator (`operators … dirac τ`).** A curvature-aware
+*extrinsic* spectral operator: the relative-Dirac family `L(τ) = (1−τ)Δ₄ + τ·D_N`
+of Liu/Jacobson/Crane (SGP 2017), interpolating between intrinsic Laplace–Beltrami
+(`τ=0`) and the purely-extrinsic relative Dirac `D_N` (`τ=1`, depends only on the
+Gauss map / shape operator). Geometry-only — it produces a curvature-aware
+eigenbasis from the cortex; any data (leadfield) expansion onto it is downstream
+and out of scope. Built directly (geometry-central has no Dirac): the extrinsic
+block is `E = Dᵀ⋆_F D` from the per-face quaternionic Dirac matrix
+(`-(N_r−N_q)/2A` blocks, vertex normals + face areas), cached as
+`OperatorId::Dirac`; `Δ₄` is the existing cotan ⊗ I₄. `dirac(τ)` blends them by
+value (`τ=0` skips `E`, `τ=1` skips `Δ₄`). Quaternion storage is
+**vertex-interleaved** `[w,x,y,z]` at index `4v+c` — i.e. `cotanL ⊗ I₄` is
+`kron(cotanL, I₄)` (vertex-major), so in MATLAB the τ=0 anchor is
+`kron(Lc, speye(4))` and the eigenbasis is `eigs(L, kron(Mg, speye(4)))`
+(Galerkin mass, *not* `kron(I₄, ·)`). `L(τ)` commutes with right-ℍ-multiplication,
+so eigenvalues come in exact 4-fold quaternionic multiplets (the constant mode is
+a 4-fold zero for all τ). The `τ=0` discretization byte-matches `cotanL ⊗ I₄`
+(built-in correctness anchor). The **first-order** rectangular Dirac `D` itself
+(`[4F×4V]`, `ops::dirac::matrix` → `operators().diracD()`, MEX `operators … diracD`)
+is exposed as a separate cached operator: `E = DᵀW_F D` is its area-weighted
+Galerkin square (so `dirac(1)` and `diracD` never drift — same triplets), and `D`
+annihilates constant quaternionic fields (the first-order analogue of "Δ kills
+constants"). Designs:
+`docs/superpowers/specs/2026-06-10-extrinsic-dirac-operator-design.md`. Boundary
+conditions (infinite potential well) and the cross-surface canonical
+representative remain deferred (single closed cortex, v1).
+
+**Face-domain (dual) Dirac (`operators … diracFace τ`).** The `V↔F` Poincaré dual
+of the above: the quaternionic field lives on **faces** (`[4F×4F]`, eigenbasis on
+faces), and the Gauss map is sampled at the **exact per-face normal** (`e₁×e₂`, no
+vertex-normal averaging). Motivating use: expanding a **face-integrated current-flux
+leadfield** (a 2-form genuinely defined on faces). The extrinsic block `Ẽ = D̃ᵀ⋆_V D̃`
+aggregates each vertex star's fan of face normals (`-(N_{f_{k+1}}−N_{f_{k−1}})/2Ã_v`,
+cyclic one-ring), cached `OperatorId::DiracFace` (gauge-independent); the intrinsic
+anchor `K̃ = d₁⋆₁⁻¹d₁ᵀ` (DEC 2-form Laplacian, cached). **The vertex-star aggregation
+is REQUIRED**: an edge-only (2-face) assembly is norm-multiplicatively degenerate
+(`|L_v u|²=|v|²|u|²` collapses it to a scalar curvature²-Laplacian ⊗ I₄, not a
+Dirac). Storage is **face-interleaved** `4f+c` (`kron(K̃,I₄)`), so in MATLAB the τ=0
+anchor is `kron(Ktilde, speye(4))` and the eigenbasis `eigs(L, kron(diag(Af),
+speye(4)), k, -1e-8)`. Still right-ℍ-equivariant ⇒ multiplicities divisible by 4
+(NOTE: Spectra miscounts the degenerate clusters — use a dense solve to verify
+multiplicities). `diracFace(0)` byte-matches `K̃⊗I₄`. The first-order rectangular face-domain Dirac
+`D̃` (`[4V×4F]`, `ops::dirac::matrixFace` → `operators().diracFaceD()`, MEX
+`operators … diracFaceD`) is likewise exposed as a separate cached operator:
+`Ẽ = D̃ᵀW_V D̃` is its `⋆_V`-weighted Galerkin square (`diracFace(1) == diracFaceD`
+square), and `D̃` kills constant face-quaternionic fields. Design:
+`docs/superpowers/specs/2026-06-10-face-domain-dirac-operator-design.md`. Closed-mesh
+v1: both `Ẽ` and `D̃` **throw** on an open boundary (open vertex stars; fail-loud) —
+the infinite-potential-well boundary treatment is deferred.
+
+**Mesh quality / PSD note.** All operators use geometry-central's raw signed cotan
+weights (matching GC), so on non-Delaunay meshes (obtuse triangles — common on
+FreeSurfer cortex) the cotan / connection / covariant Laplacians can be *indefinite*.
+`nxr_compute('fixDelaunay', V, F) → [V, F']` is a stateless utility that flips edges
+to (extrinsic) Delaunay (`nxr::manifold::fixDelaunay` → GC `fixDelaunay`); same
+vertices, new faces, best-effort PSD (not certified — extrinsic flips perturb the
+surface and needn't fully converge). The *certified*-PSD path is
+`nxr_compute('create', V, F)` — the intrinsic mollified Delaunay mesh (**the default since 2026-11-10**;
+`struct('intrinsicDelaunay', false)` is the named option "embedded"). ONE construction, `include/nxr/delaunay.h`
+(a line port of the Studio's `intrinsicDelaunay.ts`: mollify; signposts; the mixed-Voronoi mass of the mollified input recorded before the first
+flip; FIFO flips while the cotan weight < −`flipEps`; the reference's flip refusals and self-edges), builds the `Manifold`'s operator mesh
+(`Manifold::operatorMesh()`), and EVERY intrinsic operator is built on it: cotan Laplacian, the three masses, the stand-alone DEC (so
+`d0ᵀ★₁d0 == cotanL` and `hodge0 == mass`), the vertex connection Laplacian (transport from the signposts' gauge: each vertex's first outgoing
+halfedge in face order, the twinless one at a boundary; `geometry::vertexFrames` are that gauge's frames) and the Hodge–Dirac pencil. The numerical
+constants are the named, recorded options `mollify` (relative δ, 1e-6) and `flipEps` (1e-6). Parity with the Studio and with nxr's
+`prepare` on stretched/cocircular/sliver meshes: `test/parity/test_delaunay_parity.py`. Still on the INPUT mesh (geometry-central, indexed by the input's
+edges and faces): `Manifold::decEmbedded()` (Hodge decomposition of a 1-form, the trivial connection and its gauge/combing, the face Diracs), the
+Face/Edge connection domains, the extrinsic Dirac E, and the light `Topology`/`Geometry` bundle (`vertexFramesEmbedded`, `vertexGridEmbedded`).
+(Note `normalize` is the unrelated eigenvector M-orthonormalization, not a mesh op.)
+
+**Manifold geometry facets (C++).** `Manifold` exposes a GC-faithful, embedding-rooted
+facet layer (`include/nxr/facets.h`, `src/facets.cpp`; design/plan
+`docs/superpowers/{specs,plans}/2026-06-09-manifold-geometry-facets*`): typed views
+`topology()/embedded()/intrinsic()/extrinsic()` (per-element *data*, element-first —
+e.g. `embedded().vertex().grid()`, `intrinsic().edge().cotanWeight()`), `gauge()`
+(frame *transforms*), and `operators()` (assembled *matrices*). Raw-input aliases
+`vertexPositions()`/`faces()`. Additive — the existing `mesh()/geometry()/operatorGeometry()`
+accessors are unchanged; data facets slice a lazily-cached `geometry::meshGeometry`/
+`meshTopology`. **Gauge workflow:** three patterns over one mechanism — `Manifold(V,F)` →
+Levi-Civita; `Manifold(V,F,singularities)` → trivial (default fixed at construction);
+ad-hoc `gauge(type,sing)` returns a pure value; `setGauge` re-points the active gauge.
+Trivial requires `Σ singularity index == χ` (Gauss–Bonnet, validated; throws InvalidInput).
+**Operators facet:** independent per-operator lazy cache (requesting `cotan` never builds
+`mass`; the three masses are independent), `releaseOperator`/`isOperatorCached` (GC `require`/`unrequire`
+model); `laplacian().connection()/covariant(coupling)` build in the *active gauge* and are
+invalidated by `setGauge`; covariant cache keys on coupling. The MEX `operators` command
+(above) is the string-dispatch veneer over this typed core. NOTE the intrinsic facet *data*
+stays embedded-sourced under the intrinsic mesh option (only the *operators* use the operator mesh) — documented on `IntrinsicFacet`.
+
+**Operator registry (C++).** `include/nxr/operator_registry.h` /
+`src/operator_registry.cpp` are the single source of truth for *operator
+identity + metadata* (design:
+`docs/superpowers/specs/2026-06-25-operator-registry-metadata-design.md`). Each
+operator is one `OperatorVariant` keyed by a stable curated `id` string
+(`laplaceBeltrami`, `leviCivitaConnectionLaplacian`, `trivialConnectionLaplacian`,
+`flatCovariantLaplacian`, `relativeDirac`, `intrinsicDirac`, …) carrying a human
+`label` plus **controlled-vocabulary** facets — `bundle` (scalar / tangent /
+ambient / **immersion**), `holonomy` (flat / combinatorial / intrinsic_curved /
+extrinsic_curved / graded), `order` (zeroth / first / second), `role`,
+`field_type` (real / complex / quaternion), `domain`, `singular`, `gauge`,
+`coupling` — and a `square_of`/`squares_to` cross-link with a
+`relation: exact | principal_part` qualifier. The curated `id` *resolves* to a
+`(OperatorId, gauge, coupling, domain, τ)` address, so the disambiguation rows
+that share one `OperatorId` (Levi-Civita vs trivial connection L; flat/ambient vs
+product covariant L) are first-class entries — the `OperatorId` enum itself is
+unchanged. API: `operatorById(id)`, `operatorsWhere(pred)`,
+`requireBundle(id, Bundle)` (the **LJC-trap guard** — an `immersion` operator
+throws if an `ambient` differentiator is required), and `variantIdsFor(OperatorId)`
+(a no-`default` switch — compiled with `-Werror=switch` for that TU, so a new
+`OperatorId` can't ship without metadata). `test_operator_registry` enforces both
+completeness *and* the numerical `squares_to` identities (honoring the `relation`
+qualifier). The registry is the *documented* source of truth for each operator's
+`natural_mass` (the metric its eigenproblem is posed against); `solve::eigenProblemFor`
+honors the caller's `spec.mass` mixedVoronoi/galerkin/barycentric override within that family and
+asserts the registry agrees (drift-guard), so the two can't silently diverge.
+Exposed to consumers as `nxr_compute('operatorInfo', id)` (MEX),
+`manifold.operatorInfo(id)` (WASM), and `nxr.operatorInfo(id)` (N-API addon)
+→ a struct/object of the metadata strings.
+`extrinsicWeitzenbockLaplacian` (Δ₃+D_N, ambient sibling of the immersion squared
+Dirac) is catalogued as `status: planned` — metadata only, build is a follow-on.
+
+**Field registry (C++) — the dual of the operator registry.**
+`include/nxr/field_registry.h` / `src/field_registry.cpp` are the single source of
+truth for *field identity + metadata* — the type system for the DATA operators act
+on (design: `docs/superpowers/specs/2026-06-25-field-type-system-design.md`). Each
+field is one `FieldVariant` keyed by a curated `id` (`scalarVertex`, `oneFormEdge`,
+`twoFormFace`, `tangentVertex`, `ambientVertexWorld`/`Local`, `ambientEdge`,
+`ambientFaceWorld`, `immersionVertex`/`Face`) carrying a `FieldDescriptor` over
+controlled vocabularies — `domain` (vertex/edge/face), `bundle`, `field_type`,
+`n_form` (na/zero/one/two DEC degree), `representation` (na / world / local_frame /
+intrinsic_complex / quaternion_interleaved), `gauge`, and `nSym` (n-RoSy order).
+**Frames are coordinate systems, not fields** — they live in the gauge layer and are
+only *referenced* by `representation`/`gauge`, never catalogued as variants. **Time
+is a deferred orthogonal subsystem**: a Field is "a typed payload over a domain",
+never "a vector", so a future temporal container composes over spatial fields without
+reopening the type. The two registries are explicit duals: `OperatorVariant` gains
+`input_field`/`output_field`; `requireField(descriptor, operatorId)` is the inverse
+of `requireBundle` (rejects a field whose descriptor doesn't match the operator's
+declared input); `operatorsAccepting(descriptor)` queries by `fieldMatches` (keyed on
+domain+bundle+field_type+n_form+representation; gauge/nSym advisory).
+`validateFieldShape` checks `rows == nElements(domain)·componentsPerElement`. A
+declared `conversionGraph()` names the existing impl for each representation
+transition (lift world↔local, `G·cᵀ`, whitney, scalar gradient, complex↔real2N) —
+call-through is deferred. API: `fieldById`/`fieldsWhere`; `test_field_registry`
+enforces catalogue completeness + operator I/O cross-reference integrity + routing.
+Exposed as `nxr_compute('fieldInfo', id)` (MEX), `manifold.fieldInfo(id)` (WASM),
+and `nxr.fieldInfo(id)` (N-API addon),
+and `operatorInfo` now surfaces each operator's `input_field`/`output_field`.
+
+**Vector-bundle covariant operators (the two filled cells).** The vector/tangent
+side of the intrinsic/extrinsic/flat grid is now complete, matching the spinor
+bundle's intrinsic/extrinsic Diracs (design:
+`docs/superpowers/specs/2026-06-25-vector-covariant-operators-design.md`).
+**`connectionGradient`** (`operators().connectionGradient(nSym)`; MEX/WASM
+`operators 'connectionGradient' nSym`) is the **first-order Levi-Civita covariant
+gradient `d^∇`** — a complex `[E×V]` operator, the clean √ of the connection
+Laplacian: `(d^∇)ᴴ diag(edgeCotanWeight) d^∇ == connectionLaplacian` (verified
+byte-exact, nSym 1/2). nSym-parameterized; **Levi-Civita gauge only in v1**
+(`assembleConnectionGradient` reads the LC transport from `operatorGeometry()`, so
+it is gauge-independent) — registry variant `leviCivitaConnectionGradient`,
+`squares_to leviCivitaConnectionLaplacian`. Output is the new field variant
+`tangentEdge` (complex tangent 1-form on edges). The trivial-gauge gradient (the
+φ-corrected root of `trivialConnectionLaplacian`) is a deferred follow-up. **`extrinsicWeitzenbock`**
+(`operators().extrinsicWeitzenbock()`; flipped `planned → built`) is the
+**ambient extrinsic Weitzenböck `Δ₃ + W_extrinsic`** — the real `[3V×3V]`
+**vector (imaginary-quaternion) part of the immersion squared Dirac**
+`2·dirac(0.5) = Δ₄ + D_N`, in **world-frame component-major** layout (so its field
+I/O is `ambientVertexWorld`, and its flat part is byte-exactly `kron(I₃,cotanL)`;
+the `2·flat − product` algebraic shortcut is NOT geometric and does not reproduce
+it). It annihilates world-constant fields (the first-order Dirac kills constant
+quaternions); its curvature sensitivity is the nonzero extrinsic matrix term, not
+a constant-field response.
+
+---
+
+## C++ API Surface
+
+The compute library API (callable from every binding) is declared in
+`include/nxr/compute.h`. Highlights:
+
+```cpp
+// Per-mesh state
+class ComputeContext { /* geometry-central mesh + geometry */ };
+struct MeshOperators { cotanLaplacian, mass, vertexDualAreas, vertexNormals, totalArea, … };
+struct DECOperators  { d0, d1, hodge0/1/2, hodge1Inverse };
+
+MeshOperators assembleMeshOperators(ComputeContext&);
+DECOperators  assembleDECOperators(ComputeContext&);
+
+// Pre-factored Cholesky / LU cache (lazy)
+class CholeskyCache {
+public:
+    static constexpr double kRegularization = 1e-8;
+    // Primary signatures take raw sparse matrices (mesh- and graph-friendly).
+    const Eigen::SimplicialLLT<…>& laplacian   (const Eigen::SparseMatrix<double>& K);
+    const Eigen::SimplicialLLT<…>& hodgeExact  (const DECOperators&);  // mesh-only (DEC)
+    const Eigen::SparseLU       <…>& hodgeCoExact(const DECOperators&);  // mesh-only (DEC)
+    // Convenience overload: laplacian(MeshOperators&) forwards to laplacian(ops.cotanLaplacian).
+};
+
+// Spectral kernel — already agnostic in K, M.
+EigenResult         solveEigenmodes(K, M, k, sigma=-1e-8, cancel={}, progress={});
+Eigen::MatrixXd     normalizeEigenmodes(U, M);
+EigenResult         removeDC(EigenResult);
+
+// Convenience layer — agnostic primary signatures + MeshOperators overloads.
+Eigen::VectorXd     solvePoisson(K, M, CholeskyCache&, densityMap);
+Eigen::MatrixXf     generateHeatDiffusion(M, eig, u0, timesteps, alpha);
+//   …and inline:    solvePoisson(MeshOperators&, …)             → forwards
+//                   generateHeatDiffusion(MeshOperators&, …)     → forwards
+
+// Mesh-only (need a halfedge surface — no graph analogue).
+HodgeResult         hodgeDecompose(ComputeContext&, DECOperators&, CholeskyCache&, omega);
+DirectionFieldResult computeDirectionField(ComputeContext&, DECOperators&, CholeskyCache&, singMap);
+Eigen::VectorXd     computeGeodesicDistance(ComputeContext&, sourceVerts);
+CurvatureResult     computeCurvatures(ComputeContext&);
+…
+```
+
+The N-API bindings in `bindings/node/src/addon.cpp` hold a
+`ContextHolder` per JS handle and plumb each call through. The holder
+fields:
+
+```cpp
+struct ContextHolder {
+    std::shared_ptr<ComputeContext>     ctx;
+    std::shared_ptr<MeshOperators>      ops;        // view, lazy via ensureOps()
+    std::shared_ptr<DECOperators>       dec;        // view, lazy via ensureDec()
+    std::shared_ptr<CholeskyCache>      factors;    // pre-factored Cholesky/LU
+    std::shared_ptr<EigenResult>        eigenmodes; // populated by EigenSolveWorker
+    std::shared_ptr<VectorHeatSolver>   vhm;        // lazy via ensureVHM()
+    std::shared_ptr<SignedHeatSolver>   shs;        // lazy via ensureSHS()
+    std::shared_ptr<HeatGeodesicSolver> heatGeo;    // lazy via ensureHeatGeo()
+    std::map<CLCacheKey,
+        std::shared_ptr<ConnectionLaplacian>> connectionLaplacian;     // Pattern-C
+    std::map<SmoothFieldKey, Eigen::MatrixXd>             smoothFaceFieldCache;   // Pattern-C
+    std::map<SmoothFieldKey, SmoothVertexFieldResult>     smoothVertexFieldCache; // Pattern-C
+};
+```
+
+The WASM `ContextWrapper` (`bindings/wasm/src/nxr_compute_wasm.cpp`)
+holds an equivalent set. Both lazy-initialise solver PIMPLs on first
+use; both cache stateless free-function results (connection-Laplacian,
+smooth-direction-field) keyed by all input parameters.
+
+The MEX binding (`bindings/mex/src/nxr_compute_mex.cpp`) is also
+stateful: a file-scope `std::unordered_map<uint64_t, ContextHolder>`
+is the MEX analogue of `ContextWrapper`, and the `uint64` handle
+returned by `nxr_compute('create', V, F)` is the proxy-pointer
+analogue (MEX has no Embind, so it exposes the context through the
+single `nxr_compute('cmd', handle, …)` entry point). Dispatch is
+**additive**: a `uint64` scalar in `prhs[1]` selects the handle path,
+`V, F` arrays select the legacy stateless path (unchanged). The MEX
+holder mirrors the same fields + lazy `ensure*` + result caches and
+reaches full parity with the `ContextWrapper` surface. A bad/destroyed
+handle throws `Error(InvalidHandle)` → `nxr:invalidHandle`. A MATLAB
+`handle`-class wrapper is intentionally out of scope (application-side,
+like the JS wrappers over WASM's `Manifold`); see
+`docs/superpowers/specs/2026-05-27-stateful-mex-binding-design.md`.
+
+---
+
+## CholeskyCache — pre-factored Cholesky / LU
+
+`CholeskyCache` exists because mesh-derived sparse factorizations cost
+O(n^1.5) to build but only O(nnz) per back-substitution. Without
+caching we re-paid that cost on every Hodge / Poisson / direction-field
+call (and would re-pay it 60× per second on any future per-frame
+pipeline). Both geometry-processing-js and geometry-central pre-factor
+and reuse for the same reason.
+
+**Contract.**
+
+- One regularization constant: `CholeskyCache::kRegularization = 1e-8`,
+  identical to the value the previous inline solvers used. There is no
+  per-call `eps` argument — that would silently return a stale factor
+  on a different `eps`.
+- Each cached factor is built by the same matrix-assembly +
+  factorization sequence the previous inline solvers used. Solves on
+  the cached factor are bit-for-bit identical to fresh inline factor +
+  solve. Verified by `test/test_cholesky_cache.cpp`.
+- Lifetime: owned by `ContextHolder` in `addon.cpp`; the cache is
+  destroyed when the JS handle releases (i.e. when the mesh changes).
+- Single-threaded. The addon is invoked from Node's main thread; no
+  mutex inside the cache.
+
+**Not cached.** The eigensolver's `(K − σM)` factor lives inside
+Spectra's `SymShiftInvert` and is discarded per call. Caching it would
+require replacing Spectra's `ShiftInvertOp` with a custom one — out of
+scope for v1.
+
+**Perf options compatible with the modularity rule** (root CONTRIBUTING.md
+§10): AVX2 / AVX-512 compile flags (the build enables these on
+x86_64), Eigen's separate `analyzePattern()` + `factorize()` for
+matrices that share sparsity pattern, multi-RHS batched solves, and
+GPU triangular back-substitution via TSL for hot per-frame paths.
+
+**Not on the table:** CHOLMOD / SuiteSparse / MKL / PARDISO. They
+would give a 3–10× win on x86 native but break the WASM and MEX
+targets (`nxr_compute` must compile from the same source for all
+three). The build saying "Building without SuiteSparse" is the desired
+state, not a missed optimization.
+
+---
+
+## Implementation Rules
+
+1. **Use geometry-central** for all operator assembly. Do NOT reimplement
+   cotangent weights, DEC operators, or vertex areas.
+
+2. **Use the CholeskyCache** for any solve against `L`, `d0ᵀ ★₁ d0`, or
+   `d1 ★₁⁻¹ d1ᵀ`. Never inline a `SimplicialLLT::compute(...)` of those
+   matrices in a new solver. If you need a new factor, add a slot to
+   `CholeskyCache`.
+
+   The `laplacian(K)` slot now takes a raw `const SparseMatrix<double>&`
+   so it serves graph Laplacians as well as mesh stiffness. There is an
+   inline `laplacian(const MeshOperators&)` overload that forwards to
+   `laplacian(ops.cotanLaplacian)` — this preserves source compatibility
+   for every existing call site.
+
+3. **Spectra configuration**: Use `SymGEigsShiftSolver<…, ShiftInvert>`
+   for the smallest eigenmodes. Always enforce real + symmetric on the
+   stiffness matrix before passing it in (see `mesh_operators.cpp`).
+
+4. **M-orthonormalisation** (`normalizeEigenmodes`): Implements the
+   Gram-matrix whitening approach (Cholesky path + eigen fallback) from
+   the MATLAB `normalize.m`. Critical for clustered eigenvalues.
+
+5. **Remove DC mode** after solving — see `removeDC.m` reference.
+
+6. **Error handling**: nxr-compute throws `nxr::compute::Error` (carrying an
+   `ErrorCode` enum + message + optional hint) on every failure path.
+   `Error` derives from `std::runtime_error` so existing
+   `catch (const std::exception&)` keeps working, but new code should
+   catch `Error` and switch on `code()`. Bindings translate
+   `code()` per their idiom — see §11 below.  Don't catch and silently
+   zero out — failing loud is the contract.
+
+7. **Thread safety / async**: Three N-API addon methods are wrapped
+   in `Napi::AsyncWorker` so they don't block the event loop:
+   - `EigenSolveWorker` for `solveEigenmodes`
+   - `HodgeDecomposeWorker` for `hodgeDecompose`
+   - `DirectionFieldWorker` for `computeDirectionField`
+
+   All three return Promises (the JS shim's `solve.eigen`,
+   `solve.hodge`, `interpolate.directionField` are `async`). Inputs
+   are deep-copied into the worker so the caller can release the
+   originating TypedArrays immediately. Smooth-field methods are
+   sync — the Pattern-C cache (rule 9) makes warm calls instant.
+   Other heavy ops (Poisson, etc.) run synchronously; promote to
+   AsyncWorker only if profiling shows they freeze the UI on real
+   meshes. The WASM binding has no AsyncWorker analogue — consumers
+   that need off-thread WASM dispatch must host the module in a
+   Web Worker (see `docs/wasm-web-worker.md` for the recipe +
+   `bindings/wasm/js/nxr_compute_wasm.worker.template.mjs`).
+
+8. **Solver-instance caching for stateful geometry-central solvers.**
+   Whenever you bind one of geometry-central's `*Solver` classes
+   (`HeatMethodDistanceSolver`, `VectorHeatMethodSolver`,
+   `SignedHeatSolver`), wrap it in a PIMPL class on the nxr-compute
+   side and hold the wrapper alive on `ContextWrapper` (or the addon's
+   `ContextHolder`) via an `ensureXxx()` helper. **Never construct the
+   solver inline per call** — that's a real bug we caught and fixed
+   (`computeGeodesicDistance`, commit `01a212a`). The constructor
+   pre-factors the Cholesky systems; subsequent method calls
+   back-substitute only. Throwing the solver away every call is
+   the perf gap. See `docs/integration-lessons.md` §A.
+
+9. **Result-level cache for stateless geometry-central free functions.**
+   Some geometry-central algorithms (e.g.
+   `computeSmoothest{,Boundary}AlignedFaceDirectionField`) are pure
+   free functions with no Solver class — each call rebuilds and
+   factorizes internally. Adding a Solver wrapper here would require
+   reimplementing the algorithm. Instead, cache the **output** at the
+   binding level, keyed by all input parameters. Both the N-API
+   addon and the WASM `ContextWrapper` carry parallel slots:
+   `smoothFaceFieldCache` / `smoothVertexFieldCache` (keyed by
+   `(nSym, alignToCurvature)`) and `connectionLaplacian` (keyed by
+   `(domain, nSym, regularization, format)`). The trade-off:
+   parameter changes pay the full cold cost once per new key,
+   identical-parameter repeats are cache-hit fast. See
+   `docs/integration-lessons.md` §C.
+
+10. **Eigensolve K ceiling on browser/WASM.** `solveEigenmodes` throws
+    `EigensolveInvalidK` for `k > 1000`. Spectra's Krylov basis size
+    `ncv = 2k+1` (capped at n) approaches an n×n dense matrix at
+    large k; on a 10K-vertex mesh, k=5000 OOMs against the WASM 2 GB
+    cap. The cap applies regardless of binding for predictability —
+    native consumers (addon, MEX) inherit the same ceiling even
+    though they have memory headroom. See `docs/eigensolve-cap.md`
+    for the path to lift the cap.
+
+11. **Bench-validate every solver-pattern change.** The downstream
+    consumer
+    `nxr-design-system/apps/galleries/gallery-mesh-tests/public/probes/bench-*.html`
+    is the safety net for caching-pattern regressions. Run
+    `npm run bench:all && npm run bench:diff` against
+    `bench/baselines.json` after any change touching a method's
+    solver pattern, factor caching, or memory layout. The verdict
+    column in `bench/REPORT.md` flags methods where warm calls
+    don't amortise (`❌ no cache`) — any new `❌` is a signal that
+    rules 8-10 weren't followed.
+
+---
+
+## Common pitfalls — quick reference
+
+Read `docs/integration-lessons.md` for the full retrospective from
+the May-2026 bench round. Quick callouts that bit us already:
+
+- **Inline solver construction.** `HeatMethodDistanceSolver(geom)` /
+  `VectorHeatMethodSolver(geom)` / `SignedHeatSolver(geom)` MUST be
+  built once and held alive. Constructing per call discards both
+  Cholesky factors every time. Pattern A in
+  `docs/integration-lessons.md`.
+- **Stateless free-function results.** geometry-central's smooth-
+  direction-field functions don't have a Solver class. Cache the
+  OUTPUT in the binding, keyed by parameters. Don't try to extract
+  the internal factor. Pattern C in `docs/integration-lessons.md`.
+- **Spectra shift-invert factor is per-call by design.** Methods
+  that bundle an eigensolve (e.g. `precompute({k})`) will look like
+  they're "no caching" in bench output even when everything else IS
+  cached. Document this on the new method, don't try to fix it.
+- **Embind exception `.message`** is wired correctly as of commit
+  `a0cbabe`: `getExceptionMessage` is in
+  `bindings/wasm/CMakeLists.txt`'s `EXPORTED_RUNTIME_METHODS`, so
+  JS consumers catching nxr-compute exceptions see
+  `[CODE_NAME] msg | hint: …` instead of `[object Object]`.
+- **emscripten 5.x needs Python 3.10+.** macOS default
+  `/Library/Developer/CommandLineTools/usr/bin/python3` is 3.9 and
+  fails the assertion. Prefix `PATH="/opt/homebrew/bin:$PATH"` (or
+  set `EMSDK_PYTHON`) before invoking the WASM build.
+
+---
+
+## Build & Test
+
+```sh
+bash scripts/build.sh Release
+# Outputs (build/ at repo root):
+#   build/Release/nxr_compute_addon.node          (N-API; also copied to repo root)
+#   build/Release/nxr_compute.exe                 (CLI smoke harness)
+#   build/Release/nxr_compute.mexw64              (MATLAB MEX)
+#   build/Release/test_eigen.exe                  (end-to-end smoke, 14 tests)
+#   build/Release/test_cholesky_cache.exe         (cache contract canary)
+#   build/Release/test_mass_variants.exe          (MixedVoronoi / Barycentric / Galerkin)
+#   build/Release/test_connection_laplacian.exe   (vertex/face/edge CL)
+#   build/Release/test_geometry_bundle.exe        (complex grid / 2-RoSy curvature / trivial gauge)
+#   build/Release/test_field_generators.exe       (eigenmode / heat / wave)
+#   build/Release/test_graph_agnostic.exe         (K/M-agnostic solvers on graphs)
+#   build/Release/test_geometry_central_extras.exe(GC solver wrappers)
+#   build/Release/test_visualization_primitives.exe(isolines, streamlines, BFF)
+#   build/Release/test_cancellation.exe           (CancellationToken)
+#   build/Release/test_progress.exe               (ProgressObserver)
+```
+
+WASM build (separate toolchain — emscripten):
+
+```sh
+bash scripts/build-wasm.sh
+node scripts/_smoke-wasm.mjs   # Embind round-trip, ~10 ms on icosahedron
+```
+
+Run the standalone native tests directly:
+
+```sh
+./build/Release/test_eigen.exe
+./build/Release/test_cholesky_cache.exe
+./build/Release/test_cancellation.exe
+./build/Release/test_progress.exe
+```
+
+`test_cholesky_cache.cpp` is the canary for the bit-for-bit cache
+contract. Any change to `CholeskyCache` or the solvers that consume
+it must keep this test passing. `test_cancellation.cpp` and
+`test_progress.cpp` guard the §12 cancel/progress contract.
+`test_mass_variants.cpp` validates that both mass variants return the
+same GC-sourced `vertexDualAreas` and produce distinct λ₁ spectra
+(a guard against accidental aliasing — the historical Voronoi/
+Barycentric pair were bit-identical for the same reason).
+
+`deps/` carries `geometry-central` (operator assembly) and
+`polyscope` (debug-only viewer used during native development; not
+shipped in the addon).
+
+---
+
+## §11 Storage convention (hard rule)
+
+Every JS-facing binding shell (N-API addon, WASM/Embind) must
+honour this layout when flattening Eigen matrices to typed arrays:
+
+| Eigen shape | Flat layout | Why |
+|---|---|---|
+| `[V × 3]` / `[F × 3]` / `[N × 3]` | row-major: `xyz xyz xyz …` | three.js BufferAttribute, NumPy `.reshape(-1, 3)`. |
+| `[V × K]` eigenvectors | row-major (vMajor): `U[v*K + k]` | Cortical-flow's Zarr schema (`manifold/eigenmodes/eigenvectors` shape `[V, K]`) and the GPU spectral-synthesis access pattern. |
+| `[T × V]` activity time-series | row-major: frame at `data[t*V .. (t+1)*V]` | Zarr `recordings/.../activity` schema. |
+| Sparse | COO `{ row, col, data, rows, cols }` | Existing convention; both bindings honour it. |
+
+**MEX is exempt**: a `V × K` Eigen matrix becomes a real MATLAB matrix
+(column-major in MATLAB's native storage), so MATLAB users get
+`U(:,k)` for mode k contiguously. The flatten rule applies only when
+crossing into a JS typed array.
+
+**Internal C++ storage is mostly column-major** — `Eigen::MatrixXd`
+keeps its default column-major layout for most outputs (eigenvectors,
+principal directions, isolines), and the binding helpers transpose
+at the flatten step via an `Eigen::Map<RowMajor>` assignment that
+Eigen vectorises into a SIMD memcpy + transpose. The one exception
+is `MeshOperators::vertexNormals`, declared row-major via the
+`VertexNormalsMatrix` alias (`Matrix<double, Dynamic, 3, RowMajor>`)
+because it's consumed row-wise only and the binding-side memcpy
+becomes a direct copy. Helper signatures (`matrixToFloat64Array`,
+`eigenMatrixToVal`) are templated on `Eigen::MatrixBase<Derived>`
+so both layouts share one code path.
+
+## §12 Cancellation and progress contract
+
+Long-running nxr-compute operations accept two optional parameters:
+
+```cpp
+EigenResult solveEigenmodes(
+    const Eigen::SparseMatrix<double>& K,
+    const Eigen::SparseMatrix<double>& M,
+    int k,
+    double sigma                          = -1e-8,
+    const nxr::compute::CancellationToken& cancel  = {},   // never cancelled
+    const nxr::compute::ProgressObserver& progress = {});  // discard updates
+```
+
+nxr-compute is binding-agnostic: every shell builds `CancellationToken` from
+its own native cancel mechanism, but the solver sees one type.
+
+| Binding | CancellationToken construction | ProgressObserver wiring |
+|---|---|---|
+| **N-API addon** | `CancellationToken(reinterpret_cast<atomic<int32_t>*>(int32Arr.Data()))` where `int32Arr` is a SAB-backed `Int32Array`. | Same array kind; layout `[iter, totalIter, residual×1e6]`. |
+| **WASM/Embind** | `CancellationToken(reinterpret_cast<atomic<int32_t>*>(cancelAddr))` where `cancelAddr` is a wasm-heap pointer (`Module._malloc`). | Same; pointer to a 3×int32 region in the heap. |
+| **MEX** | `CancellationToken([](){ return utIsInterruptPending(); })` — bridges MATLAB Ctrl-C. | Deferred to Phase B (synchronous MATLAB has no natural progress UI surface). |
+| **CLI** | `CancellationToken(&g_sigintFlag)` — flipped by a `SIGINT` handler. | Not wired (no UI surface). |
+
+Bindings translate `Error` per their idiom:
+
+| Binding | Error surface |
+|---|---|
+| N-API addon | JS `Error` with `.code` (string-named enumerator, e.g. `"CANCELLED"`) and `.hint`. |
+| WASM | JS `Error` whose `.message` is `"[CODE_NAME] message [\| hint: ...]"`. `getExceptionMessage` is in `EXPORTED_RUNTIME_METHODS` as of commit `a0cbabe`, so the `.message` is actually populated. Phase B may add a richer mapping via Embind exception registration. |
+| MEX | `MException` with identifier `nxr-compute:cancelled`, `nxr-compute:nonManifold`, etc. (`toMatlabIdentifier` turns the enumerator name into camelCase). |
+| CLI | Exit code: `130` for `Cancelled` (POSIX 128+SIGINT), `1` otherwise. |
+
+The cancellation poll point inside nxr-compute is once per Spectra
+`perform_op` call, giving sub-second cancel latency on
+cortical-sized meshes. The wrapper that drives this is
+`CancelProgressOp` in `src/eigensolver.cpp`. Only `solveEigenmodes`
+plumbs cancel + progress through today; `hodgeDecompose` and
+`computeDirectionField` inherit the C++ contract but the addon's
+worker classes (`HodgeDecomposeWorker`, `DirectionFieldWorker`)
+don't expose cancel/progress slots yet — those calls complete in
+1–3 s on cortical meshes and the async wrapping alone keeps the
+UI thread responsive.
+
+---
+
+## Testing Against MATLAB
+
+For any numerical function, create a test that:
+
+1. Loads a known mesh (icosphere or cortical mesh from test fixtures).
+2. Runs the C++ function.
+3. Compares output to pre-saved MATLAB results (stored as .zarr or .mat).
+4. Asserts max absolute error < 1e-10 for float64 operations.
+
+The MATLAB MCP server (`reference_matlab_mcp` in personal memory) can
+be used to generate fixtures from the `+bct` toolbox. Test fixtures
+should live in `test/fixtures/` once the harness exists. As of
+2026-04-27 there is **no** MATLAB-oracle test harness; this is the
+single biggest gap in numerical confidence and the next step in the
+correctness program.
+
+
+## Eigenmode solvers added 2026-10-23 (Hodge–Dirac, spin Diracs, graph Laplacian)
+
+`ops::hodgedirac::assemble`, `solve::hodgeDiracModes` / `eigenSliced` / `classifyHodgeModes`, `ops::spin::{assemble,vertexToFace}` and
+`solve::eigenSpin`, `EigenOperator::{HodgeDirac,SpinExtrinsic,SpinIntrinsicHY,SpinIntrinsicYe}`, `EigenOperatorSpec::graphDegreeMass`; registry ids
+`hodgeDirac`, `spin*Dirac`, `graphLaplacianDegreeMass`; `eigs({operator: 'hodgeDirac'|'spinExtrinsic'|'spinIntrinsicHY'|'spinIntrinsicYe'})` in the
+Node and WASM bindings. nxr-cortical-flow is the reference where implementations differ; parity: `test/test_cf_parity.cpp`
+(`NXR_CF_FIXTURES`, `NXR_CF_CORTEX=1`). Map, parity table and limits: `docs/eigenmode-solvers.md`.

@@ -1,0 +1,212 @@
+name: Publish MEX binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build MEX (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30          # bound a hung leg (e.g. Linux R2023b) so it fails fast
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-2022
+            matlab: R2023a
+            track: r2023a
+            label: Windows x64 (R2023a)
+            artifact: mex-r2023a-windows-x64
+            cmake_extra: -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          - os: ubuntu-22.04
+            matlab: R2023a
+            track: r2023a
+            label: Linux x64 (R2023a)
+            artifact: mex-r2023a-linux-x64
+            cmake_extra: '"-DCMAKE_CXX_FLAGS=-static-libstdc++ -static-libgcc"'
+          - os: windows-2022
+            matlab: R2023b
+            track: r2023b
+            label: Windows x64 (R2023b)
+            artifact: mex-r2023b-windows-x64
+            cmake_extra: -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreaded
+          - os: ubuntu-22.04
+            matlab: R2023b
+            track: r2023b
+            label: Linux x64 (R2023b)
+            artifact: mex-r2023b-linux-x64
+            cmake_extra: '"-DCMAKE_CXX_FLAGS=-static-libstdc++ -static-libgcc"'
+          - os: macos-14
+            matlab: R2023b
+            track: r2023b
+            label: macOS Apple Silicon (R2023b)
+            artifact: mex-r2023b-macos-arm64
+            cmake_extra: -DCMAKE_OSX_DEPLOYMENT_TARGET=11.0
+    steps:
+      - name: Checkout (with submodules)
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Free disk space (macOS arm64 only)
+        if: matrix.os == 'macos-14'
+        run: sudo rm -rf /Library/Developer/CoreSimulator/Profiles/Runtimes/*
+
+      - name: Install MATLAB ${{ matrix.matlab }}
+        uses: matlab-actions/setup-matlab@v2
+        with:
+          release: ${{ matrix.matlab }}
+
+      - name: Configure CMake
+        run: cmake -B build -S . -DCMAKE_BUILD_TYPE=Release ${{ matrix.cmake_extra }}
+
+      - name: Build MEX target
+        run: cmake --build build --config Release --target nxr_compute_mex
+
+      - name: List MEX output (sanity check)
+        shell: bash
+        run: find build -name 'nxr_compute.mex*' -print
+
+      - name: Upload MEX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: build/**/nxr_compute.mex*
+          if-no-files-found: error
+
+  package:
+    name: Package release zips
+    needs: build
+    if: ${{ !cancelled() }}      # package whatever built, even if a build leg failed/timed out
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout (for +nxr package and README)
+        uses: actions/checkout@v4
+
+      - name: Download R2023a artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mex-r2023a-*
+          path: artifacts-r2023a/
+
+      - name: Download R2023b artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: mex-r2023b-*
+          path: artifacts-r2023b/
+
+      - name: Assemble R2023a release directory
+        run: |
+          mkdir -p nxr-compute-mex-r2023a/+nxr
+          cp -r bindings/mex/matlab/+nxr/. nxr-compute-mex-r2023a/+nxr/
+          cp bindings/mex/matlab/README.md nxr-compute-mex-r2023a/
+          # Explicit extension list — excludes nxr_compute.mexw64.recipe
+          # (MEX build-record sidecar) and any other future sidecars.
+          find artifacts-r2023a \
+            \( -name 'nxr_compute.mexw64' \
+            -o -name 'nxr_compute.mexa64' \
+            -o -name 'nxr_compute.mexmaca64' \) \
+            -exec cp {} nxr-compute-mex-r2023a/ \;
+          echo "R2023a track contents:"
+          ls -la nxr-compute-mex-r2023a/
+          COUNT=$(find nxr-compute-mex-r2023a -maxdepth 1 \
+            \( -name 'nxr_compute.mexw64' \
+            -o -name 'nxr_compute.mexa64' \
+            -o -name 'nxr_compute.mexmaca64' \) | wc -l)
+          if [ "$COUNT" -lt 1 ]; then
+            echo "ERROR: R2023a track has no .mex files"; exit 1
+          elif [ "$COUNT" -ne 2 ]; then
+            echo "::warning::R2023a track expected 2 .mex files (Win + Linux), got $COUNT (partial zip)"
+          fi
+          echo "R2023a track bundled $COUNT mex file(s)"
+
+      - name: Assemble R2023b release directory
+        run: |
+          mkdir -p nxr-compute-mex-r2023b/+nxr
+          cp -r bindings/mex/matlab/+nxr/. nxr-compute-mex-r2023b/+nxr/
+          cp bindings/mex/matlab/README.md nxr-compute-mex-r2023b/
+          # Explicit extension list — excludes nxr_compute.mexw64.recipe
+          # (MEX build-record sidecar) and any other future sidecars.
+          find artifacts-r2023b \
+            \( -name 'nxr_compute.mexw64' \
+            -o -name 'nxr_compute.mexa64' \
+            -o -name 'nxr_compute.mexmaca64' \) \
+            -exec cp {} nxr-compute-mex-r2023b/ \;
+          echo "R2023b track contents:"
+          ls -la nxr-compute-mex-r2023b/
+          COUNT=$(find nxr-compute-mex-r2023b -maxdepth 1 \
+            \( -name 'nxr_compute.mexw64' \
+            -o -name 'nxr_compute.mexa64' \
+            -o -name 'nxr_compute.mexmaca64' \) | wc -l)
+          if [ "$COUNT" -lt 1 ]; then
+            echo "ERROR: R2023b track has no .mex files"; exit 1
+          elif [ "$COUNT" -ne 3 ]; then
+            echo "::warning::R2023b track expected 3 .mex files (Win + Linux + Apple Silicon), got $COUNT (partial zip)"
+          fi
+          echo "R2023b track bundled $COUNT mex file(s)"
+
+      - name: Create R2023a release zip
+        id: zip_a
+        run: |
+          REF_NAME="${GITHUB_REF_NAME:-manual}"
+          ZIP_NAME="nxr-compute-mex-r2023a-${REF_NAME}.zip"
+          zip -r "$ZIP_NAME" nxr-compute-mex-r2023a/
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Create R2023b release zip
+        id: zip_b
+        run: |
+          REF_NAME="${GITHUB_REF_NAME:-manual}"
+          ZIP_NAME="nxr-compute-mex-r2023b-${REF_NAME}.zip"
+          zip -r "$ZIP_NAME" nxr-compute-mex-r2023b/
+          echo "zip_name=$ZIP_NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Upload R2023a zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.zip_a.outputs.zip_name }}
+          path: ${{ steps.zip_a.outputs.zip_name }}
+          if-no-files-found: error
+
+      - name: Upload R2023b zip
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.zip_b.outputs.zip_name }}
+          path: ${{ steps.zip_b.outputs.zip_name }}
+          if-no-files-found: error
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: nxr-compute-mex-*.zip
+          generate_release_notes: true
+          draft: false
+          prerelease: false
+          body: |
+            ## MATLAB MEX binaries — ${{ github.ref_name }}
+
+            Two builds, choose the zip matching your MATLAB release:
+
+            - **MATLAB R2023a:** `nxr-compute-mex-r2023a-${{ github.ref_name }}.zip` — Windows + Linux only.
+            - **MATLAB R2023b or newer:** `nxr-compute-mex-r2023b-${{ github.ref_name }}.zip` — Windows + Linux + macOS Apple Silicon (native `.mexmaca64`).
+
+            ### Install
+
+            1. Download the zip matching your MATLAB version.
+            2. Unzip.
+            3. In MATLAB:
+               ```matlab
+               addpath('nxr-compute-mex-r2023X')
+               ```
+            4. MATLAB autoloads the `+nxr` package and selects the right `.mex*` binary for your platform.
+
+            ---

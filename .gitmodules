@@ -1,0 +1,3 @@
+[submodule "compute/deps/geometry-central"]
+	path = compute/deps/geometry-central
+	url = https://github.com/nmwsharp/geometry-central.git

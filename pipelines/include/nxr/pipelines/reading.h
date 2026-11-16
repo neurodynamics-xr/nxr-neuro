@@ -1,0 +1,24 @@
+// nxr-pipelines — THE ONE DOOR to the chunk service for every pipeline (the paramount architecture: loading is io's chunk service; a pipeline only declares
+// what it reads). A time-resolved Field (a recording, a source series: [rows x samples] on a product whose second factor is its time line) is read by
+// naming its row, its time line's rate and origin, the rows wanted, the bad spans, and the span of the run (one chunk by default). The layering guard
+// (cmake/check_layering.cmake) allows the chunk service to be built only here.
+#pragma once
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <utility>
+#include <vector>
+
+#include "nxr/io.h"
+
+namespace nxr::pipelines {
+
+/** the span a run reads: chunks "k" | "a-b" | "all", or [start, stop) seconds; neither: chunk 0. `level`: the tile level the run measures on (its window or
+ *  segment, 2^level samples): the span's ends snap to the nearest tile boundary; 0 for a pointwise run */
+nxr::io::Span span_of(const nxr::io::Row& field, std::int64_t n_samples, double sfreq, double t0, const std::optional<std::string>& chunks,
+                      const std::optional<double>& start, const std::optional<double>& stop, int level = 0);
+/** the Field's chunks: the rows asked for (empty: all), the bad spans' mask when given */
+nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& field, double sfreq, double t0, std::vector<std::int32_t> rows = {},
+                               const std::optional<std::vector<std::pair<double, double>>>& bad = std::nullopt);
+
+}  // namespace nxr::pipelines

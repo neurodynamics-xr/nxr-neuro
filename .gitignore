@@ -1,0 +1,62 @@
+# Build outputs (glob catches scratch dirs like build2/, build-debug/, …)
+build*/
+build_wasm/
+build_node/
+*.node
+*.mexw64
+*.exe
+*.lib
+*.a
+*.dll
+*.so
+*.dylib
+*.obj
+*.o
+*.pdb
+*.ilk
+*.exp
+
+# CMake / generator artifacts
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.vcxproj*
+*.sln
+*.dir/
+.vs/
+
+# Node
+node_modules/
+package-lock.json
+npm-debug.log*
+
+# Studio / OS
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Test outputs
+.tmp-*/
+
+# Local tool settings
+.claude/
+
+# MATLAB studio autosave
+*.asv
+
+# the build directory (may be a link to another disk)
+/build
+__pycache__/
+
+# ctest output when run from the repo root
+/Testing/
+
+# the test record (tools/tests.py): kept in the repo, never in git
+/test-results/
+.cache/
+bindings/dist/

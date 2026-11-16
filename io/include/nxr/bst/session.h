@@ -1,0 +1,93 @@
+// nxr-io — a Brainstorm condition as a SESSION of a subject: nxr.convert.condition (convert_condition, condition_plan, resolve_raw_binary), .raw (the BST-BIN reader),
+// .timeseries (the recording on channels x time, its grid and envelope, resampling), .events (events and bad segments) and the naming of session-scoped nodes.
+//
+// COPY, NEVER LINK: the samples are read from the `.bst` (or the `.mat`'s F) and written into the dataset's own Zarr array, one 2^17-sample block (all channels) at a time.
+// Peak memory of a recording of C channels: about 2 blocks of C x 2^17 float32 (the block and its envelope tee), i.e. ~1 MB per channel; a resample holds the resampled recording
+// whole (as nxr does) plus 16 channels of input as float64.
+#pragma once
+#include <filesystem>
+#include <functional>
+#include <optional>
+#include <string>
+#include <vector>
+
+#include "nxr/bst/mat.h"
+#include "nxr/bst/maps.h"
+#include "nxr/bst/naming.h"
+#include "nxr/bst/subject.h"
+#include "nxr/io/writer.h"
+
+namespace nxr::bst {
+
+// ── the BST-BIN binary (nxr.convert.raw) ──
+// Brainstorm's own format: a hdrsize header, then EPOCHS of [nchannels x epochsize] float32, each channel contiguous within its epoch (in_fread_bst.m).
+class BstReader {
+ public:
+  BstReader(const Value& sfile, const std::filesystem::path& path);
+  // samples [s0, s0+n) of channels [c0, c1) as [c1-c0, n] float32, row after row
+  void read(std::int64_t s0, std::int64_t n, std::int64_t c0, std::int64_t c1, std::vector<float>& out);
+  std::int64_t n_channels() const { return n_chan_; }
+  std::int64_t n_samples() const { return n_total_; }
+
+ private:
+  std::filesystem::path path_;
+  std::int64_t n_chan_, epoch_, hdr_, n_total_;
+};
+
+// the binary a raw link reads (D122); emits `relinked` when it is beside the link
+std::filesystem::path resolve_raw_binary(const std::filesystem::path& raw_link, const Value& sfile, const Emit& progress);
+
+// ── events (nxr.convert.events) ──
+struct EventTable {
+  std::vector<std::int32_t> type;
+  std::vector<double> onset, duration;
+  std::vector<std::int32_t> channel_offsets, channel_index;
+  std::vector<std::string> type_names;
+  std::vector<std::vector<double>> type_colors;
+  std::size_t n_events() const { return onset.size(); }
+};
+EventTable parse_events(const Value* events, const std::vector<std::string>& channel_names);
+Json export_events(nxr::io::SubjectWriter& sub, const std::string& rec_path, const EventTable& table, const std::string& line_id, const std::string& of_id,
+                   const std::optional<std::string>& acquisition = std::nullopt, const std::optional<std::string>& acquisition_id = std::nullopt);
+Json import_bad_segments(nxr::io::SubjectWriter& sub, const Json& src, bool replace);
+Json import_events(nxr::io::SubjectWriter& sub, const std::filesystem::path& bst_data, bool replace);
+
+// ── recordings (nxr.convert.timeseries) ──
+// resample_poly (scipy), `step` channels at a time: read(c0, c1) -> [c1-c0, n_t] float64 row-major; returns [n_chan, ceil(n_t*to/fs)] float32
+std::vector<float> resample_rows(const std::function<std::vector<double>(std::int64_t, std::int64_t)>& read, std::int64_t n_chan, std::int64_t n_t, double fs, double to,
+                                 std::int64_t& n_new, std::int64_t step = 16);
+// D168: what an import does with the channel file's projectors: the matrix of the status-1 ones (applied to every block as it is copied; empty = none) and the record
+// the recording's provenance keeps (`projectors`, `ctf_compensation`)
+struct Projection {
+  std::vector<double> matrix;
+  std::size_t n_channels = 0;
+  Json record = Json::object();
+};
+Json add_resampled(nxr::io::SubjectWriter& sub, const std::string& recording, double to, const std::optional<std::string>& name, const Emit& progress);
+// A recording made from another one, on the same channels and the same time line (same length and rate): `fill` is handed a writer and writes the samples in blocks of
+// `recording_block_samples()` (all channels; float32 [channels x n] row after row; the last block shorter), each block starting where the last ended. The new recording is stored as the
+// importer stores one (the grid of chunks and shards, the envelope, the chunk tiling), named `name`, its Field derived from `source`; the source's channel flags, events and bad segments
+// (Selections on the time line) are copied under the new name unchanged, and its provenance (projectors, CTF compensation, ...) carried into `producer_json` beneath `producer`.
+using BlockWriter = std::function<void(std::int64_t s0, const std::vector<float>& x, std::int64_t n)>;
+std::int64_t recording_block_samples();
+Json add_derived_recording(nxr::io::SubjectWriter& sub, const std::string& source, const std::string& name, const std::string& comment, const std::string& source_tag, const Json& producer,
+                           const std::function<void(const BlockWriter&)>& fill, const Emit& progress);
+Json export_raw_timeseries(nxr::io::SubjectWriter& sub, const std::string& name, const Value& sfile, const Value* channel_flag, const std::string& acquisition,
+                           const std::string& channels_id, const Value* comment, const std::filesystem::path& bst_path, const std::vector<std::string>& channel_names,
+                           const Emit& progress, std::optional<double> resample, const Projection& projection = {});
+Json export_timeseries(nxr::io::SubjectWriter& sub, const std::string& name, const std::filesystem::path& data_file, const std::string& acquisition,
+                       const std::string& channels_id, const std::vector<std::string>& channel_names, std::optional<double> resample, const Projection& projection = {});
+
+// ── the condition (nxr.convert.condition, nxr.convert.subject.condition_plan) ──
+struct ConvertOptions {
+  bool write_gain = true, all_surfaces = false;
+  std::optional<double> resample;
+};
+// The writers a map over time and a confounds matrix need (nxr.convert.timeseries `_recording` with `_write_blocks`, and `_time_line`): MapHooks over this file's recording writer.
+const MapHooks& recording_map_hooks();
+// Mirror one condition into `sub` as the session `condition` (nxr.convert.condition.convert_condition): the channels, the recordings, then the kernels and head models
+// (`import_condition_kernels`) and the source power by band (`export_condition_timefreqs`).
+Json convert_condition(nxr::io::SubjectWriter& sub, const std::filesystem::path& bst_root, const std::string& condition, const ConditionPlan& plan, const ConvertOptions& opt,
+                       const Emit& progress);
+
+}  // namespace nxr::bst

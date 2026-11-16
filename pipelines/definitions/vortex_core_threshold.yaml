@@ -1,0 +1,53 @@
+# THE VORTEX CORES' THRESHOLD, pass one (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 5; docs/specs/2026-11-14-spatial-events.md, decision 5): the distribution of |hatted curl| over the burst frames, stored as a STATISTIC
+# (counts in 4096 log bins, nxr `_core_threshold`); its percentile (98 by default) is derived at read by the cores' pass (`run vortex_cores`), which reads this statistic BY NAME.
+#
+# THE CHAIN (one linear map before any non-linear step, D106): the recording's analytic signal in the band (Morlet) → `frames` (the frame tiling, `frametiling compute`: 36 frames to a cycle of the band's centre) with `within` the named bursts → `apply_kernel` (form curl_tan, the spatial level's Mexican hat on the GLUED surface: one cortex, the bridge filled by the hat; `eigen solve` stores the glue; linear, so it commutes with the frame sampling and runs on the frames, in blocks: `--block-frames`) → `core_histogram`: the good frames
+# are the burst frames (and not the bad segments'). The histogram's range is fixed from the run's first 3000 good frames, counted from its first, so it does not depend on the chunk size.
+#
+# The bursts and the frame tiling are named by the caller (`bursts`, `tiling`: stored nodes read by name; `{recording}` is the recording's name). A cut of the run (`--chunks`) cuts the distribution.
+#
+#   nxr-neuro frametiling compute --dataset <folder> --subject sub-01 --recording rest --band 8,12
+#   nxr-neuro run vortex_core_threshold --dataset <folder> --subject sub-01 --set space_level=5 --set band=[8.0,12.0] --chunks all
+pipeline: vortex_core_threshold
+version: 1
+description: the distribution of |hatted curl| over the burst frames (4096 log bins), a statistic from which the cores' threshold is read
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
+  tiles:     {selection: ladder, manifold: kernel.to}
+  tiling:    {selection: spans, manifold: recording.time, where: {name: $tiling}}
+  bursts:    {selection: spans, manifold: recording.time, where: {name: $bursts}}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: none            # the recording's name, or none: every recording of the subject, one run each
+  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
+  band: [8.0, 12.0]          # Hz: the band the curl is of
+  shape: morlet              # the temporal band's shape: morlet (the project's fixed-band rule) | meyer
+  spatial_shape: mexhat      # the spatial level's gain: mexhat (the level is the Mexican hat) | meyer (the level IS its Weyl band)
+  space_level: 5             # the surface ladder's level: its hat is the spatial band
+  method: MNE
+  transform: auto            # the spatial band's transform: auto (eigenmodes first, Chebyshev an announced fallback) | eigen | chebyshev | exact
+  modes: 0
+  order: 0
+  tolerance: 0.01
+  tiling: "{recording} frames 0.00257492 s"                      # the frame tiling's name (`frametiling compute`): `<recording> frames <frame_s> s`: level -25 = 2.57 ms, what `frametiling compute --band 8,12` derives (36 frames to a cycle of 10 Hz); another band or level: name it here
+  bursts: "global_bursts.bursts_kept.{recording}"            # the spans Selection the frames are inside (the kept bursts of `run global_bursts`, or any spans: a stage)
+  bad_segments: exclude
+  bins: 4096                 # nxr `_core_threshold`
+  range_frames: 3000         # the first good frames that fix the bins' range (nxr's chunk of 3000)
+  block_frames: 256          # the frames binned at once (memory only: the result does not depend on it)
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {step: analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
+      - {step: frames, in: {x: z, tiling: tiling, within: bursts}, out: z_frames}
+      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles}, with: {level: $space_level, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, form: curl_tan}, out: curl_frames}
+      - {step: core_histogram, in: {x: curl_frames, exclude: bad}, with: {bins: $bins, range_frames: $range_frames, block_frames: $block_frames, bad_segments: $bad_segments}, out: histogram}
+
+outputs:
+  histogram: {kind: statistic}

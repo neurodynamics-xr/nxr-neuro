@@ -1,0 +1,18 @@
+node_modules/
+/dist/
+*.tsbuildinfo
+
+# C++ build output (cpp/extern/ vendored deps ARE committed)
+cpp/build/
+build/
+
+# clangd / studio caches
+.cache/
+compile_commands.json
+
+# local tool settings
+.claude/settings.local.json
+
+# Python caches
+__pycache__/
+*.pyc

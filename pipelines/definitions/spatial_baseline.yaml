@@ -1,0 +1,50 @@
+# THE SPATIAL BASELINE (spec docs/specs/2026-11-14-spatial-events.md, piece 1): the band power each glued vertex has at each hat level when no burst is on, stored as a STATISTIC (measure power, method mean, [vertex × level]) and read
+# BY NAME by `relative` (and so by `run spatial_events`). Dividing a burst's power by it removes the depth and sensitivity bias of MEG source power: deep and radial cortex looks weak in raw maps.
+#
+# THE CHAIN (one linear map before any non-linear step, D106), the same as spatial_events' up to the power: analytic (Morlet) → frames (the frame tiling, `frametiling compute`; NO `within`: the run's frames) → apply_kernel
+# (no form: the free current as the inverse gives it, no orientation assumed; the hat at each of `levels`, on the GLUED surface: one cortex, the bridge filled) → power (|z|² summed over the components) → baseline.
+# The GOOD frames are the run LEAVING OUT the bad segments and the named bursts (`bursts`, e.g. the kept bursts of `run global_bursts`, or a wider stage): the baseline is what each vertex has with no burst on. A cut of
+# the run (`--chunks`) cuts the baseline.
+#
+#   nxr-neuro run spatial_baseline --dataset <folder> --subject sub-01 --set band=[8.0,12.0] --set levels=[2,3,4,5,6,7,8] --chunks all
+pipeline: spatial_baseline
+version: 1
+description: the band power per glued vertex and hat level outside the bursts and bad segments, a statistic read by name
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
+  tiles:     {selection: ladder, manifold: kernel.to}
+  tiling:    {selection: spans, manifold: recording.time, where: {name: $tiling}}
+  bursts:    {selection: spans, manifold: recording.time, where: {name: $bursts}}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: none            # the recording's name, or none: every recording of the subject, one run each
+  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
+  band: [8.0, 12.0]          # Hz: the band the power is of
+  shape: morlet              # the temporal band's shape: morlet (the project's fixed-band rule) | meyer
+  spatial_shape: mexhat      # the hat levels' gain: mexhat (the level is the Mexican hat) | meyer (the level IS its Weyl band)
+  levels: [2, 3, 4, 5, 6, 7, 8]   # the surface ladder's levels: one hat each (the scale space the events' size is selected in); 2 and 3 reach the coarse sizes level 4 cut off
+  method: MNE
+  transform: auto            # the spatial band's transform: auto (eigenmodes first, Chebyshev an announced fallback) | eigen | chebyshev | exact
+  modes: 0
+  order: 0
+  tolerance: 0.01
+  tiling: "{recording} frames 0.00257492 s"                      # the frame tiling's name (`frametiling compute`): `<recording> frames <frame_s> s`: level -25 = 2.57 ms, what `frametiling compute --band 8,12` derives (36 frames to a cycle of 10 Hz); another band or level: name it here
+  bursts: "global_bursts.bursts_kept.{recording}"            # the spans Selection the baseline LEAVES OUT (the named bursts, or a stage of them)
+  bad_segments: exclude
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {step: analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
+      - {step: frames, in: {x: z, tiling: tiling}, out: z_frames}
+      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles}, with: {levels: $levels, glued: true, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
+      - {step: power, in: {x: j}, out: p}
+      - {step: baseline, in: {x: p, exclude: bad, outside: bursts}, with: {bad_segments: $bad_segments}, out: baseline}
+
+outputs:
+  baseline: {kind: statistic}

@@ -1,0 +1,87 @@
+cmake_minimum_required(VERSION 3.20)
+project(nxr_neuro VERSION 0.1.0 LANGUAGES CXX)
+
+# nxr-neuro: the project's combined C++ toolkit. One build, separate libraries:
+#   compute/    nxr_compute    pure maths (geometry-central + Eigen + Spectra); no file I/O
+#   io/         nxr_io         the nxr dataset format (SQLite rows + Zarr v3), the writer, the Brainstorm importer (nxr::bst)
+#   pipelines/  nxr_pipelines  the glue: read with nxr_io, compute with nxr_compute, write with nxr_io, cached
+#   meeg/       nxr_meeg       MEG/EEG source imaging (whitener, depth weights, minimum-norm kernel, chunk-wise covariance); Eigen only; no file I/O
+#               (each modality is its own folder: meeg/ now; pet/ etc. later)
+#   bindings/   MEX · Node · wasm · CLI shells around nxr_compute
+#   cli/        the `nxr-neuro` command
+# Neither compute nor io includes the other; only pipelines (and cli) see both.
+
+# C++17 floor (matches the nxr fleet; C++20 + Eigen trips an Emscripten template bug in geometry-central).
+set(CMAKE_CXX_STANDARD 17)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+if(NOT CMAKE_BUILD_TYPE)
+  set(CMAKE_BUILD_TYPE Release)
+endif()
+list(APPEND CMAKE_MODULE_PATH ${CMAKE_CURRENT_SOURCE_DIR}/cmake)
+
+option(NXR_NEURO_BUILD_COMPUTE   "Build the nxr_compute library (compute/)" ON)
+option(NXR_NEURO_BUILD_IO        "Build the nxr_io library (io/)" ON)
+option(NXR_NEURO_BUILD_MEEG      "Build the nxr_meeg library (meeg/): MEG/EEG source imaging; needs Eigen only" ON)
+option(NXR_NEURO_BUILD_PIPELINES "Build the pipeline layer (pipelines/); needs compute and io" ON)
+option(NXR_NEURO_BUILD_CLI       "Build the nxr-neuro command (cli/); needs io (pipelines are in it when built)" ON)
+option(NXR_NEURO_BUILD_BINDINGS  "Build the nxr_compute bindings (bindings/: MEX when MATLAB is found, Node via cmake-js, wasm under Emscripten, CLI smoke)" ON)
+option(NXR_NEURO_BUILD_TESTS     "Build the C++ tests of every library built, and register them with ctest" ON)
+
+if(EMSCRIPTEN)   # WebAssembly: every library (compute, io, meeg, pipelines) into one module (bindings/wasm-io); the command line is compiled INTO it, not as a program
+  set(NXR_NEURO_BUILD_CLI OFF)
+  set(NXR_NEURO_BUILD_TESTS OFF)
+  # ONE exception model for every object (mixing them does not link): WebAssembly's own, which io's errors need (a throw otherwise aborts)
+  add_compile_options(-fwasm-exceptions)
+  add_link_options(-fwasm-exceptions)
+endif()
+if(NXR_NEURO_BUILD_PIPELINES AND NOT (NXR_NEURO_BUILD_COMPUTE AND NXR_NEURO_BUILD_IO AND NXR_NEURO_BUILD_MEEG))
+  message(FATAL_ERROR "NXR_NEURO_BUILD_PIPELINES needs NXR_NEURO_BUILD_COMPUTE, NXR_NEURO_BUILD_IO and NXR_NEURO_BUILD_MEEG")
+endif()
+if(NXR_NEURO_BUILD_CLI AND NOT NXR_NEURO_BUILD_IO)
+  message(FATAL_ERROR "NXR_NEURO_BUILD_CLI needs NXR_NEURO_BUILD_IO")
+endif()
+if(NXR_NEURO_BUILD_BINDINGS AND NOT NXR_NEURO_BUILD_COMPUTE)
+  message(FATAL_ERROR "NXR_NEURO_BUILD_BINDINGS needs NXR_NEURO_BUILD_COMPUTE")
+endif()
+
+include(FetchContent)
+if(POLICY CMP0169)
+  cmake_policy(SET CMP0169 OLD)   # nxr-compute declares its Spectra pin and populates it with FetchContent_Populate
+endif()
+if(POLICY CMP0144)
+  cmake_policy(SET CMP0144 NEW)   # find_package(Matlab) reads MATLAB_ROOT from the environment
+endif()
+if(NXR_NEURO_BUILD_TESTS)
+  enable_testing()
+  # the layering guard: a recording is read and looped over only by the io chunk service (cmake/check_layering.cmake)
+  add_test(NAME layering_recordings_read_by_chunk_service COMMAND ${CMAKE_COMMAND} -DROOT=${CMAKE_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/check_layering.cmake)
+endif()
+set(NXR_IO_BUILD_TESTS      ${NXR_NEURO_BUILD_TESTS} CACHE BOOL "" FORCE)
+set(NXR_COMPUTE_BUILD_TESTS ${NXR_NEURO_BUILD_TESTS} CACHE BOOL "" FORCE)
+
+if(NXR_NEURO_BUILD_COMPUTE OR NXR_NEURO_BUILD_MEEG)
+  include(eigen)
+endif()
+if(NXR_NEURO_BUILD_IO)
+  add_subdirectory(io)
+endif()
+if(NXR_NEURO_BUILD_COMPUTE)
+  add_subdirectory(compute)
+endif()
+if(NXR_NEURO_BUILD_MEEG)
+  add_subdirectory(meeg)
+endif()
+if(NXR_NEURO_BUILD_PIPELINES)
+  add_subdirectory(pipelines)
+endif()
+if(NXR_NEURO_BUILD_BINDINGS)
+  add_subdirectory(bindings)
+endif()
+if(EMSCRIPTEN AND NXR_NEURO_BUILD_IO)
+  add_subdirectory(bindings/wasm-io)
+endif()
+if(NXR_NEURO_BUILD_CLI)
+  add_subdirectory(cli)
+endif()

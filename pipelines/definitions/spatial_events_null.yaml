@@ -1,0 +1,77 @@
+# ONE DRAW OF THE LAG-FREE NULL of the spatial events (spec docs/specs/2026-11-14-spatial-events.md, "Statistics and nulls"; vortex-cores spec, piece 10): the SAME graph as `run spatial_events`, run on a lag-free surrogate of the recording in place of the
+# recording (Gaussian noise with the data's own spectrum, the band's real cross-spectrum as its zero-lag covariance, no lag, scaled to the data's band envelope: `run lagfree_envelope`, `lagfree_surrogate`). The baseline, the threshold and the burst frames are the DATA's: only the signal is replaced,
+# so the draw's patches are what the same threshold finds in a signal with the data's covariance, spectrum and envelope and no travelling. A draw is the run with `seed: i` (the seed is in the cache key and in the stored nodes' names: `draw: seed`); only the HOME MAP and the PATCH
+# SUMMARY are stored (small statistics: `spatial_events_null.draw<seed>.home.<recording>`, `.summary.<recording>`), never the surrogate or the patches. `spatialnull compute` runs the draws in batches with early stopping.
+#
+#   nxr-neuro run spatial_events_null --dataset <folder> --subject sub-01 --set recording=rest --set cross_spectrum=rest_crossspectrum_alpha --set seed=1 --chunks all
+pipeline: spatial_events_null
+version: 1
+description: one draw of the lag-free null of the spatial events (the same graph on a lag-free surrogate of the recording), its home map and patch summary as statistics
+scope: subject
+draw: seed
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
+  tiles:     {selection: ladder, manifold: kernel.to}
+  tiling:    {selection: spans, manifold: recording.time, where: {name: $tiling}}
+  bursts:    {selection: spans, manifold: recording.time, where: {name: $bursts}}
+  baseline:  {statistic: mean, where: {name: $baseline_statistic}}
+  threshold: {statistic: histogram, where: {name: $threshold_statistic}, required: false}   # read only by `threshold: percentile` (refused there when it is not stored)
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+  psd:            {statistic: welch, where: {name: $psd_statistic}}
+  cross_spectrum: {statistic: welch, where: {name: $cross_spectrum}}
+  power_series:   {statistic: power_tiles, where: {name: $power_series_statistic}}
+
+parameters:
+  recording: none            # the recording's name, or none: every recording of the subject, one run each
+  seed: 0                    # the draw (a whole number >= 0): its own node, its own cache key
+  taps_half: 0               # the surrogate's taps: 0 from the PSD's resolution
+  psd_statistic: "{recording}_psd_welch"
+  cross_spectrum: none       # the band's stored cross-spectrum (`crossspectrum compute --channels-of KERNEL`), by name
+  power_series_statistic: "lagfree_envelope.series.{recording}"
+  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
+  band: [8.0, 12.0]
+  shape: morlet
+  spatial_shape: mexhat
+  levels: [2, 3, 4, 5, 6, 7, 8]   # the scale space: one hat each (2 and 3 reach the coarse sizes level 4 cut off;); must be the baseline's
+  reference_level: 6         # the level whose relative power the patches are cut from
+  method: MNE
+  transform: auto
+  modes: 0
+  order: 0
+  tolerance: 0.01
+  tiling: "{recording} frames 0.00257492 s"
+  bursts: "global_bursts.bursts_kept.{recording}"
+  baseline_statistic: "spatial_baseline.baseline.{recording}"   # the stored baseline (`run spatial_baseline`), by name
+  threshold_statistic: "spatial_threshold.histogram.{recording}"   # the stored distribution of the relative power outside the bursts (`run spatial_threshold`), by name
+  threshold: percentile      # percentile (the default: the false-alarm rate, measured) | ratio (a multiple of the vertex's baseline)
+  percentile: 99.0           # threshold percentile: the relative power's 99th percentile outside the bursts (about 1 % of vertices above it on frames with no event)
+  ratio: 2.0                 # threshold ratio: the patches are where the relative power is at least this multiple of the vertex's baseline (about 13.5 % of vertices on noise alone)
+  min_area: 0.0              # m²: smaller patches are dropped
+  bad_segments: exclude
+  block_frames: 256          # the frames cut at once by the finder (memory only: the result does not depend on it)
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - step: lagfree_surrogate
+        in:   {x: recording, psd: psd, cross_spectrum: cross_spectrum, power_series: power_series}
+        with: {band: $band, shape: $shape, taps_half: $taps_half, seed: $seed}
+        out:  y
+      - {step: analytic, in: {x: y}, with: {band: $band, shape: $shape}, out: z}
+      - {step: frames, in: {x: z, tiling: tiling, within: bursts}, out: z_frames}
+      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles}, with: {levels: $levels, glued: true, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
+      - {step: power, in: {x: j}, out: p}
+      - {step: relative, in: {x: p, baseline: baseline}, out: r}
+      - {step: at_level, in: {x: r}, with: {level: $reference_level}, out: r_ref}
+      - {step: scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
+      - step: patches
+        in:   {x: r_ref, scale: sc, bursts: bursts, exclude: bad, threshold: threshold}
+        with: {threshold: $threshold, percentile: $percentile, ratio: $ratio, min_area: $min_area, block_frames: $block_frames, bad_segments: $bad_segments, events: false}
+        out:  [events, frame, burst, centre_vertex, centre, area, diameter_cm, characteristic_level, size_cm, relative_peak, home, summary]
+
+outputs:
+  home:    {kind: statistic}
+  summary: {kind: statistic}

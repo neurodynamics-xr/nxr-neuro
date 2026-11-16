@@ -1,0 +1,93 @@
+# THE VORTEX CORES, pass two (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 5; docs/specs/2026-11-14-spatial-events.md, decision 1): the connected patches where the hatted curl of the current is above its threshold,
+# one sense each, in each burst frame (nxr `_core_patches`). The THRESHOLD is read BY NAME from the stored distribution `run vortex_core_threshold` made (`threshold_statistic`), and the percentile (98, nxr's) derived here from
+# its counts: a core is cut from a threshold it is given.
+#
+# THE CHAIN is pass one's, to the frames: analytic (Morlet) → frames (inside the named bursts: the sensors' band signal sampled on the tiling) → apply_kernel (form curl_tan, the Mexican hat of the level, on the GLUED surface: linear, so it commutes with the frame sampling) → cores. The kernel runs on the frames only, in blocks of frames (`--block-frames`). The step refuses a threshold made from
+# another band, level, shape, form or frame tiling.
+#
+# STORED as POINT EVENTS (point_events.h): a spans Selection `vortex_cores.cores.<recording>` of type `core`, ONE MEMBER PER CORE whose span is the core's frame (members may share a frame: in the order frame, sense +1 first,
+# lowest vertex), and per core as measurements over that Selection: frame, sense, centre_vertex (a vertex of the glued surface), centre (centre_x, centre_y, centre_z: the |curl|·area-weighted centroid, the surface's unit, m),
+# area (m²) and peak (the largest sense · curl). Frames are independent: the result does not depend on the chunk size. The cores are DESCRIPTIONS of where the field rotates, not evidence that it does (the lag-free null is, piece 10).
+#
+#   nxr-neuro run vortex_core_threshold --dataset <folder> --subject sub-01 --set space_level=5 --chunks all
+#   nxr-neuro run vortex_cores          --dataset <folder> --subject sub-01 --set space_level=5 --chunks all
+pipeline: vortex_cores
+version: 1
+description: the vortex cores of a band's hatted curl over the burst frames, from the stored threshold, stored as point events
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
+  tiles:     {selection: ladder, manifold: kernel.to}
+  tiling:    {selection: spans, manifold: recording.time, where: {name: $tiling}}
+  bursts:    {selection: spans, manifold: recording.time, where: {name: $bursts}}
+  threshold: {statistic: histogram, where: {name: $threshold_statistic}}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+  onset:     {selection: spans, manifold: recording.time, where: {name: $onset}, required: false}
+  within:    {selection: spans, manifold: recording.time, where: {name: $within}, required: false}
+  offset:    {selection: spans, manifold: recording.time, where: {name: $offset}, required: false}
+
+parameters:
+  recording: none            # the recording's name, or none: every recording of the subject, one run each
+  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
+  band: [8.0, 12.0]
+  shape: morlet
+  spatial_shape: mexhat
+  space_level: 5
+  method: MNE
+  transform: auto
+  modes: 0
+  order: 0
+  tolerance: 0.01
+  tiling: "{recording} frames 0.00257492 s"
+  bursts: "global_bursts.bursts_kept.{recording}"
+  threshold_statistic: "vortex_core_threshold.histogram.{recording}"   # the stored distribution (pass one's output), by name
+  percentile: 98.0           # nxr CORE_PCT: the threshold is this percentile of |curl| over the burst frames, derived from the stored counts
+  bad_segments: exclude
+  block_frames: 256          # the frames cut at once (memory only: the result does not depend on it)
+  link_mm: 15.0              # nxr CORE_LINK: a core joins the nearest free track of the previous frame (same sense) within this distance of its last centre
+  stages: [burst]            # the stages the crossings are counted in: burst (every step), and onset, within, offset when their Selections exist (`global_bursts`: burst_onset, burst_within, burst_offset)
+  onset: "global_bursts.burst_onset.{recording}"
+  within: "global_bursts.burst_within.{recording}"
+  offset: "global_bursts.burst_offset.{recording}"
+  min_frames: 2              # the tracks stored hold at least this many frames (2: a track has a step; nxr's lifetime statistics use 3 or more, a filter at read)
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {step: analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
+      - {step: frames, in: {x: z, tiling: tiling, within: bursts}, out: z_frames}
+      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles}, with: {level: $space_level, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, form: curl_tan}, out: curl_frames}
+      - step: cores
+        in:   {x: curl_frames, threshold: threshold, exclude: bad}
+        with: {percentile: $percentile, block_frames: $block_frames, bad_segments: $bad_segments}
+        out:  [cores, frame, sense, centre_vertex, centre, area, peak]
+  after:
+    - step: tracks
+      in:   {events: cores, frame: frame, sense: sense, centre: centre}
+      with: {link_mm: $link_mm, min_frames: $min_frames}
+      out:  [tracks, track_first_frame, track_last_frame, track_n_frames, track_path_length, track_displacement, track_sense, core_track]
+    - step: tile_crossings
+      in:   {events: cores, frame: frame, sense: sense, centre: centre, track: core_track, tiles: tiles, onset: onset, within: within, offset: offset}
+      with: {level: $space_level, stages: $stages}
+      out:  tile_crossings
+
+outputs:
+  cores:         {kind: spans, types: [core]}
+  frame:         {kind: measurement}
+  sense:         {kind: measurement}
+  centre_vertex: {kind: measurement}
+  centre:        {kind: measurement}
+  area:          {kind: measurement}
+  peak:          {kind: measurement}
+  tracks:              {kind: spans, types: [track]}
+  track_first_frame:   {kind: measurement}
+  track_last_frame:    {kind: measurement}
+  track_n_frames:      {kind: measurement}
+  track_path_length:   {kind: measurement}
+  track_displacement:  {kind: measurement}
+  track_sense:         {kind: measurement}
+  core_track:          {kind: measurement}
+  tile_crossings:      {kind: measurement}

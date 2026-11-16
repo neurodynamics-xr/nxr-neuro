@@ -1,0 +1,974 @@
+{
+ "description": "nxr-neuro's own measures. Codes 1000-1999 are reserved for nxr-neuro, so they never collide with the Studio's (schema/measures.json, generated from the Studio's registry). Stored measures 1000-1099, derived 1100-1199. Loaded after the Studio's; a code or name in both is refused.",
+ "range": [
+  1000,
+  1999
+ ],
+ "measures": [
+  {
+   "code": 1000,
+   "name": "phase_current_1",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σw·j_1, the phase current j = Im(z̄∇z) = |z|²∇φ in the canonical frame (e1 north, e2 west, n out) — the phase gradient's moments"
+  },
+  {
+   "code": 1001,
+   "name": "phase_current_2",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σw·j_2, the phase current in the canonical frame (e1 north, e2 west, n out) — the phase gradient's moments"
+  },
+  {
+   "code": 1002,
+   "name": "phase_current_magnitude",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σw·|j|, the phase current's length — the phase gradient's moments"
+  },
+  {
+   "code": 1003,
+   "name": "phase_power",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σw·|z|² of the complex field whose phase is measured — the phase gradient's moments"
+  },
+  {
+   "code": 1004,
+   "name": "phase_gradient_power",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σw·|∇z|² of the tangent gradient — the phase gradient's moments"
+  },
+  {
+   "code": 1100,
+   "name": "phase_gradient_1",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_current_1",
+    "phase_power"
+   ],
+   "description": "the power-weighted phase gradient on the member, Σj_1 / Σ|z|² (rad per length unit of the surface) in the canonical frame (e1 north, e2 west, n out); points against the travel"
+  },
+  {
+   "code": 1101,
+   "name": "phase_gradient_2",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_current_2",
+    "phase_power"
+   ],
+   "description": "the power-weighted phase gradient on the member, Σj_2 / Σ|z|² (rad per length unit) in the canonical frame (e1 north, e2 west, n out)"
+  },
+  {
+   "code": 1102,
+   "name": "phase_gradient_magnitude",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_current_1",
+    "phase_current_2",
+    "phase_power"
+   ],
+   "description": "|Σj| / Σ|z|², the length of the power-weighted phase gradient (rad per length unit); the speed is ω over it"
+  },
+  {
+   "code": 1103,
+   "name": "phase_gradient_direction_deg",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_current_1",
+    "phase_current_2"
+   ],
+   "description": "the direction of Σj, degrees from north (e1) towards west (e2): depends on the gauge; the phase gradient points against the travel"
+  },
+  {
+   "code": 1104,
+   "name": "travelling_index",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_current_1",
+    "phase_current_2",
+    "phase_power",
+    "phase_gradient_power"
+   ],
+   "description": "|Σj| / √(Σ|z|² Σ|∇z|²), 0 … 1 (Cauchy–Schwarz): 1 one plane wave across the member, 0 a standing pattern or directions that cancel"
+  },
+  {
+   "code": 1105,
+   "name": "phase_coherence",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_current_1",
+    "phase_current_2",
+    "phase_current_magnitude"
+   ],
+   "description": "|Σj| / Σ|j|, 0 … 1: how far the phase currents on the member point one way"
+  },
+  {
+   "code": 1005,
+   "name": "mean_abs",
+   "reduction": "mean",
+   "unit": null,
+   "weight": "area",
+   "span": "levels",
+   "derived_from": null,
+   "description": "the weighted mean of |x| over the member — with rms and abs_max, MATLAB's shape and impulse factors at read"
+  },
+  {
+   "code": 1006,
+   "name": "mean_sqrt_abs",
+   "reduction": "mean",
+   "unit": null,
+   "weight": "area",
+   "span": "levels",
+   "derived_from": null,
+   "description": "the weighted mean of sqrt|x| over the member — with abs_max, MATLAB's clearance factor at read"
+  },
+  {
+   "code": 1007,
+   "name": "mean_cube",
+   "reduction": "mean",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σw·x³ / Σw, the third raw moment within a member: an ingredient of skewness (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1008,
+   "name": "mean_fourth",
+   "reduction": "mean",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σw·x⁴ / Σw, the fourth raw moment within a member: an ingredient of kurtosis (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1009,
+   "name": "median",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the median of the member's finite values (numpy median), exact and unweighted; it does not roll up: the lookup refuses to merge members (nxr-neuro)"
+  },
+  {
+   "code": 1010,
+   "name": "duration",
+   "reduction": "sum",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "an event's length in seconds: its tiles x the tile width (a burst's duration); the sum over events is the time spent in them (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1011,
+   "name": "interval_next",
+   "reduction": "none",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "from an event's end to the next event's start on the same row, in seconds; NaN for the last. Does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1012,
+   "name": "n_tiles",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the tiles of a level that make up an event (a patch on the cortex): its extent in tiles; the sum over events is the tiles covered (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1013,
+   "name": "centre_vertex",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the vertex nearest an event's area-weighted centroid (a patch's centre; a vertex index of its surface). A place, not a quantity: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1014,
+   "name": "t_on",
+   "reduction": "none",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the half-rise time of an event's double-sigmoid fit (Rheome detect.risefall), seconds on the recording's clock: where the episode is half built. A per-event fit: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1015,
+   "name": "t_off",
+   "reduction": "none",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the half-fall time of an event's double-sigmoid fit, seconds on the recording's clock: where the episode is half gone. A per-event fit: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1016,
+   "name": "tau_rise",
+   "reduction": "none",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the rise time constant of the fit (the build-up spans tOn ± 2 tauR). A per-event fit: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1017,
+   "name": "tau_fall",
+   "reduction": "none",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the fall time constant of the fit (the decay spans tOff ± 2 tauF). A per-event fit: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1018,
+   "name": "fit_baseline",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the baseline b of the fit, in the units of the series fitted. A per-event fit: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1019,
+   "name": "fit_height",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the height h of the fit, in the units of the series fitted. A per-event fit: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1020,
+   "name": "fit_r2",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the r² of the fit on the unit scale (scale-free); labelalpha keeps r² ≥ 0.7. A per-event fit: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1021,
+   "name": "plateau_duration",
+   "reduction": "none",
+   "unit": "s",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the plateau of the fit, tOff − 2 tauF − (tOn + 2 tauR), 0 when the build-up and the decay overlap. A per-event fit: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1022,
+   "name": "cross_spectrum_norm2",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σ a_i a_j |T_ij|² (a the vertex areas; without them, with `weights: none`) = ‖T‖_F² of a member's source cross-spectrum T = B C Bᵀ (B the member's rows of the kernel with the level's spatial band, C the stored Σ z zᴴ of a time tile or of a burst's tiles summed): a sum of products, the ingredient of the quadrature fraction. Summed over members it is the energy of the block-diagonal of the source cross-spectrum (the cross blocks between members are missing), never that of the members' union; over time, sum C first"
+  },
+  {
+   "code": 1023,
+   "name": "cross_spectrum_quadrature_norm2",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σ a_i a_j |Im T_ij|² = ‖Im T‖_F² (area-weighted, as cross_spectrum_norm2) of the same T (the quadrature part: zero for a standing pattern; no zero-delay mixing makes it): the other ingredient of the quadrature fraction. Same roll-up caveat as cross_spectrum_norm2"
+  },
+  {
+   "code": 1024,
+   "name": "n_cells",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the number of joint cells (spatial tile x time tile) an event holds: its space-time extent in cells. Sums over the cells (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1025,
+   "name": "first_tile",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the first time tile (an index of the time level) an event holds. A place in time: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1026,
+   "name": "last_tile",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the last time tile (an index of the time level) an event holds. A place in time: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1027,
+   "name": "burst_ordinal",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the ordinal of the global burst (in the run's bursts Selection) an event lies in: the link from where to when. An identity: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1028,
+   "name": "path_length",
+   "reduction": "none",
+   "unit": "m",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the length of an event's path: the sum of the straight distances between the centre vertices of consecutive time tiles (a chord, never longer than the path over the surface). Path dependent: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1029,
+   "name": "tile_pair_cross_spectrum_norm2",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σ a_i a_j |T_ij|² of the cross block T = B_s C B_s'ᵀ between two touching tiles s, s' of a level (rows = the level's tile pairs, tileAdjacency order; the pair's row of the array; T_s's = T_ss'ᴴ, so a pair is listed once): the energy of the source cross-spectrum that couples the two tiles, where a wave running from one tile into the next lives. A sum of products, the ingredient of the pair's quadrature fraction; not additive over time (sum C first) nor over a union of pairs"
+  },
+  {
+   "code": 1030,
+   "name": "tile_pair_cross_spectrum_quadrature_norm2",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σ a_i a_j |Im T_ij|² of the same cross block (the quadrature part: zero for a pattern standing across the two tiles; no zero-delay mixing makes it): the other ingredient of the pair's quadrature fraction"
+  },
+  {
+   "code": 1031,
+   "name": "scale_event",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the cross-pair event (an event seen at several (spatial level, time level) pairs, matched by the ladders' nesting) that an event of one pair belongs to: the link from a pair's event to its scale selection. An identity: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1032,
+   "name": "scale_space_level",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the spatial level of a cross-pair event's best pair: the level of the largest standardized response (scale selection, Rheome's blobscale rule); its tiles are the event's own size, quantized to the declared set. An identity: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1033,
+   "name": "scale_time_level",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the time level of a cross-pair event's best pair: its constant-Q band is the event's own rhythm, quantized to the declared set. An identity: it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1034,
+   "name": "scale_peak",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the response of a cross-pair event at its best pair: the largest standardized cell amplitude of its member events there (z = (amplitude - the tile's median) / its robust SD over the run's time tiles, as the extents were found), or their mean z when the selection was made on the mean. Comparable across pairs only as a standardized value; it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1035,
+   "name": "scale_response",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the FOOTPRINT of a cross-pair event: its response at each pair of the set (rows = the pairs in the Selection's declared order, members = the cross-pair events), NaN where none of its member events was detected at that pair. Not a reduction (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1036,
+   "name": "scale_tile_area",
+   "reduction": "none",
+   "unit": "m²",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the mean area of a tile of the best pair's spatial level (the surface's area over the level's tiles): the physical size of the event's own scale, quantized to the level. A property of the level; it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1037,
+   "name": "scale_band_lo",
+   "reduction": "none",
+   "unit": "Hz",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the lower edge of the band the best pair's time level resolves (the constant-Q level's `resolves_hz`): the event's own rhythm, quantized to the level. A property of the level; it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1038,
+   "name": "scale_band_hi",
+   "reduction": "none",
+   "unit": "Hz",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the upper edge of the band the best pair's time level resolves. A property of the level; it does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1039,
+   "name": "scale_pairs",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "how many pairs of the set hold a member event of a cross-pair event: 1 a single-pair event, the set's size an event seen at every pair (the breadth of its footprint). It does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1040,
+   "name": "scale_edge",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "a bit mask: the best pair sits on an edge of the declared set, so the event's true scale may lie beyond it (Rheome's blobscale atFloor): 1 the finest spatial level, 2 the coarsest, 4 the shortest time window (the fastest band), 8 the longest. A bit is set only for a dimension with at least two values. It does not roll up (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1041,
+   "name": "phase_current_x",
+   "reduction": "mean",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the x component of the phase current j = Im(z̄∇z) = |z|²∇φ of a free-orientation band field (Σ over its components, Σ_c Im(z̄_c ∇z_c)), in the surface's x y z axes: the mean over the member's cells (area-weighted over a spatial tile, time-weighted over the member's samples). One of three components of a vector measurement, stored as components 0-2 of an array whose component 3 is the count; no orientation or normal is assumed (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1042,
+   "name": "phase_current_y",
+   "reduction": "mean",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the y component of the phase current j = Im(z̄∇z) = |z|²∇φ of a free-orientation band field (Σ over its components, Σ_c Im(z̄_c ∇z_c)), in the surface's x y z axes: the mean over the member's cells (area-weighted over a spatial tile, time-weighted over the member's samples). One of three components of a vector measurement, stored as components 0-2 of an array whose component 3 is the count; no orientation or normal is assumed (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1043,
+   "name": "phase_current_z",
+   "reduction": "mean",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the z component of the phase current j = Im(z̄∇z) = |z|²∇φ of a free-orientation band field (Σ over its components, Σ_c Im(z̄_c ∇z_c)), in the surface's x y z axes: the mean over the member's cells (area-weighted over a spatial tile, time-weighted over the member's samples). One of three components of a vector measurement, stored as components 0-2 of an array whose component 3 is the count; no orientation or normal is assumed (nxr-neuro, 2026-11-13)"
+  },
+  {
+   "code": 1044,
+   "name": "frame",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the frame (an index of the frame tiling of the recording) a point event sits in: the member's own span is that frame. A place in time, not a quantity: it does not roll up (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1045,
+   "name": "sense",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the sense of an event: +1 / -1, the sign of the field the event is a patch of (a vortex core: the curl, counter-clockwise about the surface normal when +1). It does not roll up (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1046,
+   "name": "centre_x",
+   "reduction": "none",
+   "unit": "m",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the x of an event's centre (a patch's |value|-and-area-weighted centroid), in the surface's x y z axes. One of three components of a vector measurement (centre_x, centre_y, centre_z: components 0-2 of an array whose component 3 is the count). A place: it does not roll up (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1047,
+   "name": "centre_y",
+   "reduction": "none",
+   "unit": "m",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the y of an event's centre; see centre_x (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1048,
+   "name": "centre_z",
+   "reduction": "none",
+   "unit": "m",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the z of an event's centre; see centre_x (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1049,
+   "name": "peak",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the largest value of an event's own field inside it, in the field's unit (a vortex core: the largest sense x curl in its patch, above its threshold). A per-event value: it does not roll up (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1050,
+   "name": "characteristic_level",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the hat level (of the surface's tile ladder) at which a spatial event's L2-normalised band power is largest at its centre: its characteristic scale (Lindeberg 1998). A per-event value: it does not roll up (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1051,
+   "name": "size_cm",
+   "reduction": "none",
+   "unit": "cm",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the characteristic size of a spatial event: the centre wavelength 2*pi/sqrt(lambda_c) of its characteristic level's hat, in centimetres. A per-event value: it does not roll up (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1052,
+   "name": "diameter_cm",
+   "reduction": "none",
+   "unit": "cm",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the equal-area diameter 2*sqrt(area/pi) of a spatial event's patch, in centimetres. A per-event value: it does not roll up (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1053,
+   "name": "relative_peak",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the largest band power inside a spatial event's patch in units of each vertex's own baseline power (1 is the baseline). A per-event value: it does not roll up (nxr-neuro, 2026-11-14)"
+  },
+  {
+   "code": 1106,
+   "name": "shape_factor",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "mean_square",
+    "mean_abs"
+   ],
+   "description": "rms / mean|x| (MATLAB ShapeFactor), from the rolled-up ingredients"
+  },
+  {
+   "code": 1107,
+   "name": "impulse_factor",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "abs_max",
+    "mean_abs"
+   ],
+   "description": "max|x| / mean|x| (MATLAB ImpulseFactor), from the rolled-up ingredients"
+  },
+  {
+   "code": 1108,
+   "name": "clearance_factor",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "abs_max",
+    "mean_sqrt_abs"
+   ],
+   "description": "max|x| / (mean sqrt|x|)^2 (MATLAB ClearanceFactor), from the rolled-up ingredients"
+  },
+  {
+   "code": 1109,
+   "name": "skewness",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "mean",
+    "mean_square",
+    "mean_cube"
+   ],
+   "description": "the standardized third central moment of the values within a member, m3 / m2^1.5 (1/n; MATLAB skewness, the Skewness time-domain feature), from the raw moments"
+  },
+  {
+   "code": 1110,
+   "name": "kurtosis",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "mean",
+    "mean_square",
+    "mean_cube",
+    "mean_fourth"
+   ],
+   "description": "the standardized fourth central moment of the values within a member, m4 / m2² (1/n, not excess: 3 for a Gaussian; MATLAB kurtosis, the Kurtosis time-domain feature), from the raw moments"
+  },
+  {
+   "code": 1111,
+   "name": "quadrature_fraction",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "cross_spectrum_norm2",
+    "cross_spectrum_quadrature_norm2"
+   ],
+   "description": "‖Im T‖_F / ‖T‖_F = √(Σ|Im T|² / Σ|T|²), 0 … 1 (nxr's lagged_fraction): 0 a standing pattern (one real pattern times a phase), at most 1/√2 for one travelling pattern, up to 1 for several at different phases; a RATIO of sums, derived at read"
+  },
+  {
+   "code": 1112,
+   "name": "tile_pair_quadrature_fraction",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "tile_pair_cross_spectrum_norm2",
+    "tile_pair_cross_spectrum_quadrature_norm2"
+   ],
+   "description": "‖Im T‖_F / ‖T‖_F of the cross block between two touching tiles (as quadrature_fraction, for T = B_s C B_s'ᵀ): 0 a pattern standing across the two tiles, high where a wave runs from one into the other; a RATIO of sums, derived at read"
+  },
+  {
+   "code": 1113,
+   "name": "phase_gradient_x",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_current_x",
+    "power"
+   ],
+   "description": "the x component of the power-weighted phase gradient (rad/m) = mean phase_current_x / mean power: a RATIO of the rolled-up means, derived at read, never a mean of cell ratios. Its negative is the direction the phase travels; the speed is 2πf / |phase_gradient| (a speed that shrinks with leakage; the gradient is of the band at the level)"
+  },
+  {
+   "code": 1114,
+   "name": "phase_gradient_y",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_current_y",
+    "power"
+   ],
+   "description": "the y component of the power-weighted phase gradient (rad/m) = mean phase_current_y / mean power: a RATIO of the rolled-up means, derived at read, never a mean of cell ratios. Its negative is the direction the phase travels; the speed is 2πf / |phase_gradient| (a speed that shrinks with leakage; the gradient is of the band at the level)"
+  },
+  {
+   "code": 1115,
+   "name": "phase_gradient_z",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "phase_current_z",
+    "power"
+   ],
+   "description": "the z component of the power-weighted phase gradient (rad/m) = mean phase_current_z / mean power: a RATIO of the rolled-up means, derived at read, never a mean of cell ratios. Its negative is the direction the phase travels; the speed is 2πf / |phase_gradient| (a speed that shrinks with leakage; the gradient is of the band at the level)"
+  },
+  {
+   "code": 1054,
+   "name": "flow_divergence",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·div v of the optical flow's velocity (1/s), per flow step; `flow_divergence_density` is the time mean per unit area"
+  },
+  {
+   "code": 1055,
+   "name": "flow_curl",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·curl v of the optical flow's velocity (1/s), per flow step; `flow_curl_density` is the time mean per unit area"
+  },
+  {
+   "code": 1056,
+   "name": "flow_speed",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·|v| of the optical flow's tangent velocity (m/s), per flow step; `flow_speed_density` is the mean speed"
+  },
+  {
+   "code": 1057,
+   "name": "flow_velocity_1",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(v·e1) of the optical flow's velocity in the canonical frame (e1 north), per flow step (m/s)"
+  },
+  {
+   "code": 1058,
+   "name": "flow_velocity_2",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(v·e2) of the optical flow's velocity in the canonical frame (e2 west), per flow step (m/s)"
+  },
+  {
+   "code": 1059,
+   "name": "flow_velocity_anterior",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(v·anterior) of the optical flow's velocity along the anatomical anterior axis, per flow step (m/s)"
+  },
+  {
+   "code": 1060,
+   "name": "flow_velocity_second",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(v·second) of the optical flow's velocity along the second anatomical axis (superior or medial), per flow step (m/s)"
+  },
+  {
+   "code": 1061,
+   "name": "phase_flux",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the exact flux of the phase propagation -grad(phi) out of the tile (rad: the net source of the propagation, the integral of its divergence), the tile integral of nxr's measure/integrals; additive up the tile tree; the mean divergence is this over the tile's area"
+  },
+  {
+   "code": 1062,
+   "name": "phase_circulation",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the exact circulation of the phase field round the tile (rad: the net rotation, the integral of its curl; a winding number x 2 pi round a phase singularity), the tile integral of nxr's measure/integrals; additive up the tile tree; the mean curl is this over the tile's area"
+  },
+  {
+   "code": 1116,
+   "name": "displacement",
+   "reduction": "none",
+   "unit": "m",
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the straight distance from a track's first core's centre to its last core's (m): a description of where the core went, not evidence that anything travels. Does not roll up (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1117,
+   "name": "n_frames",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the frames a track holds: its cores (one a frame), so its lifetime in frames. A description (a track's lifetime equals the lag-free null's); it does not roll up (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1118,
+   "name": "first_frame",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the frame (an index of the frame tiling of the recording) a track's first core sits in: the start of the track's span. A place in time, not a quantity: it does not roll up (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1119,
+   "name": "last_frame",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the frame a track's last core sits in: the end of the track's span (its span's stop is the next frame's start). A place in time: it does not roll up (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1120,
+   "name": "track",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "events",
+   "derived_from": null,
+   "description": "the labelling of a point event by a set of tracks: the member ordinal, in the tracks' Selection, of the track the event (a vortex core) belongs to; -1 for a core in no stored track. A label, not a quantity: it does not roll up (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1121,
+   "name": "crossing_sum_x",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the x of the sum of a tile's crossings' unit directions (a crossing = one track's steps in the tile, carried to the tile centre, made a unit vector), a 3-D tangent vector at the tile's centre; one of three components (crossing_sum_x/y/z) of a vector measurement whose component 3 is the crossings' count. Only at the level it was made: vectors of different tiles are never added, so it does not roll up (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1122,
+   "name": "crossing_sum_y",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the y of the sum of a tile's crossings' unit directions (see crossing_sum_x). Does not roll up (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1123,
+   "name": "crossing_sum_z",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the z of the sum of a tile's crossings' unit directions (see crossing_sum_x). Does not roll up (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1124,
+   "name": "crossings",
+   "reduction": "none",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the number of crossings of a tile by tracks, per sense and stage: each crossing is one track's steps in the tile. Stored beside the vector sum and does not roll up with it (the count of a coarser tile is not the sum of the vectors'); the data-to-null crossing ratio compares counts (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1125,
+   "name": "crossing_consistency",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "crossing_sum_x",
+    "crossing_sum_y",
+    "crossing_sum_z",
+    "crossings"
+   ],
+   "description": "R = |S| / n: the length of a tile's summed crossing directions over their number (1: every track crossed the same way, near 0: any way). A RATIO of the stored sum and count, derived at read. It is biased upward for small n (a single crossing has R = 1): compare places with different counts by crossing_rho2 (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1126,
+   "name": "crossing_rho2",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "crossing_sum_x",
+    "crossing_sum_y",
+    "crossing_sum_z",
+    "crossings"
+   ],
+   "description": "the unbiased rho2 = (|S|^2 - n) / (n (n - 1)) of a tile's n crossings (0 when the directions are independent, 1 when identical, negative below chance; undefined for n < 2): the unbiased estimate of the squared mean resultant, the one to compare places of different counts with (the project's trap of 2026-10-30). Derived at read (nxr-neuro, 2026-11-15)"
+  }
+ ]
+}

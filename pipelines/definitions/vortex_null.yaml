@@ -1,0 +1,85 @@
+# ONE DRAW OF THE LAG-FREE NULL of the vortex chain (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10): the SAME graph as `vortex_cores`, run on a lag-free surrogate of the recording in place of the
+# recording: Gaussian noise with the data's own spectrum (the stored Welch PSD), mixed by the square root of the band's real cross-spectrum (the zero-lag structure kept, no lag), scaled to the data's band envelope (`run lagfree_envelope`).
+# The threshold is the DATA's (the stored `vortex_core_threshold` histogram, by name), the burst frames the data's: only the signal is replaced. A draw is the run with `seed: i` (the seed is in the cache key and in the stored node's name:
+# `draw: seed`); only the draw's TILE CROSSINGS are stored, as a statistic beside the recording (`vortex_null.draw<seed>.null_crossings.<recording>`), small; the surrogate and the draw's cores and tracks are never stored.
+# `null compute` runs the draws in batches with early stopping and stores the per-tile p-values.
+#
+#   nxr-neuro run vortex_null --dataset <folder> --subject sub-01 --set recording=rest --set psd_statistic=rest_psd_welch --set cross_spectrum=rest_crossspectrum_alpha --set seed=1 --set space_level=5 --chunks all
+pipeline: vortex_null
+version: 1
+description: one draw of the lag-free null of the vortex chain (the same graph on a lag-free surrogate of the recording), its tile crossings as a statistic
+scope: subject
+draw: seed
+
+inputs:
+  recording:      {field: recording, each: true, where: {name: $recording}}
+  kernel:         {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
+  tiles:          {selection: ladder, manifold: kernel.to}
+  tiling:         {selection: spans, manifold: recording.time, where: {name: $tiling}}
+  bursts:         {selection: spans, manifold: recording.time, where: {name: $bursts}}
+  threshold:      {statistic: histogram, where: {name: $threshold_statistic}}
+  psd:            {statistic: welch, where: {name: $psd_statistic}}
+  cross_spectrum: {statistic: welch, where: {name: $cross_spectrum}}
+  power_series:   {statistic: power_tiles, where: {name: $power_series_statistic}}
+  bad:            {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+  onset:          {selection: spans, manifold: recording.time, where: {name: $onset}, required: false}
+  within:         {selection: spans, manifold: recording.time, where: {name: $within}, required: false}
+  offset:         {selection: spans, manifold: recording.time, where: {name: $offset}, required: false}
+
+parameters:
+  recording: none            # the recording's name, or none: every recording of the subject, one run each
+  kernel: none
+  seed: 0                    # the draw (a whole number >= 0): its own node, its own cache key
+  band: [8.0, 12.0]
+  shape: morlet
+  spatial_shape: mexhat
+  space_level: 5
+  method: MNE
+  transform: auto
+  modes: 0
+  order: 0
+  tolerance: 0.01
+  taps_half: 0               # the surrogate's taps: 0 from the PSD's resolution
+  psd_statistic: "{recording}_psd_welch"
+  cross_spectrum: none       # the band's stored cross-spectrum (`crossspectrum compute --channels-of KERNEL`), by name
+  power_series_statistic: "lagfree_envelope.series.{recording}"
+  tiling: "{recording} frames 0.00257492 s"
+  bursts: "global_bursts.bursts_kept.{recording}"
+  threshold_statistic: "vortex_core_threshold.histogram.{recording}"   # the DATA's threshold
+  percentile: 98.0
+  bad_segments: exclude
+  block_frames: 256
+  link_mm: 15.0
+  stages: [burst]
+  onset: "global_bursts.burst_onset.{recording}"
+  within: "global_bursts.burst_within.{recording}"
+  offset: "global_bursts.burst_offset.{recording}"
+  min_frames: 2
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - step: lagfree_surrogate
+        in:   {x: recording, psd: psd, cross_spectrum: cross_spectrum, power_series: power_series}
+        with: {band: $band, shape: $shape, taps_half: $taps_half, seed: $seed}
+        out:  y
+      - {step: analytic, in: {x: y}, with: {band: $band, shape: $shape}, out: z}
+      - {step: frames, in: {x: z, tiling: tiling, within: bursts}, out: z_frames}
+      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles}, with: {level: $space_level, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, form: curl_tan}, out: curl_frames}
+      - step: cores
+        in:   {x: curl_frames, threshold: threshold, exclude: bad}
+        with: {percentile: $percentile, block_frames: $block_frames, bad_segments: $bad_segments}
+        out:  [cores, frame, sense, centre_vertex, centre, area, peak]
+  after:
+    - step: tracks
+      in:   {events: cores, frame: frame, sense: sense, centre: centre}
+      with: {link_mm: $link_mm, min_frames: $min_frames}
+      out:  [tracks, track_first_frame, track_last_frame, track_n_frames, track_path_length, track_displacement, track_sense, core_track]
+    - step: tile_crossings
+      in:   {events: cores, frame: frame, sense: sense, centre: centre, track: core_track, tiles: tiles, onset: onset, within: within, offset: offset}
+      with: {level: $space_level, stages: $stages, as: statistic}
+      out:  null_crossings
+
+outputs:
+  null_crossings: {kind: statistic}

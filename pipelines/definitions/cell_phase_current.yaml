@@ -1,0 +1,64 @@
+# THE PHASE CURRENT OF THE CELLS AND OF THE BURSTS: where a burst's phase travels (spec docs/specs/2026-11-13-burst-phase-current.md). The recording's band is read on the cortex through the kernel with the
+# level's spatial band folded in (the chain of `cortical_cells`), a complex field of three components a vertex (a free kernel: x y z). Two pointwise nodes read it:
+#   * `phase_current`  j = Σ_c Im(z̄_c ∇z_c) = |z|² ∇φ, three numbers a vertex (x y z of the surface): orientation-free, no normal and no sign convention enter (each component is a smooth band-limited field);
+#   * `power`          Σ_c |z_c|².
+# Each is then MEASURED over the joint cells (a spatial tile of level l × a time tile of the band's level): the area-weighted mean per cell. Reductions are measurements over partitions, never a node's own.
+# The cells' values are rolled up over each STORED burst (`bursts`: a spans Selection, e.g. the bursts of `global_bursts`) by the count-weighted mean of the cells over the burst's time tiles (a global burst
+# holds on every spatial tile). Stored: `cell_phase_current` [spatial tiles × time tiles × 4] (components 0-2 the vector, 3 the samples counted; the rows `phase_current_x` `_y` `_z` and `count`) and
+# `cell_power` [… × 2] on the joint Selection; `burst_phase_current` and `burst_power` [spatial tiles × bursts × …] on the bursts' Selection.
+# DERIVED AT READ: phase_gradient_x/y/z = mean phase_current / mean power (rad/m); a burst's gradient is the ratio of ITS rolled-up means, never a mean of cell ratios. The direction the phase travels is
+# -phase_gradient; the speed is 2πf / |phase_gradient|. What it cannot resolve: the gradient is of the band at the level (the spatial band's scale), the speed shrinks with leakage of the inverse, and a
+# standing pattern has no gradient to travel along.
+#
+#   nxr-neuro tiles compute      --dataset <folder> --subject sub-01
+#   nxr-neuro constantq compute  --dataset <folder> --subject sub-01 --recording rest
+#   nxr-neuro joint compute      --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3
+#   nxr-neuro run global_bursts  --dataset <folder> --subject sub-01 --set space_level=5 --chunks all          # the bursts this reads (or any spans Selection of the recording on the tiles)
+#   nxr-neuro run cell_phase_current --dataset <folder> --subject sub-01 --set space_level=5 --set method=MNE --chunks all
+pipeline: cell_phase_current
+version: 1
+description: the band's phase current and power per joint cell (spatial tile × time tile) of the source estimate, rolled up over the stored bursts; the phase gradient is their ratio, derived at read
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
+  tiles:     {selection: ladder, manifold: kernel.to}
+  cells:     {selection: set, where: {params.joint.space_level: $space_level, params.joint.band: $band, params.joint.recording: "{recording}"}}
+  bursts:    {selection: spans, manifold: recording.time, where: {params.pipeline.name: $bursts_pipeline, params.inputs.recording.name: "{recording}"}}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: none            # the recording's name, or none: every recording of the subject, one run each
+  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
+  band: [8.0, 16.0]          # Hz: a time level's band (its `resolves_hz`); alpha at the hertz anchor
+  shape: morlet              # the temporal band's shape: morlet | meyer (compact edges: bands that add up)
+  spatial_shape: mexhat        # the spatial level's gain: mexhat | meyer (the level IS its Weyl band: compact edges)
+  space_level: 5             # the surface ladder's level: its Weyl band is the spatial band, its tiles the spatial partition (the gradient is of the band at this level)
+  method: MNE                # the kernel's inverse method (its params.inverse.measure); a FREE kernel (three components a vertex)
+  bursts_pipeline: global_bursts   # the pipeline whose stored spans (of this recording, on its time line) are the events rolled up over: any spans Selection named by its pipeline
+  transform: auto            # the spatial band's transform: auto = the stored eigenmodes when they reach the level's band, else computed and stored (said), else chebyshev (announced) | eigen | chebyshev | exact (dense, at most 4096 vertices)
+  modes: 0                   # when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it
+  order: 0                   # chebyshev degree; 0: the smallest of 40 … 5120 within `tolerance` of the band's gain
+  tolerance: 0.01
+  bad_segments: exclude      # exclude | ignore the recording's bad spans
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {step: analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
+      - {step: apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {level: $space_level, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: sources}
+      - {step: phase_current, in: {x: sources}, out: current}
+      - {step: power, in: {x: sources}, out: pw}
+      - {step: measure, in: {x: current, over: cells, exclude: bad}, with: {measure: phase_current, bad_segments: $bad_segments}, out: cell_phase_current}
+      - {step: measure, in: {x: pw, over: cells, exclude: bad}, with: {measure: power, bad_segments: $bad_segments}, out: cell_power}
+  after:
+    - {step: rollup_events, in: {x: cell_phase_current, events: bursts}, with: {measure: phase_current}, out: burst_phase_current}
+    - {step: rollup_events, in: {x: cell_power, events: bursts}, with: {measure: power}, out: burst_power}
+
+outputs:
+  cell_phase_current:  {kind: measurement}
+  cell_power:          {kind: measurement}
+  burst_phase_current: {kind: measurement}
+  burst_power:         {kind: measurement}

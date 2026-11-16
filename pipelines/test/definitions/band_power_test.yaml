@@ -1,0 +1,42 @@
+# A TEST fixture of the runner (not shipped: `band_power_source_map` was retired 2026-11-14 for `pyramid build`): the band power of a minimum-norm source estimate
+# at every source of the kernel's target, per recording, as a chain (band -> kernel -> power, pointwise) and a measure over the run's span. It exercises the runner's
+# inputs, steps, chunk service, cache and provenance on synthetic subjects. Run by path: `nxr-neuro run pipelines/test/definitions/band_power_test.yaml ...`.
+pipeline: band_power_test
+version: 1
+description: band power of the minimum-norm source estimate at every source of the kernel's target, per recording
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: none            # the recording's name, or none: every recording of the subject, one run each
+  kernel: none               # the inverse kernel's name, or none: found by `method`
+  band: [8.0, 12.0]          # Hz
+  shape: morlet              # the temporal band's shape: morlet | meyer (compact edges: bands that add up)
+  method: MNE                # the kernel's inverse method (its params.inverse.measure): MNE · dSPM · sLORETA · eLORETA
+  bad_segments: exclude      # exclude | ignore the recording's spans on its time line
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - step: band_filter
+        in:   {x: recording}
+        with: {band: $band, shape: $shape}
+        out:  x_band
+      - step: apply_kernel
+        in:   {x: x_band, kernel: kernel}
+        out:  sources
+      - step: power
+        in:   {x: sources}
+        out:  source_power
+      - step: measure
+        in:   {x: source_power, exclude: bad}
+        with: {measure: mean, bad_segments: $bad_segments}
+        out:  band_power
+
+outputs:
+  band_power: {kind: band power, unit: "A²·m²"}

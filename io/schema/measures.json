@@ -1,0 +1,427 @@
+{
+ "source": "nxr-cortical-flow backend/src/db/measurements.ts (MEASURES, measureDictionaryRows)",
+ "dictionary": {
+  "name": "measure",
+  "scope": "app",
+  "description": "the summary statistics a selection member may carry (D68): each entry gives a measure its name, its unit when it has one of its own, and — as its `function` — how its values combine when tiles are rolled up to a coarser level"
+ },
+ "measures": [
+  {
+   "code": 1,
+   "name": "mean",
+   "reduction": "mean",
+   "unit": null,
+   "weight": "area",
+   "span": "levels",
+   "derived_from": null,
+   "description": "the field's weighted mean over the member"
+  },
+  {
+   "code": 2,
+   "name": "max",
+   "reduction": "max",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the largest value on the member"
+  },
+  {
+   "code": 3,
+   "name": "min",
+   "reduction": "min",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the smallest value on the member"
+  },
+  {
+   "code": 4,
+   "name": "mean_square",
+   "reduction": "mean",
+   "unit": null,
+   "weight": "area",
+   "span": "levels",
+   "derived_from": null,
+   "description": "the mean of the square — rms is its root, taken at read because rms does not add"
+  },
+  {
+   "code": 5,
+   "name": "sum",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the total over the member"
+  },
+  {
+   "code": 6,
+   "name": "abs_max",
+   "reduction": "max",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the largest magnitude on the member — the peak of a signed field"
+  },
+  {
+   "code": 7,
+   "name": "area",
+   "reduction": "sum",
+   "unit": "m²",
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the member's own area — a geometric measurement, with no field"
+  },
+  {
+   "code": 8,
+   "name": "n_elements",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "the member's own element count — a geometric measurement, with no field"
+  },
+  {
+   "code": 10,
+   "name": "amplitude",
+   "reduction": "mean",
+   "unit": null,
+   "weight": "n_elements",
+   "span": "time",
+   "derived_from": null,
+   "description": "mean |z| over the member — the band's amplitude; the level says which band"
+  },
+  {
+   "code": 11,
+   "name": "power",
+   "reduction": "mean",
+   "unit": null,
+   "weight": "n_elements",
+   "span": "time",
+   "derived_from": null,
+   "description": "mean |z|² over the member — rms is its root, taken at read because rms does not add"
+  },
+  {
+   "code": 20,
+   "name": "weight",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa — the area the sums below are over (vertices with a value)"
+  },
+  {
+   "code": 21,
+   "name": "sum_square",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·x² — with `sum` and `weight`, the mean square and the variance at any roll-up"
+  },
+  {
+   "code": 22,
+   "name": "count",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "how many values (vertices, good samples) the member holds"
+  },
+  {
+   "code": 23,
+   "name": "power_sum",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·|z|² of the band's analytic signal over the member — power per sample per area is it over weight × samples"
+  },
+  {
+   "code": 24,
+   "name": "envelope_sum",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·|z| — the band's envelope, summed"
+  },
+  {
+   "code": 25,
+   "name": "envelope_max",
+   "reduction": "max",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "the largest |z| on the member — the band's envelope peak"
+  },
+  {
+   "code": 30,
+   "name": "gradient_1",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(∇x)_1 in the canonical frame (e1 north, e2 west, n out) — the gradient's moments"
+  },
+  {
+   "code": 31,
+   "name": "gradient_2",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(∇x)_2 in the canonical frame (e1 north, e2 west, n out) — the gradient's moments"
+  },
+  {
+   "code": 32,
+   "name": "gradient_n",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(∇x)_n in the canonical frame (e1 north, e2 west, n out) — the gradient's moments"
+  },
+  {
+   "code": 33,
+   "name": "gradient_11",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(∇x)_11 in the canonical frame (e1 north, e2 west, n out) — the gradient's moments"
+  },
+  {
+   "code": 34,
+   "name": "gradient_22",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(∇x)_22 in the canonical frame (e1 north, e2 west, n out) — the gradient's moments"
+  },
+  {
+   "code": 35,
+   "name": "gradient_12",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(∇x)_12 in the canonical frame (e1 north, e2 west, n out) — the gradient's moments"
+  },
+  {
+   "code": 36,
+   "name": "gradient_magnitude",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa·(∇x) magnitude in the canonical frame (e1 north, e2 west, n out) — the gradient's moments"
+  },
+  {
+   "code": 37,
+   "name": "gradient_weight",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "Σa over the vertices with a gradient"
+  },
+  {
+   "code": 40,
+   "name": "tensor_11",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component 11 in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 41,
+   "name": "tensor_22",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component 22 in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 42,
+   "name": "tensor_nn",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component nn in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 43,
+   "name": "tensor_12_re",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component 12_re in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 44,
+   "name": "tensor_12_im",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component 12_im in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 45,
+   "name": "tensor_1n_re",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component 1n_re in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 46,
+   "name": "tensor_1n_im",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component 1n_im in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 47,
+   "name": "tensor_2n_re",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component 2n_re in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 48,
+   "name": "tensor_2n_im",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component 2n_im in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 49,
+   "name": "tensor_total",
+   "reduction": "sum",
+   "unit": null,
+   "weight": null,
+   "span": "time",
+   "derived_from": null,
+   "description": "Σ a·J_i·J_j* of the band's analytic current, component total in the canonical frame (Hermitian; re/im)"
+  },
+  {
+   "code": 9,
+   "name": "variance",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "mean_square",
+    "mean"
+   ],
+   "description": "the variance on the member — E[x²] − E[x]², exact at any roll-up because both ingredients roll up"
+  },
+  {
+   "code": 16,
+   "name": "sd",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "mean_square",
+    "mean"
+   ],
+   "description": "the standard deviation on the member — √(E[x²] − E[x]²), exact at any roll-up because both ingredients roll up"
+  },
+  {
+   "code": 12,
+   "name": "rms",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "mean_square"
+   ],
+   "description": "the root mean square — √mean_square, rooted at read because rms does not add"
+  },
+  {
+   "code": 13,
+   "name": "peak_to_peak",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "max",
+    "min"
+   ],
+   "description": "max − min on the member"
+  },
+  {
+   "code": 14,
+   "name": "crest_factor",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "abs_max",
+    "mean_square"
+   ],
+   "description": "the peak against the rms — abs_max / √mean_square; how spiky the member is"
+  },
+  {
+   "code": 15,
+   "name": "envelope_variance",
+   "reduction": null,
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "power",
+    "amplitude"
+   ],
+   "description": "how much the band's amplitude fluctuates within the member — power − amplitude², the same identity as variance applied to the envelope"
+  }
+ ]
+}

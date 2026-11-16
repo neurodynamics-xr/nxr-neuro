@@ -1,0 +1,22 @@
+{
+  "$schema": "./nxr.meta.schema.json",
+  "$id": "https://nxr.dev/schema/nxr.fibers.schema.json",
+  "kind": "nxr.fibers",
+  "version": "1.0",
+  "title": "NXR Fibers (on-disk)",
+  "description": "White-matter fiber polylines (tractography), resampled to a fixed nPoints per fiber, in canonical SCS coordinates. Raw anatomy, independent of the manifold mesh.",
+  "dims": { "nFibers": "number of fibers", "nPoints": "points per fiber (fixed)" },
+  "attributes": {
+    "schema": { "type": "string", "const": "nxr.fibers@1.0", "required": true },
+    "n_fibers": { "type": "int" },
+    "n_points": { "type": "int" },
+    "coordinate_system": { "type": "string", "description": "Always 'scs'." },
+    "comment": { "type": "string" },
+    "source_format": { "type": "string" }
+  },
+  "arrays": {
+    "points": { "dtype": "float32", "shape": ["nFibers", "nPoints", 3], "storage": "row_major", "units": "m", "required": true, "description": "Fiber polylines in SCS." },
+    "colors": { "dtype": "uint8", "shape": ["nFibers", "nPoints", 3], "storage": "row_major", "description": "Optional per-point RGB." },
+    "assignment": { "dtype": "int32", "shape": ["nFibers", 2], "storage": "row_major", "description": "Optional endpoint->scout ids (-1 = unassigned)." }
+  }
+}

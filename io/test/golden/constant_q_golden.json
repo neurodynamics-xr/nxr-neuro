@@ -1,0 +1,4512 @@
+[
+ {
+  "name": "rest1200",
+  "line": {
+   "sfreq": 1200,
+   "samples": 360000,
+   "origin": 0
+  },
+  "params": {},
+  "tiling": {
+   "sfreq": 1200,
+   "samples": 360000,
+   "origin": 0,
+   "method": "hertz",
+   "voices": 6,
+   "cycles": 6.826666666666667,
+   "f_max": 64,
+   "f_min": 0.5,
+   "bands": [
+    {
+     "ordinal": 0,
+     "octave": 0,
+     "voice": 0,
+     "lo_hz": 57.01751796098171,
+     "hi_hz": 64,
+     "centre_hz": 60.407956011628386,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 1,
+     "octave": 0,
+     "voice": 1,
+     "lo_hz": 50.79683366298239,
+     "hi_hz": 57.01751796098171,
+     "centre_hz": 53.817370576237735,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 2,
+     "octave": 0,
+     "voice": 2,
+     "lo_hz": 45.254833995939045,
+     "hi_hz": 50.79683366298239,
+     "centre_hz": 47.945826460053816,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 3,
+     "octave": 0,
+     "voice": 3,
+     "lo_hz": 40.31747359663594,
+     "hi_hz": 45.254833995939045,
+     "centre_hz": 42.7148753334411,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 4,
+     "octave": 0,
+     "voice": 4,
+     "lo_hz": 35.91878554589994,
+     "hi_hz": 40.31747359663594,
+     "centre_hz": 38.05462768008707,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 5,
+     "octave": 0,
+     "voice": 5,
+     "lo_hz": 32,
+     "hi_hz": 35.91878554589994,
+     "centre_hz": 33.90281901949745,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 6,
+     "octave": 1,
+     "voice": 0,
+     "lo_hz": 28.508758980490857,
+     "hi_hz": 32,
+     "centre_hz": 30.203978005814193,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 7,
+     "octave": 1,
+     "voice": 1,
+     "lo_hz": 25.398416831491193,
+     "hi_hz": 28.508758980490857,
+     "centre_hz": 26.908685288118868,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 8,
+     "octave": 1,
+     "voice": 2,
+     "lo_hz": 22.627416997969522,
+     "hi_hz": 25.398416831491193,
+     "centre_hz": 23.972913230026908,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 9,
+     "octave": 1,
+     "voice": 3,
+     "lo_hz": 20.15873679831797,
+     "hi_hz": 22.627416997969522,
+     "centre_hz": 21.35743766672055,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 10,
+     "octave": 1,
+     "voice": 4,
+     "lo_hz": 17.95939277294997,
+     "hi_hz": 20.15873679831797,
+     "centre_hz": 19.027313840043536,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 11,
+     "octave": 1,
+     "voice": 5,
+     "lo_hz": 16,
+     "hi_hz": 17.95939277294997,
+     "centre_hz": 16.951409509748725,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 12,
+     "octave": 2,
+     "voice": 0,
+     "lo_hz": 14.25437949024543,
+     "hi_hz": 16,
+     "centre_hz": 15.101989002907096,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 13,
+     "octave": 2,
+     "voice": 1,
+     "lo_hz": 12.699208415745595,
+     "hi_hz": 14.25437949024543,
+     "centre_hz": 13.454342644059434,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 14,
+     "octave": 2,
+     "voice": 2,
+     "lo_hz": 11.313708498984761,
+     "hi_hz": 12.699208415745595,
+     "centre_hz": 11.986456615013452,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 15,
+     "octave": 2,
+     "voice": 3,
+     "lo_hz": 10.079368399158986,
+     "hi_hz": 11.313708498984761,
+     "centre_hz": 10.678718833360275,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 16,
+     "octave": 2,
+     "voice": 4,
+     "lo_hz": 8.979696386474982,
+     "hi_hz": 10.079368399158986,
+     "centre_hz": 9.513656920021768,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 17,
+     "octave": 2,
+     "voice": 5,
+     "lo_hz": 8,
+     "hi_hz": 8.979696386474982,
+     "centre_hz": 8.47570475487436,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 18,
+     "octave": 3,
+     "voice": 0,
+     "lo_hz": 7.127189745122715,
+     "hi_hz": 8,
+     "centre_hz": 7.550994501453548,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 19,
+     "octave": 3,
+     "voice": 1,
+     "lo_hz": 6.3496042078727974,
+     "hi_hz": 7.127189745122715,
+     "centre_hz": 6.727171322029717,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 20,
+     "octave": 3,
+     "voice": 2,
+     "lo_hz": 5.656854249492381,
+     "hi_hz": 6.3496042078727974,
+     "centre_hz": 5.993228307506726,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 21,
+     "octave": 3,
+     "voice": 3,
+     "lo_hz": 5.039684199579493,
+     "hi_hz": 5.656854249492381,
+     "centre_hz": 5.3393594166801375,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 22,
+     "octave": 3,
+     "voice": 4,
+     "lo_hz": 4.489848193237491,
+     "hi_hz": 5.039684199579493,
+     "centre_hz": 4.756828460010884,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 23,
+     "octave": 3,
+     "voice": 5,
+     "lo_hz": 4,
+     "hi_hz": 4.489848193237491,
+     "centre_hz": 4.23785237743718,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 24,
+     "octave": 4,
+     "voice": 0,
+     "lo_hz": 3.5635948725613567,
+     "hi_hz": 4,
+     "centre_hz": 3.7754972507267737,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 25,
+     "octave": 4,
+     "voice": 1,
+     "lo_hz": 3.1748021039363996,
+     "hi_hz": 3.5635948725613567,
+     "centre_hz": 3.3635856610148585,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 26,
+     "octave": 4,
+     "voice": 2,
+     "lo_hz": 2.8284271247461903,
+     "hi_hz": 3.1748021039363996,
+     "centre_hz": 2.9966141537533635,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 27,
+     "octave": 4,
+     "voice": 3,
+     "lo_hz": 2.519842099789746,
+     "hi_hz": 2.8284271247461903,
+     "centre_hz": 2.6696797083400687,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 28,
+     "octave": 4,
+     "voice": 4,
+     "lo_hz": 2.2449240966187465,
+     "hi_hz": 2.519842099789746,
+     "centre_hz": 2.378414230005442,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 29,
+     "octave": 4,
+     "voice": 5,
+     "lo_hz": 2,
+     "hi_hz": 2.2449240966187465,
+     "centre_hz": 2.1189261887185906,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 30,
+     "octave": 5,
+     "voice": 0,
+     "lo_hz": 1.7817974362806783,
+     "hi_hz": 2,
+     "centre_hz": 1.8877486253633868,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 31,
+     "octave": 5,
+     "voice": 1,
+     "lo_hz": 1.5874010519681998,
+     "hi_hz": 1.7817974362806783,
+     "centre_hz": 1.6817928305074292,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 32,
+     "octave": 5,
+     "voice": 2,
+     "lo_hz": 1.4142135623730951,
+     "hi_hz": 1.5874010519681998,
+     "centre_hz": 1.4983070768766817,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 33,
+     "octave": 5,
+     "voice": 3,
+     "lo_hz": 1.259921049894873,
+     "hi_hz": 1.4142135623730951,
+     "centre_hz": 1.3348398541700344,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 34,
+     "octave": 5,
+     "voice": 4,
+     "lo_hz": 1.1224620483093732,
+     "hi_hz": 1.259921049894873,
+     "centre_hz": 1.189207115002721,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 35,
+     "octave": 5,
+     "voice": 5,
+     "lo_hz": 1,
+     "hi_hz": 1.1224620483093732,
+     "centre_hz": 1.0594630943592953,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 36,
+     "octave": 6,
+     "voice": 0,
+     "lo_hz": 0.8908987181403392,
+     "hi_hz": 1,
+     "centre_hz": 0.9438743126816934,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 37,
+     "octave": 6,
+     "voice": 1,
+     "lo_hz": 0.7937005259840999,
+     "hi_hz": 0.8908987181403392,
+     "centre_hz": 0.8408964152537146,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 38,
+     "octave": 6,
+     "voice": 2,
+     "lo_hz": 0.7071067811865476,
+     "hi_hz": 0.7937005259840999,
+     "centre_hz": 0.7491535384383409,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 39,
+     "octave": 6,
+     "voice": 3,
+     "lo_hz": 0.6299605249474365,
+     "hi_hz": 0.7071067811865476,
+     "centre_hz": 0.6674199270850172,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 40,
+     "octave": 6,
+     "voice": 4,
+     "lo_hz": 0.5612310241546866,
+     "hi_hz": 0.6299605249474365,
+     "centre_hz": 0.5946035575013605,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 41,
+     "octave": 6,
+     "voice": 5,
+     "lo_hz": 0.5,
+     "hi_hz": 0.5612310241546866,
+     "centre_hz": 0.5297315471796477,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    }
+   ],
+   "levels": [
+    {
+     "level": 0,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407,
+     "finest_tiles": 1,
+     "resolves_hz": {
+      "lo": 32,
+      "hi": 64
+     },
+     "bands": 6,
+     "stride": 1,
+     "rate_hz": 1200,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 1,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704,
+     "finest_tiles": 2,
+     "resolves_hz": {
+      "lo": 16,
+      "hi": 32
+     },
+     "bands": 6,
+     "stride": 2,
+     "rate_hz": 600,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 2,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352,
+     "finest_tiles": 4,
+     "resolves_hz": {
+      "lo": 8,
+      "hi": 16
+     },
+     "bands": 6,
+     "stride": 4,
+     "rate_hz": 300,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 3,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176,
+     "finest_tiles": 8,
+     "resolves_hz": {
+      "lo": 4,
+      "hi": 8
+     },
+     "bands": 6,
+     "stride": 8,
+     "rate_hz": 150,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 4,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88,
+     "finest_tiles": 16,
+     "resolves_hz": {
+      "lo": 2,
+      "hi": 4
+     },
+     "bands": 6,
+     "stride": 16,
+     "rate_hz": 75,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 5,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44,
+     "finest_tiles": 32,
+     "resolves_hz": {
+      "lo": 1,
+      "hi": 2
+     },
+     "bands": 6,
+     "stride": 32,
+     "rate_hz": 37.5,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 6,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22,
+     "finest_tiles": 64,
+     "resolves_hz": {
+      "lo": 0.5,
+      "hi": 1
+     },
+     "bands": 6,
+     "stride": 64,
+     "rate_hz": 18.75,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    }
+   ]
+  },
+  "entries": [
+   {
+    "code": 0,
+    "name": "256 samples",
+    "measurement": 0.21333333333333335,
+    "attributes_json": "{\"level\":0,\"window_samples\":256,\"window_s\":0.21333333333333335,\"hop_samples\":256,\"count\":1407,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":32,\"hi\":64},\"bands\":6,\"stride\":1,\"rate_hz\":1200,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":0.21333333333333335,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 1,
+    "name": "512 samples",
+    "measurement": 0.4266666666666667,
+    "attributes_json": "{\"level\":1,\"window_samples\":512,\"window_s\":0.4266666666666667,\"hop_samples\":512,\"count\":704,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":16,\"hi\":32},\"bands\":6,\"stride\":2,\"rate_hz\":600,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":0.4266666666666667,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 2,
+    "name": "1024 samples",
+    "measurement": 0.8533333333333334,
+    "attributes_json": "{\"level\":2,\"window_samples\":1024,\"window_s\":0.8533333333333334,\"hop_samples\":1024,\"count\":352,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":8,\"hi\":16},\"bands\":6,\"stride\":4,\"rate_hz\":300,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":0.8533333333333334,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 3,
+    "name": "2048 samples",
+    "measurement": 1.7066666666666668,
+    "attributes_json": "{\"level\":3,\"window_samples\":2048,\"window_s\":1.7066666666666668,\"hop_samples\":2048,\"count\":176,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":4,\"hi\":8},\"bands\":6,\"stride\":8,\"rate_hz\":150,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":1.7066666666666668,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 4,
+    "name": "4096 samples",
+    "measurement": 3.4133333333333336,
+    "attributes_json": "{\"level\":4,\"window_samples\":4096,\"window_s\":3.4133333333333336,\"hop_samples\":4096,\"count\":88,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":2,\"hi\":4},\"bands\":6,\"stride\":16,\"rate_hz\":75,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":3.4133333333333336,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 5,
+    "name": "8192 samples",
+    "measurement": 6.826666666666667,
+    "attributes_json": "{\"level\":5,\"window_samples\":8192,\"window_s\":6.826666666666667,\"hop_samples\":8192,\"count\":44,\"finest_tiles\":32,\"resolves_hz\":{\"lo\":1,\"hi\":2},\"bands\":6,\"stride\":32,\"rate_hz\":37.5,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":6.826666666666667,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 6,
+    "name": "16384 samples",
+    "measurement": 13.653333333333334,
+    "attributes_json": "{\"level\":6,\"window_samples\":16384,\"window_s\":13.653333333333334,\"hop_samples\":16384,\"count\":22,\"finest_tiles\":64,\"resolves_hz\":{\"lo\":0.5,\"hi\":1},\"bands\":6,\"stride\":64,\"rate_hz\":18.75,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":13.653333333333334,\"finest_window_samples\":256}"
+   }
+  ],
+  "set": {
+   "label": "constant-Q, 7 levels",
+   "description": "the constant-Q tiling of the time line: 7 time resolutions, windows 256–16384 samples, designed at 6 voices/octave and 6.826666666666667 cycles per window over 0.500–64.0 Hz — a tiling of TIME, on the time manifold and no other; the hertz describe what the windows resolve and reference nothing (D84)",
+   "params_json": "{\"sfreq\":1200,\"samples\":360000,\"origin\":0,\"method\":\"hertz\",\"voices\":6,\"cycles\":6.826666666666667,\"f_max\":64,\"f_min\":0.5,\"levels\":7,\"bands\":42,\"end\":300}",
+   "n_members": 7,
+   "n_elements": 360000
+  },
+  "members": [
+   {
+    "name": "line_constantQ L0",
+    "label": "256 samples · 0.213 s",
+    "code": 0,
+    "n_members": 1407,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.21333333333333335,\"hop\":0.21333333333333335,\"count\":1407},\"end\":300,\"level\":0,\"window_samples\":256,\"hop_samples\":256,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":32,\"hi\":64}}"
+   },
+   {
+    "name": "line_constantQ L1",
+    "label": "512 samples · 0.427 s",
+    "code": 1,
+    "n_members": 704,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.4266666666666667,\"hop\":0.4266666666666667,\"count\":704},\"end\":300,\"level\":1,\"window_samples\":512,\"hop_samples\":512,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":16,\"hi\":32}}"
+   },
+   {
+    "name": "line_constantQ L2",
+    "label": "1024 samples · 0.853 s",
+    "code": 2,
+    "n_members": 352,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.8533333333333334,\"hop\":0.8533333333333334,\"count\":352},\"end\":300,\"level\":2,\"window_samples\":1024,\"hop_samples\":1024,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":8,\"hi\":16}}"
+   },
+   {
+    "name": "line_constantQ L3",
+    "label": "2048 samples · 1.707 s",
+    "code": 3,
+    "n_members": 176,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":1.7066666666666668,\"hop\":1.7066666666666668,\"count\":176},\"end\":300,\"level\":3,\"window_samples\":2048,\"hop_samples\":2048,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":4,\"hi\":8}}"
+   },
+   {
+    "name": "line_constantQ L4",
+    "label": "4096 samples · 3.413 s",
+    "code": 4,
+    "n_members": 88,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":3.4133333333333336,\"hop\":3.4133333333333336,\"count\":88},\"end\":300,\"level\":4,\"window_samples\":4096,\"hop_samples\":4096,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":2,\"hi\":4}}"
+   },
+   {
+    "name": "line_constantQ L5",
+    "label": "8192 samples · 6.827 s",
+    "code": 5,
+    "n_members": 44,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":6.826666666666667,\"hop\":6.826666666666667,\"count\":44},\"end\":300,\"level\":5,\"window_samples\":8192,\"hop_samples\":8192,\"finest_tiles\":32,\"resolves_hz\":{\"lo\":1,\"hi\":2}}"
+   },
+   {
+    "name": "line_constantQ L6",
+    "label": "16384 samples · 13.653 s",
+    "code": 6,
+    "n_members": 22,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":13.653333333333334,\"hop\":13.653333333333334,\"count\":22},\"end\":300,\"level\":6,\"window_samples\":16384,\"hop_samples\":16384,\"finest_tiles\":64,\"resolves_hz\":{\"lo\":0.5,\"hi\":1}}"
+   }
+  ],
+  "tileDescriptions": [
+   "the 1407 tiles of level 0 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (256 samples, 0.213 s) is the level's entry in the ladder dictionary",
+   "the 704 tiles of level 1 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (512 samples, 0.427 s) is the level's entry in the ladder dictionary",
+   "the 352 tiles of level 2 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (1024 samples, 0.853 s) is the level's entry in the ladder dictionary",
+   "the 176 tiles of level 3 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (2048 samples, 1.707 s) is the level's entry in the ladder dictionary",
+   "the 88 tiles of level 4 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (4096 samples, 3.413 s) is the level's entry in the ladder dictionary",
+   "the 44 tiles of level 5 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (8192 samples, 6.827 s) is the level's entry in the ladder dictionary",
+   "the 22 tiles of level 6 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (16384 samples, 13.653 s) is the level's entry in the ladder dictionary"
+  ]
+ },
+ {
+  "name": "meg2400",
+  "line": {
+   "sfreq": 2400,
+   "samples": 1440000,
+   "origin": 0
+  },
+  "params": {},
+  "tiling": {
+   "sfreq": 2400,
+   "samples": 1440000,
+   "origin": 0,
+   "method": "hertz",
+   "voices": 6,
+   "cycles": 6.826666666666667,
+   "f_max": 64,
+   "f_min": 0.5,
+   "bands": [
+    {
+     "ordinal": 0,
+     "octave": 0,
+     "voice": 0,
+     "lo_hz": 57.01751796098171,
+     "hi_hz": 64,
+     "centre_hz": 60.407956011628386,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 512,
+     "count": 2813
+    },
+    {
+     "ordinal": 1,
+     "octave": 0,
+     "voice": 1,
+     "lo_hz": 50.79683366298239,
+     "hi_hz": 57.01751796098171,
+     "centre_hz": 53.817370576237735,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 512,
+     "count": 2813
+    },
+    {
+     "ordinal": 2,
+     "octave": 0,
+     "voice": 2,
+     "lo_hz": 45.254833995939045,
+     "hi_hz": 50.79683366298239,
+     "centre_hz": 47.945826460053816,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 512,
+     "count": 2813
+    },
+    {
+     "ordinal": 3,
+     "octave": 0,
+     "voice": 3,
+     "lo_hz": 40.31747359663594,
+     "hi_hz": 45.254833995939045,
+     "centre_hz": 42.7148753334411,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 512,
+     "count": 2813
+    },
+    {
+     "ordinal": 4,
+     "octave": 0,
+     "voice": 4,
+     "lo_hz": 35.91878554589994,
+     "hi_hz": 40.31747359663594,
+     "centre_hz": 38.05462768008707,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 512,
+     "count": 2813
+    },
+    {
+     "ordinal": 5,
+     "octave": 0,
+     "voice": 5,
+     "lo_hz": 32,
+     "hi_hz": 35.91878554589994,
+     "centre_hz": 33.90281901949745,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 512,
+     "count": 2813
+    },
+    {
+     "ordinal": 6,
+     "octave": 1,
+     "voice": 0,
+     "lo_hz": 28.508758980490857,
+     "hi_hz": 32,
+     "centre_hz": 30.203978005814193,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 1024,
+     "count": 1407
+    },
+    {
+     "ordinal": 7,
+     "octave": 1,
+     "voice": 1,
+     "lo_hz": 25.398416831491193,
+     "hi_hz": 28.508758980490857,
+     "centre_hz": 26.908685288118868,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 1024,
+     "count": 1407
+    },
+    {
+     "ordinal": 8,
+     "octave": 1,
+     "voice": 2,
+     "lo_hz": 22.627416997969522,
+     "hi_hz": 25.398416831491193,
+     "centre_hz": 23.972913230026908,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 1024,
+     "count": 1407
+    },
+    {
+     "ordinal": 9,
+     "octave": 1,
+     "voice": 3,
+     "lo_hz": 20.15873679831797,
+     "hi_hz": 22.627416997969522,
+     "centre_hz": 21.35743766672055,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 1024,
+     "count": 1407
+    },
+    {
+     "ordinal": 10,
+     "octave": 1,
+     "voice": 4,
+     "lo_hz": 17.95939277294997,
+     "hi_hz": 20.15873679831797,
+     "centre_hz": 19.027313840043536,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 1024,
+     "count": 1407
+    },
+    {
+     "ordinal": 11,
+     "octave": 1,
+     "voice": 5,
+     "lo_hz": 16,
+     "hi_hz": 17.95939277294997,
+     "centre_hz": 16.951409509748725,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 1024,
+     "count": 1407
+    },
+    {
+     "ordinal": 12,
+     "octave": 2,
+     "voice": 0,
+     "lo_hz": 14.25437949024543,
+     "hi_hz": 16,
+     "centre_hz": 15.101989002907096,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 2048,
+     "count": 704
+    },
+    {
+     "ordinal": 13,
+     "octave": 2,
+     "voice": 1,
+     "lo_hz": 12.699208415745595,
+     "hi_hz": 14.25437949024543,
+     "centre_hz": 13.454342644059434,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 2048,
+     "count": 704
+    },
+    {
+     "ordinal": 14,
+     "octave": 2,
+     "voice": 2,
+     "lo_hz": 11.313708498984761,
+     "hi_hz": 12.699208415745595,
+     "centre_hz": 11.986456615013452,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 2048,
+     "count": 704
+    },
+    {
+     "ordinal": 15,
+     "octave": 2,
+     "voice": 3,
+     "lo_hz": 10.079368399158986,
+     "hi_hz": 11.313708498984761,
+     "centre_hz": 10.678718833360275,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 2048,
+     "count": 704
+    },
+    {
+     "ordinal": 16,
+     "octave": 2,
+     "voice": 4,
+     "lo_hz": 8.979696386474982,
+     "hi_hz": 10.079368399158986,
+     "centre_hz": 9.513656920021768,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 2048,
+     "count": 704
+    },
+    {
+     "ordinal": 17,
+     "octave": 2,
+     "voice": 5,
+     "lo_hz": 8,
+     "hi_hz": 8.979696386474982,
+     "centre_hz": 8.47570475487436,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 2048,
+     "count": 704
+    },
+    {
+     "ordinal": 18,
+     "octave": 3,
+     "voice": 0,
+     "lo_hz": 7.127189745122715,
+     "hi_hz": 8,
+     "centre_hz": 7.550994501453548,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 4096,
+     "count": 352
+    },
+    {
+     "ordinal": 19,
+     "octave": 3,
+     "voice": 1,
+     "lo_hz": 6.3496042078727974,
+     "hi_hz": 7.127189745122715,
+     "centre_hz": 6.727171322029717,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 4096,
+     "count": 352
+    },
+    {
+     "ordinal": 20,
+     "octave": 3,
+     "voice": 2,
+     "lo_hz": 5.656854249492381,
+     "hi_hz": 6.3496042078727974,
+     "centre_hz": 5.993228307506726,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 4096,
+     "count": 352
+    },
+    {
+     "ordinal": 21,
+     "octave": 3,
+     "voice": 3,
+     "lo_hz": 5.039684199579493,
+     "hi_hz": 5.656854249492381,
+     "centre_hz": 5.3393594166801375,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 4096,
+     "count": 352
+    },
+    {
+     "ordinal": 22,
+     "octave": 3,
+     "voice": 4,
+     "lo_hz": 4.489848193237491,
+     "hi_hz": 5.039684199579493,
+     "centre_hz": 4.756828460010884,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 4096,
+     "count": 352
+    },
+    {
+     "ordinal": 23,
+     "octave": 3,
+     "voice": 5,
+     "lo_hz": 4,
+     "hi_hz": 4.489848193237491,
+     "centre_hz": 4.23785237743718,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 4096,
+     "count": 352
+    },
+    {
+     "ordinal": 24,
+     "octave": 4,
+     "voice": 0,
+     "lo_hz": 3.5635948725613567,
+     "hi_hz": 4,
+     "centre_hz": 3.7754972507267737,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 8192,
+     "count": 176
+    },
+    {
+     "ordinal": 25,
+     "octave": 4,
+     "voice": 1,
+     "lo_hz": 3.1748021039363996,
+     "hi_hz": 3.5635948725613567,
+     "centre_hz": 3.3635856610148585,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 8192,
+     "count": 176
+    },
+    {
+     "ordinal": 26,
+     "octave": 4,
+     "voice": 2,
+     "lo_hz": 2.8284271247461903,
+     "hi_hz": 3.1748021039363996,
+     "centre_hz": 2.9966141537533635,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 8192,
+     "count": 176
+    },
+    {
+     "ordinal": 27,
+     "octave": 4,
+     "voice": 3,
+     "lo_hz": 2.519842099789746,
+     "hi_hz": 2.8284271247461903,
+     "centre_hz": 2.6696797083400687,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 8192,
+     "count": 176
+    },
+    {
+     "ordinal": 28,
+     "octave": 4,
+     "voice": 4,
+     "lo_hz": 2.2449240966187465,
+     "hi_hz": 2.519842099789746,
+     "centre_hz": 2.378414230005442,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 8192,
+     "count": 176
+    },
+    {
+     "ordinal": 29,
+     "octave": 4,
+     "voice": 5,
+     "lo_hz": 2,
+     "hi_hz": 2.2449240966187465,
+     "centre_hz": 2.1189261887185906,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 8192,
+     "count": 176
+    },
+    {
+     "ordinal": 30,
+     "octave": 5,
+     "voice": 0,
+     "lo_hz": 1.7817974362806783,
+     "hi_hz": 2,
+     "centre_hz": 1.8877486253633868,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 6.826666666666667,
+     "hop_samples": 16384,
+     "count": 88
+    },
+    {
+     "ordinal": 31,
+     "octave": 5,
+     "voice": 1,
+     "lo_hz": 1.5874010519681998,
+     "hi_hz": 1.7817974362806783,
+     "centre_hz": 1.6817928305074292,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 6.826666666666667,
+     "hop_samples": 16384,
+     "count": 88
+    },
+    {
+     "ordinal": 32,
+     "octave": 5,
+     "voice": 2,
+     "lo_hz": 1.4142135623730951,
+     "hi_hz": 1.5874010519681998,
+     "centre_hz": 1.4983070768766817,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 6.826666666666667,
+     "hop_samples": 16384,
+     "count": 88
+    },
+    {
+     "ordinal": 33,
+     "octave": 5,
+     "voice": 3,
+     "lo_hz": 1.259921049894873,
+     "hi_hz": 1.4142135623730951,
+     "centre_hz": 1.3348398541700344,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 6.826666666666667,
+     "hop_samples": 16384,
+     "count": 88
+    },
+    {
+     "ordinal": 34,
+     "octave": 5,
+     "voice": 4,
+     "lo_hz": 1.1224620483093732,
+     "hi_hz": 1.259921049894873,
+     "centre_hz": 1.189207115002721,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 6.826666666666667,
+     "hop_samples": 16384,
+     "count": 88
+    },
+    {
+     "ordinal": 35,
+     "octave": 5,
+     "voice": 5,
+     "lo_hz": 1,
+     "hi_hz": 1.1224620483093732,
+     "centre_hz": 1.0594630943592953,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 6.826666666666667,
+     "hop_samples": 16384,
+     "count": 88
+    },
+    {
+     "ordinal": 36,
+     "octave": 6,
+     "voice": 0,
+     "lo_hz": 0.8908987181403392,
+     "hi_hz": 1,
+     "centre_hz": 0.9438743126816934,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 13.653333333333334,
+     "hop_samples": 32768,
+     "count": 44
+    },
+    {
+     "ordinal": 37,
+     "octave": 6,
+     "voice": 1,
+     "lo_hz": 0.7937005259840999,
+     "hi_hz": 0.8908987181403392,
+     "centre_hz": 0.8408964152537146,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 13.653333333333334,
+     "hop_samples": 32768,
+     "count": 44
+    },
+    {
+     "ordinal": 38,
+     "octave": 6,
+     "voice": 2,
+     "lo_hz": 0.7071067811865476,
+     "hi_hz": 0.7937005259840999,
+     "centre_hz": 0.7491535384383409,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 13.653333333333334,
+     "hop_samples": 32768,
+     "count": 44
+    },
+    {
+     "ordinal": 39,
+     "octave": 6,
+     "voice": 3,
+     "lo_hz": 0.6299605249474365,
+     "hi_hz": 0.7071067811865476,
+     "centre_hz": 0.6674199270850172,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 13.653333333333334,
+     "hop_samples": 32768,
+     "count": 44
+    },
+    {
+     "ordinal": 40,
+     "octave": 6,
+     "voice": 4,
+     "lo_hz": 0.5612310241546866,
+     "hi_hz": 0.6299605249474365,
+     "centre_hz": 0.5946035575013605,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 13.653333333333334,
+     "hop_samples": 32768,
+     "count": 44
+    },
+    {
+     "ordinal": 41,
+     "octave": 6,
+     "voice": 5,
+     "lo_hz": 0.5,
+     "hi_hz": 0.5612310241546866,
+     "centre_hz": 0.5297315471796477,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 13.653333333333334,
+     "hop_samples": 32768,
+     "count": 44
+    }
+   ],
+   "levels": [
+    {
+     "level": 0,
+     "window_samples": 512,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 512,
+     "count": 2813,
+     "finest_tiles": 1,
+     "resolves_hz": {
+      "lo": 32,
+      "hi": 64
+     },
+     "bands": 6,
+     "stride": 2,
+     "rate_hz": 1200,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 1,
+     "window_samples": 1024,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 1024,
+     "count": 1407,
+     "finest_tiles": 2,
+     "resolves_hz": {
+      "lo": 16,
+      "hi": 32
+     },
+     "bands": 6,
+     "stride": 4,
+     "rate_hz": 600,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 2,
+     "window_samples": 2048,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 2048,
+     "count": 704,
+     "finest_tiles": 4,
+     "resolves_hz": {
+      "lo": 8,
+      "hi": 16
+     },
+     "bands": 6,
+     "stride": 8,
+     "rate_hz": 300,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 3,
+     "window_samples": 4096,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 4096,
+     "count": 352,
+     "finest_tiles": 8,
+     "resolves_hz": {
+      "lo": 4,
+      "hi": 8
+     },
+     "bands": 6,
+     "stride": 16,
+     "rate_hz": 150,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 4,
+     "window_samples": 8192,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 8192,
+     "count": 176,
+     "finest_tiles": 16,
+     "resolves_hz": {
+      "lo": 2,
+      "hi": 4
+     },
+     "bands": 6,
+     "stride": 32,
+     "rate_hz": 75,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 5,
+     "window_samples": 16384,
+     "window_s": 6.826666666666667,
+     "hop_samples": 16384,
+     "count": 88,
+     "finest_tiles": 32,
+     "resolves_hz": {
+      "lo": 1,
+      "hi": 2
+     },
+     "bands": 6,
+     "stride": 64,
+     "rate_hz": 37.5,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 6,
+     "window_samples": 32768,
+     "window_s": 13.653333333333334,
+     "hop_samples": 32768,
+     "count": 44,
+     "finest_tiles": 64,
+     "resolves_hz": {
+      "lo": 0.5,
+      "hi": 1
+     },
+     "bands": 6,
+     "stride": 128,
+     "rate_hz": 18.75,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 37.5,
+      "hi": 18.75
+     },
+     "nyquist_bound": false
+    }
+   ]
+  },
+  "entries": [
+   {
+    "code": 0,
+    "name": "512 samples",
+    "measurement": 0.21333333333333335,
+    "attributes_json": "{\"level\":0,\"window_samples\":512,\"window_s\":0.21333333333333335,\"hop_samples\":512,\"count\":2813,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":32,\"hi\":64},\"bands\":6,\"stride\":2,\"rate_hz\":1200,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":0.21333333333333335,\"finest_window_samples\":512}"
+   },
+   {
+    "code": 1,
+    "name": "1024 samples",
+    "measurement": 0.4266666666666667,
+    "attributes_json": "{\"level\":1,\"window_samples\":1024,\"window_s\":0.4266666666666667,\"hop_samples\":1024,\"count\":1407,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":16,\"hi\":32},\"bands\":6,\"stride\":4,\"rate_hz\":600,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":0.4266666666666667,\"finest_window_samples\":512}"
+   },
+   {
+    "code": 2,
+    "name": "2048 samples",
+    "measurement": 0.8533333333333334,
+    "attributes_json": "{\"level\":2,\"window_samples\":2048,\"window_s\":0.8533333333333334,\"hop_samples\":2048,\"count\":704,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":8,\"hi\":16},\"bands\":6,\"stride\":8,\"rate_hz\":300,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":0.8533333333333334,\"finest_window_samples\":512}"
+   },
+   {
+    "code": 3,
+    "name": "4096 samples",
+    "measurement": 1.7066666666666668,
+    "attributes_json": "{\"level\":3,\"window_samples\":4096,\"window_s\":1.7066666666666668,\"hop_samples\":4096,\"count\":352,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":4,\"hi\":8},\"bands\":6,\"stride\":16,\"rate_hz\":150,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":1.7066666666666668,\"finest_window_samples\":512}"
+   },
+   {
+    "code": 4,
+    "name": "8192 samples",
+    "measurement": 3.4133333333333336,
+    "attributes_json": "{\"level\":4,\"window_samples\":8192,\"window_s\":3.4133333333333336,\"hop_samples\":8192,\"count\":176,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":2,\"hi\":4},\"bands\":6,\"stride\":32,\"rate_hz\":75,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":3.4133333333333336,\"finest_window_samples\":512}"
+   },
+   {
+    "code": 5,
+    "name": "16384 samples",
+    "measurement": 6.826666666666667,
+    "attributes_json": "{\"level\":5,\"window_samples\":16384,\"window_s\":6.826666666666667,\"hop_samples\":16384,\"count\":88,\"finest_tiles\":32,\"resolves_hz\":{\"lo\":1,\"hi\":2},\"bands\":6,\"stride\":64,\"rate_hz\":37.5,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":6.826666666666667,\"finest_window_samples\":512}"
+   },
+   {
+    "code": 6,
+    "name": "32768 samples",
+    "measurement": 13.653333333333334,
+    "attributes_json": "{\"level\":6,\"window_samples\":32768,\"window_s\":13.653333333333334,\"hop_samples\":32768,\"count\":44,\"finest_tiles\":64,\"resolves_hz\":{\"lo\":0.5,\"hi\":1},\"bands\":6,\"stride\":128,\"rate_hz\":18.75,\"points\":256,\"samples_per_cycle\":{\"lo\":37.5,\"hi\":18.75},\"nyquist_bound\":false,\"duration_s\":13.653333333333334,\"finest_window_samples\":512}"
+   }
+  ],
+  "set": {
+   "label": "constant-Q, 7 levels",
+   "description": "the constant-Q tiling of the time line: 7 time resolutions, windows 512–32768 samples, designed at 6 voices/octave and 6.826666666666667 cycles per window over 0.500–64.0 Hz — a tiling of TIME, on the time manifold and no other; the hertz describe what the windows resolve and reference nothing (D84)",
+   "params_json": "{\"sfreq\":2400,\"samples\":1440000,\"origin\":0,\"method\":\"hertz\",\"voices\":6,\"cycles\":6.826666666666667,\"f_max\":64,\"f_min\":0.5,\"levels\":7,\"bands\":42,\"end\":600}",
+   "n_members": 7,
+   "n_elements": 1440000
+  },
+  "members": [
+   {
+    "name": "line_constantQ L0",
+    "label": "512 samples · 0.213 s",
+    "code": 0,
+    "n_members": 2813,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.21333333333333335,\"hop\":0.21333333333333335,\"count\":2813},\"end\":600,\"level\":0,\"window_samples\":512,\"hop_samples\":512,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":32,\"hi\":64}}"
+   },
+   {
+    "name": "line_constantQ L1",
+    "label": "1024 samples · 0.427 s",
+    "code": 1,
+    "n_members": 1407,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.4266666666666667,\"hop\":0.4266666666666667,\"count\":1407},\"end\":600,\"level\":1,\"window_samples\":1024,\"hop_samples\":1024,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":16,\"hi\":32}}"
+   },
+   {
+    "name": "line_constantQ L2",
+    "label": "2048 samples · 0.853 s",
+    "code": 2,
+    "n_members": 704,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.8533333333333334,\"hop\":0.8533333333333334,\"count\":704},\"end\":600,\"level\":2,\"window_samples\":2048,\"hop_samples\":2048,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":8,\"hi\":16}}"
+   },
+   {
+    "name": "line_constantQ L3",
+    "label": "4096 samples · 1.707 s",
+    "code": 3,
+    "n_members": 352,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":1.7066666666666668,\"hop\":1.7066666666666668,\"count\":352},\"end\":600,\"level\":3,\"window_samples\":4096,\"hop_samples\":4096,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":4,\"hi\":8}}"
+   },
+   {
+    "name": "line_constantQ L4",
+    "label": "8192 samples · 3.413 s",
+    "code": 4,
+    "n_members": 176,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":3.4133333333333336,\"hop\":3.4133333333333336,\"count\":176},\"end\":600,\"level\":4,\"window_samples\":8192,\"hop_samples\":8192,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":2,\"hi\":4}}"
+   },
+   {
+    "name": "line_constantQ L5",
+    "label": "16384 samples · 6.827 s",
+    "code": 5,
+    "n_members": 88,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":6.826666666666667,\"hop\":6.826666666666667,\"count\":88},\"end\":600,\"level\":5,\"window_samples\":16384,\"hop_samples\":16384,\"finest_tiles\":32,\"resolves_hz\":{\"lo\":1,\"hi\":2}}"
+   },
+   {
+    "name": "line_constantQ L6",
+    "label": "32768 samples · 13.653 s",
+    "code": 6,
+    "n_members": 44,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":13.653333333333334,\"hop\":13.653333333333334,\"count\":44},\"end\":600,\"level\":6,\"window_samples\":32768,\"hop_samples\":32768,\"finest_tiles\":64,\"resolves_hz\":{\"lo\":0.5,\"hi\":1}}"
+   }
+  ],
+  "tileDescriptions": [
+   "the 2813 tiles of level 0 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (512 samples, 0.213 s) is the level's entry in the ladder dictionary",
+   "the 1407 tiles of level 1 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (1024 samples, 0.427 s) is the level's entry in the ladder dictionary",
+   "the 704 tiles of level 2 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (2048 samples, 0.853 s) is the level's entry in the ladder dictionary",
+   "the 352 tiles of level 3 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (4096 samples, 1.707 s) is the level's entry in the ladder dictionary",
+   "the 176 tiles of level 4 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (8192 samples, 3.413 s) is the level's entry in the ladder dictionary",
+   "the 88 tiles of level 5 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (16384 samples, 6.827 s) is the level's entry in the ladder dictionary",
+   "the 44 tiles of level 6 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (32768 samples, 13.653 s) is the level's entry in the ladder dictionary"
+  ]
+ },
+ {
+  "name": "eeg250",
+  "line": {
+   "sfreq": 250,
+   "samples": 75000,
+   "origin": 1.5
+  },
+  "params": {},
+  "tiling": {
+   "sfreq": 250,
+   "samples": 75000,
+   "origin": 1.5,
+   "method": "hertz",
+   "voices": 6,
+   "cycles": 8.192,
+   "f_max": 64,
+   "f_min": 0.5,
+   "bands": [
+    {
+     "ordinal": 0,
+     "octave": 0,
+     "voice": 0,
+     "lo_hz": 57.01751796098171,
+     "hi_hz": 64,
+     "centre_hz": 60.407956011628386,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.256,
+     "hop_samples": 64,
+     "count": 1172
+    },
+    {
+     "ordinal": 1,
+     "octave": 0,
+     "voice": 1,
+     "lo_hz": 50.79683366298239,
+     "hi_hz": 57.01751796098171,
+     "centre_hz": 53.817370576237735,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.256,
+     "hop_samples": 64,
+     "count": 1172
+    },
+    {
+     "ordinal": 2,
+     "octave": 0,
+     "voice": 2,
+     "lo_hz": 45.254833995939045,
+     "hi_hz": 50.79683366298239,
+     "centre_hz": 47.945826460053816,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.256,
+     "hop_samples": 64,
+     "count": 1172
+    },
+    {
+     "ordinal": 3,
+     "octave": 0,
+     "voice": 3,
+     "lo_hz": 40.31747359663594,
+     "hi_hz": 45.254833995939045,
+     "centre_hz": 42.7148753334411,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.256,
+     "hop_samples": 64,
+     "count": 1172
+    },
+    {
+     "ordinal": 4,
+     "octave": 0,
+     "voice": 4,
+     "lo_hz": 35.91878554589994,
+     "hi_hz": 40.31747359663594,
+     "centre_hz": 38.05462768008707,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.256,
+     "hop_samples": 64,
+     "count": 1172
+    },
+    {
+     "ordinal": 5,
+     "octave": 0,
+     "voice": 5,
+     "lo_hz": 32,
+     "hi_hz": 35.91878554589994,
+     "centre_hz": 33.90281901949745,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.256,
+     "hop_samples": 64,
+     "count": 1172
+    },
+    {
+     "ordinal": 6,
+     "octave": 1,
+     "voice": 0,
+     "lo_hz": 28.508758980490857,
+     "hi_hz": 32,
+     "centre_hz": 30.203978005814193,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.512,
+     "hop_samples": 128,
+     "count": 586
+    },
+    {
+     "ordinal": 7,
+     "octave": 1,
+     "voice": 1,
+     "lo_hz": 25.398416831491193,
+     "hi_hz": 28.508758980490857,
+     "centre_hz": 26.908685288118868,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.512,
+     "hop_samples": 128,
+     "count": 586
+    },
+    {
+     "ordinal": 8,
+     "octave": 1,
+     "voice": 2,
+     "lo_hz": 22.627416997969522,
+     "hi_hz": 25.398416831491193,
+     "centre_hz": 23.972913230026908,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.512,
+     "hop_samples": 128,
+     "count": 586
+    },
+    {
+     "ordinal": 9,
+     "octave": 1,
+     "voice": 3,
+     "lo_hz": 20.15873679831797,
+     "hi_hz": 22.627416997969522,
+     "centre_hz": 21.35743766672055,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.512,
+     "hop_samples": 128,
+     "count": 586
+    },
+    {
+     "ordinal": 10,
+     "octave": 1,
+     "voice": 4,
+     "lo_hz": 17.95939277294997,
+     "hi_hz": 20.15873679831797,
+     "centre_hz": 19.027313840043536,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.512,
+     "hop_samples": 128,
+     "count": 586
+    },
+    {
+     "ordinal": 11,
+     "octave": 1,
+     "voice": 5,
+     "lo_hz": 16,
+     "hi_hz": 17.95939277294997,
+     "centre_hz": 16.951409509748725,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.512,
+     "hop_samples": 128,
+     "count": 586
+    },
+    {
+     "ordinal": 12,
+     "octave": 2,
+     "voice": 0,
+     "lo_hz": 14.25437949024543,
+     "hi_hz": 16,
+     "centre_hz": 15.101989002907096,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 1.024,
+     "hop_samples": 256,
+     "count": 293
+    },
+    {
+     "ordinal": 13,
+     "octave": 2,
+     "voice": 1,
+     "lo_hz": 12.699208415745595,
+     "hi_hz": 14.25437949024543,
+     "centre_hz": 13.454342644059434,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 1.024,
+     "hop_samples": 256,
+     "count": 293
+    },
+    {
+     "ordinal": 14,
+     "octave": 2,
+     "voice": 2,
+     "lo_hz": 11.313708498984761,
+     "hi_hz": 12.699208415745595,
+     "centre_hz": 11.986456615013452,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 1.024,
+     "hop_samples": 256,
+     "count": 293
+    },
+    {
+     "ordinal": 15,
+     "octave": 2,
+     "voice": 3,
+     "lo_hz": 10.079368399158986,
+     "hi_hz": 11.313708498984761,
+     "centre_hz": 10.678718833360275,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 1.024,
+     "hop_samples": 256,
+     "count": 293
+    },
+    {
+     "ordinal": 16,
+     "octave": 2,
+     "voice": 4,
+     "lo_hz": 8.979696386474982,
+     "hi_hz": 10.079368399158986,
+     "centre_hz": 9.513656920021768,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 1.024,
+     "hop_samples": 256,
+     "count": 293
+    },
+    {
+     "ordinal": 17,
+     "octave": 2,
+     "voice": 5,
+     "lo_hz": 8,
+     "hi_hz": 8.979696386474982,
+     "centre_hz": 8.47570475487436,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 1.024,
+     "hop_samples": 256,
+     "count": 293
+    },
+    {
+     "ordinal": 18,
+     "octave": 3,
+     "voice": 0,
+     "lo_hz": 7.127189745122715,
+     "hi_hz": 8,
+     "centre_hz": 7.550994501453548,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 2.048,
+     "hop_samples": 512,
+     "count": 147
+    },
+    {
+     "ordinal": 19,
+     "octave": 3,
+     "voice": 1,
+     "lo_hz": 6.3496042078727974,
+     "hi_hz": 7.127189745122715,
+     "centre_hz": 6.727171322029717,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 2.048,
+     "hop_samples": 512,
+     "count": 147
+    },
+    {
+     "ordinal": 20,
+     "octave": 3,
+     "voice": 2,
+     "lo_hz": 5.656854249492381,
+     "hi_hz": 6.3496042078727974,
+     "centre_hz": 5.993228307506726,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 2.048,
+     "hop_samples": 512,
+     "count": 147
+    },
+    {
+     "ordinal": 21,
+     "octave": 3,
+     "voice": 3,
+     "lo_hz": 5.039684199579493,
+     "hi_hz": 5.656854249492381,
+     "centre_hz": 5.3393594166801375,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 2.048,
+     "hop_samples": 512,
+     "count": 147
+    },
+    {
+     "ordinal": 22,
+     "octave": 3,
+     "voice": 4,
+     "lo_hz": 4.489848193237491,
+     "hi_hz": 5.039684199579493,
+     "centre_hz": 4.756828460010884,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 2.048,
+     "hop_samples": 512,
+     "count": 147
+    },
+    {
+     "ordinal": 23,
+     "octave": 3,
+     "voice": 5,
+     "lo_hz": 4,
+     "hi_hz": 4.489848193237491,
+     "centre_hz": 4.23785237743718,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 2.048,
+     "hop_samples": 512,
+     "count": 147
+    },
+    {
+     "ordinal": 24,
+     "octave": 4,
+     "voice": 0,
+     "lo_hz": 3.5635948725613567,
+     "hi_hz": 4,
+     "centre_hz": 3.7754972507267737,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 4.096,
+     "hop_samples": 1024,
+     "count": 74
+    },
+    {
+     "ordinal": 25,
+     "octave": 4,
+     "voice": 1,
+     "lo_hz": 3.1748021039363996,
+     "hi_hz": 3.5635948725613567,
+     "centre_hz": 3.3635856610148585,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 4.096,
+     "hop_samples": 1024,
+     "count": 74
+    },
+    {
+     "ordinal": 26,
+     "octave": 4,
+     "voice": 2,
+     "lo_hz": 2.8284271247461903,
+     "hi_hz": 3.1748021039363996,
+     "centre_hz": 2.9966141537533635,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 4.096,
+     "hop_samples": 1024,
+     "count": 74
+    },
+    {
+     "ordinal": 27,
+     "octave": 4,
+     "voice": 3,
+     "lo_hz": 2.519842099789746,
+     "hi_hz": 2.8284271247461903,
+     "centre_hz": 2.6696797083400687,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 4.096,
+     "hop_samples": 1024,
+     "count": 74
+    },
+    {
+     "ordinal": 28,
+     "octave": 4,
+     "voice": 4,
+     "lo_hz": 2.2449240966187465,
+     "hi_hz": 2.519842099789746,
+     "centre_hz": 2.378414230005442,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 4.096,
+     "hop_samples": 1024,
+     "count": 74
+    },
+    {
+     "ordinal": 29,
+     "octave": 4,
+     "voice": 5,
+     "lo_hz": 2,
+     "hi_hz": 2.2449240966187465,
+     "centre_hz": 2.1189261887185906,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 4.096,
+     "hop_samples": 1024,
+     "count": 74
+    },
+    {
+     "ordinal": 30,
+     "octave": 5,
+     "voice": 0,
+     "lo_hz": 1.7817974362806783,
+     "hi_hz": 2,
+     "centre_hz": 1.8877486253633868,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 8.192,
+     "hop_samples": 2048,
+     "count": 37
+    },
+    {
+     "ordinal": 31,
+     "octave": 5,
+     "voice": 1,
+     "lo_hz": 1.5874010519681998,
+     "hi_hz": 1.7817974362806783,
+     "centre_hz": 1.6817928305074292,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 8.192,
+     "hop_samples": 2048,
+     "count": 37
+    },
+    {
+     "ordinal": 32,
+     "octave": 5,
+     "voice": 2,
+     "lo_hz": 1.4142135623730951,
+     "hi_hz": 1.5874010519681998,
+     "centre_hz": 1.4983070768766817,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 8.192,
+     "hop_samples": 2048,
+     "count": 37
+    },
+    {
+     "ordinal": 33,
+     "octave": 5,
+     "voice": 3,
+     "lo_hz": 1.259921049894873,
+     "hi_hz": 1.4142135623730951,
+     "centre_hz": 1.3348398541700344,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 8.192,
+     "hop_samples": 2048,
+     "count": 37
+    },
+    {
+     "ordinal": 34,
+     "octave": 5,
+     "voice": 4,
+     "lo_hz": 1.1224620483093732,
+     "hi_hz": 1.259921049894873,
+     "centre_hz": 1.189207115002721,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 8.192,
+     "hop_samples": 2048,
+     "count": 37
+    },
+    {
+     "ordinal": 35,
+     "octave": 5,
+     "voice": 5,
+     "lo_hz": 1,
+     "hi_hz": 1.1224620483093732,
+     "centre_hz": 1.0594630943592953,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 8.192,
+     "hop_samples": 2048,
+     "count": 37
+    },
+    {
+     "ordinal": 36,
+     "octave": 6,
+     "voice": 0,
+     "lo_hz": 0.8908987181403392,
+     "hi_hz": 1,
+     "centre_hz": 0.9438743126816934,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 16.384,
+     "hop_samples": 4096,
+     "count": 19
+    },
+    {
+     "ordinal": 37,
+     "octave": 6,
+     "voice": 1,
+     "lo_hz": 0.7937005259840999,
+     "hi_hz": 0.8908987181403392,
+     "centre_hz": 0.8408964152537146,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 16.384,
+     "hop_samples": 4096,
+     "count": 19
+    },
+    {
+     "ordinal": 38,
+     "octave": 6,
+     "voice": 2,
+     "lo_hz": 0.7071067811865476,
+     "hi_hz": 0.7937005259840999,
+     "centre_hz": 0.7491535384383409,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 16.384,
+     "hop_samples": 4096,
+     "count": 19
+    },
+    {
+     "ordinal": 39,
+     "octave": 6,
+     "voice": 3,
+     "lo_hz": 0.6299605249474365,
+     "hi_hz": 0.7071067811865476,
+     "centre_hz": 0.6674199270850172,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 16.384,
+     "hop_samples": 4096,
+     "count": 19
+    },
+    {
+     "ordinal": 40,
+     "octave": 6,
+     "voice": 4,
+     "lo_hz": 0.5612310241546866,
+     "hi_hz": 0.6299605249474365,
+     "centre_hz": 0.5946035575013605,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 16.384,
+     "hop_samples": 4096,
+     "count": 19
+    },
+    {
+     "ordinal": 41,
+     "octave": 6,
+     "voice": 5,
+     "lo_hz": 0.5,
+     "hi_hz": 0.5612310241546866,
+     "centre_hz": 0.5297315471796477,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 16.384,
+     "hop_samples": 4096,
+     "count": 19
+    }
+   ],
+   "levels": [
+    {
+     "level": 0,
+     "window_samples": 64,
+     "window_s": 0.256,
+     "hop_samples": 64,
+     "count": 1172,
+     "finest_tiles": 1,
+     "resolves_hz": {
+      "lo": 32,
+      "hi": 64
+     },
+     "bands": 6,
+     "stride": 1,
+     "rate_hz": 250,
+     "points": 64,
+     "samples_per_cycle": {
+      "lo": 7.8125,
+      "hi": 3.90625
+     },
+     "nyquist_bound": true
+    },
+    {
+     "level": 1,
+     "window_samples": 128,
+     "window_s": 0.512,
+     "hop_samples": 128,
+     "count": 586,
+     "finest_tiles": 2,
+     "resolves_hz": {
+      "lo": 16,
+      "hi": 32
+     },
+     "bands": 6,
+     "stride": 1,
+     "rate_hz": 250,
+     "points": 128,
+     "samples_per_cycle": {
+      "lo": 15.625,
+      "hi": 7.8125
+     },
+     "nyquist_bound": true
+    },
+    {
+     "level": 2,
+     "window_samples": 256,
+     "window_s": 1.024,
+     "hop_samples": 256,
+     "count": 293,
+     "finest_tiles": 4,
+     "resolves_hz": {
+      "lo": 8,
+      "hi": 16
+     },
+     "bands": 6,
+     "stride": 1,
+     "rate_hz": 250,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 3,
+     "window_samples": 512,
+     "window_s": 2.048,
+     "hop_samples": 512,
+     "count": 147,
+     "finest_tiles": 8,
+     "resolves_hz": {
+      "lo": 4,
+      "hi": 8
+     },
+     "bands": 6,
+     "stride": 2,
+     "rate_hz": 125,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 4,
+     "window_samples": 1024,
+     "window_s": 4.096,
+     "hop_samples": 1024,
+     "count": 74,
+     "finest_tiles": 16,
+     "resolves_hz": {
+      "lo": 2,
+      "hi": 4
+     },
+     "bands": 6,
+     "stride": 4,
+     "rate_hz": 62.5,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 5,
+     "window_samples": 2048,
+     "window_s": 8.192,
+     "hop_samples": 2048,
+     "count": 37,
+     "finest_tiles": 32,
+     "resolves_hz": {
+      "lo": 1,
+      "hi": 2
+     },
+     "bands": 6,
+     "stride": 8,
+     "rate_hz": 31.25,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 6,
+     "window_samples": 4096,
+     "window_s": 16.384,
+     "hop_samples": 4096,
+     "count": 19,
+     "finest_tiles": 64,
+     "resolves_hz": {
+      "lo": 0.5,
+      "hi": 1
+     },
+     "bands": 6,
+     "stride": 16,
+     "rate_hz": 15.625,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    }
+   ]
+  },
+  "entries": [
+   {
+    "code": 0,
+    "name": "64 samples",
+    "measurement": 0.256,
+    "attributes_json": "{\"level\":0,\"window_samples\":64,\"window_s\":0.256,\"hop_samples\":64,\"count\":1172,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":32,\"hi\":64},\"bands\":6,\"stride\":1,\"rate_hz\":250,\"points\":64,\"samples_per_cycle\":{\"lo\":7.8125,\"hi\":3.90625},\"nyquist_bound\":true,\"duration_s\":0.256,\"finest_window_samples\":64}"
+   },
+   {
+    "code": 1,
+    "name": "128 samples",
+    "measurement": 0.512,
+    "attributes_json": "{\"level\":1,\"window_samples\":128,\"window_s\":0.512,\"hop_samples\":128,\"count\":586,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":16,\"hi\":32},\"bands\":6,\"stride\":1,\"rate_hz\":250,\"points\":128,\"samples_per_cycle\":{\"lo\":15.625,\"hi\":7.8125},\"nyquist_bound\":true,\"duration_s\":0.512,\"finest_window_samples\":64}"
+   },
+   {
+    "code": 2,
+    "name": "256 samples",
+    "measurement": 1.024,
+    "attributes_json": "{\"level\":2,\"window_samples\":256,\"window_s\":1.024,\"hop_samples\":256,\"count\":293,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":8,\"hi\":16},\"bands\":6,\"stride\":1,\"rate_hz\":250,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":1.024,\"finest_window_samples\":64}"
+   },
+   {
+    "code": 3,
+    "name": "512 samples",
+    "measurement": 2.048,
+    "attributes_json": "{\"level\":3,\"window_samples\":512,\"window_s\":2.048,\"hop_samples\":512,\"count\":147,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":4,\"hi\":8},\"bands\":6,\"stride\":2,\"rate_hz\":125,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":2.048,\"finest_window_samples\":64}"
+   },
+   {
+    "code": 4,
+    "name": "1024 samples",
+    "measurement": 4.096,
+    "attributes_json": "{\"level\":4,\"window_samples\":1024,\"window_s\":4.096,\"hop_samples\":1024,\"count\":74,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":2,\"hi\":4},\"bands\":6,\"stride\":4,\"rate_hz\":62.5,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":4.096,\"finest_window_samples\":64}"
+   },
+   {
+    "code": 5,
+    "name": "2048 samples",
+    "measurement": 8.192,
+    "attributes_json": "{\"level\":5,\"window_samples\":2048,\"window_s\":8.192,\"hop_samples\":2048,\"count\":37,\"finest_tiles\":32,\"resolves_hz\":{\"lo\":1,\"hi\":2},\"bands\":6,\"stride\":8,\"rate_hz\":31.25,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":8.192,\"finest_window_samples\":64}"
+   },
+   {
+    "code": 6,
+    "name": "4096 samples",
+    "measurement": 16.384,
+    "attributes_json": "{\"level\":6,\"window_samples\":4096,\"window_s\":16.384,\"hop_samples\":4096,\"count\":19,\"finest_tiles\":64,\"resolves_hz\":{\"lo\":0.5,\"hi\":1},\"bands\":6,\"stride\":16,\"rate_hz\":15.625,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":16.384,\"finest_window_samples\":64}"
+   }
+  ],
+  "set": {
+   "label": "constant-Q, 7 levels",
+   "description": "the constant-Q tiling of the time line: 7 time resolutions, windows 64–4096 samples, designed at 6 voices/octave and 8.192 cycles per window over 0.500–64.0 Hz — a tiling of TIME, on the time manifold and no other; the hertz describe what the windows resolve and reference nothing (D84)",
+   "params_json": "{\"sfreq\":250,\"samples\":75000,\"origin\":1.5,\"method\":\"hertz\",\"voices\":6,\"cycles\":8.192,\"f_max\":64,\"f_min\":0.5,\"levels\":7,\"bands\":42,\"end\":301.5}",
+   "n_members": 7,
+   "n_elements": 75000
+  },
+  "members": [
+   {
+    "name": "line_constantQ L0",
+    "label": "64 samples · 0.256 s",
+    "code": 0,
+    "n_members": 1172,
+    "params_json": "{\"tiling\":{\"origin\":1.5,\"width\":0.256,\"hop\":0.256,\"count\":1172},\"end\":301.5,\"level\":0,\"window_samples\":64,\"hop_samples\":64,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":32,\"hi\":64}}"
+   },
+   {
+    "name": "line_constantQ L1",
+    "label": "128 samples · 0.512 s",
+    "code": 1,
+    "n_members": 586,
+    "params_json": "{\"tiling\":{\"origin\":1.5,\"width\":0.512,\"hop\":0.512,\"count\":586},\"end\":301.5,\"level\":1,\"window_samples\":128,\"hop_samples\":128,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":16,\"hi\":32}}"
+   },
+   {
+    "name": "line_constantQ L2",
+    "label": "256 samples · 1.024 s",
+    "code": 2,
+    "n_members": 293,
+    "params_json": "{\"tiling\":{\"origin\":1.5,\"width\":1.024,\"hop\":1.024,\"count\":293},\"end\":301.5,\"level\":2,\"window_samples\":256,\"hop_samples\":256,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":8,\"hi\":16}}"
+   },
+   {
+    "name": "line_constantQ L3",
+    "label": "512 samples · 2.048 s",
+    "code": 3,
+    "n_members": 147,
+    "params_json": "{\"tiling\":{\"origin\":1.5,\"width\":2.048,\"hop\":2.048,\"count\":147},\"end\":301.5,\"level\":3,\"window_samples\":512,\"hop_samples\":512,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":4,\"hi\":8}}"
+   },
+   {
+    "name": "line_constantQ L4",
+    "label": "1024 samples · 4.096 s",
+    "code": 4,
+    "n_members": 74,
+    "params_json": "{\"tiling\":{\"origin\":1.5,\"width\":4.096,\"hop\":4.096,\"count\":74},\"end\":301.5,\"level\":4,\"window_samples\":1024,\"hop_samples\":1024,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":2,\"hi\":4}}"
+   },
+   {
+    "name": "line_constantQ L5",
+    "label": "2048 samples · 8.192 s",
+    "code": 5,
+    "n_members": 37,
+    "params_json": "{\"tiling\":{\"origin\":1.5,\"width\":8.192,\"hop\":8.192,\"count\":37},\"end\":301.5,\"level\":5,\"window_samples\":2048,\"hop_samples\":2048,\"finest_tiles\":32,\"resolves_hz\":{\"lo\":1,\"hi\":2}}"
+   },
+   {
+    "name": "line_constantQ L6",
+    "label": "4096 samples · 16.384 s",
+    "code": 6,
+    "n_members": 19,
+    "params_json": "{\"tiling\":{\"origin\":1.5,\"width\":16.384,\"hop\":16.384,\"count\":19},\"end\":301.5,\"level\":6,\"window_samples\":4096,\"hop_samples\":4096,\"finest_tiles\":64,\"resolves_hz\":{\"lo\":0.5,\"hi\":1}}"
+   }
+  ],
+  "tileDescriptions": [
+   "the 1172 tiles of level 0 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (64 samples, 0.256 s) is the level's entry in the ladder dictionary",
+   "the 586 tiles of level 1 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (128 samples, 0.512 s) is the level's entry in the ladder dictionary",
+   "the 293 tiles of level 2 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (256 samples, 1.024 s) is the level's entry in the ladder dictionary",
+   "the 147 tiles of level 3 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (512 samples, 2.048 s) is the level's entry in the ladder dictionary",
+   "the 74 tiles of level 4 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (1024 samples, 4.096 s) is the level's entry in the ladder dictionary",
+   "the 37 tiles of level 5 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (2048 samples, 8.192 s) is the level's entry in the ladder dictionary",
+   "the 19 tiles of level 6 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (4096 samples, 16.384 s) is the level's entry in the ladder dictionary"
+  ]
+ },
+ {
+  "name": "cycles1200",
+  "line": {
+   "sfreq": 1200,
+   "samples": 360000,
+   "origin": 0
+  },
+  "params": {
+   "method": "cycles"
+  },
+  "tiling": {
+   "sfreq": 1200,
+   "samples": 360000,
+   "origin": 0,
+   "method": "cycles",
+   "voices": 6,
+   "cycles": 8,
+   "f_max": 600,
+   "f_min": 0.03662109375,
+   "bands": [
+    {
+     "ordinal": 0,
+     "octave": 0,
+     "voice": 0,
+     "lo_hz": 534.5392308842036,
+     "hi_hz": 600,
+     "centre_hz": 566.3245876090161,
+     "q": 8.651358596279547,
+     "window_samples": 32,
+     "window_s": 0.02666666666666667,
+     "hop_samples": 32,
+     "count": 11250
+    },
+    {
+     "ordinal": 1,
+     "octave": 0,
+     "voice": 1,
+     "lo_hz": 476.22031559045985,
+     "hi_hz": 534.5392308842036,
+     "centre_hz": 504.5378491522287,
+     "q": 8.651358596279547,
+     "window_samples": 32,
+     "window_s": 0.02666666666666667,
+     "hop_samples": 32,
+     "count": 11250
+    },
+    {
+     "ordinal": 2,
+     "octave": 0,
+     "voice": 2,
+     "lo_hz": 424.26406871192853,
+     "hi_hz": 476.22031559045985,
+     "centre_hz": 449.49212306300444,
+     "q": 8.651358596279547,
+     "window_samples": 32,
+     "window_s": 0.02666666666666667,
+     "hop_samples": 32,
+     "count": 11250
+    },
+    {
+     "ordinal": 3,
+     "octave": 0,
+     "voice": 3,
+     "lo_hz": 377.97631496846196,
+     "hi_hz": 424.26406871192853,
+     "centre_hz": 400.45195625101036,
+     "q": 8.651358596279547,
+     "window_samples": 32,
+     "window_s": 0.02666666666666667,
+     "hop_samples": 32,
+     "count": 11250
+    },
+    {
+     "ordinal": 4,
+     "octave": 0,
+     "voice": 4,
+     "lo_hz": 336.7386144928119,
+     "hi_hz": 377.97631496846196,
+     "centre_hz": 356.76213450081633,
+     "q": 8.651358596279547,
+     "window_samples": 32,
+     "window_s": 0.02666666666666667,
+     "hop_samples": 32,
+     "count": 11250
+    },
+    {
+     "ordinal": 5,
+     "octave": 0,
+     "voice": 5,
+     "lo_hz": 300,
+     "hi_hz": 336.7386144928119,
+     "centre_hz": 317.8389283077886,
+     "q": 8.651358596279547,
+     "window_samples": 32,
+     "window_s": 0.02666666666666667,
+     "hop_samples": 32,
+     "count": 11250
+    },
+    {
+     "ordinal": 6,
+     "octave": 1,
+     "voice": 0,
+     "lo_hz": 267.2696154421018,
+     "hi_hz": 300,
+     "centre_hz": 283.16229380450807,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.05333333333333334,
+     "hop_samples": 64,
+     "count": 5625
+    },
+    {
+     "ordinal": 7,
+     "octave": 1,
+     "voice": 1,
+     "lo_hz": 238.11015779522992,
+     "hi_hz": 267.2696154421018,
+     "centre_hz": 252.26892457611436,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.05333333333333334,
+     "hop_samples": 64,
+     "count": 5625
+    },
+    {
+     "ordinal": 8,
+     "octave": 1,
+     "voice": 2,
+     "lo_hz": 212.13203435596427,
+     "hi_hz": 238.11015779522992,
+     "centre_hz": 224.74606153150222,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.05333333333333334,
+     "hop_samples": 64,
+     "count": 5625
+    },
+    {
+     "ordinal": 9,
+     "octave": 1,
+     "voice": 3,
+     "lo_hz": 188.98815748423098,
+     "hi_hz": 212.13203435596427,
+     "centre_hz": 200.22597812550518,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.05333333333333334,
+     "hop_samples": 64,
+     "count": 5625
+    },
+    {
+     "ordinal": 10,
+     "octave": 1,
+     "voice": 4,
+     "lo_hz": 168.36930724640595,
+     "hi_hz": 188.98815748423098,
+     "centre_hz": 178.38106725040817,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.05333333333333334,
+     "hop_samples": 64,
+     "count": 5625
+    },
+    {
+     "ordinal": 11,
+     "octave": 1,
+     "voice": 5,
+     "lo_hz": 150,
+     "hi_hz": 168.36930724640595,
+     "centre_hz": 158.9194641538943,
+     "q": 8.651358596279547,
+     "window_samples": 64,
+     "window_s": 0.05333333333333334,
+     "hop_samples": 64,
+     "count": 5625
+    },
+    {
+     "ordinal": 12,
+     "octave": 2,
+     "voice": 0,
+     "lo_hz": 133.63480772105092,
+     "hi_hz": 150,
+     "centre_hz": 141.58114690225403,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.10666666666666667,
+     "hop_samples": 128,
+     "count": 2813
+    },
+    {
+     "ordinal": 13,
+     "octave": 2,
+     "voice": 1,
+     "lo_hz": 119.05507889761495,
+     "hi_hz": 133.63480772105092,
+     "centre_hz": 126.1344622880572,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.10666666666666667,
+     "hop_samples": 128,
+     "count": 2813
+    },
+    {
+     "ordinal": 14,
+     "octave": 2,
+     "voice": 2,
+     "lo_hz": 106.06601717798213,
+     "hi_hz": 119.05507889761495,
+     "centre_hz": 112.37303076575111,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.10666666666666667,
+     "hop_samples": 128,
+     "count": 2813
+    },
+    {
+     "ordinal": 15,
+     "octave": 2,
+     "voice": 3,
+     "lo_hz": 94.49407874211549,
+     "hi_hz": 106.06601717798213,
+     "centre_hz": 100.11298906275259,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.10666666666666667,
+     "hop_samples": 128,
+     "count": 2813
+    },
+    {
+     "ordinal": 16,
+     "octave": 2,
+     "voice": 4,
+     "lo_hz": 84.18465362320296,
+     "hi_hz": 94.49407874211549,
+     "centre_hz": 89.19053362520407,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.10666666666666667,
+     "hop_samples": 128,
+     "count": 2813
+    },
+    {
+     "ordinal": 17,
+     "octave": 2,
+     "voice": 5,
+     "lo_hz": 75,
+     "hi_hz": 84.18465362320296,
+     "centre_hz": 79.45973207694713,
+     "q": 8.651358596279547,
+     "window_samples": 128,
+     "window_s": 0.10666666666666667,
+     "hop_samples": 128,
+     "count": 2813
+    },
+    {
+     "ordinal": 18,
+     "octave": 3,
+     "voice": 0,
+     "lo_hz": 66.81740386052546,
+     "hi_hz": 75,
+     "centre_hz": 70.79057345112702,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 19,
+     "octave": 3,
+     "voice": 1,
+     "lo_hz": 59.527539448807474,
+     "hi_hz": 66.81740386052546,
+     "centre_hz": 63.0672311440286,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 20,
+     "octave": 3,
+     "voice": 2,
+     "lo_hz": 53.033008588991066,
+     "hi_hz": 59.527539448807474,
+     "centre_hz": 56.186515382875555,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 21,
+     "octave": 3,
+     "voice": 3,
+     "lo_hz": 47.247039371057745,
+     "hi_hz": 53.033008588991066,
+     "centre_hz": 50.056494531376295,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 22,
+     "octave": 3,
+     "voice": 4,
+     "lo_hz": 42.09232681160148,
+     "hi_hz": 47.247039371057745,
+     "centre_hz": 44.595266812602034,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 23,
+     "octave": 3,
+     "voice": 5,
+     "lo_hz": 37.5,
+     "hi_hz": 42.09232681160148,
+     "centre_hz": 39.72986603847357,
+     "q": 8.651358596279547,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407
+    },
+    {
+     "ordinal": 24,
+     "octave": 4,
+     "voice": 0,
+     "lo_hz": 33.408701930262716,
+     "hi_hz": 37.5,
+     "centre_hz": 35.3952867255635,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 25,
+     "octave": 4,
+     "voice": 1,
+     "lo_hz": 29.763769724403748,
+     "hi_hz": 33.408701930262716,
+     "centre_hz": 31.533615572014295,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 26,
+     "octave": 4,
+     "voice": 2,
+     "lo_hz": 26.516504294495533,
+     "hi_hz": 29.763769724403748,
+     "centre_hz": 28.09325769143778,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 27,
+     "octave": 4,
+     "voice": 3,
+     "lo_hz": 23.62351968552887,
+     "hi_hz": 26.516504294495533,
+     "centre_hz": 25.028247265688144,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 28,
+     "octave": 4,
+     "voice": 4,
+     "lo_hz": 21.046163405800748,
+     "hi_hz": 23.62351968552887,
+     "centre_hz": 22.29763340630102,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 29,
+     "octave": 4,
+     "voice": 5,
+     "lo_hz": 18.75,
+     "hi_hz": 21.046163405800748,
+     "centre_hz": 19.864933019236787,
+     "q": 8.651358596279547,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704
+    },
+    {
+     "ordinal": 30,
+     "octave": 5,
+     "voice": 0,
+     "lo_hz": 16.704350965131358,
+     "hi_hz": 18.75,
+     "centre_hz": 17.69764336278175,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 31,
+     "octave": 5,
+     "voice": 1,
+     "lo_hz": 14.881884862201874,
+     "hi_hz": 16.704350965131358,
+     "centre_hz": 15.766807786007147,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 32,
+     "octave": 5,
+     "voice": 2,
+     "lo_hz": 13.258252147247767,
+     "hi_hz": 14.881884862201874,
+     "centre_hz": 14.04662884571889,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 33,
+     "octave": 5,
+     "voice": 3,
+     "lo_hz": 11.811759842764435,
+     "hi_hz": 13.258252147247767,
+     "centre_hz": 12.514123632844072,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 34,
+     "octave": 5,
+     "voice": 4,
+     "lo_hz": 10.523081702900374,
+     "hi_hz": 11.811759842764435,
+     "centre_hz": 11.14881670315051,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 35,
+     "octave": 5,
+     "voice": 5,
+     "lo_hz": 9.375,
+     "hi_hz": 10.523081702900374,
+     "centre_hz": 9.932466509618394,
+     "q": 8.651358596279547,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352
+    },
+    {
+     "ordinal": 36,
+     "octave": 6,
+     "voice": 0,
+     "lo_hz": 8.352175482565679,
+     "hi_hz": 9.375,
+     "centre_hz": 8.848821681390875,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 37,
+     "octave": 6,
+     "voice": 1,
+     "lo_hz": 7.440942431100937,
+     "hi_hz": 8.352175482565679,
+     "centre_hz": 7.883403893003574,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 38,
+     "octave": 6,
+     "voice": 2,
+     "lo_hz": 6.629126073623883,
+     "hi_hz": 7.440942431100937,
+     "centre_hz": 7.023314422859445,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 39,
+     "octave": 6,
+     "voice": 3,
+     "lo_hz": 5.905879921382217,
+     "hi_hz": 6.629126073623883,
+     "centre_hz": 6.257061816422036,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 40,
+     "octave": 6,
+     "voice": 4,
+     "lo_hz": 5.261540851450187,
+     "hi_hz": 5.905879921382217,
+     "centre_hz": 5.574408351575255,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 41,
+     "octave": 6,
+     "voice": 5,
+     "lo_hz": 4.6875,
+     "hi_hz": 5.261540851450187,
+     "centre_hz": 4.966233254809197,
+     "q": 8.651358596279547,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176
+    },
+    {
+     "ordinal": 42,
+     "octave": 7,
+     "voice": 0,
+     "lo_hz": 4.176087741282839,
+     "hi_hz": 4.6875,
+     "centre_hz": 4.424410840695438,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 43,
+     "octave": 7,
+     "voice": 1,
+     "lo_hz": 3.7204712155504684,
+     "hi_hz": 4.176087741282839,
+     "centre_hz": 3.941701946501787,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 44,
+     "octave": 7,
+     "voice": 2,
+     "lo_hz": 3.3145630368119416,
+     "hi_hz": 3.7204712155504684,
+     "centre_hz": 3.5116572114297226,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 45,
+     "octave": 7,
+     "voice": 3,
+     "lo_hz": 2.9529399606911086,
+     "hi_hz": 3.3145630368119416,
+     "centre_hz": 3.128530908211018,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 46,
+     "octave": 7,
+     "voice": 4,
+     "lo_hz": 2.6307704257250935,
+     "hi_hz": 2.9529399606911086,
+     "centre_hz": 2.7872041757876276,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 47,
+     "octave": 7,
+     "voice": 5,
+     "lo_hz": 2.34375,
+     "hi_hz": 2.6307704257250935,
+     "centre_hz": 2.4831166274045984,
+     "q": 8.651358596279547,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88
+    },
+    {
+     "ordinal": 48,
+     "octave": 8,
+     "voice": 0,
+     "lo_hz": 2.088043870641421,
+     "hi_hz": 2.34375,
+     "centre_hz": 2.2122054203477197,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 49,
+     "octave": 8,
+     "voice": 1,
+     "lo_hz": 1.8602356077752331,
+     "hi_hz": 2.088043870641421,
+     "centre_hz": 1.9708509732508934,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 50,
+     "octave": 8,
+     "voice": 2,
+     "lo_hz": 1.6572815184059708,
+     "hi_hz": 1.8602356077752331,
+     "centre_hz": 1.7558286057148609,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 51,
+     "octave": 8,
+     "voice": 3,
+     "lo_hz": 1.476469980345555,
+     "hi_hz": 1.6572815184059708,
+     "centre_hz": 1.5642654541055092,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 52,
+     "octave": 8,
+     "voice": 4,
+     "lo_hz": 1.315385212862546,
+     "hi_hz": 1.476469980345555,
+     "centre_hz": 1.3936020878938138,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 53,
+     "octave": 8,
+     "voice": 5,
+     "lo_hz": 1.171875,
+     "hi_hz": 1.315385212862546,
+     "centre_hz": 1.241558313702299,
+     "q": 8.651358596279547,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44
+    },
+    {
+     "ordinal": 54,
+     "octave": 9,
+     "voice": 0,
+     "lo_hz": 1.0440219353207105,
+     "hi_hz": 1.171875,
+     "centre_hz": 1.1061027101738599,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 55,
+     "octave": 9,
+     "voice": 1,
+     "lo_hz": 0.9301178038876166,
+     "hi_hz": 1.0440219353207105,
+     "centre_hz": 0.9854254866254467,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 56,
+     "octave": 9,
+     "voice": 2,
+     "lo_hz": 0.8286407592029854,
+     "hi_hz": 0.9301178038876166,
+     "centre_hz": 0.8779143028574304,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 57,
+     "octave": 9,
+     "voice": 3,
+     "lo_hz": 0.7382349901727775,
+     "hi_hz": 0.8286407592029854,
+     "centre_hz": 0.7821327270527546,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 58,
+     "octave": 9,
+     "voice": 4,
+     "lo_hz": 0.657692606431273,
+     "hi_hz": 0.7382349901727775,
+     "centre_hz": 0.6968010439469069,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 59,
+     "octave": 9,
+     "voice": 5,
+     "lo_hz": 0.5859375,
+     "hi_hz": 0.657692606431273,
+     "centre_hz": 0.6207791568511495,
+     "q": 8.651358596279547,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22
+    },
+    {
+     "ordinal": 60,
+     "octave": 10,
+     "voice": 0,
+     "lo_hz": 0.5220109676603553,
+     "hi_hz": 0.5859375,
+     "centre_hz": 0.5530513550869299,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 27.30666666666667,
+     "hop_samples": 32768,
+     "count": 11
+    },
+    {
+     "ordinal": 61,
+     "octave": 10,
+     "voice": 1,
+     "lo_hz": 0.4650589019438083,
+     "hi_hz": 0.5220109676603553,
+     "centre_hz": 0.49271274331272336,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 27.30666666666667,
+     "hop_samples": 32768,
+     "count": 11
+    },
+    {
+     "ordinal": 62,
+     "octave": 10,
+     "voice": 2,
+     "lo_hz": 0.4143203796014927,
+     "hi_hz": 0.4650589019438083,
+     "centre_hz": 0.4389571514287152,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 27.30666666666667,
+     "hop_samples": 32768,
+     "count": 11
+    },
+    {
+     "ordinal": 63,
+     "octave": 10,
+     "voice": 3,
+     "lo_hz": 0.36911749508638875,
+     "hi_hz": 0.4143203796014927,
+     "centre_hz": 0.3910663635263773,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 27.30666666666667,
+     "hop_samples": 32768,
+     "count": 11
+    },
+    {
+     "ordinal": 64,
+     "octave": 10,
+     "voice": 4,
+     "lo_hz": 0.3288463032156365,
+     "hi_hz": 0.36911749508638875,
+     "centre_hz": 0.34840052197345345,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 27.30666666666667,
+     "hop_samples": 32768,
+     "count": 11
+    },
+    {
+     "ordinal": 65,
+     "octave": 10,
+     "voice": 5,
+     "lo_hz": 0.29296875,
+     "hi_hz": 0.3288463032156365,
+     "centre_hz": 0.31038957842557474,
+     "q": 8.651358596279547,
+     "window_samples": 32768,
+     "window_s": 27.30666666666667,
+     "hop_samples": 32768,
+     "count": 11
+    },
+    {
+     "ordinal": 66,
+     "octave": 11,
+     "voice": 0,
+     "lo_hz": 0.26100548383017763,
+     "hi_hz": 0.29296875,
+     "centre_hz": 0.27652567754346496,
+     "q": 8.651358596279547,
+     "window_samples": 65536,
+     "window_s": 54.61333333333334,
+     "hop_samples": 65536,
+     "count": 6
+    },
+    {
+     "ordinal": 67,
+     "octave": 11,
+     "voice": 1,
+     "lo_hz": 0.23252945097190414,
+     "hi_hz": 0.26100548383017763,
+     "centre_hz": 0.24635637165636168,
+     "q": 8.651358596279547,
+     "window_samples": 65536,
+     "window_s": 54.61333333333334,
+     "hop_samples": 65536,
+     "count": 6
+    },
+    {
+     "ordinal": 68,
+     "octave": 11,
+     "voice": 2,
+     "lo_hz": 0.20716018980074635,
+     "hi_hz": 0.23252945097190414,
+     "centre_hz": 0.2194785757143576,
+     "q": 8.651358596279547,
+     "window_samples": 65536,
+     "window_s": 54.61333333333334,
+     "hop_samples": 65536,
+     "count": 6
+    },
+    {
+     "ordinal": 69,
+     "octave": 11,
+     "voice": 3,
+     "lo_hz": 0.18455874754319437,
+     "hi_hz": 0.20716018980074635,
+     "centre_hz": 0.19553318176318865,
+     "q": 8.651358596279547,
+     "window_samples": 65536,
+     "window_s": 54.61333333333334,
+     "hop_samples": 65536,
+     "count": 6
+    },
+    {
+     "ordinal": 70,
+     "octave": 11,
+     "voice": 4,
+     "lo_hz": 0.16442315160781826,
+     "hi_hz": 0.18455874754319437,
+     "centre_hz": 0.17420026098672672,
+     "q": 8.651358596279547,
+     "window_samples": 65536,
+     "window_s": 54.61333333333334,
+     "hop_samples": 65536,
+     "count": 6
+    },
+    {
+     "ordinal": 71,
+     "octave": 11,
+     "voice": 5,
+     "lo_hz": 0.146484375,
+     "hi_hz": 0.16442315160781826,
+     "centre_hz": 0.15519478921278737,
+     "q": 8.651358596279547,
+     "window_samples": 65536,
+     "window_s": 54.61333333333334,
+     "hop_samples": 65536,
+     "count": 6
+    },
+    {
+     "ordinal": 72,
+     "octave": 12,
+     "voice": 0,
+     "lo_hz": 0.13050274191508882,
+     "hi_hz": 0.146484375,
+     "centre_hz": 0.13826283877173248,
+     "q": 8.651358596279547,
+     "window_samples": 131072,
+     "window_s": 109.22666666666667,
+     "hop_samples": 131072,
+     "count": 3
+    },
+    {
+     "ordinal": 73,
+     "octave": 12,
+     "voice": 1,
+     "lo_hz": 0.11626472548595207,
+     "hi_hz": 0.13050274191508882,
+     "centre_hz": 0.12317818582818084,
+     "q": 8.651358596279547,
+     "window_samples": 131072,
+     "window_s": 109.22666666666667,
+     "hop_samples": 131072,
+     "count": 3
+    },
+    {
+     "ordinal": 74,
+     "octave": 12,
+     "voice": 2,
+     "lo_hz": 0.10358009490037318,
+     "hi_hz": 0.11626472548595207,
+     "centre_hz": 0.1097392878571788,
+     "q": 8.651358596279547,
+     "window_samples": 131072,
+     "window_s": 109.22666666666667,
+     "hop_samples": 131072,
+     "count": 3
+    },
+    {
+     "ordinal": 75,
+     "octave": 12,
+     "voice": 3,
+     "lo_hz": 0.09227937377159719,
+     "hi_hz": 0.10358009490037318,
+     "centre_hz": 0.09776659088159433,
+     "q": 8.651358596279547,
+     "window_samples": 131072,
+     "window_s": 109.22666666666667,
+     "hop_samples": 131072,
+     "count": 3
+    },
+    {
+     "ordinal": 76,
+     "octave": 12,
+     "voice": 4,
+     "lo_hz": 0.08221157580390913,
+     "hi_hz": 0.09227937377159719,
+     "centre_hz": 0.08710013049336336,
+     "q": 8.651358596279547,
+     "window_samples": 131072,
+     "window_s": 109.22666666666667,
+     "hop_samples": 131072,
+     "count": 3
+    },
+    {
+     "ordinal": 77,
+     "octave": 12,
+     "voice": 5,
+     "lo_hz": 0.0732421875,
+     "hi_hz": 0.08221157580390913,
+     "centre_hz": 0.07759739460639369,
+     "q": 8.651358596279547,
+     "window_samples": 131072,
+     "window_s": 109.22666666666667,
+     "hop_samples": 131072,
+     "count": 3
+    },
+    {
+     "ordinal": 78,
+     "octave": 13,
+     "voice": 0,
+     "lo_hz": 0.06525137095754441,
+     "hi_hz": 0.0732421875,
+     "centre_hz": 0.06913141938586624,
+     "q": 8.651358596279547,
+     "window_samples": 262144,
+     "window_s": 218.45333333333335,
+     "hop_samples": 262144,
+     "count": 2
+    },
+    {
+     "ordinal": 79,
+     "octave": 13,
+     "voice": 1,
+     "lo_hz": 0.058132362742976035,
+     "hi_hz": 0.06525137095754441,
+     "centre_hz": 0.06158909291409042,
+     "q": 8.651358596279547,
+     "window_samples": 262144,
+     "window_s": 218.45333333333335,
+     "hop_samples": 262144,
+     "count": 2
+    },
+    {
+     "ordinal": 80,
+     "octave": 13,
+     "voice": 2,
+     "lo_hz": 0.05179004745018659,
+     "hi_hz": 0.058132362742976035,
+     "centre_hz": 0.0548696439285894,
+     "q": 8.651358596279547,
+     "window_samples": 262144,
+     "window_s": 218.45333333333335,
+     "hop_samples": 262144,
+     "count": 2
+    },
+    {
+     "ordinal": 81,
+     "octave": 13,
+     "voice": 3,
+     "lo_hz": 0.04613968688579859,
+     "hi_hz": 0.05179004745018659,
+     "centre_hz": 0.04888329544079716,
+     "q": 8.651358596279547,
+     "window_samples": 262144,
+     "window_s": 218.45333333333335,
+     "hop_samples": 262144,
+     "count": 2
+    },
+    {
+     "ordinal": 82,
+     "octave": 13,
+     "voice": 4,
+     "lo_hz": 0.041105787901954564,
+     "hi_hz": 0.04613968688579859,
+     "centre_hz": 0.04355006524668168,
+     "q": 8.651358596279547,
+     "window_samples": 262144,
+     "window_s": 218.45333333333335,
+     "hop_samples": 262144,
+     "count": 2
+    },
+    {
+     "ordinal": 83,
+     "octave": 13,
+     "voice": 5,
+     "lo_hz": 0.03662109375,
+     "hi_hz": 0.041105787901954564,
+     "centre_hz": 0.03879869730319684,
+     "q": 8.651358596279547,
+     "window_samples": 262144,
+     "window_s": 218.45333333333335,
+     "hop_samples": 262144,
+     "count": 2
+    }
+   ],
+   "levels": [
+    {
+     "level": 0,
+     "window_samples": 32,
+     "window_s": 0.02666666666666667,
+     "hop_samples": 32,
+     "count": 11250,
+     "finest_tiles": 1,
+     "resolves_hz": {
+      "lo": 300,
+      "hi": 600
+     },
+     "bands": 6,
+     "stride": 1,
+     "rate_hz": 1200,
+     "points": 32,
+     "samples_per_cycle": {
+      "lo": 4,
+      "hi": 2
+     },
+     "nyquist_bound": true
+    },
+    {
+     "level": 1,
+     "window_samples": 64,
+     "window_s": 0.05333333333333334,
+     "hop_samples": 64,
+     "count": 5625,
+     "finest_tiles": 2,
+     "resolves_hz": {
+      "lo": 150,
+      "hi": 300
+     },
+     "bands": 6,
+     "stride": 1,
+     "rate_hz": 1200,
+     "points": 64,
+     "samples_per_cycle": {
+      "lo": 8,
+      "hi": 4
+     },
+     "nyquist_bound": true
+    },
+    {
+     "level": 2,
+     "window_samples": 128,
+     "window_s": 0.10666666666666667,
+     "hop_samples": 128,
+     "count": 2813,
+     "finest_tiles": 4,
+     "resolves_hz": {
+      "lo": 75,
+      "hi": 150
+     },
+     "bands": 6,
+     "stride": 1,
+     "rate_hz": 1200,
+     "points": 128,
+     "samples_per_cycle": {
+      "lo": 16,
+      "hi": 8
+     },
+     "nyquist_bound": true
+    },
+    {
+     "level": 3,
+     "window_samples": 256,
+     "window_s": 0.21333333333333335,
+     "hop_samples": 256,
+     "count": 1407,
+     "finest_tiles": 8,
+     "resolves_hz": {
+      "lo": 37.5,
+      "hi": 75
+     },
+     "bands": 6,
+     "stride": 1,
+     "rate_hz": 1200,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 4,
+     "window_samples": 512,
+     "window_s": 0.4266666666666667,
+     "hop_samples": 512,
+     "count": 704,
+     "finest_tiles": 16,
+     "resolves_hz": {
+      "lo": 18.75,
+      "hi": 37.5
+     },
+     "bands": 6,
+     "stride": 2,
+     "rate_hz": 600,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 5,
+     "window_samples": 1024,
+     "window_s": 0.8533333333333334,
+     "hop_samples": 1024,
+     "count": 352,
+     "finest_tiles": 32,
+     "resolves_hz": {
+      "lo": 9.375,
+      "hi": 18.75
+     },
+     "bands": 6,
+     "stride": 4,
+     "rate_hz": 300,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 6,
+     "window_samples": 2048,
+     "window_s": 1.7066666666666668,
+     "hop_samples": 2048,
+     "count": 176,
+     "finest_tiles": 64,
+     "resolves_hz": {
+      "lo": 4.6875,
+      "hi": 9.375
+     },
+     "bands": 6,
+     "stride": 8,
+     "rate_hz": 150,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 7,
+     "window_samples": 4096,
+     "window_s": 3.4133333333333336,
+     "hop_samples": 4096,
+     "count": 88,
+     "finest_tiles": 128,
+     "resolves_hz": {
+      "lo": 2.34375,
+      "hi": 4.6875
+     },
+     "bands": 6,
+     "stride": 16,
+     "rate_hz": 75,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 8,
+     "window_samples": 8192,
+     "window_s": 6.826666666666667,
+     "hop_samples": 8192,
+     "count": 44,
+     "finest_tiles": 256,
+     "resolves_hz": {
+      "lo": 1.171875,
+      "hi": 2.34375
+     },
+     "bands": 6,
+     "stride": 32,
+     "rate_hz": 37.5,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 9,
+     "window_samples": 16384,
+     "window_s": 13.653333333333334,
+     "hop_samples": 16384,
+     "count": 22,
+     "finest_tiles": 512,
+     "resolves_hz": {
+      "lo": 0.5859375,
+      "hi": 1.171875
+     },
+     "bands": 6,
+     "stride": 64,
+     "rate_hz": 18.75,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 10,
+     "window_samples": 32768,
+     "window_s": 27.30666666666667,
+     "hop_samples": 32768,
+     "count": 11,
+     "finest_tiles": 1024,
+     "resolves_hz": {
+      "lo": 0.29296875,
+      "hi": 0.5859375
+     },
+     "bands": 6,
+     "stride": 128,
+     "rate_hz": 9.375,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 11,
+     "window_samples": 65536,
+     "window_s": 54.61333333333334,
+     "hop_samples": 65536,
+     "count": 6,
+     "finest_tiles": 2048,
+     "resolves_hz": {
+      "lo": 0.146484375,
+      "hi": 0.29296875
+     },
+     "bands": 6,
+     "stride": 256,
+     "rate_hz": 4.6875,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 12,
+     "window_samples": 131072,
+     "window_s": 109.22666666666667,
+     "hop_samples": 131072,
+     "count": 3,
+     "finest_tiles": 4096,
+     "resolves_hz": {
+      "lo": 0.0732421875,
+      "hi": 0.146484375
+     },
+     "bands": 6,
+     "stride": 512,
+     "rate_hz": 2.34375,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 13,
+     "window_samples": 262144,
+     "window_s": 218.45333333333335,
+     "hop_samples": 262144,
+     "count": 2,
+     "finest_tiles": 8192,
+     "resolves_hz": {
+      "lo": 0.03662109375,
+      "hi": 0.0732421875
+     },
+     "bands": 6,
+     "stride": 1024,
+     "rate_hz": 1.171875,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 32,
+      "hi": 16
+     },
+     "nyquist_bound": false
+    }
+   ]
+  },
+  "entries": [
+   {
+    "code": 0,
+    "name": "32 samples",
+    "measurement": 0.02666666666666667,
+    "attributes_json": "{\"level\":0,\"window_samples\":32,\"window_s\":0.02666666666666667,\"hop_samples\":32,\"count\":11250,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":300,\"hi\":600},\"bands\":6,\"stride\":1,\"rate_hz\":1200,\"points\":32,\"samples_per_cycle\":{\"lo\":4,\"hi\":2},\"nyquist_bound\":true,\"duration_s\":0.02666666666666667,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 1,
+    "name": "64 samples",
+    "measurement": 0.05333333333333334,
+    "attributes_json": "{\"level\":1,\"window_samples\":64,\"window_s\":0.05333333333333334,\"hop_samples\":64,\"count\":5625,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":150,\"hi\":300},\"bands\":6,\"stride\":1,\"rate_hz\":1200,\"points\":64,\"samples_per_cycle\":{\"lo\":8,\"hi\":4},\"nyquist_bound\":true,\"duration_s\":0.05333333333333334,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 2,
+    "name": "128 samples",
+    "measurement": 0.10666666666666667,
+    "attributes_json": "{\"level\":2,\"window_samples\":128,\"window_s\":0.10666666666666667,\"hop_samples\":128,\"count\":2813,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":75,\"hi\":150},\"bands\":6,\"stride\":1,\"rate_hz\":1200,\"points\":128,\"samples_per_cycle\":{\"lo\":16,\"hi\":8},\"nyquist_bound\":true,\"duration_s\":0.10666666666666667,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 3,
+    "name": "256 samples",
+    "measurement": 0.21333333333333335,
+    "attributes_json": "{\"level\":3,\"window_samples\":256,\"window_s\":0.21333333333333335,\"hop_samples\":256,\"count\":1407,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":37.5,\"hi\":75},\"bands\":6,\"stride\":1,\"rate_hz\":1200,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":0.21333333333333335,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 4,
+    "name": "512 samples",
+    "measurement": 0.4266666666666667,
+    "attributes_json": "{\"level\":4,\"window_samples\":512,\"window_s\":0.4266666666666667,\"hop_samples\":512,\"count\":704,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":18.75,\"hi\":37.5},\"bands\":6,\"stride\":2,\"rate_hz\":600,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":0.4266666666666667,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 5,
+    "name": "1024 samples",
+    "measurement": 0.8533333333333334,
+    "attributes_json": "{\"level\":5,\"window_samples\":1024,\"window_s\":0.8533333333333334,\"hop_samples\":1024,\"count\":352,\"finest_tiles\":32,\"resolves_hz\":{\"lo\":9.375,\"hi\":18.75},\"bands\":6,\"stride\":4,\"rate_hz\":300,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":0.8533333333333334,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 6,
+    "name": "2048 samples",
+    "measurement": 1.7066666666666668,
+    "attributes_json": "{\"level\":6,\"window_samples\":2048,\"window_s\":1.7066666666666668,\"hop_samples\":2048,\"count\":176,\"finest_tiles\":64,\"resolves_hz\":{\"lo\":4.6875,\"hi\":9.375},\"bands\":6,\"stride\":8,\"rate_hz\":150,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":1.7066666666666668,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 7,
+    "name": "4096 samples",
+    "measurement": 3.4133333333333336,
+    "attributes_json": "{\"level\":7,\"window_samples\":4096,\"window_s\":3.4133333333333336,\"hop_samples\":4096,\"count\":88,\"finest_tiles\":128,\"resolves_hz\":{\"lo\":2.34375,\"hi\":4.6875},\"bands\":6,\"stride\":16,\"rate_hz\":75,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":3.4133333333333336,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 8,
+    "name": "8192 samples",
+    "measurement": 6.826666666666667,
+    "attributes_json": "{\"level\":8,\"window_samples\":8192,\"window_s\":6.826666666666667,\"hop_samples\":8192,\"count\":44,\"finest_tiles\":256,\"resolves_hz\":{\"lo\":1.171875,\"hi\":2.34375},\"bands\":6,\"stride\":32,\"rate_hz\":37.5,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":6.826666666666667,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 9,
+    "name": "16384 samples",
+    "measurement": 13.653333333333334,
+    "attributes_json": "{\"level\":9,\"window_samples\":16384,\"window_s\":13.653333333333334,\"hop_samples\":16384,\"count\":22,\"finest_tiles\":512,\"resolves_hz\":{\"lo\":0.5859375,\"hi\":1.171875},\"bands\":6,\"stride\":64,\"rate_hz\":18.75,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":13.653333333333334,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 10,
+    "name": "32768 samples",
+    "measurement": 27.30666666666667,
+    "attributes_json": "{\"level\":10,\"window_samples\":32768,\"window_s\":27.30666666666667,\"hop_samples\":32768,\"count\":11,\"finest_tiles\":1024,\"resolves_hz\":{\"lo\":0.29296875,\"hi\":0.5859375},\"bands\":6,\"stride\":128,\"rate_hz\":9.375,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":27.30666666666667,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 11,
+    "name": "65536 samples",
+    "measurement": 54.61333333333334,
+    "attributes_json": "{\"level\":11,\"window_samples\":65536,\"window_s\":54.61333333333334,\"hop_samples\":65536,\"count\":6,\"finest_tiles\":2048,\"resolves_hz\":{\"lo\":0.146484375,\"hi\":0.29296875},\"bands\":6,\"stride\":256,\"rate_hz\":4.6875,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":54.61333333333334,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 12,
+    "name": "131072 samples",
+    "measurement": 109.22666666666667,
+    "attributes_json": "{\"level\":12,\"window_samples\":131072,\"window_s\":109.22666666666667,\"hop_samples\":131072,\"count\":3,\"finest_tiles\":4096,\"resolves_hz\":{\"lo\":0.0732421875,\"hi\":0.146484375},\"bands\":6,\"stride\":512,\"rate_hz\":2.34375,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":109.22666666666667,\"finest_window_samples\":32}"
+   },
+   {
+    "code": 13,
+    "name": "262144 samples",
+    "measurement": 218.45333333333335,
+    "attributes_json": "{\"level\":13,\"window_samples\":262144,\"window_s\":218.45333333333335,\"hop_samples\":262144,\"count\":2,\"finest_tiles\":8192,\"resolves_hz\":{\"lo\":0.03662109375,\"hi\":0.0732421875},\"bands\":6,\"stride\":1024,\"rate_hz\":1.171875,\"points\":256,\"samples_per_cycle\":{\"lo\":32,\"hi\":16},\"nyquist_bound\":false,\"duration_s\":218.45333333333335,\"finest_window_samples\":32}"
+   }
+  ],
+  "set": {
+   "label": "constant-Q, 14 levels",
+   "description": "the constant-Q tiling of the time line: 14 time resolutions, windows 32–262144 samples, designed at 6 voices/octave and 8 cycles per window over 0.037–600.0 Hz — a tiling of TIME, on the time manifold and no other; the hertz describe what the windows resolve and reference nothing (D84)",
+   "params_json": "{\"sfreq\":1200,\"samples\":360000,\"origin\":0,\"method\":\"cycles\",\"voices\":6,\"cycles\":8,\"f_max\":600,\"f_min\":0.03662109375,\"levels\":14,\"bands\":84,\"end\":300}",
+   "n_members": 14,
+   "n_elements": 360000
+  },
+  "members": [
+   {
+    "name": "line_constantQ L0",
+    "label": "32 samples · 0.027 s",
+    "code": 0,
+    "n_members": 11250,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.02666666666666667,\"hop\":0.02666666666666667,\"count\":11250},\"end\":300,\"level\":0,\"window_samples\":32,\"hop_samples\":32,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":300,\"hi\":600}}"
+   },
+   {
+    "name": "line_constantQ L1",
+    "label": "64 samples · 0.053 s",
+    "code": 1,
+    "n_members": 5625,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.05333333333333334,\"hop\":0.05333333333333334,\"count\":5625},\"end\":300,\"level\":1,\"window_samples\":64,\"hop_samples\":64,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":150,\"hi\":300}}"
+   },
+   {
+    "name": "line_constantQ L2",
+    "label": "128 samples · 0.107 s",
+    "code": 2,
+    "n_members": 2813,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.10666666666666667,\"hop\":0.10666666666666667,\"count\":2813},\"end\":300,\"level\":2,\"window_samples\":128,\"hop_samples\":128,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":75,\"hi\":150}}"
+   },
+   {
+    "name": "line_constantQ L3",
+    "label": "256 samples · 0.213 s",
+    "code": 3,
+    "n_members": 1407,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.21333333333333335,\"hop\":0.21333333333333335,\"count\":1407},\"end\":300,\"level\":3,\"window_samples\":256,\"hop_samples\":256,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":37.5,\"hi\":75}}"
+   },
+   {
+    "name": "line_constantQ L4",
+    "label": "512 samples · 0.427 s",
+    "code": 4,
+    "n_members": 704,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.4266666666666667,\"hop\":0.4266666666666667,\"count\":704},\"end\":300,\"level\":4,\"window_samples\":512,\"hop_samples\":512,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":18.75,\"hi\":37.5}}"
+   },
+   {
+    "name": "line_constantQ L5",
+    "label": "1024 samples · 0.853 s",
+    "code": 5,
+    "n_members": 352,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.8533333333333334,\"hop\":0.8533333333333334,\"count\":352},\"end\":300,\"level\":5,\"window_samples\":1024,\"hop_samples\":1024,\"finest_tiles\":32,\"resolves_hz\":{\"lo\":9.375,\"hi\":18.75}}"
+   },
+   {
+    "name": "line_constantQ L6",
+    "label": "2048 samples · 1.707 s",
+    "code": 6,
+    "n_members": 176,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":1.7066666666666668,\"hop\":1.7066666666666668,\"count\":176},\"end\":300,\"level\":6,\"window_samples\":2048,\"hop_samples\":2048,\"finest_tiles\":64,\"resolves_hz\":{\"lo\":4.6875,\"hi\":9.375}}"
+   },
+   {
+    "name": "line_constantQ L7",
+    "label": "4096 samples · 3.413 s",
+    "code": 7,
+    "n_members": 88,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":3.4133333333333336,\"hop\":3.4133333333333336,\"count\":88},\"end\":300,\"level\":7,\"window_samples\":4096,\"hop_samples\":4096,\"finest_tiles\":128,\"resolves_hz\":{\"lo\":2.34375,\"hi\":4.6875}}"
+   },
+   {
+    "name": "line_constantQ L8",
+    "label": "8192 samples · 6.827 s",
+    "code": 8,
+    "n_members": 44,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":6.826666666666667,\"hop\":6.826666666666667,\"count\":44},\"end\":300,\"level\":8,\"window_samples\":8192,\"hop_samples\":8192,\"finest_tiles\":256,\"resolves_hz\":{\"lo\":1.171875,\"hi\":2.34375}}"
+   },
+   {
+    "name": "line_constantQ L9",
+    "label": "16384 samples · 13.653 s",
+    "code": 9,
+    "n_members": 22,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":13.653333333333334,\"hop\":13.653333333333334,\"count\":22},\"end\":300,\"level\":9,\"window_samples\":16384,\"hop_samples\":16384,\"finest_tiles\":512,\"resolves_hz\":{\"lo\":0.5859375,\"hi\":1.171875}}"
+   },
+   {
+    "name": "line_constantQ L10",
+    "label": "32768 samples · 27.307 s",
+    "code": 10,
+    "n_members": 11,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":27.30666666666667,\"hop\":27.30666666666667,\"count\":11},\"end\":300,\"level\":10,\"window_samples\":32768,\"hop_samples\":32768,\"finest_tiles\":1024,\"resolves_hz\":{\"lo\":0.29296875,\"hi\":0.5859375}}"
+   },
+   {
+    "name": "line_constantQ L11",
+    "label": "65536 samples · 54.613 s",
+    "code": 11,
+    "n_members": 6,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":54.61333333333334,\"hop\":54.61333333333334,\"count\":6},\"end\":300,\"level\":11,\"window_samples\":65536,\"hop_samples\":65536,\"finest_tiles\":2048,\"resolves_hz\":{\"lo\":0.146484375,\"hi\":0.29296875}}"
+   },
+   {
+    "name": "line_constantQ L12",
+    "label": "131072 samples · 109.227 s",
+    "code": 12,
+    "n_members": 3,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":109.22666666666667,\"hop\":109.22666666666667,\"count\":3},\"end\":300,\"level\":12,\"window_samples\":131072,\"hop_samples\":131072,\"finest_tiles\":4096,\"resolves_hz\":{\"lo\":0.0732421875,\"hi\":0.146484375}}"
+   },
+   {
+    "name": "line_constantQ L13",
+    "label": "262144 samples · 218.453 s",
+    "code": 13,
+    "n_members": 2,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":218.45333333333335,\"hop\":218.45333333333335,\"count\":2},\"end\":300,\"level\":13,\"window_samples\":262144,\"hop_samples\":262144,\"finest_tiles\":8192,\"resolves_hz\":{\"lo\":0.03662109375,\"hi\":0.0732421875}}"
+   }
+  ],
+  "tileDescriptions": [
+   "the 11250 tiles of level 0 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (32 samples, 0.027 s) is the level's entry in the ladder dictionary",
+   "the 5625 tiles of level 1 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (64 samples, 0.053 s) is the level's entry in the ladder dictionary",
+   "the 2813 tiles of level 2 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (128 samples, 0.107 s) is the level's entry in the ladder dictionary",
+   "the 1407 tiles of level 3 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (256 samples, 0.213 s) is the level's entry in the ladder dictionary",
+   "the 704 tiles of level 4 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (512 samples, 0.427 s) is the level's entry in the ladder dictionary",
+   "the 352 tiles of level 5 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (1024 samples, 0.853 s) is the level's entry in the ladder dictionary",
+   "the 176 tiles of level 6 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (2048 samples, 1.707 s) is the level's entry in the ladder dictionary",
+   "the 88 tiles of level 7 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (4096 samples, 3.413 s) is the level's entry in the ladder dictionary",
+   "the 44 tiles of level 8 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (8192 samples, 6.827 s) is the level's entry in the ladder dictionary",
+   "the 22 tiles of level 9 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (16384 samples, 13.653 s) is the level's entry in the ladder dictionary",
+   "the 11 tiles of level 10 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (32768 samples, 27.307 s) is the level's entry in the ladder dictionary",
+   "the 6 tiles of level 11 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (65536 samples, 54.613 s) is the level's entry in the ladder dictionary",
+   "the 3 tiles of level 12 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (131072 samples, 109.227 s) is the level's entry in the ladder dictionary",
+   "the 2 tiles of level 13 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (262144 samples, 218.453 s) is the level's entry in the ladder dictionary"
+  ]
+ },
+ {
+  "name": "voices3",
+  "line": {
+   "sfreq": 1000,
+   "samples": 50000,
+   "origin": 0
+  },
+  "params": {
+   "voices": 3,
+   "fMin": 2
+  },
+  "tiling": {
+   "sfreq": 1000,
+   "samples": 50000,
+   "origin": 0,
+   "method": "hertz",
+   "voices": 3,
+   "cycles": 8.192,
+   "f_max": 64,
+   "f_min": 2,
+   "bands": [
+    {
+     "ordinal": 0,
+     "octave": 0,
+     "voice": 0,
+     "lo_hz": 50.79683366298239,
+     "hi_hz": 64,
+     "centre_hz": 57.01751796098172,
+     "q": 4.318473046963145,
+     "window_samples": 256,
+     "window_s": 0.256,
+     "hop_samples": 256,
+     "count": 196
+    },
+    {
+     "ordinal": 1,
+     "octave": 0,
+     "voice": 1,
+     "lo_hz": 40.31747359663594,
+     "hi_hz": 50.79683366298239,
+     "centre_hz": 45.254833995939045,
+     "q": 4.318473046963145,
+     "window_samples": 256,
+     "window_s": 0.256,
+     "hop_samples": 256,
+     "count": 196
+    },
+    {
+     "ordinal": 2,
+     "octave": 0,
+     "voice": 2,
+     "lo_hz": 32,
+     "hi_hz": 40.31747359663594,
+     "centre_hz": 35.91878554589994,
+     "q": 4.318473046963145,
+     "window_samples": 256,
+     "window_s": 0.256,
+     "hop_samples": 256,
+     "count": 196
+    },
+    {
+     "ordinal": 3,
+     "octave": 1,
+     "voice": 0,
+     "lo_hz": 25.398416831491193,
+     "hi_hz": 32,
+     "centre_hz": 28.50875898049086,
+     "q": 4.318473046963145,
+     "window_samples": 512,
+     "window_s": 0.512,
+     "hop_samples": 512,
+     "count": 98
+    },
+    {
+     "ordinal": 4,
+     "octave": 1,
+     "voice": 1,
+     "lo_hz": 20.15873679831797,
+     "hi_hz": 25.398416831491193,
+     "centre_hz": 22.627416997969522,
+     "q": 4.318473046963145,
+     "window_samples": 512,
+     "window_s": 0.512,
+     "hop_samples": 512,
+     "count": 98
+    },
+    {
+     "ordinal": 5,
+     "octave": 1,
+     "voice": 2,
+     "lo_hz": 16,
+     "hi_hz": 20.15873679831797,
+     "centre_hz": 17.95939277294997,
+     "q": 4.318473046963145,
+     "window_samples": 512,
+     "window_s": 0.512,
+     "hop_samples": 512,
+     "count": 98
+    },
+    {
+     "ordinal": 6,
+     "octave": 2,
+     "voice": 0,
+     "lo_hz": 12.699208415745595,
+     "hi_hz": 16,
+     "centre_hz": 14.254379490245428,
+     "q": 4.318473046963145,
+     "window_samples": 1024,
+     "window_s": 1.024,
+     "hop_samples": 1024,
+     "count": 49
+    },
+    {
+     "ordinal": 7,
+     "octave": 2,
+     "voice": 1,
+     "lo_hz": 10.079368399158986,
+     "hi_hz": 12.699208415745595,
+     "centre_hz": 11.313708498984761,
+     "q": 4.318473046963145,
+     "window_samples": 1024,
+     "window_s": 1.024,
+     "hop_samples": 1024,
+     "count": 49
+    },
+    {
+     "ordinal": 8,
+     "octave": 2,
+     "voice": 2,
+     "lo_hz": 8,
+     "hi_hz": 10.079368399158986,
+     "centre_hz": 8.979696386474984,
+     "q": 4.318473046963145,
+     "window_samples": 1024,
+     "window_s": 1.024,
+     "hop_samples": 1024,
+     "count": 49
+    },
+    {
+     "ordinal": 9,
+     "octave": 3,
+     "voice": 0,
+     "lo_hz": 6.3496042078727974,
+     "hi_hz": 8,
+     "centre_hz": 7.127189745122714,
+     "q": 4.318473046963145,
+     "window_samples": 2048,
+     "window_s": 2.048,
+     "hop_samples": 2048,
+     "count": 25
+    },
+    {
+     "ordinal": 10,
+     "octave": 3,
+     "voice": 1,
+     "lo_hz": 5.039684199579493,
+     "hi_hz": 6.3496042078727974,
+     "centre_hz": 5.656854249492381,
+     "q": 4.318473046963145,
+     "window_samples": 2048,
+     "window_s": 2.048,
+     "hop_samples": 2048,
+     "count": 25
+    },
+    {
+     "ordinal": 11,
+     "octave": 3,
+     "voice": 2,
+     "lo_hz": 4,
+     "hi_hz": 5.039684199579493,
+     "centre_hz": 4.489848193237492,
+     "q": 4.318473046963145,
+     "window_samples": 2048,
+     "window_s": 2.048,
+     "hop_samples": 2048,
+     "count": 25
+    },
+    {
+     "ordinal": 12,
+     "octave": 4,
+     "voice": 0,
+     "lo_hz": 3.1748021039363996,
+     "hi_hz": 4,
+     "centre_hz": 3.5635948725613575,
+     "q": 4.318473046963145,
+     "window_samples": 4096,
+     "window_s": 4.096,
+     "hop_samples": 4096,
+     "count": 13
+    },
+    {
+     "ordinal": 13,
+     "octave": 4,
+     "voice": 1,
+     "lo_hz": 2.519842099789746,
+     "hi_hz": 3.1748021039363996,
+     "centre_hz": 2.8284271247461903,
+     "q": 4.318473046963145,
+     "window_samples": 4096,
+     "window_s": 4.096,
+     "hop_samples": 4096,
+     "count": 13
+    },
+    {
+     "ordinal": 14,
+     "octave": 4,
+     "voice": 2,
+     "lo_hz": 2,
+     "hi_hz": 2.519842099789746,
+     "centre_hz": 2.2449240966187456,
+     "q": 4.318473046963145,
+     "window_samples": 4096,
+     "window_s": 4.096,
+     "hop_samples": 4096,
+     "count": 13
+    }
+   ],
+   "levels": [
+    {
+     "level": 0,
+     "window_samples": 256,
+     "window_s": 0.256,
+     "hop_samples": 256,
+     "count": 196,
+     "finest_tiles": 1,
+     "resolves_hz": {
+      "lo": 32,
+      "hi": 64
+     },
+     "bands": 3,
+     "stride": 1,
+     "rate_hz": 1000,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 1,
+     "window_samples": 512,
+     "window_s": 0.512,
+     "hop_samples": 512,
+     "count": 98,
+     "finest_tiles": 2,
+     "resolves_hz": {
+      "lo": 16,
+      "hi": 32
+     },
+     "bands": 3,
+     "stride": 2,
+     "rate_hz": 500,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 2,
+     "window_samples": 1024,
+     "window_s": 1.024,
+     "hop_samples": 1024,
+     "count": 49,
+     "finest_tiles": 4,
+     "resolves_hz": {
+      "lo": 8,
+      "hi": 16
+     },
+     "bands": 3,
+     "stride": 4,
+     "rate_hz": 250,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 3,
+     "window_samples": 2048,
+     "window_s": 2.048,
+     "hop_samples": 2048,
+     "count": 25,
+     "finest_tiles": 8,
+     "resolves_hz": {
+      "lo": 4,
+      "hi": 8
+     },
+     "bands": 3,
+     "stride": 8,
+     "rate_hz": 125,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    },
+    {
+     "level": 4,
+     "window_samples": 4096,
+     "window_s": 4.096,
+     "hop_samples": 4096,
+     "count": 13,
+     "finest_tiles": 16,
+     "resolves_hz": {
+      "lo": 2,
+      "hi": 4
+     },
+     "bands": 3,
+     "stride": 16,
+     "rate_hz": 62.5,
+     "points": 256,
+     "samples_per_cycle": {
+      "lo": 31.25,
+      "hi": 15.625
+     },
+     "nyquist_bound": false
+    }
+   ]
+  },
+  "entries": [
+   {
+    "code": 0,
+    "name": "256 samples",
+    "measurement": 0.256,
+    "attributes_json": "{\"level\":0,\"window_samples\":256,\"window_s\":0.256,\"hop_samples\":256,\"count\":196,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":32,\"hi\":64},\"bands\":3,\"stride\":1,\"rate_hz\":1000,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":0.256,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 1,
+    "name": "512 samples",
+    "measurement": 0.512,
+    "attributes_json": "{\"level\":1,\"window_samples\":512,\"window_s\":0.512,\"hop_samples\":512,\"count\":98,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":16,\"hi\":32},\"bands\":3,\"stride\":2,\"rate_hz\":500,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":0.512,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 2,
+    "name": "1024 samples",
+    "measurement": 1.024,
+    "attributes_json": "{\"level\":2,\"window_samples\":1024,\"window_s\":1.024,\"hop_samples\":1024,\"count\":49,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":8,\"hi\":16},\"bands\":3,\"stride\":4,\"rate_hz\":250,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":1.024,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 3,
+    "name": "2048 samples",
+    "measurement": 2.048,
+    "attributes_json": "{\"level\":3,\"window_samples\":2048,\"window_s\":2.048,\"hop_samples\":2048,\"count\":25,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":4,\"hi\":8},\"bands\":3,\"stride\":8,\"rate_hz\":125,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":2.048,\"finest_window_samples\":256}"
+   },
+   {
+    "code": 4,
+    "name": "4096 samples",
+    "measurement": 4.096,
+    "attributes_json": "{\"level\":4,\"window_samples\":4096,\"window_s\":4.096,\"hop_samples\":4096,\"count\":13,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":2,\"hi\":4},\"bands\":3,\"stride\":16,\"rate_hz\":62.5,\"points\":256,\"samples_per_cycle\":{\"lo\":31.25,\"hi\":15.625},\"nyquist_bound\":false,\"duration_s\":4.096,\"finest_window_samples\":256}"
+   }
+  ],
+  "set": {
+   "label": "constant-Q, 5 levels",
+   "description": "the constant-Q tiling of the time line: 5 time resolutions, windows 256–4096 samples, designed at 3 voices/octave and 8.192 cycles per window over 2.00–64.0 Hz — a tiling of TIME, on the time manifold and no other; the hertz describe what the windows resolve and reference nothing (D84)",
+   "params_json": "{\"sfreq\":1000,\"samples\":50000,\"origin\":0,\"method\":\"hertz\",\"voices\":3,\"cycles\":8.192,\"f_max\":64,\"f_min\":2,\"levels\":5,\"bands\":15,\"end\":50}",
+   "n_members": 5,
+   "n_elements": 50000
+  },
+  "members": [
+   {
+    "name": "line_constantQ L0",
+    "label": "256 samples · 0.256 s",
+    "code": 0,
+    "n_members": 196,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.256,\"hop\":0.256,\"count\":196},\"end\":50,\"level\":0,\"window_samples\":256,\"hop_samples\":256,\"finest_tiles\":1,\"resolves_hz\":{\"lo\":32,\"hi\":64}}"
+   },
+   {
+    "name": "line_constantQ L1",
+    "label": "512 samples · 0.512 s",
+    "code": 1,
+    "n_members": 98,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":0.512,\"hop\":0.512,\"count\":98},\"end\":50,\"level\":1,\"window_samples\":512,\"hop_samples\":512,\"finest_tiles\":2,\"resolves_hz\":{\"lo\":16,\"hi\":32}}"
+   },
+   {
+    "name": "line_constantQ L2",
+    "label": "1024 samples · 1.024 s",
+    "code": 2,
+    "n_members": 49,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":1.024,\"hop\":1.024,\"count\":49},\"end\":50,\"level\":2,\"window_samples\":1024,\"hop_samples\":1024,\"finest_tiles\":4,\"resolves_hz\":{\"lo\":8,\"hi\":16}}"
+   },
+   {
+    "name": "line_constantQ L3",
+    "label": "2048 samples · 2.048 s",
+    "code": 3,
+    "n_members": 25,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":2.048,\"hop\":2.048,\"count\":25},\"end\":50,\"level\":3,\"window_samples\":2048,\"hop_samples\":2048,\"finest_tiles\":8,\"resolves_hz\":{\"lo\":4,\"hi\":8}}"
+   },
+   {
+    "name": "line_constantQ L4",
+    "label": "4096 samples · 4.096 s",
+    "code": 4,
+    "n_members": 13,
+    "params_json": "{\"tiling\":{\"origin\":0,\"width\":4.096,\"hop\":4.096,\"count\":13},\"end\":50,\"level\":4,\"window_samples\":4096,\"hop_samples\":4096,\"finest_tiles\":16,\"resolves_hz\":{\"lo\":2,\"hi\":4}}"
+   }
+  ],
+  "tileDescriptions": [
+   "the 196 tiles of level 0 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (256 samples, 0.256 s) is the level's entry in the ladder dictionary",
+   "the 98 tiles of level 1 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (512 samples, 0.512 s) is the level's entry in the ladder dictionary",
+   "the 49 tiles of level 2 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (1024 samples, 1.024 s) is the level's entry in the ladder dictionary",
+   "the 25 tiles of level 3 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (2048 samples, 2.048 s) is the level's entry in the ladder dictionary",
+   "the 13 tiles of level 4 — a tile's code is its index in time order, the PRIMARY KEY a measurement, a label or a note hangs on (D83); what a tile IS (4096 samples, 4.096 s) is the level's entry in the ladder dictionary"
+  ]
+ }
+]
