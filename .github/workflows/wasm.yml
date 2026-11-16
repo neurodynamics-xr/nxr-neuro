@@ -1,0 +1,60 @@
+name: wasm
+
+# Build the WebAssembly module (bindings/wasm-io: the data client other applications load) and run its smoke test against the native command
+# (the module writes and the command reads, then the reverse, on synthetic data). On pushes to main, nightly and on demand; on pull requests
+# only when they touch the module or this workflow.
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - "bindings/wasm-io/**"
+      - ".github/workflows/wasm.yml"
+  schedule:
+    - cron: "30 6 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: wasm-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_COMPRESS: "true"
+  EMSCRIPTEN_VERSION: "5.0.6"
+
+jobs:
+  wasm-io:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build tools and system libraries
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build ccache libsqlite3-dev zlib1g-dev libzstd-dev pkg-config
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-wasm-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-wasm-${{ github.ref_name }}-
+            ccache-wasm-main-
+            ccache-linux-main-
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSCRIPTEN_VERSION }}
+          actions-cache-folder: emsdk-cache
+      - name: Native command (the smoke test's other side)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build build --target nxr-neuro
+      - name: WebAssembly build and smoke test
+        run: bindings/wasm-io/smoke.sh "$PWD/build/wasm"
