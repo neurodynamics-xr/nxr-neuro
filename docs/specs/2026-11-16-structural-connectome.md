@@ -40,11 +40,11 @@ provenance says so.
 5. **The reference's quirk is fixed** (decided 2026-11-16): a template vertex with no subject neighbour sends its ends to subject vertex 0. Here such
    an end goes to its nearest subject vertex on the registration sphere (section 5.1).
 6. **One storage form; no older connectome schema** (decided 2026-11-16, section 6).
-7. **Precision follows the input** (decided 2026-11-16): no silent change of precision anywhere in the chain (section 5.5).
+7. **Precision follows the input** (decided 2026-11-16): no silent change of precision anywhere in the chain (section 5.4).
 8. **Descriptive names** (decided 2026-11-16): "fiber counts" for the raw counts, "connection weights" for the smoothed and pruned result. Single
    letters are never names; a symbol appears only inside a formula whose terms are defined in words.
 9. **Template fibers** (decided 2026-11-16): the template package carries HCP-1065 (section 7).
-10. **The distance gate** (decided 2026-11-16): `--max-end-distance`, default 5 mm (section 5.3).
+10. **The distance gate** (decided 2026-11-16): `--max-end-distance`, default 5 mm (section 5.2).
 11. **Golden tests** (decided 2026-11-16): section 9.
 
 ## 3. Inputs
@@ -70,7 +70,7 @@ fibers, the end surface exists under the same name on both.
 
 | option | default | meaning |
 |---|---|---|
-| `max_end_distance` | `5` (mm; `none` = no gate, the reference's behaviour) | a fiber with an end farther than this from the end surface is left out (section 5.3) |
+| `max_end_distance` | `5` (mm; `none` = no gate, the reference's behaviour) | a fiber with an end farther than this from the end surface is left out (section 5.2) |
 | `smooth_hops` | `3` (the reference's; `0` = none) | the hops of the mesh smoothing, applied to the partition's memberships (section 4.2) |
 | `prune_below` | `1e-4` (the reference's; `0` = none) | **materialised connectome only:** connection weights below this fraction of the strongest are removed |
 | `keep_largest_component` | on (the reference's) | **materialised connectome only:** also stores the largest connected component's vertices |
@@ -176,7 +176,7 @@ spheres, piece by piece (left to left, right to right):
 A subject's own fibers take `nearestVertex` on the end surface directly; no registration is made. The same holds when the fibers' surface IS the end
 surface (computing on the template itself).
 
-### 5.3 The distance gate
+### 5.2 The distance gate
 
 `--max-end-distance` (mm; default **5**, the distance the existing template import uses; decided 2026-11-16):
 - a fiber with an end farther than this from the end surface is **left out**; the number left out, of nF, is reported in the command's output and
@@ -187,14 +187,14 @@ surface (computing on the template itself).
 For template fibers the distance is that of the end to the template's end surface, before the registration; the registration's own displacement is not
 gated. The gate is part of the cache key.
 
-### 5.4 What the instrument cannot resolve
+### 5.3 What the instrument cannot resolve
 
 Written into the provenance's `warnings` and the method's section in `docs/reference.md`: tractography ends are not the fibers' cortical terminations
 (streamlines stop at the grey/white boundary); an end's vertex is a location on the chosen surface, not a depth; smoothing spreads ends over the mesh
 and is not conserving (the rows of the smoothing operator sum to 1, its columns do not on an irregular mesh); a template's fibers on a subject's cortex
 carry the template's anatomy through a spherical correspondence, not the subject's own white matter.
 
-### 5.5 Precision
+### 5.4 Precision
 
 Precision follows the input (decided 2026-11-16): fibers in float32 give end distances and results in float32; float64 give float64. The smoothing
 operator, the memberships and the Shepard weights are built in the precision of the surface positions they come from. No node casts silently; where two
@@ -222,7 +222,7 @@ only by its producer.
 (`"tess_connectome (MATLAB)"`), `over`, `end_surface`, `max_end_distance`, `smooth_hops`, `prune_below`, `keep_largest_component`, `registration` (`none`
 or the registration used, with its name, version and content hash), `fibers` (the bundle's subject, name and id), `n_fibers`, `n_fibers_left_out`,
 `precision`, and, for template fibers, the bundle's `origin` and licence (section 7). A rerun with the same inputs and options is a cache hit;
-`--replace` recomputes. The warnings of section 5.4 are written.
+`--replace` recomputes. The warnings of section 5.3 are written.
 
 ## 7. Template fibers: HCP-1065
 
