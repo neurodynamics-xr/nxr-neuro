@@ -29,6 +29,7 @@
 #include "nxr/io/json_text.h"
 #include "nxr/io/subject_filter.h"
 #include "nxr/io/subject_package.h"
+#include "nxr/io/templates.h"
 
 namespace nxr::io {
 
@@ -91,6 +92,9 @@ Catalogue create_catalogue_from(const std::filesystem::path& folder, const Row& 
 struct RegisterOptions {
   bool replace = false;                               // another subject id under a name the catalogue holds replaces it (the old package is moved aside)
   std::string registered_by;                          // the program or person recorded with each entry: required
+  // Where to find the released templates the packages name. When given, a package that names a template must find it there, by name, edition, version and hash, and every
+  // anchor row it carries must be the template's own, value for value (refused otherwise). When absent that check is not made.
+  std::optional<TemplateSearch> templates;
 };
 struct RegisterResult {
   std::filesystem::path package;

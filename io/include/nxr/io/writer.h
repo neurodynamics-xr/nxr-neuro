@@ -37,6 +37,8 @@ using Populate = std::function<void(Store&, const std::string&)>;   // writes a 
 
 // ── the dataset and the catalog (D140) ────────────────────────────────────────────────────────────────────────────
 
+// RETIRED (docs/specs/2026-11-16-subject-centred-datasets.md section 3): the datastore and its `catalog.json` are replaced by datasets addressed by their own path
+// (catalogue.h). Nothing of format 53 reads or writes it; these calls stay only to read and migrate a dataset of formats 50 to 52 (`split_dataset` leaves a catalog.json as it was).
 // `<datastore>/catalog.json`, the index of the datastore's datasets; nullopt when absent or unreadable.
 std::optional<Json> read_catalog(const std::filesystem::path& datastore);
 // Rewritten whole and atomically from the datasets' databases. Its `id` is the datastore's.
