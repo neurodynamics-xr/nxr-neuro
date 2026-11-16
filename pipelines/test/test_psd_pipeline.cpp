@@ -227,10 +227,10 @@ int main() {
   }
   // refusals: a window shorter than one segment, a segment longer than the window
   CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "x"; e.chunks.reset(); e.start = 0.0; e.stop = 1.0; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-  // the span: by default chunk 0 only (samples 0..699: six 2-s segments at 50 % overlap) and "0" is the same; a chunk the recording lacks (it has 0..5),
+  // the span is always stated: none is refused; "0" is the first chunk's samples (0..699: six 2-s segments at 50 % overlap); a chunk the recording lacks (it has 0..5),
   // a malformed one, half an explicit span, or both forms are refused
-  { PsdOptions e = o; e.name = "c0"; e.chunks.reset(); const PsdResult r = psd_compute(ds, sub, e); CHECK(!r.hit); CHECK_EQ(r.info["segments"].get<std::int64_t>(), 6);
-    e.chunks = "0"; CHECK(psd_compute(ds, sub, e).hit); }
+  CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "c0n"; e.chunks.reset(); psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
+  { PsdOptions e = o; e.name = "c0"; e.chunks = "0"; const PsdResult r = psd_compute(ds, sub, e); CHECK(!r.hit); CHECK_EQ(r.info["segments"].get<std::int64_t>(), 6); }
   CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "c1"; e.chunks = "6"; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
   CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "c2"; e.chunks = "x"; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
   CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "c3"; e.chunks.reset(); e.stop = 2.0; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
@@ -303,9 +303,9 @@ int main() {
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
-    CHECK_EQ(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear >> " + log).c_str()), 0);   // a hit
-    CHECK(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --set bogus > /dev/null 2>&1").c_str()) != 0);
+    CHECK_EQ(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear --chunks 0 > " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear --chunks 0 >> " + log).c_str()), 0);   // a hit
+    CHECK(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --set bogus --chunks 0 > /dev/null 2>&1").c_str()) != 0);
     std::ifstream in(log);
     std::string line, all;
     while (std::getline(in, line)) all += line + "\n";

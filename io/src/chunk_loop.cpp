@@ -76,7 +76,7 @@ Span resolve_span(const SpanRequest& r, std::int64_t n_samples, double sfreq, do
   const std::int64_t n = (n_samples + width - 1) / width;
   if (r.chunks && (r.start || r.stop)) throw Error(code::invalid_argument, "the span is chunks or [start, stop) seconds, not both");
   if (r.start || r.stop) {
-    if (!r.start || !r.stop) throw Error(code::invalid_argument, "an explicit span gives both start and stop (seconds); the default is chunk 0, the whole recording is chunks \"all\"");
+    if (!r.start || !r.stop) throw Error(code::invalid_argument, "an explicit span gives both start and stop (seconds); the whole recording is chunks \"all\"");
     const std::int64_t s0 = std::max<std::int64_t>(0, static_cast<std::int64_t>(std::llround((*r.start - t0) * sfreq)));
     const std::int64_t s1 = std::min<std::int64_t>(n_samples, static_cast<std::int64_t>(std::llround((*r.stop - t0) * sfreq)));
     char b[96];
@@ -86,7 +86,8 @@ Span resolve_span(const SpanRequest& r, std::int64_t n_samples, double sfreq, do
     if (r.level > 0) return snap(s, r.level, n_samples, sfreq, width);
     return ranged(s, width);
   }
-  const std::string c = r.chunks.value_or("0");
+  if (!r.chunks) throw Error(code::invalid_argument, "no span given: the caller states the range to read, chunks (\"k\", \"a-b\" or \"all\") or start and stop in seconds");
+  const std::string c = *r.chunks;
   if (c == "all") return snap(Span{0, n_samples, "all " + std::to_string(n) + " chunks"}, r.level, n_samples, sfreq, width);
   const auto bad = [&] { return Error(code::invalid_argument, "chunks must be k, a-b or all (got '" + c + "')"); };
   const auto dash = c.find('-');

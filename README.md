@@ -46,11 +46,30 @@ variables and are skipped, with a reason, when the variables are not set; see [C
 
 ## The command
 
-    build/cli/nxr-neuro                # prints the usage: every verb with its options
+One command, verb first: `nxr-neuro <verb> <what> [options]`.
 
-Datasets are named `--dataset <datastore>/<name>` and subjects `--subject <id>`. Results are written into the dataset with their provenance and a cache
-key, so a repeated run with the same options is a cache hit. Recordings are streamed one chunk at a time with bounded memory, and a computation always states its own time span.
-(Per-verb `--help` is planned.) [docs/reference.md](docs/reference.md) lists every verb with its options, its reference method, what it stores and what it cannot resolve.
+    nxr-neuro --help                         # the verbs
+    nxr-neuro compute --help                 # the computations, by topic
+    nxr-neuro compute psd --help             # one command: every option with its meaning, default and unit, and an example
+    nxr-neuro compute psd --dataset store/demo --subject S1 --recording rest --from 0:10 --to 1:10
+
+| verb | what it does |
+|---|---|
+| `compute <what>` | every computation (psd, crossspectrum, phasegradient, pyramid, opticalflow, nulls, ...) |
+| `run <pipeline>` | a pipeline definition (YAML) on a subject |
+| `list datasets\|subjects\|recordings\|kernels\|results\|pipelines` | what exists |
+| `show dataset\|subject`, `read`, `query`, `export` | one thing in detail, stored arrays, measurements, a table for statistics |
+| `import <what>` | from a Brainstorm protocol |
+| `create`, `delete`, `compact`, `recover`, `reduce`, `add` | a dataset's, a subject's and a pyramid's housekeeping |
+
+Datasets are named `--dataset <datastore>/<name>` and subjects `--subject <id>`. Results are written into the dataset with their provenance and a cache key, so a repeated
+run with the same options is a cache hit. **A computation over a recording states its time range**: `--from <s> --to <s>` (seconds or `m:ss`) or `--all`; without one it refuses.
+Recordings are streamed one chunk at a time with bounded memory whatever the range, and the range actually used is recorded with the result.
+
+In a terminal the output is readable (a progress bar on stderr, a result line, what was stored); with `--json`, or when stdout is not a terminal, it is JSON lines, one per event,
+unchanged. `--quiet` prints only the result line; colour only in a terminal and never with `NO_COLOR`. Man pages and shell completion for bash, zsh and fish are built with the command
+(`nxr-neuro completion bash|zsh|fish`). The old spellings (`psd compute`, `dataset list`, ...) still work for now and print a notice on stderr. [docs/reference.md](docs/reference.md) lists every
+command, its reference method, what it stores and what it cannot resolve; the grammar is in [docs/specs/2026-11-16-command-line.md](docs/specs/2026-11-16-command-line.md).
 
 ## Contributing
 

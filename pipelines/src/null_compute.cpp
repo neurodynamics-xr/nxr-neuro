@@ -138,6 +138,7 @@ NullResult null_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub,
   if (two) { const auto rp = nxr::crossings::repeat(runs[0].pooled, runs[1].pooled, opt.min_crossings); dot_data = rp.dot; cos_data = rp.cosine; }
   graph::RunOptions ro;
   ro.chunks = opt.chunks;
+  ro.start = opt.start; ro.stop = opt.stop;
   ro.replace = opt.replace;                    // a draw stored with other parameters is moved aside (never deleted); a draw that is the same is a hit
   std::int64_t nd = 0;
   std::string stopped = "max_draws";

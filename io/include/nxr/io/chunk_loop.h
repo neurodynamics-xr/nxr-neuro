@@ -5,7 +5,7 @@
 //                                    [k·2^15, min((k+1)·2^15, n)); the last is partial. A shard (2^17, four chunks) is storage, never a chunk. A recording's chunk
 //                                    width is its row's `chunk_shape_json[1]`, never more than 2^15 (as nxr's chunk_width).
 //   THE SPAN of a run  which samples a run loads: `chunks` "k", "a-b" (inclusive) or "all" (the whole recording, as a loop over its chunks), or an
-//                                    explicit [start, stop) in seconds (both given). Neither: CHUNK 0 — never the whole recording by default. NOT the FFT window:
+//                                    explicit [start, stop) in seconds (both given). Neither: an Error — the span is always stated by the caller. NOT the FFT window:
 //                                    a computation's own windows (a Welch segment's length, taper, overlap) are its choice and are carried across chunk edges.
 //   THE HALO (the Studio's `haloOf`, `HALO`)  samples of CONTEXT a computation needs on each side of its span so its edges are computed with the samples beyond
 //                                    them (a wavelet's or a filter's margin), never with a reflection: read from the neighbouring chunks, clipped where the recording
@@ -45,7 +45,7 @@ std::int64_t chunk_width(const Row& recording);
 /** chunk k's samples [a, b); a chunk outside the recording is an Error (invalid_argument) */
 std::pair<std::int64_t, std::int64_t> chunk_span(std::int64_t k, std::int64_t n_samples, std::int64_t width);
 
-/** what a run asks for: chunks ("k", "a-b", "all") or [start, stop) seconds; nothing: chunk 0. `level`: the TILE LEVEL the run measures on: both ends of the span snap to the NEAREST multiple of
+/** what a run asks for: chunks ("k", "a-b", "all") or [start, stop) seconds; REQUIRED: the caller always states its range (nothing given is an Error). `level`: the TILE LEVEL the run measures on: both ends of the span snap to the NEAREST multiple of
  *  2^level, clamped to the recording (an end at the recording's end stays there: the last tile may be partial). 0 (a sample) is the old rounding. A
  *  chunk span is level-15 tiles already, so it moves only when level > 15. The level is the pipeline's (its window, its segment), never compute's. */
 struct SpanRequest {
