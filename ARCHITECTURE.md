@@ -116,5 +116,20 @@ device chains, so nxr-neuro can later supply data to them, or run them, with no 
 - Enforced by the test `layering_recordings_read_by_chunk_service` (`cmake/check_layering.cmake`). A new recording reader goes through the service, never around the guard.
 - Before building any io, loading or orchestration piece, look for the Studio's (and nxr's) design of it first and port it. Do not design it again here.
 
+## Backends and node traits
+
+Two cheap steps toward running the graph on a GPU. They change no result: the CPU is still the only backend, and every number is what it was.
+
+**Every node declares its traits, where it is registered** (`NodeTraits`, `pipelines/include/nxr/pipelines/registry.h`):
+- **Time behaviour**, one of:
+  - `pointwise`: each timestep (frame, tile or event) is computed on its own, so any block split or block order gives the same values;
+  - `windowed`: each timestep needs a halo or window around it (an FIR or FFT filter, the analytic signal, a Welch segment, an event's margin); the node states its window rule in `window_rule`;
+  - `stateful`: carries state forward in time (a recursive filter, a state machine over frames, an accumulation that depends on the order of the blocks); its blocks must meet in time order.
+- **Numeric precision**: the precision the node computes in, and what it outputs. The rule is that stored precision follows the input. Where a node computes in double on float32 input, `computes_double_on_float_input()` flags it. A node that outputs double whatever its input is (an accumulated statistic, a table of events) declares `float64` output.
+- `uncertain` marks a classification that is a judgement the maintainers should confirm.
+- The executor reads the declaration and refuses a node that has none. A new node must declare its traits (the test `test_node_traits` fails naming it). A `stateful` node is refused in a block-parallel context (`DispatchContext::block_parallel`); no executor sets that yet.
+
+**One dispatch point.** The executor never calls a node's functions itself. It describes the call (`NodeCall`: the phase, the node's prepared state, its inputs) and hands it to `dispatch` (`pipelines/include/nxr/pipelines/dispatch.h`, `pipelines/src/dispatch.cpp`), which checks the traits and runs the phase on the context's backend (`Backend::cpu`). A GPU backend is added in that one place, without touching a pipeline, a node or the runner. Enforced by the test `dispatch_is_the_only_call_path` (`cmake/check_dispatch.cmake`), which fails when any other file calls a node's `prepare`, `start`, `chunk`, `chunk_at`, `fold`, `finish` or `run` through a step.
+
 A new dependency, or a new modality folder (e.g. `pet/`), needs the maintainers' OK and a dated amendment in the table in `docs/reference.md`.
 Namespaces follow the folder: `nxr::compute` and topic namespaces (`nxr::welch`, `nxr::filter`, `nxr::flow`, …), `nxr::io`, `nxr::bst`, `nxr::meeg`, `nxr::pipelines`.

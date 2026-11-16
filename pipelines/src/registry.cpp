@@ -158,6 +158,7 @@ TimeLevel level_of_band(const nxr::io::Database& db, const std::string& ladder_i
 }
 
 void bind_execution(std::vector<StepSpec>& r);
+void bind_traits(std::vector<StepSpec>& r);
 // a band's parameters checked (band_filter, analytic, envelope): [lo, hi] Hz below Nyquist; `optional`: null allowed (the plain Hilbert, all-pass)
 void band_check(const Json& p, const Value& x, const std::string& who, bool optional) {
   const Json& band = p["band"];
@@ -694,6 +695,7 @@ std::vector<StepSpec> build() {
                  return Values{{"y", y}};
                }});
   bind_execution(r);
+  bind_traits(r);
   add_extent_steps(r);
   add_cores_steps(r);
   add_tracks_steps(r);
@@ -808,6 +810,31 @@ std::vector<double> close_medians(std::vector<std::vector<float>>& held) {
   return out;
 }
 struct TileAcc { std::map<std::int64_t, TileSums> tiles; std::int64_t rows = 0; };
+
+// every node declares its time behaviour and numeric precision (NodeTraits); the nodes of the other files declare theirs where they are registered
+void bind_traits(std::vector<StepSpec>& r) {
+  auto declare = [&](const char* n, NodeTraits t) { for (auto& s : r) if (s.name == n) { s.traits = std::move(t); return; } refuse(std::string("no step ") + n); };
+  declare("band_filter", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "a zero-phase FIR band filter; float32 taps, each output sample a float64 sum over the window, stored as float32", "the taps' reach: taps.size() - 1 samples each side (set by the band's width; a recording's end is reflected)"));
+  declare("analytic", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's even and odd FIR passes (the analytic signal); float64 sums, float32 result", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
+  declare("envelope", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the analytic signal's modulus: the same FIR passes, then |z| in double, stored as float32", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
+  declare("frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "samples the band's signal at the frame tiling by a Kaiser-windowed sinc; float64 weights and sum, float32 result", "half_width samples each side of a frame's position (the sinc's reach; default 32)"));
+  declare("apply_kernel", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a linear map of the rows (kernel, spatial band) applied to each column independently; the product is formed in double and stored as float32", {}));
+  declare("magnitude", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the norm over an element's components, per sample; sums in double, float32 result", {}));
+  declare("tile_max", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "per sample, the area-weighted mean per spatial tile (double) and the maximum over a group's tiles", {}));
+  declare("collect", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "appends each block's own columns in time order: the order of the blocks fixes the result", {}));
+  declare("reduce_cells", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "the maximum over a group of spatial tiles, separately for each time tile; time tiles do not interact", {}));
+  declare("risefall", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64, "fits each event on the series over [start - margin, stop + margin]; events are independent of each other", "the event's span widened by `margin` (seconds, or cycles of the band) on each side"));
+  declare("form", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a differential form of the field (curl, divergence, normal part) per sample: the surface operator applied to each column; double sums, float32 result", {}));
+  declare("power", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "|z|^2 summed over an element's components, per sample; double sums, float32 result", {}));
+  declare("phase_current", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "Im(conj(z) grad z) per sample on the surface; double, float32 result", {}));
+  declare("gradient_power", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "|grad z|^2 per sample on the surface; double, float32 result", {}));
+  declare("measure", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "a reduction over the run's tiles; sums, sums of squares, counts, minima and maxima do not depend on block order, but the median holds each tile's samples in time order, so the node is declared stateful for every measure", {}));
+  declare("summarize", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "a statistic over all the members of a partition, computed once on the finished series; it is not defined per timestep and must see every member", {}, true));
+  declare("fit_gate", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "keeps or drops each event on its own fit; events do not interact (the unit is the event, not a timestep)", {}, true));
+  declare("burst_stages", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "each event's stage spans from its own fit; events do not interact (the unit is the event, not a timestep)", {}, true));
+  declare("detect_spans", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "a hysteresis scan along each series: the in-span state is carried from tile to tile, then gaps are merged and short spans dropped", {}));
+  declare("rollup_events", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64, "rolls the tile measurements up over the tiles each event covers; the unit is the event", "the event's own span of tiles (variable length)", true));
+}
 
 void bind_execution(std::vector<StepSpec>& r) {
   auto at = [&](const char* n) -> StepSpec& { for (auto& s : r) if (s.name == n) return s; refuse(std::string("no step ") + n); };
@@ -1707,6 +1734,29 @@ const StepSpec& step(const std::string& name) {
   std::string list;
   for (const auto& x : n) list += (list.empty() ? "" : ", ") + x;
   refuse("no pipeline step '" + name + "' (registered: " + list + ")");
+}
+
+const char* to_string(TimeBehaviour t) {
+  switch (t) {
+    case TimeBehaviour::pointwise: return "pointwise";
+    case TimeBehaviour::windowed: return "windowed";
+    case TimeBehaviour::stateful: return "stateful";
+    case TimeBehaviour::undeclared: break;
+  }
+  return "undeclared";
+}
+const char* to_string(Precision p) { return p == Precision::float32 ? "float32" : p == Precision::float64 ? "float64" : "undeclared"; }
+const char* to_string(OutputPrecision p) { return p == OutputPrecision::follows_input ? "follows_input" : p == OutputPrecision::float64 ? "float64" : "undeclared"; }
+
+std::vector<std::string> undeclared_traits() {
+  std::vector<std::string> out;
+  for (const auto& s : registry()) if (!s.traits.declared()) out.push_back(s.name);
+  return out;
+}
+
+void check_traits(const StepSpec& node) {
+  if (!node.traits.declared())
+    refuse(node.name + ": the node declares no time behaviour or numeric precision (NodeTraits, registry.h): a node is registered with its traits (windowed: with its window rule)");
 }
 
 Json catalogue() {

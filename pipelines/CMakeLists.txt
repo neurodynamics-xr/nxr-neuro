@@ -32,6 +32,7 @@ file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/definitions.inc "${_defs}")
 add_library(nxr_pipelines
   src/cache.cpp
   src/definition.cpp
+  src/dispatch.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
@@ -295,6 +296,10 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_runner_plan PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_runner_plan COMMAND test_runner_plan)
+  add_executable(test_node_traits test/test_node_traits.cpp)
+  target_link_libraries(test_node_traits PRIVATE nxr_pipelines)
+  target_include_directories(test_node_traits PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_node_traits COMMAND test_node_traits)
   
   add_executable(test_runner_execute test/test_runner_execute.cpp)
   target_link_libraries(test_runner_execute PRIVATE nxr_pipelines)
