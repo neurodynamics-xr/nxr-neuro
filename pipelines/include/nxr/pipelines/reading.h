@@ -13,7 +13,7 @@
 
 namespace nxr::pipelines {
 
-/** the span a run reads: chunks "k" | "a-b" | "all", or [start, stop) seconds; neither: chunk 0. `level`: the tile level the run measures on (its window or
+/** the span a run reads: chunks "k" | "a-b" | "all", or [start, stop) seconds; neither is an error (the caller states the span). `level`: the tile level the run measures on (its window or
  *  segment, 2^level samples): the span's ends snap to the nearest tile boundary; 0 for a pointwise run */
 nxr::io::Span span_of(const nxr::io::Row& field, std::int64_t n_samples, double sfreq, double t0, const std::optional<std::string>& chunks,
                       const std::optional<double>& start, const std::optional<double>& stop, int level = 0);

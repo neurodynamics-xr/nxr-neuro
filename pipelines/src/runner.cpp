@@ -642,7 +642,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   auto say = [&](const Json& j) { if (progress) progress(j); };
   const Definition& d = P.definition;
   const auto anchor = d.anchor();
-  // THE SPAN (the chunk service's request: chunk 0 by default) and the bad spans the accumulate steps exclude
+  // THE SPAN (the chunk service's request, always stated by the caller) and the bad spans the accumulate steps exclude
   std::optional<nxr::io::Span> span;
   std::optional<nxr::io::ChunkSource> source;
   Json span_json = nullptr;

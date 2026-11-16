@@ -100,6 +100,7 @@ int main() {
   }
   SpeedSpectrumOptions o;
   o.recording = "rest";
+  o.chunks = "0";                      // the first chunk's samples, stated
   o.kernel = "kern";
   o.segment_seconds = 4.0;
   o.fmin = 2; o.fmax = 40;

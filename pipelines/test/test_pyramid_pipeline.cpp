@@ -123,7 +123,7 @@ int main() {
   {
     ds.db().execute("UPDATE subject SET kind = 'group' WHERE kind = 'template'");
     bool ran = false;
-    PyramidBuildOptions o; o.recording = "rest"; o.kernel = "fixed";
+    PyramidBuildOptions o; o.recording = "rest"; o.kernel = "fixed"; o.chunks = "0";
     CHECK(code_of([&] { pyramid_build(ds, sub, o, [&](const Json& j) { if (j.value("stage", "") == "run") ran = true; }); }) == "no_such_row");
     CHECK(!ran);
     CHECK(!sub.db().one("SELECT 1 FROM selection WHERE name = 'atlas bands'"));
@@ -258,7 +258,7 @@ int main() {
 
   // one chunk by default: the frames outside the span carry nothing
   PyramidBuildOptions d;
-  d.recording = "rest"; d.kernel = "fixed"; d.replace = true; d.halo_seconds = 2.0;
+  d.recording = "rest"; d.kernel = "fixed"; d.chunks = "0"; d.replace = true; d.halo_seconds = 2.0;
   pyramid_build(ds, sub, d);
   const std::vector<double> pd = arrays_of("rest");
   std::int64_t first_nonzero = -1, last_nonzero = -1;
@@ -269,7 +269,7 @@ int main() {
   // the node key as nxr builds it: `<recording>__<method>_<stamp>` from a Brainstorm kernel's name (the stored dtypes: float64 sums, int64 counts; the estimate's data_type float32, as nxr)
   {
     PyramidBuildOptions k;
-    k.recording = "rest"; k.kernel = "MN_MEG_KERNEL_261005_2149"; k.halo_seconds = 2.0;
+    k.recording = "rest"; k.chunks = "0"; k.kernel = "MN_MEG_KERNEL_261005_2149"; k.halo_seconds = 2.0;
     pyramid_build(ds, sub, k);
     const auto e = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = 'rest \xc3\x97 MN_MEG_KERNEL_261005_2149'", {V(sub.id())});
     CHECK(e && text(*e, "data_type") == "float32" && text(*e, "label") == "MN_MEG (constrained)");

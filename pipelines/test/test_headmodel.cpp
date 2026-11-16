@@ -319,6 +319,7 @@ int main() {
     const HeadModelResult g = headmodel_compute(ds, sub, h);
     NoiseCovOptions no;
     no.recording = "rest";
+    no.chunks = "0";                     // the first chunk's samples, stated
     const NoiseCovResult nc = noisecov_compute(ds, sub, no);
     CHECK_EQ(nc.channels.size(), static_cast<std::size_t>(M));
     InverseComputeOptions io;

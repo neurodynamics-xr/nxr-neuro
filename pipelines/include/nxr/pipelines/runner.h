@@ -4,7 +4,7 @@
 //   plan     the inputs found by the model's links (io/finder.h), every step's arrows checked on their rows (StepSpec::plan), every output's manifold
 //            known: nothing read yet. `--dry-run` stops here and prints it.
 //   before   the setup steps, once (constants bound: the Studio's "uploaded once")
-//   chunks   THE CHUNK LOOP: io's chunk service (`haloed_loop`) hands each chunk of the span (chunk 0 by default) with the halo the chunk steps need
+//   chunks   THE CHUNK LOOP: io's chunk service (`haloed_loop`) hands each chunk of the span (always stated by the caller) with the halo the chunk steps need
 //            (their halos composed: each step leaves the halo the steps after it still need); the chunk steps run on it, the accumulate steps fold it
 //   after    the after steps, once, on what the loop reduced
 //   store    each output a Field of the subject, on the manifold its steps made it on, named `<pipeline>.<output>.<anchor>` in that manifold's folder
@@ -49,7 +49,7 @@ struct Plan {
 Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db);
 /** the definition's parameters with `--set` overrides (an unknown name refused) */
 Json parameters_of(const Definition& d, const Json& set);
-/** what a run reads and how it stores: the span (the chunk service's request; neither: chunk 0) and whether another job's outputs are replaced */
+/** what a run reads and how it stores: the span (the chunk service's request; neither is an error: the caller states it) and whether another job's outputs are replaced */
 struct RunOptions {
   std::optional<std::string> chunks;
   std::optional<double> start, stop;
