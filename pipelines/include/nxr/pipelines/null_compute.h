@@ -32,7 +32,8 @@ struct NullOptions {
   int stage = 0;                             // the stage by index (rows 2s, 2s+1 of the stored crossings) ...
   std::optional<std::string> stage_name;     // ... or by name (burst, onset, within, offset): each run's own rows name them
   nxr::io::Json set = nxr::io::Json::object();   // the `vortex_null` parameters of every draw (`{recording}` stands for each recording's name): space_level, cross_spectrum, band, transform, bursts, ...
-  std::optional<std::string> chunks = std::string("all");   // what each draw reads
+  std::optional<std::string> chunks;         // what each draw reads: chunk "k", chunks "a-b" or "all" ...
+  std::optional<double> start, stop;         // ... or [start, stop) seconds (both). REQUIRED: the caller states the span; none is an error
   int batch = 20, min_draws = 20, max_draws = 100;   // the draws are made in batches of `batch`; at least `min_draws`, at most `max_draws` (the project's 20, 20, 100)
   int h = 10;                                // Besag-Clifford: a tile is decided at h exceedances
   int min_crossings = 10;                    // a tile counts with at least this many crossings (nxr NMIN_TILE)

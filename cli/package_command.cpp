@@ -1,4 +1,5 @@
-// nxr-neuro package ... — the subject packages and the dataset module (store format 53), a thin front on io/include/nxr/io/{subject_package,catalogue,participants,
+// The legacy parser of the commands over subject packages (`create package`, `register package`, `split dataset`, ...: cli/command_table.cpp maps each new
+// command to one action here). The subject packages and the dataset module (store format 53), a thin front on io/include/nxr/io/{subject_package,catalogue,participants,
 // dataset_index,migrate,templates}.h: it parses and prints; every choice of data is named on the command line.
 //
 //   package catalogue-create --dataset D --name N
@@ -9,9 +10,9 @@
 //   package status  --dataset D
 //   package select  --dataset D (--subjects A,B,... | --where FILTER)
 //   package index   --dataset D [--force]
-//   package participants-import --dataset D --from TSV [--sidecar JSON]    package participants-export --dataset D --to TSV [--sidecar JSON]
+//   package participants-import --dataset D --tsv TSV [--sidecar JSON]    package participants-export --dataset D --tsv TSV [--sidecar JSON]
 //   package split   --dataset D --registered-by WHO [--dry-run]            package join --dataset D
-//   package release --package P --name N --version V --released-by WHO --into DIR    package release-redistributable --package P --into DIR --released-by WHO
+//   package release --package P --name N --template-version V --released-by WHO --into DIR    package release-redistributable --package P --into DIR --released-by WHO
 //   package templates [--templates DIR ...]
 #include <sstream>
 
@@ -108,17 +109,17 @@ int package_main(const std::vector<std::string>& argv) {
     const IndexReport r = build_index(a.get("--dataset"), a.flag.count("--force") > 0);
     emit(Json{{"stage", "result"}, {"rebuilt", r.rebuilt}, {"subjects", r.subjects}});
   } else if (action == "participants-import") {
-    const Args a = parse(prog, rest, {"--dataset", "--from", "--sidecar"}, {}, {"--dataset", "--from"});
+    const Args a = parse(prog, rest, {"--dataset", "--tsv", "--sidecar"}, {}, {"--dataset", "--tsv"});
     std::optional<std::filesystem::path> side;
     if (const auto s = a.maybe("--sidecar")) side = *s;
-    const auto r = participants_import(a.get("--dataset"), a.get("--from"), side);
+    const auto r = participants_import(a.get("--dataset"), a.get("--tsv"), side);
     emit(Json{{"stage", "result"}, {"variables", r.variables}, {"subjects", r.n_subjects}, {"values", r.n_values}});
   } else if (action == "participants-export") {
-    const Args a = parse(prog, rest, {"--dataset", "--to", "--sidecar"}, {}, {"--dataset", "--to"});   // written only where the command names
+    const Args a = parse(prog, rest, {"--dataset", "--tsv", "--sidecar"}, {}, {"--dataset", "--tsv"});   // written only where the command names
     std::optional<std::filesystem::path> side;
     if (const auto s = a.maybe("--sidecar")) side = *s;
-    participants_export(a.get("--dataset"), a.get("--to"), side);
-    emit(Json{{"stage", "result"}, {"tsv", a.get("--to")}});
+    participants_export(a.get("--dataset"), a.get("--tsv"), side);
+    emit(Json{{"stage", "result"}, {"tsv", a.get("--tsv")}});
   } else if (action == "split") {
     const Args a = parse(prog, rest, {"--dataset", "--registered-by"}, {"--dry-run"}, {"--dataset", "--registered-by"});
     SplitOptions o;
@@ -130,8 +131,8 @@ int package_main(const std::vector<std::string>& argv) {
     const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
     emit(Json{{"stage", "result"}, {"report", join_dataset(a.get("--dataset"))}});
   } else if (action == "release") {
-    const Args a = parse(prog, rest, {"--package", "--name", "--version", "--released-by", "--into"}, {}, {"--package", "--name", "--version", "--released-by", "--into"});
-    const ReleaseReport r = release_package(a.get("--package"), ReleaseOptions{a.get("--name"), a.get("--version"), a.get("--released-by"), a.get("--into")});
+    const Args a = parse(prog, rest, {"--package", "--name", "--template-version", "--released-by", "--into"}, {}, {"--package", "--name", "--template-version", "--released-by", "--into"});
+    const ReleaseReport r = release_package(a.get("--package"), ReleaseOptions{a.get("--name"), a.get("--template-version"), a.get("--released-by"), a.get("--into")});
     emit(Json{{"stage", "result"}, {"folder", r.folder.string()}, {"content_hash", r.content_hash}});
   } else if (action == "release-redistributable") {
     const Args a = parse(prog, rest, {"--package", "--into", "--released-by"}, {}, {"--package", "--into", "--released-by"});
