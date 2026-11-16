@@ -1,5 +1,5 @@
 # nxr-neuro: the one command line. Every `nxr-io` verb (dataset · subject · surface · convert · read) and the pipelines (`eigen solve`, `noisecov compute`, `inverse compute`).
-add_executable(nxr-neuro nxr_neuro.cpp read_command.cpp convert_command.cpp)
+add_executable(nxr-neuro nxr_neuro.cpp read_command.cpp convert_command.cpp package_command.cpp)
 target_link_libraries(nxr-neuro PRIVATE $<IF:$<TARGET_EXISTS:nxr_pipelines>,nxr_pipelines,nxr_io>)
 target_compile_definitions(nxr-neuro PRIVATE NXR_NEURO_VERSION="${PROJECT_VERSION}")
 if(TARGET nxr_pipelines)

@@ -48,6 +48,7 @@ using namespace cli;
 namespace fs = std::filesystem;
 
 int read_command(int argc, char** argv);
+int package_main(const std::vector<std::string>& argv);   // cli/package_command.cpp
 int convert_main(const std::vector<std::string>& argv);
 #ifdef NXR_NEURO_WITH_PIPELINES
 int eigen_main(const std::vector<std::string>& argv);   // pipelines/tools/eigen_command.cpp
@@ -349,6 +350,7 @@ const char* kUsage =
     "  nxr-neuro constantq compute --dataset D/N --subject S (--recording R | --line NAME | --all) [--method hertz|cycles] [--voices N] [--cycles C] [--fmax HZ] [--fmin HZ]   the constant-Q time ladder of a time line (the Studio's time-tile policy)\n"
     "  nxr-neuro run DEFINITION --dataset D/N --subject S [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--block-samples N] [--block-frames N] --dry-run   a pipeline definition (nxr's YAML) planned on a subject: inputs found, arrows checked (run --list: the definitions and steps); --block-samples: the width the pointwise steps after the last filter run on (default 1024; 0 the whole chunk): memory only; --block-frames: the frames the steps after a frame tiling run on (default 256; 0 the whole chunk's frames): memory only\n"
     "  nxr-neuro dataset create|list|show|delete|recover|compact ...   the datasets of a datastore (--datastore D --name N; --dataset D/N); create --templates FS_SUBJECTS [--default fsaverage5] [--modes DIR] [--atlas-depth 8] [--lc-levels 4,6] writes the default subject (surfaces, parcellations, frames, group tree) with it\n"
+    "  nxr-neuro package catalogue-create|create|verify|show|register|status|select|index|participants-import|participants-export|split|join|release|release-redistributable|templates ...   subject packages (store format 53) and a dataset as a catalogue of them; see docs/reference.md\n"
     "  nxr-neuro subject create|list|show|delete ...           the subjects of a dataset (--dataset D/N --name S | --subject S [--node PATH])\n"
     "  nxr-neuro surface add --dataset D/N --subject S FILE    a mesh file (OBJ · PLY · STL) as a surface of a subject\n"
     "  nxr-neuro convert list|scan|subject|surface ...         a Brainstorm protocol: what it holds, and its anatomy into a dataset (nxr convert's verbs)\n"
@@ -429,6 +431,7 @@ int main(int argc, char** argv) {
   chunk_loop_defaults(rest);
   try {
     if (cmd == "dataset") return dataset_main(rest);
+    if (cmd == "package") return package_main(rest);
     if (cmd == "constantq") return constantq_main(rest);
     if (cmd == "subject") return subject_main(rest);
     if (cmd == "surface") return surface_main(rest);
