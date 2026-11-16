@@ -82,6 +82,9 @@ class Database {
   ~Database();
 
   const std::filesystem::path& path() const { return path_; }
+  // The open sqlite3 connection, for the one other class that works in the same transactions (SmallFileStore over a subject package's subject.sqlite).
+  void* handle() const { return db_; }
+  bool read_only() const { return read_only_; }
 
   // Run `body` in a transaction (a nested one is a savepoint); any exception rolls back and propagates.
   void tx(const std::function<void()>& body);
@@ -107,6 +110,7 @@ class Database {
  private:
   Database() = default;
   std::filesystem::path path_;
+  bool read_only_ = false;
   void* db_ = nullptr;  // sqlite3*
   int depth_ = 0;
   mutable std::map<std::string, std::vector<std::string>> cols_, pk_;
@@ -121,6 +125,9 @@ constexpr const char* kStoreFormat51 = "51: chunk key separator \".\", arrays ov
 // (io/include/nxr/io/small_file_store.h); the shards over the threshold stay files. Formats 51 and 50 are read and written as before.
 constexpr const char* kStoreFormat52 = "52: small keys (every zarr.json, values under 1 MiB) in the subject's small_files.sqlite, shards as 51; the layouts of 51 and 50 are read";
 constexpr int kStoreFormatNewest = 52;
+// Format 53: a subject PACKAGE (`<subject>.nxr.zarr/subject.sqlite`: the subject's rows, its small keys and a digest of every key); see subject_package.h.
+constexpr const char* kStoreFormat53 = "53: subject package: the subject's rows and small keys in its own subject.sqlite, a size and SHA-256 for every key, shards as 51";
+constexpr int kStoreFormatPackage = 53;
 // The number a dataset's meta `store_format` starts with (50 when the dataset has none: made before format 51).
 int store_format_number(const Database& db);
 constexpr const char* kNodeTables[] = {"dataset", "subject", "manifold", "selection", "field", "operator", "statistic"};   // statistic: absent from a dataset made before it (has_table)

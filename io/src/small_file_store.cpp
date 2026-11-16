@@ -8,6 +8,7 @@
 
 #include "nxr/io/database.h"
 #include "nxr/io/errors.h"
+#include "nxr/io/writer_lock.h"
 
 namespace fs = std::filesystem;
 
@@ -64,8 +65,7 @@ void exec(sqlite3* h, const char* sql) {
 struct Range { std::string lo, hi; bool all; };
 Range range_of(const std::string& prefix) { return prefix.empty() ? Range{"", "", true} : Range{prefix + "/", prefix + "0", false}; }
 
-bool reserved(const std::string& name) {
-  const std::string base = kSmallFilesFile;
+bool reserved(const std::string& name, const std::string& base) {
   return name == base || name == base + "-wal" || name == base + "-shm" || name == base + "-journal";
 }
 
@@ -87,11 +87,12 @@ struct SmallFileStore::Db {
   sqlite3* h = nullptr;
   bool writable = false;
   bool has_table = false;
+  bool shared = false;   // the connection is another object's: never closed or reconfigured here
   int depth = 0;
   // At rest the database is ONE file: the journal goes back to the default (DELETE), which checkpoints the WAL and removes its files (some SQLite builds keep them
   // after the last close); a connection another process still holds makes the switch fail, and the WAL stays until that one closes. It is a WAL again on the next open.
   ~Db() {
-    if (!h) return;
+    if (!h || shared) return;
 #ifndef __EMSCRIPTEN__
     bool at_rest = false;
     if (writable && depth == 0) at_rest = sqlite3_exec(h, "PRAGMA journal_mode = DELETE", nullptr, nullptr, nullptr) == SQLITE_OK;
@@ -109,6 +110,9 @@ struct SmallFileStore::Db {
 };
 
 SmallFileStore::SmallFileStore(Store& files, fs::path db_file, SmallFileOptions opt) : files_(&files), db_file_(std::move(db_file)), opt_(opt) {}
+SmallFileStore::SmallFileStore(Store& files, Database& shared, SmallFileOptions opt) : files_(&files), db_file_(shared.path()), opt_(opt), shared_(shared.handle()) {
+  opt_.read_only = opt_.read_only || shared.read_only();
+}
 SmallFileStore::~SmallFileStore() = default;
 
 void SmallFileStore::close() {
@@ -121,6 +125,22 @@ SmallFileStore::Db* SmallFileStore::db(bool create) const {
   if (db_) {
     if (!create || db_->writable) return db_.get();
     db_.reset();   // opened read-only before; a write wants it writable
+  }
+  if (shared_) {
+    auto d = std::make_unique<Db>();
+    d->h = static_cast<sqlite3*>(shared_);
+    d->shared = true;
+    d->writable = !opt_.read_only;
+    d->path = db_file_.string();
+    if (d->writable) {
+      exec(d->h, "CREATE TABLE IF NOT EXISTS small_files (key TEXT PRIMARY KEY, value BLOB NOT NULL)");
+      d->has_table = true;
+    } else {
+      Stmt s(d->h, "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'small_files'");
+      d->has_table = s.row();
+    }
+    db_ = std::move(d);
+    return db_.get();
   }
   std::error_code ec;
   const bool there = fs::is_regular_file(db_file_, ec);
@@ -213,7 +233,7 @@ void SmallFileStore::put_row(const std::string& key, const std::uint8_t* data, s
 void SmallFileStore::batch(const std::function<void()>& body) {
   std::lock_guard<std::recursive_mutex> g(mu_);
   Db* d = db(true);
-  if (d->depth > 0) { body(); return; }
+  if (d->depth > 0 || (d->shared && !sqlite3_get_autocommit(d->h))) { body(); return; }   // inside the caller's transaction on a shared connection
   exec(d->h, "BEGIN IMMEDIATE");
   d->depth = 1;
   try {
@@ -284,7 +304,8 @@ bool SmallFileStore::exists_prefix(const std::string& prefix) const {
 Listing SmallFileStore::list(const std::string& prefix) const {
   Listing out = files_->list(prefix);
   if (prefix.empty()) {
-    auto bad = [](const std::string& n) { return reserved(n); };
+    const std::string base = db_file_.filename().string();
+    auto bad = [&](const std::string& n) { return reserved(n, base) || n == kWriterLockFile; };
     out.keys.erase(std::remove_if(out.keys.begin(), out.keys.end(), bad), out.keys.end());
   }
   std::lock_guard<std::recursive_mutex> g(mu_);

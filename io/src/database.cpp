@@ -150,13 +150,14 @@ void bind(sqlite3_stmt* st, const std::vector<Value>& params) {
 }  // namespace
 
 Database::Database(Database&& o) noexcept
-    : path_(std::move(o.path_)), db_(o.db_), depth_(o.depth_), cols_(std::move(o.cols_)), pk_(std::move(o.pk_)) {
+    : path_(std::move(o.path_)), read_only_(o.read_only_), db_(o.db_), depth_(o.depth_), cols_(std::move(o.cols_)), pk_(std::move(o.pk_)) {
   o.db_ = nullptr;
 }
 Database& Database::operator=(Database&& o) noexcept {
   if (this != &o) {
     close();
     path_ = std::move(o.path_);
+    read_only_ = o.read_only_;
     db_ = o.db_;
     depth_ = o.depth_;
     cols_ = std::move(o.cols_);
@@ -178,6 +179,7 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
   }
   Database d;
   d.path_ = file;
+  d.read_only_ = read_only;
   auto connect = [&]() {
     sqlite3* h = nullptr;
     const int flags = read_only ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
