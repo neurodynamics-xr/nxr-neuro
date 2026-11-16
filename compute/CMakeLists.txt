@@ -419,6 +419,7 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     add_executable(test_wt test/test_wt.cpp)
     target_link_libraries(test_wt PRIVATE nxr_compute)
     add_test(NAME test_wt COMMAND test_wt)
+    set_tests_properties(test_wt PROPERTIES LABELS slow)   # minutes long: CI runs it on main and nightly, not on every pull request
 
     add_executable(test_analytic test/test_analytic.cpp)
     target_link_libraries(test_analytic PRIVATE nxr_compute)
