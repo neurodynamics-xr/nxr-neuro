@@ -268,6 +268,8 @@ void write_package_record(Database& db, const PackageRecord& record) {
   db.execute("INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = excluded.value", {std::string(kRecordKey), jdump(record.to_json())});
 }
 
+void create_package_tables(Database& db) { db.exec_script(kPackageTables); }
+
 std::string package_content_hash(const Database& db) {
   Sha256 h;
   for (const auto& r : db.all("SELECT key, size_bytes, sha256 FROM key_digest ORDER BY key"))
@@ -515,7 +517,8 @@ DatasetWriter open_package_writer(const fs::path& folder_in, const OpenOptions& 
 
 std::vector<IdClash> find_id_clashes(const std::vector<fs::path>& packages) {
   std::vector<IdClash> out;
-  std::map<std::pair<std::string, std::string>, std::size_t> owner;   // (table, id) -> the package that holds it first
+  struct Owner { std::size_t package; std::string shared_key; };   // shared_key: for a shared vocabulary row, its (scope, name)
+  std::map<std::pair<std::string, std::string>, Owner> owner;      // (table, id) -> the package that holds it first
   for (std::size_t i = 0; i < packages.size(); ++i) {
     SubjectPackage p = SubjectPackage::open(packages[i]);
     const Database& db = p.db();
@@ -528,11 +531,15 @@ std::vector<IdClash> find_id_clashes(const std::vector<fs::path>& packages) {
       int pk_count = 0;
       for (const auto& c : info) { if (integer(c, "pk") > 0) ++pk_count; if (text(c, "name") == "id" && integer(c, "pk") == 1) by_id = true; }
       if (!by_id || pk_count != 1) continue;
-      for (const auto& r : db.all("SELECT id FROM \"" + table + "\"")) {
+      const bool vocabulary = table == "dictionary";
+      for (const auto& r : db.all(vocabulary ? "SELECT id, scope || '/' || name AS shared FROM dictionary WHERE scope IN ('app', 'dataset', 'user')" + std::string(" UNION ALL SELECT id, NULL FROM dictionary WHERE scope = 'subject'")
+                                              : "SELECT id, NULL AS shared FROM \"" + table + "\"")) {
         const std::string id = text(r, "id");
         if (anchors.count({table, id})) continue;
-        const auto [it, fresh] = owner.insert({{table, id}, i});
-        if (!fresh && it->second != i) out.push_back({table, id, packages[it->second], packages[i]});
+        const std::string shared = text(r, "shared");
+        const auto [it, fresh] = owner.insert({{table, id}, Owner{i, shared}});
+        // a shared vocabulary row copied unchanged into several packages (a split dataset's) is one row under one key
+        if (!fresh && it->second.package != i && !(vocabulary && !shared.empty() && it->second.shared_key == shared)) out.push_back({table, id, packages[it->second.package], packages[i]});
       }
     }
   }

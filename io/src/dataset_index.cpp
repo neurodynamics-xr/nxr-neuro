@@ -117,7 +117,7 @@ IndexReport build_index(const fs::path& folder_in, bool force) {
           db.tx([&] {
             db.execute("DELETE FROM dict_remap");
             // the shared vocabulary: matched by (scope, name), the first copy kept, a different copy a conflict
-            for (const auto& d : db.all("SELECT * FROM pk.dictionary WHERE scope IN ('app', 'dataset') ORDER BY name")) {
+            for (const auto& d : db.all("SELECT * FROM pk.dictionary WHERE scope IN ('app', 'dataset', 'user') ORDER BY name")) {
               const auto kept = db.one("SELECT id FROM main.dictionary WHERE scope = ? AND name = ?", {text(d, "scope"), text(d, "name")});
               if (kept) {
                 if (entries_digest(db, "main", text(*kept, "id")) != entries_digest(db, "pk", text(d, "id")))
@@ -127,8 +127,13 @@ IndexReport build_index(const fs::path& folder_in, bool force) {
                 Row r = d;
                 if (text(d, "scope") == "dataset") r["dataset_id"] = dataset_id;
                 db.insert("dictionary", r);
-                for (const auto& e : db.all("SELECT * FROM pk.dictionary_entry WHERE dictionary_id = ?", {text(d, "id")})) db.insert("dictionary_entry", e);
+                db.execute("INSERT OR IGNORE INTO main.dictionary_entry SELECT * FROM pk.dictionary_entry WHERE dictionary_id = ?", {text(d, "id")});
               }
+            }
+            // a subject's own dictionaries (and a template's, anchored in the subjects that name them): each is one row, once
+            for (const auto& d : db.all("SELECT * FROM pk.dictionary WHERE scope = 'subject'")) {
+              db.execute("INSERT OR IGNORE INTO main.dictionary SELECT * FROM pk.dictionary WHERE id = ?", {text(d, "id")});
+              db.execute("INSERT OR IGNORE INTO main.dictionary_entry SELECT * FROM pk.dictionary_entry WHERE dictionary_id = ?", {text(d, "id")});
             }
             for (const auto& t : tables) {
               if (t == "dictionary" || t == "dictionary_entry" || t == "anchor_row" || t == "key_digest" || t == "small_files") continue;
@@ -144,7 +149,7 @@ IndexReport build_index(const fs::path& folder_in, bool force) {
               std::string where;
               if (has_id) where = " WHERE NOT EXISTS (SELECT 1 FROM pk.anchor_row a WHERE a.table_name = '" + t + "' AND a.row_id = x.id)";
               // the subject rows of a member name no template in this file's rows: a catalogue's template_id is set from the packages' own
-              db.execute("INSERT INTO main.\"" + t + "\" (" + cols + ") SELECT " + sel + " FROM pk.\"" + t + "\" x" + where);
+              db.execute("INSERT OR IGNORE INTO main.\"" + t + "\" (" + cols + ") SELECT " + sel + " FROM pk.\"" + t + "\" x" + where);   // a child row anchored in a subject is the template's own, once
             }
             // anchor rows no member supplied itself (a template that is not a member): taken from the package that names them
             for (const auto& a : db.all("SELECT table_name, row_id FROM pk.anchor_row")) {

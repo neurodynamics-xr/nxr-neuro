@@ -84,6 +84,10 @@ class Catalogue {
 // CREATE a dataset folder's catalogue (the folder is made when absent; one that holds a catalogue is refused: `already_exists`).
 Catalogue create_catalogue(const std::filesystem::path& folder, const CreateCatalogueOptions& opt);
 
+// CREATE a catalogue that carries a dataset's own `dataset` and `datastore` rows as they are (the migration of a dataset database: the ids stay). `lock` false: the
+// caller already holds the dataset folder's writer lock.
+Catalogue create_catalogue_from(const std::filesystem::path& folder, const Row& dataset, const Row& datastore, const std::string& built_by, bool lock = true);
+
 struct RegisterOptions {
   bool replace = false;                               // another subject id under a name the catalogue holds replaces it (the old package is moved aside)
   std::string registered_by;                          // the program or person recorded with each entry: required

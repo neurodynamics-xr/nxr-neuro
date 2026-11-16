@@ -132,6 +132,30 @@ CreatePackageOptions Catalogue::package_options() const {
   return o;
 }
 
+Catalogue create_catalogue_from(const fs::path& folder_in, const Row& dataset, const Row& datastore, const std::string& built_by, bool lock_it) {
+  const fs::path folder = absolute_of(folder_in);
+  if (fs::exists(folder / kCatalogueFile)) throw Error(code::already_exists, folder.string() + ": already a dataset");
+  WriterLock lock;
+  if (lock_it) lock = acquire_writer_lock(folder, built_by);
+  const fs::path file = folder / kCatalogueFile;
+  try {
+    Database db = Database::open(file, true, built_by);
+    db.execute("UPDATE meta SET value = ? WHERE key = 'store_format'", {std::string(kStoreFormat53)});
+    db.execute("INSERT INTO meta (key, value) VALUES ('catalogue_version', ?)", {std::to_string(kCatalogueVersion)});
+    db.exec_script(kCatalogueTables);
+    db.tx([&] {
+      db.insert("datastore", datastore);
+      db.insert("dataset", dataset);
+      db.execute("DELETE FROM sync_job");
+    });
+  } catch (...) {
+    std::error_code ec;
+    fs::remove(file, ec);
+    throw;
+  }
+  return Catalogue::open(folder);
+}
+
 Catalogue create_catalogue(const fs::path& folder_in, const CreateCatalogueOptions& opt) {
   check_name("dataset", opt.name);
   const fs::path folder = absolute_of(folder_in);

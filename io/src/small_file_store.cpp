@@ -65,8 +65,14 @@ void exec(sqlite3* h, const char* sql) {
 struct Range { std::string lo, hi; bool all; };
 Range range_of(const std::string& prefix) { return prefix.empty() ? Range{"", "", true} : Range{prefix + "/", prefix + "0", false}; }
 
+// Files of the folder that are not keys: the database that holds the table (and its journals), the other database a package or an unsplit subject may hold during
+// a migration, the aside copies a migration keeps (`*.format52`, `*.format53`), a half-built one (`*.building`), and the writer lock.
 bool reserved(const std::string& name, const std::string& base) {
-  return name == base || name == base + "-wal" || name == base + "-shm" || name == base + "-journal";
+  if (name == base || name == base + "-wal" || name == base + "-shm" || name == base + "-journal") return true;
+  for (const char* db : {"small_files.sqlite", "subject.sqlite"})
+    if (name.rfind(db, 0) == 0) return true;
+  const auto ends = [&](const char* suffix) { const std::string x = suffix; return name.size() > x.size() && name.compare(name.size() - x.size(), x.size(), x) == 0; };
+  return ends(".building") || ends(".format52") || ends(".format53");
 }
 
 std::string uri_of(const fs::path& p) {   // a file: URI with the characters SQLite's URI parser reads specially escaped
