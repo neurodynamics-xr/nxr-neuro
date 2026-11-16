@@ -18,6 +18,7 @@
 #include <random>
 #include "brain_helpers.h"
 #include "check.h"
+#include "portable_random.h"
 #include "store_at.h"
 #include "nxr/io.h"
 #include "nxr/io/constant_q.h"
@@ -140,7 +141,7 @@ int main() {
   const Eigen::VectorXd pA = pattern(tileA), pB = pattern(tileB), pC = pattern(tileC);
   auto S_ = [](double x) { return 1.0 / (1.0 + std::exp(-x)); };
   std::mt19937 rng(21);
-  std::normal_distribution<double> nd;
+  nxr::testing::PortableNormal nd;
   std::vector<float> xf(static_cast<std::size_t>(M) * T);
   for (int v = 0; v < M; ++v)
     for (int t = 0; t < T; ++t) {

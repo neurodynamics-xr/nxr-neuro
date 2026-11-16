@@ -162,7 +162,6 @@ int main() {
     const auto r = nxr::crossings::crossings(s, {}, F, 2);
     EXPECT(r.n(0, 0) == 2 && r.n(1, 0) == 1 && r.n(0, 1) == 1 && r.n(1, 1) == 0, "a crossing is one track's steps in one tile and sense: tile 0 holds two (tracks 7 and 8), the other sense one");
     EXPECT(std::abs(r.sum(0, 0) - std::complex<double>(1, 1)) < 1e-12 && std::abs(r.sum(1, 0) - std::complex<double>(-1, 0)) < 1e-12 && std::abs(r.sum(0, 1) - std::complex<double>(0, 1)) < 1e-12, "the sums are of unit vectors: (1,0) + (0,1), (-1,0), (0,1)");
-    std::cout << "DBG nodir " << r.no_direction << " off " << r.off_tiles << " used " << r.steps_used << " bn " << r.bridge_n.transpose() << " bridge " << r.bridge << "\n";
     EXPECT(r.no_direction == 1 && r.bridge_n[0] == 1 && std::abs(r.bridge(0, 0) - 1 / std::sqrt(2.0)) < 1e-12 && std::abs(r.bridge(0, 1) - 1 / std::sqrt(2.0)) < 1e-12 && r.steps_used == 6, "a step with no tangent part has no direction; the bridge sums in 3-D, normalised");
     std::vector<std::uint8_t> mask = {1, 0, 1, 0, 0, 0, 0};
     const auto m = nxr::crossings::crossings(s, mask, F, 2);

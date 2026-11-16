@@ -27,6 +27,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "portable_random.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/cores.h"
@@ -134,7 +135,7 @@ int main() {
   const int N = b.n, M = 12, T = 4096, level = 3;
   const double sfreq = 250.0, w0 = 2.0, w1 = 14.0, bad0 = 5.0, bad1 = 5.5;
   std::mt19937 rng(11);
-  std::normal_distribution<double> nd;
+  nxr::testing::PortableNormal nd;
   std::vector<float> xf(static_cast<std::size_t>(M) * T), kfree(static_cast<std::size_t>(3 * N) * M);
   for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) xf[static_cast<std::size_t>(c) * T + t] = static_cast<float>(std::cos(2 * M_PI * 10.0 * t / sfreq + 0.7 * c) + 0.3 * nd(rng));
   for (auto& k : kfree) k = static_cast<float>(nd(rng));
