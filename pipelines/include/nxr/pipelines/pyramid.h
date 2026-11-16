@@ -56,7 +56,7 @@ struct PyramidBuildOptions {
   double halo_seconds = 8.0;                              // the context read on each side of a chunk for the filter (the chunk service's halo); the filter's edge effect is inside it
   int frame_level = -18;                                  // the tower level of a frame (nxr FRAME_LEVEL: 86 400·2^L s, −18 = 0.33 s)
   std::optional<double> start_s;                          // the recording's first sample as seconds from local midnight (anchor day); default: the anchor is the recording
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all"; default chunk 0 (never the whole recording by default)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all"; REQUIRED: the caller states the span (or start and stop); the engine streams one chunk at a time
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   bool exclude_bad_segments = true;                       // the recording's bad segments (the Selection `<recording>_bad_segments`) carry no current and no count
   std::int64_t block_samples = 0;                         // samples projected at a time (memory only: the result does not depend on it); 0 = the default of the kernel's orientation: 512 constrained (rows x block x 4 float64), 128 free (rows x block x 6)

@@ -185,6 +185,7 @@ int main() {
     SubjectWriter sub = SubjectWriter::open(ds, subject);
     if (tree == "group" && subject != "S4") { /* the group tiles are made by the build */ }
     PyramidBuildOptions o;
+    o.chunks = "0";                      // the first chunk's samples, stated
     o.recording = rec; o.kernel = kernel; o.tree = tree; o.halo_seconds = 2.0; o.bands = bands;
     if (tree == "group") o.depth = 3;
     return pyramid_build(ds, sub, o);

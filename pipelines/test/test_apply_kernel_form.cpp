@@ -152,7 +152,7 @@ int main() {
   for (const auto& [name, id] : std::vector<std::pair<std::string, Form>>{{"curl_tan", Form::curl_tan}, {"div_tan", Form::div_tan}, {"normal", Form::nx}}) {
     const std::string text_def = def(name, "mexhat");
     const g::Definition d = g::parse(parse_yaml(text_def, "f.yaml"), "f.yaml", text_def);
-    const auto r = g::run(ds, sub, d, Json::object(), g::RunOptions{[] { g::RunOptions o; o.replace = true; return o; }()});
+    const auto r = g::run(ds, sub, d, Json::object(), g::RunOptions{[] { g::RunOptions o; o.replace = true; o.chunks = "0"; return o; }()});
     CHECK(r.size() == 1 && r[0]["stored"].size() == 1);
     if (r.size() != 1) continue;
     const auto row = sub.db().read("field", r[0]["stored"][0]["id"].get<std::string>());

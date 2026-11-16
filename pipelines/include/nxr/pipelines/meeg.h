@@ -52,7 +52,7 @@ std::vector<std::string> imaging_channel_types();
 struct NoiseCovOptions {
   std::string recording;                                  // the recording Field by name
   std::optional<std::string> name;                        // default `<recording>_noise_cov`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); default chunk 0 (chunks.h)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> block_seconds;                    // unset: the window is ONE block (one DC offset); else a block (own mean removed) of this many seconds
   std::vector<std::string> channel_types = imaging_channel_types();   // only channels of these types, and good ones (the recording's own flags, else the montage's quality)
@@ -119,7 +119,7 @@ HeadModelResult headmodel_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWr
 struct PsdOptions {
   std::string recording;                                  // the recording Field by name
   std::optional<std::string> name;                        // default `<recording>_psd_welch`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); default chunk 0 (chunks.h)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;            // the segment length in seconds ...
   std::optional<std::int64_t> segment_samples;            // ... or in samples (wins when given)
@@ -148,7 +148,7 @@ struct SourcePsdOptions {
   std::string recording;                                  // the recording Field by name
   std::optional<std::string> kernel;                      // the inverse kernel Operator by name; default: the subject's only one
   std::optional<std::string> name;                        // the stem of the fields' names; default `<recording>_<kernel>_psd`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); default chunk 0 (chunks.h)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;            // wins when given
@@ -197,7 +197,7 @@ struct CrossSpectrumOptions {
                                                           // default: the recording's good channels of `channel_types` (as `noisecov compute`)
   std::vector<std::string> channel_types = imaging_channel_types();
   std::optional<std::string> name;                        // the stem of the Operators' names; default `<recording>_crossspectrum`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); default chunk 0 (the chunk service)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;            // wins when given
@@ -392,7 +392,7 @@ struct QuadratureOptions {
   std::string recording;                                  // the recording Field by name
   std::optional<std::string> kernel;                      // the inverse kernel Operator by name; default: the subject's only one
   std::optional<std::string> name;                        // the stem of the fields' names; default `<recording>_<kernel>_quadrature`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); default chunk 0 (chunks.h)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;            // wins when given
@@ -433,7 +433,7 @@ struct HodgePowerOptions {
   std::optional<std::string> package;                     // the package's stem (`hodgeDirac` or `hodgeDirac__<surface>`); default: the one of the kernel's surface
   std::optional<std::int64_t> modes;                      // use the first N modes of the package (default: all)
   std::optional<std::string> name;                        // the stem of the fields' names; default `<recording>_<kernel>_hodge`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); default chunk 0 (chunks.h)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;
@@ -489,7 +489,7 @@ struct OpticalflowComputeOptions {
   std::optional<std::string> kernel;                      // the inverse kernel Operator by name (free or fixed orientation); default: the subject's only one
   std::optional<std::string> package;                     // the Hodge–Dirac package's stem; default: the one of the kernel's surface
   std::optional<std::string> name;                        // the stem of the fields' names; default `<recording>_<kernel>_opticalflow`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); default chunk 0 (chunks.h)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   // the time filterbank (nxr::timebank::Design): family and gain are REQUIRED (no default), sides is Analytic (a real recording); gain 2 makes |c| the physical amplitude
   std::optional<nxr::timebank::Family> family;

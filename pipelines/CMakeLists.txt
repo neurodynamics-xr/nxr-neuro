@@ -51,6 +51,7 @@ add_library(nxr_pipelines
   src/eigen.cpp
   src/frames.cpp
   src/dataset.cpp
+  src/listing.cpp
   src/measure.cpp
   src/meeg.cpp
   src/spectral_record.cpp

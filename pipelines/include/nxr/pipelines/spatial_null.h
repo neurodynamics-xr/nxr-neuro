@@ -25,7 +25,8 @@ struct SpatialNullOptions {
   std::string recording;                     // REQUIRED: the recording whose stored `spatial_events.home` and `.summary` (`run spatial_events`) are tested
   std::string events = "spatial_events";     // the pipeline the data's statistics are named by (`<events>.home.<recording>`, `<events>.summary.<recording>`)
   nxr::io::Json set = nxr::io::Json::object();   // the `spatial_events_null` parameters of every draw (the data's: levels, reference_level, threshold, bursts, cross_spectrum, band, transform, ...)
-  std::optional<std::string> chunks = std::string("all");
+  std::optional<std::string> chunks;         // what each draw reads: chunk "k", chunks "a-b" or "all" ...
+  std::optional<double> start, stop;         // ... or [start, stop) seconds (both). REQUIRED: the caller states the span; none is an error
   int batch = 20, min_draws = 20, max_draws = 100;
   int h = 10;
   bool replace = false;                      // replace the stored results, and any draw stored with other parameters (moved aside, never deleted)

@@ -51,7 +51,7 @@ struct MeasureOverTimeOptions {
   std::optional<int> level;                  // the ladder's level (required for a ladder)
   std::string fields;                        // an ECMAScript regex matched against the whole name of each time-resolved Field on the tiling's time line
   std::vector<std::string> measures;         // default mean, mean_square, max, min (also abs_max); `count` is always stored
-  std::optional<std::string> chunks;         // the span read: "k", "a-b", "all"; or start/stop seconds; neither: chunk 0
+  std::optional<std::string> chunks;         // the span read: "k", "a-b", "all"; or start/stop seconds; neither is an error (the caller states the span)
   std::optional<double> start, stop;
   bool replace = false;                      // rows of the same (window member, Field, measure) are replaced; else refused
 };
