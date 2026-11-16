@@ -19,6 +19,10 @@ endif()
 
 # --- SQLite (system) and zlib (system; the gzip codec and the CLI's checksum) ---
 find_package(SQLite3 REQUIRED)
+# CMake's FindSQLite3 names its target SQLite::SQLite3; recent CMake also provides SQLite3::SQLite3. Use one name on every CMake version.
+if(NOT TARGET SQLite3::SQLite3 AND TARGET SQLite::SQLite3)
+  add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
+endif()
 find_package(ZLIB REQUIRED)
 endif()
 

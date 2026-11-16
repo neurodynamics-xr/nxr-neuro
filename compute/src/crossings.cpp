@@ -90,7 +90,8 @@ Result crossings(const Steps& s, const std::vector<std::uint8_t>& use, const Sur
     if (!(ln > 1e-9)) { ++r.no_direction; continue; }
     const std::int32_t nd = S.node[static_cast<std::size_t>(v)];
     const int sx = s.sense[static_cast<std::size_t>(i)] > 0 ? 0 : 1;
-    if (nd == kBridge) { bridge[{sx, s.track[static_cast<std::size_t>(i)]}] += d / ln; ++r.steps_used; continue; }
+    // emplace the zero vector: a map's operator[] leaves an Eigen fixed-size vector uninitialised (zero only by luck of the allocator)
+    if (nd == kBridge) { bridge.emplace(std::make_tuple(sx, s.track[static_cast<std::size_t>(i)]), Eigen::Vector3d::Zero().eval()).first->second += d / ln; ++r.steps_used; continue; }
     if (nd < 0) { ++r.off_tiles; continue; }
     const Eigen::Vector3d u = d / ln;
     const double c1 = u.dot(S.e1.row(v).transpose()), c2 = u.dot(S.e2.row(v).transpose());

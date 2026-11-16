@@ -19,6 +19,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "portable_random.h"
 #include "nxr/intervals.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/statistic.h"
@@ -61,10 +62,10 @@ int main() {
   // the texture every real map has: 60 random plane waves of wavenumber 2 .. 5 /m (the band's own range), so the tiles' baseline has a spread of its own
   const double tex = 0.07;
   std::vector<std::array<double, 5>> waves;
-  { std::mt19937 wr(5); std::uniform_real_distribution<double> u(0, 1), ph(0, 2 * M_PI); std::normal_distribution<double> g(0, 1);
+  { std::mt19937 wr(5); nxr::testing::PortableUniform u(0, 1), ph(0, 2 * M_PI); nxr::testing::PortableNormal g(0, 1);
     for (int j = 0; j < 60; ++j) { Eigen::Vector3d d(g(wr), g(wr), g(wr)); d.normalize(); const double k = 2 + 3 * u(wr); waves.push_back({k * d.x(), k * d.y(), k * d.z(), ph(wr), tex / std::sqrt(30.0)}); } }
   auto plant = [&](const std::vector<Bump>& list, unsigned seed) {
-    std::mt19937 rng(seed); std::normal_distribution<double> nd(0, 1);
+    std::mt19937 rng(seed); nxr::testing::PortableNormal nd(0, 1);
     std::vector<float> v(static_cast<size_t>(nV));
     for (int i = 0; i < nV; ++i) {
       double x = 0.5 + (0.2 * b.Sph[3 * i] + 0.1 * b.Sph[3 * i + 2]) + 0.01 * nd(rng);   // a smooth background (the registered sphere's coordinates), a little noise
