@@ -145,6 +145,22 @@ The command:
 nxr-neuro run DEFINITION --dataset D --subject S [--set name=value …] [--chunks K|A-B|all | --start S --stop S] [--dry-run]
 ```
 
+## 4b. Node traits and the dispatch point (GPU readiness; the maintainers decided 2026-11-16)
+
+Two cheap steps that change no result. The CPU stays the only backend; the graph is made ready for another.
+
+**Traits.** Every node declares, where it is registered (`NodeTraits` in `registry.h`, set beside the node's ports):
+- its **time behaviour**:
+  - `pointwise`: each timestep (frame, tile or event) on its own; any block split or order gives the same values;
+  - `windowed`: needs a halo or a window around each timestep (FIR or FFT filters, the analytic signal, a Welch segment, an event's margin); the node states the rule (`window_rule`), e.g. "taps.size() - 1 samples each side";
+  - `stateful`: carries state forward in time (a recursive filter, a state machine over frames, an accumulation that depends on block order); its blocks must meet in time order;
+- its **numeric precision**: the precision it computes in (`float32` or `float64`) and what it outputs: `follows_input` (the stored precision follows the input) or `float64` whatever the input is. A node that computes in double on float32 input is flagged (`StepSpec::computes_double_on_float_input()`); inside the chunk loop blocks are float32, outside it arrays are double;
+- `uncertain`, when the classification is a judgement for the maintainers to confirm, and a `note` saying why.
+
+The executor reads the declaration and refuses a node that has none (`check_traits`). For now it records and validates presence; the one use of it is that `dispatch` refuses a `stateful` node in a block-parallel context, which no executor creates yet. The test `test_node_traits` fails when any registered node lacks a declaration, so a new node must declare its traits.
+
+**Dispatch.** The runner never calls a node's functions itself. It builds a `NodeCall` (phase: `prepare`, `start`, `chunk`, `fold`, `finish` or `run`; the node's prepared state; its inputs) and passes it to `dispatch(node, call, context)` (`dispatch.h`), which checks the traits and runs the phase on `context.backend`. Today `Backend::cpu` calls the node's own function, exactly as the runner did. A GPU backend is added in `dispatch.cpp` alone, with no change to a pipeline, a node or the runner. The guard `cmake/check_dispatch.cmake` (test `dispatch_is_the_only_call_path`) fails when any other file calls a node's function through a step.
+
 ## 5. Worked examples
 
 **Band power map** (the definition above). It must equal today's `sourcepsd` and nxr's `band_power_source_map` on the same data: the first parity

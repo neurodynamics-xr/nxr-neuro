@@ -18,6 +18,7 @@
 #include "nxr/io/hash.h"
 #include "nxr/io/layout.h"
 #include "nxr/pipelines/cache.h"
+#include "nxr/pipelines/dispatch.h"
 #include "nxr/pipelines/reading.h"
 
 #include "nxr/io/finder.h"
@@ -769,7 +770,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     if (!p.step->prepare) continue;
     Values ins;
     for (const auto& [port, t] : p.ins) if (P.values.count(t)) ins[port] = P.values.at(t);
-    states[i] = p.step->prepare(ins, p.params, ctx);
+    NodeCall call = NodeCall::prepare(ins, p.params, ctx);
+    dispatch(*p.step, call);
+    states[i] = std::move(call.made_state);
   }
   auto index_of = [&](const Planned* p) { return static_cast<std::size_t>(p - P.steps.data()); };
   // what each step's preparation resolved (a degree chosen from a tolerance …): reported by the step (`record`), generic, into the provenance below
@@ -787,8 +790,14 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   }
   Arrays data;
   auto arrays_in = [&](const Planned& p) { Arrays a; for (const auto& [port, t] : p.ins) if (data.count(t)) a[port] = data.at(t); return a; };
-  for (const Planned* p : P.section("before"))
-    for (auto& [k, v] : p->step->run(states[index_of(p)], arrays_in(*p), ctx)) data[p->outs.at(k)] = std::move(v);
+  // a setup or after node: arrays in, arrays out, through the one dispatch point
+  auto run_on_arrays = [&](const Planned* p) {
+    const Arrays ins = arrays_in(*p);
+    NodeCall call = NodeCall::run(states[index_of(p)], ins, ctx);
+    dispatch(*p->step, call);
+    for (auto& [k, v] : call.made_arrays) data[p->outs.at(k)] = std::move(v);
+  };
+  for (const Planned* p : P.section("before")) run_on_arrays(p);
 
   // THE CHUNK LOOP: io's chunk service hands each chunk with the composed halo; the chunk steps run on it, the accumulate steps fold it
   Json facts = Json::object();
@@ -810,7 +819,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     for (std::size_t i = 0; i < loop.size(); ++i)
       if (loop[i]->step->kind == "chunk" && loop[i]->step->halo && loop[i]->step->halo(states[index_of(loop[i])]) > 0) tail = i + 1;
     std::map<const Planned*, std::any> accs;
-    for (const Planned* p : loop) if (p->step->kind == "accumulate") accs[p] = p->step->start(states[index_of(p)]);
+    for (const Planned* p : loop) if (p->step->kind == "accumulate") { NodeCall call = NodeCall::start(states[index_of(p)]); dispatch(*p->step, call); accs[p] = std::move(call.made_state); }
     // a block is released after the LAST step that reads it (a chunk step's outputs stay inside the loop): with a run over many pairs only one pair's block is held at a time
     std::map<std::string, std::size_t> last_use;
     for (std::size_t i = 0; i < loop.size(); ++i) for (const auto& [port, t] : loop[i]->ins) last_use[t] = i;
@@ -830,11 +839,14 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         Blocks ins;
         for (const auto& [port, t] : p->ins) if (set.count(t)) ins[port] = set.at(t);
         if (p->step->kind == "chunk") {
-          for (auto& [k, v] : (p->step->chunk_at ? p->step->chunk_at(states[index_of(p)], ins, keep[p], at) : p->step->chunk(states[index_of(p)], ins, keep[p]))) set[p->outs.at(k)] = std::move(v);
+          NodeCall call = NodeCall::chunk(states[index_of(p)], ins, keep[p], at);
+          dispatch(*p->step, call);
+          for (auto& [k, v] : call.made_blocks) set[p->outs.at(k)] = std::move(v);
         } else {
           for (const auto& [port, b] : ins)
             if (b.own() != at.n) refuse(p->step->name + ": " + port + " has " + std::to_string(b.own()) + " own columns in a block of " + std::to_string(at.n) + ": a chunk step's halo bookkeeping is off");
-          p->step->fold(states[index_of(p)], accs[p], ins, at);
+          NodeCall call = NodeCall::fold(states[index_of(p)], accs[p], ins, at);
+          dispatch(*p->step, call);
         }
         ins.clear();
         for (const auto& [port, t] : p->ins) { const auto u = last_use.find(t); if (u != last_use.end() && u->second == li) set.erase(t); }
@@ -887,13 +899,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         for (std::size_t li = tail; li < loop.size(); ++li) run_step(li, sub, at);
       }
     });
-    for (auto& [p, acc] : accs)
-      for (auto& [k, v] : p->step->finish(states[index_of(p)], acc)) data[p->outs.at(k)] = std::move(v);
+    for (auto& [p, acc] : accs) {
+      NodeCall call = NodeCall::finish(states[index_of(p)], acc);
+      dispatch(*p->step, call);
+      for (auto& [k, v] : call.made_arrays) data[p->outs.at(k)] = std::move(v);
+    }
     facts = Json{{"span", span_json}, {"halo", H}, {"blocks", blocks_n}, {"block_samples", opt.block_samples}, {"block_frames", opt.block_frames}, {"chunks_read", cr.visited}, {"samples_read", cr.samples}, {"bad_samples", cr.bad_samples}};
   }
   // AFTER
-  for (const Planned* p : P.section("after"))
-    for (auto& [k, v] : p->step->run(states[index_of(p)], arrays_in(*p), ctx)) data[p->outs.at(k)] = std::move(v);
+  for (const Planned* p : P.section("after")) run_on_arrays(p);
 
   // STORE: each output a Field on the manifold its steps made, its provenance and the cache key with it; another job's node refused unless replace (moved aside)
   Json producer = Json{{"pipeline", Json{{"name", d.name}, {"version", d.version}, {"definition", d.source}, {"sha256", nxr::io::sha256_hex(d.text)}}},
