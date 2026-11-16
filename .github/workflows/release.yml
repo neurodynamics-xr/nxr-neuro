@@ -53,7 +53,7 @@ jobs:
         run: |
           /opt/python/cp312-cp312/bin/pip install --quiet cmake ninja
           echo "/opt/python/cp312-cp312/bin" >> "$GITHUB_PATH"
-          (yum install -y epel-release && yum install -y ccache) > /dev/null 2>&1 || echo "ccache not available; building without it"
+          (timeout 180 sh -c "yum -y --setopt=timeout=20 --setopt=retries=2 install epel-release && yum -y --setopt=timeout=20 --setopt=retries=2 install ccache" < /dev/null > yum.log 2>&1) || echo "ccache not available; building without it"
           ls /usr/lib64/libz.a
       - name: Compiler cache
         uses: actions/cache@v4
