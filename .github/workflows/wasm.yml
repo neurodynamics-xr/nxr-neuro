@@ -52,6 +52,8 @@ jobs:
         with:
           version: ${{ env.EMSCRIPTEN_VERSION }}
           actions-cache-folder: emsdk-cache
+      - name: Emscripten's zlib port (CMake finds its library in the sysroot, which a fresh Emscripten has not built yet)
+        run: embuilder build zlib
       - name: Native command (the smoke test's other side)
         run: |
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
