@@ -162,9 +162,10 @@ int main() {
   const auto r2 = g::run(ds, sub, bp, Json::object(), all);
   CHECK(r2.size() == 2 && r2[0]["hit"] == true && r2[1]["hit"] == true);
   std::string why;
-  try { g::run(ds, sub, bp, Json::object(), g::RunOptions{}); } catch (const Error& e) { why = e.code(); }
+  try { g::run(ds, sub, bp, Json::object(), [] { g::RunOptions o; o.chunks = "0"; return o; }()); } catch (const Error& e) { why = e.code(); }
   CHECK_EQ(why, std::string(code::already_exists));
   g::RunOptions zero;
+  zero.chunks = "0";
   zero.replace = true;
   const auto r3 = g::run(ds, sub, bp, Json::object(), zero);
   CHECK(r3.size() == 2 && r3[0]["hit"] == false && r3[0]["replaced"] == true && r3[0]["run"]["span"]["chunks_read"] == Json::array({0, 0}));
@@ -226,16 +227,16 @@ steps:
 outputs:
   power: {kind: band power}
 )";
-  const auto r5 = g::run(ds, sub, g::parse(parse_yaml(fphase, "form.yaml"), "form.yaml", fphase), Json::object(), g::RunOptions{});
+  const auto r5 = g::run(ds, sub, g::parse(parse_yaml(fphase, "form.yaml"), "form.yaml", fphase), Json::object(), [] { g::RunOptions o; o.chunks = "0"; return o; }());
   CHECK(r5.size() == 1 && r5[0]["stored"].size() == 1 && read_floats((sub.folder() / (r5[0]["stored"][0]["path"].get<std::string>()))).size() == static_cast<std::size_t>(N));
 
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
     ds.close();
-    CHECK_EQ(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 > " + log).c_str()), 0);        // chunk 0, as stored last: a hit
+    CHECK_EQ(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --chunks 0 > " + log).c_str()), 0);        // chunk 0, as stored last: a hit
     CHECK_EQ(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --set 'band=[15, 29]' --chunks all --replace >> " + log).c_str()), 0);
-    CHECK(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --set 'band=[15, 29]' > /dev/null 2>&1").c_str()) != 0);   // another span: refused
+    CHECK(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --set 'band=[15, 29]' --chunks 0 > /dev/null 2>&1").c_str()) != 0);   // another span: refused
   }
 #endif
   fs::remove_all(root);

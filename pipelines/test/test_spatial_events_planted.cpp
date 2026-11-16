@@ -248,6 +248,7 @@ int main() {
       const StoredStatistic D0 = read_statistic(sub, "spatial_events_null.draw0.home.rest"), D0s = read_statistic(sub, "spatial_events_null.draw0.summary.rest");
       CHECK(D0.shape == H.shape && text(D0s.row, "measure") == "patch_summary" && !sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = 'spatial_events_null.draw0.events.rest'", {V(sub.id())}));
       SpatialNullOptions sn;
+      sn.chunks = "all";                 // the whole recording, stated
       sn.recording = "rest"; sn.batch = 2; sn.min_draws = 2; sn.max_draws = 4; sn.h = 10; sn.replace = true;
       sn.set = nset;
       const auto rn = spatial_null_compute(ds, sub, sn);

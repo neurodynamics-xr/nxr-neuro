@@ -19,7 +19,8 @@ namespace cli {
 
 using nxr::io::Json;
 
-inline void emit(const Json& obj) { std::cout << pyjson::dumps(obj) << std::endl; }
+// every line a command prints goes through emit: JSON lines on stdout (today's format, unchanged) or, in a terminal, the readable form (cli/output.cpp)
+void emit(const Json& obj);
 
 inline std::string stamp() { return std::string("nxr-neuro ") + NXR_NEURO_VERSION + " / C++17"; }
 
@@ -35,8 +36,23 @@ struct Args {
   std::optional<std::string> maybe(const std::string& k) const { auto it = opt.find(k); return it == opt.end() ? std::nullopt : std::optional<std::string>(it->second); }
 };
 
+// the option-table check (developers and tests): `nxr-neuro __options <old words>` runs a command up to its first parse and reports the options the parser knows,
+// so the help tables (cli/commands.cpp) are compared with the parsers and cannot drift
+struct ProbeDone : std::exception {};
+struct Probe {
+  bool on = false;
+  std::set<std::string> valued, flags, multi, required;
+  std::size_t npos = 0;
+};
+inline Probe& probe() { static Probe p; return p; }
+
 inline Args parse(const std::string& prog, const std::vector<std::string>& argv, const std::set<std::string>& valued, const std::set<std::string>& flags,
                   const std::set<std::string>& required, std::size_t npos = 0, const std::set<std::string>& multi = {}, const std::string& pos_name = "FILE") {
+  if (probe().on) {
+    Probe& p = probe();
+    p.valued = valued; p.flags = flags; p.multi = multi; p.required = required; p.npos = npos;
+    throw ProbeDone();
+  }
   Args a;
   for (std::size_t i = 0; i < argv.size(); ++i) {
     const std::string& t = argv[i];

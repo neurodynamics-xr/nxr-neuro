@@ -32,6 +32,7 @@
 #ifdef NXR_NEURO_WITH_PIPELINES
 #include "nxr/pipelines/dataset.h"
 #include "nxr/pipelines/frames.h"
+#include "nxr/pipelines/listing.h"
 #include "nxr/pipelines/tiles.h"
 #endif
 #include "nxr/io/surface.h"
@@ -344,51 +345,7 @@ int surface_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-const char* kUsage =
-    "usage: nxr-neuro <command> ...\n"
-    "  nxr-neuro constantq compute --dataset D/N --subject S (--recording R | --line NAME | --all) [--method hertz|cycles] [--voices N] [--cycles C] [--fmax HZ] [--fmin HZ]   the constant-Q time ladder of a time line (the Studio's time-tile policy)\n"
-    "  nxr-neuro run DEFINITION --dataset D/N --subject S [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--block-samples N] [--block-frames N] --dry-run   a pipeline definition (nxr's YAML) planned on a subject: inputs found, arrows checked (run --list: the definitions and steps); --block-samples: the width the pointwise steps after the last filter run on (default 1024; 0 the whole chunk): memory only; --block-frames: the frames the steps after a frame tiling run on (default 256; 0 the whole chunk's frames): memory only\n"
-    "  nxr-neuro dataset create|list|show|delete|recover|compact ...   the datasets of a datastore (--datastore D --name N; --dataset D/N); create --templates FS_SUBJECTS [--default fsaverage5] [--modes DIR] [--atlas-depth 8] [--lc-levels 4,6] writes the default subject (surfaces, parcellations, frames, group tree) with it\n"
-    "  nxr-neuro subject create|list|show|delete ...           the subjects of a dataset (--dataset D/N --name S | --subject S [--node PATH])\n"
-    "  nxr-neuro surface add --dataset D/N --subject S FILE    a mesh file (OBJ · PLY · STL) as a surface of a subject\n"
-    "  nxr-neuro convert list|scan|subject|surface ...         a Brainstorm protocol: what it holds, and its anatomy into a dataset (nxr convert's verbs)\n"
-    "  nxr-neuro eigen solve --dataset D/N --subject S [--modes K]   the Hodge-Dirac eigenmodes of a stored surface, cached \n"
-    "  nxr-neuro headmodel compute --dataset D/N --subject S [--meg overlapping|single|none] [--no-eeg]   the sphere head model (gain), stored as an imported one\n"
-    "  nxr-neuro sourcepsd compute --dataset D/N --subject S --recording R [--kernel NAME] [--bands alpha:8-12,...] [--normalisation relative]   the band power maps of sources (Brainstorm's PSD on sources, grouped in bands)\n"
-    "  nxr-neuro crossspectrum compute --dataset D/N --subject S --recording R [--channels-of KERNEL | --types T,..] [--bands alpha:8-12,...] [the psd options | --estimator analytic [--level K | --window-seconds SEC]]   the sensor cross-spectral density per band (complex, channels x channels): every source block is K C K^T; analytic: one per window (a series); --resolve bins also stores each band bin by bin\n"
-    "  nxr-neuro crossspectrum read --dataset D/N --subject S --name <stem>_<band>_bins (--pair A,B | --seed A) [--reading coherency|imag|phase|delay|psi] [--weights coherence|none]   readings derived from a band's cross-spectrum kept bin by bin: coherency, its imaginary part, the phase, the delay (slope of the phase over frequency, ms) or Nolte's phase-slope index; positive: the row channel leads\n"
-    "  nxr-neuro phasegradient compute --dataset D/N --subject S --cross-spectrum NAME [--kernel NAME] [--signal normal|ambient] [--depth D] [--spatial-band modes|weyl:J|weyl:all]   from a stored band cross-spectrum: the phase gradient's sums per pyramid leaf (phase current in the canonical frames, power; gradient, speed, travelling index derived at read); at a spatial scale the per-vertex timing map and its inconsistency\n"
-    "  nxr-neuro cyclepattern compute --dataset D/N --subject S --cross-spectrum NAME [--kernel NAME] [--package STEM] [--spatial-band modes|weyl:J|weyl:all] [--patterns Q] [--level K | --window-seconds SEC]   from a cross-spectrum per window (crossspectrum --estimator analytic): per spatial band the most consistent cycle patterns of the current (S, A, rho on the cortex) and how they recur across windows\n"
-    "  nxr-neuro sourcetensor compute --dataset D/N --subject S --recording R [--kernel NAME] [--bands alpha:8-12,...] [the psd options]   the band cross-spectral tensor of the current (hermitian3), its tangential Stokes quaternion, normal power and share\n"
-    "  nxr-neuro quadrature compute --dataset D/N --subject S --recording R [--kernel NAME] [--bands alpha:8-12,...] [--pairs K]   the quadrature spectrum of sources per band: quadratureFraction, the quadratureEnergy map, the top K quadraturePairs (p leads q) as source maps\n"
-    "  nxr-neuro opticalflow compute --dataset D/N --subject S --recording R [--kernel NAME] [--package STEM] [--name STEM] [--start S] [--stop S] --family F --gain G --freq HZ [--centres HZ,..] [--cycles C] [--voices V] [--limits LO-HI] [--resolution HZ] [--oversample X] [--tolerance T] [--alpha A] [--depth D] [--frame-level L] [--start-s S] [--replace]   optical flow (Horn-Schunck) of the source amplitude of one filterbank member (wt; kernel applied to its complex coefficients), read in the Hodge-Dirac modes: exact (sources and sinks) and coexact (rotation) coefficients per frame, divergence, curl, speed and velocity as additive sums per leaf of the tile ladder's level D and per tower frame (measures flow_divergence, flow_curl, flow_speed, flow_velocity_*; `measure query` reads them, `_density` is the time mean); no per-vertex Fields\n"
-    "  nxr-neuro frames compute --dataset D/N --subject S [--surface NAME] [--template SUBJECT] [--convention scs|ras] [--min-projection P] [--replace]   the canonical frames (north / west, from the registered sphere) and the anatomical frame (angle from north to anterior, second axis superior or medial, reliability mask) of a surface\n"
-    "  nxr-neuro tiles compute --dataset D/N --subject S [--surface NAME] [--depth L] [--replace]   the dyadic tile ladder of a surface (the Studio's surfaceLadder, nxr geom.ladder): 2^l equal-area tiles per piece at level l, paired with scale by Weyl's law, stored as Selections; opticalflow / quadrature compute take --tiles [--tile-levels 1,2,3 | --tile-max-level N] [--no-levi-civita] to write their maps' tile summaries per level (vectors in frame components and Levi-Civita form)\n"
-    "  nxr-neuro speedspectrum compute --dataset D/N --subject S --recording R --graph-family F --family F --gain G --sides analytic|two-sided [--fmin HZ --fmax HZ] [--speed-bins N]   the speed spectrum: mode energy per phase speed (2 pi f = c mu) from the joint eigenvalue x frequency bank, exact and coexact apart, with each tile's quadrature fraction\n"
-    "  nxr-neuro hodgepower compute --dataset D/N --subject S --recording R [--kernel NAME] [--package STEM] [--modes N] [--bands alpha:8-12,...]   the band power of the Hodge-Dirac eigenmode coefficients of a free-orientation kernel\n"
-    "  nxr-neuro measure compute --dataset D/N --subject S --labelling L --fields PATTERN --weight none|barycentric|voronoi [--measures mean,max,..] [--recipe NAME]   stored Fields measured over a partition's members (the Studio's measureOverPartition), with their recipe\n"
-    "  nxr-neuro measure query --dataset D/N --subject S --selection JOINT --measure M [--field F] [--band I] [--spatial-band K] [--space-level L] [--time-level M] [--min-value X] [--max-value X] [--limit N] [--order asc|desc]   a measurement pyramid's array-backed measure read AT ANY SCALE: space rolled up by reshape to level L (-1 the whole cortex; default the stored depth), time on the tower to tiles of 2^M frames (default 0), one band; sum/max/min by the measure's merge, `<sum>_density` (power_sum_density, ...) from rolled-up sums over area x samples; rows {code, tile, band, value, weight, members}\n"
-    "  nxr-neuro statistic compute --dataset D/N --subject S --over SELECTION --of FIELD|MAP --measure M --summaries median,mad,percentile:75,.. [--combine each|pool|mean] [--members-own]   a stored measurement summarised over its partition's members into a statistic (summaries across the members)\n"
-    "  nxr-neuro joint compute --dataset D/N --subject S --recording R --space-level L --time-level M [--surface NAME] [--replace]   the JOINT partition of space x time: a closed-form Selection of the cells (a spatial tile of level L) x (a time tile of the constant-Q level M), code = (tile << B) | time tile, the Studio atlas's layout; `run cortical_cells` measures a source estimate over it (`run cortical_cell_pairs` over many pairs at once)\n"
-    "  nxr-neuro frametiling compute --dataset D/N --subject S --recording R (--frame-level L | --centre HZ | --band LO,HI) [--frames-per-cycle 36] [--start-s SECONDS] [--replace]   the FRAME TILING on the TIME TOWER (D135): a closed-form spans Selection `<R> frames <s> s` on the recording's time line, the cycles of ONE tower level (86400 x 2^L s: -18 = 0.33 s, -25 = 2.57 ms; a level-m tile is code >> m); the level is named, or derived from the band as the coarsest whose frame is at or under 1/(centre x frames-per-cycle); --start-s anchors the day; the `frames` step samples a chunk's analytic field at each frame's start\n"
-    "  nxr-neuro pyramid spatial-bands --dataset D/N --subject S [--surface NAME]   the surface's spatial bands (one per level of its tile ladder, the Weyl band, on the Eigenvalue line, 1/m^2): the within key of a measurement's spatial scale\n"
-    "  nxr-neuro pyramid reduce --dataset D/N --subjects A,B,C [--kernels all|constrained|free|latest|METHOD|STAMP|NAME|GLOB,...] [--depth D]   the GROUP REDUCE: the NAMED subjects' group-tree pyramids (`pyramid build --tree group`) and group-tile map summaries summed cell for cell, time collapsed (frames and runs summed, maxima maxed), into the default subject's partition node, as nxr's atlas reduce writes them (kind `group map` / `source estimate`, pathless, function sum, field_contribution rows, per-subject means and densities); never all subjects by default; a member without the group tree, another leaf count, other bands or two kernels of one method for a recording are refused\n"
-    "  nxr-neuro pyramid build --dataset D/N --subject S --recording R [--kernel K] [--tree subject|group] [--depth D] [--bands LO-HI,...] [--shape morlet|power_partition] [--halo-seconds 8] [--frame-level -18] [--start-s SECONDS] [--chunks k|a-b|all | --start S --stop S] [--keep-bad-segments] [--block-samples N] [--threads N] [--replace]   the MEASUREMENT PYRAMID of a recording's cortical currents: per band x leaf x frame, for a constrained-orientation kernel the band power (sum a|J|^2), envelope (sum a|J|) and envelope maximum, for a free-orientation kernel the orientation tensor in the canonical frames (t11 t22 tnn t12r t12i t1nr t1ni t2nr t2ni total; `frames compute` first); leaves = the surface ladder's level D (default: the finest every piece reaches; `--tree group`: the dataset's GROUP tree through the registered sphere, the same leaves in every subject, D default the dataset's atlas depth), bands default to octaves 1-64 Hz (`atlas bands`), frames = the tower tiling (-18 = 0.33 s); stored as nxr stores its atlas (source estimate Field without bytes, joint Selection (tile << B) | frame, array-backed measurement rows power_sum, envelope_sum, envelope_max); one chunk by default\n"
-    "  nxr-neuro wishart compute --dataset D/N --subject S --recording R --windows NAME --bursts NAME --psd NAME --band LO,HI [--shape morlet|meyer] [--draws 1000] [--seed 1] [--replace]   the Wishart null of the second-moment measures: each burst's second moment (the stored analytic cross-spectrum windows summed over its tiles) against complex Wishart draws of its own zero-lag covariance (dof = duration x the band's effective bandwidth): the sensor-level lagged share, its p and BH q, and the run's, as statistics\n"
-    "  nxr-neuro pointspread compute --dataset D/N --subject S --recording R [--forward NAME] [--kernel NAME] [--levels 2,3,..,8] [--reference-level 6] [--vertices 20 | --list V,V,..] [--fraction 0.5] [--spatial-shape mexhat] [--transform auto] [--name NAME] [--replace]   the instrument's blur: unit currents (x, y, z) at a sample of vertices through the stored head model and inverse kernel, read by the spatial events' chain (scale selection, the patch at a fraction of the peak): per source and orientation the peak's distance, the patch's diameter and area, the characteristic level and size, as a statistic of the recording\n"
-    "  nxr-neuro spatialnull compute --dataset D/N --subject S --recording R [--events spatial_events] [--set NAME=VALUE ...] [--chunks all] [--batch 20] [--min-draws 20] [--max-draws 100] [--h 10] [--replace]   the lag-free null of the spatial events: draws of `spatial_events_null` in batches with early stopping (Besag-Clifford), per-vertex p and BH q of the home occupancy and the size distribution, and the null's mean occupancy, as statistics\n"
-    "  nxr-neuro null compute --dataset D/N --subject S --recording-a A [--recording-b B] [--over TILES] [--stage NAME|INDEX] [--set NAME=VALUE ...] [--chunks all] [--batch 20] [--min-draws 20] [--max-draws 100] [--h 10] [--min-crossings 10] [--replace]   the lag-free null's tests of the vortex cores' crossings: draws of `vortex_null` in batches with early stopping (Besag-Clifford), per-tile p and BH q of the crossing consistency (and the run repeat with --recording-b), the data-to-null crossing ratio and the null's mean resultants, as statistics\n"
-    "  nxr-neuro repeat compute --dataset D/N --subject S --recording-a A --recording-b B [--over TILES] [--stage NAME|INDEX] [--min-crossings 10] [--name NAME] [--replace]   the vortex cores' run-to-run repeat: two recordings' stored tile crossings (run vortex_cores on both): per tile the dot product of the two runs' mean resultant vectors, and the count-weighted mean cosine, as statistics (the p-value comes with the null)\n"
-    "  nxr-neuro cellquadrature compute --dataset D/N --subject S --cross-spectrum NAME --space-level L [--kernel NAME] [--joint NAME] [--bursts NAME] [--weights area|none] [--tile-pairs on|off] [--transform auto|eigen|chebyshev|exact] [--modes N] [--order N] [--tolerance T] [--replace]   QUADRATURE per joint cell and per burst (travelling vs standing) from the STORED per-time-tile cross-spectrum of `crossspectrum compute --estimator analytic` (its tile level must equal the joint pair's time level): per spatial tile of level L, sum |T|^2 and sum |Im T|^2 of T = B C B^T (B the tile's rows of the kernel with the level's spatial band; a burst's C is its time tiles' sum), stored as ingredients, the quadrature fraction derived at read\n"
-    "  nxr-neuro scaleselection compute --dataset D/N --subject S --recording R --space-levels L,L,.. --time-levels M,M,.. [--source cortical_event_pairs] [--response peak|mean] [--min-link 1] [--name NAME] [--replace]   each event's OWN size and rhythm: the best of the (spatial level x time level) pairs by standardized response, and its footprint across the pairs, from the stored cells and extents of `run cortical_event_pairs`\n"
-    "  nxr-neuro patches compute --dataset D/N --subject S --map FIELD --level L [--sign positive|negative|magnitude] [--enter-sd 1.5] [--exit-sd 1.0] [--min-area M2] [--max-area M2] [--transform auto|eigen|chebyshev|exact] [--modes N] [--order N] [--tolerance T] [--summaries ..] [--replace]   PATCHES on a static cortical map (a PET map): where it stands out from its surroundings at the size of tile level L (the map filtered to the level's Weyl band, its tile means over the level's tiling, tiles above the baseline joined over mesh adjacency by hysteresis); stored as the band Field, tile and patch measurements, a baseline statistic, a patches Selection and statistics across the patches\n"
-    "  nxr-neuro measure export --dataset D/N --labelling L --fields PATTERN --table NAME --out DIR [--statistics mean,sd,..] [--subjects A,B] [--recipe NAME]   the measurements as a table for statistics (a row a subject), its dictionary and provenance\n"
-    "  nxr-neuro psd compute --dataset D/N --subject S --recording R [--set brainstorm|scipy|nxr-chain] [--segment-seconds SEC] [--through OPERATOR]   the Welch PSD of a recording, chunk by chunk, bad segments left out; --through a stored 2-row Operator (a rotation plane): its two-sided rotary spectrum\n"
-    "  nxr-neuro lowpass|highpass|bandpass|bandstop|notch --dataset D/N --subject S --recording R --fpass HZ[,HZ] | --fstop LO,HI | --frequencies F,..   a zero-phase filter, chunk by chunk, into a new recording <R>_<verb>\n"
-    "  nxr-neuro noisecov compute --dataset D/N --subject S --recording R [--start SEC --stop SEC]   the noise covariance of a recording's good channels, chunk by chunk\n"
-    "  nxr-neuro inverse compute --dataset D/N --subject S (--noise-cov NAME | --recording R)   the unconstrained minimum-norm kernel (depth-weighted), stored as an imported one\n"
-    "  nxr-neuro read <dataset folder> [--array <subject> <path> [--region a:b,c:d] [--out FILE]]   the arrays its rows name\n"
-    "  nxr-neuro --version\n";
+
 
 }  // namespace
 
@@ -418,16 +375,33 @@ void chunk_loop_defaults(const std::vector<std::string>& args) {
 }
 }  // namespace
 
-int main(int argc, char** argv) {
-  if (argc < 2 || std::string(argv[1]) == "-h" || std::string(argv[1]) == "--help") { std::cout << kUsage; return argc < 2 ? 2 : 0; }
-  const std::string cmd = argv[1];
-  // for the parity tests only: ids a counter (from the number given) and a fixed clock, as nxr's side is run with
-  if (const char* det = std::getenv("NXR_IO_DETERMINISTIC")) testing::deterministic(true, std::strtoull(det, nullptr, 10));
-  if (cmd == "--version") { std::cout << "nxr-neuro " << NXR_NEURO_VERSION << " (database schema " << schema_version() << ")\n"; return 0; }
-  if (cmd == "read") return read_command(argc - 1, argv + 1);
-  const std::vector<std::string> rest(argv + 2, argv + argc);
-  chunk_loop_defaults(rest);
-  try {
+// the old command words dispatched to their mains (the hidden aliases of the old spellings, and what every new command rewrites itself to)
+// ── nxr-neuro list recordings|kernels|results (the old words: `__list`, which has no old spelling) ──
+int list_nodes_main(const std::vector<std::string>& argv) {
+#ifdef NXR_NEURO_WITH_PIPELINES
+  if (argv.empty()) throw Usage("nxr-neuro list: error: the following arguments are required: what (recordings, kernels, results)");
+  const std::string what = argv[0];
+  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
+  const Args a = parse("nxr-neuro list " + what, rest, {"--dataset", "--subject"}, {}, {"--dataset", "--subject"});
+  DatasetWriter ds = dataset_of(a, false);
+  SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"));
+  emit(Json{{"stage", "result"}, {"subject", sub.name()}, {what, nxr::pipelines::list_subject_nodes(ds, sub, what)}});
+  return 0;
+#else
+  (void)argv;
+  throw Error(code::unsupported, "nxr-neuro list needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+#endif
+}
+
+int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
+  if (cmd == "__list") return list_nodes_main(rest);
+  if (cmd == "read") {
+    std::vector<std::string> store = {"read"};
+    store.insert(store.end(), rest.begin(), rest.end());
+    std::vector<char*> av;
+    for (auto& t : store) av.push_back(t.data());
+    return read_command(static_cast<int>(av.size()), av.data());
+  }
     if (cmd == "dataset") return dataset_main(rest);
     if (cmd == "constantq") return constantq_main(rest);
     if (cmd == "subject") return subject_main(rest);
@@ -559,24 +533,10 @@ int main(int argc, char** argv) {
       throw Error(code::unsupported, "nxr-neuro " + cmd + " needs the pipelines (nxr_compute + nxr_io + nxr_meeg): build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
-    std::cerr << kUsage << "nxr-neuro: error: unknown command '" << cmd << "'\n";
-    return 2;
-  } catch (const Usage& e) {
-    std::cerr << e.what() << '\n';
-    return 2;
-  } catch (const Error& e) {
-    // Python prints a KeyError's message as its repr
-    std::string m = e.what();
-    if (e.python_name() == "KeyError") {
-      const char q = m.find('\'') != std::string::npos && m.find('"') == std::string::npos ? '"' : '\'';
-      std::string r(1, q);
-      for (char c : m) { if (c == '\\') r += "\\\\"; else if (c == q) { r += '\\'; r += c; } else r += c; }
-      m = r + q;
-    }
-    emit(Json{{"stage", "error"}, {"message", e.python_name() + ": " + m}});
-    return 1;
-  } catch (const std::exception& e) {
-    emit(Json{{"stage", "error"}, {"message", std::string("RuntimeError: ") + e.what()}});
-    return 1;
-  }
+  throw Usage("nxr-neuro: error: unknown command '" + cmd + "'");
 }
+
+
+void install_chunk_loop_defaults(const std::vector<std::string>& args) { chunk_loop_defaults(args); }
+
+int schema_version_for_version_flag() { return nxr::io::schema_version(); }

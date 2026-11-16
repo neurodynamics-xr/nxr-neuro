@@ -31,7 +31,7 @@ struct SpeedSpectrumOptions {
   std::optional<std::string> package;                     // the Hodge-Dirac package's stem; default: the one of the kernel's surface
   std::optional<std::int64_t> modes;                      // use the first N modes of the package (default: all)
   std::optional<std::string> name;                        // the stem of the names; default `<recording>_<kernel>_speedspectrum`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); default chunk 0 (chunks.h)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;

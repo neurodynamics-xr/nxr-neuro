@@ -48,7 +48,7 @@ struct HodgeSpectraRequest {
   std::string recording;
   std::optional<std::string> kernel, package;
   std::optional<std::int64_t> modes;
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); default chunk 0 (chunks.h)
+  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;

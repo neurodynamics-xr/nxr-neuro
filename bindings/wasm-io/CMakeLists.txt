@@ -8,10 +8,10 @@ target_link_options(nxr_io_wasm_smoke PRIVATE -sNODERAWFS=1 -sALLOW_MEMORY_GROWT
 # spec docs/specs/2026-11-11-wasm-io.md).
 # the COMMAND LINE itself (cli/: dataset · subject · surface · convert · read), compiled in unchanged — its `main` renamed — so the module runs `nxr-neuro <argv>`
 # in process: an import is the very `nxr-neuro convert …` the native command runs
-add_executable(nxr_io_wasm src/binding.cpp ${PROJECT_SOURCE_DIR}/cli/nxr_neuro.cpp ${PROJECT_SOURCE_DIR}/cli/read_command.cpp ${PROJECT_SOURCE_DIR}/cli/convert_command.cpp)
-set_source_files_properties(${PROJECT_SOURCE_DIR}/cli/nxr_neuro.cpp PROPERTIES COMPILE_DEFINITIONS "main=nxr_neuro_cli_main")
+add_executable(nxr_io_wasm src/binding.cpp ${PROJECT_SOURCE_DIR}/cli/main.cpp ${PROJECT_SOURCE_DIR}/cli/registry.cpp ${PROJECT_SOURCE_DIR}/cli/output.cpp ${PROJECT_SOURCE_DIR}/cli/command_table.cpp ${PROJECT_SOURCE_DIR}/cli/nxr_neuro.cpp ${PROJECT_SOURCE_DIR}/cli/read_command.cpp ${PROJECT_SOURCE_DIR}/cli/convert_command.cpp)
+set_source_files_properties(${PROJECT_SOURCE_DIR}/cli/main.cpp PROPERTIES COMPILE_DEFINITIONS "main=nxr_neuro_cli_main")
 target_compile_definitions(nxr_io_wasm PRIVATE NXR_NEURO_VERSION="${PROJECT_VERSION}")
-target_include_directories(nxr_io_wasm PRIVATE ${PROJECT_SOURCE_DIR}/cli)
+target_include_directories(nxr_io_wasm PRIVATE ${PROJECT_SOURCE_DIR}/cli ${PROJECT_SOURCE_DIR}/cli/extern)
 set_target_properties(nxr_io_wasm PROPERTIES OUTPUT_NAME nxr_io SUFFIX ".mjs")
 if(TARGET nxr_pipelines)   # compute, meeg and the pipelines: the command line's analysis verbs too (eigen solve, headmodel, noisecov, inverse, psd, filters, flow)
   target_link_libraries(nxr_io_wasm PRIVATE nxr_pipelines)
