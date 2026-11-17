@@ -7,8 +7,8 @@
 //             lo = hi · 1e-6 (`logBinsFor`). Values above hi are clipped to hi (they land in the top bin), as the reference does.
 //   the index b = min(floor(ln(a / lo) · sc) + 1, bins − 1), sc = (bins − 1) / ln(hi / lo), with the reference's precision under NumPy 2 (a / lo and
 //             the log in float32, × sc and the floor in float64), so a value lands in the reference's bin.
-//   fold      counts per TILE of `width` samples (`tiles` of them, from the block's first sample), pooled over the rows (the reference pools |curl| over
-//             every vertex): ADDITIVE, so a tile read chunk by chunk is the sum of its parts, and any run of tiles (the whole recording) is the sum of theirs.
+//   fold      counts per TILE (`measurement::Histogram`, estimate.h: ADDITIVE, so a tile read chunk by chunk is the sum of its parts, and any run of tiles is the sum of theirs); the reference
+//             pools |curl| over every vertex.
 //   read      percentile(p): the reference's `np.geomspace(lo, hi, bins)[searchsorted(cdf, p / 100)]`, the UPPER edge of the first bin whose cumulative
 //             share reaches p (exact to one bin: a relative width of ln(10⁶)/4095 ≈ 0.34 %); median = percentile(50); mad = the median of |x − median|
 //             with each bin's mass at its upper edge (the same edges), exact to one bin.
@@ -33,14 +33,12 @@ int binOf(const LogBins& b, float value);
 /** the upper edge of bin k: lo · r^k (bin 0's is lo) — `np.geomspace(lo, hi, bins)[k]` */
 double upperEdge(const LogBins& b, int k);
 
+/** the counts per tile (one `measurement::Histogram` a tile, estimate.h, stacked): the distribution is counted by `nxr::measurement::Histogram::add`, not here */
 struct Counts {
   std::vector<std::int64_t> counts;     // [tiles x bins], row-major
   std::vector<std::int64_t> negative, nonfinite;   // [tiles] values left out
   int tiles = 0, bins = 0;
 };
-/** the counts per tile of `width` samples of a [rows x samples] block (row-major float32), pooled over the rows */
-Counts histogramTiles(const float* values, std::size_t rows, std::size_t samples, std::size_t width, std::size_t tiles, const LogBins& b);
-
 /** the sum of tiles' counts (a run of tiles: their distribution) [bins] */
 std::vector<std::int64_t> sumTiles(const Counts& c, int first, int last);
 /** the p-th percentile (0 < p ≤ 100) of a distribution [bins] (std::invalid_argument when it is empty) */

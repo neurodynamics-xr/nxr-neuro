@@ -113,8 +113,6 @@ add_library(nxr_compute STATIC
   src/fft.cpp
   src/filterbank.cpp
   src/frame_tiling.cpp
-  src/tower.cpp
-  src/frame_grid.cpp
   src/pyramid.cpp
   src/parallel.cpp
   src/integrals.cpp
@@ -141,7 +139,6 @@ add_library(nxr_compute STATIC
   src/selection_constant_q.cpp
   src/selection_resolved.cpp
   src/selection_grid.cpp
-  src/partition.cpp
   src/measurement_measures.cpp
   src/measurement_reduce.cpp
   src/measurement_roll_up.cpp
@@ -177,8 +174,7 @@ target_compile_features(nxr_compute PUBLIC cxx_std_17)
 # ladder.cpp is a port of the Studio's ladder.ts (no FMA in JavaScript): contraction off, so areas, distances and the equal-mass cuts tie as they do there
 set_source_files_properties(src/ladder.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 set_source_files_properties(src/selection_dyadic.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")   # the Studio's ladder.ts, moved here
-# partition.cpp is a port of the Studio's measureOverPartition (no FMA in JavaScript): contraction off, so its sums equal the Studio's to the last bit
-set_source_files_properties(src/partition.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+# measurement_measures.cpp / measurement_reduce.cpp are the Studio's measureOverPartition (no FMA in JavaScript): contraction off, so the sums equal the Studio's to the last bit
 set_source_files_properties(src/measurement_measures.cpp src/measurement_reduce.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")   # the same arithmetic, moved into the measurement module
 set_source_files_properties(src/taps.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")    # nxr's taps.py (numpy: no FMA)
 set_source_files_properties(src/forms.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")   # a port of the Studio's fieldForms.ts / faceGradient.ts (no FMA in JavaScript)
@@ -558,10 +554,6 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     target_link_libraries(test_hat PRIVATE nxr_compute)
     target_compile_definitions(test_hat PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
     add_test(NAME test_hat COMMAND test_hat)
-    add_executable(test_tower test/test_tower.cpp)
-    target_link_libraries(test_tower PRIVATE nxr_compute)
-    target_compile_definitions(test_tower PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
-    add_test(NAME test_tower COMMAND test_tower)
     add_executable(test_pyramid test/test_pyramid.cpp)
     target_link_libraries(test_pyramid PRIVATE nxr_compute)
     target_compile_definitions(test_pyramid PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")

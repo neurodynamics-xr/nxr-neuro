@@ -8,6 +8,7 @@
 namespace nxr::welch {
 
 using Eigen::MatrixXd;
+using Eigen::MatrixXcd;
 using Eigen::VectorXd;
 static constexpr double kPi = 3.14159265358979323846;
 
@@ -133,7 +134,6 @@ Welch::Welch(int channels, const WelchOptions& options) : opt_(options), n_(opti
     winSumSquares_ = win_.squaredNorm();
     winSum_ = win_.sum();
     buf_.resize(channels, 0);
-    sum_ = MatrixXd::Zero(channels, static_cast<Eigen::Index>(fft::rfftBins(n_)));
 }
 
 void Welch::add(const MatrixXd& chunk) { add(chunk, std::vector<std::uint8_t>(static_cast<std::size_t>(chunk.cols()), 1)); }
@@ -156,7 +156,9 @@ void Welch::consume() {
     std::size_t start = 0;
     std::vector<double> seg(static_cast<std::size_t>(C) * n_);
     std::vector<fft::cd> spec(static_cast<std::size_t>(C) * bins);
+    MatrixXd power(C, static_cast<Eigen::Index>(bins));
     while (start + n_ <= carried_) {
+        const std::int64_t id = (dropped_ + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(hop_);   // the segment's number on the stream
         bool ok = true;
         for (std::size_t j = start; j < start + n_ && ok; ++j) ok = bufGood_[j] != 0;
         if (ok) {
@@ -167,13 +169,16 @@ void Welch::consume() {
             }
             fft::r2c(seg.data(), spec.data(), {static_cast<std::size_t>(C), n_}, 1);
             for (Eigen::Index c = 0; c < C; ++c)
-                for (std::size_t k = 0; k < bins; ++k) sum_(c, static_cast<Eigen::Index>(k)) += std::norm(spec[static_cast<std::size_t>(c) * bins + k]);
+                for (std::size_t k = 0; k < bins; ++k) power(c, static_cast<Eigen::Index>(k)) = std::norm(spec[static_cast<std::size_t>(c) * bins + k]);
+            mean_.add_real(id, power);
             ++segments_;
         } else {
+            mean_.skip(id);
             ++skipped_;
         }
         start += hop_;
     }
+    dropped_ += static_cast<std::int64_t>(start);
     // keep from `start` on (a segment that has not fit yet begins there)
     const std::size_t keep = carried_ > start ? carried_ - start : 0;
     if (start > 0 && keep > 0) {
@@ -200,7 +205,7 @@ WelchResult Welch::result() const {
         case Scaling::Spectrum: scale = 1.0 / (winSum_ * winSum_); break;
         case Scaling::Chain: scale = 1.0 / (static_cast<double>(n_) * winSumSquares_); break;
     }
-    r.psd = sum_ * (scale / static_cast<double>(segments_));
+    r.psd = mean_.sum().real() * (scale / static_cast<double>(segments_));
     const std::size_t last = (n_ % 2 == 0) ? bins - 1 : bins;   // doubled: 1 .. last - 1 (an even n keeps Nyquist single)
     for (std::size_t k = 1; k < last; ++k) r.psd.col(static_cast<Eigen::Index>(k)) *= 2.0;
     return r;
@@ -254,7 +259,6 @@ ComplexWelch::ComplexWelch(int series, const WelchOptions& options) : opt_(optio
     winSumSquares_ = win_.squaredNorm();
     winSum_ = win_.sum();
     buf_.resize(series, 0);
-    sum_ = MatrixXd::Zero(series, static_cast<Eigen::Index>(n_));
 }
 
 void ComplexWelch::add(const Eigen::MatrixXcd& chunk) { add(chunk, std::vector<std::uint8_t>(static_cast<std::size_t>(chunk.cols()), 1)); }
@@ -275,7 +279,9 @@ void ComplexWelch::consume() {
     const Eigen::Index S = buf_.rows();
     std::size_t start = 0;
     std::vector<fft::cd> seg(static_cast<std::size_t>(S) * n_), spec(static_cast<std::size_t>(S) * n_);
+    MatrixXd power(S, static_cast<Eigen::Index>(n_));
     while (start + n_ <= carried_) {
+        const std::int64_t id = (dropped_ + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(hop_);   // the segment's number on the stream
         bool ok = true;
         for (std::size_t j = start; j < start + n_ && ok; ++j) ok = bufGood_[j] != 0;
         if (ok) {
@@ -286,13 +292,16 @@ void ComplexWelch::consume() {
             }
             fft::c2c(seg.data(), spec.data(), {static_cast<std::size_t>(S), n_}, 1, true);
             for (Eigen::Index c = 0; c < S; ++c)
-                for (std::size_t k = 0; k < n_; ++k) sum_(c, static_cast<Eigen::Index>(k)) += std::norm(spec[static_cast<std::size_t>(c) * n_ + k]);
+                for (std::size_t k = 0; k < n_; ++k) power(c, static_cast<Eigen::Index>(k)) = std::norm(spec[static_cast<std::size_t>(c) * n_ + k]);
+            mean_.add_real(id, power);
             ++segments_;
         } else {
+            mean_.skip(id);
             ++skipped_;
         }
         start += hop_;
     }
+    dropped_ += static_cast<std::int64_t>(start);
     const std::size_t keep = carried_ > start ? carried_ - start : 0;
     if (start > 0 && keep > 0) {
         buf_.leftCols(static_cast<Eigen::Index>(keep)) = buf_.middleCols(static_cast<Eigen::Index>(start), static_cast<Eigen::Index>(keep)).eval();
@@ -318,7 +327,7 @@ ComplexWelchResult ComplexWelch::result() const {
         case Scaling::Chain: scale = 1.0 / (static_cast<double>(n_) * winSumSquares_); break;
     }
     const std::size_t neg = n_ / 2;   // ascending: the DFT's bins neg-from-the-end first
-    for (std::size_t k = 0; k < n_; ++k) r.psd.col(static_cast<Eigen::Index>(k)) = sum_.col(static_cast<Eigen::Index>((k + n_ - neg) % n_)) * (scale / static_cast<double>(segments_));
+    for (std::size_t k = 0; k < n_; ++k) r.psd.col(static_cast<Eigen::Index>(k)) = mean_.sum().real().col(static_cast<Eigen::Index>((k + n_ - neg) % n_)) * (scale / static_cast<double>(segments_));
     return r;
 }
 
@@ -344,8 +353,7 @@ CrossWelch::CrossWelch(int channels, const WelchOptions& options, const std::vec
     winSumSquares_ = win_.squaredNorm();
     winSum_ = win_.sum();
     buf_.resize(channels, 0);
-    sum_.assign(groups_.size(), MatrixXd::Zero(channels, channels));
-    if (quadrature_) sumIm_.assign(groups_.size(), MatrixXd::Zero(channels, channels));
+    mean_.assign(groups_.size(), measurement::SegmentMean());
 }
 
 void CrossWelch::add(const MatrixXd& chunk) { add(chunk, std::vector<std::uint8_t>(static_cast<std::size_t>(chunk.cols()), 1)); }
@@ -370,6 +378,7 @@ void CrossWelch::consume() {
     std::vector<double> seg(static_cast<std::size_t>(C) * n_);
     std::vector<fft::cd> spec(static_cast<std::size_t>(C) * bins);
     while (start + n_ <= carried_) {
+        const std::int64_t id = (dropped_ + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(hop_);   // the segment's number on the stream
         bool ok = true;
         for (std::size_t j = start; j < start + n_ && ok; ++j) ok = bufGood_[j] != 0;
         if (ok) {
@@ -391,15 +400,20 @@ void CrossWelch::consume() {
                         A(c, static_cast<Eigen::Index>(k)) = w * v.real();
                         B(c, static_cast<Eigen::Index>(k)) = w * v.imag();
                     }
-                sum_[g].noalias() += A * A.transpose() + B * B.transpose();
-                if (quadrature_) sumIm_[g].noalias() += B * A.transpose() - A * B.transpose();   // Im(X X^H)
+                MatrixXcd value(C, C);                                                        // the segment's quantity: Re in the real part, Im (the quadrature) in the imaginary part
+                value.real() = A * A.transpose() + B * B.transpose();
+                if (quadrature_) value.imag() = B * A.transpose() - A * B.transpose();         // Im(X X^H)
+                else value.imag().setZero();
+                mean_[g].add(id, value);
             }
             ++segments_;
         } else {
+            for (auto& m : mean_) m.skip(id);
             ++skipped_;
         }
         start += hop_;
     }
+    dropped_ += static_cast<std::int64_t>(start);
     const std::size_t keep = carried_ > start ? carried_ - start : 0;
     if (start > 0 && keep > 0) {
         buf_.leftCols(static_cast<Eigen::Index>(keep)) = buf_.middleCols(static_cast<Eigen::Index>(start), static_cast<Eigen::Index>(keep)).eval();
@@ -428,8 +442,8 @@ CrossWelchResult CrossWelch::result() const {
     }
     for (std::size_t g = 0; g < groups_.size(); ++g) {
         const double nk = groups_[g].mean ? static_cast<double>(groups_[g].last - groups_[g].first + 1) : 1.0;
-        r.S[g] = sum_[g] * (scale / (static_cast<double>(segments_) * nk));
-        if (quadrature_) r.Sq[g] = sumIm_[g] * (scale / (static_cast<double>(segments_) * nk));
+        r.S[g] = mean_[g].sum().real() * (scale / (static_cast<double>(segments_) * nk));
+        if (quadrature_) r.Sq[g] = mean_[g].sum().imag() * (scale / (static_cast<double>(segments_) * nk));
     }
     return r;
 }
@@ -450,7 +464,7 @@ LinearWelch::LinearWelch(const MatrixXd& map, std::size_t rowsPerOutput, const W
     winSumSquares_ = win_.squaredNorm();
     winSum_ = win_.sum();
     buf_.resize(map.cols(), 0);
-    sum_ = MatrixXd::Zero(map.rows() / static_cast<Eigen::Index>(group_), static_cast<Eigen::Index>(last_ - first_ + 1));
+    outputs_ = map.rows() / static_cast<Eigen::Index>(group_);
 }
 
 void LinearWelch::add(const MatrixXd& chunk) { add(chunk, std::vector<std::uint8_t>(static_cast<std::size_t>(chunk.cols()), 1)); }
@@ -478,6 +492,7 @@ void LinearWelch::consume() {
     std::vector<fft::cd> spec(static_cast<std::size_t>(C) * bins);
     MatrixXd A(C, nk), B(C, nk);
     while (start + n_ <= carried_) {
+        const std::int64_t id = (dropped_ + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(hop_);   // the segment's number on the stream
         bool ok = true;
         for (std::size_t j = start; j < start + n_ && ok; ++j) ok = bufGood_[j] != 0;
         if (ok) {
@@ -496,20 +511,24 @@ void LinearWelch::consume() {
                     A(c, k) = w * v.real();
                     B(c, k) = w * v.imag();
                 }
-            // |M X|^2 = (M A)^2 + (M B)^2 per row and bin, a block of rows at a time, the group's rows summed
+            // |M X|^2 = (M A)^2 + (M B)^2 per row and bin, a block of rows at a time, the group's rows summed: the segment's quantity
+            MatrixXd segment = MatrixXd::Zero(outputs_, nk);
             for (Eigen::Index r0 = 0; r0 < map_.rows(); r0 += blockRows) {
                 const Eigen::Index nr = std::min(blockRows, map_.rows() - r0);
                 const MatrixXd P = (map_.middleRows(r0, nr) * A).array().square() + (map_.middleRows(r0, nr) * B).array().square();
                 const Eigen::Index o0 = r0 / static_cast<Eigen::Index>(group_);
                 for (Eigen::Index o = 0; o < nr / static_cast<Eigen::Index>(group_); ++o)
-                    for (std::size_t g = 0; g < group_; ++g) sum_.row(o0 + o) += P.row(o * static_cast<Eigen::Index>(group_) + static_cast<Eigen::Index>(g));
+                    for (std::size_t g = 0; g < group_; ++g) segment.row(o0 + o) += P.row(o * static_cast<Eigen::Index>(group_) + static_cast<Eigen::Index>(g));
             }
+            mean_.add_real(id, segment);
             ++segments_;
         } else {
+            mean_.skip(id);
             ++skipped_;
         }
         start += hop_;
     }
+    dropped_ += static_cast<std::int64_t>(start);
     const std::size_t keep = carried_ > start ? carried_ - start : 0;
     if (start > 0 && keep > 0) {
         buf_.leftCols(static_cast<Eigen::Index>(keep)) = buf_.middleCols(static_cast<Eigen::Index>(start), static_cast<Eigen::Index>(keep)).eval();
@@ -527,7 +546,7 @@ LinearWelchResult LinearWelch::result() const {
     r.frequencies = all.segment(static_cast<Eigen::Index>(first_), static_cast<Eigen::Index>(last_ - first_ + 1));
     r.segments = segments_;
     r.segmentsSkipped = skipped_;
-    r.psd = MatrixXd::Zero(sum_.rows(), sum_.cols());
+    r.psd = MatrixXd::Zero(outputs_, static_cast<Eigen::Index>(last_ - first_ + 1));
     if (segments_ == 0) return r;
     double scale = 0;
     switch (opt_.scaling) {
@@ -535,7 +554,7 @@ LinearWelchResult LinearWelch::result() const {
         case Scaling::Spectrum: scale = 1.0 / (winSum_ * winSum_); break;
         case Scaling::Chain: scale = 1.0 / (static_cast<double>(n_) * winSumSquares_); break;
     }
-    r.psd = sum_ * (scale / static_cast<double>(segments_));
+    r.psd = mean_.sum().real() * (scale / static_cast<double>(segments_));
     return r;
 }
 

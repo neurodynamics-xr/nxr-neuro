@@ -1,7 +1,7 @@
 #pragma once
 // nxr::lag — DIAGNOSING LAGS: how big a lag is against its own noise, where the lags of a graph fail to close, at which distance they are measured, and
 // a surrogate that destroys them. PURE MATHS (arrays in, arrays out). The lags themselves come from a cross-spectrum at pairs (S_uv = ⟨z_u z̄_v⟩: from
-// `partition::crossSpectrum` in sensor space and `algebra::congruence` K C Kᵀ at the pairs, or in mode space through `filterbank::bandMoments`).
+// `measurement::reduce` of the outer form in sensor space and `algebra::congruence` K C Kᵀ at the pairs, or in mode space through `filterbank::bandMoments`).
 //
 //   lagStatistics(S, Pu, Pv, n)      per pair: the lag θ = arg S_uv (rad), the coherence |γ| = |S_uv| / √(P_u P_v), its STANDARD ERROR
 //                                    se(θ) ≈ √((1 − |γ|²) / (2 n |γ|²)) (Bendat & Piersol: n independent complex estimates averaged) and the ratio |θ| / se,
@@ -12,7 +12,7 @@
 //                                    is a field's).
 //   pairsAtDistance(P, edges, d, …)  pairs of vertices at a distance d (± tolerance): straight-line, or along the graph's edges (Dijkstra, bounded); at most
 //                                    `perVertex` a vertex, evenly spread (deterministic); their distances. The pairs a lag-against-distance is read at;
-//                                    its summary is a measurement over distance bins (partition::accumulate), not a function here.
+//                                    its summary is a measurement over distance bins (`measurement::reduce`), not a function here.
 //   circularShift(Z, shifts)         each row of Z rotated by its own shift (within the block): each channel's spectrum kept exactly, the lags between
 //                                    channels destroyed: the time-shift SURROGATE of a null. The draw of the shifts is the caller's.
 #include <Eigen/Dense>

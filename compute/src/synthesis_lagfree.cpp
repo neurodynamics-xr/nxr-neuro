@@ -104,18 +104,6 @@ Eigen::MatrixXd lagfreeBlock(const Eigen::MatrixXd& mixing, const Eigen::VectorX
   return mixing * shapedNoiseBlock(taps, seed, static_cast<int>(mixing.rows()), first, n, scale);
 }
 
-Eigen::VectorXd channelMeanSpectrum(const std::vector<double>& values, std::int64_t frequencies, const std::vector<std::int32_t>& channels) {
-  if (frequencies < 1 || channels.empty()) throw std::invalid_argument("channelMeanSpectrum: at least one frequency and one channel");
-  if (values.size() % static_cast<std::size_t>(frequencies) != 0) throw std::invalid_argument("channelMeanSpectrum: the values are not [channels x frequencies]");
-  const std::int64_t rows = static_cast<std::int64_t>(values.size()) / frequencies;
-  Eigen::VectorXd out = Eigen::VectorXd::Zero(frequencies);
-  for (const std::int32_t ch : channels) {
-    if (ch < 0 || ch >= rows) throw std::invalid_argument("channelMeanSpectrum: the spectrum has no channel " + std::to_string(ch));
-    for (std::int64_t k = 0; k < frequencies; ++k) out[k] += values[static_cast<std::size_t>(ch * frequencies + k)];
-  }
-  return out / static_cast<double>(channels.size());
-}
-
 double analyticGainPower(const Eigen::VectorXd& freq, const Eigen::VectorXd& psd, const Eigen::VectorXd& gain) {
   if (freq.size() != psd.size() || gain.size() != psd.size() || psd.size() < 2) throw std::invalid_argument("analyticGainPower: freq, psd and gain of one length >= 2");
   const Eigen::Index nf = psd.size();

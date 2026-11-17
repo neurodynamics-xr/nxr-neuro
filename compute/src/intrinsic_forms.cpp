@@ -178,24 +178,21 @@ MatrixXd vertexDensity(const Complex& c, const MatrixXd& sigma) {
     return out;
 }
 
-VectorXd tileFlux(const Complex& c, const VectorXd& u, const std::int32_t* codes, int nCodes) {
-  if (u.size() != c.nE) throw std::invalid_argument("tileFlux: u has one value an intrinsic edge");
-  const VectorXd d = c.d0.transpose() * (c.star1.asDiagonal() * u);          // −(divergence × mass) at each vertex
-  VectorXd out = VectorXd::Zero(nCodes);
-  for (int v = 0; v < c.nV; ++v) if (codes[v] >= 0 && codes[v] < nCodes) out(codes[v]) -= d(v);
-  return out;
+VectorXd vertexOutflow(const Complex& c, const VectorXd& u) {
+  if (u.size() != c.nE) throw std::invalid_argument("vertexOutflow: u has one value an intrinsic edge");
+  return -(c.d0.transpose() * (c.star1.asDiagonal() * u));                    // the outflow of each vertex's region (the divergence times mass, negated)
 }
 
-VectorXd tileCirculation(const Complex& c, const VectorXd& w, const std::int32_t* codes, int nCodes) {
-  if (w.size() != c.nE) throw std::invalid_argument("tileCirculation: w has one value an intrinsic edge");
+VectorXd vertexCirculation(const Complex& c, const VectorXd& w) {
+  if (w.size() != c.nE) throw std::invalid_argument("vertexCirculation: w has one value an intrinsic edge");
   const VectorXd curl = c.d1 * w;                                            // each face's circulation
-  VectorXd out = VectorXd::Zero(nCodes);
+  VectorXd out = VectorXd::Zero(c.nV);
   const Eigen::SparseMatrix<double, Eigen::RowMajor> D1(c.d1);
   for (int f = 0; f < c.nF; ++f) {
     std::vector<int> vs;
     for (Eigen::SparseMatrix<double, Eigen::RowMajor>::InnerIterator it(D1, f); it; ++it)
       for (int end = 0; end < 2; ++end) { const int v = c.edges[static_cast<std::size_t>(2 * it.col() + end)]; bool seen = false; for (int x : vs) seen |= x == v; if (!seen) vs.push_back(v); }
-    for (int v : vs) if (codes[v] >= 0 && codes[v] < nCodes) out(codes[v]) += curl(f) / static_cast<double>(vs.size());
+    for (int v : vs) out(v) += curl(f) / static_cast<double>(vs.size());
   }
   return out;
 }
