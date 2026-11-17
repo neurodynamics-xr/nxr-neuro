@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 #include "nxr/io/errors.h"
+#include "nxr/selection/time_partition.h"
 #include "nxr/io/writer.h"
 
 namespace nxr::io::constantq {
@@ -97,17 +98,18 @@ Tiling constantQTiling(double sfreq, std::int64_t samples, double origin, const 
   const double fMax = std::min(p.fMax.value_or(aFMax), nyquist);
   if (!(fMax > 0)) throw Error(code::invalid_argument, "constantQ: fMax must be > 0");
   const double fMin = std::max(p.fMin.value_or(t.method == Method::Hertz ? kFloorHz : 0.0), 0.0);
+  // THE BANDS: the selection module's time partition (one design of constant-Q, nxr/selection/time_partition.h); this adds what the stored rows record of each
   const double w = 1.0 / t.voices, q = 1.0 / (std::pow(2.0, w / 2) - std::pow(2.0, -w / 2)), dt = 1.0 / sfreq;
-  for (int k = 0;; ++k) {
-    const double hi = fMax * std::pow(2.0, -static_cast<double>(k) / t.voices);
-    const double lo = fMax * std::pow(2.0, -static_cast<double>(k + 1) / t.voices);
-    if (lo < fMin) break;
-    const double window = pow2ceil(t.cycles * sfreq / lo);
-    if (window > static_cast<double>(samples)) break;
+  nxr::selection::ConstantQ cq;
+  cq.method = methodName(t.method); cq.voices = t.voices; cq.cycles = t.cycles; cq.f_max = fMax; cq.f_min = fMin;
+  nxr::selection::TimePartition part;
+  try { part = nxr::selection::time_partition(samples, sfreq, cq); } catch (const std::invalid_argument& e) { throw Error(code::invalid_argument, std::string("constantQ: ") + e.what()); }
+  for (std::size_t k = 0; k < part.bands.size(); ++k) {
+    const auto& pb = part.bands[k];
     Band b;
-    b.ordinal = k; b.octave = k / t.voices; b.voice = k % t.voices;
-    b.lo_hz = lo; b.hi_hz = hi; b.centre_hz = std::sqrt(lo * hi); b.q = q;
-    b.window_samples = static_cast<std::int64_t>(window); b.window_s = window * dt; b.hop_samples = b.window_samples;
+    b.ordinal = static_cast<int>(k); b.octave = b.ordinal / t.voices; b.voice = b.ordinal % t.voices;
+    b.lo_hz = pb.lo_hz; b.hi_hz = pb.hi_hz; b.centre_hz = std::sqrt(pb.lo_hz * pb.hi_hz); b.q = q;
+    b.window_samples = std::int64_t(1) << pb.k; b.window_s = static_cast<double>(b.window_samples) * dt; b.hop_samples = b.window_samples;
     b.count = (samples + b.window_samples - 1) / b.window_samples;
     t.bands.push_back(b);
   }

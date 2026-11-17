@@ -135,7 +135,7 @@ if(NXR_IO_WASM)
   target_include_directories(nxr_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
   target_compile_definitions(nxr_sqlite3 PRIVATE SQLITE_THREADSAFE=0 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_ENABLE_MATH_FUNCTIONS=1 SQLITE_DEFAULT_FOREIGN_KEYS=0)
   target_compile_options(nxr_sqlite3 PRIVATE -w -fwasm-exceptions)
-  target_link_libraries(nxr_io PUBLIC nxr_io_formats nlohmann_json nxr_sqlite3 PRIVATE blosc_static matio)
+  target_link_libraries(nxr_io PUBLIC nxr_io_formats nxr_selection nlohmann_json nxr_sqlite3 PRIVATE blosc_static matio)
   return()
 endif()
 
@@ -326,7 +326,7 @@ set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # ra
 target_include_directories(nxr_io
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
   PRIVATE ${ZSTD_INCLUDE_DIR} ${c-blosc_SOURCE_DIR}/blosc)
-target_link_libraries(nxr_io PUBLIC nxr_io_formats nlohmann_json SQLite3::SQLite3 ZLIB::ZLIB PRIVATE ${ZSTD_LIBRARY} blosc_static matio)
+target_link_libraries(nxr_io PUBLIC nxr_io_formats nxr_selection nlohmann_json SQLite3::SQLite3 ZLIB::ZLIB PRIVATE ${ZSTD_LIBRARY} blosc_static matio)
 if(MSVC)
   target_compile_options(nxr_io PRIVATE /W4)
 else()

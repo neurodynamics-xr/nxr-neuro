@@ -70,8 +70,12 @@ What the old words become:
 | parcellation, flags, channel names | a partition array with a dictionary |
 
 THE MODULE (decided 2026-11-17): selections and partitions of manifolds are their own library, `selection/` (`nxr_selection`, namespace `nxr::selection`),
-below io and compute, which both call on it; it depends on neither. Order: time partitions first (the grid of 2^k samples under the chunk grid, the
-constant-Q levels and the frames: `selection/include/nxr/selection/grid.h`), then the surface (dyadic tiles, Weyl), then the joint case (the product).
+below io and compute, which both call on it; it depends on neither. Order: time partitions first, then the surface (dyadic tiles, Weyl), then the joint case (the product).
+
+THE TIME PARTITION (`selection/include/nxr/selection/time_partition.h`): `time_partition(samples, sfreq, ConstantQ)` gives a recording's levels, each the
+partition of its samples into tiles of 2^k samples from the first sample (a tile by arithmetic, j = sample >> k), named by k, and the band each level
+resolves; constant-Q chooses which k exist (the levels its bands need). The chunk grid and a constant-Q level are the same partition at their k; other
+methods come later as options of the same function. io's constant-Q writer takes its bands from it.
 
 Layers around it: io (CRUD and resolution); compute (pure makers and reducers: tiling arithmetic, the dyadic ladder, product codes, geodesic discs and kernels by
 heat distance, log-map boxes, set combinators, reductions); pipelines (`select.<type>` makers, `measure.over`, the YAML keys `at`, `over`, `within`); the
