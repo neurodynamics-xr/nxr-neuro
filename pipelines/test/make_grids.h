@@ -9,6 +9,7 @@
 #include <Eigen/Dense>
 
 #include "nxr/io/array_reader.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/io/writer.h"
 #include "nxr/pipelines/definition.h"
 #include "nxr/pipelines/input.h"

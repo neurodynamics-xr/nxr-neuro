@@ -169,6 +169,6 @@ int main() {
     CHECK(refused([&] { nm::roll_values(registry, "median", va, nullptr, groups_of(8, 1, false)); }));
   }
   std::printf("  io SQL roll-up and compute roll_values agree on %d values (sum, max, min, weighted mean; levels, the whole, across subjects)\n", compared);
-  CHECK(compared == static_cast<int>(measures.size()) * (15 + 1 + 8)   // 8 + 4 + 2 + 1 members up the levels, the whole, 8 across);
+  CHECK(compared == static_cast<int>(measures.size()) * (15 + 1 + 8));   // 8 + 4 + 2 + 1 members up the levels, the whole, 8 across
   return nxrtest::finish("test_rollup_parity");
 }

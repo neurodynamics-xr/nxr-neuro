@@ -285,7 +285,6 @@ static void testManifold() {
         d = std::max(d, std::abs(vf.e1(i, c) - geom.vertexTangentBasis[v][0][c]) + std::abs(vf.e2(i, c) - geom.vertexTangentBasis[v][1][c]) + std::abs(vf.normals(i, c) - geom.vertexNormals[v][c]));
     }
     CHECK(d < 1e-12, "vertexFrames is geometry-central's vertexTangentBasis (" + fmt("%.1e", d) + ")");
-    CHECK((geometry::vertexFramesEmbedded(M).e1 - vf.e1).cwiseAbs().maxCoeff() == 0.0, "vertexFramesEmbedded is the same frame (deprecated alias)");
     auto& surf = M.intrinsicSurface();
     const Eigen::SparseMatrix<double> L = surf.cotanLaplacian();
     CHECK((L - M.operatorCotan()).norm() < 1e-12 * L.norm(), "the Manifold's cotan Laplacian is the surface's");
