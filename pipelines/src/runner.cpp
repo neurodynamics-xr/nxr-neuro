@@ -18,7 +18,9 @@
 #include "nxr/io/hash.h"
 #include "nxr/io/layout.h"
 #include "nxr/pipelines/cache.h"
-#include "nxr/pipelines/dispatch.h"
+#include "nxr/graph/execution.h"
+#include "nxr/pipelines/step_nodes.h"
+#include "nxr/pipelines/spatial_band.h"
 #include "nxr/pipelines/reading.h"
 
 #include "nxr/io/finder.h"
@@ -95,39 +97,50 @@ std::string Plan::text(const nxr::io::Database& db) const {
 }
 
 Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id) {
-  Plan P{d, params, found, found, {}};
+  Plan P{d, params, found, found, {}, {}, {}};
   if (d.over && P.values.count(*d.over)) P.values[*d.over].chunked = true;
-  const Bound bound{task::Subject::of(db, subject_id)};
-  const PlanContext ctx{bound};
+  // THE GRAPH the executor checks: the definition's steps as uses of nodes, its found inputs as typed ports (the streamed one is the recording the loop walks), its outputs as the graph's.
+  // `with` is written out here ($names and nested ones replaced), so the executor sees values only; the parameters are the run's (defaults, then the caller's).
+  nxr::graph::Graph& g = P.graph;
+  g.name = d.name; g.version = d.version; g.text = d.text;
+  for (const auto& [k, v] : params.items()) g.parameters[k] = Json{{"default", v}, {"optional", v.is_null()}};   // the run's values; a null one (an optional bound) is "not given", read by the steps
+  for (const auto& [k, v] : P.values) { g.inputs.push_back(k); P.types[k] = port_of(v); }
+  for (const auto& [o, _] : d.outputs.items()) g.outputs.push_back(o);
+  std::set<std::string> defined;                                           // the inputs found, then what each step makes
+  for (const auto& [k, _] : P.values) defined.insert(k);
   for (const auto& use : d.uses()) {
     const StepSpec& st = step(use.step);
     const std::string w = "steps: " + st.name + " (" + label(use.section) + ")";
-    Values ins;
+    nxr::graph::Use u;
+    u.node = st.name;
     for (const auto& [port, thing] : use.ins.items()) {
       const std::string t = thing.get<std::string>();
-      if (P.values.count(t)) ins[port] = P.values.at(t);
+      if (defined.count(t)) u.in[port] = t;
       else if (std::find(st.optional.begin(), st.optional.end(), port) == st.optional.end())
         refuse(w + ": in." + port + " '" + t + "' is absent (an optional input the subject lacks), and the step needs it");
     }
-    if (use.section == "before" || use.section == "after")
-      for (const auto& [k, v] : ins) if (v.chunked) refuse(w + ": given recording data (" + k + "): only steps inside the chunk loop take it");
-    Json p = st.parameters;
-    for (const auto& [k, v] : use.with.items()) p[k] = with_value(v, params);
-    Values made;
-    try {
-      made = st.plan(ins, p, ctx);
-    } catch (const nxr::io::Error& e) {
-      refuse(w + ": " + e.what());
-    }
-    Planned pl{use, &st, p, {}, {}};
+    for (const auto& [k, v] : use.with.items()) u.with[k] = with_value(v, params);
+    u.out = use.outs;
+    for (const auto& o : use.outs) defined.insert(o);
+    (use.section == "before" ? g.before : use.section == "after" ? g.after : g.chunks).push_back(std::move(u));
+  }
+  // THE CHECK, on types, before any data: arrows, kinds by section, halo, retiming (the executor's). The steps read the subject's records through the plan's binding (nothing stored).
+  const Bound bound{task::Subject::of(db, subject_id)};
+  const auto binding = std::make_shared<Binding>();
+  binding->bound = &bound;
+  nxr::graph::Checked checked;
+  try {
+    checked = nxr::graph::check(g, P.types, Json::object(), node_registry(binding));
+  } catch (const std::invalid_argument& e) {
+    refuse(std::string("steps: ") + e.what());
+  }
+  for (const auto& [name, t] : checked.values) P.values[name] = value_of(t);
+  std::size_t at = 0;
+  for (const auto& use : d.uses()) {
+    const StepSpec& st = step(use.step);
+    Planned pl{use, &st, checked.nodes[at++].params, {}, {}};
     for (const auto& [port, thing] : use.ins.items()) pl.ins[port] = thing.get<std::string>();
-    for (std::size_t i = 0; i < st.outputs.size(); ++i) {
-      const std::string& name = use.outs[i];
-      const Value& v = made.at(st.outputs[i]);
-      if (use.section == "do" && st.kind == "accumulate" && v.chunked) refuse(w + ": an accumulate step's output '" + name + "' must leave the loop");
-      P.values[name] = v;
-      pl.outs[st.outputs[i]] = name;
-    }
+    for (std::size_t i = 0; i < st.outputs.size(); ++i) pl.outs[st.outputs[i]] = use.outs[i];
     P.steps.push_back(std::move(pl));
   }
   for (const auto& [o, spec] : d.outputs.items()) {
@@ -261,7 +274,7 @@ namespace {
 // PACKED: the measurements of one run over the SAME Selection with the same rows, members and counts share ONE array, each its own components in the order of the
 // definition's outputs, each measure's rows pointing at it with their `component` (the schema's array-backed rule). A tile not whole and good in the span is NaN.
 // `group` are the outputs packed together (in the definition's order); each result says its `array`, its first `component` and its `components`.
-std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, const Plan& P, const std::vector<std::string>& group, const std::map<std::string, Array>& data, const std::string& by, bool replace, bool& replaced) {
+std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, nxr::pipelines::task::Unit& unit, const Plan& P, const std::vector<std::string>& group, const std::map<std::string, Array>& data, const std::string& by, bool replace, bool& replaced) {
   const Definition& d = P.definition;
   const nxr::io::Row& rec = *P.found.at(*d.over).row;
   const std::string& o0 = group.front();
@@ -326,7 +339,7 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, const Plan& P,
     if (same) {
       keep_count = true;
       // a count row in the very array about to be rewritten is rewritten with it (its component may move)
-      if (text(*cr, "array_path") == path) { nxr::io::delete_measurements(sub.db(), Json{{"selectionId", sel}, {"ofFieldId", fid}, {"measure", "count"}}); keep_count = false; }
+      if (text(*cr, "array_path") == path) { unit.remove_measurements(sel, fid, "count"); keep_count = false; }
     } else {
       if (!replace) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + o0 + ": the stored measurements of this Selection and recording were made over another span (their counts differ); pass --replace to rewrite their count row");
       // another span: the count row is rewritten only when no other measure shares it (their counts would no longer match); they are never deleted here
@@ -340,14 +353,14 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, const Plan& P,
       for (const auto& r : sub.db().all("SELECT DISTINCT measure FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure <> 'count' ORDER BY measure", {V(sel), V(fid)}))
         if (!ours.count(text(r, "measure")) && std::find(names.begin(), names.end(), text(r, "measure")) == names.end()) others += (others.empty() ? "" : ", ") + text(r, "measure");
       if (!others.empty()) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + o0 + ": the measurements " + others + " of this Selection and recording were made over another span (their counts differ); recompute them over this span (with --replace) or remove them first");
-      nxr::io::delete_measurements(sub.db(), Json{{"selectionId", sel}, {"ofFieldId", fid}, {"measure", "count"}});
+      unit.remove_measurements(sel, fid, "count");
       count_replaced = true;
     }
   }
   for (const Part& p : parts) {
     if (measured_by(sub.db(), sel, P.values.at(p.o), fid).empty()) continue;
     if (!replace) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + p.o + ": its measurements already exist; pass --replace");
-    for (const auto& n : p.names) nxr::io::delete_measurements(sub.db(), Json{{"selectionId", sel}, {"ofFieldId", fid}, {"measure", n}});
+    for (const auto& n : p.names) unit.remove_measurements(sel, fid, n);
     replaced = true;
   }
   sub.write_array(path, nxr::io::view(arr, {R, T, CC + 1}));
@@ -363,7 +376,7 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, const Plan& P,
     }
   }
   if (!keep_count) rows.push_back(Json{{"selection_id", sel}, {"of_field_id", fid}, {"measure", "count"}, {"array_path", path}, {"component", CC}, {"computed_by", by}});
-  nxr::io::write_measurements(sub.db(), rows, by);
+  unit.write_measurements(rows);
   for (const Part& p : parts) {
     const Value& v = P.values.at(p.o);
     const Array& a = data.at(p.o);
@@ -375,7 +388,7 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, const Plan& P,
 // THE CROSSINGS OF THE TILES (step `tile_crossings`): ONE array [rows x members x 4] beside the recording, rows = stage x sense, members = the level's tiles then the `bridge`, components the vector sum (x y z) then the
 // crossings' count; four `selection_measurement` rows on the level (crossing_sum_x/y/z, crossings; of_field_id the recording). The count is the crossings, not a samples-per-member row: no `count` row is written.
 // R = |S| / n and the unbiased rho2 are derived at read.
-Json store_crossings(nxr::io::SubjectWriter& sub, const Plan& P, const std::string& o, const Value& v, const Array& a, const std::string& by, bool replace, bool& replaced) {
+Json store_crossings(nxr::io::SubjectWriter& sub, nxr::pipelines::task::Unit& unit, const Plan& P, const std::string& o, const Value& v, const Array& a, const std::string& by, bool replace, bool& replaced) {
   const Definition& d = P.definition;
   const nxr::io::Row& rec = *P.found.at(*d.over).row;
   const std::string sel = over_selection(sub, P, v), fid = text(rec, "id");
@@ -383,7 +396,7 @@ Json store_crossings(nxr::io::SubjectWriter& sub, const Plan& P, const std::stri
   if (a.comps != 4 || static_cast<std::int64_t>(a.data.size()) != a.rows * a.cols * 4) refuse("outputs." + o + ": the crossings' array is not [rows x members x 4]");
   if (!measured_by(sub.db(), sel, v, fid).empty()) {
     if (!replace) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + o + ": its measurements already exist; pass --replace");
-    for (const auto& n : names) nxr::io::delete_measurements(sub.db(), Json{{"selectionId", sel}, {"ofFieldId", fid}, {"measure", n}});
+    for (const auto& n : names) unit.remove_measurements(sel, fid, n);
     replaced = true;
   }
   const std::string path = text(rec, "path") + "_" + nxr::io::safe_name(d.name + "." + o);
@@ -395,7 +408,7 @@ Json store_crossings(nxr::io::SubjectWriter& sub, const Plan& P, const std::stri
   const std::string by_rows = by + " \xc2\xb7 stages " + stages;
   Json rows = Json::array();
   for (std::int64_t c = 0; c < 4; ++c) rows.push_back(Json{{"selection_id", sel}, {"of_field_id", fid}, {"measure", names[static_cast<std::size_t>(c)]}, {"array_path", path}, {"component", c}, {"computed_by", by_rows}});
-  nxr::io::write_measurements(sub.db(), rows, by_rows);
+  unit.write_measurements(rows);
   return Json{{"output", o}, {"measurement", "tile_crossings"}, {"over", v.facts["over"]["selection"]}, {"array", path}, {"rows", a.rows}, {"members", a.cols}, {"bridge_member", a.meta.value("bridge_member", Json())}, {"stages", a.meta["stages_used"]}};
 }
 // A SPAN SET OUTPUT, stored as the importer stores events (nxr::bst::time_spans, D143): a spans Selection on the recording's time line, a row per event
@@ -763,69 +776,44 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + o + " (" + path + ") already exists, made with other parameters, inputs or span; pass --replace");
     }
 
-  // BEFORE: each step's constants bound once (prepare), then the setup steps
+  // THE EXECUTOR (nxr_graph, pipelines/graph/) does every step: `before` once, each chunk through the chunk and accumulate steps with their state carried, `after` once. The runner finds
+  // (above), streams (io's chunk service, with the halo the checked graph declares) and stores (below); it holds no step logic.
   const Bound bound(sub, &ds, progress);
-  ExecContext ctx{bound, progress};
-  std::vector<std::any> states(P.steps.size());
-  for (std::size_t i = 0; i < P.steps.size(); ++i) {
-    const Planned& p = P.steps[i];
-    if (!p.step->prepare) continue;
-    Values ins;
-    for (const auto& [port, t] : p.ins) if (P.values.count(t)) ins[port] = P.values.at(t);
-    NodeCall call = NodeCall::prepare(ins, p.params, ctx);
-    dispatch(*p.step, call);
-    states[i] = std::move(call.made_state);
+  const auto binding = std::make_shared<Binding>();
+  binding->bound = &bound;
+  binding->say = progress;
+  nxr::graph::Checked checked;
+  try {
+    checked = nxr::graph::check(P.graph, P.types, Json::object(), node_registry(binding));
+  } catch (const std::invalid_argument& e) {
+    refuse(std::string("steps: ") + e.what());
   }
-  auto index_of = [&](const Planned* p) { return static_cast<std::size_t>(p - P.steps.data()); };
-  // what each step's preparation resolved (a degree chosen from a tolerance …): reported by the step (`record`), generic, into the provenance below
-  Json prepared = Json::object();
-  for (std::size_t i = 0; i < P.steps.size(); ++i)
-    if (P.steps[i].step->record && states[i].has_value()) prepared[P.steps[i].step->name + ":" + P.steps[i].use.outs.front()] = P.steps[i].step->record(states[i]);
-  // what a step's preparation did or fell back on (a spatial band's Chebyshev fallback, eigenmodes it computed) is said, and kept in the report and the provenance: never silent
-  Json warnings = Json::array(), messages = Json::array();
-  for (const auto& [k, rec] : prepared.items()) {
-    if (!rec.is_object()) continue;
-    const auto& sb = rec.contains("spatial_band") ? rec["spatial_band"] : rec;
-    auto once = [](Json& list, const Json& x) { for (const auto& y : list) if (y == x) return; list.push_back(x); };   // a level read by several bands is said once
-    if (sb.is_object() && sb.contains("warnings") && sb["warnings"].is_array()) for (const auto& w : sb["warnings"]) once(warnings, w);
-    if (sb.is_object() && sb.contains("messages") && sb["messages"].is_array()) for (const auto& m : sb["messages"]) once(messages, m);
-  }
-  Arrays data;
-  auto arrays_in = [&](const Planned& p) { Arrays a; for (const auto& [port, t] : p.ins) if (data.count(t)) a[port] = data.at(t); return a; };
-  // a setup or after node: arrays in, arrays out, through the one dispatch point
-  auto run_on_arrays = [&](const Planned* p) {
-    const Arrays ins = arrays_in(*p);
-    NodeCall call = NodeCall::run(states[index_of(p)], ins, ctx);
-    dispatch(*p->step, call);
-    for (auto& [k, v] : call.made_arrays) data[p->outs.at(k)] = std::move(v);
-  };
-  for (const Planned* p : P.section("before")) run_on_arrays(p);
-
-  // THE CHUNK LOOP: io's chunk service hands each chunk with the composed halo; the chunk steps run on it, the accumulate steps fold it
-  Json facts = Json::object();
-  if (!loop.empty()) {
-    std::vector<const Planned*> chunked;
-    for (const Planned* p : loop) if (p->step->kind == "chunk") chunked.push_back(p);
-    std::vector<std::int64_t> halos;
-    for (const Planned* p : chunked) halos.push_back(p->step->halo ? p->step->halo(states[index_of(p)]) : 0);
-    std::map<const Planned*, std::int64_t> keep;                             // the halo a step leaves for the chunk steps after it
-    std::int64_t H = 0;
-    for (std::size_t i = 0; i < chunked.size(); ++i) {
-      std::int64_t after = 0;
-      for (std::size_t j = i + 1; j < chunked.size(); ++j) after += halos[j];
-      keep[chunked[i]] = after;
-      H += halos[i];
+  nxr::graph::Arrays constants;                                            // a found input that is not streamed is a description the steps read through the binding: no array
+  for (const auto& name : checked.inputs)
+    if (!checked.values.at(name).streamed()) { nxr::graph::Array a; a.rows = 0; a.cols = 0; a.meta["placeholder"] = true; constants[name] = std::move(a); }
+  // EIGENMODES FIRST (the spec, question 6): when a step needs a surface's eigenmodes and none are stored, the runner runs the `eigenmodes` pipeline as its OWN run (its own provenance and
+  // cache key), says what it made and why, and starts again: nothing is ever stored hidden inside this run. The Chebyshev series stays the announced fallback (`transform: chebyshev`).
+  std::optional<nxr::graph::Execution> ex;
+  Json made_first = Json::array();
+  std::set<std::string> made_packages;
+  for (;;) {
+    try {
+      ex.emplace(checked, constants, nxr::graph::DispatchContext{}, nxr::graph::Blocking{opt.block_samples, opt.block_frames});
+      break;
+    } catch (const MissingEigenmodes& m) {
+      if (!made_packages.insert(m.plan.package).second) throw;             // made, and still missing: a fault, not a reason to start again
+      const std::string why = "the pipeline " + key.pipeline + " needs the eigenmodes of " + m.surface + " and none are stored";
+      say(Json{{"stage", "make"}, {"made", "eigenmodes"}, {"surface", m.surface}, {"package", m.plan.package}, {"modes", m.plan.compute_modes}, {"why", why}});
+      Json r = nxr::pipelines::make_eigenmodes(ds, sub, m.surface, m.plan, progress);
+      r["surface"] = m.surface;
+      r["why"] = why;
+      made_first.push_back(std::move(r));
     }
-    // where the pointwise tail starts: after the last chunk step that needs a halo (the steps after it run on time sub-blocks, RunOptions::block_samples)
-    std::size_t tail = 0;
-    for (std::size_t i = 0; i < loop.size(); ++i)
-      if (loop[i]->step->kind == "chunk" && loop[i]->step->halo && loop[i]->step->halo(states[index_of(loop[i])]) > 0) tail = i + 1;
-    std::map<const Planned*, std::any> accs;
-    for (const Planned* p : loop) if (p->step->kind == "accumulate") { NodeCall call = NodeCall::start(states[index_of(p)]); dispatch(*p->step, call); accs[p] = std::move(call.made_state); }
-    // a block is released after the LAST step that reads it (a chunk step's outputs stay inside the loop): with a run over many pairs only one pair's block is held at a time
-    std::map<std::string, std::size_t> last_use;
-    for (std::size_t i = 0; i < loop.size(); ++i) for (const auto& [port, t] : loop[i]->ins) last_use[t] = i;
-    say(Json{{"stage", "run"}, {"pipeline", key.pipeline}, {"span", span->what}, {"halo", H}, {"steps", static_cast<std::int64_t>(loop.size())}});
+  }
+  Json facts = Json::object();
+  if (!checked.loop.empty()) {
+    const std::int64_t H = ex->halo();
+    say(Json{{"stage", "run"}, {"pipeline", key.pipeline}, {"span", span->what}, {"halo", H}, {"steps", static_cast<std::int64_t>(checked.loop.size())}});
     std::int64_t blocks_n = 0;
     const nxr::io::ChunkRun cr = nxr::io::haloed_loop(*source, *span, H, [&](const nxr::io::HaloedChunk& h) {
       ++blocks_n;
@@ -835,90 +823,41 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       Blocks blocks{{*d.over, std::move(x)}};
       std::vector<std::uint8_t> good;
       if (!h.good.empty()) good.assign(h.good.begin() + h.left, h.good.begin() + h.left + h.n);
-      // a step run on a set of blocks over `place` (n own columns): a chunk step's outputs join the set, an accumulate step folds; a block is released after its last reader
-      auto run_step = [&](std::size_t li, Blocks& set, const Place& at) {
-        const Planned* p = loop[li];
-        Blocks ins;
-        for (const auto& [port, t] : p->ins) if (set.count(t)) ins[port] = set.at(t);
-        if (p->step->kind == "chunk") {
-          NodeCall call = NodeCall::chunk(states[index_of(p)], ins, keep[p], at);
-          dispatch(*p->step, call);
-          for (auto& [k, v] : call.made_blocks) set[p->outs.at(k)] = std::move(v);
-        } else {
-          for (const auto& [port, b] : ins)
-            if (b.own() != at.n) refuse(p->step->name + ": " + port + " has " + std::to_string(b.own()) + " own columns in a block of " + std::to_string(at.n) + ": a chunk step's halo bookkeeping is off");
-          NodeCall call = NodeCall::fold(states[index_of(p)], accs[p], ins, at);
-          dispatch(*p->step, call);
-        }
-        ins.clear();
-        for (const auto& [port, t] : p->ins) { const auto u = last_use.find(t); if (u != last_use.end() && u->second == li) set.erase(t); }
-      };
-      const Place place{h.first, h.n, &good};
-      // a RETIMING step (the frame tiling) moves the chunk's own columns from samples to the frames inside them: the steps after it run once on the chunk's frames (their Place the frames'), never on sample sub-blocks
-      std::optional<std::size_t> retime;
-      for (std::size_t li = 0; li < loop.size(); ++li) if (loop[li]->step->frame_place) retime = li;
-      // a set of blocks cut to the columns [o, o + w) of their own columns (a block's own columns start at its `left`): the pointwise tail's sub-blocks, of samples or of frames
-      auto cut = [](const Blocks& set, std::int64_t o, std::int64_t w, std::int64_t own) {
-        Blocks sub;
-        for (const auto& [t, b] : set) {
-          if (b.own() != own) continue;                                  // not on this axis (a block left over from the other)
-          Block c{b.rows, w, 0, 0, std::vector<float>(static_cast<std::size_t>(b.rows * w)), {}};
-          if (b.complex()) c.im.resize(c.re.size());
-          for (std::int64_t r = 0; r < b.rows; ++r) {
-            const std::size_t from = static_cast<std::size_t>(r * b.width + b.left + o), to = static_cast<std::size_t>(r * w);
-            std::copy_n(b.re.begin() + from, w, c.re.begin() + to);
-            if (b.complex()) std::copy_n(b.im.begin() + from, w, c.im.begin() + to);
-          }
-          sub[t] = std::move(c);
-        }
-        return sub;
-      };
-      if (retime) {
-        if (tail != *retime + 1) refuse(loop[*retime]->step->name + ": a retiming step must be the last step that needs a halo (a step after it needs one: " + loop[tail - 1]->step->name + "); the steps after it are pointwise on its frames");
-        for (std::size_t li = 0; li <= *retime; ++li) run_step(li, blocks, place);
-        // the steps after the frame tiling are pointwise in time: they run on BLOCKS OF FRAMES of the chunk's frames, in frame order (RunOptions::block_frames), never on the whole chunk's frames at once
-        const FramePlace fp = loop[*retime]->step->frame_place(states[index_of(loop[*retime])], place);
-        const std::int64_t B = opt.block_frames > 0 ? opt.block_frames : fp.n;
-        for (std::int64_t o = 0; *retime + 1 < loop.size() && o < fp.n; o += B) {
-          const std::int64_t w = std::min(B, fp.n - o);
-          Blocks sub = cut(blocks, o, w, fp.n);
-          std::vector<std::uint8_t> g;
-          if (!fp.good.empty()) g.assign(fp.good.begin() + o, fp.good.begin() + o + w);
-          const Place at{fp.first + o, w, &g};
-          for (std::size_t li = *retime + 1; li < loop.size(); ++li) run_step(li, sub, at);
-        }
-        return;
-      }
-      for (std::size_t li = 0; li < tail; ++li) run_step(li, blocks, place);
-      // THE POINTWISE TAIL on time sub-blocks of the chunk's own columns, in time order (no step after `tail` needs a halo): the same values, a block's worth of memory
-      const std::int64_t B = opt.block_samples > 0 ? opt.block_samples : h.n;
-      for (std::int64_t o = 0; tail < loop.size() && o < h.n; o += B) {
-        const std::int64_t w = std::min(B, h.n - o);
-        Blocks sub = cut(blocks, o, w, h.n);
-        std::vector<std::uint8_t> g;
-        if (!good.empty()) g.assign(good.begin() + o, good.begin() + o + w);
-        const Place at{h.first + o, w, &g};
-        for (std::size_t li = tail; li < loop.size(); ++li) run_step(li, sub, at);
-      }
+      ex->block(blocks, Place{h.first, h.n, &good});
     });
-    for (auto& [p, acc] : accs) {
-      NodeCall call = NodeCall::finish(states[index_of(p)], acc);
-      dispatch(*p->step, call);
-      for (auto& [k, v] : call.made_arrays) data[p->outs.at(k)] = std::move(v);
-    }
     facts = Json{{"span", span_json}, {"halo", H}, {"blocks", blocks_n}, {"block_samples", opt.block_samples}, {"block_frames", opt.block_frames}, {"chunks_read", cr.visited}, {"samples_read", cr.samples}, {"bad_samples", cr.bad_samples}};
   }
-  // AFTER
-  for (const Planned* p : P.section("after")) run_on_arrays(p);
+  const nxr::graph::Arrays data = ex->finish();
+  // what each step's preparation resolved (a degree chosen from a tolerance …): reported by the step (`record`), generic, into the provenance below
+  Json prepared = Json::object();
+  {
+    const Json recorded = ex->record();
+    for (std::size_t i = 0; i < P.steps.size(); ++i)
+      if (P.steps[i].step->record && recorded[i]["resolved"].is_object() && !recorded[i]["resolved"].empty()) prepared[P.steps[i].step->name + ":" + P.steps[i].use.outs.front()] = recorded[i]["resolved"];
+  }
+  // what a step's preparation did or fell back on (a spatial band's Chebyshev fallback) is said, and kept in the report and the provenance: never silent
+  Json warnings = Json::array(), messages = Json::array();
+  for (const auto& [k, rec] : prepared.items()) {
+    if (!rec.is_object()) continue;
+    const auto& sb = rec.contains("spatial_band") ? rec["spatial_band"] : rec;
+    auto once = [](Json& list, const Json& x) { for (const auto& y : list) if (y == x) return; list.push_back(x); };   // a level read by several bands is said once
+    if (sb.is_object() && sb.contains("warnings") && sb["warnings"].is_array()) for (const auto& w : sb["warnings"]) once(warnings, w);
+    if (sb.is_object() && sb.contains("messages") && sb["messages"].is_array()) for (const auto& m : sb["messages"]) once(messages, m);
+  }
+  for (const auto& m : made_first)
+    messages.push_back("eigenmodes made first, as their own run: " + std::to_string(m.value("modes", std::int64_t(0))) + " modes of " + m.value("surface", std::string()) + " (" + m.value("why", std::string()) + ")");
 
   // STORE: each output a Field on the manifold its steps made, its provenance and the cache key with it; another job's node refused unless replace (moved aside)
   Json producer = Json{{"pipeline", Json{{"name", d.name}, {"version", d.version}, {"definition", d.source}, {"sha256", nxr::io::sha256_hex(d.text)}}},
-                       {"parameters", P.parameters}, {"inputs", nxr::io::finder::describe(P.found)}, {"run", facts}, {"prepared", prepared}, {"warnings", warnings}, {"messages", messages}, {"nxr_neuro", NXR_NEURO_VERSION}};
+                       {"parameters", P.parameters}, {"inputs", nxr::io::finder::describe(P.found)}, {"run", facts}, {"prepared", prepared}, {"warnings", warnings}, {"messages", messages}, {"made_first", made_first}, {"nxr_neuro", NXR_NEURO_VERSION}};
   const Json stamped = nxr::pipelines::stamp(key);                         // held: iterating a temporary's items() would dangle
   for (const auto& [k, v] : stamped.items()) producer[k] = v;
   stored = Json::array();
   bool replaced = false;
-  sub.compose([&] {
+  // ONE UNIT for the whole result (io's task API): the nodes, their arrays, the measurement rows, the recipe and the cache key (in each producer record) are stored together, or nothing is
+  nxr::pipelines::task::Subject subject = nxr::pipelines::task::Subject::of(sub);
+  nxr::pipelines::task::Unit unit = subject.unit(nxr::pipelines::task::By{made_by(key), producer});
+  {
     // the measurement rows name how they were made (`computed_by`: the pipeline and its key's hash); the RECIPE it names is an entry of the dataset's `recipes` dictionary
     // (as `measure compute`'s) carrying the whole record: parameters, inputs, and what preparation resolved
     bool any_measurement = false;
@@ -940,7 +879,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     for (const auto& [o, spec] : d.outputs.items()) {
       const Value& v = P.values.at(o);
       if (pass(v) != ps) continue;
-      if (v.cls == "measurement" && v.facts.value("measure", std::string()) == "tile_crossings") { stored.push_back(store_crossings(sub, P, o, v, data.at(o), made_by(key), opt.replace, replaced)); continue; }
+      if (v.cls == "measurement" && v.facts.value("measure", std::string()) == "tile_crossings") { stored.push_back(store_crossings(sub, unit, P, o, v, data.at(o), made_by(key), opt.replace, replaced)); continue; }
       if (v.cls == "measurement") {
         if (packed.count(o)) continue;                                      // stored with the first of its group
         // the outputs packed with this one: the same pass, the same Selection, rows and members, and the same counts (store_measurements)
@@ -954,7 +893,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
           if (over_selection(sub, P, v2) == sel0 && a2.rows == a0.rows && a2.cols == a0.cols && a2.meta["counts"] == a0.meta["counts"]) group.push_back(o2);
         }
         for (const auto& g : group) packed.insert(g);
-        for (auto& j : store_measurements(sub, P, group, data, made_by(key), opt.replace, replaced)) stored.push_back(std::move(j));
+        for (auto& j : store_measurements(sub, unit, P, group, data, made_by(key), opt.replace, replaced)) stored.push_back(std::move(j));
         continue;
       }
       if (v.cls == "labelling") { stored.push_back(store_labelling(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)); continue; }
@@ -988,13 +927,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       const std::string fid = sub.field(std::move(fs));
       stored.push_back(Json{{"output", o}, {"path", path}, {"id", fid}, {"on", m ? text(*m, "name") : mid}});
     }
-  });
+  }
+  unit.commit();
   report["hit"] = false;
   report["replaced"] = replaced;
   report["run"] = facts;
   report["prepared"] = prepared;
   report["warnings"] = warnings;
   report["messages"] = messages;
+  report["made_first"] = made_first;
   report["stored"] = stored;
   return report;
 }

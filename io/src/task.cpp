@@ -379,7 +379,10 @@ void Unit::rollback() noexcept {
 
 std::int64_t Unit::write_measurements(const Json& rows) {
   if (!open_) throw Error(code::not_writable, "unit: closed");
-  return nxr::io::write_measurements(*impl_->db, rows, by_.tool);
+  // a row that names how it was made keeps that (a result's rows may carry more than the unit's tool); the others are recorded as computed by the unit's tool
+  Json named = rows;
+  if (named.is_array()) for (auto& r : named) if (r.is_object() && (!r.contains("computed_by") || r["computed_by"].is_null())) r["computed_by"] = by_.tool;
+  return nxr::io::write_measurements(*impl_->db, named, std::nullopt);
 }
 std::int64_t Unit::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) {
   if (!open_) throw Error(code::not_writable, "unit: closed");

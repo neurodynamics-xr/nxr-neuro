@@ -55,9 +55,10 @@ struct Block {
 /** A VALUE OUTSIDE THE LOOP: [rows x cols x comps] doubles, the components of an element consecutive (comps 1 for a real map; 3 for a vector; 2 for a complex
  *  value handed to or from `apply`: re, im). `meta` is what a node records about it for the nodes after it. */
 struct Array {
-  std::int64_t rows = 0, cols = 1, comps = 1;
+  std::int64_t rows = 0, cols = 1;
   std::vector<double> data;
   Json meta = Json::object();
+  std::int64_t comps = 1;
 };
 using Blocks = std::map<std::string, Block>;
 using Arrays = std::map<std::string, Array>;

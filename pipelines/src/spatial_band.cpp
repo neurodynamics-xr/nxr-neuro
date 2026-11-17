@@ -289,6 +289,14 @@ SpatialBand make_spatial_band(const SurfaceInput& S, const SurfaceLevel& L, cons
   return b;
 }
 
+Json make_eigenmodes(DatasetWriter& ds, SubjectWriter& sub, const std::string& surface, const SpatialBandPlan& P, const std::function<void(const Json&)>& progress) {
+  EigenSolveOptions eo;
+  eo.modes = static_cast<int>(P.compute_modes);
+  eo.surface = surface;
+  const EigenSolveResult r = eigen_solve(ds, sub, eo, progress);   // the `eigenmodes` pipeline: its own run, its own provenance and cache key
+  return Json{{"package", P.package}, {"modes", r.modes.n_modes()}, {"exact", r.modes.n_exact}, {"coexact", r.modes.n_coexact}, {"seconds", r.seconds}, {"hit", r.hit}};
+}
+
 SpatialBand make_spatial_band(DatasetWriter& ds, SubjectWriter& sub, const SurfaceInput& S, const SurfaceLevel& L, const SpatialBandOptions& opt, const std::function<void(const Json&)>& progress) {
   auto say = [&](const Json& j) { if (progress) progress(j); };
   if (opt.glued && opt.riesz) invalid("spatial band: the Riesz part is not built on the glued surface");
@@ -323,11 +331,7 @@ SpatialBand make_spatial_band(DatasetWriter& ds, SubjectWriter& sub, const Surfa
   Json computed = nullptr;
   if (P.source == "computed") {
     for (const auto& m : P.messages) say(Json{{"stage", "spatial_band"}, {"message", m}});
-    EigenSolveOptions eo;
-    eo.modes = static_cast<int>(P.compute_modes);
-    eo.surface = S.name;
-    const EigenSolveResult r = eigen_solve(ds, sub, eo, progress);
-    computed = Json{{"package", P.package}, {"modes", r.modes.n_modes()}, {"exact", r.modes.n_exact}, {"coexact", r.modes.n_coexact}, {"seconds", r.seconds}, {"hit", r.hit}};
+    computed = make_eigenmodes(ds, sub, S.name, P, progress);
   }
   const internal::StoredLaplace st = internal::stored_laplace_info(sub, S);
   if (!st.found || P.reach > st.lambda_max * (1 + 1e-9))
