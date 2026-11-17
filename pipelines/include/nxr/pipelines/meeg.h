@@ -157,6 +157,14 @@ struct SourcePsdOptions {
   std::string option_set = "tiles";
   std::vector<nxr::meeg::Band> bands = nxr::meeg::brainstormBands();   // Brainstorm's default bands; the mean of the bins from lo to hi inclusive
   std::string normalisation = "none";                     // none · relative (each map divided by the source's total PSD: the sum over all bins, 0 to Nyquist)
+  // THE FREQUENCY PARTITION of the last reduction (spec docs/specs/2026-11-16-meg-fingerprinting.md, 3.1; as `crossspectrum --resolve`): "band" (the default: each band is one member, its bins
+  // averaged; the sensors' cross-spectrum per band is accumulated, as before: output and cache key unchanged) or "bins" (each bin of each band is its own member, nothing reduced over frequency:
+  // the run ALSO stores, per band, the statistic `<stem>_<band>_bins`, axes vertex x frequency; the band statistic is then the mean of those bins). Needs `kernel` named (which kernel is the
+  // caller's choice) and normalisation "none" (a total over all bins is not kept bin by bin: divide at read). `bins` accumulates on the SOURCE side (nxr::welch::LinearWelch: K applied to each
+  // segment's Fourier coefficients, |K X|^2 summed per source per bin) because the sensor side would hold channels^2 x bins (270 channels, 299 bins: ~350 MB), the source side sources x bins x 8 bytes
+  // (15 000 sources, 299 bins: ~36 MB) plus a block of at most 4096 mapped rows x the bins kept; the same numbers to rounding. Computes in float64; the bins are stored in the precision of the recording
+  // (float32 input: float32), the band statistic as before (float32).
+  std::string resolve = "band";
   bool exclude_bad_segments = true;
   bool replace = false;
 };
@@ -165,6 +173,7 @@ struct SourcePsdResult {
   double seconds = 0;
   nxr::io::Json info;                                     // name, fields, bands, sources, segments ...
   Eigen::MatrixXd maps;                                   // [sources x bands] (empty on a cache hit)
+  std::vector<Eigen::MatrixXd> bins;                      // resolve = bins: per band [sources x the band's bins] (empty on a cache hit)
 };
 // The kernel's channels are the ones read from the recording; a kernel on other channels than the recording is an nxr::io::Error.
 SourcePsdResult sourcepsd_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const SourcePsdOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});

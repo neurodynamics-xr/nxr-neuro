@@ -87,7 +87,7 @@
 //     index and the phase coherence are derived at read (`measure query`: phase_gradient_1, ..., travelling_index). The per-vertex Fields of earlier runs are not written any more (and not touched).
 //
 //   nxr-neuro quadrature compute --dataset D/N --subject S --recording R [--kernel NAME] [--bands alpha:8-12,...] [--pairs K]   (see nxr/pipelines/meeg.h)
-//   nxr-neuro sourcepsd compute --dataset D/N --subject S --recording R [--kernel NAME] [--name STEM] [--chunks K|A-B|all | --start SEC --stop SEC]
+//   nxr-neuro sourcepsd compute --dataset D/N --subject S --recording R [--kernel NAME] [--name STEM] [--chunks K|A-B|all | --start SEC --stop SEC] [--resolve band|bins]
 //                               [--bands name:lo-hi,...] [--normalisation none|relative] [the psd options: --set --segment-seconds|--segment-samples --overlap --window --periodic|--symmetric
 //                               --detrend --scaling --no-bad-segments] [--replace]
 //     The band power of the recording's SOURCES, as Brainstorm makes it: the Welch PSD of the sources (the kernel applied to the recording), "Group in frequency bands" (the MEAN of the PSD over
@@ -95,6 +95,8 @@
 //     relative" (each map divided by the source's PSD summed over all bins, 0 to Nyquist). A free kernel's three orientations are summed in power. Exact and cheap: the PSD of the sources is
 //     diag(K S K^T) with S the sensors' cross-spectral density of each band, accumulated chunk by chunk (equal to Welch on K x). One Field per band `<R>_<kernel>_psd_<band>` (kind band power,
 //     on the kernel's source manifold, folder source), the band a Selection on the Frequency manifold in its producer record.
+//     --resolve bins (needs --kernel; no --normalisation): also stores, per band, the statistic `<stem>_<band>_bins` (axes vertex x frequency, every bin of the band), accumulated on the
+//     source side (the kernel applied to each segment's Fourier coefficients); the band statistic is then the mean of the bins.
 //
 //   nxr-neuro lowpass|highpass|bandpass|bandstop|notch --dataset D/N --subject S --recording R [--name N]
 //             lowpass: --fpass HZ · highpass: --fpass HZ · bandpass: --fpass LOW,HIGH · bandstop: --fstop LOW,HIGH · notch: --frequencies F1,F2,... | --line F [--harmonics N]
@@ -496,8 +498,9 @@ static int source_spectral_main(const std::vector<std::string>& argv, bool tenso
   if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro " + verb + ": error: the following arguments are required: action (compute)");
   const std::string prog = "nxr-neuro " + verb + " compute";
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const std::set<std::string> valued = {"--dataset", "--subject", "--recording", "--kernel", "--name", "--chunks", "--start", "--stop", "--set", "--segment-seconds", "--segment-samples", "--segment-level",
-                                        "--overlap", "--window", "--detrend", "--scaling", "--bands", "--normalisation"};
+  std::set<std::string> valued = {"--dataset", "--subject", "--recording", "--kernel", "--name", "--chunks", "--start", "--stop", "--set", "--segment-seconds", "--segment-samples", "--segment-level",
+                                  "--overlap", "--window", "--detrend", "--scaling", "--bands", "--normalisation"};
+  if (!tensor) valued.insert("--resolve");
   const std::set<std::string> flags = {"--periodic", "--symmetric", "--no-bad-segments", "--replace"};
   const cli::Args a = cli::parse(prog, rest, valued, flags, {"--dataset", "--subject", "--recording"});
   nxr::pipelines::SourcePsdOptions o;
@@ -511,6 +514,10 @@ static int source_spectral_main(const std::vector<std::string>& argv, bool tenso
   if (const auto v = a.maybe("--bands")) o.bands = bands_arg(prog, *v);
   o.normalisation = a.maybe("--normalisation").value_or("none");
   if (o.normalisation != "none" && o.normalisation != "relative") usage(prog, "--normalisation must be none or relative");
+  if (const auto v = a.maybe("--resolve")) {
+    if (*v != "band" && *v != "bins") usage(prog, "--resolve is band or bins");
+    o.resolve = *v;
+  }
   o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
   o.replace = a.flag.count("--replace") > 0;
   try {

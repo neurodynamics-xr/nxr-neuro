@@ -300,7 +300,7 @@ R"TBL(--harmonics@compute notch	N	With --line, remove the first N multiples of t
 --kernel@compute pointspread	NAME	The inverse kernel the planted currents are read back through	the subject's only kernel of the forward model's sources	-
 --kernel@compute pyramid	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
 --kernel@compute quadrature	NAME	Name of the stored inverse kernel that maps the sensors to the sources.	the subject's only kernel	-
---kernel@compute sourcepsd	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
+--kernel@compute sourcepsd	NAME	Name of the stored inverse kernel that maps the recording's channels to sources; required with --resolve bins.	the subject's only kernel	-
 --kernel@compute sourcetensor	NAME	Name of the stored free-orientation inverse kernel (channels to sources) whose current's tensor is computed; a fixed-orientation kernel is refused.	the subject's only kernel	-
 --kernel@compute speedspectrum	NAME	The free-orientation inverse kernel the recording is mapped to the cortex with	the subject's only kernel	-
 --kernels	SPEC,...	Which kernels' pyramids are summed: all, constrained, free, latest, a method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
@@ -350,6 +350,7 @@ R"TBL(--harmonics@compute notch	N	With --line, remove the first N multiples of t
 --max-value@query measurements	X	Keep only rows whose rolled-up value is at most this.	none	measure's unit
 --measure	NAME	The measure to summarise or read (e.g. mean, max, power_sum).	none (required)	-
 --measure@compute statistic	NAME	The stored measure to summarise across the members (e.g. mean, mean_square, amplitude); a derived measure is refused.	required	-
+--measure@compute pca	NAME	Measurement form: the stored measure (e.g. mean, mean_square, amplitude) whose values over the partition's members are decomposed; a derived measure is refused.	required with --over	-
 --measure@query measurements	NAME	The measure to read, e.g. a stored measure of the pyramid or one derived from its sums.	required	-
 --measures	NAME,...	Which measures to compute per member: mean, max, min, mean_square, abs_max, sum.	mean, max, min, mean_square, abs_max	-
 --measures@compute measure	NAME,...	Which measures to compute per member: mean, max, min, mean_square, abs_max, sum (with --over: mean, mean_square, max, min, abs_max; the sample count is always stored).	mean, max, min, mean_square, abs_max (with --over: mean, mean_square, max, min)	-
@@ -357,8 +358,11 @@ R"TBL(--harmonics@compute notch	N	With --line, remove the first N multiples of t
 --meg-surface	NAME	Name of the surface the MEG spheres are fitted to.	the surface called inner skull	-
 --meg-surface@compute headmodel	NAME	The surface the MEG spheres are fitted to.	the surface called inner skull	-
 --meg@compute headmodel	overlapping|single|none	The MEG head model: one sphere per sensor, one sphere for all sensors, or no MEG channels.	overlapping	-
+--members	AXIS	The axis of a stored statistic whose entries are the members (observations) of the table to decompose, by name or position from 0.	none	-
+--members@compute pca	AXIS	Statistic form: the axis of the stored statistic --of whose entries are the members (observations), by name or by position from 0; every other axis, flattened in order, holds the features.	none (give this or --over)	-
 --members-own		The measure is the members' own (area, number of elements or tiles); --of then names its parent.	off	-
 --members-own@compute statistic		The measure is the members' own (area, number of elements or tiles), a property of the partition and not of a field; --of then names its parent.	off	-
+--members-own@compute pca		Measurement form: the measure is the members' own (area, number of elements or tiles); --of then names its parent.	off	-
 --method	NAME	constantq: hertz (octave edges on powers of two in Hz) or cycles (fixed cycle count); opticalflow: pcg, direct or perscale solver	constantq: hertz; opticalflow: pcg	-
 --method@compute constantq	hertz|cycles	How the windows are anchored: octave edges on powers of two in Hz (hertz, capped at 64 Hz), or a fixed number of cycles per window (cycles).	hertz	-
 --method@compute opticalflow	pcg|direct|perscale	Solver: pcg (preconditioned conjugate gradients), direct (exact solve, for parity with the reference) or perscale (one flow per spatial scale).	pcg	-
@@ -405,6 +409,7 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@compute noisecov	NAME	Name of the stored noise covariance.	<recording>_noise_cov	-
 --name@compute notch	NAME	The name of the filtered recording.	<recording>_notch	-
 --name@compute opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
+--name@compute pca	NAME	Stem of the four stored statistics (the components, <NAME>_scores, <NAME>_variance, <NAME>_centring).	<of>_pca	-
 --name@compute phasegradient	NAME	Stem of the names of the stored results.	<recording>_<kernel>_phasegradient	-
 --name@compute pointspread	NAME	Name of the stored point-spread statistic	pointspread.<kernel>	-
 --name@compute psd	NAME	Name of the stored PSD Field	<recording>_psd_welch	-
@@ -472,6 +477,7 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --normalize@compute eigenmodes		Make the modes orthonormal under the mass matrix after the solve (Cholesky whitening); the reference method does not.	off	-
 --of	NAME	The stored field, or band of a map statistic, that was measured	none (required)	-
 --of@compute statistic	NAME	What was measured: a stored field by name, or a band of a map statistic (<statistic>_<band>).	required	-
+--of@compute pca	NAME	What is decomposed: with --members, a stored real-valued statistic; with --over, what was measured (a stored field, or a band of a map statistic).	required	-
 --only	NAME	Import only this named anatomical image (repeatable).	all images	-
 --only@import mri	NAME	Import only this named anatomical image; repeat the option for several.	all images	-
 --order	N	Filters: Butterworth prototype order (the filter has 2N poles). Spatial band commands: degree of the Chebyshev series (0 chooses the smallest of 40, 80, ... 5120 within tolerance). measure query: sort order asc or desc of the rows.	filters 4; spatial 0 (automatic); measure query see the command's description	-
@@ -491,6 +497,7 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --over	NAME	Name of the partition (stored selection) measured over: statistic: the partition whose members were measured; null, repeat: the tile-level selection of the stored crossings; measure compute: the time tiling	statistic, measure compute: none (required); null, repeat: the one the recordings share	-
 --over@compute measure	NAME	Measure over a time partition instead of a surface one: a constant-Q ladder (with --level) or a spans tiling such as the chunk grid; the result is a time-resolved field.	none (a surface partition is measured)	-
 --over@compute null	NAME	The tile level Selection the crossings were measured over	the one the recordings have	-
+--over@compute pca	NAME	Measurement form: the partition measured over, by name (a stored selection); its members are the observations and the measured rows the features.	none (give this or --members)	-
 --over@compute repeat	NAME	The tile-level partition both recordings were measured over.	the one both recordings have (several is refused)	-
 --over@compute statistic	NAME	The partition measured over, by name: a stored selection whose members were measured (a parcellation, a level of a time ladder).	required	-
 --overlap	FRACTION	Fraction by which successive Welch segments overlap.	0.5 (the Brainstorm option set)	fraction
@@ -596,6 +603,7 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --resolution	HZ	Frequency resolution on which the filter bank is designed.	0.5	Hz
 --resolution@compute opticalflow	HZ	Frequency resolution of the grid on which the filter bank is designed.	0.5	Hz
 --resolve	band|bins	Whether to also keep each band's cross-spectrum bin by bin (bins, Welch estimator only) or only the band mean (band).	band	-
+--resolve@compute sourcepsd	band|bins	With bins, also store each band's source power bin by bin (a statistic per band, vertex by frequency; the kernel must be named with --kernel and the maps cannot be normalised); with band, store only the band mean.	band	-
 --resolve@compute crossspectrum	band|bins	With bins, also store each band's cross-spectrum bin by bin (Welch estimator only); with band, store only the band mean.	band	-
 --response	peak|mean	Which response of an event is compared across scale pairs: the largest standardized cell amplitude or their mean	peak	-
 --response@compute scaleselection	peak|mean	Event response used to pick the scale: the largest or the mean standardized cell amplitude	peak	-
@@ -616,6 +624,7 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --scale-filters@compute opticalflow	N	perscale only: number of members of the spatial filter bank; 0 derives it from --scale-voices.	0	-
 --scale-voices	N	Per-scale flow method: voices per octave of the graph filter bank.	3	voices/octave
 --scale-voices@compute opticalflow	N	perscale only: members of the spatial filter bank per octave.	3	voices/octave
+--scale@compute pca	none|unit-variance	How each feature is scaled after its mean is removed: left in its unit (the covariance's components) or divided by its standard deviation (the correlation's).	none	-
 --scale@add surface	X	Factor multiplied into every vertex coordinate of the mesh file to bring it to metres.	1	-
 --scaling	density|spectrum|chain	How the spectrum is scaled: power per Hz, power per bin, or the chain scaling (measure export: stored|density|power|amplitude|amplitude-density|db|db-density, applied to the stored values).	density (measure export: stored)	-
 --scaling@compute crossspectrum	density|spectrum|chain	Scaling of the Welch estimate: power per hertz, power per bin, or the nxr chain's scaling.	density	-
@@ -1161,7 +1170,7 @@ old: sourcepsd compute
 group: Spectra
 summary: The band power maps of the sources (the Welch PSD of the sources, grouped in bands).
 span: yes
-opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --normalisation --overlap --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window
+opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --normalisation --overlap --periodic --recording* --replace --resolve --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window
 )TBL",
 R"TBL(@ compute sourcetensor
 old: sourcetensor compute
@@ -1254,6 +1263,13 @@ old: statistic compute
 group: Measurements
 summary: A stored measurement summarised over its partition's members.
 opts: --combine --dataset* --ddof --measure* --members-own --name --of* --over* --replace --subject* --summaries*
+)TBL",
+R"TBL(@ compute pca
+old: pca compute
+group: Measurements
+summary: The principal components across the members of a stored statistic or measurement (members by features), with scores and explained variance.
+example: nxr-neuro compute pca --dataset DATASTORE/NAME --subject NAME --of NAME --members AXIS
+opts: --dataset* --measure --members --members-own --name --of* --over --replace --scale --subject*
 )TBL",
 R"TBL(@ compute wishart
 old: wishart compute

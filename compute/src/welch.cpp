@@ -1,6 +1,7 @@
 // nxr::welch — see include/nxr/welch.h.
 #include "nxr/welch.h"
 #include "nxr/fft.h"
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 
@@ -391,6 +392,111 @@ CrossWelchResult CrossWelch::result() const {
         r.S[g] = sum_[g] * (scale / (static_cast<double>(segments_) * nk));
         if (quadrature_) r.Sq[g] = sumIm_[g] * (scale / (static_cast<double>(segments_) * nk));
     }
+    return r;
+}
+
+// ── Welch of a linear map of the channels ───────────────────────────────────────────────────────────────────────
+
+LinearWelch::LinearWelch(const MatrixXd& map, std::size_t rowsPerOutput, const WelchOptions& options, std::size_t firstBin, std::size_t lastBin)
+    : map_(map), group_(rowsPerOutput), first_(firstBin), last_(lastBin), opt_(options), n_(options.segmentSamples) {
+    if (map.cols() < 1 || map.rows() < 1) throw std::invalid_argument("welch: the map holds at least one row and one channel");
+    if (group_ < 1 || static_cast<std::size_t>(map.rows()) % group_ != 0) throw std::invalid_argument("welch: the map's " + std::to_string(map.rows()) + " rows are not a multiple of " + std::to_string(group_));
+    if (n_ < 2) throw std::invalid_argument("welch: a segment holds at least 2 samples");
+    if (!(opt_.sfreq > 0)) throw std::invalid_argument("welch: the sampling frequency must be positive");
+    if (!(opt_.overlap >= 0 && opt_.overlap < 1)) throw std::invalid_argument("welch: the overlap is a fraction in [0, 1)");
+    const std::size_t bins = fft::rfftBins(n_);
+    if (first_ > last_ || last_ >= bins) throw std::invalid_argument("welch: the bins lie outside 0 .. " + std::to_string(bins - 1));
+    hop_ = n_ - static_cast<std::size_t>(std::floor(static_cast<double>(n_) * opt_.overlap));
+    win_ = windowOf(n_, opt_.window, opt_.periodic);
+    winSumSquares_ = win_.squaredNorm();
+    winSum_ = win_.sum();
+    buf_.resize(map.cols(), 0);
+    sum_ = MatrixXd::Zero(map.rows() / static_cast<Eigen::Index>(group_), static_cast<Eigen::Index>(last_ - first_ + 1));
+}
+
+void LinearWelch::add(const MatrixXd& chunk) { add(chunk, std::vector<std::uint8_t>(static_cast<std::size_t>(chunk.cols()), 1)); }
+
+void LinearWelch::add(const MatrixXd& chunk, const std::vector<std::uint8_t>& good) {
+    if (chunk.rows() != buf_.rows()) throw std::invalid_argument("welch: the chunk has " + std::to_string(chunk.rows()) + " channels, expected " + std::to_string(buf_.rows()));
+    if (static_cast<Eigen::Index>(good.size()) != chunk.cols()) throw std::invalid_argument("welch: the mask must hold one flag per sample of the chunk");
+    const Eigen::Index c0 = static_cast<Eigen::Index>(carried_), m = chunk.cols();
+    buf_.conservativeResize(Eigen::NoChange, c0 + m);
+    buf_.middleCols(c0, m) = chunk;
+    bufGood_.insert(bufGood_.end(), good.begin(), good.end());
+    carried_ = static_cast<std::size_t>(c0 + m);
+    samples_ += m;
+    consume();
+}
+
+void LinearWelch::consume() {
+    const Eigen::Index C = buf_.rows();
+    const std::size_t bins = fft::rfftBins(n_);
+    const double lastDoubled = (n_ % 2 == 0) ? static_cast<double>(bins - 1) : static_cast<double>(bins);   // bins 1 .. lastDoubled-1 are doubled (one-sided)
+    const Eigen::Index nk = static_cast<Eigen::Index>(last_ - first_ + 1);
+    const Eigen::Index blockRows = static_cast<Eigen::Index>(group_) * std::max<Eigen::Index>(1, 4096 / static_cast<Eigen::Index>(group_));
+    std::size_t start = 0;
+    std::vector<double> seg(static_cast<std::size_t>(C) * n_);
+    std::vector<fft::cd> spec(static_cast<std::size_t>(C) * bins);
+    MatrixXd A(C, nk), B(C, nk);
+    while (start + n_ <= carried_) {
+        bool ok = true;
+        for (std::size_t j = start; j < start + n_ && ok; ++j) ok = bufGood_[j] != 0;
+        if (ok) {
+            for (Eigen::Index c = 0; c < C; ++c) {
+                double* row = seg.data() + static_cast<std::size_t>(c) * n_;
+                for (std::size_t j = 0; j < n_; ++j) row[j] = buf_(c, static_cast<Eigen::Index>(start + j));
+                detrendAndWindow(row, n_, opt_.detrend, win_);
+            }
+            fft::r2c(seg.data(), spec.data(), {static_cast<std::size_t>(C), n_}, 1);
+            // X = A + iB over the bins kept, each scaled by sqrt(2) where the one-sided spectrum doubles it (the power is then doubled)
+            for (Eigen::Index c = 0; c < C; ++c)
+                for (Eigen::Index k = 0; k < nk; ++k) {
+                    const std::size_t bin = first_ + static_cast<std::size_t>(k);
+                    const double w = std::sqrt((bin >= 1 && static_cast<double>(bin) < lastDoubled) ? 2.0 : 1.0);
+                    const fft::cd v = spec[static_cast<std::size_t>(c) * bins + bin];
+                    A(c, k) = w * v.real();
+                    B(c, k) = w * v.imag();
+                }
+            // |M X|^2 = (M A)^2 + (M B)^2 per row and bin, a block of rows at a time, the group's rows summed
+            for (Eigen::Index r0 = 0; r0 < map_.rows(); r0 += blockRows) {
+                const Eigen::Index nr = std::min(blockRows, map_.rows() - r0);
+                const MatrixXd P = (map_.middleRows(r0, nr) * A).array().square() + (map_.middleRows(r0, nr) * B).array().square();
+                const Eigen::Index o0 = r0 / static_cast<Eigen::Index>(group_);
+                for (Eigen::Index o = 0; o < nr / static_cast<Eigen::Index>(group_); ++o)
+                    for (std::size_t g = 0; g < group_; ++g) sum_.row(o0 + o) += P.row(o * static_cast<Eigen::Index>(group_) + static_cast<Eigen::Index>(g));
+            }
+            ++segments_;
+        } else {
+            ++skipped_;
+        }
+        start += hop_;
+    }
+    const std::size_t keep = carried_ > start ? carried_ - start : 0;
+    if (start > 0 && keep > 0) {
+        buf_.leftCols(static_cast<Eigen::Index>(keep)) = buf_.middleCols(static_cast<Eigen::Index>(start), static_cast<Eigen::Index>(keep)).eval();
+        bufGood_.erase(bufGood_.begin(), bufGood_.begin() + static_cast<std::ptrdiff_t>(start));
+    } else if (keep == 0) {
+        bufGood_.clear();
+    }
+    carried_ = keep;
+    buf_.conservativeResize(Eigen::NoChange, static_cast<Eigen::Index>(carried_));
+}
+
+LinearWelchResult LinearWelch::result() const {
+    LinearWelchResult r;
+    const VectorXd all = fft::rfftfreq(n_, 1.0 / opt_.sfreq);
+    r.frequencies = all.segment(static_cast<Eigen::Index>(first_), static_cast<Eigen::Index>(last_ - first_ + 1));
+    r.segments = segments_;
+    r.segmentsSkipped = skipped_;
+    r.psd = MatrixXd::Zero(sum_.rows(), sum_.cols());
+    if (segments_ == 0) return r;
+    double scale = 0;
+    switch (opt_.scaling) {
+        case Scaling::Density: scale = 1.0 / (opt_.sfreq * winSumSquares_); break;
+        case Scaling::Spectrum: scale = 1.0 / (winSum_ * winSum_); break;
+        case Scaling::Chain: scale = 1.0 / (static_cast<double>(n_) * winSumSquares_); break;
+    }
+    r.psd = sum_ * (scale / static_cast<double>(segments_));
     return r;
 }
 

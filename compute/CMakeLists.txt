@@ -118,6 +118,7 @@ add_library(nxr_compute STATIC
   src/jointbank.cpp
   src/spacetime_kernels.cpp
   src/welch.cpp
+  src/pca.cpp
   src/quadrature.cpp
   src/filter.cpp
   src/wt.cpp
@@ -410,6 +411,11 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     target_link_libraries(test_welch PRIVATE nxr_compute)
     target_compile_definitions(test_welch PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
     add_test(NAME test_welch COMMAND test_welch)
+
+    add_executable(test_pca test/test_pca.cpp)
+    target_link_libraries(test_pca PRIVATE nxr_compute)
+    target_compile_definitions(test_pca PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+    add_test(NAME test_pca COMMAND test_pca)
 
     add_executable(test_quadrature test/test_quadrature.cpp)
     target_link_libraries(test_quadrature PRIVATE nxr_compute)

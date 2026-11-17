@@ -58,6 +58,7 @@ add_library(nxr_pipelines
   src/reading.cpp
   src/measure_time.cpp
   src/statistics.cpp
+  src/pca.cpp
   src/patches.cpp
   src/spatial_band.cpp
   src/joint.cpp
@@ -109,6 +110,14 @@ if(NXR_NEURO_BUILD_TESTS)
   target_include_directories(test_source_psd PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test ${CMAKE_SOURCE_DIR}/compute/test)
   target_compile_definitions(test_source_psd PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/meeg/test/golden")
   add_test(NAME test_source_psd COMMAND test_source_psd)
+  add_executable(test_pca_pipeline test/test_pca_pipeline.cpp)
+  target_link_libraries(test_pca_pipeline PRIVATE nxr_pipelines)
+  target_include_directories(test_pca_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_pca_pipeline COMMAND test_pca_pipeline)
+  add_executable(test_source_psd_bins test/test_source_psd_bins.cpp)
+  target_link_libraries(test_source_psd_bins PRIVATE nxr_pipelines)
+  target_include_directories(test_source_psd_bins PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_source_psd_bins COMMAND test_source_psd_bins)
   add_executable(test_quadrature_pipeline test/test_quadrature_pipeline.cpp)
   target_link_libraries(test_quadrature_pipeline PRIVATE nxr_pipelines)
   target_include_directories(test_quadrature_pipeline PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test ${CMAKE_SOURCE_DIR}/compute/test)

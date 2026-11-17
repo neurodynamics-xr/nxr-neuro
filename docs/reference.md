@@ -160,6 +160,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro compute pyramid` | The measurement pyramid of a recording's cortical current, from space and time tiles. | `pyramid build` |
 | `nxr-neuro compute measure` | Stored fields measured over a partition's members, with their recipe. | `measure compute` |
 | `nxr-neuro compute statistic` | A stored measurement summarised over its partition's members. | `statistic compute` |
+| `nxr-neuro compute pca` | The principal components across the members of a stored statistic or measurement (members by features), with scores and explained variance. | `pca compute` |
 | `nxr-neuro compute wishart` | The Wishart null of the second-moment measures of bursts. | `wishart compute` |
 | `nxr-neuro compute spatialnull` | The lag-free null of the spatial events: draws with early stopping, per-vertex p and q. | `spatialnull compute` |
 | `nxr-neuro compute null` | The lag-free null's tests of the vortex cores' crossings, per tile. | `null compute` |
@@ -418,6 +419,18 @@ from lo to hi inclusive).
   `<R>_<kernel>_psd_<band>` (as its Field was named; one stored before as Fields stays readable). `io::map_slices` lists a surface's maps of statistics and
   `read_map_slice` reads one; `measure compute` and `measure export` take them as they take Fields (their rows name the statistic and the band:
   `of_statistic_id`, `of_index`, added to the measurement table in place).
+  **`--resolve bins`** (spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 3.1): the same Welch pass keeps every bin of each band instead of its mean: the frequency partition of the last
+  reduction is one member a bin. `--resolve band` is the default; its output and cache key are those of before. With `bins` the run ALSO stores, per band, the STATISTIC `<stem>_<band>_bins` (measure
+  `power_density`, `power` for the other scalings; method `welch`; OF the recording, from `<stem>_segments`), axes vertex (the kernel's target) x frequency (the bins' centres in Hz and `bins: [first, last]`),
+  in the precision of the recording (float32 in, float32 out); `resolve: bins` and every Welch option are in its options, its producer and the cache key. The band statistic is the mean of its bins. It needs
+  `--kernel` named (which kernel the sources are read through is the caller's choice) and no `--normalisation` (a total over all bins is not kept bin by bin: divide at read). The time range is stated as for every
+  run (`--from/--to` or `--all`); two ranges are two runs under two names. **Accumulation is on the source side** (`nxr::welch::LinearWelch`, `compute/include/nxr/welch.h`: the kernel applied to each segment's
+  Fourier coefficients, |K X|^2 summed per source per bin, a free kernel's three orientations summed in power): N sources x F bins x 8 bytes (15 000 sources, 299 bins: ~36 MB) and a block of at most 4096
+  mapped rows, where the sensor side would hold channels^2 x F (270 channels, 299 bins: ~350 MB); the cost is one rows x channels product per segment. Tested (`test_welch`, `test_source_psd_bins`): equal to
+  Welch on K x to 1e-15, with a bad span and odd segment lengths; the maps equal the mean of the bins exactly and a `--resolve band` run's to 3e-16; independent of the chunk size (stored 128, 700, 1777 wide);
+  over a stated range; the band run's cache key has no `resolve`; float32 and float64 recordings; refusals (no kernel, a normalisation, a bad value, a band with no bin, a range shorter than a segment).
+  **What it cannot resolve:** neighbouring bins are correlated (the window's width), so the bins are not independent estimates; each source's spectrum is the kernel's estimate, with the kernel's spread and
+  orientation bias, and a spectral feature that two sources share through that spread is not told apart.
 - `quadrature compute`: the quadrature (imaginary) part of the source cross-spectrum, which no zero-delay mixture produces. Per band: `quadratureFraction` ||Im C|| / ||C|| (in the
   fields' params), the `quadratureEnergy` map per source `<stem>_energy_<band>`, and the top K quadrature pairs (p leads q by a quarter cycle) `<stem>_pair<k>_p_<band>` / `_q_`
   (vector3 fields for a free kernel). nxr's `lagged.py` is the reference. Since 2026-11-13 they are MAP STATISTICS by `welch`: `<stem>_energy`
@@ -1381,6 +1394,20 @@ is a STATISTIC: "field -> selection/measurements -> statistic. the statistic is 
   mean · sd (n − 1) · median · mad (1.4826 MAD) · percentile:p (numpy linear) · peak · kurtosis · skewness · min · max (`nxr::stats`, golden from
   numpy/scipy). It reads either stored form (array-backed or scalar rows), never the recording; a rerun is a hit. `band_bursts` stores its thresholds'
   ingredients this way (its baseline) and detects from them.
+- **The `pca` statistic** (`compute pca`, `compute/include/nxr/pca.h`, `pipelines/include/nxr/pipelines/pca.h`; spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 4.4): the principal components ACROSS the members of a
+  table (members x features), method `pca`, generalising `eigendecomposition` (which decomposes one second-moment statistic; unchanged). The table is a stored real statistic (`--members AXIS`, by name or position: the
+  other axes, flattened in order, are the features) or a stored measurement (`--over PARTITION --measure M`: the partition's members, the measured rows). The maths is `nxr::pca::pca`, a pure function of a matrix:
+  the thin SVD of the table with each column's mean removed (scikit-learn's PCA, `svd_solver="full"`), never the features x features covariance (features can number tens of thousands, members hundreds);
+  `--scale none` (default; the features keep their units) or `unit-variance` (each divided by its standard deviation, ddof 1; a constant feature is refused). Every component up to the table's rank is kept
+  (numpy's `matrix_rank` rule; at most members - 1), so any k is a read. **Sign convention, fixed:** each component's entry of largest absolute loading is positive (the first, if equal), its scores' column the same
+  sign (scikit-learn's `svd_flip`, `u_based_decision=False`); without it an SVD's signs are arbitrary. Explained variance is S^2 / (n - 1), its ratio is over the table's total variance. Stored as four statistics:
+  `<name>` (measure `principal_components`, [component x features...], unit rows), `<name>_scores` (`principal_scores`, [member x component] = U S), `<name>_variance` (`explained_variance`, [component x (singular
+  value, variance, ratio)], float64) and `<name>_centring` (`pca_centring`, [(mean, divisor) x features...]); components, scores and centring are stored in the input's precision. **Reconstruction at k** is derived at read,
+  never stored: `nxr::pca::reconstruct(scores, components, mean, scale, k)` = scores[:, :k] components[:k] x divisor + mean (`pca_read` returns the matrices). Tested: against numpy's SVD
+  (`compute/test/golden/gen_pca_golden.py`: wide, tall and scaled tables, 1e-14), its reconstruction at k, orthonormality, Eckart-Young, equal to the eigendecomposition of the table's covariance
+  (`nxr::patterns::leading`), a rank-deficient table; through the pipeline (`test_pca_pipeline`, `test_measure_pipeline`): the statistic form on axis 0 and on a middle axis, float32 and float64, unit-variance, a cache
+  hit, refusals (neither or both forms, an ambiguous or absent axis, a complex statistic, a NaN, fewer than two members). **What it cannot show:** a component is a direction of variance in THIS sample; with n
+  members at most n - 1 exist and the leading ones of a small sample are not stable estimates of a population's.
 - **Next** (the spec's order): the other spectral producers, the histogram, Brainstorm's sensor-level timefreq on import. (`psd compute`'s PSD is a statistic since 2026-11-13; checked
   against the code 2026-11-14, step 5 of the measurement pyramid: the `<recording>_psd_welch` Field of the spec's table is already gone.)
 

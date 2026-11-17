@@ -66,6 +66,7 @@
 #include "nxr/pipelines/pyramid.h"
 #include "nxr/pipelines/patches.h"
 #include "nxr/pipelines/statistics.h"
+#include "nxr/pipelines/pca.h"
 
 using namespace nxr::io;
 
@@ -634,6 +635,42 @@ int statistic_main(const std::vector<std::string>& argv) {
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
     const auto r = nxr::pipelines::statistic_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
+    Json out = Json{{"stage", "result"}};
+    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
+    cli::emit(out);
+  } catch (const std::invalid_argument& e) {
+    usage(prog, e.what());
+  }
+  return 0;
+}
+
+// nxr-neuro pca compute --dataset D/N --subject S --of NAME (--members AXIS | --over PARTITION --measure M [--members-own]) [--scale none|unit-variance] [--name N] [--replace]
+//   The principal components across the members of a table (members x features): of a stored statistic (--members names the axis of the members, by name or position; the other axes are the
+//   features) or of a stored measurement (--over, --measure: the partition's members, the measured rows). Stores four statistics of method pca: `<name>` (the components), `<name>_scores`,
+//   `<name>_variance`, `<name>_centring` (see nxr/pipelines/pca.h). Only the maths of nxr::pca is run; nothing is read from a recording.
+int pca_main(const std::vector<std::string>& argv) {
+  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro pca: error: the following arguments are required: action (compute)");
+  const std::string prog = "nxr-neuro pca compute";
+  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
+  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--of", "--members", "--over", "--measure", "--scale", "--name"}, {"--replace", "--members-own"}, {"--dataset", "--subject", "--of"});
+  nxr::pipelines::PcaComputeOptions o;
+  o.of = a.get("--of");
+  o.members = a.maybe("--members");
+  o.over = a.maybe("--over");
+  o.measure = a.maybe("--measure").value_or("");
+  o.scale = a.maybe("--scale").value_or("none");
+  if (o.scale != "none" && o.scale != "unit-variance") usage(prog, "--scale is none or unit-variance");
+  if (o.members.has_value() == o.over.has_value()) usage(prog, "name the members one way: --members AXIS (of a stored statistic), or --over PARTITION with --measure (of a stored measurement)");
+  if (o.over && o.measure.empty()) usage(prog, "--over needs --measure");
+  o.name = a.maybe("--name");
+  o.replace = a.flag.count("--replace") > 0;
+  o.own = a.flag.count("--members-own") > 0;
+  try {
+    DatasetWriter ds = open_writer(a.get("--dataset"));
+    OpenSubjectOptions oo;
+    oo.created_by = cli::stamp();
+    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
+    const auto r = nxr::pipelines::pca_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     cli::emit(out);

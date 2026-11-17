@@ -64,6 +64,7 @@ int hodgepower_main(const std::vector<std::string>& argv);  // cli/meeg_command.
 int speedspectrum_main(const std::vector<std::string>& argv);  // cli/speedspectrum_command.cpp
 int measure_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
 int statistic_main(const std::vector<std::string>& argv);      // cli/measure_command.cpp
+int pca_main(const std::vector<std::string>& argv);            // cli/measure_command.cpp
 int patches_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
 int cellquadrature_main(const std::vector<std::string>& argv); // cli/measure_command.cpp
 int wishart_main(const std::vector<std::string>& argv);          // cli/measure_command.cpp
@@ -433,6 +434,13 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return statistic_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro statistic needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+#endif
+    }
+    if (cmd == "pca") {
+#ifdef NXR_NEURO_WITH_PIPELINES
+      return pca_main(rest);
+#else
+      throw Error(code::unsupported, "nxr-neuro pca needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "pyramid") {

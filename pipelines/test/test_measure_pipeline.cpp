@@ -19,6 +19,7 @@
 #include "nxr/ladder.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/measure.h"
+#include "nxr/pipelines/pca.h"
 #include "nxr/io/statistic.h"
 #include "nxr/pipelines/statistics.h"
 #include "nxr/stats.h"
@@ -209,6 +210,18 @@ int main() {
     bool derived = false;
     try { statistic_compute(ds, sub, bad); } catch (const Error&) { derived = true; }
     CHECK(derived);                                                    // a derived measure is not stored: refused
+    // THE PCA of the same measurement (compute pca, the measurement form): the 7 parcels are the members, the one row the feature: one component, the loading +1 (the sign convention),
+    // the scores the parcels' means less their mean, the variance their sample variance (the scores, as the Field they come from, in float32)
+    PcaComputeOptions po;
+    po.of = "map_x"; po.over = "parcels"; po.measure = "mean";
+    const PcaComputeResult pr = pca_compute(ds, sub, po);
+    const StoredPca ps = pca_read(sub, pr.info["name"].get<std::string>());
+    const double mu = nxr::stats::mean(means);
+    double ws = 0;
+    for (int k = 0; k < 7; ++k) ws = std::max(ws, std::abs(ps.scores(k, 0) - (means[static_cast<std::size_t>(k)] - mu)));
+    CHECK(!pr.hit && ps.components.rows() == 1 && std::abs(ps.components(0, 0) - 1.0) < 1e-12 && ws < 1e-7 && std::abs(ps.mean[0] - mu) < 1e-7);
+    CHECK(std::abs(ps.explained_variance[0] - nxr::stats::sd(means) * nxr::stats::sd(means)) < 1e-9 && std::abs(ps.explained_variance_ratio[0] - 1.0) < 1e-12);
+    CHECK(text(read_statistic(sub, pr.info["name"].get<std::string>() + "_scores").row, "partition_selection_id") != "" && pca_compute(ds, sub, po).hit);
   }
   // A MAP STATISTIC (docs/specs/2026-11-13-statistics.md; the maintainers: statistics read as maps): axes vertex x band; each band measured as a Field would be, its
   // rows naming the statistic and the band (of_statistic_id, of_index); a re-run a hit

@@ -1348,6 +1348,10 @@ SourcePsdResult sourcepsd_compute(DatasetWriter& ds, SubjectWriter& sub, const S
   const RecordingInput rec = read_recording(sub, opt.recording);
   if (opt.normalisation != "none" && opt.normalisation != "relative") invalid("sourcepsd: the normalisation is none or relative");
   if (opt.bands.empty()) invalid("sourcepsd: at least one band");
+  if (opt.resolve != "band" && opt.resolve != "bins") invalid("sourcepsd: --resolve is band or bins (got '" + opt.resolve + "')");
+  const bool bins_too = opt.resolve == "bins";
+  if (bins_too && !opt.kernel) invalid("sourcepsd: --resolve bins needs --kernel NAME: which inverse kernel the sources are read through is the caller's choice, never a default");
+  if (bins_too && opt.normalisation != "none") invalid("sourcepsd: --resolve bins keeps the power per bin and cannot be normalised by the total over all bins; leave --normalisation at none and divide at read");
   // the kernel
   Row kern;
   if (opt.kernel) {
@@ -1399,10 +1403,14 @@ SourcePsdResult sourcepsd_compute(DatasetWriter& ds, SubjectWriter& sub, const S
   }
   const bool relative = opt.normalisation == "relative";
   if (relative) groups.push_back({0, nbins - 1, false});
+  std::size_t lo_bin = groups[0].first, hi_bin = groups[0].last;                // resolve = bins: the bins any band holds (the source-side pass keeps these)
+  for (std::size_t b = 0; b < opt.bands.size(); ++b) { lo_bin = std::min(lo_bin, groups[b].first); hi_bin = std::max(hi_bin, groups[b].last); }
   try { nxr::welch::CrossWelch probe(1, wo, groups); } catch (const std::invalid_argument& e) { invalid(std::string("sourcepsd: ") + e.what()); }
   const auto spans = opt.exclude_bad_segments ? bad_spans(sub, rec) : std::nullopt;
   const std::string stem = opt.name ? *opt.name : opt.recording + "_" + kname + "_psd";
   auto field_name = [&](const std::string& band) { return nxr::bst::band_field_name(stem, band); };
+  std::vector<std::string> bnames;                                              // resolve = bins: `<stem>_<band>_bins`
+  if (bins_too) for (const auto& b : opt.bands) bnames.push_back(field_name(b.name + "_bins"));
 
   Json bands_json = Json::array();
   for (const auto& b : opt.bands) bands_json.push_back(Json{{"name", b.name}, {"lo_hz", b.lo}, {"hi_hz", b.hi}});
@@ -1411,6 +1419,7 @@ SourcePsdResult sourcepsd_compute(DatasetWriter& ds, SubjectWriter& sub, const S
   key.params = Json{{"name", stem}, {"window_samples", Json::array({s0, s1})}, {"segment_samples", wo.segmentSamples}, {"overlap", wo.overlap}, {"window", window_name(wo.window)},
                     {"periodic", wo.periodic}, {"detrend", detrend_name(wo.detrend)}, {"scaling", scaling_name(wo.scaling)}, {"option_set", opt.option_set}, {"bands", bands_json},
                     {"normalisation", opt.normalisation}, {"bad_segments", spans ? Json(*spans) : Json()}};
+  if (bins_too) key.params["resolve"] = "bins";                                 // band: the key is as it was before the option
   key.input = Json{{"recording", rec.id}, {"kernel", text(kern, "id")}, {"kernel_modified", opt_text(kern, "modified_utc").value_or("")}, {"sfreq", rec.sfreq}, {"channels", chans}};
   key.compute = NXR_COMPUTE_VERSION;
 
@@ -1429,28 +1438,53 @@ SourcePsdResult sourcepsd_compute(DatasetWriter& ds, SubjectWriter& sub, const S
   };
   auto compute = [&]() {
     say(Json{{"stage", "cache"}, {"hit", false}, {"recording", rec.name}, {"kernel", kname}, {"channels", M}, {"sources", N}, {"window", Json::array({s0, s1})}, {"segment_samples", wo.segmentSamples}});
-    nxr::welch::CrossWelch w(static_cast<int>(M), wo, groups);
     const nxr::io::ChunkSource src = source_of(sub, rec, chans, spans);     // the chunk service loads; this folds
-    const std::int64_t bad_samples = nxr::io::chunk_loop(src, span, [&](const nxr::io::Chunk& c) {
-      const Eigen::MatrixXd chunk = matrix_of(c, M);
-      if (c.good.empty()) w.add(chunk); else w.add(chunk, c.good);
-    }).bad_samples;
-    const nxr::welch::CrossWelchResult cw = w.result();
-    segments = cw.segments;
-    skipped = cw.segmentsSkipped;
+    auto fold = [&](auto& w) {
+      return nxr::io::chunk_loop(src, span, [&](const nxr::io::Chunk& c) {
+        const Eigen::MatrixXd chunk = matrix_of(c, M);
+        if (c.good.empty()) w.add(chunk); else w.add(chunk, c.good);
+      }).bad_samples;
+    };
+    const std::size_t nb = opt.bands.size();
+    std::int64_t bad_samples = 0;
+    if (bins_too) {
+      // the SOURCE side: K applied to each segment's Fourier coefficients, |K X|^2 per source per bin (nxr::welch::LinearWelch); the bands read their bins, the band map is their mean
+      nxr::welch::LinearWelch w(K, static_cast<std::size_t>(orientations), wo, lo_bin, hi_bin);
+      bad_samples = fold(w);
+      const nxr::welch::LinearWelchResult lw = w.result();
+      segments = lw.segments;
+      skipped = lw.segmentsSkipped;
+      if (segments > 0) {
+        res.maps.resize(N, static_cast<Eigen::Index>(nb));
+        res.bins.clear();
+        for (std::size_t b = 0; b < nb; ++b) {
+          res.bins.push_back(lw.psd.middleCols(static_cast<Eigen::Index>(groups[b].first - lo_bin), static_cast<Eigen::Index>(groups[b].last - groups[b].first + 1)));
+          res.maps.col(static_cast<Eigen::Index>(b)) = res.bins.back().rowwise().mean();
+        }
+      }
+    } else {
+      nxr::welch::CrossWelch w(static_cast<int>(M), wo, groups);
+      bad_samples = fold(w);
+      const nxr::welch::CrossWelchResult cw = w.result();
+      segments = cw.segments;
+      skipped = cw.segmentsSkipped;
+      if (cw.segments > 0) {
+        res.maps = nxr::meeg::sourcePower(K, std::vector<Eigen::MatrixXd>(cw.S.begin(), cw.S.begin() + static_cast<std::ptrdiff_t>(nb)), orientations, nxr::meeg::Orientation::Norm);
+        if (relative) res.maps = nxr::meeg::relativePower(res.maps, nxr::meeg::sourcePower(K, {cw.S.back()}, orientations, nxr::meeg::Orientation::Norm).col(0));
+      }
+    }
     excluded_fraction = static_cast<double>(bad_samples) / static_cast<double>(s1 - s0);
     if (segments == 0) invalid(opt.recording + ": no whole segment of " + std::to_string(wo.segmentSamples) + " samples is free of the recording's bad segments (" + std::to_string(skipped) + " left out)");
     say(Json{{"stage", "accumulated"}, {"segments", segments}, {"segments_skipped", skipped}});
-    const std::size_t nb = opt.bands.size();
-    res.maps = nxr::meeg::sourcePower(K, std::vector<Eigen::MatrixXd>(cw.S.begin(), cw.S.begin() + static_cast<std::ptrdiff_t>(nb)), orientations, nxr::meeg::Orientation::Norm);
-    if (relative) res.maps = nxr::meeg::relativePower(res.maps, nxr::meeg::sourcePower(K, {cw.S.back()}, orientations, nxr::meeg::Orientation::Norm).col(0));
     return 0;
   };
   auto store = [&](const int&) {
     // A STATISTIC, read as maps (2026-11-13, the maintainers: computed over the recording from the segment partition; measure compute reads a band as a map):
     // `<stem>`, power_density (power; relative_power) by welch, OF the recording, axes vertex (the kernel's target) x band (its entries named, so band
     // k's map is `<stem>_<band>`, as the Field of that band was named)
-    moved_aside = clear_stored(ds, sub, {{"statistic", statistic_path(rec, stem)}, {"selection", segments_path(sub, rec, stem)}}, opt.replace, stem, replaced);
+    std::vector<std::pair<const char*, std::string>> have = {{"statistic", statistic_path(rec, stem)}, {"selection", segments_path(sub, rec, stem)}};
+    for (const std::string& n : bnames) have.push_back({"statistic", statistic_path(rec, n)});
+    moved_aside = clear_stored(ds, sub, have, opt.replace, stem, replaced);
     const std::string acq = acquisition_label(sub, rec.acquisition_id);
     const std::string seg_id = welch_segments(sub, rec, stem, acq, s0, s1, wo, segments, skipped);
     const Json pr = projector_record(rec.field);
@@ -1483,6 +1517,7 @@ SourcePsdResult sourcepsd_compute(DatasetWriter& ds, SubjectWriter& sub, const S
     opts["normalisation"] = opt.normalisation;
     opts["relative_total"] = relative ? Json("sum of the source's PSD over all bins, 0 to Nyquist") : Json();
     opts["orientation_combination"] = orientations == 3 ? "sum of the three orientations' power" : "fixed orientation";
+    if (bins_too) opts["resolve"] = "bins";
     st.options = opts;
     Json pj = stamp(key);
     pj["stage"] = "sourcepsd"; pj["by"] = "nxr-neuro sourcepsd compute"; pj["producer"] = producer_name("sourcepsd compute");
@@ -1492,8 +1527,53 @@ SourcePsdResult sourcepsd_compute(DatasetWriter& ds, SubjectWriter& sub, const S
     pj["excluded_fraction"] = excluded_fraction; pj["chunk_width"] = nxr::io::chunk_width(rec.field);
     pj["projectors"] = pr["projectors"]; pj["projectors_applied_in_samples"] = pr["applied_in_samples"]; pj["projectors_not_applied"] = pr["not_applied"];
     pj["ctf_compensation"] = pr["ctf_compensation"];
+    if (bins_too) { pj["resolve"] = "bins"; pj["bins_statistics"] = bnames; }
     st.producer = pj;
+    const std::string band_unit = st.unit ? *st.unit : std::string();
     ids.push_back(sub.statistic(std::move(st)));
+    if (!bins_too) return;
+    // THE BANDS, BIN BY BIN (spec 2026-11-16-meg-fingerprinting.md, 3.1): the bins as members of the frequency partition, nothing reduced over frequency; axes vertex x frequency (the bins' centres
+    // in Hz, `bins: [first, last]`, the PSD's frequency line); the band statistic above is the mean of these. The precision follows the recording's (float32 in: float32 stored).
+    const bool single = ArrayReader::open(sub.store(), text(rec.field, "path")).dtype() != nxr::io::DType::Float64;
+    for (std::size_t b = 0; b < B; ++b) {
+      const auto& band = opt.bands[b];
+      const Eigen::MatrixXd& P = res.bins[b];
+      const std::int64_t F = P.cols();
+      Json hz = Json::array();
+      for (std::int64_t k = 0; k < F; ++k) hz.push_back(static_cast<double>(groups[b].first + static_cast<std::size_t>(k)) * df);
+      std::vector<float> d32;
+      std::vector<double> d64;
+      if (single) d32.resize(static_cast<std::size_t>(N * F)); else d64.resize(static_cast<std::size_t>(N * F));
+      for (std::int64_t i = 0; i < N; ++i)
+        for (std::int64_t k = 0; k < F; ++k) { if (single) d32[static_cast<std::size_t>(i * F + k)] = static_cast<float>(P(i, k)); else d64[static_cast<std::size_t>(i * F + k)] = P(i, k); }
+      StatisticSpec sb;
+      sb.name = bnames[b];
+      sb.path = statistic_path(rec, bnames[b]);
+      sb.measure = wo.scaling == nxr::welch::Scaling::Density ? "power_density" : "power";
+      sb.method = "welch";
+      sb.of_field_id = rec.id;
+      sb.partition_selection_id = seg_id;
+      sb.n_members = segments;
+      sb.members_skipped = skipped;
+      sb.axes = Json::array({Json{{"name", "vertex"}, {"manifold_id", surface_id}, {"size", N}},
+                             Json{{"name", "frequency"}, {"size", F}, {"unit", "Hz"}, {"values", hz}, {"bins", band_bins[b]}}});
+      sb.span = nxr::io::span_record(span, rec.sfreq, rec.t0);
+      sb.data = single ? view(d32, {N, F}) : view(d64, {N, F});
+      if (!acq.empty()) sb.acquisition = acq;
+      if (!band_unit.empty()) sb.unit = band_unit;
+      char range[80];
+      std::snprintf(range, sizeof range, "(%g-%g Hz)", band.lo, band.hi);
+      sb.description = "the power of the sources of " + rec.name + " by " + kname + ", bin by bin \xe2\x80\x94 " + band.name + " " + range;
+      Json bo = opts;
+      bo["band"] = Json{{"name", band.name}, {"lo_hz", band.lo}, {"hi_hz", band.hi}, {"bins", band_bins[b]}, {"function", "none"}};
+      sb.options = bo;
+      sb.scaling = welch_scaling_record(wo, df, "A\xc2\xb2\xc2\xb7m\xc2\xb2");   // one bin a value
+      Json pb = pj;
+      pb["by"] = "nxr-neuro sourcepsd compute --resolve bins"; pb["band_function"] = "none"; pb["bins_of"] = stem; pb["band_name"] = band.name;
+      pb["layout"] = "[sources x frequency]: the power of each source at the band's bin f, over the segments; the band statistic is the mean over f";
+      sb.producer = pb;
+      sub.statistic(std::move(sb));
+    }
   };
   const Outcome<int> o = cached<int>(sub, "statistic", statistic_path(rec, stem), key, load, compute, store);
   res.hit = o.hit;
@@ -1513,6 +1593,7 @@ SourcePsdResult sourcepsd_compute(DatasetWriter& ds, SubjectWriter& sub, const S
 SourcePsdResult sourcetensor_compute(DatasetWriter& ds, SubjectWriter& sub, const SourcePsdOptions& opt, const std::function<void(const Json&)>& progress) {
   auto say = [&](const Json& j) { if (progress) progress(j); };
   const RecordingInput rec = read_recording(sub, opt.recording);
+  if (opt.resolve != "band") invalid("sourcetensor: --resolve is the power's (sourcepsd); a tensor is stored per band");
   if (opt.normalisation != "none") invalid("sourcetensor: a tensor is not normalised (the shares are read from it: the normal share, the Stokes parameters over S0)");
   if (opt.bands.empty()) invalid("sourcetensor: at least one band");
   Row kern;
