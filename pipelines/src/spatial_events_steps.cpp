@@ -422,7 +422,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       st.events = p["events"].get<bool>();
       st.threshold = p["ratio"].get<double>(); st.min_area = p["min_area"].get<double>(); st.block = p["block_frames"].get<std::int64_t>(); st.fps = x.rate; st.origin = x.origin;
       for (const auto& e : sc.facts["scale"]["levels"]) st.levels.push_back(e.get<int>());
-      if (ins.count("bursts")) for (const auto& r : c.bound.spans(nxr::io::text(*ins.at("bursts").row, "id"))) st.bursts.push_back({std::stod(nxr::io::text(r, "start")), std::stod(nxr::io::text(r, "stop"))});
+      if (ins.count("bursts")) for (const auto& r : c.bound.spans(nxr::io::text(*ins.at("bursts").row, "id"))) st.bursts.push_back({r.first, r.second});
       const auto man = c.bound.manifold(x.manifolds[0]);
       const nxr::pipelines::SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);
       st.V = S.n_vertices();

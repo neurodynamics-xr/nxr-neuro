@@ -157,7 +157,7 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
       std::vector<std::pair<double, double>> sp;
       if (name != "burst")
         for (const auto& r : c.bound.spans(nxr::io::text(*ins.at(name.get<std::string>()).row, "id")))
-          sp.emplace_back(std::stod(nxr::io::text(r, "start")), std::stod(nxr::io::text(r, "stop")));
+          sp.emplace_back(r.first, r.second);
       st.spans.push_back(std::move(sp));
     }
     st.record = Json{{"level", level}, {"tiles", st.tiles}, {"surface", S.name}, {"glued", Json{{"vertices", Vg}, {"kept", kept}, {"bridge", Vg - kept}}}, {"gauge", gauge}, {"stages", p["stages"]},

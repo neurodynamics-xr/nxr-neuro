@@ -23,13 +23,14 @@
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/pipelines/spatial_band.h"
+#include "nxr/pipelines/task.h"
 
 namespace nxr::pipelines::graph {
 
 class Bound {
  public:
-  /** a binding that knows the dataset's records only (a plan: before any run, nothing stored is read) */
-  explicit Bound(const nxr::io::Database& db) : db_(&db) {}
+  /** a binding that knows the subject's records only (a plan: before any run, nothing stored is read) */
+  explicit Bound(const nxr::pipelines::task::Subject& subject) : subject_(subject) {}
   /** a binding for a subject's run: its records, its stored arrays, and the dataset a missing eigenmode package is made in (progress said through `say`) */
   Bound(nxr::io::SubjectWriter& sub, nxr::io::DatasetWriter* ds, std::function<void(const nxr::io::Json&)> say = {});
 
@@ -39,7 +40,7 @@ class Bound {
   std::optional<nxr::io::Row> field(const std::string& id) const;               // a field's row
   std::string manifold_type(const std::string& id) const;                       // "" when unknown
   std::optional<std::string> glued_surface_id(const std::string& manifold_id) const;   // the id of `<name>_glued`, the surface of the same subject (one cortex, the bridge filled)
-  std::vector<nxr::io::Row> spans(const std::string& selection_id) const;       // a spans selection's members, in order: ordinal, start, stop (seconds, as text)
+  std::vector<std::pair<double, double>> spans(const std::string& selection_id) const;   // a spans selection's members in order: start, stop (seconds)
   std::vector<nxr::io::Row> level_members(const std::string& ladder_id) const;  // a ladder's complete members in order: id, name, member_ordinal, params_json
   // ── the subject's stored constants (a run) ──
   std::optional<nxr::io::Row> manifold_named(const std::string& name) const;    // the run's subject's manifold by name
@@ -56,8 +57,8 @@ class Bound {
   SpatialBand make_spatial_band(const SurfaceInput& surface, const SurfaceLevel& level, const SpatialBandOptions& opt) const;
 
  private:
-  nxr::io::SubjectWriter& subject() const;
-  const nxr::io::Database* db_ = nullptr;
+  nxr::io::SubjectWriter& writer() const;
+  nxr::pipelines::task::Subject subject_;                       // the records, through io's task API (no SQL, no handle)
   nxr::io::SubjectWriter* sub_ = nullptr;
   nxr::io::DatasetWriter* ds_ = nullptr;
   std::function<void(const nxr::io::Json&)> say_;

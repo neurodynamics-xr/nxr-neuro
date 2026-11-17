@@ -46,7 +46,7 @@ struct Plan {
 };
 
 /** every step's arrows checked on the inputs, in order; what each makes; the outputs' places: before any data is read */
-Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db);
+Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id);
 /** the definition's parameters with `--set` overrides (an unknown name refused) */
 Json parameters_of(const Definition& d, const Json& set);
 /** what a run reads and how it stores: the span (the chunk service's request; neither is an error: the caller states it) and whether another job's outputs are replaced */

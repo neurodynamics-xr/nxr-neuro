@@ -133,6 +133,14 @@ Subject Subject::of(const DatasetWriter& ds, const std::string& subject_id) {
   return s;
 }
 
+Subject Subject::of(const Database& db, const std::string& subject_id) {
+  Subject s;
+  s.impl_ = std::make_shared<Impl>();
+  s.impl_->db = const_cast<Database*>(&db);   // read-only use, as for a package
+  s.impl_->id = subject_id;
+  return s;
+}
+
 const std::string& Subject::id() const { return impl_->id; }
 
 std::vector<Node> Subject::find_all(const Want& w) const {

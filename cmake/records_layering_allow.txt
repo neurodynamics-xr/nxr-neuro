@@ -9,7 +9,6 @@ cli/read_command.cpp
 cli/run_command.cpp
 pipelines/include/nxr/pipelines/cache.h
 pipelines/include/nxr/pipelines/runner.h
-pipelines/src/bound.cpp
 pipelines/src/cache.cpp
 pipelines/src/cellquadrature.cpp
 pipelines/src/eigen.cpp

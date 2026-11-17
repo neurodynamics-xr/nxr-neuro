@@ -23,6 +23,7 @@ namespace nxr::io {
 class SubjectWriter;
 class DatasetWriter;
 class SubjectPackage;
+class Database;
 }  // namespace nxr::io
 
 namespace nxr::io::task {
@@ -108,6 +109,7 @@ class Subject {
   static Subject of(SubjectWriter& sub);
   static Subject of(const SubjectPackage& package);
   static Subject of(const DatasetWriter& ds, const std::string& subject_id);
+  static Subject of(const Database& db, const std::string& subject_id);   // reading only (a plan, before any run): no write call is made on it
 
   const std::string& id() const;
 
