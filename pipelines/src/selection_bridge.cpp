@@ -1,4 +1,4 @@
-// nxr-pipelines — the bridge between compute's selection and io's description (selection_bridge.h): a member-by-member copy, nothing decided.
+// nxr-pipelines — the bridge between compute's selection and io's description (selection_bridge.h): a field-by-field copy, nothing decided.
 #include "nxr/pipelines/selection_bridge.h"
 
 namespace nxr::pipelines {
@@ -41,8 +41,10 @@ is::Description describe(const cs::Selection& m) {
   for (const auto& x : m.members) d.members.push_back(describe(x));
   d.member_of = m.member_of;
   d.member_codes = m.member_codes;
-  d.parent = m.parent;
   if (m.tiling) d.tiling = is::Tiling{m.tiling->origin, m.tiling->width, m.tiling->hop, m.tiling->count};
+  for (const auto& x : m.factors) d.factors.push_back(describe(x));
+  d.radices = m.radices;
+  if (m.grid) d.grid = is::Grid{m.grid->kind == cs::Grid::Kind::dyadic ? is::Grid::Kind::dyadic : is::Grid::Kind::elements, m.grid->size, m.grid->depth, m.grid->slots};
   d.level = m.level;
   d.band = m.band;
   d.band_unit = m.band_unit;
@@ -62,8 +64,10 @@ cs::Selection made(const is::Description& d) {
   for (const auto& x : d.members) m.members.push_back(made(x));
   m.member_of = d.member_of;
   m.member_codes = d.member_codes;
-  m.parent = d.parent;
   if (d.tiling) m.tiling = cs::Tiling{d.tiling->origin, d.tiling->width, d.tiling->hop, d.tiling->count};
+  for (const auto& x : d.factors) m.factors.push_back(made(x));
+  m.radices = d.radices;
+  if (d.grid) m.grid = cs::Grid{d.grid->kind == is::Grid::Kind::dyadic ? cs::Grid::Kind::dyadic : cs::Grid::Kind::elements, d.grid->size, d.grid->depth, d.grid->slots};
   m.level = d.level;
   m.band = d.band;
   m.band_unit = d.band_unit;

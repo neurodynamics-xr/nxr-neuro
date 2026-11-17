@@ -5,7 +5,7 @@
 // the mass), every tile ONE PIECE, mass the barycentric lumped vertex area. Level l has 2^l tiles a piece; tile t of level l has children 2t, 2t+1; the tile
 // of a vertex at level l is code >> (D - l). Weyl's law pairs level l (m = 2^l tiles) with the eigenvalue lambda(m) = 4 pi m / A. The arithmetic uses
 // Math.hypot as V8 computes it (jsHypot) and is compiled without fused multiply-add, so the tiles are the Studio's. The public face is
-// nxr/selection/partition.h (`partition(surface, Dyadic)`); these are its parts.
+// nxr/selection/partition.h (`dyadic(surface, Dyadic)`, a grid with a closed-form hierarchy); these are its parts.
 #pragma once
 #include <cstdint>
 #include <limits>
@@ -74,7 +74,7 @@ struct Tree {
     int depth = 0;                      // D: codes are h 2^D + t
     int finest = 0;                     // the deepest level the ladder reached on every piece
     int slots = 2;                      // hemisphere slots (nxr: 2); the leaves are slots 2^depth
-    std::vector<int32_t> codes;         // [nVertices] the tile LABEL of every vertex (h 2^D + t), not a member number: partition.h's `dyadic` numbers the members
+    std::vector<int32_t> codes;         // [nVertices] the tile code of every vertex (h 2^D + t): the dyadic grid's member number (partition.h `dyadic`); level l's is code >> (D - l)
     std::vector<std::pair<int, int>> runs;   // (start, length) of every connected piece
     std::vector<double> pieceArea;
     int nLeaves() const { return slots << depth; }

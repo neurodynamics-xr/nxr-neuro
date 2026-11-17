@@ -13,17 +13,24 @@
 //               (a parcellation, a level of a tile ladder, a tile per sample); DISJOINT members only. A number, never a label: labels are the set's
 //               `member_codes` (selection.h)
 //
-// A member's IDENTITY is its member number (dense, 0 .. members - 1); every form keeps every member, an empty one included, so a measurement's k-th value is
-// always member k's. Indices are int64 on a line (hours of samples) and in Elements (a product manifold's cells); member numbers are int32, as every compute
-// that takes them reads them.
+// A member's IDENTITY is its member number (0 .. members - 1); every form keeps every member, an empty one included, so a measurement's k-th value is always
+// member k's. Indices are int64 on a line (hours of samples) and in Elements (a product manifold's cells); member numbers are int32, as every compute that takes
+// them reads them. A grid's member numbers are its own (a dyadic grid's tile codes, empty tiles included; an elements grid's elements).
 //
-// ROUNDING ONTO A LINE (a span's corners in the line's coordinates → sample indices): a span [a, b) holds the points of the line whose coordinate lies in
-// it, i.e. indices [ceil((a - origin) / spacing), ceil((b - origin) / spacing)), each ceil taken with a 1e-9 tolerance so that a corner ON a point is that
-// point. An INSTANT (a = b) holds the one point nearest it. A distance on a line, centre element c and radius r, is the span [c - r, c + r) in coordinates.
-// A tiling resolves to a Rule only when its origin, width and hop are whole points of the line (within 1e-9), else to Intervals, member by member.
+// ROUNDING ONTO A LINE (coordinates -> sample indices; spec section 0, item "rounding"):
+//   - a GRID's member (a tiling's tile) holds the points whose coordinate lies in it: [ceil((a - origin) / spacing), ceil((b - origin) / spacing)), so every
+//     point is in exactly one tile; a tiling resolves to a Rule only when its origin, width and hop are whole points of the line (within 1e-9), else to
+//     Intervals member by member by the same rule.
+//   - a CALLER-STATED extent (a span, an irregular member, a distance on a line; seconds, Hz) always holds the point nearest its centre and rounds OUTWARD:
+//     [floor((a - origin) / spacing), ceil((b - origin) / spacing)), each with a 1e-9 tolerance so a corner on a point stays there; never empty by rounding
+//     (an instant, a = b, is the one point nearest it). A distance on a line, centre element c and radius r, holds [c - h, c + h], h = ceil(r / spacing):
+//     a radius 0 holds the centre. Detected members' bounds are whole cells of the grid they were detected on, so this leaves them as they are.
 //
-// PRODUCTS (section 9): a product selection resolves to its factors' forms plus the row-major numbering (`ProductForm`): a compute reads member
-// (i_0, .., i_{n-1}) from the factors' forms and never materializes the product.
+// PRODUCTS (section 9): a product of grids resolves to its factors' forms plus the mixed-radix code, the FIRST factor fastest (`ProductForm`): a compute reads
+// member (c_0, .., c_{n-1}) from the factors' forms and never materializes the product. A BOX (a span with one extent per factor of a product manifold) resolves
+// to one interval per axis (`resolve_box`).
+//
+// HALOS are not selections: the margin a node reads round a block is a fact the node declares to the planner (spec section 8).
 //
 // Pure functions of their arguments: no file, no stored id; std::invalid_argument names the type or property refused and the resolver to use instead.
 #pragma once
@@ -80,22 +87,24 @@ std::int64_t member_count(const Form& form);
 std::int64_t form_size(const Form& form);
 
 // ── resolving a selection ─────────────────────────────────────────────────────────────────
-// A selection with levels is refused everywhere (name one: level(set, k)); a product is refused by all but resolve_product.
+// A selection with levels is refused everywhere (name one: level(set, k)); a product is refused by all but resolve_product; a span on several axes by all but
+// resolve_box.
 
 /** CLOSED FORM. Accepts: a set by a rule (a tiling) on `line`, whose origin, width and hop are whole points of it. Refuses every other selection
  *  (resolve_intervals) and a tiling that is not whole points (resolve_intervals rounds its members one by one). */
 Rule resolve_rule(const Selection& s, const Line& line);
 
 /** INTERVALS on `line`. Accepts (each with its unit, when it has one, equal to the line's):
- *   point     one member: its element                         span      one member: its axis-0 bounds (a span on several axes: a product)
- *   distance  one member: [c - r, c + r) in coordinates        indices   one member: its runs of consecutive elements
- *   set       a tiling (member k its interval), a set per element over the line's points (member m: the runs of m), listed members (each a point, a span on one
- *             axis, a distance or indices: its intervals; a member that is a set is refused)
+ *   point     one member: its element                         span      one member: its axis-0 bounds, rounded outward (several axes: resolve_box)
+ *   distance  one member: [c - h, c + h], h = ceil(r / spacing)   indices   one member: its runs of consecutive elements
+ *   set       a tiling (member k its interval, by the grid rule), a set per element over the line's points (member m: the runs of m), an elements grid over
+ *             them (member k: point k), listed members (each a point, a span on one axis, a distance or indices: its intervals, rounded outward; a member
+ *             that is a set is refused)
  *  Intervals are clipped to the line; a member that falls outside it is kept, empty. */
 Intervals resolve_intervals(const Selection& s, const Line& line);
 
-/** ELEMENTS on a manifold of `size` elements. Accepts: a point, indices (one member), a set per element over the `size` elements (member m: its elements), a set
- *  of listed points and indices. Refuses a distance on a surface (resolve_distance first: it needs the metric), a span or a tiling (they lie on a line:
+/** ELEMENTS on a manifold of `size` elements. Accepts: a point, indices (one member), a set per element over the `size` elements (member m: its elements; a dyadic
+ *  grid's tiles by code), an elements grid of `size` (member k: element k), a set of listed points and indices. Refuses a distance on a surface (resolve_distance first: it needs the metric), a span or a tiling (they lie on a line:
  *  resolve_intervals, then elements_of), and an element outside 0 .. size - 1. */
 Elements resolve_elements(const Selection& s, std::int64_t size);
 
@@ -133,20 +142,26 @@ std::pair<std::int64_t, std::int64_t> rule_members_at(const Rule& rule, std::int
  *  std::invalid_argument when members overlap (hop < width). */
 std::vector<std::int32_t> rule_member_of(const Rule& rule, std::int64_t first, std::int64_t n);
 
-// ── products (section 9) ──────────────────────────────────────────────────────────────────
-/** a product resolved: each factor in its own form and the row-major numbering of the tuples; the product itself is never materialized */
+// ── products and boxes (section 9) ────────────────────────────────────────────────────────
+/** a product of grids resolved: each factor in its own form and the mixed-radix code (the Studio's D100, FIRST factor fastest); never materialized */
 struct ProductForm {
   std::vector<Form> factors;                 // factor f in the form its Space asked for
-  std::vector<std::int64_t> counts;          // factor f's member ordinals (= member_count(factors[f]))
-  /** the product's members: the product of counts */
+  std::vector<std::int64_t> counts;          // factor f's members (= member_count(factors[f]))
+  std::vector<std::int64_t> radices;         // factor f's radix in the code (its count; a joint's first factor: the next power of two)
+  /** the product's code space: the product of the radices (a joint's codes past a factor's count are empty members) */
   std::int64_t members() const;
-  /** member k's factor ordinals (the last factor fastest) */
-  std::vector<std::int64_t> ordinals(std::int64_t k) const;
-  /** the member of the factors' ordinals */
-  std::int64_t ordinal(const std::vector<std::int64_t>& factor_ordinals) const;
+  /** member k's factor members, the first factor fastest (product_codes) */
+  std::vector<std::int64_t> codes(std::int64_t k) const;
+  /** the code of the factors' members (product_code); -1 when any is -1 */
+  std::int64_t code(const std::vector<std::int64_t>& factor_members) const;
 };
-/** a product, each factor resolved in its Space (one per factor, in order). std::invalid_argument for a selection that is not a product, a count of spaces
- *  that is not the factors', or a factor its form refuses. A factor that is not a set resolves to one member. */
+/** a product of grids, each factor resolved in its Space (one per factor, in order). std::invalid_argument for a selection that is not a product, a count of
+ *  spaces that is not the factors', or a factor its form refuses. */
 ProductForm resolve_product(const Selection& product, const std::vector<Space>& spaces);
+
+/** a BOX: a span with one extent per axis it constrains, on the lines of a product manifold (`axes`, one per factor, in order; a points axis such as the channels is
+ *  a Line of its elements, spacing 1 from 0): one member, one interval per axis, each rounded outward (an axis the span leaves out is all of it). Returned as a
+ *  ProductForm of one-member Intervals. std::invalid_argument for a selection that is not a span or an extent on an axis past `axes`. */
+ProductForm resolve_box(const Selection& span, const std::vector<Line>& axes);
 
 }  // namespace nxr::selection

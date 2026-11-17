@@ -1240,10 +1240,12 @@ CREATE TABLE template_reference (
 -- ── schema 51 (end) ──
 
 -- ── schema 52 (begin: Database::open runs this block on a database at 51, in place) ───────────────────────────────────────────────────────────
--- A PRODUCT selection (docs/specs/2026-11-17-selection-module.md, section 9) is a `set` whose members are the tuples of the members of its FACTORS, numbered row-major (the
--- last factor fastest). The factors are stored selections in their own right, on their own manifolds; the product names them, in order, here (the shape of `operator_factor`).
--- The product's row: type 'set', `manifold_id` the product manifold, `cell` one rank per factor, `n_members` the product of the factors' member counts, no array and no
--- dictionary (the factors carry theirs). A measurement on a product has `code` = the member's ordinal (row-major).
+-- A PRODUCT selection (docs/specs/2026-11-17-selection-module.md, section 9; the Studio's D100) is a `set` whose members are every combination of the members of its
+-- FACTORS, each a GRID (a tiling, a level of a grid, a dyadic or elements grid; never an irregular set). Its code is MIXED RADIX, the FIRST factor fastest:
+-- code = c0 + n0 (c1 + n1 (..)). The factors are stored selections in their own right, on their own manifolds; the product names them, in order, here (the shape of
+-- `operator_factor`), and their radices in `params_json.product` [{selection, members}] (a joint's first radix a power of two, D129: code = (tile << bits) | frame).
+-- The product's row: type 'set', `manifold_id` the product manifold, `cell` one rank per factor, `n_members` the product of the radices, no array and no
+-- dictionary (the factors carry theirs). A measurement on a product has `code` = the member's product code.
 -- What a set per element keeps beside its element array is a CONVENTION, not a column (selection above): sibling arrays of the element array at `array_path` P, written
 -- by io's selection store: `P.labels` (each member's label, a dictionary code: absent when member i is labelled i). A grid's levels are
 -- a closed-form rule (`params_json.grid`), never rows or parent arrays.

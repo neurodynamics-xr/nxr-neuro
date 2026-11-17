@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <map>
 #include <set>
 
@@ -231,41 +232,88 @@ std::string dictionary_of_labels(SubjectWriter& sub, const Description& d, const
 
 Saved save_per_element(SubjectWriter& sub, const Description& d, const Placement& at) {
   if (!at.path) refuse("selection " + at.name + ": a set per element is stored as an array: give its path");
-  const std::vector<std::int64_t> labels = labels_of(d);
-  const std::int64_t n = static_cast<std::int64_t>(labels.size());
+  const bool dyadic = d.grid && d.grid->kind == Grid::Kind::dyadic;
+  // a dyadic GRID: its member numbers are its tile codes, slots << depth of them (empty tiles too), no labels; an irregular set: dense numbers, a label per member
+  const std::vector<std::int64_t> labels = dyadic ? std::vector<std::int64_t>{} : labels_of(d);
+  const std::int64_t n = dyadic ? (d.grid->slots << d.grid->depth) : static_cast<std::int64_t>(labels.size());
   for (const std::int32_t m : d.member_of)
     if (m < -1 || m >= n) refuse("selection " + at.name + ": member number " + i2s(m) + " outside 0.." + i2s(n - 1));
-  // a GRID's levels (dyadic tiles, a constant-Q ladder) are a closed-form rule, never member rows or parent arrays: the caller names the rule in `params` (Placement::params "grid")
-  if (!d.members.empty()) refuse("selection " + at.name + ": a set per element has no levels stored (a grid's hierarchy is a rule, kept in its parameters: Placement::params \"grid\")");
+  // a GRID's levels (dyadic tiles, a constant-Q ladder) are a closed-form rule, never member rows or parent arrays; an irregular set has none
+  if (!d.members.empty())
+    refuse("selection " + at.name + (dyadic ? ": a dyadic grid with its levels is saved by save_grid (one level alone is saved here)" : ": an irregular set per element has no levels"));
   // the labels, beside the element array (written first: a failure leaves an array no row names, which a later save of the same path replaces)
-  if (!is_identity(labels)) sub.write_array(member_labels_path(*at.path), view(labels, {n}));
+  if (!dyadic && !is_identity(labels)) sub.write_array(member_labels_path(*at.path), view(labels, {n}));
   std::vector<std::int32_t> numbers = d.member_of;   // kept alive until the node is written
   SelectionSpec s = base(d, at, "set", "0");
   s.data = view(numbers, {static_cast<std::int64_t>(numbers.size())});
   Saved out;
   out.dictionary_id = dictionary_of_labels(sub, d, at, s);
-  params_of(s, at.params);
+  if (dyadic) {
+    Json params = at.params.is_object() ? at.params : Json::object();
+    params["grid"] = Json{{"kind", "dyadic"}, {"depth", d.grid->depth}, {"pieces", d.grid->slots}};   // the closed form: number at level l = number >> (depth - l)
+    params_of(s, params);
+  } else {
+    params_of(s, at.params);
+  }
   out.id = sub.selection(std::move(s));
   sub.update([&] { sub.db().execute("UPDATE selection SET n_members = ? WHERE id = ?", {V(n), V(out.id)}); });   // the members, empty ones too (the row counted the distinct numbers)
   return out;
 }
 
-// A product: a `set` row with nothing stored per member; its factors are named, in order, in `selection_factor`; its member count the product of theirs.
+// Why a stored selection cannot be a factor of a product (its factors are GRIDS: a tiling, a level of a grid, a dyadic or elements grid), or nothing when it can.
+std::optional<std::string> grid_refusal_of_row(const Database& db, const Row& f) {
+  const std::string t = text(f, "type");
+  const Json p = is_null(f, "params_json") ? Json() : Json::parse(text(f, "params_json"), nullptr, false);
+  const bool level_of_grid = [&] {
+    if (is_null(f, "member_of_id")) return false;
+    const auto up = db.read("selection", text(f, "member_of_id"));
+    return up && text(*up, "type") == "ladder";
+  }();
+  if (t == "ladder") return std::string("a grid with levels: name one level (its member row)");
+  if (t == "spans") {
+    if (p.is_object() && p.contains("tiling")) {
+      const Json& tl = p["tiling"];
+      if (tl.value("hop", 0.0) < tl.value("width", 0.0)) return std::string("a tiling whose members overlap is not a partition of its line");
+      return std::nullopt;
+    }
+    return std::string("a set of listed spans (bursts, events, named bands) is irregular: measure it member by member");
+  }
+  if (t == "set") {
+    if (p.is_object() && p.contains("grid")) return std::nullopt;
+    if (level_of_grid) return std::nullopt;
+    if (!is_null(f, "array_path")) return std::string("an irregular set per element (an atlas, a detection) partitions the field, not the manifold: measure it member by member");
+    return std::string("a set of listed members is irregular");
+  }
+  return std::string("a ") + t + " is one selection, not a grid: a box on the product manifold is a span with one extent per factor";
+}
+
+// A product of GRIDS: a `set` row with nothing stored per member; its factors are named, in order, in `selection_factor`, and their radices in
+// `params_json.product` [{selection, members}] (the Studio's D100); its member count the product of the radices; codes mixed radix, the FIRST factor fastest.
 Saved save_product(SubjectWriter& sub, const Description& d, const Placement& at) {
   if (at.factor_ids.size() != d.factors.size() || d.factors.size() < 2) refuse("selection " + at.name + ": a product has two or more factors, each named by its stored selection (Placement::factor_ids)");
+  if (!d.radices.empty() && d.radices.size() != d.factors.size()) refuse("selection " + at.name + ": one radix per factor");
   std::int64_t members = 1;
   std::string cell;
+  Json product = Json::array();
   for (std::size_t k = 0; k < at.factor_ids.size(); ++k) {
     const auto f = sub.db().read("selection", at.factor_ids[k]);
     if (!f) refuse("selection " + at.name + ": factor " + at.factor_ids[k] + " has no row");
-    members *= is_null(*f, "n_members") || text(*f, "type") != "set" ? 1 : std::max<std::int64_t>(0, integer(*f, "n_members"));   // a factor that is not a set is one member
+    if (const auto why = grid_refusal_of_row(sub.db(), *f)) refuse("selection " + at.name + ": factor " + i2s(static_cast<std::int64_t>(k)) + " ('" + text(*f, "name") + "') is not a grid: " + *why);
+    const std::int64_t count = is_null(*f, "n_members") ? 1 : std::max<std::int64_t>(0, integer(*f, "n_members"));
+    const std::int64_t radix = d.radices.empty() ? count : d.radices[k];
+    if (radix < count) refuse("selection " + at.name + ": factor " + i2s(static_cast<std::int64_t>(k)) + " has " + i2s(count) + " members, more than its radix " + i2s(radix));
+    if (radix > 0 && members > std::numeric_limits<std::int64_t>::max() / radix) refuse("selection " + at.name + ": more members than a 64-bit code holds");
+    members *= radix;
+    product.push_back(Json{{"selection", at.factor_ids[k]}, {"members", radix}});
     cell += (k ? "," : "") + text(*f, "cell");
   }
   Saved out;
   SelectionSpec s = base(d, at, "set", cell.c_str());
   s.no_elements = true;
   s.cols.set("n_members", members);
-  params_of(s, at.params);
+  Json params = at.params.is_object() ? at.params : Json::object();
+  params["product"] = std::move(product);
+  params_of(s, params);
   out.id = sub.selection(std::move(s));
   sub.update([&] {
     for (std::size_t k = 0; k < at.factor_ids.size(); ++k)
@@ -477,6 +525,16 @@ Saved save(SubjectWriter& sub, const Description& d, const Placement& at) {
     return out;
   }
   if (!d.factors.empty()) return save_product(sub, d, at);
+  if (d.grid && d.grid->kind == Grid::Kind::elements) {   // an elements grid: every element its own member, nothing stored
+    SelectionSpec s = base(d, at, "set", "0");
+    s.no_elements = true;
+    s.cols.set("n_members", d.grid->size);
+    Json params = at.params.is_object() ? at.params : Json::object();
+    params["grid"] = Json{{"kind", "elements"}, {"size", d.grid->size}};
+    params_of(s, params);
+    out.id = sub.selection(std::move(s));
+    return out;
+  }
   if (!d.member_of.empty()) return save_per_element(sub, d, at);
   if (d.members.empty() && at.n_members) {   // a set by a rule with nothing stored
     SelectionSpec s = base(d, at, "set", "0");
@@ -558,18 +616,44 @@ Description describe(const Database& db, const Store& store, const records::Sele
   } else if (t == "set" || t == "ladder") {
     d.type = Type::set;
     const auto factors = db.all("SELECT factor_selection_id FROM selection_factor WHERE selection_id = ? ORDER BY ordinal", {V(row.id)});
-    if (!factors.empty()) {   // a product: its factors, each a stored selection
+    const Json grid = p.is_object() && p.contains("grid") && p["grid"].is_object() ? p["grid"] : Json();
+    if (!factors.empty()) {   // a product: its factors, each a stored grid, and their radices (params_json.product; else their member counts)
       require_member_storage(db);
-      for (const Row& f : factors) {
-        const auto fr = records::Selections(db).read(text(f, "factor_selection_id"));
+      const Json radices = p.is_object() && p.contains("product") && p["product"].is_array() ? p["product"] : Json();
+      for (std::size_t k = 0; k < factors.size(); ++k) {
+        const auto fr = records::Selections(db).read(text(factors[k], "factor_selection_id"));
         if (!fr) throw Error(code::no_such_row, "selection " + row.name + ": a factor has no row");
+        d.radices.push_back(radices.is_array() && k < radices.size() ? radices[k].value("members", std::int64_t(0)) : fr->n_members.value_or(1));
         d.factors.push_back(describe(db, store, *fr));
       }
-    } else if (row.array_path) {   // a set per element: member numbers; the labels and the levels beside them
+    } else if (t == "ladder" && grid.is_object() && grid.value("kind", std::string()) == "dyadic") {
+      // a dyadic grid saved by save_grid: ONE description, its finest level's codes, the closed form, the levels as descriptions (label = the level)
+      const auto levels = e.members();
+      if (levels.empty()) refuse("selection " + row.name + ": a dyadic grid with no levels");
+      const records::SelectionRow& finest = levels.back();
+      if (!finest.array_path) refuse("selection " + row.name + ": its finest level stores no tile codes");
+      const int depth = grid.value("depth", static_cast<int>(levels.size()) - 1);
+      d.member_of = Selection::read(db, store, finest.id).elements();
+      d.grid = Grid{Grid::Kind::dyadic, 0, depth, finest.n_members.value_or(0) >> depth};   // the slots the codes reserve: the finest level's members >> depth
+      for (const auto& l : levels) {
+        Description level;
+        level.type = Type::set;
+        level.level = static_cast<int>(l.code.value_or(l.member_ordinal.value_or(0)));
+        level.code = level.level;
+        d.members.push_back(std::move(level));
+      }
+    } else if (row.array_path) {   // a set per element: member numbers; an irregular set's labels beside them, or a dyadic grid's rule
       require_member_storage(db);
       d.member_of = e.elements();
-      const std::string labels = member_labels_path(*row.array_path);
-      if (store.exists_prefix(labels)) d.member_codes = read_ints(store, labels);   // absent: member i is labelled i
+      if (grid.is_object() && grid.value("kind", std::string()) == "dyadic") {
+        const int depth = grid.value("depth", 0);
+        d.grid = Grid{Grid::Kind::dyadic, 0, depth, row.n_members.value_or(0) >> depth};
+      } else {
+        const std::string labels = member_labels_path(*row.array_path);
+        if (store.exists_prefix(labels)) d.member_codes = read_ints(store, labels);   // absent: member i is labelled i
+      }
+    } else if (grid.is_object() && grid.value("kind", std::string()) == "elements") {   // an elements grid: nothing stored
+      d.grid = Grid{Grid::Kind::elements, grid.value("size", row.n_members.value_or(0)), 0, 0};
     } else {
       for (const auto& m : e.members()) d.members.push_back(describe(db, store, m));
     }
