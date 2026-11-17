@@ -140,7 +140,7 @@ std::string band_key(const Resolution& r) {   // "8-16", the level's name in a m
   return std::string(a) + "-" + b;
 }
 
-// ── the measure move's rule (spec section 5): a partition's members replace the factors it partitions; the only rule that removes a factor
+// ── the measure move's rule (spec section 5): the members of the selection replace the factors it lies on; the only rule that removes a factor
 void measure_rule(Unified& u, const Signature& sg) {
   std::string over_port;
   for (const auto& [name, p] : sg.inputs) if (p.is_over) over_port = name;
@@ -157,8 +157,7 @@ void measure_rule(Unified& u, const Signature& sg) {
     const PortType& P = u.in.at(over_port);
     const SelectionShape sel = P.sel.value_or(SelectionShape{});
     const std::string id = identity_of(u, over_port);
-    if (!(sel.partition || sel.type == "ladder"))
-      u.fail(over_port, "a measure is taken over a partition (its members disjoint); `" + id + "` is a " + sel.type + " selection that is not one");
+    // any selection on factors of x will do (PI, 2026-11-17): one region or time range is a selection of one member. Disjoint members matter only to `within` and to roll-ups across members.
     const auto& pf = P.domain.factors;
     if (sel.type == "ladder") {
       // a time ladder: the level whose band is x's band (the level IS the band)

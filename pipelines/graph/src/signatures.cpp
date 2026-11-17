@@ -281,6 +281,7 @@ Signature s_rollup_events() {
         const PortType& ev = u.type("events");
         if (x.domain.factors.empty() || !member_like(x.domain.factors.back())) u.fail("x", "must be a measurement over a partition's members (a tile level)");
         if (!ev.sel || ev.sel->type != "spans") u.fail("events", "must be a spans selection");
+        if (!ev.sel->partition) u.fail("events", "a roll-up across members needs disjoint members; `" + id_of(u, "events") + "` overlaps (a partition has disjoint members)");
         const std::string over = partition_id(x.domain.factors.back());
         if (!ev.sel->detected_over.empty() && ev.sel->detected_over != over)
           u.fail("events", "were detected on the members of `" + ev.sel->detected_over + "`; x is measured over `" + over + "`. Roll up a measurement over the partition the events were found on (or detect them on x's).");
