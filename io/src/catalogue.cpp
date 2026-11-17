@@ -228,7 +228,7 @@ std::vector<Vocab> vocabulary_of(const Database& db) {
 }
 
 // A package read for registration, or the reason it cannot be.
-std::optional<std::string> examine(const fs::path& path, Candidate& c) {
+std::optional<std::string> examine(const fs::path& path, Candidate& c, const std::optional<TemplateSearch>& templates) {
   if (!fs::is_directory(path) || !fs::is_regular_file(path / kPackageDatabaseFile)) return path.string() + ": not a subject package (no " + kPackageDatabaseFile + ")";
   std::error_code ec;
   if (fs::exists(path / kWriterLockFile, ec)) return path.string() + ": a writer holds the package (or left its lock): close it, or open and close it with a writer to recover";
@@ -248,6 +248,15 @@ std::optional<std::string> examine(const fs::path& path, Candidate& c) {
     c.subject = p.subject_row();
     c.counts = *p.db().one("SELECT n_acquisitions, n_recordings, n_surfaces, n_fields, n_operators FROM subject_status WHERE id = ?", {c.rec.subject_id});
     c.vocab = vocabulary_of(p.db());
+    if (templates && c.rec.template_reference.is_object() && c.rec.template_reference.contains("content_hash")) {
+      const ResolvedTemplate t = resolve_template(TemplateRef::from_json(c.rec.template_reference), *templates);
+      const auto differ = anchor_differences(p.db(), t.folder);
+      if (!differ.empty()) {
+        std::string list;
+        for (std::size_t i = 0; i < differ.size() && i < 5; ++i) list += (list.empty() ? "" : ", ") + differ[i];
+        return path.string() + ": its anchor rows differ from template " + t.record.release.value("name", "") + "@" + t.record.release.value("version", "") + "'s: " + list + (differ.size() > 5 ? ", ..." : "");
+      }
+    }
   } catch (const Error& e) {
     return path.string() + ": " + e.what();
   }
@@ -277,7 +286,7 @@ std::vector<RegisterResult> register_packages(const fs::path& folder_in, const s
     c.path = absolute_of(p);
     c.result = results.size() - 1;
     if (!seen.insert(c.path.string()).second) { results.back().outcome = "refused"; results.back().reason = c.path.string() + ": named twice"; continue; }
-    if (const auto why = examine(c.path, c)) { results.back().outcome = "refused"; results.back().reason = *why; continue; }
+    if (const auto why = examine(c.path, c, opt.templates)) { results.back().outcome = "refused"; results.back().reason = *why; continue; }
     results.back().name = c.rec.name;
     cands.push_back(std::move(c));
   }
@@ -475,6 +484,7 @@ SelectedSubjects select_subjects(const fs::path& folder, const SubjectSelection&
     std::sort(out.members.begin(), out.members.end(), [](const CatalogueEntry& a, const CatalogueEntry& b) { return a.name < b.name; });
   }
   if (out.members.empty()) throw value_error("select subjects: the selection matches no subject");
+  std::map<std::string, std::string> template_of;   // "name@version (edition, hash)" -> a member that uses it
   for (const auto& m : out.members) {
     if (m.kind != "subject") throw value_error("select subjects: " + m.name + " is a " + m.kind + ", not a subject: a cohort holds subjects only");
     if (m.status != "registered") throw value_error("select subjects: " + m.name + " is " + m.status + " (run the status check, then register again)");
@@ -483,6 +493,14 @@ SelectedSubjects select_subjects(const fs::path& folder, const SubjectSelection&
     std::string have;
     try { have = SubjectPackage::open(p).record().content_hash; } catch (const Error& e) { throw value_error("select subjects: " + m.name + ": " + e.what()); }
     if (have != m.content_hash) throw value_error("select subjects: " + m.name + " is stale: its package has changed since it was registered (register it again)");
+    const Json t = SubjectPackage::open(p).record().template_reference;
+    const std::string key = t.is_object() ? t.value("name", "") + "@" + t.value("version", "") + (t.value("edition", "full") == "full" ? "" : ":" + t.value("edition", "")) + " (" + t.value("content_hash", "") + ")" : "no template";
+    template_of.emplace(key, m.name);
+  }
+  if (template_of.size() > 1) {
+    std::string list;
+    for (const auto& [k, who] : template_of) list += (list.empty() ? "" : "; ") + k + " by " + who;
+    throw value_error("select subjects: the members are registered to different template versions (a cohort is never pooled across them): " + list);
   }
   return out;
 }

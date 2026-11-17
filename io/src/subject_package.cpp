@@ -1,6 +1,7 @@
 #include "nxr/io/subject_package.h"
 
 #include <algorithm>
+#include <functional>
 #include <map>
 #include <set>
 
@@ -17,7 +18,9 @@ namespace {
 
 const char* const kPackageTables =
     "CREATE TABLE IF NOT EXISTS key_digest (key TEXT PRIMARY KEY, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL) STRICT;\n"
-    "CREATE TABLE IF NOT EXISTS anchor_row (table_name TEXT NOT NULL, row_id TEXT NOT NULL, from_subject_id TEXT NOT NULL, PRIMARY KEY (table_name, row_id)) STRICT;\n";
+    "CREATE TABLE IF NOT EXISTS anchor_row (table_name TEXT NOT NULL, row_id TEXT NOT NULL, from_subject_id TEXT NOT NULL, PRIMARY KEY (table_name, row_id)) STRICT;\n"
+    "CREATE TABLE IF NOT EXISTS origin (table_name TEXT NOT NULL, row_id TEXT NOT NULL, source TEXT NOT NULL, licence TEXT NOT NULL, attribution TEXT NOT NULL,"
+    " redistributable INTEGER NOT NULL CHECK (redistributable IN (0, 1)), PRIMARY KEY (table_name, row_id)) STRICT;\n";
 
 constexpr const char* kRecordKey = "package_json";
 constexpr std::uint64_t kReadSlab = 8ULL << 20;   // a key is hashed in slabs of this many bytes, never held whole
@@ -244,7 +247,7 @@ std::string package_prefix(const Database& db) {
 
 Json PackageRecord::to_json() const {
   return Json{{"subject_id", subject_id}, {"name", name}, {"kind", kind}, {"schema_version", schema_version}, {"store_format", store_format},
-              {"template_reference", template_reference}, {"members", members}, {"content_hash", content_hash}, {"hashed_utc", hashed_utc}};
+              {"template_reference", template_reference}, {"release", release}, {"description", description}, {"registration", registration}, {"members", members}, {"content_hash", content_hash}, {"hashed_utc", hashed_utc}};
 }
 PackageRecord PackageRecord::from_json(const Json& j) {
   PackageRecord r;
@@ -253,6 +256,9 @@ PackageRecord PackageRecord::from_json(const Json& j) {
   r.schema_version = j.value("schema_version", 0);
   r.store_format = j.value("store_format", 0);
   r.template_reference = j.contains("template_reference") ? j["template_reference"] : Json(nullptr);
+  r.release = j.contains("release") ? j["release"] : Json(nullptr);
+  r.description = j.contains("description") ? j["description"] : Json(nullptr);
+  r.registration = j.contains("registration") ? j["registration"] : Json(nullptr);
   r.members = j.contains("members") ? j["members"] : Json(nullptr);
   r.content_hash = str("content_hash"); r.hashed_utc = str("hashed_utc");
   return r;
@@ -419,14 +425,15 @@ DatasetWriter create_package(const fs::path& folder_in, const std::string& subje
     db.emplace(Database::open(folder / kPackageDatabaseFile, true, opt.built_by.value_or("nxr-io")));
     db->execute("UPDATE meta SET value = ? WHERE key = 'store_format'", {std::string(kStoreFormat53)});
     db->exec_script(kPackageTables);
+    if (opt.subject.kind == "registration") allow_subject_kind(*db, "registration");
     const std::string now = now_utc();
     const std::string datastore_id = opt.datastore_id.value_or(uuid7());
     home = {{"id", opt.home_dataset_id.value_or(uuid7())}, {"datastore_id", datastore_id}, {"name", opt.home_dataset}, {"path", opt.home_dataset},
             {"source_tool", V(opt.subject.source_format)}, {"source_protocol", V(nullptr)}, {"source_path", V(opt.subject.source_path)}, {"created_utc", now},
             {"created_by", V(opt.subject.created_by)}, {"modified_utc", now}, {"modified_by", V(opt.subject.created_by)}};
     db->tx([&] {
-      // the hint only: where the package was made; nothing reads it to find data
-      db->insert("datastore", {{"id", datastore_id}, {"url", folder.parent_path().string()}, {"driver", "file"}, {"name", folder.parent_path().filename().string()}});
+      // the hint only: where the package was made (its own folder, so two packages never share a url); nothing reads it to find data
+      db->insert("datastore", {{"id", datastore_id}, {"url", folder.string()}, {"driver", "file"}, {"name", folder.filename().string()}});
       db->insert("dataset", home);
     });
     ensure_band_dictionary(*db);   // the shared vocabulary a subject's rows name is copied into its package (section 2)
@@ -482,6 +489,9 @@ DatasetWriter open_package_writer(const fs::path& folder_in, const OpenOptions& 
     }
     db.emplace(Database::open(folder / kPackageDatabaseFile));
     check_versions(*db, folder);
+    if (read_package_record(*db).release.is_object())
+      throw Error(code::not_writable, folder.string() + ": a released package is frozen: a change is a new version (a new package)");
+    db->exec_script(kPackageTables);   // a package made before a table of the package format existed gets it
   } catch (...) {
     db.reset();
     held.release();
@@ -511,6 +521,167 @@ DatasetWriter open_package_writer(const fs::path& folder_in, const OpenOptions& 
     }
   }
   return w;
+}
+
+// ══ origin, anchors, the registration kind ══════════════════════════════════════════════════════════════════════
+
+void set_origin(Database& db, const std::string& table, const std::string& id, const OriginRecord& o) {
+  if (o.source.empty() || o.licence.empty() || o.attribution.empty()) throw value_error("an origin record names its source, its licence and who is to be credited");
+  if (!db.read(table, id)) throw Error(code::no_such_row, table + " " + id + ": no such row to give an origin");
+  db.execute("INSERT INTO origin (table_name, row_id, source, licence, attribution, redistributable) VALUES (?, ?, ?, ?, ?, ?) "
+             "ON CONFLICT (table_name, row_id) DO UPDATE SET source = excluded.source, licence = excluded.licence, attribution = excluded.attribution, redistributable = excluded.redistributable",
+             {table, id, o.source, o.licence, o.attribution, V(o.redistributable)});
+}
+
+std::optional<OriginRecord> origin_of(const Database& db, const std::string& table, const std::string& id) {
+  const auto r = db.one("SELECT * FROM origin WHERE table_name = ? AND row_id = ?", {table, id});
+  if (!r) return std::nullopt;
+  return OriginRecord{text(*r, "source"), text(*r, "licence"), text(*r, "attribution"), integer(*r, "redistributable") != 0};
+}
+
+std::vector<PackageItem> package_items(const Database& db) {
+  std::vector<PackageItem> out;
+  const std::string sid = read_package_record(db).subject_id;
+  for (const char* t : {"manifold", "field", "operator", "selection", "statistic"}) {
+    if (!db.one("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", {std::string(t)})) continue;
+    for (const auto& r : db.all(std::string("SELECT id, name, path FROM ") + t + " WHERE subject_id = ? AND path IS NOT NULL AND status = 'complete' ORDER BY path", {sid}))
+      out.push_back({t, text(r, "id"), text(r, "name"), text(r, "path")});
+  }
+  return out;
+}
+
+std::vector<PackageItem> items_without_origin(const Database& db) {
+  std::vector<PackageItem> out;
+  for (const auto& i : package_items(db)) if (!origin_of(db, i.table, i.id)) out.push_back(i);
+  return out;
+}
+
+namespace {
+struct ForeignKey { std::string from, parent; };
+std::vector<ForeignKey> foreign_keys_for(const Database& db, const std::string& table) {
+  std::vector<ForeignKey> out;
+  for (const auto& f : db.all("SELECT \"from\" AS c, \"table\" AS p, \"to\" AS t FROM pragma_foreign_key_list(?)", {table})) {
+    const std::string to = opt_text(f, "t").value_or("id");
+    if (to != "id") throw Error(code::unsupported, "the foreign key " + table + "." + text(f, "c") + " names " + text(f, "p") + "." + to + ", not an id: anchor rows cannot follow it");
+    out.push_back({text(f, "c"), text(f, "p")});
+  }
+  return out;
+}
+std::vector<std::string> column_names(const Database& db, const std::string& table) {
+  std::vector<std::string> out;
+  for (const auto& r : db.all("SELECT name FROM pragma_table_info(?) ORDER BY cid", {table})) out.push_back(text(r, "name"));
+  return out;
+}
+std::string column_list(const std::vector<std::string>& cols) {
+  std::string s;
+  for (const auto& c : cols) s += (s.empty() ? "" : ", ") + std::string("\"") + c + "\"";
+  return s;
+}
+bool is_bookkeeping(const std::string& t) {
+  return t == "meta" || t == "sync_job" || t == "small_files" || t == "key_digest" || t == "anchor_row" || t == "origin" || t == "variable_dictionary" || t == "subject_variable" || t.rfind("sqlite_", 0) == 0;
+}
+std::vector<std::string> tables_in(const Database& db, const std::string& schema) {
+  std::vector<std::string> out;
+  for (const auto& r : db.all("SELECT name FROM " + schema + ".sqlite_master WHERE type = 'table' ORDER BY name")) out.push_back(text(r, "name"));
+  return out;
+}
+bool contains(const std::vector<std::string>& v, const std::string& x) { return std::find(v.begin(), v.end(), x) != v.end(); }
+}  // namespace
+
+std::int64_t add_anchor_rows(Database& db, const fs::path& source, const std::vector<std::pair<std::string, std::string>>& roots) {
+  const fs::path file = fs::is_directory(source) ? source / kPackageDatabaseFile : source;
+  if (!fs::is_regular_file(file)) throw Error(code::not_found, source.string() + ": not a subject package");
+  const bool fk_was_on = integer(*db.one("PRAGMA foreign_keys"), "foreign_keys") != 0;
+  if (fk_was_on) db.execute("PRAGMA foreign_keys = OFF");   // parents and children arrive in any order; the check at the end says whether they are whole
+  db.execute("ATTACH DATABASE ? AS anchor_src", {file.string()});
+  std::int64_t added = 0;
+  try {
+    const std::int64_t jobs_before = integer(*db.one("SELECT coalesce(max(id), 0) AS m FROM sync_job"), "m");
+    const auto src_tables = tables_in(db, "anchor_src");
+    db.tx([&] {
+      std::vector<std::pair<std::string, ForeignKey>> fks;
+      for (const auto& t : tables_in(db, "main")) { if (is_bookkeeping(t)) continue; for (const auto& f : foreign_keys_for(db, t)) fks.push_back({t, f}); }
+      std::set<std::pair<std::string, std::string>> seen;
+      std::function<void(const std::string&, const std::string&)> anchor = [&](const std::string& table, const std::string& id) {
+        if (db.one("SELECT 1 FROM main.\"" + table + "\" WHERE id = ?", {id})) return;
+        if (!seen.insert({table, id}).second) return;
+        if (!contains(src_tables, table)) throw value_error("a row names a row of " + table + ", which " + source.string() + " does not have");
+        const auto cols = column_names(db, table);
+        db.execute("INSERT INTO main.\"" + table + "\" (" + column_list(cols) + ") SELECT " + column_list(cols) + " FROM anchor_src.\"" + table + "\" WHERE id = ?", {id});
+        if (integer(*db.one("SELECT changes() AS n"), "n") != 1) throw value_error(table + " " + id + " is not a row of " + source.string());
+        std::string owner = id;
+        if (contains(cols, "subject_id")) owner = text(*db.one("SELECT subject_id FROM main.\"" + table + "\" WHERE id = ?", {id}), "subject_id");
+        db.execute("INSERT OR IGNORE INTO main.anchor_row (table_name, row_id, from_subject_id) VALUES (?, ?, ?)", {table, id, owner});
+        ++added;
+        struct Child { const char* table; const char* column; };
+        const std::vector<Child> children = table == "topology" ? std::vector<Child>{{"topology_cell", "topology_id"}}
+                                          : table == "geometry" ? std::vector<Child>{{"geometry_dimension", "geometry_id"}}
+                                          : table == "dictionary" ? std::vector<Child>{{"dictionary_entry", "dictionary_id"}} : std::vector<Child>{};
+        for (const auto& ch : children) {
+          const auto cc = column_names(db, ch.table);
+          db.execute("INSERT OR IGNORE INTO main.\"" + std::string(ch.table) + "\" (" + column_list(cc) + ") SELECT " + column_list(cc) + " FROM anchor_src.\"" + ch.table + "\" WHERE " + ch.column + " = ?", {id});
+        }
+        if (table == "manifold") for (const auto& c : db.all("SELECT id FROM anchor_src.manifold WHERE component_of_id = ?", {id})) anchor("manifold", text(c, "id"));
+      };
+      for (const auto& [t, id] : roots) anchor(t, id);
+      for (bool grew = true; grew;) {
+        grew = false;
+        for (const auto& [t, f] : fks) {
+          for (const auto& m : db.all("SELECT DISTINCT \"" + f.from + "\" AS v FROM main.\"" + t + "\" WHERE \"" + f.from + "\" IS NOT NULL AND \"" + f.from + "\" NOT IN (SELECT id FROM main.\"" + f.parent + "\")")) {
+            anchor(f.parent, text(m, "v"));
+            grew = true;
+          }
+        }
+      }
+      db.execute("DELETE FROM sync_job WHERE id > ?", {V(jobs_before)});   // the triggers' jobs for rows that are another package's, never this one's to write
+    });
+  } catch (...) {
+    try { db.execute("DETACH DATABASE anchor_src"); } catch (...) {}
+    if (fk_was_on) db.execute("PRAGMA foreign_keys = ON");
+    throw;
+  }
+  db.execute("DETACH DATABASE anchor_src");
+  if (fk_was_on) db.execute("PRAGMA foreign_keys = ON");
+  return added;
+}
+
+std::vector<std::string> anchor_differences(const Database& db_in, const fs::path& source) {
+  Database& db = const_cast<Database&>(db_in);
+  const fs::path file = source / kPackageDatabaseFile;
+  if (!fs::is_regular_file(file)) throw Error(code::not_found, source.string() + ": not a subject package");
+  std::vector<std::string> out;
+  db.execute("ATTACH DATABASE ? AS anchor_src", {file.string()});
+  try {
+    for (const auto& a : db.all("SELECT table_name, row_id FROM anchor_row ORDER BY table_name, row_id")) {
+      const std::string t = text(a, "table_name"), l = "\"" + t + "\"";
+      const auto here = db.one("SELECT count(*) AS n FROM (SELECT * FROM main." + l + " WHERE id = ? EXCEPT SELECT * FROM anchor_src." + l + " WHERE id = ?)", {text(a, "row_id"), text(a, "row_id")});
+      const auto there = db.one("SELECT count(*) AS n FROM anchor_src." + l + " WHERE id = ?", {text(a, "row_id")});
+      if (integer(*here, "n") != 0 || integer(*there, "n") != 1) out.push_back(t + " " + text(a, "row_id"));
+    }
+  } catch (...) {
+    try { db.execute("DETACH DATABASE anchor_src"); } catch (...) {}
+    throw;
+  }
+  db.execute("DETACH DATABASE anchor_src");
+  return out;
+}
+
+bool allow_subject_kind(Database& db, const std::string& kind) {
+  const std::string quoted = "'" + kind + "'";
+  const auto r = db.one("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'subject'");
+  if (!r) throw Error(code::not_a_database, "no subject table");
+  if (text(*r, "sql").find(quoted) != std::string::npos) return false;
+  static const std::string before = "kind IN ('subject', 'template', 'group')";
+  if (text(*r, "sql").find(before) == std::string::npos) throw Error(code::schema_version, "the subject table's kind list is not the schema's; " + kind + " cannot be allowed in place");
+  const std::int64_t v = integer(*db.one("PRAGMA schema_version"), "schema_version");
+  db.with_writable_schema([&] {
+    db.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'table' AND name = 'subject'", {V(before), V("kind IN ('subject', 'template', 'group', " + quoted + ")")});
+    db.execute("PRAGMA schema_version = " + std::to_string(v + 1));
+  });
+  const auto ok = db.one("PRAGMA quick_check");
+  if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after " + kind + " was allowed");
+  db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", {V("subject_kind:" + kind), V(now_utc() + " allowed in place (additive; user_version unchanged)")});
+  return true;
 }
 
 // ══ ids ══════════════════════════════════════════════════════════════════════════════════════════════════════════

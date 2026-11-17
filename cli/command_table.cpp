@@ -27,6 +27,11 @@ verb compact	Compact a dataset
 verb recover	Recover a dataset after an interrupted write
 verb reduce	Reduce stored results across subjects
 verb add	Add a surface to a subject
+verb register	Register subject packages in a dataset's catalogue
+verb split	Split a one-database dataset into subject packages with a catalogue
+verb join	Join subject packages back into a one-database dataset
+verb release	Release a template or registration as a frozen, versioned package
+verb verify	Verify a subject package against the hashes it records
 )TBL",
 R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or map belongs to.	none	-
 --acquisition@import inverse	NAME	The Brainstorm acquisition (condition) the kernel belongs to; it names the session the kernel is stored under.	required	-
@@ -119,11 +124,11 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --cycles@compute speedspectrum	C	Morlet time bank: cycles per member (width = centre / cycles)	6	cycles
 --datafit	auto|gauge|triangle	Data term of the Horn-Schunck flow: auto picks the regulariser's own (gauge for connection, triangle for ambient); gauge is connection only; triangle uses per-triangle finite elements.	auto	-
 --datafit@compute opticalflow	auto|gauge|triangle	Data term of the Horn-Schunck equation: auto (gauge for the connection regulariser, triangle for ambient), gauge (connection only), or per-triangle finite elements.	auto	-
---dataset	DATASTORE/NAME	The dataset to work on, as datastore/dataset (show, recover and compact take the dataset folder).	required	-
---datastore	DIR	Folder that holds the datasets	none (required)	-
---datastore@create dataset	DIR	The datastore folder in which the new dataset is created.	required	-
---datastore@delete dataset	PATH	The datastore folder that holds the dataset to delete	required	-
---datastore@list datasets	DIR	The folder that holds the datasets to list.	required	-
+--dataset	PATH	The dataset to work on: the path of its folder (a dataset is addressed by its own path; the folder of a one-database dataset, or of a catalogue of subject packages).	required	-
+--datastore	DIR	The folder that holds the dataset folders (their parent); the dataset is then DIR/NAME.	none (required)	-
+--datastore@create dataset	DIR	The folder in which the new dataset's folder is made (its parent); the dataset is then DIR/NAME.	required	-
+--datastore@delete dataset	PATH	The folder that holds the folder of the dataset to delete (its parent).	required	-
+--datastore@list datasets	DIR	The folder that holds the dataset folders to list.	required	-
 --ddof	N	Delta degrees of freedom: the standard deviation divides by n minus this number (1 matches MATLAB's std).	1	-
 --ddof@compute statistic	N	Delta degrees of freedom: the standard deviation divides by n minus this number (1 is MATLAB's std).	1	-
 --default	NAME	The template resolution used for the dataset's default subject (needs --templates).	fsaverage5	-
@@ -417,7 +422,7 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@compute statistic	NAME	Name of the stored statistic.	<of>_<measure>_<over>	-
 --name@create dataset	NAME	Name of the new dataset.	required	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
---name@delete dataset	NAME	Name of the dataset to delete from the datastore	required	-
+--name@delete dataset	NAME	Name of the dataset's folder to delete, inside the folder given by --datastore	required	-
 --name@import inverse	NAME	Name of the stored kernel.	Brainstorm's file stem, session-qualified if already taken	-
 --name@import resample	NAME	Name of the resampled recording that is created	<recording>_<rate>Hz (e.g. meg_250Hz)	-
 --name@read crossspectrum	NAME	The stored band-resolved cross-spectrum to read, named <stem>_<band>_bins (made by crossspectrum compute --resolve bins).	required	-
@@ -827,6 +832,46 @@ R"TBL(--tolerance@compute patches	X	Chebyshev: the largest difference between th
 --transition@compute highpass	HZ	Width of the transition band of the FIR filter (the high-pass edge's).	the reference's rule (Brainstorm)	Hz
 --transition@compute lowpass	HZ	Width of the transition band between passband and stopband.	1 for a lowpass alone (the reference's rule)	Hz
 --transition@compute notch	HZ	Not used by notch; the transition bandwidth of the FIR filters.	none	Hz
+--home-dataset	NAME	The name of the dataset a package is made for (provenance, not membership).	none (required)	-
+--registered-by	WHO	Who registers: recorded with each catalogue entry.	none (required)	-
+--released-by	WHO	Who releases: the program and the releaser's stated name, recorded in the release.	none (required)	-
+--scan		Register every subject package directly inside the dataset folder.	off	-
+--force		Rebuild even when the index is current.	off	-
+--tsv	FILE	A BIDS participants.tsv file (tab-separated, a participant_id column, n/a for missing).	none (required)	-
+--sidecar	FILE	The BIDS participants.json sidecar describing the variables.	none	-
+--into	DIR	The templates folder a released package is made in.	none (required)	-
+--template-version	VERSION	The version string the releaser gives (e.g. 1.0); name@version must be new.	none (required)	-
+--where	FILTER	A filter over the participant variables, in the filter language version 1 (== != < <= > >=, in (...), is missing, and, or, not, parentheses).	none	-
+--templates@register package	DIR	A folder of released templates to look in (repeatable); when given, each package's template must be found there by name, version and hash and its anchor rows must equal the template's.	none (not checked)	-
+--templates@list templates	DIR	A folder to look in for released templates (repeatable), before NXR_TEMPLATE_PATH and the user setting template_path.	none (the environment variable and the user setting only)	-
+--package@create package	PATH	The folder of the subject package to make (<subject>.nxr.zarr); it must not exist yet.	required	-
+--name@create package	NAME	Name of the subject the package holds.	required	-
+--home-dataset@create package	NAME	The dataset the package is made for, by its name: provenance, not membership.	required	-
+--kind@create package	subject|template|group	Kind of the subject the package holds: an ordinary subject, a template or a group.	subject	-
+--name@create catalogue	NAME	Name of the dataset the catalogue describes.	required	-
+--package@register package	PATH	A subject package's folder (repeatable); an alternative to --scan.	none	-
+--scan@register package		Register every *.nxr.zarr package directly inside the dataset folder; an alternative to --package.	off	-
+--registered-by@register package	WHO	Who registers: recorded with each catalogue entry.	required	-
+--replace@register package		Another subject id under a name the catalogue holds replaces it; the old package is moved aside, never deleted.	off	-
+--where@list subjects	FILTER	List the subjects whose participant variables satisfy this filter (version 1 of the filter language); the dataset must be a catalogue with a participants table.	none (all subjects are listed)	-
+--subjects@list subjects	A,B,...	List these subjects, by name or id (a catalogue dataset); not together with --where.	none (all subjects are listed)	-
+--force@create index		Rebuild the index even when it is current.	off	-
+--tsv@import participants	FILE	The BIDS participants.tsv to import: tab-separated, a participant_id column matched to subject names, n/a for missing.	required	-
+--sidecar@import participants	FILE	The BIDS participants.json sidecar: Description, Units, Levels and Type of each variable.	none (types are inferred)	-
+--tsv@export participants	FILE	The file to write the participants table to as BIDS participants.tsv; nothing else is written.	required	-
+--sidecar@export participants	FILE	Also write the participants.json sidecar to this file.	none	-
+--registered-by@split dataset	WHO	Who runs the split: recorded with each catalogue entry.	required	-
+--dry-run@split dataset		Report the subjects and the format without changing anything (not even bringing the dataset to format 52).	off	-
+--package@verify package	PATH	The folder of the subject package to verify.	required	-
+--package@show package	PATH	The folder of the subject package to show.	required	-
+--package@release template	PATH	The folder of the template or registration package to release; it is left as it was.	required	-
+--name@release template	NAME	Name the template is released under.	required	-
+--template-version@release template	VERSION	Version string of the release (e.g. 1.0); name@version must be new, a released version is frozen.	required	-
+--released-by@release template	WHO	Who releases: the program and the releaser's stated name, recorded in the release.	required	-
+--into@release template	DIR	The templates folder the frozen copy <name>@<version>.nxr.zarr is made in.	required	-
+--package@release redistributable	PATH	The folder of the released full edition to make the redistributable edition from.	required	-
+--into@release redistributable	DIR	The templates folder the redistributable edition is made in.	required	-
+--released-by@release redistributable	WHO	Who releases: recorded in the release.	required	-
 --tree	subject|group	The tree the leaves belong to: the surface's own ladder, or the dataset's group tree through the registered sphere (the same leaves in every subject).	subject	-
 --tree@compute pyramid	subject|group	Tree the leaf tiles belong to: the surface's own ladder, or the dataset's group tree (the same leaves in every subject).	subject	-
 --trk	FILE	A fibre-tract file (.trk) to import with the templates.	none	-
@@ -865,12 +910,12 @@ R"TBL(--tolerance@compute patches	X	Chebyshev: the largest difference between th
 )TBL",
 R"TBL(@ create dataset
 old: dataset create
-summary: Create an empty dataset in a datastore, optionally with its default subject (surfaces, frames, group tree).
+summary: Create an empty one-database dataset in a folder of its own, optionally with its default subject (surfaces, frames, group tree).
 opts: --atlas-depth --datastore* --default --lc-levels --modes --name* --source-path --source-protocol --source-tool --store-format --templates
 )TBL",
 R"TBL(@ list datasets
 old: dataset list
-summary: List the datasets of a datastore.
+summary: List the dataset folders found in a folder.
 opts: --datastore*
 )TBL",
 R"TBL(@ show dataset
@@ -880,7 +925,7 @@ opts: --dataset*
 )TBL",
 R"TBL(@ delete dataset
 old: dataset delete
-summary: Delete a dataset from its datastore.
+summary: Delete a dataset's folder.
 opts: --datastore* --name*
 )TBL",
 R"TBL(@ recover dataset
@@ -893,6 +938,91 @@ old: dataset compact
 summary: Pack a dataset's small files and shards to save space (a dry run shows what would change).
 opts: --dataset* --dry-run --no-shard --no-small-files --subject
 )TBL",
+R"TBL(@ create package
+old: package create
+alias: no
+group: Subject packages
+summary: Create a subject package: one folder holding one subject's rows, small keys and shards, openable on its own.
+opts: --home-dataset* --kind --name* --package*
+)TBL",
+R"TBL(@ create catalogue
+old: package catalogue-create
+alias: no
+summary: Create a dataset as a catalogue of subject packages in a folder of its own.
+opts: --dataset* --name*
+)TBL",
+R"TBL(@ create index
+old: package index
+alias: no
+summary: Build the cross-subject index of a catalogue dataset (a cache made from its packages; deletable).
+opts: --dataset* --force
+)TBL",
+R"TBL(@ register package
+old: package register
+alias: no
+summary: Register subject packages in a dataset's catalogue (idempotent; each package is checked, none is moved or read).
+opts: --dataset* --package+ --registered-by* --replace --scan --templates+
+)TBL",
+R"TBL(@ list members
+old: package status
+alias: no
+summary: List a catalogue's subject packages with their registered state (registered, missing or stale).
+opts: --dataset*
+)TBL",
+R"TBL(@ import participants
+old: package participants-import
+alias: no
+summary: Import a BIDS participants.tsv (and its participants.json) into the dataset's own participants file.
+opts: --dataset* --sidecar --tsv*
+)TBL",
+R"TBL(@ export participants
+old: package participants-export
+alias: no
+summary: Write the dataset's participants table as BIDS participants.tsv, only where the command names.
+opts: --dataset* --sidecar --tsv*
+)TBL",
+R"TBL(@ split dataset
+old: package split
+alias: no
+summary: Split a one-database dataset into subject packages with a catalogue, in place, verified row for row and byte for byte, resumable; the old database is kept.
+opts: --dataset* --dry-run --registered-by*
+)TBL",
+R"TBL(@ join dataset
+old: package join
+alias: no
+summary: Join a catalogue's subject packages back into a one-database dataset (the reverse of split); everything replaced is kept aside.
+opts: --dataset*
+)TBL",
+R"TBL(@ verify package
+old: package verify
+alias: no
+summary: Recompute every key's digest and the content hash of a subject package and report any difference.
+opts: --package*
+)TBL",
+R"TBL(@ show package
+old: package show
+alias: no
+summary: Show a subject package's record: its subject, versions, template, release and content hash.
+opts: --package*
+)TBL",
+R"TBL(@ release template
+old: package release
+alias: no
+summary: Release a template (or registration) package as a frozen, versioned copy; refuses an item with no origin record.
+opts: --into* --name* --package* --released-by* --template-version*
+)TBL",
+R"TBL(@ release redistributable
+old: package release-redistributable
+alias: no
+summary: Make the redistributable edition of a released template, keeping only the items whose origin allows it.
+opts: --into* --package* --released-by*
+)TBL",
+R"TBL(@ list templates
+old: package templates
+alias: no
+summary: List the released templates and registrations found on the template search path.
+opts: --templates+
+)TBL",
 R"TBL(@ create subject
 old: subject create
 summary: Create a subject (or a template or group subject) in a dataset.
@@ -900,8 +1030,8 @@ opts: --dataset* --kind --name*
 )TBL",
 R"TBL(@ list subjects
 old: subject list
-summary: List the subjects of a dataset.
-opts: --dataset*
+summary: List the subjects of a dataset; of a catalogue dataset, those named by --subjects or satisfying --where over the participant variables.
+opts: --dataset* --subjects --where
 )TBL",
 R"TBL(@ show subject
 old: subject show

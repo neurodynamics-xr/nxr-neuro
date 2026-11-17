@@ -46,6 +46,9 @@ struct PackageRecord {
   int schema_version = 0;
   int store_format = 0;
   Json template_reference;     // null, or {name, edition, version, content_hash, subject_id} of the template this subject is registered to (section 4.3)
+  Json release;                // a released template or registration: {name, edition, version, released_by, released_utc, program, ...}; null while it is being made. A released package is FROZEN: no writer opens it
+  Json description;            // a registration package: {method, warnings} (what it is and what it cannot resolve); null otherwise
+  Json registration;           // a subject: the registration between templates it uses, {name, edition, version, content_hash, from, to}; null otherwise
   Json members;                // a group package: the subjects it was computed from, [{subject_id, name, content_hash}] (section 5); null otherwise
   std::string content_hash;    // empty until a writer has closed the package
   std::string hashed_utc;      // when it was computed
@@ -102,6 +105,35 @@ struct CreatePackageOptions {
 DatasetWriter create_package(const std::filesystem::path& folder, const std::string& subject_name, const CreatePackageOptions& opt);
 // OPEN a package for writing: its lock taken before it recovers (pending rows rolled back, deleting rows finished), as `open_writer` does for a dataset.
 DatasetWriter open_package_writer(const std::filesystem::path& folder, const OpenOptions& opt = {});
+
+// ── origin: where an item came from, and under what terms it may go on ───────────────────────────────────────────
+// Every item of a template (a manifold, field, operator, selection or statistic with a path) carries an ORIGIN record in the package's `origin` table: its source, its
+// licence, who is to be credited, and whether its licence lets it be redistributed. A template is released only when every item has one, and the redistributable edition
+// keeps only the items whose record says so.
+struct OriginRecord {
+  std::string source, licence, attribution;
+  bool redistributable = false;
+};
+struct PackageItem {
+  std::string table, id, name, path;
+};
+void set_origin(Database& db, const std::string& table, const std::string& id, const OriginRecord& origin);
+std::optional<OriginRecord> origin_of(const Database& db, const std::string& table, const std::string& id);
+// The package's own items (its subject's complete nodes that have a path), and those with no origin record.
+std::vector<PackageItem> package_items(const Database& db);
+std::vector<PackageItem> items_without_origin(const Database& db);
+
+// ── anchor rows ────────────────────────────────────────────────────────────────────────────────────────────────
+// Add to a package the rows of ANOTHER package its rows point at (a template's manifolds, a registration's two templates), so the model's foreign keys hold and a
+// subject's bundle is complete without opening the other package: the rows named in `roots` (table, id) and every row any row of the package names that the package does
+// not hold, each with its parents and what a bundle follows (a topology's cells, a geometry's dimensions, a dictionary's entries, a manifold's components). Each id-keyed
+// row is listed in `anchor_row`; no array is copied. `source` is the other package's folder (or, for the migration, the database file of the dataset the rows come from). Returns the rows added. Run outside a transaction.
+std::int64_t add_anchor_rows(Database& db, const std::filesystem::path& source, const std::vector<std::pair<std::string, std::string>>& roots = {});
+// Whether every row `anchor_row` lists is, value for value, the row of the same id in `source` (what registration checks against the template it names); the
+// differing rows, "<table> <id>".
+std::vector<std::string> anchor_differences(const Database& db, const std::filesystem::path& source);
+// The subject kind `registration` is added to a package's schema in place when a registration package is made (additive, `user_version` unchanged, as a value type is).
+bool allow_subject_kind(Database& db, const std::string& kind);
 
 // The tables a package adds to the model's (key_digest, anchor_row), created in a fresh database (the migration builds packages itself).
 void create_package_tables(Database& db);

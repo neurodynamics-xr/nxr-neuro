@@ -37,6 +37,7 @@
 #endif
 #include "nxr/io/surface.h"
 #include "cli.h"
+#include "nxr/io/catalogue.h"
 #include "nxr/io/compact.h"
 #include "nxr/io/writer.h"
 
@@ -255,7 +256,24 @@ int subject_main(const std::vector<std::string>& argv) {
   const std::string prog = "nxr-neuro subject " + action;
   if (action == "list" || action == "show") {
     const bool show = action == "show";
-    const Args a = show ? parse(prog, rest, {"--dataset", "--subject"}, {}, {"--dataset", "--subject"}) : parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
+    const Args a = show ? parse(prog, rest, {"--dataset", "--subject"}, {}, {"--dataset", "--subject"}) : parse(prog, rest, {"--dataset", "--subjects", "--where"}, {}, {"--dataset"});
+    if (!show && std::filesystem::exists(std::filesystem::path(a.get("--dataset")) / kCatalogueFile)) {   // a catalogue of subject packages: by name, or by a filter over the participants
+      const Catalogue cat = Catalogue::open(a.get("--dataset"));
+      Json rows = Json::array();
+      if (a.maybe("--subjects") || a.maybe("--where")) {
+        SubjectSelection sel;
+        if (const auto names = a.maybe("--subjects")) { std::stringstream ss(*names); for (std::string x; std::getline(ss, x, ',');) if (!x.empty()) sel.subjects.push_back(x); }
+        sel.where = a.maybe("--where");
+        const SelectedSubjects chosen = select_subjects(a.get("--dataset"), sel);
+        for (const auto& m : chosen.members) rows.push_back(m.to_json());
+        emit(Json{{"stage", "result"}, {"dataset", text(cat.dataset_row(), "name")}, {"subjects", rows}, {"selection", chosen.provenance()}});
+      } else {
+        for (const auto& e : cat.entries()) rows.push_back(e.to_json());
+        emit(Json{{"stage", "result"}, {"dataset", text(cat.dataset_row(), "name")}, {"subjects", rows}});
+      }
+      return 0;
+    }
+    if (!show && (a.maybe("--subjects") || a.maybe("--where"))) throw Usage(prog + ": error: --subjects and --where need a catalogue dataset (made by `create catalogue`); " + a.get("--dataset") + " is a one-database dataset");
     DatasetWriter ds = dataset_of(a, false);
     if (!show) {
       Json rows = Json::array();
@@ -350,7 +368,7 @@ int surface_main(const std::vector<std::string>& argv) {
 }  // namespace
 
 // THE CHUNK LOOP's process defaults (io/include/nxr/io/chunk_loop.h), set once here so no pipeline passes them: a progress line after each chunk;
-// Ctrl-C cancels the running job cleanly (nothing of it is stored; a second Ctrl-C kills the process); one job at a time per datastore (a queue file in it).
+// Ctrl-C cancels the running job cleanly (nothing of it is stored; a second Ctrl-C kills the process); one job at a time per dataset folder's parent (a queue file in it).
 namespace {
 std::atomic<bool> cancel_requested{false};
 extern "C" void on_interrupt(int) {
@@ -365,7 +383,7 @@ void chunk_loop_defaults(const std::vector<std::string>& args) {
   };
   o.cancelled = [] { return cancel_requested.load(); };
   for (std::size_t i = 0; i + 1 < args.size(); ++i)
-    if (args[i] == "--dataset") {                                   // the queue: the datastore that holds the dataset
+    if (args[i] == "--dataset") {                                   // the queue: the folder that holds the dataset's folder
       const std::filesystem::path ds = std::filesystem::absolute(args[i + 1]).lexically_normal();
       const std::filesystem::path store = ds.filename().empty() ? ds.parent_path().parent_path() : ds.parent_path();
       if (std::filesystem::is_directory(store)) o.queue = store / ".nxr-chunk-queue.lock";
@@ -393,6 +411,7 @@ int list_nodes_main(const std::vector<std::string>& argv) {
 #endif
 }
 
+int package_main(const std::vector<std::string>& argv);   // cli/package_command.cpp
 int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
   if (cmd == "__list") return list_nodes_main(rest);
   if (cmd == "read") {
@@ -403,6 +422,7 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
     return read_command(static_cast<int>(av.size()), av.data());
   }
     if (cmd == "dataset") return dataset_main(rest);
+    if (cmd == "package") return package_main(rest);
     if (cmd == "constantq") return constantq_main(rest);
     if (cmd == "subject") return subject_main(rest);
     if (cmd == "surface") return surface_main(rest);

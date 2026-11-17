@@ -93,27 +93,6 @@ std::string ownership(const std::string& table, const std::vector<std::string>& 
   throw refuse("the table '" + table + "' has no rule for which subject owns a row: this build cannot split it");
 }
 
-// the rows a bundle follows from an anchored row, besides its parents: the cells of a topology, the dimensions of a geometry, the entries of a dictionary and the
-// components of a manifold
-struct Children { const char* table; const char* column; };
-std::vector<Children> children_of(const std::string& table) {
-  if (table == "topology") return {{"topology_cell", "topology_id"}};
-  if (table == "geometry") return {{"geometry_dimension", "geometry_id"}};
-  if (table == "dictionary") return {{"dictionary_entry", "dictionary_id"}};
-  return {};
-}
-
-struct ForeignKey { std::string from, parent; };
-std::vector<ForeignKey> foreign_keys_of(const Database& db, const std::string& table) {
-  std::vector<ForeignKey> out;
-  for (const auto& f : db.all("SELECT \"from\" AS c, \"table\" AS p, \"to\" AS t FROM pragma_foreign_key_list(?)", {table})) {
-    const std::string to = opt_text(f, "t").value_or("id");
-    if (to != "id") throw refuse("the foreign key " + table + "." + text(f, "c") + " names " + text(f, "p") + "." + to + ", not an id: this build cannot follow it");
-    out.push_back({text(f, "c"), text(f, "p")});
-  }
-  return out;
-}
-
 // a table of the original has the same rows as the table here, value for value, in both directions
 void require_same_rows(const Database& db, const std::string& table, const std::string& here, const std::string& there, const std::string& what) {
   const std::string l = "\"" + table + "\"";
@@ -213,39 +192,10 @@ Json split_dataset(const fs::path& folder_in, const SplitOptions& opt) {
             for (char c : cond) if (c == '?') args.push_back(sid);
             pkg.execute("INSERT INTO main.\"" + t + "\" (" + quoted_list(cols) + ") SELECT " + quoted_list(cols) + " FROM src.\"" + t + "\" WHERE " + cond, args);
           }
-          // the anchor rows: what its rows point at that another subject owns (the template's manifolds, a group's members), with their parents and what a bundle follows
-          struct Fk { std::string table; ForeignKey fk; };
-          std::vector<Fk> fks;
-          for (const auto& t : tables_of(pkg)) { if (bookkeeping(t)) continue; for (const auto& f : foreign_keys_of(pkg, t)) fks.push_back({t, f}); }
-          std::set<std::pair<std::string, std::string>> anchored;
-          std::function<void(const std::string&, const std::string&)> anchor = [&](const std::string& table, const std::string& id) {
-            if (!anchored.insert({table, id}).second) return;
-            const auto cols = columns_of(pkg, table);
-            if (!has(src_tables, table)) throw refuse(name + ": a row names a row of " + table + ", which the original does not have");
-            pkg.execute("INSERT INTO main.\"" + table + "\" (" + quoted_list(cols) + ") SELECT " + quoted_list(cols) + " FROM src.\"" + table + "\" WHERE id = ?", {id});
-            if (integer(*pkg.one("SELECT changes() AS n"), "n") != 1) throw refuse(name + ": a row names " + table + " " + id + ", which the original database does not hold");
-            std::string owner = id;   // the subject whose row it is (a subject row: itself)
-            if (has(cols, "subject_id")) owner = text(*pkg.one("SELECT subject_id FROM main.\"" + table + "\" WHERE id = ?", {id}), "subject_id");
-            pkg.execute("INSERT INTO main.anchor_row (table_name, row_id, from_subject_id) VALUES (?, ?, ?)", {table, id, owner});
-            for (const auto& ch : children_of(table)) {
-              const auto cc = columns_of(pkg, ch.table);
-              pkg.execute("INSERT OR IGNORE INTO main.\"" + std::string(ch.table) + "\" (" + quoted_list(cc) + ") SELECT " + quoted_list(cc) + " FROM src.\"" + ch.table + "\" WHERE " + ch.column + " = ?", {id});
-            }
-            if (table == "manifold") {
-              for (const auto& c : pkg.all("SELECT id FROM src.manifold WHERE component_of_id = ?", {id})) anchor("manifold", text(c, "id"));
-            }
-          };
-          for (bool grew = true; grew;) {
-            grew = false;
-            for (const auto& f : fks) {
-              if (f.fk.parent == "dataset" || f.fk.parent == "datastore") continue;
-              for (const auto& m : pkg.all("SELECT DISTINCT \"" + f.fk.from + "\" AS v FROM main.\"" + f.table + "\" WHERE \"" + f.fk.from + "\" IS NOT NULL AND \"" + f.fk.from +
-                                           "\" NOT IN (SELECT id FROM main.\"" + f.fk.parent + "\")")) { anchor(f.fk.parent, text(m, "v")); grew = true; }
-            }
-          }
-          pkg.execute("DELETE FROM main.sync_job");
-          out.anchor_rows = static_cast<std::int64_t>(anchored.size());
         });
+        // the anchor rows: what its rows point at that another subject owns (the template's manifolds, a group's members), with their parents and what a bundle follows
+        out.anchor_rows = add_anchor_rows(pkg, original);
+        pkg.execute("DELETE FROM main.sync_job");
         // the subject's small keys, as rows of the package's own table
         pkg.execute("CREATE TABLE IF NOT EXISTS small_files (key TEXT PRIMARY KEY, value BLOB NOT NULL)");
         if (fs::is_regular_file(old_small)) {
