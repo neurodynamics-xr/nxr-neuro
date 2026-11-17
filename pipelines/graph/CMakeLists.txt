@@ -14,6 +14,7 @@ add_library(nxr_graph
   src/dispatch.cpp
   src/graph.cpp
   src/execution.cpp
+  src/compute.cpp
 )
 target_include_directories(nxr_graph PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_link_libraries(nxr_graph PUBLIC nlohmann_json)
@@ -33,6 +34,9 @@ if(NXR_NEURO_BUILD_TESTS)
   add_executable(test_graph_moves test/test_graph_moves.cpp)
   target_link_libraries(test_graph_moves PRIVATE nxr_graph)
   add_test(NAME test_graph_moves COMMAND test_graph_moves)
+  add_executable(test_compute_types test/test_compute_types.cpp)
+  target_link_libraries(test_compute_types PRIVATE nxr_graph)
+  add_test(NAME test_compute_types COMMAND test_compute_types)
 endif()
 
 # CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
