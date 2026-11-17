@@ -87,6 +87,7 @@ StepSpec frames_step() {
       out["gauge_angle"] = column(m.gauge_angle, Json{{"value_type", "scalar"}, {"unit", "rad"}, {"precision", "float32"}, {"producer", gp},
                                                       {"description", "the angle of north (e1) in each vertex's gauge (geometry-central's); a heading from north = heading in the gauge minus this"}});
     }
+    else for (const char* o : {"canonical", "singular", "gauge_angle"}) { Array a; a.meta["absent"] = true; out[o] = std::move(a); }   // stored already: nothing made (an optional output)
     out["angle"] = column(m.angle, Json{{"value_type", "scalar"}, {"unit", "rad"}, {"precision", "float32"}, {"producer", m.producer},
                                         {"description", "the angle from north (towards west) to ANTERIOR at each vertex; anatomical components are a fixed rotation of the canonical ones"}});
     out["second"] = column(m.second, Json{{"value_type", "integer"}, {"precision", "float32"}, {"producer", m.producer}, {"description", "which way the second axis points: 0 superior, 1 medial"}});

@@ -772,7 +772,9 @@ void add_measurement_nodes(std::vector<StepSpec>& r) {
         "plane, outer z z^H; a reduction over time or space is `reduce` after it, never here. (The Studio's own named forms of a typed field -- curl, div, abs -- stay the node `form`.)"));
   }
   // the retired reductions: reduce_cells and tile_max are roll_up along the space factor, measure and measure_events are reduce, summarize_measurements is summarize
-  for (const char* n : {"measure", "tile_max", "reduce_cells", "measure_events"}) (void)take_step(r, n);
+  // (already gone from the registry when the old verbs' steps were dropped: take what is there)
+  for (const char* n : {"measure", "tile_max", "reduce_cells", "measure_events"})
+    r.erase(std::remove_if(r.begin(), r.end(), [&](const StepSpec& s) { return s.name == n; }), r.end());
   StepSpec sc = take_step(r, "summarize");
   redirect_summarize(sc);
   r.push_back(std::move(sc));
