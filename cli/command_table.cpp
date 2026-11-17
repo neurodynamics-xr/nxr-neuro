@@ -1044,6 +1044,12 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --partition	NAME	The labelling whose members are the rows of an exported measurements table (export tsv).	none	-
 --statistic	NAME	A stored statistic to export (export tsv).	none	-
 --surface-unit	m|mm	The unit the surface's coordinates are written in (export gifti).	as stored	-
+--package@export fif	PATH	The folder of the subject package whose field is exported; it is only read.	required	-
+--field@export fif	NAME	The Field to write as a source estimate, by name: a map on a glued cortex (one time point) or a series on the cortex and a time line (one time point per sample of the time range). The cortex must store its left and right hemispheres as components.	required	-
+--out@export fif	STEM	The path stem the files are written under (its folder must exist): <STEM>-lh.stc and <STEM>-rh.stc, read by MNE-Python's read_source_estimate, and the provenance sidecar <STEM>-lh.stc.json.	required	-
+--from@export fif	SEC	Start of the time range of a series, in seconds on the recording's clock (or m:ss); give together with --to. Required for a series, refused for a map.	required for a series	s
+--to@export fif	SEC	End of the time range of a series, in seconds (or m:ss), exclusive; give together with --from.	required for a series	s
+--all@export fif		The whole series, every time point (the recording is still read one chunk at a time and written one time point at a time).	off	-
 )TBL",
 R"TBL(@ create dataset
 old: dataset create
@@ -1304,6 +1310,12 @@ old: __export tsv
 alias: no
 summary: Write stored measurements (a row per member of a partition, a column per measure) or a statistic (long form) as a BIDS-style TSV with a JSON sidecar of units, levels and provenance.
 opts: --field --measures --out* --package* --partition --statistic
+)TBL",
+R"TBL(@ export fif
+old: __export fif
+alias: no
+summary: Write a source map or a source series on the two hemispheres of a cortex as MNE source estimates (-lh.stc and -rh.stc), with a provenance sidecar.
+opts: --all --field* --from --out* --package* --to
 )TBL",
 R"TBL(@ import condition
 old: convert convert
