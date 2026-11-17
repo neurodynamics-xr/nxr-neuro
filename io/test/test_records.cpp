@@ -127,7 +127,7 @@ int main() {
   }
   // ---- selections
   {
-    const auto tiles = rec.selections().find({.subject_id = sid, .type = "set", .name = "tiles"});
+    const auto tiles = rec.selections().find({.subject_id = sid, .name = "tiles", .type = "set"});
     CHECK(tiles && tiles->id == setid);
     CHECK(tiles->params_json["atlas"]["tree"] == "group");
     CHECK_EQ(rec.selections().list({.subject_id = sid, .params = {{"atlas.tree", "group"}}}).size(), static_cast<std::size_t>(1));
