@@ -1,4 +1,4 @@
-// nxr-pipelines — what a face asks (face.h). The command line's own calls (pipelines/meeg.h psd_compute, runner.h run, listing.h, io's catalogue and task API) made from a JSON
+// nxr-pipelines — what a face asks (face.h). The command line's own calls (runner.h run, listing.h, io's catalogue and task API) made from a JSON
 // description of the arguments, so the Python wheel and the MATLAB binding hold no logic of their own.
 #include "nxr/pipelines/face.h"
 
@@ -34,111 +34,7 @@ namespace {
 
 [[noreturn]] void refuse(const std::string& m) { throw Error(code::invalid_argument, m); }
 
-// ── the built-in pipeline `psd`: its parameters are PsdOptions' (pipelines/meeg.h), the command line's `run psd` options with the dashes as underscores ──
-struct ParamDoc { const char* name; const char* def; const char* meaning; const char* unit; std::vector<const char*> choices; };
-const std::vector<ParamDoc>& psd_parameters() {
-  static const std::vector<ParamDoc> p = {
-      {"recording", "", "the recording (a Field of kind recording) by name; required", "-", {}},
-      {"name", "", "the stored statistic's name; default <recording>_psd_welch", "-", {}},
-      {"set", "tiles", "the named set of Welch options the other options start from (recorded with the result)", "-", {"tiles", "brainstorm", "scipy", "nxr-chain"}},
-      {"segment_seconds", "4.0", "the segment length in seconds (an alternative to segment_samples and segment_level)", "s", {}},
-      {"segment_samples", "", "the segment length in samples (an alternative to segment_seconds and segment_level)", "samples", {}},
-      {"segment_level", "", "under the set tiles: the segment is 2^segment_level samples (an alternative to the other two)", "-", {}},
-      {"overlap", "", "the fraction of a segment shared with the next, in [0, 1); default the set's", "-", {}},
-      {"window", "", "the taper; default the set's", "-", {"hann", "hamming", "blackman", "rectangular"}},
-      {"periodic", "", "the DFT-even form of the window (true) or the symmetric form (false); default the set's", "-", {}},
-      {"detrend", "", "removed from each segment before the window; default the set's", "-", {"none", "constant", "linear"}},
-      {"scaling", "", "the density's normalisation; default the set's", "-", {"density", "spectrum", "chain"}},
-      {"exclude_bad_segments", "true", "a segment touching one of the recording's bad segments is left out", "-", {}},
-      {"through", "", "the name of a stored rotation-plane Operator: the two-sided (rotary) PSD of its z = fx.X + i fy.X instead of the sensors' PSD", "-", {}},
-  };
-  return p;
-}
 
-nxr::pipelines::PsdOptions psd_options(const Json& p) {
-  using namespace nxr::welch;
-  std::set<std::string> known;
-  for (const auto& d : psd_parameters()) known.insert(d.name);
-  for (auto it = p.begin(); it != p.end(); ++it)
-    if (!known.count(it.key())) {
-      std::string all;
-      for (const auto& d : psd_parameters()) all += (all.empty() ? "" : ", ") + std::string(d.name);
-      refuse("psd has no parameter '" + it.key() + "' (its parameters: " + all + ")");
-    }
-  auto str = [&](const char* k) -> std::optional<std::string> {
-    if (!p.contains(k) || p[k].is_null()) return std::nullopt;
-    if (!p[k].is_string()) refuse(std::string(k) + " must be text");
-    return p[k].get<std::string>();
-  };
-  auto num = [&](const char* k) -> std::optional<double> {
-    if (!p.contains(k) || p[k].is_null()) return std::nullopt;
-    if (!p[k].is_number()) refuse(std::string(k) + " must be a number");
-    return p[k].get<double>();
-  };
-  auto whole = [&](const char* k) -> std::optional<std::int64_t> {
-    const auto v = num(k);
-    if (!v) return std::nullopt;
-    if (*v != std::floor(*v)) refuse(std::string(k) + " must be a whole number");
-    return static_cast<std::int64_t>(*v);
-  };
-  nxr::pipelines::PsdOptions o;
-  const auto rec = str("recording");
-  if (!rec) refuse("psd needs the recording: recording=NAME");
-  o.recording = *rec;
-  o.name = str("name");
-  o.through = str("through");
-  const std::string set = str("set").value_or("tiles");
-  o.option_set = set;
-  if (set == "tiles" || set == "brainstorm") o.welch = brainstormPsdOptions(1.0);
-  else if (set == "scipy") o.welch = scipyWelchOptions(1.0);
-  else if (set == "nxr-chain") o.welch = nxrChainWelchOptions(1.0, 1.0);
-  else refuse("set must be tiles, brainstorm, scipy or nxr-chain");
-  if (const auto v = num("segment_seconds")) o.segment_seconds = *v;
-  if (const auto v = whole("segment_samples")) o.segment_samples = *v;
-  if (const auto v = whole("segment_level")) o.segment_level = static_cast<int>(*v);
-  if ((p.contains("segment_seconds") ? 1 : 0) + (p.contains("segment_samples") ? 1 : 0) + (p.contains("segment_level") ? 1 : 0) > 1)
-    refuse("segment_seconds, segment_samples and segment_level are alternatives");
-  if (const auto v = num("overlap")) o.welch.overlap = *v;
-  if (const auto v = str("window")) {
-    if (*v == "hann") o.welch.window = Window::Hann;
-    else if (*v == "hamming") o.welch.window = Window::Hamming;
-    else if (*v == "blackman") o.welch.window = Window::Blackman;
-    else if (*v == "rectangular") o.welch.window = Window::Rectangular;
-    else refuse("window must be hann, hamming, blackman or rectangular");
-  }
-  if (p.contains("periodic") && !p["periodic"].is_null()) {
-    if (!p["periodic"].is_boolean()) refuse("periodic must be true or false");
-    o.welch.periodic = p["periodic"].get<bool>();
-  }
-  if (const auto v = str("detrend")) {
-    if (*v == "none") o.welch.detrend = Detrend::None;
-    else if (*v == "constant") o.welch.detrend = Detrend::Constant;
-    else if (*v == "linear") o.welch.detrend = Detrend::Linear;
-    else refuse("detrend must be none, constant or linear");
-  }
-  if (const auto v = str("scaling")) {
-    if (*v == "density") o.welch.scaling = Scaling::Density;
-    else if (*v == "spectrum") o.welch.scaling = Scaling::Spectrum;
-    else if (*v == "chain") o.welch.scaling = Scaling::Chain;
-    else refuse("scaling must be density, spectrum or chain");
-  }
-  if (p.contains("exclude_bad_segments") && !p["exclude_bad_segments"].is_null()) {
-    if (!p["exclude_bad_segments"].is_boolean()) refuse("exclude_bad_segments must be true or false");
-    o.exclude_bad_segments = p["exclude_bad_segments"].get<bool>();
-  }
-  return o;
-}
-
-Json doc_of(const ParamDoc& d) {
-  Json c = Json::array();
-  for (const char* x : d.choices) c.push_back(x);
-  Json def = nullptr;
-  const std::string s = d.def;
-  if (!s.empty()) {
-    try { def = Json::parse(s); } catch (...) { def = s; }
-  }
-  return Json{{"name", d.name}, {"default", def}, {"meaning", d.meaning}, {"unit", d.unit}, {"choices", c}};
-}
 
 // the dataset a run works on, as the command line opens it (cli.h open_dataset): a catalogue's subject package, or a one-database dataset
 DatasetWriter open_for(const fs::path& folder, const std::string& subject, bool lock) {
@@ -154,10 +50,7 @@ double seconds_since(const std::chrono::steady_clock::time_point& t0) { return s
 
 Json pipelines() {
   Json out = Json::array();
-  Json psd_params = Json::array();
-  for (const auto& d : psd_parameters()) psd_params.push_back(doc_of(d));
   std::vector<Json> all;
-  all.push_back(Json{{"name", "psd"}, {"form", "built-in"}, {"summary", "The Welch power spectral density of a recording, bad segments left out."}, {"parameters", psd_params}});
   for (const std::string& n : g::available()) {
     const g::Definition d = g::load(n);
     Json params = Json::array();
@@ -188,18 +81,7 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
   SubjectWriter sub = SubjectWriter::open(ds, subject, oo);
   Json runs = Json::array(), stored = Json::array();
   bool all_hit = true;
-  if (rq.pipeline == "psd") {
-    nxr::pipelines::PsdOptions o = psd_options(rq.parameters);
-    if (rq.from) { o.start = *rq.from; o.stop = *rq.to; }
-    if (rq.all) o.chunks = "all";
-    o.replace = rq.replace;
-    const auto r = nxr::pipelines::psd_compute(ds, sub, o, say);
-    Json info = r.info;
-    info["seconds"] = r.seconds;
-    all_hit = r.hit;
-    runs.push_back(Json{{"cache", r.hit ? "hit" : "computed"}, {"info", info}});
-    stored.push_back(Json{{"output", "psd"}, {"name", info.value("name", "")}, {"id", info.value("id", "")}, {"path", info.value("path", "")}});
-  } else {
+  {
     const g::Definition d = g::load(rq.pipeline);
     for (auto it = rq.parameters.begin(); it != rq.parameters.end(); ++it)
       if (!d.parameters.contains(it.key())) {
