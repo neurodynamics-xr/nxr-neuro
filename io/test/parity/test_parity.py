@@ -126,7 +126,7 @@ def test_refuses_version_49(tmp_path):
     p = run(ds, ok=False)
     assert p.returncode != 0
     msg = p.stderr.decode()
-    assert "user_version 49, this build reads 50" in msg
+    assert "user_version 49, this build reads 51" in msg
     assert "run `nxr migrate --dataset <dataset folder>`" in msg
 
 
@@ -137,7 +137,7 @@ def test_refuses_other_version(tmp_path):
     c.execute("PRAGMA user_version = 31")
     c.close()
     msg = run(ds, ok=False).stderr.decode()
-    assert "user_version 31, this build reads 50" in msg and "re-convert it from its source" in msg
+    assert "user_version 31, this build reads 51" in msg and "re-convert it from its source" in msg
 
 
 def test_no_database(tmp_path):

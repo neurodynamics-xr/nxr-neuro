@@ -44,10 +44,10 @@ Dataset Dataset::open(const fs::path& folder) {
     const auto meta = d.query("SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'meta'");
     if (integer(meta.at(0), "n") == 0) throw DatasetError(p + ": not a dataset database (no schema)");
     const std::int64_t v = integer(d.query("PRAGMA user_version").at(0), "user_version");
-    if (v != kSchemaVersion) {
+    if (v != kSchemaVersion && v != kSchemaVersion - 1) {   // 50 reads as 51: the additions are tables a dataset database holds empty
       const std::string how =
-          v == kSchemaVersion - 1
-              ? "run `nxr migrate --dataset <dataset folder>` (it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
+          v == kSchemaVersion - 2
+              ? "run `nxr migrate --dataset <dataset folder>` (49 to 50, then 50 reads as 51; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
               : "re-convert it from its source (D139/D144)";
       throw DatasetError(p + ": user_version " + std::to_string(v) + ", this build reads " +
                          std::to_string(kSchemaVersion) + " — " + how, code::schema_version);

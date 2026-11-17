@@ -1,4 +1,4 @@
-// nxr-io — an nxr dataset's database, read-only: `<dataset folder>/dataset.sqlite` at schema 50.
+// nxr-io — an nxr dataset's database, read-only: `<dataset folder>/dataset.sqlite` at schema 51 (50 is read as it is).
 #pragma once
 #include <cstdint>
 #include <filesystem>
@@ -12,7 +12,7 @@
 
 namespace nxr::io {
 
-constexpr int kSchemaVersion = 50;  // the version this build reads (nxr.io.database.schema_version)
+constexpr int kSchemaVersion = 51;  // the version this build reads (nxr.io.database.schema_version)
 
 class Dataset {
  public:

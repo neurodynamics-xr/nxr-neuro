@@ -18,23 +18,8 @@ namespace nxr::io {
 
 namespace {
 
+// (`subject_entry` and `template_reference` are the model's since schema 51)
 const char* const kCatalogueTables =
-    "CREATE TABLE subject_entry (\n"
-    "  subject_id     TEXT PRIMARY KEY REFERENCES subject (id) ON DELETE CASCADE,\n"
-    "  schema_version INTEGER NOT NULL,\n"
-    "  store_format   INTEGER NOT NULL,\n"
-    "  content_hash   TEXT NOT NULL,\n"
-    "  registered_utc TEXT NOT NULL,\n"
-    "  registered_by  TEXT,\n"
-    "  status         TEXT NOT NULL CHECK (status IN ('registered', 'missing', 'stale', 'replaced')),\n"
-    "  n_acquisitions INTEGER NOT NULL DEFAULT 0, n_recordings INTEGER NOT NULL DEFAULT 0, n_surfaces INTEGER NOT NULL DEFAULT 0,\n"
-    "  n_fields INTEGER NOT NULL DEFAULT 0, n_operators INTEGER NOT NULL DEFAULT 0\n"
-    ") STRICT;\n"
-    "CREATE TABLE template_reference (\n"
-    "  name TEXT NOT NULL, edition TEXT NOT NULL DEFAULT 'full', version TEXT NOT NULL,\n"
-    "  subject_id TEXT NOT NULL, content_hash TEXT NOT NULL, location_hint TEXT,\n"
-    "  PRIMARY KEY (name, edition, version)\n"
-    ") STRICT;\n"
     // the shared vocabulary the members' copies are held to by key (section 2.1): the first registrant's entries, as a digest
     "CREATE TABLE vocabulary (\n"
     "  scope TEXT NOT NULL, name TEXT NOT NULL, sha256 TEXT NOT NULL, first_subject_id TEXT NOT NULL,\n"
