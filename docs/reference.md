@@ -1885,7 +1885,7 @@ Directions and areas on the cortex need a coordinate system shared across people
   equals the direct area-weighted mean to 0 at level 2 and rolled up to level 1). A map of a **statistic's slice** (the `quadrature` energy maps) gets a **byte-less Field** `<slice> tile map` (kind `tile map`, no array, `producer_json` naming the statistic and the slice; the pattern of the source estimate and `phasegradient`), so its rows satisfy the schema's array-backed rule and are the same rows as any map's; no `mean` is stored (decided 2026-11-14, `test_quadrature_pipeline`). `opticalflow --tiles` no longer summarises the divergence, curl and speed (they are the
   leaf sums on the pyramid, rolled up at read); it summarises the velocity's frame and Levi-Civita forms.
 
-The charts the frames are built on (heat distance, vector heat transport, log map, gauge heading, geodesic disc) are in `compute/include/nxr/chart.h`, ported line for line from the Studio.
+The charts the frames are built on (heat distance, vector heat transport, log map, gauge heading, geodesic disc) are in `compute/include/nxr/chart.h`: `ChartKit` is a thin wrapper of geometry-central's `HeatMethodDistanceSolver` and `VectorHeatMethodSolver`, one `IntrinsicSurface` per connected piece, in geometry-central's vertex gauge (the one gauge of nxr-neuro). The canonical frame (north / west) is stored as the angle of north in that gauge (`frames::gaugeAngle`); the anatomical axes are a reporting projection of a 3D vector (`frames::anatomicalProjection`, frame-free for the SCS definition).
 
 ## The speed spectrum (`compute/include/nxr/speedspectrum.h`, `jointbank.h`; `run speedspectrum`)
 

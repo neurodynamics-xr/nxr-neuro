@@ -4,7 +4,7 @@
 // (3) the anatomical frame on a two-hemisphere ellipsoid "brain" in SCS (x anterior, y left, z up): anterior = +x on the lateral surface, the second axis SUPERIOR on lateral / medial cortex and MEDIAL on
 //     dorsal / ventral cortex with the right sign on BOTH hemispheres (the mirror), the mask covers the frontal and occipital poles;
 // (4) the template route: axes defined once on a template in RAS (a different mesh), carried through the registered sphere, equal the SCS-native ones;
-// (5) the components are invariant under a rotation of the gauge, and equal their gauge-angle form (ChartKit::gaugeHeading).
+// (5) the components are invariant under a rotation of the gauge, and equal their gauge-angle form (gaugeAngle), and the frame-free SCS projection equals them.
 #include <algorithm>
 #include <cmath>
 #include <iostream>
@@ -152,13 +152,24 @@ int main() {
     }
     const auto c0 = anatomicalComponents(A, cf.e1, cf.e2, vec), c1 = anatomicalComponents(Ar, e1r, e2r, vec);
     EXPECT(maxDiffNaN(c0, c1) < 1e-12, "the anatomical components do not change when the reference frame is rotated (the angle absorbs it)");
-    nxr::chart::ChartKit kit(b.P.data(), b.n, b.F.data(), b.nF);
-    const VectorXd head = angleFromNorth(kit, vec, cf.e1);
+    // the frame-free projection (SCS definition: the axes dotted with the 3D vector, no frame, no gauge) gives the same components
+    const Anatomical Af = anatomicalProjection(b.P.data(), b.n, b.F.data(), b.nF, b.N, ao);
+    Anatomical Afr = Af;
+    for (int i = 0; i < b.n; ++i) Afr.reliable[i] = Afr.reliable[i] && A.reliable[i];   // (the singular vertices have no canonical frame, so no reference reading; the projection itself does)
+    const auto cf3 = anatomicalComponents(Afr, vec);
+    EXPECT(Af.reference == "none" && maxDiffNaN(cf3, c0) < 1e-12, "the frame-free anatomical projection (3D axes, no gauge) equals the components read through the canonical frames");
+    // the array normals are geometry-central's vertexNormals
+    { nxr::manifold::IntrinsicSurface s0(b.P.data(), b.n, b.F.data(), b.nF); const Mat3 g0 = vertexNormals(s0); EXPECT((g0 - b.N).cwiseAbs().maxCoeff() < 1e-12, "vertexNormals(arrays) is geometry-central's vertexNormals (one tangent plane)"); }
+    // the heading from north: the angle in the gauge (geometry-central's), minus the gauge angle of north (frame.rotate(field, canonical_gauge_angle, 1), then arg)
+    nxr::manifold::IntrinsicSurface surf(b.P.data(), b.n, b.F.data(), b.nF);
+    const VectorXd gv = gaugeAngle(surf, vec), ge = gaugeAngle(surf, cf.e1);
+    VectorXd head(b.n);
+    for (int i = 0; i < b.n; ++i) head[i] = std::isnan(gv[i]) || std::isnan(ge[i]) ? std::numeric_limits<double>::quiet_NaN() : wrapd(gv[i] - ge[i]);
     const VectorXd viaGauge = angleFromAnterior(A, head), via3d = angleFromAnterior(c0);
     double dg = 0; int cnt = 0;
     for (int i = 0; i < b.n; ++i) if (std::isfinite(viaGauge[i]) && std::isfinite(via3d[i]) && vec.row(i).norm() > 1e-3) { dg = std::max(dg, std::abs(wrapd(viaGauge[i] - via3d[i]))); ++cnt; }
     std::cout << "  gauge form: " << cnt << " vertices, max |angle difference| " << sci(dg) << " rad\n";
-    EXPECT(cnt > b.n / 2 && dg < 2e-3, "the angle from anterior via the signpost gauge (gaugeHeading) equals the one from the 3D components");
+    EXPECT(cnt > b.n / 2 && dg < 1e-9, "the angle from anterior via the gauge (gaugeAngle) equals the one from the 3D components");
     if (g_failures) { std::cout << g_failures << " failure(s)\n"; return 1; }
     std::cout << "all frames tests passed\n";
     return 0;

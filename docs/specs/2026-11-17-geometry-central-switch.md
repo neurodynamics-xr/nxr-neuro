@@ -635,3 +635,18 @@ Correction to an expectation: the cotangent Laplacian is the P1 stiffness matrix
 eigenvalue 1e-13 to 1e-12 in every case). What obtuse triangles break is the **discrete maximum principle** (negative off-diagonal weights, 24 to 32% of the edges here), and with it the heat
 method's distance (10 to 25 times worse on the needle meshes). The intrinsic Delaunay triangulation removes every negative weight; eigenvalue errors are of the same order for both, because the
 spectrum error is dominated by the mesh's own geometric error. The jittered sphere (large jitter, little needle shape) is where intrinsic does not help the distance either.
+
+## Appendix C: what G4 did (charts and frames on `IntrinsicSurface`)
+
+- `ChartKit` (`chart.h`, `chart.cpp`) wraps `HeatMethodDistanceSolver` and `VectorHeatMethodSolver` on one `IntrinsicSurface` per connected piece, the same API; `chart::HeatMethod` and the port's `tangentBasis` are gone from the library, and
+  `Basis` is double (the float32 rounding is dropped). `gaugeHeading` / `headingVector` read the gauge's 3D basis (`IntrinsicSurface::tangentBasis`). The kit equals the solvers called directly to 1e-12; the geodesic default
+  (`solve::heat`) equals the kit's distance exactly (G3 had 1e-4 against the port). **Log map:** `theta` is the angle of `computeLogMap` (`LogMapStrategy::VectorHeat`); `r` stays the heat distance, because the log map's own
+  radius is the coarser estimate (2.6% against the sphere's arccos on the 642-vertex icosphere for the heat distance, 8% for |z|).
+- The Studio's chart golden and its generator (`chart_golden.txt`, `gen_chart_golden.mts`) are deleted: `test_chart` checks the wrapper against geometry-central and the sphere / plane analytically instead.
+- The port's chart code is kept for the one-time comparison only, in `compute/test/chart_port.*` (namespace `nxr::chart_port`); G7 deletes it with the rest of the port.
+- `frames.h` as section 6: `gaugeAngle(IntrinsicSurface&, direction)` (the canonical frame's stored form), `vertexNormals(IntrinsicSurface&)` (geometry-central's, and the array form of the same formula),
+  `angleFromNorth` removed (a pipeline step: `frame.rotate`, then `arg`), and the anatomical axes as `anatomicalProjection`: frame-free for the SCS definition (3D axes, `anatomicalComponents(a, vectors)`, no gauge). Kept until
+  the pipelines move (G6a), because the pipelines compile unchanged in G4: `gaugeAngle(ChartKit&, …)`, `anatomicalFrame`, `Anatomical::reference`.
+- `ladder`, `quadrature` and `crossings` are unchanged code on the new kit. The Levi-Civita rho is gauge-free; against the Studio's transport it now agrees to the two gauges' 3D realisations (sphere 1e-3, irregular mesh a median of
+  6e-3 rad), and the exact check is analytic: parallel transport along the great circle on the unit sphere, 1.8e-3 rad on the 2562-vertex icosphere (`test_ladder`).
+- Not done in G4: the optical flow's `Corners` and `componentPencil` (`opticalflow_connection.cpp`) still use the port; they carry the Studio's float32 parity and their own golden, and leave with the port.
