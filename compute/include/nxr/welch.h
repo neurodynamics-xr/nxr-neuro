@@ -135,6 +135,40 @@ private:
     std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
 };
 
+struct LinearWelchResult {
+    Eigen::MatrixXd psd;                      // [outputs x bins kept]: Welch's power of each output, in the options' scaling, one-sided doubling applied
+    Eigen::VectorXd frequencies;              // Hz, of the bins kept (first..last of the constructor)
+    std::int64_t segments = 0, segmentsSkipped = 0;
+};
+
+/** Welch's power spectrum of a LINEAR MAP of the channels, A x, STREAMING, without forming A x in time: every segment's Fourier coefficients X are mapped, A X, and |A X|^2 accumulated per row and
+ *  bin. It is `Welch` of the rows of A x (the same segments, detrending, window, scaling, chunk carrying and bad-segment rule), kept only for the bins first..last. `rowsPerOutput` consecutive
+ *  rows are SUMMED in power into one output (3 for a free-orientation kernel's x y z; 1 for none); the rows' count is a multiple of it. Memory held: [outputs x bins kept] doubles, plus a block of
+ *  rows of the mapped coefficients (at most 4096 rows x the bins kept) and the carried samples; the map is READ in place and must outlive the object. Called with any matrix A: where it came from
+ *  (a kernel, a spatial filter, an identity) is the caller's business. At the price of one rows x channels product per segment, against the cross-spectrum route's channels^2 per bin kept. */
+class LinearWelch {
+public:
+    LinearWelch(const Eigen::MatrixXd& map, std::size_t rowsPerOutput, const WelchOptions& options, std::size_t firstBin, std::size_t lastBin);
+    void add(const Eigen::MatrixXd& chunk);
+    void add(const Eigen::MatrixXd& chunk, const std::vector<std::uint8_t>& good);
+    LinearWelchResult result() const;
+    std::int64_t segments() const { return segments_; }
+
+private:
+    void consume();
+    const Eigen::MatrixXd& map_;
+    std::size_t group_, first_, last_;
+    WelchOptions opt_;
+    std::size_t n_, hop_;
+    Eigen::VectorXd win_;
+    double winSumSquares_ = 0, winSum_ = 0;
+    Eigen::MatrixXd buf_;
+    std::vector<std::uint8_t> bufGood_;
+    std::size_t carried_ = 0;
+    Eigen::MatrixXd sum_;                     // [outputs x bins kept]: the sum over the segments of |A X|^2 (the one-sided doubling in it; the scaling is applied at result)
+    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
+};
+
 struct ComplexWelchResult {
     Eigen::MatrixXd psd;                      // [series x frequencies], TWO-SIDED, ascending signed frequency (numpy fftshift of fftfreq): -fs/2 ... fs/2 - df for an even n
     Eigen::VectorXd frequencies;              // Hz, segmentSamples of them, signed; the first is -fs/2 for an even n
