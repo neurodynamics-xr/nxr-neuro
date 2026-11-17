@@ -66,7 +66,7 @@ Json migrate_selection_storage(const std::filesystem::path& dataset_folder, cons
 //      producer, axes, value type, components and unit in the array's attributes), VERIFIED byte for byte against the source, and one `selection_measurement` row is made (selection_id = the partition,
 //      of_field_id and of_statistic_id as the statistic's, measure, array_path, unit, computed_by). A measurement of that measure already on the partition is a CONFLICT (reported, nothing overwritten).
 //      The statistic is marked in its options (`migrated_to_measurement`) and, by default, LEFT IN PLACE with its array: nothing is deleted without the PI's OK.
-//   2. A product whose factor is a LEVEL ROW of a ladder (made only to couple a level) names the ladder and the level instead (`selection_factor.level` = the level row's code, `params_json.product`
+//   2. A product whose factor is a LEVEL ROW of a ladder (made only to couple a level) names the ladder and the level instead (`selection_factor.level` = the level's identity, the level row's ordinal, `params_json.product`
 //      entries gain `level`); the codes are unchanged. The level rows stay.
 //   3. A frame tiling on the tower (params_json.atlas.frame_level / frame_code0) gets `retired_grid: "tower"`: its measurements stay readable, new runs use the line's time grid.
 //   4. meta `measurement_storage` = "members" (a dataset made now has it).

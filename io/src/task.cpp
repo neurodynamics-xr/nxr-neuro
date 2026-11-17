@@ -121,6 +121,17 @@ struct Subject::Impl {
   rec::Records records() const { return rec::Records::of(*db); }
 };
 
+selection::ElementMembers Subject::element_members(const std::string& selection_id) const {
+  if (!impl_->writer) throw Error(code::unsupported, "reading a set's elements needs the subject's store (a writer's subject)");
+  return selection::read_element_members(*impl_->db, impl_->writer->store(), selection_id);
+}
+
+Json Subject::query_members(const query::Query& q) const { return query::members(*impl_->db, q, impl_->writer ? &impl_->writer->store() : nullptr); }
+std::int64_t Subject::write_member_rows(const Json& rows, const std::string& computed_by) const {
+  if (!impl_->writer) throw Error(code::unsupported, "writing measurement rows needs a writer's subject");
+  return write_measurements(*impl_->db, rows, computed_by);
+}
+
 Subject Subject::of(SubjectWriter& sub) {
   Subject s;
   s.impl_ = std::make_shared<Impl>();
@@ -760,7 +771,7 @@ std::string Unit::selection(const SelectionOut& s) {
     if (pj.contains("cache")) lp["cache"] = pj["cache"];
     lp["producer"] = pj;
     // a dictionary as the node described it ({name, description, entries}), or the one already stored
-    auto dictionary_of = [&](const Json& dj, const std::optional<std::string>& stored) -> std::optional<std::string> {
+    auto dictionary_of = [&](const Json& dj, const std::optional<std::string>& stored, const std::string& surface_unit) -> std::optional<std::string> {
       if (stored) return stored;
       if (!dj.is_object()) return std::nullopt;
       DictionarySpec spec;
@@ -773,7 +784,14 @@ std::string Unit::selection(const SelectionOut& s) {
         x.code = e["code"].get<std::int64_t>();
         x.ordinal = x.code;
         x.name = e.value("name", std::string());
-        if (e.contains("measurement") && e["measurement"].is_number()) x.cols.set("measurement", e["measurement"].get<double>()).set("measurement_unit", e.value("measurement_unit", std::string()));
+        // a dyadic level's size is its mean TILE DIAMETER in mm (`diameter_mm` in its attributes, or `diameter` in the surface's unit): what a query by physical size reads (measurement_query.h), whatever else
+        // the maker put in `measurement` (a level's wavelength is an attribute, not its size)
+        const Json attrs = e.value("attributes", Json::object());
+        auto number = [&](const char* k) { return attrs.is_object() && attrs.contains(k) && attrs[k].is_number() ? std::optional<double>(attrs[k].get<double>()) : std::nullopt; };
+        if (const auto mm = number("diameter_mm")) x.cols.set("measurement", *mm).set("measurement_unit", "mm");
+        else if (const auto d = number("diameter"); d && (surface_unit == "m" || surface_unit == "cm" || surface_unit == "mm"))
+          x.cols.set("measurement", *d * (surface_unit == "m" ? 1e3 : surface_unit == "cm" ? 1e1 : 1.0)).set("measurement_unit", "mm");
+        else if (e.contains("measurement") && e["measurement"].is_number()) x.cols.set("measurement", e["measurement"].get<double>()).set("measurement_unit", e.value("measurement_unit", std::string()));
         if (e.contains("attributes")) x.cols.json("attributes_json", e["attributes"]);
         spec.entries->push_back(std::move(x));
       }
@@ -782,7 +800,7 @@ std::string Unit::selection(const SelectionOut& s) {
     selection::Placement top;
     top.name = s.name; top.path = at.path; top.manifold_id = s.manifold_id;
     if (s.acquisition) top.acquisition = *s.acquisition;
-    top.dictionary_id = dictionary_of(g.dictionary, g.dictionary_id);
+    top.dictionary_id = dictionary_of(g.dictionary, g.dictionary_id, g.unit);
     top.cols.set("unit", g.unit).set("label", g.label).set("description", g.description);
     top.params = lp;
     std::vector<selection::GridLevel> levels;
@@ -797,7 +815,7 @@ std::string Unit::selection(const SelectionOut& s) {
       }
       selection::GridLevel gl;
       gl.at.name = L.name; gl.at.manifold_id = s.manifold_id;
-      gl.at.dictionary_id = dictionary_of(L.dictionary, L.dictionary_id);
+      gl.at.dictionary_id = dictionary_of(L.dictionary, L.dictionary_id, g.unit);
       Json rp = L.params.is_object() ? L.params : Json::object();
       rp["node"] = dir;
       if (areas) rp["areas"] = dir + "/w";

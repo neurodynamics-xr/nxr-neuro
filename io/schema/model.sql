@@ -615,7 +615,7 @@ CREATE TABLE selection_extent (
 -- queryable without loading anything: the FIELD it describes and the member CODE it is for, so
 -- "the tiles of this level where this field's mean power exceeds T" is one indexed scan. Values
 -- are stored at the FINEST level of a tiling only; a coarser view is the dyadic roll-up
--- `code >> shift` under the measure's reduction (the ladder numbers a tile's children 2t, 2t+1).
+-- `code >> shift` under the measure's merge rule (the ladder numbers a tile's children 2t, 2t+1).
 -- ARRAY-BACKED (D96, 2026-09-25): when a measure has a value per MEMBER per ROW of its field — the
 -- envelope, a min and a max per window per channel, millions of values — the values are an ARRAY in
 -- the store (`array_path`, `[rows × members × components]`, `component` naming its slice) and this is
@@ -1254,7 +1254,7 @@ CREATE TABLE selection_factor (
   selection_id        TEXT NOT NULL REFERENCES selection (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
   ordinal             INTEGER NOT NULL,
   factor_selection_id TEXT NOT NULL REFERENCES selection (id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
-  level               INTEGER,                -- schema 53: the LEVEL of the factor's grid (a `ladder`: a line's time grid, a surface's dyadic grid); null: the factor as it is, as a whole
+  level               INTEGER,                -- schema 53: the LEVEL of the factor's grid (a `ladder`: a line's time grid, a surface's dyadic grid), by its IDENTITY (the ordinal of its level-dictionary entry; the code is its label); null: the factor as it is, as a whole
   PRIMARY KEY (selection_id, ordinal),
   CHECK (factor_selection_id <> selection_id)
 ) STRICT;

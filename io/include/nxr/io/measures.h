@@ -16,7 +16,8 @@
 
 namespace nxr::io {
 
-// The registry (schema/measures.json): {dictionary: {name, scope, description}, measures: [{code, name, reduction, unit, weight, span, derived_from, description}]}.
+// The registry (schema/measures.json): {dictionary: {name, scope, description}, measures: [{code, name, merge, form, unit, weight, span, derived_from, description}]}
+// `merge` is the ONE rule key (sum, max, min, mean, none, derived: how the value rolls up, shared by io's SQL and compute's roll_up); `form` the form of the field it is taken of (none, magnitude, power, phase_current, outer, hermitian3, gradient, edge_1form, face_2form, frames, member).
 const Json& measure_registry();
 // One measure's entry, or nullopt for a name the registry does not know (a subject may add its own).
 std::optional<Json> measure_spec(const std::string& name);

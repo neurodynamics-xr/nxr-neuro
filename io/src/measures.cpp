@@ -154,7 +154,7 @@ std::string ensure_measure_dictionary(Database& db, const std::optional<std::str
     e.name = m["name"].get<std::string>();
     e.ordinal = e.code;
     if (m["unit"].is_string()) e.measurement_unit = m["unit"].get<std::string>();
-    if (m["reduction"].is_string()) e.function = m["reduction"].get<std::string>();
+    if (m.value("merge", std::string()) != "derived" && m["merge"].is_string()) e.function = m["merge"].get<std::string>();   // the dictionary's `function` is the merge rule (the one key; the Studio's `reduction`)
     if (!m["weight"].is_null()) e.params = Json{{"weight", m["weight"]}};
     e.attributes = Json{{"description", m["description"]}};
     spec.entries.push_back(std::move(e));

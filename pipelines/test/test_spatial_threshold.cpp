@@ -24,7 +24,6 @@
 #include "nxr/io/yaml.h"
 #include "nxr/filterbank.h"
 #include "nxr/frame_tiling.h"
-#include "nxr/tower.h"
 #include "nxr/histogram.h"
 #include "nxr/taps.h"
 #include "nxr/pipelines/eigen.h"
@@ -32,6 +31,9 @@
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "make_grids.h"
+
+// the frames of the 8-12 Hz band: the definition `select_time_grid` rule frames gives 36 frames to a cycle of the band's centre (the geometric mean of its ends), exactly (not a power-of-two tile)
+constexpr double kFramesPerCycle = 36.0;
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -55,7 +57,7 @@ int main() {
   const fs::path root = fs::path(tmp ? tmp : fs::temp_directory_path().string()) / ("nxr_test_spatial_threshold_" + std::to_string(::getpid()));
   fs::remove_all(root);
   struct Cleanup { fs::path p; ~Cleanup() { fs::remove_all(p); } } cleanup{root};
-  const double R = 0.1, sfreq = 250.0, w0 = 5.0, wm = 8.5, w1 = 12.0, fps = 1.0 / nxr::tower::periodS(-25);   // the window 5-12 s is the "bursts"; 5 s + 4.4 s of noise outside it
+  const double R = 0.1, sfreq = 250.0, w0 = 5.0, wm = 8.5, w1 = 12.0, fps = kFramesPerCycle * std::sqrt(8.0 * 12.0);   // the window 5-12 s is the "bursts"; 5 s + 4.4 s of noise outside it
   const int T = 4096;
   std::vector<double> U;
   std::vector<std::int32_t> F0;

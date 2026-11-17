@@ -20,7 +20,6 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/measures.h"
 #include "nxr/ladder.h"
-#include "nxr/partition.h"
 #include "nxr/pipelines/cellquadrature.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/spatial_band.h"

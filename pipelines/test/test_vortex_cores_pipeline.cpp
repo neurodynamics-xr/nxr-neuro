@@ -35,7 +35,6 @@
 #include "nxr/filterbank.h"
 #include "nxr/forms.h"
 #include "nxr/frame_tiling.h"
-#include "nxr/tower.h"
 #include "nxr/histogram.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
@@ -58,6 +57,9 @@
 #include "nxr/pipelines/surrogate_compare.h"
 #include "nxr/nulltest.h"
 #include "make_grids.h"
+
+// the frames of the 8-12 Hz band: the definition `select_time_grid` rule frames gives 36 frames to a cycle of the band's centre (the geometric mean of its ends), exactly (not a power-of-two tile)
+constexpr double kFramesPerCycle = 36.0;
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -204,7 +206,7 @@ int main() {
   nxrtest::make_tiles(ds, sub);
   { EigenSolveOptions eo; eo.modes = 100; eo.surface = "cortex"; eigen_solve(ds, sub, eo, {}); }          // stores the glued surface the curl lives on
   for (const char* rec : {"rest", "rest_b"}) { nxrtest::make_frames(ds, sub, rec, "8-12 Hz"); }
-  const double fps = 1.0 / nxr::tower::periodS(-25);
+  const double fps = kFramesPerCycle * std::sqrt(8.0 * 12.0);
 
   // ── THE DIRECT FIELD: the band's real signal (Morlet taps), the folded operator M = F_l form(K) on the glued surface (dense exact hat), M Re sampled at the frames by the Kaiser-sinc ──
   const SurfaceInput S = read_surface(sub, std::nullopt, true);

@@ -27,6 +27,23 @@ cs::Type to_compute(is::Type t) {
   }
   return cs::Type::set;
 }
+// a grid's kind, one name each side: elements, dyadic, and a line's time grid (the closed form io stores)
+is::Grid::Kind grid_kind_to_io(cs::Grid::Kind k) {
+  switch (k) {
+    case cs::Grid::Kind::elements: return is::Grid::Kind::elements;
+    case cs::Grid::Kind::dyadic: return is::Grid::Kind::dyadic;
+    case cs::Grid::Kind::time: return is::Grid::Kind::time;
+  }
+  return is::Grid::Kind::elements;
+}
+cs::Grid::Kind grid_kind_to_compute(is::Grid::Kind k) {
+  switch (k) {
+    case is::Grid::Kind::elements: return cs::Grid::Kind::elements;
+    case is::Grid::Kind::dyadic: return cs::Grid::Kind::dyadic;
+    case is::Grid::Kind::time: return cs::Grid::Kind::time;
+  }
+  return cs::Grid::Kind::elements;
+}
 }  // namespace
 
 is::Description describe(const cs::Selection& m) {
@@ -45,7 +62,7 @@ is::Description describe(const cs::Selection& m) {
   if (m.tiling) d.tiling = is::Tiling{m.tiling->origin, m.tiling->width, m.tiling->hop, m.tiling->count};
   for (const auto& x : m.factors) d.factors.push_back(describe(x));
   d.radices = m.radices;
-  if (m.grid) d.grid = is::Grid{m.grid->kind == cs::Grid::Kind::dyadic ? is::Grid::Kind::dyadic : is::Grid::Kind::elements, m.grid->size, m.grid->depth, m.grid->slots, m.grid->finest, m.grid->match_median, m.grid->match_max};
+  if (m.grid) d.grid = is::Grid{grid_kind_to_io(m.grid->kind), m.grid->size, m.grid->depth, m.grid->slots, m.grid->finest, m.grid->match_median, m.grid->match_max, m.grid->origin, m.grid->rate};
   d.level = m.level;
   d.diameter = m.diameter;
   d.band = m.band;
@@ -70,7 +87,7 @@ cs::Selection made(const is::Description& d) {
   if (d.tiling) m.tiling = cs::Tiling{d.tiling->origin, d.tiling->width, d.tiling->hop, d.tiling->count};
   for (const auto& x : d.factors) m.factors.push_back(made(x));
   m.radices = d.radices;
-  if (d.grid) m.grid = cs::Grid{d.grid->kind == is::Grid::Kind::dyadic ? cs::Grid::Kind::dyadic : cs::Grid::Kind::elements, d.grid->size, d.grid->depth, d.grid->slots, d.grid->finest, d.grid->match_median, d.grid->match_max};
+  if (d.grid) m.grid = cs::Grid{grid_kind_to_compute(d.grid->kind), d.grid->size, d.grid->depth, d.grid->slots, d.grid->finest, d.grid->match_median, d.grid->match_max, d.grid->origin, d.grid->rate};
   m.level = d.level;
   m.diameter = d.diameter;
   m.band = d.band;

@@ -158,7 +158,7 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     const Value& v = P.values.at(o);
     // THREE KINDS OF OUTPUT: a Field (materialized), a measurement over a time partition (reduced: selection_measurement rows), a span set (a spans Selection)
     const std::string kind = spec.value("kind", std::string());
-    if (is_declared(P, o)) { check_declared(P, o, db); continue; }            // a declared output (declared_outputs.h): its kind, links and node checked here, its values at the store
+    if (is_declared(P, o)) { check_declared(P, o); continue; }            // a declared output (declared_outputs.h): its kind, links and node checked here, its values at the store
     if (kind == "recording") {                                             // a streamed value written as a new recording, block by block, as the loop runs (a filter's output)
       if (!v.chunked || !d.over) refuse("outputs." + o + ": a recording output is a value inside the chunk loop (what a chunk node makes of the recording)");
       if (!spec.contains("name")) refuse("outputs." + o + ": a recording output names the new recording (name: …)");
@@ -1339,6 +1339,26 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       const std::string fid = sub.field(std::move(fs));
       stored.push_back(Json{{"output", o}, {"path", path}, {"id", fid}, {"on", m ? text(*m, "name") : mid}});
     }
+  }
+  // THE OPERATORS A NODE BUILT (rule 32, the fused operator of a chain): stored through io as operators with their provenance, under the key they were found by, in this unit; the next run finds them
+  // (`Bound::stored_operator`) instead of rebuilding them. One already stored under the key is left as it is.
+  for (const MadeOperator& op : bound.offered_operators()) {
+    if (bound.stored_operator(op.key)) continue;
+    nxr::pipelines::task::OperatorOut oo;
+    oo.name = op.name.empty() ? "fused operator " + nxr::io::sha256_hex(op.key.dump()).substr(0, 12) : op.name;
+    oo.output = "operator";
+    oo.kind = op.kind;
+    oo.from_manifold_id = op.from_manifold_id; oo.to_manifold_id = op.to_manifold_id;
+    if (!op.description.empty()) oo.description = op.description;
+    oo.params = Json{{"cache", op.key}};
+    oo.producer = op.provenance.is_object() ? op.provenance : Json::object();
+    oo.producer["pipeline"] = d.name;
+    oo.cache_key = op.key;
+    oo.data.shape = {op.matrix->rows(), op.matrix->cols()};
+    oo.data.f64.resize(static_cast<std::size_t>(op.matrix->size()));
+    for (Eigen::Index r = 0; r < op.matrix->rows(); ++r) for (Eigen::Index c = 0; c < op.matrix->cols(); ++c) oo.data.f64[static_cast<std::size_t>(r * op.matrix->cols() + c)] = (*op.matrix)(r, c);
+    unit.operator_(oo);
+    stored.push_back(Json{{"output", oo.name}, {"kind", "operator"}, {"stored", true}, {"cache_key", op.key}});
   }
   unit.commit();
   report["hit"] = false;

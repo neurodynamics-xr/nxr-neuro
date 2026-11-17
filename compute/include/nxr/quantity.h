@@ -12,7 +12,7 @@
 namespace nxr::quantity {
 
 /** a stated quantity: a value has lo == hi; an open range has an infinite end ("at least 5 mm": hi = +infinity). `chart` is one of linear, log10, clock, eigenvalue,
- *  wavelength, area, diameter, parts, index (a chart word of the text, else the one the unit implies: Hz linear, s clock, mm diameter, mm^2 area, 1/m^2 eigenvalue);
+ *  wavelength, area, diameter, parts, cycles (of a band's centre), index (a chart word of the text, else the one the unit implies: Hz linear, s clock, mm diameter, mm^2 area, 1/m^2 eigenvalue);
  *  `unit` is canonical (superscript two as ^2). */
 struct Quantity {
   double lo = 0, hi = 0;

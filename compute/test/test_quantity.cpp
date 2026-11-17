@@ -37,6 +37,12 @@ static void parsing() {
   EXPECT(a.chart == "parts" && a.lo == 16 && a.unit == "hemisphere", "parts per hemisphere");
   a = q::parse(">= 5 mm");
   EXPECT(a.lo == 5 && std::isinf(a.hi) && a.chart == "diameter", "an open range");
+  a = q::parse(">=0.4 s");
+  EXPECT(a.lo == 0.4 && std::isinf(a.hi) && a.hi > 0 && a.chart == "clock" && q::format(a) == ">= 0.4 s", "an open range above, no space after the sign");
+  a = q::parse("<=5 s");
+  EXPECT(std::isinf(a.lo) && a.lo < 0 && a.hi == 5 && a.chart == "clock" && q::format(a) == "<= 5 s", "an open range below");
+  a = q::parse(">=3 cycles");
+  EXPECT(a.lo == 3 && std::isinf(a.hi) && a.chart == "cycles", "cycles of a band's centre, open above");
   a = q::parse("index:5");
   EXPECT(a.chart == "index" && q::as_index(a) == 5, "the one way to state an index");
   a = q::parse("log10 1-2 Hz");
