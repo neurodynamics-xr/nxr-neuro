@@ -131,7 +131,7 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
   {
     StepSpec s;
     s.name = "lagfree_surrogate"; s.kind = "chunk";
-    s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the noise is a function of the sample index (a counter-based generator) and reads no sample of the input, but each output sample is that noise filtered by the shaping taps, so it needs the noise `taps_half` samples on each side: a windowed node whose halo is the taps (a block split gives the same values only with that halo)", "`taps_half` samples each side of a sample (0: from the PSD's resolution, half = fs / (2 df), at most 4096)");
+    s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the noise is a function of the sample index (a counter-based generator) and reads no sample of the input, but each output sample is that noise filtered by the shaping taps, so it needs the noise `taps_half` samples on each side: a windowed node whose halo is the taps (a block split gives the same values only with that halo); computed in double, stored as float32", "`taps_half` samples each side of a sample (0: from the PSD's resolution, half = fs / (2 df), at most 4096)");
     s.inputs = {"x", "psd", "cross_spectrum", "power_series"}; s.outputs = {"y"};
     s.parameters = Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"taps_half", 0}, {"seed", 0}};
     s.matches = "nxr vortex.lagfree_real and envelope_matched_null (Gaussian noise with the data's mean spectrum, mixed by sqrt(Re cov), rescaled to the data's one-cycle envelope); compute nxr::surrogate (lagfreeBlock, shapingTaps, sqrtPsd, interpolateSeries); the scale is pointwise (expected, not realised)";
