@@ -257,7 +257,7 @@ std::shared_ptr<const nxr::io::LinkedBlocks> open_linked(const Json& link) {
 }
 
 Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, const nxr::formats::RecordingReader& reader, const RecordingImport& opt) {
-  const nxr::formats::RecordingHeader& h = reader.header();
+  const nxr::formats::RecordingHeader& h = opt.header ? *opt.header : reader.header();
   if (h.channels.empty() || h.n_samples == 0 || h.sampling_rate <= 0) refuse("the recording has no channels, no samples or no sampling rate");
   if (opt.in_place && (opt.source_file.empty() || fs::is_directory(opt.source_file))) refuse("--in-place links one file; give the recording's file (a folder, as CTF's, is copied)");
   const std::int64_t n_chan = static_cast<std::int64_t>(h.channels.size()), n_samp = static_cast<std::int64_t>(h.n_samples);
