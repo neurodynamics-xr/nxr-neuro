@@ -432,7 +432,7 @@ r = nxrneuro.compute('psd', sub, 'rest', 'all', true);
 | 11 | MNE exports: `.stc`, `-cov.fif`, `-fwd.fif`, raw FIF chunk by chunk; `export mne` | 8, the package pipelines | after 8 |
 | 12 | `import bids` (a package per subject, the importer rules, participants through `participants import`) | 7, 9 | after 9 |
 | 13 | BIDS-derivatives exporter | 4, 10, 11 | after 11 |
-| 14 | CIFTI-2 read and write (`dscalar`, `dlabel`, `dtseries`) | 2, 3 | after 3 |
+| 14 | CIFTI-2 read and write (`dscalar`, `dlabel`, `dtseries`) | 2, 3 | **reader built** (`io/formats/include/nxr/formats/cifti.h`); the writer with the exporters |
 | 15 | CTF, then KIT readers and importers | 5 (coil definitions), 9 | **pure readers built** (`ctf.h`, `kit.h`); importers after 9 |
 | 16 | Python wheel, first slice (6.1), with the dependency-rule amendment; cibuildwheel in CI | the amendment (D3) | **now** (in parallel with 1–8) |
 | 17 | MEX over the same API, first slice (6.2) | 16 | after 16 |

@@ -19,6 +19,7 @@ Calibration and unit scaling are decoding and belong here; any other maths does 
 | `deflate.h` | zlib and gzip streams as byte vectors (zlib) |
 | `nifti.h` | NIfTI-1/2: header (every field, extensions), volume (whole, `.nii`, `.nii.gz`, `.hdr`+`.img`), the best affine (sform, else qform, else pixdims), writer |
 | `gifti.h` | GIFTI: surfaces, shape and functional maps, labels; ASCII, Base64Binary and GZipBase64Binary in either byte order; column-major made row-major; reader and writer (pugixml) |
+| `cifti.h` | CIFTI-2 (dtseries, dscalar, dlabel, pscalar, ptseries, any two-dimensional map): the NIfTI-2 header and the XML extension of code 32 parsed whole (series, named maps and label tables, brain models with vertices and voxels, parcels, surfaces, the volume), the matrix by rectangles of rows and columns; read only |
 | `tsv.h` | BIDS-style TSV tables (`n/a`, no empty cells, LF) and JSON sidecars: read and write |
 | `edf.h` | EDF, EDF+, BDF, BDF+ (continuous and discontinuous: gaps as spans, read as zeros); annotations; several sampling rates refused unless one is named |
 | `brainvision.h` | BrainVision `.vhdr`/`.vmrk`/`.eeg`: INT_16, INT_32, IEEE_FLOAT_32, multiplexed or vectorized; ASCII refused; markers as annotations; coordinates |
@@ -67,3 +68,9 @@ Calibration and unit scaling are decoding and belong here; any other maths does 
 - **CTF time:** the trials of the `.meg4` file and of its continuation files (`.1_meg4`, ...) are one recording, in order, as MNE reads them. The recording stops at the first zero of the system clock channel unless `OpenOptions::system_clock` is `ignore`. A data set with pre-trigger points or several averages is refused as not continuous.
 - **KIT values:** MEG channels `stored x adc_range / 2^adc_stored / amp_gain x gain` (T); EEG and ECG channels with their own gain; the others `stored x adc_range / 2^adc_stored` (V). No stimulus channel is synthesised from the trigger channels. The digitization in the file is given as stored (digitizer frame, metres); the transforms are the importer's.
 - **Goldens:** MNE-Python cannot write CTF or KIT files, so `test/golden/gen_ctf.py` and `gen_kit.py` write minimal valid files from the format descriptions (layouts as MNE-Python's readers parse them); MNE-Python reading them is the check that they are valid and the source of every golden.
+
+## CIFTI-2 details
+
+- **Orientation** is nibabel's: the matrix is `rows() x cols()`, rows indexing matrix dimension 0 (the series or the named maps) and columns dimension 1 (the grayordinates or parcels); in the file dimension 0 varies fastest, so `read` makes one contiguous read per column and a time series of a few grayordinates is cheap.
+- **Types:** float32 and float64 files; other data types, CIFTI-1 files (version other than 2 or 2.0), a NIfTI-1 file, a file with no extension of code 32 and gzipped files are refused with the reason. A mapping that does not cover the data's dimension is refused.
+- **Not here yet:** the writer (spec section 5.1, after GIFTI export) and the surface templates a CIFTI file's vertex counts are matched against (the importer's job).
