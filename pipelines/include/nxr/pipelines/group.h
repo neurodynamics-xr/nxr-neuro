@@ -27,11 +27,13 @@
 // CANNOT BE RESOLVED / NOT DONE: a member of ANOTHER dataset (nxr's `sources`) is not read; no group statistic (the group map G, nulls: the dataset-wide spec, section 3) is computed here, only the sums they start from.
 #pragma once
 #include <functional>
+#include <filesystem>
 #include <optional>
 #include <string>
 #include <vector>
 
 #include "nxr/io.h"
+#include "nxr/io/catalogue.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/pyramid.h"
 
@@ -63,5 +65,12 @@ struct PyramidReduceResult {
   nxr::io::Json info;                      // {members, spatial, time, depth, node, fields}
 };
 PyramidReduceResult pyramid_reduce(nxr::io::DatasetWriter& ds, const PyramidReduceOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
+
+// The same reduction on a CATALOGUE dataset (spec section 5): the members (`subjects`, by name) are read each from its own package, and the result is written into the GROUP
+// PACKAGE `group_name` of the dataset (made if absent, else its group fields are replaced), whose rows reach the default subject's and the members' through anchor rows. One
+// group package per analysis the caller names. The sums, merge rules, refusals and stored rows are `pyramid_reduce`'s; members registered to different template versions are
+// refused. The default subject is the one the members' packages name, found through the catalogue and the template search path.
+PyramidReduceResult pyramid_reduce_group(const std::filesystem::path& dataset, const PyramidReduceOptions& opt, const std::string& group_name, const nxr::io::TemplateSearch& templates,
+                                         const std::function<void(const nxr::io::Json&)>& progress = {});
 
 }  // namespace nxr::pipelines

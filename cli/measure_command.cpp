@@ -274,11 +274,20 @@ int pyramid_main(const std::vector<std::string>& argv) {
     // `pyramid reduce --dataset D/N --subjects A,B,C [--kernels SPEC] [--depth D]`: the group sums of the NAMED subjects' group-tree pyramids, cell for cell, in the default subject's store
     const std::string prog = "nxr-neuro pyramid reduce";
     const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-    const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subjects", "--kernels", "--depth"}, {}, {"--dataset", "--subjects"});
+    const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subjects", "--kernels", "--depth", "--into"}, {}, {"--dataset", "--subjects"}, 0, {"--templates"});
     nxr::pipelines::PyramidReduceOptions o;
     { std::stringstream ss(a.get("--subjects")); std::string item; while (std::getline(ss, item, ',')) if (!item.empty()) o.subjects.push_back(item); }
     if (const auto v = a.maybe("--kernels")) o.kernels = *v;
     try { if (const auto v = a.maybe("--depth")) o.depth = std::stoi(*v); } catch (...) { usage(prog, "--depth is a whole number"); }
+    if (is_catalogue_dataset(a.get("--dataset"))) {   // a catalogue: the members' packages are read, the result is a group package (one per analysis, named by --into)
+      if (!a.maybe("--into")) throw cli::Usage(prog + ": error: " + a.get("--dataset") + " is a catalogue of subject packages: name the group package the result goes to with --into NAME");
+      const auto g = nxr::pipelines::pyramid_reduce_group(a.get("--dataset"), o, *a.maybe("--into"), cli::template_search_of(a), [](const Json& j) { Json m = j; if (!m.contains("stage")) m["stage"] = "progress"; cli::emit(m); });
+      Json out = Json{{"stage", "result"}};
+      for (auto it = g.info.begin(); it != g.info.end(); ++it) out[it.key()] = it.value();
+      cli::emit(out);
+      return 0;
+    }
+    if (a.maybe("--into")) throw cli::Usage(prog + ": error: --into names a group package, which only a catalogue dataset has (`split dataset` makes one)");
     DatasetWriter ds = open_dataset(a);
     const auto r = nxr::pipelines::pyramid_reduce(ds, o, [](const Json& j) { Json m = j; if (!m.contains("stage")) m["stage"] = "progress"; cli::emit(m); });
     Json out = Json{{"stage", "result"}};

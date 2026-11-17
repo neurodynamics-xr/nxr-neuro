@@ -187,11 +187,19 @@ class PackageKeyStore : public Store {
   using Store::set;
   void set(const std::string& key, const std::uint8_t* data, std::size_t n) override {
     std::string r;
+    if (const Store* o = routed(key, r)) {   // another package's key (a template's): never written; writing what is already there (a subject's folder is made again when opened) changes nothing
+      const auto cur = r.empty() ? std::nullopt : o->get(r);
+      if (cur && cur->size() == n && std::equal(cur->begin(), cur->end(), data)) return;
+      // the text of a node whose row is another package's (a template's row this package holds as an anchor) is that package's to write: dropped, as a folder's above the package are
+      if (key.size() > 10 && key.compare(key.size() - 10, 10, "/zarr.json") == 0) return;
+      throw value_error(key + ": belongs to another package (the template's), which is read only here");
+    }
     if (inside(key, r) && !r.empty()) return digest_->set(r, data, n);
     if (!dropped(key)) throw value_error(key + ": outside the package (its keys are under " + prefix_ + "/)");
   }
   std::unique_ptr<StoreWriter> open_writer(const std::string& key) override {
     std::string r;
+    if (routed(key, r)) throw value_error(key + ": belongs to another package (the template's), which is read only here");
     if (inside(key, r) && !r.empty()) return digest_->open_writer(r);
     if (dropped(key)) return std::make_unique<DiscardWriter>();
     throw value_error(key + ": outside the package (its keys are under " + prefix_ + "/)");

@@ -136,6 +136,40 @@ struct SelectedSubjects {
 // a member that is not a subject (a template or a group is never a member of a cohort).
 SelectedSubjects select_subjects(const std::filesystem::path& folder, const SubjectSelection& selection);
 
+// A GROUP ANALYSIS (spec section 5): the members of a cohort read each from its own package, the result written into a GROUP PACKAGE of the dataset, one per analysis the
+// caller names. `open` selects the cohort through the catalogue (`select_subjects`: the same refusals, and members registered to different template versions are never
+// pooled), makes the group package (or opens the one of that name, a group, to replace its results), holds the writer lock of that one package only, and carries the
+// default subject's rows the results are on (its manifolds, selections and canonical frames) as ANCHOR rows, as a subject carries its template's. Each member's package
+// opens read-only (no lock), its template routed as `open_subject_package` does. `anchor_contributions` carries the members' rows a result's contributions name.
+// `finish` closes the group package (its record and content hash) and registers it again.
+class GroupAnalysis {
+ public:
+  static GroupAnalysis open(const std::filesystem::path& dataset_folder, const std::string& group_name, const std::vector<std::string>& subjects, const TemplateSearch& templates,
+                            const std::string& registered_by);
+  GroupAnalysis(GroupAnalysis&&) noexcept;
+  GroupAnalysis& operator=(GroupAnalysis&&) noexcept;
+  ~GroupAnalysis();
+  // A member's package, read only; the first call opens it.
+  DatasetWriter& member(const std::string& name);
+  DatasetWriter& group();
+  // The name of the default subject the members are registered to, as their rows give it.
+  const std::string& template_name() const;
+  const SelectedSubjects& selected() const;
+  // (subject id, field id) pairs: each member's subject row and the source fields' rows, with what they name, carried into the group package. Run outside a transaction.
+  void anchor_contributions(const std::vector<std::pair<std::string, std::string>>& subject_and_field);
+  // Close the group package and register it (its content hash changed); returns the registration outcome.
+  std::string finish();
+
+ private:
+  GroupAnalysis() = default;
+  struct Impl;
+  std::unique_ptr<Impl> impl_;
+};
+
+// The released or dataset-local template `ref` names: the catalogue's own member of that subject id and content hash first, then the template search path.
+ResolvedTemplate resolve_dataset_template(const std::filesystem::path& dataset_folder, const TemplateRef& ref, const TemplateSearch& search);
+
+
 // A GROUP PACKAGE: the package of a group analysis, of kind `group`, registered in the catalogue like any member. Its record names the subjects it was computed from
 // with each one's content hash, so a member changed later is seen. One package per analysis the caller names; a name already used is refused.
 std::filesystem::path create_group_package(const std::filesystem::path& folder, const std::string& group_name, const SelectedSubjects& members, const RegisterOptions& opt);

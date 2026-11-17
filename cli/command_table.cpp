@@ -923,6 +923,8 @@ R"TBL(--tolerance@compute patches	X	Chebyshev: the largest difference between th
 --name@release template	NAME	Name the template is released under.	required	-
 --template-version@release template	VERSION	Version string of the release (e.g. 1.0); name@version must be new, a released version is frozen.	required	-
 --released-by@release template	WHO	Who releases: the program and the releaser's stated name, recorded in the release.	required	-
+--into@reduce pyramid	NAME	On a catalogue dataset: the name of the group package the result is written to (made if absent, else its group fields are replaced); one per analysis, never a default one. Not for a one-database dataset, whose group lives in its default subject.	required for a catalogue	-
+--templates@reduce pyramid	DIR	A folder of released templates to look in (repeatable) for the default subject the members' packages are registered to, before NXR_TEMPLATE_PATH and the user setting template_path; the dataset's own template member is found first.	none (the environment variable and the user setting only)	-
 --into@release template	DIR	The templates folder the frozen copy <name>@<version>.nxr.zarr is made in.	required	-
 --package@release redistributable	PATH	The folder of the released full edition to make the redistributable edition from.	required	-
 --into@release redistributable	DIR	The templates folder the redistributable edition is made in.	required	-
@@ -1225,8 +1227,8 @@ opts: --dataset* --exclude --fields* --keep-all --labelling* --layout --out* --r
 )TBL",
 R"TBL(@ reduce pyramid
 old: pyramid reduce
-summary: Reduce several subjects' group-tree pyramids into the group's pyramid.
-opts: --dataset* --depth --kernels --subjects*
+summary: Reduce several subjects' group-tree pyramids into the group's pyramid; on a catalogue dataset the result is a group package (--into).
+opts: --dataset* --depth --into --kernels --subjects* --templates+
 )TBL",
 R"TBL(@ run
 alias: no

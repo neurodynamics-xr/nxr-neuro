@@ -7,6 +7,7 @@
 #include <set>
 
 #include "nxr/io/hash.h"
+#include "nxr/io/bundle.h"
 #include "nxr/io/participants.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/writer_lock.h"
@@ -584,6 +585,151 @@ DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, 
     });
   }
   return w;
+}
+
+
+ResolvedTemplate resolve_dataset_template(const std::filesystem::path& dataset_folder, const TemplateRef& ref, const TemplateSearch& search) {
+  namespace fs = std::filesystem;
+  const Catalogue cat = Catalogue::open(dataset_folder);
+  for (const CatalogueEntry& e : cat.entries()) {
+    if (e.kind != "template" || e.status == "replaced" || e.content_hash != ref.content_hash) continue;
+    const fs::path p = cat.package_path(e);
+    if (!fs::is_regular_file(p / kPackageDatabaseFile)) continue;
+    SubjectPackage pk = SubjectPackage::open(p);
+    return ResolvedTemplate{p, pk.record()};
+  }
+  return resolve_template(ref, search);
+}
+
+namespace {
+// A package made new holds a copy of the app-wide vocabulary under ids of its own; the rows it is about to carry from another package (its anchors) name that package's copy
+// of the same dictionary. The one nothing here refers to yet goes, so the other arrives under its own name and id (a dictionary is found by scope and name).
+void drop_unreferenced_vocabulary_held_elsewhere(Database& db, const std::filesystem::path& source) {
+  db.execute("ATTACH DATABASE ? AS vsrc", {(source / kPackageDatabaseFile).string()});
+  try {
+    db.execute("DELETE FROM main.dictionary WHERE id IN (SELECT m.id FROM main.dictionary m JOIN vsrc.dictionary s ON s.scope = m.scope AND coalesce(s.dataset_id, '') = coalesce(m.dataset_id, '') "
+               "AND coalesce(s.subject_id, '') = coalesce(m.subject_id, '') AND s.name = m.name AND s.id <> m.id "
+               "WHERE NOT EXISTS (SELECT 1 FROM main.selection x WHERE x.dictionary_id = m.id))");
+  } catch (...) { try { db.execute("DETACH DATABASE vsrc"); } catch (...) {} throw; }
+  db.execute("DETACH DATABASE vsrc");
+}
+}  // namespace
+
+struct GroupAnalysis::Impl {
+  std::filesystem::path dataset, group_folder;
+  std::string group_name, registered_by, template_name;
+  TemplateSearch search;
+  SelectedSubjects selected;
+  std::map<std::string, std::unique_ptr<DatasetWriter>> members;
+  std::map<std::string, std::filesystem::path> member_folder;   // subject id -> its package folder
+  std::unique_ptr<DatasetWriter> group;
+};
+GroupAnalysis::GroupAnalysis(GroupAnalysis&&) noexcept = default;
+GroupAnalysis& GroupAnalysis::operator=(GroupAnalysis&&) noexcept = default;
+GroupAnalysis::~GroupAnalysis() = default;
+
+GroupAnalysis GroupAnalysis::open(const std::filesystem::path& dataset_folder, const std::string& group_name, const std::vector<std::string>& subjects, const TemplateSearch& templates,
+                                  const std::string& registered_by) {
+  namespace fs = std::filesystem;
+  GroupAnalysis a;
+  a.impl_ = std::make_unique<Impl>();
+  Impl& m = *a.impl_;
+  m.dataset = dataset_folder; m.group_name = group_name; m.search = templates; m.registered_by = registered_by;
+  SubjectSelection sel;
+  sel.subjects = subjects;
+  m.selected = select_subjects(dataset_folder, sel);
+  const Catalogue cat = Catalogue::open(dataset_folder);
+  Json tref;
+  for (const CatalogueEntry& e : m.selected.members) {
+    const fs::path p = cat.package_path(e);
+    m.member_folder[e.subject_id] = p;
+    const Json r = SubjectPackage::open(p).record().template_reference;
+    if (!r.is_object()) throw Error(code::invalid_argument, e.name + ": it is registered to no template, so a group analysis has no common anatomy to put its results on");
+    if (tref.is_null()) tref = r;
+    else if (r.value("content_hash", "") != tref.value("content_hash", ""))
+      throw Error(code::invalid_argument, e.name + ": registered to " + r.value("name", "") + "@" + r.value("version", "") + ", the others to " + tref.value("name", "") + "@" + tref.value("version", "") +
+                                          ": members of different template versions are never pooled");
+  }
+  const ResolvedTemplate tmpl = resolve_dataset_template(dataset_folder, TemplateRef::from_json(tref), templates);
+  m.template_name = tmpl.record.name;
+  // the group package: made, or the one of this name (a group) opened to replace its results
+  if (const auto have = cat.find(group_name)) {
+    if (have->kind != "group") throw Error(code::invalid_argument, group_name + ": the dataset holds a member of that name that is not a group package");
+    m.group_folder = cat.package_path(*have);
+  } else {
+    RegisterOptions ro;
+    ro.registered_by = registered_by;
+    m.group_folder = create_group_package(dataset_folder, group_name, m.selected, ro);
+  }
+  m.group = std::make_unique<DatasetWriter>(open_package_writer(m.group_folder));
+  DatasetWriter& g = *m.group;
+  {
+    PackageRecord rec = read_package_record(g.db());
+    Json list = Json::array();
+    for (const auto& e : m.selected.members) list.push_back(Json{{"subject_id", e.subject_id}, {"name", e.name}, {"content_hash", e.content_hash}});
+    rec.members = list;
+    rec.template_reference = tref;
+    write_package_record(g.db(), rec);
+  }
+  // the default subject's rows the results are on, as anchors: its manifolds, its selections, its canonical frames
+  {
+    const SubjectPackage tp = SubjectPackage::open(tmpl.folder);
+    const std::string tid = tmpl.record.subject_id;
+    std::vector<std::pair<std::string, std::string>> roots = {{"subject", tid}};
+    for (const auto& r : tp.db().all("SELECT id FROM manifold WHERE subject_id = ? AND status = 'complete'", {tid})) roots.emplace_back("manifold", text(r, "id"));
+    for (const auto& r : tp.db().all("SELECT id FROM selection WHERE subject_id = ? AND status = 'complete'", {tid})) roots.emplace_back("selection", text(r, "id"));
+    for (const auto& r : tp.db().all("SELECT id FROM field WHERE subject_id = ? AND status = 'complete' AND name LIKE '%_canonical_frames'", {tid})) roots.emplace_back("field", text(r, "id"));
+    drop_unreferenced_vocabulary_held_elsewhere(g.db(), tmpl.folder);
+    add_anchor_rows(g.db(), tmpl.folder, roots);
+    // the default subject's arrays are read from its own package
+    if (const auto row = g.db().one("SELECT s.path AS s, d.path AS d FROM subject s JOIN dataset d ON d.id = s.dataset_id WHERE s.id = ?", {tid})) {
+      const fs::path tfolder = tmpl.folder;
+      route_keys_to_package(g, text(*row, "d") + "/" + text(*row, "s"), [tfolder]() { return std::make_shared<SubjectPackage>(SubjectPackage::open(tfolder)); });
+    }
+  }
+  return a;
+}
+
+DatasetWriter& GroupAnalysis::member(const std::string& name) {
+  Impl& m = *impl_;
+  auto it = m.members.find(name);
+  if (it != m.members.end()) return *it->second;
+  bool listed = false;
+  for (const auto& e : m.selected.members) if (e.name == name) listed = true;
+  if (!listed) throw Error(code::no_such_row, name + ": not a member of this group analysis");
+  OpenOptions oo;
+  oo.lock = false;
+  auto w = std::make_unique<DatasetWriter>(open_subject_package(m.dataset, name, oo, m.search));
+  return *(m.members[name] = std::move(w));
+}
+DatasetWriter& GroupAnalysis::group() { return *impl_->group; }
+const std::string& GroupAnalysis::template_name() const { return impl_->template_name; }
+const SelectedSubjects& GroupAnalysis::selected() const { return impl_->selected; }
+
+void GroupAnalysis::anchor_contributions(const std::vector<std::pair<std::string, std::string>>& subject_and_field) {
+  Impl& m = *impl_;
+  std::map<std::string, std::vector<std::pair<std::string, std::string>>> by_subject;
+  for (const auto& [sid, fid] : subject_and_field) {
+    if (!m.member_folder.count(sid)) throw Error(code::invalid_argument, "a contribution names subject " + sid + ", which is not a member of this group analysis");
+    by_subject[sid].emplace_back("field", fid);
+  }
+  for (auto& [sid, roots] : by_subject) {
+    roots.insert(roots.begin(), {"subject", sid});
+    drop_unreferenced_vocabulary_held_elsewhere(m.group->db(), m.member_folder.at(sid));
+    add_anchor_rows(m.group->db(), m.member_folder.at(sid), roots);
+  }
+}
+
+std::string GroupAnalysis::finish() {
+  Impl& m = *impl_;
+  m.members.clear();
+  m.group->close();
+  m.group.reset();
+  RegisterOptions ro;
+  ro.registered_by = m.registered_by;
+  const auto res = register_packages(m.dataset, {m.group_folder}, ro);
+  if (res.empty() || res[0].outcome == "refused") throw Error(code::invalid_argument, m.group_name + ": the group package was not registered: " + (res.empty() ? std::string() : res[0].reason));
+  return res[0].outcome;
 }
 
 }  // namespace nxr::io
