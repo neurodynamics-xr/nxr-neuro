@@ -33,7 +33,7 @@ BUILD = ROOT / "build"
 RESULTS = ROOT / "test-results"
 STATUS = RESULTS / "status.json"
 CLI = BUILD / "cli" / "nxr-neuro"
-DATA = {"compute": ["compute/test/golden"], "meeg": ["meeg/test/golden"], "io": ["io/test/data"], "pipelines": ["pipelines/test"]}
+DATA = {"compute": ["compute/test/golden"], "meeg": ["meeg/test/golden"], "io": ["io/test/data", "io/formats/test/data", "io/formats/test/golden", "io/formats/data"], "pipelines": ["pipelines/test"]}
 
 
 def sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:

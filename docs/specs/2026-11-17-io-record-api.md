@@ -5,6 +5,66 @@ replaces them (ported from the Studio's repositories), the rule and the check th
 migration starts after the subject-package format work now open (the pipelines' open and write paths moving to packages) has landed. Section 7 lists
 the open questions, each with a recommendation.
 
+## 0. Decision (maintainers, 2026-11-17): two levels
+
+The repositories of sections 3 to 3.4 are the **inside** of io, not what orchestration sees.
+
+1. **Level 1, the repositories (`nxr::io::records`, the Studio's shape: row structs, `Where` structs, `read/list/find/create/update/remove`)** stay **inside io**.
+   They are used by io itself, by bindings that serve the Studio (`bindings/wasm-io`), and by record tools. Pipelines and the command line never see a row
+   struct, a `Where` or a table name.
+2. **Level 2, a small TASK-LEVEL API in io is the only thing pipelines and the command line use** (`nxr/io/task/*.h`, namespace `nxr::io::task`), implemented
+   on level 1. It is named by the task, never as CRUD. HTTP is not built now.
+
+The task API:
+
+| task | calls (all take a `Subject`, io's handle to one package or dataset subject; they never take a database) |
+|---|---|
+| **find inputs** | io's existing `finder` completed: `find(subject, Want{cls, name, kind, manifold, relation, params, member_of, ordinal})` returns a `Found` (its id, name, class, manifold ids, value type, unit, time line, and the stored facts a step needs: `params`, `producer`, `n_vertices`, `grid`, ...) or throws one clear error (none, or several: both name the candidates). `find_all` for the few steps that list. Geometry facts a step reads (grid spacing and origin, coordinate unit, factor lines, cells) are members of `Found` for a manifold; a partition's `members(found)` and a selection's `spans(found)` are calls on it. |
+| **open arrays** | `open(found)` returns an array handle for streaming (the chunk service's source, unchanged); `node_path(subject, manifold, name)` and `atlas_node(...)` stay as the naming rules. |
+| **commit a result as ONE unit** | `auto u = subject.unit(by)`; every write inside it (a field, operator, selection, statistic, measurement rows, a dictionary) is one atomic composition: rows, arrays, provenance (`By`, producer JSON), the cache key and the measurements together or nothing (`commit()`; destroyed without it: rolled back). It is `SubjectWriter`'s node procedure with `compose`/`mark`/`rollback_to`, typed once. Replaces `db().tx`, `write_measurements`, `delete_measurements`, `UPDATE selection SET params_json`. |
+| **cache lookup** | `cached(subject, kind, CacheKey, path)` returns the stored `Found` or none (today `find_cached`, moved into io). |
+| **query measurements** | `measure(subject).kinds(selection)` (what is measured, its `computed_by`, unit), `.has(selection, measure, of_field)`, `.query(MeasurementQuery)`: the read-time reduction over partitions, members, code shifts, space and time levels, and `.values(...)` for the statistics' input; `.arrays(...)` for array-backed rows. |
+| **subjects and statistics, by task** | `catalogue`/`subjects` calls of section 3.4 (list, find, status) for the cli; `statistics.of(subject, field)` and `map_slices` as `find` of class `statistic`; dictionary entries by name or code (`Found::entries()`), and `recipes.get(name)`. |
+
+**The 228 pipeline statements, by group, and their task call** (counts: `tools/db_inventory.py`; "found" is `task::find`):
+
+| group (pipeline statements) | task call |
+|---|---|
+| selections found by name, type, manifold, parameters (29 + 6 + 2) | `find(Want{cls: selection, ...})`; the parameter lookups are `Want::params` (equality and presence on the selection's parameters) |
+| manifold geometry and one manifold by id, found by name and type (21 + 20 + 7 + 2) | `find` of a manifold and the `Found`'s geometry members; by id: `find_by_id(subject, cls, id)` |
+| fields by name or kind, virtual or pending, on a manifold, by id (30 + 4 + 4 + 1) | `find(Want{cls: field, ...})`, `find_all` |
+| operators by kind, name, target (36) | `find(Want{cls: operator, ...})` |
+| members of a partition, spans of a selection (13 + 11) | `members(found)`, `spans(found)` |
+| what is measured, provenance, array-backed rows (8 + 5 + 4) | `measure(subject).kinds / has / arrays` |
+| measurement delete (1) | a call inside the unit |
+| selection writes (4) | `unit.selection(...)`, `unit.set_params(...)` |
+| cache (the cache lookup, its one statement) | `cached(...)` |
+| subjects, generic row, statistics, dictionaries, topology cells (3 + 2 + 1 + 2 + 8 + 2) | `catalogue.subject`, `find`, `statistics.of`, `Found::entries()`, `recipes.get`, `Found::cells` |
+
+Also the 137 handle arguments (`node_path`, `find_cached`, `delete_measurements`, `write_measurements`, `value_of`, `statistics_of`, `map_slices`, ...):
+each becomes a task call on the `Subject`; the handle never leaves io.
+
+**The rule** (section 4, amended): pipelines and the command line include only `nxr/io/task/` (and the writer and chunk service as before); **they include no
+`nxr/io/records/` header and no `nxr/io/database.h`, and name no row, table or SQL**. Only io, `bindings/wasm-io` (it serves the Studio) and io's tests include `records/`.
+The layering check enforces it.
+
+**The migration, revised** (one PR each, each based on the latest main; each shrinks the allowlist):
+
+| step | PR |
+|---|---|
+| 1 | the repositories (inside io), the probe, the layering check with its allowlist (this PR) |
+| 2 | the task API in io on the repositories and the existing io helpers: `find`/`find_all`/`members`/`spans`, `measure`, `cached`, `Unit`, `By`, the prepared-statement cache; io tests compare it with the SQL it replaces |
+| 3 | pipelines: the small steps |
+| 4 | pipelines: the runner (`runner.h`/`registry.h` signatures take the `Subject`, not a handle) |
+| 5 | pipelines: partitions and pyramid, group, measure (performance measured before and after) |
+| 6 | `meeg.cpp` |
+| 7 | the command line |
+| 8 | the binding (it uses the repositories) |
+| 9 | tests (the task API and the probe) |
+| 10 | close: empty allowlist; `nxr/io.h` drops `database.h`; ARCHITECTURE.md gains the rule |
+
+Sections 3 to 3.4 below describe level 1; read "pipelines" in section 4 and the migration table of section 5 as amended here.
+
 ## 1. Why
 
 The architecture has three layers: **compute** (functions of matrices), **data** (`io/`: loading and storing) and **orchestration** (`pipelines/`,
@@ -442,19 +502,19 @@ statement (file, line, group, table, proposed call, SQL), `--section schema` for
 
 | area | files | SQL statements | SQL fragments | database calls | handle passed to a helper | `Database::open` | includes `database.h`/`sqlite3.h` |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| pipelines | 34 | 225 | 16 | 293 | 137 | 1 | 2 |
-| cli | 6 | 16 | 2 | 12 | 9 | 1 | 2 |
+| pipelines | 34 | 228 | 16 | 296 | 137 | 1 | 2 |
+| cli | 6 | 16 | 2 | 12 | 10 | 1 | 2 |
 | bindings | 1 | 78 | 12 | 86 | 48 | 0 | 0 |
-| tests | 47 | 247 | 0 | 259 | 134 | 0 | 0 |
+| tests | 48 | 252 | 0 | 264 | 136 | 0 | 0 |
 
 ### Database calls by method
 
 | area | one | all | execute | tx | read | insert | query |
 |---|---:|---:|---:|---:|---:|---:|---:|
-| pipelines | 155 | 65 | 5 | 7 | 60 | 1 | 0 |
+| pipelines | 157 | 66 | 5 | 7 | 60 | 1 | 0 |
 | cli | 6 | 3 | 0 | 0 | 0 | 0 | 3 |
 | bindings | 41 | 5 | 25 | 15 | 0 | 0 | 0 |
-| tests | 173 | 71 | 3 | 0 | 12 | 0 | 0 |
+| tests | 175 | 74 | 3 | 0 | 12 | 0 | 0 |
 
 ### `db.read(table, id)` (a row by id, no SQL text) by table
 
@@ -468,15 +528,15 @@ statement (file, line, group, table, proposed call, SQL), `--section schema` for
 
 | group | pipelines | cli | bindings | tests | proposed API call |
 |---|---:|---:|---:|---:|---|
-| schema and metadata probes | 0 | 0 | 0 | 1 | none: io internal (Session::open runs migrations; the schema floor retires has_table/has_column) |
+| schema and metadata probes | 0 | 0 | 0 | 2 | none: io internal (Session::open runs migrations; the schema floor retires has_table/has_column) |
 | storage listing: every stored array of a dataset | 0 | 6 | 0 | 0 | records.stored_arrays(Where{subject}) -> vector<StoredArray> |
 | generic: one row of a table named at run time | 1 | 1 | 8 | 0 | records.read(Ref) / records.remove(Ref) (Ref = {Kind, id}) |
 | subjects: count nodes per subject (status) | 0 | 0 | 8 | 3 | catalogue.status(subject) (the subject_status view) |
 | subjects: write | 0 | 0 | 3 | 2 | subjects.update(row, by) / subjects.remove(id) (io writer) |
-| subjects: find one by name/path/id | 2 | 2 | 12 | 0 | catalogue.subject(name_or_id) -> optional<SubjectRow> |
+| subjects: find one by name/path/id | 3 | 2 | 12 | 0 | catalogue.subject(name_or_id) -> optional<SubjectRow> |
 | subjects: list members | 3 | 3 | 2 | 1 | catalogue.subjects(SubjectWhere{kind, status, where}) / session.dataset() |
 | dictionaries: recipe parameters by name | 2 | 0 | 0 | 3 | recipes.get(name) -> optional<Json> |
-| dictionaries: entries (code -> name) | 6 | 0 | 2 | 2 | dictionaries.read(id).entries / dictionaries.find(DictionaryWhere{scope, name}) |
+| dictionaries: entries (code -> name) | 8 | 0 | 2 | 2 | dictionaries.read(id).entries / dictionaries.find(DictionaryWhere{scope, name}) |
 | dictionaries: write | 0 | 0 | 3 | 0 | dictionaries.create(row, entries, by) / update / remove |
 | measurements: write | 0 | 0 | 1 | 0 | measurements.create(span<const NewMeasurement>, by) |
 | measurements: delete | 1 | 0 | 1 | 0 | measurements.remove(MeasurementWhere{selection, ofField, measure, ofStatistic}) |
@@ -494,9 +554,9 @@ statement (file, line, group, table, proposed call, SQL), `--section schema` for
 | manifolds and acquisitions: write | 0 | 0 | 2 | 0 | manifolds.create(row, ManifoldChildren, by) / update / remove |
 | acquisitions: label | 1 | 0 | 0 | 0 | acquisitions.read(id) |
 | fields: one by id | 1 | 0 | 3 | 0 | fields.read(id) |
-| fields: virtual or pending (path IS NULL) | 4 | 0 | 0 | 5 | fields.list(FieldWhere{subject, name, stored=false}) |
+| fields: virtual or pending (path IS NULL) | 4 | 0 | 0 | 6 | fields.list(FieldWhere{subject, name, stored=false}) |
 | fields: on a manifold | 4 | 1 | 0 | 0 | fields.list(FieldWhere{subject, manifold, status}) |
-| fields: find by name (and kind) on a subject | 30 | 1 | 0 | 55 | fields.find(FieldWhere{subject, name, kind}) -> optional<FieldRow> |
+| fields: find by name (and kind) on a subject | 30 | 1 | 0 | 58 | fields.find(FieldWhere{subject, name, kind}) -> optional<FieldRow> |
 | fields: write | 0 | 0 | 2 | 0 | fields.create(row, by, FieldChildren) / update / remove |
 | operators: find by kind (and name, target) | 36 | 0 | 1 | 5 | operators.find / list(OperatorWhere{subject, kind, name, toManifold, stored}) |
 | operators: write | 0 | 0 | 2 | 0 | operators.create(row, by, OperatorChildren) / update / remove |
@@ -509,7 +569,7 @@ statement (file, line, group, table, proposed call, SQL), `--section schema` for
 
 ### Tables named by statements outside tests
 
-`selection` 64, `field` 46, `manifold` 46, `operator` 39, `subject` 24, `selection_measurement` 21, `selection_span` 13, `geometry_dimension` 13, `(named at run time)` 10, `dictionary_entry` 10, `topology_cell` 5, `job` 5, `dictionary` 4, `geometry` 3, `dataset` 3, `statistic` 2, `selection_extent` 2, `topology` 2, `operator_factor` 2, `field_contribution` 2, `acquisition` 1, `coordinate_system` 1, `space` 1
+`selection` 64, `field` 46, `manifold` 46, `operator` 39, `subject` 25, `selection_measurement` 21, `selection_span` 13, `geometry_dimension` 13, `dictionary_entry` 11, `(named at run time)` 10, `topology_cell` 5, `dictionary` 5, `job` 5, `geometry` 3, `dataset` 3, `statistic` 2, `selection_extent` 2, `topology` 2, `operator_factor` 2, `field_contribution` 2, `acquisition` 1, `coordinate_system` 1, `space` 1
 
 ### File -> statements -> groups (each group's API call: the groups table above)
 
@@ -519,7 +579,7 @@ statement (file, line, group, table, proposed call, SQL), `--section schema` for
 | `bindings/wasm-io/src/binding.cpp` | 78 | 12 | 86 | 48 | subjects: find one by name/path/id (12); generic: one row of a table named at run time (8); manifolds: one by id (type, name, size) (8); subjects: count nodes per subject (status) (8); jobs (5); manifolds: geometry of one (grid axis, coordinate system, unit, factor lines) (4); spans and extents: write (4); subjects: write (3); selections: write (params, rows) (3); selections: labellings and partitions by name/type (3); fields: one by id (3); dictionaries: write (3); dictionaries: entries (code -> name) (2); subjects: list members (2); operators: write (2); manifolds and acquisitions: write (2); fields: write (2); measurements: delete (1); measurements: write (1); manifolds: topology cells (1); operators: find by kind (and name, target) (1) |
 | `cli/main.cpp` | 0 | 0 | 0 | 0 | (includes or handle only) |
 | `cli/measure_command.cpp` | 2 | 0 | 2 | 1 | selections: labellings and partitions by name/type (1); fields: find by name (and kind) on a subject (1) |
-| `cli/nxr_neuro.cpp` | 5 | 2 | 6 | 5 | subjects: list members (2); fields: on a manifold (1); manifolds: find by name/type on a subject (1); generic: one row of a table named at run time (1) |
+| `cli/nxr_neuro.cpp` | 5 | 2 | 6 | 6 | subjects: list members (2); fields: on a manifold (1); manifolds: find by name/type on a subject (1); generic: one row of a table named at run time (1) |
 | `cli/package_command.cpp` | 0 | 0 | 0 | 1 | (includes or handle only) |
 | `cli/read_command.cpp` | 8 | 0 | 3 | 0 | storage listing: every stored array of a dataset (6); subjects: find one by name/path/id (1); subjects: list members (1) |
 | `cli/run_command.cpp` | 1 | 0 | 1 | 2 | subjects: find one by name/path/id (1) |
@@ -534,7 +594,7 @@ statement (file, line, group, table, proposed call, SQL), `--section schema` for
 | `pipelines/src/extent_steps.cpp` | 0 | 0 | 4 | 0 | (includes or handle only) |
 | `pipelines/src/frame_tiling.cpp` | 2 | 0 | 3 | 1 | fields: find by name (and kind) on a subject (1); selections: labellings and partitions by name/type (1) |
 | `pipelines/src/frames.cpp` | 2 | 0 | 2 | 2 | fields: find by name (and kind) on a subject (1); selections: labellings and partitions by name/type (1) |
-| `pipelines/src/group.cpp` | 21 | 0 | 21 | 2 | selections: labellings and partitions by name/type (4); selections: members of a partition (member_of_id) (4); selections: found by their parameters (json_extract, LIKE) (3); measurements: array-backed rows (array_path) (2); measurements: what is measured (kinds, existence) (2); subjects: list members (1); subjects: find one by name/path/id (1); spans: read a selection's time spans (1); fields: find by name (and kind) on a subject (1); fields: virtual or pending (path IS NULL) (1); selections: write (params, rows) (1) |
+| `pipelines/src/group.cpp` | 22 | 0 | 22 | 2 | selections: labellings and partitions by name/type (4); selections: members of a partition (member_of_id) (4); selections: found by their parameters (json_extract, LIKE) (3); measurements: array-backed rows (array_path) (2); measurements: what is measured (kinds, existence) (2); subjects: find one by name/path/id (2); subjects: list members (1); spans: read a selection's time spans (1); fields: find by name (and kind) on a subject (1); fields: virtual or pending (path IS NULL) (1); selections: write (params, rows) (1) |
 | `pipelines/src/input.cpp` | 6 | 1 | 6 | 0 | manifolds: geometry of one (grid axis, coordinate system, unit, factor lines) (2); manifolds: topology cells (2); selections: members of a partition (member_of_id) (1); dictionaries: entries (code -> name) (1) |
 | `pipelines/src/joint.cpp` | 3 | 0 | 4 | 2 | fields: find by name (and kind) on a subject (1); selections: labellings and partitions by name/type (1); selections: members of a partition (member_of_id) (1) |
 | `pipelines/src/listing.cpp` | 4 | 0 | 4 | 0 | fields: find by name (and kind) on a subject (2); operators: find by kind (and name, target) (1); statistics: find and read (1) |
@@ -544,7 +604,7 @@ statement (file, line, group, table, proposed call, SQL), `--section schema` for
 | `pipelines/src/null_compute.cpp` | 3 | 0 | 4 | 1 | fields: find by name (and kind) on a subject (1); selections: labellings and partitions by name/type (1); measurements: what is measured (kinds, existence) (1) |
 | `pipelines/src/patches.cpp` | 3 | 0 | 5 | 5 | fields: find by name (and kind) on a subject (1); dictionaries: entries (code -> name) (1); statistics: find and read (1) |
 | `pipelines/src/pointspread.cpp` | 5 | 0 | 7 | 1 | operators: find by kind (and name, target) (4); fields: find by name (and kind) on a subject (1) |
-| `pipelines/src/pyramid.cpp` | 20 | 0 | 24 | 10 | selections: labellings and partitions by name/type (7); fields: find by name (and kind) on a subject (4); spans: read a selection's time spans (2); selections: members of a partition (member_of_id) (2); operators: find by kind (and name, target) (2); selections: write (params, rows) (1); manifolds: geometry of one (grid axis, coordinate system, unit, factor lines) (1); selections: of a field (1) |
+| `pipelines/src/pyramid.cpp` | 22 | 0 | 26 | 10 | selections: labellings and partitions by name/type (7); fields: find by name (and kind) on a subject (4); spans: read a selection's time spans (2); dictionaries: entries (code -> name) (2); selections: members of a partition (member_of_id) (2); operators: find by kind (and name, target) (2); selections: write (params, rows) (1); manifolds: geometry of one (grid axis, coordinate system, unit, factor lines) (1); selections: of a field (1) |
 | `pipelines/src/registration.cpp` | 0 | 0 | 0 | 2 | (includes or handle only) |
 | `pipelines/src/registry.cpp` | 11 | 0 | 26 | 0 | manifolds: one by id (type, name, size) (5); manifolds: find by name/type on a subject (3); spans: read a selection's time spans (2); selections: members of a partition (member_of_id) (1) |
 | `pipelines/src/run_repeat.cpp` | 3 | 0 | 4 | 1 | fields: find by name (and kind) on a subject (1); selections: labellings and partitions by name/type (1); measurements: what is measured (kinds, existence) (1) |
@@ -578,6 +638,7 @@ statement (file, line, group, table, proposed call, SQL), `--section schema` for
 | `pipelines/test/test_measure_time.cpp` | 3 | 0 | 3 | 1 | measurements: what is measured (kinds, existence) (2); measurements: array-backed rows (array_path) (1) |
 | `pipelines/test/test_meeg_pipelines.cpp` | 0 | 0 | 0 | 1 | (includes or handle only) |
 | `pipelines/test/test_opticalflow_pipeline.cpp` | 12 | 0 | 12 | 4 | fields: find by name (and kind) on a subject (7); selections: labellings and partitions by name/type (4); measurements: what is measured (kinds, existence) (1) |
+| `pipelines/test/test_package_pipelines.cpp` | 0 | 0 | 0 | 2 | (includes or handle only) |
 | `pipelines/test/test_patches_pipeline.cpp` | 8 | 0 | 8 | 0 | fields: find by name (and kind) on a subject (4); measurements: read rows (2); selections: labellings and partitions by name/type (1); statistics: find and read (1) |
 | `pipelines/test/test_phasegradient.cpp` | 9 | 0 | 9 | 3 | fields: find by name (and kind) on a subject (5); selections: of a field (2); measurements: what is measured (kinds, existence) (1); operators: find by kind (and name, target) (1) |
 | `pipelines/test/test_phasegradient_band.cpp` | 17 | 0 | 17 | 2 | selections: labellings and partitions by name/type (5); fields: find by name (and kind) on a subject (5); measurements: array-backed rows (array_path) (3); fields: virtual or pending (path IS NULL) (1); measurements: read rows (1); spans: read a selection's time spans (1); measurements: what is measured (kinds, existence) (1) |
@@ -585,7 +646,7 @@ statement (file, line, group, table, proposed call, SQL), `--section schema` for
 | `pipelines/test/test_pointspread.cpp` | 0 | 0 | 0 | 1 | (includes or handle only) |
 | `pipelines/test/test_psd_pipeline.cpp` | 2 | 0 | 3 | 1 | manifolds: geometry of one (grid axis, coordinate system, unit, factor lines) (2) |
 | `pipelines/test/test_pyramid_pipeline.cpp` | 37 | 0 | 37 | 7 | fields: find by name (and kind) on a subject (11); selections: found by their parameters (json_extract, LIKE) (7); selections: labellings and partitions by name/type (6); subjects: count nodes per subject (status) (3); subjects: write (2); measurements: read rows (2); measurements: array-backed rows (array_path) (2); measurements: what is measured (kinds, existence) (2); operators: find by kind (and name, target) (1); spans: read a selection's time spans (1) |
-| `pipelines/test/test_pyramid_reduce.cpp` | 23 | 0 | 23 | 2 | selections: labellings and partitions by name/type (8); fields: find by name (and kind) on a subject (6); fields: virtual or pending (path IS NULL) (3); selections: found by their parameters (json_extract, LIKE) (2); manifolds: find by name/type on a subject (1); measurements: array-backed rows (array_path) (1); measurements: read rows (1); measurements: what is measured (kinds, existence) (1) |
+| `pipelines/test/test_pyramid_reduce.cpp` | 28 | 0 | 28 | 2 | fields: find by name (and kind) on a subject (9); selections: labellings and partitions by name/type (8); fields: virtual or pending (path IS NULL) (4); selections: found by their parameters (json_extract, LIKE) (2); manifolds: find by name/type on a subject (1); measurements: array-backed rows (array_path) (1); measurements: read rows (1); measurements: what is measured (kinds, existence) (1); schema and metadata probes (1) |
 | `pipelines/test/test_quadrature_pipeline.cpp` | 4 | 0 | 4 | 2 | measurements: what is measured (kinds, existence) (2); selections: labellings and partitions by name/type (1); fields: virtual or pending (path IS NULL) (1) |
 | `pipelines/test/test_registration.cpp` | 4 | 0 | 4 | 3 | operators: find by kind (and name, target) (3); schema and metadata probes (1) |
 | `pipelines/test/test_runner_execute.cpp` | 0 | 0 | 2 | 1 | (includes or handle only) |
@@ -618,45 +679,39 @@ as a word. `io/schema/model.sql` (with its generated views) is the schema, not c
 
 | table | io | pipelines | cli | bindings | tests |
 |---|---:|---:|---:|---:|---:|
-| `meta` | 35 | 0 | 0 | 0 | 11 |
-| `datastore` | 12 | 0 | 1 | 2 | 3 |
-| `dataset` | 28 | 11 | 7 | 5 | 2 |
-| `subject` | 76 | 26 | 22 | 20 | 21 |
-| `acquisition` | 15 | 1 | 0 | 1 | 0 |
-| `topology` | 12 | 0 | 1 | 13 | 2 |
-| `topology_cell` | 7 | 2 | 2 | 2 | 0 |
-| `space` | 8 | 7 | 0 | 1 | 5 |
-| `coordinate_system` | 9 | 4 | 0 | 2 | 0 |
-| `geometry` | 12 | 11 | 2 | 16 | 1 |
-| `geometry_dimension` | 21 | 11 | 1 | 3 | 2 |
-| `manifold` | 85 | 83 | 5 | 20 | 97 |
-| `dictionary` | 25 | 4 | 0 | 9 | 6 |
-| `dictionary_entry` | 17 | 7 | 0 | 3 | 12 |
-| `selection` | 62 | 217 | 10 | 21 | 138 |
-| `selection_element` | 2 | 0 | 0 | 0 | 0 |
-| `selection_extent` | 4 | 0 | 0 | 2 | 0 |
-| `selection_measurement` | 25 | 21 | 2 | 2 | 53 |
-| `selection_span` | 6 | 11 | 0 | 2 | 13 |
-| `field` | 44 | 107 | 7 | 12 | 105 |
-| `field_contribution` | 4 | 0 | 0 | 2 | 2 |
-| `operator` | 37 | 60 | 5 | 29 | 44 |
-| `operator_factor` | 3 | 0 | 0 | 2 | 0 |
-| `variable_dictionary` | 11 | 0 | 0 | 0 | 0 |
-| `subject_variable` | 7 | 0 | 0 | 0 | 1 |
-| `sync_job` | 15 | 0 | 0 | 0 | 1 |
-| `job` | 2 | 1 | 0 | 12 | 0 |
-| `statistic` | 27 | 105 | 2 | 0 | 17 |
+| `meta` | 40 | 0 | 0 | 0 | 16 |
+| `datastore` | 18 | 0 | 1 | 2 | 3 |
+| `dataset` | 33 | 11 | 8 | 5 | 3 |
+| `subject` | 86 | 27 | 23 | 20 | 33 |
+| `acquisition` | 17 | 1 | 0 | 1 | 0 |
+| `topology` | 14 | 0 | 1 | 13 | 2 |
+| `topology_cell` | 9 | 2 | 2 | 2 | 0 |
+| `space` | 9 | 7 | 0 | 1 | 5 |
+| `coordinate_system` | 11 | 4 | 0 | 2 | 1 |
+| `geometry` | 18 | 11 | 2 | 16 | 2 |
+| `geometry_dimension` | 23 | 11 | 1 | 3 | 2 |
+| `manifold` | 93 | 83 | 5 | 20 | 101 |
+| `dictionary` | 29 | 5 | 0 | 9 | 6 |
+| `dictionary_entry` | 20 | 8 | 0 | 3 | 12 |
+| `selection` | 71 | 217 | 10 | 21 | 140 |
+| `selection_element` | 3 | 0 | 0 | 0 | 0 |
+| `selection_extent` | 5 | 0 | 0 | 2 | 0 |
+| `selection_measurement` | 31 | 21 | 2 | 2 | 55 |
+| `selection_span` | 8 | 11 | 0 | 2 | 14 |
+| `field` | 60 | 107 | 7 | 12 | 117 |
+| `field_contribution` | 10 | 0 | 0 | 2 | 7 |
+| `operator` | 46 | 60 | 5 | 29 | 44 |
+| `operator_factor` | 4 | 0 | 0 | 2 | 0 |
+| `variable_dictionary` | 12 | 0 | 0 | 0 | 0 |
+| `subject_variable` | 8 | 0 | 0 | 0 | 1 |
+| `sync_job` | 16 | 0 | 0 | 0 | 2 |
+| `job` | 4 | 1 | 0 | 12 | 0 |
+| `statistic` | 29 | 105 | 2 | 0 | 17 |
+| `key_digest` | 16 | 0 | 0 | 0 | 6 |
+| `subject_entry` | 7 | 0 | 0 | 0 | 2 |
+| `template_reference` | 7 | 0 | 0 | 0 | 2 |
 
 ### Columns named by at most two literals outside tests
 
-- `acquisition`: `ses` (io 2, tests 3); `acq` (io 2); `proc` (io 2)
-- `topology`: `orientable` (bindings 2)
-- `space`: `parameters_json` (io 1)
-- `coordinate_system`: `is_reference` (io 1); `transition_json` (io 1)
-- `selection`: `center` (bindings 2); `weight_fn` (bindings 1, tests 1)
-- `operator`: `from_coordinate_system_id` (io 1, bindings 1); `to_coordinate_system_id` (io 1, bindings 1)
-- `operator_factor`: `transposed` (bindings 2)
-- `job`: `inputs_json` (bindings 1); `result_json` (bindings 2)
-- `statistic`: `span_json` (io 2); `members_skipped` (io 1, tests 2); `components_json` (io 2); `scaling_json` (io 2)
 
 <!-- END GENERATED: schema -->

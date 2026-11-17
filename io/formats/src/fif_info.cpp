@@ -109,6 +109,8 @@ std::string rename_one(const std::string& n, const std::map<std::string, std::st
 
 }  // namespace
 
+std::int32_t channel_coord_frame(std::int32_t kind) { return coord_frame_of_kind(kind); }
+
 std::string julian_to_iso_date(std::int32_t jd) {
   // MNE: 1970-01-01 12:00 is julian day 2440588; the date of noon + (jd - 2440588) days. Civil-from-days (Howard Hinnant's algorithm).
   std::int64_t z = static_cast<std::int64_t>(jd) - 2440588 + 719468;
@@ -124,6 +126,86 @@ std::string julian_to_iso_date(std::int32_t jd) {
   char buf[32];
   std::snprintf(buf, sizeof buf, "%04lld-%02lld-%02lld", static_cast<long long>(y), static_cast<long long>(m), static_cast<long long>(d));
   return buf;
+}
+
+std::vector<Projector> read_projectors(const File& f, const Block& scope, const std::map<std::string, std::string>& renamed) {
+  Reader R(f);
+  std::vector<Projector> out;
+  const auto pb = find_blocks(scope, block::kProj);
+  if (pb.empty()) return out;
+  for (const Block* item : find_blocks(*pb[0], block::kProjItem)) {
+    Projector p;
+    const TagHeader* d = find_tag(*item, tag::kDescription);
+    if (!d) d = find_tag(*item, tag::kName);
+    if (!d) throw format_error("FIF: a projection item has no description");
+    p.desc = R.val(*d).text;
+    const TagHeader* tk = find_tag(*item, tag::kProjItemKind);
+    if (!tk) throw format_error("FIF: a projection item has no kind");
+    p.kind = static_cast<std::int32_t>(as_int(R.val(*tk), "a projection kind"));
+    const TagHeader* tn = find_tag(*item, tag::kProjItemNvec);
+    if (!tn) throw format_error("FIF: a projection item has no vector count");
+    p.nvec = static_cast<std::int32_t>(as_int(R.val(*tn), "a projection vector count"));
+    const TagHeader* tc = find_tag(*item, tag::kProjItemChNameList);
+    if (!tc) throw format_error("FIF: a projection item has no channel list");
+    p.channels = split_name_list(R.val(*tc).text);
+    const TagHeader* tv = find_tag(*item, tag::kProjItemVectors);
+    if (!tv) throw format_error("FIF: a projection item has no vectors");
+    const Value vv = R.val(*tv);
+    if (vv.dims.size() != 2) throw format_error("FIF: projection vectors are not a matrix");
+    std::vector<double> data = as_reals(vv);
+    std::int32_t rows = vv.dims[0], cols = vv.dims[1];
+    if (rows == static_cast<std::int32_t>(p.channels.size()) && cols == p.nvec && rows != p.nvec) {   // stored transposed
+      std::vector<double> tr(data.size());
+      for (std::int32_t r = 0; r < rows; ++r)
+        for (std::int32_t c = 0; c < cols; ++c) tr[static_cast<std::size_t>(c) * rows + r] = data[static_cast<std::size_t>(r) * cols + c];
+      data = tr;
+      std::swap(rows, cols);
+    }
+    if (cols != static_cast<std::int32_t>(p.channels.size())) throw format_error("FIF: the number of channel names does not match the projection matrix");
+    p.vectors = std::move(data);
+    const TagHeader* ta = find_tag(*item, tag::kMneProjItemActive);
+    p.active = ta ? as_int(R.val(*ta), "a projection's active flag") != 0 : false;
+    if (const TagHeader* te = find_tag(*item, tag::kMneIcaPcaExplainedVar)) p.explained_var = as_real(R.val(*te), "explained variance");
+    for (std::string& n : p.channels) n = rename_one(n, renamed);
+    out.push_back(std::move(p));
+  }
+  return out;
+}
+
+std::map<std::string, std::string> apply_extended_channel_info(const File& f, const Block& scope, std::vector<ChannelInfo>& channels) {
+  Reader R(f);
+  std::map<std::string, std::string> renamed;
+  {
+    const auto ext = find_blocks(scope, block::kChInfo);
+    if (!ext.empty()) {
+      if (ext.size() != channels.size())
+        throw format_error("FIF: " + std::to_string(ext.size()) + " extended channel information blocks for " + std::to_string(channels.size()) + " channels");
+      for (std::size_t i = 0; i < ext.size(); ++i) {
+        ChannelInfo& ch = channels[i];
+        const std::string old_name = ch.name;
+        for (const TagHeader& t : ext[i]->tags) {
+          if (t.kind == tag::kNop) continue;
+          const Value v = R.val(t);
+          switch (t.kind) {
+            case tag::kChScanNo: ch.scanno = static_cast<std::int32_t>(as_int(v, "a channel scan number")); break;
+            case tag::kChLogicalNo: ch.logno = static_cast<std::int32_t>(as_int(v, "a channel logical number")); break;
+            case tag::kChKind: ch.kind = static_cast<std::int32_t>(as_int(v, "a channel kind")); break;
+            case tag::kChRange: ch.range = as_real(v, "a channel range"); break;
+            case tag::kChCal: ch.cal = as_real(v, "a channel cal"); break;
+            case tag::kChCoilType: ch.coil_type = static_cast<std::int32_t>(as_int(v, "a coil type")); break;
+            case tag::kChLoc: { const auto r = as_reals(v); for (std::size_t k = 0; k < 12 && k < r.size(); ++k) ch.loc[k] = r[k]; break; }
+            case tag::kChUnit: ch.unit = static_cast<std::int32_t>(as_int(v, "a channel unit")); break;
+            case tag::kChUnitMul: ch.unit_mul = static_cast<std::int32_t>(as_int(v, "a channel unit multiplier")); break;
+            case tag::kChDacqName: ch.name = v.text; break;
+            case tag::kChCoordFrame: break;   // MNE overwrites it from the channel kind straight after (_update_ch_info_named); so do we
+            default: break;                    // MNE warns and discards unknown extended kinds
+          }
+        }
+        if (ch.name != old_name) renamed[old_name] = ch.name;
+      }
+    }
+  }
+  return renamed;
 }
 
 Info read_info(const File& f, const Block& meas) {
@@ -182,37 +264,7 @@ Info read_info(const File& f, const Block& meas) {
   }
 
   // extended channel information (long names): one block per channel, in the channels' order
-  std::map<std::string, std::string> renamed;
-  {
-    const auto ext = find_blocks(mi, block::kChInfo);
-    if (!ext.empty()) {
-      if (ext.size() != info.channels.size())
-        throw format_error("FIF: " + std::to_string(ext.size()) + " extended channel information blocks for " + std::to_string(info.channels.size()) + " channels");
-      for (std::size_t i = 0; i < ext.size(); ++i) {
-        ChannelInfo& ch = info.channels[i];
-        const std::string old_name = ch.name;
-        for (const TagHeader& t : ext[i]->tags) {
-          if (t.kind == tag::kNop) continue;
-          const Value v = R.val(t);
-          switch (t.kind) {
-            case tag::kChScanNo: ch.scanno = static_cast<std::int32_t>(as_int(v, "a channel scan number")); break;
-            case tag::kChLogicalNo: ch.logno = static_cast<std::int32_t>(as_int(v, "a channel logical number")); break;
-            case tag::kChKind: ch.kind = static_cast<std::int32_t>(as_int(v, "a channel kind")); break;
-            case tag::kChRange: ch.range = as_real(v, "a channel range"); break;
-            case tag::kChCal: ch.cal = as_real(v, "a channel cal"); break;
-            case tag::kChCoilType: ch.coil_type = static_cast<std::int32_t>(as_int(v, "a coil type")); break;
-            case tag::kChLoc: { const auto r = as_reals(v); for (std::size_t k = 0; k < 12 && k < r.size(); ++k) ch.loc[k] = r[k]; break; }
-            case tag::kChUnit: ch.unit = static_cast<std::int32_t>(as_int(v, "a channel unit")); break;
-            case tag::kChUnitMul: ch.unit_mul = static_cast<std::int32_t>(as_int(v, "a channel unit multiplier")); break;
-            case tag::kChDacqName: ch.name = v.text; break;
-            case tag::kChCoordFrame: break;   // MNE overwrites it from the channel kind straight after (_update_ch_info_named); so do we
-            default: break;                    // MNE warns and discards unknown extended kinds
-          }
-        }
-        if (ch.name != old_name) renamed[old_name] = ch.name;
-      }
-    }
-  }
+  const std::map<std::string, std::string> renamed = apply_extended_channel_info(f, mi, info.channels);
   for (ChannelInfo& ch : info.channels) ch.coord_frame = coord_frame_of_kind(ch.kind);
 
   if (!nchan) throw format_error("FIF: the number of channels is not defined");
@@ -256,47 +308,7 @@ Info read_info(const File& f, const Block& meas) {
   }
 
   // SSP projectors
-  {
-    const auto pb = find_blocks(mi, block::kProj);
-    if (!pb.empty()) {
-      for (const Block* item : find_blocks(*pb[0], block::kProjItem)) {
-        Projector p;
-        const TagHeader* d = find_tag(*item, tag::kDescription);
-        if (!d) d = find_tag(*item, tag::kName);
-        if (!d) throw format_error("FIF: a projection item has no description");
-        p.desc = R.val(*d).text;
-        const TagHeader* tk = find_tag(*item, tag::kProjItemKind);
-        if (!tk) throw format_error("FIF: a projection item has no kind");
-        p.kind = static_cast<std::int32_t>(as_int(R.val(*tk), "a projection kind"));
-        const TagHeader* tn = find_tag(*item, tag::kProjItemNvec);
-        if (!tn) throw format_error("FIF: a projection item has no vector count");
-        p.nvec = static_cast<std::int32_t>(as_int(R.val(*tn), "a projection vector count"));
-        const TagHeader* tc = find_tag(*item, tag::kProjItemChNameList);
-        if (!tc) throw format_error("FIF: a projection item has no channel list");
-        p.channels = split_name_list(R.val(*tc).text);
-        const TagHeader* tv = find_tag(*item, tag::kProjItemVectors);
-        if (!tv) throw format_error("FIF: a projection item has no vectors");
-        const Value vv = R.val(*tv);
-        if (vv.dims.size() != 2) throw format_error("FIF: projection vectors are not a matrix");
-        std::vector<double> data = as_reals(vv);
-        std::int32_t rows = vv.dims[0], cols = vv.dims[1];
-        if (rows == static_cast<std::int32_t>(p.channels.size()) && cols == p.nvec && rows != p.nvec) {   // stored transposed
-          std::vector<double> tr(data.size());
-          for (std::int32_t r = 0; r < rows; ++r)
-            for (std::int32_t c = 0; c < cols; ++c) tr[static_cast<std::size_t>(c) * rows + r] = data[static_cast<std::size_t>(r) * cols + c];
-          data = tr;
-          std::swap(rows, cols);
-        }
-        if (cols != static_cast<std::int32_t>(p.channels.size())) throw format_error("FIF: the number of channel names does not match the projection matrix");
-        p.vectors = std::move(data);
-        const TagHeader* ta = find_tag(*item, tag::kMneProjItemActive);
-        p.active = ta ? as_int(R.val(*ta), "a projection's active flag") != 0 : false;
-        if (const TagHeader* te = find_tag(*item, tag::kMneIcaPcaExplainedVar)) p.explained_var = as_real(R.val(*te), "explained variance");
-        for (std::string& n : p.channels) n = rename_one(n, renamed);
-        info.projectors.push_back(std::move(p));
-      }
-    }
-  }
+  info.projectors = read_projectors(f, mi, renamed);
 
   // CTF compensation
   for (const Block* cb : find_blocks(mi, block::kMneCtfCompData)) {
@@ -552,7 +564,8 @@ std::optional<AnnotationSet> read_annotations(const File& f, const Block& root) 
   AnnotationSet set;
   std::vector<double> onset, end;
   std::vector<std::string> desc;
-  nlohmann::json drop_log, extras;
+  nlohmann::json drop_log;
+  nlohmann::ordered_json extras;   // ordered: the keys keep the file's order
   bool have_drop = false, have_extras = false;
   for (const TagHeader& t : b.tags) {
     if (t.kind == tag::kNop) continue;
@@ -563,13 +576,14 @@ std::optional<AnnotationSet> read_annotations(const File& f, const Block& root) 
       case tag::kComment: desc = split_name_list(v.text); break;
       case tag::kMeasDate: {
         if (v.reals.size() == 1) set.orig_time = v.reals[0];
+        else if (v.reals.size() >= 2) set.orig_time = v.reals[0] + v.reals[1] * 1e-6;   // MNE writes (seconds, microseconds) as two doubles
         else if (v.ints.size() >= 2) {
           if (!(v.ints[0] == 0 && v.ints[1] == kDateNoneUsecs)) set.orig_time = static_cast<double>(v.ints[0]) + static_cast<double>(v.ints[1]) * 1e-6;
         } else if (v.ints.size() == 1) set.orig_time = static_cast<double>(v.ints[0]);
         break;
       }
       case tag::kMneEpochsDropLog: drop_log = nlohmann::json::parse(v.text, nullptr, false); have_drop = !drop_log.is_discarded(); break;
-      case tag::kFreeList: extras = nlohmann::json::parse(v.text, nullptr, false); have_extras = !extras.is_discarded(); break;
+      case tag::kFreeList: extras = nlohmann::ordered_json::parse(v.text, nullptr, false); have_extras = !extras.is_discarded(); break;
       default: break;
     }
   }

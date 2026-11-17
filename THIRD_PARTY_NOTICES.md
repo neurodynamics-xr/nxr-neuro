@@ -19,7 +19,7 @@ licence texts are in the source trees named below or at the project URLs. Versio
 | HDF5 | hdf5_1.14.6 (built only when MATLAB v7.3 files are read) | fetched | BSD-3-Clause-style (HDF Group licence) | Copyright (c) The HDF Group; University of Illinois Board of Trustees |
 | matio | v1.5.28 | fetched | BSD-2-Clause | Copyright (c) Christopher C. Hulbert and the matio contributors |
 | pugixml | 1.14 (SHA256 pinned in `io/formats/CMakeLists.txt`) | fetched; its one source file is compiled into `nxr_io_formats` (the XML of GIFTI) | MIT | Copyright (c) 2006-2023 Arseny Kapoulkine |
-| MNE-Python (FIF reading, ported) | 1.13.2 (the code ported is that of `mne/_fiff/{open,tree,tag,meas_info,proj,ctf_comp,matrix,_digitization}.py`, `mne/io/fiff/raw.py` and `mne/annotations.py`) | the logic is rewritten in C++ in `io/formats/src/fif_*.cpp` and `io/formats/include/nxr/formats/fif.h`; each file's header names the Python files it follows | BSD-3-Clause (`io/formats/data/mne/LICENSE`) | Copyright 2011-2025 MNE-Python authors (the MNE-Python contributors) |
+| MNE-Python (FIF reading and writing, ported) | 1.13.2 (the code ported is that of `mne/_fiff/{open,tree,tag,write,meas_info,proj,ctf_comp,matrix,_digitization}.py`, `mne/io/fiff/raw.py`, `mne/annotations.py`, `mne/source_space/_source_space.py`, `mne/cov.py`, `mne/forward/forward.py`, `mne/minimum_norm/inverse.py` and `mne/event.py`) | the logic is rewritten in C++ in `io/formats/src/fif_*.cpp` and `io/formats/include/nxr/formats/fif*.h`; each file's header names the Python files it follows | BSD-3-Clause (`io/formats/data/mne/LICENSE`) | Copyright 2011-2025 MNE-Python authors (the MNE-Python contributors) |
 | MNE-Python coil definitions (`coil_def.dat`) | 1.13.2 | vendored data, `io/formats/data/mne/coil_def.dat`, unmodified; not compiled or read yet (the forward model that places a sensor's integration points will read it) | BSD-3-Clause (`io/formats/data/mne/LICENSE`) | Copyright 2005-2019 Matti Hamalainen and the MNE-Python authors |
 
 ## Code bundled inside the components above
@@ -33,7 +33,7 @@ licence texts are in the source trees named below or at the project URLs. Versio
 ## Build and test tools (not distributed)
 
 CMake and Ninja; Node.js with `cmake-js` and `node-addon-api` (MIT) for the Node binding; Emscripten (MIT/NCSA) for WebAssembly; pytest, NumPy and SciPy
-(BSD-3-Clause) for the parity tests. Golden test data were generated with Brainstorm (GPL-3.0), Rheome and nxr, and for the file formats with nibabel (MIT) and pandas (BSD-3-Clause), and for the EDF, BrainVision, EEGLAB and FIF recordings with MNE-Python (BSD-3-Clause), used as external reference programs: no
+(BSD-3-Clause) for the parity tests. Golden test data were generated with Brainstorm (GPL-3.0), Rheome and nxr, and for the file formats with nibabel (MIT) and pandas (BSD-3-Clause), and for the EDF, BrainVision, EEGLAB and FIF recordings with MNE-Python (BSD-3-Clause), and for the BIDS dataset with MNE-BIDS (BSD-3-Clause), used as external reference programs: no
 code of Brainstorm, Rheome, nibabel or pandas is in this repository (see `CONTRIBUTING.md`, the method rule). Of MNE-Python, the FIF reading was ported with attribution (BSD-3-Clause; the table above), and its `coil_def.dat` is vendored; nothing else of it is here.
 
 The licence texts of the MPL-2.0 components (Eigen, Spectra) require that their own source files stay available under the MPL-2.0; nxr-neuro does not modify them.

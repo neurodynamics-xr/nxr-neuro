@@ -1,0 +1,11 @@
+{
+    "Name": "pipeline A",
+    "BIDSVersion": "1.9.0",
+    "DatasetType": "derivative",
+    "GeneratedBy": [
+        {
+            "Name": "invented-pipeline",
+            "Version": "0.1"
+        }
+    ]
+}

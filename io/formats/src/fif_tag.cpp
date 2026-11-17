@@ -294,7 +294,7 @@ Value File::value(const TagHeader& t) const {
       throw refused("FIF: a matrix of element type " + std::to_string(mtype) + " (tag kind " + std::to_string(t.kind) + ") is not read");
     if (b.size() < 4) throw format_error("FIF: a matrix tag is too short");
     const std::int32_t ndim = load_i32(p + b.size() - 4, false);
-    if (ndim < 1 || ndim > 3 || b.size() < 4u * (static_cast<std::size_t>(ndim) + 1)) throw refused("FIF: only 2 or 3 dimensional matrices are read (tag kind " + std::to_string(t.kind) + ")");
+    if (ndim < 0 || ndim > 3 || b.size() < 4u * (static_cast<std::size_t>(ndim) + 1)) throw refused("FIF: only matrices of up to 3 dimensions are read (tag kind " + std::to_string(t.kind) + ")");
     v.dims.resize(static_cast<std::size_t>(ndim));
     std::uint64_t count = 1;
     for (std::int32_t i = 0; i < ndim; ++i) {   // stored last-dimension first
