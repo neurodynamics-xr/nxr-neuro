@@ -133,7 +133,7 @@ jobs:
   macos:
     runs-on: macos-15   # arm64; the macos-14 image is not available to this organisation (jobs on it are cancelled at once)
     env:
-      MACOSX_DEPLOYMENT_TARGET: "12.0"
+      MACOSX_DEPLOYMENT_TARGET: "13.3"   # std::to_chars for floating point needs 13.3
     outputs:
       version: ${{ steps.version.outputs.version }}
     steps:

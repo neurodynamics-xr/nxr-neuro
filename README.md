@@ -47,7 +47,7 @@ variables and are skipped, with a reason, when the variables are not set; see [C
 ## Install a release
 
 Each release (https://github.com/neurodynamics-xr/nxr-neuro/releases) has a tarball for Linux (`nxr-neuro-<version>-linux-x86_64.tar.gz`, x86_64, glibc 2.28
-or newer; no other library is needed) and for macOS (`nxr-neuro-<version>-macos-arm64.tar.gz`, Apple silicon, macOS 12 or newer), and a `SHA256SUMS` file.
+or newer; no other library is needed) and for macOS (`nxr-neuro-<version>-macos-arm64.tar.gz`, Apple silicon, macOS 13.3 or newer), and a `SHA256SUMS` file.
 
     sha256sum -c --ignore-missing SHA256SUMS        # macOS: shasum -a 256 -c --ignore-missing SHA256SUMS
     tar -xzf nxr-neuro-<version>-<platform>.tar.gz
