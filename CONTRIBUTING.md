@@ -82,9 +82,12 @@ CMake 3.20+, Ninja, C++17. Clone with `--recurse-submodules` (geometry-central).
   record stays true.
 - **The full suite runs at the end of a development round, when the maintainers say so,** not during it. During development: `status`,
   then `run` on what the change reaches.
-- **Continuous integration** (`.github/workflows/ci.yml`): on every pull request, Linux builds (compiled objects cached with ccache) and runs
-  every test except those labelled `slow`; pushes to main and a nightly run build Linux and macOS and run every test. A test that takes
-  minutes gets `set_tests_properties(<test> PROPERTIES LABELS slow)` next to its `add_test`.
+- **Continuous integration** (`.github/workflows/ci.yml`): a pull request builds on Linux (compiled objects cached with ccache) and runs **only the
+  tests of the libraries its changes touch** and of what depends on them (each library's tests carry its label: `compute`, `meeg`, `io`,
+  `io_formats`, `pipelines`, `pipelines_graph`, `cli`), plus the layering checks; a change to a shared file (top-level CMake, `cmake/`, `tools/`,
+  CI) runs everything. **Documentation-only pull requests run nothing.** Tests labelled `slow` run only on main. The full suite (Linux and macOS,
+  slow tests included) runs on pushes to main, nightly, and when the maintainers ask for it at the end of a round. A test that takes minutes gets
+  `set_tests_properties(<test> PROPERTIES LABELS slow)` next to its `add_test`.
 
 - **Test only what the change touches.**
   - A small change runs the tests of the function it changed: the one test file, or `ctest -R <test>`, or `pytest file::test`.
