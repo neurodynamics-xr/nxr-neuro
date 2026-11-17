@@ -105,6 +105,10 @@ stores it as the selection's dictionary).
 - `Spans` (labelled spans): intervals [start, stop) on a line with a code each, which may leave gaps and overlap: events on the time line (bursts,
   spindles, bad segments), named bands on the frequency line (the physiological bands), ranges of eigenvalues.
 
+NAMED SPATIAL SCALES (`scales.h`): the surface's counterpart of named frequency bands. Hemisphere, lobe, region, gyrus, … are labelled spans on the
+eigenvalue line, made from the caller's ranges either by WAVELENGTH (lambda = (2 pi / w)^2) or by the NUMBER OF PARTS of a connected piece (lambda =
+4 pi m / A, Weyl's law, as the dyadic levels; the counts may be read from an atlas). The ranges and names are never defaulted.
+
 The same logic holds on every line: time, frequency, eigenvalue.
 
 A subject's own atlases (DK, DKT, Destrieux) are FreeSurfer's (its registration and trained classifier); they are imported with the anatomy, not computed.
