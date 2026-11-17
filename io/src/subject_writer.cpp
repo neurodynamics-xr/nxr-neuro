@@ -73,6 +73,13 @@ SpaceSpec space_spec(const std::string& key) {
   if (key == "freesurfer-sphere")
     return {"sphere", "volume", "the R³ FreeSurfer's registration sphere sits in (its positions are stored as three numbers each)",
             {{key, "freesurfer", std::nullopt, true, "identity", std::nullopt, std::string("radius 100")}}};
+  // the dataset's Frequency line (bst::ensure_frequency, schema 53): its two charts, `linear` (the reference, Hz) and `log10` (log10 Hz); a band set is spans on it in either
+  if (key == "frequency:line" || key == "frequency:log10") {
+    SpaceSpec s{"frequency line", "line", "the dataset's frequency line, R\xc2\xb9: linear in hertz (the reference chart) and log10 of the frequency", {}};
+    s.systems.push_back({"frequency:line", "linear", std::string("Hz"), true, "identity", std::nullopt, std::string("cycles per second")});
+    s.systems.push_back({"frequency:log10", "log10", std::string("log10 Hz"), false, "log", Json{{"base", 10}}, std::string("log10 of the frequency in hertz")});
+    return s;
+  }
   if (key == "frequency" || key == "octave") {
     SpaceSpec s{"frequency", "line", "the frequency line, R¹ — what a time → frequency operator maps the time line onto", {}};
     s.systems.push_back({"frequency", "hz", std::string("Hz"), true, "identity", std::nullopt, std::string("cycles per second")});

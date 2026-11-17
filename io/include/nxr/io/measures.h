@@ -21,8 +21,22 @@ const Json& measure_registry();
 // One measure's entry, or nullopt for a name the registry does not know (a subject may add its own).
 std::optional<Json> measure_spec(const std::string& name);
 bool measure_is_derived(const std::string& name);
-// How a measure's values combine: its reduction, `mean` when it names none.
+// How a measure's values combine: its merge rule (below), `mean` for a derived one.
 std::string measure_reduction(const std::string& name);
+
+// THE MERGE RULE IS DATA (schema/measures.json and measures_nxr.json, the key `merge`; the consolidation spec 2.1, PI 2026-11-17 rule 35): the ONE definition of how a measure's values
+// combine when members are rolled up (through a grid's hierarchy, or across subjects). io applies it in SQL (measurement_query.h), compute in memory (nxr::measurement), with a parity test
+// between the two; the table below is what io hands compute (pipelines carry it across, as io and compute never meet).
+//   sum      the members' values add                             max, min   the extreme of the members'
+//   mean     the weighted mean: sum(value * weight) / sum(weight), the weight the member's own (its area, its sample count): a mean through sums and a count, never a mean of means
+//   none     never merged (a median, a member's own centre, a duration of one event): a roll-up that would group members is refused
+//   derived  not stored: computed at read from its ingredients, themselves merged first (a ratio of sums, never a sum of ratios)
+enum class MergeRule { sum, max, min, mean, none, derived };
+const char* merge_rule_name(MergeRule r);
+// A registered measure's merge rule; a name the registry does not know (a subject may add its own) follows nxr's `mergeOf`: `max` and `*_max` max, `min` min, anything else sum.
+MergeRule measure_merge(const std::string& name);
+// {"<measure>": "sum" | "max" | "min" | "mean" | "none" | "derived", ...} for every registered measure: the table compute reads.
+Json measure_merge_table();
 
 // A derived measure's formula over its ingredients' values by name (NaN where undefined); throws Error(unsupported) for a name with none. The row-level reads in selection_measurement_rows.cpp apply it.
 double measure_formula(const std::string& name, const std::map<std::string, double>& ingredients);

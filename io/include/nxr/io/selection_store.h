@@ -48,6 +48,7 @@ struct Placement {
   std::optional<std::string> dictionary_id;       // an existing dictionary the code reads with (else the description's lookup is saved under `name`)
   std::optional<std::int64_t> n_members;          // a set given by a rule with nothing stored: how many members it has (a product's is the product of its factors', read from their rows)
   std::vector<std::string> factor_ids;            // a product: its factors' stored selections, in order (the description's `factors` are what a load fills; a save reads these)
+  std::vector<int> factor_levels;                 // a product (schema 53): the LEVEL of each factor that is a grid (a `ladder`: a line's time grid, a surface's dyadic grid), -1 or absent: the factor as it is
   Json params;                                    // params_json (object; null: none); a tiling and the levels' windows are added by save
   std::vector<Json> level_params;                 // a ladder: what the design settled about each level, by position (stride, rate_hz, ...): merged into the level's record
   std::vector<Cols> measurements;                 // its OWN measurement rows (array-backed or valued), written with the row (a joint set's per-field arrays)
@@ -100,6 +101,27 @@ struct GridLevel {
 /** SAVE a dyadic grid: the `ladder` row (`ladder`: name, manifold, the levels' dictionary in `dictionary_id`, params including the rule `grid` {kind, depth, pieces}) and one `set` row per level
  *  (member_ordinal = l, code = l) with its array of tile codes. The hierarchy is the closed form (a member's number at level l is its finest number >> (depth - l)): no parent arrays. */
 Saved save_grid(SubjectWriter& sub, const Placement& ladder, const std::vector<GridLevel>& levels);
+
+// ── a line's TIME GRID (schema 53) ───────────────────────────────────────────────────────────────────────────────
+/** the closed form of a time grid: sample i at origin + i / rate; level k tiles 2^k samples from the line's FIRST sample (no day-anchored origin), tile i of level k = samples [i 2^k, (i + 1) 2^k) */
+struct TimeGridRule { double origin = 0, rate = 0; std::int64_t samples = 0; };
+/** SAVE a line's time grid, once: the `ladder` row `<line name> time grid` on the line (`manifold_id`), its rule `params_json.grid` {kind "time", origin, rate, samples, levels}, the dictionary of its
+ *  levels (code = ordinal = k, name `2^k samples`, `measurement` the tile's duration in seconds, unit "s": what a physical-size query reads), nothing stored per level or tile. Found and reused by the line
+ *  when one exists with the same rule (get-or-create); another rule on the same line is refused. Inside the caller's composition. */
+Saved save_time_grid(SubjectWriter& sub, const std::string& manifold_id, const TimeGridRule& rule, const std::optional<std::string>& created_by = std::nullopt);
+/** the line's time grid row and its rule, or nothing */
+std::optional<std::pair<records::SelectionRow, TimeGridRule>> find_time_grid(const Database& db, const std::string& manifold_id);
+
+// ── a grid's levels in PHYSICAL units (what a query by size reads) ───────────────────────────────────────────────
+/** one level of a stored grid: its identity (`level`, 0 = the finest for a time grid, the coarsest for a dyadic grid, as the grid's own ordinal), its code (its label), and its size as the level dictionary
+ *  records it (`measurement`, `measurement_unit`: a time level's duration in seconds, a dyadic level's mean tile diameter in the surface's unit); `selection_id` the level's own row (empty: closed form) */
+struct GridLevelSize { int level = 0; std::int64_t code = 0; double size = 0; std::string unit; std::string selection_id; };
+/** the levels of a stored grid (a `ladder` row), ordered by level; Error(invalid_argument) when the selection is not a ladder */
+std::vector<GridLevelSize> grid_level_sizes(const Database& db, const std::string& ladder_id);
+/** the level of the grid whose size is nearest `size` in `unit` (ties to the coarser), refusing a grid with no size in that unit */
+GridLevelSize level_of_size(const Database& db, const std::string& ladder_id, double size, const std::string& unit);
+/** a product's factor levels, one per factor (-1: the factor as it is); a stored level is the level's CODE (its label: k for a time grid's 2^k samples, l for a dyadic level); Error(invalid_argument) for a selection that is not a product */
+std::vector<int> product_factor_levels(const Database& db, const std::string& id);
 
 /** a set per element's members' labels, one per member (the sibling array, or 0 .. n_members - 1 when it has none): what turns a label an importer knows into the member number */
 std::vector<std::int64_t> member_labels(const Database& db, const Store& store, const std::string& selection_id);
