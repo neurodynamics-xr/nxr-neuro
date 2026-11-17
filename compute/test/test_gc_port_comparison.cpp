@@ -2,7 +2,7 @@
 // docs/specs/2026-11-17-geometry-central-switch.md section 4 and its appendix B. It builds both on the same synthetic meshes, prints every number, and asserts the
 // differences the spec explains: the gauge rotation, the triangulation, the boundary vertices, the masses, the frames and the charts. A test kept until the port is
 // deleted (G7). Plus the poor-mesh study: eigenvalue error and positive semidefiniteness, intrinsic against embedded, on needle and obtuse meshes.
-#include "nxr/chart.h"
+#include "chart_port.h"
 #include "nxr/compute.h"
 #include "nxr/delaunay.h"
 #include "nxr/intrinsic_surface.h"
@@ -21,7 +21,7 @@
 
 using namespace nxr::manifold;
 namespace gcs = geometrycentral::surface;
-namespace chart = nxr::chart;
+namespace chart = nxr::chart_port;
 namespace delaunay = nxr::manifold::delaunay;
 using C = std::complex<double>;
 
