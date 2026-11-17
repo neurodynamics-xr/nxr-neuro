@@ -1,0 +1,41 @@
+# A ZERO-PHASE BAND-STOP FILTER (IIR BY DEFAULT) OF A RECORDING, WRITTEN AS A NEW RECORDING: each block filtered with the halo the design needs (look-behind, look-ahead), the record's ends padded as
+# the option set says (Brainstorm's process_bandpass / process_notch: kaiserord + fir1, or a filtfilt IIR). The whole recording is filtered (--all): a filter makes a recording.
+# A FIR filter that removes the record's mean reads the channel means (`nxr-neuro run channel_mean --all` first), or remove_mean false. The new recording carries over the
+# source's channel flags, events, bad segments and projectors.
+#
+#   nxr-neuro run bandstop --dataset <folder> --subject sub-01 --recording rest --all --lower 58 --upper 62
+pipeline: bandstop
+version: 1
+description: a zero-phase band-stop filter (IIR by default), written as a new recording
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  mean:      {statistic: sample, where: {measure: mean, name: "{recording}_channel_mean"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  name: {default: "{recording}_bandstop", meaning: "the new recording's name", unit: "-"}
+  lower: {default: null, meaning: "the lower stopband edge", unit: "Hz"}
+  upper: {default: null, meaning: "the upper stopband edge", unit: "Hz"}
+  method: {default: null, meaning: "fir | iir; null: the reference's (FIR, but IIR for bandstop and notch)", unit: "-"}
+  ripple: {default: null, meaning: "FIR: the passband and stopband deviation (linear); null: 1e-3", unit: "-"}
+  transition: {default: null, meaning: "FIR: each transition band; null: the reference's rule", unit: "Hz"}
+  edge: {default: null, meaning: "FIR: the record's ends padded with the mean of the transient (mean_of_transient) or zeros; null: mean_of_transient", unit: "-"}
+  transient_samples: {default: null, meaning: "FIR: the transient's length stated; null: the energy rule", unit: "samples"}
+  remove_mean: {default: null, meaning: "FIR: subtract the record's channel means first; null: true", unit: "-"}
+  notch_bandwidth: {default: null, meaning: "IIR notch: each notch's 3-dB bandwidth; null: 1 Hz", unit: "Hz"}
+  bandstop_order: {default: null, meaning: "IIR bandstop: the Butterworth prototype's order; null: 4", unit: "-"}
+  tolerance: {default: null, meaning: "IIR: the decayed tail the look-behind and look-ahead may leave out; null: 1e-15", unit: "-"}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: filter.apply, in: {x: recording, mean: mean}, with: {kind: bandstop, lower: $lower, upper: $upper, method: $method, ripple: $ripple, transition: $transition, edge: $edge, transient_samples: $transient_samples, remove_mean: $remove_mean, notch_bandwidth: $notch_bandwidth, bandstop_order: $bandstop_order, tolerance: $tolerance}, out: y}
+
+outputs:
+  y:
+    kind: recording
+    name: $name
+    description: "a zero-phase band-stop filter (IIR by default)"

@@ -2,6 +2,7 @@
 // · store) is the next PR of the spec's order.
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/input.h"
+#include "nxr/bst/session.h"
 
 #include "nxr/bst/entities.h"
 #include "nxr/io/measures.h"
@@ -151,6 +152,11 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     // THREE KINDS OF OUTPUT: a Field (materialized), a measurement over a time partition (reduced: selection_measurement rows), a span set (a spans Selection)
     const std::string kind = spec.value("kind", std::string());
     if (is_declared(P, o)) { check_declared(P, o, db); continue; }            // a declared output (declared_outputs.h): its kind, links and node checked here, its values at the store
+    if (kind == "recording") {                                             // a streamed value written as a new recording, block by block, as the loop runs (a filter's output)
+      if (!v.chunked || !d.over) refuse("outputs." + o + ": a recording output is a value inside the chunk loop (what a chunk node makes of the recording)");
+      if (!spec.contains("name")) refuse("outputs." + o + ": a recording output names the new recording (name: …)");
+      continue;
+    }
     const std::string kind_short = kind == "selection" ? v.cls : kind;      // {kind: selection, type: spans | set} are the short forms spans | labelling
     if (v.cls == "measurement" || v.cls == "spans" || v.cls == "statistic" || v.cls == "labelling") {
       if (kind_short != v.cls) refuse("outputs." + o + ": its steps make a " + v.cls + "; declare it {kind: " + v.cls + "}");
@@ -760,6 +766,12 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   const std::string measured_id = d.over ? text(*P.found.at(*d.over).row, "id") : std::string();
   for (const auto& [o, ospec] : d.outputs.items()) {
     const Value& v = P.values.at(o);
+    if (ospec.value("kind", std::string()) == "recording") {                // a recording output: the field of that name holding the same key
+      const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), "field", key, std::nullopt);
+      if (!row || text(*row, "name") != declared_name(P, o)) { hit = false; break; }
+      stored.push_back(Json{{"output", o}, {"kind", "recording"}, {"name", text(*row, "name")}, {"id", text(*row, "id")}});
+      continue;
+    }
     if (is_declared(P, o)) {                                                // a declared output: each place it takes holds the same key (a manifold is found or made, never a miss)
       Json one = Json{{"output", o}, {"kind", ospec["kind"]}, {"name", declared_name(P, o)}};
       for (const auto& [cls, path] : declared_places(P, o, sub)) {
@@ -953,20 +965,73 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
   }
   Json facts = Json::object();
+  Json recording_report;                                                   // a recording output, written as the loop ran
   if (!checked.loop.empty()) {
     const std::int64_t H = ex->halo();
     say(Json{{"stage", "run"}, {"pipeline", key.pipeline}, {"span", span->what}, {"halo", H}, {"steps", static_cast<std::int64_t>(checked.loop.size())}});
     std::int64_t blocks_n = 0;
-    const nxr::io::ChunkRun cr = nxr::io::haloed_loop(*source, *span, H, [&](const nxr::io::HaloedChunk& h) {
-      ++blocks_n;
-      const std::int64_t w = h.left + h.n + h.right;
-      Block x{source->rows(), w, h.left, h.right, std::vector<float>(h.data.size()), {}};
-      for (std::size_t i = 0; i < h.data.size(); ++i) x.re[i] = static_cast<float>(h.data[i]);   // the stored float32, widened by the service, narrowed back exactly
-      Blocks blocks{{*d.over, std::move(x)}};
-      std::vector<std::uint8_t> good;
-      if (!h.good.empty()) good.assign(h.good.begin() + h.left, h.good.begin() + h.left + h.n);
-      ex->block(blocks, Place{h.first, h.n, &good});
-    });
+    // A RECORDING OUTPUT (a filter's): the streamed value written as a new recording as the loop runs, in io's blocks; the source's flags, events, bad segments and projectors
+    // carried over by io (add_derived_recording). Nothing else of the run is held in memory.
+    std::optional<std::string> rec_out;
+    for (const auto& [o, ospec] : d.outputs.items()) if (ospec.value("kind", std::string()) == "recording") rec_out = o;
+    nxr::io::ChunkRun cr;
+    auto loop_with = [&](const std::function<void(const Blocks&)>& sink) {
+      cr = nxr::io::haloed_loop(*source, *span, H, [&](const nxr::io::HaloedChunk& h) {
+        ++blocks_n;
+        const std::int64_t w = h.left + h.n + h.right;
+        Block x{source->rows(), w, h.left, h.right, std::vector<float>(h.data.size()), {}};
+        for (std::size_t i = 0; i < h.data.size(); ++i) x.re[i] = static_cast<float>(h.data[i]);   // the stored float32, widened by the service, narrowed back exactly
+        Blocks blocks{{*d.over, std::move(x)}};
+        std::vector<std::uint8_t> good;
+        if (!h.good.empty()) good.assign(h.good.begin() + h.left, h.good.begin() + h.left + h.n);
+        const Blocks outs = ex->block(blocks, Place{h.first, h.n, &good});
+        if (sink) sink(outs);
+      });
+    };
+    if (!rec_out) loop_with({});
+    else {
+      const std::string rname = declared_name(P, *rec_out);
+      const nxr::io::Row& src_row = *P.found.at(*d.over).row;
+      Json rp = nxr::pipelines::stamp(key);
+      rp["pipeline"] = Json{{"name", d.name}, {"version", d.version}, {"sha256", nxr::io::sha256_hex(d.text)}};
+      rp["parameters"] = P.parameters;
+      rp["derived_from"] = Json{{"field", text(src_row, "id")}, {"name", text(src_row, "name")}};
+      rp["carried_over"] = Json::array({"channel flags", "events", "bad segments", "projectors", "ctf_compensation"});
+      std::int64_t written = 0;
+      const std::int64_t io_block = nxr::bst::recording_block_samples();
+      const std::string what = d.outputs[*rec_out].value("description", d.name + " of " + text(src_row, "name"));
+      sub.compose([&] {
+        nxr::bst::add_derived_recording(sub, text(src_row, "name"), rname, what, d.name, rp, [&](const nxr::bst::BlockWriter& write) {
+          std::vector<std::vector<float>> pending;                          // per channel, the samples not yet written
+          std::int64_t rows = 0, held = 0;
+          auto flush = [&](bool last) {
+            while (held >= io_block || (last && held > 0)) {
+              const std::int64_t n = std::min(io_block, held);
+              std::vector<float> x(static_cast<std::size_t>(rows * n));
+              for (std::int64_t r = 0; r < rows; ++r) {
+                std::copy(pending[static_cast<std::size_t>(r)].begin(), pending[static_cast<std::size_t>(r)].begin() + n, x.begin() + r * n);
+                pending[static_cast<std::size_t>(r)].erase(pending[static_cast<std::size_t>(r)].begin(), pending[static_cast<std::size_t>(r)].begin() + n);
+              }
+              write(written, x, n);
+              written += n; held -= n;
+              say(Json{{"stage", "written"}, {"samples", written}});
+            }
+          };
+          loop_with([&](const Blocks& outs) {
+            const auto it = outs.find(*rec_out);
+            if (it == outs.end()) refuse("outputs." + *rec_out + ": the chunk loop made no block of it");
+            const Block& b = it->second;
+            if (pending.empty()) { rows = b.rows; pending.assign(static_cast<std::size_t>(rows), {}); }
+            for (std::int64_t r = 0; r < rows; ++r)
+              pending[static_cast<std::size_t>(r)].insert(pending[static_cast<std::size_t>(r)].end(), b.re.begin() + r * b.width + b.left, b.re.begin() + r * b.width + b.left + b.own());
+            held += b.own();
+            flush(false);
+          });
+          flush(true);
+        }, [&](const Json& j) { say(j); });
+      });
+      recording_report = Json{{"output", *rec_out}, {"kind", "recording"}, {"name", rname}, {"samples", written}};
+    }
     facts = Json{{"span", span_json}, {"halo", H}, {"blocks", blocks_n}, {"block_samples", opt.block_samples}, {"block_frames", opt.block_frames}, {"chunks_read", cr.visited}, {"samples_read", cr.samples}, {"bad_samples", cr.bad_samples}};
   }
   const nxr::graph::Arrays data = ex->finish();
@@ -996,6 +1061,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   const Json stamped = nxr::pipelines::stamp(key);                         // held: iterating a temporary's items() would dangle
   for (const auto& [k, v] : stamped.items()) producer[k] = v;
   stored = Json::array();
+  if (!recording_report.is_null()) stored.push_back(recording_report);
   bool replaced = false;
   // ONE UNIT for the whole result (io's task API): the nodes, their arrays, the measurement rows, the recipe and the cache key (in each producer record) are stored together, or nothing is
   nxr::pipelines::task::Subject subject = nxr::pipelines::task::Subject::of(sub);
@@ -1034,6 +1100,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     for (const auto& [o, spec] : d.outputs.items()) {
       const Value& v = P.values.at(o);
       if (declared_pass(o, spec, v) != ps) continue;
+      if (spec.value("kind", std::string()) == "recording") continue;     // written as the loop ran
       if (is_declared(P, o) && !data.count(o)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", "its node made none (an optional output)"}}); continue; }
       if (is_declared(P, o)) { if (ospec_kind(spec) != "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced)); continue; }
       if (v.cls == "measurement" && v.facts.value("measure", std::string()) == "tile_crossings") { stored.push_back(store_crossings(sub, unit, P, o, v, data.at(o), made_by(key), opt.replace, replaced)); continue; }

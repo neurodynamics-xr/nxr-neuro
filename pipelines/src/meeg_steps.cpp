@@ -21,6 +21,7 @@
 #include "nxr/graph/node.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/meeg/covariance.h"
+#include "nxr/filter.h"
 #include "nxr/hodge_weights.h"
 #include "nxr/ladder.h"
 #include "nxr/meeg/wave.h"
@@ -1059,11 +1060,162 @@ ng::NodeSpec phase_gradient() {
   return n;
 }
 
+
+// ── filter.channel_mean · filter.apply ──────────────────────────────────────────────────────────────────────────
+// BRAINSTORM'S FILTERS AS NODES (the hand-wired lowpass, highpass, bandpass, bandstop and notch they replace): a windowed chunk node, each block filtered with the halo the design
+// needs (look-behind, look-ahead), the record's ends padded as the option set says. A FIR filter with remove_mean subtracts the record's channel means first (a statistic made by
+// `filter.channel_mean` in its own run: a first pass) and adds them back when the filter has no high-pass part.
+nxr::filter::FilterOptions filter_options(const Json& p, double sfreq) {
+  using namespace nxr::filter;
+  FilterOptions o = brainstormFilterOptions(sfreq);
+  const std::string kind = p.value("kind", std::string());
+  o.kind = kind == "lowpass" ? Kind::Lowpass : kind == "highpass" ? Kind::Highpass : kind == "bandpass" ? Kind::Bandpass : kind == "bandstop" ? Kind::Bandstop : kind == "notch" ? Kind::Notch
+           : (ng::refuse("filter: kind is lowpass, highpass, bandpass, bandstop or notch"), Kind::Lowpass);
+  auto num = [&](const char* k) -> std::optional<double> { return p.contains(k) && !p[k].is_null() ? std::optional<double>(p[k].get<double>()) : std::nullopt; };
+  if (const auto v = num("lower")) o.lowerEdge = *v;
+  if (const auto v = num("upper")) o.upperEdge = *v;
+  if (p.contains("frequencies") && p["frequencies"].is_array()) o.frequencies = p["frequencies"].get<std::vector<double>>();
+  if (p.contains("method") && !p["method"].is_null()) o.method = p["method"].get<std::string>() == "iir" ? Method::Iir : Method::Fir;
+  if (const auto v = num("ripple")) o.ripple = *v;
+  if (const auto v = num("transition")) o.transitionBandwidth = *v;
+  if (p.contains("edge") && !p["edge"].is_null()) o.edge = p["edge"].get<std::string>() == "zeros" ? Edge::Zeros : Edge::MeanOfTransient;
+  if (const auto v = num("transient_energy")) o.transientEnergy = *v;
+  if (const auto v = num("transient_samples")) o.transientSamples = static_cast<std::size_t>(*v);
+  if (p.contains("remove_mean") && !p["remove_mean"].is_null()) o.removeMean = p["remove_mean"].get<bool>();
+  if (const auto v = num("notch_bandwidth")) o.notchBandwidth = *v;
+  if (const auto v = num("bandstop_order")) o.bandstopOrder = static_cast<int>(*v);
+  if (const auto v = num("tolerance")) o.tolerance = *v;
+  const int harmonics = p.contains("harmonics") && !p["harmonics"].is_null() ? p["harmonics"].get<int>() : 0;
+  if (harmonics != 0 && o.kind == Kind::Notch && o.frequencies.size() == 1) {
+    const double line = o.frequencies[0], bw = o.notchBandwidth.value_or(1.0);
+    o.frequencies.clear();
+    for (int k = 1; (harmonics < 0 || k <= harmonics) && k * line < sfreq / 2 - bw; ++k) o.frequencies.push_back(k * line);
+  }
+  return o;
+}
+const std::vector<ng::ParamSpec>& filter_parameters() {
+  static const std::vector<ng::ParamSpec> ps = {
+      {"kind", Json(), "lowpass | highpass | bandpass | bandstop | notch", "-", {"lowpass", "highpass", "bandpass", "bandstop", "notch"}, false},
+      {"lower", Json(), "the lower edge: highpass edge, bandpass lower passband edge, bandstop lower stopband edge", "Hz", {}, true},
+      {"upper", Json(), "the upper edge: lowpass edge, bandpass upper passband edge, bandstop upper stopband edge", "Hz", {}, true},
+      {"frequencies", Json(), "notch: the line frequency (and its harmonics)", "Hz", {}, true},
+      {"harmonics", Json(), "notch: with one frequency, its harmonics below Nyquist up to this many (-1: all); null: none", "-", {}, true},
+      {"method", Json(), "fir | iir; null: the reference's (FIR, but IIR for bandstop and notch)", "-", {"fir", "iir"}, true},
+      {"ripple", Json(), "FIR: the passband and stopband deviation (linear); null: 1e-3", "-", {}, true},
+      {"transition", Json(), "FIR: each transition band; null: the reference's rule", "Hz", {}, true},
+      {"edge", Json(), "FIR: the record's ends padded with the mean of the transient (mean_of_transient) or zeros", "-", {"mean_of_transient", "zeros"}, true},
+      {"transient_energy", Json(), "FIR: the transient holds this fraction of the response's energy; null: 0.99", "-", {}, true},
+      {"transient_samples", Json(), "FIR: the transient's length stated", "samples", {}, true},
+      {"remove_mean", Json(), "FIR: subtract the record's channel means first (added back without a high-pass part); null: true", "-", {}, true},
+      {"notch_bandwidth", Json(), "IIR notch: each notch's 3-dB bandwidth; null: 1 Hz", "Hz", {}, true},
+      {"bandstop_order", Json(), "IIR bandstop: the Butterworth prototype's order; null: 4", "-", {}, true},
+      {"tolerance", Json(), "IIR: the decayed tail the look-behind / look-ahead may leave out; null: 1e-15", "-", {}, true}};
+  return ps;
+}
+
+ng::NodeSpec channel_mean() {
+  ng::NodeSpec n;
+  n.name = "filter.channel_mean";
+  n.kind = ng::Kind::accumulate;
+  n.inputs = {{"x", "the recording: channels x samples (streamed)", false}};
+  n.outputs = {{"mean", "each channel's mean over the span (a statistic over the channels)", false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "the sums are carried across blocks in double");
+  n.matches = "Brainstorm's process_bandpass (remove the mean before a FIR filter); compute nxr::filter::RunningMean";
+  n.description = "each channel's mean over the span (the first pass of a FIR filter that removes the record's mean)";
+  n.plan = [](const ng::Types& in, const Json&) {
+    streamed(in, "x", "filter.channel_mean");
+    ng::Planned out;
+    out.out["mean"] = constant_port("statistic");
+    return out;
+  };
+  n.start = [](const std::any&) { return std::any(std::optional<nxr::filter::RunningMean>{}); };
+  n.step = [](const std::any&, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place&) {
+    auto& rm = std::any_cast<std::optional<nxr::filter::RunningMean>&>(state);
+    const ng::Block& b = in.at("x");
+    const Eigen::Map<const RowMajorF> all(b.re.data(), b.rows, b.width);
+    if (!rm) rm.emplace(static_cast<int>(b.rows));
+    rm->add(all.middleCols(b.left, b.own()).cast<double>());
+    return std::make_pair(ng::Blocks{}, std::move(state));
+  };
+  n.finish = [](const std::any&, std::any state) {
+    const auto& rm = std::any_cast<const std::optional<nxr::filter::RunningMean>&>(state);
+    if (!rm || rm->samples() == 0) ng::refuse("filter.channel_mean: no sample was read");
+    const Eigen::VectorXd m = rm->mean();
+    ng::Array a;
+    a.rows = m.size(); a.cols = 1;
+    a.data.assign(m.data(), m.data() + m.size());
+    a.meta["describe"] = Json{{"measure", "mean"}, {"method", "sample"}, {"precision", "float64"}, {"axes", Json::array({Json{{"name", "channel"}, {"size", m.size()}}})},
+                              {"n_members", rm->samples()}, {"description", "each channel's mean over " + std::to_string(rm->samples()) + " samples"}};
+    return ng::Arrays{{"mean", std::move(a)}};
+  };
+  return n;
+}
+
+struct FilterPrepared { std::optional<nxr::filter::Filter> f; std::int64_t halo = 0; };
+ng::NodeSpec filter_apply() {
+  ng::NodeSpec n;
+  n.name = "filter.apply";
+  n.kind = ng::Kind::chunk;
+  n.inputs = {{"x", "the recording: channels x samples (streamed)", false},
+              {"mean", "the record's channel means (filter.channel_mean): needed by a FIR filter that removes the mean", true}};
+  n.outputs = {{"y", "the filtered recording, channels x samples", false}};
+  n.parameters = filter_parameters();
+  n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input, "each block filtered in double; the output follows the input",
+                             "the halo is the design's look-behind and look-ahead (the FIR's half length; the IIR's decayed response at `tolerance`), samples on each side");
+  n.matches = "Brainstorm's process_bandpass / process_notch (bst_bandpass_hfilter, kaiserord+fir1; filtfilt IIR); compute nxr::filter";
+  n.description = "a zero-phase filter (lowpass, highpass, bandpass, bandstop, notch) on each block, with the halo its design needs";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    const ng::PortType& x = streamed(in, "x", "filter.apply");
+    nxr::filter::Design d;
+    try { d = nxr::filter::design(filter_options(p, *x.sfreq)); } catch (const std::invalid_argument& e) { ng::refuse(std::string("filter.apply: ") + e.what()); }
+    ng::Planned out;
+    ng::PortType y = x;
+    y.facts.erase("channels");
+    out.out["y"] = y;
+    out.halo = static_cast<std::int64_t>(std::max(d.lookBehind, d.lookAhead));
+    return out;
+  };
+  n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json& p, ng::Shared&) {
+    FilterPrepared pr;
+    const ng::PortType& x = in.at("x");
+    const nxr::filter::FilterOptions o = filter_options(p, *x.sfreq);
+    const nxr::filter::Design d = nxr::filter::design(o);
+    Eigen::VectorXd mean;
+    if (d.method == nxr::filter::Method::Fir && o.removeMean) {
+      const auto it = c.find("mean");
+      if (it == c.end() || it->second.meta.value("placeholder", false))
+        ng::refuse("filter.apply: a FIR filter that removes the record's mean needs the channel means (`nxr-neuro run channel_mean` first), or remove_mean false");
+      mean = Eigen::Map<const Eigen::VectorXd>(it->second.data.data(), static_cast<Eigen::Index>(it->second.data.size()));
+    }
+    std::int64_t rows = x.rows;
+    if (rows <= 0 && x.facts.contains("channels")) rows = x.facts["channels"].value("n_channels", std::int64_t(0));
+    if (rows <= 0) rows = mean.size();
+    if (rows <= 0) ng::refuse("filter.apply: the recording's channel count is not known");
+    pr.f.emplace(static_cast<int>(rows), o, mean);
+    pr.halo = static_cast<std::int64_t>(std::max(d.lookBehind, d.lookAhead));
+    return std::any(std::move(pr));
+  };
+  n.chunk = [](const std::any& prepared, const ng::Blocks& in, std::int64_t keep, const ng::Place& at) {
+    const FilterPrepared& pr = std::any_cast<const FilterPrepared&>(prepared);
+    const ng::Block& b = in.at("x");
+    const Eigen::Map<const RowMajorF> all(b.re.data(), b.rows, b.width);
+    const bool at_start = at.first - b.left == 0 && b.left < pr.halo + keep, at_end = b.right < pr.halo + keep;
+    const std::int64_t left = b.left - keep, own = b.own() + 2 * keep;
+    const Eigen::MatrixXd yb = pr.f->block(all.cast<double>(), static_cast<std::size_t>(left), static_cast<std::size_t>(own), at_start, at_end);
+    ng::Block y;
+    y.rows = b.rows; y.width = own; y.left = keep; y.right = keep;
+    y.re.resize(static_cast<std::size_t>(b.rows * own));
+    for (std::int64_t r = 0; r < b.rows; ++r) for (std::int64_t c = 0; c < own; ++c) y.re[static_cast<std::size_t>(r * own + c)] = static_cast<float>(yb(r, c));
+    return ng::Blocks{{"y", std::move(y)}};
+  };
+  return n;
+}
+
 }  // namespace
 
 void register_meeg_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum(), phase_gradient()})
+  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum(), phase_gradient(), channel_mean(), filter_apply()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

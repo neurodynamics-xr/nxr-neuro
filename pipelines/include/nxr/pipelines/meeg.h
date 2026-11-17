@@ -355,21 +355,6 @@ struct HodgePowerResult {
 // A fixed-orientation kernel is an nxr::io::Error: the coefficients need the current's three components.
 HodgePowerResult hodgepower_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const HodgePowerOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
-struct FilterComputeOptions {
-  std::string recording;                                  // the recording Field by name
-  std::optional<std::string> name;                        // default `<recording>_<kind>`: _lowpass · _highpass · _bandpass · _bandstop · _notch
-  nxr::filter::FilterOptions filter = nxr::filter::brainstormFilterOptions(1.0);   // kind, edges and the reference's design (sfreq is set from the recording)
-  std::string option_set = "brainstorm";                  // which named set `filter` started from (recorded): brainstorm
-  int harmonics = 0;                                      // notch with one line frequency: 0 = only the frequencies given, N > 0 = the first N multiples, -1 = every multiple below Nyquist
-};
-struct FilterComputeResult {
-  bool hit = false;
-  double seconds = 0;
-  nxr::io::Json info;                                     // name, id, path, recording, kind, channels, samples, order, look_ahead ...
-};
-// The new recording keeps all the source's channels (the bad ones too) and all its samples; its bad segments are carried over, not left out of the filtering. A name already stored
-// is an nxr::io::Error (choose another name, or remove the node); a rerun with the same options on the same recording is a cache hit.
-FilterComputeResult filter_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const FilterComputeOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // ── The apparent motion of a source map, read in the Hodge–Dirac modes ──
 // Rheome's `flow.apparent` for a recording: the window is band-pass filtered (nxr/filter.h, Brainstorm's FIR, read with its margins), made analytic AT THE SENSORS (the kernel is real and

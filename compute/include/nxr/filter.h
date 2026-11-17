@@ -109,6 +109,10 @@ public:
     const Design& filterDesign() const { return design_; }
     std::size_t lookBehind() const { return design_.lookBehind; }
     std::size_t lookAhead() const { return design_.lookAhead; }
+    /** ONE BLOCK with its halo (a windowed node): `w` [channels x width] whose own columns are [left, left + own); the filtered own columns. `atStart` / `atEnd`: the block
+     *  reaches the record's first / last sample (its ends padded as the option set says). With a halo of lookBehind() on the left and lookAhead() on the right (or an end of
+     *  the record), the own columns are what the streaming filter gives there. Stateless: blocks in any order. */
+    Eigen::MatrixXd block(const Eigen::MatrixXd& w, std::size_t left, std::size_t own, bool atStart, bool atEnd) const;
 
 private:
     Eigen::MatrixXd drain(bool final);

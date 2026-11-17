@@ -348,6 +348,11 @@ MatrixXd Filter::drain(bool final) {
     return out;
 }
 
+MatrixXd Filter::block(const MatrixXd& w, std::size_t left, std::size_t own, bool atStart, bool atEnd) const {
+    if (w.rows() != channels_) bad("a block of " + std::to_string(w.rows()) + " channels for a filter of " + std::to_string(channels_));
+    if (static_cast<Eigen::Index>(left + own) > w.cols()) bad("a block's own columns lie outside it");
+    return window(w, atStart, atEnd).middleCols(static_cast<Eigen::Index>(left), static_cast<Eigen::Index>(own));
+}
 MatrixXd Filter::window(const MatrixXd& w, bool atStart, bool atEnd) const {
     return design_.method == Method::Fir ? firWindow(w, atStart, atEnd) : iirWindow(w);
 }

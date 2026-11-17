@@ -76,7 +76,6 @@ int run_main(const std::vector<std::string>& argv);            // cli/run_comman
 int opticalflow_main(const std::vector<std::string>& argv);   // cli/meeg_command.cpp
 int frames_main(const std::vector<std::string>& argv);        // cli/meeg_command.cpp
 int tiles_main(const std::vector<std::string>& argv);         // cli/meeg_command.cpp
-int filter_main(const std::string& verb, const std::vector<std::string>& argv);   // cli/meeg_command.cpp
 #endif
 
 namespace {
@@ -481,13 +480,6 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return eigen_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro eigen needs the pipelines (nxr_compute + nxr_io): build with -DNXR_NEURO_BUILD_PIPELINES=ON (README: Pipelines)");
-#endif
-    }
-    if (cmd == "lowpass" || cmd == "highpass" || cmd == "bandpass" || cmd == "bandstop" || cmd == "notch") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return filter_main(cmd, rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro " + cmd + " needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "run") {

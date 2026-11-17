@@ -59,11 +59,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --bands@run pyramid	LO-HI,...	Frequency bands to build, as comma-separated LO-HI edges (half-open [LO, HI)).	octaves 1-2 to 32-64 Hz	Hz
 --bands@run quadrature	NAME:LO-HI,...	Frequency bands to analyse, each a name and edges; the band's cross-spectrum is the mean of the bins from LO to HI inclusive.	Brainstorm's bands (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90)	Hz
 --bandwidth	HZ	Notch width: the 3 dB bandwidth of each notch	1	Hz
---bandwidth@run bandpass	HZ	Notch width; it belongs to the notch filter and has no effect on a bandpass.	1	Hz
---bandwidth@run bandstop	HZ	Notch width; used by notch only and not by bandstop (its edges are --fstop).	1 (notch only)	Hz
---bandwidth@run highpass	HZ	Not used by highpass: it is a FIR design; the notch's 3 dB bandwidth is for the notch command.	1	Hz
---bandwidth@run lowpass	HZ	Notch width; not used by lowpass (notch only).	1 (notch only)	Hz
---bandwidth@run notch	HZ	The 3-dB width of each notch.	1	Hz
 --batch	N	Number of null draws made at a time before the early-stopping test (Besag-Clifford).	20	draws
 --batch@run null	N	Draws are made in batches of this size	20	draws
 --batch@run spatialnull	N	Draws made between checks of the stopping rule.	20	draws
@@ -192,11 +187,6 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --forward-id@import inverse	ID	Id of the stored head model the kernel was made with.	found from the kernel's HeadModelFile link	-
 --forward@run pointspread	NAME	The head model (forward operator) the unit currents are planted through	the subject's only forward model	-
 --fpass	HZ|LO,HI	Passband edge: one frequency for lowpass or highpass, LO,HI for bandpass	none (required)	Hz
---fpass@run bandpass	LO,HI	Lower and upper passband edge of the band-pass filter, both below the Nyquist frequency.	required	Hz
---fpass@run bandstop	HZ	Passband edges of lowpass, highpass and bandpass; not used by bandstop (give --fstop).	none (not used)	Hz
---fpass@run highpass	HZ	The highpass cut-off: frequencies above it pass (the lower passband edge).	required	Hz
---fpass@run lowpass	HZ	Upper edge of the passband: frequencies above it are attenuated.	required	Hz
---fpass@run notch	HZ	Not used by notch; the pass edge of the low-pass, high-pass and band-pass commands.	none	Hz
 --fraction	X	Fraction of the peak power at the reference level above which the connected region counts as the source's patch.	0.5	-
 --fraction@run pointspread	FRACTION	The patch is the connected region at the reference level whose power is at least this fraction of its peak	0.5	fraction
 --frame-level	L	Tower level of a time frame, a whole number: a frame lasts 86400 x 2^L seconds (-18 = 0.33 s, -25 = 2.57 ms). (frametiling: alternative to --centre or --band)	-18 (frametiling: none, give a level, centre or band)	-
@@ -206,20 +196,10 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --freq	HZ	Frequency whose nearest filter-bank member is analysed.	none (required)	Hz
 --freq@run opticalflow	HZ	Frequency whose nearest filter-bank member is analysed.	required	Hz
 --frequencies	F,...	Centre frequencies to remove (notch), e.g. a line frequency and its harmonics.	none (give this or --line)	Hz
---frequencies@run bandpass	HZ,...	Notch frequencies; they belong to the notch filter and have no effect on a bandpass.	none	Hz
---frequencies@run bandstop	F1,F2,...	Notch frequencies; used by notch only and not by bandstop.	none (notch only)	Hz
---frequencies@run highpass	F,...	Not used by highpass: it is a FIR design; the notch centre frequencies are for the notch command.	none	Hz
---frequencies@run lowpass	F1,F2,...	Notch frequencies; not used by lowpass (notch only).	none	Hz
---frequencies@run notch	F1,F2,...	The frequencies to remove; an alternative to --line.	none (give this or --line)	Hz
 --from	FILE	The file to read the bad segments or events from (import badsegments, import events).	none	-
 --from@import badsegments	FILE	JSON file listing the bad segments (start and stop times) to store as the subject's bad-segment selection.	required	-
 --from@import events	FOLDER	The source protocol's data folder to read the events from.	required	-
 --fstop	LO,HI	Stopband edges of a bandstop filter	none (required)	Hz
---fstop@run bandpass	LO,HI	Stopband edges of the band-stop filter; they belong to bandstop and have no effect on a bandpass.	none	Hz
---fstop@run bandstop	LO,HI	Lower and upper edge of the stopband that is removed (zero-phase Butterworth band-stop, forward-backward).	required	Hz
---fstop@run highpass	LO,HI	Not used by highpass: it is a FIR design; the stopband edges are for the bandstop command.	none	Hz
---fstop@run lowpass	LO,HI	Lower and upper edges of the stopband; not used by lowpass (bandstop only).	none	Hz
---fstop@run notch	LO,HI	Not used by notch; the stop band of the band-stop command.	none	Hz
 --gain	X	Peak in-band response of each filter-bank member (2 makes the coefficient's magnitude the physical amplitude).	none (required)	-
 --gain@run opticalflow	X	Peak in-band response of each filter-bank member; 2 makes the coefficient's magnitude the physical amplitude of a real recording.	required	-
 --gain@run speedspectrum	G	Peak in-band response of every time bank member	required	-
@@ -240,13 +220,8 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --halo-seconds	SECONDS	Context read on each side of a chunk so the band filter's edge effects fall inside it	8	s
 --halo-seconds@run pyramid	SECONDS	Context read on each side of a chunk so the band filter's edge effects fall inside it.	8	s
 --harmonics	N	With --line, the number of harmonics of the line frequency to notch.	every multiple below the Nyquist frequency	-
---harmonics@run bandpass	N	Number of harmonics of a notch --line; it belongs to the notch filter and has no effect on a bandpass.	none	-
---harmonics@run bandstop	N	Number of line harmonics to notch; used by notch only and not by bandstop.	none (notch only)	-
---harmonics@run highpass	N	Not used by highpass: it is a FIR design; it counts line harmonics for the notch command.	none	-
---harmonics@run lowpass	N	Number of line-frequency multiples to notch; not used by lowpass (notch with --line only).	every multiple below Nyquist (notch only)	-
 )TBL",
-R"TBL(--harmonics@run notch	N	With --line, remove the first N multiples of the line frequency.	every multiple below Nyquist	-
---include-imported		Also import conditions that were themselves imported.	off	-
+R"TBL(--include-imported		Also import conditions that were themselves imported.	off	-
 --include-imported@import condition		When the condition has a raw recording, also import its data files that were themselves imported (by default only the raw recording is).	off	-
 --input	amplitude|signed	What the flow is computed on: the source amplitude |J| of the kernel applied to the complex band coefficients, or the signed band signal itself (fixed-orientation kernels only).	amplitude	-
 --input@run opticalflow	amplitude|signed	Map the flow is computed on: the source amplitude |J| of the kernel applied to the band's complex coefficients, or the signed band signal itself (fixed-orientation kernels only).	amplitude	-
@@ -289,12 +264,7 @@ R"TBL(--harmonics@run notch	N	With --line, remove the first N multiples of the l
 --limits@run opticalflow	LO-HI	Itersine and Meyer families: the frequency limits of the filter bank, in hertz (e.g. 2-40).	none (set by the family)	Hz
 --limits@run speedspectrum	LO-HI	Itersine and Meyer time banks: the bank's frequency limits	none	Hz
 --line	NAME or F	Time line to work on (constantq: a time line by name, alternative to --recording or --all); for lowpass/notch: the mains frequency F, removed with its harmonics.	none	constantq: -; notch: Hz
---line@run bandpass	HZ	Mains frequency of the notch filter; it has no effect on a bandpass.	none	Hz
---line@run bandstop	F	Mains frequency to notch with its harmonics; used by notch only and not by bandstop.	none (notch only)	Hz
 --line@run constantq	NAME	A time line of the subject, by name, to make the ladder for (alternative to --recording and --all).	none	-
---line@run highpass	F	Not used by highpass: it is a FIR design; the mains frequency is for the notch command.	none	Hz
---line@run lowpass	HZ	Mains line frequency to notch; not used by lowpass (notch only).	none	Hz
---line@run notch	HZ	The mains line frequency, removed together with its harmonics; an alternative to --frequencies.	none (give this or --frequencies)	Hz
 --list	V,V,...	run: list the available pipeline definitions and their steps (flag); pointspread: native vertex indices to use as the source sample instead of --vertices	run: off; pointspread: none	-
 --list@run pointspread	VERTICES	Comma-separated native vertices to plant the currents at; wins over --vertices	none	-
 --map	NAME	The stored cortical map (a scalar per vertex of a surface) in which patches are sought.	none (required)	-
@@ -351,13 +321,8 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --mollify@run eigenmodes	D	Mollification margin of the intrinsic Delaunay construction, as a fraction of the mean edge length (0 = no margin).	1e-6	fraction
 --name	NAME	Name of what is stored: the dataset, subject or surface, or the stem of the stored result (filters: <recording>_<verb>).	derived from the inputs	-
 --name@add surface	NAME	Name the surface is stored under for the subject.	the mesh file's name without its extension, made safe as a node name	-
---name@run bandpass	NAME	Name of the filtered recording that is stored.	<recording>_bandpass	-
---name@run bandstop	NAME	Name of the new filtered recording.	<recording>_bandstop	-
 --name@run cyclepattern	NAME	Stem of the stored cycle-pattern results.	<cross-spectrum without _windows>_cycle	-
---name@run highpass	NAME	Name of the new filtered recording.	<recording>_highpass	-
 --name@run hodgepower	NAME	The stem of the names of the stored fields (one current and one flow field per band).	<recording>_<kernel>_hodge	-
---name@run lowpass	NAME	Name the filtered recording is stored under.	<recording>_lowpass	-
---name@run notch	NAME	The name of the filtered recording.	<recording>_notch	-
 --name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
 --name@run pointspread	NAME	Name of the stored point-spread statistic	pointspread.<kernel>	-
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
@@ -390,11 +355,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-raw		Do not import the raw recording, only the condition's other data.	off	-
 --no-raw@import condition		Do not import the condition's raw recording; import only its other data files.	off	-
 --no-remove-mean		Do not remove the mean (DC offset) of each block before computing or filtering.	off (mean removed)	-
---no-remove-mean@run bandpass		Do not subtract each channel's mean before filtering. By default the mean is removed and added back only when the filter has no high-pass part.	off (the mean is removed)	-
---no-remove-mean@run bandstop		Do not subtract the record's mean before filtering (the mean is added back afterwards for a filter without a high-pass part).	off (mean removed)	-
---no-remove-mean@run highpass		Do not subtract the record's channel means before filtering (they are otherwise removed and not added back, as the filter has a high-pass part).	off (mean removed)	-
---no-remove-mean@run lowpass		Do not subtract each channel's mean before filtering.	off (the mean is removed, and added back since a lowpass has no high-pass part)	-
---no-remove-mean@run notch		Do not subtract each channel's mean before filtering.	off (the mean is removed, and added back)	-
 --no-shard		Do not group chunks into shards when compacting	off	-
 --no-shard@compact dataset		Do not group chunks into shards; only the key separator changes, so an array over 4 MiB stays unsharded.	off (arrays are sharded)	-
 )TBL",
@@ -411,12 +371,7 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --only	NAME	Import only this named anatomical image (repeatable).	all images	-
 --only@import mri	NAME	Import only this named anatomical image; repeat the option for several.	all images	-
 --order	N	Filters: Butterworth prototype order (the filter has 2N poles). Spatial band commands: degree of the Chebyshev series (0 chooses the smallest of 40, 80, ... 5120 within tolerance). measure query: sort order asc or desc of the rows.	filters 4; spatial 0 (automatic); measure query see the command's description	-
---order@run bandpass	N	Butterworth order of the band-stop filter; it has no effect on the band-pass, which is a linear-phase FIR filter whose order follows from --ripple and --transition.	4	-
---order@run bandstop	N	Order N of the Butterworth prototype (the band-stop has 2N poles per stage).	4	-
 --order@run cellquadrature	N	Degree of the Chebyshev series for the spatial band (0 picks the smallest of 40, 80, ... 5120 within --tolerance).	0	-
---order@run highpass	N	Not used by highpass: it is a FIR design; the Butterworth order is for the bandstop and notch commands.	4	-
---order@run lowpass	N	Butterworth order of the bandstop prototype; not used by lowpass (FIR design).	4 (bandstop only)	-
---order@run notch	N	Not used by notch, which is a 2nd-order notch applied forward and backward; the band-stop command's Butterworth order.	4	-
 --order@run patches	N	Chebyshev: the series degree; 0 is the smallest of 40, 80, ... 5120 that follows the band's gain within --tolerance.	0	-
 --order@run pointspread	N	Degree of the Chebyshev series when that transform is used; 0 picks the smallest of 40, 80, ... 5120 that meets --tolerance	0	-
 --order@query measurements	asc|desc	Order the rows by value, ascending or descending.	by code	-
@@ -441,11 +396,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --package@run opticalflow	STEM	Stem of the stored Hodge-Dirac eigenmode package used for the flow.	the one of the kernel's surface	-
 --package@run speedspectrum	STEM	Stem of the stored Hodge-Dirac mode package to use	the package of the kernel's surface	-
 --padding	mean|zeros	How the filter's edge transient is padded: with the mean of the signal's transient or with zeros.	mean	-
---padding@run bandpass	mean|zeros	How the two ends of the recording are padded before filtering: with the mean of the first and last samples, or with zeros.	mean	-
---padding@run bandstop	mean|zeros	FIR end padding; not used by bandstop, which is an IIR filter.	mean (not used)	-
---padding@run highpass	mean|zeros	How the filter's edge transient is padded: with the mean of the transient or with zeros.	mean	-
---padding@run lowpass	mean|zeros	How the two ends of the record are padded for the filter: with the mean of the first and last transient samples, or with zeros.	mean	-
---padding@run notch	mean|zeros	Not used by notch (an IIR filter, whose ends use odd reflection); the end padding of the FIR filters.	mean	-
 --pair	A,B	One pair of channels, by channel index (row A, column B), to read from the band-resolved cross-spectrum.	none	-
 --pair@read crossspectrum	A,B	One pair of channels to read, by recording channel index (row A, column B); an alternative to --seed.	none (one of --pair or --seed)	-
 --pairs	K	Number of strongest quadrature pairs stored per band	3	pairs
@@ -481,14 +431,9 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording-b	NAME	Second recording whose crossings are compared with the first (run-to-run repeat).	none	-
 --recording-b@run null	NAME	A second recording, to test the run-to-run repeat as well (draws made in step)	none	-
 --recording-b@run repeat	NAME	Second recording, whose crossings are compared with the first; the order does not change the result.	required	-
---recording@run bandpass	NAME	The stored recording to filter; all its channels and samples are kept.	required	-
---recording@run bandstop	NAME	Name of the stored recording to filter; the result is a new recording on the same channels and time line.	required	-
 --recording@run constantq	NAME	Recording whose time line gets the ladder (alternative to --line and --all).	none	-
---recording@run highpass	NAME	Name of the stored recording to filter.	required	-
 --recording@run hodgepower	NAME	The sensor recording whose cross-spectrum is read through the kernel.	required	-
 --recording@run joint	NAME	The recording whose time line's constant-Q ladder gives the time level	required	-
---recording@run lowpass	NAME	Name of the stored recording to filter.	required	-
---recording@run notch	NAME	The recording to filter.	required	-
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
 --recording@run pointspread	NAME	The recording whose band chain the statistic is of	required	-
 --recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
@@ -518,11 +463,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --ridge-fraction	X	Ridge added in whitening, as a fraction of the mean eigenvalue of the noise covariance block (Brainstorm's noise regularisation, MNE-Python's reg).	0.1	fraction
 --ridge-over-rank		Take the ridge from the trace divided by the rank (MNE-Python) instead of by the number of channels (Brainstorm).	off	-
 --ripple	R	Passband and stopband deviation of the Kaiser-window FIR filter, as a linear value (0.001 is 60 dB attenuation)	0.001	-
---ripple@run bandpass	X	Passband and stopband deviation of the Kaiser-window FIR design (linear); 1e-3 is a 60 dB stopband attenuation.	0.001	-
---ripple@run bandstop	R	FIR (Kaiser) passband and stopband deviation; not used by bandstop, which is an IIR filter.	1e-3 (not used)	-
---ripple@run highpass	R	Passband and stopband deviation of the Kaiser-window FIR filter, as a linear value (0.001 is 60 dB attenuation).	0.001	-
---ripple@run lowpass	R	Passband and stopband deviation of the Kaiser-window FIR design (linear); 1e-3 gives 60 dB stopband attenuation.	1e-3	-
---ripple@run notch	X	Not used by notch; the passband and stopband ripple of the FIR filters.	0.001	fraction
 --scale	X	Factor applied to the mesh coordinates to bring them to metres.	1	-
 --scale-family	FAMILY	perscale flow method: the graph filterbank whose band-pass members give one flow per spatial scale (mexhat, itersine or logitersine).	none (required for perscale)	-
 --scale-family@run opticalflow	mexhat|itersine|logitersine	perscale only: the graph filter bank whose band-pass members each give one flow per spatial scale.	required for perscale	-
@@ -682,12 +622,7 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --to	HZ	The sampling rate to resample to (import resample).	none	Hz
 --to@import resample	HZ	The new sampling rate; the recording is resampled by a polyphase filter (scipy resample_poly)	required	Hz
 --tolerance	T	lowpass, notch: IIR look-behind tail left out, relative to the response's L1 norm; pointspread, cellquadrature, patches: largest gain error accepted for the Chebyshev series; opticalflow: tail of the filters' impulse response the margin may leave out	filters: 1e-15; pointspread, cellquadrature, patches: 0.01; opticalflow: from the recording	-
---tolerance@run bandpass	X	Impulse-response tail that the chunked IIR margin may leave out; it applies to IIR filters (notch, band-stop) and has no effect on the FIR band-pass.	1e-15	-
---tolerance@run bandstop	T	Chunked IIR: the impulse-response tail, relative to its L1 norm, that the look-behind and look-ahead margin may leave out.	1e-15	-
 --tolerance@run cellquadrature	T	Largest gain error accepted for the Chebyshev series of the spatial band.	0.01	-
---tolerance@run highpass	T	Not used by highpass: it is a FIR design; the IIR look-behind tail tolerance is for the notch and bandstop commands.	1e-15	-
---tolerance@run lowpass	T	Tail of the impulse response, relative to its L1 norm, that the chunk look-behind/ahead of an IIR filter may leave out; not used by the FIR lowpass.	1e-15	-
---tolerance@run notch	X	How far the notch's impulse-response tail may be cut when filtering chunk by chunk, relative to its L1 norm.	1e-15	fraction
 --tolerance@run opticalflow	X	Impulse-response tail the filter bank's margin may leave out, relative to its norm.	derived from the recording's stored precision (1e-7 float32, 1e-12 float64)	-
 )TBL",
 R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the band's gain and the series that is accepted; a worse fit is refused.	0.01	fraction
@@ -697,17 +632,7 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --transform@run patches	auto|eigen|chebyshev|exact	The spatial transform: stored eigenmodes (computed if absent), eigenmodes, a Chebyshev series, or dense modes of the mesh (up to 4096 vertices).	auto	-
 --transform@run pointspread	auto|eigen|chebyshev|exact	How the spatial filter is applied: auto uses stored eigenmodes, else computes them, else an announced Chebyshev series; exact uses dense modes (at most 4096 vertices)	auto	-
 --transient-samples	K	Number of samples at each edge treated as the filter transient (instead of the shortest span holding 99 percent of the impulse response's energy).	from the energy rule	samples
---transient-samples@run bandpass	N	Number of end samples whose mean pads the recording's ends; sets the length of the end padding instead of the 99 % energy rule.	the duration holding 99 % of the impulse response's energy	samples
---transient-samples@run bandstop	K	FIR end padding length; not used by bandstop, which is an IIR filter.	none (not used)	samples
---transient-samples@run highpass	K	Number of samples at each edge treated as the filter transient, instead of the shortest span holding 99 percent of the impulse response's energy.	from the energy rule	samples
---transient-samples@run lowpass	N	Length K of the end padding, stated in samples instead of the shortest impulse response holding 99 % of its energy.	none (energy rule)	samples
---transient-samples@run notch	N	Not used by notch; the end-padding length of the FIR filters.	none	samples
 --transition	HZ	Width of each transition band of the FIR filter	the reference's rule (Brainstorm)	Hz
---transition@run bandpass	HZ	Width of each transition band of the FIR design.	0.5 (1 when the lower edge is above 5 Hz)	Hz
---transition@run bandstop	HZ	FIR transition bandwidth; not used by bandstop, which is an IIR filter.	none (not used)	Hz
---transition@run highpass	HZ	Width of the transition band of the FIR filter (the high-pass edge's).	the reference's rule (Brainstorm)	Hz
---transition@run lowpass	HZ	Width of the transition band between passband and stopband.	1 for a lowpass alone (the reference's rule)	Hz
---transition@run notch	HZ	Not used by notch; the transition bandwidth of the FIR filters.	none	Hz
 --home-dataset	NAME	The name of the dataset a package is made for (provenance, not membership).	none (required)	-
 --registered-by	WHO	Who registers: recorded with each catalogue entry.	none (required)	-
 --released-by	WHO	Who releases: the program and the releaser's stated name, recorded in the release.	none (required)	-
@@ -744,11 +669,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run tiles	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run joint	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run lowpass	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run highpass	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run bandpass	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run bandstop	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run notch	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run hodgepower	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run speedspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1399,41 +1319,6 @@ alias: refused
 group: Time
 summary: The joint partition of space and time: cells of a spatial tile level by a time tile level.
 opts: --dataset* --recording* --replace --space-level* --subject* --surface --time-level* --templates+
-)TBL",
-R"TBL(@ run lowpass
-old: lowpass
-alias: refused
-group: Time
-summary: A zero-phase low-pass filter, written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
-)TBL",
-R"TBL(@ run highpass
-old: highpass
-alias: refused
-group: Time
-summary: A zero-phase high-pass filter, written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
-)TBL",
-R"TBL(@ run bandpass
-old: bandpass
-alias: refused
-group: Time
-summary: A zero-phase band-pass filter, written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
-)TBL",
-R"TBL(@ run bandstop
-old: bandstop
-alias: refused
-group: Time
-summary: A zero-phase band-stop filter, written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
-)TBL",
-R"TBL(@ run notch
-old: notch
-alias: refused
-group: Time
-summary: A zero-phase notch filter (line noise and harmonics), written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
 )TBL",
 R"TBL(@ run quadrature
 old: quadrature compute
