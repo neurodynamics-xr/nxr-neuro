@@ -93,7 +93,7 @@ A release is a version tag; nothing is built by hand.
    - **Linux x86_64**, in the `manylinux_2_28` container (glibc 2.28 baseline), with SQLite (amalgamation), zstd (c-blosc's copy), zlib and libstdc++/libgcc linked
      statically (`-DNXR_NEURO_PORTABLE=ON`). The job fails if `ldd` shows anything but libc, libm, libpthread, libdl and the loader, or if the binary needs a glibc
      newer than 2.28; a second job runs `--version` and the smoke test in a plain `ubuntu:20.04` container.
-   - **macOS arm64** on `macos-14`, with no library outside `/usr/lib` and `/System` in `otool -L`.
+   - **macOS arm64** on `macos-15`, with no library outside `/usr/lib` and `/System` in `otool -L`.
    - The smoke test (`.github/smoke/smoke.sh`) uses synthetic data only: it creates a dataset, a subject and an icosphere surface with the binary itself and
      computes the surface's eigenmodes. There is no command that makes a synthetic recording, so no `--from/--to` computation is part of it.
 4. The `publish` job creates the GitHub release with `nxr-neuro-<version>-linux-x86_64.tar.gz`, `nxr-neuro-<version>-macos-arm64.tar.gz` and `SHA256SUMS`. Each
