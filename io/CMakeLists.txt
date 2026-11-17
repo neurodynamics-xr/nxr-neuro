@@ -226,6 +226,10 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/schema/statistics.json NXR_STATISTICS_JSON
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/statistics_json.inc "R\"NXRSTAT(${NXR_STATISTICS_JSON})NXRSTAT\"")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/schema/statistics.json)
 
+file(READ ${CMAKE_CURRENT_SOURCE_DIR}/convert/manifest/template_sources.json NXR_TEMPLATE_SOURCES_JSON)
+file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/template_sources_json.inc "R\"NXRSRC(${NXR_TEMPLATE_SOURCES_JSON})NXRSRC\"")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/convert/manifest/template_sources.json)
+
 # --- core library (sources added as TDD adds them) ---
 add_library(nxr_io
   src/codec_zstd.cpp
@@ -290,8 +294,10 @@ add_library(nxr_io
   src/bst_timefreq.cpp
   src/bst_fibers.cpp
   src/bst_templates.cpp
+  convert/trk.cpp
+  convert/templates.cpp
 )
-target_include_directories(nxr_io PRIVATE ${CMAKE_CURRENT_BINARY_DIR} src ${CMAKE_CURRENT_SOURCE_DIR}/extern)
+target_include_directories(nxr_io PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/gen src ${CMAKE_CURRENT_SOURCE_DIR}/extern)
 set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # rapidyaml (vendored: extern/ryml, v0.15.2) compiled here, its warnings not ours
 target_include_directories(nxr_io
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -317,7 +323,7 @@ target_link_libraries(nxr-neuro-bst-compare PRIVATE nxr_io)
 
 # --- tests (hand-written + ctest) ---
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_IO_TESTS codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup chunk_separator compact format52 subject_package subject_filter catalogue migrate templates)
+  set(NXR_IO_TESTS codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import)
   foreach(t ${NXR_IO_TESTS})
     add_executable(test_${t} test/test_${t}.cpp)
     target_link_libraries(test_${t} PRIVATE nxr_io)
@@ -340,6 +346,7 @@ if(NXR_IO_BUILD_TESTS)
   add_test(NAME store_identity_v50_compacts COMMAND ${CMAKE_COMMAND} -DLAYOUT=slash -DCOMPACT=1 -DSCENARIO=$<TARGET_FILE:nxr-neuro-scenario> -DOBJ=${CMAKE_CURRENT_SOURCE_DIR}/test/data/identity_sphere.obj
            -DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/test/golden/store_identity.txt -DWORK=${CMAKE_CURRENT_BINARY_DIR}/store_identity_compact_work -P ${CMAKE_CURRENT_SOURCE_DIR}/test/store_identity.cmake)
   target_link_libraries(test_bst PRIVATE matio)   # the test writes its .mat files with matio itself
+  target_link_libraries(test_template_import PRIVATE matio)
 
   # Optional Eigen interop (header-only). The core library never needs Eigen.
   option(NXR_IO_WITH_EIGEN "Build the optional Eigen interop test" OFF)
