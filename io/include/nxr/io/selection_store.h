@@ -14,6 +14,7 @@
 // The mapping of a description onto the schema's rows (`spans` and `ladder` stay stored types; io maps them to and from a set) is in selection_description.h.
 // io stores what it is given: it designs nothing (a ladder's levels, tilings and bands are made by compute and handed in), and does no maths beyond decoding.
 #pragma once
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -44,7 +45,8 @@ struct Placement {
   std::optional<std::string> acquisition_id;      // ... or its id
   std::optional<std::string> cell;                // which cells of the manifold (default by type: point, indices, a set per element '0'; span, spans '1')
   std::optional<std::string> dictionary_id;       // an existing dictionary the code reads with (else the description's lookup is saved under `name`)
-  std::optional<std::int64_t> n_members;          // a set given by a rule with nothing stored (the joint cells of a product): how many members it has
+  std::optional<std::int64_t> n_members;          // a set given by a rule with nothing stored: how many members it has (a product's is the product of its factors', read from their rows)
+  std::vector<std::string> factor_ids;            // a product: its factors' stored selections, in order (the description's `factors` are what a load fills; a save reads these)
   Json params;                                    // params_json (object; null: none); a tiling and the levels' windows are added by save
   std::vector<Json> level_params;                 // a ladder: what the design settled about each level, by position (stride, rate_hz, ...): merged into the level's record
   std::vector<Cols> measurements;                 // its OWN measurement rows (array-backed or valued), written with the row (a joint set's per-field arrays)
@@ -66,12 +68,23 @@ struct Loaded {
 
 // ── create ───────────────────────────────────────────────────────────────────────────────────────────────────────
 /** SAVE a selection: its row, its detail rows (extents, span members, member selections), its array (indices, member numbers) and its dictionary. Inside the caller's composition.
- *  A set stores as: a tiling -> `spans` (closed form); members all spans -> `spans` rows (an empty set too, unless `n_members` is given: then a `set` with nothing
- *  stored); a set per element -> `set` with its array of member numbers and a dictionary of one entry per member (its label, name and colour: selection_description.h); other members -> `set` with member rows; members all tilings with
- *  levels -> `ladder` (a dictionary of the levels, an empty tile dictionary per level, each level a `spans` member holding its tiling: its member_ordinal the level's identity,
- *  its code its power of two); a set per element with levels keeps them in params_json `levels`.
+ *  A set stores as (selection_description.h): a tiling -> `spans` (closed form, nothing per member); members all spans -> `spans` rows (an empty set too, unless `n_members`
+ *  is given: then a `set` with nothing stored); a set per element -> `set` with its array of member numbers, the sibling array of the members' labels (when they have any)
+ *  and a dictionary of one row per LABEL; a grid's levels are a rule in `params` ("grid"), never rows or arrays; a product
+ *  (`factors`, Placement::factor_ids) -> `set` with `selection_factor` rows; other members -> `set` with member rows; members all tilings with levels -> `ladder` (a
+ *  dictionary of the levels, an empty tile dictionary per level, each level a `spans` member holding its tiling: its member_ordinal the level's identity, its code its
+ *  power of two). The arrays are written before the row, in the caller's composition.
  *  A ladder's line (its manifold) must be a closed-form line: its sample rate and length give each level's window in samples. */
 Saved save(SubjectWriter& sub, const Description& description, const Placement& at);
+
+// ── the arrays beside a set per element's element array (a convention of the store: siblings of P = `array_path`, named by suffix) ───────────────────────
+std::string member_labels_path(const std::string& array_path);                          // P.labels: each member's label (int64), absent when member i is labelled i
+/** a set per element from LABELS per element (an importer's atlas, flags; -1: none): one member per distinct label, numbered in ascending label order, the label kept as the
+ *  member's. Decoding an array through its dictionary, the one place io turns labels into numbers (compute's `from_labels` is the same rule, on the compute side). */
+struct MemberNumbering { std::vector<std::int32_t> member_of; std::vector<std::int64_t> member_codes; };
+MemberNumbering number_labels(const std::vector<std::int32_t>& element_labels);
+/** a description of a set per element from labels per element and the lookup they are read with (number_labels, then the description) */
+Description set_from_labels(const std::vector<std::int32_t>& element_labels, Lookup lookup = {});
 
 // ── read ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** a stored selection (any status) as its description; Error(no_such_row) when there is none; a kernel is not a selection (Error(invalid_argument)). */
@@ -116,6 +129,27 @@ Lookup load_lookup(const Database& db, const std::string& dictionary_id);
 void update_lookup(SubjectWriter& sub, const std::string& dictionary_id, const Lookup& lookup);
 
 
+// ── the app-wide vocabularies (the band names, the measure registry): seeded through the store ────────────────────────────────────────
+/** one entry of an app lookup, with every column a vocabulary uses */
+struct AppEntry {
+  std::int64_t code = 0;
+  std::string name;
+  std::optional<std::array<int, 3>> color;
+  std::optional<double> measurement;
+  std::string measurement_unit, function;          // empty: none
+  Json params, attributes;                         // null: none
+  std::optional<std::int64_t> ordinal;
+};
+struct AppLookup {
+  std::string name, description;
+  std::string scope = "app";
+  std::optional<std::string> by;                  // created_by / modified_by on the dictionary row
+  std::vector<AppEntry> entries;
+  bool refresh_when_incomplete = false;           // a dictionary that lacks one of these names is rewritten, entries and all (the measure registry); else it is kept as found
+};
+/** the dictionary of that scope and name, made with its entries when the database lacks it (and refreshed when asked and incomplete); returns its id */
+std::string ensure_app_lookup(Database& db, const AppLookup& spec);
+
 // ── lookups of other layers (a member by name, a lookup's size, the names a channel set carries) ──────────────────
 /** how many entries the dictionary has */
 std::int64_t lookup_size(const Database& db, const std::string& dictionary_id);
@@ -133,6 +167,8 @@ std::optional<records::SelectionRow> find_on_manifold_ending(const Database& db,
 std::optional<records::SelectionRow> find_of_field(const Database& db, const std::string& subject_id, const std::string& of_field_id, const std::string& name);
 /** the ids of the subject's complete selections */
 std::vector<std::string> complete_ids(const Database& db, const std::string& subject_id);
+/** the member rows (the levels) of a set per element, and the factors of a product, as stored rows by ordinal */
+std::vector<Row> subject_factor_rows(const Database& db, const std::string& subject_id);
 /** DELETE every selection of a subject (a subject's delete does this first: a dictionary in use is restricted) */
 void remove_all(Database& db, const std::string& subject_id);
 

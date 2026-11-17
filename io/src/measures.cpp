@@ -1,5 +1,6 @@
 // nxr-io — measurements (see measures.h): the Studio's measure registry, measurement table and repository.
 #include "nxr/io/measures.h"
+#include "nxr/io/selection_store.h"
 #include <cstring>
 #include "nxr/io/writer.h"
 #include "nxr/io/array_reader.h"
@@ -115,35 +116,24 @@ std::string measure_reduction(const std::string& name) {
 
 std::string ensure_measure_dictionary(Database& db, const std::optional<std::string>& by) {
   const Json& reg = measure_registry();
-  const std::string name = reg["dictionary"]["name"];
-  auto entries = [&](const std::string& id) {
-    db.execute("DELETE FROM dictionary_entry WHERE dictionary_id = ?", {Value(id)});
-    for (const auto& m : reg["measures"]) {
-      const Json params = m["weight"].is_null() ? Json(nullptr) : Json(Json{{"weight", m["weight"]}}.dump());
-      db.execute("INSERT INTO dictionary_entry (dictionary_id, code, name, color_json, measurement, measurement_unit, function, params_json, attributes_json, ordinal) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                 {Value(id), v(m["code"]), v(m["name"]), Value(std::monostate{}), Value(std::monostate{}), v(m["unit"]), v(m["reduction"]), v(params),
-                  Value(Json{{"description", m["description"]}}.dump()), v(m["code"])});
-    }
-  };
-  if (const auto have = db.one("SELECT * FROM dictionary WHERE scope = 'app' AND name = ?", {Value(name)})) {
-    const std::string id = std::get<std::string>(have->at("id"));
-    std::set<std::string> known;
-    for (const Row& e : db.all("SELECT name FROM dictionary_entry WHERE dictionary_id = ?", {Value(id)})) known.insert(std::get<std::string>(e.at("name")));
-    bool missing = false;
-    for (const auto& m : reg["measures"]) if (!known.count(m["name"].get<std::string>())) missing = true;
-    if (missing) db.tx([&] {
-      // the Studio rewrites the row as it is (the dictionary's own `by` passes through measureDictionaryRows, then `have` is upserted unchanged) and its entries
-      entries(id);
-    });
-    return id;
+  selection::AppLookup spec;
+  spec.name = reg["dictionary"]["name"].get<std::string>();
+  spec.scope = reg["dictionary"]["scope"].get<std::string>();
+  spec.description = reg["dictionary"]["description"].get<std::string>();
+  spec.by = by;
+  spec.refresh_when_incomplete = true;   // the Studio rewrites the entries when the registry names a measure the dictionary lacks
+  for (const auto& m : reg["measures"]) {
+    selection::AppEntry e;
+    e.code = m["code"].get<std::int64_t>();
+    e.name = m["name"].get<std::string>();
+    e.ordinal = e.code;
+    if (m["unit"].is_string()) e.measurement_unit = m["unit"].get<std::string>();
+    if (m["reduction"].is_string()) e.function = m["reduction"].get<std::string>();
+    if (!m["weight"].is_null()) e.params = Json{{"weight", m["weight"]}};
+    e.attributes = Json{{"description", m["description"]}};
+    spec.entries.push_back(std::move(e));
   }
-  const std::string id = uuid7();
-  db.tx([&] {
-    db.execute("INSERT INTO dictionary (id, name, scope, dataset_id, subject_id, description, created_utc, created_by, modified_utc, modified_by) VALUES (?, ?, ?, NULL, NULL, ?, NULL, ?, NULL, ?)",
-               {Value(id), Value(name), v(reg["dictionary"]["scope"]), v(reg["dictionary"]["description"]), by ? Value(*by) : Value(std::monostate{}), by ? Value(*by) : Value(std::monostate{})});
-    entries(id);
-  });
-  return id;
+  return selection::ensure_app_lookup(db, spec);
 }
 
 }  // namespace nxr::io

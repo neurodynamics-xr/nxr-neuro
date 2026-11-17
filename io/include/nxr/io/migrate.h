@@ -50,4 +50,13 @@ struct JoinOptions {
 Json split_dataset(const std::filesystem::path& dataset_folder, const SplitOptions& opt);
 Json join_dataset(const std::filesystem::path& dataset_folder, const JoinOptions& opt = {});
 
+// ── THE SELECTIONS' STORAGE (schema 52): label arrays and the JSON form of 2026-11-17 to member numbers + labels beside them, a constant-Q ladder's level code to the power of two
+// of its window (a ladder lacking the window is refused), a spatial dyadic ladder's rule noted; see migrate_selection.cpp. In place, resumable, `dry_run` changes nothing. Run it BEFORE
+// `split_dataset` (a split refuses a dataset not converted). Sets `meta.selection_storage`. Report: counts per subject.
+struct SelectionStorageOptions {
+  bool dry_run = false;
+  std::function<void(const std::string& stage, const std::string& subject)> on_stage;
+};
+Json migrate_selection_storage(const std::filesystem::path& dataset_folder, const SelectionStorageOptions& opt = {});
+
 }  // namespace nxr::io

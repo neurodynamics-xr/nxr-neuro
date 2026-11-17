@@ -210,6 +210,29 @@ void migrate_50_to_51(Database& d) {
   const auto ok = d.one("PRAGMA quick_check");
   if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after it was migrated from schema 50 to 51");
 }
+
+// SCHEMA 51 -> 52, in place: the table selection_factor (a product selection's factors, in order) and its index, the two attribute views made again (they name the schema
+// version), `user_version` 52. Additive: every row valid before stays valid and the arrays are untouched. The DATA of the selections made before (label arrays, the JSON
+// form of a set per element) is converted by `migrate_selection_storage` (migrate.h), an explicit step that sets meta `selection_storage`; a database migrated here but not
+// there is read by this build's selection store only after that step (it says so).
+void migrate_51_to_52(Database& d) {
+  const std::string model = model_sql();
+  const auto cut = [&](const std::string& from, const std::string& to) {
+    const auto a = model.find(from);
+    const auto b = a == std::string::npos ? a : model.find(to, a);
+    if (b == std::string::npos) throw Error(code::not_a_database, "model.sql: no `" + from + "` in the schema, so a database at 51 cannot be migrated");
+    return model.substr(a, b - a);
+  };
+  std::string tables = cut("CREATE TABLE selection_factor", "-- ── schema 52 (end)");
+  for (std::string::size_type at = 0; (at = tables.find("CREATE TABLE ", at)) != std::string::npos; at += 28) tables.replace(at, 13, "CREATE TABLE IF NOT EXISTS ");
+  for (std::string::size_type at = 0; (at = tables.find("CREATE INDEX ", at)) != std::string::npos; at += 28) tables.replace(at, 13, "CREATE INDEX IF NOT EXISTS ");
+  const std::string subject_view = cut("CREATE VIEW subject_attributes AS", ";\n") + ";\n";
+  const std::string dataset_view = cut("CREATE VIEW dataset_attributes AS", ";\n") + ";\n";
+  d.exec_script("BEGIN;\n" + tables + "DROP VIEW IF EXISTS subject_attributes;\n" + subject_view + "DROP VIEW IF EXISTS dataset_attributes;\n" + dataset_view +
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_migrated:51->52', '" + now_utc() + "');\nPRAGMA user_version = 52;\nCOMMIT;");
+  const auto ok = d.one("PRAGMA quick_check");
+  if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after it was migrated from schema 51 to 52");
+}
 }  // namespace
 
 Database Database::open(const fs::path& file, bool create, const std::string& built_by, bool read_only) {
@@ -240,18 +263,23 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
       exec(H(d.db_), "BEGIN;\n" + std::string(model_sql()) + "\nINSERT INTO meta (key, value) VALUES ('built_utc', '" + now_utc() +
                          "');\nINSERT INTO meta (key, value) VALUES ('built_by', '" + built_by + "');\n"
                          // the array store format of a dataset made now (additive: user_version unchanged): chunk key separator ".", large arrays sharded; every array's own zarr.json says which it has
-                         "INSERT INTO meta (key, value) VALUES ('store_format', '" + std::string(kStoreFormat51) + "');\nCOMMIT;");
+                         "INSERT INTO meta (key, value) VALUES ('store_format', '" + std::string(kStoreFormat51) + "');\n"
+                         // a dataset made now stores its selections in the member form (selection_store.h); one made before has the key only after `migrate_selection_storage`
+                         "INSERT INTO meta (key, value) VALUES ('selection_storage', '" + std::string(kSelectionStorage) + "');\nCOMMIT;");
       d.close();            // on exFAT the connection that grew the file reads it as read-only: reconnect
       d.db_ = connect();
     }
     const std::int64_t v = integer(*d.one("PRAGMA user_version"), "user_version");
     const int want = schema_version();
-    if (v == 50 && want == 51) {
-      // a database at 50 is a database at 51 without the additions: opened to write, it is migrated in place (additive); opened to read, it is read as it is
-      if (!read_only) migrate_50_to_51(d);
+    if ((v == 50 || v == 51) && want == 52) {
+      // a database at 50 or 51 is a database at 52 without the additions: opened to write, it is migrated in place (additive, step by step); opened to read, it is read as it is
+      if (!read_only) {
+        if (v == 50) migrate_50_to_51(d);
+        migrate_51_to_52(d);
+      }
     } else if (v != want) {
       const std::string how =
-          v == want - 2 ? "run `nxr migrate --dataset <dataset folder>` (49 to 50; this build then migrates 50 to 51 when it opens the dataset to write; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
+          v == 49 ? "run `nxr migrate --dataset <dataset folder>` (49 to 50; this build then migrates 50 to 52 when it opens the dataset to write; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
                         : "re-convert it from its source (D139/D144)";
       throw Error(code::schema_version, p + ": user_version " + std::to_string(v) + ", this build reads " + std::to_string(want) + " — " + how);
     }

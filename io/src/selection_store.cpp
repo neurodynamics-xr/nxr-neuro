@@ -8,6 +8,9 @@
 #include <map>
 #include <set>
 
+#include <cstring>
+
+#include "nxr/io/array_reader.h"
 #include "nxr/io/array_writer.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/errors.h"
@@ -70,7 +73,7 @@ void dictionary_of(SubjectWriter& sub, const Description& d, const Placement& at
 
 void params_of(SelectionSpec& s, const Json& params) { if (params.is_object()) s.cols.json("params_json", params); }
 
-// ── a set per element: its member numbers, and the labels carried per member ──────────────────────────────────────────────
+// ── a set per element: member numbers (the array), member labels and level arrays (siblings of it), one dictionary row per label ──────────────────────────────────
 // Each member's label, one per member (a description with none labels member i as i).
 std::vector<std::int64_t> labels_of(const Description& d) {
   if (!d.member_codes.empty() || d.member_of.empty()) return d.member_codes;
@@ -80,31 +83,42 @@ std::vector<std::int64_t> labels_of(const Description& d) {
   for (std::int64_t i = 0; i < n; ++i) out.push_back(i);
   return out;
 }
+bool is_identity(const std::vector<std::int64_t>& labels) {
+  for (std::size_t i = 0; i < labels.size(); ++i) if (labels[i] != static_cast<std::int64_t>(i)) return false;
+  return true;
+}
 
-// The dictionary of a set per element: ONE ENTRY PER MEMBER (code = the member number, ordinal = the number), its name and colour those of the member's label in
-// the lookup (the label itself when the lookup is empty or lacks it), the label kept in attributes_json {"label"}: two members may share a label.
-std::vector<DictionaryEntry> member_entries(const std::vector<std::int64_t>& labels, const Lookup& lookup) {
-  std::vector<DictionaryEntry> out;
-  for (std::size_t i = 0; i < labels.size(); ++i) {
-    DictionaryEntry e;
-    e.code = static_cast<std::int64_t>(i);
-    e.ordinal = e.code;
-    e.name = i2s(labels[i]);
-    for (const Entry& le : lookup) if (le.code == labels[i]) { if (!le.name.empty()) e.name = le.name; e.color = le.color; break; }
-    e.cols.set("attributes_json", jdump(Json{{"label", labels[i]}}));
-    out.push_back(std::move(e));
+// A whole stored array of any integer or float type, as 64-bit integers (member numbers, labels and parents are written as int32 / int64; a legacy label image may be narrower).
+std::vector<std::int64_t> read_ints(const Store& store, const std::string& path) {
+  ArrayReader ar = ArrayReader::open(store, path);
+  const auto raw = ar.read();
+  const DType t = ar.dtype();
+  const std::size_t n = raw.size() / dtype_size(t);
+  std::vector<std::int64_t> out(n);
+  for (std::size_t i = 0; i < n; ++i) {
+    const std::uint8_t* p = raw.data() + i * dtype_size(t);
+    switch (t) {
+      case DType::Int32: { std::int32_t v; std::memcpy(&v, p, 4); out[i] = v; break; }
+      case DType::Int64: { std::int64_t v; std::memcpy(&v, p, 8); out[i] = v; break; }
+      case DType::Int8: out[i] = static_cast<std::int8_t>(*p); break;
+      case DType::Int16: { std::int16_t v; std::memcpy(&v, p, 2); out[i] = v; break; }
+      case DType::UInt32: { std::uint32_t v; std::memcpy(&v, p, 4); out[i] = v; break; }
+      case DType::UInt8: out[i] = *p; break;
+      case DType::UInt16: { std::uint16_t v; std::memcpy(&v, p, 2); out[i] = v; break; }
+      case DType::Float32: { float v; std::memcpy(&v, p, 4); out[i] = static_cast<std::int64_t>(v); break; }
+      case DType::Float64: { double v; std::memcpy(&v, p, 8); out[i] = static_cast<std::int64_t>(v); break; }
+      default: refuse(path + ": its array's type is not an integer or float");
+    }
   }
   return out;
 }
 
-Json level_json(const Description& lv) {
-  Json j{{"level", lv.level}, {"member_codes", lv.member_codes}, {"parent", lv.parent}};
-  if (lv.code) j["code"] = *lv.code;
-  if (lv.band) { j["band"] = Json::array({lv.band->first, lv.band->second}); j["band_unit"] = lv.band_unit; }
-  return j;
+// the database says whether its selections are stored in the member form (meta selection_storage, kSelectionStorage); a dataset from before is converted by migrate_selection_storage
+void require_member_storage(const Database& db) {
+  const auto r = db.one("SELECT value FROM meta WHERE key = 'selection_storage'");
+  if (!r || text(*r, "value") != kSelectionStorage)
+    throw Error(code::schema_version, "this dataset stores its selections in the form before member numbers: convert it first (migrate_selection_storage, `nxr-neuro package migrate-selections --dataset <folder>`)");
 }
-
-bool is_member_level(const Description& m) { return m.type == Type::set && m.level >= 0 && !m.tiling; }
 
 Json tiling_json(const Tiling& t) { return Json{{"origin", t.origin}, {"width", t.width}, {"hop", t.hop}, {"count", t.count}}; }
 
@@ -191,7 +205,99 @@ Saved save_ladder(SubjectWriter& sub, const Description& d, const Placement& at)
   return out;
 }
 
+
+// the dictionary of a set per element: the lookup's entries, ONE ROW PER LABEL (none when the lookup is empty: the labels are their own names); a dictionary row always exists
+// (a partition's row needs one)
+std::string dictionary_of_labels(SubjectWriter& sub, const Description& d, const Placement& at, SelectionSpec& s) {
+  if (at.dictionary_id) return *at.dictionary_id;   // the caller's (an app vocabulary shared by name): its entries are not rewritten
+  DictionarySpec ds;
+  ds.name = at.name;
+  ds.description = "the labels of '" + at.name + "': one entry per label (code = the label; the members' labels are the array beside the element array)";
+  std::vector<DictionaryEntry> entries;
+  std::int64_t k = 0;
+  for (const Entry& e : d.lookup) {
+    DictionaryEntry de;
+    de.code = e.code;
+    de.name = e.name;
+    de.ordinal = k++;
+    de.color = e.color;
+    entries.push_back(std::move(de));
+  }
+  ds.entries = std::move(entries);
+  const std::string id = sub.dictionary(ds).id;
+  s.cols.set("dictionary_id", id);
+  return id;
+}
+
+Saved save_per_element(SubjectWriter& sub, const Description& d, const Placement& at) {
+  if (!at.path) refuse("selection " + at.name + ": a set per element is stored as an array: give its path");
+  const std::vector<std::int64_t> labels = labels_of(d);
+  const std::int64_t n = static_cast<std::int64_t>(labels.size());
+  for (const std::int32_t m : d.member_of)
+    if (m < -1 || m >= n) refuse("selection " + at.name + ": member number " + i2s(m) + " outside 0.." + i2s(n - 1));
+  // a GRID's levels (dyadic tiles, a constant-Q ladder) are a closed-form rule, never member rows or parent arrays: the caller names the rule in `params` (Placement::params "grid")
+  if (!d.members.empty()) refuse("selection " + at.name + ": a set per element has no levels stored (a grid's hierarchy is a rule, kept in its parameters: Placement::params \"grid\")");
+  // the labels, beside the element array (written first: a failure leaves an array no row names, which a later save of the same path replaces)
+  if (!is_identity(labels)) sub.write_array(member_labels_path(*at.path), view(labels, {n}));
+  std::vector<std::int32_t> numbers = d.member_of;   // kept alive until the node is written
+  SelectionSpec s = base(d, at, "set", "0");
+  s.data = view(numbers, {static_cast<std::int64_t>(numbers.size())});
+  Saved out;
+  out.dictionary_id = dictionary_of_labels(sub, d, at, s);
+  params_of(s, at.params);
+  out.id = sub.selection(std::move(s));
+  sub.update([&] { sub.db().execute("UPDATE selection SET n_members = ? WHERE id = ?", {V(n), V(out.id)}); });   // the members, empty ones too (the row counted the distinct numbers)
+  return out;
+}
+
+// A product: a `set` row with nothing stored per member; its factors are named, in order, in `selection_factor`; its member count the product of theirs.
+Saved save_product(SubjectWriter& sub, const Description& d, const Placement& at) {
+  if (at.factor_ids.size() != d.factors.size() || d.factors.size() < 2) refuse("selection " + at.name + ": a product has two or more factors, each named by its stored selection (Placement::factor_ids)");
+  std::int64_t members = 1;
+  std::string cell;
+  for (std::size_t k = 0; k < at.factor_ids.size(); ++k) {
+    const auto f = sub.db().read("selection", at.factor_ids[k]);
+    if (!f) refuse("selection " + at.name + ": factor " + at.factor_ids[k] + " has no row");
+    members *= is_null(*f, "n_members") || text(*f, "type") != "set" ? 1 : std::max<std::int64_t>(0, integer(*f, "n_members"));   // a factor that is not a set is one member
+    cell += (k ? "," : "") + text(*f, "cell");
+  }
+  Saved out;
+  SelectionSpec s = base(d, at, "set", cell.c_str());
+  s.no_elements = true;
+  s.cols.set("n_members", members);
+  params_of(s, at.params);
+  out.id = sub.selection(std::move(s));
+  sub.update([&] {
+    for (std::size_t k = 0; k < at.factor_ids.size(); ++k)
+      sub.db().insert("selection_factor", {{"selection_id", out.id}, {"ordinal", V(static_cast<std::int64_t>(k))}, {"factor_selection_id", at.factor_ids[k]}});
+  });
+  return out;
+}
+
 }  // namespace
+
+// ── the arrays beside a set per element's element array ──────────────────────────────────────────────────────────
+std::string member_labels_path(const std::string& array_path) { return array_path + ".labels"; }
+
+MemberNumbering number_labels(const std::vector<std::int32_t>& element_labels) {
+  std::map<std::int32_t, std::int32_t> number;
+  for (const std::int32_t c : element_labels) if (c >= 0) number.emplace(c, 0);
+  MemberNumbering out;
+  for (auto& [label, m] : number) { m = static_cast<std::int32_t>(out.member_codes.size()); out.member_codes.push_back(label); }
+  out.member_of.reserve(element_labels.size());
+  for (const std::int32_t c : element_labels) out.member_of.push_back(c >= 0 ? number[c] : -1);
+  return out;
+}
+
+Description set_from_labels(const std::vector<std::int32_t>& element_labels, Lookup lookup) {
+  MemberNumbering n = number_labels(element_labels);
+  Description d;
+  d.type = Type::set;
+  d.member_of = std::move(n.member_of);
+  d.member_codes = std::move(n.member_codes);
+  d.lookup = std::move(lookup);
+  return d;
+}
 
 // ── rows ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 void insert_row(Database& db, const Row& row, std::optional<std::int64_t> n_elements, std::optional<std::int64_t> n_members, const std::optional<std::vector<SpanSpec>>& spans,
@@ -333,37 +439,8 @@ Saved save(SubjectWriter& sub, const Description& d, const Placement& at) {
     out.id = sub.selection(std::move(s));
     return out;
   }
-  if (!d.member_of.empty()) {   // a set per element: the member numbers are the array, one dictionary entry per member carries its label
-    if (!at.path) refuse("selection " + at.name + ": a set per element is stored as an array: give its path");
-    const std::vector<std::int64_t> labels = labels_of(d);
-    for (const std::int32_t m : d.member_of)
-      if (m < -1 || m >= static_cast<std::int64_t>(labels.size())) refuse("selection " + at.name + ": member number " + i2s(m) + " outside 0.." + i2s(static_cast<std::int64_t>(labels.size()) - 1));
-    std::vector<std::int32_t> numbers = d.member_of;   // kept alive until the node is written
-    SelectionSpec s = base(d, at, "set", "0");
-    s.data = view(numbers, {static_cast<std::int64_t>(numbers.size())});
-    if (at.dictionary_id) {
-      out.dictionary_id = at.dictionary_id;
-    } else {
-      DictionarySpec ds;
-      ds.name = at.name;
-      ds.description = "the members of '" + at.name + "': code = the member number; the name and colour are those of the member's label (attributes_json label)";
-      ds.entries = member_entries(labels, d.lookup);
-      out.dictionary_id = sub.dictionary(ds).id;
-      s.cols.set("dictionary_id", *out.dictionary_id);
-    }
-    Json params = at.params.is_object() ? at.params : Json::object();
-    params["member_numbered"] = 1;
-    if (!d.members.empty() && every(d.members, is_member_level)) {   // the levels: each its labels and parent map (member j of a level -> its member in the level above)
-      Json levels = Json::array();
-      for (const Description& lv : d.members) levels.push_back(level_json(lv));
-      params["levels"] = levels;
-    }
-    params_of(s, params);
-    out.id = sub.selection(std::move(s));
-    const std::int64_t n = static_cast<std::int64_t>(labels.size());
-    sub.update([&] { sub.db().execute("UPDATE selection SET n_members = ? WHERE id = ?", {V(n), V(out.id)}); });   // the members, empty ones too (the row counted the distinct numbers)
-    return out;
-  }
+  if (!d.factors.empty()) return save_product(sub, d, at);
+  if (!d.member_of.empty()) return save_per_element(sub, d, at);
   if (d.members.empty() && at.n_members) {   // a set by a rule with nothing stored
     SelectionSpec s = base(d, at, "set", "0");
     s.no_elements = true;
@@ -443,44 +520,19 @@ Description describe(const Database& db, const Store& store, const records::Sele
     }
   } else if (t == "set" || t == "ladder") {
     d.type = Type::set;
-    if (row.array_path) {
-      d.member_of = e.elements();
-      const bool numbered = p.is_object() && p.value("member_numbered", 0) != 0;
-      if (numbered && row.dictionary_id) {   // member numbers, one dictionary entry per member: its label in attributes_json
-        Lookup names;
-        std::set<std::int64_t> seen;
-        for (const Row& r : db.all("SELECT * FROM dictionary_entry WHERE dictionary_id = ? ORDER BY code", {V(*row.dictionary_id)})) {
-          const auto en = records::DictionaryEntryRow::from_row(r);
-          const std::int64_t label = en.attributes_json.is_object() && en.attributes_json.contains("label") ? en.attributes_json["label"].get<std::int64_t>() : en.code;
-          d.member_codes.push_back(label);
-          if (!seen.insert(label).second) continue;   // a label shared by two members is one lookup entry
-          Entry x;
-          x.code = label;
-          x.name = en.name;
-          if (en.color_json.is_array() && en.color_json.size() >= 3) x.color = std::array<int, 3>{en.color_json[0].get<int>(), en.color_json[1].get<int>(), en.color_json[2].get<int>()};
-          names.push_back(std::move(x));
-        }
-        const bool own_names = std::all_of(names.begin(), names.end(), [](const Entry& x) { return !x.color && x.name == i2s(x.code); });
-        if (!own_names) d.lookup = std::move(names);   // an empty lookup: the labels are their own names
-        if (p.contains("levels") && p["levels"].is_array()) {
-          for (const Json& lj : p["levels"]) {
-            Description lv;
-            lv.type = Type::set;
-            lv.level = lj.value("level", -1);
-            if (lj.contains("code") && lj["code"].is_number()) lv.code = lj["code"].get<std::int64_t>();
-            if (lj.contains("member_codes")) lv.member_codes = lj["member_codes"].get<std::vector<std::int64_t>>();
-            if (lj.contains("parent")) lv.parent = lj["parent"].get<std::vector<std::int32_t>>();
-            if (lj.contains("band") && lj["band"].is_array() && lj["band"].size() == 2) { lv.band = std::make_pair(lj["band"][0].get<double>(), lj["band"][1].get<double>()); lv.band_unit = lj.value("band_unit", std::string()); }
-            d.members.push_back(std::move(lv));
-          }
-        }
-        return d;
+    const auto factors = db.all("SELECT factor_selection_id FROM selection_factor WHERE selection_id = ? ORDER BY ordinal", {V(row.id)});
+    if (!factors.empty()) {   // a product: its factors, each a stored selection
+      require_member_storage(db);
+      for (const Row& f : factors) {
+        const auto fr = records::Selections(db).read(text(f, "factor_selection_id"));
+        if (!fr) throw Error(code::no_such_row, "selection " + row.name + ": a factor has no row");
+        d.factors.push_back(describe(db, store, *fr));
       }
-      // a LEGACY array holds a LABEL per element (an imported atlas): mapped to member numbers once, ascending labels (`from_labels`'s rule); the dictionary is the lookup
-      std::map<std::int32_t, std::int32_t> number;
-      for (const std::int32_t c : d.member_of) if (c >= 0) number.emplace(c, 0);
-      for (auto& [label, m] : number) { m = static_cast<std::int32_t>(d.member_codes.size()); d.member_codes.push_back(label); }
-      for (std::int32_t& c : d.member_of) if (c >= 0) c = number[c];
+    } else if (row.array_path) {   // a set per element: member numbers; the labels and the levels beside them
+      require_member_storage(db);
+      d.member_of = e.elements();
+      const std::string labels = member_labels_path(*row.array_path);
+      if (store.exists_prefix(labels)) d.member_codes = read_ints(store, labels);   // absent: member i is labelled i
     } else {
       for (const auto& m : e.members()) d.members.push_back(describe(db, store, m));
     }
@@ -587,36 +639,26 @@ void update(SubjectWriter& sub, const std::string& id, const Description& d) {
         for (const Description& m : d.members) rows.push_back(SpanSpec{m.extents[0].start, m.extents[0].stop, m.code});
         replace_spans(db, id, rows);
       }
-    } else {   // set per element: the member numbers, a dictionary entry per member, the levels
+    } else {   // set per element: the member numbers and the labels beside them (the dictionary follows, below)
       if (!row->array_path) refuse("selection " + row->name + ": a set with no array and no members has nothing to update");
+      if (!d.factors.empty()) refuse("selection " + row->name + ": a product's factors are not updated (remove it and save it again)");
       const std::vector<std::int64_t> labels = labels_of(d);
+      const std::int64_t n = static_cast<std::int64_t>(labels.size());
       for (const std::int32_t m : array)
-        if (m < -1 || m >= static_cast<std::int64_t>(labels.size())) refuse("selection " + row->name + ": member number " + i2s(m) + " outside 0.." + i2s(static_cast<std::int64_t>(labels.size()) - 1));
+        if (m < -1 || m >= n) refuse("selection " + row->name + ": member number " + i2s(m) + " outside 0.." + i2s(n - 1));
       sub.write_array(*row->array_path, view(array, {static_cast<std::int64_t>(array.size())}));
-      db.execute("UPDATE selection SET n_elements = ?, n_members = ? WHERE id = ?", {V(static_cast<std::int64_t>(array.size())), V(static_cast<std::int64_t>(labels.size())), V(id)});
-      if (row->dictionary_id) {
-        db.execute("DELETE FROM dictionary_entry WHERE dictionary_id = ?", {V(*row->dictionary_id)});
-        for (const DictionaryEntry& e : member_entries(labels, d.lookup)) {
-          Row er = {{"dictionary_id", *row->dictionary_id}, {"code", V(e.code)}, {"name", e.name}, {"ordinal", V(*e.ordinal)}, {"attributes_json", jdump(Json{{"label", labels[static_cast<std::size_t>(e.code)]}})}};
-          if (e.color) er["color_json"] = jdump(color_json(e.color));
-          db.insert("dictionary_entry", er);
-        }
-      }
-      Json p = row->params_json.is_object() ? row->params_json : Json::object();
-      p["member_numbered"] = 1;
-      p.erase("levels");
-      if (!d.members.empty() && every(d.members, is_member_level)) {
-        Json levels = Json::array();
-        for (const Description& lv : d.members) levels.push_back(level_json(lv));
-        p["levels"] = levels;
-      }
-      db.execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(p)), V(id)});
+      const std::string lp = member_labels_path(*row->array_path);
+      if (is_identity(labels)) sub.store().erase_prefix(lp);   // member i is labelled i: nothing beside the element array
+      else sub.write_array(lp, view(labels, {n}));
+      db.execute("UPDATE selection SET n_elements = ?, n_members = ? WHERE id = ?", {V(static_cast<std::int64_t>(array.size())), V(n), V(id)});
     }
     if (d.code) db.execute("UPDATE selection SET code = ? WHERE id = ?", {V(*d.code), V(id)});
     if (!d.unit.empty()) db.execute("UPDATE selection SET unit = ? WHERE id = ?", {V(d.unit), V(id)});
     db.execute("UPDATE selection SET modified_utc = ? WHERE id = ?", {V(stamp), V(id)});
   });
-  if (!d.lookup.empty() && !(t == "set" && !d.member_of.empty())) {   // a set per element's dictionary was rewritten, per member, above
+  if (t == "set" && !d.member_of.empty()) {   // a set per element: its dictionary is exactly the description's lookup (one row per label; none: the labels are their own names)
+    if (row->dictionary_id) update_lookup(sub, *row->dictionary_id, d.lookup);
+  } else if (!d.lookup.empty()) {
     if (row->dictionary_id) update_lookup(sub, *row->dictionary_id, d.lookup);
     else {
       const std::string did = save_lookup(sub, row->name, d.lookup);
@@ -684,6 +726,9 @@ std::vector<std::pair<std::string, std::string>> named_paths_of(const Database& 
   for (const char* col : {"path", "array_path"})
     for (const Row& r : db.all(std::string("SELECT id, ") + col + " AS p FROM selection WHERE subject_id = ?", {V(subject_id)}))
       if (!is_null(r, "p")) out.emplace_back(text(r, "id"), text(r, "p"));
+  // the array beside a set per element's element array: its members' labels (named whether or not the set has labels: nothing exists at an unused name)
+  for (const Row& r : db.all("SELECT id, array_path AS p FROM selection WHERE subject_id = ? AND type = 'set' AND array_path IS NOT NULL", {V(subject_id)}))
+    out.emplace_back(text(r, "id"), member_labels_path(text(r, "p")));
   return out;
 }
 
@@ -705,6 +750,48 @@ std::vector<Row> subject_extent_rows(const Database& db, const std::string& subj
 
 std::vector<Row> subject_span_rows(const Database& db, const std::string& subject_id) {
   return db.all("SELECT p.* FROM selection_span p JOIN selection s ON s.id = p.selection_id WHERE s.subject_id = ? ORDER BY p.selection_id, p.ordinal", {V(subject_id)});
+}
+
+std::vector<Row> subject_factor_rows(const Database& db, const std::string& subject_id) {
+  return db.all("SELECT f.* FROM selection_factor f JOIN selection s ON s.id = f.selection_id WHERE s.subject_id = ? ORDER BY f.selection_id, f.ordinal", {V(subject_id)});
+}
+
+// ── the app-wide vocabularies ────────────────────────────────────────────────────────────────────────────────────
+std::string ensure_app_lookup(Database& db, const AppLookup& spec) {
+  const auto write_entries = [&](const std::string& id) {
+    db.execute("DELETE FROM dictionary_entry WHERE dictionary_id = ?", {V(id)});
+    std::int64_t k = 0;
+    for (const AppEntry& e : spec.entries) {
+      Row r = {{"dictionary_id", id}, {"code", V(e.code)}, {"name", e.name}, {"ordinal", V(e.ordinal.value_or(k))}};
+      ++k;
+      if (e.color) r["color_json"] = jdump(color_json(e.color));
+      if (e.measurement) r["measurement"] = *e.measurement;
+      if (!e.measurement_unit.empty()) r["measurement_unit"] = e.measurement_unit;
+      if (!e.function.empty()) r["function"] = e.function;
+      if (!e.params.is_null()) r["params_json"] = jdump(e.params);
+      if (!e.attributes.is_null()) r["attributes_json"] = jdump(e.attributes);
+      db.insert("dictionary_entry", r);
+    }
+  };
+  if (const auto have = db.one("SELECT * FROM dictionary WHERE scope = ? AND name = ?", {V(spec.scope), V(spec.name)})) {
+    const std::string id = text(*have, "id");
+    if (spec.refresh_when_incomplete) {
+      std::set<std::string> known;
+      for (const Row& e : db.all("SELECT name FROM dictionary_entry WHERE dictionary_id = ?", {V(id)})) known.insert(text(e, "name"));
+      bool missing = false;
+      for (const AppEntry& e : spec.entries) if (!known.count(e.name)) missing = true;
+      if (missing) db.tx([&] { write_entries(id); });
+    }
+    return id;
+  }
+  const std::string id = uuid7();
+  db.tx([&] {
+    Row r = {{"id", id}, {"name", spec.name}, {"scope", spec.scope}, {"description", spec.description}};
+    if (spec.by) r["created_by"] = r["modified_by"] = *spec.by;
+    db.insert("dictionary", r);
+    write_entries(id);
+  });
+  return id;
 }
 
 namespace {

@@ -508,14 +508,13 @@ CREATE TABLE dictionary_entry (
 --                  when they mean something (a level's tile dictionary, D83).
 --   indices        a subset: the picked elements (`selection_element` with a null code)
 --   kernel         a rule: `weight_fn` + `params_json` at the values in use
---   set            a GROUP of Selections. Either its members are ROWS (`member_of_id` +
---                  `member_ordinal`, written by the member as `memberOf` + `ordinal`: the
---                  montage families, the parcellations of a surface, a set of ROIs), or it is a
---                  PARTITION stored as one array — an integer code per element (`array_path` +
---                  `dictionary_id`; the codes as `selection_element` rows when the manifold is
---                  points or a surface, the array alone for a lattice image or volume, D32):
---                  a parcellation, the channel names, a recording's flags. Its members are
---                  "the elements whose code is k", derivable, never rows (D48).
+--   set            a GROUP of Selections (members: docs/specs/2026-11-17-selection-module.md, section 0). Its members are ROWS (`member_of_id` +
+--                  `member_ordinal`: the montage families, the parcellations of a surface, a set of ROIs, the LEVELS of a set per element), or it is a
+--                  PARTITION stored as arrays: `array_path` holds the MEMBER NUMBER of each element (dense 0 .. n_members - 1, -1 in none), `P.labels`
+--                  (P = array_path) each member's label, a code of `dictionary_id` (absent when member i is labelled i). The dictionary has ONE ROW
+--                  PER LABEL, never per member. A GRID's levels are a closed-form rule (`params_json.grid`), never rows or parent arrays.
+--                  Or it is a PRODUCT of other selections (`selection_factor`), nothing stored per member. A parcellation, the channel names, a
+--                  recording's flags are sets per element. A member's number is its identity; its label is its code (two members may share one).
 -- EVERY selection is a set of CELLS of one kind — vertices by default (`cell`, D92); two things
 -- may be said OF one (D48):
 --   `code`         an integer that groups it — an event's type, a chunk's index, a tile's label,
@@ -548,7 +547,7 @@ CREATE TABLE selection (
   code            INTEGER,               -- what this selection IS, as an integer (D48) — read with dictionary_id
   dictionary_id   TEXT REFERENCES dictionary (id) ON DELETE RESTRICT,  -- the dictionary its code (or a partition's codes) is read with
   n_elements      INTEGER,               -- elements it covers: picked (indices) or labelled (a partition)
-  n_members       INTEGER,               -- a set's members: rows, or a partition's distinct codes; a spans set's intervals
+  n_members       INTEGER,               -- a set's members: rows, a partition's members (empty ones too), the product of a product's factors; a spans set's intervals
   array_path      TEXT,                  -- the stored per-element values (codes · indices); null for a rule
   center          INTEGER,               -- point · distance: the centre ELEMENT of the manifold
   position        REAL,                  -- a point on a SPACE: its coordinate, in `coordinate_system_id` (D95)
@@ -1240,6 +1239,25 @@ CREATE TABLE template_reference (
 ) STRICT;
 -- ── schema 51 (end) ──
 
+-- ── schema 52 (begin: Database::open runs this block on a database at 51, in place) ───────────────────────────────────────────────────────────
+-- A PRODUCT selection (docs/specs/2026-11-17-selection-module.md, section 9) is a `set` whose members are the tuples of the members of its FACTORS, numbered row-major (the
+-- last factor fastest). The factors are stored selections in their own right, on their own manifolds; the product names them, in order, here (the shape of `operator_factor`).
+-- The product's row: type 'set', `manifold_id` the product manifold, `cell` one rank per factor, `n_members` the product of the factors' member counts, no array and no
+-- dictionary (the factors carry theirs). A measurement on a product has `code` = the member's ordinal (row-major).
+-- What a set per element keeps beside its element array is a CONVENTION, not a column (selection above): sibling arrays of the element array at `array_path` P, written
+-- by io's selection store: `P.labels` (each member's label, a dictionary code: absent when member i is labelled i). A grid's levels are
+-- a closed-form rule (`params_json.grid`), never rows or parent arrays.
+-- The data conversion of a database made before (label arrays, the JSON form of 2026-11-17) is `migrate_selection_storage` (io/migrate.h), meta `selection_storage`.
+CREATE TABLE selection_factor (
+  selection_id        TEXT NOT NULL REFERENCES selection (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+  ordinal             INTEGER NOT NULL,
+  factor_selection_id TEXT NOT NULL REFERENCES selection (id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+  PRIMARY KEY (selection_id, ordinal),
+  CHECK (factor_selection_id <> selection_id)
+) STRICT;
+CREATE INDEX selection_factor_factor ON selection_factor (factor_selection_id);
+-- ── schema 52 (end) ──
+
 -- ── BEGIN GENERATED: the attribute views (backend/scripts/gen-attribute-views.mjs) — do not edit ──
 -- One view per node table: its zarr.json attributes as TEXT (D145). Every writer writes zarr.json from these, in any language.
 CREATE VIEW manifold_attributes AS
@@ -1275,12 +1293,12 @@ SELECT o.id, json_object('class', 'operator', 'id', o.id, 'status', o.status, 's
 ) AS attributes FROM operator o;
 
 CREATE VIEW subject_attributes AS
-SELECT s.id, json_object('class', 'subject', 'schema_version', 51, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
+SELECT s.id, json_object('class', 'subject', 'schema_version', 52, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
   'rows_without_path', json_object('manifold', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM manifold r JOIN manifold_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'selection', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM selection r JOIN selection_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'field', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM field r JOIN field_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'operator', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM operator r JOIN operator_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL)),
   'acquisitions', (SELECT json_group_array(json_object('id', a.id, 'label', a.label, 'ses', a.ses, 'task', a.task, 'run', a.run, 'acq', a.acq, 'proc', a.proc, 'split', a.split) ORDER BY a.label) FROM acquisition a WHERE a.subject_id = s.id)
 ) AS attributes FROM subject s;
 
 CREATE VIEW dataset_attributes AS
-SELECT d.id, json_object('class', 'dataset', 'schema_version', 51, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
+SELECT d.id, json_object('class', 'dataset', 'schema_version', 52, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
 -- ── END GENERATED: the attribute views ──
-PRAGMA user_version = 51;
+PRAGMA user_version = 52;
