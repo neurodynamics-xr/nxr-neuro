@@ -77,6 +77,7 @@ struct Tree {
     std::vector<int32_t> codes;         // [nVertices] the tile code of every vertex (h 2^D + t): the dyadic grid's member number (partition.h `dyadic`); level l's is code >> (D - l)
     std::vector<std::pair<int, int>> runs;   // (start, length) of every connected piece
     std::vector<double> pieceArea;
+    std::vector<double> diameter;       // [depth + 1] the MEASURED mean tile diameter at each level (the mesh's unit; the mean over the pieces of the ladder's `diameter`); empty for a group tree
     int nLeaves() const { return slots << depth; }
     int nodes(int level) const { return slots << level; }
     /** the node of every vertex at `level` <= depth: code >> (depth - level) */

@@ -384,6 +384,11 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
       const auto x = use.in.find("x");
       if (x != use.in.end() && x->second.cls == PortClass::field && sg.reduces.empty())
         u.fail("x", "a field is measured before it is summarized (the cardinal rule: a reduction is a measurement over a partition): measure it over a partition, then summarize the members.");
+      if (sg.rolls_up)                                            // the move is a roll-up through a grid's hierarchy: refused over an irregular selection's members (the family mark), by the move, not by a parameter's name
+        for (const auto& [port, t] : use.in)
+          for (const ManifoldRef& f : t.domain.factors)
+            if (f && f->form == Manifold::Form::members && f->irregular)
+              u.fail(port, "a level roll-up needs a grid: " + print(f) + " is the member set of an irregular selection, which has no levels. Summarise across its members (a `summary` statistic), or measure over a grid and roll that up.");
       break;
     }
     case Move::make:

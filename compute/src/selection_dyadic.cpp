@@ -321,6 +321,11 @@ Tree subjectTree(const double* positions, int nV, const int32_t* faces, int nF, 
     if (d < 0 || d > t.finest) throw std::invalid_argument("tree: depth " + std::to_string(d) + " outside 0.." + std::to_string(t.finest) + " (the finest level every piece reaches)");
     t.depth = d;
     t.slots = std::max<int>(2, static_cast<int>(t.runs.size()));
+    t.diameter.assign(static_cast<size_t>(d) + 1, 0.0);
+    for (int l = 0; l <= d; ++l) {                                      // the measured tile diameter of level l: the mean over the pieces
+        for (const auto& lad : ladders) t.diameter[static_cast<size_t>(l)] += lad.levels[static_cast<size_t>(l)].diameter;
+        t.diameter[static_cast<size_t>(l)] /= static_cast<double>(ladders.size());
+    }
     t.codes.assign(static_cast<size_t>(nV), -1);
     for (size_t h = 0; h < t.runs.size(); ++h)
         for (int i = 0; i < t.runs[h].second; ++i) t.codes[static_cast<size_t>(t.runs[h].first + i)] = static_cast<int32_t>(h * (static_cast<size_t>(1) << d)) + ladders[h].labels[static_cast<size_t>(d)][static_cast<size_t>(i)];

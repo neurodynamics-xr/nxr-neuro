@@ -384,8 +384,8 @@ Selections on a product manifold stay within the five types:
   irregular set per element) on the product manifold's cells, numbered as the field's array is; `Elements` when they overlap. Their grid address, on request,
   is the cell holding the centre at the level the extent sets (`address_on_line`, `dyadic_address`).
 - **Irregular members** (centre + extent) are found from the grid: a time member's level is `natural_level(extent)` and its cell the tile holding its centre
-  sample (the Studio's `supportOf`); a cortical member's level is Rheome's `jointcell` rule, `cortical_level_of_extent(sigma, A, D)` (the COARSEST level whose tile, a disc of the
-  tile's area, is at most `tile_sigma` × sigma; a refusal with the reason when none is fine enough) and its cell the tile holding its centre vertex.
+  sample (the Studio's `supportOf`); a cortical member's level is Rheome's `jointcell` rule, `cortical_level_of_extent(sigma, diameters)` (the COARSEST level whose MEASURED tile diameter, the ladder's,
+  is at most `tile_sigma` × sigma; a refusal with the reason when none is fine enough) and its cell the tile holding its centre vertex.
 
 Examples (compute):
 

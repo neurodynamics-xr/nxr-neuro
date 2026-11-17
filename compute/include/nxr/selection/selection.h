@@ -81,6 +81,8 @@ struct Grid {
   std::int64_t size = 0;                    // elements: the manifold's elements
   int depth = 0;                            // dyadic: the level its `member_of` codes are at (the finest, for the whole grid)
   std::int64_t slots = 0;                   // dyadic: the piece slots the codes reserve (h in 0 .. slots - 1): level l has slots << l members
+  int finest = -1;                          // dyadic: the deepest level every piece reaches (>= depth; -1 unknown); a transfer carries the template's
+  std::optional<double> match_median, match_max;   // dyadic made by transfer: the median and the maximum chord distance (unit sphere) from a vertex to the template vertex it took
 };
 
 struct Selection {
@@ -105,6 +107,7 @@ struct Selection {
   std::vector<std::int64_t> radices;        // a product: each factor's radix, fixed when it is made (its member count; a joint's time factor: the next power of two)
   std::optional<Grid> grid;                 // a grid that is not a tiling: its closed form
   int level = -1;                           // a level: its label, a power of two (tiles of 2^level samples; 2^level tiles a piece)
+  std::optional<double> diameter;          // a dyadic level: the MEASURED mean tile diameter (the surface's `unit`), as the surface ladder's `diameter` (the Studio's engine/ladder.ts)
   std::optional<std::pair<double, double>> band;   // a level: the band of the spectrum it resolves, in `band_unit` (Hz; 1/unit^2)
   std::string band_unit;
   Lookup lookup;                            // a set: what its members' labels mean

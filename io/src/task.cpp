@@ -526,9 +526,9 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
   if (!r) return {};
   if (!replace) throw Error(code::already_exists, sub.name() + ": " + what + " (" + path + ") already exists (made by another job); pass --replace");
   std::string moved;
-  const std::string loc = cls == Cls::selection ? opt_text(*r, "array_path").value_or("") : opt_text(*r, "path").value_or("");
-  if (!loc.empty() && sub.store().exists_prefix(loc)) {
-    // a folder of its own for each replacement of the same node the same day (`_replaced-<date>`, then `-2`, `-3`, …): never over what an earlier one moved
+  // a node's folder moved aside, never deleted: a folder of its own for each replacement of the same node the same day (`_replaced-<date>`, then `-2`, `-3`, …): never over what an earlier one moved
+  const auto move_aside = [&](const std::string& loc) {
+    if (loc.empty() || !sub.store().exists_prefix(loc)) return;
     DatasetWriter& ds = sub.dataset();
     const std::string date = now_utc(false).substr(0, 10);
     auto aside = [&](int n) -> std::pair<std::string, std::string> {
@@ -542,16 +542,19 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
     while (ds.node_store().exists_prefix(join_key(a.first, loc))) a = aside(++n);
     sub.datastore().rename_prefix(join_key(sub.prefix(), loc), join_key(a.first, loc));
     moved = a.second;
-  }
+  };
+  move_aside(cls == Cls::selection ? opt_text(*r, "array_path").value_or("") : opt_text(*r, "path").value_or(""));
   if (cls == Cls::selection && text(*r, "type") == "ladder") {
-    // a grid's ladder: its level rows and their nodes (areas, centres, adjacency) go with it, as they were written together (a constant-Q ladder's levels hold no node)
+    // a grid's ladder: its level rows go with it, and their arrays and nodes (tile codes, areas, centres, adjacency), as they were written together, are MOVED ASIDE with it (--replace
+    // never deletes; a constant-Q ladder's levels hold no node)
     std::set<std::string> nodes;
     for (const Row& m : selection::member_rows(sub.db(), text(*r, "id"), false)) {
       const Json p = Json::parse(opt_text(m, "params_json").value_or("{}"), nullptr, false);
       if (p.is_object() && p.contains("node") && p["node"].is_string()) nodes.insert(p["node"].get<std::string>());
+      move_aside(opt_text(m, "array_path").value_or(""));
       sub.remove("selection", text(m, "id"));
     }
-    for (const std::string& n : nodes) sub.store().erase_prefix(n);
+    for (const std::string& n : nodes) move_aside(n);
   }
   sub.remove(to_string(cls), text(*r, "id"));
   return moved;

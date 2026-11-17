@@ -5,7 +5,7 @@
 //   rotary.pair        chunk       x + a stored [2 x C] operator (its rows a_x, a_y)  ->  z = a_x.X + i a_y.X, one complex series (pointwise, a linear map)
 //   fft.spectrum       chunk       x -> the block's one-sided spectrum, complex channels x bins (axis block)
 //   select.bands            accumulate  the recording's rate + bands (Hz) -> the named band set (spans on the frequency line)
-//   measure.band_amplitude  accumulate  the recording + one band -> the band's time grid and the mean |X| per channel per tile
+//   measure.band_amplitude  accumulate  the recording + the band set (select.bands's output, an edge) and one of its members -> the band's time grid and the mean |X| per channel per tile
 //   welch.complex_psd  accumulate  z  ->  psd [1 x n], TWO-SIDED on the signed frequency line (+f: the pair turning from x towards y)
 //
 // A node describes what its values ARE (`Array::meta["describe"]`: measure, method, axes with the frequency line, the segment tiling, the scaling record, the unit, the options it
@@ -1152,9 +1152,13 @@ ng::NodeSpec select_bands() {
   n.description = "the named band set: a selection of spans in Hz made from the parameters before anything is measured; a band's time grid and its amplitude are the measurement's";
   n.plan = [](const ng::Types& in, const Json& p) {
     if (!in.count("x") || !in.at("x").sfreq || !(*in.at("x").sfreq > 0)) ng::refuse("select.bands: x is the recording (a series with a sampling rate)");
-    bands_of(p, "select.bands");
     ng::Planned out;
     for (const char* k : {"freq", "bands"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = std::string(k) == "freq" ? "manifold" : "selection"; out.out[k] = t; }
+    // the set travels on the edge as its TYPE (a selection made from parameters alone: nothing to wait for): the members the next node reads, in code order
+    Json members = Json::array();
+    std::int64_t code = 0;
+    for (const auto& [name, band] : bands_of(p, "select.bands")) members.push_back(Json{{"code", code++}, {"name", name}, {"lo", band.first}, {"hi", band.second}});
+    out.out["bands"].facts["set"] = Json{{"type", "spans"}, {"unit", "Hz"}, {"members", members}};
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays&, const Json& p, ng::Shared&) {
@@ -1202,25 +1206,38 @@ struct BandAmpState {
   std::vector<double> amplitude;                      // tile-major: tile x channel
 };
 
+// the member of the band set a node reads from its `bands` edge (the type select.bands made), picked by the span `band` gives
+struct BandMember { std::string name; double lo = 0, hi = 0; };
+BandMember band_member(const ng::Types& in, const Json& p, const std::string& who) {
+  if (!in.count("bands")) ng::refuse(who + ": bands is the band set select.bands made: wire it to this port");
+  const ng::PortType& b = in.at("bands");
+  if (b.cls != ng::PortClass::constant || !b.facts.contains("set") || b.facts["set"].value("type", std::string()) != "spans" || b.facts["set"].value("unit", std::string()) != "Hz")
+    ng::refuse(who + ": bands is not a set of spans in Hz (select.bands makes one)");
+  if (!p.contains("band") || !p["band"].is_array() || p["band"].size() != 2 || !p["band"][0].is_number() || !p["band"][1].is_number()) ng::refuse(who + ": band is required: [lo, hi] in Hz (no default)");
+  const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>();
+  for (const auto& m : b.facts["set"]["members"])
+    if (m["lo"].get<double>() == lo && m["hi"].get<double>() == hi) return {m["name"].get<std::string>(), lo, hi};
+  ng::refuse(who + ": band [" + range_name(lo, hi) + "] is not a member of the band set it reads");
+  return {};
+}
+
 ng::NodeSpec measure_band_amplitude() {
   ng::NodeSpec n;
   n.name = "measure.band_amplitude";
   n.kind = ng::Kind::accumulate;
-  n.inputs = {{"x", "the recording: channels x samples (streamed, one chunk at a time)", false}};
+  n.inputs = {{"x", "the recording: channels x samples (streamed, one chunk at a time)", false},
+              {"bands", "the named band set select.bands made (a selection of spans on the frequency line): the band measured is one of its members, found by its span; the set is read from this edge, never made again from parameters", false}};
   n.outputs = {{"grid", "the band's time grid: tiles of 2^level samples from the run's first sample, the level set by the band (4 cycles of its centre)", false},
                {"measurement", "the amplitude (mean |X| over the band's bins of the tile's FFT) of every channel in every tile of the grid: rows channels, columns the grid's members", false}};
-  n.parameters = {{"band", Json(), "the band: [lo, hi] in Hz, one of the set select.bands made (no default)", "Hz", {}, false},
-                  {"bands", Json(), "the whole band set (as select.bands is given), to find the band's name in", "Hz", {}, true},
-                  {"band_names", Json(), "one name per band of the set; none: the range, e.g. 8-13", "-", {}, true}};
+  n.parameters = {{"band", Json(), "which member of the band set to measure: its span [lo, hi] in Hz (no default); a span that is not a member of the set is refused", "Hz", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "each tile is transformed on its own; the tiles are kept in time order, nothing is combined across tiles");
   n.matches = "the mean of |numpy.fft.rfft| over the bins of the band, per tile of 2^k samples (k from the Cortical Flow Studio's fitLevelOf)";
   n.description = "the amplitude of every channel in one named band, per time tile of the grid the band sets: the grid is the dyadic tiling whose tile holds 4 cycles of the band's centre "
                   "(nxr::selection::time_level_of_band, held inside a chunk), each tile's one-sided FFT has no window or taper, the amplitude is the mean |X| over the band's bins; one measurement per band";
   n.plan = [](const ng::Types& in, const Json& p) {
     if (!in.count("x") || !in.at("x").sfreq || !(*in.at("x").sfreq > 0)) ng::refuse("measure.band_amplitude: x is the recording (a series with a sampling rate)");
-    if (!p.contains("band") || !p["band"].is_array() || p["band"].size() != 2) ng::refuse("measure.band_amplitude: band is required: [lo, hi] in Hz (no default)");
-    const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>();
-    if (!(lo > 0) || !(hi > lo)) ng::refuse("measure.band_amplitude: the band needs 0 < lo < hi");
+    const BandMember m = band_member(in, p, "measure.band_amplitude");
+    const double lo = m.lo, hi = m.hi;
     const int level = nxr::selection::time_level_of_band(lo, hi, *in.at("x").sfreq, nxr::selection::kJointCycles, 15);
     try { nxr::bandBins(lo, hi, std::int64_t(1) << level, *in.at("x").sfreq); } catch (const std::invalid_argument& e) { ng::refuse(std::string("measure.band_amplitude: ") + e.what()); }
     ng::Planned out;
@@ -1233,10 +1250,8 @@ ng::NodeSpec measure_band_amplitude() {
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays&, const Json& p, ng::Shared&) {
     BandAmpPrepared pr;
-    pr.lo = p["band"][0].get<double>(); pr.hi = p["band"][1].get<double>();
-    pr.name = range_name(pr.lo, pr.hi);
-    if (p.contains("bands") && p["bands"].is_array())                          // the band's name in the set select.bands made
-      for (const auto& [name, b] : bands_of(p, "measure.band_amplitude")) if (b.first == pr.lo && b.second == pr.hi) pr.name = name;
+    const BandMember m = band_member(in, p, "measure.band_amplitude");      // the member of the set select.bands made, read from the edge
+    pr.lo = m.lo; pr.hi = m.hi; pr.name = m.name;
     pr.sfreq = *in.at("x").sfreq;
     pr.unit = in.at("x").unit;
     pr.level = nxr::selection::time_level_of_band(pr.lo, pr.hi, pr.sfreq, nxr::selection::kJointCycles, 15);

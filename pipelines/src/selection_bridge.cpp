@@ -45,8 +45,9 @@ is::Description describe(const cs::Selection& m) {
   if (m.tiling) d.tiling = is::Tiling{m.tiling->origin, m.tiling->width, m.tiling->hop, m.tiling->count};
   for (const auto& x : m.factors) d.factors.push_back(describe(x));
   d.radices = m.radices;
-  if (m.grid) d.grid = is::Grid{m.grid->kind == cs::Grid::Kind::dyadic ? is::Grid::Kind::dyadic : is::Grid::Kind::elements, m.grid->size, m.grid->depth, m.grid->slots};
+  if (m.grid) d.grid = is::Grid{m.grid->kind == cs::Grid::Kind::dyadic ? is::Grid::Kind::dyadic : is::Grid::Kind::elements, m.grid->size, m.grid->depth, m.grid->slots, m.grid->finest, m.grid->match_median, m.grid->match_max};
   d.level = m.level;
+  d.diameter = m.diameter;
   d.band = m.band;
   d.band_unit = m.band_unit;
   for (const auto& e : m.lookup) d.lookup.push_back(is::Entry{e.code, e.name, e.color});
@@ -69,8 +70,9 @@ cs::Selection made(const is::Description& d) {
   if (d.tiling) m.tiling = cs::Tiling{d.tiling->origin, d.tiling->width, d.tiling->hop, d.tiling->count};
   for (const auto& x : d.factors) m.factors.push_back(made(x));
   m.radices = d.radices;
-  if (d.grid) m.grid = cs::Grid{d.grid->kind == is::Grid::Kind::dyadic ? cs::Grid::Kind::dyadic : cs::Grid::Kind::elements, d.grid->size, d.grid->depth, d.grid->slots};
+  if (d.grid) m.grid = cs::Grid{d.grid->kind == is::Grid::Kind::dyadic ? cs::Grid::Kind::dyadic : cs::Grid::Kind::elements, d.grid->size, d.grid->depth, d.grid->slots, d.grid->finest, d.grid->match_median, d.grid->match_max};
   m.level = d.level;
+  m.diameter = d.diameter;
   m.band = d.band;
   m.band_unit = d.band_unit;
   for (const auto& e : d.lookup) m.lookup.push_back(cs::Entry{e.code, e.name, e.color});

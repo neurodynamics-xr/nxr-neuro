@@ -45,6 +45,5 @@ connection between distant tiles depends on the path (recorded).
 
 - `finest` (the deepest level every piece reaches) is recorded as the depth written: compute's `dyadic` does not return it. With the default depth they are equal; with `--depth` smaller than the finest, `finest`
   is the depth. Exposing `finest` from `dyadic` (compute) would restore it.
-- `groupTreeFor` is called directly for the group tiles because `transfer` does not return the match's median and maximum chord.
 - The default surface (the primary one) is not selectable from the definition: `--surface` names the surface (the library's own callers pass it).
-- `--replace` of a grid removes the old rows and the level nodes (as the hand-wired code did), it does not move them aside.
+- `--replace` of a grid moves the old rows' arrays and the level nodes aside (`_replaced-<date>/`, as every other output), it never deletes them.
