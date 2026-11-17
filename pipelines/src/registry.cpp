@@ -1726,6 +1726,8 @@ const std::vector<StepSpec>& registry() {
     append_geometry_steps(all);                                           // the geometry makers (steps_geometry.cpp)
     append_patches_steps(all);                                            // run_repeat, cellquadrature, patches (steps_patches.cpp)
     for (const auto& name : nxr::graph::registry().names()) all.push_back(describe_native(nxr::graph::registry().at(name)));   // the nodes registered before the first use
+    std::set<std::string> seen;                                             // one step a name: a second one would be found in place of the first
+    for (const auto& st : all) if (!seen.insert(st.name).second) throw std::logic_error("registry: two steps are named '" + st.name + "'");
     return all;
   }();
   return r;

@@ -32,7 +32,7 @@ parameters:
 
 steps:
   before:
-    - {step: patches, in: {map: map, tiles: tiles}, with: {level: $level, sign: $sign, enter_sd: $enter_sd, exit_sd: $exit_sd, min_area: $min_area, max_area: $max_area, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, summaries: $summaries}, out: [band, tile_measures, baseline, patches, patch_measures, patch_own, area, n_tiles, mean, peak]}
+    - {step: patch_summaries, in: {map: map, tiles: tiles}, with: {level: $level, sign: $sign, enter_sd: $enter_sd, exit_sd: $exit_sd, min_area: $min_area, max_area: $max_area, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, summaries: $summaries}, out: [band, tile_measures, baseline, patches, patch_measures, patch_own, area, n_tiles, mean, peak]}
 
 outputs:
   band:

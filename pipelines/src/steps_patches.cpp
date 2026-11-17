@@ -352,7 +352,7 @@ StepSpec cellquadrature_step() {
 struct PatchState { Value map, tiles; Json p; };
 StepSpec patches_step() {
   StepSpec s;
-  s.name = "patches";
+  s.name = "patch_summaries";
   s.kind = "setup";
   s.inputs = {"map", "tiles"};
   s.outputs = {"band", "tile_measures", "baseline", "patches", "patch_measures", "patch_own", "area", "n_tiles", "mean", "peak"};
