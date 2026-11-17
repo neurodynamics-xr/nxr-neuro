@@ -23,6 +23,8 @@
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
@@ -108,7 +110,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(4096)), std::make_pair(std::string("rest_b"), std::int64_t(1000))}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(x, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "A");
         const std::string rid = sub.field(std::move(rec));
         if (first_rid.empty()) first_rid = rid;
@@ -144,21 +146,22 @@ int main() {
   struct Ev { std::vector<std::int64_t> frame; std::vector<float> cv, peak, size, diam, level, area; Json params; std::vector<double> start; };
   auto read_ev = [&](const std::string& rec) {
     Ev e;
-    const auto row = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V("spatial_events.events." + rec)});
+    const auto row = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "spatial_events.events." + rec, .any_status = true});
     if (!row) return e;
-    const std::string id = text(*row, "id");
-    e.params = Json::parse(opt_text(*row, "params_json").value_or("{}"));
-    for (const auto& s : sub.db().all("SELECT start FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(id)})) { e.start.push_back(std::stod(text(s, "start"))); e.frame.push_back(std::llround(e.start.back() * fps)); }
+    const std::string id = row->id;
+    e.params = row->params.is_null() ? Json::object() : row->params;
+    for (const auto& s : nxr::io::task::Subject::of(sub).spans(*row)) { e.start.push_back(s.start); e.frame.push_back(std::llround(e.start.back() * fps)); }
     auto meas = [&](const char* name) {
       std::vector<float> out;
-      const auto m = sub.db().one("SELECT array_path, component FROM selection_measurement WHERE selection_id = ? AND measure = ?", {V(id), V(name)});
-      if (!m) return out;
-      ArrayReader rd = ArrayReader::open(sub.store(), text(*m, "array_path"));
+      const auto ms = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(id)}, {"measure", V(name)}});
+      if (ms.empty()) return out;
+      const auto& m = ms.front();
+      ArrayReader rd = ArrayReader::open(sub.store(), text(m, "array_path"));
       const auto sh = rd.shape();
       const auto raw = rd.read();
       std::vector<float> a(raw.size() / 4);
       std::memcpy(a.data(), raw.data(), raw.size());
-      const std::int64_t C = sh[2], comp = integer(*m, "component");
+      const std::int64_t C = sh[2], comp = integer(m, "component");
       for (std::int64_t t = 0; t < sh[1]; ++t) out.push_back(a[static_cast<std::size_t>(t * C + comp)]);
       return out;
     };
@@ -233,9 +236,9 @@ int main() {
     g::run(ds, sub, g::load("spatial_events_outside"), d, all);
     const StoredStatistic So = read_statistic(sub, "spatial_events_outside.summary.rest"), Th = read_statistic(sub, "spatial_threshold.histogram.rest");
     std::printf("  the noise reference outside the window: %.0f patches in %.0f frames (%.2f a frame; inside %.2f a frame); the events outside are not stored: %s\n", get(So, "patches"), get(So, "frames"), get(So, "patches") / get(So, "frames"), get(Si, "patches") / get(Si, "frames"),
-                sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = 'spatial_events_outside.events.rest'", {V(sub.id())}) ? "STORED" : "yes");
+                nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "spatial_events_outside.events.rest", .any_status = true}) ? "STORED" : "yes");
     CHECK(get(So, "frames") == static_cast<double>(integer(Th.row, "n_members")) && get(So, "patches") > 0 && sum_of(So, "area_bin_") == get(So, "patches") && sum_of(So, "level_") == get(So, "patches") && sum_of(So, "per_frame_") == get(So, "frames")
-          && !sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = 'spatial_events_outside.events.rest'", {V(sub.id())}) && So.options["events_stored"] == false && So.options["threshold"] == Si.options["threshold"]);
+          && !nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "spatial_events_outside.events.rest", .any_status = true}) && So.options["events_stored"] == false && So.options["threshold"] == Si.options["threshold"]);
     // THE LAG-FREE NULL (piece 10, spatial events): the ingredients, then draws in batches against the data's home map and size distribution
     {
       PsdOptions po; po.recording = "rest"; po.chunks = "all"; po.segment_level = 8; psd_compute(ds, sub, po);
@@ -246,7 +249,7 @@ int main() {
       Json one = nset; one["seed"] = 0; one["recording"] = "rest";
       g::run(ds, sub, g::load("spatial_events_null"), one, all);
       const StoredStatistic D0 = read_statistic(sub, "spatial_events_null.draw0.home.rest"), D0s = read_statistic(sub, "spatial_events_null.draw0.summary.rest");
-      CHECK(D0.shape == H.shape && text(D0s.row, "measure") == "patch_summary" && !sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = 'spatial_events_null.draw0.events.rest'", {V(sub.id())}));
+      CHECK(D0.shape == H.shape && text(D0s.row, "measure") == "patch_summary" && !nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "spatial_events_null.draw0.events.rest", .any_status = true}));
       SpatialNullOptions sn;
       sn.chunks = "all";                 // the whole recording, stated
       sn.recording = "rest"; sn.batch = 2; sn.min_draws = 2; sn.max_draws = 4; sn.h = 10; sn.replace = true;

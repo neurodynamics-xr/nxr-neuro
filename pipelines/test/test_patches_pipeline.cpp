@@ -19,6 +19,8 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "portable_random.h"
 #include "nxr/intervals.h"
 #include "nxr/io/measures.h"
@@ -129,15 +131,15 @@ int main() {
 
   nxr::ladder::Mesh lm; lm.positions = b.P; lm.faces = b.F; lm.n = nV;
   const std::vector<double> va = nxr::ladder::vertexAreas(lm);
-  auto field_id = [&](const std::string& n) { return text(*sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(n)}), "id"); };
-  auto sel_row = [&](const std::string& n) { return sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(n)}); };
-  auto patch_codes = [&](const std::string& name) { return read_array<std::int32_t>(sub, text(*sel_row(name), "array_path")); };
+  auto field_id = [&](const std::string& n) { return nxr::io::task::Subject::of(sub).require({.cls = nxr::io::task::Cls::field, .name = n, .any_status = true}, n).id; };
+  auto sel_row = [&](const std::string& n) { return nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = n, .any_status = true}); };
+  auto patch_codes = [&](const std::string& name) { return read_array<std::int32_t>(sub, *sel_row(name)->array_path); };
   // the independent computation: the stored band Field, the tiles' means, the baseline, regions by a breadth-first search over the tiles' mesh adjacency
   auto direct = [&](int level, const std::string& map, const std::string& sgn, double enter_sd, double exit_sd) {
     const std::string band = map + "_band_L" + std::to_string(level);
-    const auto bf = sub.db().one("SELECT path FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(band)});
-    const std::vector<double> x = read_array<double>(sub, text(*bf, "path"));
-    const std::vector<std::int32_t> tile = read_array<std::int32_t>(sub, text(*sel_row("cortex tiles L" + std::to_string(level)), "array_path"));
+    const auto bf = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = band, .any_status = true});
+    const std::vector<double> x = read_array<double>(sub, *bf->path);
+    const std::vector<std::int32_t> tile = read_array<std::int32_t>(sub, *sel_row("cortex tiles L" + std::to_string(level))->array_path);
     const int T = 2 << level;
     std::vector<double> sw(T, 0.0), sx(T, 0.0);
     for (int i = 0; i < nV; ++i) { sw[tile[i]] += va[i]; sx[tile[i]] += va[i] * x[i]; }
@@ -180,9 +182,9 @@ int main() {
   PatchesComputeOptions po;
   po.map = "pet"; po.level = level; po.enter_sd = 3.0; po.exit_sd = 1.5;   // a band-pass has side lobes of the opposite sign around a bump (see README): 3 SD keeps to the bumps
   const std::string tiling = "cortex tiles L" + std::to_string(level);
-  const std::vector<std::int32_t> tile5 = read_array<std::int32_t>(sub, text(*sel_row(tiling), "array_path"));
+  const std::vector<std::int32_t> tile5 = read_array<std::int32_t>(sub, *sel_row(tiling)->array_path);
   const auto rows_of = [&](const std::string& sel, const std::optional<std::string>& fid, const std::string& m) {
-    const MeasurementValues v = measurement_values(sub, text(*sel_row(sel), "id"), fid, std::nullopt, std::nullopt, m);
+    const MeasurementValues v = measurement_values(sub, sel_row(sel)->id, fid, std::nullopt, std::nullopt, m);
     return v.values;
   };
 
@@ -207,7 +209,7 @@ int main() {
     for (int v = 0; v < nV; ++v) if (codes1[v] >= 0) CHECK((v < half) == (codes1[v] == codes1[cA]));   // a patch never crosses the hemispheres
   }
   // the band's value at a bump's centre: the planted height times the band's response (σ² ∫ g e^(−k²σ²/2) k dk ≈ 0.27 for σ 0.35 at level 5; about 0.66 for the height 2.5)
-  const std::vector<double> band5 = read_array<double>(sub, text(*sub.db().one("SELECT path FROM field WHERE subject_id = ? AND name = 'pet_band_L5'", {V(sub.id())}), "path"));
+  const std::vector<double> band5 = read_array<double>(sub, *nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "pet_band_L5", .any_status = true})->path);
   std::printf("  the band at the bumps' centres: A %.3f, B %.3f, the large bump %.3f\n", band5[cA], band5[cB], band5[cE]);
   CHECK(band5[cA] > 0.45 && band5[cA] < 0.85 && band5[cB] > 0.45 && band5[cB] < 0.85 && std::abs(band5[cE]) < 0.12);
 
@@ -237,9 +239,9 @@ int main() {
       CHECK_EQ(static_cast<int>(centre[k]), best);
     }
     // the stored record and the statistics across the patches
-    const Json pj = Json::parse(text(*sel_row(pname), "params_json"));
+    const Json pj = sel_row(pname)->params;
     CHECK(pj["pipeline"] == "patches" && pj["level"] == level && pj["sign"] == "positive" && pj["band"]["member"] == level && pj["baseline"]["statistic"] == "pet_band_L5_baseline" && pj.contains("cache") && pj["merge"] == "none");
-    CHECK(text(*sel_row(pname), "type") == "set" && integer(*sel_row(pname), "n_members") == 2);
+    CHECK(sel_row(pname)->type == "set" && sel_row(pname)->n_members == 2);
     const StoredStatistic sa = read_statistic(sub, "pet_patches_L5_positive_area");
     CHECK(sa.values.size() == 8 && sa.values[0] == 2.0 && std::abs(sa.values[1] - (d.area[0] + d.area[1])) < 1e-9 * (d.area[0] + d.area[1]));   // count, sum
     const StoredStatistic sp = read_statistic(sub, "pet_patches_L5_positive_peak");
@@ -256,12 +258,13 @@ int main() {
     CHECK(before == after && plain.size() == after.size());
     double diff = 0; for (std::size_t t = 0; t < plain.size(); ++t) diff = std::max(diff, std::abs(plain[t] - after[t]));
     CHECK(diff > 0.3);                                                                                // the map's own tile means (~0.5 + the bumps) are not the band's
-    const auto cnt = sub.db().one("SELECT COUNT(DISTINCT of_field_id) AS n FROM selection_measurement WHERE selection_id = ? AND measure = 'mean'", {V(text(*sel_row(tiling), "id"))});
-    CHECK(cnt && integer(*cnt, "n") == 2);
+    std::set<std::string> mean_fields;      // the distinct fields the tiling has a mean of
+    for (const auto& m : nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(sel_row(tiling)->id)}, {"measure", V("mean")}})) mean_fields.insert(text(m, "of_field_id"));
+    CHECK(mean_fields.size() == 2);
   }
   // a RE-RUN is a hit at every stage; another choice is refused unless --replace
   {
-    const auto nrows = [&] { return integer(*sub.db().one("SELECT COUNT(*) AS n FROM selection_measurement"), "n"); };
+    const auto nrows = [&] { return nxr::io::testing::Probe(sub).count("selection_measurement"); };
     const std::int64_t n0 = nrows();
     const auto r2 = patches_compute(ds, sub, po);
     CHECK(r2.hit && r2.info["cache"] == "hit" && r2.info["patches"].get<int>() == 2 && nrows() == n0);
@@ -272,7 +275,7 @@ int main() {
     other.replace = true;
     const auto r3 = patches_compute(ds, sub, other);
     CHECK(!r3.hit && r3.info["patches"].get<int>() == 0);          // at 8 SD nothing reaches the entry level (a bump's tile is about 2 times the 3 SD threshold, so at most 0.8 of the 8 SD one); the replaced patches' statistics are gone with them
-    CHECK(!sub.db().one("SELECT id FROM statistic WHERE subject_id = ? AND name = 'pet_patches_L5_positive_area'", {V(sub.id())}).has_value());
+    CHECK(!nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::statistic, .name = "pet_patches_L5_positive_area", .any_status = true}).has_value());
     std::printf("  enter at 8 SD, --replace: %d patch(es)\n", r3.info["patches"].get<int>());
     PatchesComputeOptions back = po; back.replace = true;
     const auto r4 = patches_compute(ds, sub, back);
@@ -359,7 +362,7 @@ int main() {
     tiles_compute(d2, w, TilesComputeOptions{});
     PatchesComputeOptions a; a.map = "m"; a.level = 4; a.transform = "exact"; a.enter_sd = 1.0; a.exit_sd = 0.5;
     patches_compute(d2, w, a);
-    auto band = [&] { const auto r = w.db().one("SELECT path FROM field WHERE name = 'm_band_L4'"); return read_array<double>(w, text(*r, "path")); };
+    auto band = [&] { const auto r = nxr::io::task::Subject::of(w).find({.cls = nxr::io::task::Cls::field, .name = "m_band_L4", .any_status = true}); return read_array<double>(w, *r->path); };
     const std::vector<double> ex = band();
     a.transform = "chebyshev"; a.replace = true;
     const auto rc = patches_compute(d2, w, a);

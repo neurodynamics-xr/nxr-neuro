@@ -21,6 +21,8 @@
 #include "portable_random.h"
 #include "store_at.h"
 #include "nxr/io.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/ladder.h"
@@ -115,9 +117,10 @@ int main() {
   SpatialBandOptions sbo; sbo.transform = "exact";
   const SpatialBand sband = make_spatial_band(S0, SL, sbo);
   int timeLevel = -1;
-  for (const Row& m : sub.db().all("SELECT member_ordinal, params_json FROM selection WHERE subject_id = ? AND member_of_id IS NOT NULL AND params_json LIKE '%resolves_hz%'", {V(sub.id())})) {
-    const Json pj = Json::parse(text(m, "params_json"));
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(integer(m, "member_ordinal"));
+  for (const auto& m : nxr::io::task::Subject::of(sub).find_all({.cls = nxr::io::task::Cls::selection, .params_present = {"resolves_hz"}, .any_status = true})) {
+    if (!m.member_of_id) continue;
+    const Json pj = m.params;
+    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(*m.member_ordinal);
   }
   CHECK(timeLevel >= 0);
   if (timeLevel < 0) return 1;
@@ -158,7 +161,7 @@ int main() {
       const std::string prod = w.product({cid_s, tid});
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(4096)), std::make_pair(std::string("rest_b"), std::int64_t(1000))}) {   // the same samples, two chunk widths
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(w.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = nxr::io::task::Subject::of(w).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "A");
         w.field(std::move(rec));
       }
@@ -240,10 +243,10 @@ int main() {
   {
     // the recipe names the envelope; the step's resolved record holds the Riesz part's gain
     const Json am = out_of(rs[0], "amplitude");
-    const auto rec = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(std::string("rest"))});
-    const auto jsel = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(am["over"].get<std::string>())});
-    const auto row = sub.db().one("SELECT computed_by FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = 'amplitude'", {V(text(*jsel, "id")), V(text(*rec, "id"))});
-    CHECK(row.has_value() && !text(*row, "computed_by").empty());
+    const auto rec = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "rest", .any_status = true});
+    const auto jsel = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = am["over"].get<std::string>(), .any_status = true});
+    const auto rows = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(jsel->id)}, {"of_field_id", V(rec->id)}, {"measure", V("amplitude")}});
+    CHECK(!rows.empty() && !text(rows.front(), "computed_by").empty());
     const Json report = rs[0];
     const std::string dumped = report.dump();
     CHECK(dumped.find("spatiotemporal") != std::string::npos);

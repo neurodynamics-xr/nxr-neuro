@@ -11,6 +11,7 @@
 #include <random>
 
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/pipelines/meeg.h"
@@ -96,7 +97,7 @@ int main() {
       for (int i = 0; i < M; ++i) for (int t = 0; t < T; ++t) xf[static_cast<std::size_t>(i * T + t)] = static_cast<float>(X(i, t));
       FieldSpec rec;
       rec.name = "rest";
-      rec.path = node_path(sub.db(), prod, "rest");
+      rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest");
       rec.kind = "recording";
       rec.manifold_id = prod;
       rec.data = view(xf, {M, T});
@@ -153,13 +154,13 @@ int main() {
     CHECK_EQ(pj["filtered_from"]["name"].get<std::string>(), std::string("rest"));
     CHECK_EQ(pj["projectors"].size(), static_cast<std::size_t>(2));
     CHECK(pj["mean_removed"].get<bool>() && !pj["mean_restored"].get<bool>());
-    CHECK(sub.find("selection", "time/rest_bandpass_chunks").has_value() || sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = 'rest_bandpass_chunks'", {V(sub.id())}).has_value());
-    const auto sel = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = 'rest_bandpass_bad_segments'", {V(sub.id())});
+    CHECK(sub.find("selection", "time/rest_bandpass_chunks").has_value() || nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_bandpass_chunks", .any_status = true}).has_value());
+    const auto sel = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_bandpass_bad_segments", .any_status = true});
     CHECK(sel.has_value());
     if (sel) {
-      const auto sp = sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ?", {V(text(*sel, "id"))});
+      const auto sp = nxr::io::task::Subject::of(sub).spans(*sel);
       CHECK_EQ(sp.size(), static_cast<std::size_t>(1));
-      CHECK(std::abs(std::stod(text(sp[0], "start")) - bad_start) < 1e-12 && std::abs(std::stod(text(sp[0], "stop")) - bad_stop) < 1e-12);
+      CHECK(std::abs(sp[0].start - bad_start) < 1e-12 && std::abs(sp[0].stop - bad_stop) < 1e-12);
     }
   }
   (void)span0; (void)span1;
@@ -212,7 +213,7 @@ int main() {
     CHECK(all.find("\"cache\": \"miss\"") != std::string::npos && all.find("\"cache\": \"hit\"") != std::string::npos);
     DatasetWriter d2 = open_writer(root / "demo");
     SubjectWriter s2 = SubjectWriter::open(d2, "S1");
-    for (const char* n : {"rest_highpass", "cli_bs", "cli_notch"}) CHECK(s2.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND kind = 'recording'", {V(s2.id()), V(std::string(n))}).has_value());
+    for (const char* n : {"rest_highpass", "cli_bs", "cli_notch"}) CHECK(nxr::io::task::Subject::of(s2).find({.cls = nxr::io::task::Cls::field, .name = std::string(n), .kind = "recording", .any_status = true}).has_value());
   }
 #endif
   fs::remove_all(root);

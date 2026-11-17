@@ -14,6 +14,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
 #include "nxr/meeg/crossspectrum.h"
 #include "nxr/meeg/tensor.h"
@@ -26,8 +27,8 @@ using namespace nxr::pipelines;
 namespace fs = std::filesystem;
 
 template <class T> static std::vector<T> read_field(SubjectWriter& sub, const std::string& name) {
-  const auto r = sub.db().one("SELECT path FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(name)});
-  ArrayReader a = ArrayReader::open(sub.store(), text(*r, "path"));
+  const auto r = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = name, .any_status = true});
+  ArrayReader a = ArrayReader::open(sub.store(), *r->path);
   const auto raw = a.read();
   std::vector<T> out(raw.size() / sizeof(T));
   std::memcpy(out.data(), raw.data(), out.size() * sizeof(T));
@@ -36,11 +37,21 @@ template <class T> static std::vector<T> read_field(SubjectWriter& sub, const st
 
 static std::string code_of(const std::function<void()>& f) { try { f(); } catch (const Error& e) { return e.code(); } return ""; }
 
+// a band of a map statistic as its values [n x n_components]: the statistic's values [n x entries x n_components] at the entry (the slice's index)
+static std::vector<double> slice_values(nxr::io::SubjectWriter& sub, const std::string& statistic, const nxr::io::task::MapSlice& m) {
+  const nxr::io::StoredStatistic st = nxr::io::read_statistic(sub, statistic);
+  const std::int64_t K = st.shape.at(1), C = m.n_components;
+  std::vector<double> v(static_cast<std::size_t>(m.n * C));
+  for (std::int64_t i = 0; i < m.n; ++i)
+    for (std::int64_t c = 0; c < C; ++c) v[static_cast<std::size_t>(i * C + c)] = st.values[static_cast<std::size_t>((i * K + m.index) * C + c)];
+  return v;
+}
+
 // a map of a statistic by its name (`<statistic>_<band>`), as float [n x components] (since 2026-11-13 the source maps are statistics)
 static std::vector<float> map_named(nxr::io::SubjectWriter& sub, const std::string& statistic, const std::string& name) {
   const std::string surf = nxr::io::read_statistic(sub, statistic).axes[0]["manifold_id"].get<std::string>();
-  for (const auto& m : nxr::io::map_slices(sub.db(), sub.id(), surf))
-    if (m.name == name) { const auto d = nxr::io::read_map_slice(sub, m); return std::vector<float>(d.begin(), d.end()); }
+  for (const auto& m : nxr::io::task::Subject::of(sub).map_slices(surf))
+    if (m.name == name) { const auto d = slice_values(sub, statistic, m); return std::vector<float>(d.begin(), d.end()); }
   return {};
 }
 
@@ -103,13 +114,13 @@ int main() {
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(700)), std::make_pair(std::string("rest_b"), std::int64_t(1777)),   // the same samples in four chunk widths
                                         std::make_pair(std::string("rest_d"), std::int64_t(128)), std::make_pair(std::string("rest_e"), std::int64_t(512))}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "T");
         sub.field(std::move(rec));
       }
       {                                                                   // the same samples with a bad span at 9.1-9.3 s (inside the third 4 s window)
         FieldSpec rec;
-        rec.name = "rest_c"; rec.path = node_path(sub.db(), prod, "rest_c"); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = "rest_c"; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest_c"); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, 700}; rec.array.compress = false; rec.cols.set("unit", "T");
         const std::string rid = sub.field(std::move(rec));
         nxr::bst::TimeSpansOptions so; so.line_id = tid; so.of_field_id = rid; so.description = "bad segments";
@@ -117,7 +128,7 @@ int main() {
       }
       {
         FieldSpec rec;
-        rec.name = "rest_delay"; rec.path = node_path(sub.db(), prod, "rest_delay"); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = "rest_delay"; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest_delay"); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xd, {M, T}); rec.array.chunks = Shape{M, 700}; rec.array.compress = false; rec.cols.set("unit", "T");
         sub.field(std::move(rec));
       }
@@ -146,18 +157,17 @@ int main() {
     CHECK(text(st.row, "measure") == "cross_spectral_density" && text(st.row, "method") == "welch" && st.shape == (std::vector<std::int64_t>{M, M, 2}));
     CHECK(st.axes.size() == 2 && st.axes[0]["name"] == "channel" && st.axes[1]["selection_id"] == st.axes[0]["selection_id"] && text(st.row, "value_type") == "complex" && integer(st.row, "n_components") == 2);
     CHECK(st.options["band"]["name"] == "alpha" && integer(st.row, "n_members") > 0);
-    const auto seg = sub.db().read("selection", text(st.row, "partition_selection_id"));
-    CHECK(seg && text(*seg, "name") == "rest_crossspectrum_segments" && integer(*seg, "n_members") == integer(st.row, "n_members") + integer(st.row, "members_skipped"));
+    const auto seg = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, text(st.row, "partition_selection_id"));
+    CHECK(seg && seg->name == "rest_crossspectrum_segments" && seg->n_members == integer(st.row, "n_members") + integer(st.row, "members_skipped"));
     CHECK(read_statistic(sub, "rest_crossspectrum_beta").options["band"]["name"] == "beta");
     // ONE MADE BEFORE (an Operator of kind `cross-spectral density`, as stored until 2026-11-13) is still read: no migration
-    const auto chsel = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = 'rest_crossspectrum_channels'", {V(sub.id())});
-    const auto chans_row = sub.db().one("SELECT manifold_id FROM selection WHERE id = ?", {V(text(*chsel, "id"))});
+    const auto chsel = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_crossspectrum_channels", .any_status = true});
     std::vector<double> vals(st.values);
     sub.compose([&] {
       OperatorSpec op;
-      op.name = "old_csd"; op.path = "old_csd"; op.kind = "cross-spectral density"; op.from_manifold_id = text(*chans_row, "manifold_id"); op.layout = "dense";
+      op.name = "old_csd"; op.path = "old_csd"; op.kind = "cross-spectral density"; op.from_manifold_id = *chsel->manifold_id; op.layout = "dense";
       op.n_rows = M; op.n_cols = M; op.data = view(vals, {M, M, 2}); op.array.compress = false;
-      op.cols.set("to_manifold_id", text(*chans_row, "manifold_id")).set("from_selection_id", text(*chsel, "id")).set("to_selection_id", text(*chsel, "id"))
+      op.cols.set("to_manifold_id", *chsel->manifold_id).set("from_selection_id", chsel->id).set("to_selection_id", chsel->id)
           .set("from_value_type", "complex").set("to_value_type", "complex");
       op.cols.json("producer_json", Json{{"band_name", "alpha"}});
       sub.operator_(std::move(op));
@@ -297,8 +307,8 @@ int main() {
       const StoredStatistic ss = read_statistic(sub, "rest_an_alpha_windows");
       CHECK(text(ss.row, "measure") == "cross_spectrum_sum" && text(ss.row, "method") == "analytic" && text(ss.row, "value_type") == "complex");
       CHECK(ss.axes.size() == 3 && ss.axes[0]["name"] == "window" && ss.axes[0]["members"].size() == 23 && ss.shape == (std::vector<std::int64_t>{23, M, M, 2}));
-      const auto ws = sub.db().read("selection", text(ss.row, "partition_selection_id"));
-      CHECK(ws && text(*ws, "name") == "rest_an_windows" && integer(ss.row, "n_members") == 23);
+      const auto ws = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, text(ss.row, "partition_selection_id"));
+      CHECK(ws && ws->name == "rest_an_windows" && integer(ss.row, "n_members") == 23);
     }
     CHECK(st.level == 8 && st.count[0] == 256 && sw.count[0] == 128 && st.index.front() == 0 && st.index.back() == 22);
     CHECK(st.producer["decimation"] == 1 && sw.producer["decimation"] == 2 && st.producer["window_level"] == 8 && sw.producer["rate_hz"] == 125.0);
@@ -314,11 +324,11 @@ int main() {
     std::printf("  analytic tiles vs the full-recording reference: alpha %.2e, 5-14 Hz decimated x 2 %.2e\n", ra, rw);
     CHECK(herm < 1e-12 && same == 0 && ra < 1e-4 && rw < 1e-2);
     // the windows Selection: the level's closed-form tiling of the whole line (the envelope's form)
-    const auto wsel = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'rest_an_windows' AND type = 'spans'", {V(sub.id())});
+    const auto wsel = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_an_windows", .type = "spans", .any_status = true});
     CHECK(wsel.has_value());
     if (wsel) {
-      const Json wp = Json::parse(text(*wsel, "params_json"));
-      CHECK(wp["tiling"]["count"] == 24 && std::abs(wp["tiling"]["width"].get<double>() - 256 / sfreq) < 1e-12 && wp["level"] == 8 && integer(*wsel, "n_members") == 24);
+      const Json wp = wsel->params;
+      CHECK(wp["tiling"]["count"] == 24 && std::abs(wp["tiling"]["width"].get<double>() - 256 / sfreq) < 1e-12 && wp["level"] == 8 && wsel->n_members == 24);
     }
     // the turn: channel 1 lags channel 0 by a quarter cycle, so Im C01 is about as large as C00 in every tile
     CHECK(std::abs(st.sum[8](0, 1).imag()) > 0.8 * st.sum[8](0, 0).real());
