@@ -187,7 +187,7 @@ CREATE TABLE subject (
   dataset_id      TEXT NOT NULL REFERENCES dataset (id) ON DELETE CASCADE,
   name            TEXT NOT NULL,         -- the user-facing label: the `subject` attribute ('sub-0002')
   path            TEXT NOT NULL,         -- dataset-relative: the store folder ('sub-0002.nxr.zarr')
-  kind            TEXT NOT NULL DEFAULT 'subject' CHECK (kind IN ('subject', 'template', 'group')),
+  kind            TEXT NOT NULL DEFAULT 'subject' CHECK (kind IN ('subject', 'template', 'group', 'registration')),
   template_id     TEXT REFERENCES subject (id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED,  -- the template whose anatomy this subject uses
   source_format   TEXT,                  -- sourceFormat   'brainstorm'
   source_path     TEXT,                  -- sourcePath     the subject's folder in that tool — a HINT
@@ -1206,6 +1206,37 @@ SELECT t.id, json_object('class', 'statistic', 'id', t.id, 'status', t.status, '
 ) AS attributes FROM statistic t;
 -- ── statistic (end) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
+-- ── schema 51 (begin: Database::open runs this block, and the `registration` kind of `subject`, on a database at 50, in place) ──────────────
+-- The subject kind `registration` (the package of a registration between two templates) is in the `subject` table's kind list above.
+-- What the subject-centred format (docs/specs/2026-11-16-subject-centred-datasets.md, sections 2, 3 and 8) adds to the model. `key_digest` is a subject package's: the
+-- size and SHA-256 of every key's value, from which its content hash and the migration's verification are computed without re-reading the shards. `subject_entry` and
+-- `template_reference` are a dataset catalogue's: one entry per member subject (its package's versions, content hash and counts, so a subject list opens no package)
+-- and the templates its subjects are registered to. A one-database dataset holds all three empty.
+CREATE TABLE key_digest (
+  key        TEXT PRIMARY KEY,
+  size_bytes INTEGER NOT NULL,
+  sha256     TEXT NOT NULL
+) STRICT;
+
+CREATE TABLE subject_entry (
+  subject_id     TEXT PRIMARY KEY REFERENCES subject (id) ON DELETE CASCADE,
+  schema_version INTEGER NOT NULL,
+  store_format   INTEGER NOT NULL,
+  content_hash   TEXT NOT NULL,
+  registered_utc TEXT NOT NULL,
+  registered_by  TEXT,
+  status         TEXT NOT NULL CHECK (status IN ('registered', 'missing', 'stale', 'replaced')),
+  n_acquisitions INTEGER NOT NULL DEFAULT 0, n_recordings INTEGER NOT NULL DEFAULT 0, n_surfaces INTEGER NOT NULL DEFAULT 0,
+  n_fields INTEGER NOT NULL DEFAULT 0, n_operators INTEGER NOT NULL DEFAULT 0
+) STRICT;
+
+CREATE TABLE template_reference (
+  name TEXT NOT NULL, edition TEXT NOT NULL DEFAULT 'full', version TEXT NOT NULL,
+  subject_id TEXT NOT NULL, content_hash TEXT NOT NULL, location_hint TEXT,
+  PRIMARY KEY (name, edition, version)
+) STRICT;
+-- ── schema 51 (end) ──
+
 -- ── BEGIN GENERATED: the attribute views (backend/scripts/gen-attribute-views.mjs) — do not edit ──
 -- One view per node table: its zarr.json attributes as TEXT (D145). Every writer writes zarr.json from these, in any language.
 CREATE VIEW manifold_attributes AS
@@ -1241,12 +1272,12 @@ SELECT o.id, json_object('class', 'operator', 'id', o.id, 'status', o.status, 's
 ) AS attributes FROM operator o;
 
 CREATE VIEW subject_attributes AS
-SELECT s.id, json_object('class', 'subject', 'schema_version', 50, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
+SELECT s.id, json_object('class', 'subject', 'schema_version', 51, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
   'rows_without_path', json_object('manifold', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM manifold r JOIN manifold_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'selection', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM selection r JOIN selection_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'field', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM field r JOIN field_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'operator', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM operator r JOIN operator_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL)),
   'acquisitions', (SELECT json_group_array(json_object('id', a.id, 'label', a.label, 'ses', a.ses, 'task', a.task, 'run', a.run, 'acq', a.acq, 'proc', a.proc, 'split', a.split) ORDER BY a.label) FROM acquisition a WHERE a.subject_id = s.id)
 ) AS attributes FROM subject s;
 
 CREATE VIEW dataset_attributes AS
-SELECT d.id, json_object('class', 'dataset', 'schema_version', 50, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
+SELECT d.id, json_object('class', 'dataset', 'schema_version', 51, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
 -- ── END GENERATED: the attribute views ──
-PRAGMA user_version = 50;
+PRAGMA user_version = 51;

@@ -101,7 +101,7 @@ def pair(request, tmp_path_factory):
 
 def test_every_row_of_every_table_is_equal(pair):
     a, b = ws.dump_rows(pair / "py" / "ds" / "demo"), ws.dump_rows(pair / "cpp" / "ds" / "demo")
-    assert a["_user_version"] == b["_user_version"] == 50
+    assert a["_user_version"] == b["_user_version"] == 51
     for t in sorted(set(a) | set(b)):
         assert a[t] == b[t], f"table {t} differs"
     assert sum(len(v) for k, v in a.items() if isinstance(v, list)) > 50

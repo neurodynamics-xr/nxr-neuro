@@ -1,0 +1,141 @@
+{
+ "mne": "1.13.2",
+ "cases": {
+  "fdt": {
+   "file": "eeglab_fdt.set",
+   "mne_channels": [
+    "Fp1",
+    "Fp2",
+    "Cz",
+    "Pz"
+   ],
+   "sfreq": 250.0,
+   "n_times": 800,
+   "data": "eeglab_fdt.f32",
+   "annotations": [
+    {
+     "onset": 0.4,
+     "duration": 0.0,
+     "label": "stim_a"
+    },
+    {
+     "onset": 1.204,
+     "duration": 0.0,
+     "label": "stim_b"
+    },
+    {
+     "onset": 1.8,
+     "duration": 0.02,
+     "label": "resp"
+    },
+    {
+     "onset": 2.396,
+     "duration": 0.2,
+     "label": "boundary"
+    }
+   ]
+  },
+  "inline": {
+   "file": "eeglab_inline.set",
+   "mne_channels": [
+    "Fp1",
+    "Fp2",
+    "Cz",
+    "Pz"
+   ],
+   "sfreq": 250.0,
+   "n_times": 800,
+   "data": "eeglab_inline.f32",
+   "annotations": [
+    {
+     "onset": 0.4,
+     "duration": 0.0,
+     "label": "stim_a"
+    },
+    {
+     "onset": 1.204,
+     "duration": 0.0,
+     "label": "stim_b"
+    },
+    {
+     "onset": 1.8,
+     "duration": 0.02,
+     "label": "resp"
+    },
+    {
+     "onset": 2.396,
+     "duration": 0.2,
+     "label": "boundary"
+    }
+   ]
+  },
+  "inline_double": {
+   "file": "eeglab_inline_double.set",
+   "mne_channels": [
+    "Fp1",
+    "Fp2",
+    "Cz",
+    "Pz"
+   ],
+   "sfreq": 250.0,
+   "n_times": 800,
+   "data": "eeglab_inline_double.f32",
+   "annotations": [
+    {
+     "onset": 0.4,
+     "duration": 0.0,
+     "label": "stim_a"
+    },
+    {
+     "onset": 1.204,
+     "duration": 0.0,
+     "label": "stim_b"
+    },
+    {
+     "onset": 1.8,
+     "duration": 0.02,
+     "label": "resp"
+    },
+    {
+     "onset": 2.396,
+     "duration": 0.2,
+     "label": "boundary"
+    }
+   ]
+  },
+  "toplevel": {
+   "file": "eeglab_toplevel.set",
+   "mne_channels": [
+    "Fp1",
+    "Fp2",
+    "Cz",
+    "Pz"
+   ],
+   "sfreq": 250.0,
+   "n_times": 800,
+   "data": "eeglab_inline.f32",
+   "annotations": [
+    {
+     "onset": 0.4,
+     "duration": 0.0,
+     "label": "stim_a"
+    },
+    {
+     "onset": 1.204,
+     "duration": 0.0,
+     "label": "stim_b"
+    },
+    {
+     "onset": 1.8,
+     "duration": 0.02,
+     "label": "resp"
+    },
+    {
+     "onset": 2.396,
+     "duration": 0.2,
+     "label": "boundary"
+    }
+   ]
+  }
+ }
+}

@@ -1,0 +1,91 @@
+{
+ "mne": "1.13.2",
+ "cases": {
+  "mux_i16": {
+   "file": "bv_mux_i16.vhdr",
+   "mne_channels": [
+    "Fp1",
+    "Fp2",
+    "Cz",
+    "Pz"
+   ],
+   "sfreq": 250.0,
+   "n_times": 800,
+   "data": "brainvision_mux_i16.f32",
+   "annotations": [
+    {
+     "onset": 0.4,
+     "duration": 0.004,
+     "label": "Stimulus/S  1"
+    },
+    {
+     "onset": 1.2,
+     "duration": 0.004,
+     "label": "Stimulus/S 12"
+    },
+    {
+     "onset": 1.8,
+     "duration": 0.02,
+     "label": "Response/R  1"
+    },
+    {
+     "onset": 2.396,
+     "duration": 0.004,
+     "label": "Comment/a, comma"
+    }
+   ],
+   "positions": {
+    "Fp1": [
+     0.02791979948389248,
+     -0.08592830723281,
+     -0.029356614465619997
+    ],
+    "Fp2": [
+     0.02791979948389248,
+     0.08592830723281,
+     -0.029356614465619997
+    ],
+    "Cz": [
+     0.0,
+     0.0,
+     0.095
+    ],
+    "Pz": [
+     -0.095,
+     1.1634144591899854e-17,
+     5.817072295949927e-18
+    ]
+   },
+   "format": "brainvision"
+  },
+  "vec_f32": {
+   "file": "bv_vec_f32.vhdr",
+   "mne_channels": [
+    "Fp1",
+    "Fp2",
+    "Cz"
+   ],
+   "sfreq": 250.0,
+   "n_times": 500,
+   "data": "brainvision_vec_f32.f32",
+   "annotations": [
+    {
+     "onset": 0.196,
+     "duration": 0.004,
+     "label": "Stimulus/S  5"
+    }
+   ]
+  },
+  "mux_i32": {
+   "file": "bv_mux_i32.vhdr",
+   "mne_channels": [
+    "Fp1",
+    "Fp2"
+   ],
+   "sfreq": 250.0,
+   "n_times": 300,
+   "data": "brainvision_mux_i32.f32",
+   "annotations": []
+  }
+ }
+}

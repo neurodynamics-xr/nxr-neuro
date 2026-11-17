@@ -79,6 +79,11 @@ Outcome<R> cached(nxr::io::SubjectWriter& sub, const std::string& table, const s
 
 // Arrays and rows of a name already stored (`nodes`: {table, path}): refused (already_exists), or with `replace` moved aside into the datastore's
 // `_replaced-<date>/` (never deleted: the data rule) and the rows removed. Returns where they were moved ("" when nothing was); `replaced` says whether any was.
+// WHERE A REPLACED NODE'S ARRAYS ARE MOVED ASIDE (never deleted): `base` is the key folder (`n` is 1 for the first replacement of the day, then 2, 3, ...), `on_disk` the
+// folder it is on. In a one-database dataset it is `_replaced-<date>/<subject folder>` at the datastore's top; in a subject package, which holds nothing outside itself,
+// `_replaced-<date>` inside the package.
+struct AsideFolder { std::string base; std::string on_disk; };
+AsideFolder replaced_aside(const nxr::io::DatasetWriter& ds, const nxr::io::SubjectWriter& sub, const std::string& date, int n);
 std::string clear_stored(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const std::vector<std::pair<const char*, std::string>>& nodes, bool replace,
                          const std::string& what, bool& replaced);
 

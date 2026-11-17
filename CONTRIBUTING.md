@@ -56,7 +56,7 @@ accepted. `docs/reference.md` describes every verb and method, `docs/specs/` the
 
 ## Build and test
 
-CMake 3.20+, Ninja, C++17. Clone with `--recurse-submodules` (geometry-central). Large build trees may live on another disk: make `build/` a link to it before the first configure.
+CMake 3.20+, Ninja, C++17. Clone with `--recurse-submodules` (geometry-central). Large build trees may live on another disk: make `build/` a link to it before the first configure. The SQLite engine is always the pinned amalgamation (fetched at configure time, compiled with the same options on every platform), never the system library, so a platform SQLite older than the SQL the code uses cannot break a build; zstd and zlib come from the system unless `NXR_NEURO_PORTABLE` is set.
 
     cmake -S . -B build -G Ninja && cmake --build build 2>&1 | tail -20
     tools/tests.py status [REGEX]       # what is green, stale (what it runs has changed since it passed), failed or new; runs nothing

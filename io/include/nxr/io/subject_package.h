@@ -25,6 +25,7 @@
 // or schema version it does not know, by name, and never opens it partly.
 #pragma once
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <string>
@@ -105,6 +106,14 @@ struct CreatePackageOptions {
 DatasetWriter create_package(const std::filesystem::path& folder, const std::string& subject_name, const CreatePackageOptions& opt);
 // OPEN a package for writing: its lock taken before it recovers (pending rows rolled back, deleting rows finished), as `open_writer` does for a dataset.
 DatasetWriter open_package_writer(const std::filesystem::path& folder, const OpenOptions& opt = {});
+
+// ── a package's rows may name another package's arrays ───────────────────────────────────────────────────────────
+// A subject registered to a template carries the template's rows as anchor rows, and those rows' `path` columns name the template's arrays, which stay in the
+// template's package. `route_keys_to_package` makes the writer's store read the keys under `key_prefix` (`<dataset path>/<subject path>`, as the anchored subject and
+// dataset rows give them) from another package, READ-ONLY, found by `resolve` the first time one is read (a computation that never reads the template never
+// looks for it). A write or an erase under the prefix is refused.
+using PackageResolver = std::function<std::shared_ptr<SubjectPackage>()>;
+void route_keys_to_package(DatasetWriter& writer, const std::string& key_prefix, PackageResolver resolve);
 
 // ── origin: where an item came from, and under what terms it may go on ───────────────────────────────────────────
 // Every item of a template (a manifold, field, operator, selection or statistic with a path) carries an ORIGIN record in the package's `origin` table: its source, its

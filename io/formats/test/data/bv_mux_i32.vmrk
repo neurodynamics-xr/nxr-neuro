@@ -1,0 +1,8 @@
+Brain Vision Data Exchange Marker File, Version 1.0
+
+[Common Infos]
+Codepage=ANSI
+DataFile=bv_mux_i32.eeg
+
+[Marker Infos]
+Mk1=New Segment,,1,1,0,20260102150405000000

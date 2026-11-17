@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE GIFTI SYSTEM "http://www.nitrc.org/frs/download.php/115/gifti.dtd">
+<GIFTI Version="1.0" NumberOfDataArrays="2"><MetaData><MD><Name>Description</Name><Value>synthetic octahedron</Value></MD></MetaData><LabelTable /><DataArray Intent="NIFTI_INTENT_POINTSET" DataType="NIFTI_TYPE_FLOAT32" ArrayIndexingOrder="RowMajorOrder" Dimensionality="2" Encoding="Base64Binary" Endian="LittleEndian" ExternalFileName="" ExternalFileOffset="0" Dim0="6" Dim1="3"><MetaData><MD><Name>AnatomicalStructurePrimary</Name><Value>CortexLeft</Value></MD></MetaData><CoordinateSystemTransformMatrix><DataSpace>NIFTI_XFORM_TALAIRACH</DataSpace><TransformedSpace>NIFTI_XFORM_TALAIRACH</TransformedSpace><MatrixData>  1.000000   0.000000   0.000000   1.500000
+  0.000000   1.000000   0.000000  -2.500000
+  0.000000   0.000000   1.000000   3.500000
+  0.000000   0.000000   0.000000   1.000000</MatrixData></CoordinateSystemTransformMatrix><Data>XBfwQU39Fbx19wE8GgjwwUm5lruw3AA81DspO6z770FUOow80SHMvAQI8MHvbZ67NNqDPPbbpbsjB/BBvYIAvJiakTxj+e/B</Data></DataArray><DataArray Intent="NIFTI_INTENT_TRIANGLE" DataType="NIFTI_TYPE_INT32" ArrayIndexingOrder="RowMajorOrder" Dimensionality="2" Encoding="Base64Binary" Endian="LittleEndian" ExternalFileName="" ExternalFileOffset="0" Dim0="8" Dim1="3"><MetaData /><CoordinateSystemTransformMatrix><DataSpace>NIFTI_XFORM_UNKNOWN</DataSpace><TransformedSpace>NIFTI_XFORM_UNKNOWN</TransformedSpace><MatrixData>  1.000000   0.000000   0.000000   0.000000
+  0.000000   1.000000   0.000000   0.000000
+  0.000000   0.000000   1.000000   0.000000
+  0.000000   0.000000   0.000000   1.000000</MatrixData></CoordinateSystemTransformMatrix><Data>AAAAAAIAAAAEAAAAAgAAAAEAAAAEAAAAAQAAAAMAAAAEAAAAAwAAAAAAAAAEAAAAAgAAAAAAAAAFAAAAAQAAAAIAAAAFAAAAAwAAAAEAAAAFAAAAAAAAAAMAAAAFAAAA</Data></DataArray></GIFTI>

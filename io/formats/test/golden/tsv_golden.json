@@ -1,0 +1,86 @@
+{
+ "lf": {
+  "columns": [
+   "participant_id",
+   "age",
+   "group",
+   "note"
+  ],
+  "rows": [
+   [
+    "sub-01",
+    "34",
+    "control",
+    ""
+   ],
+   [
+    "sub-02",
+    "n/a",
+    "patient",
+    "has, comma"
+   ],
+   [
+    "sub-03",
+    "27.5",
+    "control",
+    "two words"
+   ]
+  ]
+ },
+ "crlf": {
+  "columns": [
+   "participant_id",
+   "age",
+   "group",
+   "note"
+  ],
+  "rows": [
+   [
+    "sub-01",
+    "34",
+    "control",
+    ""
+   ],
+   [
+    "sub-02",
+    "n/a",
+    "patient",
+    "has, comma"
+   ],
+   [
+    "sub-03",
+    "27.5",
+    "control",
+    "two words"
+   ]
+  ]
+ },
+ "bom": {
+  "columns": [
+   "participant_id",
+   "age",
+   "group",
+   "note"
+  ],
+  "rows": [
+   [
+    "sub-01",
+    "34",
+    "control",
+    ""
+   ],
+   [
+    "sub-02",
+    "n/a",
+    "patient",
+    "has, comma"
+   ],
+   [
+    "sub-03",
+    "27.5",
+    "control",
+    "two words"
+   ]
+  ]
+ }
+}

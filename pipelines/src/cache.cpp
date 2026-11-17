@@ -67,6 +67,13 @@ std::optional<Row> find_cached(const nxr::io::Database& db, const std::string& s
   return std::nullopt;
 }
 
+AsideFolder replaced_aside(const nxr::io::DatasetWriter& ds, const nxr::io::SubjectWriter& sub, const std::string& date, int n) {
+  const std::string stem = "_replaced-" + date + (n > 1 ? "-" + std::to_string(n) : std::string());
+  if (ds.is_package()) return {nxr::io::join_key(sub.prefix(), stem), (ds.root() / stem).string()};
+  const std::string base = stem + "/" + nxr::io::text(sub.row(), "path");
+  return {base, (ds.root() / base).string()};
+}
+
 // Arrays and rows of a name already stored: refused, or (replace) moved aside - never deleted - and the rows removed.
 std::string clear_stored(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const std::vector<std::pair<const char*, std::string>>& nodes, bool replace, const std::string& what, bool& replaced) {
   using namespace nxr::io;
@@ -80,11 +87,12 @@ std::string clear_stored(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub
     const std::string loc = table == "selection" ? opt_text(r, "array_path").value_or("") : opt_text(r, "path").value_or("");
     if (!loc.empty() && sub.store().exists_prefix(loc)) {
       // a folder of its own for each replacement of the same node the same day (`_replaced-<date>`, then `-2`, `-3`, …): never over what an earlier one moved
-      std::string aside = "_replaced-" + now_utc(false).substr(0, 10) + "/" + text(sub.row(), "path");
-      for (int n = 2; ds.store().exists_prefix(nxr::io::join_key(aside, loc)); ++n)
-        aside = "_replaced-" + now_utc(false).substr(0, 10) + "-" + std::to_string(n) + "/" + text(sub.row(), "path");
-      sub.datastore().rename_prefix(nxr::io::join_key(sub.prefix(), loc), nxr::io::join_key(aside, loc));
-      moved = (ds.root() / aside).string();
+      const std::string date = now_utc(false).substr(0, 10);
+      int n = 1;
+      AsideFolder aside = replaced_aside(ds, sub, date, n);
+      while (ds.node_store().exists_prefix(nxr::io::join_key(aside.base, loc))) aside = replaced_aside(ds, sub, date, ++n);
+      sub.datastore().rename_prefix(nxr::io::join_key(sub.prefix(), loc), nxr::io::join_key(aside.base, loc));
+      moved = aside.on_disk;
     }
     sub.remove(table, text(r, "id"));
   }

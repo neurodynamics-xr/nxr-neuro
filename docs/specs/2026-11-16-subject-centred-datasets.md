@@ -481,7 +481,7 @@ place, under the dataset's writer lock, **subject by subject, verified byte for 
    dataset database) and removes the packages' row tables, leaving `small_files` as format 52 had it. `split` then `join` gives back the original
    database, compared table by table (`test_split`: synthetic datasets at 50, 51 and 52, a crash at each stage, idempotence, the round trip).
 
-**The version step**: store format **53** (packages and catalogue) and the model's schema version **51** (the new tables: `subject_entry`,
+**The version step** (built 2026-11-17: `model.sql` is at 51, with the subject kind `registration` and the tables `key_digest`, `subject_entry` and `template_reference`; `anchor_row`, `origin` and `vocabulary` stay package and catalogue tables; a database at 50 is migrated in place when it is opened to write, and read as it is when opened to read; the attribute views name schema 51; nxr and the Studio adopt the same `model.sql` next): store format **53** (packages and catalogue) and the model's schema version **51** (the new tables: `subject_entry`,
 `template_reference`, `key_digest`, the package record in `meta`, the subject kind `registration`), added to `model.sql` in all three implementations at once. Every reader refuses a
 version above the newest it knows (`schema_version` error), so a build from before this change refuses a format-53 package instead of misreading it,
 and a format-53 build still opens 50–52 datasets as today.

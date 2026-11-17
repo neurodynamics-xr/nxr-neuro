@@ -10,25 +10,27 @@ else()
 endif()
 
 if(NOT NXR_IO_WASM)
-# NXR_NEURO_PORTABLE (release builds): SQLite from its amalgamation and zstd from the copy c-blosc carries, both linked into the binary, so the
-# command needs no Homebrew or distribution libraries (zlib stays the system's: libz.a on Linux, the system libz on macOS).
+# SQLite is ALWAYS the pinned 3.51 amalgamation, compiled into nxr_sqlite3 with the same options on every platform: one database engine, one
+# behaviour (the system SQLite differs by platform and age: Apple's lacks ORDER BY inside aggregates, which the hub's Homebrew and Ubuntu 24.04 have).
+include(FetchContent)
+enable_language(C)
+FetchContent_Declare(sqlite_amalgamation
+  URL https://www.sqlite.org/2025/sqlite-amalgamation-3510000.zip
+  URL_HASH SHA256=1caf7116f2910600d04473ad69d37ec538fa62fa36adccd37b5e0e43647c98be
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(sqlite_amalgamation)
+add_library(nxr_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
+target_include_directories(nxr_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
+target_compile_definitions(nxr_sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_ENABLE_MATH_FUNCTIONS=1 SQLITE_DEFAULT_FOREIGN_KEYS=0)
+target_compile_options(nxr_sqlite3 PRIVATE -w)
+set_target_properties(nxr_sqlite3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+find_package(Threads REQUIRED)
+target_link_libraries(nxr_sqlite3 PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+add_library(SQLite3::SQLite3 ALIAS nxr_sqlite3)
+find_package(ZLIB REQUIRED)
+# NXR_NEURO_PORTABLE (release builds): zstd from the copy c-blosc carries, linked into the binary, so the command needs no Homebrew or
+# distribution libraries (zlib stays the system's: libz.a on Linux, the system libz on macOS).
 if(NXR_NEURO_PORTABLE)
-  include(FetchContent)
-  enable_language(C)
-  FetchContent_Declare(sqlite_amalgamation
-    URL https://www.sqlite.org/2025/sqlite-amalgamation-3510000.zip
-    URL_HASH SHA256=1caf7116f2910600d04473ad69d37ec538fa62fa36adccd37b5e0e43647c98be
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-  FetchContent_MakeAvailable(sqlite_amalgamation)
-  add_library(nxr_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
-  target_include_directories(nxr_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
-  target_compile_definitions(nxr_sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_ENABLE_MATH_FUNCTIONS=1 SQLITE_DEFAULT_FOREIGN_KEYS=0)
-  target_compile_options(nxr_sqlite3 PRIVATE -w)
-  set_target_properties(nxr_sqlite3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  find_package(Threads REQUIRED)
-  target_link_libraries(nxr_sqlite3 PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
-  add_library(SQLite3::SQLite3 ALIAS nxr_sqlite3)
-  find_package(ZLIB REQUIRED)
   # zstd: set after c-blosc is fetched (below)
 else()
 # --- libzstd (system; the Zarr v3 `zstd` codec body) ---
@@ -38,13 +40,6 @@ if(NOT ZSTD_INCLUDE_DIR OR NOT ZSTD_LIBRARY)
   message(FATAL_ERROR "libzstd not found (try: brew install zstd)")
 endif()
 
-# --- SQLite (system) and zlib (system; the gzip codec and the CLI's checksum) ---
-find_package(SQLite3 REQUIRED)
-# CMake's FindSQLite3 names its target SQLite::SQLite3; recent CMake also provides SQLite3::SQLite3. Use one name on every CMake version.
-if(NOT TARGET SQLite3::SQLite3 AND TARGET SQLite::SQLite3)
-  add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
-endif()
-find_package(ZLIB REQUIRED)
 endif()
 endif()
 
@@ -111,13 +106,15 @@ if(NXR_IO_WASM)
   FetchContent_Declare(matio GIT_REPOSITORY https://github.com/tbeu/matio.git GIT_TAG v1.5.28 GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(matio)
   target_compile_options(matio PRIVATE -w -sUSE_ZLIB=1)
+  add_subdirectory(formats)   # the pure formats (own target; nxr_io links it)
   add_library(nxr_io
     src/codec_zstd.cpp src/codec_pipeline.cpp src/dtype.cpp src/metadata.cpp src/chunking.cpp src/zarr_store.cpp src/sparse.cpp src/schema.cpp
     src/dataset.cpp src/array_reader.cpp src/json_text.cpp src/database.cpp src/named_paths.cpp src/layout.cpp src/writer_lock.cpp src/array_writer.cpp src/compact.cpp
     src/writer.cpp src/subject_writer.cpp src/mesh.cpp src/surface.cpp src/npy.cpp src/default_subject.cpp src/bundle.cpp src/cells.cpp src/measures.cpp src/spatial_bands.cpp src/rollup.cpp src/statistic.cpp src/yaml.cpp src/finder.cpp src/hash.cpp
     src/bst_mat.cpp src/bst_protocol.cpp src/bst_subject.cpp src/bst_entities.cpp src/bst_sensors.cpp src/bst_projectors.cpp src/bst_mri.cpp src/bst_naming.cpp
     src/bst_session.cpp src/bst_recording.cpp src/bst_events.cpp src/bst_resample.cpp src/bst_frequency.cpp src/bst_inverse.cpp src/bst_maps.cpp src/bst_timefreq.cpp
-    src/bst_fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp)
+    src/bst_fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp
+    src/subject_package.cpp src/subject_filter.cpp src/catalogue.cpp src/participants.cpp src/dataset_index.cpp src/migrate.cpp src/templates.cpp)
   target_include_directories(nxr_io PRIVATE ${CMAKE_CURRENT_BINARY_DIR} src ${ZSTD_INCLUDE_DIR} ${c-blosc_SOURCE_DIR}/blosc ${CMAKE_CURRENT_SOURCE_DIR}/extern)
   set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # rapidyaml (vendored) compiled here, its warnings not ours
   target_include_directories(nxr_io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -138,7 +135,7 @@ if(NXR_IO_WASM)
   target_include_directories(nxr_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
   target_compile_definitions(nxr_sqlite3 PRIVATE SQLITE_THREADSAFE=0 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_ENABLE_MATH_FUNCTIONS=1 SQLITE_DEFAULT_FOREIGN_KEYS=0)
   target_compile_options(nxr_sqlite3 PRIVATE -w -fwasm-exceptions)
-  target_link_libraries(nxr_io PUBLIC nlohmann_json nxr_sqlite3 PRIVATE blosc_static matio)
+  target_link_libraries(nxr_io PUBLIC nxr_io_formats nlohmann_json nxr_sqlite3 PRIVATE blosc_static matio)
   return()
 endif()
 
@@ -226,6 +223,9 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/schema/statistics.json NXR_STATISTICS_JSON
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/statistics_json.inc "R\"NXRSTAT(${NXR_STATISTICS_JSON})NXRSTAT\"")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/schema/statistics.json)
 
+# --- the pure formats (their own target; nxr_io links it) ---
+add_subdirectory(formats)
+
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/convert/manifest/template_sources.json NXR_TEMPLATE_SOURCES_JSON)
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/template_sources_json.inc "R\"NXRSRC(${NXR_TEMPLATE_SOURCES_JSON})NXRSRC\"")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/convert/manifest/template_sources.json)
@@ -302,7 +302,7 @@ set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # ra
 target_include_directories(nxr_io
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
   PRIVATE ${ZSTD_INCLUDE_DIR} ${c-blosc_SOURCE_DIR}/blosc)
-target_link_libraries(nxr_io PUBLIC nlohmann_json SQLite3::SQLite3 ZLIB::ZLIB PRIVATE ${ZSTD_LIBRARY} blosc_static matio)
+target_link_libraries(nxr_io PUBLIC nxr_io_formats nlohmann_json SQLite3::SQLite3 ZLIB::ZLIB PRIVATE ${ZSTD_LIBRARY} blosc_static matio)
 if(MSVC)
   target_compile_options(nxr_io PRIVATE /W4)
 else()
@@ -323,7 +323,7 @@ target_link_libraries(nxr-neuro-bst-compare PRIVATE nxr_io)
 
 # --- tests (hand-written + ctest) ---
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_IO_TESTS codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import split_groups)
+  set(NXR_IO_TESTS codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import schema51 split_groups)
   foreach(t ${NXR_IO_TESTS})
     add_executable(test_${t} test/test_${t}.cpp)
     target_link_libraries(test_${t} PRIVATE nxr_io)

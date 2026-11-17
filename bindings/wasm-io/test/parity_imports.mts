@@ -3,9 +3,10 @@
 // module — then every table and file compared. Both sides deterministic (NXR_IO_DETERMINISTIC: counter ids, a fixed clock), so the converter's rows match exactly.
 //   npx tsx <this> <studio checkout> <wasm-io build folder> <datastore> <protocols> <native nxr-neuro>
 import assert from 'node:assert/strict';
-import { cpSync, readFileSync, readdirSync } from 'node:fs';
+import { cpSync, readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import { keysOf, readKey } from './store_keys.mjs';   // the store's KEYS, at format 51 (files) and 52 (rows of the subject's small_files.sqlite)
 
 const [, , STUDIO, PKG, STORE, PROTOCOLS, NATIVE] = process.argv;
 const { createModelService } = await import(path.join(STUDIO, 'backend/src/service/model.ts'));
@@ -39,12 +40,11 @@ function same(what: string) {
     const q = t === 'datastore' ? 'SELECT id, driver FROM datastore' : `SELECT * FROM "${t}"`;
     assert.deepEqual(norm(rows(B, q), ib), norm(rows(A, q), ia), `${what}: table ${t}`);
   }
-  const files = (root: string) => (readdirSync(root, { recursive: true, withFileTypes: true }) as { isFile(): boolean; parentPath: string; name: string }[])
-    .filter((e) => e.isFile()).map((e) => path.relative(root, path.join(e.parentPath, e.name))).filter((f) => !/dataset\.sqlite|catalog\.json|\.lock$/.test(f)).sort();
+  const files = (root: string) => keysOf(root).filter((f) => !/dataset\.sqlite|catalog\.json|\.lock$/.test(f));
   assert.deepEqual(files(B), files(A), `${what}: files`);
   // every zarr.json alike (its text, times masked): the converter lays the stores out on both sides
   for (const f of files(A).filter((x) => x.endsWith('zarr.json')))
-    assert.deepEqual(deep(JSON.parse(readFileSync(path.join(B, f), 'utf8'))), deep(JSON.parse(readFileSync(path.join(A, f), 'utf8'))), `${what}: ${f}`);
+    assert.deepEqual(deep(JSON.parse(readKey(B, f).toString('utf8'))), deep(JSON.parse(readKey(A, f).toString('utf8'))), `${what}: ${f}`);
   checks++;
 }
 
