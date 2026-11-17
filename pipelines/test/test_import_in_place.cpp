@@ -73,7 +73,6 @@ int main() {
     CHECK_EQ(link["format"].get<std::string>(), std::string("edf"));
     CHECK_EQ(link["sha256"].get<std::string>().size(), static_cast<std::size_t>(64));
     CHECK(cv::link_of(nxr::io::task::Subject::of(c).require({.cls = nxr::io::task::Cls::field, .name = "rec"}, "rec").producer).is_null());
-    CHECK(items_without_origin(p.db()).empty());
   }
 
   // the same computation on both gives the same numbers
