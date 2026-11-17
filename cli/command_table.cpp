@@ -52,7 +52,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --atlas-depth	LEVEL	Leaf level of the group tree that serves as the dataset's default atlas (needs --templates)	8	level
 --atlas-depth@create dataset	LEVEL	Leaf level of the group tree that serves as the dataset's default atlas; written with the default subject, so it needs --templates.	8	level
 --band	LO,HI	The frequency band in hertz (frametiling: its centre sets the frame length; wishart: the band of the stored windows; measure query: INDEX picks one band by its index, a whole number).	none	Hz
---band@run frametiling	LO,HI	The band the frames are made for: its centre sets the frame level, and the band is recorded with the tiling.	none	Hz
 --band@run wishart	LO,HI	The frequency band the stored windows are of.	required	Hz
 --band@query measurements	N	The band (the row's within-code) to read when the pyramid's joint selection holds several.	none (all bands, or the only one)	-
 --bands	NAME:LO-HI,...	The frequency bands to compute, each a name and its low and high edge (the mean over the bins from LO to HI, inclusive); pyramid build takes LO-HI,... octave bands without names.	Brainstorm's bands (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90); pyramid build: octaves 1-2 to 32-64	Hz
@@ -93,7 +92,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --bursts@run cellquadrature	NAME	Stored set of burst time spans on the recording's line; when given, quadrature is also computed per burst.	none (cells only)	-
 --bursts@run wishart	NAME	Stored set of burst time spans on the recording's line (tile-aligned); each burst is tested against the null.	required	-
 --centre	HZ	Centre frequency of the band from which the frame length is derived (the coarsest tower level whose frame is no longer than 1/(centre x frames-per-cycle)).	none	Hz
---centre@run frametiling	HZ	The centre frequency the frame level is derived from (the middle of --band when that is given).	none	Hz
 --centres	HZ,...	Centre frequencies of the filterbank members (Morlet, Morse, Amor and Bump families); for Morlet, empty means the single member at --freq (opticalflow).	none	Hz
 --centres@run opticalflow	HZ,...	Centre frequencies of the filter-bank members (Morlet, Morse, Amor and Bump); for Morlet, empty means the single member at --freq.	none	Hz
 --centres@run speedspectrum	HZ,HZ,...	Morlet, Morse, Amor and Bump time banks: the member centre frequencies	none	Hz
@@ -237,11 +235,9 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --fraction	X	Fraction of the peak power at the reference level above which the connected region counts as the source's patch.	0.5	-
 --fraction@run pointspread	FRACTION	The patch is the connected region at the reference level whose power is at least this fraction of its peak	0.5	fraction
 --frame-level	L	Tower level of a time frame, a whole number: a frame lasts 86400 x 2^L seconds (-18 = 0.33 s, -25 = 2.57 ms). (frametiling: alternative to --centre or --band)	-18 (frametiling: none, give a level, centre or band)	-
---frame-level@run frametiling	LEVEL	The tower level of one frame (0 is the day, -18 is 0.33 s, -25 is 2.57 ms); alternative to --centre and --band.	none (derived from the centre)	level
 --frame-level@run opticalflow	L	Tower level of a stored time frame, a whole number: a frame lasts 86400 x 2^L seconds (-18 is 0.33 s).	-18	-
 --frame-level@run pyramid	L	Tower level of a time frame, a whole number: a frame lasts 86400 x 2^L seconds.	-18 (0.33 s)	level
 --frames-per-cycle	N	Frames per cycle of the band's centre frequency, which sets the frame level (the coarsest whose frame is at or under 1/(centre x N))	36	frames
---frames-per-cycle@run frametiling	N	Frames to one cycle of the centre frequency; the level is the coarsest whose frame is no longer than 1/(centre x N).	36	frames
 --freq	HZ	Frequency whose nearest filter-bank member is analysed.	none (required)	Hz
 --freq@run opticalflow	HZ	Frequency whose nearest filter-bank member is analysed.	required	Hz
 --frequencies	F,...	Centre frequencies to remove (notch), e.g. a line frequency and its harmonics.	none (give this or --line)	Hz
@@ -566,7 +562,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording@run bandstop	NAME	Name of the stored recording to filter; the result is a new recording on the same channels and time line.	required	-
 --recording@run constantq	NAME	Recording whose time line gets the ladder (alternative to --line and --all).	none	-
 --recording@run crossspectrum	NAME	The stored sensor recording whose cross-spectrum is computed (its span is set by the time-range options).	required	-
---recording@run frametiling	NAME	The recording the tiling is made for.	required	-
 --recording@run highpass	NAME	Name of the stored recording to filter.	required	-
 --recording@run hodgepower	NAME	The sensor recording whose cross-spectrum is read through the kernel.	required	-
 --recording@run inverse	NAME	Recording to compute (and store) the noise covariance from; an alternative to --noise-cov.	none (give this or --noise-cov)	-
@@ -734,7 +729,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --star1-floor@run eigenmodes	F	Raise the edge cotan weights (the 1-form Hodge star) that fall below F up to F; unset means no floor.	none	-
 --start	SEC	Start of the span read, in seconds on the recording's clock; give together with --stop. Exclusive with --chunks.	none (one chunk)	s
 --start-s	SECONDS	Time of the recording's first sample as seconds from local midnight, anchoring the time-tile levels	the anchor is the recording	s
---start-s@run frametiling	SECONDS	The recording's first sample as seconds from local midnight, which anchors the tiling to the day.	none (anchored to the recording)	s
 --start-s@run opticalflow	SECONDS	Time of the recording's first sample as seconds from local midnight, anchoring the frame tiling.	none (the anchor is the recording)	s
 --start-s@run pyramid	SECONDS	Time of the recording's first sample as seconds from local midnight, which anchors the time frames.	the anchor is the recording	s
 --statistics	LIST	Comma-separated statistics written per subject in the exported table (e.g. mean,sd).	see the command's description	-
@@ -871,7 +865,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run frames	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run tiles	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run frametiling	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run joint	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run lowpass	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run highpass	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1559,13 +1552,6 @@ alias: refused
 group: Time
 summary: The constant-Q tiling of a time line (a ladder of dyadic windows).
 opts: --all --cycles --dataset* --fmax --fmin --line --method --recording --subject* --voices --templates+
-)TBL",
-R"TBL(@ run frametiling
-old: frametiling compute
-alias: refused
-group: Time
-summary: The frame tiling on the time tower: the cycles of one tower level over a recording.
-opts: --band --centre --dataset* --frame-level --frames-per-cycle --recording* --replace --start-s --subject* --templates+
 )TBL",
 R"TBL(@ run joint
 old: joint compute

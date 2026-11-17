@@ -4,7 +4,7 @@
 //   band_filter     chunk       a field on … × time, band-limited, zero phase (the Studio's taps of a Meyer band: gainTaps · convolveRows)
 //   analytic        chunk       ℝ → ℂ, the analytic signal x + i H[x] (the Studio's odd taps, hilbertImag; the transform "complex")
 //   envelope        chunk       ℝ → ℝ, |analytic| (NON-LINEAR: no linear map may follow it, D106)
-//   frames          chunk       RETIMING: a field on the recording's samples sampled on the FRAME TILING (`frametiling compute`: the cycles of one TOWER level, D135; nxr band_at_frames resamples at them):
+//   frames          chunk       RETIMING: a field on the recording's samples sampled on the FRAME TILING (`run frametiling`: the cycles of one TOWER level, D135; nxr band_at_frames resamples at them):
 //                               band-limited (Kaiser-sinc) interpolation of a band's signal at the frames inside the chunk; the steps after it fold FRAMES; with `within` (a spans Selection) only the frames inside it are good
 //   apply_kernel    chunk       a linear operator from the field's first factor (an imaging kernel: sensors → sources); ℝ or ℂ kept; with `tiles` and `level`, the level's
 //                               spatial Weyl band folded into the kernel once (M = (F_l ⊗ I) K)
@@ -60,6 +60,7 @@ void add_tracks_steps(std::vector<StepSpec>& r);   // tracks_steps.cpp: tracks
 void add_crossings_steps(std::vector<StepSpec>& r);   // crossings_steps.cpp: tile_crossings
 void add_surrogate_steps(std::vector<StepSpec>& r);   // surrogate_steps.cpp: power_series, lagfree_surrogate
 void add_connectome_steps(std::vector<StepSpec>& r);   // connectome_steps.cpp: fiber_ends, nearest_vertex, end_gate, registration_match, carry_ends, smooth_memberships, partition_counts, end_connectome, connection_weights, prune_below, largest_component
+void add_tiling_steps(std::vector<StepSpec>& r);        // tiling_steps.cpp: frame_tiling
 void add_montage_steps(std::vector<StepSpec>& r);       // montage_steps.cpp: eeg_montage_1005
 void add_spatial_events_steps(std::vector<StepSpec>& r);   // spatial_events_steps.cpp: at_level, relative, …
 
@@ -216,7 +217,7 @@ std::vector<StepSpec> build() {
                }});
   r.push_back({"frames", "chunk", {"x", "tiling", "within"}, {"within"}, {"y"}, Json{{"half_width", 32}},
                "nxr vortex.band_at_frames (the band's signal at the frames, by FFT resampling: exact for a band-limited signal); here its local form, a Kaiser-windowed sinc (nxr::frametiling), at the START of each tower frame (nxr::tower)",
-               "a field sampled on the FRAME TILING (a closed-form spans Selection of TOWER frames, `frametiling compute`: the cycles of one tower level, D135, each a dyadic tile; a frame's time is its tile's start). A linear step: the band's signal x, real or complex "
+               "a field sampled on the FRAME TILING (a closed-form spans Selection of TOWER frames, `run frametiling`: the cycles of one tower level, D135, each a dyadic tile; a frame's time is its tile's start). A linear step: the band's signal x, real or complex "
                "(the analytic signal), is interpolated at each frame's (non-integer) sample position by a Kaiser-windowed sinc of `half_width` samples either side (the step's halo), exact for a signal band-limited well inside the Nyquist band. "
                "A frame belongs to the chunk holding the sample at or before it, so the result does not depend on the chunk size. The output's columns are FRAMES (axis `frames`): the steps after it are pointwise in time "
                "(a linear map, a form, |x|², a series kept) and fold frames; a step that reads the samples' own time refuses it. With `within` (a spans Selection of the recording's time line: the bursts, a stage) only the frames "
@@ -225,9 +226,9 @@ std::vector<StepSpec> build() {
                  const Value &x = ins.at("x"), &t = ins.at("tiling");
                  in_loop(x, "frames");
                  need(!nonlinear(x), "frames: x was made by a non-linear step (" + x.facts.value("made_by", std::string("?")) + "): its band limit is gone, it cannot be interpolated");
-                 need(t.cls == "selection" && t.row && nxr::io::text(*t.row, "type") == "spans", "frames: tiling must be the frame tiling (`frametiling compute`)");
+                 need(t.cls == "selection" && t.row && nxr::io::text(*t.row, "type") == "spans", "frames: tiling must be the frame tiling (`run frametiling`)");
                  const Json tp = Json::parse(nxr::io::opt_text(*t.row, "params_json").value_or("{}"), nullptr, false);
-                 need(tp.is_object() && tp.contains("atlas") && tp["atlas"].contains("frame_level") && tp.contains("frame_tiling") && tp.contains("tiling"), "frames: " + nxr::io::text(*t.row, "name") + " is not a frame tiling (`frametiling compute`)");
+                 need(tp.is_object() && tp.contains("atlas") && tp["atlas"].contains("frame_level") && tp.contains("frame_tiling") && tp.contains("tiling"), "frames: " + nxr::io::text(*t.row, "name") + " is not a frame tiling (`run frametiling`)");
                  need(t.manifolds.size() == 1 && x.time && t.manifolds[0] == *x.time, "frames: the frame tiling " + nxr::io::text(*t.row, "name") + " is of another time line than x's");
                  need(std::fabs(tp["frame_tiling"].value("sfreq", 0.0) - x.rate) < 1e-9 * x.rate, "frames: the tiling was made for " + std::to_string(tp["frame_tiling"].value("sfreq", 0.0)) + " samples a second, x has " + std::to_string(x.rate));
                  need(p["half_width"].is_number_integer() && p["half_width"].get<int>() >= 1, "frames: half_width is a whole number of samples, at least 1");
@@ -699,6 +700,7 @@ std::vector<StepSpec> build() {
   add_surrogate_steps(r);
   add_connectome_steps(r);
   add_montage_steps(r);
+  add_tiling_steps(r);
   return r;
 }
 

@@ -1,7 +1,7 @@
 // nxr-pipelines — POINT EVENTS: events that sit at ONE FRAME of the frame tiling, each with a place and a few numbers (a vortex core: its sense, centre, area, peak; a spatial event of relative band
 // power: its centre, area, size, peak). The shared storage of the vortex-cores port (piece 5) and the spatial-events work:
 //
-//   the events    a SPANS Selection on the recording's time line, ONE MEMBER PER EVENT, its span the event's frame [t_j, t_j + 1/fps) (the frame tiling's tile, `frametiling compute`); several members may
+//   the events    a SPANS Selection on the recording's time line, ONE MEMBER PER EVENT, its span the event's frame [t_j, t_j + 1/fps) (the frame tiling's tile, `run frametiling`); several members may
 //                 share a frame (the model keys a span by its ordinal), in the order the step gives them (by frame)
 //   attributes    each a MEASUREMENT over that Selection (selection_measurement rows, array-backed: the measurement's member axis is the events' order): the step names the measures (`frame`, `sense`,
 //                 `centre_vertex`, `centre` (x y z), `area`, `peak`, …)

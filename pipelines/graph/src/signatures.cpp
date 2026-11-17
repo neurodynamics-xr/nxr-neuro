@@ -422,6 +422,14 @@ void statistic_of_stream(Unified& u, const std::string& port, const std::string&
   y.of = OfType{x.quantity, x.res, without_last(x.domain)};
 }
 
+// the frame tiling: a closed-form partition of the recording's time line (it reads the line's rate and length, never a value)
+Signature s_frame_tiling() {
+  return sig(Move::pointwise)
+      .in("recording", field({M, T}).because("The frame tiling is made on a recording's time line."))
+      .out("tiling", make_of(PortClass::selection).on({T}))
+      .refine([](Unified& u, const Json&) { u.out.at("tiling").sel = SelectionShape{"tiling", true, u.out_names.at("tiling"), ""}; });
+}
+
 Signature s_baseline() {
   return sig(Move::summarize).accumulating().reduces_over("the good frames")
       .in("x", field({R, TF}).streamed().quantity({"power"}).because("The baseline is of a band's power."))
@@ -578,6 +586,7 @@ const std::map<std::string, Signature>& table() {
     m["at_level"] = s_at_level();
     m["scale"] = s_scale();
     m["baseline"] = s_baseline();
+    m["frame_tiling"] = s_frame_tiling();
     m["relative_histogram"] = s_relative_histogram();
     m["core_histogram"] = s_core_histogram();
     m["cores"] = s_cores();

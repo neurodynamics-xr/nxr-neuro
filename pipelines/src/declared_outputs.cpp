@@ -135,7 +135,13 @@ bool is_declared(const Plan& P, const std::string& o) {
 
 std::string declared_name(const Plan& P, const std::string& o) {
   const Json& spec = P.definition.outputs[o];
-  if (spec.contains("name") && spec["name"].is_string()) return nxr::io::safe_name(fill(P, spec["name"].get<std::string>()));
+  if (spec.contains("name") && spec["name"].is_string()) {
+    std::string t = spec["name"].get<std::string>();
+    if (P.values.count(o) && P.values.at(o).facts.contains("names"))          // what the node's plan fixed that names its output (a frame length): `{frame_s}`
+      for (const auto& [k, v] : P.values.at(o).facts["names"].items())
+        for (std::size_t at; (at = t.find("{" + k + "}")) != std::string::npos;) t.replace(at, k.size() + 2, v.get<std::string>());
+    return kind_of(spec) == "selection" ? fill(P, t) : nxr::io::safe_name(fill(P, t));   // a selection keeps its name as written (`<recording> frames 0.0026 s`); its store path is made safe by io
+  }
   const auto a = P.definition.anchor();
   return nxr::io::safe_name(P.definition.name + "." + o + (a && P.found.at(*a).row ? "." + text(*P.found.at(*a).row, "name") : std::string()));
 }

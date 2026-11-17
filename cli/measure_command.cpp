@@ -62,7 +62,6 @@
 #include "nxr/pipelines/scaleselection.h"
 #include "nxr/pipelines/measure.h"
 #include "nxr/pipelines/joint.h"
-#include "nxr/pipelines/frame_tiling.h"
 #include "nxr/pipelines/group.h"
 #include "nxr/pipelines/pyramid.h"
 #include "nxr/pipelines/patches.h"
@@ -212,40 +211,6 @@ int joint_main(const std::vector<std::string>& argv) {
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
     const auto r = nxr::pipelines::joint_compute(ds, sub, o);
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
-int frametiling_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro frametiling: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro frametiling compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording", "--frame-level", "--centre", "--band", "--frames-per-cycle", "--start-s"}, {"--replace"}, {"--dataset", "--subject", "--recording"});
-  nxr::pipelines::FrameTilingOptions o;
-  o.recording = a.get("--recording");
-  try {
-    if (const auto v = a.maybe("--centre")) o.centre_hz = std::stod(*v);
-    if (const auto v = a.maybe("--band")) {
-      const auto comma = v->find(',');
-      if (comma == std::string::npos) throw std::invalid_argument("x");
-      o.band = std::make_pair(std::stod(v->substr(0, comma)), std::stod(v->substr(comma + 1)));
-    }
-    if (const auto v = a.maybe("--frames-per-cycle")) o.frames_per_cycle = std::stoi(*v);
-    if (const auto v = a.maybe("--frame-level")) o.frame_level = std::stoi(*v);
-    if (const auto v = a.maybe("--start-s")) o.start_s = std::stod(*v);
-  } catch (...) { usage(prog, "--frame-level is a whole number (tower level, e.g. -25), --centre a number (Hz), --band LO,HI two numbers (Hz), --frames-per-cycle a whole number, --start-s a number (s)"); }
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::frame_tiling_compute(ds, sub, o);
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     cli::emit(out);

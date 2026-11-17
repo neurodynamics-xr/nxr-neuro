@@ -344,7 +344,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run frames` | The canonical (north, west) and anatomical frames of a surface. | `frames compute` |
 | `nxr-neuro run tiles` | The dyadic equal-area tile ladder of a surface. | `tiles compute` |
 | `nxr-neuro run constantq` | The constant-Q tiling of a time line (a ladder of dyadic windows). | `constantq compute` |
-| `nxr-neuro run frametiling` | The frame tiling on the time tower: the cycles of one tower level over a recording. | `frametiling compute` |
+| `nxr-neuro run frametiling` | The frame tiling on the time tower: the cycles of one tower level over a recording. | `run frametiling` |
 | `nxr-neuro run joint` | The joint partition of space and time: cells of a spatial tile level by a time tile level. | `joint compute` |
 | `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
 | `nxr-neuro run highpass` | A zero-phase high-pass filter, written as a new recording. | `highpass` |
@@ -1198,7 +1198,7 @@ local midnight), **birth** (days since birth; in the pure functions only). The f
 - **`nxr::tower`** (pure functions of numbers and arrays): `periodS`, `levelForSeconds`, `levelAtOrUnder`, `frameLevelFor(centre, frames_per_cycle)`, `parent(code, up)`, `Placement::sampleCodes(level)` (nxr `Placement.sample_codes`, refuses a level above what is known), `FrameTiling` (`code0`, `count`, `position(k)`,
   `origin_s()`, `frameOfSample`, `tileOfFrame`), `frameSpan` (the frames whose start falls in a span of samples: a partition over any partition of the samples) and `rollTime` (below). **Golden:** `compute/test/golden/tower_golden.txt` from nxr's own `tower.py` and `rollup.time` (`gen_tower_golden.py`, synthetic placements and arrays): the code of every sample,
   the frames' count and per-frame samples, the roll-up for sum, max and min at every `code0` phase; `test_tower`.
-- **`nxr-neuro run frametiling --recording R (--frame-level L | --centre HZ | --band LO,HI) [--frames-per-cycle 36] [--start-s S]`** stores the frame tiling as nxr stores it: a closed-form `spans` Selection **`<recording> frames <frame_s:g> s`** on the recording's time line, `params_json.tiling` {origin, width = hop = frame_s, count} and `params_json.atlas`
+- **`nxr-neuro run frametiling --recording R (--frame-level L | --centre-hz HZ | --band LO,HI) [--frames-per-cycle 36] [--start-s S]`** stores the frame tiling as nxr stores it: a closed-form `spans` Selection **`<recording> frames <frame_s:g> s`** on the recording's time line, `params_json.tiling` {origin, width = hop = frame_s, count} and `params_json.atlas`
   {frame_s, frame_level, frame_code0, anchor, start_s, made} (nxr's own keys, so nxr and the Studio read it unchanged); the project's extras (the band, frames a cycle, the rate) are under `params_json.frame_tiling`. The level is **named** (`--frame-level`) or **derived from the band**: the coarsest tower level whose frame is **at or under 1/(centre × frames per cycle)**
   (10 Hz × 36 → level −25 = 2.57 ms; 12 Hz × 36 → −26 = 1.29 ms, since −25 is 2.57 ms, over 2.31 ms); the level, `frame_code0` and the anchor are recorded. One tiling per (recording, level); a rerun keeps it, `--replace` rewrites it.
   **This replaces the per-band tiling of PR #144** (frames_per_cycle × centre frames a second, `<recording>_frames_<centre>Hz_<n>`), which is **not kept as an option**: its frames did not nest in the dyadic tiles (the time-tiles rule).

@@ -373,7 +373,7 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
   frames_id = text(*frow, "id");
   const Json fparams = Json::parse(text(*frow, "params_json"), nullptr, false);
   if (!fparams.is_object() || !fparams.contains("atlas") || fparams["atlas"].value("frame_code0", std::int64_t(-1)) != ft.code0 || integer(*frow, "n_members") != n_frames)
-    invalid(frame_tiling_name(opt.recording, opt.frame_level) + ": a tiling already stored is anchored differently (--start-s); replace it with `frametiling compute --replace`");
+    invalid(frame_tiling_name(opt.recording, opt.frame_level) + ": a tiling already stored is anchored differently (--start-s); replace it with `run frametiling --replace`");
   (void)fr;
   sub.compose([&] {
     if (old_joint) sub.remove("selection", text(*old_joint, "id"));
@@ -455,7 +455,7 @@ FrameCells frame_cells(DatasetWriter& ds, SubjectWriter& sub, const std::string&
   fc.frames_id = text(*frow, "id");
   const Json fparams = Json::parse(opt_text(*frow, "params_json").value_or("{}"), nullptr, false);
   if (!fparams.is_object() || !fparams.contains("atlas") || fparams["atlas"].value("frame_code0", std::int64_t(-1)) != fc.ft.code0 || integer(*frow, "n_members") != fc.n_frames)
-    invalid(frame_tiling_name(recording, frame_level) + ": a tiling already stored is anchored differently (--start-s); replace it with `frametiling compute --replace`");
+    invalid(frame_tiling_name(recording, frame_level) + ": a tiling already stored is anchored differently (--start-s); replace it with `run frametiling --replace`");
   return fc;
 }
 

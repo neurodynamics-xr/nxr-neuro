@@ -27,7 +27,7 @@
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
-#include "nxr/pipelines/frame_tiling.h"
+#include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/pipelines/tiles.h"
@@ -119,7 +119,7 @@ int main() {
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   tiles_compute(ds, sub, TilesComputeOptions{});
   { EigenSolveOptions eo; eo.modes = 100; eo.surface = "cortex"; eigen_solve(ds, sub, eo, {}); }          // stores the glued surface the curl lives on
-  for (const char* rec : {"rest", "rest_b"}) { FrameTilingOptions fo; fo.recording = rec; fo.band = std::make_pair(8.0, 12.0); frame_tiling_compute(ds, sub, fo); }
+  for (const char* rec : {"rest", "rest_b"}) { nxrtest::run_definition(ds, sub, "frametiling", Json{{"recording", rec}, {"band", Json::array({8.0, 12.0})}}); }
   const double fps = 1.0 / nxr::tower::periodS(-25);
 
   // ── THE DIRECT COMPUTATION: the band's analytic signal on the sensors (Morlet taps), sampled at the frames by the Kaiser sinc, each level's free current through its dense exact hat on the glued surface ──

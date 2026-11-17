@@ -10,7 +10,7 @@
 //   THE LEAVES   the tree partition: the `set` Selection `<surface> tiles L<D>` of the surface's ladder (`tiles compute`; made when the surface has none), leaf code h·2^D + t, `w` the leaf areas; D is
 //                the finest level every piece reaches by default (leaves a few vertices each), `--depth` chooses. Its params_json gains nxr's `atlas` block {tree, level, finest, gauge, areas, node}.
 //   THE BANDS    `atlas bands` (nxr's stored name, D158): a `spans` Selection on the dataset's Frequency manifold, code = the band's index; default octaves 1–2 … 32–64 Hz.
-//   THE FRAMES   the tower frame tiling of the recording (`frametiling compute`, step 1): `<recording> frames <s> s`, frame k = tower code frame_code0 + k; its per-frame good-sample `count`
+//   THE FRAMES   the tower frame tiling of the recording (`run frametiling`, step 1): `<recording> frames <s> s`, frame k = tower code frame_code0 + k; its per-frame good-sample `count`
 //                (array `<recording>__<kernel>_samples`, a measurement row `count` on the tiling, of the source estimate).
 //   THE JOINT    one `set` Selection per recording × kernel × tree on cortex × time, code (tile << B) | frame, `params_json.joint` {space, time, bits, tiles, frames, layout [band, tile, frame]};
 //                its rows are the arrays `power_sum` · `envelope_sum` · `envelope_max` [band, leaf, frame] (float64, in the node `source-time/<recording>__<kernel>_atlas/<tree>/{power,env,envmax}`),

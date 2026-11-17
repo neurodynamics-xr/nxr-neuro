@@ -29,7 +29,7 @@
 #include "nxr/histogram.h"
 #include "nxr/taps.h"
 #include "nxr/pipelines/eigen.h"
-#include "nxr/pipelines/frame_tiling.h"
+#include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/pipelines/tiles.h"
@@ -128,7 +128,7 @@ int main() {
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   tiles_compute(ds, sub, TilesComputeOptions{});
-  for (const char* rec : {"rest", "rest_b"}) { FrameTilingOptions fo; fo.recording = rec; fo.band = std::make_pair(8.0, 12.0); frame_tiling_compute(ds, sub, fo); }
+  for (const char* rec : {"rest", "rest_b"}) { nxrtest::run_definition(ds, sub, "frametiling", Json{{"recording", rec}, {"band", Json::array({8.0, 12.0})}}); }
   g::RunOptions all; all.chunks = "all"; all.replace = true;
   const Json lv = Json::array({1, 2, 3, 4});
   const int refl = 4;

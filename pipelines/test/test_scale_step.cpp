@@ -21,7 +21,7 @@
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
-#include "nxr/pipelines/frame_tiling.h"
+#include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/io/task/task.h"
@@ -114,7 +114,7 @@ int main() {
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   tiles_compute(ds, sub, TilesComputeOptions{});
-  for (std::size_t k = 0; k < sigmas.size(); ++k) { FrameTilingOptions fo; fo.recording = "blob" + std::to_string(k); fo.band = std::make_pair(8.0, 12.0); frame_tiling_compute(ds, sub, fo); }
+  for (std::size_t k = 0; k < sigmas.size(); ++k) { nxrtest::run_definition(ds, sub, "frametiling", Json{{"recording", "blob" + std::to_string(k)}, {"band", Json::array({8.0, 12.0})}}); }
 
   // the levels: those of the ladder the hats are made for (several, so the planted widths can spread over them)
   const SurfaceInput S = read_surface(sub, std::nullopt, true);

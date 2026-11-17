@@ -1,5 +1,5 @@
 // THE FRAME TILING, stored and used, on a synthetic recording (never a real dataset):
-//   - `frametiling compute` stores a closed-form spans Selection like <recording>_chunks: count = round(samples × fps / sfreq), the frame rate, centre and frames a cycle in the record; a rerun keeps it;
+//   - `run frame_tiling` stores a closed-form spans Selection like <recording>_chunks: count = round(samples × fps / sfreq), the frame rate, centre and frames a cycle in the record; a rerun keeps it;
 //     the band's middle is the centre; refusals (no centre, both, a rate the line cannot hold)
 //   - the `frames` step samples a 0.37 Hz recording at the frames inside each chunk; the run's mean per channel equals the direct sum of cos(2π f t_j + φ) over the frames; with `within` only the frames inside the
 //     named span count, and a bad span's frames are left out
@@ -23,7 +23,7 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
-#include "nxr/pipelines/frame_tiling.h"
+#include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 
 using namespace nxr::io;
@@ -102,27 +102,27 @@ int main() {
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   // ── THE STORED TILING ──
-  FrameTilingOptions fo;
-  fo.recording = "rest"; fo.band = std::make_pair(8.0, 12.0);
-  const auto t1 = frame_tiling_compute(ds, sub, fo);
+  auto make = [&](const Json& set, bool replace = false) { return nxrtest::run_definition(ds, sub, "frametiling", set, replace); };
+  const Json band = Json{{"recording", "rest"}, {"band", Json::array({8.0, 12.0})}};
+  const auto t1 = make(band);
   const double fps = 1.0 / nxr::tower::periodS(-25);
   const std::int64_t count = static_cast<std::int64_t>(std::floor(static_cast<double>(T - 1) * fps / sfreq)) + 1;
-  const auto trow = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, t1.info["id"].get<std::string>());
-  CHECK(trow && trow->name == "rest frames 0.00257492 s" && trow->type == "spans" && trow->n_members == count && !t1.existed && t1.info["fps"] == fps && t1.info["frame_level"] == -25);
+  const auto trow = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, t1.at(0)["stored"].at(0)["id"].get<std::string>());
+  CHECK(trow && trow->name == "rest frames 0.00257492 s" && trow->type == "spans" && trow->n_members == count && !t1.at(0)["hit"].get<bool>());
   const Json tp = trow->params;
-  CHECK(tp["tiling"]["count"] == count && tp["tiling"]["width"] == 1.0 / fps && tp["atlas"]["frame_level"] == -25 && tp["atlas"]["frame_code0"] == 0 && tp["atlas"]["anchor"] == "recording" && tp["atlas"]["frame_s"] == 1.0 / fps && tp["tiling"]["origin"] == 0.0 && tp["frame_tiling"]["centre_hz"] == 10.0 && tp["frame_tiling"]["frames_per_cycle"] == 36 && tp["frame_tiling"]["band"] == Json::array({8.0, 12.0}));
-  CHECK(frame_tiling_compute(ds, sub, fo).existed);
-  FrameTilingOptions fb = fo; fb.recording = "rest_b";
-  frame_tiling_compute(ds, sub, fb);
-  CHECK(what_of([&] { FrameTilingOptions e = fo; e.band.reset(); frame_tiling_compute(ds, sub, e); }).find("--frame-level") != std::string::npos);
-  CHECK(what_of([&] { FrameTilingOptions e = fo; e.centre_hz = 10.0; frame_tiling_compute(ds, sub, e); }).find("not both") != std::string::npos);
-  CHECK(what_of([&] { FrameTilingOptions e = fo; e.band.reset(); e.centre_hz = 10.0; e.frames_per_cycle = 0; frame_tiling_compute(ds, sub, e); }).find("at least 1") != std::string::npos);
+  CHECK(tp["tiling"]["count"] == count && tp["tiling"]["width"] == 1.0 / fps && tp["atlas"]["frame_level"] == -25 && tp["atlas"]["frame_code0"] == 0 && tp["atlas"]["anchor"] == "recording" && tp["atlas"]["frame_s"] == 1.0 / fps && tp["tiling"]["origin"] == 0.0 && tp["frame_tiling"]["centre_hz"] == 10.0 && tp["frame_tiling"]["fps"] == fps);
+  CHECK(make(band).at(0)["hit"].get<bool>());                                       // a rerun is a cache hit
+  make(Json{{"recording", "rest_b"}, {"band", Json::array({8.0, 12.0})}});
+  CHECK(what_of([&] { make(Json{{"recording", "rest"}}); }).find("--frame-level") != std::string::npos);
+  CHECK(what_of([&] { make(Json{{"recording", "rest"}, {"band", Json::array({8.0, 12.0})}, {"centre_hz", 10.0}}); }).find("not both") != std::string::npos);
+  CHECK(what_of([&] { make(Json{{"recording", "rest"}, {"centre_hz", 10.0}, {"frames_per_cycle", 0}}); }).find("at least 1") != std::string::npos);
   // a named level; a band derives its level (12 Hz x 36 -> -26, 10 Hz x 36 -> -25); both is refused; another level is another tiling
-  { FrameTilingOptions c; c.recording = "rest"; c.frame_level = -20; const auto r = frame_tiling_compute(ds, sub, c); CHECK(r.info["selection"] == "rest frames 0.0823975 s" && r.info["frame_level"] == -20 && !r.existed); }
-  { FrameTilingOptions c; c.recording = "rest"; c.centre_hz = 12.0; CHECK(frame_tiling_compute(ds, sub, c).info["frame_level"] == -26); }
-  CHECK(what_of([&] { FrameTilingOptions e; e.recording = "rest"; e.frame_level = -20; e.centre_hz = 10.0; frame_tiling_compute(ds, sub, e); }).find("not both") != std::string::npos);
-  CHECK(what_of([&] { FrameTilingOptions e; e.recording = "rest"; e.frame_level = 1; frame_tiling_compute(ds, sub, e); }).find("finer") != std::string::npos);
-  { FrameTilingOptions c; c.recording = "rest"; c.frame_level = -20; c.start_s = 43200.5; c.replace = true; frame_tiling_compute(ds, sub, c);   // a day anchor: code0 and the origin before the first sample
+  { const auto r = make(Json{{"recording", "rest"}, {"frame_level", -20}}); CHECK(r.at(0)["stored"].at(0)["output"] == "tiling" && !r.at(0)["hit"].get<bool>());
+    CHECK(nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest frames 0.0823975 s"}).has_value()); }
+  { make(Json{{"recording", "rest"}, {"centre_hz", 12.0}}); const auto row = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest frames " + std::string("0.00128746") + " s"}); CHECK(row && Json(row->params)["atlas"]["frame_level"] == -26); }
+  CHECK(what_of([&] { make(Json{{"recording", "rest"}, {"frame_level", -20}, {"centre_hz", 10.0}}); }).find("not both") != std::string::npos);
+  CHECK(what_of([&] { make(Json{{"recording", "rest"}, {"frame_level", 1}}); }).find("finer") != std::string::npos);
+  { make(Json{{"recording", "rest"}, {"frame_level", -20}, {"start_s", 43200.5}}, true);   // a day anchor: code0 and the origin before the first sample
     const auto row = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest frames 0.0823975 s", .any_status = true});
     const Json p = row->params; const auto tt = nxr::tower::makeFrameTiling(sfreq, T, -20, 43200.5);
     CHECK(p["atlas"]["anchor"] == "day" && p["atlas"]["frame_code0"] == tt.code0 && p["atlas"]["start_s"] == 43200.5 && p["tiling"]["origin"] == tt.origin_s() && p["tiling"]["count"] == tt.count); }
@@ -167,7 +167,7 @@ int main() {
   }
   // ── THE PLAN ──
   CHECK(what_of([&] { const std::string t = def("rest", false, "      - {step: band_filter, in: {x: f}, with: {band: [8.0, 12.0]}, out: g}\n"); g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), all); }).find("frame tiling") != std::string::npos);
-  { FrameTilingOptions c; c.recording = "rest"; c.frame_level = -22; frame_tiling_compute(ds, sub, c); }
+  nxrtest::run_definition(ds, sub, "frametiling", Json{{"recording", "rest"}, {"frame_level", -22}});
   { std::string t = def("rest", false); t.replace(t.find("0.00257492"), 10, "0.0205994");
     CHECK(what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), all); })== std::string()); }   // a tiling of another level is another tiling: it runs
   return nxrtest::finish("test_frame_tiling_pipeline") || g_failures ? 1 : 0;

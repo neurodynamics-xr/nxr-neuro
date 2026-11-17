@@ -1,0 +1,28 @@
+# THE FRAME TILING of a recording, on the TOWER (D135; nxr `pipelines/atlas/build.py`, `tower.py`): the frames are the cycles of ONE tower level (86 400 * 2^L s; frame k is the tile
+# `frame_code0 + k`, a level-m tile is code >> m), so every frame has a dyadic parent and the tiling is the measurement pyramid's own. A `spans` Selection on the recording's time line, named
+# `<recording> frames <frame_s> s`, closed-form (origin, width, hop, count). Give the level (`frame_level`) or derive it from a band (`centre_hz`, or `band`, with `frames_per_cycle`): the
+# coarsest level whose frame is at or under 1/(centre x frames_per_cycle). A frame's TIME is its tile's START. One per (recording, level): a rerun is a cache hit.
+#
+#   nxr-neuro run frametiling --dataset <folder> --subject sub-01 --recording rest --band '[8.0,12.0]'
+pipeline: frametiling
+version: 1
+description: the frames of a recording's time line, the cycles of one tower level, as a closed-form tiling Selection (the frame length from a level or from a band)
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  frame_level: {default: none, meaning: "the tower level of one frame (0 is the day, -18 is 0.33 s, -25 is 2.57 ms); alternative to centre_hz and band", unit: level}
+  centre_hz: {default: none, meaning: "the centre frequency the frame level is derived from (the middle of `band` when that is given)", unit: Hz}
+  band: {default: none, meaning: "the band the frames are made for, [lo, hi]: its centre sets the frame level, and the band is recorded with the tiling", unit: Hz}
+  frames_per_cycle: {default: 36, meaning: "frames to one cycle of the centre (the 10 degree step); the level is the coarsest whose frame is no longer than 1/(centre x N)", unit: frames}
+  start_s: {default: none, meaning: "the recording's first sample as seconds from local midnight, which anchors the tiling to the day (default: anchored to the recording)", unit: s}
+
+steps:
+  before:
+    - {step: frame_tiling, in: {recording: recording}, with: {frame_level: $frame_level, centre_hz: $centre_hz, band: $band, frames_per_cycle: $frames_per_cycle, start_s: $start_s}, out: tiling}
+
+outputs:
+  tiling: {kind: selection, type: tiling, on: recording.time, name: "{recording} frames {frame_s} s"}
