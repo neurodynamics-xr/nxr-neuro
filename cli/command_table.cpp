@@ -126,7 +126,8 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --datafit@compute opticalflow	auto|gauge|triangle	Data term of the Horn-Schunck equation: auto (gauge for the connection regulariser, triangle for ambient), gauge (connection only), or per-triangle finite elements.	auto	-
 --dataset	PATH	The dataset to work on: the path of its folder (a dataset is addressed by its own path; the folder of a one-database dataset, or of a catalogue of subject packages).	required	-
 --datastore	DIR	The folder that holds the dataset folders (their parent); the dataset is then DIR/NAME.	none (required)	-
---datastore@create dataset	DIR	The folder in which the new dataset's folder is made (its parent); the dataset is then DIR/NAME.	required	-
+--dataset@create dataset	PATH	The folder of the new dataset (made if absent): it holds the catalogue and, by default, each subject's package.	required (unless --datastore)	-
+--datastore@create dataset	DIR	Deprecated: makes the one-database form, the dataset DIR/NAME (needs --name); `split dataset` turns it into a catalogue. Use --dataset.	none	-
 --datastore@delete dataset	PATH	The folder that holds the folder of the dataset to delete (its parent).	required	-
 --datastore@list datasets	DIR	The folder that holds the dataset folders to list.	required	-
 --ddof	N	Delta degrees of freedom: the standard deviation divides by n minus this number (1 matches MATLAB's std).	1	-
@@ -420,7 +421,7 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@compute sourcetensor	NAME	Stem of the stored fields (tensor, Stokes quaternion, normal power and share, each per band).	<recording>_<kernel>_tensor	-
 --name@compute speedspectrum	STEM	Stem of the stored result names	<recording>_<kernel>_speedspectrum	-
 --name@compute statistic	NAME	Name of the stored statistic.	<of>_<measure>_<over>	-
---name@create dataset	NAME	Name of the new dataset.	required	-
+--name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
 --name@delete dataset	NAME	Name of the dataset's folder to delete, inside the folder given by --datastore	required	-
 --name@import inverse	NAME	Name of the stored kernel.	Brainstorm's file stem, session-qualified if already taken	-
@@ -776,7 +777,7 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --template-surface	NAME	Surface of the template subject whose frame is carried over	the template's primary surface	-
 --template-surface@compute frames	NAME	The template subject's surface whose frame is carried over.	the template's primary surface	-
 --template@compute frames	SUBJECT	Template subject of the same dataset whose anatomical frame is carried over through the registered spheres.	none (the surface's own axes)	-
---templates	DIR	A FreeSurfer subjects folder; writes the default subject (surfaces, parcellations, frames, group tree) with the dataset.	none	-
+--templates	DIR	A folder of released templates to look in (repeatable), before NXR_TEMPLATE_PATH and the user setting template_path; read only when a template's arrays are used.	none (the environment variable and the user setting only)	-
 --templates@create dataset	DIR	A FreeSurfer subjects folder; the dataset is created together with its default subject (surfaces, parcellations, frames, group tree) read from it.	none (no default subject is written)	-
 --threads	N	Workers for the kernel products; the result is identical for every count (0 = the machine's performance cores, 1 = serial).	0	threads
 --threads@compute pyramid	N	Workers for the kernel products; the result is identical for every count (0 = the machine's performance cores, 1 = serial).	0	threads
@@ -842,13 +843,67 @@ R"TBL(--tolerance@compute patches	X	Chebyshev: the largest difference between th
 --into	DIR	The templates folder a released package is made in.	none (required)	-
 --template-version	VERSION	The version string the releaser gives (e.g. 1.0); name@version must be new.	none (required)	-
 --where	FILTER	A filter over the participant variables, in the filter language version 1 (== != < <= > >=, in (...), is missing, and, or, not, parentheses).	none	-
+--templates@register package	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@list templates	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@show subject	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@delete subject	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@add surface	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this command uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@list recordings	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@list kernels	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@list results	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@list spatial-bands	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import subject	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import surface	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import mri	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import condition	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import inverse	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import map	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import resample	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import badsegments	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@import events	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute noisecov	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute inverse	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute headmodel	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute pointspread	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute eigenmodes	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute frames	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute tiles	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute frametiling	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute joint	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute lowpass	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute highpass	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute bandpass	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute bandstop	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute notch	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute psd	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute sourcepsd	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute sourcetensor	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute hodgepower	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute speedspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute phasegradient	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute cellquadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute patches	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute scaleselection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute pyramid	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute measure	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute statistic	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute wishart	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute spatialnull	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute null	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@compute repeat	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@register package	DIR	A folder of released templates to look in (repeatable); when given, each package's template must be found there by name, version and hash and its anchor rows must equal the template's.	none (not checked)	-
 --templates@list templates	DIR	A folder to look in for released templates (repeatable), before NXR_TEMPLATE_PATH and the user setting template_path.	none (the environment variable and the user setting only)	-
 --package@create package	PATH	The folder of the subject package to make (<subject>.nxr.zarr); it must not exist yet.	required	-
 --name@create package	NAME	Name of the subject the package holds.	required	-
 --home-dataset@create package	NAME	The dataset the package is made for, by its name: provenance, not membership.	required	-
 --kind@create package	subject|template|group	Kind of the subject the package holds: an ordinary subject, a template or a group.	subject	-
---name@create catalogue	NAME	Name of the dataset the catalogue describes.	required	-
 --package@register package	PATH	A subject package's folder (repeatable); an alternative to --scan.	none	-
 --scan@register package		Register every *.nxr.zarr package directly inside the dataset folder; an alternative to --package.	off	-
 --registered-by@register package	WHO	Who registers: recorded with each catalogue entry.	required	-
@@ -910,8 +965,8 @@ R"TBL(--tolerance@compute patches	X	Chebyshev: the largest difference between th
 )TBL",
 R"TBL(@ create dataset
 old: dataset create
-summary: Create an empty one-database dataset in a folder of its own, optionally with its default subject (surfaces, frames, group tree).
-opts: --atlas-depth --datastore* --default --lc-levels --modes --name* --source-path --source-protocol --source-tool --store-format --templates
+summary: Create a dataset: a folder holding a catalogue of subject packages (the default form). --datastore makes the old one-database form.
+opts: --atlas-depth --dataset --datastore --default --lc-levels --modes --name --source-path --source-protocol --source-tool --store-format --templates
 )TBL",
 R"TBL(@ list datasets
 old: dataset list
@@ -944,12 +999,6 @@ alias: no
 group: Subject packages
 summary: Create a subject package: one folder holding one subject's rows, small keys and shards, openable on its own.
 opts: --home-dataset* --kind --name* --package*
-)TBL",
-R"TBL(@ create catalogue
-old: package catalogue-create
-alias: no
-summary: Create a dataset as a catalogue of subject packages in a folder of its own.
-opts: --dataset* --name*
 )TBL",
 R"TBL(@ create index
 old: package index
@@ -1036,33 +1085,33 @@ opts: --dataset* --subjects --where
 R"TBL(@ show subject
 old: subject show
 summary: Show how many manifolds, fields, operators and selections a subject holds.
-opts: --dataset* --subject*
+opts: --dataset* --subject* --templates+
 )TBL",
 R"TBL(@ delete subject
 old: subject delete
 summary: Delete a subject, or one of its nodes, from a dataset.
-opts: --dataset* --node --subject*
+opts: --dataset* --node --subject* --templates+
 )TBL",
 R"TBL(@ add surface
 old: surface add
 summary: Add a mesh file (OBJ, PLY or STL) to a subject as a surface.
 pos: FILE
-opts: --dataset* --name --no-primary --primary --scale --subject*
+opts: --dataset* --name --no-primary --primary --scale --subject* --templates+
 )TBL",
 R"TBL(@ list recordings
 old: __list recordings
 summary: List the recordings of a subject.
-opts: --dataset* --subject*
+opts: --dataset* --subject* --templates+
 )TBL",
 R"TBL(@ list kernels
 old: __list kernels
 summary: List the inverse kernels of a subject.
-opts: --dataset* --subject*
+opts: --dataset* --subject* --templates+
 )TBL",
 R"TBL(@ list results
 old: __list results
 summary: List the fields and statistics the computations stored for a subject.
-opts: --dataset* --subject*
+opts: --dataset* --subject* --templates+
 )TBL",
 R"TBL(@ list pipelines
 old: run --list
@@ -1073,7 +1122,7 @@ opts:
 R"TBL(@ list spatial-bands
 old: pyramid spatial-bands
 summary: List a surface's spatial bands (one per level of its tile ladder).
-opts: --dataset* --subject* --surface
+opts: --dataset* --subject* --surface --templates+
 )TBL",
 R"TBL(@ import list
 old: convert list
@@ -1091,7 +1140,7 @@ R"TBL(@ import subject
 old: convert subject
 summary: Import a Brainstorm subject's anatomy into a dataset.
 pos: PROTOCOL
-opts: --dataset* --resample --subject*
+opts: --dataset* --resample --subject* --templates+
 )TBL",
 R"TBL(@ import template
 old: convert template
@@ -1114,43 +1163,43 @@ opts: --dataset* --subject --surface --trk
 R"TBL(@ import surface
 old: convert surface
 summary: Import Brainstorm tessellation files as surfaces of a subject.
-opts: --bst-root --dataset* --file+ --subject*
+opts: --bst-root --dataset* --file+ --subject* --templates+
 )TBL",
 R"TBL(@ import mri
 old: convert mri
 summary: Import an anatomical MRI of a subject.
-opts: --anat* --dataset* --only+ --subject*
+opts: --anat* --dataset* --only+ --subject* --templates+
 )TBL",
 R"TBL(@ import condition
 old: convert convert
 summary: Import a Brainstorm condition (its recordings, channels and head models) into a dataset.
 pos: PROTOCOL
-opts: --all-surfaces --channel-file --condition* --dataset* --extra-surface+ --include-imported --no-gain --no-raw --recording --resample --subject* --surface
+opts: --all-surfaces --channel-file --condition* --dataset* --extra-surface+ --include-imported --no-gain --no-raw --recording --resample --subject* --surface --templates+
 )TBL",
 R"TBL(@ import inverse
 old: convert inverse
 summary: Import a Brainstorm inverse kernel as an operator of a subject.
-opts: --acquisition* --bst-root* --channel-file --channels-id --dataset* --file* --forward-id --name --subject* --surface-id
+opts: --acquisition* --bst-root* --channel-file --channels-id --dataset* --file* --forward-id --name --subject* --surface-id --templates+
 )TBL",
 R"TBL(@ import map
 old: convert map
 summary: Import Brainstorm source or matrix maps as fields of a subject.
-opts: --acquisition --bst-root* --dataset* --file+* --provenance --replace --subject*
+opts: --acquisition --bst-root* --dataset* --file+* --provenance --replace --subject* --templates+
 )TBL",
 R"TBL(@ import resample
 old: convert resample
 summary: Resample a recording to a new sampling rate, as a new recording.
-opts: --dataset* --name --recording* --subject* --to*
+opts: --dataset* --name --recording* --subject* --to* --templates+
 )TBL",
 R"TBL(@ import badsegments
 old: convert badsegments
 summary: Import a recording's bad segments from a file.
-opts: --dataset* --from* --replace --subject*
+opts: --dataset* --from* --replace --subject* --templates+
 )TBL",
 R"TBL(@ import events
 old: convert events
 summary: Import a recording's events from a file.
-opts: --dataset* --from* --replace --subject*
+opts: --dataset* --from* --replace --subject* --templates+
 )TBL",
 R"TBL(@ read dataset
 old: read
@@ -1162,12 +1211,12 @@ opts: --array+ --out --region
 R"TBL(@ read crossspectrum
 old: crossspectrum read
 summary: Read coherency, phase, delay or phase-slope index from a stored band-resolved cross-spectrum.
-opts: --dataset* --name* --pair --reading --seed --subject* --weights
+opts: --dataset* --name* --pair --reading --seed --subject* --weights --templates+
 )TBL",
 R"TBL(@ query measurements
 old: measure query
 summary: Query a stored measurement pyramid at any spatial and temporal scale.
-opts: --band --dataset* --field --limit --max-value --measure* --min-value --order --selection* --space-level --spatial-band --subject* --time-level
+opts: --band --dataset* --field --limit --max-value --measure* --min-value --order --selection* --space-level --spatial-band --subject* --time-level --templates+
 )TBL",
 R"TBL(@ export measurements
 old: measure export
@@ -1192,224 +1241,224 @@ old: noisecov compute
 group: Source imaging
 summary: The noise covariance of a recording's good channels.
 span: yes
-opts: --block-seconds --chunks --dataset* --divisor --name --no-remove-mean --recording* --replace --start --stop --subject* --types
+opts: --block-seconds --chunks --dataset* --divisor --name --no-remove-mean --recording* --replace --start --stop --subject* --types --templates+
 )TBL",
 R"TBL(@ compute inverse
 old: inverse compute
 group: Source imaging
 summary: The depth-weighted minimum-norm inverse kernel, from a noise covariance and a head model.
 span: yes
-opts: --block-seconds --chunks --dataset* --depth-channels --depth-exponent --depth-limit --depth-limit-on --depth-norm --divisor --forward --joint-types --mne --name --no-average-reference --no-depth --no-detect-diagonal --no-remove-mean --noise-cov --rank-tolerance --recording --regularisation --replace --ridge-fraction --ridge-over-rank --snr --snr-normalisation --start --stop --subject* --types --whitener-form
+opts: --block-seconds --chunks --dataset* --depth-channels --depth-exponent --depth-limit --depth-limit-on --depth-norm --divisor --forward --joint-types --mne --name --no-average-reference --no-depth --no-detect-diagonal --no-remove-mean --noise-cov --rank-tolerance --recording --regularisation --replace --ridge-fraction --ridge-over-rank --snr --snr-normalisation --start --stop --subject* --types --whitener-form --templates+
 )TBL",
 R"TBL(@ compute headmodel
 old: headmodel compute
 group: Source imaging
 summary: The sphere head model (gain matrix) for a subject's cortex, MEG and EEG.
-opts: --berg-dipoles --berg-starts --berg-terms --channels --dataset* --eeg-conductivities --eeg-radii --eeg-series --eeg-series-terms --eeg-surface --meg --meg-surface --mne-eeg-layers --name --no-eeg --no-project-electrodes --replace --sensor-weight-exponent --source-surface --sphere-cost --subject*
+opts: --berg-dipoles --berg-starts --berg-terms --channels --dataset* --eeg-conductivities --eeg-radii --eeg-series --eeg-series-terms --eeg-surface --meg --meg-surface --mne-eeg-layers --name --no-eeg --no-project-electrodes --replace --sensor-weight-exponent --source-surface --sphere-cost --subject* --templates+
 )TBL",
 R"TBL(@ compute pointspread
 old: pointspread compute
 group: Source imaging
 summary: The instrument's blur: unit currents at sample vertices through the head model and inverse kernel.
-opts: --dataset* --forward --fraction --kernel --levels --list --modes --name --order --recording* --reference-level --replace --spatial-shape --subject* --tolerance --transform --vertices
+opts: --dataset* --forward --fraction --kernel --levels --list --modes --name --order --recording* --reference-level --replace --spatial-shape --subject* --tolerance --transform --vertices --templates+
 )TBL",
 R"TBL(@ compute eigenmodes
 old: eigen solve
 group: Geometry
 summary: The Hodge-Dirac eigenmodes of a stored surface (cached).
-opts: --dataset* --flip-eps --modes --mollify --normalize --replace --shift --sigma --slice --star1-floor --subject* --surface
+opts: --dataset* --flip-eps --modes --mollify --normalize --replace --shift --sigma --slice --star1-floor --subject* --surface --templates+
 )TBL",
 R"TBL(@ compute frames
 old: frames compute
 group: Geometry
 summary: The canonical (north, west) and anatomical frames of a surface.
-opts: --convention --dataset* --max-condition --min-projection --replace --side --subject* --surface --template --template-surface
+opts: --convention --dataset* --max-condition --min-projection --replace --side --subject* --surface --template --template-surface --templates+
 )TBL",
 R"TBL(@ compute tiles
 old: tiles compute
 group: Geometry
 summary: The dyadic equal-area tile ladder of a surface.
-opts: --dataset* --depth --replace --subject* --surface
+opts: --dataset* --depth --replace --subject* --surface --templates+
 )TBL",
 R"TBL(@ compute constantq
 old: constantq compute
 group: Time
 summary: The constant-Q tiling of a time line (a ladder of dyadic windows).
-opts: --all --cycles --dataset* --fmax --fmin --line --method --recording --subject* --voices
+opts: --all --cycles --dataset* --fmax --fmin --line --method --recording --subject* --voices --templates+
 )TBL",
 R"TBL(@ compute frametiling
 old: frametiling compute
 group: Time
 summary: The frame tiling on the time tower: the cycles of one tower level over a recording.
-opts: --band --centre --dataset* --frame-level --frames-per-cycle --recording* --replace --start-s --subject*
+opts: --band --centre --dataset* --frame-level --frames-per-cycle --recording* --replace --start-s --subject* --templates+
 )TBL",
 R"TBL(@ compute joint
 old: joint compute
 group: Time
 summary: The joint partition of space and time: cells of a spatial tile level by a time tile level.
-opts: --dataset* --recording* --replace --space-level* --subject* --surface --time-level*
+opts: --dataset* --recording* --replace --space-level* --subject* --surface --time-level* --templates+
 )TBL",
 R"TBL(@ compute lowpass
 old: lowpass
 group: Time
 summary: A zero-phase low-pass filter, written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition
+opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
 )TBL",
 R"TBL(@ compute highpass
 old: highpass
 group: Time
 summary: A zero-phase high-pass filter, written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition
+opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
 )TBL",
 R"TBL(@ compute bandpass
 old: bandpass
 group: Time
 summary: A zero-phase band-pass filter, written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition
+opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
 )TBL",
 R"TBL(@ compute bandstop
 old: bandstop
 group: Time
 summary: A zero-phase band-stop filter, written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition
+opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
 )TBL",
 R"TBL(@ compute notch
 old: notch
 group: Time
 summary: A zero-phase notch filter (line noise and harmonics), written as a new recording.
-opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition
+opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
 )TBL",
 R"TBL(@ compute psd
 old: psd compute
 group: Spectra
 summary: The Welch power spectral density of a recording, bad segments left out.
 span: yes
-opts: --chunks --dataset* --detrend --name --no-bad-segments --overlap --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --through --window
+opts: --chunks --dataset* --detrend --name --no-bad-segments --overlap --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --through --window --templates+
 )TBL",
 R"TBL(@ compute sourcepsd
 old: sourcepsd compute
 group: Spectra
 summary: The band power maps of the sources (the Welch PSD of the sources, grouped in bands).
 span: yes
-opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --normalisation --overlap --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window
+opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --normalisation --overlap --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window --templates+
 )TBL",
 R"TBL(@ compute sourcetensor
 old: sourcetensor compute
 group: Spectra
 summary: The band cross-spectral tensor of the current, its Stokes quaternion, normal power and share.
 span: yes
-opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --normalisation --overlap --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window
+opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --normalisation --overlap --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window --templates+
 )TBL",
 R"TBL(@ compute crossspectrum
 old: crossspectrum compute
 group: Spectra
 summary: The sensor cross-spectral density per band (Welch, or per time window with the analytic estimator).
 span: yes
-opts: --bands --channels-of --chunks --dataset* --detrend --estimator --level --name --no-bad-segments --overlap --periodic --recording* --replace --resolve --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --types --window --window-seconds
+opts: --bands --channels-of --chunks --dataset* --detrend --estimator --level --name --no-bad-segments --overlap --periodic --recording* --replace --resolve --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --types --window --window-seconds --templates+
 )TBL",
 R"TBL(@ compute quadrature
 old: quadrature compute
 group: Spectra
 summary: The quadrature spectrum of the sources per band: fraction, energy map and leading pairs.
 span: yes
-opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --no-levi-civita --overlap --pairs --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --tile-levels --tile-max-level --tiles --window
+opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --no-levi-civita --overlap --pairs --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --tile-levels --tile-max-level --tiles --window --templates+
 )TBL",
 R"TBL(@ compute hodgepower
 old: hodgepower compute
 group: Spectra
 summary: The band power of the Hodge-Dirac eigenmode coefficients of a free-orientation kernel.
 span: yes
-opts: --bands --chunks --dataset* --detrend --kernel --modes --name --no-bad-segments --overlap --package --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window
+opts: --bands --chunks --dataset* --detrend --kernel --modes --name --no-bad-segments --overlap --package --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window --templates+
 )TBL",
 R"TBL(@ compute speedspectrum
 old: speedspectrum compute
 group: Spectra
 summary: The speed spectrum: mode energy per phase speed from the joint eigenvalue and frequency bank.
 span: yes
-opts: --anchor --centres --chunks --cycles --dataset* --detrend --family --fmax --fmin --gain --gamma --graph-family --graph-filters --graph-voices --half-width --kernel --limits --modes --name --no-bad-segments --overlap --package --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --sides --speed-bins --speed-max --speed-min --start --stop --subject* --symmetric --time-bandwidth --voices --window
+opts: --anchor --centres --chunks --cycles --dataset* --detrend --family --fmax --fmin --gain --gamma --graph-family --graph-filters --graph-voices --half-width --kernel --limits --modes --name --no-bad-segments --overlap --package --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --sides --speed-bins --speed-max --speed-min --start --stop --subject* --symmetric --time-bandwidth --voices --window --templates+
 )TBL",
 R"TBL(@ compute phasegradient
 old: phasegradient compute
 group: Cortical flow and patterns
 summary: The phase gradient of a band from a stored cross-spectrum: phase current, power, speed and travelling index.
-opts: --cross-spectrum* --dataset* --defects --depth --edge-lag --field --fit --fold-edges --kernel --name --package --phase-of --replace --signal --spatial-band --subject* --weight
+opts: --cross-spectrum* --dataset* --defects --depth --edge-lag --field --fit --fold-edges --kernel --name --package --phase-of --replace --signal --spatial-band --subject* --weight --templates+
 )TBL",
 R"TBL(@ compute cyclepattern
 old: cyclepattern compute
 group: Cortical flow and patterns
 summary: The most consistent cycle patterns of the current from a cross-spectrum per window.
-opts: --cross-spectrum* --dataset* --kernel --level --name --package --patterns --replace --spatial-band --subject* --timing-of --window-seconds
+opts: --cross-spectrum* --dataset* --kernel --level --name --package --patterns --replace --spatial-band --subject* --timing-of --window-seconds --templates+
 )TBL",
 R"TBL(@ compute opticalflow
 old: opticalflow compute
 group: Cortical flow and patterns
 summary: Optical flow (Horn-Schunck) of the source estimate: where and how fast the activity moves.
 span: yes
-opts: --alpha --anchor --centres --chunks --cycles --datafit --dataset* --depth --family --flow-tolerance --frame-level --freq --gain --gamma --half-width --input --kernel --limits --max-iterations --method --name --no-levi-civita --oversample --package --preconditioner --recording* --regulariser --replace --resolution --scale-family --scale-filters --scale-voices --start --start-s --stop --subject* --tile-levels --tile-max-level --tiles --time-bandwidth --tolerance --voices
+opts: --alpha --anchor --centres --chunks --cycles --datafit --dataset* --depth --family --flow-tolerance --frame-level --freq --gain --gamma --half-width --input --kernel --limits --max-iterations --method --name --no-levi-civita --oversample --package --preconditioner --recording* --regulariser --replace --resolution --scale-family --scale-filters --scale-voices --start --start-s --stop --subject* --tile-levels --tile-max-level --tiles --time-bandwidth --tolerance --voices --templates+
 )TBL",
 R"TBL(@ compute cellquadrature
 old: cellquadrature compute
 group: Cortical flow and patterns
 summary: Quadrature (travelling vs standing) per joint cell and per burst, from the stored cross-spectrum.
-opts: --bursts --cross-spectrum* --dataset* --joint --kernel --modes --order --replace --space-level* --subject* --tile-pairs --tolerance --transform --weights
+opts: --bursts --cross-spectrum* --dataset* --joint --kernel --modes --order --replace --space-level* --subject* --tile-pairs --tolerance --transform --weights --templates+
 )TBL",
 R"TBL(@ compute patches
 old: patches compute
 group: Cortical flow and patterns
 summary: Patches on a static cortical map: where it stands out from its surroundings, at the size of its tiles.
-opts: --dataset* --enter-sd --exit-sd --level* --map* --max-area --min-area --modes --order --replace --sign --subject* --summaries --tolerance --transform
+opts: --dataset* --enter-sd --exit-sd --level* --map* --max-area --min-area --modes --order --replace --sign --subject* --summaries --tolerance --transform --templates+
 )TBL",
 R"TBL(@ compute scaleselection
 old: scaleselection compute
 group: Cortical flow and patterns
 summary: Each event's own size and rhythm: the best spatial and temporal level by standardised response.
-opts: --dataset* --min-link --name --recording* --replace --response --source --space-levels* --subject* --surface --time-levels*
+opts: --dataset* --min-link --name --recording* --replace --response --source --space-levels* --subject* --surface --time-levels* --templates+
 )TBL",
 R"TBL(@ compute pyramid
 old: pyramid build
 group: Measurements
 summary: The measurement pyramid of a recording's cortical current, from space and time tiles.
 span: yes
-opts: --bands --block-samples --chunks --dataset* --depth --frame-level --halo-seconds --keep-bad-segments --kernel --recording* --replace --shape --start --start-s --stop --subject* --threads --tree
+opts: --bands --block-samples --chunks --dataset* --depth --frame-level --halo-seconds --keep-bad-segments --kernel --recording* --replace --shape --start --start-s --stop --subject* --threads --tree --templates+
 )TBL",
 R"TBL(@ compute measure
 old: measure compute
 group: Measurements
 summary: Stored fields measured over a partition's members, with their recipe.
 span: yes
-opts: --chunks --dataset* --fields* --gradient --labelling --level --measures --over --recipe --replace --start --stop --subject* --weight
+opts: --chunks --dataset* --fields* --gradient --labelling --level --measures --over --recipe --replace --start --stop --subject* --weight --templates+
 )TBL",
 R"TBL(@ compute statistic
 old: statistic compute
 group: Measurements
 summary: A stored measurement summarised over its partition's members.
-opts: --combine --dataset* --ddof --measure* --members-own --name --of* --over* --replace --subject* --summaries*
+opts: --combine --dataset* --ddof --measure* --members-own --name --of* --over* --replace --subject* --summaries* --templates+
 )TBL",
 R"TBL(@ compute wishart
 old: wishart compute
 group: Nulls
 summary: The Wishart null of the second-moment measures of bursts.
-opts: --band* --bursts* --dataset* --draws --psd* --recording* --replace --seed --shape --subject* --windows*
+opts: --band* --bursts* --dataset* --draws --psd* --recording* --replace --seed --shape --subject* --windows* --templates+
 )TBL",
 R"TBL(@ compute spatialnull
 old: spatialnull compute
 group: Nulls
 summary: The lag-free null of the spatial events: draws with early stopping, per-vertex p and q.
 span: yes
-opts: --batch --chunks --dataset* --events --exceedances=--h --max-draws --min-draws --recording* --replace --set+ --start --stop --subject*
+opts: --batch --chunks --dataset* --events --exceedances=--h --max-draws --min-draws --recording* --replace --set+ --start --stop --subject* --templates+
 )TBL",
 R"TBL(@ compute null
 old: null compute
 group: Nulls
 summary: The lag-free null's tests of the vortex cores' crossings, per tile.
 span: yes
-opts: --batch --chunks --dataset* --exceedances=--h --max-draws --min-crossings --min-draws --over --recording-a* --recording-b --replace --set+ --stage --start --stop --subject*
+opts: --batch --chunks --dataset* --exceedances=--h --max-draws --min-crossings --min-draws --over --recording-a* --recording-b --replace --set+ --stage --start --stop --subject* --templates+
 )TBL",
 R"TBL(@ compute repeat
 old: repeat compute
 group: Nulls
 summary: The vortex cores' run-to-run repeat: two recordings' stored tile crossings compared.
-opts: --dataset* --min-crossings --name --over --recording-a* --recording-b* --replace --stage --subject*
+opts: --dataset* --min-crossings --name --over --recording-a* --recording-b* --replace --stage --subject* --templates+
 )TBL",
   };
 }

@@ -547,3 +547,43 @@ std::vector<GroupMemberStatus> group_member_status(const fs::path& folder, const
 }
 
 }  // namespace nxr::io
+
+namespace nxr::io {
+
+bool is_catalogue_dataset(const std::filesystem::path& dataset_folder) { return std::filesystem::is_regular_file(dataset_folder / kCatalogueFile); }
+
+DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, const std::string& subject, const OpenOptions& opt, const TemplateSearch& templates) {
+  namespace fs = std::filesystem;
+  const Catalogue cat = Catalogue::open(dataset_folder);
+  const auto entry = cat.find(subject);
+  if (!entry) throw Error(code::no_such_row, subject + ": no such subject in the dataset " + dataset_folder.string());
+  if (entry->status != "registered") throw Error(code::invalid_argument, subject + ": the catalogue lists it as `" + entry->status + "`; register its package again");
+  const fs::path folder = cat.package_path(*entry);
+  if (!fs::is_regular_file(folder / kPackageDatabaseFile)) throw Error(code::not_found, subject + ": its package " + folder.string() + " is missing");
+  DatasetWriter w = open_package_writer(folder, opt);
+  // the template and the registration its rows are anchored to: their arrays are read from their own packages
+  const PackageRecord rec = read_package_record(w.db());
+  std::vector<std::filesystem::path> members;
+  std::map<std::string, std::filesystem::path> member_of;   // subject id -> its package in this dataset
+  for (const CatalogueEntry& e : cat.entries()) member_of[e.subject_id] = cat.package_path(e);
+  for (const Json* ref : {&rec.template_reference, &rec.registration}) {
+    if (!ref->is_object() || !ref->contains("subject_id") || !ref->contains("content_hash")) continue;
+    const std::string sid = (*ref)["subject_id"].get<std::string>();
+    const auto row = w.db().one("SELECT s.path AS s, d.path AS d FROM subject s JOIN dataset d ON d.id = s.dataset_id WHERE s.id = ?", {sid});
+    if (!row || sid == rec.subject_id) continue;
+    const Json r = *ref;
+    const fs::path local = member_of.count(sid) ? member_of[sid] : fs::path();
+    route_keys_to_package(w, text(*row, "d") + "/" + text(*row, "s"), [r, local, templates]() -> std::shared_ptr<SubjectPackage> {
+      const std::string hash = r["content_hash"].get<std::string>();
+      if (!local.empty() && fs::is_regular_file(local / kPackageDatabaseFile)) {
+        auto p = std::make_shared<SubjectPackage>(SubjectPackage::open(local));
+        if (p->record().content_hash == hash) return p;
+      }
+      const ResolvedTemplate t = resolve_template(TemplateRef::from_json(r), templates);
+      return std::make_shared<SubjectPackage>(SubjectPackage::open(t.folder));
+    });
+  }
+  return w;
+}
+
+}  // namespace nxr::io

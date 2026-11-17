@@ -111,6 +111,14 @@ std::vector<std::filesystem::path> scan_packages(const std::filesystem::path& fo
 // Every member's package looked at: `missing` when it is gone, `stale` when its content hash differs from the entry's; written to the entries. Returns them.
 std::vector<CatalogueEntry> refresh_member_status(const std::filesystem::path& folder);
 
+// OPEN ONE SUBJECT of a catalogue dataset for computing: the subject's package, found through the catalogue (read only), opened as `open_package_writer` does (its own
+// writer lock; `opt.lock` false for a read), so every pipeline written for a dataset runs on it unchanged. The template the package is registered to (and the
+// registration it uses) is found through the catalogue's own members first (a dataset-local template), then the template search path, and only when one of its arrays
+// is read. Refused, by name: a dataset that is not a catalogue (`not_found`), an unknown subject, a member that is not `registered` or whose package is missing.
+DatasetWriter open_subject_package(const std::filesystem::path& dataset_folder, const std::string& subject, const OpenOptions& opt = {}, const TemplateSearch& templates = {});
+// Whether the folder is a catalogue dataset (holds `catalogue.sqlite`); a one-database dataset holds `dataset.sqlite`.
+bool is_catalogue_dataset(const std::filesystem::path& dataset_folder);
+
 // SELECTING SUBJECTS: exactly one of `subjects` (names or ids of the catalogue) or `where` (a filter over the participant variables, subject_filter.h); neither or
 // both is refused, and so is a selection that matches nothing.
 struct SubjectSelection {

@@ -141,7 +141,8 @@ In the verb-first grammar, each with its own `--help`; they parse, call the func
 
 | command | what it does |
 |---|---|
-| `create catalogue --dataset D --name N` | a dataset as a catalogue of subject packages, in a folder of its own (`create dataset` still makes a one-database dataset until the pipelines run on packages) |
+| `create dataset --dataset D [--name N]` | **the default form**: a dataset as a catalogue of subject packages, in a folder of its own. `create dataset --datastore DIR --name N` (the old spelling) still makes the one-database dataset DIR/N, with a note on stderr; `split dataset` turns it into a catalogue. (`create catalogue`, made on 2026-11-16 and never released, is removed.) |
+| `create subject --dataset D --name S` | on a catalogue: a new package `D/S.nxr.zarr`, registered |
 | `create package --package P --name S --home-dataset N [--kind subject\|template\|group]` | a subject package |
 | `verify package --package P`, `show package --package P` | recompute every digest and the content hash; show the record |
 | `register package --dataset D (--package P ... \| --scan) --registered-by WHO [--replace] [--templates DIR ...]` | register (idempotent; each outcome and refusal reported) |
@@ -152,6 +153,8 @@ In the verb-first grammar, each with its own `--help`; they parse, call the func
 | `split dataset --dataset D --registered-by WHO [--dry-run]`, `join dataset --dataset D` | the migration |
 | `release template --package P --name N --template-version V --released-by WHO --into DIR`, `release redistributable --package P --into DIR --released-by WHO` | freeze a template or registration; its redistributable edition |
 | `list templates [--templates DIR ...]` | the released templates on the search path (the `--templates` locations, then `NXR_TEMPLATE_PATH`, then the user setting `template_path`) |
+
+**Computing on packages (`cli/cli.h` `open_dataset`; `io::open_subject_package`).** Every command that names `--dataset` and `--subject` opens the subject through the dataset: on a catalogue it finds the subject's package in the catalogue and opens it as the writer (the package's own writer lock; a read opens it without one), so everything a `compute` verb stores goes into that package and no other file is written; on a one-database dataset (`dataset.sqlite`, store formats 50 to 52) it opens as it always did, with a note on stderr that `split dataset` makes it a catalogue. The pipelines are unchanged: they take the writer and the subject, and a package writer is a `DatasetWriter` in package mode (`node_store()`). The result of a chain on a package equals the same chain on the one-database form byte for byte (`test_package_pipelines`). A subject registered to a template reads the template's arrays from the template's package, read-only, found when the first one is read: the catalogue's own members first (a dataset-local template, as `split` makes), then the template search path (`--templates DIR ...`, repeatable, on every such command; then `NXR_TEMPLATE_PATH`, then the user setting `template_path`). The commands that make or change a one-database dataset itself (`import subject`, `import template`, `import group`, `compact dataset`, `recover dataset`, `delete subject`) refuse a catalogue and say so. A replaced result is moved aside inside the package (`_replaced-<date>/`), never deleted.
 
 The shared `--dataset` help now says what it is: the path of the dataset's folder. The word "datastore" is gone from the help; `--datastore` stays as the name of the option of `create dataset`, `list datasets` and `delete dataset`, which name the folder that holds dataset folders.
 
@@ -303,7 +306,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro create dataset` | Create an empty dataset in a datastore, optionally with its default subject (surfaces, frames, group tree). | `dataset create` |
+| `nxr-neuro create dataset` | Create a dataset: a folder holding a catalogue of subject packages (the default form). --datastore makes the old one-database form. | `dataset create` |
 | `nxr-neuro create subject` | Create a subject (or a template or group subject) in a dataset. | `subject create` |
 
 ### `delete`: Delete a dataset or a subject

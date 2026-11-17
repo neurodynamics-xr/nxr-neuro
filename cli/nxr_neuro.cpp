@@ -90,7 +90,7 @@ namespace {
 DatasetWriter dataset_of(const Args& a, bool lock = true) {
   OpenOptions o;
   o.lock = lock;
-  return open_writer(a.get("--dataset"), o);
+  return open_dataset(a, o);
 }
 
 // ── nxr-neuro dataset ──
@@ -115,7 +115,7 @@ int constantq_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--cycles")) p.cycles = std::stod(*v);
   if (const auto v = a.maybe("--fmax")) p.fMax = std::stod(*v);
   if (const auto v = a.maybe("--fmin")) p.fMin = std::stod(*v);
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -153,8 +153,28 @@ int dataset_main(const std::vector<std::string>& argv) {
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro dataset " + action;
   if (action == "create") {
-    const Args a = parse(prog, rest, {"--datastore", "--name", "--source-tool", "--source-protocol", "--source-path", "--templates", "--default", "--modes", "--atlas-depth", "--lc-levels", "--store-format"}, {},
-                         {"--datastore", "--name"});
+    const Args a = parse(prog, rest, {"--dataset", "--datastore", "--name", "--source-tool", "--source-protocol", "--source-path", "--templates", "--default", "--modes", "--atlas-depth", "--lc-levels", "--store-format"}, {}, {});
+    // THE DEFAULT FORM: `--dataset PATH` makes a catalogue, the folder of a dataset that holds its subjects' packages (`create subject` adds one; `register package` lists
+    // packages made elsewhere). `--datastore DIR --name N` (the old spelling's) still makes the one-database dataset DIR/N; `split dataset` turns it into a catalogue.
+    if (a.maybe("--dataset") && a.maybe("--datastore")) throw Usage(prog + ": error: --dataset (a catalogue) and --datastore (a one-database dataset) are alternatives");
+    if (!a.maybe("--dataset") && !a.maybe("--datastore")) throw Usage(prog + ": error: the following arguments are required: --dataset");
+    if (a.maybe("--dataset")) {
+      for (const char* x : {"--templates", "--default", "--modes", "--atlas-depth", "--lc-levels", "--store-format"})
+        if (a.maybe(x)) throw Usage(prog + ": error: " + x + " belongs to the one-database form (--datastore); a catalogue's template is a template package (`import template`, `list templates`)");
+      CreateCatalogueOptions co;
+      co.name = a.maybe("--name").value_or(std::filesystem::path(a.get("--dataset")).filename().string());
+      if (co.name.empty()) co.name = std::filesystem::path(a.get("--dataset")).parent_path().filename().string();
+      co.source_tool = a.maybe("--source-tool");
+      co.source_protocol = a.maybe("--source-protocol");
+      co.source_path = a.maybe("--source-path");
+      co.created_by = stamp();
+      co.built_by = stamp();
+      const Catalogue c = create_catalogue(a.get("--dataset"), co);
+      emit(Json{{"stage", "result"}, {"dataset", text(c.dataset_row(), "name")}, {"id", text(c.dataset_row(), "id")}, {"folder", c.folder().string()}, {"form", "catalogue"}});
+      return 0;
+    }
+    if (!a.maybe("--name")) throw Usage(prog + ": error: the following arguments are required: --name (with --datastore)");
+    std::cerr << "note: --datastore makes the one-database form; `create dataset --dataset PATH` makes a catalogue of subject packages (the default form).\n";
     if (!a.maybe("--templates") && (a.maybe("--default") || a.maybe("--modes") || a.maybe("--atlas-depth") || a.maybe("--lc-levels")))
       throw Usage(prog + ": error: --default, --modes, --atlas-depth and --lc-levels need --templates (the default subject)");
     CreateOptions o;
@@ -203,6 +223,17 @@ int dataset_main(const std::vector<std::string>& argv) {
     emit(Json{{"stage", "result"}, {"datastore", cat.contains("id") ? cat["id"] : Json()}, {"datasets", cat.contains("datasets") ? cat["datasets"] : Json::array()}});
   } else if (action == "show") {
     const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
+    if (is_catalogue_dataset(a.get("--dataset"))) {   // a catalogue: its subjects by kind, from the entries (no package is opened)
+      const Catalogue cat = Catalogue::open(a.get("--dataset"));
+      Json kinds = Json::object();
+      std::int64_t total = 0;
+      for (const auto& e : cat.entries()) if (e.status != "replaced") { kinds[e.kind] = (kinds.contains(e.kind) ? kinds[e.kind].get<std::int64_t>() : 0) + 1; ++total; }
+      const Row d = cat.dataset_row();
+      auto opt = [&](const char* c) { return is_null(d, c) ? Json() : Json(text(d, c)); };
+      emit(Json{{"stage", "result"}, {"dataset", text(d, "name")}, {"id", text(d, "id")}, {"path", cat.folder().string()}, {"form", "catalogue"}, {"subjects", total}, {"kinds", kinds},
+                {"source_tool", opt("source_tool")}, {"source_protocol", opt("source_protocol")}, {"created_utc", opt("created_utc")}});
+      return 0;
+    }
     DatasetWriter ds = dataset_of(a, false);
     Json kinds = Json::object();
     std::int64_t total = 0;
@@ -221,7 +252,7 @@ int dataset_main(const std::vector<std::string>& argv) {
     const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
     OpenOptions o;
     o.recover = false;
-    DatasetWriter ds = open_writer(a.get("--dataset"), o);
+    DatasetWriter ds = open_one_database(a, "recover dataset", o);
     const Recovered healed = recover(ds.db(), ds.store());
     drain(ds.db(), ds.store());
     write_catalog(ds.root());
@@ -234,7 +265,7 @@ int dataset_main(const std::vector<std::string>& argv) {
     const Args a = parse(prog, rest, {"--dataset", "--subject"}, {"--dry-run", "--no-shard", "--no-small-files"}, {"--dataset"});
     OpenOptions o;
     o.recover = false;
-    DatasetWriter ds = open_writer(a.get("--dataset"), o);
+    DatasetWriter ds = open_one_database(a, "compact dataset", o);
     CompactOptions co;
     co.subject = a.maybe("--subject");
     co.dry_run = a.flag.count("--dry-run") > 0;
@@ -273,7 +304,7 @@ int subject_main(const std::vector<std::string>& argv) {
       }
       return 0;
     }
-    if (!show && (a.maybe("--subjects") || a.maybe("--where"))) throw Usage(prog + ": error: --subjects and --where need a catalogue dataset (made by `create catalogue`); " + a.get("--dataset") + " is a one-database dataset");
+    if (!show && (a.maybe("--subjects") || a.maybe("--where"))) throw Usage(prog + ": error: --subjects and --where need a catalogue dataset (made by `create dataset --dataset PATH`); " + a.get("--dataset") + " is a one-database dataset");
     DatasetWriter ds = dataset_of(a, false);
     if (!show) {
       Json rows = Json::array();
@@ -293,6 +324,23 @@ int subject_main(const std::vector<std::string>& argv) {
     const Args a = parse(prog, rest, {"--dataset", "--name", "--kind"}, {}, {"--dataset", "--name"});
     const std::string kind = a.maybe("--kind").value_or("subject");
     if (kind != "subject" && kind != "template" && kind != "group") throw Usage(prog + ": error: argument --kind: invalid choice: '" + kind + "' (choose from 'subject', 'template', 'group')");
+    if (is_catalogue_dataset(a.get("--dataset"))) {   // a catalogue: a new package in the dataset's folder, registered
+      const Catalogue cat = Catalogue::open(a.get("--dataset"));
+      CreatePackageOptions po = cat.package_options();
+      po.subject.kind = kind;
+      po.subject.created_by = stamp();
+      po.built_by = stamp();
+      const std::filesystem::path pkg = cat.folder() / (a.get("--name") + kPackageSuffix);
+      DatasetWriter w = create_package(pkg, a.get("--name"), po);
+      const std::string sid = read_package_record(w.db()).subject_id;
+      w.close();
+      RegisterOptions ro;
+      ro.registered_by = stamp();
+      const auto res = register_packages(a.get("--dataset"), {pkg}, ro);
+      if (res.empty() || res[0].outcome == "refused") throw Error(code::invalid_argument, a.get("--name") + ": " + (res.empty() ? std::string("not registered") : res[0].reason));
+      emit(Json{{"stage", "result"}, {"subject", a.get("--name")}, {"kind", kind}, {"id", sid}, {"path", pkg.filename().string()}});
+      return 0;
+    }
     DatasetWriter ds = dataset_of(a);
     SubjectOptions o;
     o.kind = kind;
@@ -303,7 +351,7 @@ int subject_main(const std::vector<std::string>& argv) {
     return 0;
   }
   const Args a = parse(prog, rest, {"--dataset", "--subject", "--node"}, {}, {"--dataset", "--subject"});
-  DatasetWriter ds = dataset_of(a);
+  DatasetWriter ds = open_one_database(a, "delete subject");
   OpenSubjectOptions oo;
   oo.created_by = stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
