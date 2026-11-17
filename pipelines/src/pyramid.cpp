@@ -1,5 +1,6 @@
 // nxr-pipelines — the measurement pyramid build (pyramid.h).
 #include "nxr/pipelines/pyramid.h"
+#include "nxr/io/selection_measurement.h"
 
 #include <cmath>
 #include <cstring>
@@ -412,7 +413,7 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
       est_id = sub.field(std::move(fs));
       Cols cnt;
       cnt.set("measure", "count").set("of_field_id", est_id).set("array_path", samples_path).set("computed_by", "nxr-neuro pyramid build");
-      sub.measurement(frames_id, cnt);
+      nxr::io::selection::save_measurement(sub, frames_id, cnt);
     }
     SelectionSpec js;
     js.name = joint_name; js.type = "set"; js.manifold_id = product; js.no_elements = true;
@@ -479,7 +480,7 @@ std::string frame_sums_write(SubjectWriter& sub, const PyramidLeaves& PL, const 
     sub.write_array(cpath, view(counts, {NF}));
     Cols cnt;
     cnt.set("measure", "count").set("of_field_id", s.field_id).set("array_path", cpath).set("computed_by", computed_by);
-    sub.measurement(fc.frames_id, cnt);
+    nxr::io::selection::save_measurement(sub, fc.frames_id, cnt);
     for (const FrameSumsRow& r : s.rows) {
       if (static_cast<std::int64_t>(r.v.size()) != L * frames_span) invalid("frame sums: " + r.measure + " does not fit the leaves x the span's frames");
       std::vector<double> out(static_cast<std::size_t>(L * NF), 0.0);

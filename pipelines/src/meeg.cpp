@@ -37,6 +37,7 @@
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/io/constant_q.h"
+#include "nxr/io/selection_measurement.h"
 #include "nxr/io/statistic.h"
 #include "nxr/meeg/tensor.h"
 #include "nxr/meeg/wave.h"
@@ -1541,7 +1542,7 @@ PhaseGradientResult phasegradient_band(DatasetWriter& ds, SubjectWriter& sub, co
         if (bd.level >= 0 && !band_ref["selection_id"].is_null()) cm.set("within_selection_id", within_joint).set("within_code", nxr::io::band_key_code(band_ref["code"].get<std::int64_t>(), bd.level, n_spatial));
         else if (bd.level >= 0) cm.set("within_selection_id", bank.selection_id).set("within_code", bd.level);   // the spatial band alone (the frequency band is not in the stored bank)
         else if (!band_ref["selection_id"].is_null()) cm.set("within_selection_id", band_ref["selection_id"].get<std::string>()).set("within_code", band_ref["code"].get<std::int64_t>());
-        sub.measurement(text(*PL.part, "id"), cm);
+        nxr::io::selection::save_measurement(sub, text(*PL.part, "id"), cm);
       }
     };
     const Outcome<int> o = cached<int>(sub, "statistic", map_path, key, load, compute, store);

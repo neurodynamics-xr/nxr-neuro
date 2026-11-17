@@ -5,6 +5,7 @@
 #include <sstream>
 
 #include "nxr/io/layout.h"
+#include "nxr/io/selection_store.h"
 
 namespace nxr::io {
 
@@ -50,13 +51,13 @@ std::string ensure_eigenvalue(SubjectWriter& sub) {
 std::string spatial_bands_selection(SubjectWriter& sub, const std::string& surface, const std::vector<SpatialBandEdge>& levels) {
   if (levels.empty()) throw Error(code::invalid_argument, "spatial bands: a surface with no ladder levels has none");
   const std::string name = spatial_bands_name(surface);
-  if (const auto have = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'spans' AND status = 'complete'", {sub.id(), name})) {
-    const auto rows = sub.db().all("SELECT start, stop, code FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {text(*have, "id")});
+  if (const auto have = selection::find_by_name(sub.db(), sub.id(), name, std::string("spans"))) {
+    const auto rows = selection::spans_of(sub.db(), have->id);
     bool same = rows.size() == levels.size();
     for (std::size_t k = 0; same && k < rows.size(); ++k)
-      same = std::abs(std::stod(text(rows[k], "start")) - levels[k].lo) <= 1e-9 * (1 + levels[k].lo) && std::abs(std::stod(text(rows[k], "stop")) - levels[k].hi) <= 1e-9 * (1 + levels[k].hi) && integer(rows[k], "code") == levels[k].level;
+      same = std::abs(rows[k].start - levels[k].lo) <= 1e-9 * (1 + levels[k].lo) && std::abs(rows[k].stop - levels[k].hi) <= 1e-9 * (1 + levels[k].hi) && rows[k].code.value_or(-1) == levels[k].level;
     if (!same) throw Error(code::invalid_argument, sub.name() + ": the stored '" + name + "' are the bands of another ladder (a band's code is its level, so a surface has one bank; remove them to rebuild)");
-    return text(*have, "id");
+    return have->id;
   }
   auto m = find_eigenvalue(sub.db());
   std::string mid;
@@ -94,11 +95,11 @@ std::string band_key_selection(SubjectWriter& sub, const std::string& bands_id, 
   if (!b || !s) throw Error(code::no_such_row, "band key: the frequency bands or the spatial bands Selection is missing");
   const std::int64_t nb = integer(*b, "n_members"), ns = integer(*s, "n_members");
   const Json key = Json{{"bands", bands_id}, {"spatial_bands", spatial_bands_id}, {"n_bands", nb}, {"n_spatial", ns}, {"layout", "code = band * n_spatial + spatial_band"}};
-  if (const auto have = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND status = 'complete'", {sub.id(), name})) {
-    const Json p = Json::parse(opt_text(*have, "params_json").value_or("{}"), nullptr, false);
+  if (const auto have = selection::find_by_name(sub.db(), sub.id(), name)) {
+    const Json& p = have->params_json;
     if (!p.is_object() || !p.contains("band_key") || p["band_key"].value("bands", "") != bands_id || p["band_key"].value("spatial_bands", "") != spatial_bands_id)
       throw Error(code::invalid_argument, sub.name() + ": '" + name + "' is a band key of other banks");
-    return text(*have, "id");
+    return have->id;
   }
   std::string id;
   sub.compose([&] {

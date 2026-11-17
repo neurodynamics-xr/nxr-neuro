@@ -9,8 +9,11 @@
 //   s.resolve();                        // crop (index ranges per axis) · indices (a gather) · weights (a kernel's rule)
 //   s.elements(); s.partition();        // the per-element array; a partition's code -> element count
 //
-// Create is SubjectWriter::selection (every column, its elements, spans, extents and own measurements); update is SubjectWriter::set_spans / set_extents /
-// set_own_measurements; delete is SubjectWriter::remove("selection", id). Reads are records::Selections and this.
+// THIS FILE is the entity (resolution of a stored selection). The selection CRUD is gathered in io's selection module, in four files:
+//   selection_description.h   the in-memory description (a mirror of compute's `nxr::selection::Selection`)
+//   selection_store.h         save / load / update / remove a selection (all five types), its lookup (dictionary), and the rows beneath it
+//   selection_measurement.h   what is measured on a selection: the measurement rows and their arrays
+//   selection.h               this: the stored selection, resolved (which part of its manifold)
 #pragma once
 #include <cstdint>
 #include <map>
@@ -21,6 +24,7 @@
 #include <vector>
 
 #include "nxr/io/records/rows.h"
+#include "nxr/io/selection_description.h"
 
 namespace nxr::io {
 class Database;
@@ -32,8 +36,6 @@ namespace nxr::io::selection {
 /** One member of a spans set: its ordinal, [start, stop) in the line's coordinate system, its code (an event type; a closed form's member: its ordinal). */
 struct Span { std::int64_t ordinal = 0; double start = 0, stop = 0; std::optional<std::int64_t> code; };
 
-/** A spans set in CLOSED FORM (D64/D87): `params_json.tiling = {origin, width, hop, count}` and no rows (a constant-Q level's windows). */
-struct Tiling { double origin = 0, width = 0, hop = 0; std::int64_t count = 0; };
 
 /** What part of its manifold a selection is: index ranges per axis (a crop), picked elements (a gather), or a weighting rule the toolbox evaluates. */
 struct Resolution {

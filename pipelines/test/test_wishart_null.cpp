@@ -19,7 +19,7 @@
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
-#include "nxr/io/constant_q.h"
+#include "nxr/pipelines/constant_q.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/wishart_null.h"
 
@@ -96,7 +96,7 @@ int main() {
       for (const auto& [k, l] : bursts) { (void)l; spans.push_back({k * tile_s, (k + 4) * tile_s, 0}); }
       nxr::bst::time_spans(sub, "time/bursts", spans, {"burst"}, bo);
     });
-    sub.compose([&] { nxr::io::constantq::write(sub, tid); });
+    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});

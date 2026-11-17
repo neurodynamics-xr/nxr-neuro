@@ -16,7 +16,7 @@
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
-#include "nxr/io/constant_q.h"
+#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/joint.h"
@@ -115,7 +115,7 @@ int main() {
       kernel("fixed", kid, N, "scalar", "dSPM");
       kernel("free", kfree, 3 * N, "vector3", "MNE");
     });
-    sub.compose([&] { nxr::io::constantq::write(sub, tid); });
+    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   tiles_compute(ds, sub, TilesComputeOptions{});

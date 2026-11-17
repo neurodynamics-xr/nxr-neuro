@@ -112,7 +112,7 @@ selection library.
    set combinators by compute, `at`, `level`, `member` and `coarser` by io at read, `over` and `within` by compute measurement nodes stored by io.
 
 The few rules of the stored format (the tile of a sample, a coarser level as code >> shift, a closed tiling's members) exist in both, as io knows a
-field's shape without compute. io's constant-Q writer still designs its bands; the design moves to compute in the CRUD step.
+field's shape without compute. The selection CRUD is gathered in io's selection module (`selection_description.h`, `selection_store.h`, `selection_measurement.h`; the entity `selection.h` resolves a stored selection); io's constant-Q writer no longer designs its bands: compute designs the ladder (`nxr::selection::constant_q`) and the pipelines hand it to io, which only stores it (`pipelines/constant_q.h`).
 
 A PARTITION OF A MANIFOLD BY A METHOD (`compute/include/nxr/selection/partition.h`): one function, `partition(manifold, method)`; the manifold
 says what is divided (a Line's samples, a Surface's vertices), the method how. A partition made here and one io loads from file are the same thing and
