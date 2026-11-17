@@ -13,6 +13,7 @@
 #include "cli.h"
 #include "nxr/convert/bids.h"
 #include "nxr/convert/recording.h"
+#include "nxr/convert/synthetic.h"
 #include "nxr/io/subject_package.h"
 
 using namespace nxr::io;
@@ -50,6 +51,45 @@ int recording_command(const std::vector<std::string>& rest) {
   return 0;
 }
 
+// create recording --synthetic: sine waves plus noise from a seed, written into a subject package through the recording importer
+int synthetic_command(const std::vector<std::string>& rest) {
+  const Args a = parse("nxr-neuro create recording", rest, {"--package", "--name", "--acquisition", "--channels", "--sfreq", "--duration", "--seed", "--amplitude", "--noise"}, {"--synthetic"},
+                       {"--package"}, 0, {"--frequency"});
+  if (!a.flag.count("--synthetic")) throw Usage("nxr-neuro create recording: error: say what to make: --synthetic (sine waves plus noise from a seed); a recording of a file is `import recording`");
+  nxr::convert::SyntheticRecording opt;
+  auto num = [&](const char* k, auto& into) {
+    if (const auto v = a.maybe(k)) {
+      try { std::size_t used = 0; const double x = std::stod(*v, &used); if (used != v->size()) throw std::invalid_argument(*v); into = static_cast<std::remove_reference_t<decltype(into)>>(x); }
+      catch (const std::exception&) { throw Usage(std::string("nxr-neuro create recording: error: argument ") + k + ": '" + *v + "' is not a number"); }
+    }
+  };
+  opt.name = a.maybe("--name").value_or("synthetic");
+  opt.acquisition = a.maybe("--acquisition").value_or("rest");
+  num("--channels", opt.n_channels);
+  num("--sfreq", opt.sfreq);
+  num("--duration", opt.duration);
+  num("--amplitude", opt.amplitude);
+  num("--noise", opt.noise);
+  if (const auto v = a.maybe("--seed")) {
+    try { opt.seed = std::stoull(*v); } catch (const std::exception&) { throw Usage("nxr-neuro create recording: error: argument --seed: '" + *v + "' is not a whole number"); }
+  }
+  if (const auto it = a.multi.find("--frequency"); it != a.multi.end()) {
+    opt.frequencies.clear();
+    for (const auto& f : it->second) {
+      try { opt.frequencies.push_back(std::stod(f)); } catch (const std::exception&) { throw Usage("nxr-neuro create recording: error: argument --frequency: '" + f + "' is not a number"); }
+    }
+  }
+  opt.progress = [](const Json& j) { emit(j); };
+  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
+  DatasetWriter w = open_package_writer(a.get("--package"));
+  SubjectWriter sub = SubjectWriter::open(w, rec.name);
+  Json out = nxr::convert::create_synthetic(w, sub, opt);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
+
 // import bids: a BIDS dataset (MEG, EEG, iEEG) into a new dataset of subject packages, with the participant variables
 int bids_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro import bids", rest, {"--from", "--dataset", "--registered-by"}, {"--in-place", "--anonymize", "--no-participants"}, {"--from", "--dataset"}, 0, {"--subject"});
@@ -75,5 +115,6 @@ int import_main(const std::vector<std::string>& argv) {
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   if (what == "recording") return recording_command(rest);
   if (what == "bids") return bids_command(rest);
-  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids')");
+  if (what == "synthetic") return synthetic_command(rest);
+  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids', 'synthetic')");
 }

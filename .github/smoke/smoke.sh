@@ -16,4 +16,12 @@ OUT=$("$BIN" run eigenmodes --dataset "$WORK/store/smoke" --subject s1 --surface
 echo "$OUT" | tail -n 3
 echo "$OUT" | grep -q '"stage": *"result"' || echo "$OUT" | grep -q result || { echo "smoke: no result line from run eigenmodes" >&2; exit 1; }
 "$BIN" show subject --dataset "$WORK/store/smoke" --subject s1 > /dev/null
+# a synthetic recording made by the binary (no real data), in a subject package registered in a dataset, and a time-ranged computation on it: --from and --to are required
+"$BIN" create dataset --dataset "$WORK/cohort" > /dev/null
+"$BIN" create package --package "$WORK/cohort/s2.nxr.zarr" --name s2 --home-dataset cohort > /dev/null
+"$BIN" create recording --synthetic --package "$WORK/cohort/s2.nxr.zarr" --name rest --channels 6 --sfreq 200 --duration 30 --seed 1 > /dev/null
+"$BIN" register package --dataset "$WORK/cohort" --package "$WORK/cohort/s2.nxr.zarr" --registered-by smoke > /dev/null
+OUT=$("$BIN" run psd --dataset "$WORK/cohort" --subject s2 --recording rest --from 0 --to 10)
+echo "$OUT" | tail -n 2
+echo "$OUT" | grep -q '"stage": *"result"' || echo "$OUT" | grep -q result || { echo "smoke: no result line from run psd --from 0 --to 10" >&2; exit 1; }
 echo "smoke test passed"
