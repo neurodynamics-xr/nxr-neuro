@@ -113,6 +113,7 @@ add_library(nxr_compute STATIC
   src/filterbank.cpp
   src/frame_tiling.cpp
   src/tower.cpp
+  src/frame_grid.cpp
   src/pyramid.cpp
   src/parallel.cpp
   src/integrals.cpp

@@ -9,6 +9,8 @@
 #include <string>
 
 #include "nxr/graph/node.h"
+#include "nxr/pipelines/pyramid_steps.h"
+#include "nxr/selection/selection.h"
 
 namespace nxr::pipelines::graph {
 
@@ -24,13 +26,6 @@ ng::PortType constant_port(const char* cls) {
   return t;
 }
 
-// the bits a frame index takes in a joint code: the fewest that hold `frames` (at least 1)
-int joint_bits(std::int64_t frames) {
-  int b = 1;
-  while ((std::int64_t(1) << b) < std::max<std::int64_t>(2, frames)) ++b;
-  return b;
-}
-
 // ── joint.cells ─────────────────────────────────────────────────────────────────────────────────────────────────
 // THE JOINT PARTITION OF SPACE x TIME (the hand-wired `joint` it replaces): the cells of a surface level's tiles and a constant-Q level's time tiles, closed form
 // (no element stored): code = (tile << bits) | frame, the Studio atlas's layout.
@@ -42,8 +37,9 @@ ng::NodeSpec joint_cells() {
               {"time", "a level of the time line's constant-Q ladder (a closed-form tiling: the time tiles; its record names its band)", false}};
   n.outputs = {{"space_time", "the product of the surface and the time line the cells lie on (its factors are the definition's)", false},
                {"cells", "the joint cells: (tile << bits) | frame, closed form", false}};
+  n.parameters = {{"layout", Json::array({"tile", "frame"}), "the array layout of the measurements over the cells: [tile, frame], or [band, tile, frame] when each band's values are one array (the pyramid)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "integer codes from the two levels' counts");
-  n.matches = "the Studio atlas's joint cells (tile << bits | frame)";
+  n.matches = "the Studio atlas's joint cells (tile << bits | frame; Studio D129 joint partition); compute nxr::selection::joint";
   n.description = "the joint cells of a surface level and a time level, closed form";
   n.plan = [](const ng::Types& in, const Json&) {
     for (const char* k : {"space", "time"}) if (!in.count(k)) ng::refuse(std::string("joint.cells: ") + k + " is not given");
@@ -52,26 +48,40 @@ ng::NodeSpec joint_cells() {
     out.out["cells"] = constant_port("selection");
     return out;
   };
-  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json&, ng::Shared&) {
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
     for (const char* k : {"space", "time"}) if (!c.count(k) || c.at(k).meta.value("placeholder", false)) ng::refuse(std::string("joint.cells: ") + k + " was not handed over");
-    return std::any(ng::Arrays{{"space", c.at("space")}, {"time", c.at("time")}});
+    ng::Arrays a{{"space", c.at("space")}, {"time", c.at("time")}, {"layout", ng::Array{}}};
+    a["layout"].meta["layout"] = p.contains("layout") && p["layout"].is_array() ? p["layout"] : Json::array({"tile", "frame"});
+    return std::any(std::move(a));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
     const ng::Arrays& c = std::any_cast<const ng::Arrays&>(prepared);
     const ng::Array& S = c.at("space");
     const ng::Array& T = c.at("time");
     const Json tp = T.meta.value("params", Json::object());
-    if (!tp.is_object() || !tp.contains("tiling") || !tp.contains("resolves_hz")) ng::refuse("joint.cells: " + T.meta.value("name", std::string()) + " is not a constant-Q level (no tiling or band in its record)");
+    // the time grid is a constant-Q level (its record names its band: the level IS the band) or a frame tiling of the tower (the pyramid's frames: no band); both are tilings of the time line
+    if (!tp.is_object() || !tp.contains("tiling") || !(tp.contains("resolves_hz") || tp.contains("atlas"))) ng::refuse("joint.cells: " + T.meta.value("name", std::string()) + " is not a time grid (a constant-Q level or a frame tiling: no tiling in its record)");
     const std::int64_t frames = tp["tiling"]["count"].get<std::int64_t>();
     const std::int64_t tiles = S.meta.value("n_members", std::int64_t(0));
     if (tiles <= 0) ng::refuse("joint.cells: " + S.meta.value("name", std::string()) + " names no tile count");
-    const int bits = joint_bits(frames);
+    // the joint partition is compute's (Studio D129): the product of the grids, the FIRST factor (the frames) given a radix of 2^bits, so a code is (tile << bits) | frame
+    nxr::selection::Selection jp;
+    try {
+      jp = nxr::selection::joint({nxr::selection::tiled(nxr::selection::Tiling{0.0, 1.0, 1.0, frames}, "s"), nxr::selection::elements_grid(tiles)});
+    } catch (const std::invalid_argument& e) { ng::refuse(std::string("joint.cells: ") + e.what()); }
+    int bits = 0;
+    while ((std::int64_t(1) << bits) < jp.radices.at(0)) ++bits;
     if ((tiles << bits) >= (std::int64_t(1) << 31)) ng::refuse("joint.cells: " + std::to_string(tiles) + " tiles x 2^" + std::to_string(bits) + " time indices do not fit a 32-bit code");
-    const Json joint = Json{{"space", S.meta.value("id", std::string())}, {"time", T.meta.value("id", std::string())}, {"time_ladder", T.meta.value("member_of_id", std::string())},
-                            {"band", Json::array({tp["resolves_hz"]["lo"], tp["resolves_hz"]["hi"]})}, {"bits", bits}, {"tiles", tiles}, {"frames", frames},
-                            {"layout", Json::array({"tile", "frame"})}, {"code", "(tile << bits) | frame"}, {"window_samples", tp.value("window_samples", std::int64_t(0))}};
+    Json joint = Json{{"space", S.meta.value("id", std::string())}, {"time", T.meta.value("id", std::string())}, {"time_ladder", T.meta.value("member_of_id", std::string())},
+                      {"bits", bits}, {"tiles", tiles}, {"frames", frames}, {"layout", c.at("layout").meta["layout"]}, {"code", "(tile << bits) | frame"},
+                      {"window_samples", tp.value("window_samples", std::int64_t(0))}};
+    if (tp.contains("resolves_hz")) joint["band"] = Json::array({tp["resolves_hz"]["lo"], tp["resolves_hz"]["hi"]});
+    else joint["frame_level"] = tp["atlas"].value("frame_level", Json());
+    Json params = Json{{"joint", joint}};
+    const Json sp = S.meta.value("params", Json::object());                  // the leaves' record the roll-up reads: where their areas and arrays are (nxr's `atlas` block)
+    if (sp.is_object() && sp.contains("areas")) params["atlas"] = Json{{"tree", sp.value("tree", std::string("subject"))}, {"areas", sp["areas"]}, {"node", sp.value("node", Json())}};
     ng::Array a;
-    a.meta["describe"] = Json{{"n_members", tiles * frames}, {"label", std::to_string(tiles) + " tiles x " + std::to_string(frames) + " time tiles"}, {"params", Json{{"joint", joint}}},
+    a.meta["describe"] = Json{{"n_members", tiles * frames}, {"label", std::to_string(tiles) + " tiles x " + std::to_string(frames) + " time tiles"}, {"params", params},
                               {"description", "the joint cells of " + S.meta.value("name", std::string()) + " and " + T.meta.value("name", std::string()) + ": code = (tile << " +
                                               std::to_string(bits) + ") | time tile (the Studio atlas's layout), closed form"}};
     return ng::Arrays{{"space_time", ng::Array{}}, {"cells", std::move(a)}};
@@ -132,6 +142,7 @@ ng::NodeSpec positions_transition() {
 }  // namespace
 
 void register_partition_nodes() {
+  register_pyramid_nodes();
   ng::Registry& r = ng::registry();
   for (ng::NodeSpec n : {joint_cells(), positions_transition()})
     if (!r.find(n.name)) r.add(std::move(n));

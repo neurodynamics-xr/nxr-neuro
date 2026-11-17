@@ -174,6 +174,7 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
     }
   } else if (k == "measurement") {
     // over: a selection found, or an output of this run; of: a field found, or an output of this run (none: the members' own measures, area and n_elements)
+    if (spec.contains("within") && !P.found.count(spec["within"].get<std::string>())) bad(o, "within: '" + spec["within"].get<std::string>() + "' is not a found input (the bank of bands)");
     for (const char* key : {"over", "of"}) {
       if (!spec.contains(key)) { if (std::string(key) == "over") bad(o, "a measurement output names the selection it is over (over: INPUT or OUTPUT)"); continue; }
       const std::string r = spec[key].get<std::string>();
@@ -279,6 +280,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (d.contains("unit") && d["unit"].is_string()) f.unit = d["unit"].get<std::string>();
     else if (spec.contains("unit")) f.unit = spec["unit"].get<std::string>();
     f.description = spec.contains("description") ? spec["description"].get<std::string>() : d.value("description", f.kind + " \xe2\x80\x94 pipeline " + P.definition.name);
+    // a SOURCE ESTIMATE: made by an operator found (by_operator: the inverse kernel) from a recording found (derived_from)
+    if (spec.contains("derived_from") && P.found.count(spec["derived_from"].get<std::string>()) && P.found.at(spec["derived_from"].get<std::string>()).row) f.derived_from_id = text(*P.found.at(spec["derived_from"].get<std::string>()).row, "id");
+    if (spec.contains("by_operator") && P.found.count(spec["by_operator"].get<std::string>()) && P.found.at(spec["by_operator"].get<std::string>()).row) f.by_operator_id = text(*P.found.at(spec["by_operator"].get<std::string>()).row, "id");
     if (spec.contains("of_operator")) {                                  // a field of an operator this run stored (stored after it: the operators' pass comes first)
       const std::string r = spec["of_operator"].get<std::string>();
       if (!made.count(r)) bad(o, "of_operator: '" + r + "' is not an operator output stored before it");
@@ -359,6 +363,12 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       m.measures.push_back(std::move(x));
     }
     if (d.contains("band")) m.band = d["band"];
+    if (spec.contains("within")) {                                          // the bank of bands a measure is within (found: its code is the band's index, which the node names: describe.within_code)
+      const std::string w = spec["within"].get<std::string>();
+      if (!P.found.count(w) || !P.found.at(w).row) bad(o, "within: '" + w + "' is not a found selection");
+      m.within_selection_id = text(*P.found.at(w).row, "id");
+      if (d.contains("within_code")) m.within_code = d["within_code"].get<std::int64_t>();
+    }
     if (d.contains("partition_params") && d["partition_params"].is_object()) unit.set_params(m.selection_id, d["partition_params"]);
     report["rows"] = unit.measurements(m);
     report["over"] = m.selection_id;

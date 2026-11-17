@@ -119,23 +119,9 @@ int measure_main(const std::vector<std::string>& argv) {
   throw cli::Usage("nxr-neuro measure: error: the following arguments are required: action (query, export); measuring is `nxr-neuro run measure` (a partition of a surface) or `nxr-neuro run measure_over_time` (a time tiling)");
 }
 
+// `pyramid reduce` only: the pyramid is BUILT by `nxr-neuro run pyramid` (a definition of registered nodes: the cells of the joint grid cortex x time measured, docs/specs/2026-11-17-pyramid-grid.md),
+// its band banks by `run pyramid_bands` and `run spatial_bands`.
 int pyramid_main(const std::vector<std::string>& argv) {
-  if (!argv.empty() && argv[0] == "spatial-bands") {
-    const std::string prog = "nxr-neuro pyramid spatial-bands";
-    const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-    const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--surface"}, {}, {"--dataset", "--subject"});
-    nxr::pipelines::SpatialBandsOptions o;
-    o.surface = a.maybe("--surface");
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::pyramid_spatial_bands(ds, sub, o);
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-    return 0;
-  }
   if (!argv.empty() && argv[0] == "reduce") {
     // `pyramid reduce --dataset D/N --subjects A,B,C [--kernels SPEC] [--depth D]`: the group sums of the NAMED subjects' group-tree pyramids, cell for cell, in the default subject's store
     const std::string prog = "nxr-neuro pyramid reduce";
@@ -161,54 +147,8 @@ int pyramid_main(const std::vector<std::string>& argv) {
     cli::emit(out);
     return 0;
   }
-  if (argv.empty() || argv[0] != "build") throw cli::Usage("nxr-neuro pyramid: error: the following arguments are required: action (build, reduce, spatial-bands)");
-  const std::string prog = "nxr-neuro pyramid build";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording", "--kernel", "--depth", "--tree", "--bands", "--shape", "--halo-seconds", "--frame-level", "--start-s", "--chunks", "--start", "--stop", "--block-samples", "--threads"},
-                                 {"--replace", "--keep-bad-segments"}, {"--dataset", "--subject", "--recording"});
-  nxr::pipelines::PyramidBuildOptions o;
-  o.recording = a.get("--recording");
-  o.kernel = a.maybe("--kernel");
-  o.chunks = a.maybe("--chunks");
-  if (const auto v = a.maybe("--shape")) o.shape = *v;
-  if (const auto v = a.maybe("--tree")) o.tree = *v;
-  try {
-    if (const auto v = a.maybe("--depth")) o.depth = std::stoi(*v);
-    if (const auto v = a.maybe("--halo-seconds")) o.halo_seconds = std::stod(*v);
-    if (const auto v = a.maybe("--frame-level")) o.frame_level = std::stoi(*v);
-    if (const auto v = a.maybe("--start-s")) o.start_s = std::stod(*v);
-    if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
-    if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
-    if (const auto v = a.maybe("--block-samples")) o.block_samples = std::stoll(*v);
-    if (const auto v = a.maybe("--threads")) o.threads = std::stoi(*v);
-    if (const auto v = a.maybe("--bands")) {        // LO-HI,LO-HI,... Hz
-      std::stringstream ss(*v);
-      std::string item;
-      while (std::getline(ss, item, ',')) {
-        const auto dash = item.find('-');
-        if (dash == std::string::npos) throw std::invalid_argument("x");
-        o.bands.emplace_back(std::stod(item.substr(0, dash)), std::stod(item.substr(dash + 1)));
-      }
-    }
-  } catch (...) { usage(prog, "--depth and --frame-level are whole numbers, --bands LO-HI,LO-HI (Hz), --halo-seconds, --start-s, --start and --stop numbers (s), --block-samples a whole number"); }
-  o.exclude_bad_segments = a.flag.count("--keep-bad-segments") == 0;
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::pyramid_build(ds, sub, o, [](const Json& j) { Json m = j; if (!m.contains("stage")) m["stage"] = "progress"; cli::emit(m); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
+  throw cli::Usage("nxr-neuro pyramid: error: the following arguments are required: action (reduce); the pyramid is built by `nxr-neuro run pyramid`, its band banks by `run pyramid_bands` and `run spatial_bands`");
 }
-
-
 
 int spatialnull_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro spatialnull: error: the following arguments are required: action (compute)");
