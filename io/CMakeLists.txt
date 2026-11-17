@@ -379,6 +379,7 @@ if(NXR_IO_BUILD_TESTS)
            -DGOLDEN=${CMAKE_CURRENT_SOURCE_DIR}/test/golden/store_identity.txt -DWORK=${CMAKE_CURRENT_BINARY_DIR}/store_identity_compact_work -P ${CMAKE_CURRENT_SOURCE_DIR}/test/store_identity.cmake)
   target_link_libraries(test_bst PRIVATE matio)   # the test writes its .mat files with matio itself
   target_link_libraries(test_template_import PRIVATE matio)
+  target_link_libraries(test_statistic PRIVATE matio)
 
   # Optional Eigen interop (header-only). The core library never needs Eigen.
   option(NXR_IO_WITH_EIGEN "Build the optional Eigen interop test" OFF)
