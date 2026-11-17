@@ -1,3 +1,7 @@
+// nxr-neuro import bids: a BIDS dataset into a dataset of subject packages (nxr/convert/bids.h):
+//
+//   nxr-neuro import bids --from DIR --dataset PATH [--subject LABEL ...] [--in-place] [--anonymize] [--no-participants] [--registered-by WHO]
+//
 // nxr-neuro import recording: a recording file (FIF, EDF/BDF, BrainVision, EEGLAB, CTF, KIT) copied into a subject package (docs/specs/2026-11-17-interoperability.md, 3.2).
 //
 //   nxr-neuro import recording --from FILE --package PATH [--name REC] [--acquisition NAME] [--format F] [--source-root DIR] [--licence T --attribution T] [--anonymize] [--in-place]
@@ -7,6 +11,7 @@
 #include <filesystem>
 
 #include "cli.h"
+#include "nxr/convert/bids.h"
 #include "nxr/convert/recording.h"
 #include "nxr/io/subject_package.h"
 
@@ -44,6 +49,24 @@ int recording_command(const std::vector<std::string>& rest) {
   emit(line);
   return 0;
 }
+
+// import bids: a BIDS dataset (MEG, EEG, iEEG) into a new dataset of subject packages, with the participant variables
+int bids_command(const std::vector<std::string>& rest) {
+  const Args a = parse("nxr-neuro import bids", rest, {"--from", "--dataset", "--registered-by"}, {"--in-place", "--anonymize", "--no-participants"}, {"--from", "--dataset"}, 0, {"--subject"});
+  if (!fs::is_directory(a.get("--from"))) throw Error(code::not_found, "no such BIDS folder: " + a.get("--from"));
+  nxr::convert::BidsImport opt;
+  opt.registered_by = a.maybe("--registered-by").value_or(stamp());
+  opt.in_place = a.flag.count("--in-place") > 0;
+  opt.anonymize = a.flag.count("--anonymize") > 0;
+  opt.participants = a.flag.count("--no-participants") == 0;
+  if (const auto it = a.multi.find("--subject"); it != a.multi.end()) for (const auto& s : it->second) opt.subjects.push_back(s.rfind("sub-", 0) == 0 ? s.substr(4) : s);
+  opt.progress = [](const Json& j) { emit(j); };
+  Json out = nxr::convert::import_bids(a.get("--from"), a.get("--dataset"), opt);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
 }  // namespace
 
 int import_main(const std::vector<std::string>& argv) {
@@ -51,5 +74,6 @@ int import_main(const std::vector<std::string>& argv) {
   const std::string what = argv[0];
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   if (what == "recording") return recording_command(rest);
-  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording')");
+  if (what == "bids") return bids_command(rest);
+  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids')");
 }

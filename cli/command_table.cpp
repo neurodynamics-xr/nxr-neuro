@@ -1012,6 +1012,14 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
 --anonymize@import recording		Drop the identifying header fields (the file's start time, subject, experimenter, patient and recording identification) instead of keeping them as the file has them.	off (the header is kept as the file has it)	-
 --format@import recording	FORMAT	The file's format: fif, edf, bdf, brainvision, eeglab, ctf or kit.	from the file's extension	-
+--anonymize@import bids		Drop the identifying header fields of every recording and the sidecar's institution and device-serial keys.	off (kept as the files have them)	-
+--dataset@import bids	PATH	The folder of the new dataset (made by the import; refused if it holds a catalogue): one subject package per BIDS subject, registered in its catalogue.	required	-
+--from@import bids	DIR	The BIDS dataset's folder (MEG, EEG or iEEG recordings).	required	-
+--in-place@import bids		Link every recording's file instead of copying its samples (the packages record each file's path and SHA-256).	off (the samples are copied)	-
+--no-participants		Do not import participants.tsv (import bids).	off	-
+--no-participants@import bids		Do not import participants.tsv as the dataset's participant variables.	off (participants are imported)	-
+--registered-by@import bids	WHO	Who imports: recorded with each catalogue entry.	nxr-neuro and its version	-
+--subject@import bids	LABEL	Import only this BIDS subject (its label, with or without `sub-`); repeat the option for several.	all subjects	-
 --in-place@import recording		Link the recording's file instead of copying its samples: the package records the file's path and SHA-256, a run streams the samples from the original file, and a changed file is refused. One file only (a CTF folder is copied).	off (the samples are copied)	-
 --licence@import recording	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
 --attribution@import recording	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
@@ -1266,6 +1274,12 @@ old: convert mri
 alias: refused
 summary: Import an anatomical MRI of a subject.
 opts: --anat* --dataset* --only+ --subject* --templates+
+)TBL",
+R"TBL(@ import bids
+old: __import bids
+alias: no
+summary: Import a BIDS dataset (MEG, EEG, iEEG) as a dataset of subject packages, with its participant variables, channel status, events and electrode positions.
+opts: --anonymize --dataset* --from* --in-place --no-participants --registered-by --subject+
 )TBL",
 R"TBL(@ import recording
 old: __import recording

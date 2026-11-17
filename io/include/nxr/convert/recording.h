@@ -34,6 +34,7 @@ struct RecordingImport {
   std::string licence = "unknown", attribution = "unknown";
   bool redistributable = false;
   bool anonymize = false;               // drop the identifying header fields
+  std::shared_ptr<const nxr::formats::RecordingHeader> header;   // the header to import instead of the reader's own (a BIDS import amends channel types, flags, positions and events); the samples are always the reader's
   bool in_place = false;                // link the file instead of copying its samples (needs `source_file`, one file)
   nxr::io::Json extra = nullptr;        // what the format adds to the producer record (transforms, digitisation, projectors), an object or null
   nxr::bst::Emit progress;
