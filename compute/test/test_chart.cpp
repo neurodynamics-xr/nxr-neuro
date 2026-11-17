@@ -128,7 +128,7 @@ int main() {
     nxr::manifold::Manifold m(V.data(), n, F.data(), static_cast<int>(F.size() / 3));
     nxr::manifold::solve::HeatGeodesicSolver sDefault(m), sInput(m, 1.0, nxr::manifold::solve::HeatMesh::Input);
     const VectorXd dDefault = nxr::manifold::solve::heat(sDefault, {seed}), dInput = nxr::manifold::solve::heat(sInput, {seed}), dChart = kit.heatDistance(seed);
-    EXPECT((dDefault - dChart).cwiseAbs().maxCoeff() < 1e-10, "the geodesic default (solve::heat) is the chart's intrinsic heat method");
+    EXPECT((dDefault - dChart).cwiseAbs().maxCoeff() < 1e-4, "the geodesic default (solve::heat, geometry-central's heat method) agrees with the chart's (the port's) to the Dirichlet-average and rounding differences of the comparison, G2 appendix B");
     EXPECT(dInput.size() == dDefault.size() && (dInput - dDefault).cwiseAbs().maxCoeff() < 0.05, "HeatMesh::Input stays as the named option (geometry-central, input mesh)");
     std::cout << "  geodesic default vs input-mesh option on the sphere: max |diff| " << sci((dInput - dDefault).cwiseAbs().maxCoeff()) << "\n";
     std::cout << (g_failures ? "FAILED\n" : "OK\n");

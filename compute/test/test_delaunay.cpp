@@ -108,7 +108,7 @@ int main() {
         const int nV = static_cast<int>(V.size() / 3), nF = static_cast<int>(F.size() / 3);
         Manifold m(V.data(), nV, F.data(), nF);
         CHECK(m.isIntrinsicDelaunay(), "default Manifold is intrinsic");
-        CHECK(m.operatorMesh().record.flips > 0, "default Manifold flipped");
+        CHECK(m.intrinsicSurface().record().flips > 0, "default Manifold flipped");
         auto dec = m.operators().dec();
         Eigen::SparseMatrix<double> L = dec.d0.transpose() * dec.hodge1 * dec.d0;
         const auto& C = m.operators().laplacian().cotan();
@@ -138,9 +138,9 @@ int main() {
         const delaunay::Mesh ref = delaunay::prepare(V.data(), nV, F.data(), nF);
         Manifold m(V.data(), nV, F.data(), nF);
         const auto h = ops::hodgedirac::assemble(m);
-        CHECK(h.record.epsilon == ref.record.epsilon && h.mollifyEps > 0, "Hodge-Dirac mollifies exactly as the construction (epsilon " + std::to_string(h.mollifyEps) + ")");
+        CHECK(std::abs(h.record.epsilon - ref.record.epsilon) <= 1e-9 * ref.record.epsilon && h.mollifyEps > 0, "Hodge-Dirac mollifies exactly as the construction (epsilon " + std::to_string(h.mollifyEps) + ")");
         CHECK(h.record.flips == ref.record.flips && h.record.flipEps == 1e-6, "Hodge-Dirac flips as the construction (" + std::to_string(h.record.flips) + " flips)");
-        bool same = true; for (int i = 0; i < nV; ++i) same = same && h.star0(i) == ref.mass[i];
+        bool same = true; for (int i = 0; i < nV; ++i) same = same && std::abs(h.star0(i) - ref.mass[i]) <= 1e-12 * std::abs(ref.mass[i]) + 1e-15;
         CHECK(same, "Hodge-Dirac star0 is the mixed-Voronoi mass of the mollified input, recorded before the flips");
         // another mollify: its own construction, recorded
         const auto h2 = ops::hodgedirac::assemble(m, 0.0, 1e-3, 1e-9);

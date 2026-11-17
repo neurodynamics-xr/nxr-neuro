@@ -211,7 +211,7 @@ Delaunay** mesh, with the **mixed-Voronoi** mass (Meyer et al. 2003) of the moll
   means the mixed-Voronoi mass in nxr and the Studio);
 - the construction's two numerical constants, named and recorded with the shared names: **`mollify`** (relative δ, default 1e-6 × the mean edge
   length; ε = max over corners of l_C − l_A − l_B + δ, added to every edge if positive) and **`flipEps`** (flip while the cotan weight is below
-  −flipEps, default 1e-6). `Manifold::operatorMesh().record` holds mollify, ε, flipEps and the flip count.
+  −flipEps, default 1e-6). `Manifold::intrinsicSurface().record()` holds mollify, ε, flipEps, the flip count and the gauge identity.
 
 The stand-alone DEC follows the mesh option (`d0ᵀ⋆1d0 == cotanL`, `hodge0 == mass`). What is indexed by the input's own edges and faces (the
 1-form of a Hodge decomposition, the trivial connection, the face Diracs) uses `Manifold::decEmbedded()`.
