@@ -1,5 +1,5 @@
-# THE DATA'S BAND ENVELOPE for the lag-free null (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10): the band power of the recording in dyadic time tiles, over the channels of the band's stored cross-spectrum, stored as a statistic
-# (sums and counts; the mean derived at read). `lagfree_surrogate` scales its draws to it, so a draw bursts when the data bursts (nxr `envelope_matched_null`'s one-cycle RMS: a tile of 2^level samples is the nearest power of two to a cycle).
+# THE DATA'S BAND ENVELOPE for the lag-free surrogates (spec docs/specs/2026-11-17-surrogates.md): the band power of the recording in dyadic time tiles, over the channels of the band's stored cross-spectrum, stored as a statistic
+# (sums and counts; the mean derived at read). `surrogate.lagfree` scales its draws to it, so a draw bursts when the data bursts (Rheome envelopenull's one-cycle envelope: a tile of 2^level samples is the nearest power of two to a cycle).
 #
 # THE CHAIN: analytic (the band, Morlet) → power_series. The channels are the cross-spectrum's (`run crossspectrum --channels-of KERNEL --bands alpha:8-12`); bad samples are left out of the tiles.
 #

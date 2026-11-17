@@ -1,17 +1,22 @@
-# ONE DRAW OF THE LAG-FREE NULL of the spatial events (spec docs/specs/2026-11-14-spatial-events.md, "Statistics and nulls"; vortex-cores spec, piece 10): the SAME graph as `run spatial_events`, run on a lag-free surrogate of the recording in place of the
-# recording (Gaussian noise with the data's own spectrum, the band's real cross-spectrum as its zero-lag covariance, no lag, scaled to the data's band envelope: `run lagfree_envelope`, `lagfree_surrogate`). The baseline, the threshold and the burst frames are the DATA's: only the signal is replaced,
-# so the draw's patches are what the same threshold finds in a signal with the data's covariance, spectrum and envelope and no travelling. A draw is the run with `seed: i` (the seed is in the cache key and in the stored nodes' names: `draw: seed`); only the HOME MAP and the PATCH
-# SUMMARY are stored (small statistics: `spatial_events_null.draw<seed>.home.<recording>`, `.summary.<recording>`), never the surrogate or the patches. `run spatialnull` runs the draws in batches with early stopping.
+# ONE DRAW OF THE LAG-FREE SURROGATE of the spatial events (spec docs/specs/2026-11-17-surrogates.md; docs/specs/2026-11-14-spatial-events.md, "Statistics and nulls"): the SAME graph as
+# `run spatial_events`, run on a lag-free surrogate of the recording in place of the recording (Gaussian noise with the data's own spectrum, scaled to the data's band envelope: `run lagfree_envelope`,
+# mixed by the band's real cross-spectrum as its zero-lag covariance, no lag). The baseline, the threshold and the burst frames are the DATA's: only the signal is replaced, so the draw's patches are what
+# the same threshold finds in a signal with the data's covariance, spectrum and envelope and no travelling.
+# THE ORDER (spec section 4): white -> shaping taps -> envelope scale (`surrogate.lagfree`, UNMIXED) -> analytic -> frames -> ONE fused operator per hat level (the kernel's current through the level's hat on
+# the glued surface, composed with the zero-lag mixing: apply_kernel's `pre_operator`), built once and cached across the draws. The first non-linear step is `power`.
+# A DRAW NEVER READS THE RECORDING (`read: shape`). A draw is the run with `seed: i` (`draw: seed`); only the HOME MAP and the PATCH SUMMARY are stored (small statistics:
+# `surrogate_lagfree_spatial_events.draw<seed>.home.<recording>`, `.summary.<recording>`), never the surrogate or the patches. `run surrogate_lagfree_spatial_events_compare` runs the draws in batches with
+# early stopping and compares the data's home map and patch sizes with them.
 #
-#   nxr-neuro run spatial_events_null --dataset <folder> --subject sub-01 --recording rest --cross-spectrum rest_crossspectrum_alpha --seed 1 --all
-pipeline: spatial_events_null
+#   nxr-neuro run surrogate_lagfree_spatial_events --dataset <folder> --subject sub-01 --recording rest --cross-spectrum rest_crossspectrum_alpha --seed 1 --all
+pipeline: surrogate_lagfree_spatial_events
 version: 1
-description: one draw of the lag-free null of the spatial events (the same graph on a lag-free surrogate of the recording), its home map and patch summary as statistics
+description: one draw of the lag-free surrogate of the spatial events (the same graph on a lag-free surrogate of the recording), its home map and patch summary as statistics
 scope: subject
 draw: seed
 
 inputs:
-  recording: {field: recording, each: true, where: {name: $recording}}
+  recording: {field: recording, each: true, where: {name: $recording}, read: shape}
   kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
   tiles:     {selection: ladder, manifold: kernel.to}
   tiling:    {selection: spans, manifold: recording.time, where: {name: $tiling}}
@@ -53,16 +58,18 @@ parameters:
   block_frames: {default: 256, meaning: "the frames cut at once by the finder (memory only: the result does not depend on it)", unit: "frames"}
 
 steps:
+  before:
+    - {step: surrogate.lagfree_mixing, in: {cross_spectrum: cross_spectrum}, out: mixing}
   chunks:
     over: recording
     do:
-      - step: lagfree_surrogate
+      - step: surrogate.lagfree
         in:   {x: recording, psd: psd, cross_spectrum: cross_spectrum, power_series: power_series}
         with: {band: $band, shape: $shape, taps_half: $taps_half, seed: $seed}
         out:  y
       - {step: analytic, in: {x: y}, with: {band: $band, shape: $shape}, out: z}
       - {step: frames, in: {x: z, tiling: tiling, within: bursts}, out: z_frames}
-      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles}, with: {levels: $levels, glued: true, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
+      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, pre_operator: mixing}, with: {levels: $levels, glued: true, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
       - {step: power, in: {x: j}, out: p}
       - {step: relative, in: {x: p, baseline: baseline}, out: r}
       - {step: at_level, in: {x: r}, with: {level: $reference_level}, out: r_ref}

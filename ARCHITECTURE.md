@@ -101,7 +101,9 @@ device chains, so nxr-neuro can later supply data to them, or run them, with no 
   `SignalChain` (`studio/src/engine/toolbox/signal/chain.ts`) and its device form (`studio/src/studio/engine/gpu/deviceChain.ts`):
   - members (a linear spatial map) → filter (zero-phase sections, a band, a Meyer or Morlet wavelet band) → transform (none · envelope ·
     wavelet power or complex · spectrum, with the Studio's output shapes `xt`, `xft`, `xf`);
-  - a linear map (a kernel, a form's operator) reads the chain BEFORE any non-linear transform (D106);
+  - a linear map (a kernel, a form's operator) reads the chain BEFORE any non-linear transform (D106); consecutive linear maps of the rows are composed ONCE
+    into one operator (the type system's compose move: a kernel's `pre_operator`, e.g. a surrogate's zero-lag mixing, which commutes with the per-channel time
+    filters before it), and a value that awaits its operator reaches no non-linear step or reduction before it is applied (`docs/specs/2026-11-17-surrogates.md`);
   - then the field's forms (`fieldForms.ts`) and the measures (reductions as sums folded across blocks).
   - Stages keep the Studio's order and names; state carried between blocks is an accumulator, as a device chain's is.
 - **Readback (gather):** the chain's outputs come back to the host, which stores them (io) or hands them to the next analysis.
@@ -113,6 +115,8 @@ device chains, so nxr-neuro can later supply data to them, or run them, with no 
 - `io/include/nxr/io/chunk_loop.h` is the one place a recording is loaded and looped over: the span of a run (always stated by the caller; never defaulted), whole chunks read in order, one at a time with bounded memory,
   the rows asked for, the bad-sample mask, progress.
 - A pipeline only declares what it reads (the recording, its rows, its span: `span_of`, `source_of`) and passes a `visit` that folds each chunk into its accumulators.
+  A run that makes its own values from the sample index (a surrogate draw) declares the recording `read: shape`: the service hands the shape and the good samples, never a sample
+  (`shape_source_of`); only a node that reads no sample (`reads_shape_only`) may take it.
   It never opens a recording's array, loops over its samples, or works out chunks.
 - Compute (`compute/`, `meeg/`) receives a data matrix and never knows its size or where it came from.
 - Enforced by the test `layering_recordings_read_by_chunk_service` (`cmake/check_layering.cmake`). A new recording reader goes through the service, never around the guard.

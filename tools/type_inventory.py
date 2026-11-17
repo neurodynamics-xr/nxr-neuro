@@ -703,9 +703,9 @@ def _power_series(i, p, u):
     return {"series": Statistic(axes=("tiles",), measure="power_tiles", of=("power", x.band, None, x.dom[:-1]))}
 
 
-@rule("lagfree_surrogate", "pointwise (a synthetic recording: a field made from statistics; draws on the cross-spectrum's channels)")
+@rule("surrogate.lagfree", "pointwise (a surrogate draw, unmixed: a field made from statistics on the cross-spectrum's channels; it awaits the zero-lag mixing)")
 def _lagfree(i, p, u):
-    x = i["x"]; in_loop(x, "lagfree_surrogate")
+    x = i["x"]; in_loop(x, "surrogate.lagfree")
     s = mk(f"sub({x.dom[0]}, channels(kernel))", type="points")   # STORED: the cross-spectrum was made with --channels-of the kernel
     return {"y": replace(x, dom=(s, x.dom[-1]), quantity="surrogate")}
 

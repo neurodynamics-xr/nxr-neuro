@@ -1,18 +1,24 @@
-# ONE DRAW OF THE LAG-FREE NULL of the vortex chain (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10): the SAME graph as `vortex_cores`, run on a lag-free surrogate of the recording in place of the
-# recording: Gaussian noise with the data's own spectrum (the stored Welch PSD), mixed by the square root of the band's real cross-spectrum (the zero-lag structure kept, no lag), scaled to the data's band envelope (`run lagfree_envelope`).
-# The threshold is the DATA's (the stored `vortex_core_threshold` histogram, by name), the burst frames the data's: only the signal is replaced. A draw is the run with `seed: i` (the seed is in the cache key and in the stored node's name:
-# `draw: seed`); only the draw's TILE CROSSINGS are stored, as a statistic beside the recording (`vortex_null.draw<seed>.null_crossings.<recording>`), small; the surrogate and the draw's cores and tracks are never stored.
-# `run null` runs the draws in batches with early stopping and stores the per-tile p-values.
+# ONE DRAW OF THE LAG-FREE SURROGATE of the vortex chain (spec docs/specs/2026-11-17-surrogates.md): the SAME graph as `vortex_cores`, run on a lag-free surrogate of the recording in place of the
+# recording: Gaussian noise with the data's own spectrum (the stored Welch PSD), scaled to the data's band envelope (`run lagfree_envelope`), mixed by the square root of the band's real cross-spectrum
+# (the zero-lag structure kept, no lag). The threshold is the DATA's (the stored `vortex_core_threshold` histogram, by name), the burst frames the data's: only the signal is replaced.
+# THE ORDER (spec section 4): white -> shaping taps -> envelope scale (`surrogate.lagfree`, the UNMIXED draw) -> the band's analytic signal -> frames -> ONE fused operator (the curl of the
+# kernel's tangent current through the level's hat, composed with the zero-lag mixing: apply_kernel's `pre_operator`). It is the same draw as mixing first: the scale is the same number on every channel
+# of a sample, and the analytic filter and the frame sampling are the same linear filter on every channel, so the mixing commutes with them; the kernel, the tangent part, the curl and the hat are linear,
+# so they and the mixing are one operator [vertices x channels], built once and cached across the draws. The first non-linear step is `cores` (the threshold).
+# A DRAW NEVER READS THE RECORDING: `read: shape` hands the chunk loop the recording's shape (channels, rate, span, chunk grid) and its good samples, no sample.
+# A draw is the run with `seed: i` (the seed is in the cache key and in the stored node's name: `draw: seed`); only the draw's TILE CROSSINGS are stored, as a statistic over the level's tiles beside the
+# recording (`surrogate_lagfree_vortex.draw<seed>.null_crossings.<recording>`), small; the surrogate and the draw's cores and tracks are never stored.
+# `run surrogate_lagfree_vortex_compare` runs the draws in batches with early stopping and compares the data's crossings with them over the same tiles.
 #
-#   nxr-neuro run vortex_null --dataset <folder> --subject sub-01 --recording rest --psd-statistic rest_psd_welch --cross-spectrum rest_crossspectrum_alpha --seed 1 --space-level 5 --all
-pipeline: vortex_null
+#   nxr-neuro run surrogate_lagfree_vortex --dataset <folder> --subject sub-01 --recording rest --psd-statistic rest_psd_welch --cross-spectrum rest_crossspectrum_alpha --seed 1 --space-level 5 --all
+pipeline: surrogate_lagfree_vortex
 version: 1
-description: one draw of the lag-free null of the vortex chain (the same graph on a lag-free surrogate of the recording), its tile crossings as a statistic
+description: one draw of the lag-free surrogate of the vortex chain (the same graph on a lag-free surrogate of the recording), its tile crossings over the level's tiles as a statistic
 scope: subject
 draw: seed
 
 inputs:
-  recording:      {field: recording, each: true, where: {name: $recording}}
+  recording:      {field: recording, each: true, where: {name: $recording}, read: shape}
   kernel:         {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
   tiles:          {selection: ladder, manifold: kernel.to}
   tiling:         {selection: spans, manifold: recording.time, where: {name: $tiling}}
@@ -57,16 +63,18 @@ parameters:
   min_frames: {default: 2, meaning: "the tracks stored hold at least this many frames", unit: "frames"}
 
 steps:
+  before:
+    - {step: surrogate.lagfree_mixing, in: {cross_spectrum: cross_spectrum}, out: mixing}
   chunks:
     over: recording
     do:
-      - step: lagfree_surrogate
+      - step: surrogate.lagfree
         in:   {x: recording, psd: psd, cross_spectrum: cross_spectrum, power_series: power_series}
         with: {band: $band, shape: $shape, taps_half: $taps_half, seed: $seed}
         out:  y
       - {step: analytic, in: {x: y}, with: {band: $band, shape: $shape}, out: z}
       - {step: frames, in: {x: z, tiling: tiling, within: bursts}, out: z_frames}
-      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles}, with: {level: $space_level, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, form: curl_tan}, out: curl_frames}
+      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, pre_operator: mixing}, with: {level: $space_level, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, form: curl_tan}, out: curl_frames}
       - step: cores
         in:   {x: curl_frames, threshold: threshold, exclude: bad}
         with: {percentile: $percentile, block_frames: $block_frames, bad_segments: $bad_segments}

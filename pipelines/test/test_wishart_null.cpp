@@ -104,7 +104,7 @@ int main() {
   WishartNullOptions wo;
   wo.recording = "rest"; wo.windows = "rest_crossspectrum_alpha_windows"; wo.bursts = "bursts"; wo.psd = "rest_psd_welch"; wo.band = {8.0, 12.0}; wo.draws = 400; wo.seed = 3;
   const auto r = wishart_null_compute(ds, sub, wo);
-  const StoredStatistic W = read_statistic(sub, "wishart.rest_crossspectrum_alpha_windows.bursts"), Wr = read_statistic(sub, "wishart.rest_crossspectrum_alpha_windows.bursts.run");
+  const StoredStatistic W = read_statistic(sub, "surrogate_lagfree_pairs.rest_crossspectrum_alpha_windows.bursts"), Wr = read_statistic(sub, "surrogate_lagfree_pairs.rest_crossspectrum_alpha_windows.bursts.run");
   std::printf("  effective bandwidth %.2f Hz; %lld bursts used\n", r.info["effective_bandwidth_hz"].get<double>(), static_cast<long long>(r.info["bursts_used"].get<std::int64_t>()));
   double mn_free = 0, mn_lag = 0;
   for (int b = 0; b < 4; ++b) {
@@ -112,7 +112,7 @@ int main() {
     std::printf("  burst %d (%s): lagged share %.3f, null mean %.3f, p %.4f, q %.4f, dof %.1f\n", b, bursts[static_cast<std::size_t>(b)].second ? "lagged" : "lag-free", sh, nm, p, q, dof);
     (bursts[static_cast<std::size_t>(b)].second ? mn_lag : mn_free) += sh / 2;
   }
-  CHECK(text(W.row, "method") == "wishart_null" && text(W.row, "measure") == "null_p" && W.shape == std::vector<std::int64_t>({4, 5}) && Wr.shape == std::vector<std::int64_t>({4}));
+  CHECK(text(W.row, "method") == "lagfree_pairs" && text(W.row, "measure") == "null_p" && W.shape == std::vector<std::int64_t>({4, 5}) && Wr.shape == std::vector<std::int64_t>({4}));
   CHECK(mn_lag > 3 * mn_free);                                                    // the lagged bursts are far more in quadrature
   for (int b = 0; b < 4; ++b) {
     const double p = W.values[static_cast<std::size_t>(5 * b + 2)];
@@ -124,10 +124,10 @@ int main() {
   { WishartNullOptions again = wo; CHECK(wishart_null_compute(ds, sub, again).hit);
     WishartNullOptions other = wo; other.seed = 99; other.replace = true;
     wishart_null_compute(ds, sub, other);
-    const StoredStatistic W2 = read_statistic(sub, "wishart.rest_crossspectrum_alpha_windows.bursts");
+    const StoredStatistic W2 = read_statistic(sub, "surrogate_lagfree_pairs.rest_crossspectrum_alpha_windows.bursts");
     CHECK(W2.values != W.values && W2.values[0] == W.values[0]);                  // the data's share is the same, the null's mean differs
     WishartNullOptions back = wo; back.replace = true; wishart_null_compute(ds, sub, back);
-    CHECK(read_statistic(sub, "wishart.rest_crossspectrum_alpha_windows.bursts").values == W.values); }
+    CHECK(read_statistic(sub, "surrogate_lagfree_pairs.rest_crossspectrum_alpha_windows.bursts").values == W.values); }
   // refusals
   CHECK(what_of([&] { WishartNullOptions b = wo; b.recording = "no_such"; wishart_null_compute(ds, sub, b); }).find("no_such") != std::string::npos);
   CHECK(!what_of([&] { WishartNullOptions b = wo; b.windows = "no_such"; wishart_null_compute(ds, sub, b); }).empty());

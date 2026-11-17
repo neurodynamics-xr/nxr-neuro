@@ -57,8 +57,8 @@
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/pipelines/run_repeat.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/pipelines/null_compute.h"
-#include "nxr/surrogate.h"
+#include "nxr/pipelines/surrogate_compare.h"
+#include "nxr/nulltest.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -600,7 +600,7 @@ int main() {
     CrossSpectrumOptions co; co.recording = "rest"; co.channels_of = "free"; co.chunks = "all"; co.segment_level = 8; co.bands = {{"alpha", 8.0, 12.0}};
     crossspectrum_compute(ds, sub, co);
     const Json env = set_of({{"recording", "rest"}, {"cross_spectrum", "rest_crossspectrum_alpha"}, {"level", 5}});
-    const g::Definition denv = g::load("lagfree_envelope"), dnull = g::load("vortex_null");
+    const g::Definition denv = g::load("lagfree_envelope"), dnull = g::load("surrogate_lagfree_vortex");
     g::run(ds, sub, denv, env, all);
     const StoredStatistic E = read_statistic(sub, "lagfree_envelope.series.rest");
     double sum = 0, cnt = 0;
@@ -622,14 +622,14 @@ int main() {
     const std::int64_t NL_tiles_plus_bridge = lvl2->n_members.value_or(0) + 1;
     Json nb = base; nb["recording"] = "rest"; nb["cross_spectrum"] = "rest_crossspectrum_alpha"; nb["seed"] = 1;
     g::run(ds, sub, dnull, nb, all);
-    const StoredStatistic D1 = read_statistic(sub, "vortex_null.draw1.null_crossings.rest");
+    const StoredStatistic D1 = read_statistic(sub, "surrogate_lagfree_vortex.draw1.null_crossings.rest");
     std::printf("  one draw: %s [%lld x %lld x %lld]\n", text(D1.row, "measure").c_str(), static_cast<long long>(D1.shape[0]), static_cast<long long>(D1.shape[1]), static_cast<long long>(D1.shape[2]));
     CHECK(text(D1.row, "measure") == "crossing_sum" && text(D1.row, "method") == "lagfree_null" && D1.shape.size() == 3 && D1.shape[0] == 2 && D1.shape[2] == 4 && D1.shape[1] == NL_tiles_plus_bridge);
     // a rerun is a hit; another seed is another draw and its own node; the data's measurement is untouched
     CHECK(g::run(ds, sub, dnull, nb, g::RunOptions{[] { g::RunOptions o; o.chunks = "all"; return o; }()})[0]["hit"] == true);
     Json nb2 = nb; nb2["seed"] = 2;
     g::run(ds, sub, dnull, nb2, all);
-    const StoredStatistic D2 = read_statistic(sub, "vortex_null.draw2.null_crossings.rest");
+    const StoredStatistic D2 = read_statistic(sub, "surrogate_lagfree_vortex.draw2.null_crossings.rest");
     double dd = 0, tot1 = 0, tot2 = 0;
     for (std::size_t i = 0; i < D1.values.size(); ++i) { dd += std::abs(D1.values[i] - D2.values[i]); if (i % 4 == 3) { tot1 += D1.values[i]; tot2 += D2.values[i]; } }
     std::printf("  draw 1 and 2 differ by %.1f over their sums; crossings %.0f and %.0f\n", dd, tot1, tot2);
@@ -637,7 +637,7 @@ int main() {
     // the same seed again (replaced) is the same draw, to the last bit: the draw is a function of the seed
     g::RunOptions rep = all; rep.replace = true;
     g::run(ds, sub, dnull, nb, rep);
-    const StoredStatistic D1b = read_statistic(sub, "vortex_null.draw1.null_crossings.rest");
+    const StoredStatistic D1b = read_statistic(sub, "surrogate_lagfree_vortex.draw1.null_crossings.rest");
     CHECK(D1b.values == D1.values);
     // a data run still holds its own crossings
     CHECK(measurement_values(sub, sel_of_level, tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = "rest"})->id, std::nullopt, std::nullopt, "crossings").rows == 2);
@@ -646,18 +646,18 @@ int main() {
       nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_level", 8}});
       CrossSpectrumOptions cb; cb.recording = "rest_b"; cb.channels_of = "free"; cb.chunks = "all"; cb.segment_level = 8; cb.bands = {{"alpha", 8.0, 12.0}}; crossspectrum_compute(ds, sub, cb);
       g::run(ds, sub, denv, set_of({{"recording", "rest_b"}, {"cross_spectrum", "rest_b_crossspectrum_alpha"}, {"level", 5}}), all);
-      NullOptions no;
+      SurrogateVortexCompareOptions no;
       no.chunks = "all";                 // the whole recording, stated
       no.recording_a = "rest"; no.recording_b = "rest_b"; no.batch = 3; no.min_draws = 3; no.max_draws = 6; no.h = 10; no.min_crossings = 5; no.replace = true;   // draws 1 and 2 above were made with other parameters
       no.set = set_of({{"space_level", level}, {"transform", "exact"}, {"bursts", "window"}, {"cross_spectrum", "{recording}_crossspectrum_alpha"}});
-      const auto nr = null_compute(ds, sub, no);
+      const auto nr = surrogate_lagfree_vortex_compare(ds, sub, no);
       const std::int64_t nd = nr.info["draws"].get<std::int64_t>();
-      std::printf("  null compute: %lld draws (%s), %lld tiles; consistency: %s; repeat cosine %s p %s\n", static_cast<long long>(nd), nr.info["stopped"].get<std::string>().c_str(), static_cast<long long>(nr.info["tiles"].get<std::int64_t>()),
+      std::printf("  surrogate_lagfree_vortex_compare: %lld draws (%s), %lld tiles; consistency: %s; repeat cosine %s p %s\n", static_cast<long long>(nd), nr.info["stopped"].get<std::string>().c_str(), static_cast<long long>(nr.info["tiles"].get<std::int64_t>()),
                   nr.info["consistency"].dump().c_str(), nr.info["repeat"]["cosine"].dump().c_str(), nr.info["repeat"]["p"].dump().c_str());
       CHECK(nd == 6 && nr.info["stopped"] == "max_draws");                           // the data's tiles are not decided by 3 draws: the second batch runs; the maximum stops it
       // the same, made directly: the draws read back, the senses pooled, the unbiased rho2 per tile
       auto pooled_draw = [&](const std::string& rec, std::int64_t i) {
-        const StoredStatistic D = read_statistic(sub, "vortex_null.draw" + std::to_string(i) + ".null_crossings." + rec);
+        const StoredStatistic D = read_statistic(sub, "surrogate_lagfree_vortex.draw" + std::to_string(i) + ".null_crossings." + rec);
         const std::int64_t Mm = D.shape[1], T2 = Mm - 1;
         Eigen::MatrixXd pl(T2, 3), mi(T2, 3); Eigen::VectorXd np(T2), nmm(T2);
         for (std::int64_t t = 0; t < T2; ++t) { const std::size_t a = static_cast<std::size_t>(t * 4), b = static_cast<std::size_t>((Mm + t) * 4);
@@ -689,30 +689,30 @@ int main() {
         if (std::isfinite(rd.cosine) && std::isfinite(rp.cosine) && rp.cosine >= rd.cosine) cex += 1;
         nsum += da.n.sum(); dsum += pa.n.sum();
       }
-      const StoredStatistic sp = read_statistic(sub, "vortex_cores.null.rest.consistency_p"), rp2 = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.p"), wp = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.whole_p");
+      const StoredStatistic sp = read_statistic(sub, "surrogate_lagfree_vortex_compare.rest.consistency_p"), rp2 = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.p"), wp = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.whole_p");
       bool same = sp.values.size() == static_cast<std::size_t>(3 * ra.size()) && rp2.values.size() == sp.values.size();
       for (Eigen::Index t = 0; same && t < ra.size(); ++t) {
-        const double want = std::isfinite(ra[t]) ? nxr::surrogate::besagCliffordP(static_cast<std::int64_t>(ex[t]), nd, 10) : std::nan(""), wantr = std::isfinite(rd.dot[t]) ? nxr::surrogate::besagCliffordP(static_cast<std::int64_t>(dex[t]), nd, 10) : std::nan("");
+        const double want = std::isfinite(ra[t]) ? nxr::nulltest::sequentialP(static_cast<std::int64_t>(ex[t]), nd, 10) : std::nan(""), wantr = std::isfinite(rd.dot[t]) ? nxr::nulltest::sequentialP(static_cast<std::int64_t>(dex[t]), nd, 10) : std::nan("");
         const double got = sp.values[static_cast<std::size_t>(3 * t)], gotr = rp2.values[static_cast<std::size_t>(3 * t)];
         same = same && ((std::isnan(want) && std::isnan(got)) || std::abs(want - got) < 1e-12) && ((std::isnan(wantr) && std::isnan(gotr)) || std::abs(wantr - gotr) < 1e-12);
         if (std::isfinite(ra[t])) same = same && sp.values[static_cast<std::size_t>(3 * t + 2)] == ex[t];
       }
       std::int64_t tested = 0; for (Eigen::Index t = 0; t < ra.size(); ++t) tested += std::isfinite(ra[t]);
       std::printf("  the stored p and exceedances equal the direct count over the stored draws (%lld tiles tested, repeat tiles %lld): %s; whole p %.3f (direct %.3f)\n", static_cast<long long>(tested), static_cast<long long>(rd.tilesUsed), same ? "yes" : "NO", wp.values[0],
-                  std::isfinite(rd.cosine) ? nxr::surrogate::besagCliffordP(static_cast<std::int64_t>(cex), nd, 10) : std::nan(""));
+                  std::isfinite(rd.cosine) ? nxr::nulltest::sequentialP(static_cast<std::int64_t>(cex), nd, 10) : std::nan(""));
       CHECK(same && tested > 0 && text(sp.row, "measure") == "null_p" && text(sp.row, "method") == "besag_clifford");
-      CHECK(!std::isfinite(rd.cosine) || std::abs(wp.values[0] - nxr::surrogate::besagCliffordP(static_cast<std::int64_t>(cex), nd, 10)) < 1e-12);
-      const StoredStatistic cr = read_statistic(sub, "vortex_cores.null.rest.crossing_ratio"), nrs = read_statistic(sub, "vortex_cores.null.rest.resultant");
+      CHECK(!std::isfinite(rd.cosine) || std::abs(wp.values[0] - nxr::nulltest::sequentialP(static_cast<std::int64_t>(cex), nd, 10)) < 1e-12);
+      const StoredStatistic cr = read_statistic(sub, "surrogate_lagfree_vortex_compare.rest.crossing_ratio"), nrs = read_statistic(sub, "surrogate_lagfree_vortex_compare.rest.resultant");
       std::printf("  data-to-null crossings %.2f (data %.0f, null mean %.1f); the null's mean resultant stored [%lld x %lld]\n", dsum / nsum * static_cast<double>(nd) / static_cast<double>(nd), dsum / static_cast<double>(nd), nsum / static_cast<double>(nd), static_cast<long long>(nrs.shape[0]), static_cast<long long>(nrs.shape[1]));
       CHECK(cr.values.size() == static_cast<std::size_t>(ra.size()) && nrs.shape.size() == 2 && nrs.shape[1] == 4);
       // a rerun is a hit (no draw is made again); one with every tile out of reach stops at min_draws ("decided": no tile to test)
-      { NullOptions again = no; again.replace = false; CHECK(null_compute(ds, sub, again).hit); }
-      { NullOptions n2 = no; n2.recording_b.reset(); n2.min_crossings = 100000; n2.replace = true; n2.min_draws = 3; n2.max_draws = 12;
-        const auto r2 = null_compute(ds, sub, n2);
+      { SurrogateVortexCompareOptions again = no; again.replace = false; CHECK(surrogate_lagfree_vortex_compare(ds, sub, again).hit); }
+      { SurrogateVortexCompareOptions n2 = no; n2.recording_b.reset(); n2.min_crossings = 100000; n2.replace = true; n2.min_draws = 3; n2.max_draws = 12;
+        const auto r2 = surrogate_lagfree_vortex_compare(ds, sub, n2);
         std::printf("  with no tile to test the draws stop at the minimum: %lld (%s)\n", static_cast<long long>(r2.info["draws"].get<std::int64_t>()), r2.info["stopped"].get<std::string>().c_str());
         CHECK(r2.info["draws"] == 3 && r2.info["stopped"] == "decided"); }
-      CHECK(what_of([&] { NullOptions n3 = no; n3.recording_b = "rest"; null_compute(ds, sub, n3); }).find("same recording") != std::string::npos);
-      CHECK(what_of([&] { NullOptions n3 = no; n3.stage_name = "offset"; n3.replace = true; null_compute(ds, sub, n3); }).find("no stage 'offset'") != std::string::npos);
+      CHECK(what_of([&] { SurrogateVortexCompareOptions n3 = no; n3.recording_b = "rest"; surrogate_lagfree_vortex_compare(ds, sub, n3); }).find("same recording") != std::string::npos);
+      CHECK(what_of([&] { SurrogateVortexCompareOptions n3 = no; n3.stage_name = "offset"; n3.replace = true; surrogate_lagfree_vortex_compare(ds, sub, n3); }).find("no stage 'offset'") != std::string::npos);
     }
     // refusals: a seed that is not a whole number; a power series of another recording's name that does not exist
     { Json bad = nb; bad["seed"] = -1; CHECK(what_of([&] { g::run(ds, sub, dnull, bad, all); }).find("seed") != std::string::npos); }

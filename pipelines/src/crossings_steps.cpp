@@ -40,6 +40,7 @@ struct CrossState {
   double fps = 0, origin = 0;
   Json record;
   bool as_statistic = false;
+  std::string level_selection_id, level_selection;   // the Selection the crossings are over (the level's tiles): a surrogate draw's statistic records it, so the comparison takes the data's and the draws' over the same one
   int level = 0;
 };
 const char* const kStageNames[] = {"burst", "onset", "within", "offset"};
@@ -115,6 +116,8 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     const SurfaceLevel SL = c.bound.surface_level(S, level);
     st.tiles = static_cast<int>(SL.nodes);
     st.as_statistic = p["as"] == "statistic"; st.level = level;
+    for (const auto& m : c.bound.level_members(nxr::io::text(*t.row, "id")))
+      if (nxr::io::integer(m, "member_ordinal") == static_cast<std::int64_t>(level)) { st.level_selection_id = nxr::io::text(m, "id"); st.level_selection = nxr::io::text(m, "name"); break; }
     // the frames: the canonical ones when stored, else the signpost basis (said); the transport of each tile centre's frame to every vertex of its tile
     nxr::chart::ChartKit kit(S.vertices.data(), nV, S.faces.data(), nF);
     const StoredFrames sf = c.bound.stored_frames(S.name, nV);
@@ -233,9 +236,9 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
       out.meta["generic_statistic"] = Json{{"measure", "crossing_sum"}, {"method", "lagfree_null"}, {"shape", Json::array({R, T, C})},
                                            {"axes", Json::array({Json{{"name", "stage_sense"}, {"values", rows}, {"size", R}}, Json{{"name", "tile"}, {"values", names}, {"size", T}}, Json{{"name", "component"}, {"size", C}}})},
                                            {"components", Json::array({Json{{"name", "crossing_sum_x"}}, Json{{"name", "crossing_sum_y"}}, Json{{"name", "crossing_sum_z"}}, Json{{"name", "crossings"}}})},
-                                           {"n_members", n},
-                                           {"description", "the crossings of the tracks of a lag-free null draw through the tiles of level " + std::to_string(st.level) + ": per stage and sense, per tile then the bridge, the vector sum (x y z) and the count"},
-                                           {"options", Json{{"level", st.level}, {"tiles", st.tiles}, {"stages_used", used}, {"crossings", st.record}}}};
+                                           {"n_members", n}, {"partition_selection_id", st.level_selection_id},
+                                           {"description", "the crossings of the tracks of a lag-free surrogate draw through the tiles of level " + std::to_string(st.level) + ": per stage and sense, per tile then the bridge, the vector sum (x y z) and the count"},
+                                           {"options", Json{{"level", st.level}, {"tiles", st.tiles}, {"over", Json{{"selection_id", st.level_selection_id}, {"selection", st.level_selection}}}, {"stages_used", used}, {"crossings", st.record}}}};
     }
     return Arrays{{"crossings", std::move(out)}};
   };

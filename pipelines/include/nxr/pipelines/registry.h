@@ -64,6 +64,9 @@ struct ExecContext {
   std::function<void(const nxr::io::Json&)> say;                          // the run's progress: what preparation did or fell back on, said, never silent
   /** constants bound ONCE for the whole run and shared by the steps that ask for the same key (the Studio's "uploaded once"): a bound map several steps use is built by the first one's preparation */
   std::map<std::string, std::any> shared;
+  /** the arrays an EARLIER NODE of the run made that this step reads (by its port: a `before` step's operator, e.g. a pre-operator composed into a kernel), never a found input (those are read through
+   *  `bound`). Null when there are none. */
+  const nxr::graph::Arrays* made = nullptr;
 };
 struct StepSpec {
   std::string name, kind;                      // kind: setup · chunk · accumulate · after, or `array` (a native node that runs once on arrays: in `before` or in `after`)
@@ -100,7 +103,10 @@ struct StepSpec {
   /** the node's declared time behaviour and precision (see NodeTraits); set where the node is registered */
   NodeTraits traits;
   bool reads_arrays = false;                   // a node that takes found inputs as arrays (a fiber bundle as its points, a surface as its vertices and faces, a partition as its member numbers): the runner reads them for it
-  bool native = false;                         // a node of `nxr::graph::registry()` (grouped names, pure functions of compute/): this entry only describes it to the definition reader; the executor runs the node itself
+  bool native = false;
+  /** true for a chunk step that reads only the SHAPE of its streamed input (its rows, rate, span and good samples), never a sample: the one kind of step that may take a recording declared
+   *  `read: shape` in a definition (spec docs/specs/2026-11-17-surrogates.md, section 6). Any other step handed such a value is refused at plan. */
+  bool reads_shape_only = false;                         // a node of `nxr::graph::registry()` (grouped names, pure functions of compute/): this entry only describes it to the definition reader; the executor runs the node itself
   /** true when the node computes in double on float32 input: the maintainers' rule (stored precision follows the input) makes such a node flagged. Blocks inside the loop are float32; arrays outside are double. */
   bool computes_double_on_float_input() const { return traits.computes_in == Precision::float64 && (kind == "chunk" || kind == "accumulate"); }
 };

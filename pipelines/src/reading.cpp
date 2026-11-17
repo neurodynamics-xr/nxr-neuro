@@ -37,6 +37,12 @@ nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& 
   return source_with(sub, nxr::io::text(field, "path"), nxr::io::chunk_width(field), sfreq, t0, std::move(rows), bad, p ? link_of(nxr::io::Json::parse(*p, nullptr, false)) : nullptr);
 }
 
+nxr::io::ChunkSource shape_source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& field, double sfreq, double t0, const std::optional<std::vector<std::pair<double, double>>>& bad) {
+  const auto p = nxr::io::opt_text(field, "producer_json");
+  return nxr::io::ChunkSource(sub.store(), nxr::io::text(field, "path"), nxr::io::chunk_width(field), sfreq, t0, {}, bad, p ? link_of(nxr::io::Json::parse(*p, nullptr, false)) : nullptr,
+                              nxr::io::ChunkSource::Reading::shape);
+}
+
 nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const task::Node& field, double sfreq, double t0, std::vector<std::int32_t> rows,
                                const std::optional<std::vector<std::pair<double, double>>>& bad) {
   return source_with(sub, field.path.value_or(std::string()), nxr::io::chunk_width(field.fact("chunk_shape_json")), sfreq, t0, std::move(rows), bad, link_of(field.producer));

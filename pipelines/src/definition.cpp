@@ -26,7 +26,7 @@ const Shipped kShipped[] = {
 
 const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
 const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "statistic", "manifold"};
-const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
+const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
                                            // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
                                            "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors",
@@ -294,6 +294,9 @@ Definition parse(const Json& written, const std::string& source, const std::stri
           err(w, std::string(rel) + ": '" + r + "': relations start from an input declared BEFORE this one (" + (defined.empty() ? std::string("none") : join(defined)) + ")");
       }
     if (spec.contains("where")) params_used(spec["where"], w, params);
+    // `read: shape` (spec docs/specs/2026-11-17-surrogates.md, section 6): a streamed recording whose SHAPE only the run reads (its channels, rate, span, chunk grid), never a sample
+    if (spec.contains("read") && !(spec["read"] == "samples" || (spec["read"] == "shape" && spec.contains("field"))))
+      err(w, "read: samples (the default) or shape (a recording's shape only: no sample is read; a field only)");
     defined.push_back(k);
   }
   std::vector<std::string> anchors;

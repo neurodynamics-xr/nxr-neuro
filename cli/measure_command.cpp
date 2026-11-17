@@ -1,11 +1,11 @@
-// nxr-neuro wishart compute --dataset D/N --subject S --recording R --windows NAME --bursts NAME --psd NAME --band LO,HI [--shape morlet|meyer] [--draws 1000] [--seed 1] [--replace]
-//   THE WISHART NULL (nxr/pipelines/wishart_null.h): each burst's second moment (the stored analytic cross-spectrum windows summed over its tiles) against complex Wishart draws of its own zero-lag covariance (no lag; dof = duration x the band's effective bandwidth): the burst's sensor-level lagged share, its p and BH q, and the run's, as statistics.
+// nxr-neuro run surrogate_lagfree_pairs --dataset D/N --subject S --recording R --windows NAME --bursts NAME --psd NAME --band LO,HI [--shape morlet|meyer] [--draws 1000] [--seed 1] [--replace]   (a definition)
+//   THE LAG-FREE PAIRS SURROGATE (definition surrogate_lagfree_pairs, node surrogate.lagfree_pairs; spec docs/specs/2026-11-17-surrogates.md): each burst's second moment against lag-free Wishart draws of its own zero-lag second moment.
 // nxr-neuro pointspread compute --dataset D/N --subject S --recording R [--forward NAME] [--kernel NAME] [--levels 2,3,..,8] [--reference-level 6] [--vertices 20 | --list V,V,..] [--fraction 0.5] [--spatial-shape mexhat] [--transform auto] [--name NAME] [--replace]
 //   THE INSTRUMENT'S BLUR (nxr/pipelines/pointspread.h): unit currents at a sample of vertices through the stored head model and kernel, read by the spatial events' chain; the patch size per source and orientation, as a statistic of the recording.
-// nxr-neuro spatialnull compute --dataset D/N --subject S --recording R [--events spatial_events] [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--batch 20] [--min-draws 20] [--max-draws 100] [--h 10] [--replace]
-//   THE LAG-FREE NULL OF THE SPATIAL EVENTS (nxr/pipelines/spatial_null.h): the draws of `spatial_events_null` in batches with early stopping, the per-vertex p and BH q of the home occupancy and the size distribution against them, as statistics.
-// nxr-neuro null compute --dataset D/N --subject S --recording-a A [--recording-b B] [--over TILES] [--stage NAME|INDEX] [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--batch 20] [--min-draws 20] [--max-draws 100] [--h 10] [--min-crossings 10] [--replace]
-//   THE LAG-FREE NULL'S TESTS (nxr/pipelines/null_compute.h; spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10): the draws of `vortex_null` (the vortex chain on a lag-free surrogate; each a cached node, `--set` its parameters, `{recording}` the recording's name) in batches
+// nxr-neuro run surrogate_lagfree_spatial_events_compare --dataset D/N --subject S --recording R [--events spatial_events] [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--batch 20] [--min-draws 20] [--max-draws 100] [--h 10] [--replace]
+//   THE LAG-FREE SURROGATE OF THE SPATIAL EVENTS (nxr/pipelines/surrogate_compare.h): the draws of `surrogate_lagfree_spatial_events` in batches with early stopping, the per-vertex p and BH q of the home occupancy and the size distribution against them, as statistics.
+// nxr-neuro run surrogate_lagfree_vortex_compare --dataset D/N --subject S --recording-a A [--recording-b B] [--over TILES] [--stage NAME|INDEX] [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--batch 20] [--min-draws 20] [--max-draws 100] [--h 10] [--min-crossings 10] [--replace]
+//   THE LAG-FREE SURROGATE OF THE VORTEX CHAIN (nxr/pipelines/surrogate_compare.h; spec docs/specs/2026-11-17-surrogates.md): the draws of `surrogate_lagfree_vortex` (the vortex chain on a lag-free surrogate; each a cached run, `--set` its parameters, `{recording}` the recording's name) in batches
 //   with early stopping (Besag-Clifford), and the per-tile p and Benjamini-Hochberg q of the crossing consistency (and, with --recording-b, of the run repeat), the data-to-null crossing ratio and the null's mean resultants, as statistics.
 // nxr-neuro joint compute --dataset D/N --subject S --recording R --space-level L --time-level M [--surface NAME] [--replace]
 //   THE JOINT PARTITION of space x time (nxr/pipelines/joint.h; spec docs/specs/2026-11-13-cortical-events.md, phase 2a): a closed-form `set` Selection on (surface x the recording's time line), the cells
@@ -33,8 +33,7 @@
 #include "cli.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
-#include "nxr/pipelines/null_compute.h"
-#include "nxr/pipelines/spatial_null.h"
+#include "nxr/pipelines/surrogate_compare.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/measure.h"
 #include "nxr/pipelines/joint.h"
@@ -150,12 +149,14 @@ int pyramid_main(const std::vector<std::string>& argv) {
   throw cli::Usage("nxr-neuro pyramid: error: the following arguments are required: action (reduce); the pyramid is built by `nxr-neuro run pyramid`, its band banks by `run pyramid_bands` and `run spatial_bands`");
 }
 
-int spatialnull_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro spatialnull: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro spatialnull compute";
+
+
+int surrogate_lagfree_spatial_events_compare_main(const std::vector<std::string>& argv) {
+  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro run surrogate_lagfree_spatial_events_compare: error: the following arguments are required: action (compute)");
+  const std::string prog = "nxr-neuro run surrogate_lagfree_spatial_events_compare";
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording", "--events", "--chunks", "--start", "--stop", "--batch", "--min-draws", "--max-draws", "--h"}, {"--replace"}, {"--dataset", "--subject", "--recording"}, 0, {"--set"});
-  nxr::pipelines::SpatialNullOptions o;
+  nxr::pipelines::SurrogateSpatialEventsCompareOptions o;
   o.recording = a.get("--recording");
   if (const auto v = a.maybe("--events")) o.events = *v;
   if (a.multi.count("--set"))
@@ -175,7 +176,7 @@ int spatialnull_main(const std::vector<std::string>& argv) {
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::spatial_null_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
+    const auto r = nxr::pipelines::surrogate_lagfree_spatial_events_compare(ds, sub, o, [](const Json& j) { cli::emit(j); });
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     cli::emit(out);
@@ -185,12 +186,12 @@ int spatialnull_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-int null_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro null: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro null compute";
+int surrogate_lagfree_vortex_compare_main(const std::vector<std::string>& argv) {
+  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro run surrogate_lagfree_vortex_compare: error: the following arguments are required: action (compute)");
+  const std::string prog = "nxr-neuro run surrogate_lagfree_vortex_compare";
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording-a", "--recording-b", "--over", "--stage", "--chunks", "--start", "--stop", "--batch", "--min-draws", "--max-draws", "--h", "--min-crossings"}, {"--replace"}, {"--dataset", "--subject", "--recording-a"}, 0, {"--set"});
-  nxr::pipelines::NullOptions o;
+  nxr::pipelines::SurrogateVortexCompareOptions o;
   o.recording_a = a.get("--recording-a");
   o.recording_b = a.maybe("--recording-b");
   o.over = a.maybe("--over");
@@ -215,7 +216,7 @@ int null_main(const std::vector<std::string>& argv) {
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::null_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
+    const auto r = nxr::pipelines::surrogate_lagfree_vortex_compare(ds, sub, o, [](const Json& j) { cli::emit(j); });
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     cli::emit(out);
