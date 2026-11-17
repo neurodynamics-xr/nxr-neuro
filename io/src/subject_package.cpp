@@ -1,6 +1,7 @@
 #include "nxr/io/subject_package.h"
 
 #include <algorithm>
+#include <cctype>
 #include <functional>
 #include <map>
 #include <set>
@@ -332,31 +333,139 @@ void write_package_record(Database& db, const PackageRecord& record) {
 
 void create_package_tables(Database& db) { db.exec_script(kPackageTables); }
 
-std::string package_content_hash(const Database& db) {
-  Sha256 h;
-  for (const auto& r : db.all("SELECT key, size_bytes, sha256 FROM key_digest ORDER BY key"))
-    h.update(text(r, "key") + " " + text(r, "size_bytes") + " " + text(r, "sha256") + "\n");
-  h.update(std::string("rows\n"));
-  for (const auto& table : content_tables(db)) {
-    const auto info = db.all("SELECT name, pk FROM pragma_table_info(?) ORDER BY cid", {table});
-    std::vector<std::string> cols, pk;
-    std::vector<std::pair<std::int64_t, std::string>> pks;
-    std::string list;
-    for (const auto& c : info) {
-      cols.push_back(text(c, "name"));
-      list += (list.empty() ? "" : ", ") + std::string("\"") + text(c, "name") + "\"";
-      if (integer(c, "pk") > 0) pks.push_back({integer(c, "pk"), text(c, "name")});
+namespace {
+// THE CONTENT HASH covers content only. A row is hashed by what it says and by what it points at, never by its id and never by when or by whom it was written:
+//   - its own `id` is left out; a reference to another row (a declared foreign key, or a UUID inside a text or a `_json` value) is replaced by THAT ROW'S digest, so two
+//     builds of the same content, whose rows got other ids, give the same digests;
+//   - columns that record the time of writing (`*_utc`), the program that wrote (`created_by`, `modified_by`) and the keys of such times inside a `_json` value are left out;
+//   - the build's own bookkeeping is not content: `job` (the log of jobs), `datastore` (where the package was made: a folder), and the tables the content hash never covered;
+//   - the digests are sorted, so the order rows were written in does not matter.
+// A package is hashed, then, by its keys' digests and the set of its rows' digests: the same content is the same hash, any changed value is another.
+bool is_uuid_at(const std::string& t, std::size_t i) {
+  if (i + 36 > t.size()) return false;
+  for (std::size_t k = 0; k < 36; ++k) {
+    const char c = t[i + k];
+    if (k == 8 || k == 13 || k == 18 || k == 23) { if (c != '-') return false; }
+    else if (!std::isxdigit(static_cast<unsigned char>(c))) return false;
+  }
+  return true;
+}
+bool left_out_column(const std::string& c) {
+  return (c.size() > 4 && c.compare(c.size() - 4, 4, "_utc") == 0) || c == "created_by" || c == "modified_by" || c == "built_by";
+}
+
+// The rows reference each other in cycles (a field, its operator, a selection), so a digest cannot be made by following references once. Each row is first written as text in
+// which every reference is a marker; the digests are then refined round by round, each marker replaced by the digest the row it names had in the round before (round 0: by
+// the table it names), until no two rows are told apart that were not before. The result does not depend on any order, nor on any id.
+struct RowDigests {
+  struct Table { std::vector<std::string> cols; std::set<std::string> fk; std::vector<Row> rows; bool has_id = false; };
+  std::map<std::string, Table> tables;
+  std::map<std::string, std::size_t> index_of;               // a row id -> its slot
+  std::vector<std::string> table_of, text_of, id_of;          // per slot
+
+  static std::string marker(const std::string& id) { return "@@ref{" + id + "}@@"; }
+  static std::string with_markers(const std::string& t) {
+    std::string out;
+    for (std::size_t i = 0; i < t.size();) {
+      if (is_uuid_at(t, i)) { out += marker(t.substr(i, 36)); i += 36; } else out += t[i++];
     }
-    std::sort(pks.begin(), pks.end());
-    std::string order;
-    for (const auto& [i, n] : pks) order += (order.empty() ? "" : ", ") + std::string("\"") + n + "\"";
-    const std::string sql = "SELECT " + list + " FROM \"" + table + "\" ORDER BY " + (order.empty() ? "rowid" : order);
-    for (const auto& r : db.all(sql)) {
-      Json a = Json::array();
-      for (const auto& c : cols) a.push_back(value_json(r.at(c)));
-      h.update(table + "\t" + jdump(a) + "\n");
+    return out;
+  }
+  static Json normalise(const Json& j) {
+    if (j.is_string()) return with_markers(j.get<std::string>());
+    if (j.is_array()) { Json a = Json::array(); for (const auto& x : j) a.push_back(normalise(x)); return a; }
+    if (j.is_object()) {
+      Json o = Json::object();
+      for (auto it = j.begin(); it != j.end(); ++it) if (!left_out_column(it.key())) o[it.key()] = normalise(it.value());
+      return o;
+    }
+    return j;
+  }
+  void build() {
+    for (const auto& [name, t] : tables)
+      if (t.has_id) for (std::size_t i = 0; i < t.rows.size(); ++i) { index_of[text(t.rows[i], "id")] = table_of.size(); table_of.push_back(name); id_of.push_back(text(t.rows[i], "id")); text_of.emplace_back(); }
+    std::size_t slot_no_id = table_of.size();
+    (void)slot_no_id;
+    for (const auto& [name, t] : tables) {
+      for (std::size_t i = 0; i < t.rows.size(); ++i) {
+        const Row& r = t.rows[i];
+        Json a = Json::array();
+        for (const auto& c : t.cols) {
+          if (left_out_column(c) || (c == "id" && t.has_id)) continue;
+          const Value& v = r.at(c);
+          if (std::holds_alternative<std::string>(v)) {
+            const std::string& x = std::get<std::string>(v);
+            if (t.fk.count(c)) { a.push_back(Json::array({c, marker(x)})); continue; }
+            if (c.size() > 5 && c.compare(c.size() - 5, 5, "_json") == 0) {
+              const Json p = Json::parse(x, nullptr, false);
+              if (!p.is_discarded()) { a.push_back(Json::array({c, normalise(p)})); continue; }
+            }
+            a.push_back(Json::array({c, with_markers(x)}));
+          } else {
+            a.push_back(Json::array({c, value_json(v)}));
+          }
+        }
+        const std::string line = name + "\t" + jdump(a);
+        if (t.has_id) text_of[index_of.at(text(r, "id"))] = line; else rows_without_id.push_back(line);
+      }
     }
   }
+  std::vector<std::string> rows_without_id;
+  // `text` with each marker replaced by `digest_of(id)`
+  template <class F> static std::string resolve(const std::string& t, F digest_of) {
+    std::string out;
+    for (std::size_t i = 0; i < t.size();) {
+      if (t.compare(i, 6, "@@ref{") == 0 && i + 6 + 36 + 3 <= t.size() && t.compare(i + 6 + 36, 3, "}@@") == 0) { out += digest_of(t.substr(i + 6, 36)); i += 6 + 36 + 3; }
+      else out += t[i++];
+    }
+    return out;
+  }
+  std::vector<std::string> digests() {
+    build();
+    const std::size_t n = table_of.size();
+    std::vector<std::string> cur(n), prev;
+    auto sha = [](const std::string& s) { Sha256 h; h.update(s); return h.hex(); };
+    for (std::size_t i = 0; i < n; ++i) cur[i] = sha(resolve(text_of[i], [&](const std::string& id) { const auto it = index_of.find(id); return it == index_of.end() ? std::string("unknown") : "table:" + table_of[it->second]; }));
+    std::size_t distinct = std::set<std::string>(cur.begin(), cur.end()).size();
+    for (int round = 0; round < 40; ++round) {
+      prev = cur;
+      for (std::size_t i = 0; i < n; ++i) cur[i] = sha(prev[i] + resolve(text_of[i], [&](const std::string& id) { const auto it = index_of.find(id); return it == index_of.end() ? std::string("unknown") : prev[it->second]; }));
+      const std::size_t now = std::set<std::string>(cur.begin(), cur.end()).size();
+      if (now == distinct) break;
+      distinct = now;
+    }
+    std::vector<std::string> out;
+    for (std::size_t i = 0; i < n; ++i) out.push_back(table_of[i] + "\t" + cur[i]);
+    for (const auto& l : rows_without_id) out.push_back(resolve(l, [&](const std::string& id) { const auto it = index_of.find(id); return it == index_of.end() ? std::string("unknown") : cur[it->second]; }));
+    std::sort(out.begin(), out.end());
+    return out;
+  }
+};
+}  // namespace
+
+std::string package_content_hash(const Database& db) {
+  Sha256 h;
+  // the arrays' bytes: every key but the nodes' own texts (`zarr.json`: written from the rows, with their ids and times, so they say nothing the rows do not)
+  for (const auto& r : db.all("SELECT key, size_bytes, sha256 FROM key_digest ORDER BY key")) {
+    const std::string k = text(r, "key");
+    if (k == "zarr.json" || (k.size() > 10 && k.compare(k.size() - 10, 10, "/zarr.json") == 0)) continue;
+    h.update(k + " " + text(r, "size_bytes") + " " + text(r, "sha256") + "\n");
+  }
+  h.update(std::string("rows\n"));
+  RowDigests rd;
+  for (const auto& table : content_tables(db)) {
+    if (table == "job" || table == "datastore") continue;
+    RowDigests::Table t;
+    for (const auto& c : db.all("SELECT name FROM pragma_table_info(?) ORDER BY cid", {table})) t.cols.push_back(text(c, "name"));
+    for (const auto& f : db.all("SELECT \"from\" AS f FROM pragma_foreign_key_list(?)", {table})) t.fk.insert(text(f, "f"));
+    t.has_id = std::find(t.cols.begin(), t.cols.end(), "id") != t.cols.end() && integer(*db.one("SELECT count(*) AS n FROM pragma_table_info(?) WHERE pk > 0", {table}), "n") == 1 &&
+               integer(*db.one("SELECT pk FROM pragma_table_info(?) WHERE name = 'id'", {table}), "pk") == 1;
+    std::string list;
+    for (const auto& c : t.cols) list += (list.empty() ? "" : ", ") + std::string("\"") + c + "\"";
+    t.rows = db.all("SELECT " + list + " FROM \"" + table + "\"");
+    rd.tables[table] = std::move(t);
+  }
+  for (const auto& l : rd.digests()) h.update(l + "\n");
   return h.hex();
 }
 

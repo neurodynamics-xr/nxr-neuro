@@ -98,9 +98,17 @@ its shards. The node procedure (`pending` → keys → `complete`, recovery by k
 `meta` holds the package's record, one JSON value (`package_json`): the subject's id, name and kind, the schema version and store format, the
 template reference (section 4.3), and the **content hash**:
 
-- **content hash** = SHA-256 over the sorted lines `<key> <size_bytes> <sha256>` of `key_digest`, followed by a canonical dump of the package's rows
-  (every table, rows ordered by primary key, columns in the schema's order, values in the canonical text the drain uses for `zarr.json`). Rows that
-  record time of writing (`modified_utc`, `job` rows) are included: a package rewritten is a different state.
+- **content hash** = SHA-256 over **content only**, so the same content is the same hash however and whenever it was built (amended 2026-11-17: the first
+  definition covered row ids, timestamps and the nodes' own texts, so rebuilding the same template from the same sources gave another hash). It covers:
+  - the sorted lines `<key> <size_bytes> <sha256>` of `key_digest`, for every key that is **array data**: the nodes' `zarr.json` texts are left out (the drain writes
+    them from the rows, with their ids and times, so they say nothing the rows do not);
+  - then the sorted **digests of the rows**. A row's digest is the SHA-256 of its table and its columns' values in the schema's order, **without** its own `id`, without the
+    columns that record the time of writing (`*_utc`) or the program that wrote (`created_by`, `modified_by`), and without such keys inside a `*_json` value; and with every
+    **reference to another row** (a declared foreign key, or a UUID inside a text or a `*_json` value) replaced by the digest of the row it names. References run in cycles
+    (a field, its operator, a selection), so the digests are refined round by round (round 0 names a reference by its table; each later round by the digest the row had in the
+    round before) until no two rows are told apart that were not before; nothing depends on an id or on the order rows were written in. Not rows of the content:
+    `job` (the log of the jobs that wrote it), `datastore` (the folder it was made in) and the package's bookkeeping tables;
+  - a package rewritten with other values, other arrays or other references is another hash; a rebuilt one, with fresh ids and times, is the same.
 - It is recomputed when a writer closes the package (from `key_digest`, so no shard is re-read) and stored with the time it was computed.
 - `subject verify --package PATH` recomputes every key's digest from the bytes and the hash from them, and reports a mismatch by key.
 - A group result, a catalogue entry and a template reference name a package by **id + content hash**, so a later change to the package is seen.
