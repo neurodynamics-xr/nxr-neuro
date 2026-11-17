@@ -63,7 +63,7 @@ jobs:
         run: cmake --build build
       - name: Compiler cache statistics
         run: ccache --show-stats --verbose | head -20
-      - name: Select tests (pull requests: only the libraries the changes touch)
+      - name: "Select tests (pull requests: only the libraries the changes touch)"
         if: github.event_name == 'pull_request'
         run: |
           changed=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }})
