@@ -80,8 +80,12 @@ int measure_query_main(const std::vector<std::string>& argv) {
     q.factor = a.maybe("--factor");
     if (const auto v = a.maybe("--subjects")) q.subjects = split(*v, ',');
     if (const auto v = a.maybe("--where")) { if (*v != "io" && *v != "compute") usage(prog, "--where is io or compute"); q.where = *v; }
-    for (const char* flag : {"--min-value", "--max-value", "--limit", "--order"})
-      if (a.maybe(flag)) usage(prog, std::string(flag) + " is not offered by the measurement query yet (the face reads the whole table at the level asked)");
+    // the value filters, the order and the limit are io's query (SQL): they run where io
+    if (const auto v = a.maybe("--min-value")) q.min_value = std::stod(*v);
+    if (const auto v = a.maybe("--max-value")) q.max_value = std::stod(*v);
+    if (const auto v = a.maybe("--limit")) q.limit = std::stoll(*v);
+    if (const auto v = a.maybe("--order")) q.order = *v;
+    if ((q.min_value || q.max_value || q.limit > 0 || !q.order.empty()) && !a.maybe("--where")) q.where = "io";
     const Json result = nxr::pipelines::face::measurement_query(a.get("--dataset"), a.get("--subject"), q);
     cli::emit(Json{{"stage", "result"}, {"selection", q.selection}, {"measure", q.measure}, {"result", result}});
   } catch (const std::invalid_argument& e) {

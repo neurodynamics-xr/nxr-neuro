@@ -351,6 +351,11 @@ class Subject {
   selection::ElementMembers element_members(const std::string& selection_id) const;
   // the measurement QUERY (measurement_query.h: filters, roll-ups through a grid's hierarchy, to the whole, across subjects; each measure merged by its registry rule, in SQL): the rows, one a member
   Json query_members(const query::Query& q) const;
+  // A GRID's LEVEL DICTIONARY (the Studio's surface-ladder / ConstantQLevelInfo attributes), what a roll-up to a physical size reads: for a ladder (or a level of one, or a time grid) the list
+  // [{level, measurement?, unit?, attributes}] one entry a level, ascending. A dyadic grid: `measurement` the mean tile diameter in mm, its attributes (area_m2, diameter_mm, weyl_band_per_m2, ...) as
+  // the maker wrote them; a constant-Q ladder: the level's window in s with its band; a line's TIME GRID (closed form, nothing stored per level): level k tiles 2^k samples, `measurement` its
+  // seconds. Empty when the selection is of no grid.
+  Json grid_levels(const std::string& selection_id) const;
   // scalar measurement rows written as they are ({selection_id, code, measure, value, weight?}: io's write_measurements), for a caller that holds values already (a writer's subject only)
   std::int64_t write_member_rows(const Json& rows, const std::string& computed_by) const;
   Geometry geometry(const std::string& manifold_id) const;

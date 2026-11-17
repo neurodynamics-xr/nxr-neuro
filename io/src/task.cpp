@@ -126,6 +126,30 @@ selection::ElementMembers Subject::element_members(const std::string& selection_
   return selection::read_element_members(*impl_->db, impl_->writer->store(), selection_id);
 }
 
+Json Subject::grid_levels(const std::string& selection_id) const {
+  Json out = Json::array();
+  auto node = by_id(Cls::selection, selection_id);
+  if (node && node->type != std::optional<std::string>("ladder") && node->member_of_id) node = by_id(Cls::selection, *node->member_of_id);   // a level of a grid: its grid
+  if (!node || node->type != std::optional<std::string>("ladder")) return out;
+  const Json grid = node->params.is_object() && node->params.contains("grid") ? node->params["grid"] : Json::object();
+  if (grid.is_object() && grid.value("kind", std::string()) == "time" && grid.contains("rate") && grid["rate"].is_number() && grid["rate"].get<double>() > 0) {
+    const double rate = grid["rate"].get<double>();
+    std::int64_t samples = grid.contains("samples") && grid["samples"].is_number_integer() ? grid["samples"].get<std::int64_t>() : (std::int64_t(1) << 24);
+    int top = 0;
+    while (top < 40 && (std::int64_t(1) << (top + 1)) <= samples) ++top;
+    for (int k = 0; k <= top; ++k) out.push_back(Json{{"level", k}, {"measurement", static_cast<double>(std::int64_t(1) << k) / rate}, {"unit", "s"}, {"attributes", Json{{"samples", std::int64_t(1) << k}}}});
+    return out;
+  }
+  if (!node->dictionary_id) return out;
+  for (const Row& r : impl_->db->all("SELECT code, measurement, measurement_unit, attributes_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY code", {V(*node->dictionary_id)})) {
+    Json e = Json{{"level", integer(r, "code")}, {"attributes", Json::parse(opt_text(r, "attributes_json").value_or("{}"), nullptr, false)}};
+    if (!is_null(r, "measurement")) { e["measurement"] = std::holds_alternative<double>(r.at("measurement")) ? std::get<double>(r.at("measurement")) : static_cast<double>(std::get<std::int64_t>(r.at("measurement"))); e["unit"] = opt_text(r, "measurement_unit").value_or(""); }
+    if (!e["attributes"].is_object()) e["attributes"] = Json::object();
+    out.push_back(std::move(e));
+  }
+  return out;
+}
+
 Json Subject::query_members(const query::Query& q) const { return query::members(*impl_->db, q, impl_->writer ? &impl_->writer->store() : nullptr); }
 std::int64_t Subject::write_member_rows(const Json& rows, const std::string& computed_by) const {
   if (!impl_->writer) throw Error(code::unsupported, "writing measurement rows needs a writer's subject");

@@ -185,7 +185,7 @@ nxr::measurement::Ingredients ingredients_of(const Json& fine) {
 }
 // The finest stored ingredients of a measure over a selection, in the shape `ingredients_of` reads: each ingredient (count, weight, sum, sum_square, max, min, abs_max) as io's `measurement_values`
 // gives it, [rows x members]; an ingredient the selection does not hold is left out. `grid` carries the selection's own description only: io's level dictionary of a grid (tile diameters, durations,
-// Weyl bands) is not offered by io yet, so a roll-up `to` a physical size refuses (see level_for) until it is.
+// Weyl bands) is io's `Subject::grid_levels`, written by the grid makers; a selection of no grid has none, and a roll-up `to` a physical size then refuses (see level_for).
 Json measurement_ingredients_of(SubjectWriter& sub, const std::string& selection_id, const std::optional<std::string>& field_id, const std::string& measure) {
   Json out = Json{{"rows", 0}, {"members", 0}, {"ingredients", Json::object()}, {"unit", Json()}};
   std::vector<std::string> names{"count", "weight", "sum", "sum_square", "max", "min", "abs_max"};
@@ -201,7 +201,19 @@ Json measurement_ingredients_of(SubjectWriter& sub, const std::string& selection
     } catch (const Error&) {}
   }
   if (out["rows"].get<std::int64_t>() == 0) throw Error(code::no_such_row, "the selection holds none of the ingredients of '" + measure + "' (count, weight, sum, sum_square, max, min, abs_max)");
-  out["grid"] = Json{{"kind", "dyadic"}, {"levels", Json::array()}};
+  // the grid's LEVEL DICTIONARY from io (the makers write it: a dyadic tile's diameter in mm and its Weyl band, a constant-Q level's window in s, a time grid's 2^k samples): what a roll-up `to` a physical size reads
+  Json levels = Json::array();
+  for (const Json& e : task::Subject::of(sub).grid_levels(selection_id)) {
+    Json L = Json{{"level", e["level"]}};
+    const Json& at = e["attributes"];
+    if (e.contains("measurement") && e.value("unit", std::string()) == "mm") L["diameter_mm"] = e["measurement"];
+    else if (at.contains("diameter_mm")) L["diameter_mm"] = at["diameter_mm"];
+    if (e.contains("measurement") && e.value("unit", std::string()) == "s") L["seconds"] = e["measurement"];
+    else if (at.contains("window_s")) L["seconds"] = at["window_s"];
+    if (at.contains("weyl_band_per_m2")) L["weyl_band_per_m2"] = at["weyl_band_per_m2"];
+    levels.push_back(std::move(L));
+  }
+  out["grid"] = Json{{"kind", "dyadic"}, {"levels", levels}};
   return out;
 }
 // the level a stated quantity means on a grid, from the level attributes io returned (consolidation spec 3.3): a tile diameter = the coarsest level whose mean diameter is at most it; a duration = the
@@ -239,6 +251,35 @@ Json measurement_query(const fs::path& dataset, const std::string& subject, cons
   }
   Json jq = Json{{"selectionId", sel->id}, {"measure", q.measure}};
   if (!field_id.empty()) jq["ofFieldId"] = field_id;
+  const bool filtered = q.min_value || q.max_value || q.limit > 0 || !q.order.empty();
+  if (filtered && q.where != "io") throw Error(code::invalid_argument, "measurement query: --min-value, --max-value, --limit and --order are filters of io's query: use --where io");
+  if (q.where == "io" && filtered) {                                        // the value filters, the order and the limit are io's SQL (query::members), the level through the grid's closed-form shift
+    nxr::io::query::Query iq;
+    iq.measure = q.measure;
+    iq.filter.selections = {sel->id};
+    if (!field_id.empty()) iq.filter.of_field = field_id;
+    iq.filter.min_value = q.min_value;
+    iq.filter.max_value = q.max_value;
+    iq.filter.subjects = q.subjects.empty() ? std::vector<std::string>{subject} : q.subjects;
+    iq.order = q.order;
+    iq.limit = q.limit;
+    if (!q.order.empty() && q.order != "asc" && q.order != "desc") throw Error(code::invalid_argument, "measurement query: --order is asc or desc");
+    if (q.to) {
+      Json grid = Json{{"levels", Json::array()}};
+      for (const Json& e : ts.grid_levels(sel->id)) {
+        Json L = Json{{"level", e["level"]}};
+        if (e.contains("measurement") && e.value("unit", std::string()) == "mm") L["diameter_mm"] = e["measurement"];
+        if (e.contains("measurement") && e.value("unit", std::string()) == "s") L["seconds"] = e["measurement"];
+        if (e["attributes"].contains("weyl_band_per_m2")) L["weyl_band_per_m2"] = e["attributes"]["weyl_band_per_m2"];
+        grid["levels"].push_back(L);
+      }
+      const auto [target, snapped] = level_for(*q.to, grid);
+      if (target < 0) iq.roll.whole = true;
+      else iq.roll.shift = std::max(0, static_cast<int>(sel->member_ordinal.value_or(grid["levels"].size() - 1)) - target);   // coarser than the stored level by the difference of the levels
+    }
+    if (!q.subjects.empty() && q.subjects.size() > 1) iq.roll.across_subjects = true;
+    return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "io"}, {"rows", ts.query_members(iq)}};
+  }
   if (q.where == "io") {                                                    // the SQL query: the roll-up and the derived measures in io's query, across subjects when asked
     if (q.to) jq["to"] = *q.to;
     if (q.factor) jq["factor"] = *q.factor;

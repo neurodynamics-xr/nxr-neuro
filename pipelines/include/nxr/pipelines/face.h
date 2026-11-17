@@ -84,6 +84,10 @@ struct MeasurementQuery {
   std::optional<std::string> factor;       // for a product: the factor the roll-up runs along (its name); none: the only grid factor
   std::vector<std::string> subjects;       // across subjects (the same members in each): ingredients summed code for code before the roll-up; empty: the one subject
   std::string where = "compute";           // "io" (the SQL query) or "compute" (in memory)
+  // the FILTERS of io's query (rule 35: filters are SQL, in io's `query::members`): rows whose (rolled-up) value is in [min_value, max_value], the first `limit` of them, ordered by value
+  std::optional<double> min_value, max_value;
+  std::int64_t limit = 0;                  // 0: all
+  std::string order;                       // "asc" | "desc" by value; empty: by member
 };
 /** {measure, selection, level, snapped: {the level's real size in its unit}, rows, members, values: float64 [rows x members] row-major as `StoredArray`-like {shape, data}, weight, unit, where}. Nothing is written. */
 Json measurement_query(const std::filesystem::path& dataset, const std::string& subject, const MeasurementQuery& query);
