@@ -225,9 +225,9 @@ Domain instantiate(const Domain& pattern, const Bindings& b, const std::map<std:
  *  The own columns are [left, width - right). Rows are the value's elements, a vector's components consecutive. */
 struct Block {
   std::int64_t rows = 0, width = 0, left = 0, right = 0;
+  std::vector<float> re, im;
   /** a value made on a made line: the samples of the block it was made from (n). The line's vertices do not tell it (an odd and an even n make the same count of bins). 0 otherwise. */
   std::int64_t line_samples = 0;
-  std::vector<float> re, im;
   std::int64_t own() const { return width - left - right; }
   bool complex() const { return !im.empty(); }
 };
