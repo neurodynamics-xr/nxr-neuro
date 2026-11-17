@@ -2,7 +2,7 @@
 # (spatial level l, time band b) of the product `space_levels` × `bands`, and for EACH pair, after the loop, what `global_bursts` does with one: the trace (the max over the level's spatial tiles of the cells'
 # amplitude, whole brain or per hemisphere), its baseline and the pair's OWN global bursts (`detect_spans`, Rheome's 1.5 / 1.0 SD, 0.1 s joined, 0.4 s kept), the cells' per-tile baseline, and the extent of each
 # burst on the pair's cells (`cell_extent`, a labelling of the joint cells: every connected region is an event). The same steps as `global_bursts`, unchanged, written once a pair by `for:`; the executor is generic.
-# Not here (`global_bursts` has them for one pair): the sample trace and Rheome's rise-and-fall fit (`tile_max`, `collect`, `risefall`), the per-burst and per-event measures (`rollup_events`, `extent_measure`):
+# Not here (`global_bursts` has them for one pair): the sample trace and Rheome's rise-and-fall fit (`tile_max`, `collect`, `risefall`), the per-burst and per-event measures (`measure_events`, `extent_measure`):
 # they are per pair and per burst, not what scale selection reads. `run scaleselection` reads this run's stored cells, baselines and labellings.
 #
 # The JOINT SELECTIONS MUST EXIST, one per pair (`run joint`): a missing one is refused before any data is read, naming EVERY missing pair and its command. Each pair is stored as `cortical_cell_pairs`

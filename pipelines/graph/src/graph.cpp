@@ -198,7 +198,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
     for (const auto& [port, t] : n.in_types) {
       if (it.section == Section::before && t.streamed()) fail("port '" + port + "' takes the streamed value '" + n.in.at(port) + "': a `before` node runs once, on arrays");
       if (it.section == Section::after && t.streamed()) fail("port '" + port + "' takes the block '" + n.in.at(port) + "': an `after` node runs once, on what the blocks reduced");
-      if (it.section != Section::chunks && t.axis == Axis::block) fail("port '" + port + "' takes '" + n.in.at(port) + "', a value made once per block: only a node inside the loop reads it (an accumulate node reduces it)");
+      if (it.section != Section::chunks && t.per_block()) fail("port '" + port + "' takes '" + n.in.at(port) + "', a value made once per block: only a node inside the loop reads it (an accumulate node reduces it)");
     }
 
     // parameters: the node's defaults, then `with` ($name from the graph's parameters)
@@ -270,8 +270,8 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
       if (t == n.planned.out.end()) fail("its plan gives no type for output '" + port + "'");
       PortType ot = t->second;
       ot.nonlinear = ot.nonlinear || any_nonlinear;
-      if (spec.kind == Kind::chunk && !ot.streamed() && ot.axis != Axis::block) fail("output '" + port + "' of a chunk node must be streamed (axis samples or frames) or made once per block (axis block)");
-      if (spec.kind != Kind::chunk && ot.axis == Axis::block) fail("output '" + port + "' of " + std::string(to_string(spec.kind)) + " node is an array; only a chunk node makes a value once per block");
+      if (spec.kind == Kind::chunk && !ot.streamed() && !ot.per_block()) fail("output '" + port + "' of a chunk node must be streamed (axis samples or frames) or made once per block (on a line the node makes)");
+      if (spec.kind != Kind::chunk && ot.per_block()) fail("output '" + port + "' of " + std::string(to_string(spec.kind)) + " node is an array; only a chunk node makes a value once per block");
       if (spec.kind != Kind::chunk && ot.streamed()) fail("output '" + port + "' of " + std::string(to_string(spec.kind)) + " node is an array, not a stream");
       const std::string& name = u.out[i];
       if (c.values.count(name)) fail("`out` names '" + name + "', which already exists");
@@ -291,7 +291,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
   for (const auto& o : g.outputs) {
     if (!c.values.count(o)) refuse("output '" + o + "' is not a value of the graph");
     if (!outs.insert(o).second) refuse("output '" + o + "' is named twice");
-    if (c.values.at(o).axis == Axis::block) refuse("output '" + o + "' is made once per block: an accumulate node reduces it across blocks into an output");
+    if (c.values.at(o).per_block()) refuse("output '" + o + "' is made once per block: an accumulate node reduces it across blocks into an output");
   }
 
   // the loop: the chunks section
@@ -331,8 +331,8 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
   for (std::size_t li = 0; li < c.loop.size(); ++li) {
     const CheckedNode& n = c.nodes[c.loop[li]];
     bool per_block = false;
-    for (const auto& [_, name] : n.in) per_block = per_block || c.values.at(name).axis == Axis::block;
-    for (const auto& [_, name] : n.out) per_block = per_block || c.values.at(name).axis == Axis::block;
+    for (const auto& [_, name] : n.in) per_block = per_block || c.values.at(name).per_block();
+    for (const auto& [_, name] : n.out) per_block = per_block || c.values.at(name).per_block();
     if (per_block) c.tail = std::max(c.tail, li + 1);
   }
 
@@ -340,7 +340,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
   if (c.retime) {
     for (std::size_t li = *c.retime + 1; li < c.loop.size(); ++li)
       for (const auto& [_, name] : c.nodes[c.loop[li]].out)
-        if (c.values.at(name).axis == Axis::block) refuse(c.nodes[c.loop[li]].label + ": makes a value once per block after the retiming node; the nodes after it are pointwise on its frames");
+        if (c.values.at(name).per_block()) refuse(c.nodes[c.loop[li]].label + ": makes a value once per block after the retiming node; the nodes after it are pointwise on its frames");
     if (c.tail > *c.retime + 1) refuse(c.nodes[c.loop[c.tail - 1]].label + ": a node after the retiming node (" + c.nodes[c.loop[*c.retime]].label + ") needs a halo; the nodes after it are pointwise on its frames");
     for (std::size_t li = *c.retime + 1; li < c.loop.size(); ++li)
       for (const auto& [port, name] : c.nodes[c.loop[li]].in)

@@ -433,7 +433,7 @@ outputs:
     // stored spans of ANOTHER RECORDING (rest_b's bursts on a run of rest), and spans OFF the tile edges
     store_spans("other_recording_bursts", "rest_b", bursts, "global_bursts");
     store_spans("offgrid_bursts", "rest", {{1.0, 3.0, 0}}, "global_bursts");
-    const std::string rolls = "      - {step: measure, in: {x: current, over: cells}, with: {measure: phase_current}, out: cell_pc}\n  after:\n    - {step: rollup_events, in: {x: cell_pc, events: bursts}, with: {measure: phase_current}, out: burst_pc}";
+    const std::string rolls = "      - {step: measure, in: {x: current, over: cells}, with: {measure: phase_current}, out: cell_pc}\n  after:\n    - {step: measure_events, in: {x: cell_pc, events: bursts}, with: {measure: phase_current}, out: burst_pc}";
     for (const char* name : {"other_recording_bursts", "offgrid_bursts"}) {
       const std::string out_extra = std::string("  bursts: {selection: spans, where: {name: ") + name + "}}";
       std::string y = head + "rollup_" + name + R"(

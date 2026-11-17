@@ -976,7 +976,7 @@ events, so every reader of `<rec>_events` reads it.
   - **Tiles and events:** the tiles of the level are a dense PARTITION of the time axis; their measurements are the recording's windowed
     features: `amplitude` (mean |z|) and `peak` (`envelope_max`, the largest |z|) per tile, in one chunk loop, sharing one `count` row. The bursts are a
     SPARSE Selection derived from those tile measurements: each is a run of tiles of its band's level, so it is measured FROM its tiles, exactly, with no
-    second pass over the recording (`rollup_events`, `nxr::intervals::rollupEvents`): `burst_amplitude` (the count-weighted mean of the tile means),
+    second pass over the recording (`measure_events`, `nxr::intervals::rollupEvents`): `burst_amplitude` (the count-weighted mean of the tile means),
     `burst_peak` (the max of the tile maxima), `burst_duration` (`duration`: tiles x the tile width, s) and `burst_interval` (`interval_next`: the next burst's
     start on the same row minus this stop, s; NaN for the last; reduction none). Stored array-backed over the run's own bursts Selection, [rows x bursts x 2]
     (the value, the samples counted), the member axis the bursts' order; a burst is on the row of the channel that found it and NaN on the others (the mean
@@ -1178,7 +1178,7 @@ constant-Q level). The cells are the ground the space × time events (phase 2b) 
   smoothed (0.1 s), scaled to its maximum, bounds and start as Rheome's: per burst `t_on`, `t_off` (half-rise and half-fall, s on the recording's clock), `tau_rise`, `tau_fall`, `fit_baseline`, `fit_height`, `fit_r2`, `plateau_duration` (new measures 1014 … 1021,
   reduction none), stored over the bursts as the roll-up measures are, with their statistics across the bursts. `min_r2` (labelalpha's is 0.7) sets the fit of a burst below it NaN; the default keeps every fit and stores its r². The `posterior` model is not
   built and is refused by name. The optimizer is a bounded Levenberg–Marquardt where Rheome's is `lsqcurvefit`: the same minimum where the fit is well posed, tested against Rheome's own outputs (golden, MATLAB): timings to 1e-5 s.
-- **Per burst also**: the trace's amplitude (count-weighted mean of the tile means) and peak (max of the tile maxima), duration and interval (`rollup_events`, reused), each with `count, sum, median, mean, sd, percentile:25/75/90` across the bursts.
+- **Per burst also**: the trace's amplitude (count-weighted mean of the tile means) and peak (max of the tile maxima), duration and interval (`measure_events`, reused), each with `count, sum, median, mean, sd, percentile:25/75/90` across the bursts.
 - **Tested** (`test_risefall`, `test_global_bursts`, synthetic): the fit equals Rheome's on four episodes (two models) and the planted parameters are recovered; two planted episodes (one tile's own pattern in each hemisphere, 12 Hz under a double sigmoid) found as two global
   bursts, the refined onset and offset within 0.01 s of the planted ones (the tile edges are 0.8 s away), one burst on each hemisphere's row with `per_hemisphere`, `min_r2`, a rerun a hit, the refusals.
 - **The bursts' options.** The defaults are unchanged (seconds; every fit kept; the unfiltered bursts); the options are named, and the three
@@ -1539,7 +1539,7 @@ The same rule as in time and on a static map (hysteresis on a graph, `detectRegi
 **Why.** The method used in earlier population work to find the common spatiotemporal pattern of alpha bursts was the PHASE CURRENT of the band field at a spatial level, summed per spatial tile over each burst; its ratio to the tile's power is
 the power-weighted phase gradient, whose negative is the direction the phase travels. Amplitude did not propagate. The node (`phase_current`, Σ_c Im(z̄_c ∇z_c)) existed; this measures it over the joint cells and rolls it up over stored bursts.
 - **The chain** (`pipelines/definitions/cell_phase_current.yaml`): `analytic` (the band) → `apply_kernel` with `tiles`/`level` (the level's Weyl band folded in; eigenmode first, as `cortical_cells`) → the pointwise nodes `phase_current` (three numbers a
-  vertex: x y z of the surface) and `power` (Σ_c |z_c|²) → `measure` over the JOINT cells of each: the area-weighted mean per cell. After the loop, `rollup_events` over a STORED spans Selection (`bursts`: the pipeline named by `bursts_pipeline`, default
+  vertex: x y z of the surface) and `power` (Σ_c |z_c|²) → `measure` over the JOINT cells of each: the area-weighted mean per cell. After the loop, `measure_events` over a STORED spans Selection (`bursts`: the pipeline named by `bursts_pipeline`, default
   `global_bursts`, of this recording on its time line) gives the count-weighted mean of the cells over each burst's time tiles; a global burst (no channel) holds on every spatial tile. The reductions are measurements over partitions; no node reduces.
 - **No orientation assumption.** The components are smooth band-limited fields, so Σ_c Im(z̄_c ∇z_c) needs no normal and no sign convention; a sign flipped on a whole component, or on all three, leaves the cells unchanged (a flip on part of the
   vertices makes a discontinuity, and the gradient there changes: it is not claimed).

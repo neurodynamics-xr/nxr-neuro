@@ -208,16 +208,16 @@ void test_summarize_detect() {
   CHECK(refused([&] { use("summarize", {{"x", env}}, Json::object(), false); }, {"port `x`", "is a field; a measurement is wanted", "measure the field over a partition first"}));
   // detect: events on a measurement over a time partition's members, a selection on the time line with an identity and what it was detected over
   const auto sp = use("detect_spans", {{"x", amp}, {"baseline", st}}, Json::object(), false, {"bursts"}).at("spans");
-  CHECK(g::print(sp) == "selection<spans on time(rest); partition; detected over ladder@8-16; as bursts; band 8-16 Hz>");
+  CHECK(g::print(sp) == "selection<spans on time(rest); detected over ladder@8-16; as bursts; band 8-16 Hz>");
   CHECK(refused([&] { use("detect_spans", {{"x", env}}, Json::object(), false); }, {"is a field; a measurement is wanted", "it over the constant-Q level first"}));
   g::PortType other = st; other.of->quantity = "power";
   CHECK(refused([&] { use("detect_spans", {{"x", amp}, {"baseline", other}}, Json::object(), false); }, {"port `baseline`", "is not a statistic of x"}));
-  // a roll-up over events detected on another partition's members is refused
+  // a measurement of events detected on another grid's members is refused (events themselves may overlap: no disjointness is asked)
   g::PortType amp2 = amp;
   amp2.domain.factors.back() = g::members("ladder@14-30", time, g::Role::time_tiles);
   amp2.quantity = "amplitude";
-  CHECK(refused([&] { use("rollup_events", {{"x", amp2}, {"events", sp}}, Json{{"measure", "amplitude"}}, false); }, {"port `events`", "were detected on the members of `ladder@8-16`", "`ladder@14-30`"}));
-  const auto roll = use("rollup_events", {{"x", amp}, {"events", sp}}, Json{{"measure", "amplitude"}}, false).at("y");
+  CHECK(refused([&] { use("measure_events", {{"x", amp2}, {"events", sp}}, Json{{"measure", "amplitude"}}, false); }, {"port `events`", "were detected on the members of `ladder@8-16`", "`ladder@14-30`"}));
+  const auto roll = use("measure_events", {{"x", amp}, {"events", sp}}, Json{{"measure", "amplitude"}}, false).at("y");
   CHECK(g::print(roll.domain) == "sensors(rest) × members(bursts)");
 }
 

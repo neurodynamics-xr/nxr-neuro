@@ -157,7 +157,11 @@ void measure_rule(Unified& u, const Signature& sg) {
     const PortType& P = u.in.at(over_port);
     const SelectionShape sel = P.sel.value_or(SelectionShape{});
     const std::string id = identity_of(u, over_port);
-    // any selection on factors of x will do (PI, 2026-11-17): one region or time range is a selection of one member. Disjoint members matter only to `within` and to roll-ups across members.
+    // any selection on factors of x will do: one region or time range is a selection of one member. Two kinds are measured, and the factors a selection covers are the ones the
+    // measurement loses:
+    //   a GRID (sel.partition: a ladder, a tiling, tiles, a joint or product grid) covers the factors it is defined on, in order (a product grid of space x time covers two), at the levels the field
+    //     is limited to (coupled levels: the level IS the band); only a grid has a closed-form hierarchy to roll up through;
+    //   an IRREGULAR selection (detected events, scouts, an atlas: sel.partition false) is measured member by member: its members may overlap and have no levels, so nothing rolls up.
     const auto& pf = P.domain.factors;
     if (sel.type == "ladder") {
       // a time ladder: the level whose band is x's band (the level IS the band)
@@ -376,6 +380,7 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
   switch (sg.move) {
     case Move::measure: measure_rule(u, sg); break;
     case Move::summarize: {
+      // across a grid's members a statistic is a roll-up through the grid's closed-form hierarchy; across an irregular selection's members it is a `summary` statistic of their measurements
       const auto x = use.in.find("x");
       if (x != use.in.end() && x->second.cls == PortClass::field && sg.reduces.empty())
         u.fail("x", "a field is measured before it is summarized (the cardinal rule: a reduction is a measurement over a partition): measure it over a partition, then summarize the members.");

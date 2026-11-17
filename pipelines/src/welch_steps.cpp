@@ -958,11 +958,14 @@ ng::NodeSpec fft_spectrum() {
     if (x.value != ng::ValueType::real) ng::refuse("fft.spectrum: x is real");
     ng::Planned out;
     ng::PortType s;
-    s.cls = ng::PortClass::field; s.value = ng::ValueType::complex; s.axis = ng::Axis::block;
+    s.cls = ng::PortClass::field; s.value = ng::ValueType::complex; s.axis = ng::Axis::none;
     s.rows = x.rows; s.unit = x.unit; s.sfreq = x.sfreq;
-    // a change of basis is an operator the node defines, and the value it makes lies on the line that operator makes (spec type-system, section 5, apply):
-    // here the one-sided frequency line of the block (bin k at k x sfreq / n Hz, n = the block's samples). Until the signature carries a made line, the line is named in the type's facts.
-    s.facts["line"] = Json{{"kind", "frequency"}, {"made_by", "fft.spectrum"}, {"unit", "Hz"}, {"origin", 0.0}, {"spacing", "sfreq / block samples"}, {"sfreq", x.sfreq ? Json(*x.sfreq) : Json()}};
+    // a change of basis is an operator the node defines, and the value it makes lies on the product of the channels and the line that operator makes (spec type-system,
+    // 3.1 and 5 apply; the Studio's product manifold, D37): the one-sided frequency line of the block, bin k at k x sfreq / n Hz (origin 0, n = the block's samples,
+    // carried on the block). Its key is "<use>.<output>"; the plan does not know the use, so the node's name and its output stand for it until the checker keys it.
+    const ng::ManifoldRef channels = x.domain.factors.size() > 1 ? x.domain.factors.front() : ng::manifold_id("channels", "recording");
+    s.domain.factors = {channels, ng::made_line("frequency", "fft.spectrum.spectrum", ng::Role::frequency, "Hz", 0.0, x.sfreq)};
+    s.domain.cells = "0,1";
     out.out["spectrum"] = s;
     return out;
   };
@@ -972,6 +975,7 @@ ng::NodeSpec fft_spectrum() {
     const Eigen::MatrixXcd X = nxr::fft::rfftColumns(x.transpose()).transpose();   // channels x bins
     ng::Block o;
     o.rows = X.rows(); o.width = X.cols(); o.left = 0; o.right = 0;
+    o.line_samples = x.cols();                                                // the block's samples: the frequency line's spacing is rate / n, whether n is odd or even
     o.re.resize(static_cast<std::size_t>(o.rows * o.width)); o.im.resize(o.re.size());
     for (Eigen::Index i = 0; i < X.rows(); ++i)
       for (Eigen::Index k = 0; k < X.cols(); ++k) { o.re[static_cast<std::size_t>(i * X.cols() + k)] = static_cast<float>(X(i, k).real()); o.im[static_cast<std::size_t>(i * X.cols() + k)] = static_cast<float>(X(i, k).imag()); }
@@ -987,7 +991,7 @@ struct BandAmpPrepared {
   std::string unit;
 };
 struct BandAmpState {
-  std::int64_t bins = -1, channels = 0, chunks = 0;
+  std::int64_t bins = -1, channels = 0, chunks = 0, line_samples = 0;   // line_samples: the block's samples the frequency line was made from
   std::vector<double> amplitude;                      // chunk-major: chunk x channel x band
   std::vector<nxr::BinRange> ranges;
   nxr::selection::Selection bands;
@@ -1008,8 +1012,8 @@ ng::NodeSpec measure_band_amplitude() {
   n.description = "the amplitude of every channel in named frequency bands: the bands are a set of spans in Hz (nxr::selection::set_of_spans), each resolved to the spectrum's bins [first, last) "
                   "(first = ceil(lo / spacing), last = ceil(hi / spacing)), the amplitude the mean |X| over them; rows are chunk x channel";
   n.plan = [](const ng::Types& in, const Json& p) {
-    if (!in.count("spectrum") || in.at("spectrum").axis != ng::Axis::block || in.at("spectrum").value != ng::ValueType::complex) ng::refuse("measure.band_amplitude: spectrum is a complex block value (fft.spectrum)");
-    if (in.at("spectrum").facts.value("line", Json::object()).value("kind", std::string()) != "frequency") ng::refuse("measure.band_amplitude: spectrum lies on no frequency line; the bands are read on the line a change of basis makes (fft.spectrum)");
+    if (!in.count("spectrum") || !in.at("spectrum").per_block() || in.at("spectrum").value != ng::ValueType::complex) ng::refuse("measure.band_amplitude: spectrum is a complex block value (fft.spectrum)");
+    if (in.at("spectrum").domain.factors.back()->role != ng::Role::frequency) ng::refuse("measure.band_amplitude: spectrum lies on no frequency line; the bands are read on the line a change of basis makes (fft.spectrum)");
     if (!in.at("spectrum").sfreq || !(*in.at("spectrum").sfreq > 0)) ng::refuse("measure.band_amplitude: the spectrum has no sampling rate");
     if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("measure.band_amplitude: bands is required: a list of {name, lo, hi} in Hz (no default)");
     ng::Planned out;
@@ -1041,8 +1045,9 @@ ng::NodeSpec measure_band_amplitude() {
     const Eigen::MatrixXcd X = own_complex(b);
     if (s.bins < 0) {
       s.bins = b.width; s.channels = b.rows;
-      const double len = 2.0 * static_cast<double>(b.width - 1);              // the block's samples (an even number: the bins do not tell an odd one)
-      s.df = pr.sfreq / len;
+      if (b.line_samples <= 0) ng::refuse("measure.band_amplitude: the spectrum carries no sample count for its frequency line");
+      s.line_samples = b.line_samples;
+      s.df = pr.sfreq / static_cast<double>(b.line_samples);                   // the made line's spacing: rate / the block's samples (odd or even)
       s.bands = nxr::selection::set_of_spans(pr.rows, "Hz", pr.lookup);
       for (const auto& m : s.bands.members) {
         const double lo = m.extents.at(0).start, hi = m.extents.at(0).stop;
@@ -1050,7 +1055,7 @@ ng::NodeSpec measure_band_amplitude() {
         if (last <= first || first >= s.bins) ng::refuse("measure.band_amplitude: the band [" + std::to_string(lo) + ", " + std::to_string(hi) + ") Hz holds no bin at " + std::to_string(s.df) + " Hz spacing");
         s.ranges.push_back({first, std::min(last, s.bins)});
       }
-    } else if (b.width != s.bins || b.rows != s.channels) {
+    } else if (b.width != s.bins || b.rows != s.channels || b.line_samples != s.line_samples) {
       ng::refuse("measure.band_amplitude: blocks of different lengths (" + std::to_string(b.width) + " and " + std::to_string(s.bins) + " bins): the bands' bins would differ; use whole chunks");
     }
     const Eigen::MatrixXd A = nxr::bandAmplitude(X, s.ranges);                 // channels x bands

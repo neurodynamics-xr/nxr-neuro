@@ -497,7 +497,7 @@ not convert, so they never meet C4 or C5. Main stays green at each step: C1 adds
 | `form` | `field.form` | | `risefall` | `bursts.risefall` |
 | `magnitude` | `field.magnitude` | | `fit_gate`, `burst_stages` | `bursts.fit_gate`, `bursts.stages` |
 | `power` | `field.power` | | `detect_spans` | `spans.detect` |
-| `phase_current` | `phase.current` | | `rollup_events` | `events.rollup` |
+| `phase_current` | `phase.current` | | `measure_events` | `events.measure` |
 | `gradient_power` | `phase.gradient_power` | | `core_histogram`, `cores`, `tracks` | `cores.histogram`, `cores.detect`, `cores.tracks` |
 | `tile_max` | `tiles.max` | | `tile_crossings`, `power_series` | `tiles.crossings`, `tiles.power_series` |
 | `lagfree_surrogate` | `surrogate.lagfree` | | (the bound pure functions) | `welch.psd`, `welch.cross_spectrum`, `filter.lowpass` … `filter.notch`, `pca.pca`, `pca.reconstruct`, `manifold.eigenmodes` |
