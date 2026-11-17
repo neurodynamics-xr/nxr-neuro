@@ -285,6 +285,20 @@ int main() {
     }
   }
 
+  // gap 12: an annotation that names a channel keeps its scope (a box on sensor x time): BrainVision's fifth marker names channel 2
+  {
+    const fs::path pkg = root / "scope.nxr.zarr";
+    import_into(pkg, "bv_mux_i16.vhdr", false);
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const auto ev = p.db().one("SELECT params_json FROM selection WHERE name = 'rec_events'");
+    CHECK(ev.has_value());
+    const Json params = Json::parse(text(*ev, "params_json"));
+    CHECK(params.contains("channels"));
+    CHECK_EQ(params["channels"].size(), static_cast<std::size_t>(1));
+    CHECK_EQ(params["channels"].begin().value().size(), static_cast<std::size_t>(1));
+    CHECK_EQ(params["channels"].begin().value()[0].get<int>(), 1);
+  }
+
   // refusals
   CHECK_EQ(code_of([&] { cv::format_of("x.txt"); }), std::string(code::invalid_argument));
   CHECK(!code_of([&] { import_into(root / "e.nxr.zarr", "eeglab_epoched.set", false); }).empty());   // epoched: refused
