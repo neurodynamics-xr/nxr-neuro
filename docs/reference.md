@@ -23,7 +23,7 @@ nxr-neuro/
   compute/     nxr_compute   pure maths: geometry-central + Eigen + Spectra + pocketfft; no file I/O  (was nxr-compute)
   io/          nxr_io        the nxr dataset format (SQLite rows + Zarr v3), writer, Brainstorm importer (nxr::bst)   (was nxr-io's cpp/ core)
   pipelines/   nxr_pipelines the glue: read with io, compute with compute, write with io, cached; every verb of the command below (the surface: eigen, frames, tiles; the sensors:
-               filters, psd, noisecov; the sources: headmodel, inverse, sourcepsd, quadrature, hodgepower; the patterns: opticalflow, speedspectrum)
+               filters, psd, noisecov; the sources: headmodel, inverse, sourcepsd, quadrature, hodgepower; the patterns: flow_modes, speedspectrum)
   meeg/        nxr_meeg      MEG/EEG source imaging: whitener, depth weights, unconstrained minimum-norm kernel, chunk-wise noise covariance; Eigen only; no file I/O
   bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (Python and MATLAB also carry the pipeline level: `run`, `list`, `read` through `pipelines/face.h`); python/: the wheel (nxr_compute, io/formats and the pipeline level)
   cli/         the one command `nxr-neuro`
@@ -366,7 +366,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run hodgepower` | The band power of the Hodge-Dirac eigenmode coefficients of a free-orientation kernel. | `hodgepower compute` |
 | `nxr-neuro run speedspectrum` | The speed spectrum: mode energy per phase speed from the joint eigenvalue and frequency bank. | `speedspectrum compute` |
 | `nxr-neuro run phasegradient` | The phase gradient of a band from a stored cross-spectrum: phase current, power, speed and travelling index. | `phasegradient compute` |
-| `nxr-neuro run flow_modes` | The Hodge-Dirac flow weights of the apparent motion of one filter-bank member's source map (reads the stored amplitude by name). The leaf sums stay with `opticalflow` until the grids are redesigned. | `flow_modes` |
+| `nxr-neuro run flow_modes` | The Hodge-Dirac flow weights of the apparent motion of one filter-bank member's source map (reads the stored amplitude by name). Its divergence, curl and speed are measurements: `run measure --set flow_max_amplitude` first (the unit-maximum amplitude), then the `measure` definition over the dyadic grid. | `flow_modes` |
 | `nxr-neuro run cellquadrature` | Quadrature (travelling vs standing) per joint cell and per burst, from the stored cross-spectrum. | `cellquadrature compute` |
 | `nxr-neuro run patches` | Patches on a static cortical map: where it stands out from its surroundings, at the size of its tiles. | `patches compute` |
 | `nxr-neuro run scaleselection` | Each event's own size and rhythm: the best spatial and temporal level by standardised response. | `scaleselection compute` |
@@ -427,7 +427,7 @@ with the `run` spelling.
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro query measurements` | Query a stored measurement pyramid at any spatial and temporal scale. | `measure query` |
+| `nxr-neuro query measurements` | Query a stored measurement at any spatial and temporal scale, stated as quantities (a tile in mm, a duration in s, a band in Hz). | `measure query` |
 
 ### `export`: Export stored results: measurements as a table, cortical maps as GIFTI
 
@@ -513,8 +513,7 @@ run `nxr-neuro run eigenmodes --dataset D/N --subject @default_subject --surface
 With the pipelines built it also writes the pial's **frames** (`run surface_frames` on the default subject: the canonical frames, north / west from its registered sphere, and its
 anatomical frame from FreeSurfer's RAS axes, the template every subject's anatomical frame is carried from) and the **group tree**: the dyadic ladder of the default pial (`cortex_pial tiles`, Selection type `ladder`, decision D85; its levels
 `cortex_pial tiles L0 … L<finest>` are partitions, one tile code `h·2^l + t` per vertex), as `run select_dyadic_surface` writes any grid but with `tree: "group"` (`run select_dyadic_surface --rule group`, a definition: `dataset create` runs it) and the dataset's default atlas
-definitions in its params (`atlas`: leaf depth `--atlas-depth`, 8 by default; resolution; frames (the canonical frames' id); the time convention, frames = cycles of the day-anchored tower at
-level −18, ≈ 0.33 s; the default bands, octaves 1–64 Hz; the Levi-Civita levels; the trajectory scales), the settings every subject's atlas and the group sums share. On fsaverage5 its
+definitions in its params (`atlas`: leaf depth `--atlas-depth`, 8 by default; resolution; frames (the canonical frames' id); the time convention, the line's time grid (levels of 2^k samples from the first sample, closed form); the default bands, octaves 1–64 Hz; the Levi-Civita levels; the trajectory scales), the settings every subject's atlas and the group sums share. On fsaverage5 its
 codes equal the Studio's `surfaceLadder` and nxr's at every level. The group tree carries the **Levi-Civita connection** between its tile centres at `--lc-levels` (4,6 by default), as nxr
 stores it: the centres (`cortex_pial_lc_centres_L<l>`) and Ω[a, b], the angle at centre b of centre a's north carried there, as `levi-civita connection` measurements on level l's Selection.
 Its antisymmetrisation is not nxr's: nxr's halves an angle on the circle, which turns every |Ω| > 90° by 180° (a quarter of the pairs on fsaverage5; shown on exact spheres, where Ω is known).
@@ -533,7 +532,7 @@ one place a recording is read and looped over.
   sample (m, the tile's ordinal, is its code); a chunk is level 15, a block level 17. A run's span is a run of whole tiles of the level it measures on (its
   window or Welch segment): `--start/--stop` snap to the nearest tile boundary (`nxr::io::SpanRequest::level`, `resolve_span`), an end at the recording's end
   stays there, a span that snaps to nothing is refused, and the producer record keeps the seconds asked, the snapped extent and the level
-  (`analysis_window`: `asked_s`, `start_s`/`stop_s`, `tile_level`). Pointwise verbs (filters, frames, optical flow, the wavelet transforms) snap at level 0,
+  (`analysis_window`: `asked_s`, `start_s`/`stop_s`, `tile_level`). Pointwise verbs (filters, frames, the wavelet transforms) snap at level 0,
   a sample. Spec: the time-tile amendment of `docs/specs/2026-11-13-cycle-pattern.md`.
 - **What a pipeline does.** It declares the recording, its rows and its span, and folds each chunk handed to it into its accumulators: Welch, the covariance, the
   filters, the wavelet bank. The maths never sees a chunk, only a matrix. A computation's own windows are its own choice: a Welch segment's length, taper and
@@ -777,10 +776,9 @@ from lo to hi inclusive).
   face gradients, projected on the tangent plane): with z_v = a_v X the signal at v and g_v its tangent gradient, the sums P = ⟨|z|²⟩ = a S aᵀ,
   H = Im⟨z̄ g⟩ = B Sq aᵀ and Q = ⟨|g|²⟩ = tr(B S Bᵀ) (`nxr/meeg/wave.h`) are power-weighted over the band's segments and bins and add over regions. The
   signal is the full current as the inverse gives it, the x y z components summed (`--signal ambient`, default) or `--signal normal`, the normal current n·J.
-  **Stored on the measurement pyramid** (spec `docs/specs/2026-11-14-measurement-pyramid.md`, step 5;: a reduction over space is a measurement over a partition, never a
+  **Stored as measurements over the dyadic tile grid** (spec `docs/specs/2026-11-14-measurement-pyramid.md`: a reduction over space is a measurement over a partition, never a
   per-vertex ratio; the earlier per-vertex Fields broke the cardinal rule and are no longer written; those already in a dataset are untouched):
-  - **The leaves** are the pyramid's: the tree partition `<surface> tiles L<D>` of the surface's ladder (`--finest`, default the finest level every piece reaches; the ladder is made when
-    the surface has none), the same `pyramid_leaves` as `run measure --set cortical_band_pyramid`. `run surface_frames` first: the current is stored in the canonical frames.
+  - **The leaves** are the finest level of the surface's dyadic grid (`finest`, a quantity: a tile diameter, an area or parts per hemisphere; the grid is made by `run select_dyadic_surface` when the surface has none), the same leaves as `run measure --set cortical_band_pyramid`. `run surface_frames` first: the current is stored in the canonical frames.
   - **What is stored** (the additive INGREDIENTS, array-backed `[leaf]` measurements of a byte-less Field `<stem>_<band>` of kind `phase gradient`, by_operator the kernel, in the partition's node `<node>/phase/<name>/`,
     within the band when it is one of the Frequency manifold's `bands`), each a SUM over the leaf's vertices weighted by the vertex's lumped area a, with nxr's registry names:
     `phase_power` = Σ a P, `phase_gradient_power` = Σ a Q, `phase_current_1`, `phase_current_2` = Σ a (H·e1), Σ a (H·e2) (the phase current H = Im⟨z̄ g⟩ in the canonical frames, e1 north, e2 west: nxr's
@@ -803,42 +801,9 @@ from lo to hi inclusive).
     no lag, which shrinks the phase gradient (the speed is overestimated where the spread is wide; not yet measured on a real head model); the readout is a
     power-weighted mean over the whole window and the band (waves that change direction cancel, nothing is resolved in time); ω is the band's centre;
     the P1 gradient resolves a wavelength of a few edges at best.
-- `run phasegradient --spatial-band modes|weyl:J|weyl:all --signal ambient`: the same question **at a spatial scale**, with the **timing map** and
-  its **consistency** (spec `docs/specs/2026-11-12-direction-timing.md`). **Why:** at the mesh's own scale the lags are tiny and lag content lives at
-  coarser scales, so a spatial band is chosen as a time-frequency band is; and a timing map says in what order places are reached. **Everything is on
-  ONE triangulation**: the intrinsic complex the surface's Hodge–Dirac modes are solved on, with the modes' full forms (`run eigenmodes`
-  stores both; `compute/include/nxr/intrinsic_forms.h`):
-  - **the band:** the free kernel on the glued surface, its tangent part as a 1-form on the intrinsic edges (flat: each edge's direction at its ends
-    from the signposts, embedded through the input's own edges) and its normal part as a 2-form on the faces, read into the modes by inner products with
-    their forms (orthonormal: no solve), weighted by the band's gain on λ = μ² (`modes`: all, gain 1; `weyl:J`; `weyl:all`, a tight frame). `weyl:J` is level J of THE ONE bank the surface stores (`pyramid spatial-bands`, made with the ladder and the dataset's Eigenvalue line when absent: λ_l = 4π·2^l / A, A the ladder's mean piece area), not a bank of its own; the leaf measurements (`phase_power`, `phase_flux`, `phase_circulation`) carry the spatial band as their `within` key (the joint frequency × spatial bands Selection when the frequency band is in the stored bank), and `cyclepattern` reads the same bank, synthesised
-    back (sharp) to a vertex current, read by its x y z components (no orientation assumed);
-  - **the phase field:** a 1-form on the intrinsic edges, each edge's lag between its ends from the stored cross-spectrum, arg T(tip, tail) (exact on
-    every edge, flipped and doubled ones included: only vertex quantities), the magnetic Laplacian's edge lags;
-  - **the split:** inner products with the modes' 1-forms. The exact part is d(timing): the **timing map** (stored as φ/ω in s; a larger value LEADS,
-    propagation runs from high to low), its **propagation** −∇φ and **speed**; the coexact part the rotation (**stream function**); what lies outside
-    the modes the residual. The **inconsistency** is the share the timing map leaves (per vertex; in total with the three shares, timing · rotation ·
-    residual, in the provenance and the result).
-
-  **Stored (decision 1 of the measurement pyramid, 2026-11-14: a correction, no option; no per-vertex Fields):** per band and spatial band, stem `<recording>_<kernel>_phasegradient_<spatial band>`:
-  - the fits, which have no additive form (global over the modes, or functions of the phase of the edge lags), as **ONE statistic** `<stem>_map_<band>`: axes vertex (the glued surface, the bridge NaN) × quantity
-    (`timing` s, `propagation_x/y/z` rad/m, `speed` m/s, `stream` rad, `inconsistency` share), scalar, `of_statistic_id` the cross-spectrum statistic (the recording's Field for an older Operator series), measure
-    `phase_lag_split`, method `phase_split`, provenance in its `producer_json`; and `<stem>_modes_<band>`, the phase 1-form's coefficients, on the eigen axis. (Two statistics, not one: the coefficients lie on the modes, not the vertices.)
-  - the additive and exact reductions, as **pyramid measurements** [leaf] of a byte-less Field `<stem>_<band>` on the leaf partition `<surface> tiles L<D>` (`--finest`, as the plain route's), within the frequency band:
-    `phase_power` (Σ a P), `phase_flux` (the propagation's **exact flux** out of each leaf, rad: the divergence theorem on the exact part) and `phase_circulation` (the phase field's **exact circulation** round it, rad: the
-    Stokes theorem on its 1-form, a winding × 2π round a phase defect). Both are on the intrinsic complex the fits are made on (`nxr::intrinsic::tileFlux` / `tileCirculation`: interior edges cancel), additive up the
-    tile tree, so the mean divergence (curl) of any tile is its integral over its area (the leaf areas `w`); the per-vertex divergence and curl are no longer stored. nxr's `measure/integrals.py` is ported as `nxr::integrals`
-    (the same integrals for a vertex vector field on the extrinsic faces, golden `integrals_golden.txt` to 2e-15 on a sphere and a folded plane); the pipeline uses the intrinsic form because a vertex vector field cannot carry
-    a defect's winding (sharpening the phase 1-form returned 4.67 of the 2π winding the edges carry round a pole of the test's rotating wave). `test_integrals`: the intrinsic flux of a gradient agrees with the extrinsic one to 1%.
-  - **What the leaf integrals cannot resolve:** a leaf on the edge of the cut (the medial wall) has an open boundary there (the flow across the cut is in its integrals); an edge's lag wraps at ±π, so a winding the edges cannot resolve (a double winding in a few edges) counts once;
-    the spatial band is in the Field's name and provenance, not in the measurements' `within` key (the package's Weyl bank is of the glued surface's whole area; the pyramid's spatial bands are the ladder's).
-  Needs the package's
-  full forms (`run eigenmodes --replace` on a package stored before them). Tested against ground truth on two glued spheres (`test_phasegradient_band`):
-  a plane wave's timing map against −k z/ω, r 1.0000, slope 0.99, inconsistency 0.007, its leaves' flux / area against the divergence −2k z, r 0.96; the same wave with its amplitude falling to near zero along
-  lines, r 0.999; a wave rotating round each sphere's axis, inconsistency 0.98, the leaf holding a pole circulating 2π; the plane wave's circulation 0 (< 0.04); the Weyl bands' leaf powers add up to the unfiltered (0.97).
-  The forms (`test_intrinsic_forms`, a jittered sphere with 784 flips): an unflipped edge's direction is the mesh edge's (1 − cos < 1e-5), flat of a
-  gradient is the exact edge differences (2 %), sharp ∘ flat recovers smooth fields (1.3 %). What it cannot show: kinematic; a time average (waves that
-  change direction cancel); ω at the band's centre; the edge lag is arg T, so a lag beyond ±π along one edge wraps (the magnetic Laplacian handles
-  large lags); band-limited by the modes; a power-weighted timing fit is not built (a weighted solve, not inner products).
+- **Retired: `phasegradient --spatial-band` (the per-spatial-band route, the timing map and its consistency).** The spatial band is now a band SET selection (`run select_bands --rule levels|eigenvalue|wavelength`) read by `run measure`;
+  the intrinsic-form maths (`compute/include/nxr/intrinsic_forms.h`, the phase 1-form split, `nxr::intrinsic::vertexOutflow` / `vertexCirculation`: a tile's flux and circulation are the SUM of the pointwise values by `reduce`) stays in compute.
+  Whether the timing map and its fits return as a node of the measurement system is decided with the PI (spec `docs/specs/2026-11-12-direction-timing.md`).
 
 ## The scaling of a spectral quantity, chosen at read (`compute/include/nxr/spectral_scaling.h`, `pipelines/include/nxr/pipelines/spectral_record.h`; spec `docs/specs/2026-11-13-spectral-scaling.md`)
 
@@ -898,7 +863,7 @@ reference is nxr's `nxr/pipelines/` (`definition.py`, `registry.py`, `inputs.py`
   envelope is (an array [rows × tiles × 2] beside the recording, `selection_measurement` rows on the level, `computed_by` naming the pipeline and its cache
   key's hash). **Packed:** the measurement outputs of one run over the SAME Selection with the same rows, members and
   counts are stored in ONE array [rows × members × (components + 1)] (each measure's components in the definition's order, the count last), one row a measure
-  component pointing at it with its `component` (the schema's array-backed rule; the pyramid's bands share arrays the same way). `global_bursts` stores its 24
+  component pointing at it with its `component` (the schema's array-backed rule; the measurements of a band set share arrays the same way). `global_bursts` stores its 24
   measurement outputs in 3 arrays, not 24. The report's `stored` entry says its `array`, first `component` and `components`; the lookup (`measurement_values`,
   `measure query`) and `read` find a measure by its row's component. A rerun with `--replace` of a run stored before this (one array per measure) rewrites the
   rows to the packed array and leaves the old arrays unreferenced (`dataset compact` is not the tool; delete them only with the maintainers' OK); `kind: spans` with `types: [name]`, an event set stored as the importer stores events (a spans Selection on the time line, code = the type
@@ -1014,7 +979,7 @@ its band, the baseline is a statistic, an event is a connected run of tiles abov
   (`params_json`: map, level, band with its λ range and transform, sign, thresholds, baseline, limits, cache key); the patches' rows; the statistics. A rerun with the same
   inputs and options is a cache hit at every stage; another choice at a stage whose result exists is refused unless `--replace`, and a refusal leaves what is stored untouched.
 - **Reference.** The method is nxr-neuro's own, assembled from named parts: the Weyl pairing of the ladder (the Studio's `engine/ladder.ts`, nxr `geom.ladder`), the graph filterbank
-  (Rheome `@graphfilterbank`, nxr, the Studio's dyadic frame), the measures of `measureOverPartition`, and the hysteresis rule of nxr `spindle_envelope` / Rheome `detect.spindle`.
+  (Rheome `@graphfilterbank`, nxr, the Studio's dyadic frame), the measures of the Studio's `measureOverPartition` (`nxr::measurement::reduce`), and the hysteresis rule of nxr `spindle_envelope` / Rheome `detect.spindle`.
   Rheome's `blobscale` is the same idea on a Mexican-hat ladder.
 - **What it does NOT do.** No instrument limit is built in (a resolution, a leakage, a smallest size are the caller's `--min-area`, named; the maintainers forbid building them into tools).
   One level per run: a coarser level is not a roll-up of a finer one (it is its own band). It finds events of one sign at a time. It does not merge, track or link patches across
@@ -1515,7 +1480,7 @@ is a STATISTIC: "field -> selection/measurements -> statistic. the statistic is 
   (`compute/test/golden/gen_pca_golden.py`). **What it cannot show:** a component is a direction of variance in THIS sample; with n members at most n - 1 exist and the leading ones of a small sample are not stable
   estimates of a population's.
 - **Next** (the spec's order): the other spectral producers, the histogram, Brainstorm's sensor-level timefreq on import. (`run psd`'s PSD is a statistic since 2026-11-13; checked
-  against the code 2026-11-14, step 5 of the measurement pyramid: the `<recording>_psd_welch` Field of the spec's table is already gone.)
+  against the code 2026-11-14: the `<recording>_psd_welch` Field of the spec's table is already gone.)
 
 ## One selection and measurement system (spec `docs/specs/2026-11-17-consolidation.md`; definitions in `pipelines/definitions/`)
 
@@ -1523,6 +1488,16 @@ is a STATISTIC: "field -> selection/measurements -> statistic. the statistic is 
 selection makers, four measurement operations, one table for values over members, and ONE measuring definition fed by field chains. Old names are not kept as aliases: a
 retired name is refused with the name of what replaces it (`nxr-neuro run tiles` says `run select_dyadic_surface`).
 
+- **Storage and reading (schema 53).** One table holds a value over a selection's members (`selection_measurement`, array-backed `[rows x members x components]`); a product's factor that is a level of a grid
+  names the grid and the level's IDENTITY (its ordinal in the grid's level dictionary; the level's code is its label), and a dyadic grid's level dictionary records the mean tile diameter in mm (a time grid's, the
+  tile's duration in s), which is what a query by physical size reads. The measures registry (`io/schema/measures.json`, `measures_nxr.json`) has one rule key, `merge` (sum, max, min, mean, none, derived), and a `form`
+  column (the form of the field a measure is taken of); io applies the merge rule in SQL (`nxr::io::query`: filters by selection, member, level in physical units, subject or group; roll-ups through a grid's hierarchy
+  and across subjects) and compute in memory (`roll_values`), and a parity test (`test_rollup_parity`) compares the two. `nxr-neuro migrate measurements --dataset D [--dry-run] [--remove-statistics]` makes a
+  dataset made before schema 53 follow it, subject by subject and resumable; the old statistics are kept unless `--remove-statistics` (the explicit second step).
+- **The glued cortex.** The imported two-hemisphere mesh is the manifold of record; the glued surface is derived (`run glue`) and is the default computational manifold. A Field, a selection or a measurement made on the
+  glued surface is stored on the original: the elements are restricted back through the glue map (the bridge has no counterpart and is dropped, like the medial wall) and the record says so (`restricted_from`).
+- **Operators a node builds** (the fused kernel of a chain, with its band and pre-operator) are stored through io as operators with their provenance and found by their key on the next run; no process-wide cache.
+- **Quantities.** A range may be open: `>=0.4 s`, `<=5 s`; a duration may be in `cycles` of the band's centre (`>=3 cycles`).
 - **The makers (selections are made, never recomputed from parameters).** Each is a definition that also runs alone and stores its selection once (get-or-create):
   - `run select_dyadic_surface --rule subject|group|transfer`: the dyadic equal-area tiles of a surface as one grid with closed-form levels (was `tiles`, `group_tree`,
     `group_tiles`); the finest tile is a quantity (`--finest "20 mm"`, `"parts 256"`, `"area 400 mm2"`), the level and its snapped quantity are recorded;
@@ -1590,9 +1565,9 @@ frame on the cortex, and each velocity is read at once in the Hodge–Dirac mode
 - Defaults: the **connection** regulariser, the Cortical Flow Studio's connection Laplacian on the signpost gauge with its gauge data term (ported line for line), solved by
   **pcg**. Named options: `--regulariser ambient` (Lefevre and Baillet's form; `--datafit triangle`), `--method direct` (Rheome's exact solve, kept for parity), `--method perscale` (one series per
   band-pass member of a graph filterbank, `--scale-family`). `--alpha` unset takes the regulariser's own default (connection 0.01, ambient 1); vary it and report the range.
-- Stored: `<stem>_flow_modes` (float32 [modes x frames-1]) on the eigen axis x `<stem>_time` (the coefficients are per frame, not a reduction), and, since step 5 of the measurement pyramid (2026-11-14), the
-  divergence, curl, speed and velocity as additive **sums on the measurement pyramid**: a byte-less Field `<stem>_flow` and, per leaf of `<surface> tiles L<D>` (`--finest`) and per tower frame of the recording
-  (`--frame-level`, `--start-s`), sums of the vertex values weighted by vertex area, per second, over the flow steps in the frame: `flow_divergence`, `flow_curl` (1/s), `flow_speed` (m/s, the tangent speed),
+- Stored: `<stem>_flow_modes` (float32 [modes x frames-1]) on the eigen axis x `<stem>_time` (the coefficients are per frame, not a reduction), and, the
+  divergence, curl, speed and velocity as additive **sums over a product of the dyadic surface grid and the time grid**: a byte-less Field `<stem>_flow` and, per leaf of the grid (`finest`, a quantity) and per frame of the recording
+  (`frames_per_cycle` or `frames_per_tile`, `origin`), sums of the vertex values weighted by vertex area, per second, over the flow steps in the frame: `flow_divergence`, `flow_curl` (1/s), `flow_speed` (m/s, the tangent speed),
   `flow_velocity_1` / `flow_velocity_2` (v . e1 / e2 in the canonical frames, with `run surface_frames`) and `flow_velocity_anterior` / `flow_velocity_second` (the anatomical frame), on a joint Selection
   `<recording> x <stem> <leaves> x <frame_s> s`; the frame tiling's `count` of the Field is the steps a frame holds. The time means are derived at read (`measure query ... --measure flow_speed_density`: sum / (area x
   steps), at any space level and time level; the mean speed is the area-weighted mean of the vertices' mean speeds, `test_opticalflow_pipeline`: the leaf sums equal the steps x the vertex time means to 1e-6, the whole-cortex mean
@@ -1781,15 +1756,14 @@ Directions and areas on the cortex need a coordinate system shared across people
 - `run surface_frames`: the **canonical frames** (north / west from the registered sphere `<surface>_sphere`; Rheome's sphereframe), and the **anatomical frame** (one angle per vertex from north
   to anterior, the second axis superior or medial, and a reliability mask stored as a Selection of the reliable vertices). The anatomical axes come from `--template` through the registered
   spheres, or else from the surface's own SCS axes projected on its tangent planes.
-- `run select_dyadic_surface`: the **dyadic tile grid** (a definition on the registered step `tile_grid`: compute's dyadic builder, stored through io's `save_grid`; the graph and the Studio's side by side are in `docs/specs/2026-11-17-tile-grids.md`; the Studio's `surfaceLadder`, nxr's `geom.ladder`; it reads the surface's positions as stored, float64, as the Studio's backend and nxr
+- `run select_dyadic_surface`: the **dyadic tile grid** (the maker node `select.dyadic_surface`: compute's dyadic builder, stored through io's `save_grid`; the graph and the Studio's side by side are in `docs/specs/2026-11-17-tile-grids.md`; the Studio's `surfaceLadder`, nxr's `geom.ladder`; it reads the surface's positions as stored, float64, as the Studio's backend and nxr
   do: rounded to float32 first, a few vertices of the finer levels moved, 169 of fsaverage5's at level 11, fixed 2026-11-11): 2^l equal-area tiles per connected piece at level l, paired with spatial scale by Weyl's law,
   stored as Selections with their areas, centres and adjacency: the grid's hierarchy is the closed form (the member number is the finest tile code, level l's member that code `>> (D - l)`), and its record says `grid {kind dyadic, depth, slots, pieces}`: `slots` the piece slots the codes reserve (at least 2, so a one-piece surface still has codes `h 2^D + t` with h < 2), `pieces` the connected pieces. `run flow_modes` and `run quadrature` take `--tiles` to write their maps' tile summaries per level: scalars
   area-weighted, vectors in the canonical frame's components and in the Levi-Civita (transported) form, labelled, never raw 3-D sums.
-  **A scalar map's summary is measurement rows** (step 5 of the measurement pyramid, 2026-11-14; `tile_summaries_write`): per level and map, nxr's `<node>/maps/<field>/{w,s1,s2,n,min,max}` arrays
+  **A scalar map's summary is measurement rows** (the measurement system, 2026-11-14 and the consolidation of 2026-11-17): per level and map, nxr's `<node>/maps/<field>/{w,s1,s2,n,min,max}` arrays
   and the rows `weight`, `sum`, `sum_square`, `count`, `min`, `max` of the map's Field on the level's Selection (its `params_json.atlas` block makes it a partition the lookup reads); the mean (sum / weight),
   mean_square and variance are **derived at read** (`measure query ... --measure mean`, which also rolls the rows up the ladder); `mean` is no longer stored (`test_tiles_pipeline`: the mean at read
-  equals the direct area-weighted mean to 0 at level 2 and rolled up to level 1). A map of a **statistic's slice** (the `quadrature` energy maps) gets a **byte-less Field** `<slice> tile map` (kind `tile map`, no array, `producer_json` naming the statistic and the slice; the pattern of the source estimate and `phasegradient`), so its rows satisfy the schema's array-backed rule and are the same rows as any map's; no `mean` is stored (decided 2026-11-14, `test_quadrature_pipeline`). `opticalflow --tiles` no longer summarises the divergence, curl and speed (they are the
-  leaf sums on the pyramid, rolled up at read); it summarises the velocity's frame and Levi-Civita forms.
+  equals the direct area-weighted mean to 0 at level 2 and rolled up to level 1). A map of a **statistic's slice** (the `quadrature` energy maps) gets a **byte-less Field** `<slice> tile map` (kind `tile map`, no array, `producer_json` naming the statistic and the slice; the pattern of the source estimate and `phasegradient`), so its rows satisfy the schema's array-backed rule and are the same rows as any map's; no `mean` is stored (decided 2026-11-14, `test_quadrature_pipeline`). The flow's divergence, curl and speed are not summarised per tile here (they are leaf sums, rolled up at read).
 
 The charts the frames are built on (heat distance, vector heat transport, log map, gauge heading, geodesic disc) are in `compute/include/nxr/chart.h`: `ChartKit` is a thin wrapper of geometry-central's `HeatMethodDistanceSolver` and `VectorHeatMethodSolver`, one `IntrinsicSurface` per connected piece, in geometry-central's vertex gauge (the one gauge of nxr-neuro). The canonical frame (north / west) is stored as the angle of north in that gauge (`frames::gaugeAngle`); the anatomical axes are a reporting projection of a 3D vector (`frames::anatomicalProjection`, frame-free for the SCS definition).
 

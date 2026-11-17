@@ -49,6 +49,9 @@ composable.
   **Roll-ups exist in io's query AND in compute**: each measure's merge rule (sum, max, min, mean via sum and count, ratios derived at read) is DATA in the measures
   registry, applied by io in SQL (for group analysis and statistical modelling: filters by selection, member, level in physical units, subject or group, and roll-ups
   through a grid's hierarchy and across subjects) and by compute in memory, with a parity test between the two, so there is one definition of each rule.
+  **The glued cortex**: the imported mesh is the manifold of record; results made on the derived glued surface (Fields, selections, measurements) are restricted back
+  to it for storage, export and display, the bridge dropped. **An operator a node builds** is stored through io with its provenance and found by its key, never held
+  in a process-wide cache.
 
 The detailed rules are below: the dependency table, **the architecture policy** (what each layer may decide), **pipelines as replicas of the Studio's GPU
 chains**, the chunk service, and the PR checklist. Design a new pipeline as its graph first (nodes, ports, inputs, outputs), check it against the
