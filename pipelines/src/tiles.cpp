@@ -107,23 +107,23 @@ TilesComputeResult tiles_compute(DatasetWriter& ds, SubjectWriter& sub, const Ti
       ld.entries->push_back(e);
     }
     const DictionaryResult ldr = sub.dictionary(ld);
-    SelectionSpec top;
-    top.name = ladder_name(sname); top.path = std::nullopt; top.type = "ladder"; top.manifold_id = mid; top.no_elements = true;
-    top.cols.set("dictionary_id", ldr.id).set("n_elements", nV).set("n_members", tree.depth + 1).set("unit", "m")
+    nxr::io::selection::Placement top;
+    top.name = ladder_name(sname); top.manifold_id = mid; top.dictionary_id = ldr.id;
+    top.cols.set("unit", "m")
         .set("label", "dyadic tiles, " + std::to_string(tree.depth + 1) + " levels, 1 ... " + std::to_string(tree.nodes(tree.depth)) + " tiles")
-        .set("description", "the dyadic tiling of the surface (Cortical Flow Studio engine/ladder.ts, nxr geom.ladder / geom.trees): each tile halved by equal mass across its geodesic diameter, every tile one piece; level l has 2^l tiles per connected piece, paired with scale by Weyl's law")
-        .json("params_json", [&] {
-          Json p = Json{{"weyl", "4pi m/A"}, {"tree", opt.tree}, {"area_m2", total}, {"pieces", tree.runs.size()}, {"depth", tree.depth}, {"finest", tree.finest}, {"by", by}, {"producer", producer}};
-          if (opt.atlas) p["atlas"] = *opt.atlas;
-          return p;
-        }());
-    const std::string ladder_id = sub.selection(std::move(top));
+        .set("description", "the dyadic tiling of the surface (Cortical Flow Studio engine/ladder.ts, nxr geom.ladder / geom.trees): each tile halved by equal mass across its geodesic diameter, every tile one piece; level l has 2^l tiles per connected piece, paired with scale by Weyl's law");
+    top.params = [&] {
+      Json p = Json{{"weyl", "4pi m/A"}, {"tree", opt.tree}, {"area_m2", total}, {"pieces", tree.runs.size()}, {"depth", tree.depth}, {"finest", tree.finest}, {"by", by}, {"producer", producer},
+                    {"grid", Json{{"kind", "dyadic"}, {"depth", tree.depth}, {"pieces", tree.runs.size()}}}};   // the hierarchy is a rule: a member's number at level l is its finest number >> (depth - l)
+      if (opt.atlas) p["atlas"] = *opt.atlas;
+      return p;
+    }();
+    std::vector<nxr::io::selection::GridLevel> grid;
     for (int l = 0; l <= tree.depth; ++l) {
       const std::vector<std::int32_t> node = tree.at(l);
       const int nodes = tree.nodes(l);
       const std::string name = level_name(sname, l);
       const std::string dir = atlas_node(sub.db(), mid, name);
-      put_array(sub, dir + "/codes", view(node, {static_cast<std::int64_t>(nV)}));
       const std::vector<double> w = lad::tileAreas(node, nodes, area);
       put_array(sub, dir + "/w", view(w, {static_cast<std::int64_t>(nodes)}));
       const std::vector<int> cen = lad::tileCentres(S.vertices.data(), node, nodes, area);
@@ -148,16 +148,19 @@ TilesComputeResult tiles_compute(DatasetWriter& ds, SubjectWriter& sub, const Ti
         }
       }
       const DictionaryResult tdr = sub.dictionary(td);
-      SelectionSpec ls;
-      ls.name = name; ls.path = std::nullopt; ls.type = "set"; ls.manifold_id = mid; ls.no_elements = true;
+      nxr::io::selection::GridLevel g;
+      g.at.name = name; g.at.manifold_id = mid; g.at.dictionary_id = tdr.id;
       Json lj = level_json(tree, l, meanPiece);
       lj["tree"] = opt.tree; lj["depth"] = tree.depth; lj["finest"] = tree.finest; lj["node"] = dir; lj["areas"] = dir + "/w"; lj["summaries"] = Json::array();
-      ls.cols.set("dictionary_id", tdr.id).set("member_of_id", ladder_id).set("member_ordinal", l).set("code", l).set("n_elements", nV).set("n_members", nodes).set("array_path", dir + "/codes")
-          .set("unit", "m").set("label", l == 0 ? "the whole surface" : std::to_string(nodes) + " tiles")
-          .set("description", "level " + std::to_string(l) + " of the dyadic tiling: " + std::to_string(nodes) + " tiles, tile code h 2^" + std::to_string(l) + " + t (h the connected piece, a hemisphere)")
-          .json("params_json", lj);
-      sub.selection(std::move(ls));
+      g.at.params = lj;
+      g.at.cols.set("unit", "m").set("label", l == 0 ? "the whole surface" : std::to_string(nodes) + " tiles")
+          .set("description", "level " + std::to_string(l) + " of the dyadic tiling: " + std::to_string(nodes) + " tiles, tile code h 2^" + std::to_string(l) + " + t (h the connected piece, a hemisphere); the tile code is the member number");
+      g.array_path = dir + "/codes";
+      g.tile_codes = node;
+      g.tiles = nodes;
+      grid.push_back(std::move(g));
     }
+    nxr::io::selection::save_grid(sub, top, grid);
   });
   res.info = Json{{"surface", sname}, {"ladder", ladder_name(sname)}, {"levels", tree.depth + 1}, {"depth", tree.depth}, {"finest", tree.finest}, {"pieces", tree.runs.size()}, {"tiles_at_depth", tree.nodes(tree.depth)},
                   {"area_m2", total}, {"selections", Json::array({ladder_name(sname), level_name(sname, 0) + " ... " + level_name(sname, tree.depth)})}, {"kept", false}};

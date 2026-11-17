@@ -86,6 +86,22 @@ MemberNumbering number_labels(const std::vector<std::int32_t>& element_labels);
 /** a description of a set per element from labels per element and the lookup they are read with (number_labels, then the description) */
 Description set_from_labels(const std::vector<std::int32_t>& element_labels, Lookup lookup = {});
 
+// ── a dyadic GRID (spatial tiles) ────────────────────────────────────────────────────────────────────────────────
+/** one level of a dyadic grid: its row's placement (`name`, `manifold_id`, `dictionary_id` of its tiles' names, `params`, `cols`), the node's own path for its array (`array_path`) and the
+ *  tile of every element, as the tile CODE h 2^l + t, which IS the member number (-1: none), `tiles` the level's member count (empty tiles included) */
+struct GridLevel {
+  Placement at;
+  std::string array_path;
+  std::vector<std::int32_t> tile_codes;
+  std::int64_t tiles = 0;
+};
+/** SAVE a dyadic grid: the `ladder` row (`ladder`: name, manifold, the levels' dictionary in `dictionary_id`, params including the rule `grid` {kind, depth, pieces}) and one `set` row per level
+ *  (member_ordinal = l, code = l) with its array of tile codes. The hierarchy is the closed form (a member's number at level l is its finest number >> (depth - l)): no parent arrays. */
+Saved save_grid(SubjectWriter& sub, const Placement& ladder, const std::vector<GridLevel>& levels);
+
+/** a set per element's members' labels, one per member (the sibling array, or 0 .. n_members - 1 when it has none): what turns a label an importer knows into the member number */
+std::vector<std::int64_t> member_labels(const Database& db, const Store& store, const std::string& selection_id);
+
 // ── read ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** a stored selection (any status) as its description; Error(no_such_row) when there is none; a kernel is not a selection (Error(invalid_argument)). */
 Loaded load(const Database& db, const Store& store, std::string_view id);

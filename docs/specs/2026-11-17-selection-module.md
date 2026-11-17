@@ -41,11 +41,18 @@ Changes to the Studio's model, decided here:
    them; a loaded selection follows the same rules.
 7. A compute takes a selection in one of four RESOLVED FORMS (`resolved.h`: `Rule`, `Intervals`, `Elements`, `MemberOfElement`; section 8). A PRODUCT of
    selections is a `set` whose members are given by factors, numbered row-major, labelled by the factors' own lookups (section 9); no sixth type.
-8. How a set per element is STORED (selection_description.h; the schema is unchanged): the `set` row's array holds the member numbers, and its dictionary has one
-   entry per member (entry code = the member number, name and colour those of the member's label, the label itself in the entry's attributes). Its levels
-   (labels and parent maps) are kept in the row's parameters. A stored ladder level has its position as `member_ordinal` (identity) and its power of two as
-   `code` (label). An array stored before member numbers existed holds labels per element (an imported atlas); loading maps it to member numbers as
-   `from_labels` does, and a row carries a marker (`member_numbered`) once it is stored as numbers.
+8. How a set is STORED (selection_description.h, model.sql; schema 52). Members are FILE-BACKED, like per-element values: a time partition can have millions of members, so
+   there is no row per member.
+   - A set per element: the `set` row's array `P` holds each element's member number (dense, -1 in none); the sibling array `P.labels` holds each member's label (a dictionary
+     code, one per member; absent when member i is labelled i); the dictionary has ONE ROW PER LABEL (none when the labels are their own names).
+   - A set by a rule (origin, width, hop, count: chunk grids, frame tilings) stores nothing per member; a set of listed spans (bursts, events) keeps its span rows.
+   - A PARTITION is a GRID (regular, hierarchical, navigational): its parent-child hierarchy is closed form and is never stored as rows or parent arrays. A dyadic grid keeps its
+     finest member array (member number = tile code h 2^D + t, so the number at level l is that number >> (D - l)) and the rule in `params_json.grid` {kind, depth, pieces}; a
+     constant-Q ladder is the `ladder` row, a level's identity its `member_ordinal`, its label (`code`) the power of two of its tile width.
+   - IRREGULAR selections (bursts, events, scouts, the DK, DKT and Destrieux atlases) are sparse, may overlap, vary in extent and have no levels and no roll-ups: listed
+     members, or a member per element with one label per member.
+   - A product stores nothing per member: `selection_factor (selection_id, ordinal, factor_selection_id)` (section 9); a measurement's `code` is the product member ordinal.
+   - A database made before is converted by `migrate_selection_storage` (io/migrate.h), recorded in meta `selection_storage`.
 9. The band-design arithmetic of a constant-Q ladder (`anchorsFor`, `strideFor`, `windowFor`) is compute's (`compute/include/nxr/selection/constant_q.h`), and
    compute's `constant_q_design` returns what the design settled (the cycles, each level's stride, rate and samples a cycle) for the pipelines to hand to io.
 
@@ -348,7 +355,7 @@ Selection cells  = product({chunks, from_labels(channel_labels), bands});       
 ProductForm f = resolve_product(cells, {{FormKind::rule, time_line}, {FormKind::member_of, std::nullopt, n_channels}, {FormKind::intervals, bin_line}});
 ```
 
-**How io should store a product** (a description for io's selection CRUD; not built here):
+**How io stores a product** (selection_store.h `save` with `factors` and `Placement::factor_ids`; schema 52 `selection_factor`):
 - One `selection` row: `type = 'set'`, `manifold_id` the product manifold (its `geometry_dimension` rows name the factors' manifolds), `cell` one rank
   per factor (`'1,0,1'`: time edges × channel vertices × frequency edges), `n_members` the product of the factors' ordinal counts, `array_path` null (a
   rule: nothing per element is stored), no `dictionary_id` (the factors carry theirs).

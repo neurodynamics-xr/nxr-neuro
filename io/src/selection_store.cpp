@@ -289,6 +289,17 @@ MemberNumbering number_labels(const std::vector<std::int32_t>& element_labels) {
   return out;
 }
 
+std::vector<std::int64_t> member_labels(const Database& db, const Store& store, const std::string& selection_id) {
+  require_member_storage(db);
+  const auto r = records::Selections(db).read(selection_id);
+  if (!r || !r->array_path) throw Error(code::no_such_row, "selection " + selection_id + ": no set per element");
+  const std::string lp = member_labels_path(*r->array_path);
+  if (store.exists_prefix(lp)) return read_ints(store, lp);
+  std::vector<std::int64_t> out(static_cast<std::size_t>(r->n_members.value_or(0)));
+  for (std::size_t i = 0; i < out.size(); ++i) out[i] = static_cast<std::int64_t>(i);
+  return out;
+}
+
 Description set_from_labels(const std::vector<std::int32_t>& element_labels, Lookup lookup) {
   MemberNumbering n = number_labels(element_labels);
   Description d;
@@ -297,6 +308,32 @@ Description set_from_labels(const std::vector<std::int32_t>& element_labels, Loo
   d.member_codes = std::move(n.member_codes);
   d.lookup = std::move(lookup);
   return d;
+}
+
+// ── a dyadic grid ────────────────────────────────────────────────────────────────────────────────────────────────
+Saved save_grid(SubjectWriter& sub, const Placement& ladder, const std::vector<GridLevel>& levels) {
+  if (levels.empty()) refuse("grid " + ladder.name + ": it has no levels");
+  if (!ladder.dictionary_id) refuse("grid " + ladder.name + ": a ladder needs the dictionary of its levels (Placement::dictionary_id)");
+  Saved out;
+  SelectionSpec top = base(Description{}, ladder, "ladder", "0");
+  top.no_elements = true;
+  top.cols.set("dictionary_id", *ladder.dictionary_id).set("n_members", static_cast<std::int64_t>(levels.size())).set("n_elements", static_cast<std::int64_t>(levels[0].tile_codes.size()));
+  params_of(top, ladder.params);
+  out.id = sub.selection(std::move(top));
+  out.dictionary_id = ladder.dictionary_id;
+  for (std::size_t l = 0; l < levels.size(); ++l) {
+    const GridLevel& g = levels[l];
+    for (const std::int32_t c : g.tile_codes) if (c < -1 || c >= g.tiles) refuse("grid " + ladder.name + ": level " + std::to_string(l) + " has a tile code outside 0.." + i2s(g.tiles - 1));
+    sub.write_array(g.array_path, view(g.tile_codes, {static_cast<std::int64_t>(g.tile_codes.size())}));
+    SelectionSpec ls = base(Description{}, g.at, "set", "0");
+    ls.no_elements = true;
+    ls.cols.set("member_of_id", out.id).set("member_ordinal", static_cast<std::int64_t>(l)).set("code", static_cast<std::int64_t>(l))
+        .set("n_elements", static_cast<std::int64_t>(g.tile_codes.size())).set("n_members", g.tiles).set("array_path", g.array_path);
+    if (g.at.dictionary_id) ls.cols.set("dictionary_id", *g.at.dictionary_id);
+    params_of(ls, g.at.params);
+    out.member_ids.push_back(sub.selection(std::move(ls)));
+  }
+  return out;
 }
 
 // ── rows ─────────────────────────────────────────────────────────────────────────────────────────────────────────
