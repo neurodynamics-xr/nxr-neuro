@@ -69,10 +69,20 @@ What the old words become:
 | channel picks, sources, support | `indices` |
 | parcellation, flags, channel names | a partition array with a dictionary |
 
-THE MODULE (decided 2026-11-17): selections and partitions of manifolds are their own library, `selection/` (`nxr_selection`, namespace `nxr::selection`),
-below io and compute, which both call on it; it depends on neither. Order: time partitions first, then the surface (dyadic tiles, Weyl), then the joint case (the product).
+WHERE IT LIVES (2026-11-17; replaces the earlier "its own library"): selections are handled as every compute result is. There is no separate
+selection library.
 
-A PARTITION OF A MANIFOLD BY A METHOD (`selection/include/nxr/selection/partition.h`): one function, `partition(manifold, method)`; the manifold
+1. CREATING a selection is compute: a method makes it in memory (`compute/include/nxr/selection/`), with the surface's geometry through
+   `IntrinsicSurface` (geometry-central).
+2. SAVING it, 3. SAVING MEASUREMENTS on it, 4. LOADING it and 5. UPDATING it are io: one selection CRUD (today scattered over the writer, the task API's
+   `SelectionOut` and `MeasurementOut`, and the selection entity, to be gathered). A loaded selection follows the same rules as a made one.
+6. The pipeline runner is the bridge (a node makes it, the runner stores it), and the grammar below is carried out across the layers: `select` and the
+   set combinators by compute, `at`, `level`, `member` and `coarser` by io at read, `over` and `within` by compute measurement nodes stored by io.
+
+The few rules of the stored format (the tile of a sample, a coarser level as code >> shift, a closed tiling's members) exist in both, as io knows a
+field's shape without compute. io's constant-Q writer still designs its bands; the design moves to compute in the CRUD step.
+
+A PARTITION OF A MANIFOLD BY A METHOD (`compute/include/nxr/selection/partition.h`): one function, `partition(manifold, method)`; the manifold
 says what is divided (a Line's samples, a Surface's vertices), the method how. A partition made here and one io loads from file are the same thing and
 follow the same rules. Levels are named by their power of two (a line: tiles of 2^k samples; a surface: 2^l tiles a connected piece), never by rank; the
 member of an element at a level is arithmetic (element >> k; codes[element] >> (depth - l)); each level carries the band of the manifold's spectrum it
@@ -86,10 +96,6 @@ resolves.
 | Surface | rings, polar, poles, cells, nodal | to come: the Studio's coordinate grids (heat distance, the log map, farthest-point Voronoi, band-filtered nodal domains) |
 
 A subject's own atlases (DK, DKT, Destrieux) are FreeSurfer's (its registration and trained classifier); they are imported with the anatomy, not computed.
-
-Layers around it: io (CRUD and resolution); compute (pure makers and reducers: tiling arithmetic, the dyadic ladder, product codes, geodesic discs and kernels by
-heat distance, log-map boxes, set combinators, reductions); pipelines (`select.<type>` makers, `measure.over`, the YAML keys `at`, `over`, `within`); the
-command line and the bindings with the same verbs.
 
 ## 5. Examples (illustrative)
 

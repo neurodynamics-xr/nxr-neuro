@@ -1,4 +1,4 @@
-// nxr::selection — A PARTITION OF A MANIFOLD BY A METHOD. A partition divides a manifold's elements (a line's samples, a surface's vertices) into members
+// nxr::selection (compute) — CREATING SELECTIONS: A PARTITION OF A MANIFOLD BY A METHOD, in memory; io stores, loads and updates them. A partition divides a manifold's elements (a line's samples, a surface's vertices) into members
 // at one or more nested levels; the manifold says what is divided, the method how. A partition made here and one io loads from file are the same thing and
 // follow the same rules.
 //
