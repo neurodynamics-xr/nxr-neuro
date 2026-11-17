@@ -695,17 +695,11 @@ Json spatial_band_choice(const Values& ins, const Json& p, const Bound& bound) {
 // provenance (the rows' ids, which are unique, the request and the band's resolved choice). A constant of its inputs, so a hit is the same matrix. The node only LOOKS UP (`Bound::stored_operator`, the runner's
 // side: B4) and records the key in its resolved options (`operator_key`) so the runner stores a made operator under it; a static cache in this process is gone.
 std::optional<std::any> cached_operator(const Bound& bound, const std::string& key) {
-  const auto stored = bound.stored_operator(Json(key));            // the stored operator's row, found by the key its producer record carries (io: Subject::stored_operator)
+  const auto stored = bound.stored_operator(Json(key));            // io: the operator found by the key its producer record carries (matrix and provenance)
   if (!stored) return std::nullopt;
-  std::vector<std::int64_t> shape;
-  const std::vector<float> f = bound.array_float(nxr::io::text(*stored, "path"), &shape);
-  if (shape.size() != 2) return std::nullopt;                       // not a matrix: it is not the fused operator
-  auto M = std::make_shared<Eigen::MatrixXd>(shape[0], shape[1]);
-  for (std::int64_t i = 0; i < shape[0]; ++i) for (std::int64_t j = 0; j < shape[1]; ++j) (*M)(i, j) = static_cast<double>(f[static_cast<std::size_t>(i * shape[1] + j)]);
-  Json prov = Json::parse(nxr::io::opt_text(*stored, "producer_json").value_or("{}"), nullptr, false);
-  Json resolved = prov.is_object() && prov.contains("resolved") ? prov["resolved"] : (prov.is_object() ? prov : Json::object());
+  Json resolved = stored->provenance.is_object() && stored->provenance.contains("resolved") ? stored->provenance["resolved"] : (stored->provenance.is_object() ? stored->provenance : Json::object());
   resolved["operator_key"] = key;
-  return std::any(KernelState{std::shared_ptr<const Eigen::MatrixXd>(M), resolved});
+  return std::any(KernelState{std::make_shared<const Eigen::MatrixXd>(stored->matrix), resolved});
 }
 // THE FUSED OPERATOR: M' = M . P, P a pre-operator [m x m] over the channels `meta.channels` (in order) of x's rows: column ch_j of M' = sum_i column ch_i of M times P(i, j); the other columns 0 (the rows of
 // x outside P's channels carry nothing). ONE linear operator, built once (spec section 5: the mixing commutes with the time steps before it, so M' x_unmixed = M x_mixed).
@@ -1049,6 +1043,19 @@ void bind_execution(std::vector<StepSpec>& r) {
       std::any_cast<KernelState&>(bound).resolved["operator_key"] = shared_key;
     }
     c.shared[shared_key] = bound;
+    {
+      // rule 32: the operator built is OFFERED to the runner, which stores it through io under its key with its provenance (found next time by `stored_operator`); no process-wide cache
+      const KernelState& ks = std::any_cast<const KernelState&>(bound);
+      nxr::pipelines::graph::MadeOperator op;
+      op.key = Json(shared_key);
+      op.matrix = ks.K;
+      op.provenance = Json{{"resolved", ks.resolved}, {"request", p}, {"kernel", nxr::io::text(k, "id")}};
+      op.name = "fused " + nxr::io::text(k, "name") + (pre ? " (pre-operator composed)" : "");
+      op.from_manifold_id = ins.at("x").manifolds[0];
+      op.to_manifold_id = ins.at("kernel").manifolds[1];
+      op.description = "the kernel with its form, spatial band and pre-operator folded into one linear operator";
+      c.bound.offer_operator(std::move(op));
+    }
     return bound;
   };
   ak.record = [](const std::any& st) { return std::any_cast<const KernelState&>(st).resolved; };

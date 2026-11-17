@@ -144,7 +144,7 @@ int main() {
   std::printf("\n");
   for (std::size_t k = 1; k < size_cm.size(); ++k) CHECK(size_cm[k] < size_cm[k - 1]);           // a higher level is finer
   const std::string def_text = std::string("pipeline: scale_check\ninputs:\n  recording: {field: recording, each: true}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n"
-                                           "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} frames 0.00257492 s\"}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
+                                           "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid\"}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
                                            "      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: frames, in: {x: z, tiling: tiling}, out: zf}\n"
                                            "      - {step: apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles}, with: {levels: [") + [&] { std::string s; for (const int l : lvs) s += (s.empty() ? "" : ", ") + std::to_string(l); return s; }() +
                              "], glued: true, transform: exact}, out: j}\n      - {step: power, in: {x: j}, out: p}\n      - {step: scale, in: {x: p}, with: {transform: exact}, out: lev}\n"
@@ -193,7 +193,7 @@ int main() {
   // THE PLAN
   auto refused = [&](const std::string& steps) {
     const std::string t = std::string("pipeline: x\ninputs:\n  recording: {field: recording, each: true, where: {name: blob0}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n"
-                                      "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} frames 0.00257492 s\"}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
+                                      "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid\"}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
                                       "      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: frames, in: {x: z, tiling: tiling}, out: zf}\n") + steps +
                           "      - {step: measure, in: {x: lev}, with: {bad_segments: ignore}, out: level}\noutputs:\n  level: {kind: characteristic level}\n";
     return what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), g::RunOptions{}); });
