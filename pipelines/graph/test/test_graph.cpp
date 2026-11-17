@@ -167,8 +167,8 @@ g::NodeSpec power_sum_node() {   // ACCUMULATE: the sum of squares and the count
   s.finish = [](const std::any&, std::any state) {
     auto a = std::any_cast<Sums>(std::move(state));
     g::Arrays out;
-    out["total"] = g::Array{static_cast<std::int64_t>(a.sum.size()), 1, 1, a.sum, Json::object()};
-    out["count"] = g::Array{1, 1, 1, {static_cast<double>(a.n)}, Json::object()};
+    out["total"] = g::Array{static_cast<std::int64_t>(a.sum.size()), 1, a.sum, Json::object(), 1};
+    out["count"] = g::Array{1, 1, {static_cast<double>(a.n)}, Json::object(), 1};
     return out;
   };
   return s;

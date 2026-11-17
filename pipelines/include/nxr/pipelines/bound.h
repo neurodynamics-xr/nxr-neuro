@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
@@ -26,6 +27,14 @@
 #include "nxr/pipelines/task.h"
 
 namespace nxr::pipelines::graph {
+
+/** raised when a run's node asks for a spatial band whose eigenmodes are not stored and the plan says to compute them: the RUNNER makes them first, as their own run, and starts again
+ *  (docs/specs/2026-11-17-compute-and-run.md, question 6). A node never stores anything. */
+struct MissingEigenmodes : std::runtime_error {
+  std::string surface;                       // the surface whose package is missing
+  SpatialBandPlan plan;                      // what will be computed (the package, its size, why)
+  MissingEigenmodes(std::string s, SpatialBandPlan p) : std::runtime_error("the eigenmodes of " + s + " are not stored"), surface(std::move(s)), plan(std::move(p)) {}
+};
 
 class Bound {
  public:

@@ -34,6 +34,7 @@ add_library(nxr_pipelines
   src/definition.cpp
   src/dispatch.cpp
   src/bound.cpp
+  src/step_nodes.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
@@ -72,7 +73,7 @@ add_library(nxr_pipelines
   src/tiles.cpp
 )
 target_include_directories(nxr_pipelines PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(nxr_pipelines PUBLIC nxr_io nxr_compute nxr_meeg)
+target_link_libraries(nxr_pipelines PUBLIC nxr_io nxr_compute nxr_meeg nxr_graph)
 target_compile_definitions(nxr_pipelines PUBLIC NXR_COMPUTE_VERSION="${NXR_COMPUTE_VERSION}" NXR_NEURO_VERSION="${PROJECT_VERSION}")
 if(MSVC)
   target_compile_options(nxr_pipelines PRIVATE /W4)
