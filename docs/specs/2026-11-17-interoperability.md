@@ -207,7 +207,7 @@ only the buffers that cover the request. Memory: the directory and one buffer.
 |---|---|
 | `-src.fif`, surface source spaces | per hemisphere, the source space's surface (all vertices, in metres, in its coordinate frame) and a Selection of its used vertices (`vertno`); a volume source space as a volume Manifold. The glued cortex is made from them by the existing step, not by the importer |
 | `-trans.fif` | the head ↔ MRI transform, in the transforms record |
-| `-cov.fif` | `<name>_noise_cov` Operator [M × M] with its channels Selection; `nfree`, method, its projectors and bads in `params_json` |
+| `-cov.fif` | `<name>_noise_cov` **Statistic** (measure `covariance`, method `empirical`, of no field in the package) [M × M] on its channels Selection; `nfree` as `n_members`, method, its projectors and bads in `options_json`; the whitener an Operator derived from it (`of_statistic_id`) |
 | `-fwd.fif` | the leadfield Operator (channels ← sources; free or fixed orientation, as stored) with its channels Selection and its source space, as the Brainstorm importer stores a head model |
 | `-inv.fif` | the inverse operator's parts as Operators (eigen-fields, eigen-leads, singular values, source covariance, noise covariance, the whitener, the depth and orientation priors) with `params_json.inverse`. **A kernel is not imported:** making one (`lambda2`, dSPM/sLORETA/eLORETA, orientation) is a method, in `meeg/`, with MNE's `apply_inverse` as its golden |
 | `-lh.stc`/`-rh.stc` (big-endian float32: `tmin`, `tstep`, vertices, times) and `.w` | a Field on the source space's used vertices; over time, a Field on the surface × a time line, stored as a recording is (the Brainstorm importer's map hooks) |

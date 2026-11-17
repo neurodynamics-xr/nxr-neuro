@@ -302,6 +302,8 @@ add_library(nxr_io
   convert/fibers_import.cpp
   convert/templates.cpp
   convert/recording.cpp
+  convert/sensor_frames.cpp
+  convert/recording_operators.cpp
   convert/bids.cpp
   convert/synthetic.cpp
   export/common.cpp

@@ -1440,6 +1440,7 @@ struct OperatorRow {
   Json codecs_json;
   Json fill_value_json;
   std::optional<std::string> derived_from_id;
+  std::optional<std::string> of_statistic_id;
   std::optional<std::string> inverts_id;
   std::optional<std::string> inverse_kind;
   std::optional<std::string> comment;
@@ -1451,7 +1452,7 @@ struct OperatorRow {
   std::optional<std::string> modified_by;
   static constexpr const char* kTable = "operator";
   static const std::vector<std::string>& columns() {
-    static const std::vector<std::string> c = {"id", "status", "subject_id", "name", "path", "kind", "label", "acquisition_id", "description", "from_manifold_id", "to_manifold_id", "from_cell", "to_cell", "from_selection_id", "to_selection_id", "from_value_type", "to_value_type", "from_coordinate_system_id", "to_coordinate_system_id", "layout", "method", "params_json", "n_rows", "n_cols", "nnz", "data_type", "chunk_shape_json", "codecs_json", "fill_value_json", "derived_from_id", "inverts_id", "inverse_kind", "comment", "source", "producer_json", "created_utc", "created_by", "modified_utc", "modified_by"};
+    static const std::vector<std::string> c = {"id", "status", "subject_id", "name", "path", "kind", "label", "acquisition_id", "description", "from_manifold_id", "to_manifold_id", "from_cell", "to_cell", "from_selection_id", "to_selection_id", "from_value_type", "to_value_type", "from_coordinate_system_id", "to_coordinate_system_id", "layout", "method", "params_json", "n_rows", "n_cols", "nnz", "data_type", "chunk_shape_json", "codecs_json", "fill_value_json", "derived_from_id", "of_statistic_id", "inverts_id", "inverse_kind", "comment", "source", "producer_json", "created_utc", "created_by", "modified_utc", "modified_by"};
     return c;
   }
   static OperatorRow from_row(const Row& r) {
@@ -1486,6 +1487,7 @@ struct OperatorRow {
     x.codecs_json = detail::take_json(r, "codecs_json");
     x.fill_value_json = detail::take_json(r, "fill_value_json");
     x.derived_from_id = detail::take_opt<std::string>(r, "derived_from_id");
+    x.of_statistic_id = detail::take_opt<std::string>(r, "of_statistic_id");
     x.inverts_id = detail::take_opt<std::string>(r, "inverts_id");
     x.inverse_kind = detail::take_opt<std::string>(r, "inverse_kind");
     x.comment = detail::take_opt<std::string>(r, "comment");
@@ -1529,6 +1531,7 @@ struct OperatorRow {
     x.codecs_json = detail::get_json(j, "codecs_json");
     x.fill_value_json = detail::get_json(j, "fill_value_json");
     x.derived_from_id = detail::get_opt<std::string>(j, "derived_from_id");
+    x.of_statistic_id = detail::get_opt<std::string>(j, "of_statistic_id");
     x.inverts_id = detail::get_opt<std::string>(j, "inverts_id");
     x.inverse_kind = detail::get_opt<std::string>(j, "inverse_kind");
     x.comment = detail::get_opt<std::string>(j, "comment");
@@ -1572,6 +1575,7 @@ struct OperatorRow {
     detail::put_json(j, "codecs_json", codecs_json);
     detail::put_json(j, "fill_value_json", fill_value_json);
     detail::put(j, "derived_from_id", derived_from_id);
+    detail::put(j, "of_statistic_id", of_statistic_id);
     detail::put(j, "inverts_id", inverts_id);
     detail::put(j, "inverse_kind", inverse_kind);
     detail::put(j, "comment", comment);

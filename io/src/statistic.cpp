@@ -58,6 +58,23 @@ bool ensure_statistic_measurements(Database& db) {
   return true;
 }
 
+// THE STATISTIC AN OPERATOR IS DERIVED FROM (2026-11-17): `operator.of_statistic_id` (a whitener from its covariance), added in place, once, to every dataset that has the
+// statistic table; the operator's zarr.json view takes it. The operator's CREATE TABLE stays the shared model's.
+static bool ensure_operator_statistic_link(Database& db) {
+  if (has_column(db, "operator", "of_statistic_id")) return false;
+  const auto view = db.one("SELECT sql FROM sqlite_master WHERE type = 'view' AND name = 'operator_attributes'");
+  static const std::string kBefore = "'derived_from_id', o.derived_from_id,", kAfter = "'derived_from_id', o.derived_from_id, 'of_statistic_id', o.of_statistic_id,";
+  if (!view || text(*view, "sql").find(kBefore) == std::string::npos) throw Error(code::schema_version, "operator_attributes: its column list is not the schema's; the statistic link cannot be added in place");
+  std::string vsql = text(*view, "sql");
+  vsql.replace(vsql.find(kBefore), kBefore.size(), kAfter);
+  db.tx([&] {
+    db.exec_script("ALTER TABLE operator ADD COLUMN of_statistic_id TEXT REFERENCES statistic (id) ON DELETE SET NULL DEFERRABLE INITIALLY DEFERRED;\n"
+                   "DROP VIEW operator_attributes;\n" + vsql + ";");
+    db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", {V("columns:operator.of_statistic_id"), V(now_utc() + " added in place (additive; user_version unchanged)")});
+  });
+  return true;
+}
+
 namespace {
 // a statistic table made before its value type (2026-11-13): the columns added in place and its view made again from the model's block
 bool ensure_statistic_value_type(Database& db) {
@@ -76,7 +93,10 @@ bool ensure_statistic_value_type(Database& db) {
 }  // namespace
 
 bool ensure_statistics(Database& db) {
-  if (has_table(db, "statistic")) { const bool v = ensure_statistic_value_type(db); return ensure_statistic_measurements(db) || v; }
+  if (has_table(db, "statistic")) {
+    const bool v = ensure_statistic_value_type(db), m = ensure_statistic_measurements(db), l = ensure_operator_statistic_link(db);
+    return v || m || l;
+  }
   // sync_job's table list widened in place (additive: every row stays valid), as allow_value_type widens the value types
   static const std::string kBefore = "'field', 'operator'))", kAfter = "'field', 'operator', 'statistic'))";
   const auto sj = db.one("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'sync_job'");
@@ -93,6 +113,7 @@ bool ensure_statistics(Database& db) {
     db.execute("INSERT OR REPLACE INTO meta (key, value) VALUES (?, ?)", {V("table:statistic"), V(now_utc() + " added in place (additive; user_version unchanged)")});
   });
   ensure_statistic_measurements(db);
+  ensure_operator_statistic_link(db);
   const auto ok = db.one("PRAGMA quick_check");
   if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after the statistic table was added");
   return true;

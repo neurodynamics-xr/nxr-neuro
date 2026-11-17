@@ -575,7 +575,7 @@ std::string Unit::statistic(const StatisticOut& s) {
   st.name = s.name; st.path = path_of(s); st.measure = s.measure; st.method = s.method; st.value_type = s.value_type;
   st.of_field_id = s.of_field_id; st.of_statistic_id = s.of_statistic_id; st.partition_selection_id = s.partition_selection_id;
   st.axes = s.axes; st.components = s.components; st.span = s.span; st.scaling = s.scaling; st.options = s.options;
-  st.n_members = s.n_members; st.members_skipped = s.members_skipped;
+  st.n_members = s.n_members; st.members_skipped = s.members_skipped; st.dof = s.dof; st.detached = s.detached;
   st.unit = s.unit; st.description = s.description; st.label = s.label; st.acquisition = s.acquisition;
   st.data = view_of(s.data, "statistic " + s.name);
   st.producer = producer_of(by_, s.output, s.producer);
@@ -596,6 +596,7 @@ std::string Unit::operator_(const OperatorOut& o) {
   if (o.from_selection_id) op.cols.set("from_selection_id", *o.from_selection_id);
   if (o.to_selection_id) op.cols.set("to_selection_id", *o.to_selection_id);
   if (o.derived_from_id) op.cols.set("derived_from_id", *o.derived_from_id);
+  if (o.of_statistic_id) op.cols.set("of_statistic_id", *o.of_statistic_id);
   if (o.description) op.cols.set("description", *o.description);
   if (!o.params.is_null()) op.cols.json("params_json", o.params);
   op.cols.json("producer_json", producer_of(by_, o.output, o.producer));

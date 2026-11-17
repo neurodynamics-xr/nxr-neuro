@@ -182,28 +182,36 @@ SensorInfo export_sensors(SubjectWriter& sub, const std::map<std::string, Value>
     const Value* g = chv->field("Group", i);
     groups.push_back(g && g->is_char() ? strip(text_of(g)) : "");
   }
+  std::vector<std::string> coil_types;                       // a `CoilType` field (an importer's): the coil each channel is, for the forward model
+  for (std::size_t i = 0; i < n; ++i) {
+    const Value* c = chv->field("CoilType", i);
+    coil_types.push_back(c && c->is_char() ? strip(text_of(c)) : "");
+  }
   std::vector<std::string> modalities;
   for (const auto& t : types) if (std::find(modalities.begin(), modalities.end(), t) == modalities.end()) modalities.push_back(t);
   const std::string path = nxr::io::folder_for("points") + "/" + name;
   const std::int64_t N = static_cast<std::int64_t>(n);
 
   auto manifold_points = [&](const std::string& mid, const std::string& nm, const std::string& p, const std::vector<float>& pos, std::int64_t count, const Json& producer,
-                             const std::string& acq) {
+                             const std::string& acq, bool placed = true, const std::string* cs = nullptr) {
     nxr::io::ManifoldSpec m;
     m.id = mid;
     m.name = nm;
     m.path = p;
     m.type = "points";
+    if (!placed) m.path.reset();
     m.n_vertices = count;
     m.acquisition = acq;
     m.topology = {"none", 0, 1, std::nullopt, {}};
-    nxr::io::GeometrySpec g;
-    g.form = "stored";
-    g.cs_key = opt.cs_key;
-    g.positions_path = p;
-    m.geometry = g;
+    if (placed) {
+      nxr::io::GeometrySpec g;
+      g.form = "stored";
+      g.cs_key = cs ? *cs : opt.cs_key;
+      g.positions_path = p;
+      m.geometry = g;
+      m.populate = [&sub, p, &pos, count, mid](nxr::io::Store&, const std::string&) { sub.write_array(p, view(pos, {count, 3}), {}, std::nullopt, "manifold", mid); };
+    }
     m.cols.json("producer_json", producer);
-    m.populate = [&sub, p, &pos, count, mid](nxr::io::Store&, const std::string&) { sub.write_array(p, view(pos, {count, 3}), {}, std::nullopt, "manifold", mid); };
     sub.manifold(std::move(m));
   };
 
@@ -220,7 +228,7 @@ SensorInfo export_sensors(SubjectWriter& sub, const std::map<std::string, Value>
   if (Json tf = transforms(channel_mat); !tf.empty()) producer["transforms"] = tf;
   if (opt.source_sha1) producer["source_sha1"] = *opt.source_sha1;
   if (opt.producer) for (auto it = opt.producer->begin(); it != opt.producer->end(); ++it) producer[it.key()] = it.value();
-  manifold_points(mid, name, path, pos, N, producer, opt.acquisition);
+  manifold_points(mid, name, path, pos, N, producer, opt.acquisition, opt.placed);
 
   auto vec3_field = [&](const std::string& fname, const std::string& fpath, const std::string& kind, const std::string& manifold, const std::vector<float>& data,
                         std::int64_t rows, const std::string& description, const std::optional<std::string>& unit) {
@@ -289,7 +297,8 @@ SensorInfo export_sensors(SubjectWriter& sub, const std::map<std::string, Value>
       const std::string hpath = path + "_headpoints";
       std::vector<float> hpos;
       for (const auto& p : *hloc) for (int c = 0; c < 3; ++c) hpos.push_back(static_cast<float>(p[c]));
-      manifold_points(hid, name + "_headpoints", hpath, hpos, H, Json{{"description", "the digitised head points (HeadPoints.Loc)"}, {"of", name}}, opt.acquisition);
+      const std::string hcs = opt.headpoints_cs_key.value_or(opt.cs_key);
+      manifold_points(hid, name + "_headpoints", hpath, hpos, H, Json{{"description", "the digitised head points (HeadPoints.Loc), in " + hcs}, {"of", name}}, opt.acquisition, true, &hcs);
       std::vector<LabelMember> fams;
       for (const auto& [fam, key] : {std::pair<const char*, const char*>{"label", "Label"}, {"type", "Type"}}) {
         const auto vals = strings(hp->field(key, 0), hloc->size());
@@ -328,6 +337,12 @@ SensorInfo export_sensors(SubjectWriter& sub, const std::map<std::string, Value>
   {
     auto [c, l] = family(units);
     fams.push_back({"unit", c, l, {}});
+  }
+  if (std::any_of(coil_types.begin(), coil_types.end(), [](const std::string& c) { return !c.empty(); })) {
+    std::vector<std::string> c2;
+    for (const auto& c : coil_types) c2.push_back(c.empty() ? "-" : c);
+    auto [c, l] = family(c2);
+    fams.push_back({"coil type", c, l, {}});
   }
   for (int group : {1, 2}) {
     std::vector<std::string> parsed;

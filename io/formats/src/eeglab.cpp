@@ -227,7 +227,7 @@ class Reader final : public RecordingReader {
         matvar_t *x = get("X"), *y = get("Y"), *z = get("Z");
         if (x && y && z && numel(x) == 1 && numel(y) == 1 && numel(z) == 1 && x->class_type != MAT_C_CHAR) {
           const double X = numbers(mat_.get(), x)[0], Y = numbers(mat_.get(), y)[0], Z = numbers(mat_.get(), z)[0];
-          if (std::isfinite(X) && std::isfinite(Y) && std::isfinite(Z)) c.location = std::array<double, 3>{X, Y, Z};
+          if (std::isfinite(X) && std::isfinite(Y) && std::isfinite(Z)) { c.location = std::array<double, 3>{X, Y, Z}; c.position_frame = "eeglab"; }
         }
       }
       h_.channels.push_back(c);
