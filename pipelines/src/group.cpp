@@ -475,7 +475,8 @@ PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& op
     a["tree"] = "group"; a["level"] = D; a["node"] = node;
     if (!a.contains("finest")) a["finest"] = ladder_params.value("finest", D);
     if (!a.contains("areas")) a["areas"] = part_params.value("areas", node + "/w");
-    a["gauge"] = frames_row ? Json(text(*frames_row, "id")) : (a.contains("gauge") ? a["gauge"] : Json(nullptr));
+    a["frame"] = frames_row ? Json(text(*frames_row, "id")) : (a.contains("frame") ? a["frame"] : Json(nullptr));   // the canonical frames' field (G6: "frame")
+    a.erase("gauge");
     Json names = Json::array();
     for (const Member& m : members) names.push_back(m.name);
     a["members"] = names;

@@ -118,13 +118,13 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     // the frames: the canonical ones when stored, else the signpost basis (said); the transport of each tile centre's frame to every vertex of its tile
     nxr::chart::ChartKit kit(S.vertices.data(), nV, S.faces.data(), nF);
     const StoredFrames sf = c.bound.stored_frames(S.name, nV);
-    std::string gauge = "canonical frames";
+    std::string frame = "canonical";                                     // the frame (G6: "frame", never "gauge")
     if (sf.canonical) { st.e1 = sf.e1; st.e2 = sf.e2; }
     else {
       const nxr::chart::Basis b = kit.basis();
       st.e1.resize(nV, 3); st.e2.resize(nV, 3);
       for (int i = 0; i < nV; ++i) for (int k = 0; k < 3; ++k) { st.e1(i, k) = b.e1[static_cast<std::size_t>(3 * i + k)]; st.e2(i, k) = b.e2[static_cast<std::size_t>(3 * i + k)]; }
-      gauge = "signpost basis";
+      frame = "gauge";
       if (c.say) c.say(Json{{"stage", "tile_crossings"}, {"message", "no canonical frames stored for " + S.name + " (`frames compute`): the signpost basis carries the crossings"}});
     }
     const Eigen::VectorXd gaugeAngle = nxr::frames::gaugeAngle(kit, st.e1);
@@ -160,7 +160,7 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
           sp.emplace_back(r.first, r.second);
       st.spans.push_back(std::move(sp));
     }
-    st.record = Json{{"level", level}, {"tiles", st.tiles}, {"surface", S.name}, {"glued", Json{{"vertices", Vg}, {"kept", kept}, {"bridge", Vg - kept}}}, {"gauge", gauge}, {"stages", p["stages"]},
+    st.record = Json{{"level", level}, {"tiles", st.tiles}, {"surface", S.name}, {"glued", Json{{"vertices", Vg}, {"kept", kept}, {"bridge", Vg - kept}}}, {"frame", frame}, {"gauge", nxr::pipelines::gauge_block(kit, nV, S.id)}, {"stages", p["stages"]},
                      {"rows", "stage × sense: row 2i the stage i's sense +1, row 2i+1 sense -1"}, {"members", "the level's tiles, then `bridge`"}, {"components", "crossing_sum_x, crossing_sum_y, crossing_sum_z, crossings"},
                      {"reference", "nxr vortex_cores.Tiles.crossings"}, {"warnings", Json::array({kWarnings[0], kWarnings[1], kWarnings[2]})}};
     return std::any(std::make_shared<CrossState>(std::move(st)));

@@ -55,6 +55,7 @@ struct HodgeDirac {
   std::int64_t star1_clamped = 0;            // edges whose *1 was raised to the floor (0 without a floor)
   double mollify_epsilon = 0;                // the length mollification added to every edge (0 = none needed)
   std::int64_t flips = 0;                    // edge flips of the intrinsic Delaunay construction
+  nxr::io::Json gauge;                       // the triangulation's gauge (G6): {gauge, gauge_record: {mollify, epsilon, flipEps, mass, boundary_vertices, fingerprint}}
   // THE FULL FORMS: the intrinsic complex the modes are solved on, and each mode's 2-form. With the 0-form part (the vertex potential
   // ψ/√2 above) they give both 1-form parts exactly: dψ/(μ√2) (exact) and ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact), with d0, d1 read from `edges`, `face_edges`.
   std::vector<std::int32_t> edges;           // [nE x 2] each intrinsic edge's (tail, tip) vertices: d0's orientation (−1 at the tail, +1 at the tip)

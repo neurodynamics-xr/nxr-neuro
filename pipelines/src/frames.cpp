@@ -56,6 +56,27 @@ nxr::frames::Axes axes_of(const std::string& convention) {
 Json vec_json(const Eigen::Vector3d& v) { return Json::array({v.x(), v.y(), v.z()}); }
 }  // namespace
 
+Json gauge_block(nxr::chart::ChartKit& kit, int n_vertices, const std::string& surface_id) {
+  std::vector<const nxr::manifold::IntrinsicSurface*> seen;
+  std::string fingerprint;
+  Json rec;
+  for (int v = 0; v < n_vertices; ++v) {
+    nxr::manifold::IntrinsicSurface& s = kit.surfaceOf(v);
+    if (std::find(seen.begin(), seen.end(), &s) != seen.end()) continue;
+    seen.push_back(&s);
+    const nxr::manifold::IntrinsicRecord& r = s.record();
+    fingerprint += (fingerprint.empty() ? "" : "+") + r.fingerprint;
+    if (rec.is_null()) rec = Json{{"gauge", r.gauge}, {"mollify", r.mollify}, {"epsilon", r.epsilon}, {"flipEps", r.flipEps}, {"mass", r.mass}, {"boundary_vertices", 0}};
+    rec["epsilon"] = std::max(rec["epsilon"].get<double>(), r.epsilon);
+    rec["boundary_vertices"] = rec["boundary_vertices"].get<int>() + r.boundaryVertices;
+  }
+  if (rec.is_null()) return Json();
+  const std::string gauge = rec["gauge"].get<std::string>();
+  rec.erase("gauge");
+  rec["fingerprint"] = fingerprint;
+  return Json{{"gauge", gauge}, {"gauge_surface", surface_id}, {"gauge_record", rec}};
+}
+
 StoredFrames read_stored_frames(SubjectWriter& sub, const std::string& surface, std::int64_t N) {
   StoredFrames s;
   if (const auto f = field_named(sub, surface + "_canonical_frames")) {
@@ -103,6 +124,7 @@ FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const 
   StoredFrames have = read_stored_frames(sub, sname, nV);
   Json record = Json::object();
   std::vector<float> gauge_angle;
+  Json angle_gauge;                                                     // the gauge record of the gauge angle (G6)
   Mat3 e1, e2;
   Json canonical_info = Json::object();
   nxr::frames::Canonical canon;
@@ -140,6 +162,7 @@ FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const 
   if (stored_canon) {
     nxr::chart::ChartKit k2(S.vertices.data(), nV, S.faces.data(), nF);
     const Eigen::VectorXd g = nxr::frames::gaugeAngle(k2, e1);
+    angle_gauge = gauge_block(k2, nV, S.id);
     gauge_angle.resize(static_cast<std::size_t>(nV));
     for (int i = 0; i < nV; ++i) gauge_angle[static_cast<std::size_t>(i)] = static_cast<float>(g[i]);
   }
@@ -213,7 +236,7 @@ FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const 
       ss.name = sname + "_frame_singularities"; ss.path = ss.name; ss.type = "indices"; ss.manifold_id = mid; ss.data = view(sing, {static_cast<std::int64_t>(sing.size())}); ss.picked = true;
       ss.cols.set("description", "the vertices with no canonical frame: the poles, and ill-conditioned push-forwards");
       sub.selection(std::move(ss));
-      put(sname + "_canonical_gauge_angle", "canonical frames", "scalar", "rad", "the angle of north (e1) in each vertex's signpost basis (gaugeHeading); a heading from north = heading in the gauge minus this", view(gauge_angle, {static_cast<std::int64_t>(nV)}), cj);
+      put(sname + "_canonical_gauge_angle", "canonical frames", "scalar", "rad", "the angle of north (e1) in each vertex's signpost basis (gaugeHeading); a heading from north = heading in the gauge minus this", view(gauge_angle, {static_cast<std::int64_t>(nV)}), [&] { Json x = cj; x["spin"] = 0; x["gauge_dependent"] = true; if (angle_gauge.is_object()) for (auto it = angle_gauge.begin(); it != angle_gauge.end(); ++it) x[it.key()] = it.value(); return x; }());
     }
     std::vector<float> ang(static_cast<std::size_t>(nV));
     std::vector<std::int32_t> sec(static_cast<std::size_t>(nV)), han(static_cast<std::size_t>(nV)), rel;

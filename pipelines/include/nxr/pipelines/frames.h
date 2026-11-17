@@ -12,6 +12,8 @@
 //                      tangent planes), the reference ("canonical frames", or "signpost gauge" when there is no registration), the threshold, the axes.
 // Everything lives in the subject's SCS (x anterior, y left, z up), never RAS; a template's own convention (`convention`) enters once, when ITS frame is made.
 #pragma once
+
+#include "nxr/chart.h"
 #include <Eigen/Dense>
 #include <optional>
 #include <string>
@@ -45,5 +47,10 @@ struct StoredFrames {
   std::string anatomical_id, anatomical_modified;   // the angle field's identity (a cache key part)
 };
 StoredFrames read_stored_frames(nxr::io::SubjectWriter& sub, const std::string& surface_name, std::int64_t n_vertices);
+
+/** THE GAUGE RECORD of a stored tangent quantity (docs/specs/2026-11-17-geometry-central-switch.md, 5.1): {gauge: "geometry-central@<commit>/vertex", gauge_surface: <surface id>,
+ *  gauge_record: {mollify, epsilon, flipEps, mass, boundary_vertices, fingerprint}} from the chart kit's intrinsic surfaces (one per connected piece: their fingerprints joined).
+ *  Merged into the row's provenance; the runner reads it into a port's gauge, and refuses a tangent quantity stored without one. */
+nxr::io::Json gauge_block(nxr::chart::ChartKit& kit, int n_vertices, const std::string& surface_id);
 
 }  // namespace nxr::pipelines

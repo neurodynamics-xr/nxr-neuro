@@ -163,13 +163,13 @@ MeasureComputeResult measure_compute(DatasetWriter& ds, SubjectWriter& sub, cons
                                  "a Field measured over a partition's members (nxr-neuro measure compute; the Studio's measureOverPartition), weights: " + opt.weight);
   std::optional<Recipe> grad_recipe, tensor_recipe;
   auto gradient_recipe = [&]() -> const Recipe& {
-    if (!grad_recipe) grad_recipe = recipe_for(rname + "-gradient", Json{{"kind", "reduction"}, {"method", "partition-gradient"}, {"weight", opt.weight}, {"gauge", "canonical frames"},
+    if (!grad_recipe) grad_recipe = recipe_for(rname + "-gradient", Json{{"kind", "reduction"}, {"method", "partition-gradient"}, {"weight", opt.weight}, {"frame", "canonical"},
         {"gradient", "nxr measure.vectors.vertex_gradient: the area-weighted face gradients, projected on the vertex's tangent plane"}, {"measures", "the registry's gradient_*, over the frames' regular vertices"}},
         "the gradient of a scalar Field measured over a partition's members: the registry's gradient_* sums in the canonical frames, weights: " + opt.weight);
     return *grad_recipe;
   };
   auto tensor_recipe_of = [&]() -> const Recipe& {
-    if (!tensor_recipe) tensor_recipe = recipe_for(rname + "-tensor", Json{{"kind", "reduction"}, {"method", "partition-tensor"}, {"weight", opt.weight}, {"gauge", "canonical frames"},
+    if (!tensor_recipe) tensor_recipe = recipe_for(rname + "-tensor", Json{{"kind", "reduction"}, {"method", "partition-tensor"}, {"weight", opt.weight}, {"frame", "canonical"},
         {"measures", "the registry's tensor_*: area-weighted sums of the tensor's components in (e1 north, e2 west, n); total over every vertex, the components over the frames' regular ones"}},
         "a cross-spectral tensor measured over a partition's members: the registry's tensor_* sums in the canonical frames, weights: " + opt.weight);
     return *tensor_recipe;

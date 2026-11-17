@@ -90,6 +90,8 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   const std::size_t K = lad.modes.size(), V = static_cast<std::size_t>(nV);
   HodgeDirac out;
   out.n_vertices = nV;
+  out.gauge = Json{{"gauge", hd.record.gauge}, {"gauge_record", Json{{"mollify", hd.record.mollify}, {"epsilon", hd.record.epsilon}, {"flipEps", hd.record.flipEps}, {"mass", hd.record.mass},
+                                                                      {"boundary_vertices", hd.record.boundaryVertices}, {"fingerprint", hd.record.fingerprint}}}};
   out.mu.resize(K);
   out.kind.resize(K);
   out.eigenvectors.assign(V * K, 0.0f);
@@ -432,8 +434,9 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
       std::optional<std::string> csk2;
       if (!is_null(in.manifold, "geometry_id"))
         if (auto c = sub.db().one("SELECT c.name FROM geometry g JOIN coordinate_system c ON c.id = g.coordinate_system_id WHERE g.id = ?", {nxr::io::V(text(in.manifold, "geometry_id"))})) csk2 = text(*c, "name");
-      const Json rec = Json{{"construction", "nxr-compute delaunay.h: the Studio's intrinsicDelaunay.ts"}, {"mollify", sm.mollify}, {"flip_eps", sm.flip_eps},
+      Json rec = Json{{"construction", "geometry-central's signpost intrinsic triangulation (flipToDelaunay)"}, {"mollify", sm.mollify}, {"flip_eps", sm.flip_eps},
                             {"epsilon", h.mollify_epsilon}, {"flips", h.flips}, {"star1_floor", sm.star1_floor ? Json(*sm.star1_floor) : Json()}, {"star1_clamped", h.star1_clamped}};
+      if (h.gauge.is_object()) { rec["gauge"] = h.gauge["gauge"]; rec["gauge_surface"] = target; rec["gauge_record"] = h.gauge["gauge_record"]; }   // per intrinsic edge or face: the gauge (G6)
       ManifoldSpec im;
       im.name = iname;
       im.path = ipath;

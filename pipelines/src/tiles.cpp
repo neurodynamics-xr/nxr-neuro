@@ -326,7 +326,8 @@ Json tile_summaries_write(DatasetWriter& ds, SubjectWriter& sub, const TileMaps&
   const bool have_vectors = !maps.vectors.empty();
   std::optional<nxr::chart::ChartKit> kit;
   Mat3 e1, e2;
-  std::string gauge = "canonical frames";
+  std::string frame = "canonical";                                         // the frame the tiles' vectors are reported in (G6: "frame", never "gauge")
+  Json gauge_rec;                                                          // the gauge record of the Levi-Civita form (G6)
   VectorXd gauge_angle;
   std::vector<char> singular;
   if (have_vectors) {
@@ -336,8 +337,9 @@ Json tile_summaries_write(DatasetWriter& ds, SubjectWriter& sub, const TileMaps&
       const nxr::chart::Basis b = kit->basis();
       e1.resize(nV, 3); e2.resize(nV, 3);
       for (int i = 0; i < nV; ++i) for (int k = 0; k < 3; ++k) { e1(i, k) = b.e1[static_cast<size_t>(3 * i + k)]; e2(i, k) = b.e2[static_cast<size_t>(3 * i + k)]; }
-      gauge = "signpost gauge";
+      frame = "gauge";
     }
+    gauge_rec = gauge_block(*kit, nV, S.id);
     singular.assign(static_cast<size_t>(nV), 0);
     for (int i = 0; i < nV; ++i) singular[static_cast<size_t>(i)] = !(std::isfinite(e1(i, 0)) && std::isfinite(e1(i, 1)) && std::isfinite(e1(i, 2)));
     gauge_angle = nxr::frames::gaugeAngle(*kit, e1);
@@ -364,7 +366,7 @@ Json tile_summaries_write(DatasetWriter& ds, SubjectWriter& sub, const TileMaps&
       auto vec = [&](const std::string& path, const VectorXd& v) { put_array(sub, path, view(v.data(), {static_cast<std::int64_t>(v.size())})); };
       // the level's `atlas` block (nxr's: what the lookup reads to roll the rows up the ladder)
       if (!p.contains("atlas") || !p["atlas"].is_object())
-        p["atlas"] = Json{{"tree", ladder_params.value("tree", std::string("subject"))}, {"level", l}, {"finest", ladder_params.value("finest", depth)}, {"gauge", nullptr}, {"areas", p.value("areas", std::string())}, {"node", dir}};
+        p["atlas"] = Json{{"tree", ladder_params.value("tree", std::string("subject"))}, {"level", l}, {"finest", ladder_params.value("finest", depth)}, {"frame", nullptr}, {"areas", p.value("areas", std::string())}, {"node", dir}};
       const std::string selection_id = text(lrow, "id");
       for (const auto& [mname, x] : maps.scalars) {
         const auto src = maps.sources.find(mname);
@@ -430,13 +432,13 @@ Json tile_summaries_write(DatasetWriter& ds, SubjectWriter& sub, const TileMaps&
         }
         for (const auto& [mname, v] : maps.vectors) {
           const std::string b = base + "/" + mname;
-          Json rec = Json{{"stem", maps.stem}, {"map", mname}, {"kind", "vector"}, {"gauge", gauge}, {"centres", dir + "/lc/L" + std::to_string(l) + "/centre"}};
+          Json rec = Json{{"stem", maps.stem}, {"map", mname}, {"kind", "vector"}, {"frame", frame}, {"centres", dir + "/lc/L" + std::to_string(l) + "/centre"}};
           Json forms = Json::array();
-          if (gauge == "canonical frames") {
+          if (frame == "canonical") {
             const lad::FrameSummary f = lad::frameSummary(node, nodes, area, e1, e2, normals, v);
             const std::string fb = b + "/frame";
             vec(fb + "/w", f.w); vec(fb + "/c1", f.c1); vec(fb + "/c2", f.c2); vec(fb + "/cn", f.cn); vec(fb + "/c11", f.c11); vec(fb + "/c22", f.c22); vec(fb + "/c12", f.c12); vec(fb + "/mag", f.mag);
-            forms.push_back(Json{{"reduction", "frame"}, {"gauge", "canonical frames"}, {"path", fb}, {"arrays", Json::array({"w", "c1", "c2", "cn", "c11", "c22", "c12", "mag"})}, {"merge", "sum"}});
+            forms.push_back(Json{{"reduction", "frame"}, {"frame", "canonical"}, {"path", fb}, {"arrays", Json::array({"w", "c1", "c2", "cn", "c11", "c22", "c12", "mag"})}, {"merge", "sum"}});
           }
           if (opt.levi_civita) {
             VectorXd w, mg;
@@ -445,7 +447,7 @@ Json tile_summaries_write(DatasetWriter& ds, SubjectWriter& sub, const TileMaps&
             for (int k = 0; k < nodes; ++k) len[k] = mg[k] > 0 ? std::abs(z[k]) / mg[k] : std::numeric_limits<double>::quiet_NaN();
             const std::string zb = b + "/levi_civita";
             vec(zb + "/re", re); vec(zb + "/im", im); vec(zb + "/w", w); vec(zb + "/length", len);
-            forms.push_back(Json{{"reduction", "levi-civita"}, {"gauge", gauge}, {"path", zb}, {"arrays", Json::array({"re", "im", "w", "length"})}, {"transport", "ChartKit::transported (vector heat) of each tile centre's e1, calibrated to the identity at its source"}, {"merge", "per level, never rolled up"}});
+            forms.push_back(Json{{"reduction", "levi-civita"}, {"frame", frame}, {"gauge", gauge_rec}, {"spin", 1}, {"path", zb}, {"arrays", Json::array({"re", "im", "w", "length"})}, {"transport", "ChartKit::transported (vector heat) of each tile centre's e1, calibrated to the identity at its source"}, {"merge", "per level, never rolled up"}});
           }
           rec["forms"] = forms;
           records.push_back(rec);
@@ -458,7 +460,7 @@ Json tile_summaries_write(DatasetWriter& ds, SubjectWriter& sub, const TileMaps&
       say(Json{{"stage", "tiles"}, {"stem", maps.stem}, {"level", l}, {"tiles", nodes}});
     }
   });
-  return Json{{"surface", sname}, {"stem", maps.stem}, {"levels", written}, {"gauge", maps.vectors.empty() ? Json() : Json(gauge)},
+  return Json{{"surface", sname}, {"stem", maps.stem}, {"levels", written}, {"frame", maps.vectors.empty() ? Json() : Json(frame)}, {"gauge", maps.vectors.empty() ? Json() : gauge_rec},
               {"scalars", [&] { Json a = Json::array(); for (const auto& m : maps.scalars) a.push_back(m.first); return a; }()}, {"vectors", [&] { Json a = Json::array(); for (const auto& m : maps.vectors) a.push_back(m.first); return a; }()},
               {"levi_civita", opt.levi_civita}};
 }

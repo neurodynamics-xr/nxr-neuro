@@ -1,6 +1,7 @@
 // The registered steps as the executor's nodes (include/nxr/pipelines/step_nodes.h). A node here is a thin shell: its functions are the step's own, called with the
 // description of the inputs a step plans on and the runner's `Bound`. The executor calls these shells through ITS dispatch point; no step is called from anywhere else.
 #include "nxr/pipelines/step_nodes.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/pipelines/welch_steps.h"
 #include "nxr/pipelines/meeg_steps.h"
 #include "nxr/pipelines/partition_steps.h"
@@ -150,6 +151,24 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
     return d;
   };
   const nxr::io::Row& r = *v.row;
+  // THE GAUGE (G6, spec 5.1): a stored tangent quantity carries its gauge record; the port takes its gauge from it. One without a record (the port's signpost gauge) is refused
+  // when read: it is recomputed, never converted.
+  if (v.cls == "field") {
+    const Json pj = Json::parse(nxr::io::opt_text(r, "producer_json").value_or("{}"), nullptr, false);
+    const std::string name = nxr::io::text(r, "name"), kind = nxr::io::opt_text(r, "kind").value_or("");
+    const int spin = pj.is_object() ? pj.value("spin", 0) : 0;
+    const bool tangent = spin != 0 || (pj.is_object() && pj.value("gauge_dependent", false)) || (name.size() > 22 && name.compare(name.size() - 22, 22, "_canonical_gauge_angle") == 0) ||
+                         (v.complex && kind.find("connection") != std::string::npos);
+    const std::string gauge = pj.is_object() && pj.contains("gauge") && pj["gauge"].is_string() ? pj["gauge"].get<std::string>() : std::string();
+    if (tangent && gauge.rfind("geometry-central@", 0) != 0)
+      throw nxr::io::Error(nxr::io::code::invalid_argument,
+                           name + " is stored in the port's signpost gauge (no gauge record); nxr-neuro now uses geometry-central@" + std::string(nxr::manifold::geometryCentralVersion()) +
+                               "/vertex. Recompute it with the pipeline that made it (development data may be recomputed; the old arrays are kept until removed with the format's tools).");
+    if (tangent) {
+      t.spin = spin;
+      t.gauge = gauge + "|" + pj.value("gauge_surface", std::string()) + "|" + (pj.contains("gauge_record") ? pj["gauge_record"].value("fingerprint", std::string()) : std::string());
+    }
+  }
   if (v.cls == "operator") {
     const auto from = domain({v.manifolds.at(0)}), to = domain({v.manifolds.at(1)});
     if (!from || !to) return;

@@ -140,7 +140,7 @@ PyramidLeaves pyramid_leaves(DatasetWriter& ds, SubjectWriter& sub, const Surfac
 }
 
 void pyramid_leaves_record(SubjectWriter& sub, PyramidLeaves& leaves, const Json& gauge) {
-  leaves.record["atlas"] = Json{{"tree", leaves.tree}, {"level", leaves.depth}, {"finest", leaves.finest}, {"gauge", gauge}, {"areas", leaves.record["areas"]}, {"node", leaves.node}};
+  leaves.record["atlas"] = Json{{"tree", leaves.tree}, {"level", leaves.depth}, {"finest", leaves.finest}, {"frame", gauge}, {"areas", leaves.record["areas"]}, {"node", leaves.node}};
   sub.db().execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(leaves.record)), V(text(*leaves.part, "id"))});
 }
 
@@ -419,7 +419,7 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
     js.cols.set("cell", "0,1").set("of_field_id", est_id).set("n_members", static_cast<std::int64_t>(L) * n_frames)
         .set("description", "the joint cells of " + part_name + " x the " + std::to_string(n_frames) + " frames: code = (tile << " + std::to_string(B) + ") | frame")
         .json("params_json", Json{{"joint", Json{{"space", text(*part, "id")}, {"time", frames_id}, {"bits", B}, {"tiles", L}, {"frames", n_frames}, {"layout", Json::array({"band", "tile", "frame"})}}},
-                                  {"atlas", Json{{"tree", tree_kind}, {"gauge", gauge}, {"node", tg}}}, {"cache", ckey.json()}});
+                                  {"atlas", Json{{"tree", tree_kind}, {"frame", gauge}, {"node", tg}}}, {"cache", ckey.json()}});
     if (const auto a = opt_text(*recrow, "acquisition_id")) js.cols.set("acquisition_id", *a);
     for (const Out& o : outs)
       for (std::size_t b = 0; b < NB; ++b) {
@@ -468,7 +468,7 @@ std::string frame_sums_write(SubjectWriter& sub, const PyramidLeaves& PL, const 
   js.name = joint_name; js.type = "set"; js.manifold_id = product; js.no_elements = true;
   js.cols.set("cell", "0,1").set("n_members", L * NF).set("description", description)
       .json("params_json", Json{{"joint", Json{{"space", text(*PL.part, "id")}, {"time", fc.frames_id}, {"bits", fc.bits}, {"tiles", L}, {"frames", NF}, {"layout", Json::array({"band", "tile", "frame"})}}},
-                                {"atlas", Json{{"tree", PL.tree}, {"gauge", PL.record["atlas"].value("gauge", Json(nullptr))}, {"node", PL.node}}}});
+                                {"atlas", Json{{"tree", PL.tree}, {"frame", PL.record["atlas"].value("frame", Json(nullptr))}, {"node", PL.node}}}});
   if (acquisition_id) js.cols.set("acquisition_id", *acquisition_id);
   for (const FrameSumsSeries& s : series) {
     if (static_cast<std::int64_t>(s.counts.size()) != frames_span) invalid("frame sums: the counts do not fit the span's frames");
