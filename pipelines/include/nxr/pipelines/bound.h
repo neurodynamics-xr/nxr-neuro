@@ -10,6 +10,8 @@
 // C5 turns these requests into declared input ports typed by `PortType` (the runner binds a found node as a port); until then they are named here, one method each, so the
 // requests a node makes are listed in one place.
 #pragma once
+
+#include "nxr/io/measures.h"
 #include <cstdint>
 #include <functional>
 #include <optional>
@@ -60,6 +62,9 @@ class Bound {
   StoredCrossSpectrum cross_spectrum(const std::string& name) const;
   CrossSpectrumWindows cross_spectrum_windows(const std::string& name) const;       // an analytic series on time tiles, by its band's name (as stored)
   nxr::io::StoredStatistic statistic(const std::string& name) const;
+  /** the values of a measure over a selection's members (io's measurement_values): of a field, of a map statistic's slice (by its name, a band of a map), or the members' own */
+  nxr::io::MeasurementValues measurement_values(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_slice,
+                                                const std::string& measure) const;
   std::vector<std::int32_t> array_int32(const std::string& path) const;                         // a stored array by its store path (a kernel's channel list)
   std::vector<float> array_float(const std::string& path, std::vector<std::int64_t>* shape) const;   // (a kernel's matrix)
   std::vector<double> array_double(const std::string& path, std::vector<std::int64_t>* shape) const;   // (a covariance: precision follows the stored array)

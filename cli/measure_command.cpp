@@ -495,33 +495,3 @@ int scaleselection_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-int statistic_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro statistic: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro statistic compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--over", "--of", "--measure", "--summaries", "--combine", "--ddof", "--name"}, {"--replace", "--members-own"},
-                                 {"--dataset", "--subject", "--over", "--of", "--measure", "--summaries"});
-  nxr::pipelines::StatisticComputeOptions o;
-  o.over = a.get("--over");
-  o.of = a.get("--of");
-  o.measure = a.get("--measure");
-  o.summaries = split(a.get("--summaries"), ',');
-  if (const auto v = a.maybe("--combine")) o.combine = *v;
-  if (const auto v = a.maybe("--ddof")) { try { o.ddof = std::stoi(*v); } catch (...) { usage(prog, "--ddof is a whole number >= 0"); } }
-  o.name = a.maybe("--name");
-  o.replace = a.flag.count("--replace") > 0;
-  o.own = a.flag.count("--members-own") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::statistic_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}

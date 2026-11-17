@@ -412,6 +412,14 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     shape.push_back(size);
   }
   st.axes = axes;
+  if (spec.contains("over")) {                                              // a statistic over the members of a found selection (a summary of measurements over it)
+    const std::string ov = spec["over"].get<std::string>();
+    if (made.count(ov)) st.partition_selection_id = made.at(ov);
+    else if (P.found.count(ov) && P.found.at(ov).row) st.partition_selection_id = text(*P.found.at(ov).row, "id");
+    else bad(o, "over: '" + ov + "' is neither a selection stored before it nor an input found");
+    if (d.contains("n_members")) st.n_members = d["n_members"].get<std::int64_t>();
+    if (d.contains("members_skipped")) st.members_skipped = d["members_skipped"].get<std::int64_t>();
+  }
   if (spec.contains("partition")) {
     const Json& p = spec["partition"];
     if (!d.contains("tiling")) bad(o, "declares a partition; its node describes no tiling");

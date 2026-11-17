@@ -86,7 +86,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --channels-of	KERNEL	Use the channels of this stored inverse kernel, in its order, for the cross-spectrum; an alternative to --types.	none (all good channels of the chosen types)	-
 --chunks	K|A-B|all	Which part of the recording to read: one chunk K, a range of chunks A-B, or all chunks looped one after another (a chunk is 2^15 samples of every channel). Exclusive with --start/--stop.	0 (one chunk)	chunks
 --combine	each|pool|mean	How values are combined before summarising: each row separately, all rows pooled, or the mean over rows per member	each	-
---combine@run statistic	each|pool|mean	How values are combined before summarising: each row (channel or vertex) separately, every value of every row pooled, or the mean over rows per member.	each	-
 --condition	NAME	The Brainstorm condition to import.	none	-
 --condition@import condition	NAME	The condition (acquisition) of the protocol to import; it is stored as a session of the subject.	required	-
 )TBL",
@@ -107,7 +106,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --datastore@delete dataset	PATH	The folder that holds the folder of the dataset to delete (its parent).	required	-
 --datastore@list datasets	DIR	The folder that holds the dataset folders to list.	required	-
 --ddof	N	Delta degrees of freedom: the standard deviation divides by n minus this number (1 matches MATLAB's std).	1	-
---ddof@run statistic	N	Delta degrees of freedom: the standard deviation divides by n minus this number (1 is MATLAB's std).	1	-
 --default	NAME	The template resolution used for the dataset's default subject (needs --templates).	fsaverage5	-
 --default@create dataset	NAME	The subject of the --templates folder (the template resolution) that becomes the dataset's default subject; needs --templates.	fsaverage5	-
 --defects	keep|exclude	keep: use every edge of the mesh in the weighted fit; exclude: give zero weight to folded or very short edges (needs --spatial-band)	keep	-
@@ -255,14 +253,12 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --max-value	X	Keep only rows with a value at or below X	none	measure units
 --max-value@query measurements	X	Keep only rows whose rolled-up value is at most this.	none	measure's unit
 --measure	NAME	The measure to summarise or read (e.g. mean, max, power_sum).	none (required)	-
---measure@run statistic	NAME	The stored measure to summarise across the members (e.g. mean, mean_square, amplitude); a derived measure is refused.	required	-
 --measure@query measurements	NAME	The measure to read, e.g. a stored measure of the pyramid or one derived from its sums.	required	-
 --measures	NAME,...	Which measures to compute per member: mean, max, min, mean_square, abs_max, sum.	mean, max, min, mean_square, abs_max	-
 --measures@run measure	NAME,...	Which measures to compute per member: mean, max, min, mean_square, abs_max, sum (with --over: mean, mean_square, max, min, abs_max; the sample count is always stored).	mean, max, min, mean_square, abs_max (with --over: mean, mean_square, max, min)	-
 --meg	overlapping|single|none	MEG head model: per-sensor overlapping spheres, one single sphere, or no MEG channels	overlapping	-
 --meg-surface	NAME	Name of the surface the MEG spheres are fitted to.	the surface called inner skull	-
 --members-own		The measure is the members' own (area, number of elements or tiles); --of then names its parent.	off	-
---members-own@run statistic		The measure is the members' own (area, number of elements or tiles), a property of the partition and not of a field; --of then names its parent.	off	-
 --method	NAME	constantq: hertz (octave edges on powers of two in Hz) or cycles (fixed cycle count); opticalflow: pcg, direct or perscale solver	constantq: hertz; opticalflow: pcg	-
 --method@run constantq	hertz|cycles	How the windows are anchored: octave edges on powers of two in Hz (hertz, capped at 64 Hz), or a fixed number of cycles per window (cycles).	hertz	-
 --method@run opticalflow	pcg|direct|perscale	Solver: pcg (preconditioned conjugate gradients), direct (exact solve, for parity with the reference) or perscale (one flow per spatial scale).	pcg	-
@@ -297,7 +293,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
 --name@run repeat	NAME	Name the repeat result is stored under.	derived from the two recording names (plus the stage when not the first)	-
 --name@run scaleselection	NAME	Name of the cross-pair events' Selection	<recording>_scale_selection	-
---name@run statistic	NAME	Name of the stored statistic.	<of>_<measure>_<over>	-
 --name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
 --name@delete dataset	NAME	Name of the dataset's folder to delete, inside the folder given by --datastore	required	-
@@ -333,7 +328,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --normalize		Re-orthonormalise the eigenmodes afterwards (orthonormal in the mass matrix).	off	-
 --normalize@run eigenmodes		Make the modes orthonormal under the mass matrix after the solve (Cholesky whitening); the reference method does not.	off	-
 --of	NAME	The stored field, or band of a map statistic, that was measured	none (required)	-
---of@run statistic	NAME	What was measured: a stored field by name, or a band of a map statistic (<statistic>_<band>).	required	-
 --only	NAME	Import only this named anatomical image (repeatable).	all images	-
 --only@import mri	NAME	Import only this named anatomical image; repeat the option for several.	all images	-
 --order	N	Filters: Butterworth prototype order (the filter has 2N poles). Spatial band commands: degree of the Chebyshev series (0 chooses the smallest of 40, 80, ... 5120 within tolerance). measure query: sort order asc or desc of the rows.	filters 4; spatial 0 (automatic); measure query see the command's description	-
@@ -348,7 +342,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --over@run measure	NAME	Measure over a time partition instead of a surface one: a constant-Q ladder (with --level) or a spans tiling such as the chunk grid; the result is a time-resolved field.	none (a surface partition is measured)	-
 --over@run null	NAME	The tile level Selection the crossings were measured over	the one the recordings have	-
 --over@run repeat	NAME	The tile-level partition both recordings were measured over.	the one both recordings have (several is refused)	-
---over@run statistic	NAME	The partition measured over, by name: a stored selection whose members were measured (a parcellation, a level of a time ladder).	required	-
 --overlap	FRACTION	Fraction by which successive Welch segments overlap.	0.5 (the Brainstorm option set)	fraction
 --overlap@run quadrature	F	Fraction of a Welch segment shared with the next; under --set tiles the hop must also be a tile (0, 0.5, 0.75, ...).	0.5	fraction
 --oversample	X	Oversampling of each filterbank member's own sample rate.	2.0	-
@@ -502,7 +495,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --subjects@reduce pyramid	A,B,...	The member subjects whose group-tree pyramids are summed into the group result, by name.	required	-
 --summaries	LIST	Comma-separated summaries across the members, such as median, mad, percentile:75, mean, sd, peak, kurtosis, skewness, min, max	statistic: none (required); patches: count,sum,median,mean,sd,percentile:25,percentile:75,percentile:90	-
 --summaries@run patches	A,B,...	The statistics taken across the patches, e.g. count, sum, median, mean, sd, percentile:25.	count,sum,median,mean,sd,percentile:25,percentile:75,percentile:90	-
---summaries@run statistic	LIST	Comma-separated summaries across the members: median, mad, percentile:P, mean, sd, peak, kurtosis, skewness, min, max.	required	-
 --summary		Print a one-line summary of the scan.	off	-
 --summary@import scan		Print a one-line summary (kind, root, counts) instead of the whole view.	off	-
 --surface	NAME	Surface to work on, by name.	the primary (cortex) surface (joint, scaleselection: the one the joint partitions use)	-
@@ -602,7 +594,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run scaleselection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run pyramid	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run measure	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run statistic	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run spatialnull	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run null	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run repeat	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1342,13 +1333,6 @@ group: Measurements
 summary: Stored fields measured over a partition's members, with their recipe.
 span: yes
 opts: --chunks --dataset* --fields* --gradient --labelling --level --measures --over --recipe --replace --start --stop --subject* --weight --templates+
-)TBL",
-R"TBL(@ run statistic
-old: statistic compute
-alias: refused
-group: Measurements
-summary: A stored measurement summarised over its partition's members.
-opts: --combine --dataset* --ddof --measure* --members-own --name --of* --over* --replace --subject* --summaries* --templates+
 )TBL",
 R"TBL(@ run spatialnull
 old: spatialnull compute

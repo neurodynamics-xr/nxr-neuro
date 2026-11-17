@@ -19,6 +19,7 @@
 #include "nxr/pipelines/registry.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/scalespace.h"
+#include "nxr/stats.h"
 
 namespace nxr::pipelines::graph {
 
@@ -323,11 +324,73 @@ StepSpec wishart_step() {
   return s;
 }
 
+
+// ── summarize ───────────────────────────────────────────────────────────────────────────────────────────────────
+// A STATISTIC OF MEASUREMENTS OVER A SELECTION'S MEMBERS (the hand-wired `statistic compute` it replaces): the values of a measure over the members (of a field, of a band of a map
+// statistic, or the members' own: area, n_elements), summarised per row (`each`), pooled, or as the mean of the rows' (`mean`): mean, sd, median, percentiles, ... (nxr::stats).
+struct SummaryState { Value over; std::optional<Value> of; Json p; };
+StepSpec summarize_step() {
+  StepSpec s;
+  s.name = "summarize";
+  s.kind = "setup";
+  s.inputs = {"over", "of"};
+  s.optional = {"of"};
+  s.outputs = {"statistic"};
+  s.parameters = Json{{"measure", nullptr}, {"of_slice", nullptr}, {"summaries", Json::array({"mean", "sd"})}, {"combine", "each"}, {"ddof", 1}, {"own", false}};
+  s.matches = "nxr.stats summaries; compute nxr::stats::summarizeRows";
+  s.description = "the summaries of a measure's values over a selection's members, per row, pooled or as the mean of the rows'";
+  s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored measurements");
+  s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
+    if (!ins.count("over")) refuse("summarize: over is the selection whose members are summarised");
+    if (!p["measure"].is_string()) refuse("summarize: measure names the measure summarised");
+    const std::string c = p.value("combine", std::string("each"));
+    if (c != "each" && c != "pool" && c != "mean") refuse("summarize: combine is each, pool or mean");
+    if (p.value("ddof", 1) < 0) refuse("summarize: ddof is at least 0");
+    try { (void)nxr::stats::parseSummaries(p["summaries"].get<std::vector<std::string>>()); } catch (const std::exception& e) { refuse(std::string("summarize: ") + e.what()); }
+    return Values{{"statistic", statistic_value()}};
+  };
+  s.prepare = [](const Values& ins, const Json& p, ExecContext&) {
+    SummaryState st{ins.at("over"), std::nullopt, p};
+    if (ins.count("of")) st.of = ins.at("of");
+    return std::any(std::move(st));
+  };
+  s.run = [](const std::any& state, const Arrays&, ExecContext& ctx) {
+    const SummaryState& st = std::any_cast<const SummaryState&>(state);
+    const Json& p = st.p;
+    const std::vector<nxr::stats::Summary> sums = nxr::stats::parseSummaries(p["summaries"].get<std::vector<std::string>>());
+    const bool own = p.value("own", false);
+    const std::string measure = p["measure"].get<std::string>(), combine = p.value("combine", std::string("each"));
+    const int ddof = p.value("ddof", 1);
+    const std::optional<std::string> slice = p["of_slice"].is_string() ? std::optional<std::string>(p["of_slice"].get<std::string>()) : std::nullopt;
+    const std::optional<std::string> field = st.of && st.of->row && !own ? std::optional<std::string>(text(*st.of->row, "id")) : std::nullopt;
+    const nxr::io::MeasurementValues mv = ctx.bound.measurement_values(text(*st.over.row, "id"), field, own ? std::nullopt : slice, measure);
+    std::vector<std::int64_t> used;
+    const std::vector<double> out = nxr::stats::summarizeRows(mv.values, mv.rows, mv.members, sums, combine, ddof, &used);
+    const std::int64_t R = combine == "each" ? mv.rows : 1, S = static_cast<std::int64_t>(sums.size());
+    Json sjson = Json::array();
+    for (const auto& sm : sums) sjson.push_back(sm.name == "percentile" ? Json{{"name", "percentile"}, {"p", sm.p}} : Json{{"name", sm.name}});
+    std::int64_t least = mv.members;
+    for (const auto u : used) least = std::min(least, u);
+    Array a;
+    a.rows = R; a.cols = S;
+    a.data = out;
+    a.meta["describe"] = Json{{"measure", measure}, {"method", "summary"}, {"precision", "float64"}, {"unit", mv.unit ? Json(*mv.unit) : Json()}, {"n_members", mv.members},
+                              {"members_skipped", mv.members - least},
+                              {"axes", Json::array({Json{{"name", "row"}, {"size", R}}, Json{{"name", "summary"}, {"size", S}, {"values", sjson}}})},
+                              {"options", Json{{"summaries", sjson}, {"combine", combine}, {"ddof", ddof}, {"of_slice", slice ? Json(*slice) : Json()}, {"own", own}}},
+                              {"producer", Json{{"members_used", used}, {"array_backed", mv.array_backed}, {"computed_by", mv.computed_by}, {"unit_note", "the unit is the measurement's: kurtosis and skewness are unitless"}}},
+                              {"description", "the " + measure + " over the members of " + text(*st.over.row, "name") + ", summarised (" + combine + ")"}};
+    return Arrays{{"statistic", std::move(a)}};
+  };
+  return s;
+}
+
 }  // namespace
 
 void append_verb_steps(std::vector<StepSpec>& r) {
   r.push_back(pointspread_step());
   r.push_back(wishart_step());
+  r.push_back(summarize_step());
 }
 
 }  // namespace nxr::pipelines::graph

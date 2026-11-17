@@ -59,7 +59,6 @@ int phasegradient_main(const std::vector<std::string>& argv); // cli/meeg_comman
 int cyclepattern_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
 int quadrature_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
 int measure_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
-int statistic_main(const std::vector<std::string>& argv);      // cli/measure_command.cpp
 int patches_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
 int cellquadrature_main(const std::vector<std::string>& argv); // cli/measure_command.cpp
 int spatialnull_main(const std::vector<std::string>& argv);     // cli/measure_command.cpp
@@ -482,13 +481,6 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return run_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro run needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "statistic") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return statistic_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro statistic needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "pyramid") {
