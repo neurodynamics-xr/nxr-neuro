@@ -73,7 +73,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --bst-root@import map	DIR	The Brainstorm protocol folder the map files are read from, with the anatomy folders the maps' surfaces and atlases are found in.	required	-
 --bst-root@import surface	PATH	Root folder of the Brainstorm protocol, used to find the surface's registration and atlas files next to each --file.	none (empty)	-
 --bursts	NAME	Name of a stored set of burst time spans (wishart: required, each burst is tested; cellquadrature: optional, also computed per burst)	none	-
---bursts@run cellquadrature	NAME	Stored set of burst time spans on the recording's line; when given, quadrature is also computed per burst.	none (cells only)	-
 --centre	HZ	Centre frequency of the band from which the frame length is derived (the coarsest tower level whose frame is no longer than 1/(centre x frames-per-cycle)).	none	Hz
 --centres	HZ,...	Centre frequencies of the filterbank members (Morlet, Morse, Amor and Bump families); for Morlet, empty means the single member at --freq (opticalflow).	none	Hz
 --centres@run opticalflow	HZ,...	Centre frequencies of the filter-bank members (Morlet, Morse, Amor and Bump); for Morlet, empty means the single member at --freq.	none	Hz
@@ -92,7 +91,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given: scs (anterior +x, superior +z, left +y) or ras (anterior +y, superior +z, left -x).	scs	-
 --convention@run frames	scs|ras	Axes in which the surface's own coordinates are given: scs (anterior +x, superior +z, left +y) or ras (anterior +y, superior +z, left -x); used when no template is given.	scs	-
 --cross-spectrum	NAME	Name of the stored sensor cross-spectrum (from crossspectrum compute) to read.	none (required)	-
---cross-spectrum@run cellquadrature	NAME	Stored analytic cross-spectrum windows (<stem>_<band>_windows from crossspectrum compute --estimator analytic) to read; its tile level must match the joint's time level.	required	-
 --cross-spectrum@run cyclepattern	NAME	Name of the stored per-window sensor cross-spectrum series (<stem>_<band>_windows, from crossspectrum compute --estimator analytic) to read.	required	-
 --cycles	C	Cycles of the band's lowest frequency in each window (constantq) or wavelet width as centre frequency / C (speedspectrum, opticalflow)	constantq: set by --method (about 6.8 at 1200 Hz); speedspectrum, opticalflow: 6	cycles
 --cycles@run constantq	C	Cycles of a band's lowest frequency held by its window (window rounded up to a power of two of samples).	set by --method (hertz: about 6.83 at 1200 Hz; cycles: 8)	cycles
@@ -133,7 +131,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --eeg-series-terms	N	Number of terms of the multi-shell series when it is used instead of the three-dipole fit (with --eeg-series)	200	terms
 --eeg-surface	NAME	Name of the surface the EEG sphere is fitted to.	the surface called scalp (or head)	-
 --enter-sd	SD	A patch is kept when a tile reaches the median plus this many robust standard deviations of the map's tile means.	1.5	SD
---enter-sd@run patches	K	A patch must reach the median plus K robust standard deviations of the tile means.	1.5	SD
 --estimator	welch|analytic	How the sensor cross-spectrum is estimated: Welch segments, or the band's analytic signal summed per time tile (a series of windows)	welch	-
 --events	NAME	Name of the spatial-events pipeline whose stored statistics are tested against the null.	spatial_events	-
 --events@run spatialnull	NAME	The pipeline that named the data's stored events statistics (<NAME>.home.<recording>, <NAME>.summary.<recording>).	spatial_events	-
@@ -144,8 +141,7 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --exclude@export measurements	NAMES	Comma-separated members (by dictionary name) left out of the table	unassigned	-
 --exit-sd	SD	A patch extends over tiles at or above the median plus this many robust standard deviations	1.0	robust SD
 )TBL",
-R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or above the median plus K robust standard deviations.	1.0	SD
---extra-surface	FILE	An extra surface file to import with the condition (repeatable).	none	-
+R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (repeatable).	none	-
 --extra-surface@import condition	FILE	An additional surface file of the subject's anatomy to import with the condition; repeat the option for several.	none	-
 --family	NAME	Family of the time filter bank: itersine, meyer, morlet, morse, amor or bump (opticalflow: see the command's description for the accepted names).	none (required)	-
 --family@run opticalflow	itersine|meyer|morlet|morse|amor|bump	Family of the time filter bank that band-passes the recording to the analysed band.	required	-
@@ -205,13 +201,11 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --input@run opticalflow	amplitude|signed	Map the flow is computed on: the source amplitude |J| of the kernel applied to the band's complex coefficients, or the signed band signal itself (fixed-orientation kernels only).	amplitude	-
 --joint	NAME	Name of the stored joint space-time partition to use	the one for the cross-spectrum's recording, the space level and its tile level	-
 --joint-types		Whiten the channel types of a modality (e.g. magnetometers with gradiometers) together, keeping their cross-covariance, instead of one block per type.	off	-
---joint@run cellquadrature	NAME	Stored joint space-time partition whose cells are measured.	the one for the cross-spectrum's recording, this space level and its tile level	-
 --keep-all		Keep every member in the table, including those excluded by default.	off	-
 --keep-all@export measurements		Keep every member in the table, including the default excluded one (clears --exclude)	off	-
 --keep-bad-segments		Keep the recording's bad segments in the computation instead of leaving them out	off	-
 --keep-bad-segments@run pyramid		Keep the recording's bad segments in the sums instead of leaving them out.	off (bad segments are left out)	-
 --kernel	NAME	Name of the stored inverse kernel (the map from channels to sources) to apply.	the subject's only kernel	-
---kernel@run cellquadrature	NAME	Name of the stored inverse kernel (free or fixed orientation) with the spatial band folded in.	the subject's only kernel	-
 --kernel@run cyclepattern	NAME	Name of the stored free-orientation inverse kernel that maps the cross-spectrum to sources.	the subject's only kernel	-
 --kernel@run opticalflow	NAME	Name of the stored inverse kernel that maps the channels to sources on the cortex.	the subject's only kernel	-
 --kernel@run pyramid	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
@@ -230,7 +224,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --level	L	A level (patches: the tile-ladder level whose spatial band is used; crossspectrum, cyclepattern: the window tile level, windows of 2^L samples; measure compute: the level of a constant-Q time ladder).	none (required for patches; otherwise see the command's description)	level
 --level@run cyclepattern	L	Time-tile level of the windows, 2^L samples (at least the stored level); the stored tiles are rolled up to it. Alternative to --window-seconds.	none (--window-seconds applies)	level
 --level@run measure	L	Level of the constant-Q time ladder named by --over; used only with --over.	none (required for a ladder)	level
---level@run patches	LEVEL	The ladder level (tiles of 2^LEVEL per piece) whose Weyl band is the map's filter; the ladder must exist.	required	level
 --levels	L,...	Spatial tile levels of the scale space the blur is measured over.	2,3,4,5,6,7,8	levels
 --limit	N	Maximum number of rows returned	none	rows
 --limit@query measurements	N	The most rows to return.	none (all rows)	rows
@@ -240,9 +233,7 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --line@run constantq	NAME	A time line of the subject, by name, to make the ladder for (alternative to --recording and --all).	none	-
 --list	V,V,...	run: list the available pipeline definitions and their steps (flag); pointspread: native vertex indices to use as the source sample instead of --vertices	run: off; pointspread: none	-
 --map	NAME	The stored cortical map (a scalar per vertex of a surface) in which patches are sought.	none (required)	-
---map@run patches	NAME	The stored field to find patches in: one scalar per vertex of a surface, all finite.	required	-
 --max-area	M2	Largest patch area kept; larger patches are dropped.	none	m^2
---max-area@run patches	AREA	The largest patch kept.	none	m2
 --max-condition	C	Canonical frames: a vertex whose push-forward Jacobian has a condition number above C is treated as singular	50	-
 --max-condition@run frames	C	Canonical frames: a vertex whose push-forward Jacobian has a condition number above C is treated as singular.	50	-
 --max-draws	N	Largest number of null draws.	100	draws
@@ -264,7 +255,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --method@run opticalflow	pcg|direct|perscale	Solver: pcg (preconditioned conjugate gradients), direct (exact solve, for parity with the reference) or perscale (one flow per spatial scale).	pcg	-
 )TBL",
 R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
---min-area@run patches	AREA	The smallest patch kept.	none	m2
 --min-crossings	N	Minimum number of crossings a tile needs (in both runs for repeat) to be tested.	10	crossings
 --min-crossings@run null	N	A tile counts only with at least this many crossings	10	crossings
 --min-draws	N	Smallest number of null draws made before early stopping may decide a tile or vertex	20	draws
@@ -279,9 +269,7 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --mne		Use MNE-Python's conventions for the kernel: joint types, ridge over the rank, PCA whitener, depth exponent 0.8 by the spectral norm.	off	-
 --mne-eeg-layers		Use MNE-Python's EEG sphere layers and conductivities instead of the default three-shell layers.	off	-
 --modes	K	Number of Hodge-Dirac eigenmodes (eigen solve, dataset create: how many to solve; pointspread, cellquadrature, patches: size of the package when it must be computed, 0 = standard; speedspectrum, hodgepower: use the first K of the stored package)	eigen solve: 3000; dataset create: none; speedspectrum, hodgepower: all; pointspread, cellquadrature, patches: 0	modes
---modes@run cellquadrature	K	Size of the Hodge-Dirac eigenmode package when it must be computed for the spatial band (0 = standard size).	0	modes
 --modes@run eigenmodes	K	About this many positive Hodge-Dirac modes are kept, half exact and half coexact.	3000	modes
---modes@run patches	N	When the eigenmodes are computed, how many (more if the band needs it); 0 is the standard 3000.	0	-
 --modes@create dataset	K	Solve the default subject's pial Hodge-Dirac eigenmode basis with about this many modes and store it; needs --templates.	none (no basis is solved)	modes
 --mollify	X	Mollification margin of the intrinsic Delaunay construction (Sharp and Crane), relative to the mean edge length; 0 means no margin.	1e-6	relative
 --mollify@run eigenmodes	D	Mollification margin of the intrinsic Delaunay construction, as a fraction of the mean edge length (0 = no margin).	1e-6	fraction
@@ -329,8 +317,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --only	NAME	Import only this named anatomical image (repeatable).	all images	-
 --only@import mri	NAME	Import only this named anatomical image; repeat the option for several.	all images	-
 --order	N	Filters: Butterworth prototype order (the filter has 2N poles). Spatial band commands: degree of the Chebyshev series (0 chooses the smallest of 40, 80, ... 5120 within tolerance). measure query: sort order asc or desc of the rows.	filters 4; spatial 0 (automatic); measure query see the command's description	-
---order@run cellquadrature	N	Degree of the Chebyshev series for the spatial band (0 picks the smallest of 40, 80, ... 5120 within --tolerance).	0	-
---order@run patches	N	Chebyshev: the series degree; 0 is the smallest of 40, 80, ... 5120 that follows the band's gain within --tolerance.	0	-
 --order@query measurements	asc|desc	Order the rows by value, ascending or descending.	by code	-
 --out	PATH	Output file (convert scan: the scan result written as a file) or output folder (measure export: where the table is written, made if absent).	none (measure export: required)	-
 --out@export measurements	PATH	Folder the tables, the provenance file and the dictionary are written to (created if absent)	required	-
@@ -441,7 +427,6 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --sigma	S	Absolute shift of the eigenvalue solve (with --shift absolute).	-0.001	1/m^2
 --sigma@run eigenmodes	S	The absolute shift of the shift-invert solve (only with --shift absolute).	-1e-3	-
 --sign	positive|negative|magnitude	Which tile means form patches: high values, low values, or absolute value	positive	-
---sign@run patches	positive|negative|magnitude	Which tile means the thresholds apply to: high values (bumps), low values (dips) or absolute values.	positive	-
 --signal	normal|ambient	Signal whose phase gradient is taken: ambient (the full current, its x y z components) or normal (the component along the surface normal).	ambient	-
 --slice	N	Use spectrum slicing with windows of N modes; 0 means one solve.	0 (none)	modes
 --slice@run eigenmodes	N	Spectrum slicing: solve in windows of N modes, each with its own shift; 0 means one solve per ladder.	0 (no slicing)	modes
@@ -457,7 +442,6 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --source-tool@create dataset	NAME	Records the tool that produced the source data, in the dataset's provenance.	none	-
 --source@run scaleselection	NAME	The pipeline whose stored labellings, cells and baselines are read	cortical_event_pairs	-
 --space-level	L	Level of the surface's tile ladder that gives the spatial tiles (-1 on measure query: the whole cortex).	measure query: the stored depth; others none (required)	level
---space-level@run cellquadrature	L	Level of the surface's tile ladder; its Weyl band is the spatial band and its tiles the spatial cells.	required	level
 --space-level@query measurements	LEVEL	The spatial level the cells are rolled up to (at most the stored depth; -1 is the whole cortex).	the stored depth	level
 --space-levels	L,...	Spatial tile levels of the surface to select over (all combinations with --time-levels).	none (required)	levels
 --space-levels@run scaleselection	LEVELS	Comma-separated surface tile levels; the pairs are all space levels times time levels	required	level
@@ -488,7 +472,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --subjects@export measurements	NAMES	Comma-separated subjects to include	every subject of the dataset	-
 --subjects@reduce pyramid	A,B,...	The member subjects whose group-tree pyramids are summed into the group result, by name.	required	-
 --summaries	LIST	Comma-separated summaries across the members, such as median, mad, percentile:75, mean, sd, peak, kurtosis, skewness, min, max	statistic: none (required); patches: count,sum,median,mean,sd,percentile:25,percentile:75,percentile:90	-
---summaries@run patches	A,B,...	The statistics taken across the patches, e.g. count, sum, median, mean, sd, percentile:25.	count,sum,median,mean,sd,percentile:25,percentile:75,percentile:90	-
 --summary		Print a one-line summary of the scan.	off	-
 --summary@import scan		Print a one-line summary (kind, root, counts) instead of the whole view.	off	-
 --surface	NAME	Surface to work on, by name.	the primary (cortex) surface (joint, scaleselection: the one the joint partitions use)	-
@@ -522,7 +505,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --tile-max-level@run opticalflow	L	Highest tile level of the summaries when --tile-levels is not given; needs --tiles.	6	level
 --tile-max-level@run quadrature	L	With --tiles: the finest level summarised when --tile-levels is not given.	6	level
 --tile-pairs	on|off	Also compute the blocks between touching tiles (waves crossing from one tile into the next)	on	-
---tile-pairs@run cellquadrature	on|off	Also compute the blocks between touching tiles, so a wave running from one tile into the next is captured.	on	-
 --tiles		Also write the maps' tile summaries per level of the tile ladder.	off	-
 --tiles@run opticalflow		Also write the maps' tile summaries per level of the tile ladder (scalars area-weighted, vectors in the frame and Levi-Civita forms).	off	-
 --tiles@run quadrature		Also write the maps' tile summaries per ladder level (scalars area-weighted, vectors in the canonical frame and the Levi-Civita form).	off	-
@@ -537,13 +519,9 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --to	HZ	The sampling rate to resample to (import resample).	none	Hz
 --to@import resample	HZ	The new sampling rate; the recording is resampled by a polyphase filter (scipy resample_poly)	required	Hz
 --tolerance	T	lowpass, notch: IIR look-behind tail left out, relative to the response's L1 norm; pointspread, cellquadrature, patches: largest gain error accepted for the Chebyshev series; opticalflow: tail of the filters' impulse response the margin may leave out	filters: 1e-15; pointspread, cellquadrature, patches: 0.01; opticalflow: from the recording	-
---tolerance@run cellquadrature	T	Largest gain error accepted for the Chebyshev series of the spatial band.	0.01	-
 --tolerance@run opticalflow	X	Impulse-response tail the filter bank's margin may leave out, relative to its norm.	derived from the recording's stored precision (1e-7 float32, 1e-12 float64)	-
 )TBL",
-R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the band's gain and the series that is accepted; a worse fit is refused.	0.01	fraction
---transform	auto|eigen|chebyshev|exact	How the spatial band is applied: auto (stored eigenmodes; else computed, else Chebyshev announced), eigen, chebyshev (series in the pencil) or exact (dense modes, at most 4096 vertices).	auto	-
---transform@run cellquadrature	auto|eigen|chebyshev|exact	How the spatial band is applied: stored eigenmodes first (auto), eigen, a Chebyshev series, or exact dense modes.	auto	-
---transform@run patches	auto|eigen|chebyshev|exact	The spatial transform: stored eigenmodes (computed if absent), eigenmodes, a Chebyshev series, or dense modes of the mesh (up to 4096 vertices).	auto	-
+R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: auto (stored eigenmodes; else computed, else Chebyshev announced), eigen, chebyshev (series in the pencil) or exact (dense modes, at most 4096 vertices).	auto	-
 --transient-samples	K	Number of samples at each edge treated as the filter transient (instead of the shortest span holding 99 percent of the impulse response's energy).	from the energy rule	samples
 --transition	HZ	Width of each transition band of the FIR filter	the reference's rule (Brainstorm)	Hz
 --home-dataset	NAME	The name of the dataset a package is made for (provenance, not membership).	none (required)	-
@@ -583,8 +561,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run cellquadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run patches	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run scaleselection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run pyramid	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run measure	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -689,7 +665,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --weight	none|barycentric|voronoi	How the vertices of each member are weighted (measure compute: none is the plain vertex mean, barycentric or voronoi weight by area); phasegradient: power|coherence, the edge weight of a weighted fit.	measure compute: none, must be given; phasegradient: power	-
 --weight@run measure	none|barycentric|voronoi	How the vertices of each member are weighted: none is the plain vertex mean, barycentric or voronoi weight by area; not used with --over.	required unless --over is given	-
 --weights	area|none	cellquadrature: weight vertices by their area or equally; crossspectrum read: weight the delay and phase-slope fits by coherence or not	cellquadrature: area; crossspectrum read: coherence	-
---weights@run cellquadrature	area|none	Weight each vertex of a tile by the area it stands for, or count all vertices equally.	area	-
 --weights@read crossspectrum	coherence|none	For --reading delay: weight each frequency bin of the phase-slope fit by its squared coherency, or count every bin equally.	coherence	-
 --whitener-form	symmetric|pca	Form of the noise whitener: symmetric or PCA.	symmetric	-
 --window	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming (default and brainstorm sets); hann (scipy set)	-
@@ -1289,20 +1264,6 @@ group: Cortical flow and patterns
 summary: Optical flow (Horn-Schunck) of the source estimate: where and how fast the activity moves.
 span: yes
 opts: --alpha --anchor --centres --chunks --cycles --datafit --dataset* --depth --family --flow-tolerance --frame-level --freq --gain --gamma --half-width --input --kernel --limits --max-iterations --method --name --no-levi-civita --oversample --package --preconditioner --recording* --regulariser --replace --resolution --scale-family --scale-filters --scale-voices --start --start-s --stop --subject* --tile-levels --tile-max-level --tiles --time-bandwidth --tolerance --voices --templates+
-)TBL",
-R"TBL(@ run cellquadrature
-old: cellquadrature compute
-alias: refused
-group: Cortical flow and patterns
-summary: Quadrature (travelling vs standing) per joint cell and per burst, from the stored cross-spectrum.
-opts: --bursts --cross-spectrum* --dataset* --joint --kernel --modes --order --replace --space-level* --subject* --tile-pairs --tolerance --transform --weights --templates+
-)TBL",
-R"TBL(@ run patches
-old: patches compute
-alias: refused
-group: Cortical flow and patterns
-summary: Patches on a static cortical map: where it stands out from its surroundings, at the size of its tiles.
-opts: --dataset* --enter-sd --exit-sd --level* --map* --max-area --min-area --modes --order --replace --sign --subject* --summaries --tolerance --transform --templates+
 )TBL",
 R"TBL(@ run scaleselection
 old: scaleselection compute

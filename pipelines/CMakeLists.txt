@@ -67,14 +67,11 @@ add_library(nxr_pipelines
   src/spectral_record.cpp
   src/reading.cpp
   src/measure_time.cpp
-  src/statistics.cpp
-  src/patches.cpp
   src/spatial_band.cpp
   src/joint.cpp
   src/frame_tiling.cpp
   src/pyramid.cpp
   src/group.cpp
-  src/cellquadrature.cpp
   src/scaleselection.cpp
   src/tiles.cpp
   src/face.cpp
