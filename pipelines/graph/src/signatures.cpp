@@ -552,6 +552,56 @@ Signature s_lagfree_surrogate() {
       });
 }
 
+// ── the gauge (G5): pointwise conversions between a gauge, a frame and the embedded form (spec docs/specs/2026-11-17-geometry-central-switch.md, section 5.3)
+// frame.rotate(x, to): a tangent value of spin k in gauge g, rotated by e^(-i k to) where `to` is the angle of the target reference in g (e.g. north's gauge angle).
+// Its output is in a FRAME, not in a gauge: its gauge id is "frame(<id of to>)@<g>", which no operator built in g accepts (insert nothing: recompute in g).
+Signature s_frame_rotate() {
+  return sig(Move::pointwise)
+      .in("x", field({M, T}).streamed().value(VT::complex).because("A tangent value is rotated in its complex form."))
+      .in("to", field({M}).value(VT::real).because("`to` is the angle (radians) of the target reference measured in the gauge of x, one per element (e.g. <surface>_canonical_gauge_angle)."))
+      .out("y", like("x"))
+      .refine([](Unified& u, const Json& p) {
+        const PortType& x = u.type("x");
+        const PortType& to = u.type("to");
+        if (to.spin != 0) u.fail("to", "is a tangent value (spin " + std::to_string(to.spin) + "); an angle is a scalar (spin 0).");
+        const int want = p.contains("spin") && p["spin"].is_number_integer() ? p["spin"].get<int>() : 0;
+        if (x.spin == 0 && want == 0) u.fail("x", "has no spin: it is a plain complex scalar, which a change of frame leaves as it is. Name its spin (a tangent vector 1, a line field 2) as the parameter `spin` only when it is one.");
+        if (x.spin != 0 && want != 0 && want != x.spin) u.fail("x", "is spin " + std::to_string(x.spin) + " and the parameter spin is " + std::to_string(want) + ": the input's own spin is the rotation's.");
+        PortType& y = u.out.at("y");
+        y.spin = x.spin != 0 ? x.spin : want;
+        y.gauge = "frame(" + id_of(u, "to") + ")@" + (x.gauge.empty() ? std::string("(none)") : x.gauge);
+      });
+}
+// frame.embed(x, grid): z = a + ib at a vertex becomes a e1 + b e2, the embedded 3-vector: gauge-free (spin 0, no gauge). `grid` is the surface's vertexGrid (e1 + i e2), in x's gauge.
+Signature s_frame_embed() {
+  return sig(Move::pointwise)
+      .in("x", field({M, T}).streamed().value(VT::complex).because("A tangent vector in its complex form."))
+      .in("grid", field({M}).value(VT::complex).because("`grid` is the surface's vertexGrid (e1 + i e2 per vertex) in the gauge of x."))
+      .out("y", like("x").with_value(VT::vector3))
+      .refine([](Unified& u, const Json&) {
+        const PortType& x = u.type("x");
+        const PortType& g = u.type("grid");
+        if (x.spin != 1) u.fail("x", "is spin " + std::to_string(x.spin) + "; only a tangent vector (spin 1) is embedded as a 3-vector.");
+        if (g.spin != 1) u.fail("grid", "must be the gauge's grid (spin 1), it is spin " + std::to_string(g.spin) + ".");
+        PortType& y = u.out.at("y");
+        y.spin = 0; y.gauge.clear(); y.components = 3; y.complex_parts = false; y.rows = x.rows * 3;
+      });
+}
+// frame.project(x, grid): the inverse on the tangent plane: z = (v . e1) + i (v . e2), a spin-1 value in the grid's gauge.
+Signature s_frame_project() {
+  return sig(Move::pointwise)
+      .in("x", field({M, T}).streamed().value(VT::vector3).because("An embedded 3-vector, one per vertex."))
+      .in("grid", field({M}).value(VT::complex).because("`grid` is the surface's vertexGrid (e1 + i e2 per vertex); the result is in its gauge."))
+      .out("y", like("x").with_value(VT::complex))
+      .refine([](Unified& u, const Json&) {
+        const PortType& x = u.type("x");
+        const PortType& g = u.type("grid");
+        if (g.spin != 1) u.fail("grid", "must be the gauge's grid (spin 1), it is spin " + std::to_string(g.spin) + ".");
+        PortType& y = u.out.at("y");
+        y.spin = 1; y.gauge = g.gauge; y.components = 1; y.complex_parts = false; y.rows = x.rows / 3;
+      });
+}
+
 const std::map<std::string, Signature>& table() {
   static const std::map<std::string, Signature> t = [] {
     std::map<std::string, Signature> m;
@@ -586,6 +636,9 @@ const std::map<std::string, Signature>& table() {
     m["tile_crossings"] = s_tile_crossings();
     m["power_series"] = s_power_series();
     m["lagfree_surrogate"] = s_lagfree_surrogate();
+    m["frame.rotate"] = s_frame_rotate();
+    m["frame.embed"] = s_frame_embed();
+    m["frame.project"] = s_frame_project();
     for (const auto& [name, s] : m) s.validate(name);
     return m;
   }();

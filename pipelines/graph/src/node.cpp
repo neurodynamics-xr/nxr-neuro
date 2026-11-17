@@ -1,5 +1,6 @@
 // nxr-graph — the nodes' declarations: names for the traits, the trait check, and the registry of nodes (node.h).
 #include "nxr/graph/node.h"
+#include "nxr/graph/frame_nodes.h"
 
 #include <algorithm>
 #include <set>
@@ -146,7 +147,7 @@ const NodeSpec& Registry::at(const std::string& name) const {
   refuse(msg);
 }
 Registry& registry() {
-  static Registry r;
+  static Registry r = [] { Registry x; register_frame_nodes(x); return x; }();
   return r;
 }
 

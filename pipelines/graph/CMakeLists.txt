@@ -8,6 +8,7 @@ if(NOT TARGET nlohmann_json)
 endif()
 add_library(nxr_graph
   src/node.cpp
+  src/frame_nodes.cpp
   src/types.cpp
   src/checker.cpp
   src/signatures.cpp
@@ -30,6 +31,9 @@ if(NXR_NEURO_BUILD_TESTS)
   add_executable(test_graph_types test/test_graph_types.cpp)
   target_link_libraries(test_graph_types PRIVATE nxr_graph)
   add_test(NAME test_graph_types COMMAND test_graph_types)
+  add_executable(test_graph_frames test/test_graph_frames.cpp)
+  target_link_libraries(test_graph_frames PRIVATE nxr_graph)
+  add_test(NAME test_graph_frames COMMAND test_graph_frames)
   add_executable(test_graph_moves test/test_graph_moves.cpp)
   target_link_libraries(test_graph_moves PRIVATE nxr_graph)
   add_test(NAME test_graph_moves COMMAND test_graph_moves)
