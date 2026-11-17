@@ -290,6 +290,17 @@ chunks and codecs exact), with the cache timed (642 vertices: 36 ms to solve and
 3. *(done, 2026-11-10)* The DEC accessors `d0(m)`, `d1(m)`, `hodge0..2(m)` follow the mesh option (the intrinsic Delaunay mesh by default); the intrinsic faces are `HodgeDirac::faces`.
 4. For large meshes, streaming (`eigenvectors` is held whole, [V × K] float32 plus the solver's float64 modes) — nxr writes 64 modes at a time.
 
+## Schema 53 and the measurement query (2026-11-17)
+
+- **One table for values over members.** `selection_measurement` holds every value over a selection's members (a scalar row, or an array-backed row `[rows x members x components]` for a value that is not a
+  scalar). The `statistic` table holds only values on axes that are not a selection's members; the task-level writer refuses a statistic with a member axis. `migrate_measurement_storage` (`migrate.h`) moves
+  an older dataset's per-member statistics into measurements; it copies, verifies, and removes nothing unless asked.
+- **Schema 53.** `selection_factor.level` (a product's factor may be a level of a stored grid), two query views (`member_value`, `product_factor_level`), `user_version` 53; a database at 50 to 52 is migrated in
+  place when opened to write and read as it is when opened to read. A line's time grid is one `ladder` row, its rule closed form (`selection::save_time_grid`).
+- **The query API** (`measurement_query.h`): filters (selection, member, level in physical units, subject or group, field, band, value) and roll-ups (a grid's closed-form hierarchy, one factor of a product,
+  the whole, across subjects) in SQL for scalar rows, and by the same rule in memory (`rollup.h`) for arrays. Each measure's merge rule (sum, max, min, a mean through its weights, never a median) is data in
+  `schema/measures.json` (`merge`), the one definition io and compute share; a derived measure is computed from its merged ingredients.
+
 ## Store format 51 (2026-11-14): standard Zarr, fewer files
 
 - **Writers use the chunk key separator `.`:** `c.0.1` in the array's own folder (no `c/0/` subfolders; a 100 MB array went from 49 files in 49 folders to 3 files in none).

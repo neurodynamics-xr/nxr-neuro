@@ -425,7 +425,7 @@ Json query_measurements(const Database& db, const Store& store, const Json& q) {
   };
   Cells out;
   std::vector<double> weight_node, weight_tile;
-  const rollup::Merge op = rollup::merge_of(measure);
+  const rollup::Merge op = measure_is_derived(measure) ? rollup::Merge::Sum : rollup::merge_of(measure);   // a derived measure has no merge of its own: its ingredients are merged (below)
   if (const auto c = rolled(measure, op)) {
     out = *c;
     if (joint) { weight_node = areas(); weight_tile = samples(); }
@@ -458,7 +458,7 @@ Json query_measurements(const Database& db, const Store& store, const Json& q) {
     std::map<std::string, Cells> got;
     for (const std::string& f : from) {
       const rollup::Merge mf = rollup::merge_of(f);
-      if (mf == rollup::Merge::Sum && measure_reduction(f) != "sum") throw Error(code::invalid_argument, "measurements: '" + measure + "' is derived from '" + f + "', which is a mean, not a sum: it is derived from stored sums only");
+      if (mf == rollup::Merge::Mean) throw Error(code::invalid_argument, "measurements: '" + measure + "' is derived from '" + f + "', which is a mean, not a sum: it is derived from stored sums only");
       const auto c = rolled(f, mf);
       if (!c) throw Error(code::no_such_row, "measurements: '" + measure + "' is derived from '" + f + "', which this selection holds no array-backed row of (for that field" + (band || spatial ? " and band" : "") + ")");
       got[f] = *c;

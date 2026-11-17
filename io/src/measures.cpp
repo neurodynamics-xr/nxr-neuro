@@ -109,9 +109,35 @@ bool measure_is_derived(const std::string& name) {
   const auto s = measure_spec(name);
   return s && !(*s)["derived_from"].is_null();
 }
+const char* merge_rule_name(MergeRule r) {
+  switch (r) {
+    case MergeRule::sum: return "sum";
+    case MergeRule::max: return "max";
+    case MergeRule::min: return "min";
+    case MergeRule::mean: return "mean";
+    case MergeRule::none: return "none";
+    case MergeRule::derived: return "derived";
+  }
+  return "sum";
+}
+MergeRule measure_merge(const std::string& name) {
+  if (const auto s = measure_spec(name)) {
+    const std::string m = (*s).value("merge", std::string());
+    for (const MergeRule r : {MergeRule::sum, MergeRule::max, MergeRule::min, MergeRule::mean, MergeRule::none, MergeRule::derived})
+      if (m == merge_rule_name(r)) return r;
+    throw Error(code::invalid_argument, "measure " + name + ": the registry gives it no merge rule (sum, max, min, mean, none or derived)");
+  }
+  if (name == "max" || (name.size() >= 4 && name.compare(name.size() - 4, 4, "_max") == 0)) return MergeRule::max;
+  return name == "min" ? MergeRule::min : MergeRule::sum;
+}
+Json measure_merge_table() {
+  Json t = Json::object();
+  for (const auto& m : measure_registry()["measures"]) t[m["name"].get<std::string>()] = m.value("merge", std::string());
+  return t;
+}
 std::string measure_reduction(const std::string& name) {
-  const auto s = measure_spec(name);
-  return s && (*s)["reduction"].is_string() ? (*s)["reduction"].get<std::string>() : "mean";
+  const MergeRule r = measure_merge(name);
+  return r == MergeRule::derived ? "mean" : merge_rule_name(r);
 }
 
 std::string ensure_measure_dictionary(Database& db, const std::optional<std::string>& by) {
