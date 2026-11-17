@@ -21,7 +21,6 @@
 #include <Eigen/Dense>
 
 #include "nxr/graph/node.h"
-#include "nxr/io/constant_q.h"
 #include "nxr/selection/constant_q.h"
 #include "nxr/meeg/covariance.h"
 #include "nxr/filter.h"

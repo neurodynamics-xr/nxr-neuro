@@ -1,6 +1,7 @@
 // Test helpers: the grids a test's fixture needs, made by the shipped MAKER DEFINITIONS through the runner (what `nxr-neuro run select_dyadic_surface` / `select_time_grid` / `select_bands` do). The hand-wired
 // tiles_compute, frame_tiling_compute, constant_q_write and pyramid_spatial_bands are gone: a fixture runs the maker by name, its parameters quantities (a band in Hz, a tile in mm, a count of parts).
 #pragma once
+#include "nxr/io/subject_api.h"
 #include <cstring>
 #include <optional>
 #include <string>
@@ -50,7 +51,7 @@ inline std::vector<nxr::io::Json> make_spatial_bands(nxr::io::DatasetWriter& ds,
 /** a stored map by name as [n x components] (a Field of n values per component, as the tests store them); nullopt when absent or not float/int */
 inline std::optional<Eigen::MatrixXd> stored_map(nxr::io::SubjectWriter& sub, const std::string& field_name, std::int64_t n) {
   using namespace nxr::io;
-  const auto f = find_field(sub.db(), sub.id(), FieldQuery{field_name, std::nullopt, std::nullopt, true});
+  const auto f = find_field(sub, FieldQuery{field_name, std::nullopt, std::nullopt, true});
   if (!f) return std::nullopt;
   ArrayReader r = ArrayReader::open(sub.store(), text(*f, "path"));
   const std::vector<std::uint8_t> raw = r.read();

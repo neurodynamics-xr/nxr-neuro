@@ -16,8 +16,9 @@ std::shared_ptr<const nxr::io::LinkedBlocks> link_of(const nxr::io::Json& produc
   return link.is_null() ? nullptr : nxr::convert::open_linked(link);
 }
 nxr::io::ChunkSource source_with(nxr::io::SubjectWriter& sub, const std::string& path, std::int64_t width, double sfreq, double t0, std::vector<std::int32_t> rows,
-                                 const std::optional<std::vector<std::pair<double, double>>>& bad, std::shared_ptr<const nxr::io::LinkedBlocks> linked) {
-  return nxr::io::ChunkSource(sub.store(), path, width, sfreq, t0, std::move(rows), bad, std::move(linked));
+                                 const std::optional<std::vector<std::pair<double, double>>>& bad, std::shared_ptr<const nxr::io::LinkedBlocks> linked,
+                                 nxr::io::ChunkSource::Reading reading = nxr::io::ChunkSource::Reading::samples) {
+  return nxr::io::ChunkSource(sub.store(), path, width, sfreq, t0, std::move(rows), bad, std::move(linked), reading);
 }
 }  // namespace
 
@@ -39,8 +40,7 @@ nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& 
 
 nxr::io::ChunkSource shape_source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& field, double sfreq, double t0, const std::optional<std::vector<std::pair<double, double>>>& bad) {
   const auto p = nxr::io::opt_text(field, "producer_json");
-  return nxr::io::ChunkSource(sub.store(), nxr::io::text(field, "path"), nxr::io::chunk_width(field), sfreq, t0, {}, bad, p ? link_of(nxr::io::Json::parse(*p, nullptr, false)) : nullptr,
-                              nxr::io::ChunkSource::Reading::shape);
+  return source_with(sub, nxr::io::text(field, "path"), nxr::io::chunk_width(field), sfreq, t0, {}, bad, p ? link_of(nxr::io::Json::parse(*p, nullptr, false)) : nullptr, nxr::io::ChunkSource::Reading::shape);
 }
 
 nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const task::Node& field, double sfreq, double t0, std::vector<std::int32_t> rows,

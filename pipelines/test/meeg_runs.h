@@ -2,6 +2,7 @@
 // handful of options the tests state and a result read back from what was stored (the gain and the kernel as the float32 arrays stored, the covariance as the stored statistic). The hand-wired
 // headmodel_compute, noisecov_compute and inverse_compute are gone; the parameters are the definitions'.
 #pragma once
+#include "nxr/io/subject_api.h"
 #include <cmath>
 #include <optional>
 #include <string>
@@ -109,7 +110,7 @@ inline NoiseCovResult noisecov_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   r.covariance.resize(M, M);
   for (std::int64_t i = 0; i < M; ++i) for (std::int64_t j = 0; j < M; ++j) r.covariance(i, j) = st.values[static_cast<std::size_t>(i * M + j)];
   if (const auto ch = sub.find("selection", name + "_channels"))
-    for (const std::int32_t c : nxr::io::selection::read_element_members(sub.db(), sub.store(), nxr::io::text(*ch, "id")).member_of) r.channels.push_back(c);
+    for (const std::int32_t c : nxr::io::selection::read_element_members(sub, nxr::io::text(*ch, "id")).member_of) r.channels.push_back(c);
   r.info = st.producer;
   r.info["samples"] = st.producer.value("n_samples", std::int64_t(0));
   r.info["blocks"] = st.row.count("n_members") ? nxr::io::integer(st.row, "n_members") : 1;

@@ -2,11 +2,8 @@
 cli/run_command.cpp
 pipelines/include/nxr/pipelines/cache.h
 pipelines/include/nxr/pipelines/runner.h
-pipelines/src/cache.cpp
-pipelines/src/eigen.cpp
 pipelines/src/group.cpp
 pipelines/src/input.cpp
-pipelines/src/measure.cpp
 pipelines/src/meeg.cpp
 pipelines/src/registration.cpp
 pipelines/src/runner.cpp
@@ -15,9 +12,6 @@ pipelines/test/test_burst_extent.cpp
 pipelines/test/test_global_bursts.cpp
 pipelines/test/test_measure_pipeline.cpp
 pipelines/test/test_package_pipelines.cpp
-pipelines/test/test_phasegradient.cpp
-pipelines/test/test_quadrature_pipeline.cpp
 pipelines/test/test_registration.cpp
 pipelines/test/test_runner_execute.cpp
 pipelines/test/test_runner_plan.cpp
-pipelines/test/test_spatial_bands.cpp

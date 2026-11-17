@@ -1,4 +1,5 @@
 // The runner's side of a node's needs (include/nxr/pipelines/bound.h): the reads a node used to make itself. Each method does exactly the read the node did.
+#include "nxr/io/subject_api.h"
 #include "nxr/pipelines/bound.h"
 #include "nxr/pipelines/task.h"
 
@@ -144,7 +145,7 @@ std::string Bound::coordinate_unit(const std::string& manifold_id) const { retur
 std::string Bound::coordinate_system_key(const std::string& manifold_id) const {
   const auto m = manifold(manifold_id);
   if (!m || io::is_null(*m, "geometry_id")) return {};
-  return io::coordinate_system_name_of_geometry(writer().db(), io::text(*m, "geometry_id")).value_or(std::string());
+  return io::coordinate_system_name_of_geometry(writer(), io::text(*m, "geometry_id")).value_or(std::string());
 }
 std::vector<std::uint8_t> Bound::medial_wall(const SurfaceInput& surface) const { return nxr::pipelines::medial_wall(writer(), surface); }
 GroupTemplate Bound::group_template(const std::string& surface_name) const {

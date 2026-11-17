@@ -152,7 +152,7 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     }
   } else if (s.rule == "chunks") {
     level_grid(15);                                                        // the chunk grid (io's chunk service: 2^15 samples)
-    s.snapped = Json{{"chunk_samples", s.width}};
+    s.snapped = Json{{"chunk_width", s.width}};
   } else if (s.rule == "windows") {
     const nxr::quantity::Quantity w = parse_q(p["window"], who, "window"), h = parse_q(p["step"], who, "step");
     need(w.unit == "s" && h.unit == "s", who + ": window and step are in seconds");

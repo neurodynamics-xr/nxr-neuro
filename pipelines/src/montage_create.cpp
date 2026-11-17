@@ -1,3 +1,4 @@
+#include "nxr/io/subject_api.h"
 #include "nxr/pipelines/montage_create.h"
 
 #include <cmath>
@@ -25,21 +26,21 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
   DatasetWriter w = open_package_writer(opt.package);
   std::string subject = opt.subject;
   if (subject.empty()) {
-    const auto rows = nxr::io::complete_subjects(w.db());
+    const auto rows = nxr::io::complete_subjects(w);
     if (rows.size() != 1) invalid("montage create: the package holds " + std::to_string(rows.size()) + " subjects: name one (--subject)");
     subject = text(rows[0], "name");
   }
   SubjectWriter sub = SubjectWriter::open(w, subject);
   // the scalp and the landmarks
   const SurfaceInput scalp = read_surface(sub, opt.scalp);
-  const auto lm_found = nxr::io::find_manifold(sub.db(), sub.id(), opt.landmarks, std::string("points"));
+  const auto lm_found = nxr::io::find_manifold(sub, opt.landmarks, std::string("points"));
   if (!lm_found) invalid("montage create: " + subject + " has no points manifold '" + opt.landmarks + "' (the nasion, LPA and RPA of the template)");
-  const auto lm_row = nxr::io::manifold_with_geometry(sub.db(), text(*lm_found, "id"));
+  const auto lm_row = nxr::io::manifold_with_geometry(sub, text(*lm_found, "id"));
   if (!lm_row) invalid("montage create: '" + opt.landmarks + "' has no geometry");
   if (integer(*lm_row, "n_vertices") != 3) invalid("montage create: '" + opt.landmarks + "' holds " + std::to_string(integer(*lm_row, "n_vertices")) + " points, not the nasion, LPA and RPA");
-  if (nxr::io::find_manifold(sub.db(), sub.id(), opt.name)) invalid("montage create: " + opt.name + " exists already");
+  if (nxr::io::find_manifold(sub, opt.name)) invalid("montage create: " + opt.name + " exists already");
   // the same coordinate system: the scalp's and the landmarks' (a landmark in another system is not the scalp's landmark)
-  const std::string scalp_cs = nxr::io::manifold_coordinate_system(sub.db(), scalp.id), lm_cs = nxr::io::manifold_coordinate_system(sub.db(), text(*lm_row, "id"));
+  const std::string scalp_cs = nxr::io::manifold_coordinate_system(sub, scalp.id), lm_cs = nxr::io::manifold_coordinate_system(sub, text(*lm_row, "id"));
   if (scalp_cs.empty() || lm_cs.empty()) invalid("montage create: the scalp or the landmarks have no coordinate system");
   if (scalp_cs != lm_cs) invalid("montage create: the scalp is in '" + scalp_cs + "' and the landmarks in '" + lm_cs + "': place them in one system first");
   const std::string cs_key = scalp_cs;
@@ -57,8 +58,8 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
   }();
   if (lp.size() != 9) invalid("montage create: '" + opt.landmarks + "' positions are not [3 x 3]");
   std::vector<std::string> names;
-  if (const auto lab = nxr::io::selection::labelling_row(sub.db(), sub.id(), opt.landmarks + "_names", text(*lm_row, "id")); lab && !opt_text(*lab, "dictionary_id").value_or("").empty())
-    for (const auto& [code_, name] : nxr::io::selection::lookup_names(sub.db(), text(*lab, "dictionary_id"))) names.push_back(name);
+  if (const auto lab = nxr::io::selection::labelling_row(sub, opt.landmarks + "_names", text(*lm_row, "id")); lab && !opt_text(*lab, "dictionary_id").value_or("").empty())
+    for (const auto& [code_, name] : nxr::io::selection::lookup_names(sub, text(*lab, "dictionary_id"))) names.push_back(name);
   if (names != std::vector<std::string>({"NAS", "LPA", "RPA"})) invalid("montage create: '" + opt.landmarks + "' names its points " + (names.empty() ? std::string("not at all") : names[0] + ",...") + ", not NAS, LPA, RPA in that order");
 
   nxr::montage::Landmarks L;
@@ -136,7 +137,7 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
   nxr::bst::labelling(sub, path + "_system", sys, {"10-20", "10-10", "10-05"}, so);
   // the origin: derived from the scalp's and the landmarks' records
   OriginRecord o;
-  const auto os = origin_of(w.db(), "manifold", scalp.id), ol = origin_of(w.db(), "manifold", text(*lm_row, "id"));
+  const auto os = origin_of(sub, "manifold", scalp.id), ol = origin_of(sub, "manifold", text(*lm_row, "id"));
   o.source = "computed by nxr-neuro (the 10-05 rule) on the scalp '" + opt.scalp + "' and the landmarks '" + opt.landmarks + "' of " + subject;
   if (os && ol) {
     o.licence = os->licence == ol->licence ? os->licence : os->licence + "; " + ol->licence;
@@ -146,7 +147,7 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
     o.licence = "unknown";
     o.attribution = "unknown";
   }
-  set_origin(w.db(), "manifold", mid, o);
+  set_origin(w, "manifold", mid, o);
   sub.complete();
   Json info = Json{{"name", opt.name}, {"points", n}, {"systems", counts}, {"inion", inion_info}, {"landmark_shift", shift}, {"cz_iterations", P.iterations}, {"cz_residual", P.cz_residual}, {"cs_key", cs_key}, {"warnings", warnings}, {"origin", Json{{"licence", o.licence}, {"redistributable", o.redistributable}}}};
   return MontageCreateResult{info};

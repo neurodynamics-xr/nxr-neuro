@@ -1,5 +1,6 @@
 // nxr-pipelines — what a face asks (face.h). The command line's own calls (runner.h run, listing.h, io's catalogue and task API) made from a JSON
 // description of the arguments, so the Python wheel and the MATLAB binding hold no logic of their own.
+#include "nxr/io/subject_api.h"
 #include "nxr/pipelines/face.h"
 
 #include <algorithm>
@@ -310,7 +311,7 @@ Json measurement_query(const fs::path& dataset, const std::string& subject, cons
   if (q.to) {
     const auto [to_level, snapped] = level_for(*q.to, grid);
     const int from_level = grid.value("level", grid.value("depth", 0));
-    const nxr::selection::Selection grid_selection = nxr::pipelines::made(nxr::io::selection::load(sub.db(), sub.store(), sel->id).description);
+    const nxr::selection::Selection grid_selection = nxr::pipelines::made(nxr::io::selection::load(sub, sel->id).description);
     const nxr::selection::Elements groups = grid.value("kind", std::string()) == "product" && q.factor
                                                 ? nxr::measurement::coarser_groups(grid_selection, [&] { const Json fs = grid.value("factors", Json::array()); for (std::size_t i = 0; i < fs.size(); ++i) if (fs[i].value("name", std::string()) == *q.factor) return i; refuse("measurement query: the product has no factor '" + *q.factor + "'"); }(), from_level, to_level)
                                                 : nxr::measurement::coarser_groups(grid_selection, from_level, to_level);

@@ -1,6 +1,7 @@
 // `montage create` (pipelines/src/montage_create.cpp) on a synthetic template package: a sphere as the scalp `head` and the landmarks as the points manifold `head_landmarks` (as the template importers
 // store them). The montage is stored as the points manifold `eeg_1005` with its names labelling, the `system` partition, aliases and origin; its positions equal nxr::montage::tenFive with the
 // inion the convention gives; the refusals (a second montage, a missing landmarks manifold, landmarks in another system).
+#include "nxr/io/subject_api.h"
 #include <unistd.h>
 
 #include <cmath>
@@ -52,8 +53,8 @@ void make(const fs::path& pkg, const std::string& lm_cs) {
   so.name = "head"; so.primary = false; so.cs_key = "scs";
   const SurfaceInfo si = add_surface(sub, so, std::vector<double>(m.V), std::vector<std::int32_t>(m.F));
   add_landmarks(sub, lm_cs, {0, float(R), 0, -float(R), 0, 0, float(R), 0, 0});   // NAS, LPA, RPA
-  set_origin(w.db(), "manifold", si.id, OriginRecord{"fixture:scalp", "CC-BY-4.0", "A. Author", true});
-  for (const auto& r : sub.db().all("SELECT id FROM manifold WHERE name = 'head_landmarks'")) set_origin(w.db(), "manifold", text(r, "id"), OriginRecord{"fixture:landmarks", "CC-BY-4.0", "A. Author", true});
+  set_origin(w, "manifold", si.id, OriginRecord{"fixture:scalp", "CC-BY-4.0", "A. Author", true});
+  if (const auto r = nxr::io::find_manifold(sub, "head_landmarks")) set_origin(w, "manifold", text(*r, "id"), OriginRecord{"fixture:landmarks", "CC-BY-4.0", "A. Author", true});
   sub.complete();
 }
 }  // namespace
@@ -77,7 +78,7 @@ int main() {
   {
     DatasetWriter w = open_package_writer(o.package);
     SubjectWriter sub = SubjectWriter::open(w, "S");
-    const auto row = sub.db().one("SELECT m.id AS id, m.producer_json AS pj, g.positions_path AS pp FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.name = 'eeg_1005'");
+    const auto row = nxr::io::manifold_row_named(sub, "eeg_1005");
     CHECK(row.has_value());
     const Json pj = Json::parse(text(*row, "pj"));
     CHECK_EQ(pj["aliases"]["T3"].get<std::string>(), std::string("T7"));
@@ -96,11 +97,11 @@ int main() {
     const auto want = nxr::montage::tenFive(m.V, m.F, L);
     CHECK_EQ(want.labels.size(), static_cast<std::size_t>(345));
     for (std::size_t i = 0; i < got.size(); ++i) CHECK(std::abs(got[i] - want.positions[i]) < 1e-6);
-    const auto sels = sub.db().all("SELECT name FROM selection WHERE manifold_id = ?", {V(text(*row, "id"))});
+    const auto sels = nxr::io::selection_names_on(sub, text(*row, "id"));
     int found = 0;
-    for (const auto& s : sels) { const std::string n = text(s, "name"); found += (n.find("eeg_1005_names") != std::string::npos) + (n.find("eeg_1005_system") != std::string::npos); }
+    for (const auto& n : sels) { found += (n.find("eeg_1005_names") != std::string::npos) + (n.find("eeg_1005_system") != std::string::npos); }
     CHECK_EQ(found, 2);
-    const auto org = origin_of(w.db(), "manifold", text(*row, "id"));
+    const auto org = origin_of(sub, "manifold", text(*row, "id"));
     CHECK(org.has_value() && org->redistributable && org->licence == "CC-BY-4.0");
   }
   // refusals

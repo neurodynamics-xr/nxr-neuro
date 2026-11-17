@@ -1,4 +1,5 @@
 // nxr-pipelines — the stored rows scale selection reads (scale_inputs.h). Reading only.
+#include "nxr/io/subject_api.h"
 #include "nxr/pipelines/scale_inputs.h"
 #include "nxr/io/selection_reads.h"
 #include "nxr/io/selection_store.h"
@@ -33,9 +34,9 @@ ScaleInputs read_scale_inputs(SubjectWriter& sub, const std::string& recording_i
   ScaleInputs out;
   std::string missing_joint, missing_run;
   std::vector<Row> joints, labellings;
-  joints = nxr::io::selection::set_rows_with_param(sub.db(), sub.id(), "joint");
-  labellings = nxr::io::selection::set_rows_with_param(sub.db(), sub.id(), "cells_of");
-  const auto stats = statistics_of(sub.db(), sub.id(), recording_id, std::string("amplitude"));
+  joints = nxr::io::selection::set_rows_with_param(sub, "joint");
+  labellings = nxr::io::selection::set_rows_with_param(sub, "cells_of");
+  const auto stats = statistics_of(sub, recording_id, std::string("amplitude"));
   struct Found { ScalePairInput p; Row joint, labelling, baseline; std::string amp_path; std::int64_t amp_component = 0; };
   std::vector<Found> found;
   for (const int l : space_levels)
@@ -66,7 +67,7 @@ ScaleInputs read_scale_inputs(SubjectWriter& sub, const std::string& recording_i
       if (f.p.window < 1) invalid("scaleselection: the joint Selection '" + text(f.joint, "name") + "' records no time tile width (made before `window_samples`: `run select_product --replace`)");
       f.p.events = integer(f.labelling, "n_members");
       if (is_null(f.labelling, "array_path")) invalid(text(f.labelling, "name") + ": it stores no array of cells");
-      const auto am = nxr::io::selection::measurement_array(sub.db(), jid, recording_id, "amplitude");
+      const auto am = nxr::io::selection::measurement_array(sub, jid, recording_id, "amplitude");
       if (!am) { missing_run += (missing_run.empty() ? "" : "; ") + pair + " (no cell amplitude)"; continue; }
       f.amp_path = am->array_path;
       f.amp_component = am->component;
@@ -101,7 +102,7 @@ ScaleInputs read_scale_inputs(SubjectWriter& sub, const std::string& recording_i
     if (shape != std::vector<std::int64_t>{p.tiles * p.frames} && shape != std::vector<std::int64_t>{p.tiles, p.frames})   // [tiles x time tiles] is the shape an earlier version stored the cells in
       invalid("scaleselection: the labelling '" + p.labelling_name + "' is not " + std::to_string(p.tiles) + " tiles x " + std::to_string(p.frames) + " time tiles, flattened (the joint Selection's cells)");
     {
-      const std::vector<std::int64_t> event_of_member = nxr::io::selection::member_labels(sub.db(), sub.store(), p.labelling_id);
+      const std::vector<std::int64_t> event_of_member = nxr::io::selection::member_labels(sub, p.labelling_id);
       for (std::int32_t& c : p.labels) c = c >= 0 && static_cast<std::size_t>(c) < event_of_member.size() ? static_cast<std::int32_t>(event_of_member[static_cast<std::size_t>(c)]) : -1;
     }
     const std::vector<float> amp = read_array<float>(sub, f.amp_path, &shape);

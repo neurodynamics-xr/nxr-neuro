@@ -110,7 +110,7 @@ if(NXR_IO_WASM)
   add_library(nxr_io
     src/codec_zstd.cpp src/codec_pipeline.cpp src/dtype.cpp src/metadata.cpp src/chunking.cpp src/zarr_store.cpp src/sparse.cpp src/schema.cpp
     src/dataset.cpp src/array_reader.cpp src/json_text.cpp src/database.cpp src/records.cpp src/selection.cpp src/selection_store.cpp src/selection_measurement.cpp src/task.cpp src/task_dataset.cpp src/named_paths.cpp src/layout.cpp src/writer_lock.cpp src/array_writer.cpp src/compact.cpp
-    src/writer.cpp src/subject_writer.cpp src/mesh.cpp src/surface.cpp src/npy.cpp src/default_subject.cpp src/bundle.cpp src/cells.cpp src/measures.cpp src/selection_measurement_rows.cpp src/selection_reads.cpp src/subject_reads.cpp src/spatial_bands.cpp src/rollup.cpp src/measurement_query.cpp src/statistic.cpp src/yaml.cpp src/finder.cpp src/hash.cpp
+    src/writer.cpp src/subject_writer.cpp src/mesh.cpp src/surface.cpp src/npy.cpp src/default_subject.cpp src/bundle.cpp src/cells.cpp src/measures.cpp src/selection_measurement_rows.cpp src/selection_reads.cpp src/subject_reads.cpp src/subject_api.cpp src/spatial_bands.cpp src/rollup.cpp src/measurement_query.cpp src/statistic.cpp src/yaml.cpp src/finder.cpp src/hash.cpp
     src/bst_mat.cpp src/bst_protocol.cpp src/bst_subject.cpp src/bst_entities.cpp src/bst_sensors.cpp src/bst_projectors.cpp src/bst_mri.cpp src/bst_naming.cpp
     src/bst_session.cpp src/bst_recording.cpp src/bst_events.cpp src/bst_resample.cpp src/bst_frequency.cpp src/bst_inverse.cpp src/bst_maps.cpp src/bst_timefreq.cpp
     src/bst_fibers.cpp src/fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp
@@ -277,7 +277,7 @@ add_library(nxr_io
   src/chunk_loop.cpp
   src/constant_q.cpp
   src/cells.cpp
-  src/measures.cpp src/selection_measurement_rows.cpp src/selection_reads.cpp src/subject_reads.cpp
+  src/measures.cpp src/selection_measurement_rows.cpp src/selection_reads.cpp src/subject_reads.cpp src/subject_api.cpp
   src/spatial_bands.cpp
   src/rollup.cpp
   src/measurement_query.cpp

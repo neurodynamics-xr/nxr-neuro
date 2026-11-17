@@ -15,7 +15,6 @@
 #include "nxr/nulltest.h"
 #include <limits>
 #include <map>
-#include "nxr/io/finder.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/selection/resolved.h"
