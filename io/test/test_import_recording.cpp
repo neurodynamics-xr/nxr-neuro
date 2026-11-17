@@ -24,6 +24,17 @@ namespace cv = nxr::convert;
 
 template <class F> static std::string code_of(F f) { try { f(); } catch (const Error& e) { return e.code(); } catch (const std::exception&) { return "other"; } return ""; }
 
+
+// the coordinate system a manifold's positions are in (name, unit), or none when it has no geometry; the ends of a transition operator
+static std::optional<Row> cs_of_manifold(const Database& db, const std::string& manifold_id) {
+  return db.one("SELECT cs.name AS name, cs.unit AS unit FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE m.id = ?", {V(manifold_id)});
+}
+static std::string transition_end(const Database& db, const std::string& operator_id, const char* end) {
+  const std::string col = std::string(end) + "_coordinate_system_id";
+  const auto r = db.one("SELECT cs.name AS name FROM operator o JOIN coordinate_system cs ON cs.id = o." + col + " WHERE o.id = ?", {V(operator_id)});
+  return r ? text(*r, "name") : std::string();
+}
+
 static const std::string data = std::string(NXR_IO_DATA_DIR) + "/../../formats/test/data/";
 
 static Json import_into(const fs::path& pkg, const std::string& file, bool anonymize, const std::string& name = "rec") {
@@ -114,7 +125,7 @@ int main() {
     SubjectPackage p = SubjectPackage::open(pkg);
     const task::Subject s = task::Subject::of(p);
     const task::Node man = s.require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
-    CHECK_EQ(man.fact("coordinate_system")["name"].get<std::string>(), std::string("scs"));
+    CHECK_EQ(text(*cs_of_manifold(p.db(), man.id), "name"), std::string("scs"));
     const task::Geometry g = s.geometry(man.id);
     CHECK(g.coordinate_unit.has_value() && *g.coordinate_unit == "m");
     const ArrayReader ar = ArrayReader::open(p.store(), *g.positions_path);
@@ -145,7 +156,7 @@ int main() {
     // the digitisation: a points manifold in the head frame it was digitised in (LPA first, then the nasion, RPA, an HPI coil, an EEG point, an extra point)
     const task::Node hp = s.require({.cls = task::Cls::manifold, .name = "rec_channels_headpoints"}, "the head points");
     CHECK_EQ(*hp.n_vertices, std::int64_t(6));
-    CHECK_EQ(hp.fact("coordinate_system")["name"].get<std::string>(), std::string("head"));
+    CHECK_EQ(text(*cs_of_manifold(p.db(), hp.id), "name"), std::string("head"));
     const ArrayReader hr = ArrayReader::open(p.store(), *s.geometry(hp.id).positions_path);
     const std::vector<std::uint8_t> hraw = hr.read({0, 0}, {6, 3});
     std::vector<float> hpos(18);
@@ -211,8 +222,8 @@ int main() {
     SubjectPackage p = SubjectPackage::open(pkg);
     const task::Subject s = task::Subject::of(p);
     const task::Node t = s.require({.cls = task::Cls::operator_, .name = "rec_head_to_mri"}, "the head to MRI transition");
-    CHECK_EQ(t.fact("from_coordinate_system")["name"].get<std::string>(), std::string("head"));
-    CHECK_EQ(t.fact("to_coordinate_system")["name"].get<std::string>(), std::string("freesurfer-tkr"));
+    CHECK_EQ(transition_end(p.db(), t.id, "from"), std::string("head"));
+    CHECK_EQ(transition_end(p.db(), t.id, "to"), std::string("freesurfer-tkr"));
     CHECK(p.verify().ok);
   }
   // EEGLAB's and BrainVision's frames are their own, with no transition; an unstated unit is not metres
@@ -222,9 +233,9 @@ int main() {
     SubjectPackage p = SubjectPackage::open(pkg);
     const task::Subject s = task::Subject::of(p);
     const task::Node man = s.require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
-    if (man.fact("coordinate_system").is_object()) {
-      CHECK_EQ(man.fact("coordinate_system")["name"].get<std::string>(), std::string(key));
-      CHECK(man.fact("coordinate_system")["unit"].is_null());
+    if (const auto cs = cs_of_manifold(p.db(), man.id)) {                       // a file with positions: its own system, of no known unit
+      CHECK_EQ(text(*cs, "name"), std::string(key));
+      CHECK(is_null(*cs, "unit"));
     }
     CHECK(s.find_all({.cls = task::Cls::operator_, .kind = "transition"}).empty());
   }
