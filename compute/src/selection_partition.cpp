@@ -20,6 +20,7 @@ constexpr double kFourPi = 4 * M_PI;
 
 void need_surface(const Surface& s, const char* what) {
   if (!s.positions || !s.faces || s.vertices < 1 || s.face_count < 1) throw std::invalid_argument(std::string(what) + ": a surface needs positions and faces");
+  if (s.unit.empty()) throw std::invalid_argument(std::string(what) + ": a surface needs its positions' unit (m, mm, …)");
 }
 const Level* level_of(const Partition& p, int level) {
   for (const Level& l : p.levels) if (l.level == level) return &l;
@@ -97,11 +98,12 @@ Partition partition(const Surface& s, const Dyadic& o) {
   need_surface(s, "partition (dyadic)");
   const dyadic::Tree t = dyadic::subjectTree(s.positions, s.vertices, s.faces, s.face_count, o.depth.value_or(-1));
   Partition p;
-  p.on = "surface"; p.method = "dyadic";
+  p.on = "surface"; p.unit = s.unit; p.method = "dyadic";
   p.elements = s.vertices;
   p.depth = t.depth;
   p.codes = t.codes;
-  p.spectrum = "eigenvalue";                                           // in the inverse square of the positions' unit
+  p.spectrum = "eigenvalue";
+  p.spectrum_unit = "1/" + s.unit + "^2";                              // area in unit^2, so lambda = 4 pi m / A in 1/unit^2
   double area = 0;
   for (double a : t.pieceArea) area += a;
   const auto pieces = static_cast<std::int64_t>(t.runs.size());
@@ -124,8 +126,9 @@ Partition partition(const Surface& s, const Transfer& o) {
   const auto from_runs = dyadic::pieceRuns(o.from_faces, o.from_face_count, o.from_vertices);
   const auto runs = dyadic::pieceRuns(s.faces, s.face_count, s.vertices);
   const dyadic::Tree t = dyadic::groupTreeFor(o.from_sphere, o.from->codes.data(), from_runs, o.from->depth, o.sphere, s.vertices, runs, o.from->depth);
-  Partition p = *o.from;                                               // the source's members: its levels, bands and lookup
+  Partition p = *o.from;                                               // the source's members: its levels, bands (in the source's units) and lookup
   p.method = "transfer";
+  p.unit = s.unit;
   p.elements = s.vertices;
   p.codes = t.codes;
   return p;

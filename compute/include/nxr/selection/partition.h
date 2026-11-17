@@ -30,8 +30,10 @@ struct Line {
   std::int64_t count = 0;
   double origin = 0, spacing = 0;
 };
-/** a triangle mesh: positions [vertices x 3] and faces [face_count x 3], row-major; each connected piece (a hemisphere) one contiguous block of vertices */
+/** a triangle mesh: positions [vertices x 3] in `unit` and faces [face_count x 3], row-major; each connected piece (a hemisphere) one contiguous block of
+ *  vertices. The unit is the caller's (never defaulted): it gives the eigenvalues theirs, 1/unit^2. */
 struct Surface {
+  std::string unit;                        // the positions' length unit: m · mm · …
   const double* positions = nullptr;
   std::int32_t vertices = 0;
   const std::int32_t* faces = nullptr;
@@ -60,7 +62,7 @@ struct Partition {
   double origin = 0, spacing = 0;    // a line's points (arithmetic levels)
   std::vector<Level> levels;         // by level, ascending
   std::vector<Band> bands;           // the spectrum's bands the method designed, highest first (constant-q: one a band; dyadic: one a level)
-  std::string spectrum, spectrum_unit;   // the line those bands lie on: frequency, Hz · eigenvalue, the inverse square of the positions' unit
+  std::string spectrum, spectrum_unit;   // the line those bands lie on: frequency, Hz · eigenvalue, 1/unit^2 (the surface's unit)
   int depth = 0;                     // codes: the finest level
   std::vector<std::int32_t> codes;   // a code per element at `depth` (-1: none); a surface's dyadic code is piece * 2^depth + tile
   Lookup lookup;                     // the codes' names (empty: none)
