@@ -68,9 +68,9 @@ steps:
     do:
       # the cells: amplitude and the largest |z| per (spatial tile x time tile), the product coupled to the band and the spatial scale
       - {node: field.form, in: {x: bursts_field}, with: {form: magnitude}, out: mag}
-      - {node: reduce, in: {x: mag, over: tiles, exclude: bad}, with: {at: $band, spatial_scale: $spatial_scale, measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: cells}
+      - {node: reduce, in: {x: mag, over: tiles, exclude: bad}, with: {measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: [cells, cells_ingredients]}
       # per SAMPLE: the area-weighted mean |z| per spatial tile (pointwise in time), then the max over the tiles, kept as a series for risefall
-      - {node: reduce, in: {x: mag, over: tiles}, with: {spatial_scale: $spatial_scale, measures: [mean]}, out: tile_samples}
+      - {node: reduce, in: {x: mag, over: tiles}, with: {measures: [mean]}, out: [tile_samples, tile_samples_ingredients]}
       - {node: roll_up, in: {x: tile_samples}, with: {to: $groups, merge: max}, out: trace}
       - {node: collect, in: {x: trace}, out: samples}
   after:

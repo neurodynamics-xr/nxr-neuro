@@ -190,6 +190,7 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     if (p["method"].is_string()) m.method = p["method"].get<std::string>();
     if (p["voices"].is_number_integer()) m.voices = p["voices"].get<int>();
     if (p["cycles"].is_number()) m.cycles = p["cycles"].get<double>();
+    if (p.contains("range") && p["range"].is_string()) { const auto q = parse_q(p["range"], who, "range"); m.f_min = q.lo; m.f_max = q.hi; }   // "0.5-64 Hz": the ladder's range
     if (p["f_min"].is_string()) m.f_min = parse_q(p["f_min"], who, "f_min").hi;
     if (p["f_max"].is_string()) m.f_max = parse_q(p["f_max"], who, "f_max").hi;
     const ns::Line ln{"s", s.size, s.line_origin, 1.0 / s.rate};
@@ -218,7 +219,7 @@ StepSpec time_grid_step() {
   s.outputs = {"grid"};
   s.parameters = Json{{"rule", nullptr}, {"duration", nullptr}, {"band", nullptr}, {"frames_per_tile", nullptr}, {"frames_per_cycle", nullptr}, {"origin", nullptr}, {"cycles", nullptr},
                       {"window", nullptr}, {"step", nullptr}, {"segment", nullptr}, {"overlap", nullptr}, {"preset", nullptr},
-                      {"method", nullptr}, {"voices", nullptr}, {"f_min", nullptr}, {"f_max", nullptr}};
+                      {"method", nullptr}, {"voices", nullptr}, {"range", nullptr}, {"f_min", nullptr}, {"f_max", nullptr}};
   s.matches = "the Cortical Flow Studio's time grid (jointTime.ts fitLevelOf, tower frames at the band's level), Rheome's natural_level and jointladder, scipy.signal.welch's segments; compute nxr::selection::time_grid, time_rule, constant_q_design";
   s.description =
       "The members of a time line's grid: member i is [origin + i hop, origin + i hop + width), counted in the line's samples. One rule family: `tiles` (a duration: the first level whose 2^k-sample tile holds it), "

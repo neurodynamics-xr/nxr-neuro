@@ -37,7 +37,7 @@ steps:
     over: recording
     do:
       - {node: envelope, in: {x: recording}, with: {band: $band, shape: $shape}, out: amp}
-      - {node: reduce, in: {x: amp, over: grid, exclude: bad}, with: {at: $band, measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: tiles}
+      - {node: reduce, in: {x: amp, over: grid, exclude: bad}, with: {measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: [tiles, tiles_ingredients]}
   after:
     - {node: summarize, in: {x: tiles}, with: {summaries: [median, mad], combine: $combine, of: amplitude}, out: baseline}
     # the bursts: an irregular selection detected over the grid

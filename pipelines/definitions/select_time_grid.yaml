@@ -44,7 +44,7 @@ parameters:
 
 steps:
   before:
-    - {node: select.time_grid, in: {line: recording, event: event}, with: {rule: $rule, duration: $duration, band: $band, range: $range, voices: $voices, cycles: $cycles, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, overlap: $overlap, step: $step, origin: $origin, origin_clock: $origin_clock}, out: grid}
+    - {node: select.time_grid, in: {line: recording, event: event}, with: {rule: $rule, duration: $duration, band: $band, range: $range, voices: $voices, cycles: $cycles, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, overlap: $overlap, step: $step, origin: $origin}, out: grid}
 
 outputs:
   grid: {kind: selection, type: grid, on: recording.time, name: $name}

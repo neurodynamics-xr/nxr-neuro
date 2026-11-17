@@ -31,7 +31,7 @@ parameters:
 
 steps:
   before:
-    - {node: select.bands, in: {grid: grid}, with: {rule: $rule, bands: $bands, scales: $scales, surface: $surface}, out: bank}
+    - {node: select.bands, in: {grid: grid}, with: {rule: $rule, bands: $bands}, out: bank}
 
 outputs:
   bank: {kind: selection, type: spans, name: $name}
