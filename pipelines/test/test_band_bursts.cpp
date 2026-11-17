@@ -11,7 +11,9 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <algorithm>
 #include <random>
+#include <set>
 
 #include "check.h"
 #include "store_at.h"
@@ -20,6 +22,8 @@
 #include "nxr/io.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/measures.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/statistics.h"
@@ -29,6 +33,7 @@
 using namespace nxr::io;
 namespace g = nxr::pipelines::graph;
 namespace fs = std::filesystem;
+namespace tk = nxr::io::task;
 
 namespace {
 template <class F> std::string code_of(F f) { try { f(); } catch (const Error& e) { return e.code(); } return ""; }
@@ -88,7 +93,7 @@ int main() {
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(32768)), std::make_pair(std::string("rest_b"), std::int64_t(3000)),
                                         std::make_pair(std::string("rest_c"), std::int64_t(32768))}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = tk::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "T");
         const std::string rid = sub.field(std::move(rec));
         if (name == "rest_c") {
@@ -119,20 +124,28 @@ int main() {
   auto out_of = [](const Json& r, const std::string& o) -> Json { for (const auto& x : r["stored"]) if (x["output"] == o) return x; return Json(); };
   const Json am = out_of(ra, "amplitude");
   CHECK(am["measurement"] == "amplitude");
-  const auto lvl = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(am["over"].get<std::string>())});
+  const auto tsub = tk::Subject::of(sub);
+  const nxr::io::testing::Probe probe(sub);
+  const auto lvl = tsub.find({.cls = tk::Cls::selection, .name = am["over"].get<std::string>(), .any_status = true});
   CHECK(lvl.has_value());
-  const Json lp = Json::parse(text(*lvl, "params_json"));
+  const Json lp = lvl->params;
   CHECK(lp["resolves_hz"]["lo"] == 8.0 && lp["resolves_hz"]["hi"] == 16.0 && lp["window_samples"] == 1024);
   const std::int64_t TT = lp["tiling"]["count"].get<std::int64_t>(), W = 1024;
   std::vector<std::int64_t> shape;
   const auto arr = nxrtest::read_packed(sub.folder(), am, &shape);
   CHECK(shape == (std::vector<std::int64_t>{M, TT, 2}));
-  const auto rest = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'rest'", {V(sub.id())});
-  const auto rows = sub.db().all("SELECT * FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure IN ('amplitude', 'count') ORDER BY component", {V(text(*lvl, "id")), V(text(*rest, "id"))});
+  const auto rest = tsub.find({.cls = tk::Cls::field, .name = "rest", .any_status = true});
+  // the rows of one (selection, field, measure) in the measurement table
+  auto measured = [&](const std::string& selection_id, const std::string& measure, const std::string& order_by = "") {
+    return probe.rows("selection_measurement", {{"selection_id", V(selection_id)}, {"of_field_id", V(rest->id)}, {"measure", V(measure)}}, order_by);
+  };
+  std::vector<Row> rows;
+  for (const char* m : {"amplitude", "count"}) for (const Row& r : measured(lvl->id, m)) rows.push_back(r);
+  std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return integer(a, "component") < integer(b, "component"); });
   CHECK(rows.size() == 2 && text(rows[0], "measure") == "amplitude" && text(rows[1], "measure") == "count" && opt_text(rows[0], "computed_by").value_or("").rfind("pipeline band_bursts@1", 0) == 0);
   // the band's peak per tile is stored beside it on the same level and shares the count row
-  CHECK_EQ(sub.db().all("SELECT 1 FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = 'envelope_max'", {V(text(*lvl, "id")), V(text(*rest, "id"))}).size(), std::size_t(1));
-  CHECK_EQ(sub.db().all("SELECT 1 FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = 'count'", {V(text(*lvl, "id")), V(text(*rest, "id"))}).size(), std::size_t(1));
+  CHECK_EQ(measured(lvl->id, "envelope_max").size(), std::size_t(1));
+  CHECK_EQ(measured(lvl->id, "count").size(), std::size_t(1));
   {
     const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 16.0); };
     const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
@@ -159,26 +172,27 @@ int main() {
     if (!bl.is_null()) {
       const StoredStatistic st = read_statistic(sub, bl["statistic"].get<std::string>());
       CHECK(text(st.row, "method") == "summary" && text(st.row, "measure") == "amplitude" && st.shape == (std::vector<std::int64_t>{M, 2}));
-      CHECK(st.axes[1]["values"][0]["name"] == "median" && st.axes[1]["values"][1]["name"] == "mad" && text(st.row, "partition_selection_id") == text(*lvl, "id"));
+      CHECK(st.axes[1]["values"][0]["name"] == "median" && st.axes[1]["values"][1]["name"] == "mad" && text(st.row, "partition_selection_id") == lvl->id);
       // the baseline is the median and robust SD of the stored amplitude tiles (channel 2: no burst)
       std::vector<double> c2;
       for (std::int64_t t = 0; t < TT; ++t) { const float v = arr[static_cast<std::size_t>((2 * TT + t) * 2)]; if (std::isfinite(v)) c2.push_back(v); }
       CHECK(std::abs(st.values[2 * 2] - nxr::stats::median(c2)) < 1e-12 && std::abs(st.values[2 * 2 + 1] - nxr::stats::mad(c2)) < 1e-12);
       // the same from the STORED amplitude by the verb (statistic compute, array-backed rows): the run's baseline
       nxr::pipelines::StatisticComputeOptions so;
-      so.over = text(*lvl, "name"); so.of = "rest"; so.measure = "amplitude"; so.summaries = {"median", "mad"}; so.name = "rest_alpha_baseline";
+      so.over = lvl->name; so.of = "rest"; so.measure = "amplitude"; so.summaries = {"median", "mad"}; so.name = "rest_alpha_baseline";
       const auto vr = nxr::pipelines::statistic_compute(ds, sub, so);
       const StoredStatistic vs = read_statistic(sub, "rest_alpha_baseline");
       CHECK(vr.info["rows"] == M && vs.values == st.values && vs.axes[0].contains("manifold_id"));
     }
   }
-  const auto sel = sub.db().read("selection", bs["id"].get<std::string>());
+  const auto sel_rows = probe.rows("selection", {{"id", V(bs["id"].get<std::string>())}});
+  const std::optional<Row> sel = sel_rows.empty() ? std::nullopt : std::optional<Row>(sel_rows.front());
   CHECK(sel && text(*sel, "type") == "spans" && text(*sel, "manifold_id") == tid && text(*sel, "cell") == "1" && !is_null(*sel, "dictionary_id"));
-  const auto entry = sub.db().one("SELECT name FROM dictionary_entry WHERE dictionary_id = ?", {V(text(*sel, "dictionary_id"))});
-  CHECK(entry && text(*entry, "name") == "burst");
+  const auto entries = probe.rows("dictionary_entry", {{"dictionary_id", V(text(*sel, "dictionary_id"))}});
+  CHECK(!entries.empty() && text(entries.front(), "name") == "burst");
   const Json sp = Json::parse(text(*sel, "params_json"));
   CHECK(sp.contains("cache") && sp["detection"]["thresholds"].size() == 3 && sp["detection"]["thresholds"][2]["spans"] == 0);
-  const auto found = sub.db().all("SELECT * FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*sel, "id"))});
+  const auto found = probe.rows("selection_span", {{"selection_id", V(text(*sel, "id"))}}, "ordinal");
   CHECK_EQ(found.size(), planted.size());
   const double w = W / sfreq;
   for (std::size_t k = 0; k < found.size() && k < planted.size(); ++k) {
@@ -199,8 +213,8 @@ int main() {
     const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
     const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
     auto env = [&](int c, std::int64_t k) { const double a = re[static_cast<std::size_t>(c * T + k)], b = im[static_cast<std::size_t>(c * T + k)]; return static_cast<double>(static_cast<float>(std::sqrt(a * a + b * b))); };
-    const auto evs = sub.db().all("SELECT * FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*sub.db().read("selection", bs["id"].get<std::string>()), "id"))});
-    const Json params = Json::parse(text(*sub.db().read("selection", bs["id"].get<std::string>()), "params_json"));
+    const auto evs = probe.rows("selection_span", {{"selection_id", V(bs["id"].get<std::string>())}}, "ordinal");
+    const Json params = tsub.require_id(tk::Cls::selection, bs["id"].get<std::string>()).params;
     const std::int64_t E = static_cast<std::int64_t>(evs.size());
     CHECK_EQ(E, std::int64_t(3));
     const double wt = static_cast<double>(TW) / sfreq;
@@ -250,8 +264,8 @@ int main() {
     }
     // read back by the lookup as [rows x bursts]
     {
-      const auto sid_ev = text(*sub.db().read("selection", bs["id"].get<std::string>()), "id");
-      const MeasurementValues mv = measurement_values(sub, sid_ev, text(*rest, "id"), std::nullopt, std::nullopt, "amplitude");
+      const auto sid_ev = bs["id"].get<std::string>();
+      const MeasurementValues mv = measurement_values(sub, sid_ev, rest->id, std::nullopt, std::nullopt, "amplitude");
       CHECK(mv.rows == M && mv.members == E && mv.array_backed);
       CHECK(std::abs(mv.values[static_cast<std::size_t>(ch[0] * E)] - amp_by[static_cast<std::size_t>(ch[0])][0]) < 1e-5);
     }
@@ -277,7 +291,7 @@ int main() {
       // the span and its good seconds are recorded: rate, occupancy and CV are derived at read
       const Json opt = Json::parse(text(sd_.row, "options_json"));
       CHECK(std::abs(opt["good_s"].get<double>() - T / sfreq) < 1e-9 && opt["span"]["stop_sample"] == T);
-      CHECK(text(sd_.row, "partition_selection_id") == text(*sub.db().read("selection", bs["id"].get<std::string>()), "id"));
+      CHECK(text(sd_.row, "partition_selection_id") == bs["id"].get<std::string>());
     }
   }
   // 2. ANOTHER CHUNK WIDTH: the same tiles and bursts
@@ -309,8 +323,8 @@ int main() {
     Json rm;
     for (const auto& x : mean) if (x.value("anchor", std::string()) == "rest") rm = x;
     CHECK(rm["hit"] == false && out_of(rm, "bursts")["spans"] == 3);
-    const auto s2 = sub.db().read("selection", out_of(rm, "bursts")["id"].get<std::string>());
-    CHECK(s2 && !Json::parse(text(*s2, "params_json")).contains("channels"));
+    const auto s2 = tsub.by_id(tk::Cls::selection, out_of(rm, "bursts")["id"].get<std::string>());
+    CHECK(s2 && !s2->params.contains("channels"));
     // the mean trace's bursts are measured on every row, each on its own tiles, and their statistics are one row
     const Json ba = out_of(rm, "burst_amplitude");
     std::vector<std::int64_t> shm;
@@ -370,9 +384,8 @@ int main() {
   }
   // 6. THE COUNT ROW is one per (level, recording): the amplitude run and the median run (same span) share it; a measure over another span is refused, --replace rewrites it
   {
-    const auto rest = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'rest'", {V(sub.id())});
-    auto counts = [&] { return sub.db().all("SELECT * FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = 'count' AND array_path IS NOT NULL", {V(text(*lvl, "id")), V(text(*rest, "id"))}).size(); };
-    auto nmeasure = [&](const char* m) { return sub.db().all("SELECT 1 FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = ?", {V(text(*lvl, "id")), V(text(*rest, "id")), V(m)}).size(); };
+    auto counts = [&] { std::size_t n = 0; for (const Row& r : measured(lvl->id, "count")) n += !is_null(r, "array_path"); return n; };
+    auto nmeasure = [&](const char* m) { return measured(lvl->id, m).size(); };
     CHECK(nmeasure("amplitude") == 1 && nmeasure("median") == 1 && counts() == 1);
     const std::string yaml =
         "pipeline: band_power_tiles\nversion: 1\ndescription: test\nscope: subject\n"
@@ -395,8 +408,10 @@ int main() {
     CHECK(msg2.find("amplitude") != std::string::npos && msg2.find("median") != std::string::npos && msg2.find("envelope_max") != std::string::npos && msg2.find("another span") != std::string::npos);
     CHECK(nmeasure("power") == 0 && nmeasure("amplitude") == 1 && nmeasure("median") == 1 && counts() == 1);
     // with those removed (by the caller), the power measure is the sole one: the count row is rewritten to its span
-    for (const auto& r : sub.db().all("SELECT DISTINCT selection_id FROM selection_measurement WHERE measure IN ('amplitude', 'median', 'envelope_max')"))
-      for (const char* m : {"amplitude", "median", "envelope_max"}) delete_measurements(sub.db(), Json{{"selectionId", text(r, "selection_id")}, {"measure", m}});
+    std::set<std::string> measured_selections;
+    for (const char* m : {"amplitude", "median", "envelope_max"}) for (const Row& r : probe.rows("selection_measurement", {{"measure", V(std::string(m))}})) measured_selections.insert(text(r, "selection_id"));
+    for (const std::string& sid : measured_selections)
+      for (const char* m : {"amplitude", "median", "envelope_max"}) tsub.remove_measurements(sid, std::nullopt, std::string(m));
     const auto rp = g::run(ds, sub, dp, Json::object(), one);
     bool cr = false;
     for (const auto& x : rp) for (const auto& st : x["stored"]) cr = cr || st.value("count_replaced", false);

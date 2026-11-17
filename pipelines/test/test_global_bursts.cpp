@@ -19,6 +19,8 @@
 #include "nxr/io.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/measures.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/joint.h"
 #include "nxr/pipelines/runner.h"
@@ -29,6 +31,7 @@ using namespace nxr::io;
 using namespace nxr::pipelines;
 namespace g = nxr::pipelines::graph;
 namespace fs = std::filesystem;
+namespace tk = nxr::io::task;
 
 namespace {
 template <class F> std::string code_of(F f) { try { f(); } catch (const Error& e) { return e.code(); } return ""; }
@@ -100,9 +103,10 @@ int main() {
   SpatialBandOptions sbo; sbo.transform = "exact";
   const SpatialBand sband = make_spatial_band(S, SL, sbo);
   int timeLevel = -1;
-  for (const Row& m : sub.db().all("SELECT member_ordinal, params_json FROM selection WHERE subject_id = ? AND member_of_id IS NOT NULL AND params_json LIKE '%resolves_hz%'", {V(sub.id())})) {
-    const Json pj = Json::parse(text(m, "params_json"));
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(integer(m, "member_ordinal"));
+  for (const tk::Node& m : tk::Subject::of(sub).find_all({.cls = tk::Cls::selection, .params_present = {"resolves_hz"}, .any_status = true})) {
+    if (!m.member_of_id) continue;
+    const Json& pj = m.params;
+    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(m.member_ordinal.value_or(0));
   }
   CHECK(timeLevel >= 0);
   if (timeLevel < 0) return 1;
@@ -136,7 +140,7 @@ int main() {
     w.compose([&] {
       FieldSpec rec;
       const std::string prod = w.product({cid_s, tid});
-      rec.name = "rest"; rec.path = node_path(w.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = tk::Subject::of(w).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, std::int64_t(4096)}; rec.array.compress = false; rec.cols.set("unit", "A");
       w.field(std::move(rec));
     });
@@ -150,9 +154,10 @@ int main() {
   auto spans_of = [&](const Json& r) {
     const Json bj = out_of(r, "bursts");
     std::vector<std::tuple<double, double, int>> s;
-    const auto sel = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(bj["selection"].get<std::string>())});
-    for (const Row& x : sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*sel, "id"))})) s.emplace_back(std::stod(text(x, "start")), std::stod(text(x, "stop")), 0);
-    return std::make_pair(s, Json::parse(text(*sub.db().one("SELECT params_json FROM selection WHERE id = ?", {V(text(*sel, "id"))}), "params_json")));
+    const auto ts = tk::Subject::of(sub);
+    const auto sel = ts.find({.cls = tk::Cls::selection, .name = bj["selection"].get<std::string>(), .any_status = true});
+    for (const tk::Span& x : ts.spans(*sel)) s.emplace_back(x.start, x.stop, 0);
+    return std::make_pair(s, sel->params.is_null() ? Json::object() : sel->params);
   };
   auto measure_of = [&](const Json& r, const std::string& o, std::int64_t& rows, std::int64_t& events) {
     std::vector<std::int64_t> shape;
@@ -187,8 +192,9 @@ int main() {
     const auto amp = measure_of(r1[0], "burst_amplitude", r, e), pk = measure_of(r1[0], "burst_peak", r, e), du = measure_of(r1[0], "burst_duration", r, e);
     CHECK(amp[0] > 0 && pk[0] >= amp[0] && du[0] > 0.4 && std::isfinite(amp[2]));
     for (const char* s : {"burst_amplitude_stats", "tau_rise_stats", "fit_r2_stats", "baseline"}) CHECK(!out_of(r1[0], s).is_null());
-    const auto st = sub.db().one("SELECT n_members FROM statistic WHERE subject_id = ? AND name LIKE '%burst_amplitude_stats%'", {V(sub.id())});
-    CHECK(st.has_value());
+    std::vector<tk::Node> st;
+    for (const tk::Node& q : tk::Subject::of(sub).find_all({.cls = tk::Cls::statistic, .any_status = true})) if (q.name.find("burst_amplitude_stats") != std::string::npos) st.push_back(q);
+    CHECK(!st.empty());
   }
   // PACKED: the run's measurements over one Selection share ONE array each (the file count); each measure's rows point at its component, and the lookup reads by component
   {
@@ -202,7 +208,9 @@ int main() {
       const Json x = out_of(r1[0], o);
       CHECK(x["packed"].get<std::int64_t>() >= 1);
       const auto own = nxrtest::read_packed(sub.folder(), x);
-      const auto row = sub.db().one("SELECT selection_id, of_field_id, measure, component, array_path FROM selection_measurement WHERE array_path = ? AND component = ? AND measure <> 'count'", {V(x["array"].get<std::string>()), V(x["component"].get<std::int64_t>())});
+      std::optional<Row> row;
+      for (const Row& cand : nxr::io::testing::Probe(sub).rows("selection_measurement", {{"array_path", V(x["array"].get<std::string>())}, {"component", V(x["component"].get<std::int64_t>())}}))
+        if (text(cand, "measure") != "count") { row = cand; break; }
       CHECK(row.has_value());
       const MeasurementValues mv = measurement_values(sub, text(*row, "selection_id"), text(*row, "of_field_id"), std::nullopt, std::nullopt, text(*row, "measure"));
       CHECK(mv.values.size() * (x["components"].get<std::int64_t>() + 1) == own.size());
@@ -253,8 +261,9 @@ int main() {
     std::vector<std::pair<double, double>> v;
     const Json bj = out_of(r, o);
     if (bj.is_null()) return v;
-    const auto sel = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(bj["selection"].get<std::string>())});
-    for (const Row& x : sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*sel, "id"))})) v.emplace_back(std::stod(text(x, "start")), std::stod(text(x, "stop")));
+    const auto ts = tk::Subject::of(sub);
+    const auto sel = ts.find({.cls = tk::Cls::selection, .name = bj["selection"].get<std::string>(), .any_status = true});
+    for (const tk::Span& x : ts.spans(*sel)) v.emplace_back(x.start, x.stop);
     return v;
   };
   {
@@ -280,8 +289,8 @@ int main() {
     const auto kg = spans_named(rg[0], "bursts_kept"), og = spans_named(rg[0], "burst_onset");
     std::printf("  fit gate at r2 %.4f (fits %.4f, %.4f): %zu of %zu kept; %zu onset stage(s)\n", (lo + hi) / 2, r2[0], r2[2], kg.size(), spans_named(rg[0], "bursts").size(), og.size());
     CHECK(kg.size() == 1 && spans_named(rg[0], "bursts").size() == 2 && og.size() == 1);
-    const auto sg = sub.db().one("SELECT params_json FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(out_of(rg[0], "bursts_kept")["selection"].get<std::string>())});
-    const Json gj = Json::parse(text(*sg, "params_json"))["detection"]["gate"];
+    const auto sg = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = out_of(rg[0], "bursts_kept")["selection"].get<std::string>(), .any_status = true});
+    const Json gj = sg->params["detection"]["gate"];
     CHECK(gj["kept"] == 1 && gj["events"] == 2 && gj["min_r2"].get<double>() == (lo + hi) / 2 && gj["refused"]["r2_below"] == 1 && gj["ordinals"].size() == 1);
     // another gate is another key: the rerun above replaced; r2 = 0 keeps both again
     Json set0 = set1; set0["gate_min_r2"] = 0.0;
@@ -297,8 +306,8 @@ int main() {
     CHECK(pjc["parameters"]["durations"] == "cycles" && pj1["parameters"]["durations"] == "seconds" && pj1["detection"]["durations"]["mode"] == "seconds");
     // risefall in cycles (nxr burst_stages': margin 10, smoothing 1, tau <= 10 cycles) is on record in the fits' provenance
     { std::int64_t a = 0, b = 0; measure_of(rc[0], "t_on", a, b);
-      const auto rm = sub.db().one("SELECT params_json FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(out_of(rc[0], "bursts")["selection"].get<std::string>())});
-      CHECK(rm.has_value() && Json::parse(text(*rm, "params_json"))["detection"]["durations"]["mode"] == "cycles"); }
+      const auto rm = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = out_of(rc[0], "bursts")["selection"].get<std::string>(), .any_status = true});
+      CHECK(rm.has_value() && rm->params["detection"]["durations"]["mode"] == "cycles"); }
     // a minimum longer than any burst (100 cycles = 8.3 s): no burst is found, and the run says so with empty sets (the kept bursts and the stages too)
     Json setl = set1; setl["durations"] = "cycles"; setl["min_cycles"] = 100.0;
     const auto rl = g::run(ds, sub, d, setl, rep);

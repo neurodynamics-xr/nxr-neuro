@@ -16,6 +16,8 @@
 #include "check.h"
 #include "nxr/delaunay.h"
 #include "nxr/io/measures.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/measure.h"
@@ -61,14 +63,15 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S");
-  const std::string sid = text(*sub.db().one("SELECT id FROM selection WHERE name = 'parcels'"), "id");
+  const std::string sid = task::Subject::of(sub).require({.cls = task::Cls::selection, .name = "parcels"}, "the parcels labelling").id;
   {   // a labelling holding -1 (in no member): its members are the codes 0 .. 6, the -1 is not one
-    const auto row = sub.db().one("SELECT n_members, n_elements FROM selection WHERE id = ?", {V(sid)});
-    CHECK(row.has_value() && integer(*row, "n_members") == 7 && integer(*row, "n_elements") == nV);
+    const auto node = task::Subject::of(sub).by_id(task::Cls::selection, sid);
+    CHECK(node.has_value() && node->n_members == 7 && node->n_elements == nV);
   }
   auto value = [&](const std::string& fid, int code, const std::string& m) {
-    const auto r = fid.empty() ? sub.db().one("SELECT value FROM selection_measurement WHERE selection_id = ? AND of_field_id IS NULL AND code = ? AND measure = ?", {V(sid), V(static_cast<std::int64_t>(code)), V(m)})
-                               : sub.db().one("SELECT value FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND code = ? AND measure = ?", {V(sid), V(fid), V(static_cast<std::int64_t>(code)), V(m)});
+    const Value of = fid.empty() ? Value{std::monostate{}} : Value{fid};
+    const auto found = testing::Probe(sub).rows("selection_measurement", {{"selection_id", sid}, {"of_field_id", of}, {"code", static_cast<std::int64_t>(code)}, {"measure", m}});
+    const auto r = found.empty() ? std::optional<Row>() : std::optional<Row>(found.front());
     if (!r) return std::nan(""); const Value& x = r->at("value"); return std::holds_alternative<double>(x) ? std::get<double>(x) : static_cast<double>(std::get<std::int64_t>(x));
   };
   // the independent computation: the weighted mean of map_x over each member
@@ -99,10 +102,19 @@ int main() {
   std::printf("  barycentric: mean max rel err %.2e; members' areas %.6g of %.6g m^2\n", worst, area_sum, total);
   CHECK(worst < 1e-12);
   CHECK(std::abs(area_sum - total) < 1e-12 * total);
-  const auto rec = sub.db().one("SELECT e.name, e.function, e.params_json FROM dictionary_entry e JOIN dictionary d ON d.id = e.dictionary_id WHERE d.name = 'recipes' AND d.scope = 'dataset'");
+  const testing::Probe probe(sub);
+  const auto recipe_entries = [&] {   // the entries of the dataset's recipes dictionary
+    std::vector<Row> out;
+    for (const Row& d : probe.rows("dictionary", {{"name", "recipes"}, {"scope", "dataset"}}))
+      for (const Row& e : probe.rows("dictionary_entry", {{"dictionary_id", text(d, "id")}})) out.push_back(e);
+    return out;
+  };
+  const auto recipes0 = recipe_entries();
+  const auto rec = recipes0.empty() ? std::optional<Row>() : std::optional<Row>(recipes0.front());
   CHECK(rec.has_value() && text(*rec, "name") == "partition-barycentric@1" && text(*rec, "function") == "reduction");
   if (rec) { const Json p = Json::parse(text(*rec, "params_json")); CHECK(p["measure"]["kind"] == "reduction" && p["measure"]["weight"] == "barycentric"); }
-  const auto by = sub.db().one("SELECT DISTINCT computed_by FROM selection_measurement WHERE selection_id = ?", {V(sid)});
+  const auto by_rows = probe.rows("selection_measurement", {{"selection_id", sid}});
+  const auto by = by_rows.empty() ? std::optional<Row>() : std::optional<Row>(by_rows.front());
   CHECK(by.has_value() && text(*by, "computed_by").rfind("recipe partition-barycentric@1 \xc2\xb7 nxr-neuro ", 0) == 0);
 
   // the LOOKUP (the Studio's query, ported): sd derived from the stored mean and mean_square; zero for the constant
@@ -138,7 +150,7 @@ int main() {
   }
   std::printf("  voronoi: mean max rel err %.2e (barycentric differs by up to %.2e)\n", worst, differs);
   CHECK(worst < 1e-12 && differs > 1e-6);
-  CHECK_EQ(static_cast<int>(sub.db().all("SELECT e.name FROM dictionary_entry e JOIN dictionary d ON d.id = e.dictionary_id WHERE d.name = 'recipes'").size()), 3);
+  CHECK_EQ(static_cast<int>([&] { std::size_t n = 0; for (const Row& d : probe.rows("dictionary", {{"name", "recipes"}})) n += probe.rows("dictionary_entry", {{"dictionary_id", text(d, "id")}}).size(); return n; }()), 3);
 
   // MATLAB'S TIME-DOMAIN FEATURES over a partition: mean_abs and mean_sqrt_abs stored, shape, impulse and clearance factors derived at read (unweighted here)
   {
@@ -407,14 +419,14 @@ int main() {
       vs.compose([&] {
         StatisticSpec st;
         st.name = "tstat"; st.measure = "cross_spectral_density"; st.method = "welch"; st.value_type = "hermitian3"; st.unit = "a.u.";
-        st.of_field_id = text(*vs.db().one("SELECT id FROM field WHERE name = 'tens_z'"), "id");
+        st.of_field_id = task::Subject::of(vs).require({.cls = task::Cls::field, .name = "tens_z"}, "the tensor field").id;
         st.axes = Json::array({Json{{"name", "vertex"}, {"manifold_id", mid}, {"size", nV}}, Json{{"name", "band"}, {"size", 1}, {"values", Json::array({Json{{"name", "z"}}})}}});
         st.data = view(herm, {nV, 1, 3, 3, 2});
         tsid = vs.statistic(std::move(st));
       });
       MeasureComputeOptions gt = g; gt.fields = "tstat_z"; gt.gradient = false;
       measure_compute(ds, vs, gt);
-      const std::string tfid = text(*vs.db().one("SELECT id FROM field WHERE name = 'tens_z'"), "id");
+      const std::string tfid = task::Subject::of(vs).require({.cls = task::Cls::field, .name = "tens_z"}, "the tensor field").id;
       double tw = 0;
       for (const char* m : {"tensor_total", "tensor_nn", "tensor_11", "tensor_12_im"}) {
         const Json a = query_measurements(vs.db(), Json{{"selectionId", sid}, {"measure", m}, {"ofFieldId", tfid}});

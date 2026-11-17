@@ -15,6 +15,8 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/bst/entities.h"
 #include "nxr/hodge_weights.h"
 #include "nxr/io/measures.h"
@@ -94,7 +96,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, data] : {std::make_pair(std::string("travel"), &travel), std::make_pair(std::string("stand"), &stand)}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(*data, {M, T}); rec.array.chunks = Shape{M, 700}; rec.array.compress = false; rec.cols.set("unit", "T");
         sub.field(std::move(rec));
       }
@@ -131,17 +133,24 @@ int main() {
   phasegradient_compute(ds, sub, pa);
   CHECK(phasegradient_compute(ds, sub, po).hit);
   // nothing per vertex is stored: the old Fields are gone, one byte-less Field of kind `phase gradient` carries the rows
-  CHECK(!sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name IN ('travel_free_phasegradient_velocity_alpha', 'travel_free_phasegradient_speed_alpha', 'travel_free_phasegradient_travelling_alpha', 'travel_free_phasegradient_power_alpha')", {V(sub.id())}));
-  const auto fld = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = 'travel_free_phasegradient_alpha' AND kind = 'phase gradient'", {V(sub.id())});
-  CHECK(fld && is_null(*fld, "path"));
-  const std::string fid = text(*fld, "id");
-  const Json fpj = Json::parse(text(*fld, "producer_json"));
+  {
+    bool any = false;
+    for (const char* gone : {"travel_free_phasegradient_velocity_alpha", "travel_free_phasegradient_speed_alpha", "travel_free_phasegradient_travelling_alpha", "travel_free_phasegradient_power_alpha"})
+      any = any || nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = gone, .any_status = true}).has_value();
+    CHECK(!any);
+  }
+  const auto fld = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "travel_free_phasegradient_alpha", .kind = "phase gradient", .any_status = true});
+  CHECK(fld && !fld->path);
+  const std::string fid = fld->id;
+  const Json fpj = fld->producer;
   CHECK_EQ(fpj["studio"]["type"].get<std::string>(), std::string("complex"));   // a tangent vector a vertex: the Studio reads the vector3 as complex
   CHECK(fpj["time"]["axis"] == "none" && fpj["leaves"]["count"].get<int>() > 8);
-  const auto part = sub.db().one("SELECT * FROM selection WHERE id = (SELECT selection_id FROM selection_measurement WHERE of_field_id = ? LIMIT 1)", {V(fid)});
-  CHECK(part && Json::parse(text(*part, "params_json")).contains("atlas"));
-  const int L = static_cast<int>(integer(*part, "n_members")), D = Json::parse(text(*part, "params_json"))["atlas"]["level"].get<int>();
-  const auto kinds = sub.db().all("SELECT measure, array_path FROM selection_measurement WHERE of_field_id = ? ORDER BY measure", {V(fid)});
+  const nxr::io::testing::Probe probe(sub);
+  const auto first_measured = probe.rows("selection_measurement", {{"of_field_id", V(fid)}});
+  const auto part = first_measured.empty() ? std::optional<nxr::io::task::Node>() : nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, text(first_measured.front(), "selection_id"));
+  CHECK(part && part->params.contains("atlas"));
+  const int L = static_cast<int>(*part->n_members), D = part->params["atlas"]["level"].get<int>();
+  const auto kinds = probe.rows("selection_measurement", {{"of_field_id", V(fid)}}, "measure");
   CHECK(kinds.size() == 5);
 
   // THE GROUND TRUTH AND THE SUMS, per vertex, computed directly (the chain's own pure functions on the stored cross-spectrum)
@@ -149,9 +158,9 @@ int main() {
   const nxr::hodge::RowMat3 Pm = Eigen::Map<const nxr::hodge::RowMat3>(S.vertices.data(), N, 3);
   const nxr::hodge::FaceMat Fm = Eigen::Map<const nxr::hodge::FaceMat>(S.faces.data(), S.n_faces(), 3);
   const nxr::hodge::FaceOperators ops(Pm, Fm, false);
-  const auto kern = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = 'free'", {V(sub.id())});
+  const auto kern = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::operator_, .name = "free", .any_status = true});
   std::vector<std::int64_t> kshape;
-  const std::vector<float> kdata = read_field_at<float>(sub, text(*kern, "path"), &kshape);
+  const std::vector<float> kdata = read_field_at<float>(sub, *kern->path, &kshape);
   const Eigen::MatrixXd K = Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(kdata.data(), kshape[0], kshape[1]).cast<double>();
   std::vector<std::int32_t> all_chans(static_cast<size_t>(M));
   for (int i = 0; i < M; ++i) all_chans[static_cast<size_t>(i)] = i;
@@ -173,10 +182,10 @@ int main() {
   const auto jf = nxr::meeg::phaseCurrentInFrames(sv.phase, sf.e1, sf.e2);
   nxr::ladder::Mesh mesh; mesh.n = N; mesh.positions = S.vertices; mesh.faces = S.faces;
   const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
-  const std::vector<std::int32_t> codes = read_field_at<std::int32_t>(sub, text(*part, "array_path"));
+  const std::vector<std::int32_t> codes = read_field_at<std::int32_t>(sub, *part->array_path);
   auto ask = [&](const char* measure, int level, const std::string& field) {
     std::vector<double> out(static_cast<size_t>(level < 0 ? 1 : (L >> (D - level))), std::nan(""));
-    for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", text(*part, "id")}, {"measure", measure}, {"ofFieldId", field}, {"spaceLevel", level}})) out[r["code"].get<size_t>()] = r["value"].get<double>();
+    for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", part->id}, {"measure", measure}, {"ofFieldId", field}, {"spaceLevel", level}})) out[r["code"].get<size_t>()] = r["value"].get<double>();
     return out;
   };
   // (1) the leaf sums are the vertex sums, weighted by vertex area, grouped by leaf
@@ -229,14 +238,15 @@ int main() {
     const int k = D - 1;
     PhaseGradientOptions pk = po; pk.depth = k; pk.name = "travel_free_k";
     phasegradient_compute(ds, sub, pk);
-    const auto fk = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'travel_free_k_alpha'", {V(sub.id())});
-    const auto partk = sub.db().one("SELECT * FROM selection WHERE id = (SELECT selection_id FROM selection_measurement WHERE of_field_id = ? LIMIT 1)", {V(text(*fk, "id"))});
-    CHECK(partk && integer(*partk, "n_members") == (L >> (D - k)));
+    const auto fk = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "travel_free_k_alpha", .any_status = true});
+    const auto first_k = probe.rows("selection_measurement", {{"of_field_id", V(fk->id)}});
+    const auto partk = first_k.empty() ? std::optional<nxr::io::task::Node>() : nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, text(first_k.front(), "selection_id"));
+    CHECK(partk && partk->n_members == (L >> (D - k)));
     double wr = 0, wd = 0;
     for (const char* m : {"phase_power", "phase_gradient_power", "phase_current_1", "phase_current_2", "phase_current_magnitude", "phase_gradient_magnitude", "travelling_index", "phase_coherence"}) {
       const auto rolled = ask(m, k, fid);
       std::vector<double> direct(rolled.size(), std::nan(""));
-      for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", text(*partk, "id")}, {"measure", m}, {"ofFieldId", text(*fk, "id")}, {"spaceLevel", k}})) direct[r["code"].get<size_t>()] = r["value"].get<double>();
+      for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", partk->id}, {"measure", m}, {"ofFieldId", fk->id}, {"spaceLevel", k}})) direct[r["code"].get<size_t>()] = r["value"].get<double>();
       for (size_t i = 0; i < rolled.size(); ++i) {
         if (!std::isfinite(rolled[i]) && !std::isfinite(direct[i])) continue;
         wr = std::max(wr, std::abs(rolled[i] - direct[i]) / (std::abs(direct[i]) + 1e-12));
@@ -249,9 +259,9 @@ int main() {
   // (4) the ground truth: through the whole chain the leaf speed and travelling index; the standing pattern's index ~ 0; the ambient signal agrees
   {
     const auto trav = ask("travelling_index", D, fid), gm = ask("phase_gradient_magnitude", D, fid);
-    const auto fs = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'stand_free_phasegradient_alpha'", {V(sub.id())});
-    const auto fa = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'travel_free_ambient_alpha'", {V(sub.id())});
-    const auto trs = ask("travelling_index", D, text(*fs, "id")), gma = ask("phase_gradient_magnitude", D, text(*fa, "id"));
+    const auto fs = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "stand_free_phasegradient_alpha", .any_status = true});
+    const auto fa = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "travel_free_ambient_alpha", .any_status = true});
+    const auto trs = ask("travelling_index", D, fs->id), gma = ask("phase_gradient_magnitude", D, fa->id);
     std::vector<double> err, tr, st, amb;
     for (int l = 0; l < L; ++l) {
       double rl = 0, aa = 0;

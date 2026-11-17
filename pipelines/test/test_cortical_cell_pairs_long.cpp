@@ -15,6 +15,7 @@
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
+#include "nxr/io/task/task.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/ladder.h"
@@ -93,7 +94,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(4096))}) {   // the same samples, two chunk widths
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "A");
         const std::string rid = sub.field(std::move(rec));
         nxr::bst::TimeSpansOptions bo; bo.line_id = tid; bo.of_field_id = rid; bo.description = "bad segments";
@@ -124,10 +125,11 @@ int main() {
   const int levels[2] = {3, 4};
   std::int64_t frames[2] = {0, 0};
   int timeLevel[2] = {-1, -1};
-  for (const Row& m : sub.db().all("SELECT member_ordinal, params_json FROM selection WHERE subject_id = ? AND member_of_id IS NOT NULL AND params_json LIKE '%resolves_hz%'", {V(sub.id())})) {
-    const Json pj = Json::parse(text(m, "params_json"));
+  for (const auto& m : nxr::io::task::Subject::of(sub).find_all({.cls = nxr::io::task::Cls::selection, .params_present = {"resolves_hz"}, .any_status = true})) {
+    if (!m.member_of_id) continue;
+    const Json pj = m.params;
     for (int bi = 0; bi < 2; ++bi)
-      if (pj["resolves_hz"]["lo"] == blo[bi] && pj["resolves_hz"]["hi"] == bhi[bi] && pj["window_samples"] == Wb[bi]) { timeLevel[bi] = static_cast<int>(integer(m, "member_ordinal")); frames[bi] = pj["tiling"]["count"].get<std::int64_t>(); }
+      if (pj["resolves_hz"]["lo"] == blo[bi] && pj["resolves_hz"]["hi"] == bhi[bi] && pj["window_samples"] == Wb[bi]) { timeLevel[bi] = static_cast<int>(*m.member_ordinal); frames[bi] = pj["tiling"]["count"].get<std::int64_t>(); }
   }
   CHECK(timeLevel[0] >= 0 && timeLevel[1] >= 0);
   if (timeLevel[0] < 0 || timeLevel[1] < 0) return 1;

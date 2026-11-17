@@ -20,6 +20,7 @@
 #include "nxr/frame_tiling.h"
 #include "nxr/tower.h"
 #include "nxr/io.h"
+#include "nxr/io/task/task.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/frame_tiling.h"
@@ -87,7 +88,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(4096)), std::make_pair(std::string("rest_b"), std::int64_t(1000))}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "A");
         const std::string rid = sub.field(std::move(rec));
         if (first_rid.empty()) first_rid = rid;
@@ -106,9 +107,9 @@ int main() {
   const auto t1 = frame_tiling_compute(ds, sub, fo);
   const double fps = 1.0 / nxr::tower::periodS(-25);
   const std::int64_t count = static_cast<std::int64_t>(std::floor(static_cast<double>(T - 1) * fps / sfreq)) + 1;
-  const auto trow = sub.db().one("SELECT * FROM selection WHERE id = ?", {V(t1.info["id"].get<std::string>())});
-  CHECK(trow && text(*trow, "name") == "rest frames 0.00257492 s" && text(*trow, "type") == "spans" && integer(*trow, "n_members") == count && !t1.existed && t1.info["fps"] == fps && t1.info["frame_level"] == -25);
-  const Json tp = Json::parse(text(*trow, "params_json"));
+  const auto trow = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, t1.info["id"].get<std::string>());
+  CHECK(trow && trow->name == "rest frames 0.00257492 s" && trow->type == "spans" && trow->n_members == count && !t1.existed && t1.info["fps"] == fps && t1.info["frame_level"] == -25);
+  const Json tp = trow->params;
   CHECK(tp["tiling"]["count"] == count && tp["tiling"]["width"] == 1.0 / fps && tp["atlas"]["frame_level"] == -25 && tp["atlas"]["frame_code0"] == 0 && tp["atlas"]["anchor"] == "recording" && tp["atlas"]["frame_s"] == 1.0 / fps && tp["tiling"]["origin"] == 0.0 && tp["frame_tiling"]["centre_hz"] == 10.0 && tp["frame_tiling"]["frames_per_cycle"] == 36 && tp["frame_tiling"]["band"] == Json::array({8.0, 12.0}));
   CHECK(frame_tiling_compute(ds, sub, fo).existed);
   FrameTilingOptions fb = fo; fb.recording = "rest_b";
@@ -122,8 +123,8 @@ int main() {
   CHECK(what_of([&] { FrameTilingOptions e; e.recording = "rest"; e.frame_level = -20; e.centre_hz = 10.0; frame_tiling_compute(ds, sub, e); }).find("not both") != std::string::npos);
   CHECK(what_of([&] { FrameTilingOptions e; e.recording = "rest"; e.frame_level = 1; frame_tiling_compute(ds, sub, e); }).find("finer") != std::string::npos);
   { FrameTilingOptions c; c.recording = "rest"; c.frame_level = -20; c.start_s = 43200.5; c.replace = true; frame_tiling_compute(ds, sub, c);   // a day anchor: code0 and the origin before the first sample
-    const auto row = sub.db().one("SELECT params_json FROM selection WHERE name = ?", {V(std::string("rest frames 0.0823975 s"))});
-    const Json p = Json::parse(text(*row, "params_json")); const auto tt = nxr::tower::makeFrameTiling(sfreq, T, -20, 43200.5);
+    const auto row = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest frames 0.0823975 s", .any_status = true});
+    const Json p = row->params; const auto tt = nxr::tower::makeFrameTiling(sfreq, T, -20, 43200.5);
     CHECK(p["atlas"]["anchor"] == "day" && p["atlas"]["frame_code0"] == tt.code0 && p["atlas"]["start_s"] == 43200.5 && p["tiling"]["origin"] == tt.origin_s() && p["tiling"]["count"] == tt.count); }
 
   // ── THE DIRECT MEAN over the frames in the window (and good): cos(2π f t_j + 0.5 c), t_j = j / fps ──

@@ -15,6 +15,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io/statistic.h"
 #include "nxr/pipelines/eigen.h"
@@ -118,7 +119,7 @@ static int run(const fs::path& root) {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, data] : {std::make_pair(std::string("stand"), &stand), std::make_pair(std::string("rotate"), &rotate), std::make_pair(std::string("switch"), &swtch), std::make_pair(std::string("plane"), &plane)}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(*data, {M, T}); rec.array.chunks = Shape{M, 1700}; rec.array.compress = false; rec.cols.set("unit", "T");
         sub.field(std::move(rec));
       }
@@ -145,9 +146,9 @@ static int run(const fs::path& root) {
   // the cortex on the glued surface: its first support.size() vertices, glued vertex i being input vertex support[i] (the package's support Selection)
   std::vector<std::int64_t> support;
   {
-    const auto r = sub.db().one("SELECT array_path FROM selection WHERE subject_id = ? AND name = 'hodgeDirac_support'", {V(sub.id())});
+    const auto r = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "hodgeDirac_support", .any_status = true});
     CHECK(r.has_value());
-    ArrayReader a = ArrayReader::open(sub.store(), text(*r, "array_path"));
+    ArrayReader a = ArrayReader::open(sub.store(), *r->array_path);
     const auto raw = a.read();
     const std::size_t sz = dtype_size(a.dtype());
     for (std::size_t i = 0; i < raw.size() / sz; ++i) {
@@ -169,7 +170,11 @@ static int run(const fs::path& root) {
   const Json pj = sst.producer;
   CHECK(sst.row.at("measure") == V(std::string("cycle_pattern")) && sst.row.at("method") == V(std::string("eigendecomposition")) && sst.shape == std::vector<std::int64_t>({sst.shape[0], 2, 3, 2}));
   CHECK(!text(sst.row, "of_statistic_id").empty());             // the statistic it decomposes: the windowed cross-spectrum
-  CHECK(!sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name LIKE 'stand_crossspectrum_alpha_cycle%'", {V(sub.id())}).has_value());   // no per-pattern Field
+  {
+    bool per_pattern = false;
+    for (const auto& fld : nxr::io::task::Subject::of(sub).find_all({.cls = nxr::io::task::Cls::field, .any_status = true})) per_pattern = per_pattern || fld.name.rfind("stand_crossspectrum_alpha_cycle", 0) == 0;
+    CHECK(!per_pattern);
+  }   // no per-pattern Field
   const double standing = pj["standing_share"][0].get<double>();
   std::printf("  standing: the normal map vs f %.4f; share %.3f; standing share %.4f\n", mStand, share, standing);
   CHECK(mStand > 0.99 && share > 0.95 && standing < 0.05);

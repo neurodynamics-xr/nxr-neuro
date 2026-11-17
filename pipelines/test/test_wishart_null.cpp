@@ -17,6 +17,7 @@
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
+#include "nxr/io/task/task.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/wishart_null.h"
@@ -85,7 +86,7 @@ int main() {
       tid = sub.manifold(std::move(tm));
       const std::string prod = sub.product({cid, tid});
       FieldSpec rec;
-      rec.name = "rest"; rec.path = node_path(sub.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(x, {M, T}); rec.array.chunks = Shape{M, 4096}; rec.array.compress = false; rec.cols.set("unit", "T");
       const std::string rid = sub.field(std::move(rec));
       std::vector<std::pair<double, double>> sp;

@@ -23,6 +23,7 @@
 #include "nxr/frame_tiling.h"
 #include "nxr/tower.h"
 #include "nxr/io.h"
+#include "nxr/io/task/task.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
@@ -92,7 +93,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(4096)), std::make_pair(std::string("rest_b"), std::int64_t(1000))}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "A");
         const std::string rid = sub.field(std::move(rec));
         if (first_rid.empty()) first_rid = rid;
@@ -174,7 +175,7 @@ int main() {
   CHECK(rb.size() == 2);                                                       // one run for each recording
   const StoredStatistic B = read_statistic(sub, "spatial_baseline.baseline.rest"), Bb = read_statistic(sub, "spatial_baseline.baseline.rest_b");
   CHECK(text(B.row, "method") == "mean" && text(B.row, "measure") == "power" && integer(B.row, "n_members") == static_cast<std::int64_t>(outside.size()) && B.shape == std::vector<std::int64_t>({Vg, L}));
-  CHECK(B.axes[0]["manifold_id"] == Json(text(*sub.db().one("SELECT id FROM manifold WHERE name = 'cortex_glued'"), "id")) && B.axes[1]["values"][1]["name"] == "level3");
+  CHECK(B.axes[0]["manifold_id"] == Json(nxr::io::task::Subject::of(sub).require({.cls = nxr::io::task::Cls::manifold, .name = "cortex_glued", .any_status = true}, "the glued cortex").id) && B.axes[1]["values"][1]["name"] == "level3");
   double e = 0, top = 0;
   for (std::int64_t i = 0; i < Vg * L; ++i) { top = std::max(top, base_direct(i)); e = std::max(e, std::abs(B.values[static_cast<std::size_t>(i)] - base_direct(i))); }
   std::printf("  the stored baseline vs the direct one (taps, sinc, dense exact hats): max difference %.2e of the largest value\n", e / top);
