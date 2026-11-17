@@ -1,4 +1,5 @@
 #include "nxr/pipelines/eigen.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/pipelines/cache.h"
 
 #include <algorithm>
@@ -361,7 +362,7 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
       const std::int64_t gf = static_cast<std::int64_t>(G.faces.size() / 3);
       std::optional<std::string> csk;
       if (!is_null(in.manifold, "geometry_id"))
-        if (auto c = sub.db().one("SELECT c.name FROM geometry g JOIN coordinate_system c ON c.id = g.coordinate_system_id WHERE g.id = ?", {nxr::io::V(text(in.manifold, "geometry_id"))})) csk = text(*c, "name");
+        if (auto c = nxr::io::coordinate_system_name_of_geometry(sub.db(), text(in.manifold, "geometry_id"))) csk = *c;
       ManifoldSpec gm;
       gm.name = in.name + "_glued";
       gm.path = P.glued;
@@ -434,7 +435,7 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
     {
       std::optional<std::string> csk2;
       if (!is_null(in.manifold, "geometry_id"))
-        if (auto c = sub.db().one("SELECT c.name FROM geometry g JOIN coordinate_system c ON c.id = g.coordinate_system_id WHERE g.id = ?", {nxr::io::V(text(in.manifold, "geometry_id"))})) csk2 = text(*c, "name");
+        if (auto c = nxr::io::coordinate_system_name_of_geometry(sub.db(), text(in.manifold, "geometry_id"))) csk2 = *c;
       Json rec = Json{{"construction", "geometry-central's signpost intrinsic triangulation (flipToDelaunay)"}, {"mollify", sm.mollify}, {"flip_eps", sm.flip_eps},
                             {"epsilon", h.mollify_epsilon}, {"flips", h.flips}, {"star1_floor", sm.star1_floor ? Json(*sm.star1_floor) : Json()}, {"star1_clamped", h.star1_clamped}};
       if (h.gauge.is_object()) { rec["gauge"] = h.gauge["gauge"]; rec["gauge_surface"] = target; rec["gauge_record"] = h.gauge["gauge_record"]; }   // per intrinsic edge or face: the gauge (G6)

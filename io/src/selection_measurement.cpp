@@ -66,6 +66,8 @@ bool has_measurement(const Database& db, const std::string& selection_id, const 
   if (f.measure) { sql += " AND measure = ?"; a.push_back(V(*f.measure)); }
   if (f.of_field_id) { sql += " AND of_field_id = ?"; a.push_back(V(*f.of_field_id)); }
   if (f.of_field_none) sql += " AND of_field_id IS NULL";
+  if (f.of_statistic_id) { sql += " AND of_statistic_id = ?"; a.push_back(V(*f.of_statistic_id)); }
+  if (f.of_index) { sql += " AND of_index = ?"; a.push_back(V(*f.of_index)); }
   if (f.whole_only) sql += " AND within_code IS NULL";
   return db.one(sql + " LIMIT 1", a).has_value();
 }

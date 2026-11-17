@@ -1,5 +1,7 @@
 // nxr-pipelines — the measurement pyramid build (pyramid.h).
 #include "nxr/pipelines/pyramid.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/io/selection_measurement.h"
 #include "nxr/io/selection_store.h"
 
@@ -126,7 +128,7 @@ PyramidLeaves pyramid_leaves(DatasetWriter& ds, SubjectWriter& sub, const Surfac
   if (tree != "subject" && tree != "group") invalid(who + ": --tree is subject or group, not " + tree);
   if (tree == "group" && text(sub.row(), "kind") != "template") return group_leaves(ds, sub, S, depth, who, say);
   const std::int64_t N = S.n_vertices();
-  auto ladder_of = [&]() { return sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'ladder' AND status = 'complete'", {V(sub.id()), V(S.id), V(surface_name + " tiles")}); };
+  auto ladder_of = [&]() { return nxr::io::selection::ladder_row(sub.db(), sub.id(), surface_name + " tiles", S.id); };
   if (!ladder_of()) { TilesComputeOptions to; to.surface = surface_name; if (say) say(Json{{"stage", "tiles"}, {"surface", surface_name}, {"made", true}}); tiles_compute(ds, sub, to); }
   const auto ladder = ladder_of();
   const Json lp = Json::parse(text(*ladder, "params_json"), nullptr, false);
@@ -137,7 +139,7 @@ PyramidLeaves pyramid_leaves(DatasetWriter& ds, SubjectWriter& sub, const Surfac
   out.depth = depth ? *depth : ladder_depth;
   if (out.depth < 0 || out.depth > ladder_depth) invalid(who + ": --depth " + std::to_string(out.depth) + " is outside the surface's ladder (levels 0 \xe2\x80\xa6 " + std::to_string(ladder_depth) + ")");
   out.name = surface_name + " tiles L" + std::to_string(out.depth);
-  out.part = sub.db().one("SELECT * FROM selection WHERE member_of_id = ? AND name = ? AND status = 'complete'", {V(text(*ladder, "id")), V(out.name)});
+  out.part = nxr::io::selection::member_row(sub.db(), text(*ladder, "id"), out.name);
   if (!out.part) invalid(sub.name() + ": the ladder of " + surface_name + " has no level " + std::to_string(out.depth));
   out.record = Json::parse(text(*out.part, "params_json"), nullptr, false);
   if (!out.record.is_object() || !out.record.contains("node") || !out.record.contains("areas")) invalid(out.name + ": its record lacks the node of its arrays (a ladder made by another producer)");
@@ -152,7 +154,7 @@ PyramidLeaves pyramid_leaves(DatasetWriter& ds, SubjectWriter& sub, const Surfac
 
 void pyramid_leaves_record(SubjectWriter& sub, PyramidLeaves& leaves, const Json& gauge) {
   leaves.record["atlas"] = Json{{"tree", leaves.tree}, {"level", leaves.depth}, {"finest", leaves.finest}, {"frame", gauge}, {"areas", leaves.record["areas"]}, {"node", leaves.node}};
-  sub.db().execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(leaves.record)), V(text(*leaves.part, "id"))});
+  nxr::io::selection::set_params(sub.db(), text(*leaves.part, "id"), leaves.record);
 }
 
 PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const PyramidBuildOptions& opt, const std::function<void(const Json&)>& progress) {
@@ -169,25 +171,25 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
   try { py::bandGains(Eigen::VectorXd::Ones(1), bands, shape); } catch (const std::invalid_argument& e) { invalid(std::string("pyramid: ") + e.what()); }
 
   // ── the recording (prepare: what it is, its time line, its channels) ──
-  const auto recrow = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND kind = 'recording' AND status = 'complete'", {V(sub.id()), V(opt.recording)});
+  const auto recrow = find_field(sub.db(), sub.id(), FieldQuery{opt.recording, "recording"});
   if (!recrow) missing(sub.name() + ": no recording '" + opt.recording + "'");
   const finder::Value rv = finder::value_of(sub.db(), "field", *recrow);
   if (!rv.time || !(rv.rate > 0)) invalid(opt.recording + ": it has no time line with a rate");
   const std::string time_id = *rv.time, rec_id = text(*recrow, "id");
-  const auto dims = sub.db().all("SELECT d.manifold_id AS mid FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? ORDER BY d.ordinal", {V(text(*recrow, "manifold_id"))});
+  const auto dims = factor_manifolds(sub.db(), text(*recrow, "manifold_id"));
   if (dims.size() != 2) invalid(opt.recording + ": a recording lies on channels x time");
-  const std::string channels_id = text(dims[0], "mid");
+  const std::string channels_id = dims[0];
   const double sfreq = rv.rate, t0 = rv.origin;
   const std::int64_t n_samples = integer(*sub.db().read("manifold", time_id), "n_vertices");
 
   // ── the kernel (constrained orientation) and its channels, in its order ──
   Row kern;
   if (opt.kernel) {
-    const auto r = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.kernel)});
+    const auto r = find_operator(sub.db(), sub.id(), "inverse kernel", *opt.kernel);
     if (!r) missing(sub.name() + ": no inverse kernel named '" + *opt.kernel + "'");
     kern = *r;
   } else {
-    const auto rs = sub.db().all("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND status = 'complete' AND path IS NOT NULL", {V(sub.id())});
+    const auto rs = stored_operators(sub.db(), sub.id(), "inverse kernel");
     if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " inverse kernels; name one with --kernel");
     kern = rs[0];
   }
@@ -221,7 +223,7 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
   (void)leaf_area;
   lad::Mesh mesh; mesh.n = static_cast<int>(N); mesh.positions = S.vertices; mesh.faces = S.faces;
   const std::vector<double> area = lad::vertexAreas(mesh);
-  const auto gauge_row = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(surface_name + "_canonical_frames")});
+  const auto gauge_row = find_field(sub.db(), sub.id(), FieldQuery{surface_name + "_canonical_frames"});
   const Json gauge = gauge_row ? Json(text(*gauge_row, "id")) : Json(nullptr);
   // free orientation: the kernel in the canonical frames (the gauge); a vertex with no frame is out of the nine tensor sums and in the total
   py::FrameKernel fk;
@@ -258,10 +260,8 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
   const std::int64_t halo = static_cast<std::int64_t>(std::ceil(opt.halo_seconds * sfreq));
   std::optional<std::vector<std::pair<double, double>>> bad;
   if (opt.exclude_bad_segments)
-    if (const auto sel = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'spans' AND status = 'complete'", {V(sub.id()), V(opt.recording + "_bad_segments")})) {
-      bad = std::vector<std::pair<double, double>>();
-      for (const Row& r : sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*sel, "id"))})) bad->emplace_back(std::stod(text(r, "start")), std::stod(text(r, "stop")));
-    }
+    if (const auto sel = nxr::io::selection::named_row(sub.db(), sub.id(), opt.recording + "_bad_segments", "spans"))
+      bad = nxr::io::selection::span_bounds(sub.db(), text(*sel, "id"));
 
   // ── the names, and what a rebuild replaces ──
   // nxr's key `<recording>__<method>_<stamp>` (build.py): a Brainstorm-made kernel is named `<method>_KERNEL_<stamp>` (nxr_store.py: method, _, rest = name.partition("_KERNEL_"); stamp = rest[:11]);
@@ -271,8 +271,8 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
   const std::string key = safe_name(opt.recording + "__" + (kmethod.empty() ? kname : kmethod + "_" + kstamp));
   const std::string est_name = opt.recording + " \xc3\x97 " + kname;
   const std::string joint_name = opt.recording + " \xc3\x97 " + kname + " " + part_name + " \xc3\x97 " + g(frame_s) + " s";
-  const auto old_joint = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(joint_name)});
-  const auto old_est = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND kind = 'source estimate' AND status = 'complete'", {V(sub.id()), V(est_name)});
+  const auto old_joint = nxr::io::selection::named_row(sub.db(), sub.id(), joint_name);
+  const auto old_est = find_field(sub.db(), sub.id(), FieldQuery{est_name, "source estimate"});
 
   // ── the cache key (method rule 3): EVERY option that changes the stored arrays, and the identity of what it was run on; a rerun with the same key is a hit (nothing computed, nothing written) ──
   Json bj = Json::array();
@@ -325,7 +325,7 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
     for (Json* j : {&a, &b}) { j->erase("depth"); j->erase("tree"); }
     for (Json* j : {&ai, &bi}) j->erase("leaves");
     reuse_est = !sc.empty() && a == b && ai == bi && sc.value("compute", std::string()) == ckey.compute;
-    for (const Row& r : sub.db().all("SELECT id FROM selection WHERE subject_id = ? AND of_field_id = ? AND status = 'complete'", {V(sub.id()), V(text(*old_est, "id"))}))
+    for (const Row& r : nxr::io::selection::rows_over_field(sub.db(), sub.id(), text(*old_est, "id")))
       if (!old_joint || text(r, "id") != text(*old_joint, "id")) other_joints.push_back(text(r, "id"));
   }
   if (old_joint && !opt.replace) invalid(sub.name() + ": '" + joint_name + "' already holds a pyramid made with other options; pass --replace to rebuild it");
@@ -379,7 +379,7 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
   FrameTilingOptions fo;
   fo.recording = opt.recording; fo.frame_level = opt.frame_level; fo.start_s = opt.start_s;
   const FrameTilingResult fr = frame_tiling_compute(ds, sub, fo);
-  const auto frow = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND manifold_id = ? AND status = 'complete'", {V(sub.id()), V(frame_tiling_name(opt.recording, opt.frame_level)), V(time_id)});
+  const auto frow = nxr::io::selection::named_row(sub.db(), sub.id(), frame_tiling_name(opt.recording, opt.frame_level), std::nullopt, time_id);
   if (!frow) missing("pyramid: the frame tiling was not stored");
   frames_id = text(*frow, "id");
   const Json fparams = Json::parse(text(*frow, "params_json"), nullptr, false);
@@ -447,7 +447,7 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
 
 FrameCells frame_cells(DatasetWriter& ds, SubjectWriter& sub, const std::string& recording, int frame_level, std::optional<double> start_s, const std::string& who) {
   if (frame_level > 0) invalid(who + ": the frame level is 0 (the day) or finer (negative)");
-  const auto recrow = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND kind = 'recording' AND status = 'complete'", {V(sub.id()), V(recording)});
+  const auto recrow = find_field(sub.db(), sub.id(), FieldQuery{recording, "recording"});
   if (!recrow) missing(sub.name() + ": no recording '" + recording + "'");
   const finder::Value rv = finder::value_of(sub.db(), "field", *recrow);
   if (!rv.time || !(rv.rate > 0)) invalid(recording + ": it has no time line with a rate");
@@ -460,7 +460,7 @@ FrameCells frame_cells(DatasetWriter& ds, SubjectWriter& sub, const std::string&
   FrameTilingOptions fo;
   fo.recording = recording; fo.frame_level = frame_level; fo.start_s = start_s;
   frame_tiling_compute(ds, sub, fo);
-  const auto frow = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND manifold_id = ? AND status = 'complete'", {V(sub.id()), V(frame_tiling_name(recording, frame_level)), V(fc.time_id)});
+  const auto frow = nxr::io::selection::named_row(sub.db(), sub.id(), frame_tiling_name(recording, frame_level), std::nullopt, fc.time_id);
   if (!frow) missing(who + ": the frame tiling was not stored");
   fc.frames_id = text(*frow, "id");
   const Json fparams = Json::parse(opt_text(*frow, "params_json").value_or("{}"), nullptr, false);
@@ -508,13 +508,13 @@ std::string frame_sums_write(SubjectWriter& sub, const PyramidLeaves& PL, const 
 SpatialBandsResult pyramid_spatial_bands(DatasetWriter& ds, SubjectWriter& sub, const SpatialBandsOptions& opt) {
   const SurfaceInput S = read_surface(sub, opt.surface, true);
   const std::string surface_name = S.name;
-  auto ladder_of = [&]() { return sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'ladder' AND status = 'complete'", {V(sub.id()), V(S.id), V(surface_name + " tiles")}); };
+  auto ladder_of = [&]() { return nxr::io::selection::ladder_row(sub.db(), sub.id(), surface_name + " tiles", S.id); };
   if (!ladder_of()) { TilesComputeOptions to; to.surface = surface_name; tiles_compute(ds, sub, to); }
   const auto ladder = ladder_of();
   if (!ladder) missing(sub.name() + ": the ladder of " + surface_name + " was not stored");
   std::vector<SpatialBandEdge> edges;
   Json levels = Json::array();
-  for (const Row& m : sub.db().all("SELECT * FROM selection WHERE member_of_id = ? AND status = 'complete' ORDER BY member_ordinal", {V(text(*ladder, "id"))})) {
+  for (const Row& m : nxr::io::selection::member_rows(sub.db(), text(*ladder, "id"))) {
     const Json r = Json::parse(opt_text(m, "params_json").value_or("{}"), nullptr, false);
     if (!r.is_object() || !r.contains("level") || !r.contains("lambda_min") || !r.contains("lambda_max")) invalid(surface_name + " tiles: a level's record has no lambda range (a ladder made by another producer)");
     SpatialBandEdge e;

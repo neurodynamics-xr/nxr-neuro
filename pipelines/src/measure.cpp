@@ -2,6 +2,8 @@
 // measureOverPartition); the rows are the Studio's (`selection_measurement`, written through nxr::io::write_measurements, the port of its repository);
 // the recipe is an entry of the dataset's `recipes` dictionary as the Studio's `recipes.save` writes one (adapters/nxr/recipes.ts, recipe.ts entryOfRecipe).
 #include "nxr/pipelines/measure.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/io/statistic.h"
 #include "nxr/pipelines/spectral_record.h"
 
@@ -140,9 +142,9 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
   const Database db = Database::open(folder / "dataset.sqlite", false, "nxr-neuro", true);
 
   std::vector<Row> subjects;
-  if (opt.subjects.empty()) subjects = db.all("SELECT id, name FROM subject WHERE kind = 'subject' AND status = 'complete' ORDER BY name");
+  if (opt.subjects.empty()) subjects = complete_subjects(db);
   else for (const auto& n : opt.subjects) {
-    const auto r = db.one("SELECT id, name FROM subject WHERE name = ? AND status = 'complete'", {V(n)});
+    const auto r = find_subject(db, n);
     if (!r) throw Error(code::no_such_row, "no subject " + n);
     subjects.push_back(*r);
   }
@@ -165,16 +167,15 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
 
   for (const Row& subj : subjects) {
     const std::string sname = text(subj, "name"), sid_subj = text(subj, "id");
-    const auto sel = db.one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'set' AND array_path IS NOT NULL AND status = 'complete'", {V(sid_subj), V(opt.labelling)});
+    const auto sel = nxr::io::selection::labelling_row(db, sid_subj, opt.labelling);
     if (!sel) { per_subject.push_back(Json{{"subject", sname}, {"missing", "no partition " + opt.labelling}}); continue; }
     const std::string sid = text(*sel, "id");
     std::map<std::int64_t, std::string> names;
-    if (!is_null(*sel, "dictionary_id"))
-      for (const Row& e : db.all("SELECT code, name FROM dictionary_entry WHERE dictionary_id = ?", {V(text(*sel, "dictionary_id"))})) names[integer(e, "code")] = text(e, "name");
+    if (!is_null(*sel, "dictionary_id")) names = nxr::io::selection::lookup_names(db, text(*sel, "dictionary_id"));
     auto member_name = [&](std::int64_t c) { const auto it = names.find(c); return it != names.end() ? it->second : "member " + std::to_string(c); };
     // the Fields: one per condition
     std::map<std::string, Row> by_cond;
-    for (const Row& f : db.all("SELECT * FROM field WHERE subject_id = ? AND manifold_id = ? AND status = 'complete' ORDER BY rowid", {V(sid_subj), V(text(*sel, "manifold_id"))})) {
+    for (const Row& f : fields_on_manifold(db, sid_subj, text(*sel, "manifold_id"))) {
       std::smatch m;
       const std::string fname = text(f, "name");
       if (!std::regex_match(fname, m, re)) continue;
@@ -200,17 +201,15 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
     auto take = [&](const std::optional<Row>& f, const std::string& cond, const std::string& st, int st_order) {
       const std::string ing = ingredient(st);
       Json q = {{"selectionId", sid}, {"measure", st}};
-      std::vector<Value> a = {V(sid), V(ing)};
-      std::string w = "selection_id = ? AND measure = ? AND ";
+      nxr::io::selection::MeasuredOf of_what;
       if (f && slice_index.count(cond)) {                       // a statistic's map: its rows name the statistic and the slice
         q["ofStatisticId"] = text(*f, "id"); q["ofIndex"] = slice_index.at(cond);
-        w += "of_statistic_id = ? AND of_index = ?"; a.push_back(V(text(*f, "id"))); a.push_back(V(slice_index.at(cond)));
+        of_what.statistic_id = text(*f, "id"); of_what.index = slice_index.at(cond);
       } else {
         q["ofFieldId"] = f ? Json(text(*f, "id")) : Json(nullptr);
-        if (f) { w += "of_field_id = ?"; a.push_back(V(text(*f, "id"))); } else w += "of_field_id IS NULL";
-        if (has_column(db, "selection_measurement", "of_statistic_id")) w += " AND of_statistic_id IS NULL";
+        if (f) of_what.field_id = text(*f, "id");
       }
-      const auto meta = db.all("SELECT DISTINCT computed_by, unit FROM selection_measurement WHERE " + w, a);
+      const auto meta = nxr::io::selection::computed_by_and_unit(db, sid, ing, of_what);
       if (meta.empty()) return;
       std::set<std::string> rvs;
       std::optional<std::string> unit;
@@ -218,7 +217,7 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
       for (const auto& rv : rvs) if (!wanted(rv)) invalid(sname + ": the " + ing + " of " + (f ? text(*f, "name") : std::string("the members")) + " on " + opt.labelling + " was made by " + rv + ", not " + *opt.recipe);
       const std::string rv = *rvs.begin();
       if (!recipes.contains(rv)) {
-        const auto e = db.one("SELECT params_json FROM dictionary_entry WHERE name = ? AND dictionary_id IN (SELECT id FROM dictionary WHERE name = 'recipes')", {V(rv)});
+        const auto e = nxr::io::selection::lookup_entry_named(db, "recipes", rv);
         recipes[rv] = e ? Json::parse(opt_text(*e, "params_json").value_or("null"), nullptr, false) : Json(nullptr);
       }
       Json got;
@@ -403,7 +402,7 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
       tables_out.push_back(Json{{"name", tb.name}, {"columns", tb.cols.size() + 1}});
     }
   }
-  const auto dsrow = db.one("SELECT id, name FROM dataset");
+  const auto dsrow = dataset_row(db);
   Json prov = {{"table", opt.table}, {"generated_utc", now_utc()}, {"generated_by", std::string("nxr-neuro ") + NXR_NEURO_VERSION + " measure export"},
                {"dataset", Json{{"path", fs::absolute(folder).string()}, {"id", dsrow ? text(*dsrow, "id") : ""}, {"name", dsrow ? text(*dsrow, "name") : ""}}},
                {"request", Json{{"labelling", opt.labelling}, {"fields", opt.fields}, {"statistics", opt.statistics}, {"recipe", opt.recipe ? Json(*opt.recipe) : Json(nullptr)}, {"exclude", opt.exclude}, {"scaling", opt.scaling}}},

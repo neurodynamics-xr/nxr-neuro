@@ -41,6 +41,8 @@ struct MeasurementFilter {
   std::optional<std::string> measure;
   std::optional<std::string> of_field_id;
   bool of_field_none = false;                       // only the members' own values (no field: a size, a count of streamlines)
+  std::optional<std::string> of_statistic_id;       // rows of a map slice of that statistic ...
+  std::optional<std::int64_t> of_index;             // ... and of that slice, when named
   bool whole_only = false;                          // only rows with no `within` partition
 };
 /** does the selection hold a measurement row of that kind? */

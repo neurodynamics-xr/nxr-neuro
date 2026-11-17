@@ -1,4 +1,6 @@
 #include "nxr/io/selection_store.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/subject_reads.h"
 // nxr-pipelines — the runner (runner.h): nxr's nxr/pipelines/runner.py `plan` and the planning half of `run`. The execution (before · the chunk loop · after
 // · store) is the next PR of the spec's order.
 #include "nxr/pipelines/runner.h"
@@ -45,7 +47,7 @@ Json with_value(const Json& v, const Json& params) {
 }
 std::string label(const std::string& sec) { return sec == "do" ? "chunks" : sec; }
 std::string manifold_name(const nxr::io::Database& db, const std::string& id) {
-  const auto m = db.one("SELECT name FROM manifold WHERE id = ?", {nxr::io::V(id)});
+  const auto m = db.read("manifold", id);
   return m ? nxr::io::text(*m, "name") : id;
 }
 std::string on(const nxr::io::Database& db, const Value& v) {
@@ -169,7 +171,7 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     if (kind == "measurement" || kind == "spans" || kind == "statistic" || kind == "labelling") refuse("outputs." + o + ": declared " + kind + " but its steps make a " + v.cls);
     if (v.cls != "field" || v.chunked) refuse("outputs." + o + ": not a field outside the chunk loop: only those are stored");
     for (const auto& m : v.manifolds)
-      if (!db.one("SELECT id FROM manifold WHERE id = ?", {nxr::io::V(m)})) refuse("outputs." + o + ": its manifold " + m + " is not among the subject's rows");
+      if (!db.read("manifold", m)) refuse("outputs." + o + ": its manifold " + m + " is not among the subject's rows");
   }
   return P;
 }
@@ -217,10 +219,7 @@ std::string ospec_kind(const Json& spec) { return spec.value("kind", std::string
 
 // an exclude input's spans [start, stop) in seconds (a recording's bad segments)
 std::vector<std::pair<double, double>> spans_of(const nxr::io::Database& db, const nxr::io::Row& selection) {
-  std::vector<std::pair<double, double>> out;
-  for (const auto& r : db.all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(selection, "id"))}))
-    out.emplace_back(std::stod(text(r, "start")), std::stod(text(r, "stop")));
-  return out;
+  return nxr::io::selection::span_bounds(db, text(selection, "id"));
 }
 // the components a value holds an element (its rows a vertex)
 std::int64_t components(const Value& v) { return v.value_type == "scalar" ? 1 : v.value_type == "quaternion" ? 4 : 3; }
@@ -248,10 +247,9 @@ std::vector<std::string> measure_rows(const std::string& measure) {
 std::vector<std::string> measured_by(const nxr::io::Database& db, const std::string& selection_id, const Value& v, const std::string& field_id) {
   std::vector<std::string> out;
   if (selection_id.empty()) return out;
-  for (const auto& r : db.all("SELECT DISTINCT computed_by FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = ?",
-                              {V(selection_id), V(field_id), V(measure_rows(v.facts["measure"].get<std::string>())[0])}))
+  for (const std::string& by : nxr::io::selection::computed_by_over_field(db, selection_id, field_id, measure_rows(v.facts["measure"].get<std::string>())[0]))
   {
-    std::string c = nxr::io::opt_text(r, "computed_by").value_or("");
+    std::string c = by;
     const std::size_t at = c.find(" \xc2\xb7 stages ");              // the crossings' stage names are an annotation of the rows, not part of how they were made (the stages are in the cache key already)
     out.push_back(at == std::string::npos ? c : c.substr(0, at));
   }
@@ -343,13 +341,13 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, nxr::pipelines
   std::vector<std::string> names;
   for (const Part& p : parts) for (const auto& n : p.names) names.push_back(n);
   bool keep_count = false, count_replaced = false;
-  if (const auto cr = sub.db().one("SELECT array_path, component FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = 'count'", {V(sel), V(fid)})) {
+  if (const auto cr = nxr::io::selection::measurement_array(sub.db(), sel, fid, "count")) {
     bool same = false;
     try {
       // the stored count row says which component of which array is the count (the last): read it there, never assume a layout
-      nxr::io::ArrayReader rd = nxr::io::ArrayReader::open(sub.store(), text(*cr, "array_path"));
+      nxr::io::ArrayReader rd = nxr::io::ArrayReader::open(sub.store(), cr->array_path);
       const auto sh = rd.shape();
-      const std::int64_t cc = nxr::io::integer(*cr, "component");
+      const std::int64_t cc = cr->component;
       if (sh.size() == 3 && sh[1] == T && cc >= 0 && cc < sh[2] && sh[0] >= 1 && rd.dtype() == nxr::io::DType::Float32) {
         const auto raw = rd.read();
         std::vector<float> old(raw.size() / sizeof(float));
@@ -361,7 +359,7 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, nxr::pipelines
     if (same) {
       keep_count = true;
       // a count row in the very array about to be rewritten is rewritten with it (its component may move)
-      if (text(*cr, "array_path") == path) { unit.remove_measurements(sel, fid, "count"); keep_count = false; }
+      if (cr->array_path == path) { unit.remove_measurements(sel, fid, "count"); keep_count = false; }
     } else {
       if (!replace) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + o0 + ": the stored measurements of this Selection and recording were made over another span (their counts differ); pass --replace to rewrite their count row");
       // another span: the count row is rewritten only when no other measure shares it (their counts would no longer match); they are never deleted here
@@ -372,8 +370,8 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, nxr::pipelines
         if (v2.cls == "measurement" && !over_events(v2) && over_selection(sub, P, v2) == sel) for (const auto& n2 : measure_rows(v2.facts["measure"].get<std::string>())) ours.insert(n2);
       }
       std::string others;
-      for (const auto& r : sub.db().all("SELECT DISTINCT measure FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure <> 'count' ORDER BY measure", {V(sel), V(fid)}))
-        if (!ours.count(text(r, "measure")) && std::find(names.begin(), names.end(), text(r, "measure")) == names.end()) others += (others.empty() ? "" : ", ") + text(r, "measure");
+      for (const std::string& r : nxr::io::selection::measures_over_field(sub.db(), sel, fid, std::string("count")))
+        if (!ours.count(r) && std::find(names.begin(), names.end(), r) == names.end()) others += (others.empty() ? "" : ", ") + r;
       if (!others.empty()) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + o0 + ": the measurements " + others + " of this Selection and recording were made over another span (their counts differ); recompute them over this span (with --replace) or remove them first");
       unit.remove_measurements(sel, fid, "count");
       count_replaced = true;
@@ -717,7 +715,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   const auto loop = P.section("do");
   if (d.over) {
     const Value& over = P.found.at(*d.over);
-    const auto line = sub.db().one("SELECT n_vertices FROM manifold WHERE id = ?", {V(*over.time)});
+    const auto line = sub.db().read("manifold", *over.time);
     int level = 0;                                                          // the grid a node asks of the span (Planned::align): a segment of 2^k samples starts on the line's grid
     if (P.align > 1) {
       while ((std::int64_t(1) << (level + 1)) <= P.align) ++level;
@@ -784,8 +782,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         P.found.at(ospec["of"].get<std::string>()).row && P.found.at(ospec["over"].get<std::string>()).row) {
       // a declared measurement of a FOUND field over a found selection takes no node: it is a hit when every row of the pair was made by this very run (same key)
       const std::string sel = text(*P.found.at(ospec["over"].get<std::string>()).row, "id"), fld = text(*P.found.at(ospec["of"].get<std::string>()).row, "id");
-      const auto by = sub.db().all("SELECT DISTINCT computed_by FROM selection_measurement WHERE selection_id = ? AND of_field_id = ?", {V(sel), V(fld)});
-      if (by.size() != 1 || nxr::io::opt_text(by[0], "computed_by").value_or("") != made_by(key)) { hit = false; break; }
+      const auto by = nxr::io::selection::computed_by_over_field(sub.db(), sel, fld);
+      if (by.size() != 1 || by[0] != made_by(key)) { hit = false; break; }
       stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}});
       continue;
     }
@@ -1181,7 +1179,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
                                                           : data.at(o).meta.contains("baseline") ? store_baseline(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)
                                                                                                   : store_statistic(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)); continue; }
       const std::string mid = v.manifolds.size() == 1 ? v.manifolds[0] : sub.product(v.manifolds);
-      const auto m = sub.db().one("SELECT name, n_vertices FROM manifold WHERE id = ?", {V(mid)});
+      const auto m = sub.db().read("manifold", mid);
       const std::string node = node_name(d, o, P.found), path = nxr::io::node_path(sub.db(), mid, node);
       nxr::pipelines::clear_stored(ds, sub, {{"field", path}}, opt.replace, d.name + " output " + o + " (" + path + ")", replaced);
       const Array& a = data.at(o);

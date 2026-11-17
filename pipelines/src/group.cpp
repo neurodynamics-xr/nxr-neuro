@@ -1,4 +1,6 @@
 #include "nxr/io/selection_store.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/subject_reads.h"
 // nxr-pipelines — the group scope of the measurement pyramid (group.h): the group tree per subject, and the group reduce.
 #include "nxr/pipelines/group.h"
 
@@ -167,8 +169,8 @@ std::set<std::string> select_kernels(const std::vector<KernelItem>& items, const
 
 int group_default_depth(DatasetWriter& ds) {
   const auto tpl = ds.template_();
-  if (!tpl) missing(ds.db().one("SELECT name FROM dataset WHERE id = ?", {V(ds.id())}) ? "the dataset has no default subject (`dataset create --templates`)" : "no default subject");
-  const auto lad_row = ds.db().one("SELECT params_json FROM selection WHERE subject_id = ? AND type = 'ladder' AND json_extract(params_json, '$.atlas.default') = 1", {V(text(*tpl, "id"))});
+  if (!tpl) missing(dataset_row(ds.db()) ? "the dataset has no default subject (`dataset create --templates`)" : "no default subject");
+  const auto lad_row = nxr::io::selection::default_atlas_ladder_row(ds.db(), text(*tpl, "id"));
   if (!lad_row) return 8;
   const Json p = parse_obj(*lad_row);
   return p.contains("atlas") && p["atlas"].is_object() ? p["atlas"].value("depth", 8) : 8;
@@ -183,11 +185,11 @@ GroupTilesResult group_tiles_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
   const std::string sname = S.name, mid = S.id, gname = sname + "_group_tiles";
   GroupTilesResult res;
-  const auto have = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'ladder' AND member_of_id IS NULL AND status = 'complete'", {V(sub.id()), V(mid), V(gname)});
+  const auto have = nxr::io::selection::ladder_row(sub.db(), sub.id(), gname, mid);
   if (have) {
     if (!opt.replace) { res.existed = true; res.info = Json{{"surface", sname}, {"group_tiles", gname}, {"kept", true}}; return res; }
     std::set<std::string> nodes;
-    const auto members = sub.db().all("SELECT * FROM selection WHERE member_of_id = ?", {V(text(*have, "id"))});
+    const auto members = nxr::io::selection::member_rows(sub.db(), text(*have, "id"), false);
     for (const Row& m : members) { const Json p = parse_obj(m); if (p.contains("node")) nodes.insert(p["node"].get<std::string>()); sub.remove("selection", text(m, "id")); }
     sub.remove("selection", text(*have, "id"));
     for (const std::string& n : nodes) sub.store().erase_prefix(n);
@@ -200,10 +202,10 @@ GroupTilesResult group_tiles_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   if (!ssphere) missing(sub.name() + ": no registered sphere (" + sname + "_sphere): the group tree is assigned through it");
   if (ssphere->n_vertices() != nV) invalid(sname + "_sphere has " + std::to_string(ssphere->n_vertices()) + " vertices, the surface " + std::to_string(nV));
   if (tsphere->n_vertices() != T.n_vertices()) invalid(T.name + "_sphere has another vertex count than " + T.name);
-  const auto tl = tsub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'ladder' AND status = 'complete'", {V(text(*tpl, "id")), V(T.name + " tiles")});
+  const auto tl = nxr::io::selection::named_row(tsub.db(), text(*tpl, "id"), T.name + " tiles", "ladder");
   if (!tl) missing(text(*tpl, "name") + ": no ladder `" + T.name + " tiles` (the group tree)");
   if (parse_obj(*tl).value("tree", std::string()) != "group") invalid(text(*tpl, "name") + ": `" + T.name + " tiles` is not a group tree (tree = " + parse_obj(*tl).value("tree", std::string("subject")) + ")");
-  const std::vector<Row> tlevels = tsub.db().all("SELECT * FROM selection WHERE member_of_id = ? AND status = 'complete' ORDER BY member_ordinal", {V(text(*tl, "id"))});
+  const std::vector<Row> tlevels = nxr::io::selection::member_rows(tsub.db(), text(*tl, "id"));
   if (tlevels.empty()) invalid(text(*tpl, "name") + ": its group ladder has no levels");
   const int finest = static_cast<int>(tlevels.size()) - 1;
   const std::vector<std::int32_t> tcodes = read_i32(tsub.store(), text(tlevels.back(), "array_path"));
@@ -251,7 +253,7 @@ GroupTilesResult group_tiles_compute(DatasetWriter& ds, SubjectWriter& sub, cons
 
 PyramidLeaves group_leaves(DatasetWriter& ds, SubjectWriter& sub, const SurfaceInput& S, std::optional<int> depth, const std::string& who, const std::function<void(const Json&)>& say) {
   const std::string gname = S.name + "_group_tiles";
-  auto parent_of = [&]() { return sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'ladder' AND member_of_id IS NULL AND status = 'complete'", {V(sub.id()), V(S.id), V(gname)}); };
+  auto parent_of = [&]() { return nxr::io::selection::ladder_row(sub.db(), sub.id(), gname, S.id); };
   if (!parent_of()) { GroupTilesOptions go; go.surface = S.name; if (say) say(Json{{"stage", "group tiles"}, {"surface", S.name}, {"made", true}}); group_tiles_compute(ds, sub, go, say); }
   const auto parent = parent_of();
   if (!parent) missing(sub.name() + ": the group tree of " + S.name + " was not stored");
@@ -261,7 +263,7 @@ PyramidLeaves group_leaves(DatasetWriter& ds, SubjectWriter& sub, const SurfaceI
   out.depth = depth ? *depth : group_default_depth(ds);
   if (out.depth < 0 || out.depth > out.finest) invalid(who + ": the group tree's depth " + std::to_string(out.depth) + " is outside the default subject's ladder (levels 0 \xe2\x80\xa6 " + std::to_string(out.finest) + ")");
   out.name = level_name(S.name, out.depth);
-  out.part = sub.db().one("SELECT * FROM selection WHERE member_of_id = ? AND name = ? AND status = 'complete'", {V(text(*parent, "id")), V(out.name)});
+  out.part = nxr::io::selection::member_row(sub.db(), text(*parent, "id"), out.name);
   if (!out.part) invalid(sub.name() + ": the group tree of " + S.name + " has no level " + std::to_string(out.depth));
   out.record = parse_obj(*out.part);
   if (!out.record.contains("node") || !out.record.contains("areas")) invalid(out.name + ": its record lacks the node of its arrays");
@@ -300,11 +302,11 @@ PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& op
 
   // the definitions and the default subject's tile partition at depth D (the group's leaves)
   const SurfaceInput T = read_surface(dsub, std::nullopt, true);
-  const auto dladder = dsub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'ladder' AND status = 'complete'", {V(dsub.id()), V(T.name + " tiles")});
+  const auto dladder = nxr::io::selection::named_row(dsub.db(), dsub.id(), T.name + " tiles", "ladder");
   if (!dladder) missing(tname + ": no ladder `" + T.name + " tiles`");
   const Json ladder_params = parse_obj(*dladder);
   const Json defs = ladder_params.contains("atlas") && ladder_params["atlas"].is_object() ? ladder_params["atlas"] : Json::object();
-  const auto dpart = dsub.db().one("SELECT * FROM selection WHERE member_of_id = ? AND name = ? AND status = 'complete'", {V(text(*dladder, "id")), V(T.name + " tiles L" + std::to_string(D))});
+  const auto dpart = nxr::io::selection::member_row(dsub.db(), text(*dladder, "id"), T.name + " tiles L" + std::to_string(D));
   if (!dpart) missing(tname + ": no partition `" + T.name + " tiles L" + std::to_string(D) + "` (the default subject's tiles at depth " + std::to_string(D) + ")");
   const std::int64_t n_leaves = integer(*dpart, "n_members");
   const std::string part_manifold = text(*dpart, "manifold_id");
@@ -317,7 +319,7 @@ PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& op
     const Row row = tg.member_row(name);
     SubjectWriter sub = tg.open_member(name);
     // the member's group-tree partition at depth D, by its rows
-    const auto part = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND json_extract(params_json, '$.atlas.tree') = 'group' AND json_extract(params_json, '$.joint') IS NULL AND name LIKE '% group tiles L' || ? AND status = 'complete'", {V(sub.id()), V(std::to_string(D))});
+    const auto part = nxr::io::selection::tree_level_row(sub.db(), sub.id(), "group", D);
     if (!part || !parse_obj(*part).contains("atlas") || !parse_obj(*part)["atlas"].contains("areas"))
       invalid("pyramid reduce: " + name + " has no group-tree atlas at depth " + std::to_string(D) + " (`nxr-neuro pyramid build --tree group` first)");
     if (integer(*part, "n_members") != n_leaves) invalid("pyramid reduce: " + name + "'s group tiles have " + std::to_string(integer(*part, "n_members")) + " leaves, the default subject's " + std::to_string(n_leaves) + " at depth " + std::to_string(D) + ": not the same tree");
@@ -341,7 +343,7 @@ PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& op
     Database& db = sub.db();
     const Json ref = Json{{"subject_id", text(M.subject, "id")}};
     // SPATIAL: the measurements on the partition, by the field's KIND
-    const auto ms = db.all("SELECT m.*, f.kind AS fkind, f.unit AS funit FROM selection_measurement m JOIN field f ON f.id = m.of_field_id WHERE m.selection_id = ? AND m.array_path IS NOT NULL", {V(text(M.part, "id"))});
+    const auto ms = nxr::io::selection::array_rows_with_field(db, text(M.part, "id"));
     std::map<std::pair<std::string, std::string>, std::vector<Row>> by_field;
     for (const Row& m : ms) by_field[{text(m, "of_field_id"), text(m, "fkind")}].push_back(m);
     for (const auto& [key, rows] : by_field) {
@@ -365,17 +367,16 @@ PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& op
     // TIME: every source estimate's joint partition on the group tree
     struct JointItem { Row joint; Json prod; std::map<std::string, std::string> paths; std::string smp_path, rec, fid, fname; KernelItem k; };
     std::vector<JointItem> joints;
-    for (const Row& j : db.all("SELECT x.*, f.producer_json AS fp, f.id AS fid, f.name AS fname, r.name AS rec FROM selection x JOIN field f ON f.id = x.of_field_id JOIN field r ON r.id = f.derived_from_id "
-                               "WHERE x.subject_id = ? AND json_extract(x.params_json, '$.joint') IS NOT NULL AND json_extract(x.params_json, '$.atlas.tree') = 'group' AND x.status = 'complete'", {V(sub.id())})) {
+    for (const Row& j : nxr::io::selection::joint_rows_on_tree(db, sub.id(), "group")) {
       JointItem ji;
       ji.joint = j;
       ji.prod = Json::parse(opt_text(j, "fp").value_or("{}"), nullptr, false);
       if (!ji.prod.is_object()) ji.prod = Json::object();
       if (parse_obj(j)["joint"].value("space", std::string()) != text(M.part, "id")) continue;          // a joint on another depth of the group tree
-      for (const Row& r : db.all("SELECT DISTINCT measure, array_path FROM selection_measurement WHERE selection_id = ? AND array_path IS NOT NULL", {V(text(j, "id"))})) ji.paths[text(r, "measure")] = text(r, "array_path");
-      const auto smp = db.one("SELECT array_path FROM selection_measurement WHERE of_field_id = ? AND measure = 'count' AND array_path IS NOT NULL", {V(text(j, "fid"))});
+      ji.paths = nxr::io::selection::measurement_arrays(db, text(j, "id"));
+      const auto smp = nxr::io::selection::measurement_array_over_field(db, text(j, "fid"), "count");
       if (!smp) invalid("pyramid reduce: " + M.name + ": the estimate of " + text(j, "fname") + " has no per-frame sample count");
-      ji.smp_path = text(*smp, "array_path");
+      ji.smp_path = smp->array_path;
       ji.rec = text(j, "rec"); ji.fid = text(j, "fid"); ji.fname = text(j, "fname");
       const std::string kn = ji.prod.contains("kernel") && ji.prod["kernel"].is_string() ? ji.prod["kernel"].get<std::string>() : ji.fname.substr(ji.fname.find(" \xc3\x97 ") == std::string::npos ? 0 : ji.fname.find(" \xc3\x97 ") + 3);
       const std::string orient = ji.prod.value("orientation", std::string());
@@ -397,11 +398,11 @@ PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& op
     std::map<std::string, std::vector<std::int64_t>> per_sub_shape;
     for (const JointItem& ji : kept) {
       // the member's bands must be the definitions' bank (a band's code is its index)
-      const auto wr = db.one("SELECT DISTINCT within_selection_id FROM selection_measurement WHERE selection_id = ? AND within_selection_id IS NOT NULL", {V(text(ji.joint, "id"))});
+      const auto wr = nxr::io::selection::within_selection_of(db, text(ji.joint, "id"));
       if (wr) {
-        const auto spans = db.all("SELECT start, stop, code FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*wr, "within_selection_id"))});
+        const auto spans = nxr::io::selection::spans_of(db, *wr);
         bool same = spans.size() == nB;
-        for (std::size_t b = 0; same && b < spans.size(); ++b) same = std::abs(std::stod(text(spans[b], "start")) - bands[b].first) < 1e-9 && std::abs(std::stod(text(spans[b], "stop")) - bands[b].second) < 1e-9 && integer(spans[b], "code") == static_cast<std::int64_t>(b);
+        for (std::size_t b = 0; same && b < spans.size(); ++b) same = std::abs(spans[b].start - bands[b].first) < 1e-9 && std::abs(spans[b].stop - bands[b].second) < 1e-9 && spans[b].code.value_or(-1) == static_cast<std::int64_t>(b);
         if (!same) invalid("pyramid reduce: " + M.name + ": " + ji.fname + " is measured in other frequency bands than the dataset's definitions (a band's code is its index in the bank)");
       }
       const std::string task_key = [&] {
@@ -461,7 +462,7 @@ PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& op
   const Json part_params = parse_obj(*dpart);
   const std::string node = part_params.contains("node") ? part_params["node"].get<std::string>() : atlas_node(dsub.db(), part_manifold, text(*dpart, "name"));
   const std::string part_id = text(*dpart, "id");
-  const auto frames_row = dsub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(dsub.id()), V(T.name + "_canonical_frames")});
+  const auto frames_row = find_field(dsub.db(), dsub.id(), FieldQuery{T.name + "_canonical_frames"});
   Json spatial_out = Json::array(), time_out = Json::array();
   if (tg.anchor) {   // a group package: the members' rows the contributions name are carried into it first
     std::set<std::pair<std::string, std::string>> pairs;
@@ -470,7 +471,7 @@ PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& op
   }
   wsub.compose([&] {
     // a re-run REPLACES: the group fields (their rows go with them), and the arrays
-    for (const Row& r : wsub.db().all("SELECT id FROM field WHERE subject_id = ? AND path IS NULL AND json_extract(producer_json, '$.atlas') IN ('spatial', 'time')", {V(wsub.id())})) wsub.remove("field", text(r, "id"));
+    for (const Row& r : group_atlas_fields(wsub.db(), wsub.id())) wsub.remove("field", text(r, "id"));
     wsub.store().erase_prefix(node + "/maps");
     wsub.store().erase_prefix(node + "/time");
     Json p = part_params;
@@ -484,7 +485,7 @@ PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& op
     for (const Member& m : members) names.push_back(m.name);
     a["members"] = names;
     p["atlas"] = a;
-    if (own_target) wsub.db().execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(p)), V(part_id)});   // (in a group package the partition is the default subject's own row, held as an anchor: left as it is)
+    if (own_target) nxr::io::selection::set_params(wsub.db(), part_id, p);   // (in a group package the partition is the default subject's own row, held as an anchor: left as it is)
     const std::string bands_id = (nB > 0 && !temporal.empty()) ? pyramid_bands_selection(wsub, bands) : std::string();
 
     auto group_field = [&](const std::string& name, const std::string& kind, const std::optional<std::string>& unit, const Json& producer, const std::vector<Json>& contributions) {
@@ -580,7 +581,7 @@ PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions
   tg.tds = &ds;
   tg.tname = tname;
   tg.member_row = [&](const std::string& name) {
-    const auto row = ds.db().one("SELECT * FROM subject WHERE dataset_id = ? AND name = ? AND status = 'complete'", {V(ds.id()), V(name)});
+    const auto row = find_subject(ds.db(), name, ds.id());
     if (!row) missing("pyramid reduce: no subject '" + name + "' in the dataset");
     return *row;
   };
@@ -606,7 +607,7 @@ PyramidReduceResult pyramid_reduce_group(const std::filesystem::path& dataset, c
     tg.out = &gsub;
     tg.member_row = [&](const std::string& name) {
       DatasetWriter& w = ga.member(name);
-      const auto row = w.db().one("SELECT * FROM subject WHERE name = ? AND status = 'complete' AND kind = 'subject'", {V(name)});
+      const auto row = find_subject(w.db(), name, std::nullopt, "subject");
       if (!row) missing("pyramid reduce: no subject '" + name + "' in the dataset");
       return *row;
     };
