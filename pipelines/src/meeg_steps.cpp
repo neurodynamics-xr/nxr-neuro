@@ -22,7 +22,9 @@
 #include "nxr/io/constant_q.h"
 #include "nxr/meeg/covariance.h"
 #include "nxr/filter.h"
+#include "nxr/filterbank.h"
 #include "nxr/hodge_weights.h"
+#include "nxr/speedspectrum.h"
 #include "nxr/ladder.h"
 #include "nxr/meeg/wave.h"
 #include "nxr/partition.h"
@@ -1292,11 +1294,126 @@ ng::NodeSpec hodge_weights() {
   return n;
 }
 
+
+// ── hodge.speed_spectrum ────────────────────────────────────────────────────────────────────────────────────────
+// THE SPEED SPECTRUM (the hand-wired `speedspectrum` it replaces): the modes' cross-spectra (bin by bin) read through a joint bank, the separable product of a graph bank over
+// lambda = mu^2 and a time bank over f: per tile (graph member x time member) its energy, its speed (a wave of phase speed c lies on 2 pi f = c mu) and its quadrature fraction,
+// and the energy's histogram over log-spaced speed bins; exact (divergence) and coexact (rotation) modes apart. Four statistics, kind x graph member x time member (speed bin).
+struct SpeedPrepared { ng::Array spectra, weights; Json p; };
+ng::NodeSpec speed_spectrum() {
+  ng::NodeSpec n;
+  n.name = "hodge.speed_spectrum";
+  n.kind = ng::Kind::array;
+  n.inputs = {{"spectra", "the modes' cross-spectra bin by bin (welch.mode_cross_spectra on the flow weights)", false}, {"weights", "the fused Hodge-Dirac weights (their modes' mu and kind)", false}};
+  n.outputs = {{"energy", "per kind and tile, the energy", false}, {"tile_speed", "per kind and tile, its speed", false},
+               {"quadrature", "per kind and tile, its quadrature fraction", false}, {"histogram", "per kind and graph member, the energy over the speed bins", false}};
+  n.parameters = {
+      {"graph_family", Json(), "the graph bank over lambda = mu^2: mexhat | heat | itersine | logitersine (no default: the caller names it)", "-", {"mexhat", "heat", "itersine", "logitersine"}, false},
+      {"graph_voices", Json(3), "graph members per octave", "-", {}, false},
+      {"graph_filters", Json(0), "graph member count; 0: from the voices", "-", {}, false},
+      {"family", Json(), "the time bank: itersine | meyer | morlet | morse | amor | bump (no default)", "-", {"itersine", "meyer", "morlet", "morse", "amor", "bump"}, false},
+      {"gain", Json(), "the time bank's peak in-band gain (no default)", "-", {}, false},
+      {"sides", Json(), "analytic | two_sided (no default)", "-", {"analytic", "two_sided"}, false},
+      {"centres", Json::array(), "Morlet, Morse, Amor, Bump: the members' centres", "Hz", {}, false},
+      {"cycles", Json(6.0), "Morlet: the width as centre / cycles", "-", {}, false},
+      {"voices", Json(4), "Itersine: voices per octave", "-", {}, false},
+      {"anchor", Json(1.0), "Itersine: the anchor frequency", "Hz", {}, false},
+      {"limits", Json(), "Itersine, Meyer: the bank's frequency limits [lo, hi]", "Hz", {}, true},
+      {"half_width", Json(1.0 / 3.0), "Meyer: the transition half-width", "octaves", {}, false},
+      {"gamma", Json(3.0), "Morse: gamma", "-", {}, false},
+      {"time_bandwidth", Json(60.0), "Morse: the time-bandwidth product", "-", {}, false},
+      {"speed_bins", Json(40), "log-spaced speed bins", "-", {}, false},
+      {"speed_min", Json(0.0), "the lowest speed; 0: from the spectrum", "length/s", {}, false},
+      {"speed_max", Json(0.0), "the highest speed; 0: from the spectrum", "length/s", {}, false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "from the accumulated cross-spectra, in double");
+  n.matches = "nxr.spectral speed spectrum; compute nxr::speedspectrum::compute";
+  n.description = "the speed spectrum of the Hodge-Dirac modes: a joint (wavenumber x frequency) bank's tiles, their energy, speed and quadrature fraction";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    for (const char* k : {"spectra", "weights"}) if (!in.count(k)) ng::refuse(std::string("hodge.speed_spectrum: ") + k + " is not given");
+    for (const char* k : {"graph_family", "family", "gain", "sides"}) if (!p.contains(k) || p[k].is_null()) ng::refuse(std::string("hodge.speed_spectrum: ") + k + " has no default: name it");
+    ng::Planned out;
+    for (const char* o : {"energy", "tile_speed", "quadrature", "histogram"}) out.out[o] = constant_port("statistic");
+    return out;
+  };
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
+    for (const char* k : {"spectra", "weights"}) if (!c.count(k) || c.at(k).meta.value("placeholder", false)) ng::refuse(std::string("hodge.speed_spectrum: ") + k + " was not handed over");
+    return std::any(SpeedPrepared{c.at("spectra"), c.at("weights"), p});
+  };
+  n.run = [](const std::any& prepared, const ng::Arrays&) {
+    namespace tb = nxr::timebank;
+    namespace fb = nxr::filterbank;
+    const SpeedPrepared& sp = std::any_cast<const SpeedPrepared&>(prepared);
+    const Json& p = sp.p;
+    const std::vector<double> mu_all = sp.weights.meta.at("mu").get<std::vector<double>>();
+    const std::vector<int> kind = sp.weights.meta.at("kind").get<std::vector<int>>();
+    const std::int64_t K = sp.spectra.meta.value("rows", std::int64_t(0));
+    if (K != static_cast<std::int64_t>(mu_all.size())) ng::refuse("hodge.speed_spectrum: the spectra are of " + std::to_string(K) + " rows, the weights of " + std::to_string(mu_all.size()) + " modes (use the flow rows)");
+    nxr::speedspectrum::ModeSpectra ms;
+    const std::vector<double> hz = sp.spectra.meta.at("frequencies").get<std::vector<double>>();
+    ms.frequencies = Eigen::Map<const Eigen::VectorXd>(hz.data(), static_cast<Eigen::Index>(hz.size()));
+    for (std::size_t g = 0; g < hz.size(); ++g) {
+      Eigen::MatrixXd S(K, K), Q(K, K);
+      for (std::int64_t i = 0; i < K; ++i) for (std::int64_t j = 0; j < K; ++j) {
+        const std::size_t at = static_cast<std::size_t>(((static_cast<std::int64_t>(g) * K + i) * K + j) * 2);
+        S(i, j) = sp.spectra.data[at]; Q(i, j) = sp.spectra.data[at + 1];
+      }
+      ms.S.push_back(std::move(S)); ms.Sq.push_back(std::move(Q));
+    }
+    const Eigen::VectorXd mu = Eigen::Map<const Eigen::VectorXd>(mu_all.data(), K);
+    const std::string gf = p["graph_family"].get<std::string>(), tf = p["family"].get<std::string>();
+    const fb::Family gfam = gf == "mexhat" ? fb::Family::MexHat : gf == "heat" ? fb::Family::Heat : gf == "itersine" ? fb::Family::Itersine : fb::Family::LogItersine;
+    const tb::Family tfam = tf == "itersine" ? tb::Family::Itersine : tf == "meyer" ? tb::Family::Meyer : tf == "morlet" ? tb::Family::Morlet : tf == "morse" ? tb::Family::Morse : tf == "amor" ? tb::Family::Amor : tb::Family::Bump;
+    tb::Design d(tfam, p["gain"].get<double>(), p["sides"].get<std::string>() == "analytic" ? tb::Sides::Analytic : tb::Sides::TwoSided);
+    d.voices = p.value("voices", 4); d.anchor = p.value("anchor", 1.0); d.halfWidth = p.value("half_width", 1.0 / 3.0); d.cycles = p.value("cycles", 6.0);
+    d.gamma = p.value("gamma", 3.0); d.timeBandwidth = p.value("time_bandwidth", 60.0); d.centres = p.value("centres", std::vector<double>());
+    if (p.contains("limits") && p["limits"].is_array() && p["limits"].size() == 2) d.limits = std::make_pair(p["limits"][0].get<double>(), p["limits"][1].get<double>());
+    const Json prod = sp.spectra.meta.value("producer", Json::object());
+    const std::size_t nfft = static_cast<std::size_t>(prod.value("segment_samples", std::int64_t(0)));
+    const double fs = prod.value("sfreq", 0.0);
+    if (nfft < 2 || !(fs > 0)) ng::refuse("hodge.speed_spectrum: the spectra do not record their segment and rate");
+    fb::DesignOptions dop; dop.voices = p.value("graph_voices", 3); dop.numFilters = p.value("graph_filters", 0);
+    const fb::Bank graph = fb::design(gfam, fb::Range::fromSpectrum(mu.array().square().matrix()), dop);
+    tb::TimeBank time;
+    try { time = tb::design(d, nfft, fs); } catch (const std::invalid_argument& e) { ng::refuse(std::string("hodge.speed_spectrum: the time bank: ") + e.what()); }
+    nxr::speedspectrum::Options so; so.speedBins = p.value("speed_bins", 40); so.speedMin = p.value("speed_min", 0.0); so.speedMax = p.value("speed_max", 0.0);
+    const nxr::speedspectrum::Result R = nxr::speedspectrum::compute(graph, time, mu, std::vector<int>(kind.begin(), kind.begin() + K), ms, so);
+    const std::int64_t P = static_cast<std::int64_t>(R.parts.size()), G = R.graphCentres.size(), T = R.timeCentres.size(), NB = R.speedCentres.size();
+    auto vec = [](const Eigen::VectorXd& v) { return Json(std::vector<double>(v.data(), v.data() + v.size())); };
+    Json kinds = Json::array();
+    for (const auto& pt : R.parts) kinds.push_back(Json{{"name", pt.kind == 0 ? "exact" : "coexact"}, {"modes", pt.modes}, {"power", pt.power}});
+    const Json producer = Json{{"graph_centre_wavenumbers", vec(R.graphCentres)}, {"time_centre_frequencies_hz", vec(R.timeCentres)}, {"speed_edges", vec(R.speedEdges)},
+                               {"speed_centres", vec(R.speedCentres)}, {"spectra", prod},
+                               {"fused", "nxr-compute hodgeWeights: B [2K x C] = [a; b]; the flow weights b feed CrossWelch (one-bin groups, Re and Im)"}};
+    auto stat = [&](const char* part, const char* measure, const Json& unit, bool hist) {
+      const std::int64_t C = hist ? NB : T;
+      ng::Array a;
+      a.rows = P; a.cols = G * C;
+      a.data.resize(static_cast<std::size_t>(P * G * C));
+      for (std::int64_t k = 0; k < P; ++k) {
+        const auto& pt = R.parts[static_cast<std::size_t>(k)];
+        const Eigen::MatrixXd& M = std::string(part) == "energy" ? pt.tileEnergy : std::string(part) == "tile_speed" ? pt.tileSpeed : std::string(part) == "quadrature" ? pt.quadrature : pt.histogram;
+        for (std::int64_t g = 0; g < G; ++g) for (std::int64_t c = 0; c < C; ++c) a.data[static_cast<std::size_t>((k * G + g) * C + c)] = M(g, c);
+      }
+      Json pj = producer; pj["part"] = part;
+      a.meta["describe"] = Json{{"measure", measure}, {"method", "welch"}, {"precision", "float32"}, {"unit", unit},
+                                {"axes", Json::array({Json{{"name", "kind"}, {"size", P}, {"values", kinds}}, Json{{"name", "graph_member"}, {"size", G}, {"values", vec(R.graphCentres)}},
+                                                      Json{{"name", hist ? "speed_bin" : "time_member"}, {"size", C}, {"values", hist ? vec(R.speedCentres) : vec(R.timeCentres)}}})},
+                                {"tiling", sp.spectra.meta.value("tiling", Json())}, {"n_members", sp.spectra.meta.value("n_members", Json())},
+                                {"members_skipped", sp.spectra.meta.value("members_skipped", Json())}, {"options", sp.spectra.meta.value("options", Json())}, {"producer", pj},
+                                {"description", std::string("the speed spectrum (") + part + ") of the Hodge-Dirac modes: joint (eigenvalue x frequency) bank tiles; a wave of phase speed c lies on 2 pi f = c mu"}};
+      return a;
+    };
+    return ng::Arrays{{"energy", stat("energy", "power", Json(), false)}, {"tile_speed", stat("tile_speed", "speed", Json("length/s"), false)},
+                      {"quadrature", stat("quadrature", "quadrature_fraction", Json(), false)}, {"histogram", stat("histogram", "power", Json(), true)}};
+  };
+  return n;
+}
+
 }  // namespace
 
 void register_meeg_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum(), phase_gradient(), channel_mean(), filter_apply(), hodge_weights()})
+  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum(), phase_gradient(), channel_mean(), filter_apply(), hodge_weights(), speed_spectrum()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

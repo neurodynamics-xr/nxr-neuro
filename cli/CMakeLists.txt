@@ -4,7 +4,7 @@ target_link_libraries(nxr-neuro PRIVATE $<IF:$<TARGET_EXISTS:nxr_pipelines>,nxr_
 target_compile_definitions(nxr-neuro PRIVATE NXR_NEURO_VERSION="${PROJECT_VERSION}")
 target_include_directories(nxr-neuro PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/extern)   # CLI11 (vendored, BSD-3-Clause)
 if(TARGET nxr_pipelines)
-  target_sources(nxr-neuro PRIVATE eigen_command.cpp meeg_command.cpp speedspectrum_command.cpp measure_command.cpp run_command.cpp compute_command.cpp)
+  target_sources(nxr-neuro PRIVATE eigen_command.cpp meeg_command.cpp measure_command.cpp run_command.cpp compute_command.cpp)
   target_compile_definitions(nxr-neuro PRIVATE NXR_NEURO_WITH_PIPELINES)
 endif()
 if(MSVC)

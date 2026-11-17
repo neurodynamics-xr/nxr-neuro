@@ -46,7 +46,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --anat@import mri	FOLDER	The subject's anatomical folder of the source protocol, whose MRI images are imported into the subject.	required	-
 --anchor	HZ	Itersine and similar time filterbanks: the anchor frequency the member spacing is built from.	1.0	Hz
 --anchor@run opticalflow	HZ	Itersine family only: the anchor frequency from which the members' log-frequency spacing is built.	1	Hz
---anchor@run speedspectrum	HZ	Itersine time bank: the frequency the voice grid is anchored at	1	Hz
 --array	SUBJECT PATH	Read one array: the subject and the array's path in the dataset (prints its bytes, or writes them with --out).	none	-
 --array@read dataset	SUBJECT PATH	Read one array: the subject's name and the array's path inside the subject; prints its shape, data type and checksum. Without --array every array of the dataset is listed.	none (list all arrays)	-
 --atlas-depth	LEVEL	Leaf level of the group tree that serves as the dataset's default atlas (needs --templates)	8	level
@@ -80,7 +79,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --centre	HZ	Centre frequency of the band from which the frame length is derived (the coarsest tower level whose frame is no longer than 1/(centre x frames-per-cycle)).	none	Hz
 --centres	HZ,...	Centre frequencies of the filterbank members (Morlet, Morse, Amor and Bump families); for Morlet, empty means the single member at --freq (opticalflow).	none	Hz
 --centres@run opticalflow	HZ,...	Centre frequencies of the filter-bank members (Morlet, Morse, Amor and Bump); for Morlet, empty means the single member at --freq.	none	Hz
---centres@run speedspectrum	HZ,HZ,...	Morlet, Morse, Amor and Bump time banks: the member centre frequencies	none	Hz
 --channel-file	FILE	The channel file to use instead of the condition's own.	the condition's channel file	-
 --channel-file@import condition	FILE	Channel file (in the condition folder) to use for the condition's recordings instead of the one the condition names.	none (the condition's own channel file)	-
 --channel-file@import inverse	FILE	The channel file to take the kernel's channels from instead of the one found for the kernel.	found from the kernel's condition	-
@@ -102,7 +100,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --cycles	C	Cycles of the band's lowest frequency in each window (constantq) or wavelet width as centre frequency / C (speedspectrum, opticalflow)	constantq: set by --method (about 6.8 at 1200 Hz); speedspectrum, opticalflow: 6	cycles
 --cycles@run constantq	C	Cycles of a band's lowest frequency held by its window (window rounded up to a power of two of samples).	set by --method (hertz: about 6.83 at 1200 Hz; cycles: 8)	cycles
 --cycles@run opticalflow	C	Morlet family only: the wavelet's width is its centre frequency divided by this number of cycles.	6	cycles
---cycles@run speedspectrum	C	Morlet time bank: cycles per member (width = centre / cycles)	6	cycles
 --datafit	auto|gauge|triangle	Data term of the Horn-Schunck flow: auto picks the regulariser's own (gauge for connection, triangle for ambient); gauge is connection only; triangle uses per-triangle finite elements.	auto	-
 --datafit@run opticalflow	auto|gauge|triangle	Data term of the Horn-Schunck equation: auto (gauge for the connection regulariser, triangle for ambient), gauge (connection only), or per-triangle finite elements.	auto	-
 --dataset	PATH	The dataset to work on: the path of its folder (a dataset is addressed by its own path; the folder of a one-database dataset, or of a catalogue of subject packages).	required	-
@@ -128,7 +125,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --depth@reduce pyramid	LEVEL	Level of the group tree at which the members' pyramids are summed, cell for cell.	the atlas depth of the group tree definitions	level
 --detrend	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (the Brainstorm option set)	-
 --detrend@run quadrature	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (set tiles, brainstorm, scipy); none (nxr-chain)	-
---detrend@run speedspectrum	none|constant|linear	What is removed from each segment before windowing	constant	-
 --divisor	samples-minus-blocks|samples|samples-minus-one	What the covariance sum is divided by: samples minus the number of blocks, the samples, or samples minus one.	samples-minus-blocks	-
 --draws	N	Number of complex Wishart random draws used for the null distribution	1000	draws
 --draws@run wishart	N	Number of complex Wishart draws of each burst's own zero-lag covariance that form the null.	1000	draws
@@ -158,7 +154,6 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --extra-surface@import condition	FILE	An additional surface file of the subject's anatomy to import with the condition; repeat the option for several.	none	-
 --family	NAME	Family of the time filter bank: itersine, meyer, morlet, morse, amor or bump (opticalflow: see the command's description for the accepted names).	none (required)	-
 --family@run opticalflow	itersine|meyer|morlet|morse|amor|bump	Family of the time filter bank that band-passes the recording to the analysed band.	required	-
---family@run speedspectrum	itersine|meyer|morlet|morse|amor|bump	Family of the time (frequency) filter bank	required	-
 --field	NAME	Name of a stored field to read (measure query: restrict the query to this field; phasegradient: the phase 1-form to build, only gradient exists).	measure query: none; phasegradient: gradient	-
 --field@query measurements	NAME	The stored field the measurement was made of, by name or id.	the only field measured	-
 --fields	PATTERN	Regular expression matched against the whole name of each stored field to measure (export: the first capture group names the condition)	none (required)	-
@@ -175,10 +170,8 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --flow-tolerance@run opticalflow	X	Relative residual at which the iterative solver (pcg, perscale) stops.	1e-8	-
 --fmax	HZ	Upper frequency limit (constantq: ceiling of the time ladder, at most Nyquist; speedspectrum: the highest frequency bin used).	constantq: 64 Hz cap (method default); speedspectrum: 40	Hz
 --fmax@run constantq	HZ	Highest frequency of the ladder; overrides the method's top (never above Nyquist).	hertz: largest power of two at or below Nyquist, at most 64; cycles: Nyquist	Hz
---fmax@run speedspectrum	HZ	Highest frequency bin used; the time bank should cover it	40	Hz
 --fmin	HZ	Lowest frequency (constantq: lowest band edge; speedspectrum: lowest frequency bin used)	constantq: 0.5 (hertz method) or 0 (cycles method); speedspectrum: 1	Hz
 --fmin@run constantq	HZ	Lowest frequency of the ladder.	hertz: 0.5; cycles: 0	Hz
---fmin@run speedspectrum	HZ	Lowest frequency bin used; the time bank should cover it	1	Hz
 --fold-edges	keep|axial|all	How edges across a fold of the surface are read: keep all as they are, axial (lag read modulo pi where the ends' normals are opposed), or all (every edge modulo pi).	keep	-
 --forward	NAME	Name of the stored head model (forward operator) to use.	the subject's only one	-
 --forward-id	ID	The id of the head model the kernel was made with.	found from the kernel file	-
@@ -200,21 +193,15 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --fstop	LO,HI	Stopband edges of a bandstop filter	none (required)	Hz
 --gain	X	Peak in-band response of each filter-bank member (2 makes the coefficient's magnitude the physical amplitude).	none (required)	-
 --gain@run opticalflow	X	Peak in-band response of each filter-bank member; 2 makes the coefficient's magnitude the physical amplitude of a real recording.	required	-
---gain@run speedspectrum	G	Peak in-band response of every time bank member	required	-
 --gamma	G	Morse family: the gamma parameter of the wavelet.	3	-
 --gamma@run opticalflow	X	Morse family only: the gamma parameter of the wavelet.	3	-
---gamma@run speedspectrum	G	Morse time bank: the gamma parameter	3	-
 --gradient		Also measure the gradient of each scalar field (area-weighted face gradients projected on the vertex tangent plane)	off	-
 --gradient@run measure		Also measure the gradient of each scalar field (area-weighted face gradients projected on the vertex tangent plane); needs the canonical frames from frames compute. Surface partitions only.	off	-
 --graph-family	mexhat|heat|itersine|logitersine	Family of the spatial (graph) filter bank over the eigenvalue.	none (required)	-
---graph-family@run speedspectrum	mexhat|heat|itersine|logitersine	Family of the graph (spatial) filter bank over the Laplacian eigenvalues	required	-
 --graph-filters	N	Number of members of the graph (eigenvalue) filterbank; 0 means derived from --graph-voices.	0	filters
---graph-filters@run speedspectrum	N	Number of graph bank members; 0 derives it from --graph-voices	0	-
 --graph-voices	N	Members per octave of the spatial (graph) filterbank	3	members/octave
---graph-voices@run speedspectrum	V	Graph bank members per octave	3	-
 --half-width	OCT	Meyer family: half-width of each transition between members, in octaves.	0.3333 (1/3)	octaves
 --half-width@run opticalflow	OCTAVES	Meyer family only: half-width of the transition between neighbouring octave bands.	0.3333	octaves
---half-width@run speedspectrum	OCTAVES	Meyer time bank: half-width of each transition	0.3333	octaves
 --halo-seconds	SECONDS	Context read on each side of a chunk so the band filter's edge effects fall inside it	8	s
 --halo-seconds@run pyramid	SECONDS	Context read on each side of a chunk so the band filter's edge effects fall inside it.	8	s
 --harmonics	N	With --line, the number of harmonics of the line frequency to notch.	every multiple below the Nyquist frequency	-
@@ -237,7 +224,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --kernel@run pointspread	NAME	The inverse kernel the planted currents are read back through	the subject's only kernel of the forward model's sources	-
 --kernel@run pyramid	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
 --kernel@run quadrature	NAME	Name of the stored inverse kernel that maps the sensors to the sources.	the subject's only kernel	-
---kernel@run speedspectrum	NAME	The free-orientation inverse kernel the recording is mapped to the cortex with	the subject's only kernel	-
 --kernels	SPEC,...	Which kernels' pyramids are summed: all, constrained, free, latest, a method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
 --kernels@reduce pyramid	SPEC,...	Which source estimates of each member are summed: all, constrained, free, latest, or a kernel's method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
 --kind	subject|template|group	Kind of subject to create	subject	-
@@ -259,7 +245,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --limit@query measurements	N	The most rows to return.	none (all rows)	rows
 --limits	LO-HI	Frequency limits of the filter bank for the itersine and meyer families.	see the command's description	Hz
 --limits@run opticalflow	LO-HI	Itersine and Meyer families: the frequency limits of the filter bank, in hertz (e.g. 2-40).	none (set by the family)	Hz
---limits@run speedspectrum	LO-HI	Itersine and Meyer time banks: the bank's frequency limits	none	Hz
 --line	NAME or F	Time line to work on (constantq: a time line by name, alternative to --recording or --all); for lowpass/notch: the mains frequency F, removed with its harmonics.	none	constantq: -; notch: Hz
 --line@run constantq	NAME	A time line of the subject, by name, to make the ladder for (alternative to --recording and --all).	none	-
 --list	V,V,...	run: list the available pipeline definitions and their steps (flag); pointspread: native vertex indices to use as the source sample instead of --vertices	run: off; pointspread: none	-
@@ -311,7 +296,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --modes@run eigenmodes	K	About this many positive Hodge-Dirac modes are kept, half exact and half coexact.	3000	modes
 --modes@run patches	N	When the eigenmodes are computed, how many (more if the band needs it); 0 is the standard 3000.	0	-
 --modes@run pointspread	N	Number of eigenmodes to compute when the spatial filter package is built; 0 uses the standard size, or more when the band needs it	0	-
---modes@run speedspectrum	N	Use only the first N modes of the Hodge-Dirac package	all modes	-
 --modes@create dataset	K	Solve the default subject's pial Hodge-Dirac eigenmode basis with about this many modes and store it; needs --templates.	none (no basis is solved)	modes
 --mollify	X	Mollification margin of the intrinsic Delaunay construction (Sharp and Crane), relative to the mean edge length; 0 means no margin.	1e-6	relative
 --mollify@run eigenmodes	D	Mollification margin of the intrinsic Delaunay construction, as a fraction of the mean edge length (0 = no margin).	1e-6	fraction
@@ -323,7 +307,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
 --name@run repeat	NAME	Name the repeat result is stored under.	derived from the two recording names (plus the stage when not the first)	-
 --name@run scaleselection	NAME	Name of the cross-pair events' Selection	<recording>_scale_selection	-
---name@run speedspectrum	STEM	Stem of the stored result names	<recording>_<kernel>_speedspectrum	-
 --name@run statistic	NAME	Name of the stored statistic.	<of>_<measure>_<over>	-
 --name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
@@ -334,7 +317,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-average-reference		Do not re-reference the EEG gain rows and covariance to the average	off	-
 --no-bad-segments		Keep the recording's marked bad segments in the estimate instead of leaving out the segments that touch them.	off (bad segments are left out)	-
 --no-bad-segments@run quadrature		Also use segments that overlap the recording's marked bad segments.	off (bad segments excluded)	-
---no-bad-segments@run speedspectrum		Keep segments that touch the recording's bad segments instead of leaving them out	off	-
 --no-depth		Turn depth weighting off.	off (depth weighting on)	-
 --no-detect-diagonal		Do not whiten a diagonal noise covariance by its diagonal alone	off	-
 --no-eeg		Do not compute the EEG channels of the head model.	off (EEG is computed)	-
@@ -380,13 +362,11 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --over@run statistic	NAME	The partition measured over, by name: a stored selection whose members were measured (a parcellation, a level of a time ladder).	required	-
 --overlap	FRACTION	Fraction by which successive Welch segments overlap.	0.5 (the Brainstorm option set)	fraction
 --overlap@run quadrature	F	Fraction of a Welch segment shared with the next; under --set tiles the hop must also be a tile (0, 0.5, 0.75, ...).	0.5	fraction
---overlap@run speedspectrum	FRACTION	Fraction of a segment shared with the next, in [0, 1)	0.5	fraction
 --oversample	X	Oversampling of each filterbank member's own sample rate.	2.0	-
 --oversample@run opticalflow	X	Factor by which the filter bank's own sampling rate exceeds the number of frequency bins it keeps.	2	-
 --package	STEM	Stem of the stored Hodge-Dirac eigenmode package to use	the one of the kernel's surface	-
 --package@run cyclepattern	STEM	Stem of the stored Hodge-Dirac eigenmode package (with full forms) on the kernel's surface to use.	the one of the kernel's surface	-
 --package@run opticalflow	STEM	Stem of the stored Hodge-Dirac eigenmode package used for the flow.	the one of the kernel's surface	-
---package@run speedspectrum	STEM	Stem of the stored Hodge-Dirac mode package to use	the package of the kernel's surface	-
 --padding	mean|zeros	How the filter's edge transient is padded: with the mean of the signal's transient or with zeros.	mean	-
 --pair	A,B	One pair of channels, by channel index (row A, column B), to read from the band-resolved cross-spectrum.	none	-
 --pair@read crossspectrum	A,B	One pair of channels to read, by recording channel index (row A, column B); an alternative to --seed.	none (one of --pair or --seed)	-
@@ -396,7 +376,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --patterns@run cyclepattern	Q	Number of leading cycle patterns kept per spatial band (a whole number, at least 1).	3	-
 --periodic		Use the periodic (DFT-even) form of the taper instead of the symmetric form.	off for the default and brainstorm sets (symmetric); on for scipy	-
 --periodic@run quadrature		Use the periodic (DFT-even) form of the window; an alternative to --symmetric.	set-dependent (symmetric in tiles and brainstorm; periodic in scipy, nxr-chain)	-
---periodic@run speedspectrum		Use the periodic (DFT-even) form of the window	off (the default set uses the symmetric form)	-
 --phase-of	current|stream	Signal whose phase is taken: the band's current vector field, or its scalar stream function	current	-
 --preconditioner	ldlt|ic	Preconditioner of the flow's conjugate-gradient solve: ldlt (exact factor, built once) or ic (incomplete Cholesky).	ldlt	-
 --preconditioner@run opticalflow	ldlt|ic	Preconditioner of the iterative solver (pcg, perscale): the exact factorisation ldlt, or incomplete Cholesky ic.	ldlt	-
@@ -429,7 +408,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording@run quadrature	NAME	Name of the stored recording to analyse.	required	-
 --recording@run scaleselection	NAME	The recording whose scale pairs are selected over	required	-
 --recording@run spatialnull	NAME	The recording whose stored spatial events are tested against the null.	required	-
---recording@run speedspectrum	NAME	The recording whose cortical activity is analysed	required	-
 --recording@run wishart	NAME	The recording the windows are of.	required	-
 --recording@import condition	FILE	Import only this data file of the condition (e.g. data_0raw_x.mat) instead of every data file the condition has.	none (all the condition's recordings)	-
 --recording@import resample	NAME	The recording to resample	required	-
@@ -462,7 +440,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --scale@add surface	X	Factor multiplied into every vertex coordinate of the mesh file to bring it to metres.	1	-
 --scaling	density|spectrum|chain	How the spectrum is scaled: power per Hz, power per bin, or the chain scaling (measure export: stored|density|power|amplitude|amplitude-density|db|db-density, applied to the stored values).	density (measure export: stored)	-
 --scaling@run quadrature	density|spectrum|chain	Scaling of the Welch spectrum: power per Hz, power per bin, or nxr's chain scaling.	density	-
---scaling@run speedspectrum	density|spectrum|chain	Scaling of the spectral estimate: power per Hz, power per bin, or the nxr spectral chain's convention	density	-
 --scaling@export measurements	NAME	Scaling applied to the values at read: stored, density, power, amplitude, amplitude-density, db or db-density (needs the Field's recorded spectral scaling)	stored	-
 --seed	N	crossspectrum read: the channel index to read against every channel (alternative to --pair); wishart: seed of the random draws	wishart: 1; crossspectrum read: none	-
 --seed@run wishart	N	Seed of the random draws; the same seed reproduces the same null.	1	-
@@ -470,13 +447,10 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --segment-level	L	Welch segment of 2^L samples (an alternative to the segment length in seconds or samples).	none (the segment length option is used)	level
 --segment-level@run quadrature	K	Welch segment as a tile of 2^K samples; only under --set tiles; an alternative to --segment-seconds and --segment-samples.	the level nearest 4 s	level
 )TBL",
-R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^level samples; an alternative to --segment-seconds and --segment-samples	none	level
---segment-samples	N	Welch segment length in samples; wins over --segment-seconds.	derived from the 4 s segment	samples
+R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-seconds.	derived from the 4 s segment	samples
 --segment-samples@run quadrature	N	Welch segment length in samples (a power of two under --set tiles); an alternative to --segment-seconds and --segment-level.	none	samples
---segment-samples@run speedspectrum	N	Segment length in samples; an alternative to --segment-seconds and --segment-level	none	samples
 --segment-seconds	SECONDS	Length of each Welch segment (under the tiles setting it is snapped to a power-of-two number of samples)	4	s
 --segment-seconds@run quadrature	SECONDS	Welch segment length; under --set tiles it snaps to the nearest 2^k-sample tile.	4	s
---segment-seconds@run speedspectrum	SECONDS	Segment length in seconds; under the tiles set it is rounded to a 2^k-sample segment	4	s
 --selection	NAME	The stored joint Selection (space x time cells) whose measurement is read.	none (required)	-
 --selection@query measurements	NAME	The pyramid's joint selection or spatial partition to read, by name or id; it must be complete.	required	-
 --sensor-weight-exponent	P	Exponent of the distance weighting used to fit each sensor's overlapping sphere.	4	-
@@ -484,7 +458,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --set@run null	NAME=VALUE	Parameter of every null draw (repeatable); {recording} stands for each recording's name	none	-
 --set@run quadrature	tiles|brainstorm|scipy|nxr-chain	Option set for the Welch estimate: tiles (Brainstorm's taper and detrend on 2^k-sample segments), brainstorm, scipy or nxr-chain.	tiles	-
 --set@run spatialnull	NAME=VALUE	A parameter of every null draw's spatial-events run (levels, threshold, band, ...); repeatable.	none (the data's parameters)	-
---set@run speedspectrum	tiles|brainstorm|scipy|nxr-chain	Named set of Welch options to start from (Brainstorm's taper, detrend and density on 2^k-sample segments; Brainstorm's exact 4 s; scipy.signal.welch; or the nxr chain)	tiles	-
 --set@run	NAME=VALUE	Override a parameter of the pipeline definition; the value is read as YAML (8, [15, 29], dSPM). Repeatable.	none (the definition's own values)	-
 --shape	morlet|meyer|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or meyer (wishart); pyramid build also accepts power_partition (band powers add to broadband).	morlet	-
 --shape@run pyramid	morlet|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or power_partition (band powers add up to broadband).	morlet	-
@@ -494,7 +467,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --side	auto|left|right	Hemisphere of a single-piece surface	auto	-
 --side@run frames	auto|left|right	Hemisphere of a single-piece surface: auto decides each piece by position.	auto	-
 --sides	analytic|two-sided	Whether the time bank is one-sided (analytic, positive frequencies) or two-sided.	none (required)	-
---sides@run speedspectrum	analytic|two-sided	Whether the time bank has positive-frequency members only (one-sided cross-spectrum) or members at both +f and -f	required	-
 --sigma	S	Absolute shift of the eigenvalue solve (with --shift absolute).	-0.001	1/m^2
 --sigma@run eigenmodes	S	The absolute shift of the shift-invert solve (only with --shift absolute).	-1e-3	-
 --sign	positive|negative|magnitude	Which tile means form patches: high values, low values, or absolute value	positive	-
@@ -524,11 +496,8 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --spatial-shape	NAME	Shape of the spatial scale-space filter at each level (mexhat is the Mexican hat).	mexhat	-
 --spatial-shape@run pointspread	NAME	Gain of each spatial level: mexhat (Mexican hat) or meyer (the level is its own Weyl band)	mexhat	-
 --speed-bins	N	Number of log-spaced phase-speed bins of the speed spectrum.	40	bins
---speed-bins@run speedspectrum	N	Number of log-spaced phase speed bins of the histogram	40	-
 --speed-max	C	Largest phase speed of the speed histogram bins	from the spectrum (the largest 2 pi f / mu over modes and bins)	length/s
---speed-max@run speedspectrum	C	Largest phase speed of the histogram; 0 takes it from the spectrum	0	m/s
 --speed-min	X	Smallest phase speed of the log-spaced speed bins.	0 (from the spectrum)	length/s
---speed-min@run speedspectrum	C	Smallest phase speed of the histogram; 0 takes it from the spectrum	0	m/s
 --sphere-cost	geometric|algebraic	Cost the head sphere is fitted with: distance to the sphere (geometric) or the linear closed-form fit (algebraic).	geometric	-
 )TBL",
 R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, onset, within, offset) or by index	0 (the first stage, burst)	-
@@ -567,7 +536,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --surface@list spatial-bands	NAME	The subject's surface whose spatial band bank is listed	the subject's primary surface	-
 --symmetric		Use the symmetric form of the taper window instead of the periodic one	off (the window form follows --set)	-
 --symmetric@run quadrature		Use the symmetric form of the window (as MATLAB's hamming(n)); an alternative to --periodic.	set-dependent (symmetric in tiles and brainstorm)	-
---symmetric@run speedspectrum		Use the symmetric form of the window (MATLAB-style)	on under the default set	-
 --table	NAME	Name of the exported table.	none (required)	-
 --table@export measurements	NAME	Name of the table; it names the data_table and the output files	required	-
 --template	SUBJECT	Template subject whose anatomical frame is carried over through the registered spheres.	none (the surface's own axes)	-
@@ -592,7 +560,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --tiles@run quadrature		Also write the maps' tile summaries per ladder level (scalars area-weighted, vectors in the canonical frame and the Levi-Civita form).	off	-
 --time-bandwidth	B	Morse family: the time-bandwidth product of the wavelet.	60	-
 --time-bandwidth@run opticalflow	X	Morse family only: the time-bandwidth product of the wavelet.	60	-
---time-bandwidth@run speedspectrum	B	Morse time bank: the time-bandwidth product	60	-
 --time-level	M	Level of the recording's constant-Q time ladder (joint compute: the time tiles of the cells; measure query: time rolled up to tiles of 2^M frames)	measure query: 0; joint compute: none (required)	level
 --time-level@query measurements	LEVEL	The time level the cells are rolled up to: tiles of 2^LEVEL frames on the tower (0 is single frames).	0	level
 --time-levels	M1,M2,..	Constant-Q time levels (each one's band is a pair's rhythm) crossed with the space levels.	none (required)	levels
@@ -649,7 +616,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run tiles	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run speedspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cellquadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -759,7 +725,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --voices	N	Filter-bank members per octave (constantq: time-ladder voices; opticalflow, speedspectrum: itersine voices).	4 for filter banks; constantq see the command's description	voices/octave
 --voices@run constantq	N	Number of bands per octave, counted from the top down.	6	-
 --voices@run opticalflow	N	Itersine family only: filter-bank members per octave.	4	voices/octave
---voices@run speedspectrum	V	Itersine time bank: members per octave	4	-
 --weight	none|barycentric|voronoi	How the vertices of each member are weighted (measure compute: none is the plain vertex mean, barycentric or voronoi weight by area); phasegradient: power|coherence, the edge weight of a weighted fit.	measure compute: none, must be given; phasegradient: power	-
 --weight@run measure	none|barycentric|voronoi	How the vertices of each member are weighted: none is the plain vertex mean, barycentric or voronoi weight by area; not used with --over.	required unless --over is given	-
 --weights	area|none	cellquadrature: weight vertices by their area or equally; crossspectrum read: weight the delay and phase-slope fits by coherence or not	cellquadrature: area; crossspectrum read: coherence	-
@@ -770,7 +735,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --window-seconds	SECONDS	Window length for the analytic estimator or the cycle patterns, snapped to the nearest time-tile level (alternative to --level)	crossspectrum: the finest of the bands' windows; cyclepattern: 4	s
 --window-seconds@run cyclepattern	SECONDS	Window length, snapped to the nearest time-tile level; ignored when --level is given.	4	s
 --window@run quadrature	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming (set tiles, brainstorm); hann (scipy, nxr-chain)	-
---window@run speedspectrum	hann|hamming|blackman|rectangular	Taper applied to each segment	hamming	-
 --windows	NAME	The stored analytic cross-spectrum windows (named <stem>_<band>_windows) the bursts are read from.	none (required)	-
 --windows@run wishart	NAME	Stored analytic cross-spectrum windows (<stem>_<band>_windows) whose burst tiles are summed and tested.	required	-
 --acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
@@ -1357,14 +1321,6 @@ group: Spectra
 summary: The quadrature spectrum of the sources per band: fraction, energy map and leading pairs.
 span: yes
 opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --no-levi-civita --overlap --pairs --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --tile-levels --tile-max-level --tiles --window --templates+
-)TBL",
-R"TBL(@ run speedspectrum
-old: speedspectrum compute
-alias: refused
-group: Spectra
-summary: The speed spectrum: mode energy per phase speed from the joint eigenvalue and frequency bank.
-span: yes
-opts: --anchor --centres --chunks --cycles --dataset* --detrend --family --fmax --fmin --gain --gamma --graph-family --graph-filters --graph-voices --half-width --kernel --limits --modes --name --no-bad-segments --overlap --package --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --sides --speed-bins --speed-max --speed-min --start --stop --subject* --symmetric --time-bandwidth --voices --window --templates+
 )TBL",
 R"TBL(@ run cyclepattern
 old: cyclepattern compute

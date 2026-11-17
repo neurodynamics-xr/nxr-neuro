@@ -76,7 +76,6 @@ add_library(nxr_pipelines
   src/group.cpp
   src/cellquadrature.cpp
   src/scaleselection.cpp
-  src/speedspectrum.cpp
   src/tiles.cpp
   src/face.cpp
 )

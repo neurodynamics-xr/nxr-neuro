@@ -82,8 +82,6 @@ struct HodgeSpectraRun {
   double excluded_fraction = 0;
 };
 
-HodgeSpectraPlan plan_hodge_spectra(nxr::io::SubjectWriter& sub, const HodgeSpectraRequest& req);
-HodgeSpectraRun run_hodge_spectra(nxr::io::SubjectWriter& sub, const HodgeSpectraRequest& req, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // THE STATISTICS' COMMON PIECES (docs/specs/2026-11-13-statistics.md), by the recording's name: where a statistic of it lives, the Welch segment partition a
 // Welch statistic is computed from (a closed-form spans Selection on its time line; returns its id), and the Welch options as a statistic records them

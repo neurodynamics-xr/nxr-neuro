@@ -838,11 +838,107 @@ ng::NodeSpec welch_cross_spectrum() {
   };
   return n;
 }
+
+// ── welch.mode_cross_spectra ────────────────────────────────────────────────────────────────────────────────────
+// THE CROSS-SPECTRA OF THE ROWS OF A KERNEL, BIN BY BIN (the Hodge spectra of `speedspectrum`): the rows (all, or the flow or current half of the fused Hodge-Dirac weights)
+// applied to each chunk, then Welch per bin of [fmin, fmax] with the quadrature part: S[b] (real) and Sq[b] (imaginary), [rows x rows] per bin. Handed on (not stored): a node
+// after the loop reads them.
+struct ModePrepared { Resolved r; Eigen::MatrixXd B; std::vector<std::int32_t> channels; std::vector<nw::BinGroup> groups; };
+ng::NodeSpec welch_mode_cross_spectra() {
+  ng::NodeSpec n;
+  n.name = "welch.mode_cross_spectra";
+  n.kind = ng::Kind::accumulate;
+  n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"weights", "an operator from the recording's channels: its rows are the series (the fused Hodge-Dirac weights)", false},
+              {"exclude", "the recording's bad segments (spans): a segment touching one is left out when bad_segments is exclude", true}};
+  n.outputs = {{"spectra", "per bin of [fmin, fmax]: the rows' cross-spectrum, bins x rows x rows x 2 (real, imaginary), with the bins' frequencies", false}};
+  n.parameters = welch_parameters();
+  n.parameters.push_back({"fmin", Json(1.0), "the lowest frequency kept (the first bin at or above it, never the DC bin)", "Hz", {}, false});
+  n.parameters.push_back({"fmax", Json(40.0), "the highest frequency kept (never the Nyquist bin)", "Hz", {}, false});
+  n.parameters.push_back({"rows", Json("flow"), "the weights' rows used: flow (the second half: the modes' flow coefficients) | current (the first half) | all", "-", {"flow", "current", "all"}, false});
+  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "segments carried across blocks; the cross-spectra accumulated in double");
+  n.matches = "nxr.spectral.chain mode cross-spectra (CrossWelch on the fused weights b, one-bin groups, Re and Im)";
+  n.description = "the cross-spectra of a kernel's rows applied to a recording, bin by bin, with their quadrature part";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    const ng::PortType& x = streamed_real(in, "x", "welch.mode_cross_spectra");
+    if (!in.count("weights")) ng::refuse("welch.mode_cross_spectra: weights is not given");
+    const Resolved r = resolve(p, *x.sfreq);
+    ng::Planned out;
+    out.out["spectra"] = statistic_port();
+    out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    return out;
+  };
+  n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json& p, ng::Shared&) {
+    ModePrepared pr;
+    pr.r = resolve(p, *in.at("x").sfreq);
+    const auto it = c.find("weights");
+    if (it == c.end() || it->second.meta.value("placeholder", false)) ng::refuse("welch.mode_cross_spectra: the weights were not handed over");
+    const ng::Array& W = it->second;
+    const Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> all(W.data.data(), W.rows, W.cols);
+    const std::string rows = p.value("rows", std::string("flow"));
+    pr.B = rows == "all" ? Eigen::MatrixXd(all) : rows == "current" ? Eigen::MatrixXd(all.topRows(W.rows / 2)) : Eigen::MatrixXd(all.bottomRows(W.rows / 2));
+    pr.channels = W.meta.value("channels", std::vector<std::int32_t>());
+    if (static_cast<std::int64_t>(pr.channels.size()) != W.cols) ng::refuse("welch.mode_cross_spectra: the weights' channels do not fit their columns");
+    const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
+    const std::size_t nbins = pr.r.wo.segmentSamples / 2 + 1;
+    const double fmin = p.value("fmin", 1.0), fmax = p.value("fmax", 40.0);
+    if (!(fmin >= 0) || !(fmax > fmin)) ng::refuse("welch.mode_cross_spectra: 0 <= fmin < fmax");
+    const double first = std::max(1.0, std::ceil(fmin / df - 1e-9)), last = std::min(static_cast<double>(nbins) - 2, std::floor(fmax / df + 1e-9));
+    if (first > last) ng::refuse("welch.mode_cross_spectra: the range holds no frequency bin at " + std::to_string(df) + " Hz resolution");
+    for (std::size_t b = static_cast<std::size_t>(first); b <= static_cast<std::size_t>(last); ++b) pr.groups.push_back({b, b, true});
+    return std::any(std::move(pr));
+  };
+  n.start = [](const std::any&) { return std::any(SourceBandState{}); };
+  n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
+    const ModePrepared& pr = std::any_cast<const ModePrepared&>(prepared);
+    SourceBandState& s = std::any_cast<SourceBandState&>(state);
+    const ng::Block& b = in.at("x");
+    const Eigen::MatrixXd all = own_real(b);
+    Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
+    for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
+    const Eigen::MatrixXd modes = pr.B * chunk;
+    if (s.first < 0) s.first = at.first;
+    if (!s.w) s.w.emplace(static_cast<int>(pr.B.rows()), pr.r.wo, pr.groups, true);
+    if (!pr.r.exclude || all_good(at)) s.w->add(modes); else s.w->add(modes, *at.good);
+    s.samples += b.own();
+    if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
+    return std::make_pair(ng::Blocks{}, std::move(state));
+  };
+  n.finish = [](const std::any& prepared, std::any state) {
+    const ModePrepared& pr = std::any_cast<const ModePrepared&>(prepared);
+    const SourceBandState& s = std::any_cast<const SourceBandState&>(state);
+    if (!s.w) ng::refuse("welch.mode_cross_spectra: no sample was read");
+    const nw::CrossWelchResult cw = s.w->result();
+    if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
+    const std::int64_t K = pr.B.rows(), Bn = static_cast<std::int64_t>(pr.groups.size());
+    const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
+    ng::Array a;
+    a.rows = Bn; a.cols = K * K * 2;
+    a.data.resize(static_cast<std::size_t>(Bn * K * K * 2));
+    Json hz = Json::array();
+    for (std::int64_t g = 0; g < Bn; ++g) {
+      hz.push_back(static_cast<double>(pr.groups[static_cast<std::size_t>(g)].first) * df);
+      for (std::int64_t i = 0; i < K; ++i)
+        for (std::int64_t j = 0; j < K; ++j) {
+          const std::size_t at = static_cast<std::size_t>(((g * K + i) * K + j) * 2);
+          a.data[at] = cw.S[static_cast<std::size_t>(g)](i, j);
+          a.data[at + 1] = cw.Sq[static_cast<std::size_t>(g)](i, j);
+        }
+    }
+    a.meta["frequencies"] = hz;
+    a.meta["rows"] = K;
+    a.meta["tiling"] = tiling_of(pr.r.wo, s.first, s.samples, cw.segments, cw.segmentsSkipped);
+    a.meta["n_members"] = cw.segments; a.meta["members_skipped"] = cw.segmentsSkipped;
+    a.meta["options"] = options_of(pr.r);
+    a.meta["producer"] = producer_of(pr.r, cw.segments, cw.segmentsSkipped, s.samples, s.bad, df, Json());
+    return ng::Arrays{{"spectra", std::move(a)}};
+  };
+  return n;
+}
 }  // namespace
 
 void register_welch_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_tensor(), welch_cross_spectrum()})
+  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_tensor(), welch_cross_spectrum(), welch_mode_cross_spectra()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 
