@@ -184,7 +184,7 @@ Json import_bids(const fs::path& bids_root, const fs::path& dataset_folder, cons
         // the tables: channels, events, and the electrodes with their coordinate system (matched by `space`)
         Json notes = Json::array();
         const tsv::Table* electrodes = nullptr;
-        const Json* coordsystem = nullptr;
+        const nlohmann::json* coordsystem = nullptr;
         std::string position_unit, electrodes_path, space;
         if (!rec.electrodes.empty()) {
           electrodes = &rec.electrodes.front().table;
