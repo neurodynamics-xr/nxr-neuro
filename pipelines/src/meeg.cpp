@@ -25,7 +25,6 @@
 #include "nxr/fft.h"
 #include "nxr/rotary.h"
 #include "nxr/timebank.h"
-#include "nxr/partition.h"
 #include "nxr/patterns.h"
 #include "nxr/pipelines/spectral_record.h"
 #include "nxr/congruence.h"

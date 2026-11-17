@@ -20,7 +20,6 @@
 #include "nxr/intrinsic_surface.h"
 #include "nxr/io/measures.h"
 #include "nxr/ladder.h"
-#include "nxr/partition.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg_internal.h"

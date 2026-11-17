@@ -1,5 +1,5 @@
 // nxr-pipelines — MEASUREMENTS of stored Fields over a PARTITION: each member of a labelling (a `set` Selection with one code per vertex and a
-// dictionary, D48: Desikan-Killiany, a level of a tile ladder, D85) gets the Field's measures (nxr/partition.h, the Studio's measureOverPartition), written
+// dictionary, D48: Desikan-Killiany, a level of a tile ladder, D85) gets the Field's measures (nxr/measurement/reduce.h, the Studio's measureOverPartition), written
 // as the Studio writes them (`selection_measurement`, D68: selection = the labelling, code = the member, of_field_id = the Field, `weight` = the member's
 // weight so a mean rolls up exactly). How they were made is a RECIPE (the Studio's recipes, docs/recipes.md): an entry of the dataset's `recipes`
 // dictionary, kind `reduction`, carrying every choice; every row names it in `computed_by` (`recipe <name>@<version> · nxr-neuro <version>`).
