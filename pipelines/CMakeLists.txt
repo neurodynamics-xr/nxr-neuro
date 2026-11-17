@@ -74,6 +74,7 @@ add_library(nxr_pipelines
   src/scaleselection.cpp
   src/speedspectrum.cpp
   src/tiles.cpp
+  src/face.cpp
 )
 target_include_directories(nxr_pipelines PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(nxr_pipelines PUBLIC nxr_io nxr_compute nxr_meeg nxr_graph)
@@ -114,6 +115,14 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_psd_pipeline PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_psd_pipeline COMMAND test_psd_pipeline)
+  add_executable(test_face test/test_face.cpp)   # what the Python and MATLAB faces call (face.h): run, list, read, on a synthetic dataset; the same result as the command line's
+  target_link_libraries(test_face PRIVATE nxr_pipelines)
+  target_include_directories(test_face PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test)
+  if(NXR_NEURO_BUILD_CLI)
+    add_dependencies(test_face nxr-neuro)
+    target_compile_definitions(test_face PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
+  endif()
+  add_test(NAME test_face COMMAND test_face)
   add_executable(test_source_psd test/test_source_psd.cpp)
   target_link_libraries(test_source_psd PRIVATE nxr_pipelines)
   target_include_directories(test_source_psd PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test ${CMAKE_SOURCE_DIR}/compute/test)
@@ -367,6 +376,10 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_headmodel PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_headmodel COMMAND test_headmodel)
+  # the type system on the shipped definitions (spec docs/specs/2026-11-17-type-system.md, T2): synthetic input types, no data
+  add_executable(test_definitions_typed test/test_definitions_typed.cpp)
+  target_link_libraries(test_definitions_typed PRIVATE nxr_pipelines)
+  add_test(NAME test_definitions_typed COMMAND test_definitions_typed)
   # every pipeline test may use io's test-only probe (nxr/io/testing/probe.h) for assertions about what was written
   get_directory_property(_pipeline_targets BUILDSYSTEM_TARGETS)
   foreach(_t ${_pipeline_targets})

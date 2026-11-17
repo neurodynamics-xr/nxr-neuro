@@ -1,15 +1,18 @@
 """nxr-neuro: measuring the spatiotemporal patterns of cortical activity from MEG/EEG.
 
-This first slice of the Python face holds the pure functions over NumPy arrays (`nxr_neuro.compute`) and the readers of the field's file formats
-(`nxr_neuro.io`). Both call the same C++ library as the `nxr-neuro` command; nothing here is a second implementation.
+The Python face of nxr-neuro: the pure functions over NumPy arrays (`nxr_neuro.compute`), the readers of the field's file formats (`nxr_neuro.io`) and the pipeline
+level (`nxr_neuro.run`, `nxr_neuro.list`, `nxr_neuro.read`). Each calls the same C++ library as the `nxr-neuro` command; nothing here is a second implementation.
 
     import nxr_neuro as nn
     freqs, psd, *_ = nn.compute.welch.psd(x, sfreq=1000.0)
+    r = nn.run("psd", "study/demo", "sub-01", recording="rest", all=True)   # a pipeline on a subject: the command line's `run`
 """
 
 from importlib import metadata as _metadata
 
 from . import compute, io
+from . import list  # noqa: A004  (nxr_neuro.list: the lists of `nxr-neuro list`)
+from ._pipeline import RunResult, Stored, read, run
 from ._errors import (
     CancelledError,
     Error,
@@ -37,6 +40,11 @@ except _metadata.PackageNotFoundError:  # a source tree that is not installed
 __all__ = [
     "io",
     "compute",
+    "list",
+    "run",
+    "read",
+    "RunResult",
+    "Stored",
     "Error",
     "FormatError",
     "UnsupportedError",

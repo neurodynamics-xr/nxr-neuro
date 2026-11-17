@@ -3,7 +3,7 @@ name: wheels
 # The Python wheel (`pip install nxr-neuro`; bindings/python), built with cibuildwheel for Linux x86_64 (manylinux_2_28) and macOS arm64
 # (macos-15, deployment target 13.3). The pytest suite (bindings/python/tests) runs on each built wheel, installed into a clean environment.
 # - On a version tag (`v*`) and by hand (`workflow_dispatch`): build and test, upload the wheels as workflow artefacts.
-# - On pull requests: only when bindings/python/** or this workflow changes.
+# - On pull requests: only when bindings/python/**, the pipeline level's face (pipelines/face) or this workflow changes.
 # Nothing is published to PyPI: the artefacts are what a maintainer installs and checks.
 on:
   push:
@@ -11,6 +11,8 @@ on:
   pull_request:
     paths:
       - "bindings/python/**"
+      - "pipelines/include/nxr/pipelines/face.h"
+      - "pipelines/src/face.cpp"
       - ".github/workflows/wheels.yml"
   workflow_dispatch:
 

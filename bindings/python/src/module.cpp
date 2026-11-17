@@ -13,6 +13,7 @@ namespace nb = nanobind;
 namespace nxrpy {
 void bind_compute(nb::module_& m);
 void bind_formats(nb::module_& m);
+void bind_pipeline(nb::module_& m);
 }  // namespace nxrpy
 
 namespace {
@@ -42,4 +43,5 @@ NB_MODULE(_core, m) {
       nullptr);
   nxrpy::bind_compute(m);
   nxrpy::bind_formats(m);
+  nxrpy::bind_pipeline(m);
 }
