@@ -604,3 +604,6 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     target_link_libraries(test_vector_covariant_operators PRIVATE nxr_compute)
     add_test(NAME test_vector_covariant_operators COMMAND test_vector_covariant_operators)
 endif()
+
+# CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
+set_property(DIRECTORY APPEND PROPERTY LABELS compute)

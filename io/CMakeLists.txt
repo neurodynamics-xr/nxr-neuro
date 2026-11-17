@@ -386,3 +386,6 @@ if(NXR_IO_BUILD_TESTS)
     add_test(NAME test_io_eigen COMMAND test_io_eigen)
   endif()
 endif()
+
+# CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
+set_property(DIRECTORY APPEND PROPERTY LABELS io)

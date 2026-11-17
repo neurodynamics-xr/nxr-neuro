@@ -360,3 +360,6 @@ if(NXR_NEURO_BUILD_TESTS)
     endif()
   endforeach()
 endif()
+
+# CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
+set_property(DIRECTORY APPEND PROPERTY LABELS pipelines)

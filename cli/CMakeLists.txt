@@ -31,3 +31,6 @@ if(NXR_NEURO_BUILD_TESTS AND TARGET nxr_pipelines)
                                       -P ${CMAKE_CURRENT_SOURCE_DIR}/test/cli_tests.cmake)
   endforeach()
 endif()
+
+# CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
+set_property(DIRECTORY APPEND PROPERTY LABELS cli)

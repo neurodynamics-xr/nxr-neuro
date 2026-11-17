@@ -64,3 +64,6 @@ if(NXR_IO_BUILD_TESTS)
   add_test(NAME formats_layering COMMAND ${CMAKE_COMMAND} -DFORMATS_DIR=${CMAKE_CURRENT_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/check_formats_layering.cmake)
   add_test(NAME formats_layering_check_catches COMMAND ${CMAKE_COMMAND} -DCHECK=${CMAKE_SOURCE_DIR}/cmake/check_formats_layering.cmake -DWORK=${CMAKE_CURRENT_BINARY_DIR}/layering_work -P ${CMAKE_CURRENT_SOURCE_DIR}/test/layering_catches.cmake)
 endif()
+
+# CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
+set_property(DIRECTORY APPEND PROPERTY LABELS io_formats)
