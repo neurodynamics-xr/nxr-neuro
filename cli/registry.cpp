@@ -103,7 +103,26 @@ std::string default_text(const nxr::io::Json& v) {
   return v.dump();
 }
 void add_definition(Table& t, const std::string& noun, const std::string& definition) {
-  const nxr::pipelines::graph::Definition d = nxr::pipelines::graph::load(definition);
+  nxr::pipelines::graph::Definition d;
+  try {
+    d = nxr::pipelines::graph::load(definition);
+  } catch (const std::exception& e) {            // a definition that does not load must not take the whole command line down: its command is listed, and says why it cannot run
+    CommandDoc bad;
+    bad.verb = "run";
+    bad.noun = noun;
+    bad.old = {"run"};
+    bad.alias = false;
+    bad.unprobed = true;
+    bad.span = true;
+    bad.definition = definition;
+    bad.group = "Pipeline definitions";
+    std::string why = e.what();
+    for (auto& ch : why) if (ch == '\n') ch = ' ';
+    bad.summary = "Does not load yet: " + why;
+    bad.positional = "";
+    t.commands.push_back(bad);
+    return;
+  }
   CommandDoc c;
   c.verb = "run";
   c.noun = noun;
@@ -260,7 +279,7 @@ const OptionDoc& option_doc(const std::string& name, const std::string& path) {
     if (late != late_options().end()) return late->second;
   }
   const auto it = table().options.find(name);
-  if (it == table().options.end()) throw std::logic_error("the command table has no description of " + name);
+  if (it == table().options.end()) throw std::logic_error("the command table has no description of " + name + (path.empty() ? "" : " (for " + path + ")"));
   return it->second;
 }
 std::vector<std::string> pipeline_names() {
@@ -270,6 +289,7 @@ std::vector<std::string> pipeline_names() {
   return v;
 }
 bool is_flag(const std::string& name) { return option_doc(name).value.empty(); }
+bool is_flag_of(const std::string& name, const std::string& path) { return option_doc(name, path).value.empty(); }   // an option documented for one command only has no global entry
 
 double parse_time(const std::string& option, const std::string& text) {
   const auto bad = [&] { return Usage("error: argument " + option + ": '" + text + "' is not a time: give seconds (90) or m:ss (1:30) or h:mm:ss"); };
@@ -316,7 +336,7 @@ std::string example_of(const CommandDoc& c) {
   std::string t = "nxr-neuro " + c.path();
   if (!c.positional.empty()) t += " " + c.positional;
   for (const auto& o : c.options)
-    if (o.required && !span_hidden(c, o.name)) t += " " + o.name + (is_flag(o.name) ? "" : " " + option_doc(o.name, c.path()).value);
+    if (o.required && !span_hidden(c, o.name)) t += " " + o.name + (is_flag_of(o.name, c.path()) ? "" : " " + option_doc(o.name, c.path()).value);
   if (c.span) t += c.seconds ? " --from 0:10 --to 1:10" : " --all";
   return t;
 }
@@ -486,7 +506,7 @@ int run_command_line(int argc, char** argv) {
       Probe p = probe();
       std::set<std::string> parser, req, mul, flg, table_names, table_req, table_mul, table_flg;
       parser.insert(p.valued.begin(), p.valued.end()); parser.insert(p.multi.begin(), p.multi.end()); parser.insert(p.flags.begin(), p.flags.end());
-      for (const auto& u : c.options) { const std::string n = u.legacy.empty() ? u.name : u.legacy; table_names.insert(n); if (u.required) table_req.insert(n); if (u.multi) table_mul.insert(n); if (is_flag(u.name)) table_flg.insert(n); }
+      for (const auto& u : c.options) { const std::string n = u.legacy.empty() ? u.name : u.legacy; table_names.insert(n); if (u.required) table_req.insert(n); if (u.multi) table_mul.insert(n); if (is_flag_of(u.name, c.path())) table_flg.insert(n); }
       auto diff = [&](const char* what, const std::set<std::string>& a, const std::set<std::string>& b) {
         std::string m;
         for (const auto& x : a) if (!b.count(x)) m += " " + x;
@@ -553,7 +573,7 @@ int run_command_line(int argc, char** argv) {
         const std::string h = option_help(d);
         if (!d.def.empty() && d.def != "none" && d.def != "off" && d.def != "required" && h.find("default: " + d.def) == std::string::npos) { std::cout << c.path() << ": " << u.name << " help lacks its default\n"; ++bad; }
         if (!d.unit.empty() && d.unit != "-" && h.find("unit: " + d.unit) == std::string::npos) { std::cout << c.path() << ": " << u.name << " help lacks its unit\n"; ++bad; }
-        if (d.value.empty() != is_flag(u.name)) { std::cout << c.path() << ": " << u.name << " flag and value disagree\n"; ++bad; }
+        if (d.value.empty() != is_flag_of(u.name, c.path())) { std::cout << c.path() << ": " << u.name << " flag and value disagree\n"; ++bad; }
       }
     }
     std::cout << (bad ? "some options lack their own description\n" : "every option has its own description\n");
@@ -780,7 +800,7 @@ std::string completion_script(const std::string& shell) {
         for (const auto& name : opts_of(*c)) {
           if (name == "--help") continue;
           o << "complete -c nxr-neuro -n '__fish_seen_subcommand_from " << c->noun << "' -l " << name.substr(2);
-          if (table().options.count(name)) { std::string h = option_help(option_doc(name, c->path())); std::replace(h.begin(), h.end(), '\'', ' '); o << (is_flag(name) ? "" : " -r") << " -d '" << h << "'"; }
+          if (table().options.count(name)) { std::string h = option_help(option_doc(name, c->path())); std::replace(h.begin(), h.end(), '\'', ' '); o << (is_flag_of(name, c->path()) ? "" : " -r") << " -d '" << h << "'"; }
           o << "\n";
         }
       }
