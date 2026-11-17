@@ -880,6 +880,22 @@ reference is nxr's `nxr/pipelines/` (`definition.py`, `registry.py`, `inputs.py`
 - **Not built yet:** `measure` over a stored time partition other than a constant-Q level of a band, and the steps' reductions over a surface partition (the phase sums written as
   measurements); workers (one chunk at a time, as decided); parity against `sourcepsd` and nxr; today's verbs re-expressed as definitions.
 
+## The pipeline type system: types (`pipelines/graph/include/nxr/graph/types.h`; spec `docs/specs/2026-11-17-type-system.md`, step T1)
+
+A `PortType` says what a port carries before any data flows. Beside C1's members (class, value type, rows, axis, rate, unit, `on`/`to` labels, `facts`) it holds, once `typed` is set:
+
+| member | meaning |
+|---|---|
+| `domain`, `target` | where the values lie: a product of **manifold terms** (`Manifold`: a stored id, an anonymous array manifold, a signature variable, one a node makes, a restriction `M|selection`, a member set `members(P)`, a derived one `glued(M)`), and the cells; an operator's `domain` is its source and `target` its target |
+| `quantity` | what the values are (field), the measure (measurement, statistic), the kind (operator): a **closed vocabulary**, `nxr::graph::quantities()`; a name outside it is refused when a node's signature is registered |
+| `res` | the time band (Hz, shape) and the spatial level (ladder, level or stack of levels, shape): the level IS the band |
+| `sel` | a selection's shape: its type, whether its members are disjoint (`partition`: a measurement may be taken over it), its identity, what it was detected over |
+| `of` | what a statistic is of: the quantity, resolution and domain before the reduction |
+| `spin`, `gauge` | G5: 0 scalar, 1 tangent vector, n an n-RoSy, -1 a conjugate; the gauge of a tangent value (empty for a scalar and for an embedded `vector3`) |
+| `transition` | an operator of kind `transition`: a change of coordinate system of one space |
+
+The printed form (`print`, `parse_type`) is the one used by messages and `--dry-run`: `field<cortex(kernel) × frames(tiling); complex vector3; current; band 8-12 Hz morlet; level tiles@5>`. A manifold prints as `label(id)`, a made one `label(~use.output)`, an anonymous one `#n`, a restriction `M|selection`, a member set `members(P)`, a derived one `relation(M)`. `unify` binds the variables of a signature to the terms they meet; its only rules are equality of ids, anonymous numbers, member sets, restrictions and derived terms, a variable's role (a time variable binds a time line only), and one subsumption at an operator's source (a kernel from a restriction reads the whole manifold, or the same restriction).
+
 ## Events on the time axis (`run band_bursts`; spec `docs/specs/2026-11-13-time-events.md`, audit `docs/audits/2026-11-13-time-event-labelling.md`)
 
 **Why.** Standard time-series event labelling: the time axis of a recording labelled with events (bursts, spindles, slow waves, bad
