@@ -41,7 +41,6 @@ add_library(nxr_pipelines
   src/partition_steps.cpp
   src/pca_steps.cpp
   src/flow_steps.cpp
-  src/pyramid_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
   src/scale_inputs.cpp
@@ -54,7 +53,8 @@ add_library(nxr_pipelines
   src/crossings_steps.cpp
   src/connectome_steps.cpp
   src/montage_steps.cpp
-  src/tiling_steps.cpp
+  src/select_nodes.cpp
+  src/measurement_nodes.cpp
   src/tiles_steps.cpp
   src/surrogate_steps.cpp
   src/run_repeat.cpp

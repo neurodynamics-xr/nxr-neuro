@@ -239,6 +239,13 @@ struct Array {
   std::vector<double> data;
   Json meta = Json::object();
   std::int64_t comps = 1;
+  /** PRECISION FOLLOWS THE INPUT (the maintainers' rule, 2026-11-17: no blanket double). An array made of float32 input holds its values in `single` (and `data` is empty); one made of float64
+   *  input, or a node's own accumulated statistic, holds them in `data`. The two are never both filled. `values()` reads either, as double, for a consumer that wants double. */
+  std::vector<float> single;
+  bool is_single() const { return data.empty() && !single.empty(); }
+  std::size_t size() const { return is_single() ? single.size() : data.size(); }
+  double at(std::size_t i) const { return is_single() ? static_cast<double>(single[i]) : data[i]; }
+  std::vector<double> values() const { return is_single() ? std::vector<double>(single.begin(), single.end()) : data; }
 };
 using Blocks = std::map<std::string, Block>;
 using Arrays = std::map<std::string, Array>;

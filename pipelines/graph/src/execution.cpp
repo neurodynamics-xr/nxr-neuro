@@ -21,12 +21,12 @@ std::int64_t components_of(ValueType v) {
 Block to_block(const Array& a, const PortType& t, const std::string& name) {
   Block b;
   const std::int64_t C = a.comps;
-  if (static_cast<std::int64_t>(a.data.size()) != a.rows * a.cols * C) refuse("input '" + name + "': " + std::to_string(a.data.size()) + " values for [" + std::to_string(a.rows) + " x " + std::to_string(a.cols) + " x " + std::to_string(C) + "]");
+  if (static_cast<std::int64_t>(a.size()) != a.rows * a.cols * C) refuse("input '" + name + "': " + std::to_string(a.size()) + " values for [" + std::to_string(a.rows) + " x " + std::to_string(a.cols) + " x " + std::to_string(C) + "]");
   if (t.value == ValueType::complex) {
     if (C != 2) refuse("input '" + name + "' is complex: handed as [rows x samples x 2] (re, im)");
     b.rows = a.rows; b.width = a.cols;
     b.re.resize(static_cast<std::size_t>(a.rows * a.cols)); b.im.resize(b.re.size());
-    for (std::size_t i = 0; i < b.re.size(); ++i) { b.re[i] = static_cast<float>(a.data[2 * i]); b.im[i] = static_cast<float>(a.data[2 * i + 1]); }
+    for (std::size_t i = 0; i < b.re.size(); ++i) { b.re[i] = static_cast<float>(a.at(2 * i)); b.im[i] = static_cast<float>(a.at(2 * i + 1)); }
     return b;
   }
   if (C != components_of(t.value)) refuse("input '" + name + "' is " + to_string(t.value) + ": handed with " + std::to_string(components_of(t.value)) + " component(s) per element, not " + std::to_string(C));
@@ -34,24 +34,30 @@ Block to_block(const Array& a, const PortType& t, const std::string& name) {
   b.re.resize(static_cast<std::size_t>(b.rows * b.width));
   for (std::int64_t r = 0; r < a.rows; ++r)
     for (std::int64_t k = 0; k < C; ++k)
-      for (std::int64_t s = 0; s < a.cols; ++s) b.re[static_cast<std::size_t>((r * C + k) * a.cols + s)] = static_cast<float>(a.data[static_cast<std::size_t>((r * a.cols + s) * C + k)]);
+      for (std::int64_t s = 0; s < a.cols; ++s) b.re[static_cast<std::size_t>((r * C + k) * a.cols + s)] = static_cast<float>(a.at(static_cast<std::size_t>((r * a.cols + s) * C + k)));
   return b;
 }
-Array to_array(const Block& b, const PortType& t) {
+// A block (always float32 inside the loop) as an array outside it. `single`: the input was float32, so the output keeps float32 (precision follows the input); else float64.
+Array to_array(const Block& b, const PortType& t, bool single = false) {
   Array a;
+  auto put = [&](std::size_t n, auto value_at) {
+    if (single) { a.single.resize(n); for (std::size_t i = 0; i < n; ++i) a.single[i] = static_cast<float>(value_at(i)); }
+    else { a.data.resize(n); for (std::size_t i = 0; i < n; ++i) a.data[i] = value_at(i); }
+  };
   if (b.complex()) {
     a.rows = b.rows; a.cols = b.width; a.comps = 2;
-    a.data.resize(static_cast<std::size_t>(b.rows * b.width * 2));
-    for (std::size_t i = 0; i < b.re.size(); ++i) { a.data[2 * i] = b.re[i]; a.data[2 * i + 1] = b.im[i]; }
+    put(static_cast<std::size_t>(b.rows * b.width * 2), [&](std::size_t i) { return (i % 2 == 0) ? b.re[i / 2] : b.im[i / 2]; });
     return a;
   }
   const std::int64_t C = components_of(t.value);
   if (b.rows % C != 0) refuse("a block of " + std::to_string(b.rows) + " rows is not whole " + to_string(t.value) + " elements");
   a.rows = b.rows / C; a.cols = b.width; a.comps = C;
-  a.data.resize(static_cast<std::size_t>(b.rows * b.width));
-  for (std::int64_t r = 0; r < a.rows; ++r)
-    for (std::int64_t k = 0; k < C; ++k)
-      for (std::int64_t s = 0; s < a.cols; ++s) a.data[static_cast<std::size_t>((r * a.cols + s) * C + k)] = b.re[static_cast<std::size_t>((r * C + k) * a.cols + s)];
+  const std::int64_t R = a.rows, W = a.cols;
+  put(static_cast<std::size_t>(b.rows * b.width), [&](std::size_t i) {
+    const std::int64_t k = static_cast<std::int64_t>(i) % C, s = (static_cast<std::int64_t>(i) / C) % W, r = static_cast<std::int64_t>(i) / (C * W);
+    (void)R;
+    return b.re[static_cast<std::size_t>((r * C + k) * W + s)];
+  });
   return a;
 }
 
@@ -282,11 +288,14 @@ Arrays apply(const Checked& checked, const Arrays& inputs, const DispatchContext
   Arrays constants;
   Blocks blocks;
   std::int64_t n = -1;
+  bool single = true, any_streamed = false;                  // precision follows the input: float32 only when every streamed input is
   for (const auto& name : checked.inputs) {
     const auto a = inputs.find(name);
     if (a == inputs.end()) refuse("apply: input '" + name + "' was not handed");
     const PortType& t = checked.values.at(name);
     if (!t.streamed()) { constants[name] = a->second; continue; }
+    any_streamed = true;
+    single = single && a->second.is_single();
     Block b = to_block(a->second, t, name);
     if (n >= 0 && b.width != n) refuse("apply: the streamed inputs differ in length (" + std::to_string(n) + " and " + std::to_string(b.width) + ")");
     n = b.width;
@@ -296,7 +305,7 @@ Arrays apply(const Checked& checked, const Arrays& inputs, const DispatchContext
   Execution ex(checked, constants, ctx, blocking);
   Blocks outb = ex.block(blocks, Place{0, n < 0 ? 0 : n, nullptr});
   Arrays out = ex.finish();
-  for (auto& [name, b] : outb) out[name] = to_array(b, checked.values.at(name));
+  for (auto& [name, b] : outb) out[name] = to_array(b, checked.values.at(name), any_streamed && single);
   return out;
 }
 

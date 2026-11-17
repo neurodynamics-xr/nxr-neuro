@@ -15,7 +15,6 @@
 #include "nxr/crossings.h"
 #include "nxr/intervals.h"
 #include "nxr/ladder.h"
-#include "nxr/partition.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/pipelines/run_repeat.h"
 #include "nxr/pipelines/spatial_band.h"
@@ -148,7 +147,7 @@ StepSpec cellquadrature_step() {
   s.optional = {"bursts"};
   s.outputs = {"cells", "cell_pairs", "bursts", "burst_pairs"};
   s.parameters = Json{{"space_level", nullptr}, {"weights", "area"}, {"tile_pairs", true}, {"transform", "auto"}, {"modes", nullptr}, {"order", nullptr}, {"tolerance", nullptr}};
-  s.matches = "compute nxr::quadrature::groupedCongruenceNorms, pairCongruenceNorms; nxr::partition::sumOverMembers";
+  s.matches = "compute nxr::quadrature::groupedCongruenceNorms, pairCongruenceNorms; the merge rule sum (nxr::measurement)";
   s.description = "the quadrature ingredients of the kernel's spatial tiles (and touching tile pairs) per time tile of the joint cells and per burst, from an analytic cross-spectrum";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored windows");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
@@ -333,7 +332,11 @@ StepSpec cellquadrature_step() {
         std::int64_t absent = 0;
         for (std::int64_t t = k0; t <= k1; ++t) { const auto it = at.find(t); if (it == at.end()) ++absent; else parts.push_back(win.sum[it->second]); }
         const bool whole = k1 >= k0 && absent == 0;
-        if (whole) sums[static_cast<std::size_t>(k)] = partition::sumOverMembers(parts, std::vector<int>(parts.size(), 0), 1).sum[0];     // an empty matrix: NaN
+        if (whole) {                                                          // the event's value is the SUM of its whole tiles' sums (the merge rule `sum`: additive ingredients); an event with a missing tile stays empty (NaN)
+          Eigen::MatrixXcd total = parts.front();
+          for (std::size_t q = 1; q < parts.size(); ++q) total += parts[q];
+          sums[static_cast<std::size_t>(k)] = std::move(total);
+        }
         report.push_back(Json{{"burst", k}, {"start", a0}, {"stop", z0}, {"tiles", k1 >= k0 ? k1 - k0 + 1 : 0}, {"first_tile", k0}, {"missing_tiles", absent}, {"complete", whole}});
       }
       const Norms n = norms_of(sums);

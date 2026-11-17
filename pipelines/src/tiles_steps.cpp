@@ -8,7 +8,11 @@
 //   group_tree    surface, frames? ─▶ tile_grid {tree: group} ─▶ tiles   (grid, `<surface> tiles` with tree group; the Levi-Civita connection on its levels when frames are stored)
 //   group_tiles   surface ─▶ group_tile_grid ─▶ tiles   (grid, `<surface>_group_tiles`: the default subject's codes through the registered spheres)
 //
-//   tile_grid        setup   surface (frames) -> tiles    nxr::selection::dyadic: equal-area bisection, 2^l tiles a piece, the member number = the finest tile code h 2^D + t, level l = code >> (D - l)
+//   tile_grid        setup   surface -> tiles    nxr::selection::dyadic: equal-area bisection, 2^l tiles a piece, the member number = the finest tile code h 2^D + t, level l = code >> (D - l)
+//
+// These two steps are the RULES of the maker `select.dyadic_surface` (select_nodes.cpp: rule subject / group / transfer), no longer registered under their own names. The finest tile is a
+// QUANTITY (`finest`: a tile diameter, area, wavelength or parts per hemisphere), resolved to the depth through the grid's MEASURED level diameters (spec 3.3), never a bare depth. The
+// Levi-Civita connection between neighbouring tiles is not part of the grid: it is a measurement over the product of a level with itself (`reduce`, measure levi_civita; rule 26).
 //   group_tile_grid  setup   surface          -> tiles    nxr::ladder::groupTreeFor: each vertex takes the code of the nearest vertex of the default subject's cortex, piece by piece
 //
 // The Studio's design is kept with its names (backend/src/db/surface-ladder.ts, studio/src/engine/ladder.ts: `surfaceLadder`, the levels, `tileAreas`, `tileCentres`, Weyl's law).
@@ -21,7 +25,10 @@
 #include "nxr/frames.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/registry.h"
+#include "nxr/pipelines/select_nodes.h"
 #include "nxr/pipelines/tiles.h"
+#include "nxr/quantity.h"
+#include "nxr/selection/grid.h"
 #include "nxr/selection/partition.h"
 
 namespace nxr::pipelines::graph {
@@ -57,39 +64,32 @@ std::string tiles_name(const std::string& surface, int l) { return surface + " t
 
 // ── tile_grid ───────────────────────────────────────────────────────────────────────────────────────────────────
 struct TileGridState {
-  std::string surface, tree, frames_id;
-  std::optional<int> depth;
+  std::string surface, tree;
+  Json finest;                                  // the finest tile as a quantity (null: the finest every piece reaches; the group grid names it)
   GroupTreeOptions group;
 };
-
-Json level_facts(const nxr::selection::Selection& grid, int l, std::int64_t tiles) {
-  const auto& band = *grid.members.at(static_cast<std::size_t>(l)).band;
-  const auto& level = grid.members.at(static_cast<std::size_t>(l));
-  Json j{{"level", l}, {"tiles", tiles}, {"lambda_min", band.first}, {"lambda_max", band.second}, {"wavelength_m", lad::wavelengthOf(band.second)}, {"tau", 1 / band.second}, {"modes_per_piece", 1 << l}};
-  if (level.diameter) j["diameter"] = *level.diameter;                      // the MEASURED mean tile diameter (the surface's unit): the level dictionary of jointcell's rule
-  return j;
-}
 
 StepSpec tile_grid_step() {
   StepSpec s;
   s.name = "tile_grid";
   s.kind = "setup";
   s.inputs = {"surface"};
-  s.optional = {"frames"};
   s.outputs = {"tiles"};
-  s.parameters = Json{{"depth", nullptr}, {"tree", "subject"}, {"resolution", "fsaverage5"}, {"atlas_depth", 8}, {"frame_level", -18}, {"lc_levels", Json::array({4, 6})}};
+  s.parameters = Json{{"finest", nullptr}, {"tree", "subject"}, {"resolution", "fsaverage5"}, {"frame_level", -18}};
   s.matches = "the Cortical Flow Studio engine/ladder.ts (surfaceLadder, Weyl pairing); nxr geom.ladder / geom.trees.subject_tree; Rheome +geom/surfaceladder.m";
   s.description =
       "The dyadic equal-area tiles of a surface as ONE grid with levels: each tile is halved by equal mass across its geodesic diameter, every tile one piece; level l has 2^l tiles a piece, paired with the "
       "band it adds by Weyl's law. The member number is the finest tile code h 2^D + t (h the connected piece), level l's member that code >> (D - l): the hierarchy is a rule, nothing per level is held. "
-      "depth: the finest level written (default: the finest every piece reaches). tree group (the default subject's only): the grid also carries the dataset's atlas definitions (resolution, atlas_depth, "
-      "frame_level) and, with the canonical frames stored (the optional input), the Levi-Civita connection between tile centres at lc_levels.";
+      "finest: the finest tile as a QUANTITY (a tile diameter in mm, an area in mm2, a wavelength, or parts per hemisphere), resolved to the depth through the grid's measured level diameters "
+      "(default for the subject's own grid: the finest every piece reaches). tree group (the default subject's only): the grid also carries the dataset's atlas definitions (resolution, frame_level; "
+      "its leaf depth is the finest, which the group grid must name).";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as stored, double");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     need(ins.count("surface") != 0, "tile_grid: the input `surface` is missing");
     const std::string tree = p.value("tree", std::string("subject"));
     need(tree == "subject" || tree == "group", "tiles: tree must be subject or group, not " + tree);
-    need(p["depth"].is_null() || (p["depth"].is_number_integer() && p["depth"].get<int>() >= 0), "tiles: depth is a whole number, 0 or more (the finest level written)");
+    need(p["finest"].is_null() || p["finest"].is_string(), "tiles: finest is a quantity with a unit (e.g. \"20 mm\", \"parts 16\"), never a bare level");
+    need(tree != "group" || p["finest"].is_string(), "tiles: the group tree names its finest tile (finest: a quantity); it is the leaf depth of every subject's atlas");
     Value v;
     v.cls = "selection";
     v.manifolds = ins.at("surface").manifolds;
@@ -99,15 +99,12 @@ StepSpec tile_grid_step() {
     TileGridState st;
     st.surface = nxr::io::text(*ins.at("surface").row, "name");
     st.tree = p.value("tree", std::string("subject"));
-    if (p["depth"].is_number_integer()) st.depth = p["depth"].get<int>();
+    st.finest = p["finest"];
     if (st.tree == "group") {
       need(ctx.bound.subject_kind() == "template", "the group tree is the default subject's (a template), not a " + ctx.bound.subject_kind() + "'s");
       st.group.resolution = p.value("resolution", std::string("fsaverage5"));
-      st.group.atlas_depth = p.value("atlas_depth", 8);
       st.group.frame_level = p.value("frame_level", -18);
-      st.group.lc_levels.clear();
-      for (const auto& l : p.value("lc_levels", Json::array())) st.group.lc_levels.push_back(l.get<int>());
-      if (ins.count("frames") && ins.at("frames").row) st.frames_id = nxr::io::text(*ins.at("frames").row, "id");
+      st.group.lc_levels.clear();                                          // the connection is a measurement over a level x level product, not part of the grid
     }
     return std::any(std::move(st));
   };
@@ -120,9 +117,14 @@ StepSpec tile_grid_step() {
     nxr::selection::Surface surf;
     surf.unit = unit; surf.positions = S.vertices.data(); surf.vertices = nV; surf.faces = S.faces.data(); surf.face_count = nF;
     nxr::selection::Dyadic method;
-    method.depth = st.depth;
     nxr::selection::Selection grid;
     try { grid = nxr::selection::dyadic(surf, method); } catch (const std::invalid_argument& e) { refuse(std::string("tiles: ") + e.what()); }
+    Json snapped = Json::object();
+    if (!st.finest.is_null()) {                                            // the stated finest tile, resolved on the grid's MEASURED diameters; the grid is rebuilt to that depth
+      const int want = level_of_quantity(grid, st.finest, unit, "tiles", snapped);
+      need(want >= 0 && want <= grid.grid->depth, "tiles: finest " + st.finest.get<std::string>() + " is level " + std::to_string(want) + "; the surface's grid reaches level " + std::to_string(grid.grid->depth));
+      if (want < grid.grid->depth) { method.depth = want; try { grid = nxr::selection::dyadic(surf, method); } catch (const std::invalid_argument& e) { refuse(std::string("tiles: ") + e.what()); } }
+    }
     const int D = grid.grid->depth;
     const int finest = grid.grid->finest >= 0 ? grid.grid->finest : D;      // the deepest level every piece reaches (compute's `dyadic` returns it)
     const int slots = static_cast<int>(grid.grid->slots);
@@ -133,7 +135,8 @@ StepSpec tile_grid_step() {
     const std::vector<double> area = lad::vertexAreas(whole);
     double total = 0;
     for (const double a : area) total += a;
-    if (st.tree == "group") need(D >= st.group.atlas_depth, st.surface + ": the ladder reaches level " + std::to_string(D) + ", short of the atlas depth " + std::to_string(st.group.atlas_depth));
+    GroupTreeOptions group = st.group;
+    if (st.tree == "group") group.atlas_depth = D;                          // the group tree's leaf depth IS the stated finest tile
     if (ctx.say) ctx.say(Json{{"stage", "ladder"}, {"surface", st.surface}, {"pieces", pieces}, {"slots", slots}, {"depth", D}});
 
     // the dictionary of the levels: one entry per level, code = the level, measurement = the level's wavelength
@@ -144,28 +147,7 @@ StepSpec tile_grid_step() {
       ladder_entries.push_back(Json{{"code", l}, {"name", l == 0 ? std::string("the whole surface") : std::to_string(tiles) + " tiles"}, {"measurement", lj["wavelength_m"]}, {"measurement_unit", "m"}, {"attributes", lj}});
     }
     Json atlas;
-    std::vector<char> singular;
-    StoredFrames sf;
-    bool lc = false;
-    if (st.tree == "group") {
-      atlas = group_tree_definitions(st.group);
-      if (!st.frames_id.empty()) {
-        sf = ctx.bound.stored_frames(st.surface, nV);
-        if (sf.canonical) { atlas["frames"] = st.frames_id; lc = true; }
-      }
-    }
-    Json levi_levels = Json::array();
-    std::optional<nxr::chart::ChartKit> kit;
-    Eigen::VectorXd gauge;
-    std::vector<int> piece;
-    if (lc) {
-      singular.assign(static_cast<std::size_t>(nV), 0);
-      for (int i = 0; i < nV; ++i) singular[static_cast<std::size_t>(i)] = !(std::isfinite(sf.e1(i, 0)) && std::isfinite(sf.e1(i, 1)) && std::isfinite(sf.e1(i, 2)));
-      piece.assign(static_cast<std::size_t>(nV), -1);
-      for (std::size_t h = 0; h < runs.size(); ++h) for (int i = runs[h].first; i < runs[h].first + runs[h].second; ++i) piece[static_cast<std::size_t>(i)] = static_cast<int>(h);
-      kit.emplace(S.vertices.data(), nV, S.faces.data(), nF);
-      gauge = nxr::frames::gaugeAngle(*kit, sf.e1);
-    }
+    if (st.tree == "group") atlas = group_tree_definitions(group);
 
     Json levels = Json::array();
     std::vector<std::vector<std::int32_t>> per_level;
@@ -179,6 +161,13 @@ StepSpec tile_grid_step() {
       std::vector<std::int32_t> adj32;
       for (const auto& e : adj) { adj32.push_back(e.first); adj32.push_back(e.second); }
       Json lj = level_facts(grid, l, nodes);
+      {                                                                     // the level attributes the grid carries (spec 1.1): the mean tile area, and the measured mean tile diameter in mm
+        double sum_area = 0; int filled_tiles = 0;
+        for (const double a : w) if (a > 0) { sum_area += a; ++filled_tiles; }
+        lj["area_m2"] = filled_tiles ? sum_area / filled_tiles : 0.0;
+        if (lj.contains("diameter")) lj["diameter_mm"] = lj["diameter"].get<double>() * (unit == "m" ? 1e3 : unit == "cm" ? 1e1 : 1.0);
+        lj["weyl_band_per_m2"] = Json::array({lj["lambda_min"], lj["lambda_max"]});
+      }
       lj["tree"] = st.tree; lj["depth"] = D; lj["finest"] = finest; lj["summaries"] = Json::array();
       // the tiles' names, as the Studio writes them (entries up to 1024 tiles)
       Json entries = Json::array();
@@ -193,49 +182,15 @@ StepSpec tile_grid_step() {
                      {"dictionary", Json{{"name", tiles_name(st.surface, l)}, {"description", "the tiles of level " + std::to_string(l) + " of the dyadic tiling, every connected piece"}, {"entries", entries}}},
                      {"arrays", Json::array({array_f64("w", {nodes}, w), array_i32("lc/L" + std::to_string(l) + "/centre", {nodes}, cen32),
                                              array_i32("lc/L" + std::to_string(l) + "/adjacency", {static_cast<std::int64_t>(adj.size()), 2}, adj32)})}};
-      if (lc && std::find(st.group.lc_levels.begin(), st.group.lc_levels.end(), l) != st.group.lc_levels.end()) {
-        // THE LEVI-CIVITA CONNECTION of the group tree at this level (nxr's default subject: `measure.vectors.levi_civita`): the centre vertex of each tile (the non-singular member nearest its
-        // area-weighted centroid; -1 empty) and Omega[a, b], the angle at centre b, from b's north towards west, of centre a's north carried there by the vector heat transport, antisymmetrised
-        // (half the round-trip defect taken from each direction); a value over a PAIR of the level's tiles: a measurement over a selection of pairs (never rows riding on the grid). Pairs in different hemispheres have none.
-        // The transport is the Studio's (ChartKit::transported, intrinsic Delaunay); nxr's is geometry-central's on the input mesh: they agree to a fraction of a degree, not bit for bit.
-        const std::vector<int> lcen = lad::tileCentres(S.vertices.data(), node, nodes, area, singular);
-        const lad::LeviCivita conn = lad::leviCivita(*kit, sf.e1, sf.e2, gauge, node, nodes, lcen);
-        const Eigen::MatrixXd anti = lad::antisymmetric(conn.omega);
-        std::vector<std::int64_t> pair_index;                                 // the pairs (a, b) of the level's members, in order of a * tiles + b
-        std::vector<double> values;                                           // Omega[a, b] of each pair
-        for (int a = 0; a < nodes; ++a)
-          for (int b = 0; b < nodes; ++b) {
-            const int ca = lcen[static_cast<std::size_t>(a)], cb = lcen[static_cast<std::size_t>(b)];
-            if (ca < 0 || cb < 0 || piece[static_cast<std::size_t>(ca)] != piece[static_cast<std::size_t>(cb)]) continue;
-            const double om = anti(a, b);
-            if (std::isfinite(om)) { pair_index.push_back(static_cast<std::int64_t>(a) * nodes + b); values.push_back(om); }
-          }
-        const std::string cname = st.surface + "_lc_centres_L" + std::to_string(l);
-        lv["centres"] = Json{{"name", cname}, {"description", "the centre vertex of each tile of level " + std::to_string(l) + " (\xe2\x88\x92" "1: empty tile)"}, {"indices", std::vector<std::int32_t>(lcen.begin(), lcen.end())}};
-        // a value over PAIRS of members is a measurement over a selection of pairs (an `indices` selection, pair number a * tiles + b), never rows riding on the grid
-        lv["pairs"] = Json{{"name", st.surface + "_lc_pairs_L" + std::to_string(l)}, {"description", "the pairs (a, b) of tiles of level " + std::to_string(l) + " that have a Levi-Civita connection (a, b in one piece; pair number a * " + std::to_string(nodes) + " + b)"},
-                           {"measure", "levi-civita connection"}, {"unit", "rad"}, {"tiles", nodes}, {"indices", pair_index}, {"values", values}};
-        levi_levels.push_back(Json{{"level", l}, {"tiles", nodes}, {"centres", cname}, {"pairs", values.size()}});
-        if (ctx.say) ctx.say(Json{{"stage", "levi-civita"}, {"level", l}, {"pairs", values.size()}});
-      }
       levels.push_back(std::move(lv));
       per_level.push_back(node);
     }
-    if (lc)
-      for (const int l : st.group.lc_levels) need(l >= 0 && l <= D, "the Levi-Civita level " + std::to_string(l) + " is outside the ladder 0.." + std::to_string(D));
 
     // the ladder's record: the rule (`grid`: the hierarchy is the closed form, `slots` the piece slots the codes reserve, `pieces` the connected pieces), the area, the atlas definitions
     Json params = Json{{"weyl", "4pi m/A"}, {"tree", st.tree}, {"area_m2", total}, {"length_unit", unit}, {"pieces", pieces}, {"depth", D}, {"finest", finest},
                        {"grid", Json{{"kind", "dyadic"}, {"depth", D}, {"slots", slots}, {"pieces", pieces}, {"finest", finest}}}};
     if (!atlas.is_null()) params["atlas"] = atlas;
-    if (lc)
-      params["levi_civita"] = Json{{"levels", levi_levels}, {"measure", "levi-civita connection"}, {"unit", "rad"}, {"frames", st.frames_id},
-          {"definition", "Omega[a, b]: the angle at centre b, from north towards west, of centre a's north carried to b; a measurement over the selection of tile pairs `<surface>_lc_pairs_L<l>` (pair number a * tiles + b)"},
-          {"transport", "the vector heat method (ChartKit::transported, the Studio's: intrinsic Delaunay mesh), calibrated to the identity at its source"},
-          {"antisymmetrised", "Omega_ab - wrap(Omega_ab + Omega_ba) / 2 (nxr joint.antisymmetric since nxr #68; the earlier halving on the circle turned |Omega| > 90 degrees by 180)"},
-          {"centres", "the non-singular member vertex nearest the tile's area-weighted centroid (nxr node_centres)"},
-          {"warnings", Json::array({"transport on a curved surface depends on the path: Omega is the transport along (about) the shortest path, which is not unique between distant tiles; on a folded pial, Omega between distant centres can differ by tens of degrees between two meshes of the same cortex (nxr's input-mesh transport against this one on fsaverage5: median 2-3 degrees, p90 8-12, max 86)",
-                                   "no value across hemispheres"})}};
+    if (!st.finest.is_null()) params["finest_quantity"] = Json{{"stated", st.finest}, {"snapped", snapped}};   // what was asked, and what the level actually is (spec 3.1, item 3)
     Json describe = Json{{"label", "dyadic tiles, " + std::to_string(D + 1) + " levels, 1 ... " + std::to_string(static_cast<std::int64_t>(slots) << D) + " tiles"}, {"unit", "m"},
                          {"description", "the dyadic tiling of the surface (Cortical Flow Studio engine/ladder.ts, nxr geom.ladder / geom.trees): each tile halved by equal mass across its geodesic diameter, every tile one piece; "
                                          "level l has 2^l tiles per connected piece, paired with scale by Weyl's law"},

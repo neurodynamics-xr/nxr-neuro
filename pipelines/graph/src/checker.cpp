@@ -242,6 +242,27 @@ void gauge_rule(const Unified& u, Types& out, const Signature& sg) {
 
 }  // namespace
 
+
+// ── QUANTITIES, NOT INDICES (spec 2026-11-17-consolidation.md, section 3.1, item 2): a bare level index is never a parameter of a selection or measurement node; a level is stated as a quantity
+// ("20 mm", "8-12 Hz", "2 s") and resolved in closed form. An index is allowed only through the explicitly named `index` chart (`"index:5"`, a string), for diagnostics and tests.
+// The rule is enforced for the nodes of the consolidated system; a node not yet converted (its parameters still a level index) is NOT in `strict_nodes` and is checked as it always was, so the list
+// shrinks to nothing as the nodes are converted (pipelines/src/*_steps.cpp).
+bool strict_quantity_node(const std::string& node) {
+  static const std::set<std::string> exact = {"apply_kernel", "reduce", "reduce.members", "roll_up", "estimate", "summarize", "field.form"};
+  return exact.count(node) != 0 || node.rfind("select.", 0) == 0;
+}
+void refuse_bare_index(const std::string& label, const std::string& node, const Json& params) {
+  static const std::set<std::string> names = {"level", "levels", "space_level", "space_levels", "time_level", "frame_level", "reference_level", "depth", "atlas_depth", "lc_levels"};
+  if (!params.is_object() || !strict_quantity_node(node)) return;
+  for (const auto& [k, v] : params.items()) {
+    if (!names.count(k)) continue;
+    const bool bare = v.is_number() || (v.is_array() && !v.empty() && std::all_of(v.begin(), v.end(), [](const Json& e) { return e.is_number(); }));
+    if (bare)
+      throw TypeRefusal(label + ": parameter `" + k + "` is the bare number " + v.dump() + ". A level or depth is never a parameter: state the quantity it comes from (a tile diameter \"20 mm\", a band \"8-12 Hz\", a duration "
+                        "\"2 s\", a wavelength, parts per hemisphere) and the level is resolved from it; the explicit index chart (\"index:5\") is for diagnostics and tests only.");
+  }
+}
+
 // ───────────────────────────────────────────── type_use ─────────────────────────────────────────────
 
 Types type_use(const std::string& node, const Signature& sg, const TypeUse& use, const Json& params) {
@@ -253,6 +274,8 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
   u.out_names = use.out_names;
   u.made_by = use.made_by;
   u.first_out = sg.outputs.empty() || !use.out_names.count(sg.outputs[0].first) ? std::string() : use.out_names.at(sg.outputs[0].first);
+
+  refuse_bare_index(use.label, node, params);
 
   // 1. THE INPUTS: class, value, linearity, quantity, gauge record, then the domain by unification
   for (const auto& [port, pat] : sg.inputs) {
@@ -282,6 +305,15 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
       std::string want;
       for (const auto& q : pat.quantity_in) want += (want.empty() ? "" : " or ") + q;
       u.fail(port, "is " + (t.quantity.empty() ? std::string("of no declared quantity") : t.quantity) + "; this node reads " + want + "." + hint);
+    }
+    // AWAITS ITS OPERATOR (rule 32; the surrogates spec section 5): a value made unmixed (its facts name `awaits_operator`: what the operator is of) is read only by the node that composes the awaited
+    // operator (a port `pre_operator` wired with an operator of that name), never by another node: it would be used as if it were mixed.
+    if (t.cls == PortClass::field && t.facts.is_object() && t.facts.contains("awaits_operator")) {
+      const auto po = use.in.find("pre_operator");
+      const bool composes = po != use.in.end() && po->second.facts.is_object() && po->second.facts.value("operator_of", Json()) == t.facts["awaits_operator"].value("of", Json());
+      if (!composes)
+        u.fail(port, "awaits its linear operator (" + t.facts["awaits_operator"].dump() + "): an unmixed surrogate is read only by the node that composes the operator (a `pre_operator` of that name, e.g. apply_kernel's); "
+                     "give it as `pre_operator`." + hint);
     }
     if ((t.cls == PortClass::field || t.cls == PortClass::operator_) && t.spin != 0 && t.gauge.empty())
       u.fail(port, "is a tangent value (spin " + std::to_string(t.spin) + ") that records no gauge; recompute it with a gauge record (G5).");
@@ -413,6 +445,13 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
       const PortType& x = use.in.at("x");
       if (x.cls == PortClass::measurement || x.cls == PortClass::field) o.of = OfType{x.quantity, x.res, x.domain};
     }
+    // A STATISTIC IS NEVER OF A SELECTION'S MEMBERS (spec section 6.1): values on members(P) are a MEASUREMENT (the one table `selection_measurement`); a statistic's axes are not members (channels x frequency,
+    // a covariance, a histogram's bins, the summaries across members), and its partition is PROVENANCE only.
+    if (o.cls == PortClass::statistic)
+      for (const ManifoldRef& f : o.domain.factors)
+        if (f && f->form == Manifold::Form::members)
+          throw TypeRefusal(u.label + (u.first_out.empty() ? "" : " -> " + u.first_out) + ": the output `" + port + "` of " + node + " is a statistic whose axes include " + print(f) +
+                            ", the members of a selection. A value over a selection's members is a measurement: declare it `kind: measurement` (a statistic's axes are not members; its partition is where it was computed from).");
     if (!is_quantity(o.quantity))
       throw TypeRefusal(u.label + ": the output `" + port + "` of " + node + " has the quantity '" + o.quantity + "', which is not in the closed vocabulary (docs/reference.md)");
   }
