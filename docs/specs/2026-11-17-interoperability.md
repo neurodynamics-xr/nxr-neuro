@@ -414,7 +414,7 @@ r = nxrneuro.compute('psd', sub, 'rest', 'all', true);
 | 4 | TSV and JSON sidecar writer; `export measurements` gains its sidecar; statistics as long-form TSV | 1 | **now** |
 | 5 | FIF tag layer (directory, tags, blocks; read and write) and the raw reader, MNE goldens | 1 | **raw reader and tag reading built** (`io/formats/include/nxr/formats/fif.h`); tag writing with step 8 |
 | 6 | EDF/BDF, BrainVision, EEGLAB pure recording readers, MNE goldens (three small PRs, in parallel) | 1 | **now** |
-| 7 | BIDS pure layer: entities, sidecar inheritance, TSV tables, MNE-BIDS goldens | 1, 4 | **now** |
+| 7 | BIDS pure layer: entities, sidecar inheritance, TSV tables, MNE-BIDS goldens | 1, 4 | **built** (`io/formats/include/nxr/formats/bids.h`) |
 | 8 | FIF objects (source spaces, transforms, cov, fwd, inv) and `.stc`: read and write, MNE goldens | 5 | after 5 |
 | 9 | Importers writing packages: FIF raw, EDF/BDF, BrainVision, EEGLAB, with `origin` records; `import <format>` verbs | 5, 6; the package pipelines (open PR) and the `io/convert/` template importers landing | after those |
 | 10 | GIFTI exporter of cortical maps and surfaces; `export gifti` | 3, the package pipelines | after those |
