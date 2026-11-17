@@ -422,7 +422,7 @@ r = nxrneuro.compute('psd', sub, 'rest', 'all', true);
 | 1 | `io/formats/` scaffolding: `ByteSource`/`ByteSink` (file, memory), endian helpers, `RecordingHeader`/`RecordingReader`, the `nxr_io_formats` target, the layering rule; `BstReader` made a `RecordingReader` | — | **now** |
 | 2 | NIfTI-1/2 pure reader and writer (vendored public-domain headers), nibabel goldens | 1 | **now** |
 | 3 | GIFTI pure reader and writer with pugixml (new dependency: the maintainers' OK, notices), nibabel goldens | 1 | **now** |
-| 4 | TSV and JSON sidecar writer; `export measurements` gains its sidecar; statistics as long-form TSV | 1 | **now** |
+| 4 | TSV and JSON sidecar writer; `export measurements` gains its sidecar; statistics as long-form TSV | 1 | **built as `export tsv`** (`io/export/tsv.cpp`: measurements of a partition's members and statistics in long form, with the BIDS sidecar); the sidecar of the dataset-wide `export measurements` to follow |
 | 5 | FIF tag layer (directory, tags, blocks; read and write) and the raw reader, MNE goldens | 1 | **built**: raw reader and tag reading (`io/formats/include/nxr/formats/fif.h`); tag writing (`fif_write.h`) |
 | 6 | EDF/BDF, BrainVision, EEGLAB pure recording readers, MNE goldens (three small PRs, in parallel) | 1 | **now** |
 | 7 | BIDS pure layer: entities, sidecar inheritance, TSV tables, MNE-BIDS goldens | 1, 4 | **built** (`io/formats/include/nxr/formats/bids.h`) |

@@ -53,8 +53,11 @@ Json input_digest(const task::Subject& subject, const task::Node& node);
 Json provenance(const nxr::io::SubjectPackage& package, const task::Subject& subject, const Context& ctx, const std::vector<task::Node>& inputs, const Json& span,
                 const Json& extra = Json::object());
 
-// The files an export wrote: each is recorded in the sidecar with its SHA-256, then the sidecar is written next to the FIRST file as `<file>.json`; returns that path.
-std::string write_sidecar(const std::string& first_file, Json provenance, const std::vector<std::string>& files);
+// The files an export wrote: each is recorded in the sidecar with its SHA-256, then the sidecar is written next to the FIRST file as `<file>.json` (or at `sidecar_path`); returns that path.
+std::string write_sidecar(const std::string& first_file, Json provenance, const std::vector<std::string>& files, const std::string& sidecar_path = "");
+
+// Writes a JSON document as the sidecar writers do (indent 2, a final newline).
+void write_json(const std::string& path, const Json& j);
 
 std::string file_sha256(const std::string& path);
 

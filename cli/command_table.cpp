@@ -1035,6 +1035,14 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --all@export gifti		The whole series, every frame (the recording is still read one chunk at a time).	off	-
 --with-surface		Also write the surface itself (export gifti).	off	-
 --hemispheres		Write one file per hemisphere (export gifti).	off	-
+--package@export tsv	PATH	The folder of the subject package whose measurements or statistic are exported; it is only read.	required	-
+--out@export tsv	STEM	The path stem the table and its sidecar are written under (its folder must exist): <STEM>.tsv and the BIDS sidecar <STEM>.json, whose GeneratedBy holds the provenance.	required	-
+--statistic@export tsv	NAME	The stored statistic to write as a long-form table (one row per value, a column per axis, `component` when it has components). Not with --partition.	none (give this or --partition)	-
+--partition@export tsv	NAME	The labelling (partition) whose members are the rows of a measurements table; needs --field and --measures.	none (give this or --statistic)	-
+--field@export tsv	NAME	The Field the measurements are of, by name (with --partition).	none (required with --partition)	-
+--measures@export tsv	NAME,...	The measures to write, one column each: stored ones as stored, derived ones (variance, sd, ...) from their ingredients and named derived in the sidecar (with --partition).	none (required with --partition)	-
+--partition	NAME	The labelling whose members are the rows of an exported measurements table (export tsv).	none	-
+--statistic	NAME	A stored statistic to export (export tsv).	none	-
 --surface-unit	m|mm	The unit the surface's coordinates are written in (export gifti).	as stored	-
 )TBL",
 R"TBL(@ create dataset
@@ -1290,6 +1298,12 @@ old: __export gifti
 alias: no
 summary: Write a cortical Field (a map, or a series over a stated time range) or a labelling as GIFTI (.func.gii, .shape.gii, .label.gii), with the surface on request and a provenance sidecar.
 opts: --all --field --from --hemispheres --kind --labelling --out* --package* --surface-unit --to --with-surface
+)TBL",
+R"TBL(@ export tsv
+old: __export tsv
+alias: no
+summary: Write stored measurements (a row per member of a partition, a column per measure) or a statistic (long form) as a BIDS-style TSV with a JSON sidecar of units, levels and provenance.
+opts: --field --measures --out* --package* --partition --statistic
 )TBL",
 R"TBL(@ import condition
 old: convert convert
