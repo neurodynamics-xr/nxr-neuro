@@ -189,7 +189,7 @@ void measure_rule(Unified& u, const Signature& sg) {
       const bool streamed_partitioned = x.domain.streamed() && at + pf.size() == xf.size();
       if (streamed_partitioned && u.chunk_node) u.fail(over_port, "the partition `" + id + "` is of the streamed factor; a measure over it needs an accumulate node (a chunk node keeps the stream)");
       dom.assign(xf.begin(), xf.begin() + static_cast<std::ptrdiff_t>(at));
-      dom.push_back(members(id, pf.back(), streamed_partitioned ? Role::time_tiles : Role::none, pf.size() > 1 ? "joint" : ""));
+      dom.push_back(members(id, pf.back(), streamed_partitioned ? Role::time_tiles : Role::none, pf.size() > 1 ? "joint" : "", P.sel && !P.sel->partition));   // an irregular selection's members are marked: nothing rolls up through them
       dom.insert(dom.end(), xf.begin() + static_cast<std::ptrdiff_t>(at + pf.size()), xf.end());
     }
   }

@@ -98,7 +98,7 @@ std::vector<std::uint8_t> medial_wall(SubjectWriter& sub, const SurfaceInput& s)
   const auto un = dk && !is_null(*dk, "dictionary_id") ? nxr::io::selection::lookup_code_of_any(sub.db(), text(*dk, "dictionary_id"), {"unassigned", "unknown"}) : std::nullopt;
   if (!dk || !un)
     throw Error(code::no_such_row, sub.name() + ": " + s.name + " carries no Desikan-Killiany atlas with its medial wall (" + s.name + "_atlases/Desikan-Killiany, its 'unassigned' code); the hemispheres are glued by anatomy only");
-  const std::vector<std::int64_t> codes = read_as<std::int64_t>(sub.store(), text(*dk, "array_path"));
+  const std::vector<std::int64_t> codes = nxr::io::selection::read_element_members(sub.db(), sub.store(), text(*dk, "id")).element_labels();   // the arrays hold member numbers; the wall is a label
   if (static_cast<std::int64_t>(codes.size()) != s.n_vertices())
     throw Error(code::invalid_argument, s.name + ": its Desikan-Killiany atlas has " + std::to_string(codes.size()) + " values for " + std::to_string(s.n_vertices()) + " vertices");
   const std::int64_t wall = *un;

@@ -29,7 +29,8 @@
 // tiles are empty members: the closed form needs every code). To build an irregular set from labels per element (an atlas whose elements carry 1035, 2035),
 // `from_labels` maps the labels to member numbers once; nothing after that reads a label as a number. A selection that is not a set: one member, number 0.
 //
-// PRODUCTS (the Studio's D100 `productSelection`): a set whose FACTORS are GRIDS, each on its own manifold, on their product manifold. Its member code is MIXED
+// PRODUCTS (the Studio's D100 `productSelection`): a set whose FACTORS are sets, each on its own manifold, on their product manifold (D100's own example: the
+// regions of an atlas x the windows of a time level, so a factor may be an irregular set, a measurement layout; roll-ups run only along GRID factors). Its member code is MIXED
 // RADIX, the FIRST factor fastest: code = c0 + n0 (c1 + n1 (c2 + ..)) (`product_code`, `product_codes`); the radices are fixed when it is made. Its label is the
 // tuple of the factors' labels, each read with its own factor's lookup (a product carries no lookup of its own). A box on a product manifold is a `span` with one
 // extent per factor, not a product. The JOINT partition (the Studio's D129) is a product whose first (time) factor's radix is rounded up to a power of two, so a
@@ -55,6 +56,11 @@ namespace nxr::selection {
 enum class Type { point, span, distance, indices, set };
 const char* type_name(Type t);
 
+/** a SET'S FAMILY, recorded with it (Rheome's registry: partition / subset): a GRID partitions the manifold before data (closed-form hierarchy, roll-ups); an
+ *  IRREGULAR set partitions the field (no levels, no roll-ups). The makers set it; a roll-up over an irregular set is refused (the checker, `rollup_refusal`). */
+enum class Family { irregular, grid };
+const char* family_name(Family f);
+
 /** a span's bounds on one axis, in that axis's coordinates (on a product manifold an axis is a factor, by ordinal) */
 struct Extent { int axis = 0; double start = 0, stop = 0; };
 /** an IRREGULAR member's description on one axis: its CENTRE and its EXTENT (a duration, a width), in the axis's coordinates; its bounds are derived,
@@ -79,6 +85,7 @@ struct Grid {
 
 struct Selection {
   Type type = Type::set;
+  Family family = Family::irregular;       // a set: GRID or IRREGULAR (set by the makers: tiled, elements_grid, dyadic_grid, product of grids, a ladder; the rest irregular)
   std::optional<std::int64_t> code;        // its label among its siblings (read with its set's lookup)
   std::string unit;                         // a span's or a tiling's coordinates · a distance's radius · a set per element on a surface: the positions'
 
@@ -134,10 +141,10 @@ Selection from_labels(const std::vector<std::int32_t>& element_labels, Lookup lo
 /** a dyadic GRID from the tile code of every element at level `depth` (h 2^depth + t; -1: none) and its levels' descriptions (label and band, coarsest first:
  *  level l at position l; empty: a single level). std::invalid_argument for a code outside 0 .. (slots << depth) - 1 or levels that are not 0 .. depth. */
 Selection dyadic_grid(std::vector<std::int32_t> codes, int depth, std::int64_t slots, std::vector<Selection> levels = {});
-/** the PRODUCT of two or more GRIDS, each on its own manifold (time x cortex, time x channels, time x cortex x eigenvalue band): the Studio's D100
- *  `productSelection`. Its members are every combination of the factors' members, coded mixed radix with the FIRST factor fastest. A factor that is itself a
- *  product is flattened into this one. std::invalid_argument for fewer than two factors, a factor that is not a grid (an irregular set, a listed member, a single
- *  span: `grid_refusal` says why and what to use), a grid with levels (name one: level(set, k), or the level a band sets: grid.h), or a code space too large. */
+/** the PRODUCT of two or more SETS, each on its own manifold (time x cortex, time x channels, atlas x time windows, time x cortex x eigenvalue band): the Studio's
+ *  D100 `productSelection`. Its members are every combination of the factors' members, coded mixed radix with the FIRST factor fastest. A factor that is itself a
+ *  product is flattened into this one. The product is a GRID (family grid) when every factor is, else IRREGULAR. std::invalid_argument for fewer than two factors, a
+ *  factor that is not a set (`factor_refusal` says why), a grid with levels (name one: level(set, k), or the level a band sets: grid.h), or a code space too large. */
 Selection product(std::vector<Selection> factors);
 /** the JOINT partition (the Studio's D129): product(factors) with the FIRST factor (time: the frames) given a radix of 2^bits, bits = ceil(log2(its count)), so a
  *  code is (rest << bits) | frame and the array layout is [.. x tile x frame]. The codes from count(frames) to 2^bits - 1 are empty members. */
@@ -148,10 +155,20 @@ Selection joint(std::vector<Selection> factors);
  *  grid its size, a product the product of its radices; a ladder of tilings: its levels; a dyadic grid with levels: its tiles at its depth); 1 for a selection
  *  that is not a set. */
 std::int64_t count(const Selection& set);
-/** is it a GRID (a partition of the manifold by a rule: a disjoint tiling, an elements grid, a dyadic grid or one of its levels, a product of grids)? */
+/** is it a GRID (a set whose family is grid: a disjoint tiling, an elements grid, a dyadic grid or one of its levels, a ladder, a product of grids)? */
 bool is_grid(const Selection& s);
-/** why `s` cannot be a factor of a product (a sentence naming what to use instead), or nothing when it can */
-std::optional<std::string> grid_refusal(const Selection& s);
+/** why `s` cannot be a factor of a product (Studio D100: a factor is a set; a grid with levels names one level), or nothing when it can. An irregular set may be a
+ *  factor (a measurement layout); it just does not roll up. */
+std::optional<std::string> factor_refusal(const Selection& s);
+/** why a LEVEL ROLL-UP (coarser by a shift) of `s` is refused, or nothing: only a grid rolls up. For a product, `factor` names the factor rolled (the first
+ *  factor is 0; -1: the whole product, every factor a grid). */
+std::optional<std::string> rollup_refusal(const Selection& s, int factor = -1);
+/** the code of the member that holds product member `code` once factor `factor` is rolled up by `shift` (its member number >> shift, the others unchanged),
+ *  repacked with the coarser radices (`rolled_radices`); std::invalid_argument when that factor is not a grid whose members roll up by shifts (a dyadic grid,
+ *  a dyadic time tiling), or the code is outside the product. */
+std::int64_t coarser_code(const Selection& product, std::int64_t code, int factor, int shift);
+/** the product's radices with factor `factor` rolled up by `shift`: ceil(radix / 2^shift) */
+std::vector<std::int64_t> rolled_radices(const Selection& product, int factor, int shift);
 /** does the set have LEVELS (members that are levels: a constant-Q ladder's tilings, a dyadic grid's levels)? */
 bool has_levels(const Selection& s);
 /** a grid with levels: the level labelled `k` (its power of two) as a grid of its own, the grammar's `level(k)`: a ladder of tilings gives that level's tiling; a

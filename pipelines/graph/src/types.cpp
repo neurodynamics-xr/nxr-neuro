@@ -117,8 +117,8 @@ ManifoldRef members(const std::string& partition) {
   Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = Role::time_tiles;
   return make_ref(std::move(m));
 }
-ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role, const std::string& label) {
-  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = role; m.of = of; m.label = label;
+ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role, const std::string& label, bool irregular) {
+  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = role; m.of = of; m.label = label; m.irregular = irregular;
   return make_ref(std::move(m));
 }
 ManifoldRef members_of_port(const std::string& port) { return members("$" + port); }

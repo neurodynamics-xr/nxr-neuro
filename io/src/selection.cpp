@@ -113,8 +113,14 @@ Resolution Selection::resolve(const std::optional<std::string>& on_id) const {
       std::int64_t lo, hi;
       const records::GeometryDimensionRow* d = static_cast<std::size_t>(e.axis) < dims.size() ? &dims[static_cast<std::size_t>(e.axis)] : nullptr;
       if (d && d->spacing) {
-        lo = std::max<std::int64_t>(0, std::llround((e.start - d->origin.value_or(0.0)) / *d->spacing));
-        hi = std::min<std::int64_t>(d->n_vertices, std::llround((e.stop - d->origin.value_or(0.0)) / *d->spacing));
+        // a CALLER-STATED extent (rule 7, as compute's resolve): the sample nearest its centre is always held, the extent rounds OUTWARD (start down, stop up), never empty
+        constexpr double kTolerance = 1e-9;                                // a corner within this many samples of a sample is on it
+        const double pa = (e.start - d->origin.value_or(0.0)) / *d->spacing, pb = (e.stop - d->origin.value_or(0.0)) / *d->spacing;
+        const std::int64_t c = std::llround((pa + pb) / 2);
+        lo = std::min(static_cast<std::int64_t>(std::floor(pa + kTolerance)), c);
+        hi = std::max(static_cast<std::int64_t>(std::ceil(pb - kTolerance)), c + 1);
+        lo = std::max<std::int64_t>(0, lo);
+        hi = std::min<std::int64_t>(d->n_vertices, hi);
       } else {
         if (e.start != std::floor(e.start) || e.stop != std::floor(e.stop))
           refuse("selection " + row_.name + ": axis " + std::to_string(e.axis) + " of '" + rec->row.name + "' has no closed form, so its extent is element indices (whole numbers)");

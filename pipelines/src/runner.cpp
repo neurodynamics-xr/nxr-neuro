@@ -912,7 +912,13 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         constants[name] = std::move(a);
       } else if (v.cls == "selection" && !nxr::io::is_null(row, "array_path")) {   // a partition or a pick: its codes, its member count and parameters
         nxr::graph::Array a;
-        for (const std::int32_t c : bound.array_int32(text(row, "array_path"))) a.data.push_back(c);
+        if (text(row, "type") == "set") {                                // a set per element: its member NUMBERS, and each member's label beside them (never the raw array as labels)
+          const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub.db(), sub.writer().store(), text(row, "id"));
+          for (const std::int32_t c : em.member_of) a.data.push_back(c);
+          a.meta["member_codes"] = em.member_codes;
+        } else {                                                           // a pick (indices): the element list as stored
+          for (const std::int32_t c : bound.array_int32(text(row, "array_path"))) a.data.push_back(c);
+        }
         a.rows = static_cast<std::int64_t>(a.data.size()); a.cols = 1;
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["type"] = text(row, "type");
         if (!nxr::io::is_null(row, "n_members")) a.meta["n_members"] = nxr::io::integer(row, "n_members");
