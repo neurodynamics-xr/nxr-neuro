@@ -76,6 +76,7 @@ add_library(nxr_compute STATIC
   src/covariant_laplacian.cpp
   src/query_measure.cpp
   src/geometry_grid.cpp
+  src/intrinsic_surface.cpp
   src/gauge.cpp
   src/topology.cpp
   src/geometry_bundle.cpp
@@ -170,6 +171,15 @@ set_source_files_properties(src/glue.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contra
 target_link_libraries(nxr_compute PUBLIC
   geometry-central
 )
+# The pinned geometry-central commit (7 hex), read from the submodule at configure time: nxr::manifold::geometryCentralVersion() and the gauge identity
+# (docs/specs/2026-11-17-geometry-central-switch.md section 7). "unknown" outside a git checkout (a source tarball).
+execute_process(COMMAND git -C ${CMAKE_CURRENT_SOURCE_DIR}/deps/geometry-central rev-parse --short=7 HEAD
+                OUTPUT_VARIABLE NXR_GC_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE NXR_GC_RC)
+if(NOT NXR_GC_RC EQUAL 0 OR NXR_GC_COMMIT STREQUAL "")
+  set(NXR_GC_COMMIT "unknown")
+endif()
+set_property(SOURCE src/intrinsic_surface.cpp APPEND PROPERTY COMPILE_DEFINITIONS NXR_GEOMETRY_CENTRAL_COMMIT="${NXR_GC_COMMIT}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../.gitmodules)
 # std::thread (parallel.cpp): the platform's own threads, not a library dependency
 if(NOT EMSCRIPTEN)
   find_package(Threads REQUIRED)
@@ -250,6 +260,12 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     add_executable(test_normalize test/test_normalize.cpp)
     target_link_libraries(test_normalize PRIVATE nxr_compute)
     add_test(NAME test_normalize COMMAND test_normalize)
+
+    # the analytic tests of the geometry-central switch (docs/specs/2026-11-17-geometry-central-switch.md, section 4) and the version pin
+    add_executable(test_intrinsic_surface test/test_intrinsic_surface.cpp)
+    target_link_libraries(test_intrinsic_surface PRIVATE nxr_compute)
+    target_compile_definitions(test_intrinsic_surface PRIVATE NXR_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
+    add_test(NAME test_intrinsic_surface COMMAND test_intrinsic_surface)
 
     add_executable(test_delaunay test/test_delaunay.cpp)
     target_link_libraries(test_delaunay PRIVATE nxr_compute)

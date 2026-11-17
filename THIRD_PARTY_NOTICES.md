@@ -7,7 +7,7 @@ licence texts are in the source trees named below or at the project URLs. Versio
 |---|---|---|---|---|
 | Eigen | 3.4.0 (SHA256 pinned in `cmake/eigen.cmake`) | fetched at configure time (a system Eigen can be named) | MPL-2.0 | the Eigen authors, https://eigen.tuxfamily.org |
 | Spectra | v1.2.0 | fetched (`compute/CMakeLists.txt`) | MPL-2.0 | Yixuan Qiu and the Spectra contributors, https://github.com/yixuan/spectra |
-| geometry-central | git submodule `compute/deps/geometry-central` | submodule | MIT | Copyright (c) 2017-2019 Nicholas Sharp and the geometry-central contributors |
+| geometry-central | git submodule `compute/deps/geometry-central` | submodule, pinned at commit `8579865362abd2185ef97d7ef0dae09338ab8ff1` (`v1.0.0-19-g8579865`, 2025-10-13) | MIT | Copyright (c) 2017-2019 Nicholas Sharp and the geometry-central contributors |
 | pocketfft (C++ header-only) | commit `4d865cba24359b05b37da4e75aee24498c3b78e7` | vendored, `compute/deps/pocketfft/` (licence: `LICENSE.md` there) | BSD-3-Clause | Copyright (C) 2010-2018 Max-Planck-Society |
 | nlohmann/json | 3.11.3 | vendored, `io/extern/nlohmann/json.hpp` | MIT | Copyright (c) 2013-2023 Niels Lohmann |
 | rapidyaml (ryml, single header) | 0.15.2 | vendored, `io/extern/ryml/` (licence: `LICENSE.txt` there) | MIT | Copyright (c) 2018, Joao Paulo Magalhaes |
