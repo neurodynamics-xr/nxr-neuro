@@ -47,6 +47,7 @@ SelectionSpec base(const Description& d, const Placement& at, const char* type, 
   SelectionSpec s;
   s.name = at.name; s.path = at.path; s.type = type; s.manifold_id = at.manifold_id; s.id = at.id; s.created_utc = at.created_utc; s.acquisition = at.acquisition;
   s.cols = at.cols;
+  s.measurements = at.measurements;
   if (at.acquisition_id) s.cols.set("acquisition_id", *at.acquisition_id);
   s.cols.set("cell", at.cell.value_or(default_cell));
   if (at.of_field_id) s.cols.set("of_field_id", *at.of_field_id);
@@ -401,26 +402,6 @@ Saved save(SubjectWriter& sub, const Description& d, const Placement& at) {
   return out;
 }
 
-Saved save_element_labels(SubjectWriter& sub, const std::vector<std::int32_t>& labels, const Lookup& lookup, const Placement& at) {
-  if (!at.path) refuse("selection " + at.name + ": a label per element is stored as an array: give its path");
-  std::vector<std::int32_t> array = labels;   // kept alive until the node is written
-  Description d;
-  d.type = Type::set;
-  d.lookup = lookup;
-  if (d.lookup.empty()) {   // the labels are their own names
-    std::set<std::int32_t> seen;
-    for (const auto c : array) if (c >= 0) seen.insert(c);
-    for (const auto c : seen) d.lookup.push_back(Entry{c, std::to_string(c), std::nullopt});
-  }
-  Saved out;
-  SelectionSpec s = base(d, at, "set", "0");
-  s.data = view(array, {static_cast<std::int64_t>(array.size())});
-  dictionary_of(sub, d, at, s, out);
-  params_of(s, at.params);
-  out.id = sub.selection(std::move(s));
-  return out;
-}
-
 // ── read ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 namespace {
 
@@ -646,5 +627,141 @@ void update(SubjectWriter& sub, const std::string& id, const Description& d) {
 
 // ── delete ───────────────────────────────────────────────────────────────────────────────────────────────────────
 void remove(SubjectWriter& sub, const std::string& id) { sub.remove("selection", id); }
+
+// ── lookups of other layers ──────────────────────────────────────────────────────────────────────────────────────
+std::int64_t lookup_size(const Database& db, const std::string& dictionary_id) {
+  return integer(*db.one("SELECT COUNT(*) AS n FROM dictionary_entry WHERE dictionary_id = ?", {V(dictionary_id)}), "n");
+}
+
+std::optional<std::string> find_lookup(const Database& db, const std::string& scope, const std::string& name) {
+  const auto r = db.one("SELECT id FROM dictionary WHERE scope = ? AND name = ? ORDER BY id LIMIT 1", {V(scope), V(name)});
+  return r ? std::optional<std::string>(text(*r, "id")) : std::nullopt;
+}
+
+std::vector<records::DictionaryEntryRow> lookup_entries(const Database& db, const std::string& dictionary_id) {
+  std::vector<records::DictionaryEntryRow> out;
+  for (const Row& r : db.all("SELECT * FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(dictionary_id)})) out.push_back(records::DictionaryEntryRow::from_row(r));
+  return out;
+}
+
+bool lookup_in_use(const Database& db, const std::string& dictionary_id) { return db.one("SELECT 1 FROM selection WHERE dictionary_id = ? LIMIT 1", {V(dictionary_id)}).has_value(); }
+
+std::optional<records::SelectionRow> find_member(const Database& db, const std::string& parent_id, const std::string& name) {
+  const auto r = db.one("SELECT * FROM selection WHERE member_of_id = ? AND name = ?", {V(parent_id), V(name)});
+  return r ? std::optional<records::SelectionRow>(records::SelectionRow::from_row(*r)) : std::nullopt;
+}
+
+std::optional<records::SelectionRow> find_on_manifold_ending(const Database& db, const std::string& manifold_id, const std::string& suffix) {
+  std::string like = "%";
+  for (const char c : suffix) { if (c == '_' || c == '%' || c == '\\') like += '\\'; like += c; }
+  const auto r = db.one("SELECT * FROM selection WHERE manifold_id = ? AND name LIKE ? ESCAPE '\\' AND member_of_id IS NULL", {V(manifold_id), V(like)});
+  return r ? std::optional<records::SelectionRow>(records::SelectionRow::from_row(*r)) : std::nullopt;
+}
+
+std::optional<records::SelectionRow> find_of_field(const Database& db, const std::string& subject_id, const std::string& of_field_id, const std::string& name) {
+  const auto r = db.one("SELECT * FROM selection WHERE subject_id = ? AND of_field_id = ? AND name = ? AND status = 'complete'", {V(subject_id), V(of_field_id), V(name)});
+  return r ? std::optional<records::SelectionRow>(records::SelectionRow::from_row(*r)) : std::nullopt;
+}
+
+std::vector<std::string> complete_ids(const Database& db, const std::string& subject_id) {
+  std::vector<std::string> out;
+  for (const Row& r : db.all("SELECT id FROM selection WHERE subject_id = ? AND status = 'complete'", {V(subject_id)})) out.push_back(text(r, "id"));
+  return out;
+}
+
+void remove_all(Database& db, const std::string& subject_id) { db.execute("DELETE FROM selection WHERE subject_id = ?", {V(subject_id)}); }
+
+// ── the arrays and paths a selection names ───────────────────────────────────────────────────────────────────────
+std::vector<SubjectArray> array_paths_in_dataset(const Query& all) {
+  std::vector<SubjectArray> out;
+  for (const Row& r : all("SELECT s.path AS sp, s.name AS sn, r.array_path AS p FROM selection r JOIN subject s ON s.id = r.subject_id WHERE r.array_path IS NOT NULL"))
+    out.push_back({text(r, "sp"), text(r, "sn"), text(r, "p")});
+  return out;
+}
+
+std::vector<std::pair<std::string, std::string>> named_paths_of(const Database& db, const std::string& subject_id) {
+  std::vector<std::pair<std::string, std::string>> out;
+  for (const char* col : {"path", "array_path"})
+    for (const Row& r : db.all(std::string("SELECT id, ") + col + " AS p FROM selection WHERE subject_id = ?", {V(subject_id)}))
+      if (!is_null(r, "p")) out.emplace_back(text(r, "id"), text(r, "p"));
+  return out;
+}
+
+std::vector<std::pair<std::string, std::string>> params_naming_arrays(const Database& db, const std::string& subject_id) {
+  std::vector<std::pair<std::string, std::string>> out;
+  for (const Row& r : db.all("SELECT id, params_json AS j FROM selection WHERE subject_id = ? AND (params_json LIKE '%\"weights\"%' OR params_json LIKE '%\"atlas\"%')", {V(subject_id)}))
+    out.emplace_back(text(r, "id"), text(r, "j"));
+  return out;
+}
+
+// ── the rows as they travel ──────────────────────────────────────────────────────────────────────────────────────
+std::vector<Row> subject_rows(const Database& db, const std::string& subject_id) {
+  return db.all("SELECT * FROM selection WHERE subject_id = ? AND status = 'complete' ORDER BY path, name", {V(subject_id)});
+}
+
+std::vector<Row> subject_extent_rows(const Database& db, const std::string& subject_id) {
+  return db.all("SELECT e.* FROM selection_extent e JOIN selection s ON s.id = e.selection_id WHERE s.subject_id = ? ORDER BY e.selection_id, e.axis", {V(subject_id)});
+}
+
+std::vector<Row> subject_span_rows(const Database& db, const std::string& subject_id) {
+  return db.all("SELECT p.* FROM selection_span p JOIN selection s ON s.id = p.selection_id WHERE s.subject_id = ? ORDER BY p.selection_id, p.ordinal", {V(subject_id)});
+}
+
+namespace {
+std::string marks(std::size_t n) {
+  std::string s;
+  for (std::size_t i = 0; i < n; ++i) s += i ? ", ?" : "?";
+  return s;
+}
+std::vector<Value> values_of(const std::vector<std::string>& ids) { return std::vector<Value>(ids.begin(), ids.end()); }
+}  // namespace
+
+std::vector<Row> vocabulary_rows(const Database& db, const std::vector<std::string>& names, const std::string& dataset_id, const std::string& subject_id) {
+  if (names.empty()) return {};
+  std::vector<Value> a = values_of(names);
+  a.push_back(V(dataset_id));
+  a.push_back(V(subject_id));
+  return db.all("SELECT * FROM dictionary WHERE name IN (" + marks(names.size()) + ") AND (scope IN ('app', 'user') OR (scope = 'dataset' AND dataset_id = ?) OR (scope = 'subject' AND subject_id = ?))", a);
+}
+
+std::vector<Row> dictionary_rows(const Database& db, const std::vector<std::string>& ids) {
+  if (ids.empty()) return {};
+  return db.all("SELECT * FROM dictionary WHERE id IN (" + marks(ids.size()) + ")", values_of(ids));
+}
+
+std::vector<Row> dictionary_entry_rows(const Database& db, const std::vector<std::string>& ids) {
+  if (ids.empty()) return {};
+  return db.all("SELECT * FROM dictionary_entry WHERE dictionary_id IN (" + marks(ids.size()) + ") ORDER BY dictionary_id, code", values_of(ids));
+}
+
+std::vector<SharedLookup> shared_lookups(const Database& db) {
+  std::vector<SharedLookup> out;
+  const auto cols = db.all("SELECT name FROM pragma_table_info('dictionary_entry') WHERE name <> 'dictionary_id' ORDER BY cid");
+  std::string list;
+  for (const auto& c : cols) list += (list.empty() ? "" : ", ") + std::string("\"") + text(c, "name") + "\"";
+  for (const auto& d : db.all("SELECT id, scope, name FROM dictionary WHERE scope IN ('app', 'dataset') ORDER BY scope, name")) {
+    Json entries = Json::array();
+    for (const auto& e : db.all("SELECT " + list + " FROM dictionary_entry WHERE dictionary_id = ? ORDER BY code", {V(text(d, "id"))})) {
+      Json a = Json::array();
+      for (const auto& c : cols) {
+        const Value& v = e.at(text(c, "name"));
+        if (std::holds_alternative<std::monostate>(v)) a.push_back(nullptr);
+        else if (const auto* n = std::get_if<std::int64_t>(&v)) a.push_back(*n);
+        else if (const auto* x = std::get_if<double>(&v)) a.push_back(*x);
+        else a.push_back(std::get<std::string>(v));
+      }
+      entries.push_back(a);
+    }
+    out.push_back({text(d, "scope"), text(d, "name"), std::move(entries)});
+  }
+  return out;
+}
+
+std::vector<std::pair<std::string, std::string>> dictionary_keys(const Database& db) {
+  std::vector<std::pair<std::string, std::string>> out;
+  for (const Row& r : db.all("SELECT id, scope || '/' || name AS shared FROM dictionary WHERE scope IN ('app', 'dataset', 'user') UNION ALL SELECT id, NULL FROM dictionary WHERE scope = 'subject'"))
+    out.emplace_back(text(r, "id"), opt_text(r, "shared").value_or(""));
+  return out;
+}
 
 }  // namespace nxr::io::selection

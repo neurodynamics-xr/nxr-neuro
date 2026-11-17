@@ -6,6 +6,7 @@
 //   envelope_variance; nxr-neuro's phase_gradient_1/2, _magnitude, _direction_deg, travelling_index, phase_coherence): never written, computed at read
 //   from its ingredients rolled up first (a ratio of sums, never a sum of ratios).
 #pragma once
+#include <map>
 #include <optional>
 #include <string>
 #include <vector>
@@ -22,6 +23,9 @@ std::optional<Json> measure_spec(const std::string& name);
 bool measure_is_derived(const std::string& name);
 // How a measure's values combine: its reduction, `mean` when it names none.
 std::string measure_reduction(const std::string& name);
+
+// A derived measure's formula over its ingredients' values by name (NaN where undefined); throws Error(unsupported) for a name with none. The row-level reads in selection_measurement_rows.cpp apply it.
+double measure_formula(const std::string& name, const std::map<std::string, double>& ingredients);
 
 // The app-wide `measure` dictionary, seeded if absent and completed if it lacks a registry entry; returns its id (ensureMeasureDictionary).
 std::string ensure_measure_dictionary(Database& db, const std::optional<std::string>& by);

@@ -8,11 +8,13 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "nxr/io/database.h"
 #include "nxr/io/json_text.h"
 #include "nxr/io/records/rows.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/writer.h"
 
 namespace nxr::io::selection {
@@ -33,6 +35,25 @@ std::int64_t save_measurements(Database& db, const Json& rows, const std::option
 std::vector<records::SelectionMeasurementRow> measurements_of(const Database& db, const std::string& selection_id, bool own = true);
 /** what a selection's members carry: [{of_field_id, measure, members, min, max}] (measures.h) */
 Json measurement_kinds_of(const Database& db, const std::string& selection_id);
+
+/** which measurement rows of a selection a question is about; a member left unset does not restrict */
+struct MeasurementFilter {
+  std::optional<std::string> measure;
+  std::optional<std::string> of_field_id;
+  bool of_field_none = false;                       // only the members' own values (no field: a size, a count of streamlines)
+  bool whole_only = false;                          // only rows with no `within` partition
+};
+/** does the selection hold a measurement row of that kind? */
+bool has_measurement(const Database& db, const std::string& selection_id, const MeasurementFilter& filter);
+/** the selections that hold `measure` of the field, by id */
+std::vector<std::string> selections_measured(const Database& db, const std::string& of_field_id, const std::string& measure);
+
+/** the arrays measurements name: of one field, of a subject (as (selection id, path)), of a dataset */
+std::vector<std::string> measurement_array_paths_of_field(const Database& db, const std::string& of_field_id);
+std::vector<std::pair<std::string, std::string>> measurement_array_paths_of_subject(const Database& db, const std::string& subject_id);
+std::vector<SubjectArray> measurement_array_paths_in_dataset(const Query& all);
+/** the own rows (code null) of a subject's selections, as stored rows (the subject bundle) */
+std::vector<Row> subject_own_measurement_rows(const Database& db, const std::string& subject_id);
 
 /** replace a selection's OWN rows (code null); its members' rows are the measurement path's */
 void update_own_measurements(SubjectWriter& sub, const std::string& selection_id, const std::vector<Cols>& rows);

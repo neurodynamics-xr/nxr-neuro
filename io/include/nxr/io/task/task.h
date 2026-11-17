@@ -161,7 +161,9 @@ struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t cou
 struct SelectionOut {
   std::string name, output, type, manifold_id;     // type: partition · set · indices · spans · tiling · cells (a closed-form set: codes by a rule, no element stored)
   std::optional<std::string> path;                 // default: io's node path for the name on the manifold
-  std::vector<std::int64_t> codes;                 // partition, set: a code per element (-1: none) · indices: the elements picked, in order
+  std::vector<std::int64_t> codes;                 // indices: the elements picked, in order
+  std::vector<std::int32_t> member_of;             // partition, set: the member NUMBER of each element (dense 0 .. n - 1, -1: none), made from the labels by compute's `from_labels` (pipelines)
+  std::vector<std::int64_t> member_codes;          // partition, set: each member's LABEL, one per member (empty: member i is labelled i); `entries` name the labels
   std::vector<Span> spans;                         // spans: [start, stop) in the manifold's unit, each with its code
   std::optional<Tiling> tiling;                    // tiling
   std::optional<std::int64_t> n_members;           // cells: the number of cells

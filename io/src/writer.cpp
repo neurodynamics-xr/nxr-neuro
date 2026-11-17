@@ -1,3 +1,4 @@
+#include "nxr/io/selection_store.h"
 #include "nxr/io/writer.h"
 #include "nxr/io/statistic.h"
 
@@ -388,7 +389,7 @@ void remove_node(Database& db, Store& datastore, const std::string& table, const
   db.tx([&] {
     if (table == "subject") {
       // the SELECTIONS first: a dictionary in use is RESTRICT, and the cascade may reach the subject's own first
-      db.execute("DELETE FROM selection WHERE subject_id = ?", {id});
+      selection::remove_all(db, id);
     }
     delete_row(db, table, id);
   });

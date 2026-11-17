@@ -19,9 +19,11 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 #include "nxr/io/database.h"
+#include "nxr/io/json_text.h"
 #include "nxr/io/records/rows.h"
 #include "nxr/io/selection_description.h"
 #include "nxr/io/writer.h"
@@ -45,6 +47,7 @@ struct Placement {
   std::optional<std::int64_t> n_members;          // a set given by a rule with nothing stored (the joint cells of a product): how many members it has
   Json params;                                    // params_json (object; null: none); a tiling and the levels' windows are added by save
   std::vector<Json> level_params;                 // a ladder: what the design settled about each level, by position (stride, rate_hz, ...): merged into the level's record
+  std::vector<Cols> measurements;                 // its OWN measurement rows (array-backed or valued), written with the row (a joint set's per-field arrays)
   Cols cols;                                      // any further columns of the row
 };
 
@@ -69,12 +72,6 @@ struct Loaded {
  *  its code its power of two); a set per element with levels keeps them in params_json `levels`.
  *  A ladder's line (its manifold) must be a closed-form line: its sample rate and length give each level's window in samples. */
 Saved save(SubjectWriter& sub, const Description& description, const Placement& at);
-
-/** SAVE a LABEL per element as an array (-1: none) with its lookup (each label its entry; empty: the labels are their own names), under the dictionary of the
- *  labels, WITHOUT member numbers: the form the pipelines that read an array's values as tile or region codes (a ladder's leaf code, a labelling's code) still
- *  read, and the form an imported atlas has. `load` maps such an array to member numbers (ascending labels). The task API's partitions use it until those readers
- *  take member numbers and per-member labels; new code saves a set per element with `save`. */
-Saved save_element_labels(SubjectWriter& sub, const std::vector<std::int32_t>& labels, const Lookup& lookup, const Placement& at);
 
 // ── read ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** a stored selection (any status) as its description; Error(no_such_row) when there is none; a kernel is not a selection (Error(invalid_argument)). */
@@ -117,6 +114,56 @@ std::string save_lookup(SubjectWriter& sub, const std::string& name, const Looku
 Lookup load_lookup(const Database& db, const std::string& dictionary_id);
 /** replace a dictionary's entries (in the caller's update) */
 void update_lookup(SubjectWriter& sub, const std::string& dictionary_id, const Lookup& lookup);
+
+
+// ── lookups of other layers (a member by name, a lookup's size, the names a channel set carries) ──────────────────
+/** how many entries the dictionary has */
+std::int64_t lookup_size(const Database& db, const std::string& dictionary_id);
+/** the id of the dictionary of that scope (app, dataset, user) and name (the lowest id when several), or nothing */
+std::optional<std::string> find_lookup(const Database& db, const std::string& scope, const std::string& name);
+/** the entries of a dictionary as stored rows (all columns: measurement, attributes, ...), by ordinal then code */
+std::vector<records::DictionaryEntryRow> lookup_entries(const Database& db, const std::string& dictionary_id);
+/** is any selection reading with this dictionary? (a dictionary in use is kept) */
+bool lookup_in_use(const Database& db, const std::string& dictionary_id);
+/** the member selection of the set `parent_id` of that name, or nothing */
+std::optional<records::SelectionRow> find_member(const Database& db, const std::string& parent_id, const std::string& name);
+/** the top-level selection on the manifold whose name ends with `suffix` (a channel set's `_names`), or nothing */
+std::optional<records::SelectionRow> find_on_manifold_ending(const Database& db, const std::string& manifold_id, const std::string& suffix);
+/** the complete selection of that name over that field in the subject, or nothing */
+std::optional<records::SelectionRow> find_of_field(const Database& db, const std::string& subject_id, const std::string& of_field_id, const std::string& name);
+/** the ids of the subject's complete selections */
+std::vector<std::string> complete_ids(const Database& db, const std::string& subject_id);
+/** DELETE every selection of a subject (a subject's delete does this first: a dictionary in use is restricted) */
+void remove_all(Database& db, const std::string& subject_id);
+
+// ── the arrays and paths a selection names (stored-array lists, named paths, orphan checks) ────────────────────────
+/** a stored array of some subject of a dataset (a selection's, or a measurement's) */
+struct SubjectArray { std::string subject_path, subject_name, path; };
+/** how a dataset is asked a question when it may be open read-only (no Database): the rows an SQL text answers */
+using Query = std::function<std::vector<Row>(const std::string& sql)>;
+/** every array the selections of a dataset name (`array_path`) */
+std::vector<SubjectArray> array_paths_in_dataset(const Query& all);
+/** the (selection id, path) pairs a subject's selections name: their own `path`, their `array_path` */
+std::vector<std::pair<std::string, std::string>> named_paths_of(const Database& db, const std::string& subject_id);
+/** the (selection id, params_json) of a subject's selections whose parameters may name an array (`weights`, `atlas`) */
+std::vector<std::pair<std::string, std::string>> params_naming_arrays(const Database& db, const std::string& subject_id);
+
+// ── the rows as they travel (the subject bundle, the catalogue) ─────────────────────────────────────────────────
+/** the subject's complete selections, by path and name, as stored rows */
+std::vector<Row> subject_rows(const Database& db, const std::string& subject_id);
+/** the extent rows and the span-member rows of the subject's selections */
+std::vector<Row> subject_extent_rows(const Database& db, const std::string& subject_id);
+std::vector<Row> subject_span_rows(const Database& db, const std::string& subject_id);
+/** the vocabulary dictionaries of those names a subject sees (app, user, its dataset's, its own) */
+std::vector<Row> vocabulary_rows(const Database& db, const std::vector<std::string>& names, const std::string& dataset_id, const std::string& subject_id);
+/** dictionaries by id, and their entries by dictionary and code, as stored rows */
+std::vector<Row> dictionary_rows(const Database& db, const std::vector<std::string>& ids);
+std::vector<Row> dictionary_entry_rows(const Database& db, const std::vector<std::string>& ids);
+/** the shared dictionaries (scope app or dataset) with each entry as a JSON array of all its columns (dictionary_id left out), by scope and name */
+struct SharedLookup { std::string scope, name; Json entries; };
+std::vector<SharedLookup> shared_lookups(const Database& db);
+/** every dictionary's (id, shared key): `scope/name` for a shared one (app, dataset, user), empty for a subject's own */
+std::vector<std::pair<std::string, std::string>> dictionary_keys(const Database& db);
 
 // ── the rows (the writer's composition calls these; they take the database, never decide) ────────────────────────
 /** a selection row, its counts (`n_elements`, and `n_members` when given) and its detail rows in one go; the composition (pending/complete, arrays) is the writer's */

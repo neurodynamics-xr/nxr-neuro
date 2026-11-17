@@ -3,6 +3,8 @@
 
 #include "nxr/io/database.h"
 #include "nxr/io/dataset.h"
+#include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/writer.h"
 
@@ -96,15 +98,16 @@ std::vector<StoredArray> Dataset::stored_arrays() const {
   struct Named { const char* record; const char* sql; };
   static const Named named[] = {
       {"field", "SELECT s.path AS sp, s.name AS sn, r.path AS p FROM field r JOIN subject s ON s.id = r.subject_id WHERE r.path IS NOT NULL"},
-      {"selection", "SELECT s.path AS sp, s.name AS sn, r.array_path AS p FROM selection r JOIN subject s ON s.id = r.subject_id WHERE r.array_path IS NOT NULL"},
       {"operator", "SELECT s.path AS sp, s.name AS sn, r.path AS p FROM operator r JOIN subject s ON s.id = r.subject_id WHERE r.path IS NOT NULL"},
       {"geometry", "SELECT s.path AS sp, s.name AS sn, r.positions_path AS p FROM geometry r JOIN subject s ON s.id = r.subject_id WHERE r.positions_path IS NOT NULL"},
       {"topology_cell", "SELECT s.path AS sp, s.name AS sn, r.path AS p FROM topology_cell r JOIN topology t ON t.id = r.topology_id JOIN subject s ON s.id = t.subject_id WHERE r.path IS NOT NULL"},
-      {"selection_measurement", "SELECT s.path AS sp, s.name AS sn, r.array_path AS p FROM selection_measurement r JOIN selection x ON x.id = r.selection_id JOIN subject s ON s.id = x.subject_id WHERE r.array_path IS NOT NULL"},
   };
   std::vector<StoredArray> out;
   for (const auto& n : named)
     for (const Row& r : impl_->all(n.sql)) out.push_back(StoredArray{n.record, text(r, "sn"), text(r, "sp"), text(r, "p")});
+  // the selections' and their measurements' arrays are listed by the selection module
+  for (const auto& a : selection::array_paths_in_dataset([&](const std::string& sql) { return impl_->all(sql); })) out.push_back(StoredArray{"selection", a.subject_name, a.subject_path, a.path});
+  for (const auto& a : selection::measurement_array_paths_in_dataset([&](const std::string& sql) { return impl_->all(sql); })) out.push_back(StoredArray{"selection_measurement", a.subject_name, a.subject_path, a.path});
   return out;
 }
 

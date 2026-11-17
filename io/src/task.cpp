@@ -237,19 +237,16 @@ std::vector<Node> Subject::fields_on_axis(const std::string& factor_manifold_id,
 }
 
 std::int64_t Subject::entry_count(const std::string& dictionary_id) const {
-  return integer(*impl_->db->one("SELECT COUNT(*) AS n FROM dictionary_entry WHERE dictionary_id = ?", {V(dictionary_id)}), "n");
+  return selection::lookup_size(*impl_->db, dictionary_id);
 }
 
 std::vector<DictionaryLevel> Subject::dictionary_entries(const std::string& dictionary_id) const {
   std::vector<DictionaryLevel> out;
-  for (const auto& r : impl_->db->all("SELECT code, name, color_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(dictionary_id)})) {
+  for (const selection::Entry& x : selection::load_lookup(*impl_->db, dictionary_id)) {
     DictionaryLevel e;
-    e.code = integer(r, "code");
-    e.name = text(r, "name");
-    if (const auto c = opt_text(r, "color_json")) {
-      const Json j = Json::parse(*c, nullptr, false);
-      if (j.is_array() && j.size() >= 3 && j[0].is_number() && j[1].is_number() && j[2].is_number()) e.color = std::array<int, 3>{j[0].get<int>(), j[1].get<int>(), j[2].get<int>()};
-    }
+    e.code = x.code;
+    e.name = x.name;
+    e.color = x.color;
     out.push_back(std::move(e));
   }
   return out;
@@ -353,21 +350,20 @@ std::vector<Json> Subject::measured_kinds(const std::string& selection_id) const
 }
 
 std::vector<std::string> Subject::measured_selections(const std::string& of_field_id, const std::string& measure) const {
-  std::vector<std::string> out;
-  for (const Row& r : impl_->db->all("SELECT DISTINCT selection_id FROM selection_measurement WHERE of_field_id = ? AND measure = ? ORDER BY selection_id", {V(of_field_id), V(measure)}))
-    out.push_back(text(r, "selection_id"));
-  return out;
+  return selection::selections_measured(*impl_->db, of_field_id, measure);
 }
 
 bool Subject::has_measures(const std::string& selection_id, const std::string& of_field_id) const {
-  return impl_->db->one("SELECT 1 AS x FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? LIMIT 1", {V(selection_id), V(of_field_id)}).has_value();
+  selection::MeasurementFilter f;
+  f.of_field_id = of_field_id;
+  return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
 bool Subject::has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id) const {
-  std::string sql = "SELECT 1 AS x FROM selection_measurement WHERE selection_id = ? AND measure = ?";
-  std::vector<Value> args{V(selection_id), V(measure)};
-  if (of_field_id) { sql += " AND of_field_id = ?"; args.push_back(V(*of_field_id)); }
-  return impl_->db->one(sql + " LIMIT 1", args).has_value();
+  selection::MeasurementFilter f;
+  f.measure = measure;
+  f.of_field_id = of_field_id;
+  return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
 std::optional<Node> Subject::by_id_or_name(Cls cls, const std::string& key) const {
@@ -624,14 +620,14 @@ std::string Unit::selection(const SelectionOut& s) {
   // the result as the selection module's description, and where it goes; the module maps it onto the rows (selection_store.h)
   selection::Description d;
   selection::Placement at;
-  std::vector<std::int32_t> element_labels;           // a partition's label per element (stored as such: selection_store.h `save_element_labels`)
   at.name = s.name; at.path = path_of(s); at.manifold_id = s.manifold_id;
   if (s.acquisition) at.acquisition = *s.acquisition;
   Json params = s.params.is_null() ? Json::object() : s.params;
-  if (s.type == "partition" || s.type == "set") {     // a partition is a set per element: a label per element
-    if (s.codes.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a " + s.type + " has a code per element");
+  if (s.type == "partition" || s.type == "set") {     // a partition is a set per element: a member number per element, a label per member
+    if (s.member_of.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a " + s.type + " has a member number per element (member_of)");
     d.type = selection::Type::set;
-    element_labels.assign(s.codes.begin(), s.codes.end());
+    d.member_of = s.member_of;
+    d.member_codes = s.member_codes;
   } else if (s.type == "indices") {                  // a pick of elements, in order (the channels a covariance covers)
     d.type = selection::Type::indices;
     d.indices.assign(s.codes.begin(), s.codes.end());
@@ -669,7 +665,6 @@ std::string Unit::selection(const SelectionOut& s) {
   if (pj.contains("cache")) params["cache"] = pj["cache"];
   params["producer"] = pj;
   at.params = params;
-  if (!element_labels.empty()) return selection::save_element_labels(sub, element_labels, d.lookup, at).id;
   return selection::save(sub, d, at).id;
 }
 

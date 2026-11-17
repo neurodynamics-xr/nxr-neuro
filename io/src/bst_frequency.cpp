@@ -26,10 +26,9 @@ std::string frequency_folder() { return nxr::io::folder_for("line", "", std::str
 std::vector<BandEntry> band_entries(nxr::io::Database& db) {
   const std::string did = band_dictionary_id(db);
   std::vector<BandEntry> out;
-  for (const Row& e : db.all("SELECT * FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {did})) {
-    const Json a = Json::parse(nxr::io::opt_text(e, "attributes_json").value_or("{}"), nullptr, false);
-    if (a.is_object() && a.contains("lo_hz") && a.contains("hi_hz"))
-      out.push_back({nxr::io::integer(e, "code"), nxr::io::text(e, "name"), a["lo_hz"].get<double>(), a["hi_hz"].get<double>()});
+  for (const nxr::io::records::DictionaryEntryRow& e : nxr::io::selection::lookup_entries(db, did)) {
+    const Json& a = e.attributes_json;
+    if (a.is_object() && a.contains("lo_hz") && a.contains("hi_hz")) out.push_back({e.code, e.name, a["lo_hz"].get<double>(), a["hi_hz"].get<double>()});
   }
   return out;
 }

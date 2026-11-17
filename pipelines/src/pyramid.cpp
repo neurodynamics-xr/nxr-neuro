@@ -1,7 +1,9 @@
 // nxr-pipelines — the measurement pyramid build (pyramid.h).
 #include "nxr/pipelines/pyramid.h"
 #include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_store.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <limits>
@@ -49,13 +51,13 @@ template <class T> std::vector<T> read_vec(const nxr::io::Store& store, const st
 
 // the stored bank of `atlas bands` (nxr D158), or made: a spans Selection on the dataset's Frequency manifold, code = the band's index
 std::string bands_selection_impl(SubjectWriter& sub, const py::Bands& bands, bool check_only = false, DatasetWriter* dset = nullptr) {   // check_only: refuse what would be refused, write nothing (the run checks BEFORE it computes)
-  if (const auto have = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'atlas bands' AND type = 'spans' AND status = 'complete'", {V(sub.id())})) {
-    const auto rows = sub.db().all("SELECT start, stop, code FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*have, "id"))});
+  if (const auto have = nxr::io::selection::find_by_name(sub.db(), sub.id(), "atlas bands", std::string("spans"))) {
+    const auto rows = nxr::io::selection::spans_of(sub.db(), have->id);
     bool same = rows.size() == bands.size();
     for (std::size_t k = 0; same && k < rows.size(); ++k)
-      same = std::abs(std::stod(text(rows[k], "start")) - bands[k].first) < 1e-9 && std::abs(std::stod(text(rows[k], "stop")) - bands[k].second) < 1e-9 && integer(rows[k], "code") == static_cast<std::int64_t>(k);
+      same = std::abs(rows[k].start - bands[k].first) < 1e-9 && std::abs(rows[k].stop - bands[k].second) < 1e-9 && rows[k].code && *rows[k].code == static_cast<std::int64_t>(k);
     if (!same) invalid(sub.name() + ": the stored `atlas bands` are another bank than the one asked for; a band's code is its index in the bank, so the bank of a subject is one (name the stored bands, or rebuild with --replace after removing them)");
-    return text(*have, "id");
+    return have->id;
   }
   auto f = nxr::bst::find_frequency(sub.db());
   const bool is_template = text(sub.row(), "kind") == "template";
@@ -76,14 +78,15 @@ std::string bands_selection_impl(SubjectWriter& sub, const py::Bands& bands, boo
   sub.compose([&] {
     // a dictionary of the bank already here (a group package carries the members' copies as anchor rows) is the bank's when it is this bank
     std::string existing_dictionary;
-    if (const auto have = sub.db().one("SELECT id FROM dictionary WHERE scope = 'dataset' AND name = 'atlas bands' ORDER BY id LIMIT 1")) {
-      const auto entries = sub.db().all("SELECT code, attributes_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY code", {V(text(*have, "id"))});
+    if (const auto have = nxr::io::selection::find_lookup(sub.db(), "dataset", "atlas bands")) {
+      auto entries = nxr::io::selection::lookup_entries(sub.db(), *have);
+      std::sort(entries.begin(), entries.end(), [](const auto& x, const auto& y) { return x.code < y.code; });
       bool same = entries.size() == bands.size();
       for (std::size_t k = 0; same && k < entries.size(); ++k) {
-        const Json a = Json::parse(opt_text(entries[k], "attributes_json").value_or("{}"), nullptr, false);
-        same = integer(entries[k], "code") == static_cast<std::int64_t>(k) && a.is_object() && std::abs(a.value("low_hz", -1.0) - bands[k].first) < 1e-9 && std::abs(a.value("high_hz", -1.0) - bands[k].second) < 1e-9;
+        const Json& a = entries[k].attributes_json;
+        same = entries[k].code == static_cast<std::int64_t>(k) && a.is_object() && std::abs(a.value("low_hz", -1.0) - bands[k].first) < 1e-9 && std::abs(a.value("high_hz", -1.0) - bands[k].second) < 1e-9;
       }
-      if (same) existing_dictionary = text(*have, "id");   // (another bank: left to the dictionary's own rules, as before)
+      if (same) existing_dictionary = *have;   // (another bank: left to the dictionary's own rules, as before)
     }
     DictionarySpec ds;
     ds.name = "atlas bands"; ds.scope = "dataset";
@@ -97,13 +100,20 @@ std::string bands_selection_impl(SubjectWriter& sub, const py::Bands& bands, boo
       ds.entries->push_back(e);
     }
     const std::string dictionary_id = existing_dictionary.empty() ? sub.dictionary(ds).id : existing_dictionary;
-    SelectionSpec ss;
-    ss.name = "atlas bands"; ss.type = "spans"; ss.manifold_id = text(f->manifold, "id");
-    std::vector<SpanSpec> spans;
-    for (std::size_t k = 0; k < bands.size(); ++k) spans.push_back({bands[k].first, bands[k].second, static_cast<std::int64_t>(k)});
-    ss.spans = spans;
-    ss.cols.set("cell", "1").set("dictionary_id", dictionary_id).set("unit", "Hz").set("description", "the pyramid's frequency bands: a span [lo, hi) of the Frequency manifold each, code = the band's index");
-    id = sub.selection(std::move(ss));
+    nxr::io::selection::Description bank;
+    bank.type = nxr::io::selection::Type::set;
+    bank.unit = "Hz";
+    for (std::size_t k = 0; k < bands.size(); ++k) {
+      nxr::io::selection::Description band;
+      band.type = nxr::io::selection::Type::span;
+      band.code = static_cast<std::int64_t>(k);
+      band.extents.push_back(nxr::io::selection::Extent{0, bands[k].first, bands[k].second});
+      bank.members.push_back(std::move(band));
+    }
+    nxr::io::selection::Placement at;
+    at.name = "atlas bands"; at.manifold_id = text(f->manifold, "id"); at.cell = "1"; at.dictionary_id = dictionary_id;
+    at.description = "the pyramid's frequency bands: a span [lo, hi) of the Frequency manifold each, code = the band's index";
+    id = nxr::io::selection::save(sub, bank, at).id;
   });
   return id;
 }
@@ -415,20 +425,19 @@ PyramidBuildResult pyramid_build(DatasetWriter& ds, SubjectWriter& sub, const Py
       cnt.set("measure", "count").set("of_field_id", est_id).set("array_path", samples_path).set("computed_by", "nxr-neuro pyramid build");
       nxr::io::selection::save_measurement(sub, frames_id, cnt);
     }
-    SelectionSpec js;
-    js.name = joint_name; js.type = "set"; js.manifold_id = product; js.no_elements = true;
-    js.cols.set("cell", "0,1").set("of_field_id", est_id).set("n_members", static_cast<std::int64_t>(L) * n_frames)
-        .set("description", "the joint cells of " + part_name + " x the " + std::to_string(n_frames) + " frames: code = (tile << " + std::to_string(B) + ") | frame")
-        .json("params_json", Json{{"joint", Json{{"space", text(*part, "id")}, {"time", frames_id}, {"bits", B}, {"tiles", L}, {"frames", n_frames}, {"layout", Json::array({"band", "tile", "frame"})}}},
-                                  {"atlas", Json{{"tree", tree_kind}, {"frame", gauge}, {"node", tg}}}, {"cache", ckey.json()}});
-    if (const auto a = opt_text(*recrow, "acquisition_id")) js.cols.set("acquisition_id", *a);
+    nxr::io::selection::Placement js;
+    js.name = joint_name; js.manifold_id = product; js.cell = "0,1"; js.of_field_id = est_id; js.n_members = static_cast<std::int64_t>(L) * n_frames;
+    js.description = ("the joint cells of " + part_name + " x the " + std::to_string(n_frames) + " frames: code = (tile << " + std::to_string(B) + ") | frame");
+    js.params = Json{{"joint", Json{{"space", text(*part, "id")}, {"time", frames_id}, {"bits", B}, {"tiles", L}, {"frames", n_frames}, {"layout", Json::array({"band", "tile", "frame"})}}},
+                     {"atlas", Json{{"tree", tree_kind}, {"frame", gauge}, {"node", tg}}}, {"cache", ckey.json()}};
+    if (const auto a = opt_text(*recrow, "acquisition_id")) js.acquisition_id = *a;
     for (const Out& o : outs)
       for (std::size_t b = 0; b < NB; ++b) {
         Cols c;
         c.set("measure", o.measure).set("of_field_id", est_id).set("array_path", tg + "/" + o.rel).set("within_selection_id", bands_id).set("within_code", static_cast<std::int64_t>(b)).set("computed_by", "nxr-neuro pyramid build");
         js.measurements.push_back(c);
       }
-    joint_id = sub.selection(std::move(js));
+    joint_id = nxr::io::selection::save(sub, nxr::io::selection::Description{}, js).id;
   });
   res.info = Json{{"estimate", est_name}, {"estimate_id", est_id}, {"joint", joint_name}, {"joint_id", joint_id}, {"leaves", leaves}, {"depth", D}, {"tree", tree_kind}, {"bands", bands.size()}, {"frames", n_frames},
                   {"frames_in_span", frames_span}, {"shape", opt.shape}, {"orientation", is_free ? "free" : "constrained"}, {"arrays", array_names}, {"layout", Json::array({"band", "leaf", "frame"})}, {"bits", B},
@@ -465,12 +474,11 @@ std::string frame_sums_write(SubjectWriter& sub, const PyramidLeaves& PL, const 
   const std::int64_t L = PL.leaves, NF = fc.n_frames;
   const std::string surface_id = text(*PL.part, "manifold_id");
   const std::string product = sub.product({surface_id, fc.time_id}, acquisition_id);
-  SelectionSpec js;
-  js.name = joint_name; js.type = "set"; js.manifold_id = product; js.no_elements = true;
-  js.cols.set("cell", "0,1").set("n_members", L * NF).set("description", description)
-      .json("params_json", Json{{"joint", Json{{"space", text(*PL.part, "id")}, {"time", fc.frames_id}, {"bits", fc.bits}, {"tiles", L}, {"frames", NF}, {"layout", Json::array({"band", "tile", "frame"})}}},
-                                {"atlas", Json{{"tree", PL.tree}, {"frame", PL.record["atlas"].value("frame", Json(nullptr))}, {"node", PL.node}}}});
-  if (acquisition_id) js.cols.set("acquisition_id", *acquisition_id);
+  nxr::io::selection::Placement js;
+  js.name = joint_name; js.manifold_id = product; js.cell = "0,1"; js.n_members = L * NF; js.description = description;
+  js.params = Json{{"joint", Json{{"space", text(*PL.part, "id")}, {"time", fc.frames_id}, {"bits", fc.bits}, {"tiles", L}, {"frames", NF}, {"layout", Json::array({"band", "tile", "frame"})}}},
+                   {"atlas", Json{{"tree", PL.tree}, {"frame", PL.record["atlas"].value("frame", Json(nullptr))}, {"node", PL.node}}}};
+  if (acquisition_id) js.acquisition_id = *acquisition_id;
   for (const FrameSumsSeries& s : series) {
     if (static_cast<std::int64_t>(s.counts.size()) != frames_span) invalid("frame sums: the counts do not fit the span's frames");
     // the per-frame count of the series' steps, on the frame tiling, as the build stores its samples (a measurement row `count` of the Field)
@@ -494,7 +502,7 @@ std::string frame_sums_write(SubjectWriter& sub, const PyramidLeaves& PL, const 
       js.measurements.push_back(c);
     }
   }
-  return sub.selection(std::move(js));
+  return nxr::io::selection::save(sub, nxr::io::selection::Description{}, js).id;
 }
 
 SpatialBandsResult pyramid_spatial_bands(DatasetWriter& ds, SubjectWriter& sub, const SpatialBandsOptions& opt) {

@@ -9,6 +9,7 @@
 
 #include "nxr/bst/mat.h"
 #include "nxr/bst/maps.h"
+#include "nxr/io/selection_measurement.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/layout.h"
 #include "nxr/io/surface.h"
@@ -283,7 +284,7 @@ Json export_fibers(SubjectWriter& sub, const fs::path& fibers_file, const std::s
         if (r != c) C[{c, r}] += 1;
         if (r > 0 && c > 0) ++assigned;
       }
-      if (sub.db().one("SELECT 1 FROM selection_measurement WHERE selection_id = ? AND measure = 'streamlines' AND of_field_id IS NULL LIMIT 1", {nxr::io::V(selection_id)}))
+      if (nxr::io::selection::has_measurement(sub.db(), selection_id, nxr::io::selection::MeasurementFilter{std::string("streamlines"), std::nullopt, true, false}))
         value_error(pname + ": the " + fam + " atlas already holds Brainstorm's streamline counts of another fibres file");
       std::vector<RegionValue> rows;
       for (const auto& [rc, v] : C) rows.push_back(RegionValue{rc.first, v, rc.second});

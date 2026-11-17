@@ -11,6 +11,7 @@
 #include "nxr/compute.h"
 #include "nxr/glue.h"
 #include "nxr/io/hash.h"
+#include "nxr/io/selection_store.h"
 
 #ifndef NXR_COMPUTE_VERSION
 #define NXR_COMPUTE_VERSION "unknown"
@@ -342,15 +343,15 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
     sub.manifold(std::move(ms));
 
     const std::vector<std::int32_t>& support = kept;           // the input's vertices the solved surface keeps (all of them for one piece)
-    SelectionSpec ss;
+    nxr::io::selection::Description picked;
+    picked.type = nxr::io::selection::Type::indices;
+    picked.indices = support;
+    nxr::io::selection::Placement ss;
     ss.name = P.stem + "_support";
     ss.path = P.support;
-    ss.type = "indices";
     ss.manifold_id = in.id;
-    ss.data = view(support, {static_cast<std::int64_t>(support.size())});
-    ss.picked = true;
-    ss.cols.set("description", "the " + in.name + " vertices the glued Hodge–Dirac surface keeps (the medial cut is outside)");
-    const std::string sel_id = sub.selection(std::move(ss));
+    ss.description = "the " + in.name + " vertices the glued Hodge–Dirac surface keeps (the medial cut is outside)";
+    const std::string sel_id = nxr::io::selection::save(sub, picked, ss).id;
 
     // THE GLUED SURFACE (a cortex): the kept vertices (in support order), then the bridge's; and the bridge as a selection — stored as nxr's
     // store_package stores one, so nxr and `eigen solve` give the same layout
@@ -383,15 +384,15 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
       };
       target = sub.manifold(std::move(gm));
       for (std::int64_t i = static_cast<std::int64_t>(kept.size()); i < Vg; ++i) bridge.push_back(static_cast<std::int32_t>(i));
-      SelectionSpec bs;
+      nxr::io::selection::Description bridge_picks;
+      bridge_picks.type = nxr::io::selection::Type::indices;
+      bridge_picks.indices = bridge;
+      nxr::io::selection::Placement bs;
       bs.name = in.name + "_glued_bridge";
       bs.path = P.bridge;
-      bs.type = "indices";
       bs.manifold_id = target;
-      bs.data = view(bridge, {static_cast<std::int64_t>(bridge.size())});
-      bs.picked = true;
-      bs.cols.set("description", "the medial BRIDGE (not cortex): to mask it — no sources, a forward zero there");
-      sub.selection(std::move(bs));
+      bs.description = "the medial BRIDGE (not cortex): to mask it — no sources, a forward zero there";
+      nxr::io::selection::save(sub, bridge_picks, bs);
     }
 
     FieldSpec fs_;
