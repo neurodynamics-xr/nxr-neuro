@@ -8,13 +8,17 @@
 //        Jacobian per vertex (fitted on its 1-ring edges): the same anatomical direction in every subject.
 //   e2 = n x e1, WEST (the Studio's, the spec's and nxr's frames.py word). NOTE: nxr `coords.py` calls the same vector "EAST" (its header); it is the same vector, n x north.
 //   n  = the outward normal. Right-handed (e1, e2, n). NaN e1/e2 at SINGULAR vertices (the two poles and any vertex whose Jacobian has condition above maxCondition).
-// An angle from north is measured from e1 TOWARDS e2 (counter-clockwise seen from outside, as gaugeHeading's angle in the signpost basis).
+// An angle from north is measured from e1 TOWARDS e2 (counter-clockwise seen from outside, as gaugeHeading's angle in the gauge).
+// STORED, north / west is ONE ANGLE ARRAY RELATIVE TO THE GAUGE: `gaugeAngle(surface, e1)`, the angle of north in each vertex's gauge (geometry-central's vertex gauge of the input mesh, one gauge
+// for every tangent quantity; docs/specs/2026-11-17-geometry-central-switch.md section 6). A heading h in the gauge is read from north as h - gaugeAngle (wrapped); the normal the frames project
+// on is the surface's own `vertexNormals` (corner-angle weighted, geometry-central's), the one tangent plane of the gauge's basis too.
 //
-// ANATOMICAL FRAMES (). Anterior and the second axis as ONE rotation angle per vertex from north, a label and a mask:
+// ANATOMICAL PROJECTION (a REPORTING projection of a tangent vector, no longer a frame; was "anatomical frames"). Anterior and the second axis as ONE rotation angle per vertex from north, a label and a mask:
 //   * DEFAULT: the anatomical axes are defined ONCE on the TEMPLATE (its anterior direction projected on its tangent planes) and CARRIED to each subject through the sphere registration (the nearest
 //     template vertex on the registered spheres), as north / west are: the angle FROM NORTH is what is carried, because north means the same everywhere.
 //   * Stored in the subject's SCS (x towards the nasion = anterior, y towards the left ear, z up), never RAS; the template's own convention only enters in `Axes`, once.
-//   * OPTION (no registration): SCS-native axes, +x (anterior) and +z (superior) projected on the tangent plane. The record says which definition was used (`Anatomical::definition`).
+//   * OPTION (no registration): SCS-native axes, +x (anterior) and +z (superior) projected on the tangent plane and DOTTED WITH THE 3D VECTOR (`anatomicalProjection`, `anatomicalComponents(a, vectors)`):
+//     it needs no frame and no gauge. The record says which definition was used (`Anatomical::definition`).
 //   * SECOND AXIS has an ANATOMICAL sign, not a cross product: it points SUPERIOR where superior lies in the surface (lateral and medial cortex) and MEDIAL (towards the midline: -left on the left
 //     hemisphere, +left on the right) where medial lies in the surface (dorsal and ventral cortex). `second` says which (kSuperior | kMedial); `handed` is the sign of n x anterior it takes
 //     (+1 / -1), so the second axis is  handed * (n x anterior)  and the pair (anterior, second) is a FIXED ROTATION of (north, west) by `angle` (and a flip where handed = -1).
@@ -26,6 +30,7 @@
 #include <vector>
 
 #include "nxr/chart.h"
+#include "nxr/intrinsic_surface.h"
 
 namespace nxr::frames {
 
@@ -46,14 +51,17 @@ struct Canonical {
 Canonical canonicalFrames(const double* positions, int nV, const int32_t* faces, int nF, const double* normals, const double* sphere,
                           const Eigen::Vector3d& axis = Eigen::Vector3d(0, 0, 1), double maxCondition = 50.0);
 
-/** The area-weighted outward vertex normals [V x 3] (unit), the Studio's `tangentBasis` normals. */
+/** The surface's outward unit vertex normals [V x 3]: geometry-central's `vertexNormals` of the input geometry (corner-angle weighted), the one tangent plane of the gauge. */
+Mat3 vertexNormals(manifold::IntrinsicSurface& surface);
+/** The same formula from arrays (a convenience of the pipelines, which take the normals of their IntrinsicSurface once they hold one; no manifold check, a vertex in no face has a zero normal). */
 Mat3 vertexNormals(const double* positions, int nV, const int32_t* faces, int nF);
 
-/** The gauge angle of a direction per vertex: its angle in each vertex's signpost basis (`ChartKit::gaugeHeading`); NaN where the direction is NaN, zero, or normal to the surface. */
+/** The gauge angle of a direction per vertex: its angle in each vertex's gauge (atan2 against `IntrinsicSurface::tangentBasis`, i.e. `vertexTangentBasis`); NaN where the direction is NaN, zero, or
+ *  normal to the surface. `direction` has one row per vertex of `surface`. The canonical frame's stored form is `gaugeAngle(surface, e1)`. */
+Eigen::VectorXd gaugeAngle(manifold::IntrinsicSurface& surface, const Mat3& direction);
+/** The same on a chart kit (one connected piece or more; `ChartKit::gaugeHeading` per vertex). */
 Eigen::VectorXd gaugeAngle(chart::ChartKit& kit, const Mat3& direction);
-
-/** A tangent vector field's angle from NORTH at each vertex, in the signpost gauge: gaugeHeading(v) - gaugeHeading(e1), wrapped to (-pi, pi]. */
-Eigen::VectorXd angleFromNorth(chart::ChartKit& kit, const Mat3& vectors, const Mat3& e1);
+// angle from north of a tangent vector field: frame.rotate(field, canonical_gauge_angle, 1), then arg: a pipeline step (spec 5.3), no longer here
 
 // ── anatomical frames ────────────────────────────────────────────────────────────────────────────────────
 
@@ -72,16 +80,22 @@ struct AnatomicalOptions {
     Side side = Side::Auto;            // the hemisphere of a single-piece surface; Auto: each connected piece by the sign of its mean position along `left` (needs two pieces)
 };
 
-/** One rotation angle per vertex from north, the label, the handedness and the mask. */
+/** The anatomical projection: the label, the handedness and the mask, and either the 3D axes (SCS definition, frame-free) or one rotation angle per vertex from north (template definition, carried). */
 struct Anatomical {
-    Eigen::VectorXd angle;             // radians, from north (e1) towards west (e2) to ANTERIOR; NaN where the reference frame is singular
+    Eigen::VectorXd angle;             // radians, from north (e1) towards west (e2) to ANTERIOR; NaN where the reference frame is singular (NaN for the frame-free `anatomicalProjection`)
+    Mat3 anterior, secondAxis;         // frame-free SCS definition (`anatomicalProjection`): the unit 3D axes at each vertex, secondAxis = handed * (n x anterior); empty otherwise
     std::vector<int8_t> second;        // Second::Superior | Second::Medial
     std::vector<int8_t> handed;        // +1 / -1: the second axis is handed * (n x anterior)
     std::vector<char> reliable;        // the anterior projection is long enough (and the reference frame defined)
     Eigen::VectorXd projection;        // |anterior projected on the tangent plane|
     std::string definition;            // "scs" | "template" (the record)
-    std::string reference;             // "canonical frames" | "signpost gauge" (what the angle is measured from)
+    std::string reference;             // "canonical frames" | "signpost gauge" (what `angle` is measured from, recorded) | "none" (frame-free). The "signpost gauge" reference is retired with the pipelines' own use (G6a)
 };
+using AnatomicalProjection = Anatomical;
+
+/** The FRAME-FREE anatomical projection of the SCS-native axes (`o.axes`): at each vertex the anterior axis projected on the tangent plane of `normals` (outward, unit) and the second axis, as 3D
+ *  unit vectors; `angle` is NaN and `reference` "none". Read with `anatomicalComponents(a, vectors)`. Needs no frame and no gauge. */
+Anatomical anatomicalProjection(const double* positions, int nV, const int32_t* faces, int nF, const Mat3& normals, const AnatomicalOptions& o = {});
 
 /** The anatomical frame from the surface's OWN axes (SCS-native, or the template's own once). `e1`, `e2` are the reference frame (canonical north / west, or the signpost basis). `normals` outward. */
 Anatomical anatomicalFrame(const double* positions, int nV, const int32_t* faces, int nF, const Mat3& normals, const Mat3& e1, const Mat3& e2, const AnatomicalOptions& o = {});
@@ -94,6 +108,9 @@ Anatomical carryAnatomical(const Anatomical& templ, const double* templateSphere
 /** The connected piece of every vertex, numbered in order of its first vertex (a cortex: its hemispheres, lh first as FreeSurfer lists them). A registered sphere places the hemispheres on the
  *  same sphere, so `carryAnatomical` matches pieces with the same number (empty vectors: one piece). */
 std::vector<int> pieces(const int32_t* faces, int nF, int nV);
+
+/** The (anterior, second) components of tangent vectors [V x 3] by the frame-free projection (`anatomicalProjection`): column 0 = vector . anterior, column 1 = vector . secondAxis. NaN where unreliable. */
+Eigen::Matrix<double, Eigen::Dynamic, 2, Eigen::RowMajor> anatomicalComponents(const Anatomical& a, const Mat3& vectors);
 
 /** The (anterior, second) components of tangent vectors [V x 3], read with the frames (e1, e2, n): column 0 anterior, column 1 the second axis (superior or medial by `second`). NaN where unreliable. */
 Eigen::Matrix<double, Eigen::Dynamic, 2, Eigen::RowMajor> anatomicalComponents(const Anatomical& a, const Mat3& e1, const Mat3& e2, const Mat3& vectors);

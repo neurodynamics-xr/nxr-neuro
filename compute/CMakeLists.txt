@@ -160,8 +160,6 @@ target_include_directories(nxr_compute PUBLIC
 
 target_compile_features(nxr_compute PUBLIC cxx_std_17)
 
-# chart.cpp is a port of the Studio's JavaScript, which has no fused multiply-add: contraction off, so the float32 tangent basis equals the Studio's bit for bit
-set_source_files_properties(src/chart.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 # ladder.cpp is a port of the Studio's ladder.ts (no FMA in JavaScript): contraction off, so areas, distances and the equal-mass cuts tie as they do there
 set_source_files_properties(src/ladder.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 # partition.cpp is a port of the Studio's measureOverPartition (no FMA in JavaScript): contraction off, so its sums equal the Studio's to the last bit
@@ -270,7 +268,8 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     add_test(NAME test_intrinsic_surface COMMAND test_intrinsic_surface)
 
     # the one-time comparison with the port (kept until the port is deleted) and the poor-mesh study
-    add_executable(test_gc_port_comparison test/test_gc_port_comparison.cpp)
+    add_executable(test_gc_port_comparison test/test_gc_port_comparison.cpp test/chart_port.cpp)
+    set_source_files_properties(test/chart_port.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
     target_link_libraries(test_gc_port_comparison PRIVATE nxr_compute)
     add_test(NAME test_gc_port_comparison COMMAND test_gc_port_comparison)
 
@@ -382,6 +381,10 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     add_executable(test_connectome test/test_connectome.cpp)
     target_link_libraries(test_connectome PRIVATE nxr_compute)
     add_test(NAME test_connectome COMMAND test_connectome)
+    add_executable(test_connectome_golden test/test_connectome_golden.cpp)   # against the MATLAB reference (golden/connectome_golden.txt, golden/gen_connectome_golden.m)
+    target_link_libraries(test_connectome_golden PRIVATE nxr_compute)
+    target_compile_definitions(test_connectome_golden PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+    add_test(NAME test_connectome_golden COMMAND test_connectome_golden)
     add_executable(test_connectome_partition test/test_connectome_partition.cpp)
     target_link_libraries(test_connectome_partition PRIVATE nxr_compute)
     add_test(NAME test_connectome_partition COMMAND test_connectome_partition)
