@@ -178,8 +178,8 @@ void test_measure() {
   // the measure must fit the quantity; a complex x is refused
   CHECK(refused([&] { use("measure", {{"x", mag("power")}, {"over", cells}}, Json{{"measure", "amplitude"}}, false); }, {"the measure amplitude is a measure of amplitude or envelope"}));
   CHECK(refused([&] { use("measure", {{"x", field_t({cortex, time}, VT::complex)}, {"over", cells}}, Json{{"measure", "mean"}}, false); }, {"is complex", "this node reads real or vector3"}));
-  // a selection that is not a partition is refused
-  CHECK(refused([&] { use("measure", {{"x", mag()}, {"over", selection_t({cortex, time}, "set", false, "loose")}}, Json{{"measure", "amplitude"}}, false); }, {"a measure is taken over a partition", "`loose`"}));
+  // any selection on factors of x is measured (no property needed): a selection of one member is one region or time range
+  CHECK(g::print(use("measure", {{"x", mag()}, {"over", selection_t({cortex, time}, "set", false, "loose")}}, Json{{"measure", "amplitude"}}, false).at("y").domain).find("members(loose)") != std::string::npos);
   // a time ladder: the level is chosen by the band; a field without a band is refused; the output's member set is named after the level
   g::PortType env = field_t({sensors, time}, VT::real, "envelope", true);
   env.res.band = std::array<double, 2>{8.0, 16.0};

@@ -960,6 +960,9 @@ ng::NodeSpec fft_spectrum() {
     ng::PortType s;
     s.cls = ng::PortClass::field; s.value = ng::ValueType::complex; s.axis = ng::Axis::block;
     s.rows = x.rows; s.unit = x.unit; s.sfreq = x.sfreq;
+    // a change of basis is an operator the node defines, and the value it makes lies on the line that operator makes (spec type-system, section 5, apply):
+    // here the one-sided frequency line of the block (bin k at k x sfreq / n Hz, n = the block's samples). Until the signature carries a made line, the line is named in the type's facts.
+    s.facts["line"] = Json{{"kind", "frequency"}, {"made_by", "fft.spectrum"}, {"unit", "Hz"}, {"origin", 0.0}, {"spacing", "sfreq / block samples"}, {"sfreq", x.sfreq ? Json(*x.sfreq) : Json()}};
     out.out["spectrum"] = s;
     return out;
   };
@@ -1006,6 +1009,7 @@ ng::NodeSpec measure_band_amplitude() {
                   "(first = ceil(lo / spacing), last = ceil(hi / spacing)), the amplitude the mean |X| over them; rows are chunk x channel";
   n.plan = [](const ng::Types& in, const Json& p) {
     if (!in.count("spectrum") || in.at("spectrum").axis != ng::Axis::block || in.at("spectrum").value != ng::ValueType::complex) ng::refuse("measure.band_amplitude: spectrum is a complex block value (fft.spectrum)");
+    if (in.at("spectrum").facts.value("line", Json::object()).value("kind", std::string()) != "frequency") ng::refuse("measure.band_amplitude: spectrum lies on no frequency line; the bands are read on the line a change of basis makes (fft.spectrum)");
     if (!in.at("spectrum").sfreq || !(*in.at("spectrum").sfreq > 0)) ng::refuse("measure.band_amplitude: the spectrum has no sampling rate");
     if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("measure.band_amplitude: bands is required: a list of {name, lo, hi} in Hz (no default)");
     ng::Planned out;
