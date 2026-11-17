@@ -138,8 +138,9 @@ static void time_rules() {
   EXPECT(g.origin_sample == 10000 && sel::count(g.grid) == (90000 + 511) / 512, "an origin at a point starts the first tile there");
   o.origin = sel::span({sel::Extent{0, 20.0, 30.0}});
   EXPECT(sel::time_rule_resolved(line, o).origin_sample == 20000, "an origin given as an event: its start");
-  sel::TimeRule bad = o; bad.origin = sel::point(-3);
-  EXPECT(refused([&] { sel::time_rule(line, bad); }) && refused([&] { sel::TimeRule none; none.kind = sel::TimeRule::Kind::tiles; sel::time_rule(line, none); }), "an origin outside the line, and tiles with no duration, are refused");
+  // a point is refused at its own making when it is negative, and the line refuses one past its end
+  sel::TimeRule bad = o; bad.origin = sel::point(1000000);
+  EXPECT(refused([&] { sel::point(-3); }) && refused([&] { sel::time_rule(line, bad); }) && refused([&] { sel::TimeRule none; none.kind = sel::TimeRule::Kind::tiles; sel::time_rule(line, none); }), "an origin outside the line, and tiles with no duration, are refused");
 }
 
 int main() {
