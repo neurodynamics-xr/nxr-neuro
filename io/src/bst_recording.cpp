@@ -586,11 +586,10 @@ Json add_derived_recording(SubjectWriter& sub, const std::string& source, const 
   for (auto it = producer.begin(); it != producer.end(); ++it) merged[it.key()] = it.value();
   r.producer = merged;
   // the recording's own channel flags (1 good / -1 bad), read from its `<source>_flags` partition
-  if (const auto fl = db.one("SELECT * FROM selection WHERE subject_id = ? AND of_field_id = ? AND name = ? AND status = 'complete'", {sub.id(), nxr::io::text(*rec, "id"), source + "_flags"});
-      fl && !nxr::io::is_null(*fl, "array_path") && !nxr::io::is_null(*fl, "dictionary_id")) {
+  if (const auto fl = nxr::io::selection::find_of_field(db, sub.id(), nxr::io::text(*rec, "id"), source + "_flags"); fl && fl->array_path && fl->dictionary_id) {
     std::map<std::int64_t, std::int64_t> sign;
-    for (const auto& e : db.all("SELECT code, name FROM dictionary_entry WHERE dictionary_id = ?", {nxr::io::text(*fl, "dictionary_id")})) sign[nxr::io::integer(e, "code")] = nxr::io::text(e, "name") == "good" ? 1 : -1;
-    const nxr::io::ArrayReader cr = nxr::io::ArrayReader::open(sub.store(), nxr::io::text(*fl, "array_path"));
+    for (const auto& e : nxr::io::selection::load_lookup(db, *fl->dictionary_id)) sign[e.code] = e.name == "good" ? 1 : -1;
+    const nxr::io::ArrayReader cr = nxr::io::ArrayReader::open(sub.store(), *fl->array_path);
     const auto raw = cr.read();
     if (cr.dtype() == nxr::io::DType::Int32 && raw.size() == static_cast<std::size_t>(4 * r.n_chan)) {
       for (std::int64_t c = 0; c < r.n_chan; ++c) {

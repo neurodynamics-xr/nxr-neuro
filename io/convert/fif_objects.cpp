@@ -13,6 +13,7 @@
 #include "nxr/convert/sensor_frames.h"
 #include "nxr/formats/byte_source.h"
 #include "nxr/formats/fif_objects.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/hash.h"
 #include "nxr/io/layout.h"
@@ -56,13 +57,13 @@ fif::File open_fif(const std::string& path) {
 
 std::vector<std::string> member_names(nxr::io::SubjectWriter& sub, const std::string& channels_id) {
   auto& db = sub.db();
-  const auto sel = db.one("SELECT * FROM selection WHERE manifold_id = ? AND name LIKE '%\\_names' ESCAPE '\\' AND member_of_id IS NULL", {nxr::io::V(channels_id)});
+  const auto sel = nxr::io::selection::find_on_manifold_ending(db, channels_id, "_names");
   if (!sel) return {};
-  const std::string rel = nxr::io::opt_text(*sel, "array_path") ? *nxr::io::opt_text(*sel, "array_path") : nxr::io::text(*sel, "path");
+  const std::string rel = sel->array_path ? *sel->array_path : sel->path.value_or("");
   const auto bytes = nxr::io::ArrayReader::open(sub.store(), rel).read();
   std::map<std::int64_t, std::string> by;
-  for (const auto& e : db.all("SELECT code, name FROM dictionary_entry WHERE dictionary_id = ?", {nxr::io::V(nxr::io::text(*sel, "dictionary_id"))}))
-    by[nxr::io::integer(e, "code")] = nxr::io::text(e, "name");
+  if (sel->dictionary_id)
+    for (const auto& e : nxr::io::selection::load_lookup(db, *sel->dictionary_id)) by[e.code] = e.name;
   std::vector<std::string> out;
   for (std::size_t i = 0; i + 4 <= bytes.size(); i += 4) {
     std::int32_t c;

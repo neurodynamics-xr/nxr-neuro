@@ -4,6 +4,8 @@
 #include <functional>
 
 #include "nxr/io/errors.h"
+#include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/writer.h"
 #include <set>
 
@@ -31,18 +33,22 @@ std::vector<std::pair<std::string, std::string>> named_paths(const Database& db,
   struct Col { const char* table; const char* sql; };
   const Col columns[] = {
       {"field", "SELECT id, path AS p FROM field WHERE subject_id = ?"},
-      {"selection", "SELECT id, path AS p FROM selection WHERE subject_id = ?"},
-      {"selection", "SELECT id, array_path AS p FROM selection WHERE subject_id = ?"},
       {"operator", "SELECT id, path AS p FROM operator WHERE subject_id = ?"},
       {"manifold", "SELECT id, path AS p FROM manifold WHERE subject_id = ?"},
       // a geometry's positions and a topology's cells name arrays only while a manifold stands on them (the rows a manifold's delete leaves behind name nothing)
       {"geometry", "SELECT g.id AS id, g.positions_path AS p FROM geometry g JOIN manifold m ON m.geometry_id = g.id WHERE g.subject_id = ?"},
       {"topology", "SELECT DISTINCT c.topology_id AS id, c.path AS p FROM topology_cell c JOIN topology t ON t.id = c.topology_id "
                    "JOIN manifold m ON m.topology_id = t.id WHERE t.subject_id = ?"},
-      {"selection measurement of", "SELECT m.selection_id AS id, m.array_path AS p FROM selection_measurement m JOIN selection s ON s.id = m.selection_id WHERE s.subject_id = ?"},
   };
-  for (const auto& c : columns)
+  // the selections' paths come from the selection store (and the measurements' from the measurement module), in the places the columns had
+  auto add_pairs = [&](const std::vector<std::pair<std::string, std::string>>& pairs, const std::string& table) {
+    for (const auto& [id, path] : pairs) add(Row{{"id", id}, {"p", path}}, "p", table);
+  };
+  for (const auto& c : columns) {
     for (const auto& r : db.all(c.sql, {subject_id})) add(r, "p", c.table);
+    if (std::string(c.table) == "field") add_pairs(selection::named_paths_of(db, subject_id), "selection");
+  }
+  add_pairs(selection::measurement_array_paths_of_subject(db, subject_id), "selection measurement of");
 
   auto from_json = [&](const std::string& sql, const std::string& table, const std::function<std::vector<Json>(const Json&)>& paths) {
     for (const auto& r : db.all(sql, {subject_id})) {
@@ -56,16 +62,19 @@ std::vector<std::pair<std::string, std::string>> named_paths(const Database& db,
       }
     }
   };
-  from_json("SELECT id, params_json AS j FROM selection WHERE subject_id = ? AND (params_json LIKE '%\"weights\"%' OR params_json LIKE '%\"atlas\"%')",
-            "selection", [](const Json& j) {
-              std::vector<Json> v;
-              v.push_back(j.contains("weights") ? j["weights"] : Json());
-              if (j.contains("atlas") && j["atlas"].is_object()) {
-                v.push_back(j["atlas"].contains("node") ? j["atlas"]["node"] : Json());
-                v.push_back(j["atlas"].contains("areas") ? j["atlas"]["areas"] : Json());
-              }
-              return v;
-            });
+  for (const auto& [sid, params] : selection::params_naming_arrays(db, subject_id)) {
+    Json j;
+    try { j = Json::parse(params); } catch (...) { continue; }  // not JSON: names nothing
+    if (!j.is_object()) continue;
+    std::vector<Json> v;
+    v.push_back(j.contains("weights") ? j["weights"] : Json());
+    if (j.contains("atlas") && j["atlas"].is_object()) {
+      v.push_back(j["atlas"].contains("node") ? j["atlas"]["node"] : Json());
+      v.push_back(j["atlas"].contains("areas") ? j["atlas"]["areas"] : Json());
+    }
+    for (const auto& p : v)
+      if (p.is_string()) add(Row{{"id", sid}, {"p", p.get<std::string>()}}, "p", "selection");
+  }
   from_json("SELECT id, producer_json AS j FROM manifold WHERE subject_id = ? AND producer_json LIKE '%\"kinds\"%'", "manifold", [](const Json& j) {
     std::vector<Json> v;
     if (j.contains("spectrum") && j["spectrum"].is_object() && j["spectrum"].contains("kinds")) v.push_back(j["spectrum"]["kinds"]);

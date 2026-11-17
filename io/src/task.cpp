@@ -237,19 +237,16 @@ std::vector<Node> Subject::fields_on_axis(const std::string& factor_manifold_id,
 }
 
 std::int64_t Subject::entry_count(const std::string& dictionary_id) const {
-  return integer(*impl_->db->one("SELECT COUNT(*) AS n FROM dictionary_entry WHERE dictionary_id = ?", {V(dictionary_id)}), "n");
+  return selection::lookup_size(*impl_->db, dictionary_id);
 }
 
 std::vector<DictionaryLevel> Subject::dictionary_entries(const std::string& dictionary_id) const {
   std::vector<DictionaryLevel> out;
-  for (const auto& r : impl_->db->all("SELECT code, name, color_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(dictionary_id)})) {
+  for (const selection::Entry& x : selection::load_lookup(*impl_->db, dictionary_id)) {
     DictionaryLevel e;
-    e.code = integer(r, "code");
-    e.name = text(r, "name");
-    if (const auto c = opt_text(r, "color_json")) {
-      const Json j = Json::parse(*c, nullptr, false);
-      if (j.is_array() && j.size() >= 3 && j[0].is_number() && j[1].is_number() && j[2].is_number()) e.color = std::array<int, 3>{j[0].get<int>(), j[1].get<int>(), j[2].get<int>()};
-    }
+    e.code = x.code;
+    e.name = x.name;
+    e.color = x.color;
     out.push_back(std::move(e));
   }
   return out;
@@ -353,21 +350,20 @@ std::vector<Json> Subject::measured_kinds(const std::string& selection_id) const
 }
 
 std::vector<std::string> Subject::measured_selections(const std::string& of_field_id, const std::string& measure) const {
-  std::vector<std::string> out;
-  for (const Row& r : impl_->db->all("SELECT DISTINCT selection_id FROM selection_measurement WHERE of_field_id = ? AND measure = ? ORDER BY selection_id", {V(of_field_id), V(measure)}))
-    out.push_back(text(r, "selection_id"));
-  return out;
+  return selection::selections_measured(*impl_->db, of_field_id, measure);
 }
 
 bool Subject::has_measures(const std::string& selection_id, const std::string& of_field_id) const {
-  return impl_->db->one("SELECT 1 AS x FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? LIMIT 1", {V(selection_id), V(of_field_id)}).has_value();
+  selection::MeasurementFilter f;
+  f.of_field_id = of_field_id;
+  return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
 bool Subject::has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id) const {
-  std::string sql = "SELECT 1 AS x FROM selection_measurement WHERE selection_id = ? AND measure = ?";
-  std::vector<Value> args{V(selection_id), V(measure)};
-  if (of_field_id) { sql += " AND of_field_id = ?"; args.push_back(V(*of_field_id)); }
-  return impl_->db->one(sql + " LIMIT 1", args).has_value();
+  selection::MeasurementFilter f;
+  f.measure = measure;
+  f.of_field_id = of_field_id;
+  return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
 std::optional<Node> Subject::by_id_or_name(Cls cls, const std::string& key) const {

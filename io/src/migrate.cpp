@@ -1,3 +1,4 @@
+#include "nxr/io/selection_measurement.h"
 #include "nxr/io/migrate.h"
 
 #include <unistd.h>
@@ -207,9 +208,8 @@ std::vector<MovedGroup> find_moved_groups(const Database& src, const std::vector
     std::set<std::string> prefixes;
     for (const auto& id : g.field_ids) {
       g.n_contributions += integer(*src.one("SELECT count(*) AS n FROM field_contribution WHERE field_id = ?", {id}), "n");
-      for (const auto& m : src.all("SELECT array_path FROM selection_measurement WHERE of_field_id = ? AND array_path IS NOT NULL", {id})) {
+      for (const std::string& path : selection::measurement_array_paths_of_field(src, id)) {
         ++g.n_measurements;
-        const std::string path = text(m, "array_path");
         for (const char* marker : {"/maps/", "/time/"}) {
           const auto at = path.find(marker);
           if (at != std::string::npos) { prefixes.insert(path.substr(0, at + 5)); break; }

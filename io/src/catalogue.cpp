@@ -7,6 +7,7 @@
 #include <set>
 
 #include "nxr/io/hash.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/bundle.h"
 #include "nxr/io/participants.h"
 #include "nxr/io/statistic.h"
@@ -192,24 +193,7 @@ struct Candidate {
 
 std::vector<Vocab> vocabulary_of(const Database& db) {
   std::vector<Vocab> out;
-  const auto cols = db.all("SELECT name FROM pragma_table_info('dictionary_entry') WHERE name <> 'dictionary_id' ORDER BY cid");
-  std::string list;
-  for (const auto& c : cols) list += (list.empty() ? "" : ", ") + std::string("\"") + text(c, "name") + "\"";
-  for (const auto& d : db.all("SELECT id, scope, name FROM dictionary WHERE scope IN ('app', 'dataset') ORDER BY scope, name")) {
-    Json entries = Json::array();
-    for (const auto& e : db.all("SELECT " + list + " FROM dictionary_entry WHERE dictionary_id = ? ORDER BY code", {text(d, "id")})) {
-      Json a = Json::array();
-      for (const auto& c : cols) {
-        const Value& v = e.at(text(c, "name"));
-        if (std::holds_alternative<std::monostate>(v)) a.push_back(nullptr);
-        else if (auto* n = std::get_if<std::int64_t>(&v)) a.push_back(*n);
-        else if (auto* x = std::get_if<double>(&v)) a.push_back(*x);
-        else a.push_back(std::get<std::string>(v));
-      }
-      entries.push_back(a);
-    }
-    out.push_back({text(d, "scope"), text(d, "name"), sha256_hex(jdump(entries))});
-  }
+  for (const auto& d : selection::shared_lookups(db)) out.push_back({d.scope, d.name, sha256_hex(jdump(d.entries))});
   return out;
 }
 
@@ -662,7 +646,7 @@ GroupAnalysis GroupAnalysis::open(const std::filesystem::path& dataset_folder, c
     const std::string tid = tmpl.record.subject_id;
     std::vector<std::pair<std::string, std::string>> roots = {{"subject", tid}};
     for (const auto& r : tp.db().all("SELECT id FROM manifold WHERE subject_id = ? AND status = 'complete'", {tid})) roots.emplace_back("manifold", text(r, "id"));
-    for (const auto& r : tp.db().all("SELECT id FROM selection WHERE subject_id = ? AND status = 'complete'", {tid})) roots.emplace_back("selection", text(r, "id"));
+    for (const auto& id : selection::complete_ids(tp.db(), tid)) roots.emplace_back("selection", id);
     for (const auto& r : tp.db().all("SELECT id FROM field WHERE subject_id = ? AND status = 'complete' AND name LIKE '%_canonical_frames'", {tid})) roots.emplace_back("field", text(r, "id"));
     drop_unreferenced_vocabulary_held_elsewhere(g.db(), tmpl.folder);
     add_anchor_rows(g.db(), tmpl.folder, roots);

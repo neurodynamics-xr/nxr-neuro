@@ -7,6 +7,7 @@
 #include "nxr/bst/entities.h"
 #include "nxr/bst/pyrepr.h"
 #include "nxr/bst/session.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/layout.h"
 
@@ -215,13 +216,13 @@ std::vector<nxr::io::Row> with_derived(SubjectWriter& sub, const nxr::io::Row& r
 
 std::vector<std::string> member_names(SubjectWriter& sub, const std::string& channels_id) {
   auto& db = sub.db();
-  const auto sel = db.one("SELECT * FROM selection WHERE manifold_id = ? AND name LIKE '%\\_names' ESCAPE '\\' AND member_of_id IS NULL", {channels_id});
+  const auto sel = nxr::io::selection::find_on_manifold_ending(db, channels_id, "_names");
   if (!sel) value_error(channels_id + ": no member names");
-  const std::string rel = nxr::io::opt_text(*sel, "array_path") ? *nxr::io::opt_text(*sel, "array_path") : nxr::io::text(*sel, "path");
+  const std::string rel = sel->array_path ? *sel->array_path : sel->path.value_or("");
   const auto rd = nxr::io::ArrayReader::open(sub.store(), rel);
   const auto bytes = rd.read();
   std::map<std::int64_t, std::string> by;
-  for (const auto& e : db.all("SELECT code, name FROM dictionary_entry WHERE dictionary_id = ?", {nxr::io::text(*sel, "dictionary_id")})) by[nxr::io::integer(e, "code")] = nxr::io::text(e, "name");
+  if (sel->dictionary_id) for (const auto& e : nxr::io::selection::load_lookup(db, *sel->dictionary_id)) by[e.code] = e.name;
   std::vector<std::string> out;
   for (std::size_t i = 0; i < bytes.size() / 4; ++i) {
     std::int32_t c;

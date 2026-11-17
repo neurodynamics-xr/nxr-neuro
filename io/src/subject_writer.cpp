@@ -316,7 +316,7 @@ void SubjectWriter::compose(const std::function<void()>& body) {
 void SubjectWriter::drop_unused(const std::vector<std::string>& dictionary_ids, const std::vector<std::string>& acquisition_ids) {
   db_->tx([&] {
     for (const auto& did : dictionary_ids)
-      if (!db_->one("SELECT 1 FROM selection WHERE dictionary_id = ? LIMIT 1", {did})) db_->execute("DELETE FROM dictionary WHERE id = ?", {did});
+      if (!selection::lookup_in_use(*db_, did)) db_->execute("DELETE FROM dictionary WHERE id = ?", {did});
     for (const auto& aid : acquisition_ids) {  // an acquisition this composition made, which no node it kept names
       bool used = false;
       for (const char* t : {"manifold", "field", "selection", "operator"})
