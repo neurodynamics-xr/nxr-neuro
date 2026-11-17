@@ -20,7 +20,7 @@ scope: subject
 
 inputs:
   surface: {manifold: surface, where: {name: $surface}, required: false, hint: "rule levels: the surface whose grid's levels are the bands"}
-  grid:    {selection: set, manifold: surface.manifold.0, where: {name: "{surface} tiles"}, required: false, hint: "rule levels: the surface's tiles (`nxr-neuro run select_dyadic_surface` first)"}
+  grid:    {selection: ladder, manifold: surface.manifold.0, where: {name: "{surface} tiles"}, required: false, hint: "rule levels: the surface's tiles (`nxr-neuro run select_dyadic_surface` first)"}
 
 parameters:
   rule: {default: frequency, meaning: "frequency | eigenvalue | wavelength | parts | levels", unit: "-", choices: [frequency, eigenvalue, wavelength, parts, levels]}
