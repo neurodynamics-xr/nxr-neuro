@@ -25,7 +25,7 @@ parameters:
 
 steps:
   before:
-    - {step: summarize, in: {over: over, of: of}, with: {measure: $measure, of_slice: $of_slice, summaries: $summaries, combine: $combine, ddof: $ddof, own: $own}, out: statistic}
+    - {step: summarize_measurements, in: {over: over, of: of}, with: {measure: $measure, of_slice: $of_slice, summaries: $summaries, combine: $combine, ddof: $ddof, own: $own}, out: statistic}
 
 outputs:
   statistic:

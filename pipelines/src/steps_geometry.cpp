@@ -1,7 +1,7 @@
 // nxr-pipelines — THE GEOMETRY MAKERS AS REGISTERED STEPS: what a surface carries (its frames, ...), made through the run's bound services and handed back as described arrays
 // the definition stores (pipelines/definitions/frames.yaml, ...).
 //
-//   frames  setup  surface  ->  canonical (+ singular, gauge_angle) when computed here; angle, second, handed, reliable: the anatomical frame
+//   surface_frames  setup  surface  ->  canonical (+ singular, gauge_angle) when computed here; angle, second, handed, reliable: the anatomical frame
 #include <cmath>
 
 #include "nxr/io/finder.h"
@@ -39,7 +39,7 @@ Array picks(const std::vector<std::int32_t>& x, const std::string& description) 
 struct FramesState { FramesComputeOptions o; };
 StepSpec frames_step() {
   StepSpec s;
-  s.name = "frames";
+  s.name = "surface_frames";
   s.kind = "setup";
   s.inputs = {"surface"};
   s.outputs = {"canonical", "singular", "gauge_angle", "angle", "second", "handed", "reliable"};

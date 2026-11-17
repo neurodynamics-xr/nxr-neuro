@@ -331,7 +331,7 @@ StepSpec wishart_step() {
 struct SummaryState { Value over; std::optional<Value> of; Json p; };
 StepSpec summarize_step() {
   StepSpec s;
-  s.name = "summarize";
+  s.name = "summarize_measurements";
   s.kind = "setup";
   s.inputs = {"over", "of"};
   s.optional = {"of"};
