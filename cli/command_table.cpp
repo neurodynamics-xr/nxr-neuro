@@ -267,7 +267,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --min-draws@run null	N	Fewest null draws made	20	draws
 --min-draws@run spatialnull	N	The fewest draws made before stopping, even if every vertex has reached --exceedances.	20	draws
 --min-link	N	Two events of different scale pairs count as one event when at least this many pairs of their cells nest in space and overlap in time.	1	pairs
---min-link@run scaleselection	N	Events of two pairs are one cross-pair event when at least this many of their cells nest in space and overlap in time	1	pairs
 --min-projection	P	Reliability limit of the anatomical frame: the anterior axis must project on the tangent plane with at least this length.	0.34	-
 --min-projection@run frames	P	Reliability limit of the anatomical frame: the anterior axis must project on the tangent plane with at least this length (sin 20 degrees).	0.34	-
 --min-value	X	Keep only rows with a value at or above X	none	measure units
@@ -287,7 +286,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
 --name@run repeat	NAME	Name the repeat result is stored under.	derived from the two recording names (plus the stage when not the first)	-
---name@run scaleselection	NAME	Name of the cross-pair events' Selection	<recording>_scale_selection	-
 --name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
 --name@delete dataset	NAME	Name of the dataset's folder to delete, inside the folder given by --datastore	required	-
@@ -379,7 +377,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
 --recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
 --recording@run quadrature	NAME	Name of the stored recording to analyse.	required	-
---recording@run scaleselection	NAME	The recording whose scale pairs are selected over	required	-
 --recording@run spatialnull	NAME	The recording whose stored spatial events are tested against the null.	required	-
 --recording@import condition	FILE	Import only this data file of the condition (e.g. data_0raw_x.mat) instead of every data file the condition has.	none (all the condition's recordings)	-
 --recording@import resample	NAME	The recording to resample	required	-
@@ -397,7 +394,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --resolution@run opticalflow	HZ	Frequency resolution of the grid on which the filter bank is designed.	0.5	Hz
 --resolve	band|bins	Whether to also keep each band's cross-spectrum bin by bin (bins, Welch estimator only) or only the band mean (band).	band	-
 --response	peak|mean	Which response of an event is compared across scale pairs: the largest standardized cell amplitude or their mean	peak	-
---response@run scaleselection	peak|mean	Event response used to pick the scale: the largest or the mean standardized cell amplitude	peak	-
 --ridge-fraction	X	Ridge added in whitening, as a fraction of the mean eigenvalue of the noise covariance block (Brainstorm's noise regularisation, MNE-Python's reg).	0.1	fraction
 --ridge-over-rank		Take the ridge from the trace divided by the rank (MNE-Python) instead of by the number of channels (Brainstorm).	off	-
 --ripple	R	Passband and stopband deviation of the Kaiser-window FIR filter, as a linear value (0.001 is 60 dB attenuation)	0.001	-
@@ -453,12 +449,10 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --source-surface	NAME	Surface whose vertices are the sources of the head model.	the primary (cortex) surface	-
 --source-tool	NAME	Records the tool that produced the source data in the dataset's provenance	none	-
 --source-tool@create dataset	NAME	Records the tool that produced the source data, in the dataset's provenance.	none	-
---source@run scaleselection	NAME	The pipeline whose stored labellings, cells and baselines are read	cortical_event_pairs	-
 --space-level	L	Level of the surface's tile ladder that gives the spatial tiles (-1 on measure query: the whole cortex).	measure query: the stored depth; others none (required)	level
 --space-level@run cellquadrature	L	Level of the surface's tile ladder; its Weyl band is the spatial band and its tiles the spatial cells.	required	level
 --space-level@query measurements	LEVEL	The spatial level the cells are rolled up to (at most the stored depth; -1 is the whole cortex).	the stored depth	level
 --space-levels	L,...	Spatial tile levels of the surface to select over (all combinations with --time-levels).	none (required)	levels
---space-levels@run scaleselection	LEVELS	Comma-separated surface tile levels; the pairs are all space levels times time levels	required	level
 --spatial-band	BAND	Spatial band: modes, weyl:J or weyl:all for the phase and cycle patterns (all modes, one Weyl octave J, each member of the Weyl bank); for measure query the whole-number index of a stored spatial band	phasegradient: none (the kernel as it is); cyclepattern: weyl:all; measure query: none	-
 --spatial-band@run cyclepattern	BAND	Spatial band: modes (all modes), weyl:J (one Weyl octave J) or weyl:all (every member of the Weyl bank).	weyl:all	-
 --spatial-band@query measurements	N	The spatial band (eigenmode level) of the cells to read.	none	-
@@ -495,7 +489,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --surface-id@import inverse	ID	Id of the stored cortex surface the kernel was made on.	found from the kernel's SurfaceFile link	-
 --surface@run eigenmodes	NAME	Name of the subject's stored surface to solve on.	the subject's primary surface	-
 --surface@run frames	NAME	The subject's surface to compute the frames on.	the primary (cortex) surface	-
---surface@run scaleselection	NAME	The subject's surface	the surface of the joint partitions	-
 --surface@run tiles	NAME	The subject's surface whose tile ladder is computed, by name.	the primary (cortex) surface	-
 --surface@import condition	FILE	The subject's cortex surface file (tess_*.mat) the condition is imported on, instead of the one its head model names.	none (the condition's own surface)	-
 --surface@import template	NAME	Convert only this surface (a tess_*.mat file of the template anatomy); repeat for several.	every surface of the template's default anatomy	-
@@ -530,7 +523,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --time-level	M	Level of the recording's constant-Q time ladder (joint compute: the time tiles of the cells; measure query: time rolled up to tiles of 2^M frames)	measure query: 0; joint compute: none (required)	level
 --time-level@query measurements	LEVEL	The time level the cells are rolled up to: tiles of 2^LEVEL frames on the tower (0 is single frames).	0	level
 --time-levels	M1,M2,..	Constant-Q time levels (each one's band is a pair's rhythm) crossed with the space levels.	none (required)	levels
---time-levels@run scaleselection	LEVELS	Comma-separated constant-Q time levels, each giving the pair's rhythm band	required	level
 --timing-of	FIELD,...	Also store the timing map (lags) of these fields of each pattern: stream, potential, normal.	none	-
 --timing-of@run cyclepattern	FIELD,...	Also store the timing map (lags) of these fields of each pattern: stream, potential, normal.	none	-
 --to	HZ	The sampling rate to resample to (import resample).	none	Hz
@@ -584,7 +576,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cellquadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run patches	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run scaleselection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run pyramid	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run spatialnull	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run null	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1301,13 +1292,6 @@ alias: refused
 group: Cortical flow and patterns
 summary: Patches on a static cortical map: where it stands out from its surroundings, at the size of its tiles.
 opts: --dataset* --enter-sd --exit-sd --level* --map* --max-area --min-area --modes --order --replace --sign --subject* --summaries --tolerance --transform --templates+
-)TBL",
-R"TBL(@ run scaleselection
-old: scaleselection compute
-alias: refused
-group: Cortical flow and patterns
-summary: Each event's own size and rhythm: the best spatial and temporal level by standardised response.
-opts: --dataset* --min-link --name --recording* --replace --response --source --space-levels* --subject* --surface --time-levels* --templates+
 )TBL",
 R"TBL(@ run pyramid
 old: pyramid build

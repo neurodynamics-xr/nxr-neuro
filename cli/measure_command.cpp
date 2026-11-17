@@ -57,7 +57,6 @@
 #include "nxr/pipelines/null_compute.h"
 #include "nxr/pipelines/spatial_null.h"
 #include "nxr/io/yaml.h"
-#include "nxr/pipelines/scaleselection.h"
 #include "nxr/pipelines/measure.h"
 #include "nxr/pipelines/joint.h"
 #include "nxr/pipelines/group.h"
@@ -400,42 +399,6 @@ int repeat_main(const std::vector<std::string>& argv) {
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
     const auto r = nxr::pipelines::run_repeat_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
-int scaleselection_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro scaleselection: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro scaleselection compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording", "--space-levels", "--time-levels", "--source", "--response", "--min-link", "--name", "--surface"}, {"--replace"},
-                                 {"--dataset", "--subject", "--recording", "--space-levels", "--time-levels"});
-  nxr::pipelines::ScaleSelectionOptions o;
-  o.recording = a.get("--recording");
-  auto levels = [&](const char* flag) {
-    std::vector<int> v;
-    for (const std::string& t : split(a.get(flag), ',')) { try { v.push_back(std::stoi(t)); } catch (...) { usage(prog, std::string(flag) + " is a comma-separated list of whole numbers (levels)"); } }
-    return v;
-  };
-  o.space_levels = levels("--space-levels");
-  o.time_levels = levels("--time-levels");
-  if (const auto v = a.maybe("--source")) o.source = *v;
-  if (const auto v = a.maybe("--response")) o.response = *v;
-  if (const auto v = a.maybe("--min-link")) { try { o.min_link = std::stoi(*v); } catch (...) { usage(prog, "--min-link is a whole number (at least 1)"); } }
-  o.name = a.maybe("--name");
-  o.surface = a.maybe("--surface");
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::scaleselection_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     cli::emit(out);

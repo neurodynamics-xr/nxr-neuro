@@ -40,6 +40,7 @@ add_library(nxr_pipelines
   src/partition_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
+  src/scale_inputs.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
@@ -74,7 +75,6 @@ add_library(nxr_pipelines
   src/pyramid.cpp
   src/group.cpp
   src/cellquadrature.cpp
-  src/scaleselection.cpp
   src/tiles.cpp
   src/face.cpp
 )

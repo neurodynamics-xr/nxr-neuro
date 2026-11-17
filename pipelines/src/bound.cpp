@@ -116,6 +116,10 @@ io::MeasurementValues Bound::measurement_values(const std::string& selection_id,
 std::vector<std::int32_t> Bound::array_int32(const std::string& path) const { return read_array<std::int32_t>(writer().store(), path); }
 std::vector<float> Bound::array_float(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<float>(writer().store(), path, shape); }
 std::vector<double> Bound::array_double(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<double>(writer().store(), path, shape); }
+nxr::pipelines::ScaleInputs Bound::scale_inputs(const std::string& recording_id, const std::string& recording_name, const std::vector<int>& space_levels, const std::vector<int>& time_levels,
+                                                const std::string& source, const std::optional<std::string>& surface) const {
+  return read_scale_inputs(writer(), recording_id, recording_name, space_levels, time_levels, source, surface);
+}
 SpatialBandPlan Bound::plan_spatial_band(const SurfaceInput& s, const SurfaceLevel& l, const SpatialBandOptions& o) const { return nxr::pipelines::plan_spatial_band(writer(), s, l, o); }
 SpatialBand Bound::make_spatial_band(const SurfaceInput& s, const SurfaceLevel& l, const SpatialBandOptions& o) const {
   if (!ds_) throw io::Error(io::code::invalid_argument, "a spatial band is prepared with the dataset (the runner may have made its eigenmodes first)");
