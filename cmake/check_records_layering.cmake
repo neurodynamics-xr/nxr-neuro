@@ -10,6 +10,7 @@
 # ALLOW (default cmake/records_layering_allow.txt): the files not yet migrated, one path per line relative to ROOT, '#' comments. A listed file is exempt, but a listed
 # file that is clean fails ("remove it from the list"), and an unlisted file with a violation fails: the list only shrinks and no new SQL lands while the old goes.
 # LIST=1 prints the violating files instead of failing (how the list was made).
+cmake_minimum_required(VERSION 3.20)   # IN_LIST (policy CMP0057) in script mode
 if(NOT ROOT)
   message(FATAL_ERROR "ROOT is not set")
 endif()
