@@ -97,6 +97,7 @@ add_library(nxr_compute STATIC
   src/cores.cpp
   src/tracks.cpp
   src/crossings.cpp
+  src/sphere_registration.cpp
   src/surrogate.cpp
   src/scaling.cpp
   src/scalespace.cpp
@@ -118,6 +119,7 @@ add_library(nxr_compute STATIC
   src/jointbank.cpp
   src/spacetime_kernels.cpp
   src/welch.cpp
+  src/pca.cpp
   src/quadrature.cpp
   src/filter.cpp
   src/wt.cpp
@@ -411,6 +413,11 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     target_compile_definitions(test_welch PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
     add_test(NAME test_welch COMMAND test_welch)
 
+    add_executable(test_pca test/test_pca.cpp)
+    target_link_libraries(test_pca PRIVATE nxr_compute)
+    target_compile_definitions(test_pca PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+    add_test(NAME test_pca COMMAND test_pca)
+
     add_executable(test_quadrature test/test_quadrature.cpp)
     target_link_libraries(test_quadrature PRIVATE nxr_compute)
     target_compile_definitions(test_quadrature PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
@@ -534,6 +541,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     target_link_libraries(test_glue PRIVATE nxr_compute)
     target_compile_definitions(test_glue PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
     add_test(NAME test_glue COMMAND test_glue)
+    add_executable(test_sphere_registration test/test_sphere_registration.cpp)
+    target_link_libraries(test_sphere_registration PRIVATE nxr_compute)
+    add_test(NAME test_sphere_registration COMMAND test_sphere_registration)
 
     add_executable(test_frames test/test_frames.cpp)
     target_link_libraries(test_frames PRIVATE nxr_compute)
