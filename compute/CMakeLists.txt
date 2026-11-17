@@ -120,6 +120,7 @@ add_library(nxr_compute STATIC
   src/jointbank.cpp
   src/spacetime_kernels.cpp
   src/welch.cpp
+  src/band_amplitude.cpp
   src/pca.cpp
   src/quadrature.cpp
   src/filter.cpp

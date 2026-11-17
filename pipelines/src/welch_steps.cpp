@@ -3,6 +3,8 @@
 //
 //   welch.psd          accumulate  x [channels x samples] (+ `exclude`: the recording's bad segments)  ->  psd [channels x bins], one-sided, described as a statistic
 //   rotary.pair        chunk       x + a stored [2 x C] operator (its rows a_x, a_y)  ->  z = a_x.X + i a_y.X, one complex series (pointwise, a linear map)
+//   fft.spectrum       chunk       x -> the block's one-sided spectrum, complex channels x bins (axis block)
+//   measure.band_amplitude  accumulate  spectrum + bands (Hz) -> the bands as spans, the frequency line, the mean |X| per band
 //   welch.complex_psd  accumulate  z  ->  psd [1 x n], TWO-SIDED on the signed frequency line (+f: the pair turning from x towards y)
 //
 // A node describes what its values ARE (`Array::meta["describe"]`: measure, method, axes with the frequency line, the segment tiling, the scaling record, the unit, the options it
@@ -26,6 +28,9 @@
 #include "nxr/meeg/tensor.h"
 #include "nxr/rotary.h"
 #include "nxr/welch.h"
+#include "nxr/fft.h"
+#include "nxr/band_amplitude.h"
+#include "nxr/selection/selection.h"
 
 namespace nxr::pipelines::graph {
 
@@ -934,11 +939,154 @@ ng::NodeSpec welch_mode_cross_spectra() {
   };
   return n;
 }
+
+// ── fft.spectrum and measure.band_amplitude ──────────────────────────────────────────────────────────────────────
+
+ng::NodeSpec fft_spectrum() {
+  ng::NodeSpec n;
+  n.name = "fft.spectrum";
+  n.kind = ng::Kind::chunk;
+  n.inputs = {{"x", "the recording: channels x samples (streamed, one chunk at a time)", false}};
+  n.outputs = {{"spectrum", "the one-sided Fourier transform of every channel of the block, complex channels x bins, made once per block (axis block)", false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input,
+                             "a change of basis of one block: nothing is carried from block to block; the transform runs in double, the value is handed on in float32");
+  n.matches = "numpy.fft.rfft along time (norm backward: unscaled); compute nxr::fft::rfftColumns";
+  n.description = "the one-sided FFT of every channel of the block as given: no window, no taper, no detrend, no scaling (X[k] = sum_j x[j] exp(-2 pi i j k / n), n = the block's samples); "
+                  "its frequency line is bin k at k x sfreq / n Hz (spacing sfreq / n, origin 0, unit Hz), bins n/2 + 1";
+  n.plan = [](const ng::Types& in, const Json&) {
+    const ng::PortType& x = streamed_real(in, "x", "fft.spectrum");
+    if (x.value != ng::ValueType::real) ng::refuse("fft.spectrum: x is real");
+    ng::Planned out;
+    ng::PortType s;
+    s.cls = ng::PortClass::field; s.value = ng::ValueType::complex; s.axis = ng::Axis::block;
+    s.rows = x.rows; s.unit = x.unit; s.sfreq = x.sfreq;
+    out.out["spectrum"] = s;
+    return out;
+  };
+  n.chunk = [](const std::any&, const ng::Blocks& in, std::int64_t, const ng::Place&) {
+    const ng::Block& b = in.at("x");
+    const Eigen::MatrixXd x = own_real(b);                                   // channels x n
+    const Eigen::MatrixXcd X = nxr::fft::rfftColumns(x.transpose()).transpose();   // channels x bins
+    ng::Block o;
+    o.rows = X.rows(); o.width = X.cols(); o.left = 0; o.right = 0;
+    o.re.resize(static_cast<std::size_t>(o.rows * o.width)); o.im.resize(o.re.size());
+    for (Eigen::Index i = 0; i < X.rows(); ++i)
+      for (Eigen::Index k = 0; k < X.cols(); ++k) { o.re[static_cast<std::size_t>(i * X.cols() + k)] = static_cast<float>(X(i, k).real()); o.im[static_cast<std::size_t>(i * X.cols() + k)] = static_cast<float>(X(i, k).imag()); }
+    return ng::Blocks{{"spectrum", std::move(o)}};
+  };
+  return n;
+}
+
+struct BandAmpPrepared {
+  std::vector<nxr::selection::SpanRow> rows;
+  nxr::selection::Lookup lookup;
+  double sfreq = 0;
+  std::string unit;
+};
+struct BandAmpState {
+  std::int64_t bins = -1, channels = 0, chunks = 0;
+  std::vector<double> amplitude;                      // chunk-major: chunk x channel x band
+  std::vector<nxr::BinRange> ranges;
+  nxr::selection::Selection bands;
+  double df = 0;
+};
+
+ng::NodeSpec measure_band_amplitude() {
+  ng::NodeSpec n;
+  n.name = "measure.band_amplitude";
+  n.kind = ng::Kind::accumulate;
+  n.inputs = {{"spectrum", "a block's complex spectrum, channels x bins (fft.spectrum)", false}};
+  n.outputs = {{"freq", "the spectrum's frequency line (count, step, start, unit)", false},
+               {"bands", "the bands as a set of spans on the frequency line, their names the lookup", false},
+               {"measurement", "the amplitude (mean |X| over the band's bins) of every channel of every chunk in every band, over the bands", false}};
+  n.parameters = {{"bands", Json(), "the bands: a list of {name, lo, hi} in Hz, each the span [lo, hi) of the spectrum's frequency line (no default: the caller chooses)", "Hz", {}, false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "the rows of each block are kept in block order; nothing is combined across blocks");
+  n.matches = "the mean of |numpy.fft.rfft| over the bins of each band";
+  n.description = "the amplitude of every channel in named frequency bands: the bands are a set of spans in Hz (nxr::selection::set_of_spans), each resolved to the spectrum's bins [first, last) "
+                  "(first = ceil(lo / spacing), last = ceil(hi / spacing)), the amplitude the mean |X| over them; rows are chunk x channel";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    if (!in.count("spectrum") || in.at("spectrum").axis != ng::Axis::block || in.at("spectrum").value != ng::ValueType::complex) ng::refuse("measure.band_amplitude: spectrum is a complex block value (fft.spectrum)");
+    if (!in.at("spectrum").sfreq || !(*in.at("spectrum").sfreq > 0)) ng::refuse("measure.band_amplitude: the spectrum has no sampling rate");
+    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("measure.band_amplitude: bands is required: a list of {name, lo, hi} in Hz (no default)");
+    ng::Planned out;
+    for (const char* k : {"freq", "bands", "measurement"}) { ng::PortType t; t.cls = ng::PortClass::constant; t.facts["cls"] = std::string(k) == "freq" ? "manifold" : std::string(k) == "bands" ? "selection" : "measurement"; if (std::string(k) == "measurement") { t.facts["measure"] = "amplitude"; t.facts["over"] = Json{{"selection", "the bands of this run"}}; } out.out[k] = t; }
+    return out;
+  };
+  n.prepare = [](const ng::Types& in, const ng::Arrays&, const Json& p, ng::Shared&) {
+    BandAmpPrepared pr;
+    pr.sfreq = *in.at("spectrum").sfreq;
+    pr.unit = in.at("spectrum").unit;
+    std::int64_t code = 0;
+    for (const auto& b : p["bands"]) {
+      const std::string name = b.value("name", std::string());
+      if (name.empty() || !b.contains("lo") || !b.contains("hi")) ng::refuse("measure.band_amplitude: each band is {name, lo, hi}");
+      const double lo = b["lo"].get<double>(), hi = b["hi"].get<double>();
+      if (!(hi > lo) || lo < 0) ng::refuse("measure.band_amplitude: band " + name + " needs 0 <= lo < hi");
+      pr.rows.push_back({lo, hi, code});
+      pr.lookup.push_back({code, name, std::nullopt});
+      ++code;
+    }
+    try { nxr::selection::check(pr.lookup); } catch (const std::invalid_argument& e) { ng::refuse(e.what()); }
+    return std::any(std::move(pr));
+  };
+  n.start = [](const std::any&) { return std::any(BandAmpState{}); };
+  n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place&) {
+    const BandAmpPrepared& pr = std::any_cast<const BandAmpPrepared&>(prepared);
+    BandAmpState& s = std::any_cast<BandAmpState&>(state);
+    const ng::Block& b = in.at("spectrum");
+    const Eigen::MatrixXcd X = own_complex(b);
+    if (s.bins < 0) {
+      s.bins = b.width; s.channels = b.rows;
+      const double len = 2.0 * static_cast<double>(b.width - 1);              // the block's samples (an even number: the bins do not tell an odd one)
+      s.df = pr.sfreq / len;
+      s.bands = nxr::selection::set_of_spans(pr.rows, "Hz", pr.lookup);
+      for (const auto& m : s.bands.members) {
+        const double lo = m.extents.at(0).start, hi = m.extents.at(0).stop;
+        const std::int64_t first = static_cast<std::int64_t>(std::ceil(lo / s.df - 1e-9)), last = static_cast<std::int64_t>(std::ceil(hi / s.df - 1e-9));
+        if (last <= first || first >= s.bins) ng::refuse("measure.band_amplitude: the band [" + std::to_string(lo) + ", " + std::to_string(hi) + ") Hz holds no bin at " + std::to_string(s.df) + " Hz spacing");
+        s.ranges.push_back({first, std::min(last, s.bins)});
+      }
+    } else if (b.width != s.bins || b.rows != s.channels) {
+      ng::refuse("measure.band_amplitude: blocks of different lengths (" + std::to_string(b.width) + " and " + std::to_string(s.bins) + " bins): the bands' bins would differ; use whole chunks");
+    }
+    const Eigen::MatrixXd A = nxr::bandAmplitude(X, s.ranges);                 // channels x bands
+    for (Eigen::Index c = 0; c < A.rows(); ++c) for (Eigen::Index k = 0; k < A.cols(); ++k) s.amplitude.push_back(A(c, k));
+    ++s.chunks;
+    return std::make_pair(ng::Blocks{}, std::move(state));
+  };
+  n.finish = [](const std::any& prepared, std::any state) {
+    const BandAmpPrepared& pr = std::any_cast<const BandAmpPrepared&>(prepared);
+    const BandAmpState& s = std::any_cast<const BandAmpState&>(state);
+    if (s.chunks == 0) ng::refuse("measure.band_amplitude: no block was read");
+    const std::int64_t nb = static_cast<std::int64_t>(s.ranges.size());
+    ng::Array freq;
+    freq.rows = 1; freq.cols = 1; freq.data = {0.0};
+    freq.meta["describe"] = Json{{"count", s.bins}, {"step", s.df}, {"start", 0.0}, {"unit", "Hz"}, {"dimension", "frequency"}};
+    ng::Array bands;
+    bands.rows = nb; bands.cols = 1;
+    Json spans = Json::array(), entries = Json::array();
+    for (std::size_t k = 0; k < s.bands.members.size(); ++k) {
+      const auto& m = s.bands.members[k];
+      spans.push_back(Json{{"start", m.extents.at(0).start}, {"stop", m.extents.at(0).stop}, {"code", *m.code}});
+      entries.push_back(nxr::selection::entry(pr.lookup, *m.code).name);
+      bands.data.push_back(static_cast<double>(*m.code));
+    }
+    bands.meta["describe"] = Json{{"spans", spans}, {"entries", entries}, {"description", "named frequency bands: spans on the frequency line, [lo, hi) in Hz"}};
+    ng::Array a;
+    a.rows = s.chunks * s.channels * nb; a.cols = 1;
+    a.data = s.amplitude;
+    a.meta["describe"] = Json{{"shape", Json::array({s.chunks * s.channels, nb, 1})}, {"values_shape", Json::array({s.chunks * s.channels, nb})}, {"values_f32", true},
+                              {"measures", Json::array({Json{{"measure", "amplitude"}, {"unit", pr.unit.empty() ? std::string("channel unit") : pr.unit}}})},
+                              {"description", "mean |X| over each band's bins; rows chunk x channel, members the bands"}};
+    return ng::Arrays{{"freq", std::move(freq)}, {"bands", std::move(bands)}, {"measurement", std::move(a)}};
+  };
+  return n;
+}
 }  // namespace
 
 void register_welch_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_tensor(), welch_cross_spectrum(), welch_mode_cross_spectra()})
+  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_tensor(), welch_cross_spectrum(), welch_mode_cross_spectra(), fft_spectrum(), measure_band_amplitude()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 
