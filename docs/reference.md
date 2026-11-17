@@ -2075,3 +2075,15 @@ Per library: `compute/README.md` and `compute/docs/`, `io/README.md` and `io/doc
 `nxr-io` and `nxr-compute` are unchanged for now; the maintainers decide when to archive them. nxr-compute's open branch (`feat/wasm-geodesic-paths`) is to be brought in later with
 `git subtree pull --prefix=compute git@github.com:neurodynamics-xr/nxr-compute.git <branch>`; until then a change made there is not here (its bindings now live in `bindings/`, so
 a pulled change under `bindings/` needs moving by hand).
+
+## Node traits: the settled classifications (2026-11-17)
+
+Every registered node declares its time behaviour and precision (`ARCHITECTURE.md`, *Backends and node traits*); no node is `uncertain` any more (`test_node_traits` fails on one). What each was decided from:
+- `lagfree_surrogate`: **windowed** (was pointwise, flagged). The noise is a function of the sample index, but each output sample is that noise filtered by the shaping taps, so it needs `taps_half` samples each side.
+- `tile_crossings` (the crossings step): **windowed**, a window of two cores along a track; it runs once on the whole event table and carries no state between blocks.
+- `extent` grow (hysteresis regions): **stateful**; the labelling is carried forward in time.
+- `extent` roll-up and `rollup_events`: **windowed**; the window is the event's own cells or tiles (variable length).
+- `summarize`: **stateful**; it needs every member of the partition.
+- `fit_gate`, `burst_stages`: **pointwise over events**; events do not interact.
+- `measure` (the median): **stateful**. A median is exactly independent of block order, but the node holds the samples, not a fixed-size sum, so a block-parallel executor must merge them.
+Precision: nodes that compute in double on float32 input and give a field declare `follows_input` and store float32 (their notes say so); only statistics and event tables declare float64 output. Where the stored dtype of a statistic is written (the runner) is not changed by this batch.
