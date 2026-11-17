@@ -39,6 +39,7 @@
 #include <map>
 
 #include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 
 #include "nxr/errors.h"
 #include "nxr/cancellation.h"
@@ -134,10 +135,11 @@ public:
     // True iff the operator mesh is the intrinsic mollified Delaunay mesh (the default).
     bool isIntrinsicDelaunay() const;
 
-    // THE operator mesh: the one Delaunay construction (nxr/delaunay.h) every intrinsic operator is built on — halfedge mesh, edge lengths,
-    // signposts, the recorded mixed-Voronoi mass of the mollified input, and the record (mollify, ε, flipEps, flips). With MeshKind::Embedded it is
-    // the input as it is. geometry() is unchanged and still used for EXTRINSIC quantities (normals, frames).
-    const delaunay::Mesh& operatorMesh() const;
+    // THE intrinsic surface (nxr/intrinsic_surface.h, geometry-central's signpost intrinsic Delaunay triangulation of the mollified input): every
+    // intrinsic operator (cotan Laplacian, masses, DEC, connection Laplacian, Hodge–Dirac) and every tangent quantity is built on it, in ONE gauge —
+    // geometry-central's. With MeshKind::Embedded it is the input as it is. geometry() is unchanged and still used for EXTRINSIC quantities.
+    // (`intrinsic()` below is the older data facet; it keeps its name.)
+    IntrinsicSurface& intrinsicSurface();
     const ManifoldOptions& options() const;
     // The cotangent Laplacian of the operator mesh, held for the Manifold's lifetime (ManifoldOperators views it).
     const Eigen::SparseMatrix<double>& operatorCotan();
@@ -279,7 +281,7 @@ private:
     std::unique_ptr<geometrycentral::surface::ManifoldSurfaceMesh>             mesh_;
     std::unique_ptr<geometrycentral::surface::VertexPositionGeometry>         geometry_;
     ManifoldOptions                          options_;
-    std::unique_ptr<delaunay::Mesh>          operatorMesh_;      // the one Delaunay construction (flips only when options_.mesh == Intrinsic)
+    std::unique_ptr<IntrinsicSurface>        surface_;           // the one intrinsic construction (flips only when options_.mesh == Intrinsic)
     std::unique_ptr<Eigen::SparseMatrix<double>> operatorCotan_; // its cotan Laplacian, never released
     std::unique_ptr<ops::DecMatrices>        operatorDec_;       // the DEC of the operator mesh
     std::unique_ptr<Eigen::VectorXd>         operatorDualAreas_;
@@ -522,7 +524,10 @@ struct HodgeDirac {
     int star1Clamped = 0;               // edges whose cotan weight was raised to the floor
     double mollifyEps = 0.0;            // length added to every edge by mollify (0 = none needed)
     Eigen::MatrixXi faces;              // [nF, 3] the intrinsic triangulation's faces (vertex indices are the input's)
-    delaunay::DelaunayRecord record;    // mollify, ε, flipEps, flips of the construction
+    IntrinsicRecord record;             // mollify, ε, flipEps, flips, gauge of the construction
+    // the intrinsic complex in the stored layout (IntrinsicSurface::Complex): corners 3f + k, edges tail → tip, signed face edges (1-based), lengths,
+    // the raw signpost angles of each corner's halfedge, the cone angles and the reference neighbours (angle 0 of the gauge)
+    IntrinsicSurface::Complex complex;
 };
 // Uses the Manifold's operator mesh when it is the intrinsic one built with these options, else builds its own by the same construction.
 HodgeDirac assemble(Manifold& m, double star1Floor = 0.0, double mollify = 1e-6, double flipEps = 1e-6);
@@ -1756,11 +1761,12 @@ struct FaceFrames {
 
 FaceFrames frames(Manifold& m);
 
-/* Per-vertex orthonormal tangent frame = the signposts' gauge (nxr/delaunay.h; the Studio's `tangentBasis`), the 3D realization of the
- * per-vertex tangent space in which the vertex connection-Laplacian's complex eigenvector coordinates live:
- *   n  = the area-weighted normal of the input faces
- *   e1 = the direction of the vertex's REFERENCE input edge (its first outgoing halfedge in face order; at a boundary the twinless one),
- *        projected onto the tangent plane (angle 0)
+/* Per-vertex orthonormal tangent frame = geometry-central's gauge of the (mollified) input mesh (IntrinsicSurface::tangentBasis; equal to its
+ * `vertexTangentBasis` when nothing was mollified): the 3D realization of the per-vertex tangent space in which the vertex connection-Laplacian's complex
+ * eigenvector coordinates, the vector heat method's and the transport live:
+ *   n  = the corner-angle-weighted vertex normal
+ *   e1 = the average of the vertex's outgoing edges, each projected on the tangent plane and rotated back by its own rescaled angle (angle 0 = the input's
+ *        v.halfedge())
  *   e2 = n x e1
  * A connection-mode coordinate z=(a,b) at vertex i decodes to a*e1_i + b*e2_i. */
 struct VertexFrames {
@@ -1770,8 +1776,7 @@ struct VertexFrames {
 };
 
 VertexFrames vertexFrames(Manifold& m);
-// geometry-central's vertexTangentBasis on the input mesh: the frame the TRIVIAL-connection (gauge-combing) machinery and the direction fields
-// work in, which keeps geometry-central's own reference halfedge.
+// DEPRECATED alias of vertexFrames (there is one gauge now; removed with the port, spec G7).
 VertexFrames vertexFramesEmbedded(Manifold& m);
 
 // ── Complex frame ("grid") ───────────────────────────────────
@@ -1781,7 +1786,7 @@ VertexFrames vertexFramesEmbedded(Manifold& m);
 // normal is recovered as real(c) × imag(c) and is not stored
 // separately. This is the representation Brainstorm's Geometry.*.grid
 // fields use; see the bundle design spec §5.1.
-Eigen::MatrixXcd vertexGrid(Manifold& m);   // [nV, 3] complex, from vertexFrames (the signposts' gauge: what the Levi-Civita connection Laplacian's coordinates decode against)
+Eigen::MatrixXcd vertexGrid(Manifold& m);   // [nV, 3] complex, from vertexFrames (geometry-central's gauge: what the Levi-Civita connection Laplacian's coordinates decode against)
 Eigen::MatrixXcd vertexGridEmbedded(Manifold& m);   // [nV, 3] complex, from vertexFramesEmbedded: geometry-central's frame, the base frame of the trivial gauge and of the light Geometry bundle's `vertexGrid`
 Eigen::MatrixXcd faceGrid(Manifold& m);     // [nF, 3] complex
 

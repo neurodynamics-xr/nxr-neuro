@@ -113,6 +113,26 @@ public:
 
     /** The mixed-Voronoi mass (Meyer et al. 2003) of the mollified input, [nV]. */
     std::vector<double> inputMixedVoronoiMass();
+    /** The barycentric mass (a third of each triangle's area of `geometry()`), [nV], whatever the mass option. */
+    std::vector<double> barycentricMass();
+    /** The consistent P1 (Galerkin) mass of `geometry()`, whatever the mass option. */
+    Eigen::SparseMatrix<double> galerkinMassMatrix();
+
+    /** The combinatorics and raw signposts of `mesh()` (the intrinsic triangulation; with `mesh = embedded` the input), in the layout the stored
+     *  intrinsic complexes use: face f has the corners 3f + k (k = 0, 1, 2, in the order of `f.halfedge()`, `.next()`), the halfedge at corner h runs from
+     *  `faces[h]` to `faces[3f + (k + 1) % 3]`. Edges are numbered as `mesh()` numbers them and oriented along `e.halfedge()` (tail to tip). */
+    struct Complex {
+        std::vector<int32_t> faces;       // [3 nF] the vertex at each corner
+        std::vector<int32_t> edges;       // [2 nE] tail, tip
+        std::vector<int32_t> faceEdges;   // [3 nF] signed, 1-based edge of the halfedge at each corner: +e + 1 along the edge's orientation, −(e + 1) against
+        std::vector<double>  length;      // [nE]
+        std::vector<double>  angle;       // [3 nF] the signpost angle of the halfedge at each corner: raw, in [0, cone angle), measured from the input's reference halfedge
+        std::vector<double>  angleSum;    // [nV] the cone angle (sum of the corner angles round the vertex)
+        std::vector<int32_t> reference;   // [nV] the head of the input's `v.halfedge()`: angle 0
+    };
+    Complex complex();
+    /** The raw signpost angle of each of the INPUT mesh's halfedges (mollified input), indexed by halfedge index: the same coordinate as `Complex::angle`. */
+    std::vector<double> inputSignpostAngles();
 
 private:
     struct Impl;

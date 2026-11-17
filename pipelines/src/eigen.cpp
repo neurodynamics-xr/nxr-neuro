@@ -117,22 +117,12 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   }
   // THE FULL FORMS: the intrinsic complex (the operator mesh the pencil was built on) and each coexact mode's 2-form χ/√2
   {
-    const nxr::manifold::delaunay::Mesh& om = m.operatorMesh();
-    const int nEo = om.nE();
-    if (om.nF != nF || nEo != nE) throw nxr::io::Error(nxr::io::code::invalid_argument, "solve_hodge_dirac: the operator mesh and the pencil disagree in size");
-    out.edges.resize(2 * static_cast<std::size_t>(nE));
-    for (int e = 0; e < nE; ++e) {
-      const int h = om.edgeHe[static_cast<std::size_t>(e)];
-      out.edges[2 * static_cast<std::size_t>(e)] = om.F[static_cast<std::size_t>(h)];
-      out.edges[2 * static_cast<std::size_t>(e) + 1] = om.F[static_cast<std::size_t>(nxr::manifold::delaunay::nextHe(h))];
-    }
-    out.lengths.assign(om.length.begin(), om.length.end());
-    out.faces.assign(om.F.begin(), om.F.end());
-    out.face_edges.resize(3 * static_cast<std::size_t>(nF));
-    for (int h = 0; h < 3 * nF; ++h) {
-      const int e = om.edgeOf[static_cast<std::size_t>(h)];
-      out.face_edges[static_cast<std::size_t>(h)] = om.edgeHe[static_cast<std::size_t>(e)] == h ? e + 1 : -(e + 1);
-    }
+    const auto& cx = hd.complex;   // the intrinsic complex of geometry-central's triangulation, in the stored layout
+    if (static_cast<int>(cx.faces.size()) != 3 * nF || static_cast<int>(cx.length.size()) != nE) throw nxr::io::Error(nxr::io::code::invalid_argument, "solve_hodge_dirac: the operator mesh and the pencil disagree in size");
+    out.edges = cx.edges;
+    out.lengths = cx.length;
+    out.faces = cx.faces;
+    out.face_edges = cx.faceEdges;
     // the stored orientation must be the pencil's: d0 (−1 tail, +1 tip) and d1 (the face's signed edges)
     {
       const Eigen::SparseMatrix<double, Eigen::RowMajor> D0(hd.d0), D1(hd.d1);
@@ -157,7 +147,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
     out.star0.assign(hd.star0.data(), hd.star0.data() + hd.star0.size());
     out.star1.assign(hd.star1.data(), hd.star1.data() + hd.star1.size());
     out.star2.assign(hd.star2.data(), hd.star2.data() + hd.star2.size());
-    if (om.hasSignposts) { out.angle = om.angle; out.angle_sum = om.angleSum; out.reference = om.ref; }
+    out.angle = cx.angle; out.angle_sum = cx.angleSum; out.reference = cx.reference;
     const std::size_t F_ = static_cast<std::size_t>(nF);
     out.forms2.assign(F_ * K, 0.0f);
     for (std::size_t j = 0; j < K; ++j) {
