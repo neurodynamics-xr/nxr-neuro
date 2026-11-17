@@ -124,6 +124,57 @@ ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding
 
 }  // namespace
 
+// THE TYPE OF A STORED VALUE (type system T3): its domain's factors from the rows io describes (name, kind, line role, coordinate system, size), its quantity (a field's kind,
+// an operator's kind, a selection's type), an operator's source and target. Only a value whose every factor io described is typed; the others are checked by their nodes' plans.
+namespace {
+ng::ManifoldKind kind_of_manifold(const std::string& t) {
+  return t == "line" ? ng::ManifoldKind::line : t == "surface" ? ng::ManifoldKind::surface : t == "curve" ? ng::ManifoldKind::curve
+         : (t == "volume" || t == "image" || t == "tetrahedral") ? ng::ManifoldKind::volume : ng::ManifoldKind::points;
+}
+ng::Role role_of_line(const std::string& r) {
+  return r == "time" ? ng::Role::time : r == "frequency" ? ng::Role::frequency : r == "modes" ? ng::Role::modes : r == "levels" ? ng::Role::levels : ng::Role::none;
+}
+std::optional<ng::ManifoldRef> stored_manifold(const Value& v, const std::string& id) {
+  if (id.empty() || !v.manifold_facts.contains(id)) return std::nullopt;
+  const Json& f = v.manifold_facts[id];
+  std::optional<ng::CoordinateSystem> cs;
+  if (f.contains("cs")) cs = ng::CoordinateSystem{f["cs"].value("space", std::string()), f["cs"].value("name", std::string()), f["cs"].value("unit", std::string())};
+  return ng::manifold_id(f.value("name", std::string()), id, kind_of_manifold(f.value("type", std::string())), role_of_line(f.value("role", std::string())), cs, f.value("n", std::int64_t(0)));
+}
+}  // namespace
+void typed_from_rows(ng::PortType& t, const Value& v) {
+  if (!v.row || v.cls == "statistic" || v.cls == "measurement") return;   // a statistic's type needs its OfType (the axes it was made over): typed by its node's plan
+  auto domain = [&](const std::vector<std::string>& ids) -> std::optional<ng::Domain> {
+    ng::Domain d;
+    for (const auto& id : ids) { const auto m = stored_manifold(v, id); if (!m) return std::nullopt; d.factors.push_back(*m); }
+    return d;
+  };
+  const nxr::io::Row& r = *v.row;
+  if (v.cls == "operator") {
+    const auto from = domain({v.manifolds.at(0)}), to = domain({v.manifolds.at(1)});
+    if (!from || !to) return;
+    t.domain = *from; t.target = *to;
+    t.quantity = nxr::io::opt_text(r, "kind").value_or("");
+    const std::string fv = nxr::io::opt_text(r, "from_value_type").value_or("scalar");
+    t.from_value = fv == "vector3" ? ng::ValueType::vector3 : fv == "complex" ? ng::ValueType::complex : ng::ValueType::real;
+  } else {
+    const auto d = domain(v.manifolds);
+    if (!d) return;
+    t.domain = *d;
+    if (v.cls == "field") t.quantity = nxr::io::opt_text(r, "kind").value_or("");
+    if (v.cls == "selection" || v.cls == "spans" || v.cls == "labelling") {
+      const std::string ty = nxr::io::opt_text(r, "type").value_or("");
+      t.quantity = ty;
+      ng::SelectionShape sh;
+      sh.type = ty; sh.identity = nxr::io::text(r, "id");
+      sh.partition = ty == "set" || ty == "ladder" || ty == "spans";
+      t.sel = sh;
+    }
+  }
+  if (!t.quantity.empty() && !ng::is_quantity(t.quantity)) { t.quantity.clear(); return; }   // a kind outside the closed vocabulary: left to the node's plan
+  t.typed = true;
+}
+
 ng::PortType port_of(const Value& v) {
   ng::PortType t;
   t.cls = class_of(v.cls);
@@ -145,7 +196,9 @@ ng::PortType port_of(const Value& v) {
   d["row"] = v.row ? row_json(*v.row) : Json();
   d["unit"] = v.unit ? Json(*v.unit) : Json();
   d["facts"] = v.facts;
+  d["manifold_facts"] = v.manifold_facts;
   t.facts["value"] = std::move(d);
+  typed_from_rows(t, v);
   return t;
 }
 

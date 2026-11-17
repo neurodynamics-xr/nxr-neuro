@@ -38,6 +38,9 @@ struct Value {
   std::optional<Row> row;                  // the stored row, for an input
   std::optional<std::string> unit;
   Json facts = Json::object();             // what a step records about what it made, for the steps after it (e.g. {"form": "absq", "phase": false})
+  /** THE TYPES' FACTS of the stored manifolds this value lies on, from their rows (type system T3): per id, its name, type (points · line · surface · …), vertex count, line role
+   *  (time · frequency · …) and coordinate system {space, name, unit} when its geometry records one. Filled by value_of for every manifold in `manifolds`. */
+  Json manifold_facts = Json::object();
 };
 
 /** a manifold's factors in axis order (itself, when it is not a product) */

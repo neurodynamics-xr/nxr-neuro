@@ -1066,6 +1066,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   Json producer = Json{{"pipeline", Json{{"name", d.name}, {"version", d.version}, {"definition", d.source}, {"sha256", nxr::io::sha256_hex(d.text)}}},
                        {"parameters", P.parameters}, {"inputs", nxr::io::finder::describe(P.found)}, {"run", facts}, {"prepared", prepared}, {"warnings", warnings}, {"messages", messages}, {"made_first", made_first}, {"nxr_neuro", NXR_NEURO_VERSION}};
   if (!P.preset.empty()) producer["preset"] = P.preset;
+  {                                                                         // T3: each output's type as the checker typed it, written with it and read back by the next run's finder
+    Json types = Json::object();
+    for (const auto& o : checked.outputs) if (checked.values.count(o)) types[o] = nxr::graph::print(checked.values.at(o));
+    producer["types"] = types;
+  }
   const Json stamped = nxr::pipelines::stamp(key);                         // held: iterating a temporary's items() would dangle
   for (const auto& [k, v] : stamped.items()) producer[k] = v;
   stored = Json::array();
