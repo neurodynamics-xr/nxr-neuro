@@ -1,0 +1,51 @@
+# THE STRUCTURAL CONNECTOME OVER A PARTITION, FROM A TEMPLATE'S FIBERS (spec section 5 and 7). DRAFT, NOT YET SHIPPED (see connectome.yaml, "Needs"). A definition has no
+# conditional steps, so the template's route is its own definition: the ends are placed on the TEMPLATE's end surface, then carried onto the subject's through the registration
+# of the spheres (an empty column goes to its NEAREST subject vertex on the sphere, never to vertex 0: the reference's quirk, fixed).
+#
+#   nxr-neuro run connectome_template --fibers hcp1065:tracts --end-surface pial --over desikan-killiany --dataset d --subject s
+#
+# The result is the template's anatomy on the subject's cortex, not the subject's own. The bundle's `origin` (HCP-1065: CC BY-SA 4.0 with the WU-Minn HCP Data Use Terms; Yeh 2022,
+# Nat Commun 13:4933) is copied into the result's provenance: a result derived from it is shared under the same terms (ShareAlike), with the attribution.
+pipeline: connectome_template
+version: 1
+description: the fiber counts between the regions of a partition of the subject's end surface, from a template's fibers carried through the registration
+scope: subject
+
+inputs:
+  fibers:           {curve: fibers, from: template, where: {name: $fibers}}
+  template_surface: {surface: cortex, from: template, where: {name: $end_surface}}
+  surface:          {surface: cortex, where: {name: $end_surface}}
+  partition:        {selection: partition, manifold: surface, where: {name: $over}}
+  registration:     {registration: sphere, from: [template_surface, surface]}
+
+parameters:
+  fibers:       {default: required, meaning: "the template's fiber bundle, `<template>:<name>`", unit: "-"}
+  end_surface:  {default: required, meaning: "the surface the ends are placed on, read by the same name on the template and on the subject", unit: "-"}
+  over:         {default: required, meaning: "the partition of the subject's end surface the counts are reduced over", unit: "-"}
+  smooth_hops:  {default: 0, meaning: "hops of the mesh smoothing, applied to the partition's memberships (0: the plain fiber count)", unit: "hops"}
+  max_end_distance: {default: 5, meaning: "a fiber with an end farther than this from the TEMPLATE's end surface (before the registration) is left out; none: no gate", unit: "mm"}
+  neighbours:   {default: 8, meaning: "the template vertices of each subject vertex that take Shepard weight (Franke and Nielson 1980)", unit: "vertices"}
+  points_per_fiber: {default: 0, meaning: "the points of each fiber (read from the bundle when 0)", unit: "points"}
+  name: {default: "{fibers}_{end_surface}_fiber_counts_on_{end_surface}", meaning: "the stored name of the counts", unit: "-"}
+
+steps:
+  before:
+    - {node: fiber_ends,          in: {fibers: fibers},                                      with: {points_per_fiber: $points_per_fiber}, out: end_points}
+    - {node: nearest_vertex,      in: {points: end_points, positions: template_surface},                                                  out: [template_end_vertex, end_distance]}
+    - {node: end_gate,            in: {end_distance: end_distance},                          with: {max_end_distance_mm: $max_end_distance}, out: keep}
+    - {node: registration_match,  in: {template_sphere: registration.template_sphere, template_pieces: registration.template_pieces, subject_sphere: registration.subject_sphere, subject_pieces: registration.subject_pieces},
+                                  with: {neighbours: $neighbours},                                                                          out: match}
+    - {node: carry_ends,          in: {end_vertex: template_end_vertex, match: match},                                                      out: end_vertex}
+    - {node: smooth_memberships,  in: {label: partition, faces: surface},                    with: {hops: $smooth_hops},                  out: memberships}
+    - {node: partition_counts,    in: {end_vertex: end_vertex, keep: keep, memberships: memberships},                                      out: counts}
+
+outputs:
+  counts:
+    kind: measurement
+    name: $name
+    over: partition
+    of: fibers
+    codes: 2
+    unit: fibers
+    carry_origin: fibers
+    description: "fiber_count between the regions of the partition from a template's fibers on the subject's cortex; carries the bundle's origin and licence (CC BY-SA 4.0 and the WU-Minn HCP Data Use Terms)"
