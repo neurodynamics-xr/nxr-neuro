@@ -284,7 +284,7 @@ Json export_fibers(SubjectWriter& sub, const fs::path& fibers_file, const std::s
         if (r != c) C[{c, r}] += 1;
         if (r > 0 && c > 0) ++assigned;
       }
-      if (nxr::io::selection::has_measurement(sub.db(), selection_id, nxr::io::selection::MeasurementFilter{std::string("streamlines"), std::nullopt, true, false}))
+      if (nxr::io::selection::has_measurement(sub.db(), selection_id, [&] { nxr::io::selection::MeasurementFilter f; f.measure = std::string("streamlines"); f.of_field_none = true; return f; }()))
         value_error(pname + ": the " + fam + " atlas already holds Brainstorm's streamline counts of another fibres file");
       std::vector<RegionValue> rows;
       for (const auto& [rc, v] : C) rows.push_back(RegionValue{rc.first, v, rc.second});

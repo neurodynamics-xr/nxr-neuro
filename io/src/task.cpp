@@ -129,7 +129,7 @@ selection::ElementMembers Subject::element_members(const std::string& selection_
 Json Subject::query_members(const query::Query& q) const { return query::members(*impl_->db, q, impl_->writer ? &impl_->writer->store() : nullptr); }
 std::int64_t Subject::write_member_rows(const Json& rows, const std::string& computed_by) const {
   if (!impl_->writer) throw Error(code::unsupported, "writing measurement rows needs a writer's subject");
-  return write_measurements(*impl_->db, rows, computed_by);
+  return ::nxr::io::write_measurements(*impl_->db, rows, std::optional<std::string>(computed_by));
 }
 
 Subject Subject::of(SubjectWriter& sub) {

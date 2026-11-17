@@ -353,7 +353,7 @@ Json export_region_map(SubjectWriter& sub, const fs::path& p, const fs::path& bs
   }
   const std::string comment = text_field(get(m, "Comment")).empty() ? p.stem().string() : text_field(get(m, "Comment"));
   const std::string stem = nxr::io::sanitize_node_name(removeprefix(p.stem().string(), "matrix_"));
-  if (nxr::io::selection::has_measurement(sub.db(), sid, nxr::io::selection::MeasurementFilter{comment, std::nullopt, true, true}))
+  if (nxr::io::selection::has_measurement(sub.db(), sid, [&] { nxr::io::selection::MeasurementFilter f; f.measure = comment; f.of_field_none = true; f.whole_only = true; return f; }()))
     value_error(fname + ": the " + aname + " atlas already holds a measure '" + comment + "'");
   const std::string fam = nxr::io::sanitize_node_name(aname);
   const auto unit = suvr_unit(stem, comment);
