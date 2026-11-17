@@ -6,7 +6,9 @@
 #include "geometrycentral/surface/surface_centers.h"
 #include "geometrycentral/surface/surface_point.h"
 
+#include <array>
 #include <iostream>
+#include <memory>
 #include <stdexcept>
 #include <tuple>
 #include <vector>
@@ -25,12 +27,20 @@ using namespace geometrycentral::surface;
 
 class VectorHeatSolverImpl {
 public:
+    // The solver lives on the INTRINSIC Delaunay triangulation (geometry-central's gauge, the one every tangent operator uses); its vertices carry the
+    // input's indices. `basis` is the 3D realisation of that gauge (IntrinsicSurface::tangentBasis).
     VectorHeatSolverImpl(Manifold& c, double tCoef)
-        : m(c), solver(c.geometry(), tCoef) {
-        c.geometry().requireVertexTangentBasis();
-    }
+        : m(c), tCoef(tCoef), solver(c.intrinsicSurface().geometry(), tCoef), basis(c.intrinsicSurface().tangentBasis()) {}
     Manifold& m;
+    double tCoef;
     VectorHeatMethodSolver solver;
+    TangentBasis basis;
+    std::unique_ptr<VectorHeatMethodSolver> inputSolver;   // findCenter only: it returns a point of the INPUT mesh, so it runs there
+    Vertex vertex(int i) { return m.intrinsicSurface().mesh().vertex(static_cast<size_t>(i)); }
+    std::array<Vector3, 2> frame(int i) const {
+        const size_t k = 3 * static_cast<size_t>(i);
+        return {Vector3{basis.e1[k], basis.e1[k + 1], basis.e1[k + 2]}, Vector3{basis.e2[k], basis.e2[k + 1], basis.e2[k + 2]}};
+    }
 };
 
 VectorHeatSolver::VectorHeatSolver(Manifold& m, double tCoef)
@@ -76,8 +86,6 @@ Eigen::MatrixXd parallel(
     const Eigen::MatrixXd& sourceVectors
 ) {
     auto& s = solver.impl();
-    auto& mesh = s.m.mesh();
-    auto& geom = s.m.geometry();
     int nV = s.m.nV();
 
     if (static_cast<int>(sourceVertices.size()) != sourceVectors.rows()) {
@@ -93,18 +101,17 @@ Eigen::MatrixXd parallel(
     sources.reserve(sourceVertices.size());
     for (std::size_t i = 0; i < sourceVertices.size(); i++) {
         checkVertexInRange(sourceVertices[i], nV);
-        Vertex v = mesh.vertex(static_cast<size_t>(sourceVertices[i]));
+        Vertex v = s.vertex(sourceVertices[i]);
         Vector3 w{sourceVectors(i, 0), sourceVectors(i, 1), sourceVectors(i, 2)};
-        Vector2 t = worldToTangent(w, geom.vertexTangentBasis[v]);
+        Vector2 t = worldToTangent(w, s.frame(sourceVertices[i]));
         sources.emplace_back(v, t);
     }
 
     VertexData<Vector2> transported = s.solver.transportTangentVectors(sources);
 
     Eigen::MatrixXd out(nV, 3);
-    for (Vertex v : mesh.vertices()) {
-        int vi = static_cast<int>(v.getIndex());
-        Vector3 w = tangentToWorld(transported[v], geom.vertexTangentBasis[v]);
+    for (int vi = 0; vi < nV; ++vi) {
+        Vector3 w = tangentToWorld(transported[static_cast<size_t>(vi)], s.frame(vi));
         out(vi, 0) = w.x;
         out(vi, 1) = w.y;
         out(vi, 2) = w.z;
@@ -123,7 +130,6 @@ Eigen::VectorXd extendScalar(
     const Eigen::VectorXd& sourceValues
 ) {
     auto& s = solver.impl();
-    auto& mesh = s.m.mesh();
     int nV = s.m.nV();
 
     if (static_cast<int>(sourceVertices.size()) != sourceValues.size()) {
@@ -136,16 +142,14 @@ Eigen::VectorXd extendScalar(
     for (std::size_t i = 0; i < sourceVertices.size(); i++) {
         checkVertexInRange(sourceVertices[i], nV);
         sources.emplace_back(
-            mesh.vertex(static_cast<size_t>(sourceVertices[i])),
+            s.vertex(sourceVertices[i]),
             sourceValues[static_cast<Eigen::Index>(i)]);
     }
 
     VertexData<double> extended = s.solver.extendScalar(sources);
 
     Eigen::VectorXd out(nV);
-    for (Vertex v : mesh.vertices()) {
-        out(static_cast<int>(v.getIndex())) = extended[v];
-    }
+    for (int vi = 0; vi < nV; ++vi) out(vi) = extended[static_cast<size_t>(vi)];
     return out;
 }
 
@@ -157,12 +161,10 @@ LogMapResult logMap(
     LogMapStrategy strategy
 ) {
     auto& s = solver.impl();
-    auto& mesh = s.m.mesh();
-    auto& geom = s.m.geometry();
     int nV = s.m.nV();
     checkVertexInRange(sourceVertex, nV);
 
-    Vertex src = mesh.vertex(static_cast<size_t>(sourceVertex));
+    Vertex src = s.vertex(sourceVertex);
 
     geometrycentral::surface::LogMapStrategy gcStrategy;
     switch (strategy) {
@@ -183,12 +185,11 @@ LogMapResult logMap(
 
     LogMapResult out;
     out.logCoords.resize(nV, 2);
-    for (Vertex v : mesh.vertices()) {
-        int vi = static_cast<int>(v.getIndex());
-        out.logCoords(vi, 0) = logMap[v].x;
-        out.logCoords(vi, 1) = logMap[v].y;
+    for (int vi = 0; vi < nV; ++vi) {
+        out.logCoords(vi, 0) = logMap[static_cast<size_t>(vi)].x;
+        out.logCoords(vi, 1) = logMap[static_cast<size_t>(vi)].y;
     }
-    const auto& srcBasis = geom.vertexTangentBasis[src];
+    const auto srcBasis = s.frame(sourceVertex);
     out.sourceE1 << srcBasis[0].x, srcBasis[0].y, srcBasis[0].z;
     out.sourceE2 << srcBasis[1].x, srcBasis[1].y, srcBasis[1].z;
     return out;
@@ -226,7 +227,8 @@ Eigen::Vector3d findCenter(
             "findCenter requires a manifold surface mesh");
     }
 
-    SurfacePoint center = findCenter(*manifold, geom, s.solver, srcs, p);
+    if (!s.inputSolver) s.inputSolver = std::make_unique<VectorHeatMethodSolver>(geom, s.tCoef);
+    SurfacePoint center = findCenter(*manifold, geom, *s.inputSolver, srcs, p);
 
     // Resolve SurfacePoint to a 3D world position via barycentric blend.
     Vector3 pos = center.interpolate(geom.inputVertexPositions);

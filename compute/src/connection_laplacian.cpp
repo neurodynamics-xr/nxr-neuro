@@ -19,12 +19,11 @@ namespace {
 
 using ComplexTriplet = Eigen::Triplet<std::complex<double>>;
 
-// Vertex connection Laplacian on the n-RoSy bundle: nxr/delaunay.h `connectionLaplacian` (the Studio's connectionLaplacian.ts) on the Manifold's
-// operator mesh, from its edge lengths and SIGNPOSTS — the rescaled angle of each halfedge at its tail, from each vertex's reference halfedge (the
-// first outgoing halfedge in face order; at a boundary the twinless one). The connection lifts the scalar Laplacian's cotangent weight to the complex
-// tangent bundle; nSym raises every rotation to that power.
-void assembleVertexCL(const delaunay::Mesh& mesh, int nSym, std::vector<ComplexTriplet>& out) {
-    const Eigen::SparseMatrix<std::complex<double>> K = delaunay::connectionLaplacian(mesh, nSym);
+// Vertex connection Laplacian on the n-RoSy bundle: the IntrinsicSurface's (geometry-central's `vertexConnectionLaplacian` for n = 1; for n > 1 its
+// transport raised to the n-th power with its edge cotangent weights), on the Manifold's intrinsic triangulation — in geometry-central's gauge. The
+// connection lifts the scalar Laplacian's cotangent weight to the complex tangent bundle.
+void assembleVertexCL(IntrinsicSurface& surface, int nSym, std::vector<ComplexTriplet>& out) {
+    const Eigen::SparseMatrix<std::complex<double>> K = surface.connectionLaplacian(nSym);
     out.reserve(static_cast<size_t>(K.nonZeros()));
     for (int c = 0; c < K.outerSize(); ++c)
         for (Eigen::SparseMatrix<std::complex<double>>::InnerIterator it(K, c); it; ++it)
@@ -178,9 +177,9 @@ ConnectionLaplacian assembleConnectionLaplacian(
     int N = 0;
     switch (opts.domain) {
         case ConnectionDomain::Vertex:
-            // The operator mesh's cotan weights and signposts (the intrinsic mollified Delaunay mesh by default; MeshKind::Embedded: the input).
+            // The intrinsic surface's cotan weights and transport (the signpost intrinsic Delaunay triangulation by default; MeshKind::Embedded: the input).
             N = m.nV();
-            assembleVertexCL(m.operatorMesh(), opts.nSym, triplets);
+            assembleVertexCL(m.intrinsicSurface(), opts.nSym, triplets);
             break;
         case ConnectionDomain::Face:
             N = m.nF();
@@ -212,8 +211,8 @@ ConnectionLaplacian assembleConnectionLaplacian(
     // Populate tangent frame (gauge) used to build this Laplacian.
     // Eigenvectors U[:,k] satisfy: field at v = real(U[v,k])*e1(v) + imag(U[v,k])*e2(v).
     //
-    // The vertex frame is the signposts' gauge (the Studio's `tangentBasis`): n the area-weighted normal of the input faces, e1 the direction of the
-    // vertex's REFERENCE input edge (angle 0) projected onto the tangent plane, e2 = n × e1.
+    // The vertex frame is geometry-central's gauge (IntrinsicSurface::tangentBasis): n the corner-angle-weighted normal, e1 the average of the outgoing
+    // edges each rotated back by its own rescaled angle (angle 0 = the input's v.halfedge()), e2 = n × e1.
     if (opts.domain == ConnectionDomain::Vertex) {
         const geometry::VertexFrames vf = geometry::vertexFrames(m);
         result.frameE1 = vf.e1;
@@ -362,27 +361,32 @@ assembleConnectionGradient(Manifold& m, int nSym) {
                     "assembleConnectionGradient: nSym must be > 0",
                     "Common values: 1 (vector field), 2 (line field).");
 
-    // v1: Levi-Civita gauge only. The operator mesh's signpost transport does not vary with the active gauge, so this gradient is
-    // gauge-independent and squares to leviCivitaConnectionLaplacian. A trivial-gauge gradient (the φ-corrected root of
-    // trivialConnectionLaplacian, mirroring assembleTrivialConnectionLaplacian's correction) is a deferred follow-up.
-    const delaunay::Mesh& om = m.operatorMesh();
-    const int E = om.nE();
-    const int V = om.nV;
+    // v1: Levi-Civita gauge only. The intrinsic surface's transport does not vary with the active gauge, so this gradient is gauge-independent and
+    // squares to leviCivitaConnectionLaplacian.
+    auto& g = m.intrinsicSurface().geometry();
+    const int E = static_cast<int>(g.mesh.nEdges());
+    const int V = m.nV();
+    g.requireVertexIndices();
+    g.requireTransportVectorsAlongHalfedge();
 
-    // Per edge e = (i→j) via its halfedge h = edgeHe[e]:
+    // Per edge e = (i→j) via its halfedge he = e.halfedge():
     //   D[e, j] = +1
-    //   D[e, i] = −ρ   where ρ = e^{−i·nSym·r},  r = ψ_ij + π − ψ_ji  (the Studio's connectionLaplacian rotation)
-    // Identity: (Dᴴ ⋆₁ D)[i,j] = w · conj(−ρ) = −w e^{+i nSym r} = the vertex connection Laplacian's entry.
+    //   D[e, i] = −ρ   where ρ = conj(r^n), r = the unit transport along the twin halfedge (the one the vertex connection Laplacian's (i, j) entry uses)
+    // Identity: (Dᴴ ⋆₁ D)[i,j] = w · conj(−ρ) = −w r^n = the vertex connection Laplacian's entry.
     std::vector<Eigen::Triplet<std::complex<double>>> T;
     T.reserve(2 * static_cast<size_t>(E));
 
-    for (int e = 0; e < E; ++e) {
-        const int h = om.edgeHe[static_cast<size_t>(e)];
-        const int i = om.F[static_cast<size_t>(h)], j = om.F[static_cast<size_t>(delaunay::nextHe(h))];
-        const double r = nSym * (delaunay::rescaledAngle(om, h) + M_PI - delaunay::reverseAngle(om, h));
-        T.emplace_back(e, j, std::complex<double>(1.0, 0.0));
-        T.emplace_back(e, i, std::complex<double>(-std::cos(r), std::sin(r)));    // −ρ, ρ = e^{−ir}
+    for (Edge e : g.mesh.edges()) {
+        const Halfedge he = e.halfedge();
+        const int i = static_cast<int>(g.vertexIndices[he.vertex()]), j = static_cast<int>(g.vertexIndices[he.next().vertex()]);
+        const Vector2 r = g.transportVectorsAlongHalfedge[he.twin()];
+        std::complex<double> rn(1.0, 0.0);
+        for (int k = 0; k < nSym; ++k) rn *= std::complex<double>(r.x, r.y);
+        T.emplace_back(static_cast<int>(e.getIndex()), j, std::complex<double>(1.0, 0.0));
+        T.emplace_back(static_cast<int>(e.getIndex()), i, -std::conj(rn));
     }
+    g.unrequireTransportVectorsAlongHalfedge();
+    g.unrequireVertexIndices();
 
     Eigen::SparseMatrix<std::complex<double>> D(E, V);
     D.setFromTriplets(T.begin(), T.end());

@@ -294,6 +294,75 @@ TangentBasis IntrinsicSurface::tangentBasis() {
     return B;
 }
 
+std::vector<double> IntrinsicSurface::barycentricMass() {
+    auto& g = geometry();
+    g.requireFaceAreas();
+    std::vector<double> M(static_cast<size_t>(p_->nV), 0.0);
+    for (gcs::Face f : g.mesh.faces())
+        for (gcs::Vertex v : f.adjacentVertices()) M[v.getIndex()] += g.faceAreas[f] / 3.0;
+    g.unrequireFaceAreas();
+    return M;
+}
+
+Eigen::SparseMatrix<double> IntrinsicSurface::galerkinMassMatrix() {
+    auto& g = geometry();
+    g.requireVertexGalerkinMassMatrix();
+    Eigen::SparseMatrix<double> M = g.vertexGalerkinMassMatrix;
+    g.unrequireVertexGalerkinMassMatrix();
+    return M;
+}
+
+std::vector<double> IntrinsicSurface::inputSignpostAngles() {
+    auto& g = inputGeometry();
+    g.requireCornerAngles();
+    std::vector<double> a(p_->mesh->nHalfedges(), 0.0);
+    for (gcs::Vertex v : p_->mesh->vertices()) {
+        gcs::Halfedge he = v.halfedge();
+        double sum = 0.0;
+        for (int guard = 0; guard < 1 << 20; ++guard) {
+            a[he.getIndex()] = sum;
+            sum += g.cornerAngles[he.corner()];
+            if (he.next().next().twin() == v.halfedge() || !he.next().next().twin().isInterior()) break;
+            he = he.next().next().twin();
+        }
+    }
+    g.unrequireCornerAngles();
+    return a;
+}
+
+IntrinsicSurface::Complex IntrinsicSurface::complex() {
+    auto& g = geometry();
+    gcs::ManifoldSurfaceMesh& M = mesh();
+    g.requireEdgeLengths();
+    g.requireCornerAngles();
+    Complex c;
+    const size_t nF = M.nFaces(), nE = M.nEdges();
+    c.faces.resize(3 * nF); c.faceEdges.resize(3 * nF); c.angle.resize(3 * nF);
+    c.edges.resize(2 * nE); c.length.resize(nE);
+    c.angleSum.assign(static_cast<size_t>(p_->nV), 0.0);
+    c.reference.resize(static_cast<size_t>(p_->nV));
+    const std::vector<double> inAngle = p_->tri ? std::vector<double>() : inputSignpostAngles();
+    for (gcs::Edge e : M.edges()) {
+        c.edges[2 * e.getIndex()] = static_cast<int32_t>(e.halfedge().vertex().getIndex());
+        c.edges[2 * e.getIndex() + 1] = static_cast<int32_t>(e.halfedge().tipVertex().getIndex());
+        c.length[e.getIndex()] = g.edgeLengths[e];
+    }
+    for (gcs::Face f : M.faces()) {
+        gcs::Halfedge he = f.halfedge();
+        for (int k = 0; k < 3; ++k, he = he.next()) {
+            const size_t h = 3 * f.getIndex() + static_cast<size_t>(k);
+            c.faces[h] = static_cast<int32_t>(he.vertex().getIndex());
+            c.faceEdges[h] = (he.edge().halfedge() == he ? 1 : -1) * static_cast<int32_t>(he.edge().getIndex() + 1);
+            c.angle[h] = p_->tri ? p_->tri->signpostAngle[he] : inAngle[he.getIndex()];
+            c.angleSum[he.vertex().getIndex()] += g.cornerAngles[he.corner()];
+        }
+    }
+    for (gcs::Vertex v : p_->mesh->vertices()) c.reference[v.getIndex()] = static_cast<int32_t>(v.halfedge().tipVertex().getIndex());
+    g.unrequireEdgeLengths();
+    g.unrequireCornerAngles();
+    return c;
+}
+
 std::vector<double> IntrinsicSurface::inputMixedVoronoiMass() {
     return mixedVoronoi(*p_->mesh, p_->input());
 }

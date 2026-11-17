@@ -1,6 +1,7 @@
 // Hodge–Dirac d + δ on the intrinsic Delaunay triangulation, and its eigenmodes by the exact/coexact split.
 // Reference: nxr-cortical-flow hodgeDirac.ts (+ solve-lb-hodge.py, make-hodge-package.py); ⋆1 floor optional (default off, as nxr; Rheome PR #94 used 1e-6).
 #include "nxr/compute.h"
+#include "geometrycentral/surface/intrinsic_geometry_interface.h"
 
 #include <algorithm>
 #include <cmath>
@@ -8,14 +9,13 @@
 
 namespace nxr::manifold::ops::hodgedirac {
 
-// The Hodge–Dirac's triangulation is THE one Delaunay construction (nxr/delaunay.h, a line port of the Studio's intrinsicDelaunay.ts): the input's edge
-// lengths, mollified (`mollify`), the mixed-Voronoi mass of the mollified input recorded (⋆0), flipped to Delaunay (`flipEps`). The Manifold's operator
-// mesh is used when it is the intrinsic mesh built with these very options; otherwise the same construction is run on the Manifold's input.
+// The Hodge–Dirac's triangulation is THE one intrinsic construction (nxr/intrinsic_surface.h, on geometry-central): the input's edge lengths, mollified
+// (`mollify`), the mixed-Voronoi mass of the mollified input (⋆0), flipped to Delaunay (`flipEps`). The Manifold's intrinsic surface is used when it is
+// the intrinsic one built with these very options; otherwise the same construction is run on the Manifold's input. d0, d1, ⋆1 and ⋆2 are
+// geometry-central's DEC operators of that triangulation.
 HodgeDirac assemble(Manifold& m, double star1Floor, double mollify, double flipEps) {
-    delaunay::DelaunayOptions o;
-    o.mollify = mollify; o.flipEps = flipEps;
-    std::unique_ptr<delaunay::Mesh> own;
-    const delaunay::Mesh* meshp = &m.operatorMesh();
+    std::unique_ptr<IntrinsicSurface> own;
+    IntrinsicSurface* sp = &m.intrinsicSurface();
     if (!(m.isIntrinsicDelaunay() && m.options().delaunay.mollify == mollify && m.options().delaunay.flipEps == flipEps)) {
         const Eigen::MatrixXd& Pm = m.vertexPositions();
         const Eigen::MatrixXi& Fm = m.faces();
@@ -23,26 +23,32 @@ HodgeDirac assemble(Manifold& m, double star1Floor, double mollify, double flipE
         std::vector<int32_t> F(static_cast<size_t>(3 * Fm.rows()));
         for (int i = 0; i < m.nV(); ++i) for (int k = 0; k < 3; ++k) P[static_cast<size_t>(3 * i + k)] = Pm(i, k);
         for (int f = 0; f < Fm.rows(); ++f) for (int k = 0; k < 3; ++k) F[static_cast<size_t>(3 * f + k)] = Fm(f, k);
-        own = std::make_unique<delaunay::Mesh>(delaunay::prepare(P.data(), m.nV(), F.data(), static_cast<int>(Fm.rows()), o, true));
-        meshp = own.get();
+        IntrinsicOptions o;
+        o.intrinsic = true; o.mollify = mollify; o.flipEps = flipEps;
+        own = std::make_unique<IntrinsicSurface>(P.data(), m.nV(), F.data(), static_cast<int>(Fm.rows()), o);
+        sp = own.get();
     }
-    const delaunay::Mesh& im = *meshp;
+    IntrinsicSurface& surf = *sp;
     HodgeDirac h;
-    h.mollifyEps = im.record.epsilon;
-    h.record = im.record;
-    h.star0 = Eigen::Map<const Eigen::VectorXd>(im.mass.data(), static_cast<Eigen::Index>(im.mass.size()));
+    h.record = surf.record();
+    h.mollifyEps = h.record.epsilon;
+    const std::vector<double> mass = surf.massDiagonal();
+    h.star0 = Eigen::Map<const Eigen::VectorXd>(mass.data(), static_cast<Eigen::Index>(mass.size()));
 
-    const int nV = im.nV, nE = im.nE(), nF = im.nF;
+    auto& g = surf.geometry();
+    g.requireDECOperators();
+    const int nV = surf.nV(), nE = static_cast<int>(g.d0.rows()), nF = static_cast<int>(g.d1.rows());
     h.nV = nV; h.nE = nE; h.nF = nF;
-    const delaunay::Dec dec = delaunay::dec(im);
-    h.d0 = dec.d0; h.d1 = dec.d1;
-    h.star1 = dec.star1;
+    h.d0 = g.d0; h.d1 = g.d1;
+    h.star1 = g.hodge1.diagonal();
+    h.star2 = g.hodge2.diagonal();
+    g.unrequireDECOperators();
     if (star1Floor > 0.0)
         for (int e = 0; e < nE; ++e)
             if (h.star1(e) < star1Floor) { ++h.star1Clamped; h.star1(e) = star1Floor; }
-    h.star2 = dec.star2;
+    h.complex = surf.complex();
     h.faces.resize(nF, 3);
-    for (int f = 0; f < nF; ++f) for (int k = 0; k < 3; ++k) h.faces(f, k) = im.F[static_cast<size_t>(3 * f + k)];
+    for (int f = 0; f < nF; ++f) for (int k = 0; k < 3; ++k) h.faces(f, k) = h.complex.faces[static_cast<size_t>(3 * f + k)];
 
     const int N = nV + nE + nF;
     Eigen::SparseMatrix<double> A = h.star1.asDiagonal() * h.d0;      // ⋆1 d0  [E×V]

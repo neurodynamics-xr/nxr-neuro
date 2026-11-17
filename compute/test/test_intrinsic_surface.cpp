@@ -2,7 +2,7 @@
 // known results, on meshes generated here (no golden files). Tolerances are convergence rates, not fixed numbers.
 //   A1 sphere Laplacian · A2 connection Laplacian (incl. n-RoSy) · A3 gauge invariance · A4 flat patch · A5 holonomy and Gauss–Bonnet
 //   A6 Hodge decomposition · A8 distance and log map · A9 gauge realisation · A10 the record · the version pin and the gauge fingerprint
-// (A7, the Hodge–Dirac on the rebuilt DEC, comes with the Hodge–Dirac rebuild in G3.)
+//   A7 Hodge–Dirac on the rebuilt DEC (G3)
 #include "nxr/compute.h"
 #include "nxr/intrinsic_surface.h"
 
@@ -238,6 +238,63 @@ static void testA6() {
     }
 }
 
+// A7: the Hodge–Dirac on geometry-central's DEC: D^2 is the Hodge Laplacian; on the unit sphere D's nonzero eigenvalues are ±sqrt(l(l+1)) with the multiplicity
+// 2(2l+1) per sign (the 0-form and the 2-form ladders), and its kernel is the harmonic 0- and 2-forms (dimension 2)
+static void testA7() {
+    std::cout << "A7 Hodge–Dirac: spectrum ±sqrt(l(l+1)), kernel of dimension 2, D^2 = the Hodge Laplacian\n";
+    const Mesh m = icosphere(2);
+    Manifold M(m.V.data(), m.nV(), m.F.data(), m.nF());
+    const auto h = ops::hodgedirac::assemble(M);
+    CHECK(h.record.flips >= 0 && h.record.delaunay && h.nV == m.nV() && h.nF == m.nF() && h.nE == (int)M.intrinsicSurface().mesh().nEdges(), "the pencil is on the intrinsic triangulation (" + std::to_string(h.record.flips) + " flips)");
+    const int N = h.nV + h.nE + h.nF;
+    Eigen::MatrixXd K = Eigen::MatrixXd(h.K);
+    Eigen::VectorXd isq = h.M.cwiseSqrt().cwiseInverse();
+    Eigen::MatrixXd A = isq.asDiagonal() * K * isq.asDiagonal();
+    Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(A);
+    const Eigen::VectorXd mu = es.eigenvalues();
+    int kernel = 0; for (int i = 0; i < N; ++i) if (std::abs(mu(i)) < 1e-8) ++kernel;
+    CHECK(kernel == 2, "the kernel (harmonic 0- and 2-forms) has dimension " + std::to_string(kernel));
+    std::vector<double> pos; for (int i = 0; i < N; ++i) if (mu(i) > 1e-8) pos.push_back(mu(i));
+    std::vector<double> neg; for (int i = 0; i < N; ++i) if (mu(i) < -1e-8) neg.push_back(-mu(i));
+    std::sort(neg.begin(), neg.end());
+    double sym = 0; for (size_t i = 0; i < pos.size() && i < neg.size(); ++i) sym = std::max(sym, std::abs(pos[i] - neg[i]));
+    CHECK(pos.size() == neg.size() && sym < 1e-9, "the spectrum is symmetric (" + fmt("%.1e", sym) + ")");
+    double e1 = 0, e2 = 0, e3 = 0;
+    for (int i = 0; i < 6; ++i) e1 = std::max(e1, std::abs(pos[i] / std::sqrt(2.0) - 1));
+    for (int i = 6; i < 16; ++i) e2 = std::max(e2, std::abs(pos[i] / std::sqrt(6.0) - 1));
+    for (int i = 16; i < 30; ++i) e3 = std::max(e3, std::abs(pos[i] / std::sqrt(12.0) - 1));
+    std::cout << "      relative errors of the clusters: l = 1 " << e1 << ", l = 2 " << e2 << ", l = 3 " << e3 << "\n";
+    CHECK(e1 < 0.06 && e2 < 0.1 && e3 < 0.15 && pos[6] / pos[5] > 1.2 && pos[16] / pos[15] > 1.1, "the first clusters are sqrt(2) (6), sqrt(6) (10), sqrt(12) (14), clearly separated");
+    // D^2 on the 0-forms is the scalar Laplacian: (M^-1 K)^2, 0-0 block = M0^-1 d0^T *1 d0
+    Eigen::MatrixXd MiK = h.M.cwiseInverse().asDiagonal() * K;
+    const Eigen::MatrixXd D2 = MiK * MiK;
+    const Eigen::MatrixXd L = h.star0.cwiseInverse().asDiagonal() * Eigen::MatrixXd(h.d0.transpose() * h.star1.asDiagonal() * h.d0);
+    CHECK((D2.topLeftCorner(h.nV, h.nV) - L).cwiseAbs().maxCoeff() < 1e-10, "D^2 restricted to the 0-forms is M0^-1 d0^T *1 d0, the Laplacian");
+}
+
+// G3: the Manifold is on the IntrinsicSurface; its frames are geometry-central's gauge
+static void testManifold() {
+    std::cout << "G3 Manifold on IntrinsicSurface: one gauge\n";
+    const Mesh m = jitterSphere(icosphere(3), 0.4, 3);
+    Manifold M(m.V.data(), m.nV(), m.F.data(), m.nF());
+    CHECK(M.intrinsicSurface().record().epsilon == 0.0 && M.intrinsicSurface().record().flips > 0, "the default Manifold flipped " + std::to_string(M.intrinsicSurface().record().flips) + " edges, nothing mollified");
+    const auto vf = geometry::vertexFrames(M);
+    auto& geom = M.geometry(); geom.requireVertexTangentBasis(); geom.requireVertexNormals();
+    double d = 0; for (gcs::Vertex v : M.mesh().vertices()) for (int c = 0; c < 3; ++c) {
+        const size_t i = v.getIndex();
+        d = std::max(d, std::abs(vf.e1(i, c) - geom.vertexTangentBasis[v][0][c]) + std::abs(vf.e2(i, c) - geom.vertexTangentBasis[v][1][c]) + std::abs(vf.normals(i, c) - geom.vertexNormals[v][c]));
+    }
+    CHECK(d < 1e-12, "vertexFrames is geometry-central's vertexTangentBasis (" + fmt("%.1e", d) + ")");
+    CHECK((geometry::vertexFramesEmbedded(M).e1 - vf.e1).cwiseAbs().maxCoeff() == 0.0, "vertexFramesEmbedded is the same frame (deprecated alias)");
+    auto& surf = M.intrinsicSurface();
+    const Eigen::SparseMatrix<double> L = surf.cotanLaplacian();
+    CHECK((L - M.operatorCotan()).norm() < 1e-12 * L.norm(), "the Manifold's cotan Laplacian is the surface's");
+    auto dec = ops::assembleDECOperators(M);
+    const Eigen::SparseMatrix<double> L2 = dec.d0.transpose() * dec.hodge1 * dec.d0;
+    CHECK((L - L2).norm() < 1e-10 * L.norm(), "d0^T *1 d0 is the cotan Laplacian (DEC of the intrinsic triangulation)");
+    CHECK((dec.hodge0.diagonal() - Eigen::Map<const Eigen::VectorXd>(surf.massDiagonal().data(), M.nV())).cwiseAbs().maxCoeff() < 1e-15, "*0 is the input's mixed-Voronoi mass");
+}
+
 // A8: distance from a pole = colatitude; the log map's radius is the colatitude and its angle the longitude (up to a constant)
 static void testA8() {
     std::cout << "A8 geodesic distance and log map on the unit sphere\n";
@@ -326,6 +383,8 @@ int main(int argc, char** argv) {
     if (want("A4")) testA4();
     if (want("A5")) testA5();
     if (want("A6")) testA6();
+    if (want("A7")) testA7();
+    if (want("G3")) testManifold();
     if (want("A8")) testA8();
     if (want("A9")) testA9A10();
     if (want("pin")) testFingerprint();
