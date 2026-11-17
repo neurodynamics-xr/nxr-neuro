@@ -125,14 +125,18 @@ std::string file_sha256(const std::string& path) {
   return h.hex();
 }
 
-std::string write_sidecar(const std::string& first_file, Json prov, const std::vector<std::string>& files) {
+void write_json(const std::string& path, const Json& j) {
+  std::ofstream o(path, std::ios::binary);
+  if (!o) throw nxr::io::Error(code::not_writable, "cannot write " + path);
+  o << j.dump(2, ' ', false) << "\n";
+}
+
+std::string write_sidecar(const std::string& first_file, Json prov, const std::vector<std::string>& files, const std::string& sidecar_path) {
   Json outs = Json::array();
   for (const auto& f : files) outs.push_back(Json{{"file", f.substr(f.find_last_of("/\\") == std::string::npos ? 0 : f.find_last_of("/\\") + 1)}, {"sha256", file_sha256(f)}});
   prov["outputs"] = outs;
-  const std::string path = first_file + ".json";
-  std::ofstream o(path, std::ios::binary);
-  if (!o) throw nxr::io::Error(code::not_writable, "cannot write " + path);
-  o << prov.dump(2, ' ', false) << "\n";
+  const std::string path = sidecar_path.empty() ? first_file + ".json" : sidecar_path;
+  write_json(path, prov);
   return path;
 }
 

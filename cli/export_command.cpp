@@ -1,5 +1,6 @@
 // nxr-neuro export <what>: stored results written as the field's standard files (docs/specs/2026-11-17-interoperability.md, sections 3.3 and 5).
 //
+//   nxr-neuro export tsv --package PATH --out STEM (--statistic NAME | --partition NAME --field NAME --measures a,b,...)
 //   nxr-neuro export gifti --package PATH (--field NAME | --labelling NAME) --out STEM [--kind func|shape] [--with-surface] [--hemispheres] [--surface-unit m|mm] [--from S --to S | --all]
 //
 // The command parses and prints; io's exporters (nxr/exporters/) do the work. A series needs its time range (--from and --to in seconds, or --all): there is no default.
@@ -8,6 +9,7 @@
 
 #include "cli.h"
 #include "nxr/exporters/gifti.h"
+#include "nxr/exporters/tsv.h"
 
 using namespace nxr::io;
 using namespace cli;
@@ -70,6 +72,32 @@ int gifti_command(const std::vector<std::string>& rest) {
   emit(line);
   return 0;
 }
+int tsv_command(const std::vector<std::string>& rest) {
+  const std::string prog = "nxr-neuro export tsv";
+  const Args a = parse(prog, rest, {"--package", "--out", "--statistic", "--partition", "--field", "--measures"}, {}, {"--package", "--out"});
+  nxr::exporters::TsvExport o;
+  o.statistic = a.maybe("--statistic").value_or("");
+  o.partition = a.maybe("--partition").value_or("");
+  o.field = a.maybe("--field").value_or("");
+  if (const auto m = a.maybe("--measures")) {
+    std::string cur;
+    for (const char c : *m + ",") { if (c == ',') { if (!cur.empty()) o.measures.push_back(cur); cur.clear(); } else cur += c; }
+  }
+  if (o.statistic.empty() == (o.partition.empty() && o.field.empty() && o.measures.empty()))
+    throw Usage(prog + ": error: give either --statistic, or --partition with --field and --measures");
+  o.out = a.get("--out");
+  o.ctx.version = NXR_NEURO_VERSION;
+  o.ctx.command = command_line("tsv", rest);
+  Json opts = Json::object();
+  for (const auto& kv : a.opt) opts[kv.first.substr(2)] = kv.second;
+  o.ctx.options = opts;
+  o.ctx.progress = [](const Json& j) { emit(j); };
+  Json out = nxr::exporters::export_tsv(a.get("--package"), o);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
 }  // namespace
 
 int export_main(const std::vector<std::string>& argv) {
@@ -77,5 +105,6 @@ int export_main(const std::vector<std::string>& argv) {
   const std::string what = argv[0];
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   if (what == "gifti") return gifti_command(rest);
-  throw Usage("nxr-neuro export: error: argument what: invalid choice: '" + what + "' (choose from 'gifti')");
+  if (what == "tsv") return tsv_command(rest);
+  throw Usage("nxr-neuro export: error: argument what: invalid choice: '" + what + "' (choose from 'gifti', 'tsv')");
 }
