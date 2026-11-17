@@ -15,6 +15,8 @@ const char* to_string(ValueType v) {
     case ValueType::vector3: return "vector3";
     case ValueType::quaternion: return "quaternion";
     case ValueType::hermitian3: return "hermitian3";
+    case ValueType::monogenic: return "monogenic";
+    case ValueType::integer: return "integer";
   }
   return "?";
 }
@@ -25,6 +27,9 @@ const char* to_string(PortClass c) {
     case PortClass::selection: return "selection";
     case PortClass::partition: return "partition";
     case PortClass::constant: return "constant";
+    case PortClass::measurement: return "measurement";
+    case PortClass::statistic: return "statistic";
+    case PortClass::manifold: return "manifold";
   }
   return "?";
 }
