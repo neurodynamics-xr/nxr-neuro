@@ -1045,6 +1045,22 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --in-place		Link a recording's file instead of copying its samples (import recording).	off	-
 --source-root	DIR	The folder a file's recorded path is relative to (import recording).	the file's own folder	-
 --acquisition	NAME	The session of the subject the result is stored under (import recording).	rest	-
+--from@import fif	FILE	The FIF object file to import: a source space (-src.fif), covariance (-cov.fif), forward solution (-fwd.fif), inverse operator (-inv.fif), event list (-eve.fif), annotation file (-annot.fif) or head-to-MRI transform (-trans.fif).	required	-
+--package@import fif	PATH	The subject package (made by `create package`) the object is imported into.	required	-
+--kind@import fif	src|cov|fwd|inv|eve|annot|trans	What the file holds, when it is not to be found from its contents.	from the file's contents	-
+--name@import fif	NAME	The base name of what is written (items are <name>_source_space, <name>_noise_cov, ...).	the file's name without its suffix (-fwd.fif and the like)	-
+--acquisition@import fif	NAME	The session of the subject the object is stored under.	rest	-
+--channels@import fif	NAME	The package's sensor manifold the file's channels are matched in, by name (a channel it lacks is refused).	the package's only sensor manifold	-
+--recording@import fif	NAME	The package's recording an event or annotation file belongs to (its events are added to it; existing events are never overwritten).	required for -eve.fif and -annot.fif	-
+--surface@import fif	NAME	An existing surface manifold of the package to put a surface source space's Selection on; its vertex count must be the source space's.	the surface is made from the file	-
+--source-root@import fif	DIR	The folder the file's recorded path is relative to (an absolute path is never recorded).	the file's own folder	-
+--licence@import fif	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
+--attribution@import fif	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
+--anonymize@import fif		Drop the file names, working folder and command line the file records.	off (kept as the file has them)	-
+--from@import transform	FILE	The -trans.fif file (a head-to-MRI transform, either direction) to import.	required	-
+--package@import transform	PATH	The subject package the transform is imported into.	required	-
+--name@import transform	NAME	The name of the transition operator.	the file's name without its suffix	-
+--channels@import transform	NAME	The sensor manifold of the package that holds the operator.	the package's only sensor manifold, else its first manifold	-
 --from@import recording	FILE	The recording file to copy into the package (a CTF recording is its .ds folder).	required	-
 --name@import recording	NAME	Name the recording is stored under.	the file's name without its extension	-
 --package@import recording	PATH	The subject package (made by `create package`) the recording is copied into.	required	-
@@ -1352,6 +1368,18 @@ old: __import bids
 alias: no
 summary: Import a BIDS dataset (MEG, EEG, iEEG) as a dataset of subject packages, with its participant variables, channel status, events and electrode positions.
 opts: --anonymize --dataset* --from* --in-place --no-participants --registered-by --subject+
+)TBL",
+R"TBL(@ import fif
+old: __import fif
+alias: no
+summary: Import an MNE FIF object (source space, covariance, forward solution, inverse operator, events, annotations or head-to-MRI transform) into a subject package.
+opts: --acquisition --anonymize --attribution --channels --from* --kind --licence --name --package* --recording --source-root --surface
+)TBL",
+R"TBL(@ import transform
+old: __import transform
+alias: no
+summary: Import a head-to-MRI transform (an MNE -trans.fif) into a subject package as a transition operator from the head frame to FreeSurfer's surface RAS.
+opts: --channels --from* --name --package*
 )TBL",
 R"TBL(@ import recording
 old: __import recording

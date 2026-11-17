@@ -2,6 +2,11 @@
 //
 //   nxr-neuro import bids --from DIR --dataset PATH [--subject LABEL ...] [--in-place] [--anonymize] [--no-participants] [--registered-by WHO]
 //
+// nxr-neuro import fif: an MNE object file (source space, covariance, forward solution, inverse operator, events, annotations, head-to-MRI transform) into a subject package (nxr/convert/fif_objects.h):
+//
+//   nxr-neuro import fif --from FILE --package PATH [--kind K] [--name N] [--acquisition A] [--channels SENSORS] [--recording REC] [--surface S] [--licence T --attribution T] [--anonymize]
+//   nxr-neuro import transform --from FILE-trans.fif --package PATH [--name N] [--channels SENSORS]
+//
 // nxr-neuro import recording: a recording file (FIF, EDF/BDF, BrainVision, EEGLAB, CTF, KIT) copied into a subject package (docs/specs/2026-11-17-interoperability.md, 3.2).
 //
 //   nxr-neuro import recording --from FILE --package PATH [--name REC] [--acquisition NAME] [--format F] [--source-root DIR] [--licence T --attribution T] [--anonymize] [--in-place]
@@ -12,6 +17,7 @@
 
 #include "cli.h"
 #include "nxr/convert/bids.h"
+#include "nxr/convert/fif_objects.h"
 #include "nxr/convert/recording.h"
 #include "nxr/convert/synthetic.h"
 #include "nxr/io/subject_package.h"
@@ -45,6 +51,40 @@ int recording_command(const std::vector<std::string>& rest) {
   DatasetWriter w = open_package_writer(a.get("--package"));
   SubjectWriter sub = SubjectWriter::open(w, rec.name);
   Json out = nxr::convert::import_recording(w, sub, *reader, opt);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
+
+// import fif / import transform: an MNE object file (nxr/convert/fif_objects.h)
+int fif_command(const std::string& prog, const std::vector<std::string>& rest, const std::string& fixed_kind) {
+  const bool transform = !fixed_kind.empty();
+  const Args a = transform ? parse(prog, rest, {"--from", "--package", "--name", "--channels"}, {}, {"--from", "--package"})
+                           : parse(prog, rest, {"--from", "--package", "--kind", "--name", "--acquisition", "--channels", "--recording", "--surface", "--source-root", "--licence", "--attribution"},
+                                   {"--anonymize"}, {"--from", "--package"});
+  const std::string file = a.get("--from");
+  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
+  nxr::convert::FifObjectImport opt;
+  opt.kind = transform ? fixed_kind : a.maybe("--kind").value_or("");
+  opt.name = a.maybe("--name").value_or("");
+  opt.channels = a.maybe("--channels").value_or("");
+  if (!transform) {
+    opt.acquisition = a.maybe("--acquisition").value_or("rest");
+    opt.recording = a.maybe("--recording").value_or("");
+    opt.surface = a.maybe("--surface").value_or("");
+    opt.licence = a.maybe("--licence").value_or("unknown");
+    opt.attribution = a.maybe("--attribution").value_or("unknown");
+    opt.anonymize = a.flag.count("--anonymize") > 0;
+  }
+  const fs::path root = transform ? fs::path(file).parent_path() : fs::path(a.maybe("--source-root").value_or(fs::path(file).parent_path().string()));
+  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
+  opt.source_file = file;
+  opt.progress = [](const Json& j) { emit(j); };
+  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
+  DatasetWriter w = open_package_writer(a.get("--package"));
+  SubjectWriter sub = SubjectWriter::open(w, rec.name);
+  Json out = nxr::convert::import_fif_object(w, sub, file, opt);
   Json line = Json{{"stage", "result"}};
   for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
   emit(line);
@@ -115,6 +155,8 @@ int import_main(const std::vector<std::string>& argv) {
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   if (what == "recording") return recording_command(rest);
   if (what == "bids") return bids_command(rest);
+  if (what == "fif") return fif_command("nxr-neuro import fif", rest, "");
+  if (what == "transform") return fif_command("nxr-neuro import transform", rest, "trans");
   if (what == "synthetic") return synthetic_command(rest);
-  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids', 'synthetic')");
+  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids', 'fif', 'transform', 'synthetic')");
 }
