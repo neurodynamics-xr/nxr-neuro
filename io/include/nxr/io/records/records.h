@@ -114,6 +114,9 @@ class Selections {
   std::vector<SelectionRow> members(std::string_view partition_id) const;
   std::optional<SelectionRow> member(std::string_view partition_id, std::int64_t ordinal) const;
   std::vector<SelectionSpanRow> spans(std::string_view selection_id) const;  // by ordinal
+  std::vector<SelectionExtentRow> extents(std::string_view selection_id) const;   // a span's corners, by axis
+  // what was measured on it: `own` = its own values (code null: area, a field's mean over the whole), else every row (its members' too)
+  std::vector<SelectionMeasurementRow> measurements(std::string_view selection_id, bool own = true) const;
  private:
   const Database* db_;
 };

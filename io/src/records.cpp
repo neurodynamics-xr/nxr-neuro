@@ -216,6 +216,20 @@ std::optional<SelectionRow> Selections::member(std::string_view partition_id, st
   return run_one<SelectionRow>(*db_, q, "partition member");
 }
 
+std::vector<SelectionExtentRow> Selections::extents(std::string_view selection_id) const {
+  std::vector<SelectionExtentRow> out;
+  for (const Row& r : db_->all("SELECT * FROM selection_extent WHERE selection_id = ? ORDER BY axis", {V(std::string(selection_id))})) out.push_back(SelectionExtentRow::from_row(r));
+  return out;
+}
+
+std::vector<SelectionMeasurementRow> Selections::measurements(std::string_view selection_id, bool own) const {
+  std::vector<SelectionMeasurementRow> out;
+  for (const Row& r : db_->all(std::string("SELECT * FROM selection_measurement WHERE selection_id = ?") + (own ? " AND code IS NULL" : "") + " ORDER BY coalesce(code, -1), measure",
+                               {V(std::string(selection_id))}))
+    out.push_back(SelectionMeasurementRow::from_row(r));
+  return out;
+}
+
 std::vector<SelectionSpanRow> Selections::spans(std::string_view selection_id) const {
   std::vector<SelectionSpanRow> out;
   for (const Row& r : db_->all("SELECT * FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(std::string(selection_id))}))

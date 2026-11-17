@@ -724,6 +724,32 @@ std::string SubjectWriter::selection(SelectionSpec spec) {
   return node("selection", sid, rows, has_array ? array_populate("selection", sid, meta, spec.data, spec.populate, spec.dense) : Populate());
 }
 
+void SubjectWriter::set_spans(const std::string& selection_id, const std::vector<SpanSpec>& spans) {
+  auto go = [&] {
+    db_->execute("DELETE FROM selection_span WHERE selection_id = ?", {V(selection_id)});
+    for (std::size_t k = 0; k < spans.size(); ++k)
+      db_->execute("INSERT INTO selection_span (selection_id, ordinal, start, stop, code) VALUES (?, ?, ?, ?, ?)",
+                   {V(selection_id), V(static_cast<std::int64_t>(k)), V(spans[k].start), V(spans[k].stop), spans[k].code ? V(*spans[k].code) : V(nullptr)});
+    db_->execute("UPDATE selection SET n_members = ? WHERE id = ?", {V(static_cast<std::int64_t>(spans.size())), V(selection_id)});
+  };
+  if (immediate_) update_node(*db_, ds_->node_store(), go); else db_->tx(go);
+}
+void SubjectWriter::set_extents(const std::string& selection_id, const std::vector<ExtentSpec>& extents) {
+  auto go = [&] {
+    db_->execute("DELETE FROM selection_extent WHERE selection_id = ?", {V(selection_id)});
+    for (const auto& e : extents)
+      db_->execute("INSERT INTO selection_extent (selection_id, axis, start, stop) VALUES (?, ?, ?, ?)", {V(selection_id), V(e.axis), V(e.start), V(e.stop)});
+  };
+  if (immediate_) update_node(*db_, ds_->node_store(), go); else db_->tx(go);
+}
+void SubjectWriter::set_own_measurements(const std::string& selection_id, const std::vector<Cols>& rows) {
+  auto go = [&] {
+    db_->execute("DELETE FROM selection_measurement WHERE selection_id = ? AND code IS NULL", {V(selection_id)});
+    for (const auto& c : rows) { Row mr = {{"selection_id", selection_id}}; merge(mr, c); db_->insert("selection_measurement", mr); }
+  };
+  if (immediate_) update_node(*db_, ds_->node_store(), go); else db_->tx(go);
+}
+
 void SubjectWriter::measurement(const std::string& selection_id, const Cols& row) {
   auto go = [&] {
     Row mr = {{"selection_id", selection_id}};

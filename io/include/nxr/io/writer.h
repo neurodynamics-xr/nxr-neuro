@@ -342,6 +342,10 @@ class SubjectWriter {
   std::string selection(SelectionSpec spec);
   // A selection's measurement row (added to a selection of this subject).
   void measurement(const std::string& selection_id, const Cols& row);
+  // UPDATES OF A STORED SELECTION (the Studio's selections.setSpans / setExtents / setMeasurements): each replaces what it names, in one transaction
+  void set_spans(const std::string& selection_id, const std::vector<SpanSpec>& spans);            // a spans set's member rows (n_members follows)
+  void set_extents(const std::string& selection_id, const std::vector<ExtentSpec>& extents);      // a span's corners
+  void set_own_measurements(const std::string& selection_id, const std::vector<Cols>& rows);      // its own values (code null); its members' rows are the measurement path's
   // A DICTIONARY by name in its scope, and the CODE each requested name has in it.
   DictionaryResult dictionary(const DictionarySpec& spec);
   // THE ACQUISITION a node was made from or for (D161): the subject's row of that label, made on first use with its BIDS entities.
