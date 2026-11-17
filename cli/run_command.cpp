@@ -7,7 +7,8 @@
 //   --list       (reached as `nxr-neuro list pipelines`)
 //
 //   DEFINITION   one of nxr-neuro's own (by name) or a .yaml path
-//   --set        a parameter overridden; VALUE read as YAML (8, [15, 29], dSPM); repeatable (what `--<parameter> VALUE` is turned into)
+//   --set        a parameter overridden, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); repeatable (what `--<parameter> VALUE` is turned into).
+//                `--set NAME` alone chooses one of the definition's presets (named parameter sets): defaults < the preset < the caller's own values
 //   --chunks / --start --stop   the span read (io's chunk service: one chunk by default)
 //   --replace    another job's outputs of the same names are moved aside (never deleted) and replaced; without it they are refused. A rerun with the same
 //                definition, parameters, inputs and span is a cache hit (nothing computed).
@@ -46,10 +47,16 @@ int run_main(const std::vector<std::string>& rest) {
   if (a.pos.empty()) usage(prog, "name a DEFINITION (one of nxr-neuro's: `list pipelines`; or a .yaml path)");
   if (!a.maybe("--dataset") || !a.maybe("--subject")) usage(prog, "--dataset and --subject are required");
   Json set = Json::object();
+  std::string preset;                                    // `--set NAME` (no `=`): one of the definition's named parameter sets; the caller's own `--set P=V` and `--P V` win over it
   if (a.multi.count("--set"))
     for (const auto& s : a.multi.at("--set")) {
       const auto eq = s.find('=');
-      if (eq == std::string::npos || eq == 0) usage(prog, "--set " + s + ": NAME=VALUE");
+      if (eq == 0) usage(prog, "--set " + s + ": NAME=VALUE, or a preset's NAME");
+      if (eq == std::string::npos) {
+        if (!preset.empty()) usage(prog, "--set " + s + ": one preset a run (already --set " + preset + ")");
+        preset = s;
+        continue;
+      }
       set[s.substr(0, eq)] = parse_yaml(s.substr(eq + 1), "--set " + s.substr(0, eq));
     }
   const g::Definition d = g::load(a.pos[0]);
@@ -58,7 +65,7 @@ int run_main(const std::vector<std::string>& rest) {
     Database db = Database::open(std::filesystem::path(a.get("--dataset")) / "dataset.sqlite", false, "nxr-neuro", true);
     const auto s = nxr::io::task::Dataset::of(db).subject_named(a.get("--subject"));
     if (!s) throw Error(code::no_such_row, a.get("--subject") + ": no such subject in " + a.get("--dataset"));
-    for (const auto& P : g::plan_runs(d, db, s->id, set)) {
+    for (const auto& P : g::plan_runs(d, db, s->id, set, preset)) {
       std::cout << P.text(db);
       Json out = Json{{"stage", "plan"}, {"pipeline", d.name + "@" + std::to_string(d.version)}, {"subject", a.get("--subject")}, {"parameters", P.parameters},
                       {"inputs", nxr::io::finder::describe(P.found)}};
@@ -72,6 +79,7 @@ int run_main(const std::vector<std::string>& rest) {
   if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
   if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
   o.replace = a.flag.count("--replace") > 0;
+  o.preset = preset;
   if (const auto v = a.maybe("--block-samples")) o.block_samples = std::stoll(*v);
   if (const auto v = a.maybe("--block-frames")) o.block_frames = std::stoll(*v);
   DatasetWriter ds = open_dataset(a);

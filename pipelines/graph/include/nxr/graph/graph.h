@@ -67,6 +67,7 @@ struct Checked {
   Types values;                                      // every value's type: the inputs and what the nodes make
   std::vector<std::string> inputs, outputs;
   std::int64_t halo = 0;                             // what each block handed to the executor must carry on each side
+  std::int64_t align = 0;                            // the grid (samples) the run's span snaps to: the largest a node asks (Planned::align); 0: none
   std::vector<std::size_t> loop;                     // the indices (into `nodes`) of the chunks section, in order
   std::size_t tail = 0;                              // loop positions [0, tail) run on the whole block; the pointwise rest on sub-blocks (after the last node that needs a halo)
   std::optional<std::size_t> retime;                 // the loop position of the retiming node, if any: the nodes after it run on blocks of frames
