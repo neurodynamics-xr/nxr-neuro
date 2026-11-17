@@ -25,3 +25,6 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_graph PRIVATE nxr_graph)
   add_test(NAME test_graph COMMAND test_graph)
 endif()
+
+# CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
+set_property(DIRECTORY APPEND PROPERTY LABELS pipelines_graph)

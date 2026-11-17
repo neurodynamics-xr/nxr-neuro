@@ -2,6 +2,8 @@
 // Canonical: a line port of Rheome's +rheome/+geom/sphereframe.m (the same names, the same constants: eps floors, condition from the 2x2 Jacobian's singular values).
 #include "nxr/frames.h"
 
+#include "geometrycentral/surface/vertex_position_geometry.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -97,15 +99,49 @@ Canonical canonicalFrames(const double* V, int nV, const int32_t* F, int nF, con
     return o;
 }
 
+Mat3 vertexNormals(manifold::IntrinsicSurface& surface) {
+    auto& E = surface.embedded();
+    E.requireVertexNormals();
+    const int nV = surface.nV();
+    Mat3 n(nV, 3);
+    for (int i = 0; i < nV; ++i) { const auto N = E.vertexNormals[static_cast<size_t>(i)]; n(i, 0) = N.x; n(i, 1) = N.y; n(i, 2) = N.z; }
+    E.unrequireVertexNormals();
+    return n;
+}
+
 Mat3 vertexNormals(const double* P, int nV, const int32_t* F, int nF) {
+    // geometry-central's `vertexNormals` formula (the sum of the incident faces' unit normals, each weighted by the corner angle at the vertex, normalised), written on arrays so that a mesh
+    // that is not (yet) a manifold, or has vertices in no face, still has normals; equal to `vertexNormals(surface)` (tested)
     Mat3 n = Mat3::Zero(nV, 3);
     for (int f = 0; f < nF; ++f) {
-        const Vector3d a = row(P, F[3 * f]), b = row(P, F[3 * f + 1]), c = row(P, F[3 * f + 2]);
-        const Vector3d w = (b - a).cross(c - a);                   // twice the area, times the face normal
-        for (int k = 0; k < 3; ++k) n.row(F[3 * f + k]) += w.transpose();
+        const int v[3] = {F[3 * f], F[3 * f + 1], F[3 * f + 2]};
+        const Vector3d p[3] = {row(P, v[0]), row(P, v[1]), row(P, v[2])};
+        Vector3d fn = (p[1] - p[0]).cross(p[2] - p[0]);
+        const double l = fn.norm();
+        if (!(l > 0)) continue;
+        fn /= l;
+        for (int k = 0; k < 3; ++k) {
+            const Vector3d a = (p[(k + 1) % 3] - p[k]).normalized(), b = (p[(k + 2) % 3] - p[k]).normalized();
+            const double angle = std::atan2(a.cross(b).norm(), a.dot(b));
+            n.row(v[k]) += angle * fn.transpose();
+        }
     }
     for (int i = 0; i < nV; ++i) { const double l = n.row(i).norm(); if (l > 0) n.row(i) /= l; }
     return n;
+}
+
+VectorXd gaugeAngle(manifold::IntrinsicSurface& surface, const Mat3& d) {
+    if (d.rows() != surface.nV()) throw std::invalid_argument("gaugeAngle: one direction per vertex of the surface");
+    const manifold::TangentBasis b = surface.tangentBasis();
+    VectorXd out(d.rows());
+    for (int i = 0; i < d.rows(); ++i) {
+        const size_t o = 3 * static_cast<size_t>(i);
+        const Vector3d v = d.row(i).transpose();
+        if (!v.allFinite()) { out[i] = kNaN; continue; }
+        const double x = v[0] * b.e1[o] + v[1] * b.e1[o + 1] + v[2] * b.e1[o + 2], y = v[0] * b.e2[o] + v[1] * b.e2[o + 1] + v[2] * b.e2[o + 2];
+        out[i] = std::hypot(x, y) > 1e-9 * v.norm() ? std::atan2(y, x) : kNaN;
+    }
+    return out;
 }
 
 VectorXd gaugeAngle(chart::ChartKit& kit, const Mat3& d) {
@@ -114,13 +150,6 @@ VectorXd gaugeAngle(chart::ChartKit& kit, const Mat3& d) {
         const double v[3] = {d(i, 0), d(i, 1), d(i, 2)};
         out[i] = (std::isfinite(v[0]) && std::isfinite(v[1]) && std::isfinite(v[2])) ? kit.gaugeHeading(i, v) : kNaN;
     }
-    return out;
-}
-
-VectorXd angleFromNorth(chart::ChartKit& kit, const Mat3& vectors, const Mat3& e1) {
-    const VectorXd a = gaugeAngle(kit, vectors), b = gaugeAngle(kit, e1);
-    VectorXd out(a.size());
-    for (int i = 0; i < a.size(); ++i) out[i] = std::isnan(a[i]) || std::isnan(b[i]) ? kNaN : wrap(a[i] - b[i]);
     return out;
 }
 
@@ -147,30 +176,44 @@ std::vector<int> sides(const double* P, int nV, const int32_t* F, int nF, const 
 }
 }  // namespace
 
-Anatomical anatomicalFrame(const double* P, int nV, const int32_t* F, int nF, const Mat3& N, const Mat3& E1, const Mat3& E2, const AnatomicalOptions& o) {
+Anatomical anatomicalProjection(const double* P, int nV, const int32_t* F, int nF, const Mat3& N, const AnatomicalOptions& o) {
     Anatomical a;
-    a.angle.resize(nV); a.projection.resize(nV);
+    a.angle = VectorXd::Constant(nV, kNaN); a.projection.resize(nV);
+    a.anterior = Mat3::Constant(nV, 3, kNaN); a.secondAxis = Mat3::Constant(nV, 3, kNaN);
     a.second.assign(static_cast<size_t>(nV), 0); a.handed.assign(static_cast<size_t>(nV), 1); a.reliable.assign(static_cast<size_t>(nV), 0);
     a.definition = "scs";
-    a.reference = "canonical frames";
+    a.reference = "none";
     const std::vector<int> side = sides(P, nV, F, nF, o);
     const Vector3d A = o.axes.anterior.normalized(), S = o.axes.superior.normalized(), L = o.axes.left.normalized();
     for (int i = 0; i < nV; ++i) {
-        const Vector3d n = N.row(i).transpose(), e1 = E1.row(i).transpose(), e2 = E2.row(i).transpose();
+        const Vector3d n = N.row(i).transpose();
         Vector3d t = A - A.dot(n) * n;
         const double proj = t.norm();
         a.projection[i] = proj;
-        if (!(proj > 1e-12)) { a.angle[i] = kNaN; continue; }
+        if (!(proj > 1e-12)) continue;
         t /= proj;
-        // the angle from north towards west
-        a.angle[i] = (e1.allFinite() && e2.allFinite()) ? std::atan2(t.dot(e2), t.dot(e1)) : kNaN;
         // the second axis: superior where it lies in the surface, medial where that does; its sign is anatomical
         const Vector3d q = n.cross(t);
         const Vector3d medial = -static_cast<double>(side[i]) * L;
         const double cs = S.dot(q), cm = medial.dot(q);
         if (std::abs(cs) >= std::abs(cm)) { a.second[i] = static_cast<int8_t>(Second::Superior); a.handed[i] = cs >= 0 ? 1 : -1; }
         else { a.second[i] = static_cast<int8_t>(Second::Medial); a.handed[i] = cm >= 0 ? 1 : -1; }
-        a.reliable[i] = proj >= o.minProjection && std::isfinite(a.angle[i]);
+        a.anterior.row(i) = t.transpose();
+        a.secondAxis.row(i) = (a.handed[i] * q).transpose();
+        a.reliable[i] = proj >= o.minProjection;
+    }
+    return a;
+}
+
+Anatomical anatomicalFrame(const double* P, int nV, const int32_t* F, int nF, const Mat3& N, const Mat3& E1, const Mat3& E2, const AnatomicalOptions& o) {
+    Anatomical a = anatomicalProjection(P, nV, F, nF, N, o);
+    a.reference = "canonical frames";
+    for (int i = 0; i < nV; ++i) {
+        if (!(a.projection[i] > 1e-12)) continue;
+        const Vector3d t = a.anterior.row(i).transpose(), e1 = E1.row(i).transpose(), e2 = E2.row(i).transpose();
+        // the angle from north towards west
+        a.angle[i] = (e1.allFinite() && e2.allFinite()) ? std::atan2(t.dot(e2), t.dot(e1)) : kNaN;
+        a.reliable[i] = a.projection[i] >= o.minProjection && std::isfinite(a.angle[i]);
     }
     return a;
 }
@@ -237,6 +280,17 @@ Anatomical carryAnatomical(const Anatomical& T, const double* tSph, int nT, cons
         o.reliable[v] = T.reliable[best] && std::isfinite(T.angle[best]);
     }
     return o;
+}
+
+Eigen::Matrix<double, Eigen::Dynamic, 2, Eigen::RowMajor> anatomicalComponents(const Anatomical& a, const Mat3& Vec) {
+    if (a.anterior.rows() != Vec.rows()) throw std::invalid_argument("anatomicalComponents: the projection has no 3D axes for these vertices (frame-free SCS projection only; the carried template needs the frames)");
+    Eigen::Matrix<double, Eigen::Dynamic, 2, Eigen::RowMajor> out(Vec.rows(), 2);
+    for (int i = 0; i < Vec.rows(); ++i) {
+        if (!a.reliable[i]) { out.row(i).setConstant(kNaN); continue; }
+        out(i, 0) = Vec.row(i).dot(a.anterior.row(i));
+        out(i, 1) = Vec.row(i).dot(a.secondAxis.row(i));
+    }
+    return out;
 }
 
 Eigen::Matrix<double, Eigen::Dynamic, 2, Eigen::RowMajor> anatomicalComponents(const Anatomical& a, const Mat3& E1, const Mat3& E2, const Mat3& Vec) {

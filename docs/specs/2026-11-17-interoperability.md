@@ -422,16 +422,16 @@ r = nxrneuro.compute('psd', sub, 'rest', 'all', true);
 | 1 | `io/formats/` scaffolding: `ByteSource`/`ByteSink` (file, memory), endian helpers, `RecordingHeader`/`RecordingReader`, the `nxr_io_formats` target, the layering rule; `BstReader` made a `RecordingReader` | — | **now** |
 | 2 | NIfTI-1/2 pure reader and writer (vendored public-domain headers), nibabel goldens | 1 | **now** |
 | 3 | GIFTI pure reader and writer with pugixml (new dependency: the maintainers' OK, notices), nibabel goldens | 1 | **now** |
-| 4 | TSV and JSON sidecar writer; `export measurements` gains its sidecar; statistics as long-form TSV | 1 | **now** |
+| 4 | TSV and JSON sidecar writer; `export measurements` gains its sidecar; statistics as long-form TSV | 1 | **built as `export tsv`** (`io/export/tsv.cpp`: measurements of a partition's members and statistics in long form, with the BIDS sidecar); the sidecar of the dataset-wide `export measurements` to follow |
 | 5 | FIF tag layer (directory, tags, blocks; read and write) and the raw reader, MNE goldens | 1 | **built**: raw reader and tag reading (`io/formats/include/nxr/formats/fif.h`); tag writing (`fif_write.h`) |
 | 6 | EDF/BDF, BrainVision, EEGLAB pure recording readers, MNE goldens (three small PRs, in parallel) | 1 | **now** |
 | 7 | BIDS pure layer: entities, sidecar inheritance, TSV tables, MNE-BIDS goldens | 1, 4 | **built** (`io/formats/include/nxr/formats/bids.h`) |
 | 8 | FIF objects (source spaces, transforms, cov, fwd, inv) and `.stc`: read and write, MNE goldens | 5 | **built, except `.stc`** (`fif_objects.h`): source spaces, covariances, events, annotation files and transforms read and write (rewritten files equal MNE's byte for byte); forward solutions and inverse operators read; their writers and `.stc` with step 11 |
 | 9 | Importers writing packages: FIF raw, EDF/BDF, BrainVision, EEGLAB, with `origin` records; `import <format>` verbs | 5, 6; the package pipelines (open PR) and the `io/convert/` template importers landing | **built as one verb**: `import recording` (`io/convert/recording.cpp`; the format is read from the file's extension; copy only, `--in-place` and a channel type/units table per format to follow) |
-| 10 | GIFTI exporter of cortical maps and surfaces; `export gifti` | 3, the package pipelines | after those |
-| 11 | MNE exports: `.stc`, `-cov.fif`, `-fwd.fif`, raw FIF chunk by chunk; `export mne` | 8, the package pipelines | after 8 |
+| 10 | GIFTI exporter of cortical maps and surfaces; `export gifti` | 3, the package pipelines | **built** (`io/export/gifti.cpp`, `io/include/nxr/exporters/`; maps, series over a stated range, labellings, the surface, hemispheres; provenance sidecar and terms in `common.h`; CIFTI-2 `dscalar`/`dlabel` to follow) |
+| 11 | MNE exports: `.stc`, `-cov.fif`, `-fwd.fif`, raw FIF chunk by chunk; `export mne` | 8, the package pipelines | **`.stc` built as `export fif`** (`io/formats/src/stc.cpp`, `io/export/fif.cpp`); `-cov.fif`, `-fwd.fif` and raw FIF after the format-mapping review |
 | 12 | `import bids` (a package per subject, the importer rules, participants through `participants import`) | 7, 9 | after 9 |
-| 13 | BIDS-derivatives exporter | 4, 10, 11 | after 11 |
+| 13 | BIDS-derivatives exporter | 4, 10, 11 | **built** (`io/export/bids.cpp`; `export bids-derivatives`; the folder is `--out` because `--to` is a time range's end; `participants.tsv` and `-cov.fif`/`-fwd.fif` entries to follow) |
 | 14 | CIFTI-2 read and write (`dscalar`, `dlabel`, `dtseries`) | 2, 3 | **reader built** (`io/formats/include/nxr/formats/cifti.h`); the writer with the exporters |
 | 15 | CTF, then KIT readers and importers | 5 (coil definitions), 9 | **pure readers built** (`ctf.h`, `kit.h`); imported by `import recording` (channels and events; CTF coils and compensation operators to follow) |
 | 16 | Python wheel, first slice (6.1), with the dependency-rule amendment; cibuildwheel in CI | the amendment (D3) | **now** (in parallel with 1–8) |
