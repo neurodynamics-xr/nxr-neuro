@@ -1,6 +1,8 @@
 // nxr-pipelines — the instrument's blur (pointspread.h).
 #include "nxr/pipelines/pointspread.h"
 
+#include "nxr/pipelines/task.h"
+
 #include <algorithm>
 #include <cmath>
 
@@ -38,24 +40,25 @@ PointSpreadResult pointspread_compute(nxr::io::DatasetWriter& ds, nxr::io::Subje
   if (opt.recording.empty()) invalid("pointspread compute: name the recording (--recording): the statistic is OF it");
   if (opt.levels.empty() || std::find(opt.levels.begin(), opt.levels.end(), opt.reference_level) == opt.levels.end()) invalid("pointspread compute: the reference level must be one of the levels");
   if (!(opt.fraction > 0 && opt.fraction < 1)) invalid("pointspread compute: --fraction is in (0, 1)");
-  const auto rec = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(opt.recording)});
+  const task::Subject subj = task::Subject::of(sub);
+  const auto rec = subj.find({.cls = task::Cls::field, .name = opt.recording});
   if (!rec) missing(sub.name() + ": no recording (Field) named '" + opt.recording + "'");
   // the head model and the kernel
-  Row fwd, ker;
-  if (opt.forward) { const auto r = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'forward' AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.forward)}); if (!r) missing(sub.name() + ": no head model named '" + *opt.forward + "'"); fwd = *r; }
-  else { const auto rs = sub.db().all("SELECT * FROM operator WHERE subject_id = ? AND kind = 'forward' AND status = 'complete' AND path IS NOT NULL", {V(sub.id())}); if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " head models; name one with --forward"); fwd = rs[0]; }
-  if (opt.kernel) { const auto r = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.kernel)}); if (!r) missing(sub.name() + ": no inverse kernel named '" + *opt.kernel + "'"); ker = *r; }
-  else { const auto rs = sub.db().all("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND status = 'complete' AND to_manifold_id = ?", {V(sub.id()), V(text(fwd, "from_manifold_id"))}); if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " inverse kernels of " + text(fwd, "name") + "; name one with --kernel"); ker = rs[0]; }
-  if (text(ker, "to_manifold_id") != text(fwd, "from_manifold_id")) invalid("pointspread compute: the kernel " + text(ker, "name") + " reads other sources than the head model " + text(fwd, "name"));
-  const std::string kname = text(ker, "name"), name = opt.name ? *opt.name : "pointspread." + kname;
+  task::Node fwd, ker;
+  if (opt.forward) { const auto r = subj.find({.cls = task::Cls::operator_, .name = *opt.forward, .kind = "forward"}); if (!r) missing(sub.name() + ": no head model named '" + *opt.forward + "'"); fwd = *r; }
+  else { const auto rs = subj.find_all({.cls = task::Cls::operator_, .kind = "forward", .stored = true}); if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " head models; name one with --forward"); fwd = rs[0]; }
+  if (opt.kernel) { const auto r = subj.find({.cls = task::Cls::operator_, .name = *opt.kernel, .kind = "inverse kernel"}); if (!r) missing(sub.name() + ": no inverse kernel named '" + *opt.kernel + "'"); ker = *r; }
+  else { const auto rs = subj.find_all({.cls = task::Cls::operator_, .kind = "inverse kernel", .to_manifold_id = fwd.from_manifold_id}); if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " inverse kernels of " + fwd.name + "; name one with --kernel"); ker = rs[0]; }
+  if (ker.to_manifold_id.value_or(std::string()) != fwd.from_manifold_id.value_or(std::string())) invalid("pointspread compute: the kernel " + ker.name + " reads other sources than the head model " + fwd.name);
+  const std::string kname = ker.name, name = opt.name ? *opt.name : "pointspread." + kname;
   // the gain on the kernel's channels, and the kernel
-  const auto csel = sub.db().read("selection", text(ker, "from_selection_id"));
-  if (!csel || nxr::io::is_null(*csel, "array_path")) invalid(kname + ": its channels (from_selection) are not stored");
-  const std::vector<std::int32_t> chans = read_all<std::int32_t>(sub.store(), text(*csel, "array_path"));
+  const auto csel = subj.by_id(task::Cls::selection, ker.from_selection_id.value_or(""));
+  if (!csel || !csel->array_path) invalid(kname + ": its channels (from_selection) are not stored");
+  const std::vector<std::int32_t> chans = read_all<std::int32_t>(sub.store(), csel->array_path.value_or(std::string()));
   const std::int64_t M = static_cast<std::int64_t>(chans.size());
   std::vector<std::int64_t> gshape, kshape;
-  const std::vector<float> gf = read_all<float>(sub.store(), text(fwd, "path"), &gshape), kf = read_all<float>(sub.store(), text(ker, "path"), &kshape);
-  if (gshape.size() != 2 || gshape[1] % 3 != 0) invalid(text(fwd, "name") + ": the gain is not [channels x 3N]");
+  const std::vector<float> gf = read_all<float>(sub.store(), fwd.path.value_or(std::string()), &gshape), kf = read_all<float>(sub.store(), ker.path.value_or(std::string()), &kshape);
+  if (gshape.size() != 2 || gshape[1] % 3 != 0) invalid(fwd.name + ": the gain is not [channels x 3N]");
   const std::int64_t Mall = gshape[0], N = gshape[1] / 3;
   if (kshape.size() != 2 || kshape[0] != 3 * N || kshape[1] != M) invalid(kname + ": its array is [" + std::to_string(kshape.empty() ? 0 : kshape[0]) + " x " + std::to_string(kshape.size() > 1 ? kshape[1] : 0) + "], the head model has 3N = " + std::to_string(3 * N) + " source rows and the kernel " + std::to_string(M) + " channels");
   Eigen::MatrixXd G(M, 3 * N), K(3 * N, M);
@@ -65,8 +68,8 @@ PointSpreadResult pointspread_compute(nxr::io::DatasetWriter& ds, nxr::io::Subje
   }
   for (std::int64_t r = 0; r < 3 * N; ++r) for (std::int64_t c = 0; c < M; ++c) K(r, c) = kf[static_cast<std::size_t>(r * M + c)];
   // the surface, its glued domain, the mesh the patch is cut on
-  const auto man = sub.db().read("manifold", text(fwd, "from_manifold_id"));
-  const SurfaceInput S = read_surface(sub, text(*man, "name"), true);
+  const auto man = subj.by_id(task::Cls::manifold, fwd.from_manifold_id.value_or(""));
+  const SurfaceInput S = read_surface(sub, man->name, true);
   if (S.n_vertices() != N) invalid("pointspread compute: the head model's " + std::to_string(N) + " sources are not the " + std::to_string(S.n_vertices()) + " vertices of " + S.name);
   const internal::GluedDomain dom = internal::glued_domain(sub, S);
   if (!dom.found) invalid("pointspread compute: " + dom.why);
@@ -110,11 +113,11 @@ PointSpreadResult pointspread_compute(nxr::io::DatasetWriter& ds, nxr::io::Subje
   CacheKey key;
   key.pipeline = "pointspread compute";
   key.params = Json{{"levels", opt.levels}, {"reference_level", opt.reference_level}, {"spatial_shape", opt.spatial_shape}, {"fraction", opt.fraction}, {"sample", sample}, {"name", name}};
-  key.input = Json{{"recording", text(*rec, "id")}, {"forward", text(fwd, "id")}, {"forward_modified", nxr::io::opt_text(fwd, "modified_utc").value_or("")}, {"kernel", text(ker, "id")}, {"kernel_modified", nxr::io::opt_text(ker, "modified_utc").value_or("")}};
+  key.input = Json{{"recording", rec->id}, {"forward", fwd.id}, {"forward_modified", fwd.modified_utc.value_or("")}, {"kernel", ker.id}, {"kernel_modified", ker.modified_utc.value_or("")}};
   key.compute = NXR_COMPUTE_VERSION;
   const std::string path = "statistics/" + nxr::io::safe_name(name);
   PointSpreadResult res;
-  if (!opt.replace) if (const auto hit = find_cached(sub.db(), sub.id(), "statistic", key, path)) { res.hit = true; res.info = Json{{"name", name}, {"cache", "hit"}}; return res; }
+  if (!opt.replace) if (const auto hit = subj.cached(task::Cls::statistic, key.json(), path)) { res.hit = true; res.info = Json{{"name", name}, {"cache", "hit"}}; return res; }
   // THE SOURCES: x, y, z at each sampled vertex, through the gain and the kernel, then the chain
   const int NS = static_cast<int>(sample.size());
   std::vector<double> out(static_cast<std::size_t>(NS) * 3 * 6, std::nan(""));
@@ -164,12 +167,12 @@ PointSpreadResult pointspread_compute(nxr::io::DatasetWriter& ds, nxr::io::Subje
   for (const int v : sample) vals.push_back(Json{{"name", "vertex" + std::to_string(v)}, {"vertex", v}});
   nxr::io::StatisticSpec st;
   st.name = name; st.path = path; st.measure = "point_spread"; st.method = "point_source";
-  st.of_field_id = text(*rec, "id"); st.n_members = NS;
+  st.of_field_id = rec->id; st.n_members = NS;
   st.axes = Json::array({Json{{"name", "source_vertex"}, {"values", vals}, {"size", NS}}, Json{{"name", "orientation"}, {"values", ors}, {"size", 3}}, Json{{"name", "measure"}, {"size", 6}}});
   st.components = Json::array({Json{{"name", "peak_error_cm"}}, Json{{"name", "diameter_cm"}}, Json{{"name", "area_cm2"}}, Json{{"name", "characteristic_level"}}, Json{{"name", "size_cm"}}, Json{{"name", "peak_power"}}});
   st.data = nxr::io::view(out, {NS, 3, 6});
-  st.description = "the instrument's blur: a unit current at each sampled vertex (x, y and z separately) through " + text(fwd, "name") + " and " + kname + ", read by the spatial events' chain (levels " + Json(opt.levels).dump() + ", the patch where the reference level's power is at least " + std::to_string(opt.fraction) + " of its peak)";
-  st.options = Json{{"forward", text(fwd, "name")}, {"kernel", kname}, {"levels", opt.levels}, {"reference_level", opt.reference_level}, {"fraction", opt.fraction}, {"spatial_shape", opt.spatial_shape}, {"sample", sample}, {"surface", S.name}, {"level_sizes_cm", size_cm}};
+  st.description = "the instrument's blur: a unit current at each sampled vertex (x, y and z separately) through " + fwd.name + " and " + kname + ", read by the spatial events' chain (levels " + Json(opt.levels).dump() + ", the patch where the reference level's power is at least " + std::to_string(opt.fraction) + " of its peak)";
+  st.options = Json{{"forward", fwd.name}, {"kernel", kname}, {"levels", opt.levels}, {"reference_level", opt.reference_level}, {"fraction", opt.fraction}, {"spatial_shape", opt.spatial_shape}, {"sample", sample}, {"surface", S.name}, {"level_sizes_cm", size_cm}};
   Json pj = stamp(key);
   pj["by"] = "nxr-neuro pointspread compute";
   pj["warnings"] = Json::array({"the blur of THIS head model and kernel (their noise model and regularisation) for a source ALONE: many sources blur together differently",

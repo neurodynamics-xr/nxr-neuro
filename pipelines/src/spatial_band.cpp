@@ -10,6 +10,7 @@
 #include "nxr/delaunay.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/ladder.h"
+#include "nxr/pipelines/task.h"
 #include "nxr/monogenic.h"
 #include "nxr/phase.h"
 #include "nxr/pipelines/eigen.h"
@@ -37,19 +38,20 @@ SurfaceLevel read_surface_level(SubjectWriter& sub, const SurfaceInput& S, int l
   SurfaceLevel L;
   L.surface = S.name; L.l = l; L.member = l;
   const std::int64_t nV = S.n_vertices();
-  const auto ladder = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'ladder' AND status = 'complete'", {V(sub.id()), V(S.id), V(S.name + " tiles")});
+  const task::Subject subj = task::Subject::of(sub);
+  const auto ladder = subj.find({.cls = task::Cls::selection, .name = S.name + " tiles", .type = "ladder", .manifold_id = S.id});
   if (!ladder) missing(sub.name() + ": " + S.name + " has no tile ladder; run `nxr-neuro tiles compute` first");
   L.ladder = *ladder;
   L.tiling = S.name + " tiles L" + std::to_string(l);
-  const auto lvl = sub.db().one("SELECT * FROM selection WHERE member_of_id = ? AND name = ? AND status = 'complete'", {V(text(*ladder, "id")), V(L.tiling)});
-  if (!lvl) invalid(sub.name() + ": the ladder of " + S.name + " has no level " + std::to_string(l) + " (its levels are 0 … " + std::to_string(integer(*ladder, "n_members") - 1) + ")");
+  const auto lvl = subj.find({.cls = task::Cls::selection, .name = L.tiling, .member_of_id = ladder->id});
+  if (!lvl) invalid(sub.name() + ": the ladder of " + S.name + " has no level " + std::to_string(l) + " (its levels are 0 … " + std::to_string(ladder->n_members.value_or(0) - 1) + ")");
   L.level = *lvl;
-  L.record = Json::parse(text(*lvl, "params_json"), nullptr, false);
-  const Json gp = Json::parse(text(*ladder, "params_json"), nullptr, false);
+  L.record = lvl->params;
+  const Json gp = ladder->params;
   if (!L.record.is_object() || !L.record.contains("node") || !L.record.contains("areas") || !gp.is_object() || !gp.contains("area_m2") || !gp.contains("pieces"))
     invalid(L.tiling + ": its record lacks the node of its arrays or the surface's area (a ladder made by another producer)");
-  L.nodes = integer(*lvl, "n_members");
-  L.tile = read_array<std::int32_t>(sub, text(*lvl, "array_path"));
+  L.nodes = lvl->n_members.value_or(0);
+  L.tile = read_array<std::int32_t>(sub, lvl->array_path.value_or(std::string()));
   if (static_cast<std::int64_t>(L.tile.size()) != nV) invalid(L.tiling + ": its codes are for " + std::to_string(L.tile.size()) + " vertices, the surface has " + std::to_string(nV));
   L.tile_area = read_array<double>(sub, L.record["areas"].get<std::string>());
   if (static_cast<std::int64_t>(L.tile_area.size()) != L.nodes) invalid(L.tiling + ": " + std::to_string(L.tile_area.size()) + " tile areas for " + std::to_string(L.nodes) + " tiles");
@@ -258,7 +260,7 @@ SpatialBandPlan plan_spatial_band(SubjectWriter& sub, const SurfaceInput& S, con
   } else {
     // none stored: can they be computed? one closed piece, or two with the medial wall; enough modes by Weyl's law; not beyond the cap
     const int pieces = connected_pieces(S.faces, S.n_vertices());
-    const Json gp = Json::parse(text(L.ladder, "params_json"), nullptr, false);
+    const Json gp = L.ladder.params;
     const double area = L.piece_area * std::max(1, gp.is_object() ? gp.value("pieces", 1) : 1);
     const std::int64_t need = static_cast<std::int64_t>(std::ceil(1.25 * area * P.reach / kFour_pi)) + 16;       // exact modes up to the band's top, with a margin
     const std::int64_t request = opt.modes > 0 ? opt.modes : std::max<std::int64_t>(3000, 2 * need);              // half exact, half coexact

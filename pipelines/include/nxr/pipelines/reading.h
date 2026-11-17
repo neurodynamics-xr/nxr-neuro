@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "nxr/io.h"
+#include "nxr/pipelines/task.h"
 
 namespace nxr::pipelines {
 
@@ -17,8 +18,12 @@ namespace nxr::pipelines {
  *  segment, 2^level samples): the span's ends snap to the nearest tile boundary; 0 for a pointwise run */
 nxr::io::Span span_of(const nxr::io::Row& field, std::int64_t n_samples, double sfreq, double t0, const std::optional<std::string>& chunks,
                       const std::optional<double>& start, const std::optional<double>& stop, int level = 0);
+nxr::io::Span span_of(const task::Node& field, std::int64_t n_samples, double sfreq, double t0, const std::optional<std::string>& chunks,
+                      const std::optional<double>& start, const std::optional<double>& stop, int level = 0);
 /** the Field's chunks: the rows asked for (empty: all), the bad spans' mask when given */
 nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& field, double sfreq, double t0, std::vector<std::int32_t> rows = {},
+                               const std::optional<std::vector<std::pair<double, double>>>& bad = std::nullopt);
+nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const task::Node& field, double sfreq, double t0, std::vector<std::int32_t> rows = {},
                                const std::optional<std::vector<std::pair<double, double>>>& bad = std::nullopt);
 
 }  // namespace nxr::pipelines

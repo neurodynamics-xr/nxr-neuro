@@ -42,6 +42,8 @@ constexpr std::int64_t kChunk = std::int64_t(1) << 15;
 
 /** a recording's chunk width from its Field row (nxr's chunk_width) */
 std::int64_t chunk_width(const Row& recording);
+/** the same from the Field's chunk shape (its `chunk_shape_json` as JSON; null: the default) */
+std::int64_t chunk_width(const Json& chunk_shape);
 /** chunk k's samples [a, b); a chunk outside the recording is an Error (invalid_argument) */
 std::pair<std::int64_t, std::int64_t> chunk_span(std::int64_t k, std::int64_t n_samples, std::int64_t width);
 

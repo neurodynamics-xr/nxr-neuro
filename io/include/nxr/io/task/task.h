@@ -16,6 +16,7 @@
 #include <string>
 #include <vector>
 
+#include "nxr/io/finder.h"
 #include "nxr/io/json_text.h"
 
 namespace nxr::io {
@@ -84,7 +85,14 @@ struct Geometry {
   std::vector<std::pair<std::int64_t, std::string>> cells;   // (rank, path of the cell array)
 };
 
-class Measures;
+// A band of a map statistic read as a map (a statistic whose first axis lies on a manifold and whose second lists named entries): slice `index`, named
+// `<statistic>_<entry name>`.
+struct MapSlice {
+  std::string statistic_id, name, manifold_id;
+  std::int64_t index = 0, n = 0, n_components = 1;
+  std::optional<std::string> unit;
+  std::string value_type = "scalar";
+};
 
 // io's handle to ONE subject in one database. Cheap to copy; the writer or package it was made from must outlive it.
 class Subject {
@@ -100,12 +108,21 @@ class Subject {
   Node require(const Want&, const std::string& what) const;
   std::vector<Node> find_all(const Want&) const;
   std::optional<Node> by_id(Cls, const std::string& id) const;        // any status
+  std::optional<Node> at_path(Cls, const std::string& path) const;   // the node whose arrays are at store path `path` (any status)
   Node require_id(Cls, const std::string& id) const;
   std::vector<Node> members(const Node& partition) const;            // by member ordinal
   std::optional<Node> member(const Node& partition, std::int64_t ordinal) const;
+  // the stored fields whose manifold is a product with `factor_manifold_id` as its axis `ordinal` (the fields over one time line, by name)
+  std::vector<Node> fields_on_axis(const std::string& factor_manifold_id, std::int64_t ordinal) const;
+  std::int64_t entry_count(const std::string& dictionary_id) const;   // the entries of a dictionary (a labelling's levels)
   std::vector<Span> spans(const Node& selection) const;
   Geometry geometry(const std::string& manifold_id) const;
+  // The model's description of a found node (its manifolds, value type, time line and rate, unit): io's finder::Value.
+  finder::Value describe(const Node& n) const;
   std::optional<Node> manifold_of(const Node& n) const;              // the manifold a field or selection lies on
+  std::vector<std::string> factors(const std::string& manifold_id) const;   // a manifold's factors in axis order (itself when it is not a product)
+  std::vector<MapSlice> map_slices(const std::string& manifold_id) const;
+  std::optional<MapSlice> map_slice(const std::string& name) const;         // the slice of a map statistic of this subject by its name
   // The naming rules for a node's store key (io's layout).
   std::string node_path(const std::string& manifold_id, const std::string& name) const;
   std::string atlas_node(const std::string& manifold_id, const std::string& name) const;
@@ -115,6 +132,9 @@ class Subject {
 
   // ---- what is measured on a selection
   std::vector<Json> measured_kinds(const std::string& selection_id) const;            // io's measurement_kinds: {of_field_id, measure, members, min, max, computed_by, unit}
+  // the selections that carry `measure` measured on `of_field_id` (ids, ascending)
+  std::vector<std::string> measured_selections(const std::string& of_field_id, const std::string& measure) const;
+  bool has_measures(const std::string& selection_id, const std::string& of_field_id) const;   // any measure of that field on the selection
   bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt) const;
 
   // ---- commit a result as ONE unit: everything written by `body` (nodes, arrays, measurements, parameters) is stored together or not at all

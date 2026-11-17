@@ -43,7 +43,8 @@ template <class T> std::optional<T> take_opt(const Row& r, const char* c) {
 inline Json take_json(const Row& r, const char* c) {
   auto it = r.find(c);
   if (it == r.end() || is_null(it->second)) return Json();
-  return Json::parse(text(r, c));
+  Json j = Json::parse(text(r, c), nullptr, false);   // not JSON: the text itself, as a string (a reader that wants the object checks is_object)
+  return j.is_discarded() ? Json(text(r, c)) : j;
 }
 template <class T> void put(Json& j, const char* c, const T& v) { j[c] = v; }
 template <class T> void put(Json& j, const char* c, const std::optional<T>& v) { j[c] = v ? Json(*v) : Json(); }

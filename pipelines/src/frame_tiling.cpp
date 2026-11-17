@@ -1,6 +1,8 @@
 // nxr-pipelines — the frame tiling of a recording (frame_tiling.h).
 #include "nxr/pipelines/frame_tiling.h"
 
+#include "nxr/pipelines/task.h"
+
 #include <cmath>
 #include <cstdio>
 #include <sstream>
@@ -46,25 +48,26 @@ FrameTilingResult frame_tiling_compute(DatasetWriter& ds, SubjectWriter& sub, co
     level = *opt.frame_level;
   }
   if (level > 0) invalid("frames: --frame-level is 0 (the day) or finer (negative)");
-  const auto rec = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND kind = 'recording' AND status = 'complete'", {V(sub.id()), V(opt.recording)});
+  const task::Subject subj = task::Subject::of(sub);
+  const auto rec = subj.find({.cls = task::Cls::field, .name = opt.recording, .kind = "recording"});
   if (!rec) missing(sub.name() + ": no recording '" + opt.recording + "'");
-  const finder::Value rv = finder::value_of(sub.db(), "field", *rec);
+  const finder::Value rv = subj.describe(*rec);
   if (!rv.time || !(rv.rate > 0)) invalid(opt.recording + ": it has no time line with a rate");
   const std::string tid = *rv.time;
-  const auto tline = sub.db().read("manifold", tid);
-  const std::int64_t samples = integer(*tline, "n_vertices");
+  const auto tline = subj.require_id(task::Cls::manifold, tid);
+  const std::int64_t samples = *tline.n_vertices;
   nxr::tower::FrameTiling t;
   try { t = nxr::tower::makeFrameTiling(rv.rate, samples, level, opt.start_s); } catch (const std::invalid_argument& e) { invalid(e.what()); }
   const std::int64_t count = t.count;
   const std::string name = frame_tiling_name(opt.recording, level);
   FrameTilingResult res;
-  if (const auto have = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND manifold_id = ? AND status = 'complete'", {V(sub.id()), V(name), V(tid)})) {
+  if (const auto have = subj.find({.cls = task::Cls::selection, .name = name, .manifold_id = tid})) {
     if (!opt.replace) {
       res.existed = true;
-      res.info = Json{{"selection", name}, {"id", text(*have, "id")}, {"kept", true}};
+      res.info = Json{{"selection", name}, {"id", have->id}, {"kept", true}};
       return res;
     }
-    sub.remove("selection", text(*have, "id"));
+    sub.remove("selection", have->id);
   }
   const double width = t.frame_s(), origin = rv.origin + t.origin_s();
   Json ft = Json{{"sfreq", rv.rate}, {"samples", samples}, {"fps", t.fps()}, {"recording", opt.recording}, {"frame_samples", t.tile_samples()},
@@ -76,7 +79,7 @@ FrameTilingResult frame_tiling_compute(DatasetWriter& ds, SubjectWriter& sub, co
   sub.compose([&] {
     SelectionSpec ss;
     ss.name = name; ss.type = "spans"; ss.manifold_id = tid;
-    ss.cols.set("cell", "1").set("of_field_id", text(*rec, "id")).set("n_elements", samples).set("n_members", count)
+    ss.cols.set("cell", "1").set("of_field_id", rec->id).set("n_elements", samples).set("n_members", count)
         .set("description", "the measurement pyramid's time tiles: " + std::to_string(count) + " cycles of tower level " + std::to_string(level) + " (" + g(width) + " s), frame k is code " + std::to_string(t.code0) + " + k, a level-m tile code >> m");
     ss.cols.json("params_json", Json{{"tiling", Json{{"origin", origin}, {"width", width}, {"hop", width}, {"count", count}}}, {"end", origin + static_cast<double>(count) * width},
                                      {"atlas", Json{{"frame_s", width}, {"frame_level", level}, {"frame_code0", t.code0}, {"anchor", t.day_anchored ? "day" : "recording"}, {"start_s", opt.start_s ? Json(*opt.start_s) : Json(nullptr)}, {"made", true}}},

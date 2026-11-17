@@ -1,6 +1,8 @@
 // nxr-pipelines — the Wishart null (wishart_null.h).
 #include "nxr/pipelines/wishart_null.h"
 
+#include "nxr/pipelines/task.h"
+
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -31,24 +33,25 @@ WishartNullResult wishart_null_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   if (opt.band.size() != 2 || !(opt.band[0] >= 0 && opt.band[0] < opt.band[1])) invalid("wishart compute: --band is LO,HI in Hz, LO < HI");
   if (opt.draws < 20) invalid("wishart compute: --draws is at least 20 (the project's 1000)");
   if (opt.shape != "morlet" && opt.shape != "meyer") invalid("wishart compute: --shape is morlet or meyer");
-  const auto rec = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(opt.recording)});
+  const task::Subject subj = task::Subject::of(sub);
+  const auto rec = subj.find({.cls = task::Cls::field, .name = opt.recording});
   if (!rec) missing(sub.name() + ": no recording (Field) named '" + opt.recording + "'");
   const CrossSpectrumWindows win = crossspectrum_windows_read(sub, opt.windows, std::nullopt, "stored");
   if (win.level < 0 || win.sum.empty()) invalid("wishart compute: " + opt.windows + " is not a stored analytic cross-spectrum series on time tiles (`crossspectrum compute --estimator analytic`)");
   // the bursts and the time line
-  const auto brow = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(opt.bursts)});
+  const auto brow = subj.find({.cls = task::Cls::selection, .name = opt.bursts});
   if (!brow) missing(sub.name() + ": no Selection named '" + opt.bursts + "' (the bursts)");
-  if (text(*brow, "type") != "spans") invalid(opt.bursts + " is a " + text(*brow, "type") + " Selection, not spans");
+  if (brow->type.value_or(std::string()) != "spans") invalid(opt.bursts + " is a " + brow->type.value_or(std::string()) + " Selection, not spans");
   std::vector<std::pair<double, double>> spans;
-  for (const auto& r : sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*brow, "id"))})) spans.emplace_back(std::stod(text(r, "start")), std::stod(text(r, "stop")));
+  for (const auto& r : subj.spans(*brow)) spans.emplace_back(r.start, r.stop);
   if (spans.empty()) invalid("wishart compute: " + opt.bursts + " holds no burst");
-  const auto dims = sub.db().all("SELECT d.manifold_id AS mid FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? ORDER BY d.ordinal", {V(text(*rec, "manifold_id"))});
+  const auto dims = subj.geometry(rec->manifold_id.value_or(std::string())).axes;
   if (dims.size() != 2) invalid(opt.recording + ": a recording lies on channels x time");
-  const std::string tid = text(dims[1], "mid");
-  if (text(*brow, "manifold_id") != tid) invalid(opt.bursts + " is on another time line than " + opt.recording + "'s");
-  const auto ld = sub.db().one("SELECT d.spacing AS spacing, d.origin AS origin FROM geometry_dimension d JOIN manifold mm ON mm.geometry_id = d.geometry_id WHERE mm.id = ? AND d.ordinal = 0", {V(tid)});
-  if (!ld || nxr::io::is_null(*ld, "spacing")) invalid(opt.recording + ": its time line has no sampling step");
-  const double dt = std::stod(text(*ld, "spacing")), t0 = nxr::io::is_null(*ld, "origin") ? 0.0 : std::stod(text(*ld, "origin")), rate = 1.0 / dt;
+  const std::string tid = dims[1].manifold_id.value_or(std::string());
+  if (brow->manifold_id.value_or(std::string()) != tid) invalid(opt.bursts + " is on another time line than " + opt.recording + "'s");
+  const auto ld = subj.geometry(tid).axes;
+  if (ld.empty() || !ld[0].spacing) invalid(opt.recording + ": its time line has no sampling step");
+  const double dt = *ld[0].spacing, t0 = ld[0].origin.value_or(0.0), rate = 1.0 / dt;
   const double width = static_cast<double>(std::int64_t(1) << win.level) * dt, eps = 0.5 * dt;
   // the bandwidth: the PSD's mean over the windows' channels through the band's analytic gain
   const nxr::io::StoredStatistic P = nxr::io::read_statistic(sub, opt.psd);
@@ -70,11 +73,11 @@ WishartNullResult wishart_null_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   CacheKey key;
   key.pipeline = "wishart compute";
   key.params = Json{{"band", opt.band}, {"shape", opt.shape}, {"draws", opt.draws}, {"seed", opt.seed}};
-  key.input = Json{{"recording", text(*rec, "id")}, {"windows", opt.windows}, {"windows_level", win.level}, {"windows_n", win.sum.size()}, {"bursts", text(*brow, "id")}, {"bursts_n", spans.size()}, {"psd", text(P.row, "id")}};
+  key.input = Json{{"recording", rec->id}, {"windows", opt.windows}, {"windows_level", win.level}, {"windows_n", win.sum.size()}, {"bursts", brow->id}, {"bursts_n", spans.size()}, {"psd", text(P.row, "id")}};
   key.compute = NXR_COMPUTE_VERSION;
   const std::string pb = "statistics/" + nxr::io::safe_name(base), pr = "statistics/" + nxr::io::safe_name(base + ".run");
   WishartNullResult res;
-  if (!opt.replace) if (find_cached(sub.db(), sub.id(), "statistic", key, pb)) { res.hit = true; res.info = Json{{"name", base}, {"cache", "hit"}}; say(Json{{"stage", "cache"}, {"hit", true}}); return res; }
+  if (!opt.replace) if (subj.cached(task::Cls::statistic, key.json(), pb)) { res.hit = true; res.info = Json{{"name", base}, {"cache", "hit"}}; say(Json{{"stage", "cache"}, {"hit", true}}); return res; }
   // THE BURSTS' SECOND MOMENTS: the windows WHOLLY inside each burst, summed
   std::map<std::int64_t, std::size_t> at;
   for (std::size_t w = 0; w < win.index.size(); ++w) at[win.index[w]] = w;
@@ -132,7 +135,7 @@ WishartNullResult wishart_null_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   pj["by"] = "nxr-neuro wishart compute"; pj["warnings"] = warnings; pj["reference"] = "nxr vortex.wishart, dof_fraction";
   sub.compose([&] {
     nxr::io::StatisticSpec st;
-    st.name = base; st.path = pb; st.measure = "null_p"; st.method = "wishart_null"; st.of_field_id = text(*rec, "id"); st.n_members = used;
+    st.name = base; st.path = pb; st.measure = "null_p"; st.method = "wishart_null"; st.of_field_id = rec->id; st.n_members = used;
     st.axes = Json::array({Json{{"name", "burst"}, {"values", names}, {"size", B}}, Json{{"name", "test"}, {"size", 5}}});
     st.components = Json::array({Json{{"name", "lagged_share"}}, Json{{"name", "null_mean"}}, Json{{"name", "p"}}, Json{{"name", "q"}}, Json{{"name", "dof"}}});
     st.data = nxr::io::view(vb, {B, 5});
@@ -140,7 +143,7 @@ WishartNullResult wishart_null_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
     st.options = opts; st.producer = pj;
     sub.statistic(std::move(st));
     nxr::io::StatisticSpec sr;
-    sr.name = base + ".run"; sr.path = pr; sr.measure = "null_p"; sr.method = "wishart_null"; sr.of_field_id = text(*rec, "id"); sr.n_members = used;
+    sr.name = base + ".run"; sr.path = pr; sr.measure = "null_p"; sr.method = "wishart_null"; sr.of_field_id = rec->id; sr.n_members = used;
     sr.axes = Json::array({Json{{"name", "test"}, {"values", Json::array({Json{{"name", "mean_share"}}, Json{{"name", "null_mean"}}, Json{{"name", "null_sd"}}, Json{{"name", "p"}}})}, {"size", 4}}});
     sr.data = nxr::io::view(vr, {4});
     sr.description = "the run's mean lagged share over the bursts of " + opt.bursts + " against the Wishart null's mean over the same bursts (" + std::to_string(opt.draws) + " draws)";

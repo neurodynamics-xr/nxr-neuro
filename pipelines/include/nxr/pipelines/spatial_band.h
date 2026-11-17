@@ -21,12 +21,13 @@
 #include "nxr/filterbank.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/input.h"
+#include "nxr/pipelines/task.h"
 
 namespace nxr::pipelines {
 
 /** What the stored ladder says of level l of a surface: the tiles of every vertex, their areas, the tile graph, and the Weyl member that is the level's band (paired and checked). */
 struct SurfaceLevel {
-  nxr::io::Row ladder, level;                // the ladder Selection and the level's `set` member
+  task::Node ladder, level;                  // the ladder Selection and the level's `set` member
   nxr::io::Json record;                      // the level's params_json
   std::string surface, tiling;               // the surface's name; "<surface> tiles L<l>"
   int l = 0;

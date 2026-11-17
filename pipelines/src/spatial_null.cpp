@@ -1,6 +1,8 @@
 // nxr-pipelines — the lag-free null of the spatial events (spatial_null.h).
 #include "nxr/pipelines/spatial_null.h"
 
+#include "nxr/pipelines/task.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -44,7 +46,8 @@ SpatialNullResult spatial_null_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   if (opt.recording.empty()) invalid("spatialnull compute: name the recording (--recording)");
   if (opt.batch < 1 || opt.min_draws < 1 || opt.max_draws < opt.min_draws || opt.h < 1) invalid("spatialnull compute: --batch, --min-draws (<= --max-draws) and --h are whole numbers >= 1");
   const graph::Definition dnull = graph::load("spatial_events_null");
-  const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(opt.recording)});
+  const task::Subject subj = task::Subject::of(sub);
+  const auto f = subj.find({.cls = task::Cls::field, .name = opt.recording});
   if (!f) throw Error(nxr::io::code::no_such_row, sub.name() + ": no recording (Field) named '" + opt.recording + "'");
   const nxr::io::StoredStatistic H = nxr::io::read_statistic(sub, opt.events + ".home." + opt.recording), SD = nxr::io::read_statistic(sub, opt.events + ".summary." + opt.recording);
   if (H.shape.size() != 2 || H.shape[1] != 2) invalid("spatialnull compute: " + opt.events + ".home." + opt.recording + " is not [vertices x (frames in a patch, frames)]");
@@ -57,13 +60,13 @@ SpatialNullResult spatial_null_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   CacheKey key;
   key.pipeline = "spatialnull compute";
   key.params = Json{{"batch", opt.batch}, {"min_draws", opt.min_draws}, {"max_draws", opt.max_draws}, {"h", opt.h}, {"set", opt.set}, {"events", opt.events}};
-  key.input = Json{{"recording", text(*f, "id")}, {"home", text(H.row, "id")}, {"summary", text(SD.row, "id")}};
+  key.input = Json{{"recording", f->id}, {"home", text(H.row, "id")}, {"summary", text(SD.row, "id")}};
   key.compute = NXR_COMPUTE_VERSION;
   const std::string base = "spatial_events.null." + opt.recording;
   const std::string p_home = "statistics/" + nxr::io::safe_name(base + ".home_p");
   SpatialNullResult res;
   if (!opt.replace)
-    if (const auto hit = find_cached(sub.db(), sub.id(), "statistic", key, p_home)) { res.hit = true; res.info = Json{{"cache", "hit"}, {"home_p", base + ".home_p"}}; say(Json{{"stage", "cache"}, {"hit", true}}); return res; }
+    if (const auto hit = subj.cached(task::Cls::statistic, key.json(), p_home)) { res.hit = true; res.info = Json{{"cache", "hit"}, {"home_p", base + ".home_p"}}; say(Json{{"stage", "cache"}, {"hit", true}}); return res; }
   graph::RunOptions ro;
   ro.chunks = opt.chunks; ro.start = opt.start; ro.stop = opt.stop; ro.replace = opt.replace;
   Eigen::VectorXd ex_home = Eigen::VectorXd::Zero(V0), sum_home = Eigen::VectorXd::Zero(V0);
@@ -121,7 +124,7 @@ SpatialNullResult spatial_null_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   auto store = [&](const std::string& name, const char* measure, const char* method, std::vector<double> values, std::vector<std::int64_t> shape, const Json& axes, const Json& components, const std::string& desc, bool first) {
     nxr::io::StatisticSpec st;
     st.name = name; st.path = "statistics/" + nxr::io::safe_name(name); st.measure = measure; st.method = method;
-    st.of_field_id = text(*f, "id");
+    st.of_field_id = f->id;
     st.axes = axes; if (!components.is_null()) st.components = components;
     st.data = nxr::io::view(values, shape);
     st.description = desc;
