@@ -302,6 +302,8 @@ add_library(nxr_io
   convert/fibers_import.cpp
   convert/templates.cpp
   convert/recording.cpp
+  export/common.cpp
+  export/gifti.cpp
 )
 target_include_directories(nxr_io PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/gen src ${CMAKE_CURRENT_SOURCE_DIR}/extern)
 set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # rapidyaml (vendored: extern/ryml, v0.15.2) compiled here, its warnings not ours
@@ -333,7 +335,7 @@ target_link_libraries(nxr-neuro-bst-compare PRIVATE nxr_io)
 
 # --- tests (hand-written + ctest) ---
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_IO_TESTS import_recording records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import fibers schema51 split_groups task_dataset)
+  set(NXR_IO_TESTS export_gifti import_recording records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import fibers schema51 split_groups task_dataset)
   foreach(t ${NXR_IO_TESTS})
     add_executable(test_${t} test/test_${t}.cpp)
     target_link_libraries(test_${t} PRIVATE nxr_io nxr_io_testing)

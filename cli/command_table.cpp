@@ -19,7 +19,7 @@ verb list	List datasets, subjects, recordings, kernels, results or pipelines
 verb show	Show a dataset or a subject
 verb read	Read stored arrays and derived readings
 verb query	Query stored measurements
-verb export	Export stored measurements as a table
+verb export	Export stored results: measurements as a table, cortical maps as GIFTI
 verb import	Import data from Brainstorm into a dataset
 verb create	Create a dataset or a subject
 verb delete	Delete a dataset or a subject
@@ -1022,6 +1022,20 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --name@import recording	NAME	Name the recording is stored under.	the file's name without its extension	-
 --package@import recording	PATH	The subject package (made by `create package`) the recording is copied into.	required	-
 --source-root@import recording	DIR	The folder the file's recorded path is relative to (an absolute path is never recorded).	the file's own folder	-
+--package@export gifti	PATH	The folder of the subject package (<subject>.nxr.zarr, or a member of a catalogue) whose field or labelling is exported; it is only read.	required	-
+--field@export gifti	NAME	The Field to export, by name: a map on a surface (one data array) or a series on a surface and a time line (one data array per frame of the time range). Not with --labelling.	none (give this or --labelling)	-
+--labelling@export gifti	NAME	The partition or set Selection on a surface to export as a label file, with the names and colours of its dictionary. Not with --field.	none (give this or --field)	-
+--out@export gifti	STEM	The path stem the files are written under (its folder must exist): <STEM>.func.gii or .shape.gii or .label.gii, <STEM>.surf.gii with --with-surface, and the provenance sidecar <first file>.json; with --hemispheres, <STEM>_hemi-L and <STEM>_hemi-R.	required	-
+--kind@export gifti	func|shape	The file type of a Field: func (.func.gii, functional data; a series is always func) or shape (.shape.gii, static data on the surface such as curvature).	func	-
+--with-surface@export gifti		Also write the surface itself (.surf.gii): the pointset and the triangles, as stored.	off	-
+--hemispheres@export gifti		Write one file of each kind per hemisphere (the glued cortex split into the hemispheres it stores as components, left and right), each marked CortexLeft or CortexRight.	off (one file for the whole surface)	-
+--surface-unit@export gifti	m|mm	Write the surface's coordinates in this unit (a scale by a power of ten; the stored unit must be stated); GIFTI readers such as Workbench expect mm.	as stored	-
+--from@export gifti	SEC	Start of the time range of a series, in seconds on the recording's clock (or m:ss); give together with --to. Required for a series, refused for a map.	required for a series	s
+--to@export gifti	SEC	End of the time range of a series, in seconds (or m:ss), exclusive; give together with --from.	required for a series	s
+--all@export gifti		The whole series, every frame (the recording is still read one chunk at a time).	off	-
+--with-surface		Also write the surface itself (export gifti).	off	-
+--hemispheres		Write one file per hemisphere (export gifti).	off	-
+--surface-unit	m|mm	The unit the surface's coordinates are written in (export gifti).	as stored	-
 )TBL",
 R"TBL(@ create dataset
 old: dataset create
@@ -1270,6 +1284,12 @@ old: __import recording
 alias: no
 summary: Copy a recording file (FIF, EDF, BDF, BrainVision, EEGLAB, CTF, KIT) into a subject package, with its channels, events, bad channels and an origin record.
 opts: --acquisition --anonymize --attribution --format --from* --licence --name --package* --source-root
+)TBL",
+R"TBL(@ export gifti
+old: __export gifti
+alias: no
+summary: Write a cortical Field (a map, or a series over a stated time range) or a labelling as GIFTI (.func.gii, .shape.gii, .label.gii), with the surface on request and a provenance sidecar.
+opts: --all --field --from --hemispheres --kind --labelling --out* --package* --surface-unit --to --with-surface
 )TBL",
 R"TBL(@ import condition
 old: convert convert

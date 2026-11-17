@@ -428,7 +428,7 @@ r = nxrneuro.compute('psd', sub, 'rest', 'all', true);
 | 7 | BIDS pure layer: entities, sidecar inheritance, TSV tables, MNE-BIDS goldens | 1, 4 | **built** (`io/formats/include/nxr/formats/bids.h`) |
 | 8 | FIF objects (source spaces, transforms, cov, fwd, inv) and `.stc`: read and write, MNE goldens | 5 | **built, except `.stc`** (`fif_objects.h`): source spaces, covariances, events, annotation files and transforms read and write (rewritten files equal MNE's byte for byte); forward solutions and inverse operators read; their writers and `.stc` with step 11 |
 | 9 | Importers writing packages: FIF raw, EDF/BDF, BrainVision, EEGLAB, with `origin` records; `import <format>` verbs | 5, 6; the package pipelines (open PR) and the `io/convert/` template importers landing | **built as one verb**: `import recording` (`io/convert/recording.cpp`; the format is read from the file's extension; copy only, `--in-place` and a channel type/units table per format to follow) |
-| 10 | GIFTI exporter of cortical maps and surfaces; `export gifti` | 3, the package pipelines | after those |
+| 10 | GIFTI exporter of cortical maps and surfaces; `export gifti` | 3, the package pipelines | **built** (`io/export/gifti.cpp`, `io/include/nxr/exporters/`; maps, series over a stated range, labellings, the surface, hemispheres; provenance sidecar and terms in `common.h`; CIFTI-2 `dscalar`/`dlabel` to follow) |
 | 11 | MNE exports: `.stc`, `-cov.fif`, `-fwd.fif`, raw FIF chunk by chunk; `export mne` | 8, the package pipelines | after 8 |
 | 12 | `import bids` (a package per subject, the importer rules, participants through `participants import`) | 7, 9 | after 9 |
 | 13 | BIDS-derivatives exporter | 4, 10, 11 | after 11 |
