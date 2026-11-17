@@ -218,11 +218,11 @@ int main() {
   CHECK_EQ(a.id, fid);
   CHECK(a.path && *a.path == "source/a");
   CHECK(a.manifold_id && *a.manifold_id == mid);
-  CHECK_EQ(s.find_all({.cls = Cls::field, .manifold_id = mid}).size(), static_cast<std::size_t>(2));
+  CHECK_EQ(s.find_all({.cls = Cls::field, .manifold_id = mid}).size(), static_cast<std::size_t>(3));   // a, b and the typed writes' toy_map
   CHECK_EQ(s.find_all({.cls = Cls::field, .stored = false}).size(), static_cast<std::size_t>(0));
   CHECK_EQ(s.by_id(Cls::field, fid)->name, std::string("a"));
   CHECK(!s.by_id(Cls::field, "no-such-id"));
-  CHECK_EQ(s.find_all({.cls = Cls::statistic}).size(), static_cast<std::size_t>(0));
+  CHECK_EQ(s.find_all({.cls = Cls::statistic}).size(), static_cast<std::size_t>(1));   // the typed writes' toy_psd
 
   // operators, selections by parameters, members, spans
   const Node op = s.require({.cls = Cls::operator_, .kind = "gradient"}, "the gradient");
