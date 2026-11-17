@@ -103,7 +103,9 @@ ManifoldRef members(const std::string& partition);
 ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role = Role::time_tiles, const std::string& label = "");
 ManifoldRef members_of_port(const std::string& port);      // in a signature: the member set of the selection read at `port` (instantiated to members(<its identity>))
 ManifoldRef derived(const std::string& relation, const ManifoldRef& of);
-bool same(const ManifoldRef& a, const ManifoldRef& b);                 // structural equality
+bool same(const ManifoldRef& a, const ManifoldRef& b);                 // structural equality; the coordinate system is part of it when both manifolds record one (T5)
+bool same_cs(const std::optional<CoordinateSystem>& a, const std::optional<CoordinateSystem>& b);   // true when either is not recorded
+std::string print_cs(const std::optional<CoordinateSystem>& c);        // "head/scs (m)"
 std::string print(const ManifoldRef& m);
 ManifoldRef parse_manifold(const std::string& text);
 

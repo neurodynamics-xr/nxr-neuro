@@ -17,7 +17,8 @@
 //   summarize   across a partition's members: a statistic that remembers what it is OF; a field is measured first
 //   detect      events found on a scalar field or measurement: a selection with an identity, and measurements over its members
 //   make        a selection, a manifold or an operator made from parameters and geometry; no field input
-// NO TRANSITION IS INSERTED by the checker: it refuses, names the node to add, and stops.
+// NO TRANSITION IS INSERTED by the checker: it refuses, names the node to add (`positions.transition`), and stops. A node that reads POSITIONS declares `positions_share({ports})` (one
+// coordinate system) or `positions_in(port, "scs")`; the coordinate system is part of every manifold's type (T5).
 #pragma once
 #include <functional>
 #include <stdexcept>
@@ -65,6 +66,8 @@ InPat selection_any();
 InPat statistic_any();
 InPat operator_(const ManifoldRef& from, const ManifoldRef& to);
 InPat any_port();
+InPat manifold_port(const ManifoldRef& m);               // a manifold as a value (a positions input): class manifold, lying on `m`
+InPat transition_port();                                 // an operator of kind transition (a change of coordinate system of one space)
 
 /** the pattern of an output: a copy of an input's type with changes, or a blank of a class; the domain is a pattern instantiated with what the inputs bound */
 struct OutPat {
@@ -110,6 +113,10 @@ struct Signature {
   std::vector<std::pair<std::string, OutPat>> outputs;
   std::function<void(Unified&, const Json&)> refine_fn;
   bool accumulates = false;                             // the node is an accumulate node (a fold over the blocks in time order): it may measure a partition of the streamed factor
+  std::vector<std::vector<std::string>> position_groups;   // ports whose positions must be in ONE coordinate system (T5)
+  std::vector<std::pair<std::string, std::string>> positions_named;   // (port, system name): the port's positions must be in that system ("scs")
+  Signature& positions_share(std::vector<std::string> ports) { position_groups.push_back(std::move(ports)); return *this; }
+  Signature& positions_in(const std::string& port, const std::string& system) { positions_named.emplace_back(port, system); return *this; }
   std::string reduces;                                  // a fused statistic estimation (measure over a declared partition of the stream, then summarize): the partition it reduces over, in words
   Signature& in(const std::string& port, InPat p) { inputs.emplace_back(port, std::move(p)); return *this; }
   Signature& out(const std::string& port, OutPat p) { outputs.emplace_back(port, std::move(p)); return *this; }

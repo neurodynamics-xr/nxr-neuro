@@ -123,14 +123,21 @@ ManifoldRef derived(const std::string& relation, const ManifoldRef& of) {
   return make_ref(std::move(m));
 }
 
+bool same_cs(const std::optional<CoordinateSystem>& a, const std::optional<CoordinateSystem>& b) {
+  if (!a || !b) return true;                                   // a manifold without a recorded system is not told apart by it
+  return a->space == b->space && a->name == b->name && (a->unit.empty() || b->unit.empty() || a->unit == b->unit);
+}
+std::string print_cs(const std::optional<CoordinateSystem>& c) { return c ? c->space + "/" + c->name + (c->unit.empty() ? "" : " (" + c->unit + ")") : std::string("none"); }
+
 bool same(const ManifoldRef& a, const ManifoldRef& b) {
   if (a == b) return true;
   if (!a || !b) return false;
   if (a->form != b->form) return false;
   switch (a->form) {
+    // the coordinate system is part of the manifold's type (T5): one manifold in two systems is two types, and no transition is inserted between them
     case Manifold::Form::id:
-    case Manifold::Form::made: return a->key == b->key && a->label == b->label;      // `sensors(rest)` and `time(rest)` are two manifolds of one recording
-    case Manifold::Form::anonymous:
+    case Manifold::Form::made: return a->key == b->key && a->label == b->label && same_cs(a->cs, b->cs);      // `sensors(rest)` and `time(rest)` are two manifolds of one recording
+    case Manifold::Form::anonymous: return a->key == b->key && same_cs(a->cs, b->cs);
     case Manifold::Form::variable: return a->key == b->key;
     case Manifold::Form::restricted: return a->by == b->by && same(a->of, b->of);
     case Manifold::Form::members: return a->by == b->by;
@@ -577,6 +584,11 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
     if (it == b.vars.end()) { b.vars[pattern->key] = actual; return true; }
     const ManifoldRef& bound = it->second;
     if (same(bound, actual)) return true;
+    if (bound->key == actual->key && bound->label == actual->label && !same_cs(bound->cs, actual->cs)) {
+      why = print(actual) + " is the manifold " + print(bound) + " in another coordinate system (" + print_cs(actual->cs) + ", not " + print_cs(bound->cs) +
+            "); no transition is applied by the checker: add the node `positions.transition` with the transition operator " + print_cs(actual->cs) + " to " + print_cs(bound->cs);
+      return false;
+    }
     if (pattern->subsume) {
       // the one implicit move: a source restricted to S accepts the whole manifold it is of (the kernel reads its channels of the recording) and a restriction to the same S
       if (actual->form == Manifold::Form::restricted && same(bound, actual->of)) return true;
@@ -597,7 +609,12 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
       if (pattern->key != actual->key) { why = print(actual) + " is not " + print(pattern); return false; }
       return unify(pattern->of, actual->of, b, why);
     default:
-      if (!same(pattern, actual)) { why = print(actual) + " is not " + print(pattern); return false; }
+      if (!same(pattern, actual)) {
+        why = print(actual) + " is not " + print(pattern);
+        if (pattern->key == actual->key && pattern->label == actual->label)
+          why += " (the same manifold in another coordinate system: " + print_cs(actual->cs) + ", not " + print_cs(pattern->cs) + "; no transition is applied by the checker: add the node `positions.transition` with the transition operator)";
+        return false;
+      }
       return true;
   }
 }

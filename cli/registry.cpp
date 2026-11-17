@@ -17,6 +17,7 @@
 #include "nxr/io/errors.h"
 #include "output.h"
 #ifdef NXR_NEURO_WITH_PIPELINES
+int compute_main(const std::vector<std::string>& args);   // cli/compute_command.cpp
 #include "nxr/pipelines/definition.h"
 #endif
 
@@ -553,12 +554,15 @@ int run_command_line(int argc, char** argv) {
   // for nodes (a later step).
   if (argc >= 2 && std::string(argv[1]) == "compute") {
     const std::string next = argc >= 3 ? argv[2] : "";
-    const bool help = next.empty() || next == "-h" || next == "--help";
     const std::vector<std::string> names = pipeline_names();
     const bool pipeline = !next.empty() && std::find(names.begin(), names.end(), next) != names.end();
-    if (pipeline) std::cerr << "nxr-neuro: error: 'compute " << next << "' is now 'run " << next << "' (the same options): pipelines are run with `run`; `compute` is reserved for nodes\n";
-    else std::cerr << "nxr-neuro compute: a node or a graph applied to arrays or files. Not available yet.\nPipelines are run with `nxr-neuro run <pipeline>` (`nxr-neuro list pipelines`).\n";
-    return help && !pipeline ? 0 : 2;
+    if (pipeline) { std::cerr << "nxr-neuro: error: 'compute " << next << "' is now 'run " << next << "' (the same options): pipelines are run with `run`; `compute` is for nodes\n"; return 2; }
+#ifdef NXR_NEURO_WITH_PIPELINES
+    return compute_main(std::vector<std::string>(argv + 2, argv + argc));
+#else
+    std::cerr << "nxr-neuro compute needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON\n";
+    return 2;
+#endif
   }
   if (argc >= 2) {
     const std::string first = argv[1];

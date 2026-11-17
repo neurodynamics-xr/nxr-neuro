@@ -285,9 +285,35 @@ void test_builtin_table() {
     CHECK(s && !s->outputs.empty());
   }
 }
+// T5: the coordinate system is part of a manifold's type; no transition is inserted: the checker refuses and names `positions.transition`
+void test_coordinates() {
+  const auto device = g::manifold_id("sensors", "run1", g::ManifoldKind::points, g::Role::none, g::CoordinateSystem{"head", "device:run1", "m"});
+  const auto head = g::manifold_id("sensors", "run1", g::ManifoldKind::points, g::Role::none, g::CoordinateSystem{"head", "scs", "m"});
+  const auto surface = g::manifold_id("cortex", "kernel", g::ManifoldKind::surface, g::Role::none, g::CoordinateSystem{"head", "scs", "m"});
+  CHECK(!g::same(device, head) && g::same(head, head));
+  g::PortType tr; tr.typed = true; tr.cls = g::PortClass::operator_; tr.quantity = "transition";
+  tr.transition = std::make_pair(g::CoordinateSystem{"head", "device:run1", "m"}, g::CoordinateSystem{"head", "scs", "m"});
+  g::PortType pos; pos.typed = true; pos.cls = g::PortClass::manifold; pos.domain = dom({device});
+  const auto moved = use("positions.transition", {{"positions", pos}, {"transition", tr}}, Json::object(), false, {"moved"}).at("moved");
+  CHECK(moved.domain.factors[0]->cs && moved.domain.factors[0]->cs->name == "scs" && g::same(moved.domain.factors[0], head));
+  g::PortType wrong = pos; wrong.domain = dom({head});
+  CHECK(refused([&] { use("positions.transition", {{"positions", wrong}, {"transition", tr}}, Json::object(), false, {"moved"}); }, {"port `transition`", "starts in", "device:run1"}));
+  // a kernel built on the head-frame sensors reads a recording whose sensors are still in the device frame: refused, the transition named, none inserted
+  const auto k = kernel_t(g::restricted(head, "channels(kernel)"), surface);
+  CHECK(refused([&] { use("apply_kernel", {{"x", field_t({device, time}, VT::complex)}, {"kernel", k}}); }, {"port `kernel`", "another coordinate system", "head/device:run1", "positions.transition"}));
+  // a node that reads positions: its ports in one system, or in the one it names
+  g::Signature s = g::sig(g::Move::make).in("channels", g::selection_any()).in("surface", g::selection_any()).out("g", g::make_of(g::PortClass::operator_)).positions_share({"channels", "surface"}).positions_in("surface", "scs");
+  g::TypeUse tu; tu.label = "chunks[0] toy.gain"; tu.in_names = {{"channels", "c"}, {"surface", "s"}}; tu.out_names = {{"g", "g"}};
+  tu.in = {{"channels", selection_t({device}, "indices", false, "c")}, {"surface", selection_t({surface}, "indices", false, "s")}};
+  CHECK(refused([&] { g::type_use("toy.gain", s, tu, Json::object()); }, {"port `surface`", "head/scs", "head/device:run1", "positions.transition", "device:run1 -> scs"}));
+  tu.in.at("channels") = selection_t({head}, "indices", false, "c");
+  CHECK(g::type_use("toy.gain", s, tu, Json::object()).count("g") == 1);
+}
+
 }  // namespace
 
 int main() {
+  test_coordinates();
   test_pointwise();
   test_apply();
   test_gauge();
