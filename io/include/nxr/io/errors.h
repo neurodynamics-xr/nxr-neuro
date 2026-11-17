@@ -27,6 +27,7 @@ constexpr const char* zarr_format = "zarr_format";             // a Zarr store t
 constexpr const char* zarr_io = "zarr_io";
 constexpr const char* id_clash = "id_clash";                   // a row id that two packages both own (a subject package, section 2.1 of the subject-centred spec)
 constexpr const char* hash_mismatch = "hash_mismatch";         // a package whose bytes are not the content hash it records
+constexpr const char* ambiguous = "ambiguous";               // a record `find` that several rows match (the record API names the rows)
 constexpr const char* cancelled = "cancelled";                 // a job stopped on request (the chunk loop): nothing of it is stored
 }  // namespace code
 
