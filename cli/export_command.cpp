@@ -1,5 +1,6 @@
 // nxr-neuro export <what>: stored results written as the field's standard files (docs/specs/2026-11-17-interoperability.md, sections 3.3 and 5).
 //
+//   nxr-neuro export fif --package PATH --field NAME --out STEM [--from S --to S | --all]
 //   nxr-neuro export tsv --package PATH --out STEM (--statistic NAME | --partition NAME --field NAME --measures a,b,...)
 //   nxr-neuro export gifti --package PATH (--field NAME | --labelling NAME) --out STEM [--kind func|shape] [--with-surface] [--hemispheres] [--surface-unit m|mm] [--from S --to S | --all]
 //
@@ -8,6 +9,7 @@
 #include <cstdlib>
 
 #include "cli.h"
+#include "nxr/exporters/fif.h"
 #include "nxr/exporters/gifti.h"
 #include "nxr/exporters/tsv.h"
 
@@ -72,6 +74,31 @@ int gifti_command(const std::vector<std::string>& rest) {
   emit(line);
   return 0;
 }
+int fif_command(const std::vector<std::string>& rest) {
+  const std::string prog = "nxr-neuro export fif";
+  const Args a = parse(prog, rest, {"--package", "--field", "--out", "--from", "--to"}, {"--all"}, {"--package", "--field", "--out"});
+  nxr::exporters::StcExport o;
+  o.field = a.get("--field");
+  o.out = a.get("--out");
+  const bool from = a.maybe("--from").has_value(), to = a.maybe("--to").has_value(), all = a.flag.count("--all") > 0;
+  if (from != to) throw Usage(prog + ": error: --from and --to go together: give both");
+  if (all && from) throw Usage(prog + ": error: give one time range: --from and --to, or --all");
+  if (from) o.range = nxr::exporters::SeriesRange{false, seconds_of(prog, "--from", a.get("--from")), seconds_of(prog, "--to", a.get("--to"))};
+  if (all) o.range = nxr::exporters::SeriesRange{true, 0, 0};
+  o.ctx.version = NXR_NEURO_VERSION;
+  o.ctx.command = command_line("fif", rest);
+  Json opts = Json::object();
+  for (const auto& kv : a.opt) opts[kv.first.substr(2)] = kv.second;
+  for (const auto& f : a.flag) opts[f.substr(2)] = true;
+  o.ctx.options = opts;
+  o.ctx.progress = [](const Json& j) { emit(j); };
+  Json out = nxr::exporters::export_stc(a.get("--package"), o);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
+
 int tsv_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro export tsv";
   const Args a = parse(prog, rest, {"--package", "--out", "--statistic", "--partition", "--field", "--measures"}, {}, {"--package", "--out"});
@@ -106,5 +133,6 @@ int export_main(const std::vector<std::string>& argv) {
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   if (what == "gifti") return gifti_command(rest);
   if (what == "tsv") return tsv_command(rest);
-  throw Usage("nxr-neuro export: error: argument what: invalid choice: '" + what + "' (choose from 'gifti', 'tsv')");
+  if (what == "fif") return fif_command(rest);
+  throw Usage("nxr-neuro export: error: argument what: invalid choice: '" + what + "' (choose from 'gifti', 'tsv', 'fif')");
 }
