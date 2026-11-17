@@ -1,5 +1,5 @@
-// nxr::partition::crossSpectrum and nxr::timebank::analysisOfBlock, on synthetic signals only:
-//   crossSpectrum      per tile Σ z zᴴ against a direct sum; Hermitian, its diagonal Σ|z|²; a partial last tile and a tile past the data; ADDITIVE (a
+// crossSpectrumTiles and nxr::timebank::analysisOfBlock, on synthetic signals only:
+//   the outer form      per tile Σ z zᴴ against a direct sum; Hermitian, its diagonal Σ|z|²; a partial last tile and a tile past the data; ADDITIVE (a
 //                      window cut in two parts, summed, is the window); a known lag read back from the phase of an off-diagonal entry;
 //   analysisOfBlock    chunks with the band's halo (haloOf: its taps' length) transformed one by one give, on their own columns, what the whole record transformed at once
 //                      gives (a Meyer band [8, 12] Hz); the FFT route equals the taps route (the same Meyer gain: even and odd taps) away from the
@@ -11,7 +11,7 @@
 #include <random>
 
 #include "nxr/filterbank.h"
-#include "nxr/partition.h"
+#include "measurement_helpers.h"
 #include "nxr/taps.h"
 #include "nxr/timebank.h"
 
@@ -30,7 +30,7 @@ int main() {
     Eigen::MatrixXcd Z(M, n);
     for (Eigen::Index i = 0; i < Z.size(); ++i) Z.data()[i] = C(nd(rng), nd(rng));
     const std::size_t width = 300, tiles = 5;                      // 300 · 300 · 300 · 100 (partial) · 0 (past the data)
-    const auto r = nxr::partition::crossSpectrum(Z, width, tiles);
+    const auto r = crossSpectrumTiles(Z, width, tiles);
     double worst = 0, herm = 0, diag = 0;
     for (std::size_t t = 0; t < 4; ++t) {
       Eigen::MatrixXcd d = Eigen::MatrixXcd::Zero(M, M);
@@ -43,12 +43,12 @@ int main() {
     EXPECT(worst < 1e-14 && herm < 1e-10 && diag < 1e-10, "Σ z zᴴ per tile == a direct sum (worst " << worst << "); Hermitian; its diagonal Σ|z|²");
     EXPECT(r.count == (std::vector<std::int64_t>{300, 300, 300, 100, 0}) && r.sum[4].isZero(), "a partial last tile (100 samples) and a tile past the data (0)");
     // additivity: tile 1 = [300, 600) cut at 450: the two parts' sums add up to it
-    const auto a = nxr::partition::crossSpectrum(Z.middleCols(300, 150), 150, 1), b = nxr::partition::crossSpectrum(Z.middleCols(450, 150), 150, 1);
+    const auto a = crossSpectrumTiles(Z.middleCols(300, 150), 150, 1), b = crossSpectrumTiles(Z.middleCols(450, 150), 150, 1);
     EXPECT((a.sum[0] + b.sum[0] - r.sum[1]).cwiseAbs().maxCoeff() < 1e-10 && a.count[0] + b.count[0] == r.count[1], "a window cut in two: the parts add up to it");
     // a lag: channel 1 lags channel 0 by 0.7 rad: arg C_01 = 0.7
     Eigen::MatrixXcd L(2, 2000);
     for (Eigen::Index s = 0; s < 2000; ++s) { const double w = 2 * M_PI * 10 * s / 1000.0; L(0, s) = std::polar(1.0, w); L(1, s) = std::polar(0.5, w - 0.7); }
-    const auto l = nxr::partition::crossSpectrum(L, 2000, 1);
+    const auto l = crossSpectrumTiles(L, 2000, 1);
     EXPECT(std::abs(std::arg(l.sum[0](0, 1)) - 0.7) < 1e-12 && std::abs(std::abs(l.sum[0](0, 1)) / 2000 - 0.5) < 1e-12, "a 0.7 rad lag read back from arg C_01");
   }
 

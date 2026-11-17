@@ -66,7 +66,6 @@ TimeGrid time_rule_resolved(const Line& line, const TimeRule& r) {
         if (!(*r.frames_per_cycle > 0)) throw std::invalid_argument("time_rule: frames_per_cycle > 0");
         const double centre = std::sqrt(r.band_hz->first * r.band_hz->second);
         width_s = 1.0 / (centre * *r.frames_per_cycle);
-        if (!(width_s * fs >= 1)) throw std::invalid_argument("time_rule: " + std::to_string(*r.frames_per_cycle) + " frames per cycle of " + std::to_string(centre) + " Hz is finer than a sample at " + std::to_string(fs) + " Hz");
         const double w = width_s * fs;
         if (std::abs(w - std::round(w)) < 1e-9) { width = hop = static_cast<std::int64_t>(std::llround(w)); }
       }

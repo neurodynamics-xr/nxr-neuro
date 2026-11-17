@@ -13,7 +13,7 @@
 #include "mesh_helpers.h"
 #include "nxr/fft.h"
 #include "nxr/lag.h"
-#include "nxr/partition.h"
+#include "measurement_helpers.h"
 #include "nxr/timebank.h"
 
 using C = std::complex<double>;
@@ -52,7 +52,7 @@ int main() {
       Eigen::MatrixXd y(2, n + 2 * pad);
       for (Eigen::Index t = 0; t < y.cols(); ++t) { y(0, t) = x(0, t + 1) + 0.8 * nd(rng); y(1, t) = x(0, t) + 0.8 * nd(rng); }   // channel 1 one sample behind
       const auto tr = tb::analysisOfBlock(meyer, y, fs, static_cast<std::size_t>(pad), static_cast<std::size_t>(n));
-      const auto cs = nxr::partition::crossSpectrum(tr.own[0], static_cast<std::size_t>(n), 1);
+      const auto cs = crossSpectrumTiles(tr.own[0], static_cast<std::size_t>(n), 1);
       const auto& S = cs.sum[0];
       const auto st = nxr::lag::lagStatistics({S(0, 1)}, Eigen::VectorXd::Constant(1, S(0, 0).real()), Eigen::VectorXd::Constant(1, S(1, 1).real()), nEst);
       lags.push_back(st.lag(0));
@@ -144,7 +144,7 @@ int main() {
       for (Eigen::Index k = 0; k < X.cols(); ++k) a(k) = std::abs(out[static_cast<std::size_t>(k)]);
       return a;
     };
-    const auto before = nxr::partition::crossSpectrum(Z, static_cast<std::size_t>(n), 1).sum[0], after = nxr::partition::crossSpectrum(Zs, static_cast<std::size_t>(n), 1).sum[0];
+    const auto before = crossSpectrumTiles(Z, static_cast<std::size_t>(n), 1).sum[0], after = crossSpectrumTiles(Zs, static_cast<std::size_t>(n), 1).sum[0];
     const double cohBefore = std::abs(before(0, 1)) / std::sqrt(before(0, 0).real() * before(1, 1).real()), cohAfter = std::abs(after(0, 1)) / std::sqrt(after(0, 0).real() * after(1, 1).real());
     EXPECT((spectrum(Z, 1) - spectrum(Zs, 1)).cwiseAbs().maxCoeff() < 1e-9 * spectrum(Z, 1).maxCoeff() && std::abs(cohBefore - 1) < 1e-12 && cohAfter < 0.1,
            "a circular shift keeps the channel's spectrum (|FFT| equal) and destroys the lag: coherence " << cohBefore << " → " << cohAfter);

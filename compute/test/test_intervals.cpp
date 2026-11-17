@@ -5,6 +5,7 @@
 #include <random>
 
 #include "nxr/intervals.h"
+#include "nxr/measurement/roll_up.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
@@ -44,24 +45,29 @@ int main() {
   const auto b = keepSpans(mergeSpans(crossings(s, md + 1.5 * sd, md + 1.0 * sd), c), 3 * c, n);
   std::printf("  planted burst [400, 800): found %zu span(s)%s\n", b.size(), b.empty() ? "" : (" [" + std::to_string(b[0].start) + ", " + std::to_string(b[0].stop) + ")").c_str());
   EXPECT(b.size() == 1 && std::abs(b[0].start - 400) <= c && std::abs(b[0].stop - 800) <= c, "a planted burst found from its smoothed amplitude, to within a cycle");
-  {   // THE ROLL-UP OF TILES OVER EVENTS: exact (count-weighted mean, max), per row, NaN for a bad tile, geometry in seconds
+  {   // THE ROLL-UP OF TILES OVER EVENTS: a measurement of tiles over the tiles of each event, by the measure's merge rule (nxr::measurement::roll_values: the count-weighted mean, max, sum), NaN for a bad tile
     Eigen::MatrixXd t(2, 6);
     t << 1, 2, 3, 4, 5, 6,
          10, std::nan(""), 30, 40, 50, 60;
-    Eigen::VectorXd n(6);
+    Eigen::MatrixXd n(1, 6);
     n << 100, 100, 50, 100, 100, 100;
-    const std::vector<TileEvent> ev = {{1, 4, 0}, {1, 4, 1}, {3, 6, -1}};
-    const auto m = rollupEvents(t, n, ev, "mean");
-    EXPECT(m.value.rows() == 2 && m.value.cols() == 3, "[rows x events]");
-    EXPECT(std::abs(m.value(0, 0) - (2.0 * 100 + 3 * 50 + 4 * 100) / 250) < 1e-12 && std::isnan(m.value(1, 0)), "row 0 event: the count-weighted mean; not on the other row");
-    EXPECT(std::isnan(m.value(1, 1)) && std::isnan(m.value(0, 1)), "an event holding a NaN tile is NaN on its row");
-    EXPECT(std::abs(m.value(0, 2) - (4.0 + 5 + 6) / 3) < 1e-12 && std::abs(m.value(1, 2) - 50.0) < 1e-12, "a row -1 event: every row");
-    EXPECT(m.count(0) == 250 && m.count(2) == 300, "the samples over the tiles");
-    const auto mx = rollupEvents(t, n, ev, "max");
-    EXPECT(mx.value(0, 0) == 4 && mx.value(1, 2) == 60 && mx.value(0, 2) == 6, "max: the max of the tile maxima");
+    nxr::selection::Elements ev;                       // the events' tiles: {1, 2, 3}, {1, 2, 3} (on row 1), {3, 4, 5}
+    ev.size = 6;
+    ev.elements = {1, 2, 3, 1, 2, 3, 3, 4, 5};
+    ev.offsets = {0, 3, 6, 9};
+    const nxr::measurement::Registry& reg = nxr::measurement::Registry::standard();
+    const Eigen::MatrixXd m = nxr::measurement::roll_values(reg, "mean", t, &n, ev);
+    EXPECT(m.rows() == 2 && m.cols() == 3, "[rows x events]");
+    EXPECT(std::abs(m(0, 0) - (2.0 * 100 + 3 * 50 + 4 * 100) / 250) < 1e-12, "an event's value: the count-weighted mean of its tiles");
+    EXPECT(std::isnan(m(1, 1)), "an event holding a NaN tile is NaN on its row");
+    EXPECT(std::abs(m(0, 2) - (4.0 + 5 + 6) / 3) < 1e-12 && std::abs(m(1, 2) - 50.0) < 1e-12, "an event found on the mean over the rows holds on every row");
+    const Eigen::MatrixXd cnt = nxr::measurement::roll_values(reg, "count", n, nullptr, ev);
+    EXPECT(cnt(0, 0) == 250 && cnt(0, 2) == 300, "the samples over the tiles: the count adds");
+    const Eigen::MatrixXd mx = nxr::measurement::roll_values(reg, "max", t, nullptr, ev);
+    EXPECT(mx(0, 0) == 4 && mx(1, 2) == 60 && mx(0, 2) == 6, "max: the max of the tile maxima");
     bool bad = false;
-    try { rollupEvents(t, n, ev, "sum"); } catch (const std::invalid_argument&) { bad = true; }
-    EXPECT(bad, "another reduction is refused");
+    try { nxr::measurement::roll_values(reg, "median", t, nullptr, ev); } catch (const std::invalid_argument&) { bad = true; }
+    EXPECT(bad, "a measure that never rolls up (a median) is refused");
     const std::vector<TileEvent> g = {{0, 2, 0}, {5, 6, 0}, {3, 4, 1}, {9, 12, 0}};
     const auto du = eventDurations(g, 0.5);
     EXPECT(du == (std::vector<double>{1.0, 0.5, 0.5, 1.5}), "duration = tiles x width");
