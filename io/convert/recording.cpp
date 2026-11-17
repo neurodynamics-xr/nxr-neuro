@@ -7,6 +7,7 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <mutex>
 
 #include "nxr/bst/sensors.h"
 #include "nxr/convert/recording_operators.h"
@@ -141,6 +142,13 @@ std::string file_sha256(const std::string& path) {
   return h.hex();
 }
 
+std::uint64_t file_size(const std::string& path) {
+  std::error_code ec;
+  const auto n = fs::file_size(path, ec);
+  if (ec) throw nxr::io::Error(code::not_found, "cannot read " + path);
+  return static_cast<std::uint64_t>(n);
+}
+
 // the recording's time of its first sample, seconds: a FIF file counts samples from the acquisition's start
 double first_time(const nxr::formats::RecordingReader& r) {
   if (const auto* fif = dynamic_cast<const nxr::formats::fif::RawReader*>(&r)) return static_cast<double>(fif->info().first_samp) / r.header().sampling_rate;
@@ -240,9 +248,44 @@ Json format_record(const std::string& format, const nxr::formats::RecordingReade
   return rec;
 }
 
+Json link_record(const std::string& format, const std::string& file, const std::string& sha256) {
+  if (fs::is_directory(file)) refuse("--in-place links one file; '" + file + "' is a folder (copy it instead)");
+  const fs::path abs = fs::weakly_canonical(fs::absolute(file));
+  return Json{{"schema", "nxr-link/1"}, {"format", format}, {"path", abs.string()}, {"size_bytes", file_size(abs.string())}, {"sha256", sha256.empty() ? file_sha256(abs.string()) : sha256}};
+}
+
+Json link_of(const Json& producer) {
+  Json p = producer;
+  if (p.is_string()) p = Json::parse(p.get<std::string>(), nullptr, false);
+  if (p.is_object() && p.contains("link") && p["link"].is_object()) return p["link"];
+  return Json();
+}
+
+std::shared_ptr<const nxr::io::LinkedBlocks> open_linked(const Json& link) {
+  if (!link.is_object() || !link.contains("path") || !link.contains("sha256") || !link.contains("format")) refuse("a linked recording's record names no file, format or SHA-256");
+  const std::string path = link["path"].get<std::string>();
+  if (!fs::exists(path)) throw nxr::io::Error(code::not_found, "the linked recording's file is gone: " + path);
+  if (link.contains("size_bytes") && file_size(path) != link["size_bytes"].get<std::uint64_t>())
+    throw nxr::io::Error(code::hash_mismatch, "the linked recording's file changed (its size differs from the recorded one): " + path);
+  if (file_sha256(path) != link["sha256"].get<std::string>())
+    throw nxr::io::Error(code::hash_mismatch, "the linked recording's file changed (its SHA-256 differs from the recorded one): " + path);
+  std::shared_ptr<nxr::formats::RecordingReader> reader = open_recording(link["format"].get<std::string>(), path);
+  auto blocks = std::make_shared<nxr::io::LinkedBlocks>();
+  const std::size_t n_chan = reader->header().channels.size();
+  blocks->n_channels = static_cast<std::int64_t>(n_chan);
+  blocks->n_samples = static_cast<std::int64_t>(reader->header().n_samples);
+  auto guard = std::make_shared<std::mutex>();   // one reader, read one chunk at a time (a read-ahead is another thread)
+  blocks->read = [reader, guard, n_chan](std::int64_t s0, std::int64_t n, float* out) {
+    std::lock_guard<std::mutex> lock(*guard);
+    reader->read(static_cast<std::uint64_t>(s0), static_cast<std::uint64_t>(n), 0, n_chan, out);
+  };
+  return blocks;
+}
+
 Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, const nxr::formats::RecordingReader& reader, const RecordingImport& opt) {
-  const nxr::formats::RecordingHeader& h = reader.header();
+  const nxr::formats::RecordingHeader& h = opt.header ? *opt.header : reader.header();
   if (h.channels.empty() || h.n_samples == 0 || h.sampling_rate <= 0) refuse("the recording has no channels, no samples or no sampling rate");
+  if (opt.in_place && (opt.source_file.empty() || fs::is_directory(opt.source_file))) refuse("--in-place links one file; give the recording's file (a folder, as CTF's, is copied)");
   const std::int64_t n_chan = static_cast<std::int64_t>(h.channels.size()), n_samp = static_cast<std::int64_t>(h.n_samples);
   const double t0 = first_time(reader);
 
@@ -268,6 +311,7 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     sha = file_sha256(opt.source_file);
     origin["source"] = opt.format + ":" + opt.source + "#sha256=" + sha;
   }
+  if (opt.in_place) producer["link"] = link_record(opt.format, opt.source_file, sha);
   producer["origin"] = origin;
 
   RecordingOperators ops = operators_of(reader);
@@ -317,6 +361,7 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     b.channel_names = si.names;
     b.producer = producer;
     b.progress = opt.progress;
+    b.linked = opt.in_place;
     b.read = [&](std::int64_t s0, std::int64_t n, std::vector<float>& blk) {
       blk.resize(static_cast<std::size_t>(n_chan * n));
       reader.read(static_cast<std::uint64_t>(s0), static_cast<std::uint64_t>(n), 0, static_cast<std::size_t>(n_chan), blk.data());

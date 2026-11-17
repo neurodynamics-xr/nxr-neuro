@@ -1012,10 +1012,37 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
 --anonymize@import recording		Drop the identifying header fields (the file's start time, subject, experimenter, patient and recording identification) instead of keeping them as the file has them.	off (the header is kept as the file has it)	-
 --format@import recording	FORMAT	The file's format: fif, edf, bdf, brainvision, eeglab, ctf or kit.	from the file's extension	-
+--anonymize@import bids		Drop the identifying header fields of every recording and the sidecar's institution and device-serial keys.	off (kept as the files have them)	-
+--dataset@import bids	PATH	The folder of the new dataset (made by the import; refused if it holds a catalogue): one subject package per BIDS subject, registered in its catalogue.	required	-
+--from@import bids	DIR	The BIDS dataset's folder (MEG, EEG or iEEG recordings).	required	-
+--amplitude	VOLTS	The amplitude of the first sine of a synthetic recording (the second has half of it, the third a third, ...).	2e-05	V
+--amplitude@create recording	VOLTS	The amplitude of the first sine of the synthetic recording (the second has half of it, the third a third, ...).	2e-05	V
+--channels@create recording	N	The number of channels of the synthetic recording (1 to 4096).	8	-
+--duration	SECONDS	The duration of a synthetic recording.	60	s
+--duration@create recording	SECONDS	The duration of the synthetic recording.	60	s
+--frequency	HZ	The frequency of a sine of a synthetic recording (repeatable); each is below half the sampling rate.	10	Hz
+--frequency@create recording	HZ	The frequency of a sine of the synthetic recording (repeatable); each is below half the sampling rate.	10	Hz
+--noise	VOLTS	The standard deviation of the white noise of a synthetic recording (0 for none).	5e-06	V
+--noise@create recording	VOLTS	The standard deviation of the white noise of the synthetic recording (0 for none).	5e-06	V
+--seed@create recording	N	The seed of the synthetic recording: the same seed and options give the same samples.	1	-
+--sfreq	HZ	The sampling rate of a synthetic recording.	250	Hz
+--sfreq@create recording	HZ	The sampling rate of the synthetic recording.	250	Hz
+--package@create recording	PATH	The subject package (made by `create package`) the recording is written into.	required	-
+--name@create recording	NAME	Name the recording is stored under.	synthetic	-
+--acquisition@create recording	NAME	The session of the subject the recording is stored under.	rest	-
+--synthetic		Make a synthetic recording: sine waves plus noise from a seed (create recording).	off	-
+--synthetic@create recording		Make a synthetic recording: sine waves plus noise from a seed.	off	-
+--in-place@import bids		Link every recording's file instead of copying its samples (the packages record each file's path and SHA-256).	off (the samples are copied)	-
+--no-participants		Do not import participants.tsv (import bids).	off	-
+--no-participants@import bids		Do not import participants.tsv as the dataset's participant variables.	off (participants are imported)	-
+--registered-by@import bids	WHO	Who imports: recorded with each catalogue entry.	nxr-neuro and its version	-
+--subject@import bids	LABEL	Import only this BIDS subject (its label, with or without `sub-`); repeat the option for several.	all subjects	-
+--in-place@import recording		Link the recording's file instead of copying its samples: the package records the file's path and SHA-256, a run streams the samples from the original file, and a changed file is refused. One file only (a CTF folder is copied).	off (the samples are copied)	-
 --licence@import recording	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
 --attribution@import recording	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
 --anonymize		Drop the identifying fields of a file's header (import recording).	off	-
 --format	FORMAT	A file's format (import recording).	from the file's extension	-
+--in-place		Link a recording's file instead of copying its samples (import recording).	off	-
 --source-root	DIR	The folder a file's recorded path is relative to (import recording).	the file's own folder	-
 --acquisition	NAME	The session of the subject the result is stored under (import recording).	rest	-
 --from@import recording	FILE	The recording file to copy into the package (a CTF recording is its .ds folder).	required	-
@@ -1106,6 +1133,13 @@ old: dataset compact
 alias: refused
 summary: Pack a dataset's small files and shards to save space (a dry run shows what would change).
 opts: --dataset* --dry-run --no-shard --no-small-files --subject
+)TBL",
+R"TBL(@ create recording
+old: __import synthetic
+alias: no
+summary: Make a small synthetic recording (sine waves plus noise from a seed; channels, sampling rate and duration as options) in a subject package, as an imported recording is stored.
+opts: --acquisition --amplitude --channels --duration --frequency+ --name --noise --package* --seed --sfreq --synthetic
+example: nxr-neuro create recording --synthetic --package work/s1.nxr.zarr --name rest --channels 8 --sfreq 250 --duration 60 --seed 1
 )TBL",
 R"TBL(@ create package
 old: package create
@@ -1313,11 +1347,17 @@ alias: refused
 summary: Import an anatomical MRI of a subject.
 opts: --anat* --dataset* --only+ --subject* --templates+
 )TBL",
+R"TBL(@ import bids
+old: __import bids
+alias: no
+summary: Import a BIDS dataset (MEG, EEG, iEEG) as a dataset of subject packages, with its participant variables, channel status, events and electrode positions.
+opts: --anonymize --dataset* --from* --in-place --no-participants --registered-by --subject+
+)TBL",
 R"TBL(@ import recording
 old: __import recording
 alias: no
 summary: Copy a recording file (FIF, EDF, BDF, BrainVision, EEGLAB, CTF, KIT) into a subject package, with its channels, events, bad channels and an origin record.
-opts: --acquisition --anonymize --attribution --format --from* --licence --name --package* --source-root
+opts: --acquisition --anonymize --attribution --format --from* --in-place --licence --name --package* --source-root
 )TBL",
 R"TBL(@ export gifti
 old: __export gifti

@@ -15,6 +15,7 @@
 #include "nxr/formats/byte_source.h"
 #include "nxr/formats/fif_objects.h"
 #include "nxr/io/array_reader.h"
+#include "nxr/io/chunk_loop.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/task/task.h"
 
@@ -244,6 +245,44 @@ int main() {
       CHECK(is_null(*cs, "unit"));
     }
     CHECK(s.find_all({.cls = task::Cls::operator_, .kind = "transition"}).empty());
+  }
+  // in place: the package links the file, holds no samples, and the chunk service reads the file's chunks equal to a copy's
+  {
+    const std::string f = "fif_basic_raw.fif";
+    const fs::path pc = root / "ipc.nxr.zarr", pl = root / "ipl.nxr.zarr";
+    for (const bool in_place : {false, true}) {
+      CreatePackageOptions po;
+      po.home_dataset = "demo";
+      DatasetWriter w = create_package(in_place ? pl : pc, "S", po);
+      SubjectWriter sub = SubjectWriter::open(w, "S");
+      auto reader = cv::open_recording("fif", data + f);
+      cv::RecordingImport opt;
+      opt.name = "rec";
+      opt.format = "fif";
+      opt.source = f;
+      opt.source_file = data + f;
+      opt.in_place = in_place;
+      cv::import_recording(w, sub, *reader, opt);
+    }
+    SubjectPackage a = SubjectPackage::open(pc), b = SubjectPackage::open(pl);
+    CHECK(b.verify().ok);
+    const task::Node ra = task::Subject::of(a).require({.cls = task::Cls::field, .name = "rec"}, "rec");
+    const task::Node rb = task::Subject::of(b).require({.cls = task::Cls::field, .name = "rec"}, "rec");
+    const Json link = cv::link_of(rb.producer);
+    CHECK(link.is_object());
+    CHECK_EQ(link["sha256"].get<std::string>().size(), static_cast<std::size_t>(64));
+    CHECK(cv::link_of(ra.producer).is_null());
+    const std::int64_t width = chunk_width(ra.fact("chunk_shape_json"));
+    const ArrayReader arr = ArrayReader::open(b.store(), *rb.path);                // laid out (shape, type), holding no samples
+    CHECK(arr.shape() == ArrayReader::open(a.store(), *ra.path).shape());
+    const ChunkSource sa(a.store(), *ra.path, width, 1.0, 0.0), sl(b.store(), *rb.path, width, 1.0, 0.0, {}, std::nullopt, cv::open_linked(link));
+    CHECK_EQ(sa.count(), sl.count());
+    for (std::int64_t k = 0; k < sa.count(); ++k) {
+      Chunk ca, cl;
+      sa.read(k, ca);
+      sl.read(k, cl);
+      CHECK(ca.data == cl.data);
+    }
   }
 
   // refusals
