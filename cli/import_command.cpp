@@ -41,7 +41,7 @@ namespace fs = std::filesystem;
 
 namespace {
 int recording_command(const std::vector<std::string>& rest) {
-  const Args a = parse("nxr-neuro import recording", rest, {"--from", "--package", "--name", "--acquisition", "--format", "--source-root", "--licence", "--attribution"}, {"--anonymize", "--in-place"},
+  const Args a = parse("nxr-neuro import recording", rest, {"--from", "--package", "--name", "--acquisition", "--format", "--source-root", "--licence", "--attribution", "--montage"}, {"--anonymize", "--in-place"},
                        {"--from", "--package"});
   const std::string file = a.get("--from");
   if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
@@ -54,6 +54,7 @@ int recording_command(const std::vector<std::string>& rest) {
   opt.licence = a.maybe("--licence").value_or("unknown");
   opt.attribution = a.maybe("--attribution").value_or("unknown");
   opt.redistributable = false;
+  opt.montage = a.maybe("--montage").value_or("");
   // the recorded source is relative to the root the caller names, never an absolute path
   const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
   opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();

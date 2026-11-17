@@ -9,6 +9,7 @@
 #include <fstream>
 #include <limits>
 #include <mutex>
+#include <set>
 
 #include "nxr/bst/sensors.h"
 #include "nxr/convert/recording_operators.h"
@@ -328,6 +329,28 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
   Json rec = format_record(opt.format, reader, opt.anonymize);
   for (auto it = rec.begin(); it != rec.end(); ++it) producer[it.key()] = it.value();
   if (opt.extra.is_object()) for (auto it = opt.extra.begin(); it != opt.extra.end(); ++it) producer[it.key()] = it.value();
+  // the montage: each channel's name against the montage's labels, exactly (a recorded alias counts and is marked); nothing is guessed, no name is cleaned
+  Json montage_record;
+  if (!opt.montage.empty()) {
+    const auto mrow = sub.db().one("SELECT id, producer_json FROM manifold WHERE subject_id = ? AND type = 'points' AND name = ? AND status = 'complete'", {nxr::io::V(sub.id()), nxr::io::V(opt.montage)});
+    if (!mrow) refuse("--montage " + opt.montage + ": the subject has no points manifold of that name (a montage is made by `montage create` and stored before the recording is imported)");
+    std::set<std::string> labels;
+    for (const auto& r : sub.db().all("SELECT DISTINCT de.name AS name FROM selection s JOIN dictionary_entry de ON de.dictionary_id = s.dictionary_id WHERE s.manifold_id = ?", {nxr::io::V(nxr::io::text(*mrow, "id"))})) labels.insert(nxr::io::text(r, "name"));
+    if (labels.empty()) refuse("--montage " + opt.montage + ": the manifold has no names labelling, so no channel can be matched");
+    Json aliases = Json::object();
+    if (!nxr::io::is_null(*mrow, "producer_json")) {
+      const Json pj = Json::parse(nxr::io::text(*mrow, "producer_json"), nullptr, false);
+      if (pj.is_object() && pj.contains("aliases") && pj["aliases"].is_object()) aliases = pj["aliases"];
+    }
+    Json matched = Json::array(), unmatched = Json::array();
+    for (const auto& c : h.channels) {
+      if (labels.count(c.name)) matched.push_back(Json{{"channel", c.name}, {"label", c.name}, {"via", "name"}});
+      else if (aliases.contains(c.name) && aliases[c.name].is_string() && labels.count(aliases[c.name].get<std::string>())) matched.push_back(Json{{"channel", c.name}, {"label", aliases[c.name]}, {"via", "alias"}});
+      else unmatched.push_back(c.name);
+    }
+    montage_record = Json{{"montage", opt.montage}, {"montage_id", nxr::io::text(*mrow, "id")}, {"matched", matched}, {"unmatched", unmatched}, {"rule", "exact channel name = montage label (or a recorded alias); nothing guessed or cleaned"}};
+    producer["montage"] = montage_record;
+  }
   Json origin = Json{{"schema", "nxr-origin/1"}, {"source", opt.format + ":" + opt.source}, {"licence", opt.licence}, {"attribution", opt.attribution}, {"redistributable", opt.redistributable}};
   std::string sha;
   if (!opt.source_file.empty()) {
@@ -407,6 +430,7 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
   }
   out["origin"] = origin;
   out["origin_items"] = n_items;
+  if (!montage_record.is_null()) out["montage"] = Json{{"montage", montage_record["montage"]}, {"matched", montage_record["matched"].size()}, {"unmatched", montage_record["unmatched"]}};
   return out;
 }
 

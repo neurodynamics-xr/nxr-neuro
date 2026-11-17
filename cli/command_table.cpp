@@ -648,6 +648,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --windows	NAME	The stored analytic cross-spectrum windows (named <stem>_<band>_windows) the bursts are read from.	none (required)	-
 --acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
 --anonymize@import recording		Drop the identifying header fields (the file's start time, subject, experimenter, patient and recording identification) instead of keeping them as the file has them.	off (the header is kept as the file has it)	-
+--montage@import recording	NAME	A montage stored in the subject (a points manifold such as `eeg_1005`, made by `montage create`): each channel's name is matched to the montage's labels EXACTLY (case as written; the montage's recorded aliases, e.g. T3 = T7, count and are marked as such); the montage and the match are recorded with the recording, and the channels no label matches are listed. Nothing is guessed: no prefix or suffix is stripped, no channel is placed that no label names.	none (no montage recorded)	-
 --format@import recording	FORMAT	The file's format: fif, edf, bdf, brainvision, eeglab, ctf or kit.	from the file's extension	-
 --anonymize@import bids		Drop the identifying header fields of every recording and the sidecar's institution and device-serial keys.	off (kept as the files have them)	-
 --dataset@import bids	PATH	The folder of the new dataset (made by the import; refused if it holds a catalogue): one subject package per BIDS subject, registered in its catalogue.	required	-
@@ -773,6 +774,9 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --statistic	NAME	A stored statistic to export (export tsv).	none	-
 --surface-unit	m|mm	The unit the surface's coordinates are written in (export gifti).	as stored	-
 --package@export fif	PATH	The folder of the subject package whose field is exported; it is only read.	required	-
+--covariance@export fif	NAME	A covariance statistic to write as MNE's noise covariance, `<STEM>-cov.fif` (read by `mne.read_cov`), with the channel names of its channel Selection and its degrees of freedom. Give it instead of --field; it has no time range.	none (a field is written)	-
+--forward@export fif	NAME	Refused: a forward solution is not written (an MNE forward needs each channel's FIF info, kind, coil type and position, which a package does not keep).	-	-
+--inverse@export fif	NAME	Refused: an inverse operator is not written (an MNE inverse operator is the eigen-decomposition of the whitened forward, which a stored kernel does not hold).	-	-
 --field@export fif	NAME	The Field to write as a source estimate, by name: a map on a glued cortex (one time point) or a series on the cortex and a time line (one time point per sample of the time range). The cortex must store its left and right hemispheres as components.	required	-
 --out@export fif	STEM	The path stem the files are written under (its folder must exist): <STEM>-lh.stc and <STEM>-rh.stc, read by MNE-Python's read_source_estimate, and the provenance sidecar <STEM>-lh.stc.json.	required	-
 --from@export fif	SEC	Start of the time range of a series, in seconds on the recording's clock (or m:ss); give together with --to. Required for a series, refused for a map.	required for a series	s
@@ -1094,7 +1098,7 @@ R"TBL(@ import recording
 old: __import recording
 alias: no
 summary: Copy a recording file (FIF, EDF, BDF, BrainVision, EEGLAB, CTF, KIT) into a subject package, with its channels, events, bad channels and an origin record.
-opts: --acquisition --anonymize --attribution --format --from* --in-place --licence --name --package* --source-root
+opts: --acquisition --anonymize --attribution --format --from* --in-place --licence --montage --name --package* --source-root
 )TBL",
 R"TBL(@ export gifti
 old: __export gifti
@@ -1111,8 +1115,8 @@ opts: --field --measures --out* --package* --partition --statistic
 R"TBL(@ export fif
 old: __export fif
 alias: no
-summary: Write a source map or a source series on the two hemispheres of a cortex as MNE source estimates (-lh.stc and -rh.stc), with a provenance sidecar.
-opts: --all --field* --from --out* --package* --to
+summary: Write a source map or a source series on the two hemispheres of a cortex as MNE source estimates (-lh.stc and -rh.stc), or a covariance statistic as MNE's -cov.fif, with a provenance sidecar.
+opts: --all --covariance --field --forward --from --inverse --out* --package* --to
 )TBL",
 R"TBL(@ export bids-derivatives
 old: __export bids-derivatives
