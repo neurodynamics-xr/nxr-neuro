@@ -69,7 +69,11 @@ What the old words become:
 | channel picks, sources, support | `indices` |
 | parcellation, flags, channel names | a partition array with a dictionary |
 
-Layers: io (CRUD and resolution); compute (pure makers and reducers: tiling arithmetic, the dyadic ladder, product codes, geodesic discs and kernels by
+THE MODULE (decided 2026-11-17): selections and partitions of manifolds are their own library, `selection/` (`nxr_selection`, namespace `nxr::selection`),
+below io and compute, which both call on it; it depends on neither. Order: time partitions first (the grid of 2^k samples under the chunk grid, the
+constant-Q levels and the frames: `selection/include/nxr/selection/grid.h`), then the surface (dyadic tiles, Weyl), then the joint case (the product).
+
+Layers around it: io (CRUD and resolution); compute (pure makers and reducers: tiling arithmetic, the dyadic ladder, product codes, geodesic discs and kernels by
 heat distance, log-map boxes, set combinators, reductions); pipelines (`select.<type>` makers, `measure.over`, the YAML keys `at`, `over`, `within`); the
 command line and the bindings with the same verbs.
 

@@ -81,6 +81,7 @@ set(NXR_COMPUTE_BUILD_TESTS ${NXR_NEURO_BUILD_TESTS} CACHE BOOL "" FORCE)
 if(NXR_NEURO_BUILD_COMPUTE OR NXR_NEURO_BUILD_MEEG)
   include(eigen)
 endif()
+add_subdirectory(selection)   # selections and partitions of manifolds: below io and compute, which both call on it
 if(NXR_NEURO_BUILD_IO)
   add_subdirectory(io)
 endif()
