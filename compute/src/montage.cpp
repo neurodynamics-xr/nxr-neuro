@@ -322,6 +322,31 @@ const std::map<std::string, std::string>& oldNames() {
   return out;
 }
 
+Point inionFromLandmarks(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, const Point& nasion, const Point& lpa, const Point& rpa) {
+  const Scalp scalp(vertices, faces);
+  const V3 mid = (toV(lpa) + toV(rpa)) / 2;
+  V3 dir = mid - toV(nasion);
+  if (!(dir.norm() > 0)) refuse("the nasion is at the midpoint of the preauricular points");
+  dir.normalize();
+  double tBest = -1;
+  for (std::size_t t = 0; t < faces.size(); t += 3) {   // Moller and Trumbore (1997), the ray's origin at the midpoint of the preauricular points
+    const V3 a = scalp.vertex(faces[t]), b = scalp.vertex(faces[t + 1]), c = scalp.vertex(faces[t + 2]);
+    const V3 e1 = b - a, e2 = c - a, h = dir.cross(e2);
+    const double det = e1.dot(h);
+    if (std::fabs(det) < 1e-18) continue;
+    const V3 sv = mid - a;
+    const double u = sv.dot(h) / det;
+    if (u < 0 || u > 1) continue;
+    const V3 q = sv.cross(e1);
+    const double v = dir.dot(q) / det;
+    if (v < 0 || u + v > 1) continue;
+    const double tt = e2.dot(q) / det;
+    if (tt > tBest) tBest = tt;
+  }
+  if (!(tBest > 0)) refuse("the line from the nasion through the midpoint of the preauricular points does not leave the scalp behind the ears");
+  return fromV(mid + dir * tBest);
+}
+
 Placement tenFive(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, const Landmarks& lm, const Options& opt) {
   const Scalp scalp(vertices, faces);
   Placement out;

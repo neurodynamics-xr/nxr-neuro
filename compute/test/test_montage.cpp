@@ -156,6 +156,22 @@ int main() {
     }
   }
 
+  // the default inion: on an ellipsoid whose nasion is at the front of its axis and whose ears are on the lateral axis it is the back of the axis
+  {
+    const double a = 0.075, b = 0.100, c = 0.085;
+    Mesh m = icosphere(5);
+    for (int i = 0; i < m.nV(); ++i) { m.V[3 * i] *= a; m.V[3 * i + 1] *= b; m.V[3 * i + 2] *= c; }
+    const Point iz = inionFromLandmarks(m.V, m.F, {0, b, 0}, {-a, 0, 0}, {a, 0, 0});
+    CHECK(std::fabs(iz[0]) < 1e-3 && std::fabs(iz[1] + b) < 5e-4 && std::fabs(iz[2]) < 1e-3, "the default inion is the back of the head: " << iz[0] << " " << iz[1] << " " << iz[2]);
+    // the same head moved: it moves with it
+    const Point iz2 = inionFromLandmarks(m.V, m.F, {0, b, 0}, {-a, 0, 0.01}, {a, 0, 0.01});
+    CHECK(iz2[2] > 0.012 && iz2[2] < 0.025 && iz2[1] < 0, "a higher ear plane gives a higher inion");
+    Mesh sph = icosphere(2);
+    bool threw = false;
+    try { inionFromLandmarks(sph.V, sph.F, {0, 1, 0}, {0, 1, 0}, {0, 1, 0}); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw, "a nasion at the ears' midpoint is refused");
+  }
+
   // 4. refusals
   {
     Mesh m = icosphere(2);

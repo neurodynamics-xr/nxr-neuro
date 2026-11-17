@@ -54,6 +54,11 @@ const std::vector<std::string>& labels1020();
 /** The old 10-20 names and the names they became: T3 -> T7, T4 -> T8, T5 -> P7, T6 -> P8. */
 const std::map<std::string, std::string>& oldNames();
 
+/** A DEFAULT inion for a head whose scalp has none stated: the point where the line from the nasion through the midpoint of the two preauricular points leaves the scalp at the back (the farthest
+ *  crossing of that ray with the mesh). It is a stated convention, not a measurement of the bump the inion is: a caller who knows the inion passes it in `Landmarks` instead. std::invalid_argument when
+ *  the ray crosses the scalp nowhere behind the ears. */
+Point inionFromLandmarks(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, const Point& nasion, const Point& lpa, const Point& rpa);
+
 /** The 10-05 positions on a closed (or neck-open) triangle mesh: vertices [V x 3] and faces [F x 3] (0-based vertex indices), both row-major. std::invalid_argument for a bad
  *  shape, a mesh the rule cannot be drawn on (a contour that does not close or branches, an end point outside its arc) or a Cz that did not settle. */
 Placement tenFive(const std::vector<double>& vertices, const std::vector<std::int32_t>& faces, const Landmarks& landmarks, const Options& options = {});
