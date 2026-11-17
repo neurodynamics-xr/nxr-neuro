@@ -87,7 +87,8 @@ if(NXR_IO_WASM)
     src/writer.cpp src/subject_writer.cpp src/mesh.cpp src/surface.cpp src/npy.cpp src/default_subject.cpp src/bundle.cpp src/cells.cpp src/measures.cpp src/spatial_bands.cpp src/rollup.cpp src/statistic.cpp src/yaml.cpp src/finder.cpp src/hash.cpp
     src/bst_mat.cpp src/bst_protocol.cpp src/bst_subject.cpp src/bst_entities.cpp src/bst_sensors.cpp src/bst_projectors.cpp src/bst_mri.cpp src/bst_naming.cpp
     src/bst_session.cpp src/bst_recording.cpp src/bst_events.cpp src/bst_resample.cpp src/bst_frequency.cpp src/bst_inverse.cpp src/bst_maps.cpp src/bst_timefreq.cpp
-    src/bst_fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp)
+    src/bst_fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp
+    src/subject_package.cpp src/subject_filter.cpp src/catalogue.cpp src/participants.cpp src/dataset_index.cpp src/migrate.cpp src/templates.cpp)
   target_include_directories(nxr_io PRIVATE ${CMAKE_CURRENT_BINARY_DIR} src ${ZSTD_INCLUDE_DIR} ${c-blosc_SOURCE_DIR}/blosc ${CMAKE_CURRENT_SOURCE_DIR}/extern)
   set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # rapidyaml (vendored) compiled here, its warnings not ours
   target_include_directories(nxr_io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)

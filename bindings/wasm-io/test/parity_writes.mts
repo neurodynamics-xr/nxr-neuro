@@ -60,6 +60,8 @@ function sameDb(what: string, a: InstanceType<typeof DatabaseSync>, b: InstanceT
   const named = (rows: unknown[], ids: Map<string, string>) => {
     let t = JSON.stringify(rows);
     for (const [id, label] of ids) t = t.split(id).join(label);
+    // this repository is public: its measure descriptions credit "(nxr-neuro)", where the Studio's text still names the decision and its date: the source tag alone is compared (and the wording of one remark on a trap)
+    t = t.replace(/\(nxr-neuro, (?:PI )?\d{4}-\d\d-\d\d\)/g, '(nxr-neuro)').replace(/the (?:lab|project)'s trap/g, 'the trap');
     return (JSON.parse(t) as unknown[]).map((r) => JSON.stringify(r)).sort();
   };
   for (const t of tables) {
@@ -81,8 +83,10 @@ function sameFiles(what: string, onlyInStudio: readonly string[]) {
   const files = (root: string) => keysOf(root).filter((f) => !/dataset\.sqlite|catalog\.json|writer\.lock|\.lock$/.test(f));
   // a KNOWN difference, asserted rather than hidden: files the Studio keeps and nxr-neuro (with nxr) removes
   const fa = files(A);
-  for (const f of onlyInStudio) assert.ok(fa.includes(f) && !files(B).includes(f), `${what}: ${f} should be the Studio's alone`);
-  assert.deepEqual(files(B), fa.filter((f) => !onlyInStudio.includes(f)), `${what}: files`);
+  // (a key the Studio's own store no longer keeps is no difference at all: only a key in nxr-neuro's store is wrong)
+  for (const f of onlyInStudio) assert.ok(!files(B).includes(f), `${what}: ${f} should be the Studio's alone`);
+  const want = fa.filter((f) => !onlyInStudio.includes(f)), got = files(B);
+  assert.deepEqual(got, want, `${what}: files; only in nxr-neuro's: ${JSON.stringify(got.filter((f) => !want.includes(f)))}; only in the Studio's: ${JSON.stringify(want.filter((f) => !got.includes(f)))}`);
   checks++;
 }
 same('as copied');
@@ -299,7 +303,7 @@ await assert.rejects(wasm.subjects.put('no-such-id', {}), (e: InstanceType<typeo
   // Studio", nxr/io/named_paths.py), so they go. The Studio is the one out of step (backend/src/db/named-paths.ts).
   // and the topologies themselves: the Studio's service keeps a deleted manifold's topology row; nxr-neuro deletes it when no manifold stands on it
   knownTopologiesOnlyInStudio.push(id(2), id(14));
-  knownOnlyInStudio.push('d/sub-1.nxr.zarr/source/oct2/faces/c/0/0', 'd/sub-1.nxr.zarr/source/oct2/faces/zarr.json', 'd/sub-1.nxr.zarr/source/oct2/zarr.json');
+  knownOnlyInStudio.push('d/sub-1.nxr.zarr/source/oct2/faces/c.0.0', 'd/sub-1.nxr.zarr/source/oct2/faces/c/0/0', 'd/sub-1.nxr.zarr/source/oct2/faces/zarr.json', 'd/sub-1.nxr.zarr/source/oct2/zarr.json');
   same('manifolds.delete (the surface\'s arrays with it)');
 }
 
