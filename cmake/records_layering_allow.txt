@@ -1,6 +1,4 @@
 # The files not yet migrated to the record API (cmake/check_records_layering.cmake). Each migration PR removes its files; the last deletes this list.
-bindings/wasm-io/smoke.cpp
-bindings/wasm-io/src/binding.cpp
 cli/main.cpp
 cli/measure_command.cpp
 cli/nxr_neuro.cpp
