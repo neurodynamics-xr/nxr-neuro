@@ -719,6 +719,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     const std::string path = unit.path_of(op);
     clear(task::Cls::operator_, path);
     report["id"] = unit.operator_(op); report["path"] = path;
+    made[o] = report["id"].get<std::string>();                              // a field of this operator (of_operator), and an operator derived from it, link to it
     return report;
   }
 

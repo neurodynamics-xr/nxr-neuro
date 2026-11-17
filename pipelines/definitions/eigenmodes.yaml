@@ -50,7 +50,7 @@ steps:
     - step: hodge_dirac
       in: {surface: surface}
       with: {modes: $modes, shift: $shift, sigma: $sigma, slice: $slice, normalize: $normalize, star1_floor: $star1_floor, mollify: $mollify, flip_eps: $flip_eps}
-      out: [modes, kind, eigenvalues, support, eigenvectors, forms2, complex, d0, d1, length, star0, star1, star2, angle_tail, angle_tip, angle_sum, reference]
+      out: [glued, bridge, modes, kind, eigenvalues, support, eigenvectors, forms2, complex, d0, d1, length, star0, star1, star2, angle_tail, angle_tip, angle_sum, reference]
 
 outputs:
   modes:        {kind: manifold, type: points, name: "{stem}", derived_from: surface.manifold.0}

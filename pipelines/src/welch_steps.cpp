@@ -530,10 +530,17 @@ ng::NodeSpec welch_source_band_power() {
     o["relative_total"] = pr.relative ? Json("sum of the source's PSD over all bins, 0 to Nyquist") : Json();
     o["orientation_combination"] = pr.orientations == 3 ? "sum of the three orientations' power" : "fixed orientation";
     o["kernel"] = pr.kernel;
+    Json row_axis = Json{{"name", pr.row_axis}, {"size", N}};
+    if (pr.row_axis == "mode_part") {                                    // the fused Hodge-Dirac weights: rows 0..K-1 the modes' normal-current parts, K..2K-1 their flow parts
+      Json vals = Json::array();
+      const std::int64_t K = N / 2;
+      for (std::int64_t i = 0; i < N; ++i) vals.push_back(Json{{"part", i < K ? "current" : "flow"}, {"mode", i % K}});
+      row_axis["values"] = vals;
+    }
     a.meta["describe"] = Json{
         {"measure", pr.relative ? "relative_power" : density ? "power_density" : "power"}, {"method", "welch"}, {"label", "welch"}, {"precision", "float32"},
         {"unit", pr.relative ? Json() : Json(density ? base + "/Hz" : base)},
-        {"axes", Json::array({Json{{"name", pr.row_axis}, {"size", N}}, Json{{"name", "band"}, {"size", static_cast<std::int64_t>(B)}, {"values", entries}}})},
+        {"axes", Json::array({row_axis, Json{{"name", "band"}, {"size", static_cast<std::int64_t>(B)}, {"values", entries}}})},
         {"tiling", tiling_of(pr.r.wo, s.first, s.samples, cw.segments, cw.segmentsSkipped)},
         {"n_members", cw.segments}, {"members_skipped", cw.segmentsSkipped},
         {"producer", producer_of(pr.r, cw.segments, cw.segmentsSkipped, s.samples, s.bad, df, Json())},

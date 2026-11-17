@@ -8,6 +8,7 @@
 #include <random>
 
 #include "check.h"
+#include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
@@ -99,16 +100,12 @@ int main() {
       add_kernel("fixed", Kfix, "scalar");
     });
   }
-  HodgePowerOptions o;
-  o.recording = "rest";
-  o.chunks = "all";                                             // every chunk, against the whole-record reference
-  o.kernel = "kern";
-  o.option_set = "brainstorm";                                // the direct reference below is Brainstorm's exact 4 s
-  o.segment_seconds = 4.0;
-  o.bands = {{"alpha", 8, 12}, {"beta", 15, 29}};
-  const HodgePowerResult a = hodgepower_compute(ds, sub, o);
-  CHECK(!a.hit);
-  CHECK_EQ(a.info["maps"].size(), std::size_t(4));
+  // the definition `hodgepower` through the runner: every chunk, against the whole-record reference; Brainstorm's exact 4 s segments
+  Json set = Json{{"recording", "rest"}, {"kernel", "kern"}, {"segment_rule", "round"}, {"segment_seconds", 4.0},
+                  {"bands", Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}, Json{{"name", "beta"}, {"lo", 15}, {"hi", 29}}})}};
+  const auto ra = nxrtest::run_definition(ds, sub, "hodgepower", set);
+  CHECK(!ra.empty() && !ra[0].value("hit", false));
+  const std::string stat_name = "rest_kern_hodge";
   // the same from the package and the cross-spectrum, here
   const HodgeDirac& h = pk.modes;
   const std::int64_t Kn = h.n_modes();
@@ -133,26 +130,25 @@ int main() {
     const auto f0 = static_cast<Eigen::Index>(std::ceil(lo[j] / df - 1e-9)), f1 = static_cast<Eigen::Index>(std::floor(hi[j] / df + 1e-9));
     want.col(j) = direct.psd.middleCols(f0, f1 - f0 + 1).rowwise().mean();
   }
-  const double err = (a.power - want).cwiseAbs().maxCoeff() / want.cwiseAbs().maxCoeff();
+  // the statistic [2K x bands]: rows 0..K-1 the modes' normal-current parts, K..2K-1 their flow parts (the row axis names each row's part and mode)
+  MatrixXd got(2 * Kn, 2);
+  {
+    const StoredStatistic st0 = read_statistic(sub, stat_name);
+    CHECK(st0.shape == (std::vector<std::int64_t>{2 * Kn, 2}));
+    CHECK(st0.axes[0]["name"] == "mode_part" && st0.axes[0]["values"].size() == static_cast<std::size_t>(2 * Kn) && st0.axes[0]["values"][0]["part"] == "current" && st0.axes[0]["values"][static_cast<std::size_t>(Kn)]["part"] == "flow");
+    for (std::int64_t r = 0; r < 2 * Kn; ++r) for (int j = 0; j < 2; ++j) got(r, j) = st0.values[static_cast<std::size_t>(r * 2 + j)];
+  }
+  const double err = (got - want).cwiseAbs().maxCoeff() / want.cwiseAbs().maxCoeff();
   std::printf("  pipeline mode power vs Welch on B x: %.2e\n", err);
   CHECK(err < 1e-6);
-  // stored: a MAP STATISTIC (2026-11-13) on the eigen axis, a band's current and flow parts its entries; each part's map read by the name its Field had
-  {
-    const StoredStatistic st = read_statistic(sub, a.info["statistic"].get<std::string>());
-    const auto axis = sub.find("manifold", "eigenvalue/hodgeDirac");
-    CHECK(axis.has_value() && st.axes[0]["manifold_id"] == text(*axis, "id") && st.shape == (std::vector<std::int64_t>{Kn, 4}) && text(st.row, "measure") == "power_density");
-    CHECK(st.axes[1]["values"][0]["part"] == "current" && st.axes[1]["values"][1]["part"] == "flow");
-    const auto m = nxrtest::stored_map(sub, a.info["maps"][0].get<std::string>(), Kn);
-    CHECK(m.has_value() && m->rows() == Kn);
-    double w = 0;
-    if (m) for (std::int64_t k = 0; k < Kn; ++k) w = std::max(w, std::abs((*m)(k, 0) - want(k, 0)) / std::max(1e-30, std::abs(want(k, 0))));
-    CHECK(w < 1e-6);
+  {   // stored: a statistic on the rows' axis x the bands; its measure and method
+    const StoredStatistic st = read_statistic(sub, stat_name);
+    CHECK(text(st.row, "measure") == "power_density" && text(st.row, "method") == "welch" && st.axes[1]["values"][0]["name"] == "alpha");
   }
-  CHECK(hodgepower_compute(ds, sub, o).hit);
+  { const auto again = nxrtest::run_definition(ds, sub, "hodgepower", set); CHECK(!again.empty() && again[0].value("hit", false)); }
   bool refused = false;
-  HodgePowerOptions fx = o;
-  fx.kernel = "fixed";
-  try { hodgepower_compute(ds, sub, fx); } catch (const Error& e) { refused = std::string(e.what()).find("fixed-orientation") != std::string::npos; }
+  Json fx = set; fx["kernel"] = "fixed";
+  try { nxrtest::run_definition(ds, sub, "hodgepower", fx); } catch (const std::exception& e) { refused = std::string(e.what()).find("not a free-orientation kernel") != std::string::npos; }
   CHECK(refused);
   ds.close();
   fs::remove_all(root);

@@ -19,7 +19,7 @@ const std::regex kRel("^([a-z][a-z0-9_]*)\\.(manifold\\.([0-9]+)|time|from|to)$"
 Json param(const Json& v, const Json& params, const std::map<std::string, Value>* found) {
   if (v.is_string()) {
     std::string s = v.get<std::string>();
-    if (!s.empty() && s[0] == '$') {
+    if (!s.empty() && s[0] == '$' && !(s.size() > 1 && s[1] == '{')) {   // `$name` is a parameter; `${name}…` is a name with a parameter inside
       const std::string k = s.substr(1);
       if (!params.contains(k)) refuse("where: " + s + " is not a parameter");
       if (!(found && params[k].is_string())) return params[k];

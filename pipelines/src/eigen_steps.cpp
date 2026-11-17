@@ -90,7 +90,7 @@ SolveMethod method_of(const Json& p) {
   return sm;
 }
 
-const char* const kOutputs[] = {"glued", "bridge", "modes", "kind", "support", "eigenvectors", "forms2", "complex", "d0", "d1",
+const char* const kOutputs[] = {"glued", "bridge", "modes", "kind", "eigenvalues", "support", "eigenvectors", "forms2", "complex", "d0", "d1",
                                 "length", "star0", "star1", "star2", "angle_tail", "angle_tip", "angle_sum", "reference"};
 
 StepSpec hodge_dirac_step() {
@@ -196,7 +196,8 @@ StepSpec hodge_dirac_step() {
                       {"requested", st.modes}, {"exact", h.n_exact}, {"coexact", h.n_coexact}, {"seconds", std::round(h.seconds * 10) / 10},
                       {"options", method}, {"lambda_top", h.top}, {"star1_clamped", h.star1_clamped}, {"delaunay", delaunay},
                       {"tolerance", so.slice == 0 && so.shift == hs::HodgeShift::Absolute ? Json(so.tol) : Json()}};
-    const Json prov = Json{{"mesh", solved_mesh}, {"glue", glue_record}, {"solve", solve}, {"mixing_max", 0.0}};
+    const Json prov = Json{{"mesh", solved_mesh}, {"gluing", glue_record},   // (not `glue`: that key marks a glued surface, {original, map_path})
+                           {"solve", solve}, {"mixing_max", 0.0}};
     Json complex_rec = delaunay;
     complex_rec["star1_floor"] = st.method.star1_floor ? Json(*st.method.star1_floor) : Json();
     complex_rec["star1_clamped"] = h.star1_clamped;
@@ -220,6 +221,11 @@ StepSpec hodge_dirac_step() {
     // THE MODE AXIS (points; coordinate mu = sqrt(lambda), ascending) and what lies on it
     out["modes"] = made(K, 1, h.mu, Json{{"cs", "eigenvalue:" + stem}, {"operator", "hodgeDirac"}, {"description", "the eigenvalues mu = sqrt(lambda) > 0 of the Hodge-Dirac operator d + delta on " + solved + ", ascending: the mode axis"},
                                          {"producer", [&] { Json j = Json{{"variant", "Hodge-Dirac (d + delta, glued)"}, {"fieldType", "potentials"}, {"kept", "mu > 0"}}; for (auto it = prov.begin(); it != prov.end(); ++it) j[it.key()] = it.value(); return j; }()}});
+    {   // the eigenvalues lambda = mu^2 as a FIELD of the operator (rule 31), beside the mode axis's coordinates mu
+      std::vector<double> lam(h.mu.size());
+      for (std::size_t i = 0; i < lam.size(); ++i) lam[i] = h.mu[i] * h.mu[i];
+      out["eigenvalues"] = made(K, 1, std::move(lam), Json{{"value_type", "scalar"}, {"precision", "float64"}, {"description", "per mode: the eigenvalue lambda = mu^2 of the squared operator"}});
+    }
     out["kind"] = made(K, 1, widened(h.kind), Json{{"dtype", "u8"}, {"value_type", "integer"}, {"shape", Json::array({K})},
                                                    {"description", "per mode: 0 exact (a 0-form potential A) · 2 coexact (a 2-form potential S)"}});
     out["support"] = made(static_cast<std::int64_t>(kept.size()), 1, widened(kept), Json{{"description", "the " + S.name + " vertices the " + (st.glued ? "glued " : "") + "Hodge-Dirac surface keeps (" + (st.glued ? "the medial cut is outside" : "all of them: one piece") + ")"}});
