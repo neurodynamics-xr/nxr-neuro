@@ -101,7 +101,7 @@ Recordings are streamed one chunk at a time with bounded memory whatever the ran
 
 In a terminal the output is readable (a progress bar on stderr, a result line, what was stored); with `--json`, or when stdout is not a terminal, it is JSON lines, one per event,
 unchanged. `--quiet` prints only the result line; colour only in a terminal and never with `NO_COLOR`. Man pages and shell completion for bash, zsh and fish are built with the command
-(`nxr-neuro completion bash|zsh|fish`). The old spellings of the pipelines (`psd compute`, `compute psd`, `run DEFINITION --set NAME=VALUE`, ...) are refused with the new spelling named; the other old spellings (`dataset list`, ...) still work for now and print a notice on stderr. [docs/reference.md](docs/reference.md) lists every
+(`nxr-neuro completion bash|zsh|fish`). The old spellings of the pipelines (`psd compute`, `compute psd`, `run DEFINITION --set NAME=VALUE`, ...) are refused with the new spelling named; the other old two-word spellings (`dataset list`, `convert subject`, ...) are refused with the new one named too (nxr-neuro is unreleased: no deprecation period). [docs/reference.md](docs/reference.md) lists every
 command, its reference method, what it stores and what it cannot resolve; the grammar is in [docs/specs/2026-11-16-command-line.md](docs/specs/2026-11-16-command-line.md).
 
 ## Contributing

@@ -26,6 +26,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import writer_scenario as ws  # noqa: E402
+from spellings import to_io  # noqa: E402
 
 NXR = Path(os.environ["NXR"]) if "NXR" in os.environ else None
 IO = Path(os.environ["NXR_NEURO"]) if "NXR_NEURO" in os.environ else None
@@ -41,7 +42,7 @@ def run(cmd, *args):
 
 
 def io(*args):
-    return run([str(IO)], *args)
+    return run([str(IO)], *to_io(args))
 
 
 def nxr(*args):

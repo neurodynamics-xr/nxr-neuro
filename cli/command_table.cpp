@@ -1012,31 +1012,37 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 )TBL",
 R"TBL(@ create dataset
 old: dataset create
+alias: refused
 summary: Create a dataset: a folder holding a catalogue of subject packages (the default form). --datastore makes the old one-database form.
 opts: --atlas-depth --dataset --datastore --default --lc-levels --modes --name --source-path --source-protocol --source-tool --store-format --templates
 )TBL",
 R"TBL(@ list datasets
 old: dataset list
+alias: refused
 summary: List the dataset folders found in a folder.
 opts: --datastore*
 )TBL",
 R"TBL(@ show dataset
 old: dataset show
+alias: refused
 summary: Show a dataset: its subjects by kind, its source and its creation date.
 opts: --dataset*
 )TBL",
 R"TBL(@ delete dataset
 old: dataset delete
+alias: refused
 summary: Delete a dataset's folder.
 opts: --datastore* --name*
 )TBL",
 R"TBL(@ recover dataset
 old: dataset recover
+alias: refused
 summary: Finish or roll back an interrupted write in a dataset.
 opts: --dataset*
 )TBL",
 R"TBL(@ compact dataset
 old: dataset compact
+alias: refused
 summary: Pack a dataset's small files and shards to save space (a dry run shows what would change).
 opts: --dataset* --dry-run --no-shard --no-small-files --subject
 )TBL",
@@ -1135,26 +1141,31 @@ opts: --templates+
 )TBL",
 R"TBL(@ create subject
 old: subject create
+alias: refused
 summary: Create a subject (or a template or group subject) in a dataset.
 opts: --dataset* --kind --name*
 )TBL",
 R"TBL(@ list subjects
 old: subject list
+alias: refused
 summary: List the subjects of a dataset; of a catalogue dataset, those named by --subjects or satisfying --where over the participant variables.
 opts: --dataset* --subjects --where
 )TBL",
 R"TBL(@ show subject
 old: subject show
+alias: refused
 summary: Show how many manifolds, fields, operators and selections a subject holds.
 opts: --dataset* --subject* --templates+
 )TBL",
 R"TBL(@ delete subject
 old: subject delete
+alias: refused
 summary: Delete a subject, or one of its nodes, from a dataset.
 opts: --dataset* --node --subject* --templates+
 )TBL",
 R"TBL(@ add surface
 old: surface add
+alias: refused
 summary: Add a mesh file (OBJ, PLY or STL) to a subject as a surface.
 pos: FILE
 opts: --dataset* --name --no-primary --primary --scale --subject* --templates+
@@ -1183,83 +1194,98 @@ opts:
 )TBL",
 R"TBL(@ list spatial-bands
 old: pyramid spatial-bands
+alias: refused
 summary: List a surface's spatial bands (one per level of its tile ladder).
 opts: --dataset* --subject* --surface --templates+
 )TBL",
 R"TBL(@ import list
 old: convert list
+alias: refused
 summary: List the subjects of a Brainstorm protocol.
 pos: PROTOCOL
 opts: 
 )TBL",
 R"TBL(@ import scan
 old: convert scan
+alias: refused
 summary: Scan a Brainstorm protocol and describe what it holds.
 pos: PROTOCOL
 opts: --out --prefer --summary
 )TBL",
 R"TBL(@ import subject
 old: convert subject
+alias: refused
 summary: Import a Brainstorm subject's anatomy into a dataset.
 pos: PROTOCOL
 opts: --dataset* --resample --subject* --templates+
 )TBL",
 R"TBL(@ import template
 old: convert template
+alias: refused
 summary: Import a Brainstorm protocol's template subject into a dataset.
 pos: PROTOCOL
 opts: --dataset* --surface+
 )TBL",
 R"TBL(@ import group
 old: convert group
+alias: refused
 summary: Import a Brainstorm protocol's group subject into a dataset.
 pos: PROTOCOL
 opts: --dataset*
 )TBL",
 R"TBL(@ import templates
 old: convert templates
+alias: refused
 summary: Import the fsaverage reference templates (and optional fibre tracts) into a dataset.
 pos: TEMPLATES_DIR
 opts: --dataset* --subject --surface --trk
 )TBL",
 R"TBL(@ import surface
 old: convert surface
+alias: refused
 summary: Import Brainstorm tessellation files as surfaces of a subject.
 opts: --bst-root --dataset* --file+ --subject* --templates+
 )TBL",
 R"TBL(@ import mri
 old: convert mri
+alias: refused
 summary: Import an anatomical MRI of a subject.
 opts: --anat* --dataset* --only+ --subject* --templates+
 )TBL",
 R"TBL(@ import condition
 old: convert convert
+alias: refused
 summary: Import a Brainstorm condition (its recordings, channels and head models) into a dataset.
 pos: PROTOCOL
 opts: --all-surfaces --channel-file --condition* --dataset* --extra-surface+ --include-imported --no-gain --no-raw --recording --resample --subject* --surface --templates+
 )TBL",
 R"TBL(@ import inverse
 old: convert inverse
+alias: refused
 summary: Import a Brainstorm inverse kernel as an operator of a subject.
 opts: --acquisition* --bst-root* --channel-file --channels-id --dataset* --file* --forward-id --name --subject* --surface-id --templates+
 )TBL",
 R"TBL(@ import map
 old: convert map
+alias: refused
 summary: Import Brainstorm source or matrix maps as fields of a subject.
 opts: --acquisition --bst-root* --dataset* --file+* --provenance --replace --subject* --templates+
 )TBL",
 R"TBL(@ import resample
 old: convert resample
+alias: refused
 summary: Resample a recording to a new sampling rate, as a new recording.
 opts: --dataset* --name --recording* --subject* --to* --templates+
 )TBL",
 R"TBL(@ import badsegments
 old: convert badsegments
+alias: refused
 summary: Import a recording's bad segments from a file.
 opts: --dataset* --from* --replace --subject* --templates+
 )TBL",
 R"TBL(@ import events
 old: convert events
+alias: refused
 summary: Import a recording's events from a file.
 opts: --dataset* --from* --replace --subject* --templates+
 )TBL",
@@ -1272,21 +1298,25 @@ opts: --array+ --out --region
 )TBL",
 R"TBL(@ read crossspectrum
 old: crossspectrum read
+alias: refused
 summary: Read coherency, phase, delay or phase-slope index from a stored band-resolved cross-spectrum.
 opts: --dataset* --name* --pair --reading --seed --subject* --weights --templates+
 )TBL",
 R"TBL(@ query measurements
 old: measure query
+alias: refused
 summary: Query a stored measurement pyramid at any spatial and temporal scale.
 opts: --band --dataset* --field --limit --max-value --measure* --min-value --order --selection* --space-level --spatial-band --subject* --time-level --templates+
 )TBL",
 R"TBL(@ export measurements
 old: measure export
+alias: refused
 summary: Export stored measurements as a table for statistics (a row per subject), with its dictionary and provenance.
 opts: --dataset* --exclude --fields* --keep-all --labelling* --layout --out* --recipe --scaling --statistics --subjects --table*
 )TBL",
 R"TBL(@ reduce pyramid
 old: pyramid reduce
+alias: refused
 summary: Reduce several subjects' group-tree pyramids into the group's pyramid; on a catalogue dataset the result is a group package (--into).
 opts: --dataset* --depth --into --kernels --subjects* --templates+
 )TBL",
