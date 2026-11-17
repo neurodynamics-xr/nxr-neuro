@@ -1,0 +1,621 @@
+{
+ "nibabel": "5.4.2",
+ "cases": {
+  "surf_ascii": {
+   "file": "gifti_surf_ascii.surf.gii",
+   "metadata": {
+    "Description": "synthetic octahedron"
+   },
+   "arrays": [
+    {
+     "intent": "NIFTI_INTENT_POINTSET",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "dims": [
+      6,
+      3
+     ],
+     "encoding": "ASCII",
+     "endian": "LittleEndian",
+     "data": [
+      30.01140594482422,
+      -0.009154999628663063,
+      0.007933000102639198,
+      -30.003955841064453,
+      -0.004600000102072954,
+      0.00786499958485365,
+      0.0025820001028478146,
+      29.997886657714844,
+      0.017117999494075775,
+      -0.024917999282479286,
+      -30.00391387939453,
+      -0.004834999796003103,
+      0.016094999387860298,
+      -0.005061999894678593,
+      30.00348472595215,
+      -0.00784400012344122,
+      0.017774000763893127,
+      -29.99677085876465
+     ],
+     "metadata": {
+      "AnatomicalStructurePrimary": "CortexLeft"
+     },
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_TALAIRACH",
+      "xformspace": "NIFTI_XFORM_TALAIRACH",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       1.5,
+       0.0,
+       1.0,
+       0.0,
+       -2.5,
+       0.0,
+       0.0,
+       1.0,
+       3.5,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    },
+    {
+     "intent": "NIFTI_INTENT_TRIANGLE",
+     "datatype": "NIFTI_TYPE_INT32",
+     "dims": [
+      8,
+      3
+     ],
+     "encoding": "ASCII",
+     "endian": "LittleEndian",
+     "data": [
+      0.0,
+      2.0,
+      4.0,
+      2.0,
+      1.0,
+      4.0,
+      1.0,
+      3.0,
+      4.0,
+      3.0,
+      0.0,
+      4.0,
+      2.0,
+      0.0,
+      5.0,
+      1.0,
+      2.0,
+      5.0,
+      3.0,
+      1.0,
+      5.0,
+      0.0,
+      3.0,
+      5.0
+     ],
+     "metadata": {},
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_UNKNOWN",
+      "xformspace": "NIFTI_XFORM_UNKNOWN",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    }
+   ],
+   "labels": {}
+  },
+  "surf_b64": {
+   "file": "gifti_surf_b64.surf.gii",
+   "metadata": {
+    "Description": "synthetic octahedron"
+   },
+   "arrays": [
+    {
+     "intent": "NIFTI_INTENT_POINTSET",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "dims": [
+      6,
+      3
+     ],
+     "encoding": "Base64Binary",
+     "endian": "LittleEndian",
+     "data": [
+      30.01140594482422,
+      -0.00915462989360094,
+      0.007932533510029316,
+      -30.003955841064453,
+      -0.004599724430590868,
+      0.007865116000175476,
+      0.0025823013857007027,
+      29.997886657714844,
+      0.017117656767368317,
+      -0.024918468669056892,
+      -30.00391387939453,
+      -0.004834882449358702,
+      0.01609525829553604,
+      -0.005061621777713299,
+      30.00348472595215,
+      -0.007843670435249805,
+      0.017773911356925964,
+      -29.99677085876465
+     ],
+     "metadata": {
+      "AnatomicalStructurePrimary": "CortexLeft"
+     },
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_TALAIRACH",
+      "xformspace": "NIFTI_XFORM_TALAIRACH",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       1.5,
+       0.0,
+       1.0,
+       0.0,
+       -2.5,
+       0.0,
+       0.0,
+       1.0,
+       3.5,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    },
+    {
+     "intent": "NIFTI_INTENT_TRIANGLE",
+     "datatype": "NIFTI_TYPE_INT32",
+     "dims": [
+      8,
+      3
+     ],
+     "encoding": "Base64Binary",
+     "endian": "LittleEndian",
+     "data": [
+      0.0,
+      2.0,
+      4.0,
+      2.0,
+      1.0,
+      4.0,
+      1.0,
+      3.0,
+      4.0,
+      3.0,
+      0.0,
+      4.0,
+      2.0,
+      0.0,
+      5.0,
+      1.0,
+      2.0,
+      5.0,
+      3.0,
+      1.0,
+      5.0,
+      0.0,
+      3.0,
+      5.0
+     ],
+     "metadata": {},
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_UNKNOWN",
+      "xformspace": "NIFTI_XFORM_UNKNOWN",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    }
+   ],
+   "labels": {}
+  },
+  "surf_b64gz": {
+   "file": "gifti_surf_b64gz.surf.gii",
+   "metadata": {
+    "Description": "synthetic octahedron"
+   },
+   "arrays": [
+    {
+     "intent": "NIFTI_INTENT_POINTSET",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "dims": [
+      6,
+      3
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "data": [
+      30.01140594482422,
+      -0.00915462989360094,
+      0.007932533510029316,
+      -30.003955841064453,
+      -0.004599724430590868,
+      0.007865116000175476,
+      0.0025823013857007027,
+      29.997886657714844,
+      0.017117656767368317,
+      -0.024918468669056892,
+      -30.00391387939453,
+      -0.004834882449358702,
+      0.01609525829553604,
+      -0.005061621777713299,
+      30.00348472595215,
+      -0.007843670435249805,
+      0.017773911356925964,
+      -29.99677085876465
+     ],
+     "metadata": {
+      "AnatomicalStructurePrimary": "CortexLeft"
+     },
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_TALAIRACH",
+      "xformspace": "NIFTI_XFORM_TALAIRACH",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       1.5,
+       0.0,
+       1.0,
+       0.0,
+       -2.5,
+       0.0,
+       0.0,
+       1.0,
+       3.5,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    },
+    {
+     "intent": "NIFTI_INTENT_TRIANGLE",
+     "datatype": "NIFTI_TYPE_INT32",
+     "dims": [
+      8,
+      3
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "data": [
+      0.0,
+      2.0,
+      4.0,
+      2.0,
+      1.0,
+      4.0,
+      1.0,
+      3.0,
+      4.0,
+      3.0,
+      0.0,
+      4.0,
+      2.0,
+      0.0,
+      5.0,
+      1.0,
+      2.0,
+      5.0,
+      3.0,
+      1.0,
+      5.0,
+      0.0,
+      3.0,
+      5.0
+     ],
+     "metadata": {},
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_UNKNOWN",
+      "xformspace": "NIFTI_XFORM_UNKNOWN",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    }
+   ],
+   "labels": {}
+  },
+  "surf_b64_be": {
+   "file": "gifti_surf_b64_be.surf.gii",
+   "metadata": {
+    "Description": "synthetic octahedron"
+   },
+   "arrays": [
+    {
+     "intent": "NIFTI_INTENT_POINTSET",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "dims": [
+      6,
+      3
+     ],
+     "encoding": "Base64Binary",
+     "endian": "BigEndian",
+     "data": [
+      30.01140594482422,
+      -0.00915462989360094,
+      0.007932533510029316,
+      -30.003955841064453,
+      -0.004599724430590868,
+      0.007865116000175476,
+      0.0025823013857007027,
+      29.997886657714844,
+      0.017117656767368317,
+      -0.024918468669056892,
+      -30.00391387939453,
+      -0.004834882449358702,
+      0.01609525829553604,
+      -0.005061621777713299,
+      30.00348472595215,
+      -0.007843670435249805,
+      0.017773911356925964,
+      -29.99677085876465
+     ],
+     "metadata": {
+      "AnatomicalStructurePrimary": "CortexLeft"
+     },
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_TALAIRACH",
+      "xformspace": "NIFTI_XFORM_TALAIRACH",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       1.5,
+       0.0,
+       1.0,
+       0.0,
+       -2.5,
+       0.0,
+       0.0,
+       1.0,
+       3.5,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    },
+    {
+     "intent": "NIFTI_INTENT_TRIANGLE",
+     "datatype": "NIFTI_TYPE_INT32",
+     "dims": [
+      8,
+      3
+     ],
+     "encoding": "Base64Binary",
+     "endian": "BigEndian",
+     "data": [
+      0.0,
+      2.0,
+      4.0,
+      2.0,
+      1.0,
+      4.0,
+      1.0,
+      3.0,
+      4.0,
+      3.0,
+      0.0,
+      4.0,
+      2.0,
+      0.0,
+      5.0,
+      1.0,
+      2.0,
+      5.0,
+      3.0,
+      1.0,
+      5.0,
+      0.0,
+      3.0,
+      5.0
+     ],
+     "metadata": {},
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_UNKNOWN",
+      "xformspace": "NIFTI_XFORM_UNKNOWN",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    }
+   ],
+   "labels": {}
+  },
+  "func": {
+   "file": "gifti_func.func.gii",
+   "metadata": {},
+   "arrays": [
+    {
+     "intent": "NIFTI_INTENT_SHAPE",
+     "datatype": "NIFTI_TYPE_FLOAT32",
+     "dims": [
+      6
+     ],
+     "encoding": "GZipBase64Binary",
+     "endian": "LittleEndian",
+     "data": [
+      -2.6630072593688965,
+      0.21003802120685577,
+      -1.6136536598205566,
+      1.6010390520095825,
+      0.07041655480861664,
+      -0.5770809650421143
+     ],
+     "metadata": {
+      "Name": "synthetic shape"
+     },
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_UNKNOWN",
+      "xformspace": "NIFTI_XFORM_UNKNOWN",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    }
+   ],
+   "labels": {}
+  },
+  "label": {
+   "file": "gifti_label.label.gii",
+   "metadata": {},
+   "arrays": [
+    {
+     "intent": "NIFTI_INTENT_LABEL",
+     "datatype": "NIFTI_TYPE_INT32",
+     "dims": [
+      6
+     ],
+     "encoding": "ASCII",
+     "endian": "LittleEndian",
+     "data": [
+      0.0,
+      1.0,
+      1.0,
+      2.0,
+      2.0,
+      0.0
+     ],
+     "metadata": {},
+     "coordsys": {
+      "dataspace": "NIFTI_XFORM_UNKNOWN",
+      "xformspace": "NIFTI_XFORM_UNKNOWN",
+      "xform": [
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     }
+    }
+   ],
+   "labels": {
+    "0": {
+     "name": "???",
+     "rgba": [
+      0.0,
+      0.0,
+      0.0,
+      0.0
+     ]
+    },
+    "1": {
+     "name": "region_a",
+     "rgba": [
+      1.0,
+      0.0,
+      0.0,
+      1.0
+     ]
+    },
+    "2": {
+     "name": "region_b",
+     "rgba": [
+      0.0,
+      0.5,
+      1.0,
+      1.0
+     ]
+    }
+   }
+  }
+ }
+}

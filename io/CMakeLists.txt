@@ -111,13 +111,15 @@ if(NXR_IO_WASM)
   FetchContent_Declare(matio GIT_REPOSITORY https://github.com/tbeu/matio.git GIT_TAG v1.5.28 GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(matio)
   target_compile_options(matio PRIVATE -w -sUSE_ZLIB=1)
+  add_subdirectory(formats)   # the pure formats (own target; nxr_io links it)
   add_library(nxr_io
     src/codec_zstd.cpp src/codec_pipeline.cpp src/dtype.cpp src/metadata.cpp src/chunking.cpp src/zarr_store.cpp src/sparse.cpp src/schema.cpp
     src/dataset.cpp src/array_reader.cpp src/json_text.cpp src/database.cpp src/named_paths.cpp src/layout.cpp src/writer_lock.cpp src/array_writer.cpp src/compact.cpp
     src/writer.cpp src/subject_writer.cpp src/mesh.cpp src/surface.cpp src/npy.cpp src/default_subject.cpp src/bundle.cpp src/cells.cpp src/measures.cpp src/spatial_bands.cpp src/rollup.cpp src/statistic.cpp src/yaml.cpp src/finder.cpp src/hash.cpp
     src/bst_mat.cpp src/bst_protocol.cpp src/bst_subject.cpp src/bst_entities.cpp src/bst_sensors.cpp src/bst_projectors.cpp src/bst_mri.cpp src/bst_naming.cpp
     src/bst_session.cpp src/bst_recording.cpp src/bst_events.cpp src/bst_resample.cpp src/bst_frequency.cpp src/bst_inverse.cpp src/bst_maps.cpp src/bst_timefreq.cpp
-    src/bst_fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp)
+    src/bst_fibers.cpp src/bst_templates.cpp src/chunk_loop.cpp src/constant_q.cpp src/store.cpp src/small_file_store.cpp
+    src/subject_package.cpp src/subject_filter.cpp src/catalogue.cpp src/participants.cpp src/dataset_index.cpp src/migrate.cpp src/templates.cpp)
   target_include_directories(nxr_io PRIVATE ${CMAKE_CURRENT_BINARY_DIR} src ${ZSTD_INCLUDE_DIR} ${c-blosc_SOURCE_DIR}/blosc ${CMAKE_CURRENT_SOURCE_DIR}/extern)
   set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # rapidyaml (vendored) compiled here, its warnings not ours
   target_include_directories(nxr_io PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
@@ -138,7 +140,7 @@ if(NXR_IO_WASM)
   target_include_directories(nxr_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
   target_compile_definitions(nxr_sqlite3 PRIVATE SQLITE_THREADSAFE=0 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_ENABLE_MATH_FUNCTIONS=1 SQLITE_DEFAULT_FOREIGN_KEYS=0)
   target_compile_options(nxr_sqlite3 PRIVATE -w -fwasm-exceptions)
-  target_link_libraries(nxr_io PUBLIC nlohmann_json nxr_sqlite3 PRIVATE blosc_static matio)
+  target_link_libraries(nxr_io PUBLIC nxr_io_formats nlohmann_json nxr_sqlite3 PRIVATE blosc_static matio)
   return()
 endif()
 
@@ -226,6 +228,9 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/schema/statistics.json NXR_STATISTICS_JSON
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/statistics_json.inc "R\"NXRSTAT(${NXR_STATISTICS_JSON})NXRSTAT\"")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/schema/statistics.json)
 
+# --- the pure formats (their own target; nxr_io links it) ---
+add_subdirectory(formats)
+
 file(READ ${CMAKE_CURRENT_SOURCE_DIR}/convert/manifest/template_sources.json NXR_TEMPLATE_SOURCES_JSON)
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/template_sources_json.inc "R\"NXRSRC(${NXR_TEMPLATE_SOURCES_JSON})NXRSRC\"")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/convert/manifest/template_sources.json)
@@ -302,7 +307,7 @@ set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # ra
 target_include_directories(nxr_io
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
   PRIVATE ${ZSTD_INCLUDE_DIR} ${c-blosc_SOURCE_DIR}/blosc)
-target_link_libraries(nxr_io PUBLIC nlohmann_json SQLite3::SQLite3 ZLIB::ZLIB PRIVATE ${ZSTD_LIBRARY} blosc_static matio)
+target_link_libraries(nxr_io PUBLIC nxr_io_formats nlohmann_json SQLite3::SQLite3 ZLIB::ZLIB PRIVATE ${ZSTD_LIBRARY} blosc_static matio)
 if(MSVC)
   target_compile_options(nxr_io PRIVATE /W4)
 else()
