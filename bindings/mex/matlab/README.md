@@ -13,7 +13,7 @@ MATLAB R2021a or newer (name=value arguments), CMake 3.20+, Ninja, a C++17 compi
 (clone with `--recurse-submodules`), as for the main build.
 
     cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNXR_NEURO_PORTABLE=ON \
-          -DNXR_NEURO_BUILD_TESTS=OFF -DNXR_NEURO_BUILD_PIPELINES=OFF -DNXR_NEURO_BUILD_CLI=OFF -DNXR_NEURO_BUILD_MEEG=OFF
+          -DNXR_NEURO_BUILD_TESTS=OFF -DNXR_NEURO_BUILD_CLI=OFF -DCMAKE_POSITION_INDEPENDENT_CODE=ON
     cmake --build build --target nxr_compute_mex          # build/bindings/mex/nxr_compute.mex<arch>
 
 CMake finds MATLAB through `matlab` on the path, or `-DMatlab_ROOT_DIR=/Applications/MATLAB_R2026a.app`. (A full `cmake -S . -B build` builds the MEX too when MATLAB
@@ -25,7 +25,7 @@ addpath('build/bindings/mex')                  % nxr_compute.mex*
 ```
 
 **One binary, nothing clashing.** MATLAB loads its own HDF5 and zlib. The MEX links HDF5, matio and zlib (and the C++ runtime on Linux) as static archives with hidden
-symbols; it exports only `mexFunction` and `mexfilerequiredapiversion`. SQLite (io's pinned amalgamation) and zstd are not in it: the readers do not need them.
+symbols; it exports only `mexFunction` and `mexfilerequiredapiversion`. SQLite (io's pinned amalgamation) and zstd are in it for the pipeline level (`nxr.run`), static and hidden like the rest.
 `bindings/mex/test/check_symbols.sh <mex file>` checks it with `nm` and `otool`/`ldd` (CI runs it). With a static zlib archive found (`-DZLIB_USE_STATIC_LIBS=ON`, and
 `-DZLIB_ROOT=<keg>` for Homebrew's) zlib is hidden like the others; otherwise the system's shared zlib is used (macOS: two-level namespaces, so it cannot clash).
 
@@ -58,6 +58,21 @@ plot(r.frequencies, r.psd(1, :))
 ```
 
 The pipeline commands (`nxr.compute.<verb>`) are not in this slice; they wait for io's task-level API.
+
+## The pipeline level (`nxr.run`, `nxr.list`, `nxr.read`)
+
+`nxr.run` is `nxr-neuro run`: the same library calls (`pipelines/face.h`), so a result made here is the same cached result the command line makes and finds.
+
+```matlab
+nxr.list.pipelines()                       % the pipelines run takes; nxr.list.help('psd') prints each parameter's meaning, default and unit
+nxr.list.datasets('study'); nxr.list.subjects('study/demo', where="age > 60"); nxr.list.results('study/demo', 'sub-01')
+r   = nxr.run('psd', 'study/demo', 'sub-01', 'recording', 'rest', 'set', 'brainstorm', 'segment_seconds', 2, 'all', true);
+r.cache, r.stored                          % 'computed' | 'hit'; what was stored (output, name, id, path)
+psd = nxr.read('study/demo', 'sub-01', 'rest_psd_welch');    % psd.values [channels x frequencies], psd.meta
+```
+
+The time range is always stated: `'from'` and `'to'` (seconds) or `'all', true`; a call without one is refused (`nxr:invalidArgument`). `'progress', @(s) ...` receives each
+progress line as a struct. `psd` and the shipped definitions (or a `.yaml` path) are what `run` takes; the other hand-wired pipelines are reached through the command line.
 
 ## Tests
 

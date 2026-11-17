@@ -6,13 +6,16 @@ name: matlab
 # - On pull requests: ONLY when the binding itself changes (bindings/mex/**, the pipelines' face, this workflow). C++ and compute changes never
 #   run it: compute is tested by its own C++ tests.
 # What runs: the first slice's tests (bindings/mex/test/first_slice: the same functions, inputs and expected values as the Python wheel's tests and the C++
-# goldens), the symbol check (nothing of HDF5, matio, zlib, zstd or SQLite is exported or shared), and the nxr_compute command tests.
+# goldens; the pipeline level's: nxr.run on a synthetic dataset against the pure function), the symbol check (nothing of HDF5, matio, zlib, zstd or SQLite is exported or shared),
+# and the nxr_compute command tests.
 on:
   push:
     tags: ["v*"]
   pull_request:
     paths:
       - "bindings/mex/**"
+      - "pipelines/include/nxr/pipelines/face.h"
+      - "pipelines/src/face.cpp"
       - ".github/workflows/matlab.yml"
   workflow_dispatch:
 
@@ -73,12 +76,12 @@ jobs:
           release: R2025b
           cache: true
       - name: Configure
-        # the MEX alone: io/formats (HDF5, matio and zlib static, hidden), compute; no pipelines, command line or C++ tests
+        # the MEX alone: io (SQLite, the Zarr codecs, HDF5, matio and zlib: all static, none exported), compute, meeg and the pipelines (nxr.run, nxr.list, nxr.read); no command line or C++ tests
         run: >
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
           -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-          -DNXR_NEURO_BUILD_TESTS=OFF -DNXR_NEURO_BUILD_PIPELINES=OFF -DNXR_NEURO_BUILD_CLI=OFF -DNXR_NEURO_BUILD_MEEG=OFF
-          -DNXR_NEURO_PORTABLE=ON $ZLIB_ARGS
+          -DNXR_NEURO_BUILD_TESTS=OFF -DNXR_NEURO_BUILD_CLI=OFF
+          -DNXR_NEURO_PORTABLE=ON -DCMAKE_POSITION_INDEPENDENT_CODE=ON $ZLIB_ARGS
       - name: Build the MEX
         run: cmake --build build --target nxr_compute_mex
       - name: Symbols
