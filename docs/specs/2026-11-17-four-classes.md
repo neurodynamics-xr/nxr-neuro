@@ -309,7 +309,7 @@ decides where each part lives:
 |---|---|---|
 | the classes: `Manifold` (+ `Topology`, `Cells`, `Geometry`, `GeometryDimension`), `Field` (+ `FieldContribution`), `Selection` (+ `SelectionExtent`, `SelectionSpan`), `Operator` (+ `OperatorFactor`), `Space`, `CoordinateSystem`, `Dictionary`, `DictionaryEntry`, `Measurement`, `Statistic`, and `Model` (the identity map) | `nxr::model`, a header-mostly target with no file access and no maths beyond index arithmetic (open question B1 decides its folder) | they are data with identity; compute, io, the graph and the bindings all name them |
 | the index arithmetic the Studio puts on the classes: `indexShape`, `indexAt` / `valueAt`, `axisOffsetOf`, `shape`, `sliceOf`, `resolve` (crop and indices arms), `at(k)`, `count`, `indexAt`, `chunks` (by definition), `productCode` / `productCodes`, `factorMembers`, `factorCodes`, `operatorKind`, `pairProblems` / `chainProblems`, `algebraOf`, cell keys | `nxr::model` | pure functions of rows and small arrays; the Studio has them on the entities |
-| the maths that makes or uses a class: forms, transforms, filters, geodesic distance (`resolve_distance`), the makers of selections (tilings, ladders, dyadic tiles, products, detections), operator assembly | `compute/`, `meeg/` | functions of matrices that take and return the classes (4.3) |
+| the maths that makes or uses a class: forms, transforms, filters, geodesic distance (`resolve_distance`), the makers of selections (tilings, ladders, dyadic tiles, products, detections), operator assembly | `compute/`, `meeg/` | pure functions of matrices; the pipelines wrap their inputs and outputs in the classes (4.3) |
 | loading and storing: `read` a subject's Bundle into a `Model`, `load(entity, selection?)` (fills `values` / `positions` / an element array, sets `loadedOn`), `create` (bytes first, row last), measurements in bulk, the chunk service | `io/` | io never computes; it fills and writes the classes' state |
 | `buffer` / `bufferOn` | `nxr::model`, an opaque handle | nxr-neuro has no device today; the slot is where a host's GPU copy is recorded (the wasm binding that serves the Studio) |
 
@@ -479,20 +479,22 @@ halo, and its output shape on a streamed input (the Studio's `xt`, `xft`, `xf`).
 signatures; `--dry-run` prints them, and a generated JSON schema of definitions is published with the release for the Studio to read. Where the Studio
 has no pass for a node, the node runs on the CPU (nxr-neuro) and its output enters the GPU chain as a Field.
 
-### 4.3 Compute functions take and return the classes
+### 4.3 Compute functions stay pure functions of matrices
 
-A node function takes Fields, Selections, Operators and Manifolds and returns them; the maths inside stays a function of matrices.
+The classes are adopted where typing is CHECKED and EXCHANGED: the definitions (YAML), the pipelines' node ports and type checker (`run`, `compute`),
+and io's load and store. Compute functions do not take or return the classes.
 
-- **A Field can always be built from a matrix made anywhere.** `Field::from_array(values, shape, algebra)` makes a transient Field (`saved = false`) on a
-  transient Manifold read off the shape (a Line of n samples, Points of n members, their product), as the Studio's chart API inlines a Manifold as a bare
-  shape (S-CLAUDE lines 49–59). So the architecture's test, "can each compute function be called with a matrix from anywhere?", still holds: the class
-  wraps the matrix, and nothing in it says where the matrix came from.
-- A compute function reads the class's TYPE (algebra, cell, manifold shape, selection type) and its VALUES; it never reads `path`, never loads, never knows
-  `saved`. What it makes is a transient class with `derived_from` / `by_operator` set, which io may later create.
-- Reductions remain measurements over Selections: a function that reduces returns Measurements (or a Statistic), never a Field of fewer elements. The
-  pointwise rule and the cardinal rule of `ARCHITECTURE.md` are unchanged.
-- The makers of selections (tilings, ladders, dyadic tiles, products, detections) are compute functions whose OUTPUT is a Selection of one of the eight
-  types; they are not part of the class.
+- **A compute function is a pure function of matrices:** arrays and the method's parameters in, arrays out, callable with a matrix made anywhere (the
+  architecture's test, unchanged). It knows no class, no file, no chunk, no type label.
+- **The type controls live in the pipelines.** A node's ports are typed by the classes (section 4.1); before any data flows the checker verifies every input
+  against its port (section 4.4); the node then hands compute the arrays the classes hold (a Field's values, an Operator's matrix, a Selection's resolved
+  form) and wraps what compute returns in the output port's class (a transient class with `derived_from` / `by_operator` set, which io may later create).
+- **Where a type decides the maths** (not only what is allowed), compute takes the decision as a plain argument the pipeline reads off the class: e.g. the
+  graph Fourier transform takes a basis (eigenvectors, eigenvalues, mass) together with its field type as an enumerated parameter, so that a Hodge–Dirac
+  basis reads forms and a connection-Laplacian basis complex fields. The argument is data, never a class.
+- Reductions remain measurements over Selections; the pointwise rule and the cardinal rule of `ARCHITECTURE.md` are unchanged.
+- The makers of selections (tilings, ladders, dyadic tiles, products, detections) are compute functions whose output arrays the pipeline wraps as a
+  Selection of one of the eight types; they are not part of the class.
 
 ### 4.4 The type checker re-based on the classes
 
