@@ -1,5 +1,5 @@
 // nxr-io — THE SELECTION (a port of the Cortical Flow Studio's backend/src/entities/selection.ts; the model is the schema's, register D30–D36/D46/D48/D60/D87/D94/D95):
-// a named part of a manifold (or a position on a space), with a code, its detail rows (extents: a span's corners; spans: a spans set's members; elements: a partition's codes
+// a named part of a manifold (or a position on a space), with a code, its detail rows (extents: a span's corners; spans: a spans set's members; elements: a partition's member numbers
 // or a subset's picks, as its array) and what was measured on it. What the app adds is RESOLUTION: which index ranges of its manifold the selection is, so a field can be read
 // exactly there; and a spans set's members by ordinal, in closed form or by rows.
 //
@@ -76,9 +76,9 @@ class Selection {
   /** a POSITION on a space (D95): the vertex of `line` (a manifold id) nearest it, or nothing when the line does not reach it */
   std::optional<std::int64_t> vertex_on(const std::string& line) const;
 
-  // ── its array: a partition's codes, a subset's picks (nothing for a closed-form selection)
+  // ── its array: a partition's member numbers (an array stored before member numbers: labels), a subset's picks (nothing for a closed-form selection)
   std::vector<std::int32_t> elements() const;
-  std::map<std::int32_t, std::int64_t> partition() const;              // code -> element count
+  std::map<std::int32_t, std::int64_t> partition() const;              // value in the array (member number) -> element count
 
  private:
   Selection(const Database& db, const Store& store, records::SelectionRow row) : db_(&db), store_(&store), row_(std::move(row)) {}

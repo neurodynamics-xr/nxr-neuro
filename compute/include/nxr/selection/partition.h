@@ -1,17 +1,19 @@
 // nxr::selection (compute) — THE PARTITION METHODS: selections whose members are disjoint and cover a manifold, made in memory (selection.h); io stores them.
 // Compute takes arrays: a line is a count and a spacing, a surface its positions and faces.
 //
-//   constant_q        a time line   a set with LEVELS, each a set of spans by a rule (a tiling) (tiles of 2^k samples from the first sample, level k), the levels a
-//                                   constant-Q band design needs, each with the band (Hz) it resolves
+//   constant_q        a time line   a set with LEVELS, each a set of spans by a rule (a tiling) (tiles of 2^k samples from the first sample; the level's identity is
+//                                   its position, finest first, its label k), the levels a constant-Q band design needs, each with the band (Hz) it resolves;
+//                                   constant_q_design returns it with the facts the design settled (cycles, strides, rates, samples a cycle) for the store
 //   constant_q_bands  a time line   the same design's FREQUENCY partition: a set of spans on the frequency line, one member a band, labelled by its range
-//   dyadic            a surface     a set with LEVELS by codes: equal-area bisection, 2^l tiles a connected piece (level l), each level with its eigenvalue band
-//                                   by Weyl's law (1/unit^2)
+//   dyadic            a surface     a set per element with LEVELS: equal-area bisection, 2^l tiles a connected piece (level l; its member numbers dense, its labels the
+//                                   tile codes h 2^l + t, a parent map to the level above), each level with its eigenvalue band by Weyl's law (1/unit^2)
 //   eigenvalue_bands  a set with levels   the EIGENVALUE partition: a set of spans on the eigenvalue line, one member a level's band
-//   transfer          a surface     a set by codes carried from another surface through the registered spheres (nearest vertex, piece by piece)
+//   transfer          a surface     a set per element carried from another surface through the registered spheres (nearest vertex, piece by piece)
 #pragma once
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "nxr/selection/selection.h"
 
@@ -45,7 +47,8 @@ struct ConstantQ {
 struct Dyadic {
   std::optional<int> depth;                // the finest level; default: the finest at which every tile of every piece still holds a vertex
 };
-/** TRANSFER: `from` (a set by codes on another surface of `from_vertices` vertices) carried through the registered spheres; its levels and lookup come with it */
+/** TRANSFER: `from` (a set per element with levels, on another surface of `from_vertices` vertices) carried through the registered spheres; its levels' bands and
+ *  lookup come with it; the members are renumbered over the surface they now hold (a label that no vertex reaches has no member) */
 struct Transfer {
   const Selection* from = nullptr;
   const double* from_sphere = nullptr;     // [from_vertices x 3]
@@ -54,6 +57,28 @@ struct Transfer {
   const double* sphere = nullptr;          // this surface's registered sphere, [vertices x 3]
 };
 
+/** what the design settled about one level (the facts the stored ladder carries), in the ladder's order */
+struct ConstantQLevel {
+  int power = 0;                           // k: tiles of 2^k samples (the level's label)
+  std::int64_t window_samples = 0;         // 2^k
+  int bands = 0;                           // how many of the design's bands share this window
+  double lo = 0, hi = 0;                   // Hz: the union of those bands
+  std::int64_t stride = 1;                 // the decimation at the low edge (constantq::strideFor)
+  double rate_hz = 0;                      // sample rate / stride
+  std::int64_t points = 0;                 // samples of a window after decimation
+  double samples_per_cycle_lo = 0, samples_per_cycle_hi = 0;   // after decimation, at the low and high edge
+  bool nyquist_bound = false;              // stride 1 and still fewer than constantq::kMultirateMin samples a cycle at the low edge
+};
+struct ConstantQDesign {
+  Selection ladder;                        // what `constant_q` returns
+  std::string method;                      // hertz | cycles
+  int voices = 0;
+  double sfreq = 0;
+  double cycles = 0;                       // the cycles of a band's low edge in its window, as resolved (the option, else the method's)
+  double f_min = 0, f_max = 0;             // Hz: the lowest band's low edge and the top of the design as resolved
+  std::vector<ConstantQLevel> levels;      // one per ladder level, finest first
+};
+ConstantQDesign constant_q_design(const Line& time, const ConstantQ& method);
 Selection constant_q(const Line& time, const ConstantQ& method);
 Selection constant_q_bands(const Line& time, const ConstantQ& method);
 Selection dyadic(const Surface& surface, const Dyadic& method);

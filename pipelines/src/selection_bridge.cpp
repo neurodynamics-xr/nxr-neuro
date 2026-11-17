@@ -39,9 +39,10 @@ is::Description describe(const cs::Selection& m) {
   for (const auto& e : m.extents) d.extents.push_back(is::Extent{e.axis, e.start, e.stop});
   d.indices = m.indices;
   for (const auto& x : m.members) d.members.push_back(describe(x));
-  d.codes = m.codes;
+  d.member_of = m.member_of;
+  d.member_codes = m.member_codes;
+  d.parent = m.parent;
   if (m.tiling) d.tiling = is::Tiling{m.tiling->origin, m.tiling->width, m.tiling->hop, m.tiling->count};
-  d.depth = m.depth;
   d.level = m.level;
   d.band = m.band;
   d.band_unit = m.band_unit;
@@ -59,9 +60,10 @@ cs::Selection made(const is::Description& d) {
   for (const auto& e : d.extents) m.extents.push_back(cs::Extent{e.axis, e.start, e.stop});
   m.indices = d.indices;
   for (const auto& x : d.members) m.members.push_back(made(x));
-  m.codes = d.codes;
+  m.member_of = d.member_of;
+  m.member_codes = d.member_codes;
+  m.parent = d.parent;
   if (d.tiling) m.tiling = cs::Tiling{d.tiling->origin, d.tiling->width, d.tiling->hop, d.tiling->count};
-  m.depth = d.depth;
   m.level = d.level;
   m.band = d.band;
   m.band_unit = d.band_unit;

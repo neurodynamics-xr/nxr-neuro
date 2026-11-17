@@ -9,12 +9,13 @@
 //               (events, bursts, bad segments, a band's bins, a run's span, the good samples: one member of many intervals)
 //   Elements    per member, its sorted elements (CSR)                                    offsets [members + 1], elements, the manifold's size
 //               (a drawn region, picked channels, a disc's vertices; members may overlap)
-//   Codes       a member code per element (-1: in none) and the member count               codes [size], members
-//               (a parcellation, a level of a tile ladder, a tile per sample); DISJOINT members only
+//   MemberOfElement  the MEMBER NUMBER of each element (-1: in none) and the member count   member_of [size], members
+//               (a parcellation, a level of a tile ladder, a tile per sample); DISJOINT members only. A number, never a label: labels are the set's
+//               `member_codes` (selection.h)
 //
-// A member's IDENTITY is its ordinal (selection.h: a set by codes' code is its ordinal); every form keeps every ordinal, an empty member included, so a
-// measurement's k-th value is always member k's. Indices are int64 on a line (hours of samples) and in Elements (a product manifold's cells); codes are
-// int32, as every compute that takes codes reads them.
+// A member's IDENTITY is its member number (dense, 0 .. members - 1); every form keeps every member, an empty one included, so a measurement's k-th value is
+// always member k's. Indices are int64 on a line (hours of samples) and in Elements (a product manifold's cells); member numbers are int32, as every compute
+// that takes them reads them.
 //
 // ROUNDING ONTO A LINE (a span's corners in the line's coordinates → sample indices): a span [a, b) holds the points of the line whose coordinate lies in
 // it, i.e. indices [ceil((a - origin) / spacing), ceil((b - origin) / spacing)), each ceil taken with a 1e-9 tolerance so that a corner ON a point is that
@@ -61,16 +62,16 @@ struct Elements {
   std::int64_t members() const { return static_cast<std::int64_t>(offsets.size()) - 1; }
 };
 
-/** a member code per element (-1: in no member), members 0 .. members - 1: DISJOINT members only */
-struct Codes {
-  std::vector<std::int32_t> codes;           // [size]
+/** the member NUMBER of each element (-1: in no member), members 0 .. members - 1: DISJOINT members only */
+struct MemberOfElement {
+  std::vector<std::int32_t> member_of;       // [size]
   std::int64_t members = 0;
-  std::int64_t size() const { return static_cast<std::int64_t>(codes.size()); }
+  std::int64_t size() const { return static_cast<std::int64_t>(member_of.size()); }
 };
 
 /** one of the forms */
-using Form = std::variant<Rule, Intervals, Elements, Codes>;
-enum class FormKind { rule, intervals, elements, codes };
+using Form = std::variant<Rule, Intervals, Elements, MemberOfElement>;
+enum class FormKind { rule, intervals, elements, member_of };
 const char* form_name(FormKind kind);
 
 /** how many members a form has (empty ones included) */
@@ -88,49 +89,49 @@ Rule resolve_rule(const Selection& s, const Line& line);
 /** INTERVALS on `line`. Accepts (each with its unit, when it has one, equal to the line's):
  *   point     one member: its element                         span      one member: its axis-0 bounds (a span on several axes: a product)
  *   distance  one member: [c - r, c + r) in coordinates        indices   one member: its runs of consecutive elements
- *   set       a tiling (member k its interval), a set by codes over the line's points (code c: the runs of c), listed members (each a point, a span on one
+ *   set       a tiling (member k its interval), a set per element over the line's points (member m: the runs of m), listed members (each a point, a span on one
  *             axis, a distance or indices: its intervals; a member that is a set is refused)
  *  Intervals are clipped to the line; a member that falls outside it is kept, empty. */
 Intervals resolve_intervals(const Selection& s, const Line& line);
 
-/** ELEMENTS on a manifold of `size` elements. Accepts: a point, indices (one member), a set by codes over the `size` elements (code c: its elements), a set
+/** ELEMENTS on a manifold of `size` elements. Accepts: a point, indices (one member), a set per element over the `size` elements (member m: its elements), a set
  *  of listed points and indices. Refuses a distance on a surface (resolve_distance first: it needs the metric), a span or a tiling (they lie on a line:
  *  resolve_intervals, then elements_of), and an element outside 0 .. size - 1. */
 Elements resolve_elements(const Selection& s, std::int64_t size);
 
-/** CODES on a manifold of `size` elements: as resolve_elements, then codes_of (a set by codes is taken as it is). Refuses members that share an element. */
-Codes resolve_codes(const Selection& s, std::int64_t size);
-/** CODES on a line's points: as resolve_intervals, then codes_of (a tile per sample). Refuses members that share a point. */
-Codes resolve_codes(const Selection& s, const Line& line);
+/** MEMBER-OF-ELEMENT on a manifold of `size` elements: as resolve_elements, then member_of_from (a set per element is taken as it is). Refuses members that share an element. */
+MemberOfElement resolve_member_of(const Selection& s, std::int64_t size);
+/** MEMBER-OF-ELEMENT on a line's points: as resolve_intervals, then member_of_from (a tile per sample). Refuses members that share a point. */
+MemberOfElement resolve_member_of(const Selection& s, const Line& line);
 
 /** where a factor of a product (or any selection) lies, and the form wanted: on a line (`line` set) or on `size` elements */
 struct Space {
   FormKind form = FormKind::intervals;
-  std::optional<Line> line;                  // a line: rule, intervals or codes over its points; none: elements or codes over `size` elements
+  std::optional<Line> line;                  // a line: rule, intervals or member numbers over its points; none: elements or member numbers over `size` elements
   std::int64_t size = 0;
 };
 /** a selection in the form `space` asks for (the resolver above that form names) */
 Form resolve(const Selection& s, const Space& space);
 
-// ── conversions between forms (exact; codes need disjoint members) ────────────────────────
+// ── conversions between forms (exact; member numbers need disjoint members) ────────────────────────
 Intervals intervals_of(const Rule& rule);
 Intervals intervals_of(const Elements& elements);   // each member's runs of consecutive elements
-Intervals intervals_of(const Codes& codes);
+Intervals intervals_of(const MemberOfElement& member_of);
 Elements elements_of(const Intervals& intervals);
-Elements elements_of(const Codes& codes);
+Elements elements_of(const MemberOfElement& member_of);
 /** std::invalid_argument when two members share an element, or a member count beyond int32 */
-Codes codes_of(const Elements& elements);
-Codes codes_of(const Intervals& intervals);
-Codes codes_of(const Rule& rule);
+MemberOfElement member_of_from(const Elements& elements);
+MemberOfElement member_of_from(const Intervals& intervals);
+MemberOfElement member_of_from(const Rule& rule);
 
 // ── the closed form, evaluated ────────────────────────────────────────────────────────────
 /** member k of a rule, clipped to the line: [start, stop) (start == stop: outside it) */
 std::pair<std::int64_t, std::int64_t> rule_member(const Rule& rule, std::int64_t k);
-/** the members holding point i: [first, stop) of ordinals (empty: none); several where hop < width */
+/** the members holding point i: [first, stop) of member numbers (empty: none); several where hop < width */
 std::pair<std::int64_t, std::int64_t> rule_members_at(const Rule& rule, std::int64_t i);
-/** the member of each point first .. first + n - 1 (-1: none, or outside the line): the tile per sample of a block, without the whole line's codes.
+/** the member of each point first .. first + n - 1 (-1: none, or outside the line): the tile per sample of a block, without the whole line's member numbers.
  *  std::invalid_argument when members overlap (hop < width). */
-std::vector<std::int32_t> rule_codes(const Rule& rule, std::int64_t first, std::int64_t n);
+std::vector<std::int32_t> rule_member_of(const Rule& rule, std::int64_t first, std::int64_t n);
 
 // ── products (section 9) ──────────────────────────────────────────────────────────────────
 /** a product resolved: each factor in its own form and the row-major numbering of the tuples; the product itself is never materialized */

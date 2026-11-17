@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <cmath>
 #include <limits>
+#include <map>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -96,14 +97,29 @@ Selection tiled(Tiling t, std::string unit) {
   return s;
 }
 
-Selection labels(std::vector<std::int32_t> codes, Lookup lookup) {
+Selection set_of_members(std::vector<std::int32_t> member_of, std::vector<std::int64_t> member_codes, Lookup lookup) {
   check(lookup);
-  if (!lookup.empty()) {
-    std::set<std::int32_t> seen;
-    for (std::int32_t c : codes) if (c >= 0 && seen.insert(c).second) entry(lookup, c);
+  std::int64_t n = static_cast<std::int64_t>(member_codes.size());
+  if (member_codes.empty()) {                                          // unlabelled: member i is labelled i
+    for (std::int32_t m : member_of) n = std::max<std::int64_t>(n, static_cast<std::int64_t>(m) + 1);
+    for (std::int64_t i = 0; i < n; ++i) member_codes.push_back(i);
   }
-  Selection s; s.type = Type::set; s.codes = std::move(codes); s.lookup = std::move(lookup);
+  for (std::int32_t m : member_of)
+    if (m < -1 || m >= n) throw std::invalid_argument("set_of_members: member number " + std::to_string(m) + " outside 0.." + std::to_string(n - 1));
+  if (!lookup.empty()) for (std::int64_t c : member_codes) entry(lookup, c);
+  Selection s; s.type = Type::set; s.member_of = std::move(member_of); s.member_codes = std::move(member_codes); s.lookup = std::move(lookup);
   return s;
+}
+
+Selection from_labels(const std::vector<std::int32_t>& element_labels, Lookup lookup) {
+  std::set<std::int32_t> distinct;
+  for (std::int32_t c : element_labels) if (c >= 0) distinct.insert(c);
+  std::map<std::int32_t, std::int32_t> number;                         // label -> member number, ascending labels
+  std::vector<std::int64_t> codes;
+  for (std::int32_t c : distinct) { number[c] = static_cast<std::int32_t>(codes.size()); codes.push_back(c); }
+  std::vector<std::int32_t> member_of(element_labels.size(), -1);
+  for (std::size_t v = 0; v < element_labels.size(); ++v) if (element_labels[v] >= 0) member_of[v] = number[element_labels[v]];
+  return set_of_members(std::move(member_of), std::move(codes), std::move(lookup));
 }
 
 // ── reading ──────────────────────────────────────────────────────────────────────────────
@@ -115,30 +131,30 @@ bool line_span(const Selection& m) { return m.type == Type::span && m.extents.si
 void need_product(const Selection& s, const char* what) {
   if (s.type != Type::set || s.factors.empty()) throw std::invalid_argument(std::string(what) + ": a product (product(factors))");
 }
-// a factor's member of ordinal i, as one selection: a selection that is not a set is its own one member; a set by codes gives the elements of code i
+// a factor's member number i, as one selection: a selection that is not a set is its own one member; a set per element gives the elements of member i
 Selection factor_member(const Selection& f, std::int64_t i) {
   if (f.type != Type::set) {
     if (i != 0) throw std::invalid_argument("member: a factor that is not a set has one member (0), not " + std::to_string(i));
     return f;
   }
-  if (!f.codes.empty()) {
-    std::vector<std::int32_t> out;
-    for (std::size_t v = 0; v < f.codes.size(); ++v) if (f.codes[v] == i) out.push_back(static_cast<std::int32_t>(v));
-    return indices(std::move(out), i);                                // an empty member when the code holds no element: its ordinal still counts
-  }
+  if (!f.member_of.empty()) return member_indices(f, i);              // an empty member when no element is in it: its number still counts
   return member(f, i);
 }
 }  // namespace
 
 std::int64_t count(const Selection& s) {
-  need_set(s, "count");
-  if (!s.factors.empty()) return ordinal_count(s);
-  if (s.tiling) return s.tiling->count;
-  if (!s.codes.empty()) {
-    std::set<std::int32_t> distinct;
-    for (std::int32_t c : s.codes) if (c >= 0) distinct.insert(c);
-    return static_cast<std::int64_t>(distinct.size());
+  if (s.type != Type::set) return 1;
+  if (!s.factors.empty()) {
+    std::int64_t n = 1;
+    for (const Selection& f : s.factors) {
+      const std::int64_t c = count(f);                                 // a factor that is not a set is one member
+      if (c > 0 && n > std::numeric_limits<std::int64_t>::max() / c) throw std::invalid_argument("product: more members than a 64-bit number holds");
+      n *= c;
+    }
+    return n;
   }
+  if (s.tiling) return s.tiling->count;
+  if (!s.member_codes.empty() || !s.member_of.empty()) return static_cast<std::int64_t>(s.member_codes.size());
   return static_cast<std::int64_t>(s.members.size());
 }
 
@@ -155,7 +171,7 @@ Selection member(const Selection& s, std::int64_t k) {
     const double start = s.tiling->origin + static_cast<double>(k) * s.tiling->hop;
     return span({Extent{0, start, start + s.tiling->width}}, std::nullopt, s.unit);
   }
-  if (!s.codes.empty()) throw std::invalid_argument("member: a set by codes has members by code (member_indices)");
+  if (!s.member_of.empty()) throw std::invalid_argument("member: a set per element has members by number (member_indices)");
   if (k < 0 || k >= static_cast<std::int64_t>(s.members.size())) throw std::invalid_argument("member: " + std::to_string(k) + " outside the set");
   return s.members[static_cast<std::size_t>(k)];
 }
@@ -181,30 +197,68 @@ std::vector<std::int64_t> members_at(const Selection& s, double value) {
   return out;
 }
 
-std::int64_t code_at(const Selection& s, std::int64_t element, int level) {
-  need_set(s, "code_at");
-  if (s.codes.empty()) throw std::invalid_argument("code_at: the set has no codes");
-  if (element < 0 || element >= static_cast<std::int64_t>(s.codes.size())) throw std::invalid_argument("code_at: element " + std::to_string(element) + " outside the set");
-  const std::int32_t c = s.codes[static_cast<std::size_t>(element)];
-  if (c < 0) return -1;
-  if (level < 0) return c;
-  if (level > s.depth) throw std::invalid_argument("code_at: level " + std::to_string(level) + " outside 0.." + std::to_string(s.depth));
-  return c >> (s.depth - level);
+std::int64_t member_at(const Selection& s, std::int64_t element, int level) {
+  need_set(s, "member_at");
+  if (s.member_of.empty()) throw std::invalid_argument("member_at: the set has no member per element");
+  if (element < 0 || element >= static_cast<std::int64_t>(s.member_of.size())) throw std::invalid_argument("member_at: element " + std::to_string(element) + " outside the set");
+  std::int64_t m = s.member_of[static_cast<std::size_t>(element)];
+  if (m < 0) return -1;
+  const int finest = static_cast<int>(s.members.size()) - 1;           // the set's own member numbers are the last level's
+  if (level < 0 || level == finest || !has_levels(s)) return m;
+  if (level > finest) throw std::invalid_argument("member_at: level " + std::to_string(level) + " outside 0.." + std::to_string(finest));
+  for (int l = finest; l > level; --l) {                               // up the parent maps, one level at a time
+    const std::vector<std::int32_t>& up = s.members[static_cast<std::size_t>(l)].parent;
+    if (m >= static_cast<std::int64_t>(up.size())) throw std::invalid_argument("member_at: level " + std::to_string(l) + " has no parent for member " + std::to_string(m));
+    m = up[static_cast<std::size_t>(m)];
+  }
+  return m;
 }
 
-Selection member_indices(const Selection& s, std::int64_t code, int level) {
+std::optional<std::int64_t> member_label(const Selection& s, std::int64_t member, int level) {
+  need_set(s, "member_label");
+  if (s.tiling) return std::nullopt;
+  const std::vector<std::int64_t>* codes = &s.member_codes;
+  if (level >= 0 && has_levels(s) && level != static_cast<int>(s.members.size()) - 1) {
+    if (level >= static_cast<int>(s.members.size())) throw std::invalid_argument("member_label: level " + std::to_string(level) + " outside the set");
+    codes = &s.members[static_cast<std::size_t>(level)].member_codes;
+  }
+  if (!codes->empty() || !s.member_of.empty()) {
+    if (member < 0 || member >= static_cast<std::int64_t>(codes->size())) throw std::invalid_argument("member_label: member " + std::to_string(member) + " outside the set");
+    return (*codes)[static_cast<std::size_t>(member)];
+  }
+  if (member < 0 || member >= static_cast<std::int64_t>(s.members.size())) throw std::invalid_argument("member_label: member " + std::to_string(member) + " outside the set");
+  return s.members[static_cast<std::size_t>(member)].code;
+}
+
+std::optional<std::int64_t> label_at(const Selection& s, std::int64_t element, int level) {
+  const std::int64_t m = member_at(s, element, level);
+  if (m < 0) return std::nullopt;
+  return member_label(s, m, level);
+}
+
+std::vector<std::int64_t> members_with_label(const Selection& s, std::int64_t label, int level) {
+  need_set(s, "members_with_label");
+  const std::vector<std::int64_t>* codes = &s.member_codes;
+  if (level >= 0 && has_levels(s) && level != static_cast<int>(s.members.size()) - 1) codes = &s.members.at(static_cast<std::size_t>(level)).member_codes;
+  std::vector<std::int64_t> out;
+  for (std::size_t m = 0; m < codes->size(); ++m) if ((*codes)[m] == label) out.push_back(static_cast<std::int64_t>(m));
+  return out;
+}
+
+Selection member_indices(const Selection& s, std::int64_t member, int level) {
+  need_set(s, "member_indices");
+  const std::optional<std::int64_t> label = member_label(s, member, level);   // refuses a member outside the set
   std::vector<std::int32_t> out;
-  for (std::int64_t v = 0; v < static_cast<std::int64_t>(s.codes.size()); ++v)
-    if (code_at(s, v, level) == code) out.push_back(static_cast<std::int32_t>(v));
-  if (out.empty()) throw std::invalid_argument("member_indices: code " + std::to_string(code) + " holds no element");
-  return indices(std::move(out), code);
+  for (std::int64_t v = 0; v < static_cast<std::int64_t>(s.member_of.size()); ++v)
+    if (member_at(s, v, level) == member) out.push_back(static_cast<std::int32_t>(v));
+  return indices(std::move(out), label);
 }
 
 bool disjoint(const Selection& s) {
   need_set(s, "disjoint");
   if (!s.factors.empty())
     return std::all_of(s.factors.begin(), s.factors.end(), [](const Selection& f) { return f.type != Type::set || disjoint(f); });
-  if (!s.codes.empty()) return true;
+  if (!s.member_of.empty()) return true;                              // each element is in one member
   if (s.tiling) return s.tiling->hop >= s.tiling->width;
   if (std::all_of(s.members.begin(), s.members.end(), line_span)) {
     std::vector<std::pair<double, double>> e;
@@ -235,47 +289,29 @@ bool has_levels(const Selection& s) {
   return std::all_of(s.members.begin(), s.members.end(), [](const Selection& m) { return m.type == Type::set && m.level >= 0; });
 }
 
-std::int64_t ordinal_count(const Selection& s) {
-  if (s.type != Type::set) return 1;
-  if (!s.factors.empty()) {
-    std::int64_t n = 1;
-    for (const Selection& f : s.factors) {
-      const std::int64_t c = ordinal_count(f);
-      if (c > 0 && n > std::numeric_limits<std::int64_t>::max() / c) throw std::invalid_argument("product: more members than a 64-bit ordinal holds");
-      n *= c;
-    }
-    return n;
+int level_ordinal(const Selection& s, int k) {
+  if (!has_levels(s)) throw std::invalid_argument("level: the selection has no levels");
+  std::string have;
+  for (std::size_t i = 0; i < s.members.size(); ++i) {
+    if (s.members[i].level == k) return static_cast<int>(i);
+    have += (have.empty() ? "" : ", ") + std::to_string(s.members[i].level);
   }
-  if (has_levels(s)) throw std::invalid_argument("ordinal_count: a set with levels; name one (level(set, k))");
-  if (s.tiling) return s.tiling->count;
-  if (!s.codes.empty()) {
-    std::int64_t top = -1;
-    for (std::int32_t c : s.codes) top = std::max<std::int64_t>(top, c);
-    for (const Entry& e : s.lookup) top = std::max(top, e.code);
-    return top + 1;
-  }
-  return static_cast<std::int64_t>(s.members.size());
+  throw std::invalid_argument("level: no level " + std::to_string(k) + " (the set has " + have + ")");
 }
 
 Selection level(const Selection& s, int k) {
-  if (!has_levels(s)) throw std::invalid_argument("level: the selection has no levels");
-  const Selection* found = nullptr;
-  std::string have;
-  for (const Selection& m : s.members) {
-    if (m.level == k) found = &m;
-    have += (have.empty() ? "" : ", ") + std::to_string(m.level);
-  }
-  if (!found) throw std::invalid_argument("level: no level " + std::to_string(k) + " (the set has " + have + ")");
-  if (s.codes.empty()) return *found;                                  // a ladder of tilings: the level is its own selection
-  if (k > s.depth) throw std::invalid_argument("level: " + std::to_string(k) + " is finer than the codes' depth " + std::to_string(s.depth));
-  std::vector<std::int32_t> codes(s.codes.size());
-  for (std::size_t v = 0; v < codes.size(); ++v) codes[v] = s.codes[v] < 0 ? -1 : s.codes[v] >> (s.depth - k);
-  Selection out = labels(std::move(codes), k == s.depth ? s.lookup : Lookup{});   // the lookup names the finest codes only
+  const int i = level_ordinal(s, k);
+  const Selection& found = s.members[static_cast<std::size_t>(i)];
+  if (s.member_of.empty()) return found;                               // a ladder of tilings: the level is its own selection
+  const bool finest = i == static_cast<int>(s.members.size()) - 1;
+  std::vector<std::int32_t> member_of(s.member_of.size());
+  for (std::size_t v = 0; v < member_of.size(); ++v) member_of[v] = static_cast<std::int32_t>(member_at(s, static_cast<std::int64_t>(v), i));
+  Selection out = set_of_members(std::move(member_of), found.member_codes, finest ? s.lookup : Lookup{});   // the lookup names the finest labels only
   out.unit = s.unit;
-  out.level = k;
-  out.code = found->code;
-  out.band = found->band;
-  out.band_unit = found->band_unit;
+  out.level = found.level;
+  out.code = found.code;
+  out.band = found.band;
+  out.band_unit = found.band_unit;
   return out;
 }
 
@@ -291,17 +327,17 @@ Selection product(std::vector<Selection> factors) {
   }
   if (flat.size() < 2) throw std::invalid_argument("product: two factors or more");
   Selection s; s.type = Type::set; s.factors = std::move(flat);
-  ordinal_count(s);                                                    // refuses a product too large to number
+  count(s);                                                            // refuses a product too large to number
   return s;
 }
 
 std::vector<std::int64_t> factor_ordinals(const Selection& p, std::int64_t k) {
   need_product(p, "factor_ordinals");
-  const std::int64_t n = ordinal_count(p);
+  const std::int64_t n = count(p);
   if (k < 0 || k >= n) throw std::invalid_argument("factor_ordinals: member " + std::to_string(k) + " outside 0.." + std::to_string(n - 1));
   std::vector<std::int64_t> out(p.factors.size());
   for (std::size_t f = p.factors.size(); f-- > 0;) {                  // row-major: the last factor fastest
-    const std::int64_t c = ordinal_count(p.factors[f]);
+    const std::int64_t c = count(p.factors[f]);
     out[f] = k % c;
     k /= c;
   }
@@ -313,7 +349,7 @@ std::int64_t product_ordinal(const Selection& p, const std::vector<std::int64_t>
   if (at.size() != p.factors.size()) throw std::invalid_argument("product_ordinal: " + std::to_string(p.factors.size()) + " ordinals, one per factor");
   std::int64_t k = 0;
   for (std::size_t f = 0; f < at.size(); ++f) {
-    const std::int64_t c = ordinal_count(p.factors[f]);
+    const std::int64_t c = count(p.factors[f]);
     if (at[f] < 0 || at[f] >= c) throw std::invalid_argument("product_ordinal: ordinal " + std::to_string(at[f]) + " outside factor " + std::to_string(f));
     k = k * c + at[f];
   }
@@ -327,8 +363,7 @@ std::vector<std::optional<std::int64_t>> factor_labels(const Selection& p, std::
     const Selection& x = p.factors[f];
     if (x.type != Type::set) out.push_back(x.code);
     else if (x.tiling) out.push_back(std::nullopt);
-    else if (!x.codes.empty()) out.push_back(at[f]);                   // a set by codes: the code is the ordinal
-    else out.push_back(x.members[static_cast<std::size_t>(at[f])].code);
+    else out.push_back(member_label(x, at[f]));                        // a listed member's code, a set per element's member label
   }
   return out;
 }

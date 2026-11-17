@@ -713,10 +713,10 @@ from lo to hi inclusive).
   the cross-spectrum within the band is not kept.
   **`--estimator analytic`** (spec `docs/specs/2026-11-13-cycle-pattern.md`, stage 1, as amended 2026-11-13: the time tiles): a cross-spectrum PER WINDOW,
   for what repeats across a rhythm's cycles. Per band, the band's analytic signal (the Studio's Meyer band, `timebank::analysisOfBlock`, gain 2: Re z is the
-  band-passed signal) read chunk by chunk with the band's halo, decimated by the constant-Q ladder's stride (`constantq::strideFor` at the band's low edge, a
+  band-passed signal) read chunk by chunk with the band's halo, decimated by the constant-Q ladder's stride (`selection::constantq::strideFor` at the band's low edge, a
   power of two leaving ≥ 24 samples a cycle; alpha at 1200 Hz: 4, so 300 Hz; the samples kept are its multiples on the recording's line; not a filter: a band
   reaching the decimated Nyquist rate is refused), and Σ z zᴴ per TILE of the window level (`partition::crossSpectrum`, m = line sample >> level). The level
-  is `--level K`, or `--window-seconds` snapped to the nearest level, by default the finest of the bands' constant-Q windows (`constantq::windowFor`: the
+  is `--level K`, or `--window-seconds` snapped to the nearest level, by default the finest of the bands' constant-Q windows (`selection::constantq::windowFor`: the
   ladder's, 6.8 cycles of the low edge rounded up to 2^k; alpha at 1200 Hz: level 10, 0.85 s), at most 15 (a chunk). The span snaps to the tiles; a tile
   holding a bad sample or cut by the span's end is dropped. Stored per band (since 2026-11-13) as a STATISTIC `<stem>_<band>_windows`, `cross_spectrum_sum` by `analytic`, value_type `complex`, axes window (the
   kept tiles of `<stem>_windows`, by ordinal; that tiling its partition) × channel × channel (one stored before as an Operator of kind `cross-spectrum series` is still read),

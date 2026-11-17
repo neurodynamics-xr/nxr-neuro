@@ -1,4 +1,4 @@
-// nxr::io::constantq (the tile grid: tileOf, tileIndexAt, tilesWithin, levelOf, levelOfWidth, windowFor, strideFor) and the selection module's ladder: io STORES a
+// nxr::io::constantq (the tile grid: tileOf, tileIndexAt, tilesWithin, levelOf, levelOfWidth) and the selection module's ladder: io STORES a
 // designed ladder (the design itself is compute's, tested there against the Studio's golden test/golden/gen_constant_q_golden.mts). Here a ladder of three levels
 // (1024, 2048, 4096 samples at 1200 Hz) is made by hand as a description, saved on a time line (a `ladder` Selection whose members are `spans` holding the closed form,
 // a level dictionary, an empty tile dictionary per level), found again by its parameters, loaded back as the same description, and updated and deleted.
@@ -64,7 +64,7 @@ int main() {
   const auto set = sub.db().read("selection", saved.id);
   CHECK(set && text(*set, "type") == "ladder" && text(*set, "name") == "rest_time_ladder" && integer(*set, "n_members") == 3);
   const auto mem = sub.db().read("selection", saved.member_ids[2]);
-  CHECK(mem && text(*mem, "type") == "spans" && integer(*mem, "code") == 2 && text(*mem, "name") == "rest_time_ladder L2" && is_null(*mem, "array_path") &&
+  CHECK(mem && text(*mem, "type") == "spans" && integer(*mem, "code") == 12 && integer(*mem, "member_ordinal") == 2 && text(*mem, "name") == "rest_time_ladder L2" && is_null(*mem, "array_path") &&
         integer(*mem, "n_members") == (360000 + 4095) / 4096);
   CHECK_EQ(static_cast<int>(sub.db().all("SELECT * FROM dictionary_entry WHERE dictionary_id = ?", {V(text(*set, "dictionary_id"))}).size()), 3);
   const auto tile_dict = sub.db().one("SELECT * FROM dictionary WHERE id = ?", {V(text(*mem, "dictionary_id"))});
@@ -101,11 +101,9 @@ int main() {
   refused = false;
   try { cq::tilesWithin(1000, 512); } catch (const Error&) { refused = true; }
   CHECK(refused);
-  // THE TILE HELPERS (2026-11-13): a band's window as the ladder sizes it; seconds to the nearest level
-  CHECK(cq::windowFor(1200, 8) == 1024 && cq::windowFor(1200, 15) == 1024 && cq::windowFor(1200, 4) == 2048 && cq::windowFor(2400, 8) == 2048);
+  // THE TILE HELPERS: seconds to the nearest level (the band design, windowFor and strideFor, is compute's)
   CHECK(cq::levelOf(4, 1200) == 12 && cq::levelOf(4, 2400) == 13 && cq::levelOf(4, 1000) == 12 && cq::levelOf(0.0001, 1000) == 0);
   CHECK(cq::levelOfWidth(4096) == 12 && cq::levelOfWidth(1) == 0 && cq::levelOfWidth(4800) == -1);
-  CHECK(cq::strideFor(1200, 8) == 4 && cq::strideFor(1200, 15) == 2);
   fs::remove_all(root);
   return nxrtest::finish("test_constant_q");
 }

@@ -74,7 +74,7 @@ struct Tree {
     int depth = 0;                      // D: codes are h 2^D + t
     int finest = 0;                     // the deepest level the ladder reached on every piece
     int slots = 2;                      // hemisphere slots (nxr: 2); the leaves are slots 2^depth
-    std::vector<int32_t> codes;         // [nVertices]
+    std::vector<int32_t> codes;         // [nVertices] the tile LABEL of every vertex (h 2^D + t), not a member number: partition.h's `dyadic` numbers the members
     std::vector<std::pair<int, int>> runs;   // (start, length) of every connected piece
     std::vector<double> pieceArea;
     int nLeaves() const { return slots << depth; }

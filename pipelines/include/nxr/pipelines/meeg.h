@@ -112,7 +112,7 @@ struct CrossSpectrumOptions {
   bool replace = false;
   // THE ESTIMATOR (spec docs/specs/2026-11-13-cycle-pattern.md, stage 1, and its time-tile amendment of 2026-11-13): "welch" (the default above: the mean
   // over each band's bins of Welch segments) or "analytic": per band, the Meyer band's analytic signal (timebank, gain 2: Re z is the band-passed signal),
-  // decimated by the constant-Q ladder's stride (constantq::strideFor at the band's low edge: a power of two, the samples kept those whose index on the
+  // decimated by the constant-Q ladder's stride (selection::constantq::strideFor at the band's low edge: a power of two, the samples kept those whose index on the
   // recording's LINE is a multiple of it), and Σ z zᴴ per TILE of level `level` (2^level samples of the line, counted from its first sample;:
   // time is one dyadic partition). A tile holding a bad sample, or cut by the span's end, is dropped. Stored per band as a series `<stem>_<band>_windows`
   // [W x M x M x 2] (the SUMS; producer_json.window_index = the tiles' ordinals on the line) and the level's tiling of the line, the closed-form Selection
@@ -124,7 +124,7 @@ struct CrossSpectrumOptions {
   // from the same pass; the band statistic is the mean of its bins). Welch only. Memory: F more M x M complex matrices a band (alpha at 4 s: 17; 268 channels: 20 MB).
   std::string resolve = "band";
   std::optional<int> level;                               // analytic: the window's tile level, 0..15; default: the finest of the bands' constant-Q windows
-                                                          // (constantq::windowFor: 6.8 cycles of the low edge rounded up to 2^k; alpha at 1200 Hz: level 10, 0.85 s)
+                                                          // (selection::constantq::windowFor: 6.8 cycles of the low edge rounded up to 2^k; alpha at 1200 Hz: level 10, 0.85 s)
   std::optional<double> window_seconds;                   // analytic: or the window in seconds, snapped to the nearest level (constantq::levelOf); not with `level`
 };
 // The windows of an analytic cross-spectrum (`crossspectrum compute --estimator analytic`): per stored window its Σ z zᴴ [M x M] and the samples summed.

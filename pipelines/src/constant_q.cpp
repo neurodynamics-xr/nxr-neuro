@@ -43,7 +43,8 @@ ConstantQWritten constant_q_write(nxr::io::SubjectWriter& sub, const std::string
   method.cycles = o.cycles;
   method.f_min = o.f_min;
   method.f_max = o.f_max;
-  const sel::Description design = describe(nxr::selection::constant_q(time, method));
+  const nxr::selection::ConstantQDesign made = nxr::selection::constant_q_design(time, method);
+  const sel::Description design = describe(made.ladder);
   // STORE (io): the designed levels, where and under what name; what the design was asked for goes into the ladder's parameters
   sel::Placement at;
   at.name = w.name;
@@ -51,15 +52,18 @@ ConstantQWritten constant_q_write(nxr::io::SubjectWriter& sub, const std::string
   at.acquisition_id = line.acquisition_id;
   at.created_by = by;
   at.cell = "1";
-  double f_lo = 0, f_hi = 0;
-  for (const auto& lv : design.members)
-    if (lv.band) { f_lo = f_lo == 0 ? lv.band->first : std::min(f_lo, lv.band->first); f_hi = std::max(f_hi, lv.band->second); }
-  at.params = nxr::io::Json{{"method", o.method.value_or("hertz")}, {"voices", o.voices.value_or(6)}};
-  if (o.cycles) at.params["cycles"] = *o.cycles;
-  if (f_hi > 0) { at.params["f_max"] = f_hi; at.params["f_min"] = f_lo; }
+  // what the design settled (compute returns it; io stores it): the resolved cycles and range, the bands, and per level the stride, rate and samples a cycle
+  const double f_lo = made.f_min, f_hi = made.f_max;
+  int bands = 0;
+  for (const auto& lv : made.levels) bands += lv.bands;
+  at.params = nxr::io::Json{{"method", made.method}, {"voices", made.voices}, {"cycles", made.cycles}, {"bands", bands}};
+  if (!made.levels.empty()) { at.params["f_max"] = f_hi; at.params["f_min"] = f_lo; }
+  for (const auto& lv : made.levels)
+    at.level_params.push_back(nxr::io::Json{{"bands", lv.bands}, {"stride", lv.stride}, {"rate_hz", lv.rate_hz}, {"points", lv.points},
+                                            {"samples_per_cycle", nxr::io::Json{{"lo", lv.samples_per_cycle_lo}, {"hi", lv.samples_per_cycle_hi}}}, {"nyquist_bound", lv.nyquist_bound}});
   at.label = "constant-Q, " + std::to_string(design.members.size()) + " levels";
   at.description = "the constant-Q tiling of the time line: " + std::to_string(design.members.size()) + " time resolutions, designed at " + std::to_string(o.voices.value_or(6)) +
-                   " voices/octave over " + (f_hi > 0 ? fmt_hz(f_lo) + "\xe2\x80\x93" + fmt_hz(f_hi) + " Hz" : std::string("the method's range")) +
+                   " voices/octave over " + (!made.levels.empty() ? fmt_hz(f_lo) + "\xe2\x80\x93" + fmt_hz(f_hi) + " Hz" : std::string("the method's range")) +
                    " \xe2\x80\x94 a tiling of TIME, on the time manifold and no other; the hertz describe what the windows resolve and reference nothing (D84)";
   const sel::Saved saved = sel::save(sub, design, at);
   w.set_id = saved.id;
