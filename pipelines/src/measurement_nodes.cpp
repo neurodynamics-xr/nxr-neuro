@@ -90,6 +90,15 @@ StepSpec combine_by_param(const std::string& name, const std::string& param, std
   s.parameters = params;
   s.matches = matches;
   const std::string param_name = param;
+  if (!choose)                                                           // the part is named by the parameter itself: `out` names that part's outputs only
+    s.outputs_for = [shared, param_name](const Json& with) {
+      std::vector<std::string> all;
+      std::set<std::string> seen;
+      for (const auto& [k, p] : *shared) for (const auto& o : p.outputs) if (seen.insert(o).second) all.push_back(o);
+      if (!with.is_object() || !with.contains(param_name) || !with[param_name].is_string()) return all;
+      for (const auto& [k, p] : *shared) if (k == with[param_name].get<std::string>()) return p.outputs;
+      return all;
+    };
   auto sees = [adapt](const Json& p, const std::string& which) { return adapt ? adapt(p, which) : p; };
   auto pick = [param_name, choose](const Values& ins, const Json& p) -> std::string {
     if (choose) return choose(ins, p);

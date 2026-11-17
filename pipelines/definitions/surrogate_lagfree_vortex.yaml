@@ -27,8 +27,8 @@ inputs:
   threshold:      {statistic: histogram, where: {name: $threshold_statistic}}
   psd:            {statistic: welch, where: {name: $psd_statistic}}
   cross_spectrum: {statistic: welch, where: {name: $cross_spectrum}}
-  power_series:   {measurement: any, where: {name: $power_series_measurement}, hint: "the data's band power per tile: `nxr-neuro run measure --set surrogate_lagfree_envelope` first"}
-  psd_channel_mean: {measurement: any, where: {name: $psd_channel_mean_measurement}, hint: "the PSD's mean over channels, a stored measurement (`nxr-neuro run measure --set psd_channel_mean` first), read by name (rule 32)"}
+  power_series:   {measurement: power, of: recording, where: {name: $power_series_over}, hint: "the data's band power per tile: `nxr-neuro run measure --set surrogate_lagfree_envelope` first"}
+  psd_channel_mean: {measurement: mean, of: psd, where: {name: $psd_channel_mean_over}, hint: "the PSD's mean over channels, a stored measurement (`nxr-neuro run measure --set psd_channel_mean` first), read by name (rule 32)"}
   bad:            {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
   onset:          {selection: spans, manifold: recording.time, where: {name: $onset}, required: false}
   within:         {selection: spans, manifold: recording.time, where: {name: $within}, required: false}
@@ -50,8 +50,8 @@ parameters:
   taps_half: {default: 0, meaning: "the surrogate's taps: 0 from the PSD's resolution", unit: "samples"}
   psd_statistic: {default: "{recording}_psd_welch", meaning: "the stored PSD statistic, by name", unit: "-"}
   cross_spectrum: {default: none, meaning: "the band's stored cross-spectrum (`run crossspectrum --channels-of KERNEL`), by name", unit: "-"}
-  power_series_measurement: {default: "measure.surrogate_lagfree_envelope.{recording}", meaning: "the stored band power per tile (a measurement: preset surrogate_lagfree_envelope), by name", unit: "-"}
-  psd_channel_mean_measurement: {default: "measure.psd_channel_mean.{recording}", meaning: "the PSD's channel mean (a measurement: preset psd_channel_mean), by name", unit: "-"}
+  power_series_over: {default: null, meaning: "the selection the band power per tile (preset surrogate_lagfree_envelope) was measured over, by name; null: the one that holds it", unit: "-"}
+  psd_channel_mean_over: {default: null, meaning: "the selection the PSD's channel mean (preset psd_channel_mean) was measured over, by name; null: the one that holds it", unit: "-"}
   frames_per_cycle: {default: 36, meaning: "the frame density: frames to one cycle of the band's centre (the 10 degree step of phase work); the data's, as the draw is of the data's chain", unit: frames/cycle}
   frames_per_tile: {default: null, meaning: "the frame density per tile of the band instead (a power of two); wins over frames_per_cycle when given", unit: frames/tile}
   origin: {default: start, meaning: "the frames' origin as a point: start | clock | event", unit: "-", choices: [start, clock, event]}

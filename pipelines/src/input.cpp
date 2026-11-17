@@ -94,12 +94,13 @@ std::optional<GlueMap> glue_map_of(SubjectWriter& sub, const std::string& manifo
   const auto node = task::Subject::of(sub).by_id(task::Cls::manifold, manifold_id);
   if (!node || !node->producer.is_object() || !node->producer.contains("glue")) return std::nullopt;
   const Json& g = node->producer["glue"];
-  if (!g.is_object() || !g.contains("original") || !g.contains("map_path") || !g["original"].is_string() || !g["map_path"].is_string())
-    throw Error(code::invalid_argument, node->name + ": its glue record names the original manifold and the map's path ({glue: {original, map_path}})");
+  if (!g.is_object() || !g.contains("original") || !g["original"].is_string())
+    throw Error(code::invalid_argument, node->name + ": its glue record names the original manifold ({glue: {original}})");
   GlueMap m;
   m.glued_id = manifold_id;
   m.original_id = g["original"].get<std::string>();
-  m.original_of = read_as<std::int32_t>(sub.store(), g["map_path"].get<std::string>());
+  const std::string map_path = g.contains("map_path") && g["map_path"].is_string() ? g["map_path"].get<std::string>() : task::Subject::of(sub).node_path(manifold_id, node->name + "_map");   // the map is the field `<glued name>_map` of the glued surface
+  m.original_of = read_as<std::int32_t>(sub.store(), map_path);
   return m;
 }
 

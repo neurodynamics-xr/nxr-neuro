@@ -1,5 +1,5 @@
 # THE `summarize` OPERATION (was `statistic`): the values of a stored MEASUREMENT over a selection's members summarised into a STATISTIC, members -> statistic (one implementation, `nxr::measurement::summarize`; its
-# arithmetic is `stats.h`). The measure's values over the members (of a field; of a band of a map statistic, `of_slice`; or the members' own: area, n_elements, with `own`) are summarised per row (each), pooled, or as
+# arithmetic is `stats.h`). The measure's values over the members (of a field; or the members' own: area, n_elements, when `of` is not given) are summarised per row (each), pooled, or as
 # the mean of the rows' summaries: mean, sd, median, mad, percentiles, min, max, skewness, kurtosis, peak, count (NaN members skipped and counted). Across an irregular set it is a `summary` statistic; never of a field.
 # The statistic is OF the field `of` and computed from the selection `over`; its axes are the row and the summaries, never the members (a per-member value is a measurement).
 #
@@ -11,24 +11,21 @@ scope: subject
 
 inputs:
   over: {selection: any, where: {name: $over}}
-  of:   {field: any, where: {name: $of}}
-  x:    {measurement: any, where: {name: $measurement}, required: false, hint: "the measurement summarised, by name; null: the measure of the field `of` over `over`"}
+  of:   {field: any, where: {name: $of}, required: false}
+  x:    {measurement: $measure, of: of, over: over, hint: "the measurement summarised, found by its key (the measure, of the field `of` (none: the members' own values), over `over`)"}
 
 parameters:
   over: {default: null, meaning: "the selection whose members are summarised", unit: "-"}
-  of: {default: null, meaning: "the field measured (the map statistic's field when of_slice is given)", unit: "-"}
-  measurement: {default: null, meaning: "a stored measurement by name; null: the measure named by `measure` of `of` over `over`", unit: "-"}
-  of_slice: {default: null, meaning: "a band of a map statistic, by its name; null: the field's own measurements", unit: "-"}
+  of: {default: null, meaning: "the field measured; null: the members' own values (area, n_elements)", unit: "-"}
   measure: {default: null, meaning: "the measure summarised", unit: "-"}
   summaries: {default: [mean, sd], meaning: "the summaries: mean, sd, median, mad, min, max, skewness, kurtosis, peak, count, percentile:P", unit: "-"}
   combine: {default: each, meaning: "each = per row | pool = the rows pooled | mean = the mean of the rows' summaries", unit: "-", choices: [each, pool, mean]}
   ddof: {default: 1, meaning: "the degrees of freedom removed from the sd's divisor", unit: "-"}
-  own: {default: false, meaning: "the measure is the members' own (area, n_elements, n_tiles), not of the field", unit: "-"}
   name: {default: "{of}_{measure}_{over}", meaning: "the stored statistic's name", unit: "-"}
 
 steps:
-  before:
-    - {node: summarize, in: {x: x, over: over, of: of}, with: {measure: $measure, of_slice: $of_slice, summaries: $summaries, combine: $combine, ddof: $ddof, own: $own}, out: statistic}
+  after:
+    - {node: summarize, in: {x: x}, with: {summaries: $summaries, combine: $combine, ddof: $ddof}, out: statistic}
 
 outputs:
   statistic:

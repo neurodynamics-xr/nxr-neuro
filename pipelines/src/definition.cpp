@@ -26,13 +26,14 @@ const Shipped kShipped[] = {
 };
 
 const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw", "kind", "plans"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
-const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "statistic", "manifold"};
-const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
+const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "measurement", "statistic", "manifold"};
+const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject", "of", "over", "within"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
                                            // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
                                            "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors",
                                            "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator", "within", "by_operator",
-                                           "codes", "carry_origin", "optional", "get_or_create", "value_type", "components", "level"};   // get_or_create: a maker's selection stored by its maker key (found when there)  // codes: 2 = two codes a row (a sparse matrix over a selection's members) · carry_origin: the input whose origin and licence the result carries  // optional: the node makes it only when the data asks for it; a link may name alternatives `a|b`
+                                           "codes", "carry_origin", "optional", "get_or_create", "value_type", "components", "level", "detected_over"};   // detected_over: the grid input an irregular selection was detected over (provenance)
+  //    // get_or_create: a maker's selection stored by its maker key (found when there)  // codes: 2 = two codes a row (a sparse matrix over a selection's members) · carry_origin: the input whose origin and licence the result carries  // optional: the node makes it only when the data asks for it; a link may name alternatives `a|b`
 const std::regex kPresetName("^[a-z][a-z0-9_-]*$");
 const std::regex kName("^[a-z][a-z0-9_]*$");
 
@@ -400,13 +401,19 @@ Definition parse(const Json& written, const std::string& source, const std::stri
       if (!kInputKeys.count(kk) && std::find(kInputClasses.begin(), kInputClasses.end(), kk) == kInputClasses.end()) bad.push_back(kk);
     std::sort(bad.begin(), bad.end());
     if (!bad.empty()) err(w, "unknown key(s) " + join(bad));
-    const bool manifold_class = !spec.contains("field") && !spec.contains("operator") && !spec.contains("selection") && !spec.contains("statistic");
+    const bool manifold_class = !spec.contains("field") && !spec.contains("operator") && !spec.contains("selection") && !spec.contains("statistic") && !spec.contains("measurement");
     for (const char* rel : {"from", "to", "manifold", "is"})
       if (spec.contains(rel) && !(manifold_class && std::string(rel) == "manifold")) {   // a manifold input's `manifold:` is its class (surface, points), not a relation
         const std::string r = spec[rel].is_string() ? spec[rel].get<std::string>() : spec[rel].dump();
         const std::string base = r.substr(0, r.find('.'));
         if (std::find(defined.begin(), defined.end(), base) == defined.end())
           err(w, std::string(rel) + ": '" + r + "': relations start from an input declared BEFORE this one (" + (defined.empty() ? std::string("none") : join(defined)) + ")");
+      }
+    for (const char* key : {"of", "over", "within"})                         // a measurement's key names inputs declared before it
+      if (spec.contains(key)) {
+        if (!spec.contains("measurement")) err(w, std::string(key) + ": belongs to a measurement input (its key: over, of, within)");
+        if (!spec[key].is_string() || std::find(defined.begin(), defined.end(), spec[key].get<std::string>()) == defined.end())
+          err(w, std::string(key) + ": " + spec[key].dump() + ": names an input declared BEFORE this one (" + (defined.empty() ? std::string("none") : join(defined)) + ")");
       }
     if (spec.contains("per_subject")) {
       if (!spec["per_subject"].is_boolean()) err(w, "per_subject: true or false");
@@ -475,8 +482,13 @@ Definition parse(const Json& written, const std::string& source, const std::stri
         if (!st.parameters.contains(p)) err(w, "with: '" + p + "' is not one of its parameters (" + (st.parameters.empty() ? std::string("none") : join(keys(st.parameters))) + ")");
       params_used(with, w, params);
       const std::vector<std::string> outs = names(s.value("out", Json()), w + ": out");
-      if (outs.size() != st.outputs.size())
-        err(w, "out: it makes " + std::to_string(st.outputs.size()) + " thing(s) (" + join(st.outputs) + "), " + std::to_string(outs.size()) + " named");
+      std::vector<std::string> makes;                                      // what this use makes: every output, or the part its parameter chooses
+      {
+        const std::vector<std::string> only = st.outputs_for ? st.outputs_for(with) : std::vector<std::string>();
+        for (const auto& o : st.outputs) if (!st.outputs_for || std::find(only.begin(), only.end(), o) != only.end()) makes.push_back(o);
+      }
+      if (outs.size() != makes.size())
+        err(w, "out: it makes " + std::to_string(makes.size()) + " thing(s) (" + join(makes) + "), " + std::to_string(outs.size()) + " named");
       for (const auto& o : outs) {
         if (known.count(o)) err(w, "out: '" + o + "' is already defined");
         known.insert(o);
@@ -518,7 +530,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
 
 namespace {
 // ── COMPOSITION (consolidation spec 4.1 and 4.2): a `chain:` input inlines a field chain's steps; a `make:` input is made by a maker's before-step ──
-bool manifold_class_of(const Json& spec) { return !spec.contains("field") && !spec.contains("operator") && !spec.contains("selection") && !spec.contains("statistic"); }
+bool manifold_class_of(const Json& spec) { return !spec.contains("field") && !spec.contains("operator") && !spec.contains("selection") && !spec.contains("statistic") && !spec.contains("measurement"); }
 std::string renamed(const std::string& thing, const std::map<std::string, std::string>& to) {
   const std::string base = thing.substr(0, thing.find('.'));
   const auto it = to.find(base);

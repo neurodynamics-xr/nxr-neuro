@@ -63,12 +63,68 @@ Json column(const Row& r, const std::string& key) {
   return row_json(r)[key];
 }
 std::string class_of(const Json& spec) {
-  for (const char* c : {"field", "operator", "selection", "statistic", "manifold"}) if (spec.contains(c)) return c;
-  refuse("an input names one class: field · operator · selection · statistic · manifold");
+  for (const char* c : {"field", "operator", "selection", "measurement", "statistic", "manifold"}) if (spec.contains(c)) return c;
+  refuse("an input names one class: field · operator · selection · measurement · statistic · manifold");
+}
+// the id of the row an input of the model's class names (`of: recording`, `over: tiles`): an input declared before this one and found
+std::string input_id(const std::string& ref, const std::map<std::string, Value>& found, const std::string& where, const char* what) {
+  const auto it = found.find(ref);
+  if (it == found.end() || !it->second.row) refuse(where + ": " + what + ": '" + ref + "' was not found (an optional input that is absent?)");
+  return text(*it->second.row, "id");
+}
+// A MEASUREMENT, found by its KEY as the Studio keys `selection_measurement`: (the selection it is over, the field or statistic it is of, the measure, the selection it is within).
+//   measurement: <measure>        the measure's name ("any": every measure; a `$parameter` left null means the input is not looked for)
+//   of: <input>                   the field (or the statistic) measured: an input declared before; when that input is absent (optional), the members' own values (no field)
+//   over: <input>                 the selection whose members the values are for: an input declared before; `where` filters the selection's own columns (its name, type, params.<path>)
+//   within: <input>               the selection the rows are restricted within
+// The row found is the SELECTION's, with the key's columns beside it (`m_measure`, `m_of_field_id`, `m_of_statistic_id`, `m_of_index`).
+std::vector<Row> measurement_matches(const Database& db, const std::string& subject_id, const std::string& name, const Json& spec, const std::map<std::string, Value>& found, const Json& params) {
+  const std::string w = "inputs." + name;
+  const Json measure = param(spec["measurement"], params, nullptr);
+  if (!measure.is_string()) refuse(w + ": its measurement is a measure's name (or any)");
+  std::string sql = "SELECT s.id AS sid, m.measure AS measure, m.of_field_id AS of_field_id, m.of_statistic_id AS of_statistic_id, m.of_index AS of_index FROM selection_measurement m JOIN selection s ON s.id = m.selection_id "
+                    "WHERE s.subject_id = ? AND s.status = 'complete'";
+  std::vector<nxr::io::Value> args{V(subject_id)};
+  if (measure.get<std::string>() != "any") { sql += " AND m.measure = ?"; args.push_back(V(measure.get<std::string>())); }
+  if (spec.contains("of") && !found.count(spec["of"].get<std::string>())) {            // `of` names an input left absent (optional): the members' OWN values (a size, a count), of no field or statistic
+    sql += " AND m.of_field_id IS NULL AND m.of_statistic_id IS NULL";
+  } else if (spec.contains("of")) {
+    const std::string ref = spec["of"].get<std::string>(), id = input_id(ref, found, w, "of");
+    const std::string cls = found.at(ref).cls;
+    if (cls != "field" && cls != "statistic") refuse(w + ": of: '" + ref + "' is a " + cls + " (a field, or a statistic, is what a measurement is of)");
+    sql += cls == "field" ? " AND m.of_field_id = ?" : " AND m.of_statistic_id = ?";
+    args.push_back(V(id));
+  }
+  if (spec.contains("over")) { sql += " AND m.selection_id = ?"; args.push_back(V(input_id(spec["over"].get<std::string>(), found, w, "over"))); }
+  if (spec.contains("within")) { sql += " AND m.within_selection_id = ?"; args.push_back(V(input_id(spec["within"].get<std::string>(), found, w, "within"))); }
+  sql += " GROUP BY s.id, m.measure, coalesce(m.of_field_id, ''), coalesce(m.of_statistic_id, ''), coalesce(m.of_index, -1) ORDER BY s.name, m.measure";
+  std::vector<Row> out;
+  for (const Row& k : db.all(sql, args)) {
+    auto sel = db.one("SELECT * FROM selection WHERE id = ?", {V(text(k, "sid"))});
+    if (!sel) continue;
+    (*sel)["m_measure"] = k.at("measure");
+    (*sel)["m_of_field_id"] = k.at("of_field_id");
+    (*sel)["m_of_statistic_id"] = k.at("of_statistic_id");
+    (*sel)["m_of_index"] = k.at("of_index");
+    out.push_back(std::move(*sel));
+  }
+  if (spec.contains("where"))
+    for (const auto& [k, v] : spec["where"].items()) {
+      if (v.is_string() && v.get<std::string>().rfind('$', 0) == 0) {
+        const std::string pk = v.get<std::string>().substr(1);
+        if (params.contains(pk) && (params[pk].is_null() || (params[pk].is_string() && params[pk].get<std::string>() == "none"))) continue;
+      }
+      const Json wv = param(v, params, &found);
+      std::vector<Row> kept;
+      for (auto& r : out) if (column(r, k) == wv) kept.push_back(std::move(r));
+      out = std::move(kept);
+    }
+  return out;
 }
 std::vector<Row> matches(const Database& db, const std::string& subject_id, const std::string& name, const Json& spec, const std::map<std::string, Value>& found,
                          const Json& params) {
   const std::string w = "inputs." + name, cls = class_of(spec);
+  if (cls == "measurement") return measurement_matches(db, subject_id, name, spec, found, params);
   const std::string table = cls == "field" ? "field" : cls == "operator" ? "operator" : cls == "statistic" ? "statistic" : cls == "manifold" ? "manifold" : "selection", col = (cls == "selection" || cls == "manifold") ? "type" : cls == "statistic" ? "method" : "kind";
   if (cls == "statistic") {   // a stored statistic read BY NAME (a global statistic is a stored node: the threshold's distribution); its `method` is the class's value (histogram, welch, …). It lies on no manifold.
     if (spec.contains("from") || spec.contains("to") || spec.contains("manifold")) refuse(w + ": a statistic input has no from / to / manifold (find it by `where: {name: …}`)");
@@ -153,6 +209,13 @@ Value value_of(const Database& db, const std::string& cls, const Row& row) {
     v.unit = opt_text(row, "unit");
   } else if (cls == "manifold") {
     v.manifolds = {text(row, "id")};
+  } else if (cls == "measurement") {                                       // the row is the selection's; the key's columns say what was measured
+    v.manifolds = {opt_text(row, "manifold_id").value_or("")};
+    v.facts["measure"] = opt_text(row, "m_measure").value_or("");
+    v.facts["over"] = Json{{"selection", text(row, "name")}, {"selection_id", text(row, "id")}};
+    if (const auto f = opt_text(row, "m_of_field_id")) v.facts["of_field_id"] = *f;
+    if (const auto f = opt_text(row, "m_of_statistic_id")) v.facts["of_statistic_id"] = *f;
+    if (!is_null(row, "m_of_index")) v.facts["of_index"] = integer(row, "m_of_index");
   } else {
     v.manifolds = {opt_text(row, "manifold_id").value_or("")};
   }
@@ -213,6 +276,9 @@ std::vector<std::map<std::string, Value>> resolve(const Database& db, const std:
       const Json& spec = inputs[n];
       for (const char* k : {"from", "to", "manifold", "is"})
         if (spec.contains(k) && spec[k].is_string()) { const std::string r = spec[k].get<std::string>(); const auto dot = r.find('.'); if (dot != std::string::npos && all.count(r.substr(0, dot))) d.insert(r.substr(0, dot)); }
+      if (spec.contains("measurement"))                                      // a measurement's key names inputs declared before it
+        for (const char* k : {"of", "over", "within"})
+          if (spec.contains(k) && spec[k].is_string() && all.count(spec[k].get<std::string>())) d.insert(spec[k].get<std::string>());
       if (spec.contains("where"))
         for (const auto& [k, v] : spec["where"].items()) {
           (void)k;
@@ -247,6 +313,10 @@ std::vector<std::map<std::string, Value>> resolve(const Database& db, const std:
     for (const auto& name : names) {
       const Json& spec = inputs[name];
       bool named_by_caller = false;                                        // an optional input the caller NAMED (a parameter given): it must exist, never silently absent
+      if (!spec.value("required", true) && spec.contains("measurement") && spec["measurement"].is_string() && spec["measurement"].get<std::string>().rfind('$', 0) == 0) {
+        const std::string pk = spec["measurement"].get<std::string>().substr(1);   // an optional measurement whose measure is a parameter left null is not looked for
+        if (params.contains(pk) && params[pk].is_null()) continue;
+      }
       if (!spec.value("required", true) && spec.contains("where")) {      // an optional input named by a parameter left null is not looked for (absent)
         bool unset = false;
         for (const auto& [k, v] : spec["where"].items())
@@ -293,6 +363,7 @@ Json describe(const std::map<std::string, Value>& found) {
     if (!v.row) continue;
     const Row& r = *v.row;
     o[k] = Json{{"class", v.cls}, {"name", text(r, "name")}, {"id", text(r, "id")}, {"kind", r.count("kind") ? text(r, "kind") : r.count("type") ? text(r, "type") : text(r, "method")}};
+    if (v.cls == "measurement") { o[k]["measure"] = v.facts.value("measure", std::string()); for (const char* f : {"of_field_id", "of_statistic_id"}) if (v.facts.contains(f)) o[k][f] = v.facts[f]; }
   }
   return o;
 }

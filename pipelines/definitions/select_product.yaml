@@ -7,7 +7,7 @@
 #
 # Every factor's level is a QUANTITY (a tile diameter, a wavelength, a duration, a band), never an index.
 #
-#   nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording rest --surface cortex --spatial-scale "wavelength 40 mm" --band "8-12 Hz"
+#   nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording rest --surface cortex --band-set "frequency bands" --couple '[{"factor": 1, "band": "alpha"}]'
 pipeline: select_product
 version: 1
 description: the product of grids and band sets on a product manifold (a box, a grid of cells, or the joint partition), with levels coupled to bands in closed form
@@ -23,18 +23,14 @@ inputs:
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   surface: {default: null, meaning: "the surface by name", unit: "-"}
-  factors: {default: null, meaning: "the factors in order (first fastest): a list of {grid, level} entries, each level a quantity; null: the surface's grid and the line's time grid", unit: "-"}
-  spatial_scale: {default: null, meaning: "the surface factor's level as a quantity: a tile diameter (20 mm), a wavelength (wavelength 40 mm), an eigenvalue (eigenvalue 1/m2) or a named scale", unit: mm, chart: diameter}
-  tile: {default: null, meaning: "the time factor's level as a duration", unit: s, chart: clock}
-  band: {default: null, meaning: "the band (Hz) that couples the time level (and, when `couple_space`, the spatial level)", unit: Hz, chart: linear}
   band_set: {default: null, meaning: "a stored band set whose members couple the levels: one product per member, in one pass", unit: "-"}
-  couple_space: {default: false, meaning: "the spatial level is the band's Weyl level (space_level_of_band) instead of `spatial_scale`", unit: "-"}
-  layout: {default: mixed, meaning: "mixed = mixed radix, first factor fastest | joint = the atlas layout (tile << bits) | frame, arrays [band x tile x frame]", unit: "-", choices: [mixed, joint]}
+  layout: {default: product, meaning: "product = mixed radix, first factor fastest | joint = the atlas layout (tile << bits) | frame, arrays [band x tile x frame]", unit: "-", choices: [product, joint]}
+  couple: {default: null, meaning: "factors whose level a band of `band_set` sets: a list of {factor: index, band: name}; a frequency band sets a time factor's level, an eigenvalue band a surface factor's (closed form)", unit: "-"}
   name: {default: "{recording} {surface} product", meaning: "the product's name", unit: "-"}
 
 steps:
   before:
-    - {node: select.product, in: {space: space, time: time, bands: bands}, with: {factors: $factors, spatial_scale: $spatial_scale, tile: $tile, band: $band, couple_space: $couple_space, layout: $layout}, out: [product_space, product]}
+    - {node: select.product, in: {first: space, second: time, bands: bands}, with: {layout: $layout, couple: $couple}, out: [product_space, product]}
 
 outputs:
   product_space:

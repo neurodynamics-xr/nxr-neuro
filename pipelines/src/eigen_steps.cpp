@@ -1,19 +1,19 @@
 // nxr-pipelines — THE HODGE-DIRAC EIGENMODES AS A REGISTERED STEP (the hand-wired `eigen_solve` it replaces): a surface's modes, solved on its intrinsic Delaunay complex, with the full forms.
 //
-//   hodge_dirac   setup   surface (a stored surface of one closed piece, or of two glued by anatomy) -> the modes and everything that lies on them (below)
+//   hodge_dirac   setup   surface (a stored surface of one closed piece; a cortex of two hemispheres is the glued surface `surface.glue` made) -> the modes and everything that lies on them (below)
+//   surface.glue  setup   a cortex of two hemispheres -> its glued surface, the map glued vertex -> original (-1 on the bridge) and the bridge (rule 28, rule 33)
 //
 // THE GRAPH (written first, docs/specs/2026-11-17-eigenmodes-as-definition.md; the Studio's chain: glue.ts glueMesh -> intrinsicDelaunay.ts -> the Laplace-Beltrami and 2-form ladders -> the package):
-//   surface ──[glue by anatomy, only when `glued`]──> glued surface + its bridge
-//           ──[intrinsic Delaunay: mollify, flip]──> the cell complex (vertices, edges, faces) with d0, d1, the three stars, the signposts
+//   surface ──[intrinsic Delaunay: mollify, flip]──> the cell complex (vertices, edges, faces) with d0, d1, the three stars, the signposts
 //           ──[split solve: LB ladder (exact modes) + 2-form ladder (coexact modes), one lambda cut, the constants out]──> mu, kind, the 0-form parts psi/sqrt2 (or <chi/sqrt2, w_v>), the 2-form parts chi/sqrt2
-// The step reads no file and no row: the surface and, when it is glued, its medial wall are read by the runner (Bound) and handed over; everything it makes is DESCRIBED (meta.describe) and
+// The step reads no file and no row: the surface is read by the runner (Bound) and handed over; everything it makes is DESCRIBED (meta.describe) and
 // stored by io from the definition's declared outputs (eigenmodes.yaml): a mode axis (points, the eigenvalues mu as coordinates: the operator's by-product, `of_operator`), its kind field, the
 // eigenvectors and the 2-form parts as operators from that axis, the intrinsic complex (a cell complex manifold) with d0 and d1 as sparse operators and the stars and signposts as fields on
 // its cells ('0' vertices, '1' edges, '2' faces).
 //
 // The method rule: the default is the REFERENCE method of nxr and Rheome (see eigen.h: SolveMethod); the other methods are named options, every option is in the run's provenance and cache key.
 // What it cannot resolve: the modes are the discrete operator's on the intrinsic triangulation (mollified, flipped to Delaunay): a mode above the mesh's resolution is not a property of the cortex;
-// a surface of three or more pieces is refused; a surface of two pieces is solved glued by anatomy only (its medial walls cut, a bridge grown): the bridge is not cortex.
+// a surface of two or more pieces is refused (a cortex of two hemispheres is glued by `surface.glue` first, and the glued surface named as the input): the bridge is not cortex.
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -63,7 +63,6 @@ std::vector<double> widened(const std::vector<T>& v) { return std::vector<double
 struct HodgeState {
   std::string surface;
   int modes = 3000;
-  bool glued = false;
   SolveMethod method;
 };
 
@@ -90,7 +89,7 @@ SolveMethod method_of(const Json& p) {
   return sm;
 }
 
-const char* const kOutputs[] = {"glued", "bridge", "modes", "kind", "eigenvalues", "support", "eigenvectors", "forms2", "complex", "d0", "d1",
+const char* const kOutputs[] = {"modes", "kind", "eigenvalues", "support", "eigenvectors", "forms2", "complex", "d0", "d1",
                                 "length", "star0", "star1", "star2", "angle_tail", "angle_tip", "angle_sum", "reference"};
 
 StepSpec hodge_dirac_step() {
@@ -99,12 +98,11 @@ StepSpec hodge_dirac_step() {
   s.kind = "setup";
   s.inputs = {"surface"};
   for (const char* o : kOutputs) s.outputs.push_back(o);
-  s.parameters = Json{{"modes", 3000}, {"glued", false}, {"shift", "absolute"}, {"sigma", nullptr}, {"slice", 0}, {"normalize", false}, {"star1_floor", nullptr}, {"mollify", 1e-6}, {"flip_eps", 1e-6}};
+  s.parameters = Json{{"modes", 3000}, {"shift", "absolute"}, {"sigma", nullptr}, {"slice", 0}, {"normalize", false}, {"star1_floor", nullptr}, {"mollify", 1e-6}, {"flip_eps", 1e-6}};
   s.matches = "nxr.eigen.hodge_dirac.solve_hodge and nxr.pipelines.hodge.solved_package; Rheome rheome.eigen.hodge_dirac; the Studio's glue.ts glueMesh and intrinsicDelaunay.ts";
   s.description =
       "The Hodge-Dirac eigenmodes of a surface: the Laplace-Beltrami ladder (exact modes) and the 2-form ladder (coexact modes) of the surface's intrinsic Delaunay complex, cut at one lambda, the constants out. "
-      "glued: the surface is a cortex of TWO pieces (its hemispheres): glued by anatomy first (each medial wall, the Desikan-Killiany `unassigned`, cut as a disk and a bridge grown between the rims; "
-      "the Studio's glueMesh), and solved on the glued surface; refused when the pieces do not match. Makes the mode axis (the eigenvalues mu, ascending), each mode's kind (0 exact, 2 coexact), "
+      "The surface is ONE closed piece: a cortex of two hemispheres is solved on its glued surface (made by `surface.glue`, named as the input). Makes the mode axis (the eigenvalues mu, ascending), each mode's kind (0 exact, 2 coexact), "
       "the eigenvectors (per mode one vertex potential) and the 2-form parts (the faces of the complex), the complex itself with d0 and d1 and the stars and signposts on its cells.";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as the Studio receives them (float32 widened), double");
 
@@ -114,14 +112,14 @@ StepSpec hodge_dirac_step() {
     method_of(p);                                                     // the options refused here, before anything is read
     const auto& row = *ins.at("surface").row;
     const std::string name = nxr::io::text(row, "name"), stem = stem_of(name, nxr::io::integer(row, "is_primary") != 0);
-    const std::string solved = p.value("glued", false) ? name + "_glued" : name;
+    const std::string solved = name;
     const std::string sid = ins.at("surface").manifolds.empty() ? std::string() : ins.at("surface").manifolds[0];
     Values out;
     for (const char* o : kOutputs) {
       Value v;
       const std::string port = o;
-      v.cls = (port == "glued" || port == "modes" || port == "complex") ? "manifold"
-              : (port == "bridge" || port == "support") ? "selection"
+      v.cls = (port == "modes" || port == "complex") ? "manifold"
+              : port == "support" ? "selection"
               : (port == "eigenvectors" || port == "forms2" || port == "d0" || port == "d1") ? "operator" : "field";
       if (v.cls == "operator") v.manifolds = {sid, sid};                  // the places themselves are declared (from, to)
       else v.manifolds = {sid};
@@ -136,7 +134,6 @@ StepSpec hodge_dirac_step() {
     HodgeState st;
     st.surface = nxr::io::text(*ins.at("surface").row, "name");
     st.modes = p.value("modes", 3000);
-    st.glued = p.value("glued", false);
     st.method = method_of(p);
     return std::any(std::move(st));
   };
@@ -145,7 +142,6 @@ StepSpec hodge_dirac_step() {
   s.resolve = [](const Values& ins, const Json& p, const Bound& bound) {
     const SurfaceInput S = bound.surface(nxr::io::text(*ins.at("surface").row, "name"));
     Json r = Json{{"mesh", mesh_key(S.faces)}, {"positions", positions_key(S.vertices)}, {"forms", "full: the intrinsic complex (d0, d1, stars, signposts) and each mode's 2-form"}};
-    if (p.value("glued", false)) { r["medial_wall"] = wall_key(bound.medial_wall(S)); r["glue"] = "anatomy"; }
     return r;
   };
 
@@ -155,31 +151,19 @@ StepSpec hodge_dirac_step() {
     const SurfaceInput S = ctx.bound.surface(st.surface);               // float32 widened, as the Studio's GPU-side pipelines receive them
     const std::int64_t V = S.n_vertices();
     const int pieces = connected_pieces(S.faces, V);
-    need(pieces <= 2, st.surface + " is " + std::to_string(pieces) + " pieces: the Hodge-Dirac solve takes a surface of one closed piece, or two (a cortex's hemispheres, glued by anatomy)");
-    need(!st.glued || pieces == 2, st.surface + " is " + std::to_string(pieces) + " piece(s): `glued` is for a cortex of two pieces (its hemispheres)");
-    need(st.glued || pieces == 1, st.surface + " is two pieces (a cortex's hemispheres): they are glued by anatomy first; set glued: true (--glued)");
+    need(pieces == 1, st.surface + " is " + std::to_string(pieces) + " pieces: the Hodge-Dirac solve takes a surface of one closed piece (a cortex's two hemispheres are glued first by `run glue`, and the glued surface named as the input)");
     nxr::glue::Glued G;
-    std::vector<std::uint8_t> wall;
-    if (st.glued) {
-      wall = ctx.bound.medial_wall(S);
-      G = nxr::glue::glueMesh(S.vertices, S.faces, wall);
-    } else {
-      G.positions = S.vertices;
-      G.faces = S.faces;
-      G.keep.resize(static_cast<std::size_t>(V));
-      std::iota(G.keep.begin(), G.keep.end(), 0);
-    }
+    G.positions = S.vertices;
+    G.faces = S.faces;
+    G.keep.resize(static_cast<std::size_t>(V));
+    std::iota(G.keep.begin(), G.keep.end(), 0);
     const std::int64_t Vg = static_cast<std::int64_t>(G.keep.size());
     std::vector<std::int32_t> kept;
     for (const auto k : G.keep) if (k >= 0) kept.push_back(k);
     const std::string cs = ctx.bound.coordinate_system_key(S.id);
-    const std::string stem = stem_of(S.name, S.primary), solved = st.glued ? S.name + "_glued" : S.name, iname = solved + "_intrinsic";
+    const std::string stem = stem_of(S.name, S.primary), solved = S.name, iname = solved + "_intrinsic";
     const std::string solved_mesh = mesh_key(G.faces);
-    const Json glue_record = st.glued ? Json{{"by", "anatomy: the Desikan-Killiany medial wall cut, a bridge grown"},
-                                             {"bridge", Json{{"vertices", G.bridge.vertices}, {"rings", G.bridge.rings}, {"area", G.bridge.area}, {"longestEdge", G.bridge.longestEdge}}},
-                                             {"nV", Vg}, {"positions", "float32, as the Studio receives them"}, {"reference", "the Studio's glue.ts glueMesh (nxr-compute glue.h, bit-exact)"}}
-                                      : Json{{"by", "none: one closed piece"}, {"nV", Vg}};
-    if (st.glued) say(Json{{"stage", "glued"}, {"surface", S.name}, {"nV", Vg}, {"nF", static_cast<std::int64_t>(G.faces.size() / 3)}, {"mesh", solved_mesh}, {"bridge", glue_record["bridge"]}});
+    const Json glue_record = Json{{"by", "none: one closed piece"}, {"nV", Vg}};
 
     say(Json{{"stage", "solve"}, {"surface", S.name}, {"nV", V}, {"nF", S.n_faces()}, {"mesh", mesh_key(S.faces)}});
     const HodgeDirac h = solve_hodge_dirac(G.positions, G.faces, st.modes, st.method);
@@ -205,22 +189,9 @@ StepSpec hodge_dirac_step() {
     const Json fpj = Json{{"package", stem}, {"delaunay", complex_rec}};
 
     Arrays out;
-    // THE GLUED SURFACE (a cortex): the kept vertices (in support order), then the bridge's; and the bridge as a selection
-    if (st.glued) {
-      out["glued"] = made(Vg, 3, G.positions, Json{{"faces", G.faces}, {"cs", cs},
-                          {"description", S.name + " glued by anatomy: its medial walls cut (the Desikan-Killiany atlas), a bridge grown between the rims; vertex i < " + std::to_string(kept.size()) + " is " + stem + "_support[i], the rest the bridge"},
-                          {"producer", Json{{"glued_from", S.name}, {"mesh", solved_mesh}, {"glue", glue_record}}}});
-      std::vector<double> bridge;
-      for (std::int64_t i = static_cast<std::int64_t>(kept.size()); i < Vg; ++i) bridge.push_back(static_cast<double>(i));
-      const std::int64_t nb = static_cast<std::int64_t>(bridge.size());
-      out["bridge"] = made(nb, 1, std::move(bridge), Json{{"description", "the medial BRIDGE (not cortex): to mask it, no sources, a forward zero there"}});
-    } else {
-      out["glued"] = absent();
-      out["bridge"] = absent();
-    }
     // THE MODE AXIS (points; coordinate mu = sqrt(lambda), ascending) and what lies on it
     out["modes"] = made(K, 1, h.mu, Json{{"cs", "eigenvalue:" + stem}, {"operator", "hodgeDirac"}, {"description", "the eigenvalues mu = sqrt(lambda) > 0 of the Hodge-Dirac operator d + delta on " + solved + ", ascending: the mode axis"},
-                                         {"producer", [&] { Json j = Json{{"variant", "Hodge-Dirac (d + delta, glued)"}, {"fieldType", "potentials"}, {"kept", "mu > 0"}}; for (auto it = prov.begin(); it != prov.end(); ++it) j[it.key()] = it.value(); return j; }()}});
+                                         {"producer", [&] { Json j = Json{{"variant", "Hodge-Dirac (d + delta)"}, {"fieldType", "potentials"}, {"kept", "mu > 0"}}; for (auto it = prov.begin(); it != prov.end(); ++it) j[it.key()] = it.value(); return j; }()}});
     {   // the eigenvalues lambda = mu^2 as a FIELD of the operator (rule 31), beside the mode axis's coordinates mu
       std::vector<double> lam(h.mu.size());
       for (std::size_t i = 0; i < lam.size(); ++i) lam[i] = h.mu[i] * h.mu[i];
@@ -228,7 +199,7 @@ StepSpec hodge_dirac_step() {
     }
     out["kind"] = made(K, 1, widened(h.kind), Json{{"dtype", "u8"}, {"value_type", "integer"}, {"shape", Json::array({K})},
                                                    {"description", "per mode: 0 exact (a 0-form potential A) · 2 coexact (a 2-form potential S)"}});
-    out["support"] = made(static_cast<std::int64_t>(kept.size()), 1, widened(kept), Json{{"description", "the " + S.name + " vertices the " + (st.glued ? "glued " : "") + "Hodge-Dirac surface keeps (" + (st.glued ? "the medial cut is outside" : "all of them: one piece") + ")"}});
+    out["support"] = made(static_cast<std::int64_t>(kept.size()), 1, widened(kept), Json{{"description", "the " + S.name + " vertices the " + "Hodge-Dirac surface keeps (all of them: one piece)"}});
     const Json solve_params = Json{{"potentials", "A = psi/sqrt2 (kind 0) · S = <chi/sqrt2, w_v> (kind 2)"}, {"solved", "K x = mu M x, d + delta on the intrinsic-Delaunay complex of " + solved}};
     out["eigenvectors"] = made(Vg, K, widened(h.eigenvectors), Json{{"precision", "float32"}, {"chunks", Json::array({Vg, 1})}, {"shards", Json::array({Vg, std::min<std::int64_t>(K, 64)})},
                                {"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"params", solve_params}, {"producer", prov},
@@ -295,13 +266,78 @@ StepSpec hodge_dirac_step() {
 
   s.record = [](const std::any& state) {
     const HodgeState& st = std::any_cast<const HodgeState&>(state);
-    return Json{{"modes", st.modes}, {"glued", st.glued}, {"method", method_json(st.method)}};
+    return Json{{"modes", st.modes}, {"method", method_json(st.method)}};
+  };
+  return s;
+}
+
+
+// ── surface.glue ─────────────────────────────────────────────────────────────────────────────────────────────────
+// THE GLUED CORTEX (rule 33), made by its own definition (`glue`): the two hemispheres' medial walls (the Desikan-Killiany atlas' `unassigned`) cut as disks and a BRIDGE grown between the rims (the Studio's
+// glue.ts glueMesh, nxr-compute glue.h, bit-exact). Makes the glued surface (the kept vertices in ascending original index, then the bridge's), the MAP glued vertex -> original vertex (-1 on the bridge: not
+// cortex) as a field of the glued surface, and the bridge as an indices selection. The surface's producer record carries {glue: {original}}; the map is the field `<glued name>_map` beside it; a result on the glued surface is restricted back to the original.
+struct GlueState { std::string surface; };
+StepSpec surface_glue_step() {
+  StepSpec s;
+  s.name = "surface.glue";
+  s.kind = "setup";
+  s.inputs = {"surface"};
+  s.outputs = {"glued", "map", "bridge"};
+  s.parameters = Json::object();
+  s.matches = "the Studio's glue.ts glueMesh (nxr-compute glue.h; nxr geom.glue)";
+  s.description = "a cortex of two hemispheres glued by anatomy into ONE closed surface: each medial wall cut out as a disk, a bridge of new vertices grown between the two rims. Makes the glued surface, the map "
+                  "glued vertex -> original vertex (-1 on the bridge) and the bridge selection; refused when the pieces do not match";
+  s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as the Studio receives them (float32 widened), double");
+  s.plan = [](const Values& ins, const Json&, const PlanContext&) {
+    need(ins.count("surface") != 0 && ins.at("surface").row, "surface.glue: the input `surface` is missing");
+    const std::string sid = ins.at("surface").manifolds.empty() ? std::string() : ins.at("surface").manifolds[0];
+    Values out;
+    for (const char* port : {"glued", "map", "bridge"}) {
+      Value v;
+      v.cls = std::string(port) == "glued" ? "manifold" : std::string(port) == "bridge" ? "selection" : "field";
+      v.manifolds = {sid};
+      if (std::string(port) == "map") v.value_type = "integer";
+      out[port] = std::move(v);
+    }
+    return out;
+  };
+  s.prepare = [](const Values& ins, const Json&, ExecContext&) { return std::any(GlueState{nxr::io::text(*ins.at("surface").row, "name")}); };
+  s.resolve = [](const Values& ins, const Json&, const Bound& bound) {
+    const SurfaceInput S = bound.surface(nxr::io::text(*ins.at("surface").row, "name"));
+    return Json{{"mesh", mesh_key(S.faces)}, {"positions", positions_key(S.vertices)}, {"medial_wall", wall_key(bound.medial_wall(S))}, {"glue", "anatomy"}};
+  };
+  s.run = [](const std::any& state, const Arrays&, ExecContext& ctx) {
+    const GlueState& st = std::any_cast<const GlueState&>(state);
+    const SurfaceInput S = ctx.bound.surface(st.surface);
+    const int pieces = connected_pieces(S.faces, S.n_vertices());
+    need(pieces == 2, st.surface + " is " + std::to_string(pieces) + " piece(s): `glue` is for a cortex of two pieces (its hemispheres)");
+    const std::vector<std::uint8_t> wall = ctx.bound.medial_wall(S);
+    const nxr::glue::Glued G = nxr::glue::glueMesh(S.vertices, S.faces, wall);
+    const std::int64_t Vg = static_cast<std::int64_t>(G.keep.size());
+    std::int64_t kept = 0;
+    for (const auto k : G.keep) if (k >= 0) ++kept;
+    const Json bridge = Json{{"vertices", G.bridge.vertices}, {"rings", G.bridge.rings}, {"area", G.bridge.area}, {"longestEdge", G.bridge.longestEdge}};
+    if (ctx.say) ctx.say(Json{{"stage", "glued"}, {"surface", S.name}, {"nV", Vg}, {"nF", static_cast<std::int64_t>(G.faces.size() / 3)}, {"mesh", mesh_key(G.faces)}, {"bridge", bridge}});
+    const Json glue_record = Json{{"by", "anatomy: the Desikan-Killiany medial wall cut, a bridge grown"}, {"bridge", bridge}, {"nV", Vg}, {"positions", "float32, as the Studio receives them"},
+                                  {"reference", "the Studio's glue.ts glueMesh (nxr-compute glue.h, bit-exact)"}};
+    Arrays out;
+    // the producer's `glue` marks a glued surface: the original manifold and the map's field (named, found beside the surface); results on it are restricted back through the map
+    out["glued"] = made(Vg, 3, G.positions, Json{{"faces", G.faces}, {"cs", ctx.bound.coordinate_system_key(S.id)},
+                        {"description", S.name + " glued by anatomy: its medial walls cut (the Desikan-Killiany atlas), a bridge grown between the rims; vertex i < " + std::to_string(kept) + " is a kept vertex of " + S.name + ", the rest the bridge"},
+                        {"producer", Json{{"glued_from", S.name}, {"mesh", mesh_key(G.faces)}, {"gluing", glue_record}, {"glue", Json{{"original", S.id}}}}}});
+    out["map"] = made(Vg, 1, widened(G.keep), Json{{"dtype", "i32"}, {"value_type", "integer"}, {"shape", Json::array({Vg})}, {"glue_map", true},
+                      {"description", "per glued vertex: its original vertex in " + S.name + ", -1 on the bridge (not cortex)"}});
+    std::vector<double> br;
+    for (std::int64_t i = kept; i < Vg; ++i) br.push_back(static_cast<double>(i));
+    const std::int64_t nb = static_cast<std::int64_t>(br.size());
+    out["bridge"] = made(nb, 1, std::move(br), Json{{"glue_map", true}, {"description", "the medial BRIDGE (not cortex): label 0 'bridge: not cortex'; to mask it, no sources, a forward zero there"}});
+    return out;
   };
   return s;
 }
 
 }  // namespace
 
-void add_eigen_steps(std::vector<StepSpec>& r) { r.push_back(hodge_dirac_step()); }
+void add_eigen_steps(std::vector<StepSpec>& r) { r.push_back(hodge_dirac_step()); r.push_back(surface_glue_step()); }
 
 }  // namespace nxr::pipelines::graph

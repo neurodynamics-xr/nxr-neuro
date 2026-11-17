@@ -16,18 +16,16 @@ scope: subject
 
 inputs:
   surface: {manifold: surface, where: {name: $surface}, hint: "name the two-hemisphere surface (--surface)"}
-  frames:  {field: canonical frames, where: {name: "{surface}_canonical_frames"}, required: false}
 
 parameters:
   surface: {default: null, meaning: "the two-hemisphere surface, by name", unit: "-"}
-  bridge_width: {default: null, meaning: "the bridge's width as a length; null: as the anatomy sets it", unit: mm, chart: diameter}
   name: {default: "{surface}_glued", meaning: "the glued surface's name", unit: "-"}
 
 steps:
   before:
-    - {node: surface.glue, in: {surface: surface, frames: frames}, with: {bridge_width: $bridge_width}, out: [glued, map, bridge]}
+    - {node: surface.glue, in: {surface: surface}, out: [glued, map, bridge]}
 
 outputs:
   glued:  {kind: manifold, type: surface, name: $name, derived_from: surface.manifold.0}
   map:    {kind: field, kind_name: glue map, name: "{name}_map", on: glued}
-  bridge: {kind: selection, type: indices, name: "{name}_bridge", on: glued, lookup: {0: "bridge: not cortex"}}
+  bridge: {kind: selection, type: indices, name: "{name}_bridge", on: glued}

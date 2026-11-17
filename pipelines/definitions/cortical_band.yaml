@@ -47,14 +47,12 @@ parameters:
   order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: degree}
   tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: fraction}
   halo: {default: 8.0, meaning: "the context read on each side of a chunk for the filter", unit: s, chart: clock}
-  block_samples: {default: 0, meaning: "samples projected through the kernel at a time (memory only: the result does not depend on it); 0: 512 fixed, 128 free", unit: samples}
-  threads: {default: 0, meaning: "workers of the kernel products: 0 = the machine's performance cores; the result is bit-identical for every count", unit: "-"}
 
 steps:
   chunks:
     over: recording
     do:
-      - {node: apply_kernel, in: {x: z, kernel: kernel, tiles: grid, glued: glued}, with: {spatial_scale: $spatial_scale, spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, envelope: $envelope, form: $form, block_samples: $block_samples, threads: $threads}, out: sources}
+      - {node: apply_kernel, in: {x: z, kernel: kernel, tiles: grid, glued: glued}, with: {spatial_scale: $spatial_scale, spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, envelope: $envelope, form: $form}, out: sources}
       - {node: frames, in: {x: sources, tiling: frames}, out: framed, when: $frame_grid}
 
 outputs:

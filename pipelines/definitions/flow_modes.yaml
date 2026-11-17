@@ -22,7 +22,7 @@ inputs:
   kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}}
   surface:   {manifold: surface, is: kernel.to}
   package:   {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "a Hodge-Dirac package of the kernel's surface (`nxr-neuro eigen solve` first)"}
-  scale:     {measurement: any, where: {name: $amplitude_measurement}, hint: "the window's maximum amplitude (`nxr-neuro run measure --set flow_max_amplitude` first, over the same span)"}
+  scale:     {measurement: envelope_max, of: recording, where: {name: $amplitude_over}, hint: "the window's maximum amplitude (`nxr-neuro run measure --set flow_max_amplitude` first, over the same span)"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
@@ -43,7 +43,7 @@ parameters:
   tolerance: {default: null, meaning: "the impulse response's tail the margin may leave out, relative to its norm; null: 1e-7 (float32 blocks); name 1e-12 for float64", unit: "-"}
   package: {default: hodgeDirac, meaning: "the Hodge-Dirac package's stem", unit: "-"}
   input: {default: amplitude, meaning: "amplitude = |J| | signed = the real part (fixed-orientation kernels only)", unit: "-", choices: [amplitude, signed]}
-  amplitude_measurement: {default: "measure.flow_max_amplitude.{recording}", meaning: "the stored unit amplitude (the measurement of preset flow_max_amplitude), by name", unit: "-"}
+  amplitude_over: {default: null, meaning: "the selection the unit amplitude (the measurement of preset flow_max_amplitude) was measured over, by name; null: the one that holds it", unit: "-"}
   name: {default: "{recording}_{kernel}_opticalflow", meaning: "the stem of the stored flow weights (<name>_flow_modes) and their time line (<name>_time)", unit: "-"}
   method: {default: pcg, meaning: "the solver: pcg (preconditioned conjugate gradients) | direct (exact solve)", unit: "-", choices: [pcg, direct]}
   regulariser: {default: connection, meaning: "connection (the connection Laplacian on the signpost gauge) | ambient (the Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet 2008)", unit: "-", choices: [connection, ambient]}
@@ -68,12 +68,8 @@ outputs:
     kind: manifold
     type: line
     name: "$name_time"
-  modes_time:
-    kind: manifold
-    type: product
-    factors: [package.from, time]
   coefficients:
     kind: field
     kind_name: optical flow
     name: "$name_flow_modes"
-    on: modes_time
+    on: "package.from x time"

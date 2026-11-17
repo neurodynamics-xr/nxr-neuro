@@ -68,7 +68,7 @@ int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n_vert
 std::vector<std::uint8_t> medial_wall(nxr::io::SubjectWriter& sub, const SurfaceInput& surface);
 
 // THE GLUED CORTEX (PI rule 33). The imported two-hemisphere surface is the manifold of record; the glued surface is a DERIVED manifold made by a `glue` definition, which stores its MAP (glued vertex → original
-// vertex, -1 on the bridge) in the manifold's producer record under `glue: {original: <manifold id>, map_path: <array>}`. Analysis runs on the glued surface; every result is RESTRICTED BACK to the original for
+// vertex, -1 on the bridge) in the manifold's producer record under `glue: {original: <manifold id>}`; the map is the field `<glued name>_map` of the glued surface. Analysis runs on the glued surface; every result is RESTRICTED BACK to the original for
 // storage, export and visualisation: exact (the glued → original transfer), the bridge dropped like the medial wall.
 struct GlueMap {
   std::string glued_id, original_id;

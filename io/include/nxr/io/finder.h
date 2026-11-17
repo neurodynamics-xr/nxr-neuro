@@ -4,6 +4,8 @@
 //   field: <kind>                  a Field with that `kind`                    (manifold: <relation>: it lies on that manifold, or has it as a factor)
 //   operator: <kind>               an Operator with that `kind`                (from: / to: <relation>: its source / target manifold)
 //   selection: <type>              a Selection of that `type`                  (manifold: <relation>: the manifold it indexes)
+//   measurement: <measure>         a stored measurement, found by its KEY as the Studio keys `selection_measurement`: (over: the selection, of: the field or statistic,
+//                                  the measure, within: the selection it is restricted within); `of` / `over` / `within` name inputs declared before it, `where` filters the selection's columns
 //   statistic: <method>            a stored Statistic with that `method` (histogram, welch, …), found by `where: {name: …}`; it lies on no manifold (no from / to / manifold)
 //   where: {<column>: v, params.<a.b>: v}   the row's columns, or a path into its `params_json`; v may be a `$parameter`, and `{X}` in it is input X's
 //                                  name (the format names a recording's own nodes after it: `{recording}_bad_segments`, SPEC §6).
@@ -28,7 +30,7 @@ namespace nxr::io::finder {
 
 /** A THING IN A PIPELINE, as the model describes it: an input found in the dataset, or what a step makes (nxr's `Value`). */
 struct Value {
-  std::string cls;                         // field · operator · selection
+  std::string cls;                         // field · operator · selection · measurement (facts: measure, over {selection, selection_id}, of_field_id | of_statistic_id)
   std::vector<std::string> manifolds;      // a field: the manifold ids it lies on, in axis order (one, or a product's factors); an operator: {from, to}; a selection: {its manifold}
   std::string value_type = "scalar";       // a field's value type (an operator's TARGET's): scalar · vector3 · hermitian3 · … (the schema's)
   bool complex = false;                    // ℂ values: a field stored as `complex`, or one a step made complex (the analytic signal, a complex vector current)

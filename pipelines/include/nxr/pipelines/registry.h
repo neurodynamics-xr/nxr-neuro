@@ -107,6 +107,8 @@ struct StepSpec {
   /** true for a chunk step that reads only the SHAPE of its streamed input (its rows, rate, span and good samples), never a sample: the one kind of step that may take a recording declared
    *  `read: shape` in a definition (spec docs/specs/2026-11-17-surrogates.md, section 6). Any other step handed such a value is refused at plan. */
   bool reads_shape_only = false;                         // a node of `nxr::graph::registry()` (grouped names, pure functions of compute/): this entry only describes it to the definition reader; the executor runs the node itself
+  /** the outputs a use makes given its `with` (a step whose parameter chooses a part, each part making its own outputs); null: all of `outputs`. `out` names exactly these, in the order of `outputs`. */
+  std::function<std::vector<std::string>(const Json& with)> outputs_for;
   /** true when the node computes in double on float32 input: the maintainers' rule (stored precision follows the input) makes such a node flagged. Blocks inside the loop are float32; arrays outside are double. */
   bool computes_double_on_float_input() const { return traits.computes_in == Precision::float64 && (kind == "chunk" || kind == "accumulate"); }
 };

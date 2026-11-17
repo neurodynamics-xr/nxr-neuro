@@ -82,6 +82,9 @@ struct NodeSpec {
   std::string matches, description;       // the reference it is held equal to; one sentence
 
   /** PLAN: the arrows, on types only. `in` holds the types of the inputs that are present; `params` every parameter resolved. Refuses with refuse("...") naming the port and the reason. */
+  /** the outputs a use with these parameters makes, a subset of `outputs` (a node whose parameter chooses a part, each part making its own: `select.events.spans` rule detect makes the spans, rule stages three
+   *  more); null: every output. `out` of a use names exactly these, in the order of `outputs`. */
+  std::function<std::vector<std::string>(const Json& params)> outputs_for;
   std::function<Planned(const Types& in, const Json& params)> plan;
   /** PREPARE (optional): once, before any block: the constants bound (taps designed, a matrix built), from the parameters and the inputs that are not streamed. Immutable for the run. */
   std::function<std::any(const Types& in, const Arrays& constants, const Json& params, Shared& shared)> prepare;

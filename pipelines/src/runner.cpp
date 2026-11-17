@@ -151,7 +151,12 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     const StepSpec& st = step(use.step);
     Planned pl{use, &st, checked.nodes[at++].params, {}, {}};
     for (const auto& [port, thing] : use.ins.items()) pl.ins[port] = thing.get<std::string>();
-    for (std::size_t i = 0; i < st.outputs.size(); ++i) pl.outs[st.outputs[i]] = use.outs[i];
+    {
+      std::vector<std::string> used;
+      const std::vector<std::string> only = st.outputs_for ? st.outputs_for(pl.params) : std::vector<std::string>();
+      for (const auto& o : st.outputs) if (!st.outputs_for || std::find(only.begin(), only.end(), o) != only.end()) used.push_back(o);
+      for (std::size_t i = 0; i < used.size() && i < use.outs.size(); ++i) pl.outs[used[i]] = use.outs[i];
+    }
     P.steps.push_back(std::move(pl));
   }
   for (const auto& [o, spec] : d.outputs.items()) {
@@ -1062,6 +1067,17 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
             for (const auto c : ch) types.push_back(c >= 0 && static_cast<std::size_t>(c) < all.size() ? all[static_cast<std::size_t>(c)] : std::string());
             a.meta["channel_types"] = types;
           }
+        constants[name] = std::move(a);
+      } else if (v.cls == "measurement") {                              // a stored measurement found by its key: its values [rows x members], the key in meta
+        const std::optional<std::string> of_field = v.facts.contains("of_field_id") ? std::optional<std::string>(v.facts["of_field_id"].get<std::string>()) : std::nullopt;
+        const std::optional<std::string> of_stat = v.facts.contains("of_statistic_id") ? std::optional<std::string>(v.facts["of_statistic_id"].get<std::string>()) : std::nullopt;
+        const std::optional<std::int64_t> of_index = v.facts.contains("of_index") ? std::optional<std::int64_t>(v.facts["of_index"].get<std::int64_t>()) : std::nullopt;
+        const nxr::io::MeasurementValues mv = nxr::io::measurement_values(sub, text(row, "id"), of_field, of_stat, of_index, v.facts.value("measure", std::string()));
+        nxr::graph::Array a;
+        a.rows = mv.rows; a.cols = mv.members;
+        a.data = mv.values;
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["measure"] = v.facts.value("measure", std::string());
+        if (mv.unit && !mv.unit->empty()) a.meta["unit"] = *mv.unit;
         constants[name] = std::move(a);
       } else if (v.cls == "field") {
         std::vector<std::int64_t> shape;

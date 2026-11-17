@@ -447,6 +447,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       s.vertices = values_of(a, {a.rows, a.cols}, false, o);
       if (a.cols != 3) bad(o, "a surface's vertices are [n x 3]");
       for (const auto& f : d.value("faces", Json::array())) s.faces.push_back(f.get<std::int32_t>());
+      if (d.contains("producer") && d["producer"].is_object()) s.producer = d["producer"];
+      if (d.contains("description") && d["description"].is_string()) s.description = d["description"].get<std::string>();
       id = unit.surface(s);
     } else if (t == "points") {
       // POINTS with one coordinate each (an operator's mode axis: the eigenvalues): replaced with --replace, what lies on it moved aside with it
@@ -520,7 +522,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       ng::Array stored = a;
       std::vector<std::int64_t> shape = shape_of(a, d);
       // THE GLUED CORTEX (PI rule 33): a result on the derived glued surface is RESTRICTED BACK to the original for storage (the glued -> original transfer, exact; the bridge dropped like the medial wall)
-      if (const auto g = Bound(sub, nullptr).glue_of(f.manifold_id); g && !shape.empty() && shape[0] == g->n_glued()) {
+      if (const auto g = d.value("glue_map", false) ? std::optional<GlueMap>() : Bound(sub, nullptr).glue_of(f.manifold_id); g && !shape.empty() && shape[0] == g->n_glued()) {   // the glue map itself lies on the glued surface and stays there
         const auto orig = task::Subject::of(sub).by_id(task::Cls::manifold, g->original_id);
         if (!orig || !orig->n_vertices) bad(o, "the original surface of the glued one it lies on (" + g->original_id + ") has no vertex count");
         std::int64_t rest = 1;
@@ -767,7 +769,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     else if (!d.contains("tiling")) bad(o, "its node gives no tiling (describe.tiling)");
     else s.tiling = tiling_of(P, d["tiling"], spec["on"].get<std::string>(), o);
     // THE GLUED CORTEX (PI rule 33): a selection made on the derived glued surface is stored on the ORIGINAL (the manifold of record), its elements restricted back through the glue map (the bridge dropped)
-    if (const auto g = Bound(sub, nullptr).glue_of(s.manifold_id)) {
+    if (const auto g = d.value("glue_map", false) ? std::optional<GlueMap>() : Bound(sub, nullptr).glue_of(s.manifold_id)) {   // the bridge itself lies on the glued surface and stays there
       const std::int64_t n_original = original_vertices(sub, *g, o);
       bool restricted = false;
       if ((t == "partition" || t == "set") && static_cast<std::int64_t>(s.member_of.size()) == g->n_glued()) { s.member_of = restrict_members(s.member_of, *g, n_original); restricted = true; }

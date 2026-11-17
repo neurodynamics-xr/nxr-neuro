@@ -64,6 +64,7 @@ ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding
   n.kind = st.kind == "chunk" ? ng::Kind::chunk : st.kind == "accumulate" ? ng::Kind::accumulate : ng::Kind::array;   // setup and after run once, on arrays
   for (const auto& p : st.inputs) n.inputs.push_back({p, "", std::find(st.optional.begin(), st.optional.end(), p) != st.optional.end()});
   for (const auto& p : st.outputs) n.outputs.push_back({p, "", false});
+  n.outputs_for = st.outputs_for;
   for (const auto& [k, v] : st.parameters.items()) n.parameters.push_back({k, v, "", "", {}, v.is_null()});   // a null default is "not given": the step reads it
   n.traits = st.traits;
   n.matches = st.matches;

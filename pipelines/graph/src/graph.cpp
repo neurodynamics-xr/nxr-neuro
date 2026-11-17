@@ -263,9 +263,14 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
         dst.spin = mt.spin; dst.gauge = mt.gauge; dst.sel = mt.sel; dst.of = mt.of; dst.transition = mt.transition; dst.complex_parts = mt.complex_parts;
       }
     }
-    if (u.out.size() != spec.outputs.size()) fail("the node makes " + std::to_string(spec.outputs.size()) + " output(s); `out` names " + std::to_string(u.out.size()));
-    for (std::size_t i = 0; i < spec.outputs.size(); ++i) {
-      const std::string& port = spec.outputs[i].name;
+    std::vector<std::string> used;                       // the ports this use makes: all, or the ones its parameters' part makes
+    {
+      const std::vector<std::string> only = spec.outputs_for ? spec.outputs_for(n.params) : std::vector<std::string>();
+      for (const auto& o : spec.outputs) if (!spec.outputs_for || std::find(only.begin(), only.end(), o.name) != only.end()) used.push_back(o.name);
+    }
+    if (u.out.size() != used.size()) fail("the node makes " + std::to_string(used.size()) + " output(s); `out` names " + std::to_string(u.out.size()));
+    for (std::size_t i = 0; i < used.size(); ++i) {
+      const std::string& port = used[i];
       const auto t = n.planned.out.find(port);
       if (t == n.planned.out.end()) fail("its plan gives no type for output '" + port + "'");
       PortType ot = t->second;

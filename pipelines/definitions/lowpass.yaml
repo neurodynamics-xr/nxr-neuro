@@ -11,10 +11,11 @@ scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
-  mean:      {measurement: any, where: {measure: mean, name: "{recording}_channel_mean"}, required: false}
+  mean:      {measurement: mean, of: recording, where: {name: $mean_over}, required: false, hint: "the record's channel means: `nxr-neuro run measure --set channel_span_mean --all` first"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  mean_over: {default: null, meaning: "the selection the channel means were measured over, by name; null: the one that holds them", unit: "-"}
   name: {default: "{recording}_lowpass", meaning: "the new recording's name", unit: "-"}
   upper: {default: null, meaning: "the low-pass edge", unit: "Hz"}
   method: {default: null, meaning: "fir | iir; null: the reference's (FIR, but IIR for bandstop and notch)", unit: "-"}

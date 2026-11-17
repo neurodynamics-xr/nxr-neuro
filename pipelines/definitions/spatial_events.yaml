@@ -71,7 +71,7 @@ steps:
       - {node: relative, in: {x: p, baseline: baseline}, out: r}
       - {node: at_level, in: {x: r}, with: {scale: $reference_scale}, out: r_ref}
       - {node: scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
-      - node: select.events.regions
+      - node: select.events.patches
         in:   {x: r_ref, scale: sc, bursts: bursts, exclude: bad, threshold: threshold}
         with: {threshold: $threshold, percentile: $percentile, ratio: $ratio, min_area: $min_area, block_frames: $block_frames, bad_segments: $bad_segments}
         out:  [events, frame, burst, centre_vertex, centre, area, diameter_cm, characteristic_level, size_cm, relative_peak, home, summary]

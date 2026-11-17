@@ -13,13 +13,12 @@ scope: subject
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
   bands:     {selection: spans, where: {name: $bands}}
-  z:         {field: analytic signal, chain: band_analytic, chain_parameters: {recording: "{recording}", bands: $bands, shape: $shape, halo: $halo}, hint: "composed in: the band's analytic signal"}
-  channels:  {selection: indices, manifold: recording.manifold.0, where: {name: $channels}, required: false, hint: "restrict to these channels (a stored cross-spectrum's channel set)"}
+  z:         {field: analytic signal, chain: band_analytic, chain_parameters: {recording: "{recording}", bands: $bands, channels: $channels, shape: $shape, halo: $halo}, hint: "composed in: the band's analytic signal"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   bands: {default: "frequency bands", meaning: "the band set by name", unit: "-"}
-  channels: {default: null, meaning: "the channel set by name; null: every channel", unit: "-"}
+  channels: {default: null, meaning: "a stored cross-spectrum's name: the analytic signal is made on ITS channels only; null: every channel of the recording", unit: "-"}
   shape: {default: morlet, meaning: "the band filter: morlet | meyer | power_partition", unit: "-", choices: [morlet, meyer, power_partition]}
   halo: {default: 8.0, meaning: "the context read on each side of a chunk for the filter", unit: s, chart: clock}
 
@@ -27,7 +26,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: field.form, in: {x: z, channels: channels}, with: {form: outer}, out: zz}
+      - {node: field.form, in: {x: z}, with: {form: outer}, out: zz}
 
 outputs:
   zz: {kind: field, kind_name: outer product, name: "{recording}_band_outer", on: recording.manifold.0, derived_from: recording}

@@ -27,8 +27,8 @@ inputs:
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
   psd:            {statistic: welch, where: {name: $psd_statistic}}
   cross_spectrum: {statistic: welch, where: {name: $cross_spectrum}}
-  power_series:   {measurement: any, where: {name: $power_series_measurement}, hint: "the data's band power per tile: `nxr-neuro run measure --set surrogate_lagfree_envelope` first"}
-  psd_channel_mean: {measurement: any, where: {name: $psd_channel_mean_measurement}, hint: "the PSD's mean over channels, a stored measurement (`nxr-neuro run measure --set psd_channel_mean` first), read by name (rule 32)"}
+  power_series:   {measurement: power, of: recording, where: {name: $power_series_over}, hint: "the data's band power per tile: `nxr-neuro run measure --set surrogate_lagfree_envelope` first"}
+  psd_channel_mean: {measurement: mean, of: psd, where: {name: $psd_channel_mean_over}, hint: "the PSD's mean over channels, a stored measurement (`nxr-neuro run measure --set psd_channel_mean` first), read by name (rule 32)"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
@@ -36,8 +36,8 @@ parameters:
   taps_half: {default: 0, meaning: "the surrogate's taps: 0 from the PSD's resolution", unit: "samples"}
   psd_statistic: {default: "{recording}_psd_welch", meaning: "the stored PSD statistic, by name", unit: "-"}
   cross_spectrum: {default: none, meaning: "the band's stored cross-spectrum (`run crossspectrum --channels-of KERNEL`), by name", unit: "-"}
-  power_series_measurement: {default: "measure.surrogate_lagfree_envelope.{recording}", meaning: "the stored band power per tile (a measurement: preset surrogate_lagfree_envelope), by name", unit: "-"}
-  psd_channel_mean_measurement: {default: "measure.psd_channel_mean.{recording}", meaning: "the PSD's channel mean (a measurement: preset psd_channel_mean), by name", unit: "-"}
+  power_series_over: {default: null, meaning: "the selection the band power per tile (preset surrogate_lagfree_envelope) was measured over, by name; null: the one that holds it", unit: "-"}
+  psd_channel_mean_over: {default: null, meaning: "the selection the PSD's channel mean (preset psd_channel_mean) was measured over, by name; null: the one that holds it", unit: "-"}
   kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
   band: {default: "8-12 Hz", meaning: "the temporal band as a quantity (the frames and the time grid are resolved from it)", unit: Hz, chart: linear}
   shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer", unit: "-"}
@@ -80,7 +80,7 @@ steps:
       - {node: relative, in: {x: p, baseline: baseline}, out: r}
       - {node: at_level, in: {x: r}, with: {scale: $reference_scale}, out: r_ref}
       - {node: scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
-      - node: select.events.regions
+      - node: select.events.patches
         in:   {x: r_ref, scale: sc, bursts: bursts, exclude: bad, threshold: threshold}
         with: {threshold: $threshold, percentile: $percentile, ratio: $ratio, min_area: $min_area, block_frames: $block_frames, bad_segments: $bad_segments, events: false}
         out:  [events, frame, burst, centre_vertex, centre, area, diameter_cm, characteristic_level, size_cm, relative_peak, home, summary]

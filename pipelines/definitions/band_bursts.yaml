@@ -27,8 +27,13 @@ parameters:
   combine: {default: each, meaning: "each: per channel (detect.spindle) | mean: one trace, the mean over channels", unit: "-"}
   enter_sd: {default: 1.5, meaning: "robust SDs above the median to enter (labelalpha's hiSD)", unit: "robust SD"}
   exit_sd: {default: 1.0, meaning: "robust SDs above the median to extend a burst (labelalpha's loSD)", unit: "robust SD"}
-  gap: {default: "0.1 s", meaning: "gaps up to this are joined", unit: s, chart: clock}
-  duration: {default: ">=0.4 s", meaning: "the bursts kept, by duration: a range (\"0.4-2 s\") or a lower bound (\">=0.4 s\"); a filter in cycles is a duration in the band's chart (\">=3 cycles\")", unit: s, chart: clock}
+  merge_s: {default: 0.1, meaning: "gaps up to this are joined (Rheome's labelalpha, the default); with durations cycles, merge_cycles is used instead", unit: s, chart: clock}
+  merge_cycles: {default: 1.0, meaning: "durations cycles: gaps up to this many cycles of the band's centre are joined (the nxr spindle_envelope)", unit: cycles}
+  min_s: {default: 0.4, meaning: "the bursts kept are at least this long", unit: s, chart: clock}
+  max_s: {default: null, meaning: "the bursts kept are at most this long; null: no upper bound", unit: s, chart: clock}
+  min_cycles: {default: 3.0, meaning: "durations cycles: the bursts kept are at least this many cycles of the band's centre", unit: cycles}
+  max_cycles: {default: null, meaning: "durations cycles: at most this many cycles; null: no upper bound", unit: cycles}
+  durations: {default: seconds, meaning: "seconds (merge_s, min_s, max_s) | cycles (merge_cycles, min_cycles, max_cycles, of the band's centre)", unit: "-", choices: [seconds, cycles]}
   bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
   burst_summaries: {default: [count, sum, median, mean, sd, "percentile:25", "percentile:75", "percentile:90"], meaning: "the statistics across the bursts, per measurement", unit: "-"}
 
@@ -39,11 +44,11 @@ steps:
       - {node: envelope, in: {x: recording}, with: {band: $band, shape: $shape}, out: amp}
       - {node: reduce, in: {x: amp, over: grid, exclude: bad}, with: {measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: [tiles, tiles_ingredients]}
   after:
-    - {node: summarize, in: {x: tiles}, with: {summaries: [median, mad], combine: $combine, of: amplitude}, out: baseline}
+    - {node: summarize, in: {x: tiles}, with: {summaries: [median, mad], combine: $combine}, out: baseline}
     # the bursts: an irregular selection detected over the grid
-    - {node: select.events.spans, in: {x: tiles, baseline: baseline}, with: {measure: amplitude, combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, gap: $gap, duration: $duration}, out: bursts}
+    - {node: select.events.spans, in: {x: tiles, baseline: baseline}, with: {rule: detect, combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, merge_s: $merge_s, min_s: $min_s, max_s: $max_s, durations: $durations, merge_cycles: $merge_cycles, min_cycles: $min_cycles, max_cycles: $max_cycles}, out: bursts}
     # PER BURST: a measurement over the bursts, by merging the tile measurements they cover (the members' own: duration, interval_next)
-    - {node: reduce, in: {x: tiles, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: burst_values}
+    - {node: reduce.members, in: {x: tiles, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: [burst_values, burst_values_ingredients]}
     # ACROSS THE BURSTS: the statistics of each (the span's good seconds recorded, so rate, occupancy and CV are derived at read)
     - {node: summarize, in: {x: burst_values}, with: {summaries: $burst_summaries, combine: $combine}, out: burst_stats}
 
