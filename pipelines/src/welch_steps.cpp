@@ -549,6 +549,28 @@ ng::NodeSpec welch_source_band_power() {
   return n;
 }
 
+// ── a band set read from an EDGE ─────────────────────────────────────────────────────────────────────────────────
+// select.bands makes the named band set (a selection of spans in Hz) from its parameters alone, and its output port carries the set on its TYPE (`facts.set`): the node that follows reads
+// the set from that edge, never makes it again from the same parameters. A member is picked by its NAME (a string) or its span ([lo, hi]); one that is not in the set is refused.
+std::string range_name(double lo, double hi) { char b[64]; std::snprintf(b, sizeof b, "%g-%g", lo, hi); return b; }
+struct BandMember { std::string name; double lo = 0, hi = 0; std::int64_t code = 0; };
+BandMember band_member(const ng::Types& in, const Json& pick, const std::string& who) {
+  if (!in.count("bands")) ng::refuse(who + ": bands is the band set select.bands made: wire it to this port");
+  const ng::PortType& b = in.at("bands");
+  if (b.cls != ng::PortClass::constant || !b.facts.contains("set") || b.facts["set"].value("type", std::string()) != "spans" || b.facts["set"].value("unit", std::string()) != "Hz")
+    ng::refuse(who + ": bands is not a set of spans in Hz (select.bands makes one)");
+  const bool by_name = pick.is_string(), by_span = pick.is_array() && pick.size() == 2 && pick[0].is_number() && pick[1].is_number();
+  if (!by_name && !by_span) ng::refuse(who + ": say which member of the band set: its name, or its span [lo, hi] in Hz (no default)");
+  std::string names;
+  for (const auto& m : b.facts["set"]["members"]) {
+    names += (names.empty() ? "" : ", ") + m["name"].get<std::string>();
+    if (by_name ? m["name"].get<std::string>() == pick.get<std::string>() : (m["lo"].get<double>() == pick[0].get<double>() && m["hi"].get<double>() == pick[1].get<double>()))
+      return {m["name"].get<std::string>(), m["lo"].get<double>(), m["hi"].get<double>(), m["code"].get<std::int64_t>()};
+  }
+  ng::refuse(who + ": " + (by_name ? "'" + pick.get<std::string>() + "'" : "[" + range_name(pick[0].get<double>(), pick[1].get<double>()) + "]") + " is not a member of the band set it reads (" + names + ")");
+  return {};
+}
+
 // ── welch.source_bins ───────────────────────────────────────────────────────────────────────────────────────────
 // THE FREQUENCY PARTITION OF A BAND RESOLVED (spec docs/specs/2026-11-16-meg-fingerprinting.md, 3.1; the `--resolve bins` of the hand-wired sourcepsd): every Welch bin of ONE band
 // (lo to hi Hz inclusive) per source, nothing reduced over frequency, a statistic with axes [vertex x frequency]; the band's own statistic (`welch.source_band_power`) is the mean of
@@ -575,7 +597,8 @@ ng::NodeSpec welch_source_bins() {
   n.name = "welch.source_bins";
   n.outputs = {{"bins", "the power of every source at every bin of the band, sources x bins, a statistic over the segment partition", false}};
   n.parameters.erase(std::remove_if(n.parameters.begin(), n.parameters.end(), [](const auto& q) { return q.name == "bands" || q.name == "normalisation"; }), n.parameters.end());
-  n.parameters.push_back({"band", Json(), "the band: {name, lo, hi} in Hz (every bin from lo to hi inclusive is kept); no default: a band is the caller's choice", "Hz", {}, false});
+  n.inputs.push_back({"bands", "the named band set select.bands made (spans in Hz): the band is one of its members, read from this edge", false});
+  n.parameters.push_back({"band", Json(), "which member of the band set: its name (every Welch bin from its lo to its hi inclusive is kept); no default: a band is the caller's choice", "-", {}, false});
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
                              "segments are carried across blocks; the kernel is applied to each segment's Fourier coefficients and |K X|^2 accumulated per source and bin, in double");
   n.matches = "nxr::welch::LinearWelch: Welch of the kernel applied to the recording, kept for the band's bins";
@@ -584,7 +607,7 @@ ng::NodeSpec welch_source_bins() {
     const ng::PortType& x = streamed_real(in, "x", "welch.source_bins");
     const auto k = in.find("kernel");
     if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("welch.source_bins: kernel is a stored operator (an inverse kernel)");
-    if (!p.contains("band") || !p["band"].is_object()) ng::refuse("welch.source_bins: name the band: {name, lo, hi} in Hz");
+    band_member(in, p.value("band", Json()), "welch.source_bins");              // the member must be in the set the edge carries
     const Resolved r = resolve(p, *x.sfreq);
     ng::Planned out;
     out.out["bins"] = statistic_port();
@@ -604,11 +627,9 @@ ng::NodeSpec welch_source_bins() {
     pr.row_axis = p.value("row_axis", std::string("vertex"));
     if (a.meta.contains("unit") && a.meta["unit"].is_string()) pr.unit = a.meta["unit"].get<std::string>() + kSq;
     if (pr.K.rows() % pr.orientations != 0) ng::refuse("welch.source_bins: the kernel's rows are not a multiple of " + std::to_string(pr.orientations));
-    const Json& b = p["band"];
-    const std::string name = b.value("name", std::string());
-    const double lo = b.value("lo", b.value("lo_hz", 0.0)), hi = b.value("hi", b.value("hi_hz", 0.0));
-    if (name.empty()) ng::refuse("welch.source_bins: the band has a name");
-    if (!(hi >= lo)) ng::refuse("welch.source_bins: band " + name + " has hi < lo");
+    const BandMember member = band_member(in, p.value("band", Json()), "welch.source_bins");   // the band, a member of the set select.bands made
+    const std::string name = member.name;
+    const double lo = member.lo, hi = member.hi;
     const std::size_t nbins = pr.r.wo.segmentSamples / 2 + 1;
     const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
     const double first = std::ceil(lo / df - 1e-9), last = std::floor(hi / df + 1e-9);
@@ -1122,7 +1143,6 @@ struct SelectBandsPrepared {
 constexpr std::int64_t kChunkSamples = std::int64_t(1) << 15;           // the chunk grid (io's chunk service): the finest frequency line a chunk's tile resolves
 
 // the bands: a list of [lo, hi] pairs in Hz, named by `band_names` (one each) or by their range ("8-13")
-std::string range_name(double lo, double hi) { char b[64]; std::snprintf(b, sizeof b, "%g-%g", lo, hi); return b; }
 std::vector<std::pair<std::string, std::pair<double, double>>> bands_of(const Json& p, const std::string& who) {
   if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse(who + ": bands is required: a list of [lo, hi] in Hz (no default)");
   const bool named = p.contains("band_names") && p["band_names"].is_array();
@@ -1206,21 +1226,6 @@ struct BandAmpState {
   std::vector<double> amplitude;                      // tile-major: tile x channel
 };
 
-// the member of the band set a node reads from its `bands` edge (the type select.bands made), picked by the span `band` gives
-struct BandMember { std::string name; double lo = 0, hi = 0; };
-BandMember band_member(const ng::Types& in, const Json& p, const std::string& who) {
-  if (!in.count("bands")) ng::refuse(who + ": bands is the band set select.bands made: wire it to this port");
-  const ng::PortType& b = in.at("bands");
-  if (b.cls != ng::PortClass::constant || !b.facts.contains("set") || b.facts["set"].value("type", std::string()) != "spans" || b.facts["set"].value("unit", std::string()) != "Hz")
-    ng::refuse(who + ": bands is not a set of spans in Hz (select.bands makes one)");
-  if (!p.contains("band") || !p["band"].is_array() || p["band"].size() != 2 || !p["band"][0].is_number() || !p["band"][1].is_number()) ng::refuse(who + ": band is required: [lo, hi] in Hz (no default)");
-  const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>();
-  for (const auto& m : b.facts["set"]["members"])
-    if (m["lo"].get<double>() == lo && m["hi"].get<double>() == hi) return {m["name"].get<std::string>(), lo, hi};
-  ng::refuse(who + ": band [" + range_name(lo, hi) + "] is not a member of the band set it reads");
-  return {};
-}
-
 ng::NodeSpec measure_band_amplitude() {
   ng::NodeSpec n;
   n.name = "measure.band_amplitude";
@@ -1236,7 +1241,7 @@ ng::NodeSpec measure_band_amplitude() {
                   "(nxr::selection::time_level_of_band, held inside a chunk), each tile's one-sided FFT has no window or taper, the amplitude is the mean |X| over the band's bins; one measurement per band";
   n.plan = [](const ng::Types& in, const Json& p) {
     if (!in.count("x") || !in.at("x").sfreq || !(*in.at("x").sfreq > 0)) ng::refuse("measure.band_amplitude: x is the recording (a series with a sampling rate)");
-    const BandMember m = band_member(in, p, "measure.band_amplitude");
+    const BandMember m = band_member(in, p.value("band", Json()), "measure.band_amplitude");
     const double lo = m.lo, hi = m.hi;
     const int level = nxr::selection::time_level_of_band(lo, hi, *in.at("x").sfreq, nxr::selection::kJointCycles, 15);
     try { nxr::bandBins(lo, hi, std::int64_t(1) << level, *in.at("x").sfreq); } catch (const std::invalid_argument& e) { ng::refuse(std::string("measure.band_amplitude: ") + e.what()); }
@@ -1250,7 +1255,7 @@ ng::NodeSpec measure_band_amplitude() {
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays&, const Json& p, ng::Shared&) {
     BandAmpPrepared pr;
-    const BandMember m = band_member(in, p, "measure.band_amplitude");      // the member of the set select.bands made, read from the edge
+    const BandMember m = band_member(in, p.value("band", Json()), "measure.band_amplitude");      // the member of the set select.bands made, read from the edge
     pr.lo = m.lo; pr.hi = m.hi; pr.name = m.name;
     pr.sfreq = *in.at("x").sfreq;
     pr.unit = in.at("x").unit;
