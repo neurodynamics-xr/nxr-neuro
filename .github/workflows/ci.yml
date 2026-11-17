@@ -80,6 +80,8 @@ jobs:
               pipelines/*)        add pipelines cli ;;
               cli/*)              add cli ;;
               bindings/*|docs/*|*.md) ;;
+              .github/workflows/ci.yml) all=1 ;;    # this workflow itself: everything
+              .github/*) ;;                         # the other workflows (bindings, release) and GitHub settings: no C++ tests
               *)                  all=1 ;;          # top-level CMake, cmake/, tools/, CI: everything
             esac
           done
