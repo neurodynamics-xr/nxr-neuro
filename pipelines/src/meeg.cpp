@@ -1,4 +1,7 @@
 #include "nxr/pipelines/meeg.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/selection_store.h"
+#include "nxr/io/subject_reads.h"
 
 #include <algorithm>
 #include <cctype>
@@ -99,14 +102,18 @@ std::vector<std::string> read_labelling(SubjectWriter& sub, const Row& selection
   const std::string dict = opt_text(selection, "dictionary_id").value_or("");
   if (array_path.empty() || dict.empty()) return {};
   std::map<std::int64_t, std::string> names;
-  for (const Row& e : sub.db().all("SELECT code, name FROM dictionary_entry WHERE dictionary_id = ?", {V(dict)})) names[integer(e, "code")] = text(e, "name");
+  names = nxr::io::selection::lookup_names(sub.db(), dict);
+  // the array holds each element's member NUMBER; the member's label (the dictionary's code) is beside it
+  const std::vector<std::int64_t> labels = nxr::io::selection::member_labels(sub.db(), sub.store(), text(selection, "id"));
   std::vector<std::string> out;
-  for (std::int32_t c : read_all<std::int32_t>(sub.store(), array_path)) out.push_back(names.count(c) ? names[c] : std::string());
+  for (std::int32_t n : read_all<std::int32_t>(sub.store(), array_path)) {
+    const std::int64_t c = n >= 0 && static_cast<std::size_t>(n) < labels.size() ? labels[static_cast<std::size_t>(n)] : -1;
+    out.push_back(names.count(c) ? names[c] : std::string());
+  }
   return out;
 }
 std::vector<std::string> family_of(SubjectWriter& sub, const std::string& channels_id, const std::string& family) {
-  const auto row = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'set' AND array_path IS NOT NULL AND status = 'complete' ORDER BY path LIMIT 1",
-                                {V(sub.id()), V(channels_id), V(family)});
+  const auto row = nxr::io::selection::labelling_row(sub.db(), sub.id(), family, channels_id);
   return row ? read_labelling(sub, *row) : std::vector<std::string>();
 }
 
@@ -124,21 +131,21 @@ struct RecordingInput {
 // else empty (channels of several types, each in its own unit: the caller stores "channel unit^2" and the per-type units in the provenance, as the sensor cross-spectrum does).
 // the power unit of each channel type present (type -> unit^2 [/Hz]), for a recording whose channels do not share one unit
 RecordingInput read_recording(SubjectWriter& sub, const std::string& name) {
-  const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND kind = 'recording' AND name = ? AND status = 'complete'", {V(sub.id()), V(name)});
+  const auto f = find_field(sub.db(), sub.id(), FieldQuery{name, "recording"});
   if (!f) missing(sub.name() + ": no recording named '" + name + "'");
   RecordingInput r;
   r.field = *f;
   r.id = text(*f, "id");
   r.name = name;
   r.acquisition_id = opt_text(*f, "acquisition_id");
-  const auto dims = sub.db().all("SELECT d.manifold_id AS mid, d.ordinal AS ordinal FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? ORDER BY d.ordinal", {V(text(*f, "manifold_id"))});
+  const auto dims = factor_manifolds(sub.db(), text(*f, "manifold_id"));
   if (dims.size() != 2) invalid(name + ": a recording lies on channels x time");
-  r.channels_id = text(dims[0], "mid");
-  r.time_id = text(dims[1], "mid");
-  const auto td = sub.db().one("SELECT d.spacing AS spacing, d.origin AS origin, d.n_vertices AS n FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(r.time_id)});
-  if (!td || !(std::stod(text(*td, "spacing")) > 0)) invalid(name + ": its time line has no sampling interval");
-  r.sfreq = 1.0 / std::stod(text(*td, "spacing"));
-  r.t0 = is_null(*td, "origin") ? 0.0 : std::stod(text(*td, "origin"));
+  r.channels_id = dims[0];
+  r.time_id = dims[1];
+  const auto td = line_factor(sub.db(), r.time_id);
+  if (!td || !(td->spacing > 0)) invalid(name + ": its time line has no sampling interval");
+  r.sfreq = 1.0 / td->spacing;
+  r.t0 = td->origin.value_or(0.0);
   ArrayReader ar = ArrayReader::open(sub.store(), text(*f, "path"));
   if (ar.shape().size() != 2) invalid(name + ": the recording array is not channels x time");
   r.n_channels = ar.shape()[0];
@@ -146,7 +153,7 @@ RecordingInput read_recording(SubjectWriter& sub, const std::string& name) {
   r.types = family_of(sub, r.channels_id, "type");
   if (static_cast<std::int64_t>(r.types.size()) != r.n_channels) invalid(name + ": its channels have no 'type' labelling of the right size");
   // the recording's own flags, else the montage's quality; none: every channel good
-  if (const auto fl = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND of_field_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(r.id), V(name + "_flags")}))
+  if (const auto fl = nxr::io::selection::row_over_field(sub.db(), sub.id(), r.id, name + "_flags"))
     r.quality = read_labelling(sub, *fl);
   if (static_cast<std::int64_t>(r.quality.size()) != r.n_channels) r.quality = family_of(sub, r.channels_id, "quality");
   r.units = family_of(sub, r.channels_id, "unit");
@@ -164,7 +171,7 @@ std::vector<std::string> channel_types_of(SubjectWriter& sub, const std::string&
 // `<name>_orientation` when stored, and the coils `<name>_coils` (positions, `<name>_coils_orientation`) with their weights `<name>_coil_weights` (CSR [channels x coils])
 SensorGeometry sensor_geometry(SubjectWriter& sub, const std::string& channels_id) {
   SensorGeometry g;
-  const auto chm = sub.db().one("SELECT m.*, g.positions_path AS positions_path, g.coordinate_system_id AS cs_id FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.id = ?", {V(channels_id)});
+  const auto chm = manifold_with_geometry(sub.db(), channels_id);
   if (!chm) missing("channels manifold " + channels_id + ": not among the subject's rows");
   g.id = channels_id; g.name = text(*chm, "name"); g.cs_id = opt_text(*chm, "cs_id").value_or("");
   g.types = family_of(sub, channels_id, "type");
@@ -173,7 +180,7 @@ SensorGeometry sensor_geometry(SubjectWriter& sub, const std::string& channels_i
   const std::int64_t M = sh.empty() ? 0 : sh[0];
   if (sh.size() != 2 || sh[1] != 3 || static_cast<std::int64_t>(g.types.size()) != M) invalid(g.name + ": its positions are not [channels x 3] with a 'type' for each channel");
   auto vec3 = [&](const std::string& manifold_id, const std::string& name) -> std::optional<std::vector<double>> {
-    const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND manifold_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(manifold_id), V(name)});
+    const auto f = find_field(sub.db(), sub.id(), FieldQuery{name, std::nullopt, manifold_id});
     if (!f) return std::nullopt;
     std::vector<std::int64_t> s2;
     std::vector<double> d = read_all<double>(sub.store(), text(*f, "path"), &s2);
@@ -181,8 +188,8 @@ SensorGeometry sensor_geometry(SubjectWriter& sub, const std::string& channels_i
     return d;
   };
   g.orientation = vec3(channels_id, g.name + "_orientation");
-  if (const auto cm = sub.db().one("SELECT m.*, g.positions_path AS positions_path FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.name = ? AND m.status = 'complete'", {V(sub.id()), V(g.name + "_coils")}))
-    if (const auto wop = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND kind = 'coil weights' AND status = 'complete'", {V(sub.id()), V(g.name + "_coil_weights")})) {
+  if (const auto cm = manifold_with_geometry_named(sub.db(), sub.id(), g.name + "_coils"))
+    if (const auto wop = find_operator(sub.db(), sub.id(), "coil weights", g.name + "_coil_weights")) {
       std::vector<std::int64_t> s3;
       g.coil_positions = read_all<double>(sub.store(), text(*cm, "positions_path"), &s3);
       const auto co = vec3(text(*cm, "id"), g.name + "_coils_orientation");
@@ -198,14 +205,12 @@ SensorGeometry sensor_geometry(SubjectWriter& sub, const std::string& channels_i
 
 // the length unit of a manifold's coordinate system ("" when it records none)
 std::string coordinate_unit_of(SubjectWriter& sub, const std::string& manifold_id) {
-  const auto r = sub.db().one("SELECT cs.unit AS unit FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE m.id = ?", {V(manifold_id)});
-  return r ? opt_text(*r, "unit").value_or("") : std::string();
+  return manifold_coordinate_unit(sub.db(), manifold_id);
 }
 
 // the coordinate system a manifold's geometry is in ("" when it records none)
 std::string coordinate_system_of(SubjectWriter& sub, const std::string& manifold_id) {
-  const auto r = sub.db().one("SELECT g.coordinate_system_id AS cs FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.id = ?", {V(manifold_id)});
-  return r ? opt_text(*r, "cs").value_or("") : std::string();
+  return manifold_coordinate_system(sub.db(), manifold_id);
 }
 
 // what a node may know of a recording's channels (a fact on its port type, not a store read): their types, quality (the recording's flags, else the montage's) and units
@@ -217,8 +222,7 @@ Json channel_facts(SubjectWriter& sub, const std::string& recording) {
 namespace {
 std::string acquisition_label(SubjectWriter& sub, const std::optional<std::string>& id) {
   if (!id) return "";
-  const auto a = sub.db().one("SELECT label FROM acquisition WHERE id = ?", {V(*id)});
-  return a ? text(*a, "label") : "";
+  return nxr::io::acquisition_label_of(sub.db(), *id);
 }
 
 // THE CHUNK SERVICE's side of a pipeline (nxr/io/chunk_loop.h): a pipeline DECLARES what it reads (the recording, its rows, its span) and folds each chunk
@@ -288,12 +292,9 @@ const char* scaling_name(nxr::welch::Scaling s) {
 
 // The bad spans [start, stop) in seconds of the recording's `<name>_bad_segments` Selection (none: no such Selection)
 std::optional<std::vector<std::pair<double, double>>> bad_spans(SubjectWriter& sub, const RecordingInput& rec) {
-  const auto sel = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'spans' AND status = 'complete'", {V(sub.id()), V(rec.name + "_bad_segments")});
+  const auto sel = nxr::io::selection::named_row(sub.db(), sub.id(), rec.name + "_bad_segments", "spans");
   if (!sel) return std::nullopt;
-  std::vector<std::pair<double, double>> out;
-  for (const Row& r : sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*sel, "id"))}))
-    out.emplace_back(std::stod(text(r, "start")), std::stod(text(r, "stop")));
-  return out;
+  return nxr::io::selection::span_bounds(sub.db(), text(*sel, "id"));
 }
 
 
@@ -424,7 +425,7 @@ std::optional<CrossSpectrumNode> find_cross_spectrum(SubjectWriter& sub, const s
                              Json::parse(opt_text(r, "producer_json").value_or("{}"), nullptr, false), std::nullopt, {}};
   }
   if (auto n = band_slice(sub, name, "welch", "cross_spectr", "", 1)) return n;
-  const auto op = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND kind = 'cross-spectral density' AND status = 'complete'", {V(sub.id()), V(name)});
+  const auto op = find_operator(sub.db(), sub.id(), "cross-spectral density", name);
   if (!op) return std::nullopt;
   const auto sel = is_null(*op, "from_selection_id") ? std::nullopt : sub.db().read("selection", text(*op, "from_selection_id"));
   if (!sel || is_null(*sel, "array_path")) invalid(name + ": its channels (from_selection) are not stored");
@@ -569,7 +570,7 @@ std::optional<CrossSpectrumNode> find_cross_spectrum_series(SubjectWriter& sub, 
                              Json::parse(opt_text(r, "producer_json").value_or("{}"), nullptr, false), std::nullopt, {}};
   }
   if (auto n = band_slice(sub, name, "analytic", "cross_spectrum_sum", "_windows", 2)) return n;
-  const auto op = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND kind = 'cross-spectrum series' AND status = 'complete'", {V(sub.id()), V(name)});
+  const auto op = find_operator(sub.db(), sub.id(), "cross-spectrum series", name);
   if (!op) return std::nullopt;
   const auto sel = is_null(*op, "from_selection_id") ? std::nullopt : sub.db().read("selection", text(*op, "from_selection_id"));
   if (!sel || is_null(*sel, "array_path")) invalid(name + ": its channels (from_selection) are not stored");
@@ -687,11 +688,11 @@ PhaseGradientResult phasegradient_compute(DatasetWriter& ds, SubjectWriter& sub,
   const double lo = cpj["band_lo_hz"].get<double>(), hi = cpj["band_hi_hz"].get<double>(), omega = 2 * M_PI * 0.5 * (lo + hi);
   Row kern;
   if (opt.kernel) {
-    const auto r = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.kernel)});
+    const auto r = find_operator(sub.db(), sub.id(), "inverse kernel", *opt.kernel);
     if (!r) missing(sub.name() + ": no inverse kernel named '" + *opt.kernel + "'");
     kern = *r;
   } else {
-    const auto rs = sub.db().all("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND status = 'complete' AND path IS NOT NULL", {V(sub.id())});
+    const auto rs = stored_operators(sub.db(), sub.id(), "inverse kernel");
     if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " inverse kernels; name one with --kernel");
     kern = rs[0];
   }
@@ -710,8 +711,8 @@ PhaseGradientResult phasegradient_compute(DatasetWriter& ds, SubjectWriter& sub,
   if (!smf || integer(*smf, "n_vertices") != N) invalid(kname + ": " + std::to_string(N) + " sources, its target surface has another vertex count");
   const std::string surface = text(*smf, "name");
   // the length unit of the surface's coordinates
-  const auto urow = sub.db().one("SELECT cs.unit AS unit FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE m.id = ?", {V(surface_id)});
-  const std::string unit = urow ? opt_text(*urow, "unit").value_or("") : "";
+  const auto urow = manifold_coordinate_unit(sub.db(), surface_id);
+  const std::string unit = urow;
   if (unit != "m" && unit != "mm") invalid(surface + ": its coordinates are in '" + unit + "', not m or mm: the speed needs a length unit");
   const double metres = unit == "mm" ? 1e-3 : 1.0;
   {
@@ -734,11 +735,11 @@ QuadratureResult quadrature_compute(DatasetWriter& ds, SubjectWriter& sub, const
   if (opt.pairs < 1) invalid("quadrature: at least one pair");
   Row kern;
   if (opt.kernel) {
-    const auto r = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.kernel)});
+    const auto r = find_operator(sub.db(), sub.id(), "inverse kernel", *opt.kernel);
     if (!r) missing(sub.name() + ": no inverse kernel named '" + *opt.kernel + "'");
     kern = *r;
   } else {
-    const auto rs = sub.db().all("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND status = 'complete' AND path IS NOT NULL", {V(sub.id())});
+    const auto rs = stored_operators(sub.db(), sub.id(), "inverse kernel");
     if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " inverse kernels; name one with --kernel");
     kern = rs[0];
   }
@@ -756,7 +757,7 @@ QuadratureResult quadrature_compute(DatasetWriter& ds, SubjectWriter& sub, const
   if (kshape[0] % orientations != 0) invalid(kname + ": its rows are not a multiple of " + std::to_string(orientations));
   const Eigen::MatrixXd K = Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(kf.data(), kshape[0], M).cast<double>();
   const std::int64_t N = kshape[0] / orientations;
-  const auto smf = sub.db().one("SELECT n_vertices FROM manifold WHERE id = ?", {V(surface_id)});
+  const auto smf = sub.db().read("manifold", surface_id);
   if (smf && integer(*smf, "n_vertices") != N) invalid(kname + ": " + std::to_string(N) + " sources, its target has " + std::to_string(integer(*smf, "n_vertices")));
 
   nxr::welch::WelchOptions wo = opt.welch;
@@ -957,7 +958,7 @@ QuadratureResult quadrature_compute(DatasetWriter& ds, SubjectWriter& sub, const
                   {"window", Json::array({s0, s1})}, {"replaced", replaced}, {"moved_aside", moved_aside.empty() ? Json() : Json(moved_aside)}, {"cache", o.hit ? "hit" : "miss"}};
   if (opt.tiles) {
     // the STORED energy maps (scalars) and, for a free kernel, the pairs' patterns (ambient 3-vectors, read in the frames) summarised over the tiles of each level
-    const auto srow = sub.db().one("SELECT name FROM manifold WHERE id = ?", {V(surface_id)});
+    const auto srow = sub.db().read("manifold", surface_id);
     TileSummaryOptions to;
     to.surface = srow ? std::optional<std::string>(text(*srow, "name")) : std::nullopt;
     to.levels = opt.tile_levels; to.max_level = opt.tile_max_level; to.levi_civita = opt.tile_levi_civita; to.replace = opt.replace;
@@ -1004,12 +1005,12 @@ HodgePackage resolve_hodge_package(SubjectWriter& sub, const Row& smf, const std
   const std::optional<std::int64_t>& opt_modes = modes;
   const SurfaceInput in = read_surface(sub, text(smf, "name"));
   const std::string stem_pkg = package ? *package : (in.primary ? std::string("hodgeDirac") : "hodgeDirac__" + in.name);
-  const auto opr = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'eigenvectors' AND name = ? AND status = 'complete'", {V(sub.id()), V(stem_pkg + "_eigenvectors")});
+  const auto opr = find_operator(sub.db(), sub.id(), "eigenvectors", stem_pkg + "_eigenvectors");
   if (!opr) missing(sub.name() + ": no stored Hodge-Dirac package '" + stem_pkg + "' (nxr-neuro eigen solve, or nxr eigen solve)");
   const auto axis = sub.db().read("manifold", text(*opr, "from_manifold_id"));
   // by NAME, never by path: a migrated dataset keeps the support in its manifold's folder (source/<stem>_support), a fresh solve at the root
-  const auto kindf = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(stem_pkg + "_kind")});
-  const auto supp = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(stem_pkg + "_support")});
+  const auto kindf = find_field(sub.db(), sub.id(), FieldQuery{stem_pkg + "_kind"});
+  const auto supp = nxr::io::selection::named_row(sub.db(), sub.id(), stem_pkg + "_support");
   if (!axis || !kindf || !supp) missing(sub.name() + ": the stored package '" + stem_pkg + "' is incomplete (axis, kinds or support)");
   const std::string axis_id = text(*axis, "id");
   const auto gm = sub.db().read("manifold", text(*opr, "to_manifold_id"));
@@ -1076,13 +1077,13 @@ HodgePackageData hodge_package_data(SubjectWriter& sub, const std::string& eigen
   if (eigenvectors_name.size() <= suffix.size() || eigenvectors_name.compare(eigenvectors_name.size() - suffix.size(), suffix.size(), suffix) != 0)
     invalid(eigenvectors_name + ": not a Hodge-Dirac package's eigenvectors (<stem>_eigenvectors)");
   const std::string stem = eigenvectors_name.substr(0, eigenvectors_name.size() - suffix.size());
-  const auto opr = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'eigenvectors' AND name = ? AND status = 'complete'", {V(sub.id()), V(eigenvectors_name)});
+  const auto opr = find_operator(sub.db(), sub.id(), "eigenvectors", eigenvectors_name);
   if (!opr) missing(sub.name() + ": no stored Hodge-Dirac package '" + stem + "'");
   const auto gm = sub.db().read("manifold", text(*opr, "to_manifold_id"));
   if (!gm) missing(stem + ": its eigenvectors' target surface is not stored");
   const Json gp = Json::parse(opt_text(*gm, "producer_json").value_or("{}"), nullptr, false);
   const std::string input = gp.is_object() && gp.contains("glued_from") ? gp["glued_from"].get<std::string>() : text(*gm, "name");   // the glued surface's input, or itself
-  const auto smf = sub.db().one("SELECT * FROM manifold WHERE subject_id = ? AND name = ? AND type = 'surface' AND status = 'complete'", {V(sub.id()), V(input)});
+  const auto smf = find_manifold(sub.db(), sub.id(), input, "surface");
   if (!smf) missing(stem + ": its input surface '" + input + "' is not stored");
   const HodgePackage pk = resolve_hodge_package(sub, *smf, stem, modes, "hodge package");
   HodgePackageData d;
@@ -1445,7 +1446,7 @@ PhaseGradientResult phasegradient_band(DatasetWriter& ds, SubjectWriter& sub, co
     };
     auto store = [&](const int&) {
       moved_aside = clear_stored(ds, sub, {{"statistic", map_path}, {"statistic", modes_path}}, opt.replace, stem, replaced);
-      if (const auto old_field = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND kind = 'phase gradient' AND status = 'complete' AND path IS NULL", {V(sub.id()), V(fname)})) sub.remove("field", text(*old_field, "id"));
+      if (const auto old_field = find_field(sub.db(), sub.id(), FieldQuery{fname, "phase gradient", std::nullopt, false})) sub.remove("field", text(*old_field, "id"));
       const std::string density = in.cpj.value("scaling", std::string("density")) == "density" ? "/Hz" : "";
       const float nan = std::numeric_limits<float>::quiet_NaN();
       const std::vector<std::string> qn = {"timing", "propagation_x", "propagation_y", "propagation_z", "speed", "stream", "inconsistency"};
@@ -1487,7 +1488,7 @@ PhaseGradientResult phasegradient_band(DatasetWriter& ds, SubjectWriter& sub, co
       // what the fits are OF: the cross-spectrum statistic (an older Operator series: the recording's Field)
       std::optional<std::string> of_stat, of_field;
       if (in.crow.count("measure")) of_stat = text(in.crow, "id");
-      else if (const auto rf = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND kind = 'recording' AND status = 'complete'", {V(sub.id()), V(in.recording)})) of_field = text(*rf, "id");
+      else if (const auto rf = find_field(sub.db(), sub.id(), FieldQuery{in.recording, "recording"})) of_field = text(*rf, "id");
       else of_stat = text(in.crow, "id");
       const std::string what_all = " of the " + bd.label + " band of the current of " + in.recording + " by " + in.kname + " \xe2\x80\x94 " + in.band;
       {   // the fits: [vertex, quantity] on the glued surface (the bridge NaN)
@@ -1585,19 +1586,19 @@ CyclePatternResult cyclepattern_compute(DatasetWriter& ds, SubjectWriter& sub, c
   if (!opt.timing_of.empty() && !std::isfinite(omega)) invalid(opt.cross_spectrum + ": its producer record does not give the band's edges (the timing needs its centre frequency)");
   Row kern;
   if (opt.kernel) {
-    const auto r = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.kernel)});
+    const auto r = find_operator(sub.db(), sub.id(), "inverse kernel", *opt.kernel);
     if (!r) missing(sub.name() + ": no inverse kernel named '" + *opt.kernel + "'");
     kern = *r;
   } else {
-    const auto rs = sub.db().all("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND status = 'complete' AND path IS NOT NULL", {V(sub.id())});
+    const auto rs = stored_operators(sub.db(), sub.id(), "inverse kernel");
     if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " inverse kernels; name one with --kernel");
     kern = rs[0];
   }
   const std::string kname = text(kern, "name"), surface_id = text(kern, "to_manifold_id");
   double metres = NAN;
   if (!opt.timing_of.empty()) {
-    const auto urow = sub.db().one("SELECT cs.unit AS unit FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE m.id = ?", {V(surface_id)});
-    const std::string unit = urow ? opt_text(*urow, "unit").value_or("") : "";
+    const auto urow = manifold_coordinate_unit(sub.db(), surface_id);
+    const std::string unit = urow;
     if (unit != "m" && unit != "mm") invalid("cyclepattern: the surface's coordinates are in '" + unit + "', not m or mm: the speed needs a length unit");
     metres = unit == "mm" ? 1e-3 : 1.0;
   }
@@ -1735,7 +1736,7 @@ CyclePatternResult cyclepattern_compute(DatasetWriter& ds, SubjectWriter& sub, c
       // what the decomposition is OF: the cross-spectrum statistic it decomposes (an older Operator series: the recording's Field)
       std::optional<std::string> of_stat, of_field;
       if (crow->count("measure")) of_stat = text(*crow, "id");
-      else if (const auto rf = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND kind = 'recording' AND status = 'complete'", {V(sub.id()), V(recording)})) of_field = text(*rf, "id");
+      else if (const auto rf = find_field(sub.db(), sub.id(), FieldQuery{recording, "recording"})) of_field = text(*rf, "id");
       else of_stat = text(*crow, "id");
       const Json pattern_axis = [&] { Json a = Json::array(); for (int i = 1; i <= q; ++i) a.push_back(i); return a; }();
       const std::string what_all = " of the " + bd.label + " band's consistent cycle patterns, of the current of " + recording + " by " + kname + " \xe2\x80\x94 " + band;
@@ -1845,7 +1846,7 @@ namespace internal {
 StoredLaplace stored_laplace_info(SubjectWriter& sub, const SurfaceInput& S) {
   StoredLaplace out;
   const std::string stem = S.primary ? std::string("hodgeDirac") : "hodgeDirac__" + S.name;
-  if (!sub.db().one("SELECT id FROM operator WHERE subject_id = ? AND kind = 'eigenvectors' AND name = ? AND status = 'complete'", {V(sub.id()), V(stem + "_eigenvectors")})) return out;
+  if (!find_operator(sub.db(), sub.id(), "eigenvectors", stem + "_eigenvectors")) return out;
   const HodgePackage pk = resolve_hodge_package(sub, S.manifold, std::nullopt, std::nullopt, "spatial band");
   out.found = true;
   out.package = pk.stem;
@@ -1867,7 +1868,7 @@ StoredLaplace stored_laplace_info(SubjectWriter& sub, const SurfaceInput& S) {
 GluedDomain glued_domain(SubjectWriter& sub, const SurfaceInput& S) {
   GluedDomain d;
   const std::string stem = S.primary ? std::string("hodgeDirac") : "hodgeDirac__" + S.name;
-  if (sub.db().one("SELECT id FROM operator WHERE subject_id = ? AND kind = 'eigenvectors' AND name = ? AND status = 'complete'", {V(sub.id()), V(stem + "_eigenvectors")})) {
+  if (find_operator(sub.db(), sub.id(), "eigenvectors", stem + "_eigenvectors")) {
     const HodgePackage pk = resolve_hodge_package(sub, S.manifold, std::nullopt, std::nullopt, "glued domain");
     d.found = true; d.surface = pk.glued; d.support = pk.support;
     return d;
@@ -1970,11 +1971,11 @@ OpticalflowComputeResult opticalflow_compute(DatasetWriter& ds, SubjectWriter& s
   if (!(opt.resolution > 0)) invalid("opticalflow: resolution must be positive");
   Row kern;
   if (opt.kernel) {
-    const auto r = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.kernel)});
+    const auto r = find_operator(sub.db(), sub.id(), "inverse kernel", *opt.kernel);
     if (!r) missing(sub.name() + ": no inverse kernel named '" + *opt.kernel + "'");
     kern = *r;
   } else {
-    const auto rs = sub.db().all("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND status = 'complete' AND path IS NOT NULL", {V(sub.id())});
+    const auto rs = stored_operators(sub.db(), sub.id(), "inverse kernel");
     if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " inverse kernels; name one with --kernel");
     kern = rs[0];
   }
@@ -1989,7 +1990,7 @@ OpticalflowComputeResult opticalflow_compute(DatasetWriter& ds, SubjectWriter& s
   const std::vector<float> kf = read_all<float>(sub.store(), text(kern, "path"), &kshape);
   if (kshape.size() != 2 || kshape[1] != M) invalid(kname + ": its array is not [rows x " + std::to_string(M) + " channels]");
   const int orientations = opt_text(kern, "to_value_type").value_or("vector3") == "scalar" ? 1 : 3;
-  const auto smf = sub.db().one("SELECT name, n_vertices FROM manifold WHERE id = ?", {V(surface_id)});
+  const auto smf = sub.db().read("manifold", surface_id);
   if (!smf) missing(kname + ": its target surface is not stored");
   const std::int64_t N = integer(*smf, "n_vertices");
   if (kshape[0] != orientations * N) invalid(kname + ": " + std::to_string(kshape[0]) + " rows for " + std::to_string(N) + " sources");
@@ -2040,7 +2041,7 @@ OpticalflowComputeResult opticalflow_compute(DatasetWriter& ds, SubjectWriter& s
   if (leaf_surface.n_vertices() != N) invalid(surface_name + ": another vertex count than " + kname);
   PyramidLeaves PL = pyramid_leaves(ds, sub, leaf_surface, opt.depth, "opticalflow", say);
   const FrameCells fcells = frame_cells(ds, sub, opt.recording, opt.frame_level, opt.day_start_s, "opticalflow");
-  const auto gauge_row = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(surface_name + "_canonical_frames")});
+  const auto gauge_row = find_field(sub.db(), sub.id(), FieldQuery{surface_name + "_canonical_frames"});
   const Json leaf_gauge = gauge_row ? Json(text(*gauge_row, "id")) : Json(nullptr);
   nxr::ladder::Mesh leaf_mesh; leaf_mesh.n = static_cast<int>(N); leaf_mesh.positions = leaf_surface.vertices; leaf_mesh.faces = leaf_surface.faces;
   const std::vector<double> vertex_area = nxr::ladder::vertexAreas(leaf_mesh);
@@ -2283,10 +2284,10 @@ OpticalflowComputeResult opticalflow_compute(DatasetWriter& ds, SubjectWriter& s
   auto store = [&](const int&) {
     // the window's time line: frame j sits between activation frames j and j+1
     const double dt = 1.0 / rate, origin = rec.t0 + (static_cast<double>(r0) + static_cast<double>(ceilk0 * mp) / static_cast<double>(mq)) / rec.sfreq + 0.5 * dt;
-    auto line_named = [&](const std::string& lname) { return sub.db().one("SELECT m.id AS id FROM manifold m WHERE m.subject_id = ? AND m.name = ? AND m.type = 'line'", {V(sub.id()), V(lname)}); };
+    auto line_named = [&](const std::string& lname) { return find_manifold(sub.db(), sub.id(), lname, "line"); };
     auto fits = [&](const std::string& lid) {
-      const auto d = sub.db().one("SELECT d.spacing AS spacing, d.n_vertices AS n, d.origin AS origin FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(lid)});
-      return d && integer(*d, "n") == steps && std::abs(std::stod(text(*d, "spacing")) - dt) <= 1e-12 * dt && !is_null(*d, "origin") && std::abs(std::stod(text(*d, "origin")) - origin) <= 1e-9;
+      const auto d = line_factor(sub.db(), lid);
+      return d && d->count == steps && std::abs(d->spacing - dt) <= 1e-12 * dt && d->origin && std::abs(*d->origin - origin) <= 1e-9;
     };
     std::string lname = stem + "_time", line_id;
     if (const auto l = line_named(lname)) {
@@ -2327,9 +2328,9 @@ OpticalflowComputeResult opticalflow_compute(DatasetWriter& ds, SubjectWriter& s
     moved_aside = clear_stored(ds, sub, have, opt.replace, stem, replaced);
     // the byte-less Fields of the leaf sums and their joint Selection of an earlier run (the run is a replacement: clear_stored refused otherwise)
     const std::string joint_name = opt.recording + " \xc3\x97 " + stem + " " + PL.name + " \xc3\x97 " + [&] { std::ostringstream o; o << fcells.ft.frame_s(); return o.str(); }() + " s";
-    if (const auto oj = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(joint_name)})) sub.remove("selection", text(*oj, "id"));
+    if (const auto oj = nxr::io::selection::named_row(sub.db(), sub.id(), joint_name)) sub.remove("selection", text(*oj, "id"));
     for (const std::string& tag : tags)
-      if (const auto of = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND kind = 'optical flow' AND status = 'complete' AND path IS NULL", {V(sub.id()), V(fname(tag, "flow"))})) sub.remove("field", text(*of, "id"));
+      if (const auto of = find_field(sub.db(), sub.id(), FieldQuery{fname(tag, "flow"), "optical flow", std::nullopt, false})) sub.remove("field", text(*of, "id"));
     pyramid_leaves_record(sub, PL, leaf_gauge);
     std::vector<FrameSumsSeries> sums_series;
     const Json pr = projector_record(rec.field);
@@ -2439,7 +2440,7 @@ OpticalflowComputeResult opticalflow_compute(DatasetWriter& ds, SubjectWriter& s
                      flow_frame0, flow_frames_span, sums_series, "nxr-neuro opticalflow compute", rec.acquisition_id);
   };
   // the cache marker: the flow's coefficients (the one Field of the run with bytes); a run of another producer or key is a miss, refused by clear_stored unless --replace
-  const auto marker_row = sub.db().one("SELECT path FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(n_check)});
+  const auto marker_row = find_field(sub.db(), sub.id(), FieldQuery{n_check});
   const std::optional<std::string> marker = marker_row ? opt_text(*marker_row, "path") : std::optional<std::string>("-");
   const Outcome<int> o = cached<int>(sub, "field", marker, key, load, compute, store);
   res.hit = o.hit;
@@ -2451,7 +2452,7 @@ OpticalflowComputeResult opticalflow_compute(DatasetWriter& ds, SubjectWriter& s
   if (opt.tiles) {
     // the maps' tile summaries per level (nxr/pipelines/tiles.h): the STORED divergence, curl and speed as area-weighted scalars; the time-mean velocity (not stored) in the frame and Levi-Civita
     // forms when the flow was computed in this run
-    const auto srow = sub.db().one("SELECT name FROM manifold WHERE id = ?", {V(surface_id)});
+    const auto srow = sub.db().read("manifold", surface_id);
     TileSummaryOptions to;
     to.surface = srow ? std::optional<std::string>(text(*srow, "name")) : std::nullopt;
     to.levels = opt.tile_levels; to.max_level = opt.tile_max_level; to.levi_civita = opt.tile_levi_civita; to.replace = opt.replace;

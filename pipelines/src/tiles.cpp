@@ -1,4 +1,7 @@
 #include "nxr/io/selection_store.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/subject_reads.h"
+#include "nxr/io/selection_measurement.h"
 #include "nxr/pipelines/tiles.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/measures.h"
@@ -39,11 +42,11 @@ std::vector<std::int32_t> read_i32(const nxr::io::Store& store, const std::strin
 
 struct Stored { Row ladder; std::vector<Row> levels; };
 std::optional<Stored> stored_ladder(SubjectWriter& sub, const std::string& mid, const std::string& surface) {
-  const auto l = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'ladder' AND status = 'complete'", {V(sub.id()), V(mid), V(ladder_name(surface))});
+  const auto l = nxr::io::selection::ladder_row(sub.db(), sub.id(), ladder_name(surface), mid);
   if (!l) return std::nullopt;
   Stored s;
   s.ladder = *l;
-  s.levels = sub.db().all("SELECT * FROM selection WHERE member_of_id = ? AND status = 'complete' ORDER BY member_ordinal", {V(text(*l, "id"))});
+  s.levels = nxr::io::selection::member_rows(sub.db(), text(*l, "id"));
   return s;
 }
 
@@ -183,7 +186,7 @@ TilesComputeResult group_tree_compute(DatasetWriter& ds, SubjectWriter& sub, con
   const std::string sname = S.name, mid = S.id;
   // the canonical frames (frames compute, run before): the definitions name them, and the Levi-Civita connection is read in them
   const StoredFrames sf = read_stored_frames(sub, sname, nV);
-  const auto frames_row = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(sname + "_canonical_frames")});
+  const auto frames_row = find_field(sub.db(), sub.id(), FieldQuery{sname + "_canonical_frames"});
   TilesComputeOptions t;
   t.tree = "group";
   t.atlas = group_tree_definitions(o);
@@ -235,20 +238,20 @@ TilesComputeResult group_tree_compute(DatasetWriter& ds, SubjectWriter& sub, con
     });
     const std::string sid = text(lrow, "id");
     const Eigen::MatrixXd anti = lad::antisymmetric(lc.omega);
-    sub.db().tx([&] {
+    std::vector<nxr::io::selection::MemberValue> connection;
+    {
       for (int a = 0; a < n_nodes; ++a) {
         for (int b = 0; b < n_nodes; ++b) {
           const int ca = cen[static_cast<size_t>(a)], cb = cen[static_cast<size_t>(b)];
           if (ca < 0 || cb < 0 || piece[static_cast<size_t>(ca)] != piece[static_cast<size_t>(cb)]) continue;
           const double om = anti(a, b);                // antisymmetrised (lad::antisymmetric; shown on exact spheres, test_f)
           if (!std::isfinite(om)) continue;
-          Row m = {{"selection_id", sid}, {"code", V(static_cast<std::int64_t>(a))}, {"of_field_id", V(nullptr)}, {"measure", std::string("levi-civita connection")}, {"value", om},
-                   {"unit", std::string("rad")}, {"within_selection_id", sid}, {"within_code", V(static_cast<std::int64_t>(b))}, {"computed_utc", stamp}, {"computed_by", by}};
-          sub.db().insert("selection_measurement", m);
+          connection.push_back({static_cast<std::int64_t>(a), om, static_cast<std::int64_t>(b)});
           ++rows;
         }
       }
-    });
+    }
+    nxr::io::selection::save_member_values(sub, sid, "levi-civita connection", connection, std::string("rad"), by, sid);
     lc_info.push_back(Json{{"level", l}, {"tiles", n_nodes}, {"centres", sname + "_lc_centres_L" + std::to_string(l)}, {"pairs", rows}});
     if (progress) progress(Json{{"stage", "levi-civita"}, {"level", l}, {"pairs", rows}});
   }
@@ -263,14 +266,14 @@ TilesComputeResult group_tree_compute(DatasetWriter& ds, SubjectWriter& sub, con
       {"by", by},
       {"warnings", Json::array({"transport on a curved surface depends on the path: Omega is the transport along (about) the shortest path, which is not unique between distant tiles; on a folded pial, Omega between distant centres can differ by tens of degrees between two meshes of the same cortex (nxr's input-mesh transport against this one on fsaverage5: median 2-3 degrees, p90 8-12, max 86)",
                                "no value across hemispheres"})}};
-  sub.db().execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(lp)), V(text(st->ladder, "id"))});
+  nxr::io::selection::set_params(sub.db(), text(st->ladder, "id"), lp);
   r.info["frames"] = text(*frames_row, "id");
   r.info["levi_civita"] = lc_info;
   return r;
 }
 
 std::optional<Eigen::MatrixXd> stored_map(SubjectWriter& sub, const std::string& field_name, std::int64_t n, TileMapSource* source) {
-  const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND status = 'complete' AND path IS NOT NULL", {V(sub.id()), V(field_name)});
+  const auto f = find_field(sub.db(), sub.id(), FieldQuery{field_name, std::nullopt, std::nullopt, true});
   if (!f) {
     // a MAP OF A STATISTIC of that name (2026-11-13: the source maps are statistics whose band k reads as the Field it replaced): [n x components]
     for (const Row& st : nxr::io::statistics_of(sub.db(), sub.id())) {
@@ -383,7 +386,7 @@ Json tile_summaries_write(DatasetWriter& ds, SubjectWriter& sub, const TileMaps&
         TileMapSource so = src->second;
         if (so.field_id.empty()) {
           const std::string bname = (so.name.empty() ? maps.stem + "_" + mname : so.name) + " tile map";
-          const auto old = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND path IS NULL", {V(sub.id()), V(bname)});
+          const auto old = find_field(sub.db(), sub.id(), FieldQuery{bname, std::nullopt, std::nullopt, false, false});
           if (old) so.field_id = text(*old, "id");
           else {
             FieldSpec fs;
@@ -401,9 +404,10 @@ Json tile_summaries_write(DatasetWriter& ds, SubjectWriter& sub, const TileMaps&
         const std::vector<std::pair<const char*, const char*>> parts = {{"w", "weight"}, {"s1", "sum"}, {"s2", "sum_square"}, {"n", "count"}, {"min", "min"}, {"max", "max"}};
         Json where = Json{{"selectionId", selection_id}};
         if (!so.field_id.empty()) where["ofFieldId"] = so.field_id; else { where["ofStatisticId"] = so.statistic_id; if (so.index >= 0) where["ofIndex"] = so.index; }
-        const bool have = sub.db().one(std::string("SELECT measure FROM selection_measurement WHERE selection_id = ? AND measure = 'weight' AND ") +
-                                           (so.field_id.empty() ? (so.index >= 0 ? "of_statistic_id = ? AND of_index = ?" : "of_statistic_id = ?") : "of_field_id = ?"),
-                                       so.field_id.empty() ? (so.index >= 0 ? std::vector<Value>{V(selection_id), V(so.statistic_id), V(so.index)} : std::vector<Value>{V(selection_id), V(so.statistic_id)}) : std::vector<Value>{V(selection_id), V(so.field_id)}).has_value();
+        nxr::io::selection::MeasurementFilter weight_rows;
+        weight_rows.measure = "weight";
+        if (so.field_id.empty()) { weight_rows.of_statistic_id = so.statistic_id; if (so.index >= 0) weight_rows.of_index = so.index; } else weight_rows.of_field_id = so.field_id;
+        const bool have = nxr::io::selection::has_measurement(sub.db(), selection_id, weight_rows);
         if (have) {
           if (!opt.replace) invalid(level_name(sname, l) + ": summaries of the map '" + mapname + "' are stored (use --replace)");
           for (const auto& pt : parts) { Json w2 = where; w2["measure"] = pt.second; nxr::io::delete_measurements(sub.db(), w2); }
@@ -460,7 +464,7 @@ Json tile_summaries_write(DatasetWriter& ds, SubjectWriter& sub, const TileMaps&
         }
       }
       p["summaries"] = records;
-      sub.db().execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(p)), V(text(lrow, "id"))});
+      nxr::io::selection::set_params(sub.db(), text(lrow, "id"), p);
       Json one = Json{{"level", l}, {"tiles", nodes}, {"selection", level_name(sname, l)}, {"maps", maps.scalars.size() + maps.vectors.size()}};
       written.push_back(one);
       say(Json{{"stage", "tiles"}, {"stem", maps.stem}, {"level", l}, {"tiles", nodes}});

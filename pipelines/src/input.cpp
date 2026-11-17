@@ -1,4 +1,6 @@
 #include "nxr/pipelines/input.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/subject_reads.h"
 
 #include <cstring>
 #include <numeric>
@@ -37,13 +39,9 @@ std::vector<T> read_as(const nxr::io::Store& store, const std::string& key) {
 }  // namespace
 
 SurfaceInput read_surface(SubjectWriter& sub, const std::optional<std::string>& name, bool as_stored) {
-  const std::string q = "SELECT m.*, g.positions_path AS positions_path FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.status = 'complete' AND " +
-                        std::string(name ? "m.type = 'surface' AND m.name = ?" : "m.is_primary = 1");
-  std::vector<Value> args{V(sub.id())};
-  if (name) args.push_back(V(*name));
-  const auto row = sub.db().one(q, args);
+  const auto row = surface_with_geometry(sub.db(), sub.id(), name);
   if (!row) throw Error(code::no_such_row, sub.name() + ": no " + (name ? "surface named '" + *name + "'" : std::string("primary surface")));
-  const auto faces = sub.db().one("SELECT path FROM topology_cell WHERE topology_id = ? AND rank = 2", {V(text(*row, "topology_id"))});
+  const auto faces = topology_faces_path(sub.db(), text(*row, "topology_id"));
   if (!faces) throw Error(code::no_such_row, text(*row, "name") + ": no faces (a surface's topology has a rank-2 cell array)");
   SurfaceInput s;
   s.manifold = *row;
@@ -57,16 +55,15 @@ SurfaceInput read_surface(SubjectWriter& sub, const std::optional<std::string>& 
     const std::vector<float> p32 = read_as<float>(sub.store(), text(*row, "positions_path"));
     s.vertices.assign(p32.begin(), p32.end());
   }
-  s.faces = read_as<std::int32_t>(sub.store(), text(*faces, "path"));
+  s.faces = read_as<std::int32_t>(sub.store(), *faces);
   return s;
 }
 
 SurfaceInput read_surface(const SubjectPackage& pk, const std::string& name) {
   const std::string sid = text(pk.subject_row(), "id");
-  const auto row = pk.db().one("SELECT m.*, g.positions_path AS positions_path FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.status = 'complete' AND m.type = 'surface' AND m.name = ?",
-                               {V(sid), V(name)});
+  const auto row = surface_with_geometry(pk.db(), sid, name);
   if (!row) throw Error(code::no_such_row, pk.record().name + ": no surface named '" + name + "'");
-  const auto faces = pk.db().one("SELECT path FROM topology_cell WHERE topology_id = ? AND rank = 2", {V(text(*row, "topology_id"))});
+  const auto faces = topology_faces_path(pk.db(), text(*row, "topology_id"));
   if (!faces) throw Error(code::no_such_row, name + ": no faces (a surface's topology has a rank-2 cell array)");
   SurfaceInput s;
   s.manifold = *row;
@@ -74,7 +71,7 @@ SurfaceInput read_surface(const SubjectPackage& pk, const std::string& name) {
   s.name = name;
   s.primary = integer(*row, "is_primary") != 0;
   s.vertices = read_as<double>(pk.store(), text(*row, "positions_path"));
-  s.faces = read_as<std::int32_t>(pk.store(), text(*faces, "path"));
+  s.faces = read_as<std::int32_t>(pk.store(), *faces);
   return s;
 }
 
@@ -96,17 +93,15 @@ int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n) {
 }
 
 std::vector<std::uint8_t> medial_wall(SubjectWriter& sub, const SurfaceInput& s) {
-  const auto dk = sub.db().one("SELECT d.* FROM selection d JOIN selection p ON p.id = d.member_of_id WHERE p.manifold_id = ? AND p.name = ? AND d.name = 'Desikan-Killiany' AND d.status = 'complete'",
-                               {V(s.id), V(s.name + "_atlases")});
-  const auto un = dk && !is_null(*dk, "dictionary_id")
-                      ? sub.db().one("SELECT code FROM dictionary_entry WHERE dictionary_id = ? AND name IN ('unassigned', 'unknown') ORDER BY name", {V(text(*dk, "dictionary_id"))})
-                      : std::nullopt;
+  const auto atlases = nxr::io::selection::named_row(sub.db(), sub.id(), s.name + "_atlases", std::nullopt, s.id);
+  const auto dk = atlases ? nxr::io::selection::member_row(sub.db(), text(*atlases, "id"), "Desikan-Killiany") : std::nullopt;
+  const auto un = dk && !is_null(*dk, "dictionary_id") ? nxr::io::selection::lookup_code_of_any(sub.db(), text(*dk, "dictionary_id"), {"unassigned", "unknown"}) : std::nullopt;
   if (!dk || !un)
     throw Error(code::no_such_row, sub.name() + ": " + s.name + " carries no Desikan-Killiany atlas with its medial wall (" + s.name + "_atlases/Desikan-Killiany, its 'unassigned' code); the hemispheres are glued by anatomy only");
   const std::vector<std::int64_t> codes = read_as<std::int64_t>(sub.store(), text(*dk, "array_path"));
   if (static_cast<std::int64_t>(codes.size()) != s.n_vertices())
     throw Error(code::invalid_argument, s.name + ": its Desikan-Killiany atlas has " + std::to_string(codes.size()) + " values for " + std::to_string(s.n_vertices()) + " vertices");
-  const std::int64_t wall = integer(*un, "code");
+  const std::int64_t wall = *un;
   std::vector<std::uint8_t> out(codes.size());
   for (std::size_t i = 0; i < codes.size(); ++i) out[i] = codes[i] == wall ? 1 : 0;
   return out;
