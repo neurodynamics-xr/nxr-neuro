@@ -85,45 +85,6 @@ WindowRegions windowRegions(const Eigen::MatrixXd& z, const Pairs& tilePairs, co
   return out;
 }
 
-Rollup rollup(const Labels& label, int events, const Eigen::VectorXd& tileArea, const Eigen::VectorXd& samples, const Eigen::MatrixXd* amplitude, const Eigen::MatrixXd* peak) {
-  const Eigen::Index S = label.rows(), T = label.cols();
-  if (tileArea.size() != S || samples.size() != T) throw std::invalid_argument("extent: the areas or the sample counts do not match the labelling");
-  if ((amplitude && (amplitude->rows() != S || amplitude->cols() != T)) || (peak && (peak->rows() != S || peak->cols() != T))) throw std::invalid_argument("extent: a cell measurement does not match the labelling");
-  Rollup r;
-  const Eigen::Index E = events;
-  r.cells = Eigen::VectorXi::Zero(E); r.tiles = Eigen::VectorXi::Zero(E); r.first = Eigen::VectorXi::Constant(E, -1); r.last = Eigen::VectorXi::Constant(E, -1);
-  r.area = Eigen::VectorXd::Zero(E); r.weight = Eigen::VectorXd::Zero(E);
-  r.amplitude = Eigen::VectorXd::Constant(E, amplitude ? 0.0 : kNaN); r.peak = Eigen::VectorXd::Constant(E, kNaN);
-  std::vector<std::vector<char>> seen(static_cast<std::size_t>(E), std::vector<char>(static_cast<std::size_t>(S), 0));
-  for (Eigen::Index f = 0; f < T; ++f)
-    for (Eigen::Index s = 0; s < S; ++s) {
-      const std::int32_t e = label(s, f);
-      if (e < 0) continue;
-      if (e >= events) throw std::invalid_argument("extent: a cell holds event " + std::to_string(e) + " of " + std::to_string(events));
-      ++r.cells(e);
-      if (r.first(e) < 0) r.first(e) = static_cast<int>(f);
-      r.last(e) = static_cast<int>(f);
-      if (!seen[static_cast<std::size_t>(e)][static_cast<std::size_t>(s)]) { seen[static_cast<std::size_t>(e)][static_cast<std::size_t>(s)] = 1; ++r.tiles(e); r.area(e) += tileArea(s); }
-      const double w = tileArea(s) * samples(f);
-      r.weight(e) += w;
-      if (amplitude) r.amplitude(e) += w * (*amplitude)(s, f);
-      if (peak) r.peak(e) = std::isnan(r.peak(e)) ? (*peak)(s, f) : std::max(r.peak(e), (*peak)(s, f));
-    }
-  if (amplitude) for (Eigen::Index e = 0; e < E; ++e) r.amplitude(e) = r.weight(e) > 0 ? r.amplitude(e) / r.weight(e) : kNaN;
-  return r;
-}
-
-Eigen::MatrixXd areaByFrame(const Labels& label, int events, const Eigen::VectorXd& tileArea) {
-  Eigen::MatrixXd a = Eigen::MatrixXd::Constant(events, label.cols(), kNaN);
-  for (Eigen::Index f = 0; f < label.cols(); ++f)
-    for (Eigen::Index s = 0; s < label.rows(); ++s) {
-      const std::int32_t e = label(s, f);
-      if (e < 0) continue;
-      a(e, f) = std::isnan(a(e, f)) ? tileArea(s) : a(e, f) + tileArea(s);
-    }
-  return a;
-}
-
 Eigen::Matrix<std::int32_t, Eigen::Dynamic, Eigen::Dynamic> centres(const Labels& label, int events, const std::vector<std::int32_t>& tileOfVertex, const std::vector<double>& positions,
                                                                    const std::vector<double>& vertexArea, const std::vector<int>& frames) {
   const Eigen::Index T = label.cols();

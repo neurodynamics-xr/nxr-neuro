@@ -8,7 +8,7 @@
 #include <random>
 
 #include "mesh_helpers.h"
-#include "nxr/partition.h"
+#include "measurement_helpers.h"
 #include "nxr/region.h"
 
 using C = std::complex<double>;
@@ -39,7 +39,7 @@ int main() {
   }
   for (int v = 0; v < n; ++v)
     for (int t = 0; t < T; ++t) Z(v, t) = sgn[v] * zR(codes[v], t) + 0.5 * C(nd(rng), nd(rng));
-  const Eigen::MatrixXcd M = nxr::partition::crossSpectrum(Z, T, 1).sum[0] / static_cast<double>(T);   // the vertices' cross-spectrum
+  const Eigen::MatrixXcd M = crossSpectrumTiles(Z, T, 1).sum[0] / static_cast<double>(T);   // the vertices' cross-spectrum
   const auto w = nxr::region::collapse(nxr::region::Collapse::PcaFlip, codes, R, Eigen::MatrixXd::Identity(n, n), M, N);
   const Eigen::MatrixXcd Zr = w.W.cast<C>() * Z;                           // the regions' signals
   int failures = 0;
@@ -58,7 +58,7 @@ int main() {
     worstLag = std::max(worstLag, std::abs(phase));
   }
   // the lags between regions read from the regions' cross-spectrum equal the true ones
-  const Eigen::MatrixXcd Cr = nxr::partition::crossSpectrum(Zr, T, 1).sum[0];
+  const Eigen::MatrixXcd Cr = crossSpectrumTiles(Zr, T, 1).sum[0];
   double worstPair = 0;
   for (int a = 0; a < R; ++a) for (int b = 0; b < R; ++b) worstPair = std::max(worstPair, std::abs(std::remainder(std::arg(Cr(a, b) * expect[a] * expect[b]) - (lagOf[b] - lagOf[a]), 2 * M_PI)));
   double norms = 0;

@@ -64,12 +64,13 @@ Eigen::MatrixXd flat(const Complex& c, const Eigen::MatrixXd& J);
 /** A 1-form [nE x m] → the vertex tangent vectors [3V x m] (least squares over each vertex's edges). */
 Eigen::MatrixXd sharp(const Complex& c, const Eigen::MatrixXd& w);
 
-/** THE EXACT TILE INTEGRALS of a 1-form on the complex (a tile: a code a vertex, < 0 on none, codes in [0, nCodes)): the discrete Stokes and divergence theorems, additive up the tile tree, exact on the complex.
- *  tileFlux: the OUTFLOW of the vector field whose 1-form is u (u = d0 f for ∇f) out of each tile's barycentric region = Σ over its vertices of −(d0ᵀ ⋆1 u)_v (the interior edges cancel); its mean divergence is this over the area.
- *  tileCirculation: the circulation of w round each tile = Σ over faces of (d1 w)_f × (the share of the face's corners in the tile: n/3); a winding number × 2π round a phase defect.
+/** THE POINTWISE FORMS of the exact tile integrals of a 1-form on the complex (the discrete Stokes and divergence theorems, additive up the tile tree). A tile's value is the SUM of these over
+ *  its vertices: the measures `outflow` and `circulation`, `nxr::measurement::reduce` with measure sum over the tile's vertices (a reduction is never a function here).
+ *  vertexOutflow: the OUTFLOW of the vector field whose 1-form is u (u = d0 f for ∇f) out of each vertex's barycentric region = −(d0ᵀ ⋆1 u)_v (the interior edges cancel in a sum over a tile); a tile's mean divergence is its sum over the area.
+ *  vertexCirculation: the circulation of w, each face's (d1 w)_f shared equally among its vertices (n/3 of it to each of the 3), so a tile's sum is Σ over faces of (d1 w)_f × (the share of the face's corners in the tile: n/3); a winding number × 2π round a phase defect.
  *  The extrinsic form for a vertex field (a face-constant tangent vector a face, nxr measure/integrals) is nxr::integrals. */
-Eigen::VectorXd tileFlux(const Complex& c, const Eigen::VectorXd& u, const std::int32_t* codes, int nCodes);
-Eigen::VectorXd tileCirculation(const Complex& c, const Eigen::VectorXd& w, const std::int32_t* codes, int nCodes);
+Eigen::VectorXd vertexOutflow(const Complex& c, const Eigen::VectorXd& u);
+Eigen::VectorXd vertexCirculation(const Complex& c, const Eigen::VectorXd& w);
 
 /** A vertex density [V x m] → a 2-form [nF x m] (area × the mean of the face's vertices); and back (the area-weighted mean of a vertex's faces). */
 Eigen::MatrixXd area2form(const Complex& c, const Eigen::MatrixXd& rho);

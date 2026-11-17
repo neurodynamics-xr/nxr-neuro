@@ -11,12 +11,6 @@
 
 namespace nxr::pyramid {
 
-Bands octaveBands(double fLo, int n) {
-  Bands b;
-  for (int k = 0; k < n; ++k) b.emplace_back(fLo * std::pow(2.0, k), fLo * std::pow(2.0, k + 1));
-  return b;
-}
-
 Shape shapeOf(const std::string& name) {
   if (name == "morlet") return Shape::Morlet;
   if (name == "power_partition") return Shape::PowerPartition;
@@ -73,73 +67,6 @@ Eigen::MatrixXcd analyticBand(const Spectrum& spec, const Eigen::VectorXd& gain)
   return nxr::fft::fftColumns(Y, false);
 }
 
-namespace {
-// the member (frame) of sample i of a line, by binary search of the sorted disjoint [start, stop) intervals of ONE member each (a frame grid resolved on the line); -1 when none holds it
-std::int64_t member_holding(const selection::Intervals& g, std::int64_t i) {
-  const std::int64_t members = g.members();
-  std::int64_t lo = 0, hi = members;
-  while (lo < hi) {                                                    // the first member whose stop is past i
-    const std::int64_t mid = (lo + hi) / 2;
-    if (g.stop[static_cast<std::size_t>(g.offsets[static_cast<std::size_t>(mid)])] <= i) lo = mid + 1; else hi = mid;
-  }
-  if (lo >= members) return -1;
-  const std::size_t at = static_cast<std::size_t>(g.offsets[static_cast<std::size_t>(lo)]);
-  return g.start[at] <= i && i < g.stop[at] ? lo : -1;
-}
-void one_interval_each(const selection::Intervals& g, const char* who) {
-  for (std::int64_t m = 0; m < g.members(); ++m)
-    if (g.offsets[static_cast<std::size_t>(m + 1)] - g.offsets[static_cast<std::size_t>(m)] != 1) throw std::invalid_argument(std::string(who) + ": every frame is one interval of the line (a frame grid)");
-}
-}  // namespace
-
-std::vector<std::int32_t> frameOfSamples(const selection::Intervals& frames, std::int64_t first, std::int64_t n, std::int64_t frame0) {
-  one_interval_each(frames, "frameOfSamples");
-  std::vector<std::int32_t> f(static_cast<std::size_t>(n));
-  for (std::int64_t i = 0; i < n; ++i) {
-    const std::int64_t k = member_holding(frames, first + i) - frame0;
-    if (k < 0) throw std::invalid_argument("frameOfSamples: a sample lies before the first frame");
-    f[static_cast<std::size_t>(i)] = static_cast<std::int32_t>(k);
-  }
-  return f;
-}
-
-void addSampleCounts(const selection::Intervals& frames, std::int64_t first, std::int64_t n, const std::uint8_t* good, std::int64_t frame0, std::vector<std::int64_t>& counts) {
-  one_interval_each(frames, "addSampleCounts");
-  for (std::int64_t i = 0; i < n; ++i) {
-    if (good && !good[i]) continue;
-    const std::int64_t k = member_holding(frames, first + i) - frame0;
-    if (k < 0 || k >= static_cast<std::int64_t>(counts.size())) throw std::invalid_argument("addSampleCounts: a sample lies outside the counts' frames");
-    ++counts[static_cast<std::size_t>(k)];
-  }
-}
-
-void bandSums(partition::AnalyticSums& out, const Eigen::MatrixXd& K, const Eigen::MatrixXcd& A, const std::uint8_t* good, const selection::MemberOfElement& leaves, const double* weights,
-              const std::vector<std::int32_t>& frame_of_sample, std::int64_t block, int threads) {
-  if (K.cols() != A.cols()) throw std::invalid_argument("bandSums: the kernel has " + std::to_string(K.cols()) + " channels, the signal " + std::to_string(A.cols()));
-  if (block < 1) throw std::invalid_argument("bandSums: the block holds at least one sample");
-  if (leaves.size() != K.rows()) throw std::invalid_argument("bandSums: the leaves hold " + std::to_string(leaves.size()) + " elements, the kernel has " + std::to_string(K.rows()) + " rows");
-  if (static_cast<Eigen::Index>(frame_of_sample.size()) != A.rows()) throw std::invalid_argument("bandSums: one frame for each sample of the signal");
-  const std::int32_t* codes = leaves.member_of.data();
-  const std::int32_t* tile = frame_of_sample.data();
-  const Eigen::Index n = A.rows();
-  const std::int64_t pieces = (n + block - 1) / block;
-  threads = std::max(1, threads);
-  struct Held { Eigen::MatrixXd Jr, Ji; };
-  std::vector<Held> held(static_cast<std::size_t>(parallel::slots(threads)));
-  parallel::orderedPieces(pieces, threads,
-    [&](std::int64_t i, int slot) {                                                            // the kernel product of block i (any worker)
-      const Eigen::Index s0 = i * block, w = std::min<Eigen::Index>(block, n - s0);
-      Eigen::MatrixXd Ar = A.middleRows(s0, w).real(), Ai = A.middleRows(s0, w).imag();       // [w x channels]
-      if (good) for (Eigen::Index s = 0; s < w; ++s) if (!good[s0 + s]) { Ar.row(s).setZero(); Ai.row(s).setZero(); }
-      Held& h = held[static_cast<std::size_t>(slot)];
-      h.Jr = K * Ar.transpose(); h.Ji = K * Ai.transpose();                                   // [rows x w]: two real products (K is real)
-    },
-    [&](std::int64_t i, int slot) {                                                            // the sums, folded in block order (the calling thread)
-      const Held& h = held[static_cast<std::size_t>(slot)];
-      partition::analyticSums(out, h.Jr, h.Ji, codes, weights, tile + i * block);
-    });
-}
-
 FrameKernel frameKernel(const Eigen::MatrixXd& K3, const Eigen::MatrixXd& e1, const Eigen::MatrixXd& e2, const Eigen::MatrixXd& n, const std::vector<char>& singular, int threads) {
   const Eigen::Index V = e1.rows();
   if (e1.cols() != 3 || e2.rows() != V || e2.cols() != 3 || n.rows() != V || n.cols() != 3 || static_cast<Eigen::Index>(singular.size()) != V) throw std::invalid_argument("frameKernel: e1, e2, n are [V x 3] and singular [V]");
@@ -166,31 +93,6 @@ FrameKernel frameKernel(const Eigen::MatrixXd& K3, const Eigen::MatrixXd& e1, co
   }
   });
   return out;
-}
-
-void tensorBandSums(partition::TensorSums& out, const FrameKernel& K, const Eigen::MatrixXcd& A, const std::uint8_t* good, const selection::MemberOfElement& leaves, const double* weights, const double* totalWeights,
-                    const std::vector<std::int32_t>& frame_of_sample, std::int64_t block, int threads) {
-  if (K.K1.cols() != A.cols()) throw std::invalid_argument("tensorBandSums: the kernel has " + std::to_string(K.K1.cols()) + " channels, the signal " + std::to_string(A.cols()));
-  if (block < 1) throw std::invalid_argument("tensorBandSums: the block holds at least one sample");
-  if (leaves.size() != K.K1.rows()) throw std::invalid_argument("tensorBandSums: the leaves hold " + std::to_string(leaves.size()) + " elements, the kernel has " + std::to_string(K.K1.rows()) + " sources");
-  if (static_cast<Eigen::Index>(frame_of_sample.size()) != A.rows()) throw std::invalid_argument("tensorBandSums: one frame for each sample of the signal");
-  const std::int32_t* codes = leaves.member_of.data();
-  const std::int32_t* tile = frame_of_sample.data();
-  const Eigen::Index n = A.rows();
-  const std::int64_t pieces = (n + block - 1) / block;
-  threads = std::max(1, threads);
-  struct Held { Eigen::MatrixXd J[6]; };
-  std::vector<Held> held(static_cast<std::size_t>(parallel::slots(threads)));
-  parallel::orderedPieces(pieces, threads,
-    [&](std::int64_t i, int slot) {                                                            // the six products of block i (any worker)
-      const Eigen::Index s0 = i * block, w = std::min<Eigen::Index>(block, n - s0);
-      Eigen::MatrixXd Ar = A.middleRows(s0, w).real(), Ai = A.middleRows(s0, w).imag();
-      if (good) for (Eigen::Index s = 0; s < w; ++s) if (!good[s0 + s]) { Ar.row(s).setZero(); Ai.row(s).setZero(); }
-      const Eigen::MatrixXd Art = Ar.transpose(), Ait = Ai.transpose();
-      Held& h = held[static_cast<std::size_t>(slot)];
-      h.J[0] = K.K1 * Art; h.J[1] = K.K1 * Ait; h.J[2] = K.K2 * Art; h.J[3] = K.K2 * Ait; h.J[4] = K.Kn * Art; h.J[5] = K.Kn * Ait;
-    },
-    [&](std::int64_t i, int slot) { partition::tensorSums(out, held[static_cast<std::size_t>(slot)].J, codes, weights, totalWeights, tile + i * block); });   // folded in block order
 }
 
 }  // namespace nxr::pyramid

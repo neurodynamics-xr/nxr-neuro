@@ -1,6 +1,6 @@
 // nxr::integrals against nxr's measure.integrals (golden: test/golden/integrals_golden.txt, gen_integrals_golden.py; synthetic closed icosphere and folded plane):
 // the face field, the lumped vertex areas, and each tile's flux and circulation per frame to rounding; additive over tiles (a merged labelling's integral is the sum);
-// a closed surface's tiles together have no net outflow; refusals (NaN, wrong size). And the INTRINSIC form (nxr::intrinsic::tileFlux / tileCirculation, the exact tile integrals of a 1-form on the
+// a closed surface's tiles together have no net outflow; refusals (NaN, wrong size). And the INTRINSIC form (nxr::intrinsic::vertexOutflow / vertexCirculation summed over a tile's vertices by nxr::measurement::reduce, the exact tile integrals of a 1-form on the
 // complex): the circulation of a gradient is 0, the flux of d0 f over all the tiles of a closed surface is 0, a parent's flux is the sum of its children's, and for a smooth f it agrees with the extrinsic
 // flux of the sharpened field (nxr::integrals) to a few percent.
 #include <cmath>
@@ -12,7 +12,23 @@
 #include <vector>
 
 #include "nxr/integrals.h"
+#include "nxr/measurement/reduce.h"
 #include "nxr/intrinsic_forms.h"
+
+// a tile's integral is the SUM of the pointwise vertex form over the tile's vertices: the measures `outflow` and `circulation`, `reduce` with measure sum (a negative code is in no tile)
+static Eigen::VectorXd tileSum(const Eigen::VectorXd& vertexForm, const std::int32_t* codes, int nCodes) {
+  nxr::selection::MemberOfElement m;
+  m.member_of.assign(codes, codes + vertexForm.size());
+  m.members = nCodes;
+  std::vector<double> v(vertexForm.data(), vertexForm.data() + vertexForm.size());
+  nxr::measurement::Ingredients g(1, nCodes);
+  nxr::measurement::Request r;
+  r.measures = {"sum"};
+  nxr::measurement::reduce(g, v.data(), 1, static_cast<std::int64_t>(v.size()), m, nullptr, r);
+  Eigen::VectorXd out(nCodes);
+  for (int k = 0; k < nCodes; ++k) out(k) = g.sum[static_cast<std::size_t>(k)];
+  return out;
+}
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
@@ -107,13 +123,13 @@ int main() {
     for (int v = 0; v < c.nV; ++v) f(v) = P[static_cast<std::size_t>(3 * v + 2)] / 0.07 + 0.3 * P[static_cast<std::size_t>(3 * v)] / 0.07;   // a smooth function (degree 1: its Laplacian is -2 f / R^2)
     const Eigen::VectorXd u = cx.d0 * f;                                                      // the 1-form of grad f
     const int nT = 8;
-    const Eigen::VectorXd circ = nxr::intrinsic::tileCirculation(cx, u, codes.data(), nT);
+    const Eigen::VectorXd circ = tileSum(nxr::intrinsic::vertexCirculation(cx, u), codes.data(), nT);
     EXPECT(circ.cwiseAbs().maxCoeff() < 1e-12, "the circulation of a gradient is 0: " << circ.cwiseAbs().maxCoeff());
-    const Eigen::VectorXd fl = nxr::intrinsic::tileFlux(cx, u, codes.data(), nT);
+    const Eigen::VectorXd fl = tileSum(nxr::intrinsic::vertexOutflow(cx, u), codes.data(), nT);
     EXPECT(std::abs(fl.sum()) < 1e-12 * (1 + fl.cwiseAbs().maxCoeff()), "a closed surface has no net outflow: " << fl.sum());
     std::vector<std::int32_t> merged = codes;
     for (auto& x : merged) if (x == 1) x = 0;
-    const Eigen::VectorXd fm = nxr::intrinsic::tileFlux(cx, u, merged.data(), nT);
+    const Eigen::VectorXd fm = tileSum(nxr::intrinsic::vertexOutflow(cx, u), merged.data(), nT);
     EXPECT(std::abs(fm(0) - (fl(0) + fl(1))) < 1e-12 * (1 + std::abs(fm(0))), "a parent's flux is the sum of its children's");
     // against the extrinsic flux of the sharpened gradient (a face-constant tangent field): the same tile integrals up to the representation
     const Eigen::MatrixXd sf = nxr::intrinsic::sharp(cx, u);

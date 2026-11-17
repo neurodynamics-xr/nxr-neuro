@@ -7,9 +7,11 @@
 //   spaceTimePairs                 the joint graph of a window of F time tiles: the level's touching tiles within a time tile, and each tile with itself in the next time tile (detectRegions runs on it unchanged)
 //   standardize                    z = (amplitude − median_s) / SD_s per cell against its spatial tile's baseline; NaN where the tile has no spread (SD not > 0) or the cell has no value
 //   windowRegions                  detectRegions on the window's cells, then the cell-count limit: the events of one burst, numbered by their lowest cell (earliest time tile, then lowest tile)
-//   rollup / areaByFrame           an event's measures from its cells, by exact sums (count, union of tiles, area- and sample-weighted mean, largest peak, first and last time tile)
-//   centres / pathLength           per event and time tile the vertex nearest the area-weighted centroid of its tiles' vertices (nxr::ladder::tileCentres), and the chord length of the centres' path
-// A REDUCTION across cells is these roll-ups over the labelling's members (the labelling is the partition), never a loop inside a chain's node.
+//   (an event's measures from its cells (count, union of tiles, area- and sample-weighted mean, largest peak, area by time tile) are MEASURES: `nxr::measurement::reduce` over the event's cells, `merge` over
+//    its tiles: a reduction across cells is never a function here)
+//   centres / pathLength           per event and time tile the vertex nearest the area-weighted centroid of its tiles' vertices (nxr::ladder::tileCentres), and the chord length of the centres' path (the
+//                                  member's own measure `path_length`: a path, not a sum, so it is read from the centres here)
+// A REDUCTION across cells is a measurement over the labelling's members (the labelling is the partition), never a loop inside a chain's node.
 #include <Eigen/Dense>
 #include <cstdint>
 #include <limits>
@@ -44,18 +46,6 @@ struct WindowRegions {
 /** `z` [S × F] standardized cells (NaN: no value), `tilePairs` of the level, `tileArea` [S], hysteresis enter ≥ exit on z, an event kept when it holds ≥ minCells cells and Σ tile areas of its cells ≥ minArea.
  *  std::invalid_argument as detectRegions, and for sizes that disagree or minCells < 1. */
 WindowRegions windowRegions(const Eigen::MatrixXd& z, const Pairs& tilePairs, const Eigen::VectorXd& tileArea, double enter, double exit, int minCells = 1, double minArea = 0);
-
-struct Rollup {
-  Eigen::VectorXi cells, tiles, first, last;          // [E] the number of cells, of distinct spatial tiles, the first and last time tile (−1 for an event of no cell)
-  Eigen::VectorXd area;                               // Σ areas of the distinct spatial tiles (the union)
-  Eigen::VectorXd weight;                             // Σ tile area × samples over the cells
-  Eigen::VectorXd amplitude;                          // Σ tile area × samples × cell amplitude / weight (NaN with no amplitude given)
-  Eigen::VectorXd peak;                               // the largest cell peak (NaN with none given)
-};
-/** `label` [S × T] (an event's ordinal or −1), E events, `tileArea` [S], `samples` [T] the samples counted a time tile; `amplitude` and `peak` [S × T] when wanted (nullptr: NaN). */
-Rollup rollup(const Labels& label, int events, const Eigen::VectorXd& tileArea, const Eigen::VectorXd& samples, const Eigen::MatrixXd* amplitude, const Eigen::MatrixXd* peak);
-/** [E × T]: Σ tile areas of the event's cells in the time tile, NaN where it has none. */
-Eigen::MatrixXd areaByFrame(const Labels& label, int events, const Eigen::VectorXd& tileArea);
 
 /** [E × T]: the vertex nearest the area-weighted centroid of the vertices of the event's tiles in that time tile (−1 where the event has no cell). `tileOfVertex` [V] (−1: none), `positions` [V × 3] row-major,
  *  `vertexArea` [V]. Only the time tiles in `frames` are visited (empty: all). */

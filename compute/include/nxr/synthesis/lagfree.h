@@ -43,9 +43,6 @@ Eigen::MatrixXd shapedNoiseBlock(const Eigen::VectorXd& taps, std::uint64_t seed
 /** THE MIXED DRAW: mixing [C x C] times `shapedNoiseBlock(taps, seed, C, first, n, scale)` (the reference form; equal to mixing after any linear time step, spec section 4) */
 Eigen::MatrixXd lagfreeBlock(const Eigen::MatrixXd& mixing, const Eigen::VectorXd& taps, std::uint64_t seed, std::int64_t first, std::int64_t n, const Eigen::VectorXd& scale = Eigen::VectorXd());
 
-/** the mean of a [channels x frequencies] spectrum (row-major `values`, `frequencies` columns) over the rows `channels`: the spectrum the surrogate is shaped to (Rheome lagfreenull: the mean over
- *  channels). A channel outside the rows is refused (std::invalid_argument). */
-Eigen::VectorXd channelMeanSpectrum(const std::vector<double>& values, std::int64_t frequencies, const std::vector<std::int32_t>& channels);
 /** the expected mean |z|^2 of unit-variance noise with spectrum `psd` through a band's analytic gain `gain` (both on `freq`): 2 sum psd g^2 / sum psd (trapezoid weights; the analytic signal's power
  *  is twice the band-passed real signal's). No power in the band is refused (std::invalid_argument). */
 double analyticGainPower(const Eigen::VectorXd& freq, const Eigen::VectorXd& psd, const Eigen::VectorXd& gain);

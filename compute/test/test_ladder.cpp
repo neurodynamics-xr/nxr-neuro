@@ -8,12 +8,14 @@
 #include <cmath>
 #include <complex>
 #include <iostream>
+#include <limits>
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include "nxr/chart.h"
 #include "nxr/frames.h"
 #include "nxr/ladder.h"
+#include "nxr/measurement/reduce.h"
 
 using namespace nxr::ladder;
 using Eigen::MatrixXd;
@@ -33,6 +35,70 @@ static double maxDiff(const MatrixXd& a, const MatrixXd& b) {
 static MatrixXd row(const VectorXd& v) { return v.transpose(); }
 template <class T> static MatrixXd rowOf(const std::vector<T>& v) { MatrixXd m(1, static_cast<Eigen::Index>(v.size())); for (size_t k = 0; k < v.size(); ++k) m(0, static_cast<Eigen::Index>(k)) = static_cast<double>(v[k]); return m; }
 static double wrap(double a) { return std::remainder(a, 2 * M_PI); }
+
+// THE TILE SUMMARIES are measures now: `nxr::measurement::reduce` over the tiles' vertices, area-weighted (the arithmetic nxr's measure.scalars.map_stats / measure.vectors.vector_stats and the
+// Levi-Civita resultant had). A vertex whose components are not finite is left out of the tiles (member -1), as the caller of the reduction does.
+namespace ms = nxr::measurement;
+static ms::Ingredients overTiles(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const double* x) {
+    nxr::selection::MemberOfElement m; m.member_of = node; m.members = nodes;
+    ms::Ingredients g(1, nodes);
+    ms::Request r; r.measures = {"sum"}; r.weighting = ms::Weighting::given;
+    ms::reduce(g, x, 1, static_cast<std::int64_t>(node.size()), m, area.data(), r);
+    return g;
+}
+static VectorXd sums(const ms::Ingredients& g) { VectorXd v(g.members); for (int k = 0; k < g.members; ++k) v[k] = g.sum[static_cast<size_t>(k)]; return v; }
+struct ScalarSummary { VectorXd w, s1, s2, n, min, max; };
+static ScalarSummary scalarSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const double* x) {
+    const ms::Ingredients g = overTiles(node, nodes, area, x);
+    ScalarSummary s;
+    s.w.resize(nodes); s.s1.resize(nodes); s.s2.resize(nodes); s.n.resize(nodes); s.min.resize(nodes); s.max.resize(nodes);
+    for (int k = 0; k < nodes; ++k) { const size_t i = static_cast<size_t>(k); s.w[k] = g.weight[i]; s.s1[k] = g.sum[i]; s.s2[k] = g.sum_sq[i]; s.n[k] = static_cast<double>(g.count[i]); s.min[k] = g.min[i]; s.max[k] = g.max[i]; }
+    return s;
+}
+struct FrameSummary { VectorXd w, c1, c2, cn, c11, c22, c12, mag; };
+static FrameSummary frameSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::ladder::Mat3& e1, const nxr::ladder::Mat3& e2, const nxr::ladder::Mat3& normal, const nxr::ladder::Mat3& v) {
+    const size_t n = node.size();
+    std::vector<int32_t> nd = node;
+    std::vector<double> c1(n), c2(n), cn(n), c11(n), c22(n), c12(n), mag(n);
+    for (size_t r = 0; r < n; ++r) {
+        const Eigen::Index i = static_cast<Eigen::Index>(r);
+        c1[r] = v.row(i).dot(e1.row(i)); c2[r] = v.row(i).dot(e2.row(i)); cn[r] = v.row(i).dot(normal.row(i));
+        if (!std::isfinite(c1[r]) || !std::isfinite(c2[r]) || !std::isfinite(cn[r])) nd[r] = -1;
+        c11[r] = c1[r] * c1[r]; c22[r] = c2[r] * c2[r]; c12[r] = c1[r] * c2[r]; mag[r] = std::hypot(c1[r], c2[r]);
+    }
+    FrameSummary f;
+    const ms::Ingredients g1 = overTiles(nd, nodes, area, c1.data());
+    f.w.resize(nodes);
+    for (int k = 0; k < nodes; ++k) f.w[k] = g1.weight[static_cast<size_t>(k)];
+    f.c1 = sums(g1); f.c2 = sums(overTiles(nd, nodes, area, c2.data())); f.cn = sums(overTiles(nd, nodes, area, cn.data()));
+    f.c11 = sums(overTiles(nd, nodes, area, c11.data())); f.c22 = sums(overTiles(nd, nodes, area, c22.data())); f.c12 = sums(overTiles(nd, nodes, area, c12.data())); f.mag = sums(overTiles(nd, nodes, area, mag.data()));
+    return f;
+}
+// a tile's resultant: the sum of the vector map carried to the tile centre (carriedToCentre, pointwise) over the tile's vertices; weight and magnitude as the old resultant returned them
+static Eigen::VectorXcd lcResultant(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::ladder::Mat3& e1, const nxr::ladder::Mat3& e2, const VectorXd& rho, const nxr::ladder::Mat3& v,
+                                    VectorXd* weight = nullptr, VectorXd* magnitude = nullptr) {
+    std::vector<char> finite;
+    const Eigen::VectorXcd z = nxr::ladder::carriedToCentre(e1, e2, rho, v, &finite);
+    std::vector<int32_t> nd = node;
+    std::vector<double> re(node.size()), im(node.size()), mg(node.size());
+    for (size_t r = 0; r < node.size(); ++r) { if (!finite[r]) nd[r] = -1; re[r] = finite[r] ? z[static_cast<Eigen::Index>(r)].real() : 0.0; im[r] = finite[r] ? z[static_cast<Eigen::Index>(r)].imag() : 0.0; mg[r] = finite[r] ? std::abs(z[static_cast<Eigen::Index>(r)]) : 0.0; }
+    const ms::Ingredients gr = overTiles(nd, nodes, area, re.data()), gi = overTiles(nd, nodes, area, im.data()), gm = overTiles(nd, nodes, area, mg.data());
+    Eigen::VectorXcd out(nodes);
+    for (int k = 0; k < nodes; ++k) out[k] = std::complex<double>(gr.sum[static_cast<size_t>(k)], gi.sum[static_cast<size_t>(k)]);
+    if (weight) { weight->resize(nodes); for (int k = 0; k < nodes; ++k) (*weight)[k] = gr.weight[static_cast<size_t>(k)]; }
+    if (magnitude) *magnitude = sums(gm);
+    return out;
+}
+struct VectorSummary { FrameSummary frame; Eigen::VectorXcd transported; VectorXd weight, resultantLength; };
+static VectorSummary vectorSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::ladder::Mat3& e1, const nxr::ladder::Mat3& e2, const nxr::ladder::Mat3& normal, const VectorXd& rho, const nxr::ladder::Mat3& v) {
+    VectorSummary s;
+    s.frame = frameSummary(node, nodes, area, e1, e2, normal, v);
+    VectorXd mg;
+    s.transported = lcResultant(node, nodes, area, e1, e2, rho, v, &s.weight, &mg);
+    s.resultantLength.resize(nodes);
+    for (int k = 0; k < nodes; ++k) s.resultantLength[k] = mg[k] > 0 ? std::abs(s.transported[k]) / mg[k] : std::numeric_limits<double>::quiet_NaN();
+    return s;
+}
 
 static void meshParity(Golden& g) {
     if (g.tok() != "mesh") { std::cout << "  [FAIL] golden: expected mesh\n"; std::exit(1); }

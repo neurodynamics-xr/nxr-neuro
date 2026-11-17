@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "nxr/cores.h"
+#include "measurement_helpers.h"
 #include "nxr/histogram.h"
 
 static int fails = 0;
@@ -88,7 +89,7 @@ int main() {
         const int n = std::min(w, frames - f0);
         std::vector<float> blk(static_cast<std::size_t>(nv) * n);
         for (int v = 0; v < nv; ++v) for (int f = 0; f < n; ++f) blk[static_cast<std::size_t>(v) * n + f] = a[static_cast<std::size_t>(v) * frames + f0 + f];
-        const nxr::histogram::Counts h = nxr::histogram::histogramTiles(blk.data(), static_cast<std::size_t>(nv), static_cast<std::size_t>(n), static_cast<std::size_t>(n), 1, bins);
+        const nxr::histogram::Counts h = histogramTiles(blk.data(), static_cast<std::size_t>(nv), static_cast<std::size_t>(n), static_cast<std::size_t>(n), 1, bins);
         for (int b = 0; b < bins.bins; ++b) total[static_cast<std::size_t>(b)] += h.counts[static_cast<std::size_t>(b)];
       }
       const double t = nxr::histogram::percentile(total, bins, 98);

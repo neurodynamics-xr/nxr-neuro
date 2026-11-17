@@ -39,6 +39,31 @@ int weyl_level(double lambda, double piece_area);
 /** the dyadic level an eigenvalue band sets: weyl_level of its centre (sqrt(lo hi); hi / 2 when lo is 0), at most `depth` (a grid's finest) */
 int space_level_of_band(double lambda_lo, double lambda_hi, double piece_area, int depth);
 
+// ── LEVELS RESOLVED FROM QUANTITIES (spec docs/specs/2026-11-17-consolidation.md, section 3.3) ──────────────────────────────────────────────────────────────────────
+// A parameter is stated as a quantity (a duration, a tile diameter, an area, a wavelength, parts per piece); its level is resolved in closed form and the run records the stated
+// quantity, the level and the SNAPPED quantity (what the level actually is). The cores above (`natural_level`, `time_level_of_band`, `weyl_level`, `cortical_level_of_extent`) stay.
+/** a resolved level and what that level is, in `unit` (std::invalid_argument, with the reason, for a quantity no level can hold) */
+struct LevelOf {
+  int level = 0;
+  double snapped = 0;
+  std::string unit;
+};
+/** a time line's dyadic level from a duration (s): the first k with 2^k samples at least the duration (`natural_level`), held at most `max_level`; snapped = 2^k / sfreq s */
+LevelOf level_of_duration(double seconds, double sfreq, std::optional<int> max_level = std::nullopt);
+/** a surface's dyadic level from a tile diameter: the COARSEST level whose measured mean tile diameter (`tile_diameters[l]`, levels 0 .. depth, in the surface's length unit: the
+ *  level dictionary's `diameter`) is at most `diameter` (rule 16, Rheome's `tileMM`); snapped = that level's diameter, in `unit`. A diameter no level is fine enough for is refused
+ *  with the finest diameter (as `cortical_level_of_extent`). */
+LevelOf level_of_diameter(const std::vector<double>& tile_diameters, double diameter, const std::string& unit);
+/** the same from a tile area: the coarsest level whose mean tile area (`tile_areas[l]`, levels 0 .. depth, in unit^2) is at most `area`; snapped = that area, in unit^2 */
+LevelOf level_of_area(const std::vector<double>& tile_areas, double area, const std::string& unit);
+/** the Weyl level holding a wavelength (the surface's length unit): lambda = (2 pi / w)^2, `weyl_level(lambda, piece_area)`, at most `depth`; snapped = the shortest wavelength the level
+ *  resolves (the upper edge of its Weyl band), in `unit` */
+LevelOf level_of_wavelength(double wavelength, double piece_area, int depth, const std::string& unit);
+/** the same from an eigenvalue (1/unit^2); snapped = the level's shortest wavelength, in `unit` */
+LevelOf level_of_eigenvalue(double lambda, double piece_area, int depth, const std::string& unit);
+/** parts per connected piece: level l = log2(parts), exact powers of two only (else refused, naming the nearest two); at most `depth`; snapped = 2^l parts (unit "parts") */
+LevelOf level_of_parts(double parts, int depth);
+
 /** the Studio's `supportOf` result: the tile of a time grid holding a centre, at the level a support sets */
 struct Support {
   int level = 0;                    // k: tiles of 2^k samples

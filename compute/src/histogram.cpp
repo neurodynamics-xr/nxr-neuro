@@ -36,27 +36,6 @@ double upperEdge(const LogBins& b, int k) {
   return b.lo * std::pow(b.hi / b.lo, static_cast<double>(k) / static_cast<double>(b.bins - 1));
 }
 
-Counts histogramTiles(const float* values, std::size_t rows, std::size_t samples, std::size_t width, std::size_t tiles, const LogBins& b) {
-  if (width < 1) throw std::invalid_argument("histogram: a tile holds at least one sample");
-  if (b.bins < 2 || !(b.hi > b.lo && b.lo > 0)) throw std::invalid_argument("histogram: bins not set (logBinsFor)");
-  Counts c;
-  c.tiles = static_cast<int>(tiles);
-  c.bins = b.bins;
-  c.counts.assign(tiles * static_cast<std::size_t>(b.bins), 0);
-  c.negative.assign(tiles, 0);
-  c.nonfinite.assign(tiles, 0);
-  for (std::size_t r = 0; r < rows; ++r)
-    for (std::size_t t = 0; t < samples; ++t) {
-      const std::size_t tile = t / width;
-      if (tile >= tiles) break;
-      const float v = values[r * samples + t];
-      if (!std::isfinite(v)) { ++c.nonfinite[tile]; continue; }
-      if (v < 0) { ++c.negative[tile]; continue; }
-      ++c.counts[tile * static_cast<std::size_t>(b.bins) + static_cast<std::size_t>(binOf(b, v))];
-    }
-  return c;
-}
-
 std::vector<std::int64_t> sumTiles(const Counts& c, int first, int last) {
   if (first < 0 || last >= c.tiles || last < first) throw std::invalid_argument("histogram: tiles " + std::to_string(first) + " to " + std::to_string(last) + " of " + std::to_string(c.tiles));
   std::vector<std::int64_t> s(static_cast<std::size_t>(c.bins), 0);

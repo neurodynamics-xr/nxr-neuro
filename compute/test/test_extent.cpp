@@ -1,11 +1,12 @@
 // nxr::extent on synthetic cells only: the cell code round-trips for every (tile, time tile) of several layouts (a power of two and not), refuses a frame beyond the layout and a gap code; the joint graph's
 // edge count; standardize against a per-tile baseline (a tile with no spread left out); windowRegions on a path of tiles: an episode that moves one tile per time tile is ONE event (connected through the
-// time links), a static one elsewhere another, min cells and min area drop them, a NaN cell breaks one; the roll-ups (cells, tiles, the union area, the weighted mean, the peak, first and last time tile),
+// time links), a static one elsewhere another, min cells and min area drop them, a NaN cell breaks one; the event measures (nxr::measurement::reduce over an event's cells: cells, the union area, the weighted mean, the peak),
 // the area per time tile, the centres per time tile and the path length against direct.
 #include <cmath>
 #include <iostream>
 
 #include "nxr/extent.h"
+#include "nxr/measurement/reduce.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
@@ -92,15 +93,52 @@ int main() {
   for (std::size_t n = 0; n < W2.label.size(); ++n) lab(static_cast<Eigen::Index>(n % S), static_cast<Eigen::Index>(n / S)) = W2.label[n];
   const Eigen::VectorXd samples = Eigen::VectorXd::Constant(F, 100.0);
   Eigen::MatrixXd pk = a2.array() + 0.5;
-  const Rollup R = rollup(lab, 2, area, samples, &a2, &pk);
-  double wsum = 0, asum = 0, amax = -1;
-  for (int f = 0; f < F; ++f) for (int s = 0; s < S; ++s) if (lab(s, f) == 0) { wsum += area(s) * 100.0; asum += area(s) * 100.0 * a2(s, f); amax = std::max(amax, pk(s, f)); }
-  EXPECT(R.cells(0) == 6 && R.tiles(0) == 4 && R.first(0) == 1 && R.last(0) == 3, "event 0: 6 cells on 4 distinct tiles, time tiles 1 … 3");
-  EXPECT(std::abs(R.area(0) - (2.0 + 3.0 + 2.0 + 2.0)) < 1e-12, "the union area is the area of the distinct tiles (tile 1 counted once)");
-  EXPECT(std::abs(R.amplitude(0) - asum / wsum) < 1e-12 && std::abs(R.weight(0) - wsum) < 1e-9 && std::abs(R.peak(0) - amax) < 1e-12, "the amplitude is the area- and sample-weighted mean of the cells; the peak the largest cell peak");
-  EXPECT(R.cells(1) == 2 && R.tiles(1) == 1 && R.first(1) == 5 && R.last(1) == 6 && std::abs(R.area(1) - 2.0) < 1e-12, "event 1 (static): 2 cells, one tile, time tiles 5 … 6, area of one tile");
-  const Eigen::MatrixXd ab = areaByFrame(lab, 2, area);
-  EXPECT(std::abs(ab(0, 2) - 5.0) < 1e-12 && std::abs(ab(0, 1) - 2.0) < 1e-12 && std::isnan(ab(0, 0)) && std::isnan(ab(0, 4)) && std::abs(ab(1, 5) - 2.0) < 1e-12, "the area per time tile sums its cells' tile areas (NaN with none)");
+  {   // THE EVENT MEASURES: reductions over the event's cells (the labelling is the partition): the cells' node numbers are the elements, the events the members
+    namespace ms = nxr::measurement;
+    const int cellsN = S * F;
+    nxr::selection::Elements byEvent;
+    byEvent.size = cellsN;
+    for (int e = 0; e < 2; ++e) {
+      for (int f = 0; f < F; ++f) for (int s = 0; s < S; ++s) if (lab(s, f) == e) byEvent.elements.push_back(static_cast<std::int64_t>(f) * S + s);
+      byEvent.offsets.push_back(static_cast<std::int64_t>(byEvent.elements.size()));
+    }
+    std::vector<double> amp(static_cast<std::size_t>(cellsN)), peak(static_cast<std::size_t>(cellsN)), wgt(static_cast<std::size_t>(cellsN));
+    for (int f = 0; f < F; ++f) for (int s = 0; s < S; ++s) { const std::size_t n = static_cast<std::size_t>(f) * S + s; amp[n] = a2(s, f); peak[n] = pk(s, f); wgt[n] = area(s) * samples(f); }
+    ms::Ingredients means(1, 2), peaks(1, 2);
+    ms::Request weighted; weighted.measures = {"mean"}; weighted.weighting = ms::Weighting::given;
+    ms::Request plain; plain.measures = {"max"};
+    ms::reduce(means, amp.data(), 1, cellsN, byEvent, wgt.data(), weighted);
+    ms::reduce(peaks, peak.data(), 1, cellsN, byEvent, nullptr, plain);
+    double wsum = 0, asum = 0, amax = -1;
+    for (int f = 0; f < F; ++f) for (int s = 0; s < S; ++s) if (lab(s, f) == 0) { wsum += area(s) * 100.0; asum += area(s) * 100.0 * a2(s, f); amax = std::max(amax, pk(s, f)); }
+    EXPECT(means.count[0] == 6 && means.count[1] == 2, "event 0: 6 cells; event 1 (static): 2 cells");
+    EXPECT(std::abs(ms::value(means, 0, 0, "mean") - asum / wsum) < 1e-12 && std::abs(means.weight[0] - wsum) < 1e-9 && std::abs(ms::value(peaks, 0, 0, "max") - amax) < 1e-12, "the amplitude is the area- and sample-weighted mean of the cells; the peak the largest");
+    // the union area: the distinct spatial tiles of an event, each counted once (the member's own measure `area` over the event's tiles)
+    nxr::selection::Elements tilesOf;
+    tilesOf.size = S;
+    for (int e = 0; e < 2; ++e) {
+      for (int s = 0; s < S; ++s) { bool any = false; for (int f = 0; f < F; ++f) any = any || lab(s, f) == e; if (any) tilesOf.elements.push_back(s); }
+      tilesOf.offsets.push_back(static_cast<std::int64_t>(tilesOf.elements.size()));
+    }
+    ms::Ingredients uni(1, 2);
+    ms::Request geo; geo.measures = {"area"}; geo.weighting = ms::Weighting::given;
+    ms::reduce(uni, static_cast<const double*>(nullptr), 1, S, tilesOf, area.data(), geo);
+    EXPECT(uni.count[0] == 4 && std::abs(ms::value(uni, 0, 0, "area") - (2.0 + 3.0 + 2.0 + 2.0)) < 1e-12, "event 0: the union area is the area of its 4 distinct tiles (tile 1 counted once)");
+    EXPECT(uni.count[1] == 1 && std::abs(ms::value(uni, 0, 1, "area") - 2.0) < 1e-12, "event 1: one tile, the area of one tile");
+    // the area per time tile: the cells of (event, time tile) as members, the tile areas as weights
+    nxr::selection::Elements byFrame;
+    byFrame.size = cellsN;
+    for (int e = 0; e < 2; ++e) for (int f = 0; f < F; ++f) {
+      for (int s = 0; s < S; ++s) if (lab(s, f) == e) byFrame.elements.push_back(static_cast<std::int64_t>(f) * S + s);
+      byFrame.offsets.push_back(static_cast<std::int64_t>(byFrame.elements.size()));
+    }
+    std::vector<double> ta(static_cast<std::size_t>(cellsN));
+    for (int f = 0; f < F; ++f) for (int s = 0; s < S; ++s) ta[static_cast<std::size_t>(f) * S + s] = area(s);
+    ms::Ingredients ab(1, 2 * F);
+    ms::reduce(ab, static_cast<const double*>(nullptr), 1, cellsN, byFrame, ta.data(), geo);
+    EXPECT(std::abs(ms::value(ab, 0, 0 * F + 2, "area") - 5.0) < 1e-12 && std::abs(ms::value(ab, 0, 0 * F + 1, "area") - 2.0) < 1e-12 && ab.count[0 * F + 0] == 0 && ab.count[0 * F + 4] == 0 && std::abs(ms::value(ab, 0, 1 * F + 5, "area") - 2.0) < 1e-12,
+           "the area per time tile sums its cells' tile areas; a time tile with no cell of the event holds none");
+  }
   // a line mesh: vertex v of tile v at x = 10 v (the unit is whatever the positions carry); one vertex per tile of area 1
   std::vector<std::int32_t> tileOfVertex(S);
   std::vector<double> pos(static_cast<std::size_t>(S) * 3, 0.0), varea(S, 1.0);

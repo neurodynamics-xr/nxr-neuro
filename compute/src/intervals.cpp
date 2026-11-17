@@ -82,33 +82,6 @@ double mad(const Eigen::Ref<const Eigen::VectorXd>& x) {
   return 1.4826 * median((x.array() - m).abs().matrix());
 }
 
-EventValues rollupEvents(const Eigen::MatrixXd& tiles, const Eigen::VectorXd& counts, const std::vector<TileEvent>& events, const std::string& reduction) {
-  if (reduction != "mean" && reduction != "max") throw std::invalid_argument("rollupEvents: the reduction is mean or max, not '" + reduction + "'");
-  if (counts.size() != tiles.cols()) throw std::invalid_argument("rollupEvents: one count per tile");
-  const double nan = std::numeric_limits<double>::quiet_NaN();
-  EventValues out;
-  out.value = Eigen::MatrixXd::Constant(tiles.rows(), static_cast<Eigen::Index>(events.size()), nan);
-  out.count = Eigen::VectorXd::Zero(static_cast<Eigen::Index>(events.size()));
-  for (std::size_t e = 0; e < events.size(); ++e) {
-    const TileEvent& ev = events[e];
-    if (ev.first < 0 || ev.stop > tiles.cols() || ev.stop <= ev.first || ev.row >= tiles.rows()) throw std::invalid_argument("rollupEvents: event " + std::to_string(e) + " lies outside the tiles");
-    for (std::int64_t t = ev.first; t < ev.stop; ++t) out.count(static_cast<Eigen::Index>(e)) += counts(t);
-    for (Eigen::Index r = 0; r < tiles.rows(); ++r) {
-      if (ev.row >= 0 && r != ev.row) continue;
-      double acc = 0, w = 0, mx = -std::numeric_limits<double>::infinity();
-      bool ok = true;
-      for (std::int64_t t = ev.first; t < ev.stop && ok; ++t) {
-        const double v = tiles(r, t);
-        if (!std::isfinite(v)) { ok = false; break; }
-        acc += v * counts(t); w += counts(t); mx = std::max(mx, v);
-      }
-      if (!ok) continue;
-      out.value(r, static_cast<Eigen::Index>(e)) = reduction == "max" ? mx : (w > 0 ? acc / w : nan);
-    }
-  }
-  return out;
-}
-
 std::vector<double> eventDurations(const std::vector<TileEvent>& events, double width) {
   std::vector<double> d;
   for (const auto& e : events) d.push_back(static_cast<double>(e.stop - e.first) * width);

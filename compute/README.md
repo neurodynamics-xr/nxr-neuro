@@ -46,6 +46,13 @@ producing identical numerics regardless of host language.
   convenience overloads — the same solvers work on cotangent
   Laplacians + mass (mesh case) or graph Laplacians +
   node-weight diagonals (graph signal processing case).
+- **One measurement module** (`nxr::measurement`) — the four operations over a
+  selection's members: `reduce` (a field over any selection's members, block by block),
+  `roll_up` and `merge` (through a grid's closed-form hierarchy, across subjects),
+  `summarize` (members to a statistic) and `estimate` (a mean over a family of
+  segments, a histogram). Each measure's merge rule is data in the measures registry.
+  Selections are made from quantities (`nxr::quantity`: a number with a unit in a named
+  chart), band sets from `selection/bands.h`, time grids by one rule (`time_rule`).
 - **Cancellation + progress contracts** per long-running call (atomic
   flag bridge usable from JS, MATLAB, WASM, and CLI).
 

@@ -10,8 +10,7 @@
 //   keepSpans     spans whose length is in [minLength, maxLength] kept — nxr: bursts of at least 3 cycles; spindles 0.5–3 s
 //   halfWaves     the negative half-waves: from a downward zero crossing to the next upward one, with the trough's sample and value, kept by length —
 //                 nxr sleep_events.detect_slow_waves (0.25–1.0 s); the depth threshold is the caller's (a percentile of the troughs)
-//   rollupEvents  a measurement of tiles rolled up over the tiles of each event, by the measure's reduction (mean: the count-weighted mean of the tile
-//                 means; max: the max of the tile maxima): the exact value over the union of the tiles, as the lookup merges members
+//   (a measurement of tiles over the tiles of each event is `nxr::measurement::merge` / `roll_values` over the event's groups of tiles, by the measure's merge rule)
 //   eventDurations, eventIntervalNext   the events' own geometry in seconds: stop - start, and the next event's start sharing a row minus this stop
 //   median, mad   the median, and the robust SD 1.4826 · median |x − median| (nxr spindle_envelope's baseline)
 #include <cstdint>
@@ -36,15 +35,8 @@ std::vector<Span> halfWaves(const Eigen::Ref<const Eigen::VectorXd>& x, std::int
 double median(const Eigen::Ref<const Eigen::VectorXd>& x);
 double mad(const Eigen::Ref<const Eigen::VectorXd>& x);
 
-// An event as a run of tiles [first, stop) of a tile level, found on `row` (-1: the mean over the rows, so on every row).
+// An event as a run of tiles [first, stop) of a tile level, found on `row` (-1: the mean over the rows, so on every row). The tiles of an event are the group of members it merges.
 struct TileEvent { std::int64_t first = 0, stop = 0, row = -1; };
-struct EventValues {
-  Eigen::MatrixXd value;     // [rows x events]: the event's value on the rows it belongs to (its row, or all for row -1), NaN elsewhere
-  Eigen::VectorXd count;     // [events]: the samples over the event's tiles (the sum of their counts)
-};
-/** `tiles` [rows x tiles] a measurement per tile (NaN: a tile not whole and good), `counts` [tiles] its samples, `reduction` "mean" or "max" (the registry's).
- *  An event holding a NaN tile on a row is NaN on that row. std::invalid_argument for another reduction or an event outside the tiles. */
-EventValues rollupEvents(const Eigen::MatrixXd& tiles, const Eigen::VectorXd& counts, const std::vector<TileEvent>& events, const std::string& reduction);
 /** the events' durations: (stop - first) * width, in the unit of `width` */
 std::vector<double> eventDurations(const std::vector<TileEvent>& events, double width);
 /** per event, the start of the next event that shares its row (any row for an event of row -1) minus its own stop, times `width`; NaN for the last */

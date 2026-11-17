@@ -12,6 +12,9 @@
 // and the ONE-SIDED spectrum doubles every bin but DC (and, for an even n, Nyquist): P_k *= 2, k = 1 .. ceil(n/2) - 1.
 // Frequencies are k * fs / n, k = 0 .. n/2.
 //
+// ONE ACCUMULATION: the estimate is the mean over the family of segments of a per-segment quantity, `nxr::measurement::SegmentMean` (estimate.h, spec docs/specs/2026-11-17-consolidation.md);
+// the per-segment quantities (detrend, window, FFT, |X|^2, X X^H, |A X|^2) are the pointwise transforms.
+//
 // STREAMING. `Welch::add(chunk)` takes [channels x samples] blocks of any size. The samples left over at the end of a chunk (the start of the next segment) are
 // CARRIED into the next chunk, so segments cross chunk edges and the result does not depend on how the record was cut: segments are taken in the same order and
 // summed in the same order, so the result is identical to the last bit for any chunk size. Memory: the carried samples (< n + hop) plus one chunk and one segment,
@@ -29,6 +32,8 @@
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "nxr/measurement/estimate.h"
 
 namespace nxr::welch {
 
@@ -104,8 +109,8 @@ private:
     Eigen::MatrixXd buf_;                     // [channels x carried]: samples from the next unprocessed segment's start on
     std::vector<std::uint8_t> bufGood_;
     std::size_t carried_ = 0;
-    Eigen::MatrixXd sum_;                     // [channels x bins]: the sum of |X|^2 (before scaling and doubling)
-    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
+    measurement::SegmentMean mean_;           // [channels x bins]: the mean over the segments of |X|^2 (before scaling and doubling), `estimate`'s one accumulation (its sum is what the scaling multiplies)
+    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0, dropped_ = 0;   // dropped_: samples consumed from the stream's start (a segment's number is its start / hop)
 };
 
 /** A run of bins first..last (inclusive) of the one-sided spectrum, and whether its value is their mean (a band: Brainstorm's "Group in frequency bands") or their sum (a total). */
@@ -144,9 +149,9 @@ private:
     Eigen::MatrixXd buf_;
     std::vector<std::uint8_t> bufGood_;
     std::size_t carried_ = 0;
-    std::vector<Eigen::MatrixXd> sum_, sumIm_;
+    std::vector<measurement::SegmentMean> mean_;   // per group: Re (the cross-spectral density) and, with the quadrature, Im in the imaginary part
     bool quadrature_ = false;
-    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
+    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0, dropped_ = 0;
 };
 
 struct LinearWelchResult {
@@ -179,8 +184,9 @@ private:
     Eigen::MatrixXd buf_;
     std::vector<std::uint8_t> bufGood_;
     std::size_t carried_ = 0;
-    Eigen::MatrixXd sum_;                     // [outputs x bins kept]: the sum over the segments of |A X|^2 (the one-sided doubling in it; the scaling is applied at result)
-    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
+    measurement::SegmentMean mean_;           // [outputs x bins kept]: the mean over the segments of |A X|^2 (the one-sided doubling in it; the scaling is applied at result)
+    Eigen::Index outputs_ = 0;
+    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0, dropped_ = 0;
 };
 
 struct ComplexWelchResult {
@@ -211,8 +217,8 @@ private:
     Eigen::MatrixXcd buf_;
     std::vector<std::uint8_t> bufGood_;
     std::size_t carried_ = 0;
-    Eigen::MatrixXd sum_;                     // [series x n]: the sum of |X|^2 in the DFT's own order (0, 1, ..., -1)
-    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
+    measurement::SegmentMean mean_;           // [series x n]: the mean of |X|^2 in the DFT's own order (0, 1, ..., -1)
+    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0, dropped_ = 0;
 };
 
 /** The whole complex series in one call. */
