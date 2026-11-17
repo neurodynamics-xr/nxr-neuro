@@ -13,6 +13,7 @@
 #include <cmath>
 #include <complex>
 #include <optional>
+#include <set>
 
 #include <Eigen/Dense>
 
@@ -673,11 +674,172 @@ ng::NodeSpec welch_source_tensor() {
   };
   return n;
 }
+
+// ── welch.cross_spectrum ────────────────────────────────────────────────────────────────────────────────────────
+// THE SENSOR CROSS-SPECTRUM PER BAND (the hand-wired `crossspectrum` it replaces): C[a, b] = <X_a conj(X_b)> over the segments, the mean over the band's bins, on the channels of
+// an operator (channels_of: a kernel's) or the good channels of the imaging types. One statistic, band x channel x channel (complex); with resolve bins also every bin of each
+// band, frequency x channel x channel, its frequency axis naming each band's bins (the band statistic is the mean of them).
+struct CrossPrepared {
+  Resolved r;
+  std::vector<std::int32_t> channels;
+  std::vector<nw::BinGroup> groups;
+  std::size_t band_groups = 0;
+  Json bands = Json::array();
+  bool bins = false;
+  std::string unit;
+};
+
+std::vector<std::int32_t> picked_channels(const ng::PortType& x, const ng::Arrays& constants, const Json& p, const char* who) {
+  if (const auto it = constants.find("channels_of"); it != constants.end() && !it->second.meta.value("placeholder", false))
+    return it->second.meta.value("channels", std::vector<std::int32_t>());
+  if (!x.facts.contains("channels")) ng::refuse(std::string(who) + ": the recording's channels (types, quality) were not handed over");
+  const Json& c = x.facts["channels"];
+  std::set<std::string> want;
+  for (const auto& t : p.value("channel_types", Json::array())) want.insert(t.get<std::string>());
+  std::vector<std::int32_t> out;
+  for (std::size_t i = 0; i < c["types"].size(); ++i)
+    if ((want.empty() || want.count(c["types"][i].get<std::string>())) && (i >= c["quality"].size() || c["quality"][i].get<std::string>() == "good")) out.push_back(static_cast<std::int32_t>(i));
+  if (out.empty()) ng::refuse(std::string(who) + ": no good channel of the types asked");
+  return out;
+}
+
+ng::NodeSpec welch_cross_spectrum() {
+  ng::NodeSpec n;
+  n.name = "welch.cross_spectrum";
+  n.kind = ng::Kind::accumulate;
+  n.inputs = {{"x", "the recording: channels x samples (streamed); its channels' types and quality are the port's facts", false},
+              {"channels_of", "an operator whose channels (its from_selection) are the ones covered, in order (a kernel's); absent: the good channels of channel_types", true},
+              {"exclude", "the recording's bad segments (spans): a segment touching one is left out when bad_segments is exclude", true}};
+  n.outputs = {{"channels", "the channels covered, in order (indices of the recording's channels)", false},
+               {"spectrum", "the cross-spectrum per band, band x channel x channel (complex), a statistic over the segment partition", false},
+               {"bins", "resolve bins: every bin of each band, frequency x channel x channel (complex)", true}};
+  n.parameters = welch_parameters();
+  n.parameters.push_back({"bands", Json::array(), "the bands: a list of {name, lo, hi} in Hz (a band holds the bins from lo to hi inclusive)", "Hz", {}, false});
+  n.parameters.push_back({"channel_types", Json::array({"MEG", "MEG MAG", "MEG GRAD", "EEG", "SEEG", "ECOG"}), "the channel types covered when channels_of is absent (good channels only)", "-", {}, false});
+  n.parameters.push_back({"resolve", Json("band"), "band = each band one member (its bins averaged) | bins = also every bin of each band", "-", {"band", "bins"}, false});
+  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "segments are carried across blocks; the cross-spectra are accumulated in double");
+  n.matches = "MNE csd_array_fourier / scipy.signal.csd (Welch, averaged over the band's bins); meeg nxr::welch::CrossWelch";
+  n.description = "the sensor cross-spectral density per band (Welch), on a kernel's channels or the good imaging channels";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    const ng::PortType& x = streamed_real(in, "x", "welch.cross_spectrum");
+    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("welch.cross_spectrum: at least one band");
+    const Resolved r = resolve(p, *x.sfreq);
+    ng::Planned out;
+    out.out["channels"] = ng::PortType{};
+    out.out["channels"].cls = ng::PortClass::constant; out.out["channels"].facts["cls"] = "selection";
+    out.out["spectrum"] = statistic_port();
+    out.out["bins"] = statistic_port();
+    out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    return out;
+  };
+  n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) {
+    CrossPrepared pr;
+    const ng::PortType& x = in.at("x");
+    pr.r = resolve(p, *x.sfreq);
+    pr.channels = picked_channels(x, constants, p, "welch.cross_spectrum");
+    pr.unit = x.unit.empty() ? std::string("channel unit") : x.unit;
+    const std::size_t nbins = pr.r.wo.segmentSamples / 2 + 1;
+    const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
+    for (const auto& b : p["bands"]) {
+      const std::string name = b.value("name", std::string());
+      const double lo = b.value("lo", b.value("lo_hz", 0.0)), hi = b.value("hi", b.value("hi_hz", 0.0));
+      if (!(hi >= lo)) ng::refuse("welch.cross_spectrum: band " + name + " has hi < lo");
+      const double first = std::ceil(lo / df - 1e-9), last = std::floor(hi / df + 1e-9);
+      if (first > last || last < 0 || first >= static_cast<double>(nbins)) ng::refuse("welch.cross_spectrum: band " + name + " holds no frequency bin at " + std::to_string(df) + " Hz resolution");
+      pr.groups.push_back({static_cast<std::size_t>(first), static_cast<std::size_t>(std::min(last, static_cast<double>(nbins - 1))), true});
+      pr.bands.push_back(Json{{"name", name}, {"lo_hz", lo}, {"hi_hz", hi}, {"bins", Json::array({pr.groups.back().first, pr.groups.back().last})}, {"function", "mean"}});
+    }
+    pr.band_groups = pr.groups.size();
+    pr.bins = p.value("resolve", std::string("band")) == "bins";
+    if (pr.bins) for (std::size_t b = 0; b < pr.band_groups; ++b) for (std::size_t k = pr.groups[b].first; k <= pr.groups[b].last; ++k) pr.groups.push_back({k, k, true});
+    try { nw::CrossWelch probe(1, pr.r.wo, pr.groups, true); } catch (const std::invalid_argument& e) { ng::refuse(e.what()); }
+    return std::any(std::move(pr));
+  };
+  n.start = [](const std::any&) { return std::any(SourceBandState{}); };
+  n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
+    const CrossPrepared& pr = std::any_cast<const CrossPrepared&>(prepared);
+    SourceBandState& s = std::any_cast<SourceBandState&>(state);
+    const ng::Block& b = in.at("x");
+    const Eigen::MatrixXd all = own_real(b);
+    Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
+    for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
+    if (s.first < 0) s.first = at.first;
+    if (!s.w) s.w.emplace(static_cast<int>(pr.channels.size()), pr.r.wo, pr.groups, true);
+    if (!pr.r.exclude || all_good(at)) s.w->add(chunk); else s.w->add(chunk, *at.good);
+    s.samples += b.own();
+    if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
+    return std::make_pair(ng::Blocks{}, std::move(state));
+  };
+  n.finish = [](const std::any& prepared, std::any state) {
+    const CrossPrepared& pr = std::any_cast<const CrossPrepared&>(prepared);
+    const SourceBandState& s = std::any_cast<const SourceBandState&>(state);
+    if (!s.w) ng::refuse("welch.cross_spectrum: no sample was read");
+    const nw::CrossWelchResult cw = s.w->result();
+    if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
+    const std::int64_t M = static_cast<std::int64_t>(pr.channels.size()), B = static_cast<std::int64_t>(pr.band_groups);
+    const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
+    const bool density = pr.r.wo.scaling == nw::Scaling::Density;
+    const std::string sq = pr.unit + kSq;
+    const Json unit = density ? Json(sq + "/Hz") : Json(sq);
+    Json o = options_of(pr.r);
+    o["resolve"] = pr.bins ? "bins" : "band";
+    const Json producer = producer_of(pr.r, cw.segments, cw.segmentsSkipped, s.samples, s.bad, df, welch_scaling_record(pr.r.wo, df, sq));
+    const Json tiling = tiling_of(pr.r.wo, s.first, s.samples, cw.segments, cw.segmentsSkipped);
+    ng::Array ch;
+    ch.rows = M; ch.cols = 1;
+    for (const auto c : pr.channels) ch.data.push_back(c);
+    ch.meta["describe"] = Json{{"description", "the " + std::to_string(M) + " channels the cross-spectrum covers, in order"}};
+    auto fill = [&](ng::Array& a, std::size_t g0, std::int64_t G) {
+      a.rows = G; a.cols = M * M * 2;
+      a.data.resize(static_cast<std::size_t>(G * M * M * 2));
+      for (std::int64_t g = 0; g < G; ++g)
+        for (std::int64_t i = 0; i < M; ++i)
+          for (std::int64_t j = 0; j < M; ++j) {
+            const std::size_t at = static_cast<std::size_t>(((g * M + i) * M + j) * 2);
+            a.data[at] = cw.S[g0 + static_cast<std::size_t>(g)](i, j);
+            a.data[at + 1] = cw.Sq[g0 + static_cast<std::size_t>(g)](i, j);
+          }
+    };
+    Json entries = pr.bands;
+    for (std::int64_t b = 0; b < B; ++b)
+      entries[static_cast<std::size_t>(b)]["spectral_scaling"] = welch_scaling_record(pr.r.wo, static_cast<double>(pr.groups[b].last - pr.groups[b].first + 1) * df, sq);
+    ng::Array S;
+    fill(S, 0, B);
+    S.meta["describe"] = Json{{"measure", density ? "cross_spectral_density" : "cross_spectrum"}, {"method", "welch"}, {"label", "welch"}, {"precision", "float64"}, {"value_type", "complex"},
+                              {"shape", Json::array({B, M, M, 2})}, {"unit", unit},
+                              {"axes", Json::array({Json{{"name", "band"}, {"size", B}, {"values", entries}}, Json{{"name", "channel"}, {"size", M}}, Json{{"name", "channel"}, {"size", M}}})},
+                              {"tiling", tiling}, {"n_members", cw.segments}, {"members_skipped", cw.segmentsSkipped}, {"producer", producer}, {"options", o}, {"bad_samples", s.bad},
+                              {"description", "the sensor cross-spectral density per band on " + std::to_string(M) + " channels (the mean over each band's bins)"}};
+    ng::Arrays out{{"channels", std::move(ch)}, {"spectrum", std::move(S)}};
+    if (pr.bins) {
+      const std::int64_t F = static_cast<std::int64_t>(pr.groups.size() - pr.band_groups);
+      Json hz = Json::array(), spans = Json::array();
+      std::int64_t first = 0;
+      for (std::int64_t b = 0; b < B; ++b) {
+        const std::int64_t count = static_cast<std::int64_t>(pr.groups[b].last - pr.groups[b].first + 1);
+        for (std::size_t k = pr.groups[b].first; k <= pr.groups[b].last; ++k) hz.push_back(static_cast<double>(k) * df);
+        spans.push_back(Json{{"name", pr.bands[b]["name"]}, {"lo_hz", pr.bands[b]["lo_hz"]}, {"hi_hz", pr.bands[b]["hi_hz"]}, {"first", first}, {"count", count}});
+        first += count;
+      }
+      ng::Array Bn;
+      fill(Bn, pr.band_groups, F);
+      Json ob = o; ob["band_function"] = "none";
+      Bn.meta["describe"] = Json{{"measure", density ? "cross_spectral_density" : "cross_spectrum"}, {"method", "welch"}, {"label", "welch"}, {"precision", "float64"}, {"value_type", "complex"},
+                                 {"shape", Json::array({F, M, M, 2})}, {"unit", unit}, {"scaling", welch_scaling_record(pr.r.wo, df, sq)},
+                                 {"axes", Json::array({Json{{"name", "frequency"}, {"size", F}, {"unit", "Hz"}, {"values", hz}, {"bands", spans}}, Json{{"name", "channel"}, {"size", M}}, Json{{"name", "channel"}, {"size", M}}})},
+                                 {"tiling", tiling}, {"n_members", cw.segments}, {"members_skipped", cw.segmentsSkipped}, {"producer", producer}, {"options", ob},
+                                 {"description", "the sensor cross-spectral density bin by bin within each band, on " + std::to_string(M) + " channels"}};
+      out["bins"] = std::move(Bn);
+    }
+    return out;
+  };
+  return n;
+}
 }  // namespace
 
 void register_welch_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_tensor()})
+  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_tensor(), welch_cross_spectrum()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

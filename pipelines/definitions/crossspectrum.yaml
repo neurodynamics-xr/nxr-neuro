@@ -1,0 +1,64 @@
+# THE SENSOR CROSS-SPECTRUM PER BAND (a statistic): C[a, b] = <X_a conj(X_b)> over the Welch segments (streamed chunk by chunk, the recording's bad segments left out), the mean over
+# each band's bins, on the channels of an operator (channels_of: a kernel, so a source estimate K C K^T reads it) or the good channels of the imaging types. A sensor quantity: what a
+# source estimate makes of it is the kernel's. With resolve bins, also every bin of each band (the band's value is the mean of them).
+# Stored: the statistic `<name>` (band x channel x channel, complex; a band k is read by its old name `<name>_<band>`), its channels `<name>_channels`, its segment partition
+# `<name>_segments`, and with resolve bins `<name>_bins` (frequency x channel x channel).
+#
+#   nxr-neuro run crossspectrum --dataset <folder> --subject sub-01 --recording rest --all [--channels-of KERNEL] [--bands '[{name: alpha, lo: 8, hi: 12}]'] [--resolve bins]
+pipeline: crossspectrum
+version: 1
+description: the sensor cross-spectral density per band (Welch), on a kernel's channels or the good imaging channels
+scope: subject
+
+inputs:
+  recording:   {field: recording, each: true, where: {name: $recording}}
+  channels_of: {operator: any, from: recording.manifold.0, where: {name: $channels_of}, required: false}
+  bad:         {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  channels_of: {default: null, meaning: "an operator (a kernel) whose channels are the ones covered, in order; null: the good channels of channel_types", unit: "-"}
+  channel_types: {default: [MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG], meaning: "the channel types covered when channels_of is null (good channels only)", unit: "-"}
+  name: {default: "{recording}_crossspectrum", meaning: "the stored statistic's name; beside it <name>_channels, <name>_segments, and with resolve bins <name>_bins", unit: "-"}
+  bands: {default: [{name: delta, lo: 2, hi: 4}, {name: theta, lo: 5, hi: 7}, {name: alpha, lo: 8, hi: 12}, {name: beta, lo: 15, hi: 29}, {name: gamma1, lo: 30, hi: 59}, {name: gamma2, lo: 60, hi: 90}], meaning: "the bands: {name, lo, hi}; a band holds the bins from lo to hi inclusive", unit: "Hz"}
+  resolve: {default: band, meaning: "band = each band one member (its bins averaged) | bins = also every bin of each band", unit: "-", choices: [band, bins]}
+  segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
+  segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds); null: from segment_seconds", unit: "samples"}
+  segment_level: {default: null, meaning: "under segment_rule tile: the segment is 2^segment_level samples; null: from segment_seconds", unit: "level"}
+  segment_rule: {default: tile, meaning: "how the segment's length becomes samples: tile | round | even", unit: "-", choices: [tile, round, even]}
+  overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next, in [0, 1)", unit: "fraction"}
+  window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
+  periodic: {default: false, meaning: "the DFT-even form of the window rather than the symmetric one", unit: "-"}
+  detrend: {default: constant, meaning: "what is removed from each segment before windowing", unit: "-", choices: [none, constant, linear]}
+  scaling: {default: density, meaning: "density = power per Hz | spectrum = power | chain = per sample, per bin", unit: "-", choices: [density, spectrum, chain]}
+  bad_segments: {default: exclude, meaning: "exclude = a segment touching one of the recording's bad segments is left out | ignore = every segment is kept", unit: "-", choices: [exclude, ignore]}
+
+presets:
+  tiles:      {segment_rule: tile}
+  brainstorm: {segment_rule: round, window: hamming, periodic: false, detrend: constant, scaling: density}
+  scipy:      {segment_rule: round, window: hann, periodic: true, detrend: constant, scaling: density}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: welch.cross_spectrum, in: {x: recording, channels_of: channels_of, exclude: bad}, with: {bands: $bands, channel_types: $channel_types, resolve: $resolve, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_level: $segment_level, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum, bins]}
+
+outputs:
+  channels:
+    kind: selection
+    type: indices
+    name: "$name_channels"
+    on: recording.manifold.0
+  spectrum:
+    kind: statistic
+    name: $name
+    of: recording
+    axes: [{name: band}, {name: channel, selection: channels}, {name: channel, selection: channels}]
+    partition: {tiling: "$name_segments", on: recording.time}
+  bins:
+    kind: statistic
+    name: "$name_bins"
+    of: recording
+    axes: [{name: frequency}, {name: channel, selection: channels}, {name: channel, selection: channels}]
+    partition: {tiling: "$name_segments", on: recording.time}

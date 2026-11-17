@@ -1,0 +1,50 @@
+# THE ANALYTIC CROSS-SPECTRUM PER TIME TILE (a statistic): each band's analytic signal (a Meyer band, gain 2, with the halo its response needs), decimated by the constant-Q ladder's
+# stride on the recording's line, and z z^H summed per tile of `level` (2^level samples); a tile is kept when it is whole for every band and free of the recording's bad samples.
+# The sums are stored, not means: a coarser tile is a sum at read (the readers roll tiles up to any coarser level).
+# Stored: the statistic `<name>` (band x window x channel x channel, complex; a band k is read by its old name `<name>_<band>_windows`), its channels `<name>_channels`, and
+# the level's tiles `<name>_windows`.
+#
+#   nxr-neuro run crossspectrum_analytic --dataset <folder> --subject sub-01 --recording rest --all --channels-of KERNEL --bands '[{name: alpha, lo: 8, hi: 12}]' [--level 9]
+pipeline: crossspectrum_analytic
+version: 1
+description: per band and time tile, the sum of z z^H of the band's analytic signal (the Studio's envelope tiles)
+scope: subject
+
+inputs:
+  recording:   {field: recording, each: true, where: {name: $recording}}
+  channels_of: {operator: any, from: recording.manifold.0, where: {name: $channels_of}, required: false}
+  bad:         {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  channels_of: {default: null, meaning: "an operator (a kernel) whose channels are the ones covered, in order; null: the good channels of channel_types", unit: "-"}
+  channel_types: {default: [MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG], meaning: "the channel types covered when channels_of is null (good channels only)", unit: "-"}
+  name: {default: "{recording}_crossspectrum", meaning: "the stored statistic's name; beside it <name>_channels and <name>_windows", unit: "-"}
+  bands: {default: null, meaning: "the bands: {name, lo, hi} (0 < lo < hi, at most 12 times lo)", unit: "Hz"}
+  level: {default: null, meaning: "the tile level: a tile is 2^level samples (0 to 15); null: from window_seconds, else the finest of the bands' constant-Q windows", unit: "level"}
+  window_seconds: {default: null, meaning: "the tile's length in seconds (snapped to a level); null: see level", unit: "s"}
+  bad_segments: {default: exclude, meaning: "exclude = a tile touching one of the recording's bad segments is left out | ignore = every whole tile is kept", unit: "-", choices: [exclude, ignore]}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: timebank.analytic_bands, in: {x: recording, channels_of: channels_of}, with: {bands: $bands, channel_types: $channel_types}, out: z}
+      - {node: analytic.tile_cross_spectrum, in: {z: z, x: recording, channels_of: channels_of, exclude: bad}, with: {bands: $bands, channel_types: $channel_types, level: $level, window_seconds: $window_seconds, bad_segments: $bad_segments}, out: [channels, spectrum, windows]}
+
+outputs:
+  channels:
+    kind: selection
+    type: indices
+    name: "$name_channels"
+    on: recording.manifold.0
+  windows:
+    kind: selection
+    type: tiling
+    name: "$name_windows"
+    on: recording.time
+  spectrum:
+    kind: statistic
+    name: $name
+    of: recording
+    axes: [{name: band}, {name: window, selection: windows}, {name: channel, selection: channels}, {name: channel, selection: channels}]

@@ -355,6 +355,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       const std::string so = decl["selection"].get<std::string>();
       if (!made.count(so)) bad(o, "axis " + decl["name"].get<std::string>() + ": selection " + so + " is not an output stored before it (list it first)");
       out["selection_id"] = made.at(so);
+      for (const char* key : {"members", "values"}) if (ax.contains(key)) out[key] = ax[key];
     } else if (decl.contains("on")) {
       out["manifold_id"] = link(P, decl["on"].get<std::string>(), &made, o);
     } else if (decl.contains("line")) {
@@ -370,7 +371,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       out["manifold_id"] = unit.line(lo);
       out["unit"] = lo.unit;
     } else {
-      for (const char* key : {"values", "edges", "scale", "unit", "selection_id"}) if (ax.contains(key)) out[key] = ax[key];
+      for (const char* key : {"values", "edges", "scale", "unit", "selection_id", "bands", "members"}) if (ax.contains(key)) out[key] = ax[key];
     }
     axes.push_back(out);
     shape.push_back(size);
@@ -412,6 +413,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   if (!acq.empty()) st.acquisition = acq;
   if (!span.is_null()) st.span = span;
   st.value_type = d.value("value_type", std::string("scalar"));
+  if (d.contains("shape")) shape = ints(d["shape"]);                       // a value with components (complex, hermitian3, quaternion): the axes, then the components
   st.data = values_of(a, shape, single_of(d), o);
   const std::string path = unit.path_of(st);
   clear(task::Cls::statistic, path);

@@ -147,7 +147,6 @@ struct CrossSpectrumResult {
   std::vector<CrossSpectrumWindows> windows;                        // analytic: per band (empty on a cache hit)
   std::vector<std::vector<Eigen::MatrixXd>> bins_S, bins_Sq;        // resolve = bins: per band, per bin [M x M] (empty on a cache hit)
 };
-CrossSpectrumResult crossspectrum_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const CrossSpectrumOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // One stored band of a cross-spectrum (an Operator "cross-spectral density" by name), optionally restricted to `channels` (recording channel indices, in the order wanted: a kernel's
 // channels); a channel C does not cover is an nxr::io::Error.

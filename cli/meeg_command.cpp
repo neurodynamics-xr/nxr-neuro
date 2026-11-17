@@ -268,62 +268,6 @@ static int crossspectrum_read_main(const std::vector<std::string>& rest) {
   return 0;
 }
 
-int crossspectrum_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || (argv[0] != "compute" && argv[0] != "read")) throw cli::Usage("nxr-neuro crossspectrum: error: the following arguments are required: action (compute | read)");
-  if (argv[0] == "read") return crossspectrum_read_main(std::vector<std::string>(argv.begin() + 1, argv.end()));
-  const std::string prog = "nxr-neuro crossspectrum compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const std::set<std::string> valued = {"--resolve", "--dataset", "--subject", "--recording", "--channels-of", "--types", "--name", "--chunks", "--start", "--stop", "--set", "--segment-seconds",
-                                        "--segment-samples", "--segment-level", "--overlap", "--window", "--detrend", "--scaling", "--bands", "--estimator", "--level", "--window-seconds"};
-  const std::set<std::string> flags = {"--periodic", "--symmetric", "--no-bad-segments", "--replace"};
-  const cli::Args a = cli::parse(prog, rest, valued, flags, {"--dataset", "--subject", "--recording"});
-  nxr::pipelines::CrossSpectrumOptions o;
-  o.recording = a.get("--recording");
-  o.channels_of = a.maybe("--channels-of");
-  if (const auto v = a.maybe("--types")) o.channel_types = split(*v, ',');
-  if (o.channels_of && a.maybe("--types")) usage(prog, "--channels-of and --types are alternatives");
-  o.name = a.maybe("--name");
-  if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
-  if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
-  o.chunks = a.maybe("--chunks");
-  welch_args(prog, a, o);
-  if (const auto v = a.maybe("--bands")) o.bands = bands_arg(prog, *v);
-  o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
-  o.replace = a.flag.count("--replace") > 0;
-  if (const auto v = a.maybe("--estimator")) {
-    if (*v != "welch" && *v != "analytic") usage(prog, "--estimator is welch or analytic");
-    o.estimator = *v;
-  }
-  if (a.maybe("--level") && a.maybe("--window-seconds")) usage(prog, "--level and --window-seconds are alternatives");
-  if ((a.maybe("--level") || a.maybe("--window-seconds")) && o.estimator != "analytic") usage(prog, "--level and --window-seconds apply to --estimator analytic only");
-  if (const auto v = a.maybe("--resolve")) {
-    if (*v != "band" && *v != "bins") usage(prog, "--resolve is band or bins");
-    if (*v == "bins" && o.estimator != "welch") usage(prog, "--resolve bins is the Welch estimator's: the analytic estimator has no frequency bins");
-    o.resolve = *v;
-  }
-  if (const auto v = a.maybe("--level")) {
-    try { o.level = std::stoi(*v); } catch (...) { usage(prog, "--level is a tile level, a whole number 0 to 15"); }
-  }
-  if (const auto v = a.maybe("--window-seconds")) o.window_seconds = std::stod(*v);
-  if (o.estimator == "analytic")
-    for (const char* w : {"--set", "--overlap", "--window", "--detrend", "--scaling", "--segment-seconds", "--segment-samples", "--segment-level"})
-      if (a.maybe(w)) usage(prog, std::string(w) + " is a Welch option: it does not apply to --estimator analytic (its windows are tiles: --level or --window-seconds)");
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::crossspectrum_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    out["seconds"] = std::round(r.seconds * 1000) / 1000;
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
 int cyclepattern_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro cyclepattern: error: the following arguments are required: action (compute)");
   const std::string prog = "nxr-neuro cyclepattern compute";

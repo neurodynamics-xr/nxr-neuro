@@ -364,446 +364,57 @@ std::string welch_segments_of(SubjectWriter& sub, const std::string& recording, 
 Json welch_options_of(const nxr::welch::WelchOptions& wo, const std::string& option_set, bool exclude_bad) { return welch_options(wo, option_set, exclude_bad); }
 }  // namespace internal
 
-// ── band power maps of sources ───────────────────────────────────────────────────────────────────────────────────
-
-// ── the cross-spectral tensor of sources ──────────────────────────────────────────────────────────────────────────
-
-// ── the sensor cross-spectrum ────────────────────────────────────────────────────────────────────────────────────
-
-namespace {
-
-// THE ANALYTIC ESTIMATOR of `crossspectrum compute` (spec docs/specs/2026-11-13-cycle-pattern.md, stage 1, as amended 2026-11-13: the time tiles), as a
-// chain: the band's analytic signal (chunk step, with the band's halo) → decimate by the ladder's stride on the LINE's grid (chunk step) → Σ z zᴴ per tile
-// of the window level (accumulate: partition::crossSpectrum over the tiles; m = line sample >> level). Loading is the chunk service's (haloed_loop); this folds.
-CrossSpectrumResult crossspectrum_analytic(DatasetWriter& ds, SubjectWriter& sub, const CrossSpectrumOptions& opt, const RecordingInput& rec, const std::vector<std::int32_t>& chans,
-                       const std::string& channels_from, const std::function<void(const Json&)>& say) {
-  namespace cq = nxr::io::constantq;
-  const std::int64_t M = static_cast<std::int64_t>(chans.size());
-  if (opt.segment_samples) invalid("crossspectrum --estimator analytic: its windows are tiles (--level or --window-seconds), not Welch segments (--segment-samples)");
-  if (opt.level && opt.window_seconds) invalid("crossspectrum --estimator analytic: --level and --window-seconds are alternatives");
-  nxr::timebank::Design design(nxr::timebank::Family::Meyer, 2.0, nxr::timebank::Sides::Analytic);
-  Json bands_json = Json::array();
-  std::vector<std::int64_t> stride;                                                      // per band: the ladder's decimation (a power of two)
-  int level = 15;                                                                        // the finest of the bands' constant-Q windows, unless asked
-  for (const nxr::meeg::Band& b : opt.bands) {
-    if (!(b.hi > b.lo && b.lo > 0)) invalid("crossspectrum: band " + b.name + " needs 0 < lo < hi");
-    if (b.hi >= rec.sfreq / 2) invalid("crossspectrum: band " + b.name + " reaches past Nyquist (" + std::to_string(rec.sfreq / 2) + " Hz)");
-    const std::int64_t d = cq::strideFor(rec.sfreq, b.lo);
-    if (b.hi >= rec.sfreq / (2.0 * static_cast<double>(d)))
-      invalid("crossspectrum --estimator analytic: band " + b.name + " reaches " + std::to_string(b.hi) + " Hz, at or above its decimated Nyquist rate (" + std::to_string(rec.sfreq / (2.0 * d)) +
-              " Hz): the ladder's stride is sized from the low edge (24 samples a cycle), so a band is at most 12 times its low edge wide");
-    stride.push_back(d);
-    level = std::min(level, cq::levelOfWidth(cq::windowFor(rec.sfreq, b.lo)));
-    design.bands.push_back({b.lo, b.hi});
-    bands_json.push_back(Json{{"name", b.name}, {"lo_hz", b.lo}, {"hi_hz", b.hi}});
-  }
-  if (opt.level) level = *opt.level;
-  else if (opt.window_seconds) {
-    if (!(*opt.window_seconds > 0)) invalid("crossspectrum --estimator analytic: --window-seconds is a positive duration");
-    level = cq::levelOf(*opt.window_seconds, rec.sfreq);
-  }
-  if (level < 0 || level > 15) invalid("crossspectrum --estimator analytic: the window level is 0 to 15 (a chunk; a coarser window is a sum at read), got " + std::to_string(level));
-  const std::int64_t tile = std::int64_t(1) << level;
-  for (std::size_t b = 0; b < stride.size(); ++b)
-    if (stride[b] > tile) invalid("crossspectrum --estimator analytic: band " + opt.bands[b].name + "'s stride (" + std::to_string(stride[b]) + ") is longer than a level-" + std::to_string(level) + " tile");
-  const nxr::io::Span span = span_of(rec, opt.chunks, opt.start, opt.stop, level);      // snapped to the tiles (one chunk by default: the chunk service)
-  const std::int64_t s0 = span.s0, s1 = span.s1;
-  const std::int64_t m0 = s0 >> level, W = (s1 >> level) - m0;                          // the whole tiles of the span (s0 is on the grid; a partial last one is left out)
-  if (W < 1) invalid(opt.recording + ": the span holds no whole tile of level " + std::to_string(level) + " (" + std::to_string(tile) + " samples)");
-  const nxr::timebank::TimeBank bank = nxr::timebank::design(design, std::size_t(1) << 15, rec.sfreq);
-  std::size_t H = 0;
-  for (int m = 0; m < static_cast<int>(opt.bands.size()); ++m) H = std::max(H, nxr::timebank::haloOf(bank, m));
-  const auto spans = opt.exclude_bad_segments ? bad_spans(sub, rec) : std::nullopt;
-  const std::string stem = opt.name ? *opt.name : opt.recording + "_crossspectrum";
-  const std::string sel_name = stem + "_channels", win_name = stem + "_windows";
-  std::vector<std::string> onames;
-  for (const auto& b : opt.bands) onames.push_back(nxr::bst::band_field_name(stem, b.name) + "_windows");
-  CacheKey key;
-  key.pipeline = "crossspectrum";
-  key.params = Json{{"name", stem}, {"estimator", "analytic"}, {"family", "meyer"}, {"gain", 2.0}, {"half_width_octaves", design.halfWidth}, {"window_samples", Json::array({s0, s1})},
-                    {"decimation", stride}, {"level", level}, {"grid", "line"}, {"bands", bands_json}, {"bad_segments", spans ? Json(*spans) : Json()}};
-  key.input = Json{{"recording", rec.id}, {"sfreq", rec.sfreq}, {"channels", chans}};
-  key.compute = NXR_COMPUTE_VERSION;
-  const std::size_t B = opt.bands.size();
-  std::vector<std::vector<Eigen::MatrixXcd>> sum(B, std::vector<Eigen::MatrixXcd>(static_cast<std::size_t>(W), Eigen::MatrixXcd::Zero(M, M)));
-  std::vector<std::vector<std::int64_t>> count(B, std::vector<std::int64_t>(static_cast<std::size_t>(W), 0));
-  std::vector<char> bad(static_cast<std::size_t>(W), 0);
-  std::vector<std::int64_t> kept;                                                        // the tiles stored (index from m0): whole and free of bad samples
-  CrossSpectrumResult res;
-  res.channels = chans;
-  std::string moved_aside;
-  bool replaced = false;
-  auto load = [&](const Row&) { return 0; };
-  auto compute = [&]() {
-    say(Json{{"stage", "cache"}, {"hit", false}, {"recording", rec.name}, {"channels", M}, {"window", Json::array({s0, s1})}, {"estimator", "analytic"}, {"decimation", stride},
-             {"level", level}, {"windows", W}});
-    const nxr::io::ChunkSource src = source_of(sub, rec, chans, spans);
-    nxr::io::haloed_loop(src, span, static_cast<std::int64_t>(H), [&](const nxr::io::HaloedChunk& h) {
-      const Eigen::MatrixXd block = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(h.data.data(), M, h.left + h.n + h.right);
-      const auto t = nxr::timebank::analysisOfBlock(design, block, rec.sfreq, static_cast<std::size_t>(h.left), static_cast<std::size_t>(h.n));
-      if (!h.good.empty())
-        for (std::int64_t j = 0; j < h.n; ++j)
-          if (!h.good[static_cast<std::size_t>(h.left + j)]) { const std::int64_t w = ((h.first + j) >> level) - m0; if (w >= 0 && w < W) bad[static_cast<std::size_t>(w)] = 1; }
-      for (std::size_t b = 0; b < B; ++b) {
-        const std::int64_t d = stride[b];
-        const int offset = static_cast<int>((d - h.first % d) % d);                     // the LINE's grid: the samples kept are multiples of d
-        const Eigen::MatrixXcd Z = nxr::timebank::decimate(t.own[b], static_cast<int>(d), offset);
-        for (Eigen::Index col = 0; col < Z.cols();) {                                    // one sum per tile: m = line sample >> level
-          const std::int64_t x = h.first + offset + col * d, w = (x >> level) - m0;
-          if (w >= W) break;
-          const std::int64_t end = (m0 + w + 1) << level;                                // the tile's end on the line
-          const Eigen::Index len = static_cast<Eigen::Index>(std::min<std::int64_t>(Z.cols() - col, (end - x + d - 1) / d));
-          const auto cs = nxr::partition::crossSpectrum(Z.middleCols(col, len), static_cast<std::size_t>(len), 1);
-          sum[b][static_cast<std::size_t>(w)] += cs.sum[0];
-          count[b][static_cast<std::size_t>(w)] += cs.count[0];
-          col += len;
-        }
-      }
-    });
-    for (std::int64_t w = 0; w < W; ++w) {
-      bool whole = !bad[static_cast<std::size_t>(w)];
-      for (std::size_t b = 0; b < B; ++b) whole = whole && count[b][static_cast<std::size_t>(w)] == tile / stride[b];
-      if (whole) kept.push_back(w);
-    }
-    if (kept.empty()) invalid(opt.recording + ": no whole tile of " + std::to_string(tile) + " samples is free of the recording's bad segments");
-    say(Json{{"stage", "accumulated"}, {"windows", static_cast<std::int64_t>(kept.size())}, {"windows_dropped", W - static_cast<std::int64_t>(kept.size())}});
-    for (std::size_t b = 0; b < B; ++b) {
-      CrossSpectrumWindows cw;
-      cw.channels = chans;
-      cw.level = level;
-      for (std::int64_t w : kept) { cw.sum.push_back(sum[b][static_cast<std::size_t>(w)]); cw.count.push_back(tile / stride[b]); cw.index.push_back(m0 + w); }
-      res.windows.push_back(std::move(cw));
-    }
-    return 0;
-  };
-  auto store = [&](const int&) {
-    // A STATISTIC PER BAND (docs/specs/2026-11-13-statistics.md): the per-window sums of z z^H, the partition (the level's tiles) an axis of it:
-    // cross_spectrum_sum by analytic, value_type complex, axes window (the kept tiles of `<stem>_windows`, by ordinal) x channel x channel
-    std::vector<std::pair<const char*, std::string>> have = {{"selection", sel_name}, {"selection", win_name}};
-    for (const std::string& n : onames) have.push_back({"statistic", statistic_path(rec, n)});
-    moved_aside = clear_stored(ds, sub, have, opt.replace, stem, replaced);
-    const std::string acq = acquisition_label(sub, rec.acquisition_id);
-    SelectionSpec ss;
-    ss.name = sel_name; ss.path = sel_name; ss.type = "indices"; ss.manifold_id = rec.channels_id; ss.data = view(chans, {M}); ss.picked = true;
-    if (!acq.empty()) ss.acquisition = acq;
-    ss.cols.set("description", stem + " \xe2\x80\x94 the " + std::to_string(M) + " channels its cross-spectrum covers, in order");
-    const std::string sel_id = sub.selection(std::move(ss));
-    SelectionSpec ws;                                                                    // THE LEVEL's TILING of the line, closed form (the envelope's, D96/D87): code = the ordinal
-    const std::int64_t tiles = (rec.n_samples + tile - 1) >> level;
-    ws.name = win_name; ws.type = "spans"; ws.manifold_id = rec.time_id;
-    if (!acq.empty()) ws.acquisition = acq;
-    ws.cols.set("cell", "1").set("unit", "s").set("of_field_id", rec.id).set("n_elements", rec.n_samples).set("n_members", tiles)
-        .set("description", stem + " \xe2\x80\x94 the tiles of level " + std::to_string(level) + " (" + std::to_string(tile) + " samples) of the recording's line; its series store " +
-                            std::to_string(kept.size()) + " of them (window_index)");
-    ws.cols.json("params_json", Json{{"tiling", Json{{"origin", rec.t0}, {"width", static_cast<double>(tile) / rec.sfreq}, {"hop", static_cast<double>(tile) / rec.sfreq}, {"count", tiles}}},
-                                     {"end", rec.t0 + static_cast<double>(rec.n_samples) / rec.sfreq}, {"level", level}});
-    const std::string win_id = sub.selection(std::move(ws));
-    const Json pr = projector_record(rec.field);
-    const std::int64_t K = static_cast<std::int64_t>(kept.size());
-    for (std::size_t b = 0; b < B; ++b) {
-      const auto& band = opt.bands[b];
-      std::vector<double> c(static_cast<std::size_t>(K * M * M * 2));
-      for (std::int64_t k = 0; k < K; ++k)
-        for (std::int64_t i = 0; i < M; ++i)
-          for (std::int64_t j = 0; j < M; ++j) {
-            const std::complex<double> v = res.windows[b].sum[static_cast<std::size_t>(k)](i, j);
-            c[static_cast<std::size_t>(2 * ((k * M + i) * M + j))] = v.real();
-            c[static_cast<std::size_t>(2 * ((k * M + i) * M + j) + 1)] = v.imag();
-          }
-      char range[80];
-      std::snprintf(range, sizeof range, "(%g-%g Hz)", band.lo, band.hi);
-      StatisticSpec o;
-      o.name = onames[b]; o.path = statistic_path(rec, onames[b]); o.measure = "cross_spectrum_sum"; o.method = "analytic"; o.value_type = "complex";
-      o.of_field_id = rec.id; o.partition_selection_id = win_id; o.n_members = K; o.members_skipped = W - K;
-      o.axes = Json::array({Json{{"name", "window"}, {"selection_id", win_id}, {"size", K}, {"members", res.windows[b].index}},
-                            Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}}, Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}}});
-      o.span = nxr::io::span_record(span, rec.sfreq, rec.t0);
-      o.data = view(c, {K, M, M, 2});
-      o.array.compress = false;
-      if (!acq.empty()) o.acquisition = acq;
-      o.unit = "channel unit\xc2\xb2 (summed over a window's samples)";
-      o.description = "the sensor cross-spectrum of " + rec.name + " per window (analytic signal) on its " + std::to_string(M) + " channels \xe2\x80\x94 " + band.name + " " + range;
-      o.options = Json{{"estimator", "analytic"}, {"family", "meyer"}, {"gain", 2.0}, {"window_level", level}, {"decimation", stride[b]}, {"band", Json{{"name", band.name}, {"lo_hz", band.lo}, {"hi_hz", band.hi}}},
-                       {"exclude_bad_segments", opt.exclude_bad_segments}};
-      o.scaling = analytic_scaling_record(nxr::timebank::noiseBandwidth(bank, static_cast<int>(b)), "channel unit\xc2\xb2");
-      Json pj = stamp(key);
-      pj["stage"] = "crossspectrum"; pj["by"] = "nxr-neuro crossspectrum compute"; pj["producer"] = producer_name("crossspectrum compute"); pj["estimator"] = "analytic";
-      pj["recording"] = rec.name; pj["recording_id"] = rec.id; pj["band_name"] = band.name; pj["band_lo_hz"] = band.lo; pj["band_hi_hz"] = band.hi;
-      pj["channels_of"] = channels_from.empty() ? Json() : Json(channels_from); pj["channel_types"] = channels_from.empty() ? Json(opt.channel_types) : Json(); pj["n_channels"] = M;
-      pj["band"] = nxr::bst::band_ref(sub.db(), band.name, band.lo, band.hi);
-      pj["transform"] = Json{{"family", "meyer"}, {"sides", "analytic"}, {"gain", 2.0}, {"half_width_octaves", design.halfWidth}, {"halo_samples", static_cast<std::int64_t>(H)},
-                             {"reference", "the Studio's meyerBand (toolbox/wavelets/dyadicFrame.ts) as timebank::analysisOfBlock: Re z is the band-passed signal"}};
-      const std::int64_t d = stride[b];
-      pj["sfreq"] = rec.sfreq; pj["decimation"] = d; pj["rate_hz"] = rec.sfreq / static_cast<double>(d);
-      pj["decimation_rule"] = "the constant-Q ladder's stride (constantq::strideFor): the largest power of two leaving >= 24 samples a cycle at the band's low edge; the samples kept are the multiples of it on the recording's line";
-      pj["window_level"] = level; pj["window_samples"] = tile / d; pj["window_samples_recording"] = tile; pj["window_s"] = static_cast<double>(tile) / rec.sfreq;
-      pj["window_grid"] = "the tiles of 2^window_level samples of the recording's line, from its first sample; window_index = the tile's ordinal";
-      pj["windows"] = K; pj["windows_in_span"] = W; pj["windows_dropped_bad"] = W - K; pj["window_selection"] = win_name; pj["window_index"] = res.windows[b].index;
-      pj["independent_estimates_per_window"] = nxr::timebank::independentEstimates(bank, static_cast<int>(b), tile);
-      pj["spectral_scaling"] = analytic_scaling_record(nxr::timebank::noiseBandwidth(bank, static_cast<int>(b)), "channel unit\xc2\xb2");
-      pj["analysis_window"] = nxr::io::span_record(span, rec.sfreq, rec.t0);
-      pj["bad_segments"] = spans ? Json{{"selection", rec.name + "_bad_segments"}, {"n_spans", static_cast<std::int64_t>(spans->size())}} : Json();
-      pj["chunk_width"] = nxr::io::chunk_width(rec.field); pj["projectors"] = pr["projectors"]; pj["projectors_applied_in_samples"] = pr["applied_in_samples"];
-      pj["projectors_not_applied"] = pr["not_applied"]; pj["ctf_compensation"] = pr["ctf_compensation"];
-      pj["layout"] = "[windows x channels x channels x 2]: per window the SUM over its samples (at the decimated rate) of z z^H, z the band's analytic signal; real and imaginary parts; Hermitian. The mean is sum / window_samples, at read";
-      pj["units"] = "channel unit\xc2\xb2 (summed over a window's samples)";
-      pj["warnings"] = Json::array({"a sensor quantity: what a source estimate makes of it is the kernel's (K C K^T)",
-                                    "a window holds about independent_estimates_per_window independent complex samples (B T): a statistic of one window has at most that many degrees of freedom",
-                                    "where the span meets a recording's end the band's response has no context there (zero-padded)"});
-      o.producer = pj;
-      sub.statistic(std::move(o));
-    }
-  };
-  const Outcome<int> o = cached<int>(sub, "statistic", statistic_path(rec, onames[0]), key, load, compute, store);
-  res.hit = o.hit;
-  res.seconds = o.seconds;
-  if (o.hit) say(Json{{"stage", "cache"}, {"hit", true}, {"recording", rec.name}});
-  res.info = Json{{"name", stem}, {"estimator", "analytic"}, {"operators", onames}, {"channels_selection", sel_name}, {"window_selection", win_name}, {"recording", rec.name}, {"channels", M},
-                  {"bands", bands_json}, {"decimation", stride}, {"level", level}, {"window_samples", tile}, {"window_s", static_cast<double>(tile) / rec.sfreq},
-                  {"windows", o.hit ? Json() : Json(static_cast<std::int64_t>(kept.size()))},
-                  {"window", Json::array({s0, s1})}, {"replaced", replaced}, {"moved_aside", moved_aside.empty() ? Json() : Json(moved_aside)}, {"cache", o.hit ? "hit" : "miss"}};
-  return res;
-}
-
-}  // namespace
-
-CrossSpectrumResult crossspectrum_compute(DatasetWriter& ds, SubjectWriter& sub, const CrossSpectrumOptions& opt, const std::function<void(const Json&)>& progress) {
-  auto say = [&](const Json& j) { if (progress) progress(j); };
-  const RecordingInput rec = read_recording(sub, opt.recording);
-  if (opt.bands.empty()) invalid("crossspectrum: at least one band");
-  // the channels: those of an Operator (a kernel), or the good channels of the imaging types
-  std::vector<std::int32_t> chans;
-  std::string channels_from;
-  if (opt.channels_of) {
-    const auto op = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.channels_of)});
-    if (!op) missing(sub.name() + ": no Operator named '" + *opt.channels_of + "'");
-    if (text(*op, "from_manifold_id") != rec.channels_id) invalid(*opt.channels_of + " is on other channels than " + opt.recording);
-    const auto sel = is_null(*op, "from_selection_id") ? std::nullopt : sub.db().read("selection", text(*op, "from_selection_id"));
-    if (!sel || is_null(*sel, "array_path")) invalid(*opt.channels_of + ": its channels (from_selection) are not stored");
-    chans = read_all<std::int32_t>(sub.store(), text(*sel, "array_path"));
-    channels_from = *opt.channels_of;
-  } else {
-    const std::set<std::string> want(opt.channel_types.begin(), opt.channel_types.end());
-    for (std::int64_t c = 0; c < rec.n_channels; ++c)
-      if (rec.quality[static_cast<std::size_t>(c)] == "good" && want.count(rec.types[static_cast<std::size_t>(c)])) chans.push_back(static_cast<std::int32_t>(c));
-    if (chans.empty()) invalid(opt.recording + ": no good channel of " + std::to_string(want.size()) + " imaging types");
-  }
-  for (std::int32_t c : chans) if (c < 0 || c >= rec.n_channels) invalid("crossspectrum: a channel index is outside the recording's channels");
-  const std::int64_t M = static_cast<std::int64_t>(chans.size());
-  if (opt.estimator == "analytic" && opt.resolve != "band") invalid("crossspectrum: --resolve bins is the Welch estimator's: the analytic estimator has no frequency bins (its windows are time tiles of one band)");
-  if (opt.estimator == "analytic") return crossspectrum_analytic(ds, sub, opt, rec, chans, channels_from, say);
-  if (opt.estimator != "welch") invalid("crossspectrum: --estimator is welch or analytic (got '" + opt.estimator + "')");
-  if (opt.level || opt.window_seconds) invalid("crossspectrum: --level and --window-seconds apply to --estimator analytic only");
-  if (opt.resolve != "band" && opt.resolve != "bins") invalid("crossspectrum: --resolve is band or bins (got '" + opt.resolve + "')");
-  const bool bins_too = opt.resolve == "bins";
-
-  nxr::welch::WelchOptions wo = opt.welch;
-  wo.sfreq = rec.sfreq;
-  const int seg_level = welch_segment("crossspectrum", opt.option_set, opt.segment_samples, opt.segment_seconds, opt.segment_level, rec.sfreq, wo);   // the tile set: 2^k samples
-  const nxr::io::Span span = span_of(rec, opt.chunks, opt.start, opt.stop, seg_level);   // what is loaded: one chunk by default (the chunk service); snapped to the segment's tiles
-  const std::int64_t s0 = span.s0, s1 = span.s1;
-  if (wo.segmentSamples < 2) invalid("crossspectrum: a segment holds at least 2 samples");
-  if (s1 - s0 < static_cast<std::int64_t>(wo.segmentSamples))
-    invalid(opt.recording + ": the window holds " + std::to_string(std::max<std::int64_t>(0, s1 - s0)) + " samples, fewer than one segment (" + std::to_string(wo.segmentSamples) + ")");
-  const std::size_t nbins = wo.segmentSamples / 2 + 1;
-  const double df = rec.sfreq / static_cast<double>(wo.segmentSamples);
-  std::vector<nxr::welch::BinGroup> groups;
-  Json band_bins = Json::array(), bands_json = Json::array();
-  for (const nxr::meeg::Band& b : opt.bands) {
-    if (!(b.hi >= b.lo)) invalid("crossspectrum: band " + b.name + " has hi < lo");
-    const double first = std::ceil(b.lo / df - 1e-9), last = std::floor(b.hi / df + 1e-9);
-    if (first > last || last < 0 || first >= static_cast<double>(nbins)) invalid("crossspectrum: band " + b.name + " holds no frequency bin (resolution " + std::to_string(df) + " Hz)");
-    groups.push_back({static_cast<std::size_t>(first), static_cast<std::size_t>(std::min(last, static_cast<double>(nbins - 1))), true});
-    band_bins.push_back(Json::array({groups.back().first, groups.back().last}));
-    bands_json.push_back(Json{{"name", b.name}, {"lo_hz", b.lo}, {"hi_hz", b.hi}});
-  }
-  const std::size_t n_band_groups = groups.size();
-  if (bins_too)                                                   // after the bands' groups: one group per bin of each band, in order (each a mean over one bin: its value)
-    for (std::size_t b = 0; b < n_band_groups; ++b)
-      for (std::size_t k = groups[b].first; k <= groups[b].last; ++k) groups.push_back({k, k, true});
-  try { nxr::welch::CrossWelch probe(1, wo, groups, true); } catch (const std::invalid_argument& e) { invalid(std::string("crossspectrum: ") + e.what()); }
-  const auto spans = opt.exclude_bad_segments ? bad_spans(sub, rec) : std::nullopt;
-  const std::string stem = opt.name ? *opt.name : opt.recording + "_crossspectrum";
-  const std::string sel_name = stem + "_channels";
-  std::vector<std::string> onames;
-  for (const auto& b : opt.bands) onames.push_back(nxr::bst::band_field_name(stem, b.name));
-  std::vector<std::string> bnames;                                // resolve = bins: `<stem>_<band>_bins`
-  if (bins_too) for (const auto& b : opt.bands) bnames.push_back(nxr::bst::band_field_name(stem, b.name + "_bins"));
-  CacheKey key;
-  key.pipeline = "crossspectrum";
-  key.params = Json{{"name", stem}, {"window_samples", Json::array({s0, s1})}, {"segment_samples", wo.segmentSamples}, {"overlap", wo.overlap}, {"window", window_name(wo.window)},
-                    {"periodic", wo.periodic}, {"detrend", detrend_name(wo.detrend)}, {"scaling", scaling_name(wo.scaling)}, {"option_set", opt.option_set}, {"bands", bands_json},
-                    {"bad_segments", spans ? Json(*spans) : Json()}};
-  if (bins_too) key.params["resolve"] = "bins";                   // band: the key is as it was before the option
-  key.input = Json{{"recording", rec.id}, {"sfreq", rec.sfreq}, {"channels", chans}};
-  key.compute = NXR_COMPUTE_VERSION;
-
-  CrossSpectrumResult res;
-  res.channels = chans;
-  std::string moved_aside;
-  bool replaced = false;
-  std::int64_t segments = 0, skipped = 0;
-  double excluded_fraction = 0;
-  auto load = [&](const Row& op) {
-    const Json pj = Json::parse(opt_text(op, "producer_json").value_or("{}"), nullptr, false);
-    if (pj.is_object()) { segments = pj.value("segments", std::int64_t(0)); skipped = pj.value("segments_skipped", std::int64_t(0)); excluded_fraction = pj.value("excluded_fraction", 0.0); }
-    return 0;
-  };
-  auto compute = [&]() {
-    say(Json{{"stage", "cache"}, {"hit", false}, {"recording", rec.name}, {"channels", M}, {"window", Json::array({s0, s1})}, {"segment_samples", wo.segmentSamples}});
-    nxr::welch::CrossWelch w(static_cast<int>(M), wo, groups, true);
-    const nxr::io::ChunkSource src = source_of(sub, rec, chans, spans);     // the chunk service loads; this folds
-    const std::int64_t bad_samples = nxr::io::chunk_loop(src, span, [&](const nxr::io::Chunk& c) {
-      const Eigen::MatrixXd chunk = matrix_of(c, M);
-      if (c.good.empty()) w.add(chunk); else w.add(chunk, c.good);
-    }).bad_samples;
-    const nxr::welch::CrossWelchResult cw = w.result();
-    segments = cw.segments;
-    skipped = cw.segmentsSkipped;
-    excluded_fraction = static_cast<double>(bad_samples) / static_cast<double>(s1 - s0);
-    if (segments == 0) invalid(opt.recording + ": no whole segment of " + std::to_string(wo.segmentSamples) + " samples is free of the recording's bad segments");
-    say(Json{{"stage", "accumulated"}, {"segments", segments}, {"segments_skipped", skipped}});
-    res.S.assign(cw.S.begin(), cw.S.begin() + static_cast<std::ptrdiff_t>(n_band_groups));
-    res.Sq.assign(cw.Sq.begin(), cw.Sq.begin() + static_cast<std::ptrdiff_t>(n_band_groups));
-    if (bins_too) {
-      std::size_t g = n_band_groups;
-      for (std::size_t b = 0; b < n_band_groups; ++b) {
-        res.bins_S.emplace_back();
-        res.bins_Sq.emplace_back();
-        for (std::size_t k = groups[b].first; k <= groups[b].last; ++k, ++g) { res.bins_S.back().push_back(cw.S[g]); res.bins_Sq.back().push_back(cw.Sq[g]); }
-      }
-    }
-    return 0;
-  };
-  auto store = [&](const int&) {
-    // A STATISTIC PER BAND (docs/specs/2026-11-13-statistics.md): the cross-spectrum is computed FROM the segment partition (the mean over the segments
-    // of X_a conj(X_b), then over the band's bins): measure cross_spectral_density (cross_spectrum for the spectrum and chain scalings), method welch,
-    // axes channel x channel (the `<stem>_channels` Selection, in order), value_type complex
-    std::vector<std::pair<const char*, std::string>> have = {{"selection", sel_name}, {"selection", segments_path(sub, rec, stem)}};
-    for (const std::string& n : onames) have.push_back({"statistic", statistic_path(rec, n)});
-    for (const std::string& n : bnames) have.push_back({"statistic", statistic_path(rec, n)});
-    moved_aside = clear_stored(ds, sub, have, opt.replace, stem, replaced);
-    const std::string acq = acquisition_label(sub, rec.acquisition_id);
-    SelectionSpec ss;
-    ss.name = sel_name;
-    ss.path = sel_name;
-    ss.type = "indices";
-    ss.manifold_id = rec.channels_id;
-    ss.data = view(chans, {M});
-    ss.picked = true;
-    if (!acq.empty()) ss.acquisition = acq;
-    ss.cols.set("description", stem + " \xe2\x80\x94 the " + std::to_string(M) + " channels its cross-spectrum covers, in order");
-    const std::string sel_id = sub.selection(std::move(ss));
-    const std::string seg_id = welch_segments(sub, rec, stem, acq, s0, s1, wo, segments, skipped);
-    const Json pr = projector_record(rec.field);
-    const std::string unit = wo.scaling == nxr::welch::Scaling::Density ? "channel unit\xc2\xb2/Hz" : "channel unit\xc2\xb2";
-    for (std::size_t b = 0; b < opt.bands.size(); ++b) {
-      const auto& band = opt.bands[b];
-      std::vector<double> c(static_cast<std::size_t>(M * M * 2));
-      for (std::int64_t i = 0; i < M; ++i)
-        for (std::int64_t j = 0; j < M; ++j) {
-          c[static_cast<std::size_t>(2 * (i * M + j))] = res.S[b](i, j);
-          c[static_cast<std::size_t>(2 * (i * M + j) + 1)] = res.Sq[b](i, j);
-        }
-      char range[80];
-      std::snprintf(range, sizeof range, "(%g-%g Hz)", band.lo, band.hi);
-      StatisticSpec st;
-      st.name = onames[b];
-      st.path = statistic_path(rec, onames[b]);
-      st.measure = wo.scaling == nxr::welch::Scaling::Density ? "cross_spectral_density" : "cross_spectrum";
-      st.method = "welch";
-      st.of_field_id = rec.id;
-      st.partition_selection_id = seg_id;
-      st.n_members = segments;
-      st.members_skipped = skipped;
-      st.value_type = "complex";                                  // each value complex: [.., 2], real and imaginary parts (as a complex field's)
-      st.axes = Json::array({Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}}, Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}}});
-      st.span = nxr::io::span_record(span, rec.sfreq, rec.t0);
-      st.data = view(c, {M, M, 2});
-      st.array.compress = false;
-      if (!acq.empty()) st.acquisition = acq;
-      st.unit = unit;
-      st.description = "the sensor cross-spectral density of " + rec.name + " on its " + std::to_string(M) + " channels \xe2\x80\x94 " + band.name + " " + range;
-      Json opts = welch_options(wo, opt.option_set, opt.exclude_bad_segments);
-      opts["band"] = Json{{"name", band.name}, {"lo_hz", band.lo}, {"hi_hz", band.hi}, {"bins", band_bins[b]}, {"function", "mean"}};
-      if (bins_too) opts["resolve"] = "bins";
-      st.options = opts;
-      const Json scal = welch_scaling_record(wo, static_cast<double>(groups[b].last - groups[b].first + 1) * df, "channel unit\xc2\xb2");
-      st.scaling = scal;
-      Json pj = stamp(key);                                       // every band's statistic carries the run's key (its own name tells them apart)
-      pj["stage"] = "crossspectrum"; pj["by"] = "nxr-neuro crossspectrum compute"; pj["producer"] = producer_name("crossspectrum compute");
-      pj["recording"] = rec.name; pj["recording_id"] = rec.id; pj["band_name"] = band.name; pj["band_lo_hz"] = band.lo; pj["band_hi_hz"] = band.hi; pj["channels_of"] = channels_from.empty() ? Json() : Json(channels_from);
-      pj["channel_types"] = channels_from.empty() ? Json(opt.channel_types) : Json(); pj["n_channels"] = M;
-      pj["band"] = nxr::bst::band_ref(sub.db(), band.name, band.lo, band.hi); pj["band_function"] = "mean"; pj["band_bins"] = band_bins[b];
-      pj["sfreq"] = rec.sfreq; pj["spectral_scaling"] = scal; pj["segments"] = segments; pj["segments_skipped"] = skipped; pj["frequency_resolution_hz"] = df;
-      pj["excluded_fraction"] = excluded_fraction;
-      pj["bad_segments"] = spans ? Json{{"selection", rec.name + "_bad_segments"}, {"n_spans", static_cast<std::int64_t>(spans->size())}} : Json();
-      pj["chunk_width"] = nxr::io::chunk_width(rec.field); pj["projectors"] = pr["projectors"]; pj["projectors_applied_in_samples"] = pr["applied_in_samples"];
-      pj["projectors_not_applied"] = pr["not_applied"]; pj["ctf_compensation"] = pr["ctf_compensation"];
-      pj["layout"] = "[channels x channels x 2]: C[a, b] = <X_a conj(X_b)> over the segments, the mean over the band's bins; its real (S) and imaginary (Sq) parts; Hermitian";
-      if (bins_too) { pj["resolve"] = "bins"; pj["bins_statistic"] = bnames[b]; }
-      pj["warnings"] = Json::array({"a sensor quantity: what a source estimate makes of it is the kernel's (K C K^T), with the kernel's spread and orientation bias",
-                                    "the band's bins are averaged: the cross-spectrum within the band (its shape over frequency) is not kept"});
-      st.producer = pj;
-      sub.statistic(std::move(st));
-      if (!bins_too) continue;
-      // THE BAND, BIN BY BIN (spec 2026-11-15): the same pass's bins as members of the frequency partition, nothing reduced over frequency; axes channel x channel x
-      // frequency (the bins' centres in Hz), float64 [M x M x F x 2]; the band statistic above is the mean of these bins
-      const std::size_t F = res.bins_S[b].size();
-      std::vector<double> cb(static_cast<std::size_t>(M * M * static_cast<std::int64_t>(F) * 2));
-      Json hz = Json::array();
-      for (std::size_t k = 0; k < F; ++k) hz.push_back(static_cast<double>(groups[b].first + k) * df);
-      for (std::int64_t i = 0; i < M; ++i)
-        for (std::int64_t j = 0; j < M; ++j)
-          for (std::size_t k = 0; k < F; ++k) {
-            const std::size_t at = static_cast<std::size_t>(((i * M + j) * static_cast<std::int64_t>(F) + static_cast<std::int64_t>(k)) * 2);
-            cb[at] = res.bins_S[b][k](i, j);
-            cb[at + 1] = res.bins_Sq[b][k](i, j);
-          }
-      StatisticSpec sb;
-      sb.name = bnames[b];
-      sb.path = statistic_path(rec, bnames[b]);
-      sb.measure = wo.scaling == nxr::welch::Scaling::Density ? "cross_spectral_density" : "cross_spectrum";
-      sb.method = "welch";
-      sb.of_field_id = rec.id;
-      sb.partition_selection_id = seg_id;
-      sb.n_members = segments;
-      sb.members_skipped = skipped;
-      sb.value_type = "complex";
-      sb.axes = Json::array({Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}}, Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}},
-                             Json{{"name", "frequency"}, {"size", static_cast<std::int64_t>(F)}, {"unit", "Hz"}, {"values", hz}, {"bins", band_bins[b]}}});
-      sb.span = nxr::io::span_record(span, rec.sfreq, rec.t0);
-      sb.data = view(cb, {M, M, static_cast<std::int64_t>(F), 2});
-      sb.array.compress = false;
-      if (!acq.empty()) sb.acquisition = acq;
-      sb.unit = unit;
-      sb.description = "the sensor cross-spectral density of " + rec.name + " on its " + std::to_string(M) + " channels, bin by bin \xe2\x80\x94 " + band.name + " " + range;
-      Json bo = opts;
-      bo["band"]["function"] = "none";
-      sb.options = bo;
-      sb.scaling = welch_scaling_record(wo, df, "channel unit\xc2\xb2");
-      Json pb = pj;
-      pb["by"] = "nxr-neuro crossspectrum compute --resolve bins"; pb["band_function"] = "none"; pb["spectral_scaling"] = sb.scaling; pb["bins_of"] = onames[b];
-      pb["layout"] = "[channels x channels x frequency x 2]: C[a, b, f] = <X_a conj(X_b)> over the segments at the band's bin f; real and imaginary parts; Hermitian in a, b at every f; the band statistic is the mean over f";
-      pb.erase("warnings");
-      sb.producer = pb;
-      sub.statistic(std::move(sb));
-    }
-  };
-  const Outcome<int> o = cached<int>(sub, "statistic", statistic_path(rec, onames[0]), key, load, compute, store);
-  res.hit = o.hit;
-  res.seconds = o.seconds;
-  if (o.hit) say(Json{{"stage", "cache"}, {"hit", true}, {"recording", rec.name}});
-  res.info = Json{{"name", stem}, {"statistics", onames}, {"channels_selection", sel_name}, {"recording", rec.name}, {"channels", M}, {"bands", bands_json},
-                  {"segment_samples", static_cast<std::int64_t>(wo.segmentSamples)}, {"segments", segments}, {"segments_skipped", skipped}, {"excluded_fraction", excluded_fraction},
-                  {"window", Json::array({s0, s1})}, {"replaced", replaced}, {"moved_aside", moved_aside.empty() ? Json() : Json(moved_aside)}, {"cache", o.hit ? "hit" : "miss"}};
-  return res;
-}
+// ── the sensor cross-spectrum: its readers (the definitions `crossspectrum` and `crossspectrum_analytic` make it) ──────────────────
 
 namespace {
 // A STORED WELCH CROSS-SPECTRUM, as a statistic (2026-11-13: cross_spectral_density · cross_spectrum by welch, axes channel x channel, value_type complex) or, made
 // before, an Operator of kind `cross-spectral density` (still read: no migration): its row, the channels in order, their manifold, its array, its producer
-struct CrossSpectrumNode { Row row; std::vector<std::int32_t> channels; std::string channels_manifold, path; Json producer; };
+struct CrossSpectrumNode {
+  Row row;
+  std::vector<std::int32_t> channels;
+  std::string channels_manifold, path;
+  Json producer;
+  std::optional<std::vector<double>> values;   // a band sliced from a statistic with a band axis: its values (the band's shape is the old per-band statistic's)
+  std::vector<std::int64_t> shape;
+};
+// the values of a node: its array, or the band sliced from it
+std::vector<double> node_values(SubjectWriter& sub, const CrossSpectrumNode& n, std::vector<std::int64_t>* shape) {
+  if (n.values) { *shape = n.shape; return *n.values; }
+  return read_all<double>(sub.store(), n.path, shape);
+}
+// A BAND OF A STATISTIC WITH A BAND AXIS (the definitions' form: `<stem>` with axes band x ...): found by the old per-band name `<stem>_<band>` + `suffix`. The band's slice,
+// its channels (the axis after the band's, or `channel_axis`), and the producer with the band's name, edges and recording added as the per-band statistics recorded them.
+std::optional<CrossSpectrumNode> band_slice(SubjectWriter& sub, const std::string& name, const std::string& method, const std::string& measure_prefix, const std::string& suffix,
+                                            std::size_t channel_axis) {
+  for (const Row& r : nxr::io::statistics_of(sub.db(), sub.id())) {
+    if (text(r, "method") != method || text(r, "measure").rfind(measure_prefix, 0) != 0) continue;
+    const Json axes = Json::parse(text(r, "axes_json"), nullptr, false);
+    if (!axes.is_array() || axes.empty() || axes[0].value("name", std::string()) != "band" || !axes[0].contains("values")) continue;
+    const Json& bands = axes[0]["values"];
+    for (std::size_t b = 0; b < bands.size(); ++b) {
+      if (nxr::bst::band_field_name(text(r, "name"), bands[b].value("name", std::string())) + suffix != name) continue;
+      const auto sel = sub.db().read("selection", axes[channel_axis].value("selection_id", std::string()));
+      if (!sel || is_null(*sel, "array_path")) invalid(name + ": its channels (the channel axis's Selection) are not stored");
+      CrossSpectrumNode n{r, read_all<std::int32_t>(sub.store(), text(*sel, "array_path")), text(*sel, "manifold_id"), text(r, "path"),
+                          Json::parse(opt_text(r, "producer_json").value_or("{}"), nullptr, false), std::nullopt, {}};
+      std::vector<std::int64_t> shape;
+      const std::vector<double> all = read_all<double>(sub.store(), text(r, "path"), &shape);
+      if (shape.empty() || shape[0] != static_cast<std::int64_t>(bands.size())) invalid(text(r, "name") + ": its array's first axis is not its bands");
+      const std::size_t per = all.size() / bands.size();
+      n.values = std::vector<double>(all.begin() + static_cast<std::ptrdiff_t>(b * per), all.begin() + static_cast<std::ptrdiff_t>((b + 1) * per));
+      n.shape.assign(shape.begin() + 1, shape.end());
+      if (!n.producer.is_object()) n.producer = Json::object();
+      n.producer["band_name"] = bands[b].value("name", std::string());
+      n.producer["band_lo_hz"] = bands[b].value("lo_hz", 0.0);
+      n.producer["band_hi_hz"] = bands[b].value("hi_hz", 0.0);
+      if (bands[b].contains("window_samples")) n.producer["window_samples"] = bands[b]["window_samples"];
+      if (!is_null(r, "of_field_id"))
+        if (const auto f = sub.db().read("field", text(r, "of_field_id"))) n.producer["recording"] = text(*f, "name");
+      return n;
+    }
+  }
+  return std::nullopt;
+}
 std::optional<CrossSpectrumNode> find_cross_spectrum(SubjectWriter& sub, const std::string& name) {
   for (const Row& r : nxr::io::statistics_of(sub.db(), sub.id())) {
     if (text(r, "name") != name || text(r, "method") != "welch" || text(r, "measure").rfind("cross_spectr", 0) != 0) continue;
@@ -813,6 +424,7 @@ std::optional<CrossSpectrumNode> find_cross_spectrum(SubjectWriter& sub, const s
     return CrossSpectrumNode{r, read_all<std::int32_t>(sub.store(), text(*sel, "array_path")), text(*sel, "manifold_id"), text(r, "path"),
                              Json::parse(opt_text(r, "producer_json").value_or("{}"), nullptr, false)};
   }
+  if (auto n = band_slice(sub, name, "welch", "cross_spectr", "", 1)) return n;
   const auto op = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND kind = 'cross-spectral density' AND status = 'complete'", {V(sub.id()), V(name)});
   if (!op) return std::nullopt;
   const auto sel = is_null(*op, "from_selection_id") ? std::nullopt : sub.db().read("selection", text(*op, "from_selection_id"));
@@ -828,7 +440,7 @@ StoredCrossSpectrum crossspectrum_read(SubjectWriter& sub, const std::string& na
   const std::vector<std::int32_t>& have = node->channels;
   const std::int64_t M = static_cast<std::int64_t>(have.size());
   std::vector<std::int64_t> shape;
-  const std::vector<double> c = read_all<double>(sub.store(), node->path, &shape);
+  const std::vector<double> c = node_values(sub, *node, &shape);
   if (shape.size() != 3 || shape[0] != M || shape[1] != M || shape[2] != 2) invalid(name + ": its array is not [" + std::to_string(M) + " x " + std::to_string(M) + " x 2]");
   StoredCrossSpectrum out;
   out.producer = node->producer;
@@ -872,8 +484,41 @@ StoredCrossSpectrum crossspectrum_read(SubjectWriter& sub, const std::string& na
   return out;
 }
 
+namespace {
+// THE BINS OF ONE BAND from the definitions' form (`<stem>_bins`, axes frequency x channel x channel, its frequency axis naming each band's bins), by the old name
+// `<stem>_<band>_bins`, rearranged as the per-band statistic was: [channels x channels x frequency x 2], its frequency axis the band's bins
+std::optional<nxr::io::StoredStatistic> bins_slice(SubjectWriter& sub, const std::string& name) {
+  for (const Row& r : nxr::io::statistics_of(sub.db(), sub.id())) {
+    const std::string sn = text(r, "name");
+    if (text(r, "method") != "welch" || text(r, "measure").rfind("cross_spectr", 0) != 0 || sn.size() < 5 || sn.compare(sn.size() - 5, 5, "_bins") != 0) continue;
+    const Json axes = Json::parse(text(r, "axes_json"), nullptr, false);
+    if (!axes.is_array() || axes.size() != 3 || axes[0].value("name", std::string()) != "frequency" || !axes[0].contains("bands")) continue;
+    const std::string stem = sn.substr(0, sn.size() - 5);
+    for (const auto& band : axes[0]["bands"]) {
+      if (nxr::bst::band_field_name(stem, band.value("name", std::string()) + "_bins") != name) continue;
+      nxr::io::StoredStatistic st = nxr::io::read_statistic(sub, sn);
+      const std::int64_t F = st.shape[0], M = st.shape[1], first = band["first"].get<std::int64_t>(), n = band["count"].get<std::int64_t>();
+      std::vector<double> v(static_cast<std::size_t>(M * M * n * 2));
+      for (std::int64_t k = 0; k < n; ++k)
+        for (std::int64_t i = 0; i < M; ++i)
+          for (std::int64_t j = 0; j < M; ++j)
+            for (int c = 0; c < 2; ++c) v[static_cast<std::size_t>(((i * M + j) * n + k) * 2 + c)] = st.values[static_cast<std::size_t>((((first + k) * M + i) * M + j) * 2 + c)];
+      (void)F;
+      Json hz = Json::array();
+      for (std::int64_t k = 0; k < n; ++k) hz.push_back(axes[0]["values"][static_cast<std::size_t>(first + k)]);
+      st.values = std::move(v);
+      st.shape = {M, M, n, 2};
+      st.axes = Json::array({axes[1], axes[2], Json{{"name", "frequency"}, {"size", n}, {"unit", "Hz"}, {"values", hz}}});
+      return st;
+    }
+  }
+  return std::nullopt;
+}
+}  // namespace
+
 StoredCrossSpectrumBins crossspectrum_bins_read(SubjectWriter& sub, const std::string& name, const std::optional<std::vector<std::int32_t>>& channels) {
-  const nxr::io::StoredStatistic st = nxr::io::read_statistic(sub, name);
+  const auto sliced = bins_slice(sub, name);
+  const nxr::io::StoredStatistic st = sliced ? *sliced : nxr::io::read_statistic(sub, name);
   if (text(st.row, "method") != "welch" || text(st.row, "measure").rfind("cross_spectr", 0) != 0 || st.axes.size() != 3 || st.axes[2].value("name", std::string()) != "frequency" || !st.axes[2].contains("values"))
     invalid(name + " is not a band's cross-spectrum bin by bin (`crossspectrum compute --resolve bins`, `<stem>_<band>_bins`)");
   const auto sel = sub.db().read("selection", st.axes[0].value("selection_id", std::string()));
@@ -924,6 +569,7 @@ std::optional<CrossSpectrumNode> find_cross_spectrum_series(SubjectWriter& sub, 
     return CrossSpectrumNode{r, read_all<std::int32_t>(sub.store(), text(*sel, "array_path")), text(*sel, "manifold_id"), text(r, "path"),
                              Json::parse(opt_text(r, "producer_json").value_or("{}"), nullptr, false)};
   }
+  if (auto n = band_slice(sub, name, "analytic", "cross_spectrum_sum", "_windows", 2)) return n;
   const auto op = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND kind = 'cross-spectrum series' AND status = 'complete'", {V(sub.id()), V(name)});
   if (!op) return std::nullopt;
   const auto sel = is_null(*op, "from_selection_id") ? std::nullopt : sub.db().read("selection", text(*op, "from_selection_id"));
@@ -940,7 +586,7 @@ CrossSpectrumWindows crossspectrum_windows_read(SubjectWriter& sub, const std::s
   const std::vector<std::int32_t>& have = node->channels;
   const std::int64_t M = static_cast<std::int64_t>(have.size());
   std::vector<std::int64_t> shape;
-  const std::vector<double> c = read_all<double>(sub.store(), node->path, &shape);
+  const std::vector<double> c = node_values(sub, *node, &shape);
   if (shape.size() != 4 || shape[1] != M || shape[2] != M || shape[3] != 2) invalid(name + ": its array is not [windows x " + std::to_string(M) + " x " + std::to_string(M) + " x 2]");
   CrossSpectrumWindows out;
   out.producer = node->producer;
