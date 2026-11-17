@@ -11,6 +11,7 @@
 //   package index   --dataset D [--force]
 //   package participants-import --dataset D --tsv TSV [--sidecar JSON]    package participants-export --dataset D --tsv TSV [--sidecar JSON]
 //   package split   --dataset D --registered-by WHO [--dry-run]            package join --dataset D
+//   package migrate-selections --dataset D [--dry-run]                     package migrate-measurements --dataset D [--dry-run] [--remove-statistics]
 //   package release --package P --name N --template-version V --released-by WHO --into DIR    package release-redistributable --package P --into DIR --released-by WHO
 //   package templates [--templates DIR ...]
 //   package template-create --recipe fsaverage|icbm152 --sources DIR --package P [--name N] [--surface S ...] [--parcellation NAME ...] [--cortex-mask] [--hcp-trk FILE --hcp-end-surface S
@@ -133,6 +134,14 @@ int package_main(const std::vector<std::string>& argv) {
     o.dry_run = a.flag.count("--dry-run") > 0;
     o.on_stage = [](const std::string& stage, const std::string& subject) { emit(Json{{"stage", stage}, {"subject", subject}}); };
     emit(Json{{"stage", "result"}, {"report", migrate_selection_storage(a.get("--dataset"), o)}});
+  } else if (action == "migrate-measurements") {
+    // THE MEASUREMENTS' STORAGE (schema 53, io/migrate.h): one table for a value over a selection's members. Subject by subject, resumable, verified; the old statistics are KEPT unless the explicit second step is asked.
+    const Args a = parse(prog, rest, {"--dataset"}, {"--dry-run", "--remove-statistics"}, {"--dataset"});
+    MeasurementStorageOptions o;
+    o.dry_run = a.flag.count("--dry-run") > 0;
+    o.remove_statistics = a.flag.count("--remove-statistics") > 0;
+    o.on_stage = [](const std::string& stage, const std::string& subject) { emit(Json{{"stage", stage}, {"subject", subject}}); };
+    emit(Json{{"stage", "result"}, {"report", migrate_measurement_storage(a.get("--dataset"), o)}});
   } else if (action == "join") {
     const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
     emit(Json{{"stage", "result"}, {"report", join_dataset(a.get("--dataset"))}});
@@ -209,7 +218,7 @@ int package_main(const std::vector<std::string>& argv) {
 #endif
   } else {
     throw Usage("nxr-neuro package: error: argument action: invalid choice: '" + action +
-                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
+                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'migrate-selections', 'migrate-measurements', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
   }
   return 0;
 }

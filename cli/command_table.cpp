@@ -32,6 +32,7 @@ verb split	Split a one-database dataset into subject packages with a catalogue
 verb join	Join subject packages back into a one-database dataset
 verb release	Release a template or registration as a frozen, versioned package
 verb verify	Verify a subject package against the hashes it records
+verb migrate	Migrate a dataset's stored layout in place
 )TBL",
 R"TBL(--atlas-finest	QUANTITY	The finest tile of the default subject's group tree (the dataset's atlas leaves), as a quantity: parts per hemisphere ("parts 256"), a tile diameter ("14 mm") or a tile area ("area 150 mm2"); needs --templates.	parts 256 (2^8 tiles a hemisphere)	parts
 --lc-scales	QUANTITY,...	The tile scales, as quantities, at which the Levi-Civita connection between neighbouring tiles is measured (a measurement over a level's product with itself); needs --templates.	parts 16, parts 64	parts
@@ -436,6 +437,8 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --tsv@export participants	FILE	The file to write the participants table to as BIDS participants.tsv; nothing else is written.	required	-
 --sidecar@export participants	FILE	Also write the participants.json sidecar to this file.	none	-
 --registered-by@split dataset	WHO	Who runs the split: recorded with each catalogue entry.	required	-
+--dry-run@migrate measurements		Report, per subject, the statistics that would become measurements, the products and tilings that would be rewritten, and the conflicts, without changing anything.	off	-
+--remove-statistics@migrate measurements		The explicit second step, taken only on the PI's word: remove each migrated statistic whose measurement is verified (and its array). Never the default: the old statistics are kept.	off	-
 --dry-run@split dataset		Report the subjects and the format without changing anything (not even bringing the dataset to format 52).	off	-
 --package@verify package	PATH	The folder of the subject package to verify.	required	-
 --package@show package	PATH	The folder of the subject package to show.	required	-
@@ -756,6 +759,12 @@ old: package split
 alias: no
 summary: Split a one-database dataset into subject packages with a catalogue, in place, verified row for row and byte for byte, resumable; the old database is kept.
 opts: --dataset* --dry-run --registered-by*
+)TBL",
+R"TBL(@ migrate measurements
+old: package migrate-measurements
+alias: no
+summary: Make every value over a selection's members one measurement (schema 53): per-member statistics become array-backed measurements, verified byte for byte; a product that only coupled a level names the grid and the level; day-anchored tower tilings are marked read-only. In place, subject by subject, resumable; the old statistics are kept.
+opts: --dataset* --dry-run --remove-statistics
 )TBL",
 R"TBL(@ join dataset
 old: package join
