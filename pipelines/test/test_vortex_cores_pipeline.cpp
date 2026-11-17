@@ -38,6 +38,8 @@
 #include "nxr/histogram.h"
 #include "nxr/io.h"
 #include "nxr/io/constant_q.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/eigen.h"
@@ -60,6 +62,7 @@
 using namespace nxr::io;
 using namespace nxr::pipelines;
 namespace g = nxr::pipelines::graph;
+namespace tk = nxr::io::task;
 namespace fs = std::filesystem;
 
 namespace {
@@ -74,8 +77,9 @@ std::vector<float> read_floats(const fs::path& p, std::vector<std::int64_t>* sha
 }
 // a stored measurement over the cores: its component `component` for every member
 std::vector<float> measure_of(SubjectWriter& sub, const std::string& selection_id, const std::string& measure) {
-  const auto r = sub.db().one("SELECT array_path, component FROM selection_measurement WHERE selection_id = ? AND measure = ?", {V(selection_id), V(measure)});
-  if (!r) return {};
+  const auto rr = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(selection_id)}, {"measure", V(measure)}});
+  if (rr.empty()) return {};
+  const auto r = std::optional<Row>(rr.front());
   std::vector<std::int64_t> shape;
   const std::vector<float> a = read_floats((sub.folder() / (text(*r, "array_path"))), &shape);
   const std::int64_t comp = integer(*r, "component"), T = shape[1], C = shape[2];
@@ -92,12 +96,13 @@ struct Stored {
 };
 Stored read_cores(SubjectWriter& sub, const std::string& recording, double fps, double origin) {
   Stored s;
-  const auto row = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V("vortex_cores.cores." + recording)});
+  const auto ts = tk::Subject::of(sub);
+  const auto row = ts.find({.cls = tk::Cls::selection, .name = "vortex_cores.cores." + recording});
   if (!row) return s;
-  s.id = text(*row, "id");
-  s.params = Json::parse(opt_text(*row, "params_json").value_or("{}"));
-  for (const auto& r : sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(s.id)})) {
-    s.start.push_back(std::stod(text(r, "start"))); s.stop.push_back(std::stod(text(r, "stop")));
+  s.id = row->id;
+  s.params = row->params.is_null() ? Json::object() : row->params;
+  for (const auto& r : ts.spans(*row)) {
+    s.start.push_back(r.start); s.stop.push_back(r.stop);
     s.frame.push_back(static_cast<std::int64_t>(std::llround((s.start.back() - origin) * fps)));
   }
   s.f = measure_of(sub, s.id, "frame"); s.sense = measure_of(sub, s.id, "sense"); s.cv = measure_of(sub, s.id, "centre_vertex");
@@ -113,11 +118,12 @@ struct StoredTracks {
 };
 StoredTracks read_tracks(SubjectWriter& sub, const std::string& recording) {
   StoredTracks t;
-  const auto row = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V("vortex_cores.tracks." + recording)});
+  const auto ts = tk::Subject::of(sub);
+  const auto row = ts.find({.cls = tk::Cls::selection, .name = "vortex_cores.tracks." + recording});
   if (!row) return t;
-  t.id = text(*row, "id");
-  t.params = Json::parse(opt_text(*row, "params_json").value_or("{}"));
-  for (const auto& r : sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(t.id)})) { t.start.push_back(std::stod(text(r, "start"))); t.stop.push_back(std::stod(text(r, "stop"))); }
+  t.id = row->id;
+  t.params = row->params.is_null() ? Json::object() : row->params;
+  for (const auto& r : ts.spans(*row)) { t.start.push_back(r.start); t.stop.push_back(r.stop); }
   t.first = measure_of(sub, t.id, "first_frame"); t.last = measure_of(sub, t.id, "last_frame"); t.n = measure_of(sub, t.id, "n_frames");
   t.path = measure_of(sub, t.id, "path_length"); t.disp = measure_of(sub, t.id, "displacement"); t.sense = measure_of(sub, t.id, "sense");
   return t;
@@ -171,7 +177,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(4096)), std::make_pair(std::string("rest_b"), std::int64_t(1000))}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = tk::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "A");
         const std::string rid = sub.field(std::move(rec));
         if (first_rid.empty()) first_rid = rid;
@@ -404,12 +410,13 @@ int main() {
   {
     const Stored C = read_cores(sub, "rest", fps, 0.0);
     const std::vector<float> lab = measure_of(sub, C.id, "track");
-    const auto fld = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'rest'", {V(sub.id())});
-    const auto lad = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND type = 'ladder' AND manifold_id = ?", {V(sub.id()), V(surf)});
-    const auto lvl = sub.db().one("SELECT id, n_members FROM selection WHERE member_of_id = ? AND member_ordinal = ?", {V(text(*lad, "id")), V(static_cast<std::int64_t>(level))});
+    const auto ts = tk::Subject::of(sub);
+    const auto fld = ts.find({.cls = tk::Cls::field, .name = "rest"});
+    const auto lad = ts.find({.cls = tk::Cls::selection, .type = "ladder", .manifold_id = surf});
+    const auto lvl = lad ? ts.member(*lad, level) : std::nullopt;
     CHECK(fld && lad && lvl && lab.size() == C.frame.size());
-    const std::string sel = text(*lvl, "id"), fid = text(*fld, "id");
-    const std::int64_t tiles = integer(*lvl, "n_members");
+    const std::string sel = lvl->id, fid = fld->id;
+    const std::int64_t tiles = lvl->n_members.value_or(0);
     auto stored = [&](const char* m) { return measurement_values(sub, sel, fid, std::nullopt, std::nullopt, m); };
     const MeasurementValues sx = stored("crossing_sum_x"), sy = stored("crossing_sum_y"), sz = stored("crossing_sum_z"), nn = stored("crossings");
     std::printf("  tile_crossings: [%lld rows x %lld members] (the %lld tiles and the bridge)\n", static_cast<long long>(nn.rows), static_cast<long long>(nn.members), static_cast<long long>(tiles));
@@ -531,10 +538,11 @@ int main() {
 
   // ── THE RUN-TO-RUN REPEAT (piece 8) ──
   {
-    const auto fa = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'rest'", {V(sub.id())}), fb = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'rest_b'", {V(sub.id())});
-    const auto lad = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND type = 'ladder' AND manifold_id = ?", {V(sub.id()), V(surf)});
-    const auto lvl = sub.db().one("SELECT id FROM selection WHERE member_of_id = ? AND member_ordinal = ?", {V(text(*lad, "id")), V(static_cast<std::int64_t>(level))});
-    const std::string sel = text(*lvl, "id");
+    const auto ts = tk::Subject::of(sub);
+    const auto fa = ts.find({.cls = tk::Cls::field, .name = "rest"}), fb = ts.find({.cls = tk::Cls::field, .name = "rest_b"});
+    const auto lad = ts.find({.cls = tk::Cls::selection, .type = "ladder", .manifold_id = surf});
+    const auto lvl = ts.member(*lad, level);
+    const std::string sel = lvl->id;
     RunRepeatOptions ro;
     ro.recording_a = "rest"; ro.recording_b = "rest_b"; ro.min_crossings = 10;
     const auto r1 = run_repeat_compute(ds, sub, ro);
@@ -548,7 +556,7 @@ int main() {
         const std::size_t b = static_cast<std::size_t>(n.members + t); m.row(t) << x.values[b], y.values[b], z.values[b]; nm[t] = n.values[b]; }
       return nxr::crossings::poolSenses(p, np, m, nm);
     };
-    const nxr::crossings::Repeat want = nxr::crossings::repeat(pooled(text(*fa, "id")), pooled(text(*fb, "id")), 10);
+    const nxr::crossings::Repeat want = nxr::crossings::repeat(pooled(fa->id), pooled(fb->id), 10);
     const StoredStatistic st = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.tiles"), sw = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.whole");
     bool dots = st.values.size() == static_cast<std::size_t>(want.dot.size());
     for (std::size_t t = 0; dots && t < st.values.size(); ++t) dots = (std::isnan(st.values[t]) && std::isnan(want.dot[static_cast<Eigen::Index>(t)])) || std::abs(st.values[t] - want.dot[static_cast<Eigen::Index>(t)]) < 1e-9;
@@ -556,7 +564,8 @@ int main() {
     CHECK(dots && std::abs(sw.values[0] - want.cosine) < 1e-9 && sw.values[0] > 0.99 && r1.info["tiles_used"].get<std::int64_t>() >= 3 && text(st.row, "measure") == "repeat_dot" && text(sw.row, "method") == "run_repeat");
     CHECK(run_repeat_compute(ds, sub, ro).hit);                                    // a rerun is a hit
     // the other run's vectors REVERSED (the motion backwards): the same arrays with the vector components negated
-    { const auto rows = sub.db().all("SELECT measure, array_path, component FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure LIKE 'crossing_sum_%'", {V(sel), V(text(*fb, "id"))});
+    { std::vector<Row> rows;
+      for (const Row& r : nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(sel)}, {"of_field_id", V(fb->id)}})) if (text(r, "measure").rfind("crossing_sum_", 0) == 0) rows.push_back(r);
       CHECK(rows.size() == 3);
       const std::string path = text(rows[0], "array_path");
       std::vector<std::int64_t> shape;
@@ -606,10 +615,11 @@ int main() {
     const std::int64_t tbad = static_cast<std::int64_t>(5.2 * sfreq) / 32;
     CHECK(E.values[static_cast<std::size_t>(2 * tbad + 1)] < E.values[static_cast<std::size_t>(2 * (tbad - 8) + 1)]);
 
-    const auto lad2 = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND type = 'ladder' AND manifold_id = ?", {V(sub.id()), V(surf)});
-    const auto lvl2 = sub.db().one("SELECT id, n_members FROM selection WHERE member_of_id = ? AND member_ordinal = ?", {V(text(*lad2, "id")), V(static_cast<std::int64_t>(level))});
-    const std::string sel_of_level = text(*lvl2, "id");
-    const std::int64_t NL_tiles_plus_bridge = integer(*lvl2, "n_members") + 1;
+    const auto ts2 = tk::Subject::of(sub);
+    const auto lad2 = ts2.find({.cls = tk::Cls::selection, .type = "ladder", .manifold_id = surf});
+    const auto lvl2 = ts2.member(*lad2, level);
+    const std::string sel_of_level = lvl2->id;
+    const std::int64_t NL_tiles_plus_bridge = lvl2->n_members.value_or(0) + 1;
     Json nb = base; nb["recording"] = "rest"; nb["cross_spectrum"] = "rest_crossspectrum_alpha"; nb["seed"] = 1;
     g::run(ds, sub, dnull, nb, all);
     const StoredStatistic D1 = read_statistic(sub, "vortex_null.draw1.null_crossings.rest");
@@ -630,7 +640,7 @@ int main() {
     const StoredStatistic D1b = read_statistic(sub, "vortex_null.draw1.null_crossings.rest");
     CHECK(D1b.values == D1.values);
     // a data run still holds its own crossings
-    CHECK(measurement_values(sub, sel_of_level, text(*sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'rest'", {V(sub.id())}), "id"), std::nullopt, std::nullopt, "crossings").rows == 2);
+    CHECK(measurement_values(sub, sel_of_level, tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = "rest"})->id, std::nullopt, std::nullopt, "crossings").rows == 2);
     // THE TESTS: the draws in batches, the per-tile p of the crossing consistency and of the repeat, against the same numbers made directly from the stored draws
     {
       PsdOptions pb; pb.recording = "rest_b"; pb.chunks = "all"; pb.segment_level = 8; psd_compute(ds, sub, pb);
@@ -655,8 +665,8 @@ int main() {
         return nxr::crossings::poolSenses(pl, np, mi, nmm);
       };
       auto data_pooled = [&](const std::string& rec) {
-        const auto f2 = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(rec)});
-        auto get = [&](const char* m) { return measurement_values(sub, sel_of_level, text(*f2, "id"), std::nullopt, std::nullopt, m); };
+        const auto f2 = tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = rec});
+        auto get = [&](const char* m) { return measurement_values(sub, sel_of_level, f2->id, std::nullopt, std::nullopt, m); };
         const MeasurementValues x = get("crossing_sum_x"), y = get("crossing_sum_y"), z = get("crossing_sum_z"), n = get("crossings");
         const std::int64_t T2 = n.members - 1;
         Eigen::MatrixXd pl(T2, 3), mi(T2, 3); Eigen::VectorXd np(T2), nmm(T2);

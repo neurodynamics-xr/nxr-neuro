@@ -22,6 +22,8 @@
 #include "store_at.h"
 #include "nxr/io.h"
 #include "nxr/io/constant_q.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/joint.h"
@@ -33,6 +35,7 @@ using namespace nxr::io;
 using namespace nxr::pipelines;
 namespace g = nxr::pipelines::graph;
 namespace fs = std::filesystem;
+namespace tk = nxr::io::task;
 
 namespace {
 template <class F> std::string code_of(F f) { try { f(); } catch (const Error& e) { return e.code(); } return ""; }
@@ -104,9 +107,10 @@ int main() {
   SpatialBandOptions sbo; sbo.transform = "exact";
   const SpatialBand sband = make_spatial_band(S0, SL, sbo);
   int timeLevel = -1;
-  for (const Row& m : sub.db().all("SELECT member_ordinal, params_json FROM selection WHERE subject_id = ? AND member_of_id IS NOT NULL AND params_json LIKE '%resolves_hz%'", {V(sub.id())})) {
-    const Json pj = Json::parse(text(m, "params_json"));
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(integer(m, "member_ordinal"));
+  for (const tk::Node& m : tk::Subject::of(sub).find_all({.cls = tk::Cls::selection, .params_present = {"resolves_hz"}, .any_status = true})) {
+    if (!m.member_of_id) continue;
+    const Json& pj = m.params;
+    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(m.member_ordinal.value_or(0));
   }
   CHECK(timeLevel >= 0);
   if (timeLevel < 0) return 1;
@@ -146,7 +150,7 @@ int main() {
     w.compose([&] {
       FieldSpec rec;
       const std::string prod = w.product({cid_s, tid});
-      rec.name = "rest"; rec.path = node_path(w.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = tk::Subject::of(w).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, std::int64_t(4096)}; rec.array.compress = false; rec.cols.set("unit", "A");
       w.field(std::move(rec));
     });
@@ -205,13 +209,14 @@ int main() {
   // the bursts found, in time tiles [first, stop) with their row
   auto bursts_of = [&](const Json& r) {
     const Json bj = out_of(r, "bursts");
-    const auto sel = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(bj["selection"].get<std::string>())});
+    const auto ts = tk::Subject::of(sub);
+    const auto sel = ts.find({.cls = tk::Cls::selection, .name = bj["selection"].get<std::string>(), .any_status = true});
     std::vector<std::array<int, 3>> out;
-    const Json pj = Json::parse(text(*sub.db().one("SELECT params_json FROM selection WHERE id = ?", {V(text(*sel, "id"))}), "params_json"));
+    const Json pj = sel->params.is_null() ? Json::object() : sel->params;
     int k = 0;
-    for (const Row& x : sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*sel, "id"))})) {
+    for (const tk::Span& x : ts.spans(*sel)) {
       const int row = pj.contains("channels") && pj["channels"].contains(std::to_string(k)) ? pj["channels"][std::to_string(k)][0].get<int>() : -1;
-      out.push_back({static_cast<int>(std::llround(std::stod(text(x, "start")) / width_s)), static_cast<int>(std::llround(std::stod(text(x, "stop")) / width_s)), row});
+      out.push_back({static_cast<int>(std::llround(x.start / width_s)), static_cast<int>(std::llround(x.stop / width_s)), row});
       ++k;
     }
     return out;
@@ -284,10 +289,10 @@ int main() {
   for (int f = 0; f < F; ++f) for (int s = 0; s < S; ++s) if (L_(s, f) >= 0) CHECK((L_(s, f) == 0) == (f >= bursts[0][0] && f < bursts[0][1]));   // an event lies inside its burst's time tiles
   // the Selection's record
   {
-    const auto row = sub.db().one("SELECT n_members, n_elements, type, params_json FROM selection WHERE id = ?", {V(ext["id"].get<std::string>())});
+    const auto row = tk::Subject::of(sub).by_id(tk::Cls::selection, ext["id"].get<std::string>());
     CHECK(row.has_value());
-    const Json pj = Json::parse(text(*row, "params_json"));
-    CHECK(text(*row, "type") == "set" && integer(*row, "n_members") == 2 && integer(*row, "n_elements") == S * F);
+    const Json pj = row->params.is_null() ? Json::object() : row->params;
+    CHECK(row->type.value_or("") == "set" && row->n_members.value_or(0) == 2 && row->n_elements.value_or(0) == S * F);
     CHECK(pj["extent"]["thresholds"]["enter_sd"] == 7000.0 && pj["extent"]["space_level"] == L && pj["cells_of"]["space_level"] == L);
     CHECK(pj.contains("bursts") && pj["bursts"]["selection"].is_string() && pj.contains("cache") && pj["extent"]["baseline"]["summaries"].size() == 2);
     CHECK(pj["extent"]["bursts"].size() == 2 && pj["extent"]["event_list"][0]["burst"] == 0 && pj["extent"]["event_list"][1]["burst"] == 1);
@@ -364,8 +369,9 @@ int main() {
   // the baseline and the statistics across the events are stored
   for (const char* o : {"cell_baseline", "extent_n_cells_stats", "extent_area_stats", "extent_amplitude_stats", "extent_peak_stats", "extent_duration_stats", "extent_path_length_stats"}) CHECK(!out_of(r1[0], o).is_null());
   {
-    const auto st = sub.db().one("SELECT n_members FROM statistic WHERE subject_id = ? AND name LIKE '%extent_area_stats%'", {V(sub.id())});
-    CHECK(st.has_value() && integer(*st, "n_members") == 2);
+    std::vector<tk::Node> st;
+    for (const tk::Node& q : tk::Subject::of(sub).find_all({.cls = tk::Cls::statistic, .any_status = true})) if (q.name.find("extent_area_stats") != std::string::npos) st.push_back(q);
+    CHECK(!st.empty() && st.front().n_members.value_or(0) == 2);
   }
   // a rerun is a hit; another threshold is refused without --replace
   { const auto r = g::run(ds, sub, d, set1, all); CHECK(r.size() == 1 && r[0]["hit"] == true); }
@@ -382,8 +388,8 @@ int main() {
     const Json x = read_labels(r[0], l0);
     int any = 0;
     for (const auto v : l0) any += v >= 0;
-    const auto row = sub.db().one("SELECT n_members FROM selection WHERE id = ?", {V(x["id"].get<std::string>())});
-    CHECK(any == 0 && x["events"] == 0 && integer(*row, "n_members") == 0);
+    const auto row = tk::Subject::of(sub).by_id(tk::Cls::selection, x["id"].get<std::string>());
+    CHECK(any == 0 && x["events"] == 0 && row->n_members.value_or(-1) == 0);
     const auto rr = g::run(ds, sub, d, none, all);
     CHECK(rr[0]["hit"] == true);                                              // an all -1 labelling is a hit too
   }
