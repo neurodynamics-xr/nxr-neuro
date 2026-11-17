@@ -59,4 +59,4 @@ jobs:
           cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build build --target nxr-neuro
       - name: WebAssembly build and smoke test
-        run: bindings/wasm-io/smoke.sh "$PWD/build/wasm"
+        run: bash -x bindings/wasm-io/smoke.sh "$PWD/build/wasm"
