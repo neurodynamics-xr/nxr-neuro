@@ -2106,6 +2106,9 @@ void mexFunction(int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
     try {
         // the first slice (the Python wheel's functions): "compute.*" and "io.*" commands, called by the MATLAB package +nxr/+ops and +nxr/+io
         if (nxr::mex::dispatchFirstSlice(cmd, nlhs, plhs, nrhs, prhs)) return;
+#ifdef NXR_MEX_WITH_PIPELINES
+        if (nxr::mex::dispatchPipeline(cmd, nlhs, plhs, nrhs, prhs)) return;   // "run.*": nxr.run, nxr.list, nxr.read
+#endif
 
         if      (cmd == "create")        cmdCreate(nlhs, plhs, nrhs, prhs);
         else if (cmd == "destroy")       cmdDestroy(nlhs, plhs, nrhs, prhs);

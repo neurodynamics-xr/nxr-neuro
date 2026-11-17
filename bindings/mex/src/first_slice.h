@@ -21,4 +21,7 @@ struct SliceFailure {
 // library's invalid-argument and io errors; the library's other errors (nxr::core::Error) pass through.
 bool dispatchFirstSlice(const std::string& cmd, int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs);
 
+// The pipeline level's commands (names starting with "run.": `nxr.run`, `nxr.list`, `nxr.read`; pipeline_slice.cpp, built when the pipelines are); false when it is not one of them.
+bool dispatchPipeline(const std::string& cmd, int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs);
+
 }  // namespace nxr::mex

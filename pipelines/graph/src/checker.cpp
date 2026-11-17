@@ -319,6 +319,21 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
     for (const auto& [m, _] : position_cs(port))
       if (m->cs->name != want)
         u.fail(port, "its positions (" + print(m) + ") are in " + m->cs->space + "/" + m->cs->name + "; this node needs " + want + ". " + transition_hint(m, [&] { Manifold x = *m; x.cs = CoordinateSystem{m->cs->space, want, m->cs->unit}; return std::make_shared<const Manifold>(std::move(x)); }()));
+  // 1b. TWO GAUGES NEVER MEET (G5): fields of one spin in two gauges are not combined. The one conversion is `frame.rotate`; an operator is checked by gauge_rule.
+  if (sg.move != Move::apply) {
+    const std::pair<const std::string, PortType>* first = nullptr;
+    for (const auto& kv : use.in) {
+      const PortType& t = kv.second;
+      if (t.cls != PortClass::field || t.spin == 0) continue;
+      if (!first) { first = &kv; continue; }
+      const PortType& a = first->second;
+      if (a.spin != t.spin)
+        u.fail(kv.first, "is spin " + std::to_string(t.spin) + " but `" + first->first + "` is spin " + std::to_string(a.spin) + ": values of different spin are not combined (a tangent vector, a line field and a conjugate transform differently under a change of gauge).");
+      if (a.gauge != t.gauge)
+        u.fail(kv.first, "is in gauge " + (t.gauge.empty() ? std::string("(none)") : t.gauge) + " but `" + first->first + "` is in gauge " + (a.gauge.empty() ? std::string("(none)") : a.gauge) +
+                             ": two gauges never meet. Insert frame.rotate on one of them, or recompute the stored field (it predates the gauge record).");
+    }
+  }
 
   // 2. THE OUTPUTS, made from the signature
   std::map<std::string, std::string> sels;
