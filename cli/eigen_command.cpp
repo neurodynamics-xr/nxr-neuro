@@ -38,7 +38,7 @@ int eigen_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--mollify")) opt.method.mollify = std::stod(*v);
   if (const auto v = a.maybe("--flip-eps")) opt.method.flip_eps = std::stod(*v);
   opt.replace = a.flag.count("--replace") > 0;
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = cli::stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);

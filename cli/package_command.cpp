@@ -2,7 +2,6 @@
 // command to one action here). The subject packages and the dataset module (store format 53), a thin front on io/include/nxr/io/{subject_package,catalogue,participants,
 // dataset_index,migrate,templates}.h: it parses and prints; every choice of data is named on the command line.
 //
-//   package catalogue-create --dataset D --name N
 //   package create  --package P --name S --home-dataset N [--kind subject|template|group]
 //   package verify  --package P
 //   package show    --package P
@@ -65,14 +64,6 @@ int package_main(const std::vector<std::string>& argv) {
     emit(Json{{"stage", "result"}, {"package", a.get("--package")}, {"subject_id", read_package_record(w.db()).subject_id}});
     w.close();
     emit(Json{{"stage", "result"}, {"content_hash", SubjectPackage::open(a.get("--package")).record().content_hash}});
-  } else if (action == "catalogue-create") {
-    const Args a = parse(prog, rest, {"--dataset", "--name"}, {}, {"--dataset", "--name"});
-    CreateCatalogueOptions o;
-    o.name = a.get("--name");
-    o.created_by = stamp();
-    o.built_by = stamp();
-    const Catalogue c = create_catalogue(a.get("--dataset"), o);
-    emit(Json{{"stage", "result"}, {"dataset", text(c.dataset_row(), "name")}, {"id", text(c.dataset_row(), "id")}, {"folder", c.folder().string()}});
   } else if (action == "verify") {
     const Args a = parse(prog, rest, {"--package"}, {}, {"--package"});
     const VerifyReport v = SubjectPackage::open(a.get("--package")).verify();
@@ -210,7 +201,7 @@ int package_main(const std::vector<std::string>& argv) {
 #endif
   } else {
     throw Usage("nxr-neuro package: error: argument action: invalid choice: '" + action +
-                "' (choose from 'catalogue-create', 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
+                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
   }
   return 0;
 }

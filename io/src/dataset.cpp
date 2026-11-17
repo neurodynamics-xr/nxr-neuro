@@ -25,6 +25,9 @@ Dataset::~Dataset() {
 Dataset Dataset::open(const fs::path& folder) {
   const fs::path file = folder / "dataset.sqlite";
   const std::string p = file.string();
+  if (!fs::is_regular_file(file) && fs::is_regular_file(folder / "catalogue.sqlite")) {
+    throw DatasetError(folder.string() + ": a catalogue of subject packages has no dataset database; read a subject through its package (--dataset and --subject)", code::not_found);
+  }
   if (!fs::is_regular_file(file)) {
     throw DatasetError(p + ": no dataset database here — create the dataset first (nxr dataset create)", code::not_found);
   }

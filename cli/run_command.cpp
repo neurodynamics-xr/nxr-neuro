@@ -68,7 +68,7 @@ int run_main(const std::vector<std::string>& rest) {
   o.replace = a.flag.count("--replace") > 0;
   if (const auto v = a.maybe("--block-samples")) o.block_samples = std::stoll(*v);
   if (const auto v = a.maybe("--block-frames")) o.block_frames = std::stoll(*v);
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = cli::stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
