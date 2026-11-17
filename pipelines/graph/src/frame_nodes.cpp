@@ -8,7 +8,7 @@ namespace nxr::graph {
 namespace {
 
 NodeTraits traits() {
-  return node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "each element and column on its own; the arithmetic is in double and the result is rounded to the input's precision");
+  return node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "each element and column on its own; the arithmetic is in double and the result is stored in the input's precision (float32 for float32 input)");
 }
 
 void need(bool ok, const std::string& msg) { if (!ok) refuse(msg); }

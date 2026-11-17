@@ -126,7 +126,7 @@ struct RecordingInput {
 // The unit of a power the recording's channels give: the recording's own unit, else the montage's per-channel unit when every channel has the same one;
 // else empty (channels of several types, each in its own unit: the caller stores "channel unit^2" and the per-type units in the provenance, as the sensor cross-spectrum does).
 // the power unit of each channel type present (type -> unit^2 [/Hz]), for a recording whose channels do not share one unit
-RecordingInput read_recording(SubjectWriter& sub, const std::string& name) {
+RecordingInput read_recording(SubjectWriter& sub, const std::string& name, bool require_types = true) {   // require_types false: a recording whose channels carry no type labelling is read with none (a node that needs them says so)
   const auto f = find_field(sub.db(), sub.id(), FieldQuery{name, "recording"});
   if (!f) missing(sub.name() + ": no recording named '" + name + "'");
   RecordingInput r;
@@ -147,7 +147,10 @@ RecordingInput read_recording(SubjectWriter& sub, const std::string& name) {
   r.n_channels = ar.shape()[0];
   r.n_samples = ar.shape()[1];
   r.types = family_of(sub, r.channels_id, "type");
-  if (static_cast<std::int64_t>(r.types.size()) != r.n_channels) invalid(name + ": its channels have no 'type' labelling of the right size");
+  if (static_cast<std::int64_t>(r.types.size()) != r.n_channels) {
+    if (require_types) invalid(name + ": its channels have no 'type' labelling of the right size");
+    r.types.clear();
+  }
   // the recording's own flags, else the montage's quality; none: every channel good
   if (const auto fl = nxr::io::selection::row_over_field(sub.db(), sub.id(), r.id, name + "_flags"))
     r.quality = read_labelling(sub, *fl);
@@ -211,8 +214,10 @@ std::string coordinate_system_of(SubjectWriter& sub, const std::string& manifold
 
 // what a node may know of a recording's channels (a fact on its port type, not a store read): their types, quality (the recording's flags, else the montage's) and units
 Json channel_facts(SubjectWriter& sub, const std::string& recording) {
-  const RecordingInput r = read_recording(sub, recording);
-  return Json{{"types", r.types}, {"quality", r.quality}, {"units", r.units}, {"n_channels", r.n_channels}};
+  const RecordingInput r = read_recording(sub, recording, false);
+  Json f = Json{{"quality", r.quality}, {"units", r.units}, {"n_channels", r.n_channels}};
+  if (!r.types.empty()) f["types"] = r.types;                              // a recording whose channels carry no type labelling hands over none: the nodes that need types refuse
+  return f;
 }
 
 namespace {

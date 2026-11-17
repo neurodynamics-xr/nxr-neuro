@@ -374,7 +374,7 @@ ng::NodeSpec velocity() {
                   {"max_iterations", Json(500), "most iterations of the iterative solver for one frame", "-", {}, false},
                   {"preconditioner", Json("ldlt"), "ldlt | ic", "-", {"ldlt", "ic"}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::follows_input,
-                             "the previous frame's map is the state: blocks must meet in time order; each solve is in double", "");
+                             "the previous frame's map is the state: blocks must meet in time order; each solve is in double, the velocity stored as float32 for float32 input", "");
   n.matches = "Rheome opticalflow_scalar (Horn-Schunck on the manifold, frame pairs); compute nxr::flow::FlowEngine";
   n.description = "Horn-Schunck optical flow of the activation map between consecutive frames, the unit amplitude the stored window maximum";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -470,7 +470,7 @@ ng::NodeSpec hodge_modes() {
   n.kind = ng::Kind::chunk;
   n.inputs = {{"v", "the velocity of each frame (flow.velocity): 3N rows", false}, {"package", "a Hodge-Dirac package of the kernel's surface (its eigenvectors, as the runner hands them over)", false}};
   n.outputs = {{"b", "the flow weights [K x frames]: an exact mode's divergence potential (sources and sinks), a coexact mode's stream function (rotation); NaN where the velocity is", false}};
-  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input, "each frame on its own: the carry to the glued surface and the fused read are linear");
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input, "each frame on its own: the carry to the glued surface and the fused read are linear; the weights are stored as float32 for float32 input");
   n.matches = "Rheome flow.apparent (Hodge-Dirac flow weights of the velocity, fused weights); compute nxr::hodge::GluedCarry, WeightsReader";
   n.description = "the velocity carried to the package's glued surface and read in its modes: the flow weights of each frame";
   n.plan = [](const ng::Types& in, const Json&) {

@@ -171,6 +171,20 @@ std::vector<std::string> factors(const Database& db, const std::string& manifold
   return out;
 }
 
+// the factor that is a time line (its samples per second and first sample time), for a field on it or a line given as itself
+static void set_time_line(const Database& db, Value& v) {
+  for (const auto& f : v.manifolds) {
+    const auto m = db.one("SELECT type FROM manifold WHERE id = ?", {V(f)});
+    if (!m || text(*m, "type") != "line" || line_role(db, f) != "time") continue;
+    const auto d = db.one("SELECT d.spacing AS spacing, d.origin AS origin FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(f)});
+    if (!d || is_null(*d, "spacing")) continue;
+    v.time = f;
+    v.rate = 1.0 / row_json(*d)["spacing"].get<double>();
+    v.origin = is_null(*d, "origin") ? 0.0 : row_json(*d)["origin"].get<double>();
+    break;
+  }
+}
+
 Value value_of(const Database& db, const std::string& cls, const Row& row) {
   Value v;
   v.cls = cls;
@@ -182,16 +196,7 @@ Value value_of(const Database& db, const std::string& cls, const Row& row) {
     if (v.complex) v.value_type = "scalar";
     v.unit = opt_text(row, "unit");
     if (v.unit && v.unit->empty()) v.unit.reset();
-    for (const auto& f : v.manifolds) {
-      const auto m = db.one("SELECT type FROM manifold WHERE id = ?", {V(f)});
-      if (!m || text(*m, "type") != "line" || line_role(db, f) != "time") continue;
-      const auto d = db.one("SELECT d.spacing AS spacing, d.origin AS origin FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(f)});
-      if (!d || is_null(*d, "spacing")) continue;
-      v.time = f;
-      v.rate = 1.0 / row_json(*d)["spacing"].get<double>();
-      v.origin = is_null(*d, "origin") ? 0.0 : row_json(*d)["origin"].get<double>();
-      break;
-    }
+    set_time_line(db, v);
   } else if (cls == "operator") {
     v.manifolds = {text(row, "from_manifold_id"), opt_text(row, "to_manifold_id").value_or("")};
     // a TRANSITION operator (T5): the two coordinate systems of one space it maps between, as its type carries them (the checker names `positions.transition`)
@@ -209,6 +214,7 @@ Value value_of(const Database& db, const std::string& cls, const Row& row) {
     v.unit = opt_text(row, "unit");
   } else if (cls == "manifold") {
     v.manifolds = {text(row, "id")};
+    set_time_line(db, v);                                                  // a time line given as the manifold itself: its rate and origin, as for a field on it
   } else if (cls == "measurement") {                                       // the row is the selection's; the key's columns say what was measured
     v.manifolds = {opt_text(row, "manifold_id").value_or("")};
     v.facts["measure"] = opt_text(row, "m_measure").value_or("");

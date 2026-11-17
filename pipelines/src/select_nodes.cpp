@@ -141,10 +141,10 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
         const ns::Line ln{"s", room, s.line_origin + static_cast<double>(s.origin) / s.rate, 1.0 / s.rate};
         ns::TimeGrid made;
         try { made = ns::time_rule_resolved(ln, tr); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
-        need(made.hop_s * s.rate >= 1.0 - 1e-9, who + ": " + g(fpc) + " frames to a cycle of " + g(centre) + " Hz is finer than one sample");
+        // a frame finer than the sampling (36 to a cycle at a high frequency) is allowed (PI rule 36): its sample is made by band-limited interpolation (`frames`), so hop and width in whole samples are only the nearest (at least 1)
         s.hop_exact = s.width_exact = made.hop_s * s.rate;
-        s.width = made.width_samples > 0 ? made.width_samples : static_cast<std::int64_t>(std::llround(s.width_exact));
-        s.hop = made.hop_samples > 0 ? made.hop_samples : static_cast<std::int64_t>(std::llround(s.hop_exact));
+        s.width = made.width_samples > 0 ? made.width_samples : std::max<std::int64_t>(1, static_cast<std::int64_t>(std::llround(s.width_exact)));
+        s.hop = made.hop_samples > 0 ? made.hop_samples : std::max<std::int64_t>(1, static_cast<std::int64_t>(std::llround(s.hop_exact)));
         s.level = made.level;
         s.count = made.grid.tiling->count;
         s.snapped = Json{{"frame_s", made.hop_s}, {"frames_per_cycle", fpc}, {"frame_samples", s.hop_exact}};

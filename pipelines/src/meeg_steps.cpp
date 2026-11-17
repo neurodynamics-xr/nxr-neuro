@@ -75,10 +75,11 @@ std::vector<std::int32_t> good_channels(const ng::PortType& x, const Json& types
   std::set<std::string> want;
   for (const auto& t : types) want.insert(t.get<std::string>());
   std::vector<std::int32_t> out;
-  const auto& ty = c["types"];
+  if (!want.empty() && !c.contains("types")) ng::refuse(std::string(who) + ": its channels of the types asked cannot be told: the recording's channels have no 'type' labelling");
   const auto& q = c["quality"];
-  for (std::size_t i = 0; i < ty.size(); ++i)
-    if ((want.empty() || want.count(ty[i].get<std::string>())) && (i >= q.size() || q[i].get<std::string>() == "good")) out.push_back(static_cast<std::int32_t>(i));
+  const std::size_t n = static_cast<std::size_t>(c.value("n_channels", std::int64_t(0)));
+  for (std::size_t i = 0; i < n; ++i)
+    if ((want.empty() || want.count(c["types"][i].get<std::string>())) && (i >= q.size() || q[i].get<std::string>() == "good")) out.push_back(static_cast<std::int32_t>(i));
   if (out.empty()) ng::refuse(std::string(who) + ": no good channel of the types asked");
   return out;
 }
@@ -997,7 +998,7 @@ ng::NodeSpec filter_apply() {
               {"mean", "the record's channel means (filter.channel_mean): needed by a FIR filter that removes the mean", true}};
   n.outputs = {{"y", "the filtered recording, channels x samples", false}};
   n.parameters = filter_parameters();
-  n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input, "each block filtered in double; the output follows the input",
+  n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input, "each block filtered in double; the output follows the input (float32 stored for float32 input)",
                              "the halo is the design's look-behind and look-ahead (the FIR's half length; the IIR's decayed response at `tolerance`), samples on each side");
   n.matches = "Brainstorm's process_bandpass / process_notch (bst_bandpass_hfilter, kaiserord+fir1; filtfilt IIR); compute nxr::filter";
   n.description = "a zero-phase filter (lowpass, highpass, bandpass, bandstop, notch) on each block, with the halo its design needs";

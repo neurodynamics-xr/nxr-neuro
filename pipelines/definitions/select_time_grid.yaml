@@ -48,4 +48,4 @@ steps:
     - {node: select.time_grid, in: {line: line, event: event}, with: {rule: $rule, duration: $duration, band: $band, range: $range, voices: $voices, cycles: $cycles, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, overlap: $overlap, step: $step, origin: $origin}, out: grid}
 
 outputs:
-  grid: {kind: selection, type: grid, on: recording.time, name: $name}
+  grid: {kind: selection, type: tiling, on: recording.time, name: $name}

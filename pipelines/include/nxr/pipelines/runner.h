@@ -50,7 +50,9 @@ struct Plan {
 };
 
 /** every step's arrows checked on the inputs, in order; what each makes; the outputs' places: before any data is read */
-Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id);
+/** what a node may know of a recording's channels (types, quality, units: channel_facts), as a function of the recording's name; given by a caller that holds the subject's store (a plan reads the database only) */
+using ChannelFacts = std::function<Json(const std::string& recording)>;
+Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id, const ChannelFacts& channels = nullptr);
 /** the parameter sets of a definition's `plans:` header: one when no list is given, else one per combination of the lists' elements (each plan's element set, its list neutralised) */
 std::vector<Json> plan_parameter_sets(const Definition& d, const Json& base);
 /** the parameters with every origin (a parameter declared `chart: origin`) resolved to a point {kind: start | clock | event, seconds, ...}: an event from the stored selection's member */
@@ -101,6 +103,6 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
                       const std::function<void(const Json&)>& progress = {});
 
 /** every run of `d` on the subject planned (one per anchor match), none executed */
-std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset = std::string());
+std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset = std::string(), const ChannelFacts& channels = nullptr);
 
 }  // namespace nxr::pipelines::graph

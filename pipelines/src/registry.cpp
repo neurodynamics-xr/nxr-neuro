@@ -643,6 +643,8 @@ std::vector<StepSpec> build() {
   add_montage_steps(r);
   add_tile_steps(r);
   add_eigen_steps(r);
+  bind_execution(r);                                                    // each step's state and its kind's methods, then its declared traits (a combined step takes its parts' afterwards)
+  bind_traits(r);
   return r;
 }
 

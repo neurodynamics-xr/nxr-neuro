@@ -270,7 +270,7 @@ ng::NodeSpec rotary_pair() {
   n.kind = ng::Kind::chunk;
   n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"operator", "a stored 2-row operator over the channels (its rows a_x and a_y: the plane's x and y)", false}};
   n.outputs = {{"z", "z = a_x.X + i a_y.X: one complex series, +f the pair turning from x towards y", false}};
-  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input, "each sample is mapped on its own: a linear map of the channels, so any block split gives the same values");
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input, "each sample is mapped on its own: a linear map of the channels, so any block split gives the same values; stored as float32 for float32 input");
   n.linear_map = true;
   n.matches = "nxr.timefreq (the complex series of a rotary pair); compute nxr::rotary::pairSeries";
   n.description = "the complex series of a rotary pair: the operator's two rows applied to the channels, x + i y";
@@ -854,7 +854,9 @@ std::vector<std::int32_t> picked_channels(const ng::PortType& x, const ng::Array
   std::set<std::string> want;
   for (const auto& t : p.value("channel_types", Json::array())) want.insert(t.get<std::string>());
   std::vector<std::int32_t> out;
-  for (std::size_t i = 0; i < c["types"].size(); ++i)
+  if (!want.empty() && !c.contains("types")) ng::refuse(std::string(who) + ": its channels of the types asked cannot be told: the recording's channels have no 'type' labelling");
+  const std::size_t n = static_cast<std::size_t>(c.value("n_channels", std::int64_t(0)));
+  for (std::size_t i = 0; i < n; ++i)
     if ((want.empty() || want.count(c["types"][i].get<std::string>())) && (i >= c["quality"].size() || c["quality"][i].get<std::string>() == "good")) out.push_back(static_cast<std::int32_t>(i));
   if (out.empty()) ng::refuse(std::string(who) + ": no good channel of the types asked");
   return out;

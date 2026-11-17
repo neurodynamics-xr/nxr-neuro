@@ -103,7 +103,7 @@ std::string Plan::text(const nxr::io::Database& db) const {
   return L.str();
 }
 
-Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id) {
+Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id, const ChannelFacts& channels) {
   Plan P{d, params, found, found, {}, {}, {}};
   if (d.over && P.values.count(*d.over)) {
     P.values[*d.over].chunked = true;
@@ -114,7 +114,11 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
   nxr::graph::Graph& g = P.graph;
   g.name = d.name; g.version = d.version; g.text = d.text;
   for (const auto& [k, v] : params.items()) g.parameters[k] = Json{{"default", v}, {"optional", v.is_null()}};   // the run's values; a null one (an optional bound) is "not given", read by the steps
-  for (const auto& [k, v] : P.values) { g.inputs.push_back(k); P.types[k] = port_of(v); }
+  for (const auto& [k, v] : P.values) {
+    g.inputs.push_back(k);
+    P.types[k] = port_of(v);
+    if (channels && v.cls == "field" && v.time && v.row) P.types[k].facts["channels"] = channels(nxr::io::text(*v.row, "name"));   // the recording's channels are facts its nodes read at plan
+  }
   for (const auto& [o, _] : d.outputs.items()) g.outputs.push_back(o);
   std::set<std::string> defined;                                           // the inputs found, then what each step makes
   for (const auto& [k, _] : P.values) defined.insert(k);
@@ -271,7 +275,7 @@ Json resolve_origins(const Definition& d, const Json& params, const nxr::io::Dat
   return out;
 }
 
-std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset) {
+std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset, const ChannelFacts& channels) {
   const Json base = parameters_of(d, set, preset);
   std::vector<Plan> out;
   for (const Json& each : plan_parameter_sets(d, base)) {
@@ -281,7 +285,7 @@ std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, co
       if (!params.contains(e.draw) || !params[e.draw].is_number_integer() || params[e.draw].get<std::int64_t>() < 0) refuse(d.name + ": the parameter `" + e.draw + "` (draw) is a whole number >= 0");
       e.name += ".draw" + std::to_string(params[e.draw].get<std::int64_t>());
     }
-    for (const auto& found : nxr::io::finder::resolve(db, subject_id, e.inputs, params)) out.push_back(plan(e, found, params, db, subject_id));   // every run planned before any is executed
+    for (const auto& found : nxr::io::finder::resolve(db, subject_id, e.inputs, params)) out.push_back(plan(e, found, params, db, subject_id, channels));   // every run planned before any is executed
   }
   for (auto& P : out) P.preset = preset;
   return out;
@@ -1417,7 +1421,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
 
 std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                       const std::function<void(const Json&)>& progress) {
-  const auto plans = plan_runs(d, sub.db(), sub.id(), set, opt.preset);     // every run planned before any is executed
+  const auto plans = plan_runs(d, sub.db(), sub.id(), set, opt.preset, [&sub](const std::string& recording) { return nxr::pipelines::channel_facts(sub, recording); });     // every run planned before any is executed
   std::vector<Json> out;
   for (const auto& P : plans) {
     if (dry_run) {
@@ -1447,18 +1451,24 @@ GroupInputs stack_members(const std::vector<GroupMember>& members, const std::ve
   for (const auto& m : members) g.subjects.push_back(m.name);
   std::string field_input;
   for (const auto& k : per) if (found.front().at(k).cls == "field") { field_input = k; break; }
-  if (!params.contains("measures") || !params["measures"].is_array() || params["measures"].empty()) refuse(pipeline + ": a group run states the measures to roll up (the parameter `measures`, a list)");
+  bool any_keyed = false;
+  for (const auto& k : per) any_keyed = any_keyed || found.front().at(k).cls == "measurement";
+  if (!any_keyed && (!params.contains("measures") || !params["measures"].is_array() || params["measures"].empty())) refuse(pipeline + ": a group run states the measures to roll up (the parameter `measures`, a list)");
   for (const auto& k : per) {
     for (std::size_t i = 0; i < members.size(); ++i) g.ids[k].push_back(text(*found[i].at(k).row, "id"));
-    if (found.front().at(k).cls != "selection") continue;
+    const bool keyed = found.front().at(k).cls == "measurement";            // a stored measurement found by its key: its own measure and of, in each member
+    if (found.front().at(k).cls != "selection" && !keyed) continue;
     nxr::graph::Array a;
     a.rows = static_cast<std::int64_t>(members.size());
     std::int64_t R = -1, M = -1;
     Json measures = Json::array();
+    const Json measure_list = keyed ? Json::array({found.front().at(k).facts.value("measure", std::string())}) : params["measures"];
     for (std::size_t i = 0; i < members.size(); ++i) {
       const Bound b(*members[i].sub, members[i].ds);
-      const std::optional<std::string> of = field_input.empty() ? std::nullopt : std::optional<std::string>(text(*found[i].at(field_input).row, "id"));
-      for (const auto& mj : params["measures"]) {
+      const Value& fk = found[i].at(k);
+      const std::optional<std::string> of = keyed ? (fk.facts.contains("of_field_id") ? std::optional<std::string>(fk.facts["of_field_id"].get<std::string>()) : std::nullopt)
+                                                  : (field_input.empty() ? std::nullopt : std::optional<std::string>(text(*found[i].at(field_input).row, "id")));
+      for (const auto& mj : measure_list) {
         const std::string measure = mj.get<std::string>();
         const nxr::io::MeasurementValues mv = b.measurement_values(text(*found[i].at(k).row, "id"), of, std::nullopt, measure);
         if (R < 0) { R = mv.rows; M = mv.members; }
@@ -1468,9 +1478,9 @@ GroupInputs stack_members(const std::vector<GroupMember>& members, const std::ve
         if (i == 0) measures.push_back(measure);
       }
     }
-    a.cols = static_cast<std::int64_t>(params["measures"].size()) * R * M;
+    a.cols = static_cast<std::int64_t>(measure_list.size()) * R * M;
     a.meta["subjects"] = g.subjects; a.meta["measures"] = measures; a.meta["rows"] = R; a.meta["members"] = M;
-    a.meta["shape"] = Json::array({static_cast<std::int64_t>(members.size()), static_cast<std::int64_t>(params["measures"].size()), R, M});
+    a.meta["shape"] = Json::array({static_cast<std::int64_t>(members.size()), static_cast<std::int64_t>(measure_list.size()), R, M});
     a.meta["name"] = text(*found.front().at(k).row, "name"); a.meta["stack"] = "subjects";
     g.stacked[k] = std::move(a);
   }
