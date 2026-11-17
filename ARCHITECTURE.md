@@ -90,7 +90,8 @@ composes what the caller asks for. The dependency table says what a library may 
    - Is every loop over samples or chunks, and every file access, inside io?
    - Is every choice of which data (signal, source, span) made by the caller, not inside a function?
 6. **Enforced by** the dependency table, the layering guard tests (`cmake/check_layering.cmake`: recordings read only by the chunk service; no io
-   include in `compute/` or `meeg/`; `layering_sql_only_in_io`: SQL, `database.h` and `nxr/io/records/` only inside io), and the checklist in each PR.
+   include in `compute/` or `meeg/`; `layering_sql_only_in_io`: SQL, `database.h` and `nxr/io/records/` only inside io; `layering_nodes_without_io`: the registered nodes include no io header and hold no
+   database, subject, dataset or file: what a node needs beside its inputs is bound by the runner and handed over as data, `nxr::pipelines::graph::Bound`), and the checklist in each PR.
 
 **Pipelines are CPU replicas of the Studio's GPU/TSL chains.** Design every pipeline as if it were one of the Studio's
 device chains, so nxr-neuro can later supply data to them, or run them, with no redesign.

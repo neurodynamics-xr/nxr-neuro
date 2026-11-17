@@ -16,10 +16,8 @@
 
 #include "nxr/cores.h"
 #include "nxr/histogram.h"
-#include "nxr/io/errors.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/point_events.h"
-#include "nxr/io/statistic.h"
 #include "nxr/scaling.h"
 #include "nxr/scalespace.h"
 #include "nxr/pipelines/input.h"
@@ -232,7 +230,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
     };
     s.prepare = [](const Values& ins, const Json&, ExecContext& c) {
       const std::string name = nxr::io::text(*ins.at("baseline").row, "name");
-      const nxr::io::StoredStatistic hs = nxr::io::read_statistic(c.sub, name);
+      const nxr::io::StoredStatistic hs = c.bound.statistic(name);
       RelativeState st;
       st.name = name;
       st.d = Eigen::Map<const Eigen::VectorXd>(hs.values.data(), static_cast<Eigen::Index>(hs.values.size()));
@@ -274,7 +272,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       need(x.facts.contains("spatial_band"), "scale: x carries no spatial band");
       need(p["transform"] == "auto" || p["transform"] == "eigen" || p["transform"] == "chebyshev" || p["transform"] == "exact", "scale: transform " + p["transform"].dump() + ": auto, eigen, chebyshev or exact");
       need(p["modes"].is_number_integer() && p["modes"].get<int>() >= 0 && p["order"].is_number_integer() && p["order"].get<int>() >= 0 && p["tolerance"].is_number() && p["tolerance"].get<double>() > 0, "scale: modes and order are at least 0, tolerance above 0");
-      const auto m = c.db.one("SELECT type FROM manifold WHERE id = ?", {nxr::io::V(x.manifolds[0])});
+      const auto m = c.bound.manifold(x.manifolds[0]);
       need(m && nxr::io::text(*m, "type") == "surface", "scale: x's first factor is not a surface");
       Value y = made(x);
       y.facts.erase("levels");
@@ -287,22 +285,21 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       const Value& x = ins.at("x");
       ScaleState st;
       st.levels = levels_of(x, "scale");
-      const auto gm = c.sub.db().read("manifold", x.manifolds[0]);
+      const auto gm = c.bound.manifold(x.manifolds[0]);
       std::string native = nxr::io::text(*gm, "name");
       const std::string suffix = "_glued";
       if (native.size() > suffix.size() && native.compare(native.size() - suffix.size(), suffix.size(), suffix) == 0) native.resize(native.size() - suffix.size());
-      const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(c.sub, native, true);
+      const nxr::pipelines::SurfaceInput S = c.bound.surface(native, true);
       const std::int64_t nV = S.n_vertices();
-      if (!c.ds) refuse("scale: the atoms' norms are computed with the dataset (the bands may store the eigenmodes they compute)");
       std::vector<std::vector<double>> per_level;
       std::int64_t Vg = 0;
       for (const int l : st.levels) {
-        const nxr::pipelines::SurfaceLevel L = nxr::pipelines::read_surface_level(c.sub, S, l);
+        const nxr::pipelines::SurfaceLevel L = c.bound.surface_level(S, l);
         nxr::pipelines::SpatialBandOptions bo;
         bo.transform = p["transform"].get<std::string>(); bo.modes = p["modes"].get<int>(); bo.order = p["order"].get<int>(); bo.tolerance = p["tolerance"].get<double>();
         bo.spatial_shape = x.facts["spatial_band"].value("spatial_shape", std::string("mexhat"));
         bo.glued = true;
-        const nxr::pipelines::SpatialBand band = nxr::pipelines::make_spatial_band(*c.ds, c.sub, S, L, bo, c.say);
+        const nxr::pipelines::SpatialBand band = c.bound.make_spatial_band(S, L, bo);
         if (Vg == 0) Vg = band.glued_vertices;
         std::vector<double> n2(static_cast<std::size_t>(Vg), 0.0);
         const std::int64_t bs = 256;
@@ -369,7 +366,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       need(!x.complex && x.value_type == "scalar" && x.facts.value("made_by", std::string()) == "relative" && !x.facts.contains("levels"), "patches: x must be the relative power of ONE level (`relative`, then `at_level`); x was made by " + x.facts.value("made_by", std::string("no non-linear step")));
       need(sc.cls == "field" && sc.time && sc.chunked && sc.facts.value("made_by", std::string()) == "scale", "patches: scale must be the characteristic-level map (`scale`)");
       need(sc.manifolds == x.manifolds && sc.facts.value("axis", std::string()) == "frames" && sc.facts["frames"]["tiling"] == x.facts["frames"]["tiling"], "patches: scale and x must be on the same surface and frame tiling");
-      const auto m = c.db.one("SELECT type FROM manifold WHERE id = ?", {nxr::io::V(x.manifolds[0])});
+      const auto m = c.bound.manifold(x.manifolds[0]);
       need(m && nxr::io::text(*m, "type") == "surface", "patches: x's first factor is not a surface (the patches are on the mesh)");
       need(p["threshold"] == "ratio" || p["threshold"] == "percentile", "patches: threshold " + p["threshold"].dump() + ": percentile (the default: the false-alarm rate, from `run spatial_threshold`) or ratio");
       need(p["ratio"].is_number() && p["ratio"].get<double>() > 0, "patches: ratio is a number above 0 (2: twice the baseline)");
@@ -425,9 +422,9 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       st.events = p["events"].get<bool>();
       st.threshold = p["ratio"].get<double>(); st.min_area = p["min_area"].get<double>(); st.block = p["block_frames"].get<std::int64_t>(); st.fps = x.rate; st.origin = x.origin;
       for (const auto& e : sc.facts["scale"]["levels"]) st.levels.push_back(e.get<int>());
-      if (ins.count("bursts")) for (const auto& r : c.sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {nxr::io::V(nxr::io::text(*ins.at("bursts").row, "id"))})) st.bursts.push_back({std::stod(nxr::io::text(r, "start")), std::stod(nxr::io::text(r, "stop"))});
-      const auto man = c.sub.db().read("manifold", x.manifolds[0]);
-      const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(c.sub, nxr::io::text(*man, "name"), true);
+      if (ins.count("bursts")) for (const auto& r : c.bound.spans(nxr::io::text(*ins.at("bursts").row, "id"))) st.bursts.push_back({std::stod(nxr::io::text(r, "start")), std::stod(nxr::io::text(r, "stop"))});
+      const auto man = c.bound.manifold(x.manifolds[0]);
+      const nxr::pipelines::SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);
       st.V = S.n_vertices();
       nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
       const std::vector<double> va = nxr::ladder::vertexAreas(mesh);
@@ -447,9 +444,9 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       std::string native = nxr::io::text(*man, "name");
       const std::string suffix = "_glued";
       if (native.size() > suffix.size() && native.compare(native.size() - suffix.size(), suffix.size(), suffix) == 0) native.resize(native.size() - suffix.size());
-      const nxr::pipelines::SurfaceInput N = nxr::pipelines::read_surface(c.sub, native, true);
+      const nxr::pipelines::SurfaceInput N = c.bound.surface(native, true);
       for (const int l : st.levels) {
-        const nxr::pipelines::SurfaceLevel L = nxr::pipelines::read_surface_level(c.sub, N, l);
+        const nxr::pipelines::SurfaceLevel L = c.bound.surface_level(N, l);
         const auto& m = L.bank.members[static_cast<std::size_t>(L.l)];
         const double lc = m.lo > 0 ? std::sqrt(m.lo * m.hi) : m.hi / std::sqrt(2.0);
         st.size_cm.push_back(100.0 * 2.0 * M_PI / std::sqrt(lc));
@@ -457,7 +454,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       Json rule = Json{{"threshold", st.threshold}, {"threshold_rule", "ratio: relative power >= ratio x the vertex's baseline"}, {"ratio", st.threshold}};
       if (p["threshold"] == "percentile") {                                // THE THRESHOLD, derived from the stored distribution of the relative power outside the bursts (read by name)
         const Value& t = ins.at("threshold");
-        const nxr::io::StoredStatistic hs = nxr::io::read_statistic(c.sub, nxr::io::text(*t.row, "name"));
+        const nxr::io::StoredStatistic hs = c.bound.statistic(nxr::io::text(*t.row, "name"));
         const std::int64_t bins = hs.options["bins"].get<std::int64_t>();
         if (static_cast<std::int64_t>(hs.values.size()) != bins) refuse("patches: " + nxr::io::text(*t.row, "name") + ": " + std::to_string(hs.values.size()) + " counts for " + std::to_string(bins) + " bins");
         std::vector<std::int64_t> counts(hs.values.size());

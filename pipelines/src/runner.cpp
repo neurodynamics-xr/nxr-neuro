@@ -97,7 +97,8 @@ std::string Plan::text(const nxr::io::Database& db) const {
 Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db) {
   Plan P{d, params, found, found, {}};
   if (d.over && P.values.count(*d.over)) P.values[*d.over].chunked = true;
-  const PlanContext ctx{db};
+  const Bound bound{db};
+  const PlanContext ctx{bound};
   for (const auto& use : d.uses()) {
     const StepSpec& st = step(use.step);
     const std::string w = "steps: " + st.name + " (" + label(use.section) + ")";
@@ -687,7 +688,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (!p.step->resolve) continue;
       Values ins;
       for (const auto& [port, t] : p.ins) if (P.values.count(t)) ins[port] = P.values.at(t);
-      const Json r = p.step->resolve(ins, p.params, sub);
+      const Json r = p.step->resolve(ins, p.params, Bound(sub, &ds));
       if (!r.is_null()) resolved[p.step->name + ":" + p.use.outs.front()] = r;
     }
     if (!resolved.empty()) key.params["resolved"] = resolved;
@@ -763,7 +764,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
 
   // BEFORE: each step's constants bound once (prepare), then the setup steps
-  ExecContext ctx{sub, &ds, progress};
+  const Bound bound(sub, &ds, progress);
+  ExecContext ctx{bound, progress};
   std::vector<std::any> states(P.steps.size());
   for (std::size_t i = 0; i < P.steps.size(); ++i) {
     const Planned& p = P.steps[i];

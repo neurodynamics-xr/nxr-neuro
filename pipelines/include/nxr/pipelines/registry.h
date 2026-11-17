@@ -25,9 +25,8 @@
 #include <utility>
 #include <vector>
 
-#include "nxr/io/database.h"
-#include "nxr/io/writer.h"
 #include "nxr/io/finder.h"
+#include "nxr/pipelines/bound.h"
 
 namespace nxr::pipelines::graph {
 
@@ -37,9 +36,9 @@ using Values = std::map<std::string, Value>;
 
 constexpr const char* kKinds[] = {"setup", "chunk", "accumulate", "after"};
 
-/** what a step's plan may look up beside its inputs: the subject's rows (a manifold's type, a selection's tiling), read only */
+/** what a step's plan is handed beside its inputs: the facts the runner bound (a manifold's type, a selection's tiling), read only. A node never reaches a database. */
 struct PlanContext {
-  const nxr::io::Database& db;
+  const Bound& bound;
 };
 
 /** A VALUE INSIDE THE LOOP: a chunk's columns, the halo still round them (nxr's `Block`). Row-major [rows x width], float32 as the Studio's and nxr's;
@@ -57,10 +56,9 @@ struct Array {
   nxr::io::Json meta = nxr::io::Json::object();   // what the step records about it for the store and the steps after it (a measurement's tiles, a span set's thresholds)
   std::int64_t comps = 1;                      // values an element holds: 1, or 3 for a vector measurement (the phase current's x y z); data is then [rows x cols x comps], the components consecutive
 };
-/** what a step is given while it runs: the subject (its stored nodes read BY NAME: a kernel, a surface; never a recording, which only the chunk service reads) */
+/** what a step is given while it runs: what the runner bound (a surface, a stored statistic, a kernel's matrix: constants the runner reads, never a recording). It holds no subject, dataset or file. */
 struct ExecContext {
-  nxr::io::SubjectWriter& sub;
-  nxr::io::DatasetWriter* ds = nullptr;                                   // for a step whose preparation stores a node it needs (the spatial band's eigenmodes, when none are stored)
+  const Bound& bound;
   std::function<void(const nxr::io::Json&)> say;                          // the run's progress: what preparation did or fell back on, said, never silent
   /** constants bound ONCE for the whole run and shared by the steps that ask for the same key (the Studio's "uploaded once"): a bound map several steps use is built by the first one's preparation */
   std::map<std::string, std::any> shared;
@@ -123,7 +121,7 @@ struct StepSpec {
   std::function<std::any(const Values& ins, const Json& params, ExecContext& ctx)> prepare;
   /** what the REQUEST resolves to given what is stored (reading only, before anything is computed or written): part of the run's cache key, so a result is a hit only when the same choice is made
    *  (the spatial band: eigenmodes when stored or computable, else the series). Null: nothing resolved. */
-  std::function<Json(const Values& ins, const Json& params, nxr::io::SubjectWriter& sub)> resolve;
+  std::function<Json(const Values& ins, const Json& params, const Bound& bound)> resolve;
   /** what preparation RESOLVED that the parameters leave open (a series degree chosen from a tolerance, a transform's error): reported from the prepared state; the runner puts it in the run's
    *  provenance (producer_json of Fields, spans and statistics; the recipe entry the measurement rows name), so every option of a result is on record (the method rule). Generic: no step is special. */
   std::function<Json(const std::any& state)> record;

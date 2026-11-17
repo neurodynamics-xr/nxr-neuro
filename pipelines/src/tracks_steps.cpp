@@ -10,7 +10,6 @@
 #include <cmath>
 #include <memory>
 
-#include "nxr/io/errors.h"
 #include "nxr/pipelines/point_events.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/tracks.h"

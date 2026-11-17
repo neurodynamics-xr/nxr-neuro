@@ -15,8 +15,6 @@
 #include <memory>
 
 #include "nxr/filterbank.h"
-#include "nxr/io/errors.h"
-#include "nxr/io/statistic.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/surrogate.h"
@@ -87,7 +85,7 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
     };
     s.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
       SeriesState st;
-      const auto cs = crossspectrum_read(c.sub, nxr::io::text(*ins.at("cross_spectrum").row, "name"));
+      const auto cs = c.bound.cross_spectrum(nxr::io::text(*ins.at("cross_spectrum").row, "name"));
       st.channels = cs.channels; st.level = p["level"].get<int>(); st.rate = ins.at("x").rate;
       st.record = Json{{"level", st.level}, {"tile_samples", std::int64_t(1) << st.level}, {"channels", st.channels.size()}, {"cross_spectrum", nxr::io::text(*ins.at("cross_spectrum").row, "name")}, {"band", ins.at("x").facts.value("band", Json())}};
       return std::any(std::make_shared<SeriesState>(std::move(st)));
@@ -159,14 +157,14 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
     s.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
       SurState st;
       const Value& x = ins.at("x");
-      const auto cs = crossspectrum_read(c.sub, nxr::io::text(*ins.at("cross_spectrum").row, "name"));
+      const auto cs = c.bound.cross_spectrum(nxr::io::text(*ins.at("cross_spectrum").row, "name"));
       st.channels = cs.channels;
       const std::int64_t M = static_cast<std::int64_t>(cs.channels.size());
       const double tr = cs.S.trace() / static_cast<double>(M);
       need(tr > 0, "lagfree_surrogate: the cross-spectrum holds no power");
       st.Rh = nxr::surrogate::sqrtPsd(cs.S / tr);
       // the spectrum: the PSD's mean over the cross-spectrum's channels, on its frequency line (k df)
-      const nxr::io::StoredStatistic P = nxr::io::read_statistic(c.sub, nxr::io::text(*ins.at("psd").row, "name"));
+      const nxr::io::StoredStatistic P = c.bound.statistic(nxr::io::text(*ins.at("psd").row, "name"));
       need(P.shape.size() == 2, "lagfree_surrogate: the PSD " + nxr::io::text(*ins.at("psd").row, "name") + " is not [channels × frequencies]");
       const std::int64_t Cp = P.shape[0], nf = P.shape[1];
       const double df = P.producer.value("frequency_resolution_hz", 0.0), fs = P.producer.value("sfreq", x.rate);
@@ -186,7 +184,7 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
       need(num > 0 && den > 0, "lagfree_surrogate: the PSD holds no power in the band " + p["band"].dump() + " Hz");
       st.expected = 2.0 * num / den;
       // the data's tile power
-      const nxr::io::StoredStatistic S = nxr::io::read_statistic(c.sub, nxr::io::text(*ins.at("power_series").row, "name"));
+      const nxr::io::StoredStatistic S = c.bound.statistic(nxr::io::text(*ins.at("power_series").row, "name"));
       need(S.shape.size() == 2 && S.shape[1] == 2, "lagfree_surrogate: power_series is not [tiles × (sum, count)]");
       const std::int64_t n = S.shape[0];
       st.stride = std::int64_t(1) << S.options.value("level", 0);

@@ -15,8 +15,6 @@
 
 #include "nxr/cores.h"
 #include "nxr/histogram.h"
-#include "nxr/io/errors.h"
-#include "nxr/io/statistic.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/point_events.h"
@@ -35,7 +33,7 @@ void curl_input(const Value& x, const PlanContext& c, const std::string& who) {
   need(x.facts.value("axis", std::string("samples")) == "frames", who + ": x must be on the frame tiling (`frames`, with `within` the bursts): the cores are cut from the burst frames, one frame at a time");
   need(!x.facts.value("nonlinear", false), who + ": x was made by a non-linear step (" + x.facts.value("made_by", std::string("?")) + "): the cores are patches of the signed curl, not of an envelope");
   need(x.value_type == "scalar" && !x.manifolds.empty(), who + ": x is " + x.value_type + "; one number a vertex (the curl: `apply_kernel` with form curl_tan)");
-  const auto m = c.db.one("SELECT type FROM manifold WHERE id = ?", {nxr::io::V(x.manifolds[0])});
+  const auto m = c.bound.manifold(x.manifolds[0]);
   need(m && nxr::io::text(*m, "type") == "surface", who + ": x's first factor is not a surface (the cores are patches on the mesh)");
 }
 void bad_input(const Value& x, const Values& ins, const Json& p, const std::string& who) {
@@ -204,7 +202,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
       need(x.cls == "field" && x.time && x.chunked && x.facts.value("axis", std::string("samples")) == "frames", "relative_histogram: x must be a field on the frame tiling (`frames`, without `within`: the bursts are left out by `outside`)");
       need(!x.complex && x.value_type == "scalar" && x.facts.value("made_by", std::string()) == "relative" && !x.facts.contains("levels"), "relative_histogram: x must be the relative power of ONE level (`relative`, then `at_level`); x was made by " + x.facts.value("made_by", std::string("no non-linear step")));
       need(x.facts["frames"].value("within", Json()).is_null(), "relative_histogram: the frames are inside " + x.facts["frames"]["within"].dump() + " (`frames` within): the distribution is of the frames OUTSIDE the bursts, so the frame tiling must not be restricted to them");
-      const auto m = c.db.one("SELECT type FROM manifold WHERE id = ?", {nxr::io::V(x.manifolds[0])});
+      const auto m = c.bound.manifold(x.manifolds[0]);
       need(m && nxr::io::text(*m, "type") == "surface", "relative_histogram: x's first factor is not a surface");
       need(p["bad_segments"] == "exclude", "relative_histogram: `outside` leaves a Selection out of the run: bad_segments must be exclude (the run's exclusion)");
       need(p["bins"].is_number_integer() && p["bins"].get<int>() >= 2, "relative_histogram: bins is a whole number, at least 2 (nxr: 4096)");
@@ -284,7 +282,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
       CoreState st;
       st.percentile = p["percentile"].get<double>(); st.block = p["block_frames"].get<std::int64_t>(); st.fps = x.rate; st.origin = x.origin;
       // THE THRESHOLD, derived from the stored distribution (read by name)
-      const nxr::io::StoredStatistic hs = nxr::io::read_statistic(c.sub, nxr::io::text(*t.row, "name"));
+      const nxr::io::StoredStatistic hs = c.bound.statistic(nxr::io::text(*t.row, "name"));
       const std::int64_t bins = hs.options["bins"].get<std::int64_t>();
       if (static_cast<std::int64_t>(hs.values.size()) != bins) refuse("cores: " + nxr::io::text(*t.row, "name") + ": " + std::to_string(hs.values.size()) + " counts for " + std::to_string(bins) + " bins");
       std::vector<std::int64_t> counts(hs.values.size());
@@ -293,8 +291,8 @@ void add_cores_steps(std::vector<StepSpec>& r) {
       lb.lo = hs.options["lo"].get<double>(); lb.hi = hs.options["hi"].get<double>(); lb.bins = static_cast<int>(bins);
       try { st.threshold = nxr::histogram::percentile(counts, lb, st.percentile); } catch (const std::invalid_argument& e) { refuse(std::string("cores: the threshold: ") + e.what()); }
       // THE MESH: x's surface (the glued one for the curl of the one cortex): edges, vertex areas, positions
-      const auto man = c.sub.db().read("manifold", x.manifolds[0]);
-      const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(c.sub, nxr::io::text(*man, "name"), true);
+      const auto man = c.bound.manifold(x.manifolds[0]);
+      const nxr::pipelines::SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);
       st.V = S.n_vertices();
       nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
       const std::vector<double> va = nxr::ladder::vertexAreas(mesh);

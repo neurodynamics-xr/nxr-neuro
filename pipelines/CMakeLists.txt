@@ -33,6 +33,7 @@ add_library(nxr_pipelines
   src/cache.cpp
   src/definition.cpp
   src/dispatch.cpp
+  src/bound.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
