@@ -19,7 +19,7 @@ message(STATUS "nxr-compute-mex: building against MATLAB at ${Matlab_ROOT_DIR}")
 
 matlab_add_mex(
     NAME nxr_compute_mex                # CMake target name (file is nxr_compute.mexw64)
-    SRC src/nxr_compute_mex.cpp
+    SRC src/nxr_compute_mex.cpp src/first_slice.cpp
     LINK_TO nxr_compute
     OUTPUT_NAME nxr_compute
     R2018a                      # use the new mxArray API (interleaved complex etc.)
@@ -145,3 +145,29 @@ endif()
 # The MEX wrapper depends on nxr-compute's public headers but isn't itself a
 # consumer that needs Spectra paths exposed — those propagate through
 # nxr-compute's PUBLIC interface link.
+
+# ── The first slice (the Python wheel's functions: compute.* and io.*) ─────────────────────────────────────────────────────────────────────────────────
+# The readers need the pure formats (io/formats: nxr_io_formats), which carry matio, HDF5 and zlib as static archives. A MEX meets MATLAB's own
+# HDF5 and zlib in the same process, so none of theirs is exported from it: the symbols are hidden at the link (nxr_io_hide_static_symbols), and FindMatlab's
+# export map leaves mexFunction the only symbol the module exports. (SQLite, io's database engine, is not linked: the readers do not need it.)
+if(TARGET nxr_io_formats)
+    set_target_properties(nxr_io_formats PROPERTIES POSITION_INDEPENDENT_CODE ON)   # a static library linked into a shared object
+    target_sources(nxr_compute_mex PRIVATE src/first_slice_io.cpp)
+    target_compile_definitions(nxr_compute_mex PRIVATE NXR_MEX_WITH_IO=1)
+    target_link_libraries(nxr_compute_mex nxr_io_formats)
+    if(COMMAND nxr_io_hide_static_symbols)
+        nxr_io_hide_static_symbols(nxr_compute_mex)
+    endif()
+    # zlib static where it can be (Linux: libz.a; -DZLIB_USE_STATIC_LIBS=ON), hidden like the others; a dynamic zlib is left to the system (macOS two-level namespace)
+    if(APPLE AND ZLIB_LIBRARY AND ZLIB_LIBRARY MATCHES "\\.a$")
+        target_link_options(nxr_compute_mex PRIVATE "LINKER:-load_hidden,${ZLIB_LIBRARY}")
+    endif()
+else()
+    message(STATUS "nxr-compute-mex: io/formats not built (NXR_NEURO_BUILD_IO=OFF): the MEX has no nxr.io readers.")
+endif()
+
+# Linux: the C++ runtime is linked statically too. MATLAB ships its own libstdc++ (older than a current compiler's): a MEX that wants a newer one fails to load
+# with "GLIBCXX_3.4.xx not found". Only mexFunction is exported (FindMatlab's version script), so none of it is visible to MATLAB.
+if(UNIX AND NOT APPLE)
+    target_link_options(nxr_compute_mex PRIVATE -static-libstdc++ -static-libgcc)
+endif()

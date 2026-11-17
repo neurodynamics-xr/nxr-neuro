@@ -68,9 +68,9 @@ One wheel per platform serves every Python 3.12 or newer. Only NumPy is required
     pip install wheel-linux-x86_64/nxr_neuro-<version>-cp312-abi3-manylinux_2_28_x86_64.whl      # or the macOS wheel
 
     import nxr_neuro as nn
-    r = nn.ops.welch.psd(x, sfreq=1000.0)                 # x: [channels, samples]; r.frequencies, r.psd (scipy.signal.welch's values)
-    y = nn.ops.filter.bandpass(x, 8, 13, sfreq=1000.0)
-    c = nn.ops.pca.pca(table)                             # observations x features
+    r = nn.compute.welch.psd(x, sfreq=1000.0)                 # x: [channels, samples]; r.frequencies, r.psd (scipy.signal.welch's values)
+    y = nn.compute.filter.bandpass(x, 8, 13, sfreq=1000.0)
+    c = nn.compute.pca.pca(table)                             # observations x features
     rec = nn.io.open_edf("rest.edf")                      # header now, samples by block; the span is always yours
     block = rec.read(start=0, stop=10_000)                # [channels, samples], SI units
     volume, header = nn.io.read_nifti("t1.nii.gz")

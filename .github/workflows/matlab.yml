@@ -1,0 +1,108 @@
+name: matlab
+
+# The MATLAB face (bindings/mex): the nxr_compute MEX and the +nxr package, built on Linux x86_64 and macOS arm64 (macos-15) and tested with MathWorks' actions
+# (matlab-actions/setup-matlab and run-tests; free for public repositories).
+# - On a version tag (`v*`) and by hand (`workflow_dispatch`): build, test, upload the MEX and the package as workflow artefacts.
+# - On pull requests: only when bindings/mex/** or this workflow changes.
+# What runs: the first slice's tests (bindings/mex/test/first_slice: the same functions, inputs and expected values as the Python wheel's tests and the C++
+# goldens), the symbol check (nothing of HDF5, matio, zlib, zstd or SQLite is exported or shared), and the nxr_compute command tests (informational).
+on:
+  push:
+    tags: ["v*"]
+  pull_request:
+    paths:
+      - "bindings/mex/**"
+      - ".github/workflows/matlab.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: matlab-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+env:
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+  CCACHE_MAXSIZE: 2G
+  CCACHE_COMPRESS: "true"
+
+jobs:
+  mex:
+    name: mex (${{ matrix.name }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: linux-x86_64, os: ubuntu-24.04 }
+          - { name: macos-arm64, os: macos-15 }
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: Build tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build ccache zlib1g-dev
+          echo "ZLIB_ARGS=-DZLIB_USE_STATIC_LIBS=ON" >> "$GITHUB_ENV"
+      - name: Build tools (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install ninja ccache zlib
+          # zlib's static archive (keg-only): the MEX links it, hidden, and not the system's shared one
+          echo "ZLIB_ARGS=-DZLIB_USE_STATIC_LIBS=ON -DZLIB_ROOT=$(brew --prefix zlib)" >> "$GITHUB_ENV"
+      - name: Compiler cache
+        uses: actions/cache@v4
+        with:
+          path: .ccache
+          key: ccache-matlab-${{ matrix.name }}-${{ github.ref_name }}-${{ github.sha }}
+          restore-keys: |
+            ccache-matlab-${{ matrix.name }}-${{ github.ref_name }}-
+            ccache-matlab-${{ matrix.name }}-
+      - name: Fetched dependencies
+        uses: actions/cache@v4
+        with:
+          path: build/_deps
+          key: deps-matlab-${{ matrix.name }}-${{ hashFiles('**/CMakeLists.txt', 'cmake/**') }}
+      - name: Set up MATLAB
+        uses: matlab-actions/setup-matlab@v2
+        with:
+          release: R2025b
+          cache: true
+      - name: Configure
+        # the MEX alone: io/formats (HDF5, matio and zlib static, hidden), compute; no pipelines, command line or C++ tests
+        run: >
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DNXR_NEURO_BUILD_TESTS=OFF -DNXR_NEURO_BUILD_PIPELINES=OFF -DNXR_NEURO_BUILD_CLI=OFF -DNXR_NEURO_BUILD_MEEG=OFF
+          -DNXR_NEURO_PORTABLE=ON $ZLIB_ARGS
+      - name: Build the MEX
+        run: cmake --build build --target nxr_compute_mex
+      - name: Symbols
+        # nothing of HDF5, matio, zlib, zstd or SQLite is exported or a shared dependency: MATLAB loads its own copies in the same process
+        run: bash bindings/mex/test/check_symbols.sh "$(find build/bindings/mex -name 'nxr_compute.mex*' | head -1)"
+      - name: First slice tests
+        uses: matlab-actions/run-tests@v2
+        with:
+          select-by-folder: bindings/mex/test/first_slice
+          test-results-junit: test-results/first-slice.xml
+      - name: nxr_compute command tests (informational)
+        # the earlier commands' tests: some are sensitive to the platform's floating point; they do not gate
+        continue-on-error: true
+        uses: matlab-actions/run-command@v2
+        with:
+          command: cd bindings/mex/test; run_command_tests
+      - name: Package the MEX and the +nxr package
+        shell: bash
+        run: |
+          mkdir -p dist/nxr-matlab
+          cp -R bindings/mex/matlab/+nxr dist/nxr-matlab/
+          cp "$(find build/bindings/mex -name 'nxr_compute.mex*' | head -1)" dist/nxr-matlab/
+          cp bindings/mex/matlab/README.md LICENSE THIRD_PARTY_NOTICES.md dist/nxr-matlab/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matlab-${{ matrix.name }}
+          path: dist/nxr-matlab
+          if-no-files-found: error

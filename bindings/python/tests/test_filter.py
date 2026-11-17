@@ -3,7 +3,7 @@ import pytest
 
 import nxr_neuro as nn
 
-filt = nn.ops.filter
+filt = nn.compute.filter
 FS = 1000.0
 
 

@@ -1,3 +1,75 @@
+# The MATLAB face of nxr-neuro (`+nxr`)
+
+Two layers over one MEX, `nxr_compute`:
+
+- **The first slice (`nxr.compute`, `nxr.io`)**: the same functions, with the same names and options, as the Python wheel's first slice (`nxr_neuro.compute`,
+  `nxr_neuro.io`; `docs/reference.md`). Each is one call into the C++ library on arrays; the maths is the library's.
+- **The manifold package (`nxr.manifold`, `nxr.viz`)** and the `nxr_compute('command', ...)` dispatcher it wraps (about fifty commands: manifold operators,
+  eigenmodes, Dirac, gauge, Delaunay). Unchanged; described below.
+
+## Build
+
+MATLAB R2021a or newer (name=value arguments), CMake 3.20+, Ninja, a C++17 compiler, zlib. HDF5, matio, Eigen and geometry-central are fetched or are submodules
+(clone with `--recurse-submodules`), as for the main build.
+
+    cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DNXR_NEURO_PORTABLE=ON \
+          -DNXR_NEURO_BUILD_TESTS=OFF -DNXR_NEURO_BUILD_PIPELINES=OFF -DNXR_NEURO_BUILD_CLI=OFF -DNXR_NEURO_BUILD_MEEG=OFF
+    cmake --build build --target nxr_compute_mex          # build/bindings/mex/nxr_compute.mex<arch>
+
+CMake finds MATLAB through `matlab` on the path, or `-DMatlab_ROOT_DIR=/Applications/MATLAB_R2026a.app`. (A full `cmake -S . -B build` builds the MEX too when MATLAB
+is found; the options above only skip what the MEX does not need.) Add to the path:
+
+```matlab
+addpath('bindings/mex/matlab')                 % the +nxr package
+addpath('build/bindings/mex')                  % nxr_compute.mex*
+```
+
+**One binary, nothing clashing.** MATLAB loads its own HDF5 and zlib. The MEX links HDF5, matio and zlib (and the C++ runtime on Linux) as static archives with hidden
+symbols; it exports only `mexFunction` and `mexfilerequiredapiversion`. SQLite (io's pinned amalgamation) and zstd are not in it: the readers do not need them.
+`bindings/mex/test/check_symbols.sh <mex file>` checks it with `nm` and `otool`/`ldd` (CI runs it). With a static zlib archive found (`-DZLIB_USE_STATIC_LIBS=ON`, and
+`-DZLIB_ROOT=<keg>` for Homebrew's) zlib is hidden like the others; otherwise the system's shared zlib is used (macOS: two-level namespaces, so it cannot clash).
+
+## The first API
+
+Conventions, once: signals are `[channels x samples]`; options are name=value (`segment_samples=512`, or `'segment_samples', 512`) with the wheel's names and defaults;
+**precision follows the input** (single in, single out; integers and logicals are computed as double); **indices are 1-based**, as everywhere in MATLAB (the wheel's are
+0-based): faces, bins, samples, channels, the gaps' first sample, and a GIFTI triangle's vertex indices. Errors carry identifiers: `nxr:invalidArgument`, `nxr:formatError`,
+`nxr:unsupported` (a valid file the reader refuses, with the reason), `nxr:io`, and the library's own (`nxr:...`). `help nxr.compute.welch.psd` gives each function's meaning,
+default and unit.
+
+| MATLAB | Python wheel | |
+|---|---|---|
+| `r = nxr.compute.welch.psd(x, sfreq, ...)` | `compute.welch.psd` | `r.frequencies`, `r.psd`, `r.segments`, `r.segments_skipped` |
+| `r = nxr.compute.welch.cross_spectrum(x, sfreq, bins, ...)` | `compute.welch.cross_spectrum` | `bins` is `[groups x 2]`, 1-based; `r.real`, `r.imag` are `[groups x channels x channels]` |
+| `y = nxr.compute.filter.lowpass(x, upper, sfreq, ...)`, `highpass(x, lower, sfreq)`, `bandpass(x, lower, upper, sfreq)`, `bandstop(...)`, `notch(x, frequencies, sfreq)` | `compute.filter.*` | |
+| `r = nxr.compute.pca.pca(x, scale="none")`, `y = nxr.compute.pca.reconstruct(scores, components, mean, scale, k)` | `compute.pca.*` | `r.components`, `r.singular_values`, ... as the wheel's fields; per-component lists are rows |
+| `r = nxr.compute.manifold.eigenmodes(vertices, faces, k, ...)` | `compute.manifold.eigenmodes` | faces 1-based; `r.eigenvalues` is a column |
+| `rec = nxr.io.open_edf(path)`, `open_bdf`, `open_brainvision`, `open_eeglab`, `open_fif` | `io.open_*` | a `nxr.io.Recording`: `rec.header` (struct), `rec.read(first, last)`, `rec.read_all()`, `rec.close()` |
+| `[x, header] = nxr.io.read_edf(path, first=1, last=1000)` (or `all=true`), `read_bdf`, `read_brainvision`, `read_eeglab`, `read_fif` | `io.read_*` | the span is always stated: `first` and `last` (inclusive), or `all=true` |
+| `[data, header] = nxr.io.read_nifti(path)`, `image = nxr.io.read_gifti(path)`, `[t, names] = nxr.io.read_tsv(path)` | `io.read_nifti`, `read_gifti`, `read_tsv` | |
+
+```matlab
+rec = nxr.io.open_fif("sub-01_raw.fif");
+rec.header.sampling_rate, rec.header.n_samples
+x = rec.read(1, 10000);                                  % [channels x samples], SI units
+y = nxr.compute.filter.bandpass(x, 8, 12, rec.header.sampling_rate);
+r = nxr.compute.welch.psd(y, rec.header.sampling_rate, segment_samples=512);
+plot(r.frequencies, r.psd(1, :))
+```
+
+The pipeline commands (`nxr.compute.<verb>`) are not in this slice; they wait for io's task-level API.
+
+## Tests
+
+    matlab -batch "cd bindings/mex/test/first_slice; run_first_slice_tests"     % the first slice (class-based; MEX found under build/ or in NXR_MEX_DIR)
+    matlab -batch "cd bindings/mex/test; run_command_tests"                     % the nxr_compute command tests (test_*.m)
+
+The first slice's tests use the C++ goldens (`compute/test/golden`: scipy, Brainstorm and numpy references; `io/formats/test/golden`: MNE-Python, nibabel and pandas) and
+the same synthetic inputs and expected values as `bindings/python/tests`. CI (`.github/workflows/matlab.yml`) builds and tests on Linux and macOS with
+`matlab-actions/setup-matlab` and `run-tests`.
+
+---
+
 # `+nxr/+manifold` — MATLAB six-group package
 
 Mirrors the JS / WASM / N-API binding's `nxr.manifold.*` surface.

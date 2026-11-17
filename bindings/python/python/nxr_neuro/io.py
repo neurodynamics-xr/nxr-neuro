@@ -18,7 +18,7 @@ import numpy as np
 
 from . import _core
 
-__all__ = ["Recording", "open_edf", "open_bdf", "open_brainvision", "open_eeglab", "read_edf", "read_bdf", "read_brainvision", "read_eeglab",
+__all__ = ["Recording", "open_edf", "open_bdf", "open_brainvision", "open_eeglab", "open_fif", "read_edf", "read_bdf", "read_brainvision", "read_eeglab", "read_fif",
            "read_nifti", "read_gifti", "read_tsv"]
 
 
@@ -75,6 +75,19 @@ def open_eeglab(path: str) -> Recording:
     return Recording(_core.open_eeglab(str(path)))
 
 
+def open_fif(path: str, allow_maxshield: bool = False) -> Recording:
+    """Open a Neuromag / MNE raw `.fif` recording (MEG and EEG): the header now, the samples by block. A split file's later parts (named by the file)
+    are found next to it and read as one sample axis.
+
+    Samples are in SI units (T, T/m, V, ... per channel; `header["channels"][i]["unit"]`), as MNE reads them: stored value x cal x range. int16, int32 and
+    float32 buffers read as float32, float64 as float64; complex buffers, epochs, evoked and processed-data files are refused with the reason. The
+    first sample of the file is not added to the sample axis (it starts at 0; `header["info"]["first_samp"]`). Active projectors are listed, not applied.
+    `allow_maxshield`: read internal-active-shielding raw data, which MNE refuses by default. Skipped stretches are `header["gaps"]`, read as zeros;
+    annotations carry their onset in seconds from the first sample; bad channels are `header["bad_channels"]`.
+    """
+    return Recording(_core.open_fif(str(path), bool(allow_maxshield)))
+
+
 def _read(rec: Recording, start, stop, all, first_channel, last_channel):
     if all:
         if start is not None or stop is not None:
@@ -106,6 +119,12 @@ def read_eeglab(path: str, start: int | None = None, stop: int | None = None, al
                 last_channel: int | None = None):
     """Read samples [start, stop) (or `all=True`) of an EEGLAB `.set` recording: (data [channels, samples], header). See `open_eeglab`."""
     return _read(open_eeglab(path), start, stop, all, first_channel, last_channel)
+
+
+def read_fif(path: str, start: int | None = None, stop: int | None = None, all: bool = False, first_channel: int = 0,
+             last_channel: int | None = None, allow_maxshield: bool = False):
+    """Read samples [start, stop) (or `all=True`) of a FIF raw recording: (data [channels, samples], header). See `open_fif`."""
+    return _read(open_fif(path, allow_maxshield), start, stop, all, first_channel, last_channel)
 
 
 def read_nifti(path: str):
