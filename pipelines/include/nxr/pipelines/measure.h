@@ -34,8 +34,6 @@ struct MeasureComputeOptions {
 };
 struct MeasureComputeResult { nxr::io::Json info; };
 
-MeasureComputeResult measure_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const MeasureComputeOptions& opt,
-                                     const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // MEASUREMENT OVER TIME is the definition `measure_over_time` (pipelines/definitions/, the step `window_measures` of steps_measure.cpp): a time-resolved field measured over the windows of a time partition.
 
