@@ -8,6 +8,7 @@
 #include "nxr/io/measures.h"
 #include "nxr/io/records/records.h"
 #include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_reads.h"
 #include "nxr/io/selection_store.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/subject_package.h"
@@ -16,6 +17,7 @@
 #include "nxr/io/store.h"
 
 #include <cmath>
+#include <set>
 
 namespace nxr::io::task {
 
@@ -540,6 +542,16 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
     sub.datastore().rename_prefix(join_key(sub.prefix(), loc), join_key(a.first, loc));
     moved = a.second;
   }
+  if (cls == Cls::selection && text(*r, "type") == "ladder") {
+    // a grid's ladder: its level rows and their nodes (areas, centres, adjacency) go with it, as they were written together (a constant-Q ladder's levels hold no node)
+    std::set<std::string> nodes;
+    for (const Row& m : selection::member_rows(sub.db(), text(*r, "id"), false)) {
+      const Json p = Json::parse(opt_text(m, "params_json").value_or("{}"), nullptr, false);
+      if (p.is_object() && p.contains("node") && p["node"].is_string()) nodes.insert(p["node"].get<std::string>());
+      sub.remove("selection", text(m, "id"));
+    }
+    for (const std::string& n : nodes) sub.store().erase_prefix(n);
+  }
   sub.remove(to_string(cls), text(*r, "id"));
   return moved;
 }
@@ -623,6 +635,83 @@ std::string Unit::selection(const SelectionOut& s) {
   at.name = s.name; at.path = path_of(s); at.manifold_id = s.manifold_id;
   if (s.acquisition) at.acquisition = *s.acquisition;
   Json params = s.params.is_null() ? Json::object() : s.params;
+  if (s.type == "grid") {     // a dyadic grid with levels (made by compute's `dyadic` or `transfer`): the ladder row and one set row per level, through io's save_grid
+    if (!s.grid || s.grid->levels.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a grid has its levels (grid)");
+    const GridOut& g = *s.grid;
+    const Json pj = producer_of(by_, s.output, s.producer);
+    Json lp = g.params.is_object() ? g.params : Json::object();
+    if (pj.contains("cache")) lp["cache"] = pj["cache"];
+    lp["producer"] = pj;
+    // a dictionary as the node described it ({name, description, entries}), or the one already stored
+    auto dictionary_of = [&](const Json& dj, const std::optional<std::string>& stored) -> std::optional<std::string> {
+      if (stored) return stored;
+      if (!dj.is_object()) return std::nullopt;
+      DictionarySpec spec;
+      spec.name = dj.value("name", std::string());
+      spec.scope = "subject";
+      spec.description = dj.value("description", std::string());
+      spec.entries = std::vector<DictionaryEntry>();
+      for (const auto& e : dj.value("entries", Json::array())) {
+        DictionaryEntry x;
+        x.code = e["code"].get<std::int64_t>();
+        x.ordinal = x.code;
+        x.name = e.value("name", std::string());
+        if (e.contains("measurement") && e["measurement"].is_number()) x.cols.set("measurement", e["measurement"].get<double>()).set("measurement_unit", e.value("measurement_unit", std::string()));
+        if (e.contains("attributes")) x.cols.json("attributes_json", e["attributes"]);
+        spec.entries->push_back(std::move(x));
+      }
+      return sub.dictionary(spec).id;
+    };
+    selection::Placement top;
+    top.name = s.name; top.path = at.path; top.manifold_id = s.manifold_id;
+    if (s.acquisition) top.acquisition = *s.acquisition;
+    top.dictionary_id = dictionary_of(g.dictionary, g.dictionary_id);
+    top.cols.set("unit", g.unit).set("label", g.label).set("description", g.description);
+    top.params = lp;
+    std::vector<selection::GridLevel> levels;
+    for (const GridLevelOut& L : g.levels) {
+      const std::string dir = atlas_node(*impl_->db, s.manifold_id, L.name);       // the level's node: its arrays beside its tile codes
+      bool areas = false;
+      for (const GridArrayOut& a : L.arrays) {
+        if (a.suffix == "w") areas = true;
+        const std::string key = dir + "/" + a.suffix;
+        if (!a.i32.empty() || a.f64.empty()) sub.write_array(key, view(a.i32, a.shape));
+        else sub.write_array(key, view(a.f64, a.shape));
+      }
+      selection::GridLevel gl;
+      gl.at.name = L.name; gl.at.manifold_id = s.manifold_id;
+      gl.at.dictionary_id = dictionary_of(L.dictionary, L.dictionary_id);
+      Json rp = L.params.is_object() ? L.params : Json::object();
+      rp["node"] = dir;
+      if (areas) rp["areas"] = dir + "/w";
+      gl.at.params = rp;
+      gl.at.cols.set("unit", g.unit).set("label", L.label).set("description", L.description);
+      gl.array_path = dir + "/codes";
+      gl.tile_codes = L.codes;
+      gl.tiles = L.tiles;
+      levels.push_back(std::move(gl));
+    }
+    const selection::Saved saved = selection::save_grid(sub, top, levels);
+    for (std::size_t l = 0; l < g.levels.size(); ++l) {
+      const GridLevelOut& L = g.levels[l];
+      const std::string& sid = saved.member_ids.at(l);
+      if (L.centres.is_object()) {                  // the tiles' centre vertices, a pick on the surface (-1: an empty tile)
+        selection::Description picks;
+        picks.type = selection::Type::indices;
+        for (const auto& i : L.centres["indices"]) picks.indices.push_back(i.get<std::int32_t>());
+        selection::Placement cs;
+        cs.name = L.centres.value("name", std::string()); cs.path = cs.name; cs.manifold_id = s.manifold_id;
+        cs.description = L.centres.value("description", std::string());
+        selection::save(sub, picks, cs);
+      }
+      if (L.member_values.is_object()) {            // a value over pairs of the level's tiles: rows on the level's selection (code a, within_code b)
+        std::vector<selection::MemberValue> rows;
+        for (const auto& v : L.member_values["values"]) rows.push_back({v[0].get<std::int64_t>(), v[1].get<double>(), v[2].get<std::int64_t>()});
+        selection::save_member_values(sub, sid, L.member_values.value("measure", std::string()), rows, L.member_values.value("unit", std::string()), by_.tool, sid);
+      }
+    }
+    return saved.id;
+  }
   if (s.type == "partition" || s.type == "set") {     // a partition is a set per element: a member number per element, a label per member
     if (s.member_of.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a " + s.type + " has a member number per element (member_of)");
     d.type = selection::Type::set;

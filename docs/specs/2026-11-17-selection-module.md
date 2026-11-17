@@ -67,7 +67,7 @@ a named part of a manifold. Its type says how it is described:
     - an irregular set per element: the `set` row's array `P` holds each element's member number, `P.labels` each member's label (absent when member i is
       labelled i), the dictionary one row per label;
     - a tiling (chunks, frames): a `spans` row with its rule, nothing per member; listed spans (bursts, events): `selection_span` rows;
-    - a dyadic grid: its member array of tile codes and `params_json.grid` {kind, depth, pieces}; a whole grid with levels is a `ladder` row (`save_grid`); an
+    - a dyadic grid: its member array of tile codes and `params_json.grid` {kind, depth, slots, pieces} (`slots`: the piece slots the codes reserve, at least 2; `pieces`: the connected pieces); a whole grid with levels is a `ladder` row (`save_grid`); an
       elements grid: a `set` row with `params_json.grid` {kind "elements", size}; a constant-Q ladder: the `ladder` row, a level's identity its
       `member_ordinal`, its label (`code`) the power of two;
     - a product: a `set` row, nothing per member, its factors in `selection_factor` (in order) and their radices in `params_json.product`

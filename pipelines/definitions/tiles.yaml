@@ -1,0 +1,32 @@
+# THE DYADIC TILES OF A SURFACE, as one GRID with levels (the Cortical Flow Studio's `engine/ladder.ts` surfaceLadder, backend/src/db/surface-ladder.ts; nxr `geom.ladder` / `geom.trees.subject_tree`;
+# Rheome `+geom/surfaceladder.m`). Each tile is halved by equal mass across its geodesic diameter, every tile ONE PIECE; level l has 2^l tiles per connected piece, paired with the band it adds by Weyl's
+# law (N(lambda) = A lambda / 4 pi). The grid is defined before any data and its hierarchy is a closed form: the member number is the finest tile code h 2^D + t (h the connected piece, a hemisphere),
+# level l's member is that code >> (D - l); no parent map is held or stored. Made by compute's dyadic builder (the node `tile_grid`), stored by io's save_grid: the `ladder` `<surface> tiles` (its
+# dictionary the levels: code = the level, measurement = the level's wavelength) and one `set` per level `<surface> tiles L<l>` (the tile code of every vertex; its dictionary the tiles' names), with
+# the level's tile areas, tile centres (the vertex nearest the area-weighted centroid; -1 empty) and tile adjacency in the level's node.
+#
+# THE GRAPH (nodes and typed ports; the Studio's chain: surfaceLadder -> levels -> tileAreas / tileCentres / tileAdjacency):
+#   surface (manifold, a surface of n vertices and its faces)  -- tile_grid {depth} -->  tiles (a grid on that surface: a code per vertex, a level per 2^l tiles a piece)
+#
+# What it cannot resolve: a tile is as equal in area as the cut across the geodesic diameter allows; a surface of several pieces gets piece slots (h) and a piece too small for the finest level
+# stops the ladder there (the default depth is the finest every piece reaches).
+#
+#   nxr-neuro run tiles --dataset <folder> --subject sub-01 --surface cortex [--depth 8]
+pipeline: tiles
+version: 1
+description: the dyadic equal-area tiles of a surface, one grid with closed-form levels
+scope: subject
+
+inputs:
+  surface: {manifold: surface, where: {name: $surface}, hint: "name the surface (--surface)"}
+
+parameters:
+  surface: {default: null, meaning: "the subject's surface whose tiles are made, by name", unit: "-"}
+  depth: {default: null, meaning: "the finest level written (level l has 2^l tiles per connected piece); null: the finest level every piece of the surface reaches", unit: level}
+
+steps:
+  before:
+    - {step: tile_grid, in: {surface: surface}, with: {depth: $depth, tree: subject}, out: tiles}
+
+outputs:
+  tiles: {kind: selection, type: grid, on: surface.manifold.0, name: "{surface} tiles"}

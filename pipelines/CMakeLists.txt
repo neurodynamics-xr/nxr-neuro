@@ -51,6 +51,7 @@ add_library(nxr_pipelines
   src/connectome_steps.cpp
   src/montage_steps.cpp
   src/tiling_steps.cpp
+  src/tiles_steps.cpp
   src/surrogate_steps.cpp
   src/run_repeat.cpp
   src/null_compute.cpp

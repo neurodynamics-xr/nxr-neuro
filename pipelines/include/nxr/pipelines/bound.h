@@ -22,6 +22,7 @@
 #include "nxr/io.h"
 #include "nxr/io/statistic.h"
 #include "nxr/pipelines/frames.h"
+#include "nxr/pipelines/group_template.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/meeg_internal.h"
@@ -59,6 +60,9 @@ class Bound {
   SurfaceInput surface(const std::optional<std::string>& name = std::nullopt, bool as_stored = false) const;
   SurfaceLevel surface_level(const SurfaceInput& surface, int level) const;
   StoredFrames stored_frames(const std::string& surface_name, std::int64_t n_vertices) const;
+  std::string subject_kind() const;                                              // the run's subject's kind: subject, template or group
+  std::string coordinate_unit(const std::string& manifold_id) const;             // the length unit of a manifold's coordinate system ("m", "mm"; empty when it records none)
+  GroupTemplate group_template(const std::string& surface_name) const;           // the default subject's group ladder, sphere and surface, with this subject's registered sphere (group.h)
   internal::GluedDomain glued_domain(const SurfaceInput& surface) const;
   StoredCrossSpectrum cross_spectrum(const std::string& name) const;
   CrossSpectrumWindows cross_spectrum_windows(const std::string& name) const;       // an analytic series on time tiles, by its band's name (as stored)

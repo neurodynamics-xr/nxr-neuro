@@ -40,6 +40,8 @@ struct TilesComputeResult {
   nxr::io::Json info;
   bool existed = false;                      // the stored ladder was kept
 };
+// THE TILE GRID is a DEFINITION now (`run tiles`: pipelines/definitions/tiles.yaml, the registered step `tile_grid` in tiles_steps.cpp, stored through io's save_grid; the spec docs/specs/2026-11-17-tile-grids.md).
+// `tiles_compute` and `group_tree_compute` stay as the library's entry to the definitions `tiles` and `group_tree` for the callers that need the grid first (they run the definition and answer from what it stored).
 TilesComputeResult tiles_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const TilesComputeOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // THE GROUP TREE (D127/D128, nxr.geom.trees): the dyadic ladder of the default subject's primary cortex (`<surface> tiles`, Selection type `ladder`, D85),

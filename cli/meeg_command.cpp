@@ -37,7 +37,7 @@
 //     axes channel x the frequency line `<R>_freq`, float32 [channels x frequencies] beside the recording (`<R>_statistics/`).
 //
 //   nxr-neuro opticalflow compute --dataset D/N --subject S --recording R [--kernel NAME] [--package STEM] [--name STEM] [--chunks K|A-B|all | --start S --stop S] --family F --gain G --freq HZ [--centres HZ,..] [--cycles C] [--voices V] [--anchor HZ] [--limits LO-HI] [--half-width OCT] [--gamma G --time-bandwidth B] [--resolution HZ] [--oversample X] [--tolerance T] [--alpha A] [--depth D] [--frame-level L] [--start-s S] [--method pcg|direct|perscale] [--regulariser connection|ambient] [--datafit auto|gauge|triangle] [--input amplitude|signed] [--flow-tolerance T] [--max-iterations N] [--preconditioner ldlt|ic] [--scale-family F] [--scale-voices V] [--scale-filters N] [--replace]
-//   nxr-neuro tiles compute --dataset D/N --subject S [--surface NAME] [--depth L] [--replace]
+//   nxr-neuro run tiles --dataset D/N --subject S [--surface NAME] [--depth L] [--replace]   (a definition: pipelines/definitions/tiles.yaml; the group tree: `run group_tree`, `run group_tiles`)
 //     The dyadic TILE LADDER of a surface (nxr/ladder.h, the Studio's surfaceLadder): 2^l equal-area tiles per connected piece at level l, paired with scale by Weyl's law, stored as Selections (a `ladder` and one `set` per level:
 //     the tile code h 2^l + t of every vertex), their areas, centres and adjacency in the Selection's atlas node. `opticalflow compute` and `quadrature compute` take --tiles to write their maps' tile summaries per level
 //     (--tile-levels 1,2,3 | --tile-max-level N, --no-levi-civita): scalars area-weighted; vectors in the canonical frame components and in the Levi-Civita (transported) form, labelled; never raw 3-D sums.
@@ -480,30 +480,6 @@ int opticalflow_main(const std::vector<std::string>& argv) {
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     out["seconds"] = std::round(r.seconds * 1000) / 1000;
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
-int tiles_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro tiles: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro tiles compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--surface", "--depth"}, {"--replace"}, {"--dataset", "--subject"});
-  nxr::pipelines::TilesComputeOptions o;
-  o.surface = a.maybe("--surface");
-  if (const auto v = a.maybe("--depth")) o.depth = std::stoi(*v);
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::tiles_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     cli::emit(out);
   } catch (const std::invalid_argument& e) {
     usage(prog, e.what());

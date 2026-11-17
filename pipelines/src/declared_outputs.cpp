@@ -116,6 +116,45 @@ task::Tiling tiling_of(const Plan& P, const Json& t, const std::string& on_ref, 
   return out;
 }
 
+// a dyadic GRID the node described (type grid): `describe` names the ladder and each level, the data is the tile code of every element per level [levels x elements]
+task::GridOut grid_of(const ng::Array& a, const Json& d, const std::string& o) {
+  task::GridOut g;
+  g.label = d.value("label", std::string());
+  g.description = d.value("description", std::string());
+  g.unit = d.value("unit", std::string());
+  g.params = d.value("params", Json::object());
+  if (d.contains("dictionary")) g.dictionary = d["dictionary"];
+  if (d.contains("dictionary_id") && d["dictionary_id"].is_string()) g.dictionary_id = d["dictionary_id"].get<std::string>();
+  const Json levels = d.value("levels", Json::array());
+  if (!levels.is_array() || levels.empty()) bad(o, "its node describes no levels (describe.levels)");
+  if (a.rows != static_cast<std::int64_t>(levels.size())) bad(o, "its node gives " + std::to_string(a.rows) + " rows of tile codes for " + std::to_string(levels.size()) + " levels");
+  for (std::size_t l = 0; l < levels.size(); ++l) {
+    const Json& x = levels[l];
+    task::GridLevelOut L;
+    L.name = x.value("name", std::string());
+    if (L.name.empty()) bad(o, "level " + std::to_string(l) + " has no name");
+    L.label = x.value("label", std::string());
+    L.description = x.value("description", std::string());
+    L.params = x.value("params", Json::object());
+    L.tiles = x.value("tiles", std::int64_t(0));
+    for (std::int64_t i = 0; i < a.cols; ++i) L.codes.push_back(static_cast<std::int32_t>(a.data[static_cast<std::size_t>(static_cast<std::int64_t>(l) * a.cols + i)]));
+    if (x.contains("dictionary")) L.dictionary = x["dictionary"];
+    if (x.contains("dictionary_id") && x["dictionary_id"].is_string()) L.dictionary_id = x["dictionary_id"].get<std::string>();
+    for (const auto& ar : x.value("arrays", Json::array())) {
+      task::GridArrayOut out;
+      out.suffix = ar.value("suffix", std::string());
+      out.shape = ints(ar.at("shape"));
+      if (ar.value("dtype", std::string("f64")) == "i32") for (const auto& v : ar.at("values")) out.i32.push_back(v.get<std::int32_t>());
+      else for (const auto& v : ar.at("values")) out.f64.push_back(v.get<double>());
+      L.arrays.push_back(std::move(out));
+    }
+    if (x.contains("centres")) L.centres = x["centres"];
+    if (x.contains("member_values")) L.member_values = x["member_values"];
+    g.levels.push_back(std::move(L));
+  }
+  return g;
+}
+
 std::string acquisition_of(const Plan& P, const std::string& input) {
   if (!P.found.count(input) || !P.found.at(input).row) return {};
   return nxr::io::opt_text(*P.found.at(input).row, "acquisition_id").value_or("");
@@ -184,7 +223,7 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
     link_of(P, spec, "to", nullptr, o);
   } else if (k == "selection") {
     const std::string t = spec.value("type", std::string());
-    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "tiling" && t != "ladder" && t != "cells") bad(o, "type: partition, set, indices, spans, tiling, ladder or cells");
+    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "tiling" && t != "ladder" && t != "cells" && t != "grid") bad(o, "type: partition, set, indices, spans, tiling, ladder, cells or grid");
     link_of(P, spec, "on", nullptr, o);
   } else {
     const std::string t = spec.value("type", std::string());
@@ -418,6 +457,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
         s.member_codes = set.member_codes;
       } catch (const std::invalid_argument& e) { bad(o, e.what()); }
     }
+    else if (t == "grid") s.grid = grid_of(a, d, o);
     else if (t == "cells") { s.n_members = d.at("n_members").get<std::int64_t>(); if (d.contains("label")) s.label = d["label"].get<std::string>(); }
     else if (t == "spans") for (const auto& x : d.value("spans", Json::array())) { task::Span sp; sp.start = x["start"].get<double>(); sp.stop = x["stop"].get<double>(); if (x.contains("code")) sp.code = x["code"].get<std::int64_t>(); sp.ordinal = static_cast<std::int64_t>(s.spans.size()); s.spans.push_back(sp); }
     else if (!d.contains("tiling")) bad(o, "its node gives no tiling (describe.tiling)");
