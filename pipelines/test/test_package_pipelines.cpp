@@ -17,6 +17,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io/catalogue.h"
 #include "nxr/io/migrate.h"
@@ -74,7 +75,7 @@ void make_old(const fs::path& datastore) {
     std::vector<float> xf(static_cast<std::size_t>(M * T));
     for (int i = 0; i < M; ++i) for (int t = 0; t < T; ++t) xf[static_cast<std::size_t>(i * T + t)] = static_cast<float>(X(i, t));
     FieldSpec rec;
-    rec.name = "rest"; rec.path = node_path(sub.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+    rec.name = "rest"; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
     rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, 700}; rec.array.compress = false; rec.cols.set("unit", "T");
     sub.field(std::move(rec));
     // the cortex (a surface), its parcellation, and a kernel [3N x M] on all channels

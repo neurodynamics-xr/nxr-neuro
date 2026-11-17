@@ -34,6 +34,7 @@ add_library(nxr_pipelines
   src/definition.cpp
   src/dispatch.cpp
   src/bound.cpp
+  src/step_nodes.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
@@ -72,7 +73,7 @@ add_library(nxr_pipelines
   src/tiles.cpp
 )
 target_include_directories(nxr_pipelines PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
-target_link_libraries(nxr_pipelines PUBLIC nxr_io nxr_compute nxr_meeg)
+target_link_libraries(nxr_pipelines PUBLIC nxr_io nxr_compute nxr_meeg nxr_graph)
 target_compile_definitions(nxr_pipelines PUBLIC NXR_COMPUTE_VERSION="${NXR_COMPUTE_VERSION}" NXR_NEURO_VERSION="${PROJECT_VERSION}")
 if(MSVC)
   target_compile_options(nxr_pipelines PRIVATE /W4)
@@ -345,4 +346,11 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_headmodel PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_headmodel COMMAND test_headmodel)
+  # every pipeline test may use io's test-only probe (nxr/io/testing/probe.h) for assertions about what was written
+  get_directory_property(_pipeline_targets BUILDSYSTEM_TARGETS)
+  foreach(_t ${_pipeline_targets})
+    if(_t MATCHES "^test_")
+      target_link_libraries(${_t} PRIVATE nxr_io_testing)
+    endif()
+  endforeach()
 endif()

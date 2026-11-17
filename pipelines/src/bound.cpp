@@ -104,7 +104,12 @@ std::vector<std::int32_t> Bound::array_int32(const std::string& path) const { re
 std::vector<float> Bound::array_float(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<float>(writer().store(), path, shape); }
 SpatialBandPlan Bound::plan_spatial_band(const SurfaceInput& s, const SurfaceLevel& l, const SpatialBandOptions& o) const { return nxr::pipelines::plan_spatial_band(writer(), s, l, o); }
 SpatialBand Bound::make_spatial_band(const SurfaceInput& s, const SurfaceLevel& l, const SpatialBandOptions& o) const {
-  if (!ds_) throw io::Error(io::code::invalid_argument, "a spatial band is prepared with the dataset (it may store the eigenmodes it computes)");
+  if (!ds_) throw io::Error(io::code::invalid_argument, "a spatial band is prepared with the dataset (the runner may have made its eigenmodes first)");
+  // eigenmodes first, and never hidden inside this run: a package that is not stored is made by the runner as its own run (its own provenance and cache key), and this run starts again
+  if (o.transform == "auto" || o.transform == "eigen") {
+    SpatialBandPlan p = nxr::pipelines::plan_spatial_band(writer(), s, l, o);
+    if (p.transform == "eigen" && p.source == "computed") throw MissingEigenmodes(s.name, std::move(p));
+  }
   return nxr::pipelines::make_spatial_band(*ds_, writer(), s, l, o, say_);
 }
 

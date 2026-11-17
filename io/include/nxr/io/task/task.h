@@ -191,7 +191,7 @@ class Unit {
   Unit& operator=(Unit&&) = delete;
   ~Unit();
   const By& by() const;
-  // the measurement rows of the unit, recorded as computed by `by().tool`; returns the number written
+  // the measurement rows of the unit, recorded as computed by `by().tool` unless a row names its own `computed_by`; returns the number written
   std::int64_t write_measurements(const Json& rows);
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
                                    const std::optional<std::string>& measure = std::nullopt);

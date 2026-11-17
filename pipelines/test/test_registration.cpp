@@ -11,6 +11,7 @@
 #include <tuple>
 
 #include "check.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/templates.h"
 #include "nxr/pipelines/registration.h"
 #include "nxr/sphere_registration.h"
@@ -126,15 +127,15 @@ int main() {
     CHECK_EQ(p.record().kind, std::string("registration"));
     CHECK(p.record().template_reference["from"]["name"] == "coarse" && p.record().template_reference["to"]["name"] == "fine");
     CHECK(p.record().description["method"].get<std::string>().size() > 5 && p.record().description["warnings"].size() == 3);
-    CHECK(p.db().all("PRAGMA foreign_key_check").empty());
+    CHECK(nxr::io::testing::Probe(p).integrity().empty());
     CHECK(items_without_origin(p.db()).empty());
     CHECK_EQ(res.info["operators"].size(), std::size_t(2));
     CHECK(res.info["redistributable"] == false);                                   // one sphere is not redistributable: neither is the registration
     CHECK(res.info["licence"].get<std::string>().find("CC0") != std::string::npos && res.info["licence"].get<std::string>().find("restricted") != std::string::npos);
-    const auto ops = p.db().all("SELECT * FROM operator WHERE kind = 'resampling' ORDER BY name");
-    CHECK_EQ(ops.size(), std::size_t(2));
+    const std::int64_t n_resampling = nxr::io::testing::Probe(p).count("operator", {{"kind", V("resampling")}});
+    CHECK_EQ(n_resampling, std::int64_t(2));
     // the stored matrix is the compute node's: coarse to fine is [1284 x 324]
-    const auto fwd = *p.db().one("SELECT * FROM operator WHERE name = 'coarse_to_fine'");
+    const auto fwd = nxr::io::testing::Probe(p).rows("operator", {{"name", V("coarse_to_fine")}}).at(0);
     CHECK(integer(fwd, "n_rows") == 1284 && integer(fwd, "n_cols") == 324 && text(fwd, "layout") == "csr");
     const auto prod = Json::parse(text(fwd, "producer_json"));
     CHECK(prod["method"] == method);
@@ -161,7 +162,7 @@ int main() {
     b.package = root / "work" / "one-way.nxr.zarr";
     const auto res = nxr::pipelines::registration_create(b);
     CHECK_EQ(res.info["operators"].size(), std::size_t(1));
-    CHECK_EQ(SubjectPackage::open(res.package).db().all("SELECT 1 FROM operator").size(), std::size_t(1));
+    CHECK_EQ(nxr::io::testing::Probe(SubjectPackage::open(res.package)).count("operator"), std::int64_t(1));
     const ReleaseReport rr = release_package(res.package, ReleaseOptions{"coarse-to-fine", "1.0", "test", shelf});
     TemplateSearch here;
     here.command_paths = {shelf};

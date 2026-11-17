@@ -8,6 +8,8 @@
 #include <random>
 
 #include "check.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/measures.h"
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
@@ -69,7 +71,7 @@ static void run() {
         std::vector<float> xf(static_cast<std::size_t>(M * T));
         for (int i = 0; i < M; ++i) for (int t = 0; t < T; ++t) xf[static_cast<std::size_t>(i * T + t)] = static_cast<float>(X(i, t));
         FieldSpec rec;
-        rec.name = "rest"; rec.path = node_path(sub.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = "rest"; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, 700}; rec.array.compress = false; rec.cols.set("unit", "T");
         sub.field(std::move(rec));
         // the sources (3 points) and a kernel [3N x M] on all four channels
@@ -165,15 +167,18 @@ static void run() {
       const QuadratureResult t = quadrature_compute(ds, sub, o4);
       CHECK(t.hit && t.info["tiles"]["levels"].size() == 2 && t.info["tiles"]["scalars"].size() == 2);
       {   // the energy maps are maps of a statistic's slice: each has a BYTE-LESS Field (no path), whose array-backed rows (weight, sum, ..., no `mean`) are the map's summary; the mean is derived at read
-        const auto pr = sub.db().one("SELECT s.id AS id FROM selection s WHERE s.subject_id = ? AND s.name LIKE '% tiles L2' AND s.type = 'set'", {V(sub.id())});
+        const auto pr = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .type = "set", .name_like = "% tiles L2", .any_status = true});
         CHECK(pr.has_value());
-        const auto bf = sub.db().all("SELECT id, name FROM field WHERE subject_id = ? AND kind = 'tile map' AND path IS NULL", {V(sub.id())});
+        const auto bf = nxr::io::task::Subject::of(sub).find_all({.cls = nxr::io::task::Cls::field, .kind = "tile map", .stored = false, .any_status = true});
         CHECK_EQ(static_cast<int>(bf.size()), 2);
         if (pr && !bf.empty()) {
-          const std::string fid = text(bf[0], "id");
-          CHECK(sub.db().one("SELECT measure FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = 'weight' AND array_path IS NOT NULL", {V(text(*pr, "id")), V(fid)}).has_value());
-          CHECK(!sub.db().one("SELECT measure FROM selection_measurement WHERE selection_id = ? AND measure = 'mean'", {V(text(*pr, "id"))}).has_value());
-          const Json q = Json{{"selectionId", text(*pr, "id")}, {"measure", "mean"}, {"ofFieldId", fid}, {"spaceLevel", 2}};
+          const std::string fid = bf[0].id;
+          const nxr::io::testing::Probe probe(sub);
+          bool weight_stored = false;
+          for (const auto& m : probe.rows("selection_measurement", {{"selection_id", V(pr->id)}, {"of_field_id", V(fid)}, {"measure", V("weight")}})) weight_stored = weight_stored || !std::holds_alternative<std::monostate>(m.at("array_path"));
+          CHECK(weight_stored);
+          CHECK(probe.count("selection_measurement", {{"selection_id", V(pr->id)}, {"measure", V("mean")}}) == 0);
+          const Json q = Json{{"selectionId", pr->id}, {"measure", "mean"}, {"ofFieldId", fid}, {"spaceLevel", 2}};
           CHECK(!query_measurements(sub.db(), sub.store(), q).empty());     // derived at read from the sums
         }
       }

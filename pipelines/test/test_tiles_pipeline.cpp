@@ -11,6 +11,8 @@
 #include "brain_helpers.h"
 #include "check.h"
 #include "nxr/io/measures.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
@@ -48,37 +50,41 @@ int main() {
   const int depth = r.info["depth"].get<int>();
   std::printf("  ladder: %d levels over %d pieces, %d tiles at depth %d\n", r.info["levels"].get<int>(), r.info["pieces"].get<int>(), r.info["tiles_at_depth"].get<int>(), depth);
   CHECK(!r.existed && depth >= 3 && r.info["pieces"].get<int>() == 2);
-  const auto lad = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'ladder'", {V(sub.id()), V(std::string("cortex tiles"))});
-  CHECK(lad.has_value() && !is_null(*lad, "dictionary_id") && integer(*lad, "n_members") == depth + 1);
+  const task::Subject tsub = task::Subject::of(sub);
+  const auto lad = tsub.find({.cls = task::Cls::selection, .name = "cortex tiles", .type = "ladder"});
+  CHECK(lad.has_value() && lad->dictionary_id.has_value() && lad->n_members == depth + 1);
   if (!lad) return 1;
-  const auto members = sub.db().all("SELECT * FROM selection WHERE member_of_id = ? ORDER BY member_ordinal", {V(text(*lad, "id"))});
+  const auto members = tsub.members(*lad);
   CHECK_EQ(static_cast<int>(members.size()), depth + 1);
-  const auto cnt = sub.db().one("SELECT COUNT(*) AS c FROM dictionary_entry WHERE dictionary_id = ?", {V(text(*lad, "dictionary_id"))});
-  CHECK(cnt.has_value() && integer(*cnt, "c") == depth + 1);
+  CHECK(tsub.entry_count(*lad->dictionary_id) == depth + 1);
   // the tiles are Selections: no manifold, no folder of their own besides the surface's atlas node
-  CHECK(!sub.db().one("SELECT id FROM manifold WHERE subject_id = ? AND name LIKE '%tiles%'", {V(sub.id())}).has_value());
+  {
+    bool tiles_manifold = false;
+    for (const task::Node& m : tsub.find_all({.cls = task::Cls::manifold})) if (m.name.find("tiles") != std::string::npos) tiles_manifold = true;
+    CHECK(!tiles_manifold);
+  }
 
   const SurfaceInput S = read_surface(sub, std::nullopt, true);      // float64 as stored: the ladder's input (the Studio's stored ladder, nxr)
   const nxr::ladder::Tree tree = nxr::ladder::subjectTree(S.vertices.data(), static_cast<int>(S.n_vertices()), S.faces.data(), static_cast<int>(S.n_faces()));
-  const std::vector<std::int32_t> codes = read_array<std::int32_t>(sub, text(members.back(), "array_path"));
+  const std::vector<std::int32_t> codes = read_array<std::int32_t>(sub, members.back().array_path.value());
   CHECK(codes == tree.codes);
-  const std::vector<double> w = read_array<double>(sub, Json::parse(text(members[2], "params_json"))["areas"].get<std::string>());
+  const std::vector<double> w = read_array<double>(sub, members[2].params["areas"].get<std::string>());
   double sum = 0;
   for (double x : w) sum += x;
   double area = 0;
   for (double a : tree.pieceArea) area += a;
   CHECK(w.size() == 8 && std::abs(sum - area) < 1e-9 * area);
-  const auto adj = read_array<std::int32_t>(sub, Json::parse(text(members[2], "params_json"))["node"].get<std::string>() + "/lc/L2/adjacency");
+  const auto adj = read_array<std::int32_t>(sub, members[2].params["node"].get<std::string>() + "/lc/L2/adjacency");
   CHECK(!adj.empty() && adj.size() % 2 == 0);
 
   // a re-run keeps; --replace rewrites
   CHECK(tiles_compute(ds, sub, to).existed);
   to.replace = true;
   CHECK(!tiles_compute(ds, sub, to).existed);
-  const auto lad2 = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'ladder'", {V(sub.id()), V(std::string("cortex tiles"))});
-  CHECK(lad2.has_value() && text(*lad2, "id") != text(*lad, "id"));
+  const auto lad2 = tsub.find({.cls = task::Cls::selection, .name = "cortex tiles", .type = "ladder"});
+  CHECK(lad2.has_value() && lad2->id != lad->id);
   if (!lad2) return 1;
-  const auto members2 = sub.db().all("SELECT * FROM selection WHERE member_of_id = ? ORDER BY member_ordinal", {V(text(*lad2, "id"))});
+  const auto members2 = tsub.members(*lad2);
   CHECK_EQ(static_cast<int>(members2.size()), depth + 1);
 
   // summaries: a scalar (x coordinate) and a tangent vector (the canonical north e1, then a raw ambient constant)
@@ -104,7 +110,7 @@ int main() {
   so.levels = {1, 2, 3};
   const Json out = tile_summaries_write(ds, sub, maps, so);
   CHECK(out["levels"].size() == 3 && out["gauge"].get<std::string>() == "canonical frames");
-  const Json p2 = Json::parse(text(*sub.db().one("SELECT * FROM selection WHERE id = ?", {V(text(members2[2], "id"))}), "params_json"));
+  const Json p2 = tsub.require_id(task::Cls::selection, members2[2].id).params;
   CHECK(p2["summaries"].size() == 2 && p2["summaries"][1]["forms"].size() == 2);
   CHECK(p2["summaries"][1]["forms"][0]["reduction"].get<std::string>() == "frame" && p2["summaries"][1]["forms"][1]["reduction"].get<std::string>() == "levi-civita");
   const std::string dir = p2["node"].get<std::string>();
@@ -113,26 +119,26 @@ int main() {
   CHECK(len.size() == 8 && c1.size() == 8);
   {   // THE SCALAR SUMMARY IS MEASUREMENT ROWS (nxr's maps/<field>/{w,s1,s2,n,min,max}); the mean is derived at read and equals the direct area-weighted mean of the vertices
     const std::string fid = maps.sources["x"].field_id;
-    CHECK(!sub.db().one("SELECT measure FROM selection_measurement WHERE selection_id = ? AND measure = 'mean'", {V(text(members2[2], "id"))}).has_value());
+    CHECK(!tsub.has_measure(members2[2].id, "mean"));
     int rows = 0;
     for (const char* m : {"weight", "sum", "sum_square", "count", "min", "max"})
-      if (sub.db().one("SELECT measure FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = ? AND array_path = ?", {V(text(members2[2], "id")), V(fid), V(std::string(m)), V(dir + "/maps/x_map/" + std::string(m == std::string("weight") ? "w" : m == std::string("sum") ? "s1" : m == std::string("sum_square") ? "s2" : m == std::string("count") ? "n" : m))}).has_value()) ++rows;
+      if (testing::Probe(sub).count("selection_measurement", {{"selection_id", members2[2].id}, {"of_field_id", fid}, {"measure", std::string(m)}, {"array_path", dir + "/maps/x_map/" + std::string(m == std::string("weight") ? "w" : m == std::string("sum") ? "s1" : m == std::string("sum_square") ? "s2" : m == std::string("count") ? "n" : m)}}) > 0) ++rows;
     CHECK_EQ(rows, 6);
     nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
     const std::vector<double> va = nxr::ladder::vertexAreas(mesh);
-    const std::vector<std::int32_t> c2 = read_array<std::int32_t>(sub, text(members2[2], "array_path"));
+    const std::vector<std::int32_t> c2 = read_array<std::int32_t>(sub, members2[2].array_path.value());
     std::vector<double> num(8, 0.0), den(8, 0.0);
     for (int i = 0; i < S.n_vertices(); ++i) if (c2[static_cast<size_t>(i)] >= 0) { num[static_cast<size_t>(c2[static_cast<size_t>(i)])] += va[static_cast<size_t>(i)] * x[i]; den[static_cast<size_t>(c2[static_cast<size_t>(i)])] += va[static_cast<size_t>(i)]; }
     double worst = 0;
     int got = 0;
-    for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", text(members2[2], "id")}, {"measure", "mean"}, {"ofFieldId", fid}, {"spaceLevel", 2}})) {
+    for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", members2[2].id}, {"measure", "mean"}, {"ofFieldId", fid}, {"spaceLevel", 2}})) {
       const size_t c = r["code"].get<size_t>();
       worst = std::max(worst, std::abs(r["value"].get<double>() - num[c] / den[c]) / (std::abs(num[c] / den[c]) + 1e-12));
       ++got;
     }
     // and rolled up to level 1 (two tiles of the level 2 each) it is the weighted mean of its children
     int got1 = 0;
-    for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", text(members2[2], "id")}, {"measure", "mean"}, {"ofFieldId", fid}, {"spaceLevel", 1}})) {
+    for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", members2[2].id}, {"measure", "mean"}, {"ofFieldId", fid}, {"spaceLevel", 1}})) {
       const size_t c = r["code"].get<size_t>();
       const double n1 = num[2 * c] + num[2 * c + 1], d1 = den[2 * c] + den[2 * c + 1];
       worst = std::max(worst, std::abs(r["value"].get<double>() - n1 / d1) / (std::abs(n1 / d1) + 1e-12));
@@ -151,7 +157,7 @@ int main() {
   CHECK(refused);
   so.replace = true;
   tile_summaries_write(ds, sub, maps, so);
-  const Json p2b = Json::parse(text(*sub.db().one("SELECT * FROM selection WHERE id = ?", {V(text(members2[2], "id"))}), "params_json"));
+  const Json p2b = tsub.require_id(task::Cls::selection, members2[2].id).params;
   CHECK(p2b["summaries"].size() == 2);                       // replaced, not appended
   // the GROUP TREE is the default subject's only: a regular subject is refused; its definitions are nxr's defaults
   bool group_refused = false;

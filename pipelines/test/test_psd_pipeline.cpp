@@ -11,6 +11,7 @@
 #include <random>
 
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/pipelines/meeg.h"
@@ -98,7 +99,7 @@ int main() {
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(700)), std::make_pair(std::string("rest_b"), std::int64_t(1777))}) {   // the same samples in two chunk widths
         FieldSpec rec;
         rec.name = name;
-        rec.path = node_path(sub.db(), prod, name);
+        rec.path = nxr::io::task::Subject::of(sub).node_path(prod, name);
         rec.kind = "recording";
         rec.manifold_id = prod;
         rec.data = view(xf, {M, T});
@@ -171,15 +172,16 @@ int main() {
     CHECK_EQ(integer(st.row, "n_members"), want.segments);
     CHECK_EQ(integer(st.row, "members_skipped"), want.segmentsSkipped);
     CHECK(st.axes.size() == 2 && st.axes[0]["name"] == "channel" && st.axes[1]["name"] == "frequency" && st.shape == (std::vector<std::int64_t>{M, 101}));
-    const auto line = sub.db().one("SELECT m.name AS name, d.spacing AS spacing, d.unit AS unit FROM manifold m JOIN geometry_dimension d ON d.geometry_id = m.geometry_id WHERE m.id = ?", {V(st.axes[1]["manifold_id"].get<std::string>())});
+    const auto line = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::manifold, st.axes[1]["manifold_id"].get<std::string>());
     CHECK(line.has_value());
-    CHECK_EQ(text(*line, "name"), std::string("rest_freq"));
-    CHECK_EQ(text(*line, "unit"), std::string("Hz"));
-    CHECK(std::abs(std::stod(text(*line, "spacing")) - 0.5) < 1e-12);
+    const auto line_axis = nxr::io::task::Subject::of(sub).geometry(line->id).axes.at(0);
+    CHECK_EQ(line->name, std::string("rest_freq"));
+    CHECK_EQ(*line_axis.unit, std::string("Hz"));
+    CHECK(std::abs(*line_axis.spacing - 0.5) < 1e-12);
     // the partition: Welch's segments as a closed-form spans Selection on the time line (200 samples, a new one every 100)
-    const auto seg = sub.db().read("selection", text(st.row, "partition_selection_id"));
-    CHECK(seg && text(*seg, "type") == "spans" && text(*seg, "name") == "rest_psd_welch_segments");
-    const Json tp = Json::parse(text(*seg, "params_json"));
+    const auto seg = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, text(st.row, "partition_selection_id"));
+    CHECK(seg && seg->type == "spans" && seg->name == "rest_psd_welch_segments");
+    const Json tp = seg->params;
     CHECK(std::abs(tp["tiling"]["width"].get<double>() - 2.0) < 1e-12 && std::abs(tp["tiling"]["hop"].get<double>() - 1.0) < 1e-12 && tp["tiling"]["count"] == want.segments + want.segmentsSkipped);
     CHECK(st.options["window"] == "hamming" && st.options["window_form"] == "symmetric" && st.options["detrend"] == "constant" && st.options["scaling"] == "density");
     CHECK(st.span["start_sample"] == 0 && st.span["stop_sample"] == 4000);
@@ -258,10 +260,11 @@ int main() {
     CHECK_EQ(integer(st.row, "n_members"), want.segments);
     CHECK(st.axes.size() == 2 && st.axes[0]["name"] == "pair" && st.axes[0]["size"] == 1 && st.axes[1]["name"] == "frequency" && st.shape == (std::vector<std::int64_t>{1, 200}));
     CHECK(st.options["input"]["operator"] == "plane" && st.options["input"]["band"] == Json::array({8.0, 12.0}) && st.options["sides"] == "two");
-    const auto line = sub.db().one("SELECT m.name AS name, d.spacing AS spacing, d.origin AS origin FROM manifold m JOIN geometry_dimension d ON d.geometry_id = m.geometry_id WHERE m.id = ?", {V(st.axes[1]["manifold_id"].get<std::string>())});
+    const auto line = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::manifold, st.axes[1]["manifold_id"].get<std::string>());
     CHECK(line.has_value());
-    CHECK_EQ(text(*line, "name"), std::string("rest_freq_signed"));
-    CHECK(std::abs(std::stod(text(*line, "origin")) + 50.0) < 1e-9 && std::abs(std::stod(text(*line, "spacing")) - 0.5) < 1e-12);   // -fs/2, 0.5 Hz
+    const auto line_axis = nxr::io::task::Subject::of(sub).geometry(line->id).axes.at(0);
+    CHECK_EQ(line->name, std::string("rest_freq_signed"));
+    CHECK(std::abs(*line_axis.origin + 50.0) < 1e-9 && std::abs(*line_axis.spacing - 0.5) < 1e-12);   // -fs/2, 0.5 Hz
     double worst = 0;
     for (int k = 0; k < 200; ++k) worst = std::max(worst, std::abs(st.values[static_cast<std::size_t>(k)] / rw.psd(0, k) - 1));
     CHECK(worst < 1e-6);

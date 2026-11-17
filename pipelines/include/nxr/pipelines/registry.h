@@ -25,6 +25,8 @@
 #include <utility>
 #include <vector>
 
+#include "nxr/graph/node.h"
+#include "nxr/graph/types.h"
 #include "nxr/io/finder.h"
 #include "nxr/pipelines/bound.h"
 
@@ -41,21 +43,21 @@ struct PlanContext {
   const Bound& bound;
 };
 
-/** A VALUE INSIDE THE LOOP: a chunk's columns, the halo still round them (nxr's `Block`). Row-major [rows x width], float32 as the Studio's and nxr's;
- *  a ℂ value carries its imaginary part. The own columns are [left, width − right). Rows are the value's elements, a vertex's components consecutive. */
-struct Block {
-  std::int64_t rows = 0, width = 0, left = 0, right = 0;
-  std::vector<float> re, im;
-  std::int64_t own() const { return width - left - right; }
-  bool complex() const { return !im.empty(); }
-};
-/** A VALUE OUTSIDE THE LOOP: an array [rows x cols] (cols 1 for a map), what an accumulate step finishes with and an after step takes */
-struct Array {
-  std::int64_t rows = 0, cols = 1;
-  std::vector<double> data;
-  nxr::io::Json meta = nxr::io::Json::object();   // what the step records about it for the store and the steps after it (a measurement's tiles, a span set's thresholds)
-  std::int64_t comps = 1;                      // values an element holds: 1, or 3 for a vector measurement (the phase current's x y z); data is then [rows x cols x comps], the components consecutive
-};
+/** The values and the node's declarations are the executor's (nxr_graph, pipelines/graph/): one type, no copies between the runner's steps and the executor.
+ *  Block: a value INSIDE THE LOOP (a chunk's columns, the halo still round them). Array: a value OUTSIDE it (`meta`: what a step records about it for the steps after it and the store).
+ *  Place: where a block's own columns lie. FramePlace: where a RETIMING step (the frame tiling) puts them. */
+using nxr::graph::Array;
+using nxr::graph::Arrays;
+using nxr::graph::Block;
+using nxr::graph::Blocks;
+using nxr::graph::FramePlace;
+using nxr::graph::Place;
+using nxr::graph::NodeTraits;
+using nxr::graph::OutputPrecision;
+using nxr::graph::Precision;
+using nxr::graph::TimeBehaviour;
+using nxr::graph::node_traits;
+using nxr::graph::to_string;
 /** what a step is given while it runs: what the runner bound (a surface, a stored statistic, a kernel's matrix: constants the runner reads, never a recording). It holds no subject, dataset or file. */
 struct ExecContext {
   const Bound& bound;
@@ -63,53 +65,6 @@ struct ExecContext {
   /** constants bound ONCE for the whole run and shared by the steps that ask for the same key (the Studio's "uploaded once"): a bound map several steps use is built by the first one's preparation */
   std::map<std::string, std::any> shared;
 };
-/** the chunk an accumulate step folds: its own samples and their good mask (the chunk service's, from the bad spans; empty: every sample good) */
-struct Place {
-  std::int64_t first = 0, n = 0;
-  const std::vector<std::uint8_t>* good = nullptr;    // [n], the own columns'
-};
-/** where a RETIMING step (the frame tiling) puts a chunk's own columns: its first frame, its count, and which frames are good (outside the bad samples and inside the named spans; empty: all) */
-struct FramePlace {
-  std::int64_t first = 0, n = 0;
-  std::vector<std::uint8_t> good;
-};
-using Blocks = std::map<std::string, Block>;
-using Arrays = std::map<std::string, Array>;
-
-/** How a node depends on time. A node must DECLARE one (a node that does not is refused by the executor, and the registry test fails). */
-enum class TimeBehaviour {
-  undeclared,   // not yet declared: refused
-  pointwise,    // each timestep (frame, tile or event) is computed on its own, from its own columns: any block order, any block split, gives the same values
-  windowed,     // each timestep needs a halo or a window around it (an FFT or FIR filter, the analytic signal, a Welch segment, an event's margin): the rule is stated in `window_rule`
-  stateful      // carries state forward in time (a recursive filter, a state machine over frames, an accumulation that depends on the order of the blocks): blocks must meet in time order
-};
-/** The precision a node computes in, and what it hands on. */
-enum class Precision { undeclared, float32, float64 };
-enum class OutputPrecision {
-  undeclared,
-  follows_input,   // the output has the precision of the node's input (the stored precision follows the input)
-  float64          // the output is double whatever the input is (an accumulated statistic, a table of events)
-};
-/** What a node declares about itself, where it is registered. The executor reads it (`check_traits`) and the dispatch point records it; nothing here changes a result. */
-struct NodeTraits {
-  TimeBehaviour time = TimeBehaviour::undeclared;
-  std::string window_rule;                              // windowed: the halo or window, in words and units ("half the taps' length each side"); empty otherwise
-  Precision computes_in = Precision::undeclared;        // the precision its arithmetic runs in
-  OutputPrecision output = OutputPrecision::undeclared;
-  bool uncertain = false;                               // the classification is a judgement the maintainers should confirm (listed in the PR that added it)
-  std::string note;                                     // why, in a sentence: what makes it this time behaviour; what is accumulated in double
-  bool declared() const { return time != TimeBehaviour::undeclared && computes_in != Precision::undeclared && output != OutputPrecision::undeclared && (time != TimeBehaviour::windowed || !window_rule.empty()); }
-};
-/** a declaration, written compactly where a node is registered */
-inline NodeTraits node_traits(TimeBehaviour time, Precision computes_in, OutputPrecision output, std::string note, std::string window_rule = {}, bool uncertain = false) {
-  NodeTraits t;
-  t.time = time; t.computes_in = computes_in; t.output = output; t.note = std::move(note); t.window_rule = std::move(window_rule); t.uncertain = uncertain;
-  return t;
-}
-const char* to_string(TimeBehaviour t);
-const char* to_string(Precision p);
-const char* to_string(OutputPrecision p);
-
 struct StepSpec {
   std::string name, kind;
   std::vector<std::string> inputs, optional, outputs;
@@ -127,6 +82,8 @@ struct StepSpec {
   std::function<Json(const std::any& state)> record;
   /** a chunk step: the samples it needs on EACH side of a chunk's own columns */
   std::function<std::int64_t(const std::any& state)> halo;
+  /** a chunk step whose halo is known from its request alone: the plan asks this instead of preparing the step (a step whose preparation reads stored arrays). Null: the plan prepares it on the records and asks `halo`. */
+  std::function<std::int64_t(const Values& ins, const Json& params)> halo_at_plan;
   /** a chunk step: its outputs on the own columns and `keep` samples of halo on each side (what the steps after it still need) */
   std::function<Blocks(const std::any& state, const Blocks& ins, std::int64_t keep)> chunk;
   /** a chunk step that needs the chunk's PLACE (the first own sample): used instead of `chunk` when set */

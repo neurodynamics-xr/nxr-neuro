@@ -204,7 +204,8 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
       return std::any(std::make_shared<SurState>(std::move(st)));
     };
     s.record = [](const std::any& st) { return std::any_cast<const std::shared_ptr<SurState>&>(st)->record; };
-    s.halo = [](const std::any&) { return std::int64_t(0); };            // the draw is made on the halo the later steps ask, from the sample index: it needs none of the recording's
+    s.halo = [](const std::any&) { return std::int64_t(0); };
+    s.halo_at_plan = [](const Values&, const Json&) { return std::int64_t(0); };   // its preparation reads the stored cross-spectrum: not in a plan            // the draw is made on the halo the later steps ask, from the sample index: it needs none of the recording's
     s.chunk_at = [](const std::any& st_, const Blocks& ins, std::int64_t keep, const Place& at) {
       const SurState& st = *std::any_cast<const std::shared_ptr<SurState>&>(st_);
       const Block& b = ins.at("x");

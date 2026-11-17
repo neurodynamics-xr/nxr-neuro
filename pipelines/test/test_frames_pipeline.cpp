@@ -9,6 +9,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
 
@@ -17,9 +18,9 @@ using namespace nxr::pipelines;
 namespace fs = std::filesystem;
 
 static std::vector<float> field_values(SubjectWriter& sub, const std::string& name, std::vector<std::int64_t>* shape = nullptr) {
-  const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(name)});
+  const auto f = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = name, .any_status = true});
   if (!f) { std::printf("  missing field %s\n", name.c_str()); return {}; }
-  ArrayReader r = ArrayReader::open(sub.store(), text(*f, "path"));
+  ArrayReader r = ArrayReader::open(sub.store(), *f->path);
   if (shape) *shape = r.shape();
   const std::vector<std::uint8_t> raw = r.read();
   std::vector<float> out(raw.size() / r.itemsize());
@@ -60,9 +61,9 @@ int main() {
   const std::vector<float> cf = field_values(t, "cortex_canonical_frames", &shape);
   CHECK_EQ(shape.size(), std::size_t(3));
   CHECK(shape.size() == 3 && shape[0] == tmpl.n && shape[1] == 3 && shape[2] == 3);
-  const auto kind = t.db().one("SELECT kind, value_type FROM field WHERE subject_id = ? AND name = ?", {V(t.id()), V(std::string("cortex_canonical_frames"))});
-  CHECK(kind.has_value() && text(*kind, "kind") == "canonical frames" && text(*kind, "value_type") == "matrix3");
-  CHECK(t.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ?", {V(t.id()), V(std::string("cortex_frame_singularities"))}).has_value());
+  const auto kind = nxr::io::task::Subject::of(t).find({.cls = nxr::io::task::Cls::field, .name = "cortex_canonical_frames", .any_status = true});
+  CHECK(kind.has_value() && kind->kind == "canonical frames" && kind->value_type == "matrix3");
+  CHECK(nxr::io::task::Subject::of(t).find({.cls = nxr::io::task::Cls::selection, .name = "cortex_frame_singularities", .any_status = true}).has_value());
   CHECK(!field_values(t, "cortex_canonical_gauge_angle").empty());
   std::printf("  template: %d reliable of %d\n", tr.info["reliable"].get<int>(), tmpl.n);
   CHECK(tr.info["reliable"].get<int>() > tmpl.n / 2);

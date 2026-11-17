@@ -78,7 +78,11 @@ Json default_of(const Json& entry) { return entry.is_object() && entry.contains(
 // the graph's parameters resolved: the defaults, then `set`
 Json resolve_graph_parameters(const Graph& g, const Json& set) {
   Json out = Json::object();
-  for (const auto& [name, entry] : g.parameters.items()) out[name] = default_of(entry);
+  std::set<std::string> optional;                                  // `{default: null, optional: true}`: null is "not given", a value the nodes read
+  for (const auto& [name, entry] : g.parameters.items()) {
+    out[name] = default_of(entry);
+    if (entry.is_object() && entry.contains("default") && entry.value("optional", false)) optional.insert(name);
+  }
   if (!set.is_object()) refuse("parameters: a table of name to value");
   for (const auto& [name, v] : set.items()) {
     if (!out.contains(name)) {
@@ -90,7 +94,7 @@ Json resolve_graph_parameters(const Graph& g, const Json& set) {
     out[name] = v;
   }
   for (const auto& [name, v] : out.items())
-    if (v.is_null()) refuse("parameter '" + name + "' has no default and was not set");
+    if (v.is_null() && !optional.count(name)) refuse("parameter '" + name + "' has no default and was not set");
   return out;
 }
 
@@ -221,7 +225,11 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
       }
       n.params[name] = v;
     }
-    for (const auto& [name, v] : n.params.items()) if (v.is_null()) fail("parameter '" + name + "' has no default and is not set");
+    for (const auto& [name, v] : n.params.items()) {
+      bool optional = false;
+      for (const auto& p : spec.parameters) if (p.name == name) optional = p.optional;
+      if (v.is_null() && !optional) fail("parameter '" + name + "' has no default and is not set");
+    }
 
     // D106: a linear map never follows a non-linear node
     bool any_nonlinear = false;

@@ -14,6 +14,8 @@
 #include "nxr/delaunay.h"
 #include "nxr/hodge_weights.h"
 #include "nxr/io/measures.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/pyramid.h"
 #include "nxr/pipelines/eigen.h"
@@ -26,6 +28,7 @@
 using namespace nxr::io;
 using namespace nxr::pipelines;
 namespace fs = std::filesystem;
+namespace tk = nxr::io::task;
 using Eigen::MatrixXd;
 
 int main() {
@@ -83,7 +86,7 @@ int main() {
       std::vector<float> xf(static_cast<std::size_t>(M * T));
       for (int i = 0; i < M; ++i) for (int t = 0; t < T; ++t) xf[static_cast<std::size_t>(i * T + t)] = static_cast<float>(X(i, t));
       FieldSpec rec;
-      rec.name = "rest"; rec.path = node_path(sub.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = tk::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, 700}; rec.array.compress = false; rec.cols.set("unit", "T");
       sub.field(std::move(rec));
       std::vector<std::int32_t> chans(static_cast<std::size_t>(M));
@@ -129,52 +132,54 @@ int main() {
   std::printf("  exact fraction of the flow's power %.3f, speed mean %.3e m/s\n", ef, a.speed.mean());
   CHECK(ef >= 0 && ef <= 1);
   // stored: the coefficients on eigen axis x the window's time line, three maps on the sources; no per-frame velocity
-  const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(std::string("rest_kern_opticalflow_flow_modes"))});
+  const auto ts = tk::Subject::of(sub);
+  const auto f = ts.find({.cls = tk::Cls::field, .name = "rest_kern_opticalflow_flow_modes"});
   CHECK(f.has_value());
   if (f) {
-    CHECK_EQ(text(*f, "kind"), std::string("optical flow"));
-    ArrayReader r = ArrayReader::open(sub.store(), text(*f, "path"));
+    CHECK_EQ(f->kind.value_or(""), std::string("optical flow"));
+    ArrayReader r = ArrayReader::open(sub.store(), f->path.value_or(""));
     CHECK_EQ(r.shape()[0], Kn);
     CHECK_EQ(r.shape()[1], steps);
   }
   // no per-vertex time-mean Field is written (step 5): a byte-less Field `<stem>_flow` and the leaf x frame sums on a joint Selection
   for (const char* n : {"rest_kern_opticalflow_divergence", "rest_kern_opticalflow_curl", "rest_kern_opticalflow_speed"})
-    CHECK(!sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(std::string(n))}).has_value());
-  CHECK(sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name LIKE '%velocity%'", {V(sub.id())}) == std::nullopt);
-  const auto flowf = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(std::string("rest_kern_opticalflow_flow"))});
-  CHECK(flowf.has_value() && is_null(*flowf, "path") && text(*flowf, "kind") == "optical flow");
-  CHECK_EQ(Json::parse(text(*flowf, "producer_json"))["studio"]["type"].get<std::string>(), std::string("complex"));   // a tangent velocity: the Studio's complex
-  const auto leafpart = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name LIKE 'cortex tiles L%' AND type = 'set' ORDER BY name DESC LIMIT 1", {V(sub.id())});
+    CHECK(!ts.find({.cls = tk::Cls::field, .name = n, .any_status = true}).has_value());
+  for (const tk::Node& fv : ts.find_all({.cls = tk::Cls::field, .any_status = true})) CHECK(fv.name.find("velocity") == std::string::npos);
+  const auto flowf = ts.find({.cls = tk::Cls::field, .name = "rest_kern_opticalflow_flow", .any_status = true});
+  CHECK(flowf.has_value() && !flowf->path.has_value() && flowf->kind.value_or("") == "optical flow");
+  CHECK_EQ(flowf->producer["studio"]["type"].get<std::string>(), std::string("complex"));   // a tangent velocity: the Studio's complex
+  const auto leafparts = ts.find_all({.cls = tk::Cls::selection, .type = "set", .name_like = "cortex tiles L%", .any_status = true});   // by name: the last is the finest
+  const std::optional<tk::Node> leafpart = leafparts.empty() ? std::nullopt : std::optional<tk::Node>(leafparts.back());
   CHECK(leafpart.has_value());
-  const auto joint = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name LIKE 'rest \xc3\x97 rest_kern_opticalflow%' AND type = 'set'", {V(sub.id())});
+  const auto joint = ts.find({.cls = tk::Cls::selection, .type = "set", .name_like = "rest \xc3\x97 rest_kern_opticalflow%", .any_status = true});
   CHECK(joint.has_value());
   // THE LEAF x FRAME SUMS ARE THE VERTEX TIME SUMS: summed over the frames, a leaf's sum is steps x the area-weighted sum of its vertices' time means; the counts add to the steps
   if (flowf && leafpart && joint) {
-    const std::int64_t L = integer(*leafpart, "n_members");
+    const std::int64_t L = leafpart->n_members.value_or(0);
     nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(N); mesh.positions = surf.vertices; mesh.faces = surf.faces;
     const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
     std::vector<std::int32_t> codes;
-    { ArrayReader r = ArrayReader::open(sub.store(), text(*leafpart, "array_path")); const auto raw = r.read(); codes.resize(raw.size() / 4); std::memcpy(codes.data(), raw.data(), raw.size()); }
-    const int D = Json::parse(text(*leafpart, "params_json"))["atlas"]["level"].get<int>();
+    { ArrayReader r = ArrayReader::open(sub.store(), leafpart->array_path.value_or("")); const auto raw = r.read(); codes.resize(raw.size() / 4); std::memcpy(codes.data(), raw.data(), raw.size()); }
+    const int D = leafpart->params["atlas"]["level"].get<int>();
     double worst = 0;
     const Eigen::MatrixXd* maps[3] = {&a.divergence, &a.curl, &a.speed};
     const char* names[3] = {"flow_divergence", "flow_curl", "flow_speed"};
     for (int m = 0; m < 3; ++m) {
       std::vector<double> want(static_cast<size_t>(L), 0.0), got(static_cast<size_t>(L), 0.0);
       for (std::int64_t v = 0; v < N; ++v) if (codes[static_cast<size_t>(v)] >= 0) want[static_cast<size_t>(codes[static_cast<size_t>(v)])] += area[static_cast<size_t>(v)] * (*maps[m])(v, 0) * double(steps);
-      for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", text(*joint, "id")}, {"measure", names[m]}, {"ofFieldId", text(*flowf, "id")}, {"spaceLevel", D}})) got[r["code"].get<size_t>()] += r["value"].get<double>();
+      for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", joint->id}, {"measure", names[m]}, {"ofFieldId", flowf->id}, {"spaceLevel", D}})) got[r["code"].get<size_t>()] += r["value"].get<double>();
       for (std::int64_t l = 0; l < L; ++l) worst = std::max(worst, std::abs(got[static_cast<size_t>(l)] - want[static_cast<size_t>(l)]) / (std::abs(want[static_cast<size_t>(l)]) + 1e-9 * (1 + std::abs(want[static_cast<size_t>(l)]))));
     }
     std::printf("  leaf x frame sums over the frames vs steps x the vertex time means (div, curl, speed), %lld leaves: worst relative difference %.2e\n", static_cast<long long>(L), worst);
     CHECK(worst < 1e-5);                                     // the vertex means are float64 here; the sums add the same numbers in another order
     // the density is the time mean per unit area: a leaf's speed density times its area is its sum over the steps divided by the steps
     double tot_steps = 0;
-    for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", text(*joint, "id")}, {"measure", "flow_speed_density"}, {"ofFieldId", text(*flowf, "id")}, {"spaceLevel", -1}, {"timeLevel", 40}})) tot_steps += r["weight"].get<double>() > 0 ? 1.0 : 0.0;
+    for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", joint->id}, {"measure", "flow_speed_density"}, {"ofFieldId", flowf->id}, {"spaceLevel", -1}, {"timeLevel", 40}})) tot_steps += r["weight"].get<double>() > 0 ? 1.0 : 0.0;
     CHECK(tot_steps >= 1);
     // the rolled-up mean speed (the whole cortex, the whole window) is the area-weighted mean of the vertex mean speeds
     double a_sum = 0, s_sum = 0;
     for (std::int64_t v = 0; v < N; ++v) if (codes[static_cast<size_t>(v)] >= 0) { a_sum += area[static_cast<size_t>(v)]; s_sum += area[static_cast<size_t>(v)] * a.speed(v, 0); }
-    const auto whole = query_measurements(sub.db(), sub.store(), Json{{"selectionId", text(*joint, "id")}, {"measure", "flow_speed_density"}, {"ofFieldId", text(*flowf, "id")}, {"spaceLevel", -1}, {"timeLevel", 40}});
+    const auto whole = query_measurements(sub.db(), sub.store(), Json{{"selectionId", joint->id}, {"measure", "flow_speed_density"}, {"ofFieldId", flowf->id}, {"spaceLevel", -1}, {"timeLevel", 40}});
     CHECK(whole.size() >= 1);
     if (whole.size() >= 1) {
       double num = 0, den = 0;
@@ -194,7 +199,7 @@ int main() {
     const OpticalflowComputeResult t = opticalflow_compute(ds, sub, tf);
     CHECK(!t.hit && t.info.contains("tiles") && t.info["tiles"][0]["levels"].size() == 2);
     CHECK(t.info["tiles"][0]["gauge"].get<std::string>() == "signpost gauge" && t.info["tiles"][0]["scalars"].size() == 0 && t.info["tiles"][0]["vectors"].size() == 1);
-    CHECK(sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND type = 'ladder'", {V(sub.id())}).has_value());
+    CHECK(tk::Subject::of(sub).find({.cls = tk::Cls::selection, .type = "ladder", .any_status = true}).has_value());
     tf.replace = true;                                    // a cache hit: no time-mean map is stored, so none is summarised
     const OpticalflowComputeResult h = opticalflow_compute(ds, sub, tf);
     CHECK(h.hit && h.info["tiles"][0]["scalars"].size() == 0 && h.info["tiles"][0]["vectors"].size() == 0);
@@ -220,7 +225,7 @@ int main() {
     const OpticalflowComputeResult e = opticalflow_compute(ds, sub, ps);
     CHECK(e.series_coefficients.size() >= 1);
     CHECK_EQ(e.series_coefficients.size(), e.info["summary"]["series"].size());
-    CHECK(sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(std::string("rest_scales_m00_flow"))}).has_value());
+    CHECK(tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = "rest_scales_m00_flow", .any_status = true}).has_value());
     std::printf("  perscale: %zu members\n", e.series_coefficients.size());
     // each member's fields carry that member's own summary (name, centre wavenumber, powers, mean speed), not member 0's
     {
@@ -230,10 +235,10 @@ int main() {
       for (std::size_t si = 0; si < ser.size(); ++si) {
         char nm[40];
         std::snprintf(nm, sizeof nm, "rest_scales_m%02zu_flow", si);
-        const auto fr = sub.db().one("SELECT producer_json FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(std::string(nm))});
+        const auto fr = tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = nm, .any_status = true});
         CHECK(fr.has_value());
         if (!fr) continue;
-        const Json own = Json::parse(text(*fr, "producer_json"))["summary"];
+        const Json own = fr->producer["summary"];
         char tag[8];
         std::snprintf(tag, sizeof tag, "m%02zu", si);
         CHECK_EQ(own["name"].get<std::string>(), std::string(tag));
@@ -276,12 +281,12 @@ int main() {
     }
     std::printf("  anatomical components: %d of %lld vertices reliable, %d longer than the mean speed\n", finite, (long long)N, bad);
     CHECK(finite > N / 2 && bad == 0);
-    for (const char* n : {"rest_anat_velocity_anterior", "rest_anat_velocity_second"}) CHECK(!sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(std::string(n))}).has_value());
+    for (const char* n : {"rest_anat_velocity_anterior", "rest_anat_velocity_second"}) CHECK(!tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = n, .any_status = true}).has_value());
     {   // the canonical-frame and anatomical velocity sums are stored as leaf x frame measures (the frames exist now)
-      const auto jf = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name LIKE 'rest \xc3\x97 rest_anat%' AND type = 'set'", {V(sub.id())});
+      const auto jf = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .type = "set", .name_like = "rest \xc3\x97 rest_anat%", .any_status = true});
       CHECK(jf.has_value());
       if (jf) for (const char* m : {"flow_velocity_1", "flow_velocity_2", "flow_velocity_anterior", "flow_velocity_second"})
-        CHECK(sub.db().one("SELECT measure FROM selection_measurement WHERE selection_id = ? AND measure = ? AND array_path IS NOT NULL", {V(text(*jf, "id")), V(std::string(m))}).has_value());
+        CHECK([&] { for (const Row& r : nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(jf->id)}, {"measure", V(std::string(m))}})) if (!is_null(r, "array_path")) return true; return false; }());
     }
     CHECK(opticalflow_compute(ds, sub, an).hit);
   }

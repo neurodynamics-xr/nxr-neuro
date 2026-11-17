@@ -14,6 +14,8 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/io/constant_q.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/pipelines/measure.h"
 
 using namespace nxr::io;
@@ -73,7 +75,7 @@ int main() {
       tid = sub.manifold(std::move(tm));
       const std::string prod = sub.product({cid, tid});
       FieldSpec rec;
-      rec.name = "rest"; rec.path = node_path(sub.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = task::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T});
       rec.array.chunks = Shape{M, 32768};
       rec.array.compress = false;
@@ -134,7 +136,7 @@ int main() {
   CHECK(m1["windows"] == Json::array({0, 127}) && m1["span"] == "chunk 0");
   const std::string path = m1["array"].get<std::string>();
   check_array(path, 256, 0, 127, "ladder level, chunk 0");
-  const auto rows = sub.db().all("SELECT * FROM selection_measurement WHERE array_path = ? ORDER BY component", {V(path)});
+  const auto rows = testing::Probe(sub).rows("selection_measurement", {{"array_path", path}}, "component");
   CHECK_EQ(static_cast<int>(rows.size()), 6);
   if (rows.size() == 6) {
     CHECK(text(rows[0], "measure") == "mean" && text(rows[5], "measure") == "count" && integer(rows[4], "component") == 4);
@@ -147,7 +149,7 @@ int main() {
   const auto r2 = measure_over_time(ds, sub, o);
   CHECK(r2.info["measured"][0]["replaced"] == true && r2.info["measured"][0]["windows"] == Json::array({0, 156}));   // 40000 = 156 * 256 + 64: the partial last window too
   check_array(path, 256, 0, 156, "ladder level, all chunks");
-  CHECK_EQ(static_cast<int>(sub.db().all("SELECT measure FROM selection_measurement WHERE array_path = ?", {V(path)}).size()), 6);
+  CHECK_EQ(static_cast<int>(testing::Probe(sub).count("selection_measurement", {{"array_path", path}})), 6);
 
   // 2. a span in seconds snaps to the tiling's windows (tiles of 256 samples;), so no window is cut by the span's edge: --start at sample
   //    120 snaps to 0 (windows 0..7), at 130 to 256 (windows 1..7); the snapped extent is what was measured
@@ -192,7 +194,7 @@ int main() {
     CHECK(std::system((cli + common + " --over rest_time_constantQ --level " + std::to_string(lev) + " --weight none > /dev/null 2>&1").c_str()) != 0);
     DatasetWriter d2 = open_writer(root / "demo");
     SubjectWriter s2 = SubjectWriter::open(d2, "S1");
-    CHECK_EQ(static_cast<int>(s2.db().all("SELECT measure FROM selection_measurement WHERE array_path = ?", {V(path)}).size()), 5);   // the default measures and count
+    CHECK_EQ(static_cast<int>(testing::Probe(s2).count("selection_measurement", {{"array_path", path}})), 5);   // the default measures and count
   }
 #endif
   fs::remove_all(root);

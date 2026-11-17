@@ -22,6 +22,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 from test_pipelines_parity import NXR_MAIN, icosphere, write_obj  # noqa: E402
+from spellings import to_io  # noqa: E402
 
 NXR = Path(os.environ["NXR"]) if "NXR" in os.environ else None
 IO = Path(os.environ["NXR_NEURO"]) if "NXR_NEURO" in os.environ else None
@@ -40,7 +41,7 @@ def timed(cmd, *args):
 
 
 def io(*args):
-    return timed([str(IO)], *args)
+    return timed([str(IO)], *to_io(args))
 
 
 def nxr(*args):

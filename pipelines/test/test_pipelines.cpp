@@ -15,6 +15,7 @@
 #include <Eigen/Sparse>
 
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "nxr/glue.h"
 #include "nxr/pipelines/eigen.h"
 
@@ -98,24 +99,24 @@ int main() {
     const Json stamped = Json::parse(opt_text(*sub.find("operator", "hodgeDirac_eigenvectors"), "producer_json").value_or("{}"))["cache"];
     CacheKey key{"eigen_solve", stamped["params"], Json{{"mesh", mesh_key(F)}, {"positions", positions_key(V)}}, NXR_COMPUTE_VERSION};
     CHECK_EQ(stamped["params"]["modes"].get<int>(), 20);
-    CHECK(find_cached(sub.db(), sub.id(), "operator", key, std::string("hodgeDirac_eigenvectors")).has_value());
-    CHECK(find_cached(sub.db(), sub.id(), "operator", key).has_value());
+    CHECK(nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, key.json(), std::string("hodgeDirac_eigenvectors")).has_value());
+    CHECK(nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, key.json()).has_value());
     CacheKey other = key;
     other.params["modes"] = 22;
-    CHECK(!find_cached(sub.db(), sub.id(), "operator", other).has_value());
+    CHECK(!nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, other.json()).has_value());
     other = key;
     std::vector<std::int32_t> F2 = F;
     std::swap(F2[1], F2[2]);
     other.input["mesh"] = mesh_key(F2);
-    CHECK(!find_cached(sub.db(), sub.id(), "operator", other).has_value());
+    CHECK(!nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, other.json()).has_value());
     std::vector<double> V2 = V;
     V2[0] *= 1.01;
     other = key;
     other.input["positions"] = positions_key(V2);
-    CHECK(!find_cached(sub.db(), sub.id(), "operator", other).has_value());
+    CHECK(!nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, other.json()).has_value());
     other = key;
     other.compute = "0.0.0+other";
-    CHECK(!find_cached(sub.db(), sub.id(), "operator", other).has_value());
+    CHECK(!nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, other.json()).has_value());
   }
 
   // another K: a miss; the stored package is refused without --replace
@@ -199,7 +200,7 @@ int main() {
     const std::int64_t nE = integer(*im, "n_edges"), nF = integer(*im, "n_faces");
     CHECK_EQ(2 * nE, 3 * nF);
     auto csr = [&](const std::string& name, std::int64_t rows, std::int64_t cols) {
-      const auto r = s3.find("operator", node_path(s3.db(), text(*im, "id"), name));
+      const auto r = s3.find("operator", nxr::io::task::Subject::of(s3).node_path(text(*im, "id"), name));
       const std::string at = text(*r, "path");
       const auto ip = as_d(at + "/indptr"), ix = as_d(at + "/indices"), dv = as_d(at + "/data");
       Eigen::SparseMatrix<double> M(rows, cols);
@@ -210,7 +211,7 @@ int main() {
     };
     const auto d0 = csr("cortex_glued_intrinsic_d0", nE, Vg), d1 = csr("cortex_glued_intrinsic_d1", nF, nE);
     CHECK(Eigen::SparseMatrix<double>(d1 * d0).norm() == 0.0);
-    auto fieldv = [&](const std::string& name) { return as_d(text(*s3.find("field", node_path(s3.db(), text(*im, "id"), name)), "path")); };
+    auto fieldv = [&](const std::string& name) { return as_d(text(*s3.find("field", nxr::io::task::Subject::of(s3).node_path(text(*im, "id"), name)), "path")); };
     const auto st0 = fieldv("cortex_glued_intrinsic_star0"), st1 = fieldv("cortex_glued_intrinsic_star1"), st2 = fieldv("cortex_glued_intrinsic_star2");
     CHECK(*std::min_element(st1.begin(), st1.end()) >= 0);                     // Delaunay: every cotan weight non-negative
     const auto mu = as_d(text(*s3.find("manifold", "eigenvalue/hodgeDirac"), "path"));
@@ -246,14 +247,14 @@ int main() {
     const std::string gid = text(*s3.find("manifold", "source/cortex_glued"), "id");
     std::vector<float> ones(static_cast<std::size_t>(Vg), 1.0f);
     s3.compose([&] {
-      FieldSpec f; f.name = "other_run"; f.path = node_path(s3.db(), gid, "other_run"); f.kind = "test"; f.manifold_id = gid; f.value_type = "scalar";
+      FieldSpec f; f.name = "other_run"; f.path = nxr::io::task::Subject::of(s3).node_path(gid, "other_run"); f.kind = "test"; f.manifold_id = gid; f.value_type = "scalar";
       f.data = view(ones, {Vg}); s3.field(std::move(f));
     });
     EigenSolveOptions o2 = opt; o2.modes = 26; o2.replace = true;
     const EigenSolveResult r2 = eigen_solve(ds, s3, o2);
     CHECK(!r2.hit && r2.info["replaced"].get<bool>());
     CHECK_EQ(text(*s3.find("manifold", "source/cortex_glued"), "id"), gid);
-    CHECK(s3.find("field", node_path(s3.db(), gid, "other_run")).has_value());
+    CHECK(s3.find("field", nxr::io::task::Subject::of(s3).node_path(gid, "other_run")).has_value());
     CHECK(s3.find("operator", "hodgeDirac_forms2").has_value());
   }
   // the glued sphere pair is ONE closed surface of genus 0: two zero modes dropped, the first exact mode non-constant across the bridge

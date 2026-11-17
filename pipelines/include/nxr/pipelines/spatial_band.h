@@ -80,6 +80,8 @@ struct SpatialBandPlan {
 };
 SpatialBandPlan plan_spatial_band(nxr::io::SubjectWriter& sub, const SurfaceInput& surface, const SurfaceLevel& level, const SpatialBandOptions& opt);
 
+/** Makes the package a plan says it will compute (`plan.source == "computed"`): the `eigenmodes` pipeline run on its own, with its own provenance and cache key. Gives {package, modes, exact, coexact, seconds, hit}. */
+nxr::io::Json make_eigenmodes(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const std::string& surface, const SpatialBandPlan& plan, const std::function<void(const nxr::io::Json&)>& progress = {});
 /** Builds the band: plans it, computes and stores the package when the plan says so (said in `progress` and in the result), builds the operators once. */
 SpatialBand make_spatial_band(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const SurfaceInput& surface, const SurfaceLevel& level, const SpatialBandOptions& opt,
                               const std::function<void(const nxr::io::Json&)>& progress = {});

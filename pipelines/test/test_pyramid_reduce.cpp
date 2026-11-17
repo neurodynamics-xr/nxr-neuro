@@ -24,6 +24,8 @@
 #include "nxr/io/layout.h"
 #include "nxr/io/migrate.h"
 #include "nxr/io/subject_package.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/group.h"
@@ -90,7 +92,7 @@ void make_subject(DatasetWriter& ds, const Spec& sp) {
       std::vector<float> xf(static_cast<std::size_t>(M) * T);
       for (int c = 0; c < M; ++c) { const double amp = 1 + 0.3 * c; for (int t = 0; t < T; ++t) xf[static_cast<std::size_t>(c) * T + t] = static_cast<float>(amp * std::sin(2 * M_PI * 10.0 * t / sfreq + c) + 0.5 * nd(rng)); }
       FieldSpec rec;
-      rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = name; rec.path = task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, std::int64_t(2048)}; rec.array.compress = false; rec.cols.set("unit", "T");
       sub.field(std::move(rec));
     }
@@ -111,21 +113,22 @@ void make_subject(DatasetWriter& ds, const Spec& sp) {
 }
 // a scalar map on the subject's surface, summarised on the GROUP partition as the tile summaries are on a ladder level (nxr's maps/<name>/{w,s1,s2,n,min,max})
 void add_map(SubjectWriter& sub, const Brain& b, unsigned seed, double scale) {
-  const auto surf = sub.db().one("SELECT id FROM manifold WHERE subject_id = ? AND name = 'cortex_pial' AND component_of_id IS NULL", {V(sub.id())});
+  const task::Subject tsub = task::Subject::of(sub);
+  const auto surf = tsub.find({.cls = task::Cls::manifold, .name = "cortex_pial"});
   std::mt19937 rng(seed);
   std::normal_distribution<double> nd;
   std::vector<float> x(static_cast<std::size_t>(b.n));
   for (auto& v : x) v = static_cast<float>(scale * (1 + 0.3 * nd(rng)));
-  const auto part = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'cortex_pial group tiles L3'", {V(sub.id())});
-  const Json pp = Json::parse(text(*part, "params_json"));
-  const std::vector<std::int32_t> codes = read_at<std::int32_t>(sub, text(*part, "array_path"));
+  const auto part = tsub.find({.cls = task::Cls::selection, .name = "cortex_pial group tiles L3"});
+  const Json pp = part->params;
+  const std::vector<std::int32_t> codes = read_at<std::int32_t>(sub, part->array_path.value());
   lad::Mesh mesh; mesh.n = b.n; mesh.positions = b.P; mesh.faces = b.F;
   const std::vector<double> area = lad::vertexAreas(mesh);
   std::vector<double> xd(x.begin(), x.end());
   const lad::ScalarSummary s = lad::scalarSummary(codes, 16, area, xd.data());
   sub.compose([&] {
     FieldSpec f;
-    f.name = "map_" + sub.name(); f.path = node_path(sub.db(), text(*surf, "id"), f.name); f.kind = "synthetic map"; f.manifold_id = text(*surf, "id"); f.data = view(x, {b.n}); f.cols.set("unit", "T");
+    f.name = "map_" + sub.name(); f.path = tsub.node_path(surf->id, f.name); f.kind = "synthetic map"; f.manifold_id = surf->id; f.data = view(x, {b.n}); f.cols.set("unit", "T");
     const std::string fid = sub.field(std::move(f));
     const std::string g = pp["node"].get<std::string>() + "/maps/map_" + sub.name();
     const std::vector<std::pair<const char*, std::pair<const char*, const Eigen::VectorXd*>>> parts = {{"w", {"weight", &s.w}}, {"s1", {"sum", &s.s1}}, {"s2", {"sum_square", &s.s2}}, {"n", {"count", &s.n}}, {"min", {"min", &s.min}}, {"max", {"max", &s.max}}};
@@ -135,7 +138,7 @@ void add_map(SubjectWriter& sub, const Brain& b, unsigned seed, double scale) {
       Cols c;
       c.set("measure", mv.first).set("of_field_id", fid).set("array_path", g + "/" + rel).set("computed_by", "test");
       if (std::string(mv.first) != "weight" && std::string(mv.first) != "count") c.set("unit", "T");
-      sub.measurement(text(*part, "id"), c);
+      sub.measurement(part->id, c);
     }
   });
 }
@@ -198,18 +201,19 @@ int main() {
     SubjectWriter s1 = SubjectWriter::open(ds, "S1");
     const PyramidBuildResult r = build("S1", "task-rest_run-1", k1, "group");
     CHECK(r.info["tree"] == "group" && r.info["depth"] == 3 && r.info["leaves"] == 16 && r.info["cache"] == "miss");
-    const auto part = s1.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'cortex_pial group tiles L3'", {V(s1.id())});
-    CHECK(part && integer(*part, "n_members") == 16);
-    const Json pp = Json::parse(text(*part, "params_json"));
+    const task::Subject ts1 = task::Subject::of(s1);
+    const auto part = ts1.find({.cls = task::Cls::selection, .name = "cortex_pial group tiles L3"});
+    CHECK(part && part->n_members == 16);
+    const Json pp = part->params;
     CHECK(pp["atlas"]["tree"] == "group" && pp["atlas"]["level"] == 3 && pp["atlas"].contains("areas") && pp["atlas"]["node"] == pp["node"]);
-    const auto parent = s1.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'cortex_pial_group_tiles' AND member_of_id IS NULL", {V(s1.id())});
-    CHECK(parent && integer(*parent, "n_members") >= 4);
+    const auto parent = ts1.find({.cls = task::Cls::selection, .name = "cortex_pial_group_tiles"});
+    CHECK(parent && !parent->member_of_id && parent->n_members.value_or(0) >= 4);
     // the leaves are the template's tiles: a vertex's code is its nearest template vertex's (checked by hand through the sphere)
     const SurfaceInput S = read_surface(s1, std::string("cortex_pial"), true);
     SubjectWriter dsub = SubjectWriter::open(ds, "@default_subject");
-    const std::vector<std::int32_t> codes = read_at<std::int32_t>(s1, text(*part, "array_path"));
-    const auto tl3 = dsub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'cortex_pial tiles L3'", {V(dsub.id())});
-    const std::vector<std::int32_t> tcodes = read_at<std::int32_t>(dsub, text(*tl3, "array_path"));
+    const std::vector<std::int32_t> codes = read_at<std::int32_t>(s1, part->array_path.value());
+    const auto tl3 = task::Subject::of(dsub).find({.cls = task::Cls::selection, .name = "cortex_pial tiles L3"});
+    const std::vector<std::int32_t> tcodes = read_at<std::int32_t>(dsub, tl3->array_path.value());
     const std::vector<double> sph = turned(b1.Sph, 0.20);
     int bad = 0;
     for (int v = 0; v < b1.n; v += 7) {
@@ -222,11 +226,11 @@ int main() {
     // the subject tree on the same estimate: one estimate, two joints
     const PyramidBuildResult rs = build("S1", "task-rest_run-1", k1, "subject");
     CHECK(rs.info["tree"] == "subject" && rs.info["cache"] == "miss");
-    CHECK(s1.db().all("SELECT id FROM field WHERE subject_id = ? AND kind = 'source estimate'", {V(s1.id())}).size() == 1);
-    const auto joints = s1.db().all("SELECT params_json FROM selection WHERE subject_id = ? AND json_extract(params_json, '$.joint') IS NOT NULL", {V(s1.id())});
+    CHECK(ts1.find_all({.cls = task::Cls::field, .kind = "source estimate"}).size() == 1);
+    const auto joints = ts1.find_all({.cls = task::Cls::selection, .params_present = {"joint"}});
     CHECK(joints.size() == 2);
     std::set<std::string> trees;
-    for (const Row& j : joints) trees.insert(Json::parse(text(j, "params_json"))["atlas"]["tree"].get<std::string>());
+    for (const task::Node& j : joints) trees.insert(j.params["atlas"]["tree"].get<std::string>());
     CHECK((trees == std::set<std::string>{"group", "subject"}));
     CHECK(build("S1", "task-rest_run-1", k1, "group").info["cache"] == "hit" && build("S1", "task-rest_run-1", k1, "subject").info["cache"] == "hit");
     CHECK(code_of([&] { SubjectWriter s = SubjectWriter::open(ds, "S1"); PyramidBuildOptions o; o.recording = "task-rest_run-1"; o.kernel = k1; o.tree = "group"; o.halo_seconds = 3.0; o.depth = 3; pyramid_build(ds, s, o); }) == "invalid_argument");
@@ -244,7 +248,7 @@ int main() {
   // the leaves are the SAME in every subject: 16 tiles each, and the leaf areas differ (another surface)
   {
     SubjectWriter a = SubjectWriter::open(ds, "S1"), c = SubjectWriter::open(ds, "S3");
-    auto n = [&](SubjectWriter& s) { return integer(*s.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'cortex_pial group tiles L3'", {V(s.id())}), "n_members"); };
+    auto n = [&](SubjectWriter& s) { return task::Subject::of(s).require({.cls = task::Cls::selection, .name = "cortex_pial group tiles L3"}, "the group tiles").n_members.value_or(0); };
     CHECK(n(a) == 16 && n(c) == 16);
   }
   if (keep) { fs::remove_all(fs::path(keep) / "pre"); fs::copy(root, fs::path(keep) / "pre", fs::copy_options::recursive); }
@@ -270,22 +274,29 @@ int main() {
   std::printf("  reduced %d members: %s\n", rr.info["members"].get<int>(), rr.info["time"].dump().c_str());
   CHECK(rr.info["members"] == 3 && rr.info["depth"] == 3 && rr.info["leaves"] == 16);
   SubjectWriter dsub = SubjectWriter::open(ds, "@default_subject");
-  const auto dpart = dsub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'cortex_pial tiles L3'", {V(dsub.id())});
-  const Json dp = Json::parse(text(*dpart, "params_json"));
+  const task::Subject tdsub = task::Subject::of(dsub);
+  const auto dpart = tdsub.find({.cls = task::Cls::selection, .name = "cortex_pial tiles L3"});
+  const Json dp = dpart->params;
+  auto atlas_fields = [&] {   // the group fields: no arrays of their own, made by a reduce
+    std::vector<task::Node> out;
+    for (const task::Node& n : tdsub.find_all({.cls = task::Cls::field}))
+      if (!n.path && n.producer.contains("atlas")) out.push_back(n);
+    return out;
+  };
   CHECK(dp["atlas"]["tree"] == "group" && dp["atlas"]["level"] == 3 && dp["atlas"]["members"].size() == 3);
   const std::string node = rr.info["node"].get<std::string>();
   CHECK(node == dp["atlas"]["node"]);
   // the group fields: pathless, function sum, contributions
-  const auto gfs = dsub.db().all("SELECT * FROM field WHERE subject_id = ? AND path IS NULL AND json_extract(producer_json, '$.atlas') IS NOT NULL ORDER BY name", {V(dsub.id())});
+  const auto gfs = atlas_fields();
   std::set<std::string> gnames;
-  for (const Row& f : gfs) { gnames.insert(text(f, "name")); CHECK(text(f, "function") == "sum" && is_null(f, "path")); }
+  for (const task::Node& f : gfs) { gnames.insert(f.name); CHECK(f.fact("function") == "sum" && !f.path); }
   CHECK((gnames == std::set<std::string>{"group synthetic_map", "group rest__MN_MEG__constrained", "group rest__WMNE_MEG__free"}) || (std::printf("  names: %s\n", [&] { std::string s; for (auto& n : gnames) s += n + " | "; return s; }().c_str()) && false));
-  for (const Row& f : gfs) {
-    const std::string n = text(f, "name");
-    const auto cs = dsub.db().all("SELECT * FROM field_contribution WHERE field_id = ?", {V(text(f, "id"))});
+  for (const task::Node& f : gfs) {
+    const std::string n = f.name;
+    const auto cs = testing::Probe(dsub).rows("field_contribution", {{"field_id", f.id}});
     const std::size_t want = n == "group synthetic_map" ? 3 : n == "group rest__MN_MEG__constrained" ? 4 : 1;          // S2's two recordings contribute twice
     CHECK(cs.size() == want);
-    CHECK(text(f, "kind") == (n == "group synthetic_map" ? "group map" : "source estimate"));
+    CHECK(f.kind == (n == "group synthetic_map" ? "group map" : "source estimate"));
   }
   // the sums, cell for cell, against the members' own arrays (the newest kernel of S2 only: `latest`)
   {
@@ -296,16 +307,16 @@ int main() {
       SubjectWriter m = SubjectWriter::open(ds, sname);
       for (const std::string& rec : recs) {
         const std::string key = rec + "__MN_MEG_" + kn.substr(kn.find("_KERNEL_") + 8, 11);
-        const auto j = m.db().one("SELECT * FROM selection WHERE subject_id = ? AND name LIKE ? AND json_extract(params_json, '$.atlas.tree') = 'group'", {V(m.id()), V(rec + " \xc3\x97 " + kn + " %")});
+        const auto j = task::Subject::of(m).find({.cls = task::Cls::selection, .name_like = rec + " \xc3\x97 " + kn + " %", .params = {{"atlas.tree", "group"}}});
         CHECK(j);
-        const std::string pn = Json::parse(text(*j, "params_json"))["atlas"]["node"].get<std::string>();
+        const std::string pn = j->params["atlas"]["node"].get<std::string>();
         std::vector<std::int64_t> sh;
         const std::vector<double> c = collapsed(m, pn + "/power", false, &sh);
         nb = sh[0];
         if (want.empty()) want.assign(c.size(), 0.0);
         for (std::size_t i = 0; i < c.size(); ++i) want[i] += c[i];
-        const auto cnt = m.db().one("SELECT array_path FROM selection_measurement WHERE of_field_id = ? AND measure = 'count'", {V(text(*j, "of_field_id"))});
-        for (std::int64_t x : read_at<std::int64_t>(m, text(*cnt, "array_path"))) smp += static_cast<double>(x);
+        const auto cnt = testing::Probe(m).rows("selection_measurement", {{"of_field_id", j->fact("of_field_id").get<std::string>()}, {"measure", "count"}});
+        for (std::int64_t x : read_at<std::int64_t>(m, text(cnt.front(), "array_path"))) smp += static_cast<double>(x);
       }
     }
     const std::string g = node + "/time/rest__MN_MEG__constrained";
@@ -328,12 +339,12 @@ int main() {
     for (std::size_t i = 0; i < em.size(); ++i) ok = ok && em[i] > 0 && em[i] <= es[i] * 1.0000001;
     CHECK(ok);
     // the rows on the default subject's partition: one per band for each array, within the default's atlas bands
-    const auto rows = dsub.db().all("SELECT * FROM selection_measurement WHERE selection_id = ? AND of_field_id = ?", {V(text(*dpart, "id")), V(text(*dsub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = 'group rest__MN_MEG__constrained'", {V(dsub.id())}), "id"))});
+    const auto rows = testing::Probe(dsub).rows("selection_measurement", {{"selection_id", dpart->id}, {"of_field_id", tdsub.require({.cls = task::Cls::field, .name = "group rest__MN_MEG__constrained"}, "the group estimate").id}});
     CHECK(rows.size() == 3 * static_cast<std::size_t>(nb));
-    const auto bands = dsub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'atlas bands' AND type = 'spans'", {V(dsub.id())});
+    const auto bands = tdsub.find({.cls = task::Cls::selection, .name = "atlas bands", .type = "spans"});
     CHECK(bands);
     std::set<std::string> measures;
-    for (const Row& r : rows) { CHECK(text(r, "within_selection_id") == text(*bands, "id") && !is_null(r, "array_path")); measures.insert(text(r, "measure")); }
+    for (const Row& r : rows) { CHECK(text(r, "within_selection_id") == bands->id && !is_null(r, "array_path")); measures.insert(text(r, "measure")); }
     CHECK((measures == std::set<std::string>{"power_sum", "envelope_sum", "envelope_max"}));
   }
   // the spatial group map: sums add, extremes extreme, the per-subject mean
@@ -343,7 +354,7 @@ int main() {
     std::vector<std::vector<double>> means;
     for (const char* sname : {"S1", "S2", "S3"}) {
       SubjectWriter m = SubjectWriter::open(ds, sname);
-      const std::string mp = Json::parse(text(*m.db().one("SELECT params_json FROM selection WHERE subject_id = ? AND name = 'cortex_pial group tiles L3'", {V(m.id())}), "params_json"))["node"].get<std::string>() + "/maps/map_" + sname;
+      const std::string mp = task::Subject::of(m).require({.cls = task::Cls::selection, .name = "cortex_pial group tiles L3"}, "the group tiles").params["node"].get<std::string>() + "/maps/map_" + sname;
       const auto aw = read_at<double>(m, mp + "/w"), as1 = read_at<double>(m, mp + "/s1"), amx = read_at<double>(m, mp + "/max"), amn = read_at<double>(m, mp + "/min");
       std::vector<double> mean(16);
       for (int i = 0; i < 16; ++i) { w[i] += aw[i]; s1[i] += as1[i]; mx[i] = std::max(mx[i], amx[i]); mn[i] = std::min(mn[i], amn[i]); mean[i] = aw[i] > 0 ? as1[i] / aw[i] : NAN; }
@@ -357,19 +368,19 @@ int main() {
     const auto pm = read_at<double>(dsub, g + "/per_subject/mean", &sh);
     CHECK(sh == (std::vector<std::int64_t>{3, 16}));
     for (int s = 0; s < 3; ++s) for (int i = 0; i < 16; ++i) CHECK(std::isnan(means[s][i]) ? std::isnan(pm[s * 16 + i]) : std::abs(pm[s * 16 + i] - means[s][i]) < 1e-12 * (std::abs(means[s][i]) + 1));
-    const auto fid = dsub.db().one("SELECT id, unit FROM field WHERE subject_id = ? AND name = 'group synthetic_map'", {V(dsub.id())});
-    CHECK(text(*fid, "unit") == "T");
-    CHECK(dsub.db().all("SELECT measure FROM selection_measurement WHERE selection_id = ? AND of_field_id = ?", {V(text(*dpart, "id")), V(text(*fid, "id"))}).size() == 6);
+    const auto fid = tdsub.find({.cls = task::Cls::field, .name = "group synthetic_map"});
+    CHECK(fid->unit == "T");
+    CHECK(testing::Probe(dsub).count("selection_measurement", {{"selection_id", dpart->id}, {"of_field_id", fid->id}}) == 6);
   }
   // a re-run REPLACES, a named subset sums only itself
   {
-    const auto before = dsub.db().all("SELECT id FROM field WHERE subject_id = ? AND path IS NULL AND json_extract(producer_json, '$.atlas') IS NOT NULL", {V(dsub.id())}).size();
+    const auto before = atlas_fields().size();
     pyramid_reduce(ds, ro);
-    CHECK(dsub.db().all("SELECT id FROM field WHERE subject_id = ? AND path IS NULL AND json_extract(producer_json, '$.atlas') IS NOT NULL", {V(dsub.id())}).size() == before);
+    CHECK(atlas_fields().size() == before);
     PyramidReduceOptions two; two.subjects = {"S1", "S3"}; two.kernels = "MN_MEG";
     pyramid_reduce(ds, two);
-    CHECK(dsub.db().all("SELECT id FROM field_contribution c JOIN field f ON f.id = c.field_id WHERE f.name = 'group rest__MN_MEG__constrained'", {}).size() == 2);
-    CHECK(dsub.db().all("SELECT id FROM field WHERE subject_id = ? AND name = 'group rest__WMNE_MEG__free'", {V(dsub.id())}).empty());          // the selector left the free kernel out
+    CHECK(testing::Probe(dsub).count("field_contribution", {{"field_id", tdsub.require({.cls = task::Cls::field, .name = "group rest__MN_MEG__constrained"}, "the group estimate").id}}) == 2);
+    CHECK(!tdsub.find({.cls = task::Cls::field, .name = "group rest__WMNE_MEG__free"}).has_value());          // the selector left the free kernel out
     const auto dens = read_at<double>(dsub, node + "/time/rest__MN_MEG__constrained/samples");
     CHECK(dens.size() == 1);
   }
@@ -399,12 +410,15 @@ int main() {
         }
       }
       std::printf("  group package: %zu keys equal the one-database reduce's, byte for byte\n", compared);
-      const auto fo = dsub.db().all("SELECT name, kind, function, unit FROM field WHERE subject_id = ? AND path IS NULL AND json_extract(producer_json, '$.atlas') IS NOT NULL ORDER BY name", {V(dsub.id())});
-      const auto fn = gsub.db().all("SELECT name, kind, function, unit FROM field WHERE subject_id = ? ORDER BY name", {V(gsub.id())});
+      const task::Subject tgsub = task::Subject::of(gsub);
+      const auto fo = atlas_fields();
+      const auto fn = tgsub.find_all({.cls = task::Cls::field});
       CHECK(fo.size() == 3 && fn.size() == fo.size());
-      for (std::size_t i = 0; i < fo.size() && i < fn.size(); ++i) CHECK(text(fo[i], "name") == text(fn[i], "name") && text(fo[i], "kind") == text(fn[i], "kind") && text(fo[i], "function") == text(fn[i], "function"));
-      CHECK(integer(*gsub.db().one("SELECT count(*) AS n FROM field_contribution"), "n") == integer(*dsub.db().one("SELECT count(*) AS n FROM field_contribution c JOIN field f ON f.id = c.field_id WHERE f.subject_id = ?", {V(dsub.id())}), "n"));
-      CHECK(gsub.db().all("PRAGMA foreign_key_check").empty());
+      for (std::size_t i = 0; i < fo.size() && i < fn.size(); ++i) CHECK(fo[i].name == fn[i].name && fo[i].kind == fn[i].kind && fo[i].fact("function") == fn[i].fact("function"));
+      std::int64_t dsub_contributions = 0;
+      for (const task::Node& f : tdsub.find_all({.cls = task::Cls::field, .any_status = true})) dsub_contributions += testing::Probe(dsub).count("field_contribution", {{"field_id", f.id}});
+      CHECK(testing::Probe(gsub).count("field_contribution") == dsub_contributions);
+      CHECK(testing::Probe(gsub).integrity().empty());
       g.close();
     }
     CHECK(SubjectPackage::open(gd / "grp.nxr.zarr").verify().ok);

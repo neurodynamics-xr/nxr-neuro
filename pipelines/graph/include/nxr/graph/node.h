@@ -55,8 +55,8 @@ enum class Kind { array, chunk, accumulate };
 const char* to_string(Kind k);
 
 struct PortSpec { std::string name, meaning; bool optional = false; };
-/** a parameter: its default (null: the caller must set it), meaning and unit; the command line's help is made from these */
-struct ParamSpec { std::string name; Json def; std::string meaning, unit; std::vector<std::string> choices; };
+/** a parameter: its default (null: the caller must set it, unless `optional`), meaning and unit; the command line's help is made from these. `optional`: null is a value, "not given": the node decides what that means (a pipeline's optional bound) */
+struct ParamSpec { std::string name; Json def; std::string meaning, unit; std::vector<std::string> choices; bool optional = false; };
 
 /** what a node's plan gives back: the outputs' types (by output port name) and the halo it needs on each side (a chunk node; 0 otherwise) */
 struct Planned {

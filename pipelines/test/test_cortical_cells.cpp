@@ -17,6 +17,8 @@
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
 #include "nxr/io/constant_q.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/joint.h"
@@ -29,6 +31,7 @@ using namespace nxr::io;
 using namespace nxr::pipelines;
 namespace g = nxr::pipelines::graph;
 namespace fs = std::filesystem;
+namespace tk = nxr::io::task;
 
 namespace {
 template <class F> std::string code_of(F f) { try { f(); } catch (const Error& e) { return e.code(); } return ""; }
@@ -95,7 +98,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(4096)), std::make_pair(std::string("rest_b"), std::int64_t(1000))}) {   // the same samples, two chunk widths
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = tk::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "A");
         const std::string rid = sub.field(std::move(rec));
         nxr::bst::TimeSpansOptions bo; bo.line_id = tid; bo.of_field_id = rid; bo.description = "bad segments";
@@ -123,9 +126,10 @@ int main() {
   // the alpha level of the time ladder (8-16 Hz)
   int timeLevel = -1;
   std::int64_t frames = 0;
-  for (const Row& m : sub.db().all("SELECT member_ordinal, params_json FROM selection WHERE subject_id = ? AND member_of_id IS NOT NULL AND params_json LIKE '%resolves_hz%'", {V(sub.id())})) {
-    const Json pj = Json::parse(text(m, "params_json"));
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) { timeLevel = static_cast<int>(integer(m, "member_ordinal")); frames = pj["tiling"]["count"].get<std::int64_t>(); }
+  for (const tk::Node& m : tk::Subject::of(sub).find_all({.cls = tk::Cls::selection, .params_present = {"resolves_hz"}, .any_status = true})) {
+    if (!m.member_of_id) continue;
+    const Json& pj = m.params;
+    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) { timeLevel = static_cast<int>(m.member_ordinal.value_or(0)); frames = pj["tiling"]["count"].get<std::int64_t>(); }
   }
   CHECK(timeLevel >= 0 && frames == T / W);
   if (timeLevel < 0) return 1;
@@ -134,11 +138,11 @@ int main() {
   JointComputeOptions jo;
   jo.recording = "rest"; jo.space_level = spaceLevel; jo.time_level = timeLevel;
   const auto j1 = joint_compute(ds, sub, jo);
-  const auto jrow = sub.db().one("SELECT * FROM selection WHERE id = ?", {V(j1.info["id"].get<std::string>())});
-  CHECK(jrow.has_value() && text(*jrow, "type") == "set" && is_null(*jrow, "array_path"));
-  const Json jp = Json::parse(text(*jrow, "params_json"))["joint"];
+  const auto jrow = tk::Subject::of(sub).by_id(tk::Cls::selection, j1.info["id"].get<std::string>());
+  CHECK(jrow.has_value() && jrow->type.value_or("") == "set" && !jrow->array_path.has_value());
+  const Json jp = jrow->params["joint"];
   const std::int64_t tiles = jp["tiles"].get<std::int64_t>();
-  CHECK(jp["bits"] == 5 && jp["frames"] == frames && tiles == 2 * (1 << spaceLevel) && jp["space_level"] == spaceLevel && jp["time_level"] == timeLevel && integer(*jrow, "n_members") == tiles * frames);
+  CHECK(jp["bits"] == 5 && jp["frames"] == frames && tiles == 2 * (1 << spaceLevel) && jp["space_level"] == spaceLevel && jp["time_level"] == timeLevel && jrow->n_members.value_or(0) == tiles * frames);
   CHECK(joint_bits(1) == 1 && joint_bits(2) == 1 && joint_bits(3) == 2 && joint_bits(32) == 5 && joint_bits(33) == 6);   // the atlas's bitsFor
   CHECK(joint_compute(ds, sub, jo).existed);
   JointComputeOptions jb = jo; jb.recording = "rest_b";
@@ -222,9 +226,10 @@ int main() {
     CHECK(ea < 2e-4 && ep < 2e-4);
     CHECK(am["over"].get<std::string>().find("x") != std::string::npos);
     // the rows are of the recording, on the joint Selection (a count row beside them); the count of a good tile is its window
-    const auto recid = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(r["anchor"].get<std::string>())});
-    const auto jsel = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(am["over"].get<std::string>())});
-    const auto rows = sub.db().all("SELECT measure FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? ORDER BY measure", {V(text(*jsel, "id")), V(text(*recid, "id"))});
+    const auto ts = tk::Subject::of(sub);
+    const auto recid = ts.find({.cls = tk::Cls::field, .name = r["anchor"].get<std::string>(), .any_status = true});
+    const auto jsel = ts.find({.cls = tk::Cls::selection, .name = am["over"].get<std::string>(), .any_status = true});
+    const auto rows = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(jsel->id)}, {"of_field_id", V(recid->id)}}, "measure");
     CHECK(rows.size() == 3 && text(rows[0], "measure") == "amplitude" && text(rows[1], "measure") == "count" && text(rows[2], "measure") == "envelope_max");
     CHECK(gp.size() == got_amp[i].size());
     CHECK(got_amp[i][static_cast<std::size_t>((0 * frames + 12) * 2 + 1)] == static_cast<float>(W));     // the count component: the samples of a whole tile
@@ -282,9 +287,14 @@ int main() {
       const Json sbj = rc[0]["prepared"]["apply_kernel:sources"]["spatial_band"];
       std::printf("  resolved Chebyshev order %d (series error %.2g)\n", sbj["order"].get<int>(), sbj["series_error"].get<double>());
       CHECK(sbj["order"].get<int>() >= 40 && sbj["series_error"].get<double>() <= 0.01 && sbj["transform"] == "chebyshev" && sbj["level"] == spaceLevel);
-      const auto rec = sub.db().one("SELECT e.name, e.params_json FROM dictionary_entry e JOIN dictionary dd ON dd.id = e.dictionary_id WHERE dd.name = 'recipes' AND e.name LIKE 'pipeline cortical_cells%' AND e.params_json LIKE '%chebyshev%' ORDER BY e.rowid DESC");
+      const nxr::io::testing::Probe probe(sub);
+      std::optional<Row> rec;     // the newest recipe entry of this pipeline that names the Chebyshev transform
+      for (const Row& dd : probe.rows("dictionary", {{"name", V(std::string("recipes"))}}))
+        for (const Row& e : probe.rows("dictionary_entry", {{"dictionary_id", V(text(dd, "id"))}}))
+          if (text(e, "name").rfind("pipeline cortical_cells", 0) == 0 && text(e, "params_json").find("chebyshev") != std::string::npos) rec = e;
       CHECK(rec.has_value() && Json::parse(text(*rec, "params_json"))["prepared"]["apply_kernel:sources"]["spatial_band"]["order"] == sbj["order"]);
-      const auto by = sub.db().all("SELECT DISTINCT computed_by FROM selection_measurement WHERE measure = 'amplitude' AND computed_by LIKE 'pipeline cortical_cells%'");
+      std::vector<Row> by;
+      for (const Row& r : probe.rows("selection_measurement", {{"measure", V(std::string("amplitude"))}})) if (text(r, "computed_by").rfind("pipeline cortical_cells", 0) == 0) by.push_back(r);
       bool named = false;
       for (const Row& r : by) named = named || (rec && text(r, "computed_by").rfind(text(*rec, "name"), 0) == 0);   // the rows name the recipe that holds the record
       CHECK(named);
@@ -345,7 +355,7 @@ int main() {
       w.compose([&] {
         FieldSpec rec;
         const std::string prod = w.product({cid_s, tid});
-        rec.name = "loc"; rec.path = node_path(w.db(), prod, "loc"); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = "loc"; rec.path = tk::Subject::of(w).node_path(prod, "loc"); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xl, {M, T}); rec.array.chunks = Shape{M, std::int64_t(4096)}; rec.array.compress = false; rec.cols.set("unit", "A");
         w.field(std::move(rec));
       });

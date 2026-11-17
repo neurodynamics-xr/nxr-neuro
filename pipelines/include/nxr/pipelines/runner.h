@@ -1,13 +1,12 @@
 // nxr-pipelines — THE RUNNER: one pipeline on one subject (`nxr-neuro run DEFINITION --dataset D --subject S`). A port of nxr's (nxr/pipelines/runner.py),
 // the reference; the spec: docs/specs/2026-11-12-chain-graph.md §4. Generic: no analysis-specific code.
 //
-//   plan     the inputs found by the model's links (io/finder.h), every step's arrows checked on their rows (StepSpec::plan), every output's manifold
-//            known: nothing read yet. `--dry-run` stops here and prints it.
-//   before   the setup steps, once (constants bound: the Studio's "uploaded once")
-//   chunks   THE CHUNK LOOP: io's chunk service (`haloed_loop`) hands each chunk of the span (always stated by the caller) with the halo the chunk steps need
-//            (their halos composed: each step leaves the halo the steps after it still need); the chunk steps run on it, the accumulate steps fold it
-//   after    the after steps, once, on what the loop reduced
-//   store    each output a Field of the subject, on the manifold its steps made it on, named `<pipeline>.<output>.<anchor>` in that manifold's folder
+//   plan     the inputs found by the model's links (io/finder.h), the definition written as a graph of nodes and CHECKED ON TYPES by the executor (nxr_graph: arrows, kinds by section,
+//            the halo composed, retiming); every output's manifold known: nothing read yet. `--dry-run` stops here and prints it.
+//   run      the executor does every step (before · each chunk through the chunk and accumulate steps, state carried · after); the runner only streams: io's chunk service (`haloed_loop`)
+//            hands each chunk of the span (always stated by the caller) with the halo the checked graph declares. A spatial band whose eigenmodes are not stored: the runner makes them
+//            FIRST, as their own `eigenmodes` run (own provenance and cache key), says so, and starts again; nothing is stored hidden inside the run.
+//   store    ONE task::Unit for the run (nodes, arrays, measurements, recipe, cache key together, or nothing): each output a Field of the subject, on the manifold its steps made it on, named `<pipeline>.<output>.<anchor>` in that manifold's folder
 //            (D157), its producer_json the pipeline (name, version, the definition's sha256), the parameters, the inputs' ids, the span and the run's
 //            facts; the CACHE KEY is the same (definition, parameters, inputs, span), so a rerun is a hit; another key's node is refused unless `replace`
 //            (then moved aside, never deleted).
@@ -18,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "nxr/graph/graph.h"
 #include "nxr/io/database.h"
 #include "nxr/io/writer.h"
 #include "nxr/pipelines/definition.h"
@@ -39,6 +39,8 @@ struct Plan {
   Values found;                                // the inputs found
   Values values;                               // every thing: the inputs and what the steps make
   std::vector<Planned> steps;
+  nxr::graph::Graph graph;                     // the executor's form of the definition (its steps as uses of nodes, `with` written out); `execute` checks it again against the run's binding
+  nxr::graph::Types types;                     // its inputs' types, from what was found
 
   std::vector<const Planned*> section(const std::string& sec) const;
   /** the plan as a person reads it (`--dry-run`) */

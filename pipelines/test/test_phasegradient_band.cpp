@@ -26,10 +26,13 @@
 #include "nxr/pipelines/meeg.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/statistic.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
 namespace fs = std::filesystem;
+namespace tk = nxr::io::task;
 
 static std::vector<double> read_field_at(SubjectWriter& sub, const std::string& array_path) {
   ArrayReader a = ArrayReader::open(sub.store(), array_path);
@@ -124,7 +127,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, data] : {std::make_pair(std::string("plane"), &plane), std::make_pair(std::string("rotate"), &rotate), std::make_pair(std::string("stand"), &stand), std::make_pair(std::string("patchy"), &patchy)}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = tk::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(*data, {M, T}); rec.array.chunks = Shape{M, 700}; rec.array.compress = false; rec.cols.set("unit", "T");
         sub.field(std::move(rec));
       }
@@ -168,8 +171,8 @@ int main() {
   phasegradient_compute(ds, sub, ps);
   // the timing map of the plane wave against the truth −k z / ω, on the cortex (the glued surface's first vertices are the kept ones, in support order)
   const auto support = [&] {
-    const auto r = sub.db().one("SELECT array_path FROM selection WHERE subject_id = ? AND name = 'hodgeDirac_support'", {V(sub.id())});
-    ArrayReader a = ArrayReader::open(sub.store(), text(*r, "array_path"));
+    const auto r = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = "hodgeDirac_support", .any_status = true});
+    ArrayReader a = ArrayReader::open(sub.store(), r->array_path.value_or(""));
     const auto raw = a.read();
     std::vector<std::int32_t> out(raw.size() / 4);
     std::memcpy(out.data(), raw.data(), raw.size());
@@ -194,40 +197,39 @@ int main() {
   // NO PER-VERTEX FIELDS: the fits are one statistic (and the modes' coefficients another), the leaves a byte-less Field with array-backed measurements
   {
     for (const char* old : {"_power_", "_timing_", "_propagation_", "_speed_", "_stream_", "_divergence_", "_curl_", "_inconsistency_", "_modes_"})
-      CHECK(!sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(std::string("plane_free_phasegradient_modes") + old + "alpha")}).has_value());
+      CHECK(!tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = std::string("plane_free_phasegradient_modes") + old + "alpha", .any_status = true}).has_value());
     const StoredStatistic st = read_statistic(sub, "plane_free_phasegradient_modes_map_alpha");
     CHECK(st.shape.size() == 2 && st.shape[1] == 7 && st.shape[0] > static_cast<std::int64_t>(support.size()) && st.axes[1]["values"][0] == "timing" && st.axes[1]["values"][4] == "speed");
     CHECK(st.row.count("of_statistic_id") && !text(st.row, "of_statistic_id").empty());       // of the cross-spectrum statistic
     CHECK(read_statistic(sub, "plane_free_phasegradient_modes_modes_alpha").shape == std::vector<std::int64_t>{read_statistic(sub, "plane_free_phasegradient_modes_modes_alpha").shape[0]});
-    const auto fr = sub.db().one("SELECT id, path FROM field WHERE subject_id = ? AND name = 'plane_free_phasegradient_modes_alpha'", {V(sub.id())});
-    CHECK(fr.has_value() && is_null(*fr, "path"));
+    const auto fr = tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = "plane_free_phasegradient_modes_alpha", .any_status = true});
+    CHECK(fr.has_value() && !fr->path.has_value());
     int rows = 0;
     for (const char* m : {"phase_power", "phase_flux", "phase_circulation"})
-      rows += sub.db().all("SELECT array_path FROM selection_measurement WHERE of_field_id = ? AND measure = ? AND array_path IS NOT NULL", {V(text(*fr, "id")), V(std::string(m))}).size();
+      for (const Row& r : nxr::io::testing::Probe(sub).rows("selection_measurement", {{"of_field_id", V(fr->id)}, {"measure", V(std::string(m))}})) rows += !is_null(r, "array_path");
     CHECK_EQ(rows, 3);
   }
   // THE TILES' EXACT INTEGRALS against the ground truth. The plane wave's propagation is k grad z: its divergence on the unit sphere is -2 k z, so a leaf's flux over its area is -2 k times the mean z of its vertices;
   // the rotating wave's phase field grad(-m lambda) turns round each pole: the circulation round a leaf holding a pole is one winding, 2 pi (the edges' lags wrap at pi: the double winding m = 2 is not resolved by a few edges), and ~ 0 for a gradient
   {
     const Json lj = pr.info["spatial_bands"][0];
-    const auto part = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(lj["leaves"].get<std::string>())});
+    const auto part = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = lj["leaves"].get<std::string>(), .any_status = true});
     CHECK(part.has_value());
-    ArrayReader ca = ArrayReader::open(sub.store(), text(*part, "array_path"));
+    ArrayReader ca = ArrayReader::open(sub.store(), part->array_path.value_or(""));
     const auto craw = ca.read();
     std::vector<std::int32_t> leaf(craw.size() / 4);
     std::memcpy(leaf.data(), craw.data(), craw.size());
     const int L = [&] { std::int32_t mx = 0; for (auto c : leaf) mx = std::max(mx, c); return mx + 1; }();
     auto leaves = [&](const std::string& cs, const char* measure) {
-      const auto f = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(cs)});
-      const auto m = sub.db().one("SELECT array_path FROM selection_measurement WHERE of_field_id = ? AND measure = ?", {V(text(*f, "id")), V(std::string(measure))});
-      return read_field_at(sub, text(*m, "array_path"));
+      const auto f = tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = cs, .any_status = true});
+      const auto m = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"of_field_id", V(f->id)}, {"measure", V(std::string(measure))}});
+      return read_field_at(sub, text(m.front(), "array_path"));
     };
     const std::vector<double> flux = leaves("plane_free_phasegradient_modes_alpha", "phase_flux");
     CHECK_EQ(static_cast<int>(flux.size()), L);
     std::vector<double> zbar(static_cast<size_t>(L), 0.0), cnt(static_cast<size_t>(L), 0.0), truth, got;
     for (int v = 0; v < N; ++v) if (leaf[static_cast<size_t>(v)] >= 0) { zbar[static_cast<size_t>(leaf[static_cast<size_t>(v)])] += z[static_cast<size_t>(v)]; cnt[static_cast<size_t>(leaf[static_cast<size_t>(v)])] += 1; }
     // a leaf's area (the lumped areas of its vertices) from the stored `w`
-    const auto wrow = sub.db().one("SELECT array_path FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(lj["leaves"].get<std::string>())});
     std::vector<double> area_leaf = flux;                                  // placeholder sizes
     for (int l = 0; l < L; ++l) area_leaf[static_cast<size_t>(l)] = 0.0;
     {
@@ -286,8 +288,11 @@ int main() {
     b2.replace = true;
     const PhaseGradientResult rr = phasegradient_compute(ds, sub, b2);
     CHECK(!rr.hit);
-    CHECK_EQ(static_cast<int>(sub.db().all("SELECT id FROM field WHERE subject_id = ? AND name = 'plane_replace_modes_alpha' AND path IS NULL", {V(sub.id())}).size()), 1);
-    CHECK_EQ(static_cast<int>(sub.db().all("SELECT m.measure FROM selection_measurement m JOIN field f ON f.id = m.of_field_id WHERE f.name = 'plane_replace_modes_alpha'", {}).size()), 3);
+    const auto ts = tk::Subject::of(sub);
+    CHECK_EQ(static_cast<int>(ts.find_all({.cls = tk::Cls::field, .name = "plane_replace_modes_alpha", .stored = false, .any_status = true}).size()), 1);
+    std::int64_t replaced_rows = 0;
+    for (const tk::Node& f : ts.find_all({.cls = tk::Cls::field, .name = "plane_replace_modes_alpha", .any_status = true})) replaced_rows += nxr::io::testing::Probe(sub).count("selection_measurement", {{"of_field_id", V(f.id)}});
+    CHECK_EQ(static_cast<int>(replaced_rows), 3);
     CHECK(read_statistic(sub, "plane_replace_modes_map_alpha").producer["fit"] == "mesh");
   }
   // power falling to near zero along lines: the timing map is still the plane wave's
@@ -308,12 +313,12 @@ int main() {
   CHECK(wr.info["spatial_bands"].size() >= 3);
   // the band's power: the array-backed phase_power rows of the band's byte-less Field, summed over the leaves
   auto integral = [&](const std::string& field) {
-    const auto f = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(field)});
+    const auto f = tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = field, .any_status = true});
     CHECK(f.has_value());
-    const auto m = sub.db().one("SELECT array_path FROM selection_measurement WHERE of_field_id = ? AND measure = 'phase_power'", {V(text(*f, "id"))});
-    CHECK(m.has_value());
+    const auto ms = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"of_field_id", V(f->id)}, {"measure", V(std::string("phase_power"))}});
+    CHECK(!ms.empty());
     double s2 = 0;
-    for (double x : read_field_at(sub, text(*m, "array_path"))) s2 += x;
+    for (double x : read_field_at(sub, text(ms.front(), "array_path"))) s2 += x;
     return s2;
   };
   double sumBands = 0;
@@ -323,21 +328,24 @@ int main() {
   CHECK(std::abs(sumBands / whole - 1) < 0.05);
   // the spatial band is the measurements' WITHIN key, and the bank is THE ONE `pyramid spatial-bands` stores (one per surface; the stored spans are Weyl's law on the ladder's mean piece area)
   {
-    const auto bank = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name LIKE '% spatial bands' AND type = 'spans'", {V(sub.id())});
-    CHECK(bank.has_value());
-    CHECK(sub.db().all("SELECT id FROM selection WHERE subject_id = ? AND name LIKE '% spatial bands' AND type = 'spans'", {V(sub.id())}).size() == 1);
-    const std::int64_t n_bank = static_cast<std::int64_t>(sub.db().all("SELECT 1 FROM selection_span WHERE selection_id = ?", {V(text(*bank, "id"))}).size());
+    const auto ts = tk::Subject::of(sub);
+    const auto banks = ts.find_all({.cls = tk::Cls::selection, .type = "spans", .name_like = "% spatial bands", .any_status = true});
+    CHECK(!banks.empty());
+    CHECK(banks.size() == 1);
+    const auto bank = banks.empty() ? std::nullopt : std::optional<tk::Node>(banks.front());
+    const std::int64_t n_bank = static_cast<std::int64_t>(ts.spans(*bank).size());
     int joint_rows = 0;
     for (const auto& bnd : wr.info["spatial_bands"]) {
       const std::int64_t level = std::stoll(bnd["spatial_band"].get<std::string>().substr(4));
-      const auto f = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(bnd["name"].get<std::string>() + "_alpha")});
+      const auto f = ts.find({.cls = tk::Cls::field, .name = bnd["name"].get<std::string>() + "_alpha", .any_status = true});
       CHECK(f.has_value());
       for (const char* measure : {"phase_power", "phase_flux", "phase_circulation"}) {
-        const auto m = sub.db().one("SELECT within_selection_id, within_code FROM selection_measurement WHERE of_field_id = ? AND measure = ?", {V(text(*f, "id")), V(std::string(measure))});
+        const auto mrows = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"of_field_id", V(f->id)}, {"measure", V(std::string(measure))}});
+        const std::optional<Row> m = mrows.empty() ? std::nullopt : std::optional<Row>(mrows.front());
         CHECK(m.has_value() && !is_null(*m, "within_selection_id"));
         const WithinKind wk = within_kind(sub.db(), text(*m, "within_selection_id"));
         const std::int64_t code = integer(*m, "within_code");
-        if (wk.kind == WithinKind::SpatialBands) CHECK(text(*m, "within_selection_id") == text(*bank, "id") && code == level);
+        if (wk.kind == WithinKind::SpatialBands) CHECK(text(*m, "within_selection_id") == bank->id && code == level);
         else { ++joint_rows; CHECK(wk.kind == WithinKind::BandKey && wk.n_spatial == n_bank); std::int64_t fb2 = 0, sb2 = 0; band_key_split(code, wk.n_spatial, fb2, sb2); CHECK(sb2 == level); }
       }
     }

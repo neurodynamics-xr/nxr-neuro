@@ -11,6 +11,7 @@
 namespace nxr::io {
 class SubjectPackage;
 class DatasetWriter;
+class SubjectWriter;
 }  // namespace nxr::io
 
 namespace nxr::io::testing {
@@ -20,10 +21,12 @@ class Probe {
   explicit Probe(const Database& db) : db_(&db) {}
   explicit Probe(const SubjectPackage& package);
   explicit Probe(const DatasetWriter& writer);
+  explicit Probe(SubjectWriter& subject);
 
   // Rows of `table` whose columns equal `where` (a monostate value: IS NULL); no filter when empty.
   std::int64_t count(const std::string& table, const Row& where = {}) const;
-  std::vector<Row> rows(const std::string& table, const Row& where = {}) const;
+  // `order_by` (a column, e.g. "ordinal"; default: insertion order) sorts the rows; ties keep insertion order.
+  std::vector<Row> rows(const std::string& table, const Row& where = {}, const std::string& order_by = "") const;
   // PRAGMA foreign_key_check and integrity_check: empty when the database is sound, else one line per problem.
   std::vector<std::string> integrity() const;
   // Run `sql` against the database to corrupt it on purpose (a test of what a reader or a check does with a damaged database).

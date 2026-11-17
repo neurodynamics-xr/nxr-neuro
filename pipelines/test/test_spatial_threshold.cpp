@@ -20,6 +20,7 @@
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
+#include "nxr/io/task/task.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/filterbank.h"
@@ -105,7 +106,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(4096)), std::make_pair(std::string("rest_b"), std::int64_t(1000))}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(x, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "A");
         const std::string rid = sub.field(std::move(rec));
         if (first_rid.empty()) first_rid = rid;
@@ -203,15 +204,15 @@ int main() {
     const StoredStatistic H = read_statistic(sub, "spatial_events.home.rest");
     double above = 0;
     for (std::int64_t v = 0; v < Vg; ++v) above += H.values[static_cast<std::size_t>(2 * v)];
-    const auto row = sub.db().one("SELECT params_json FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V("spatial_events.events.rest")});
-    const Json pj = Json::parse(text(*row, "params_json"));
+    const auto row = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "spatial_events.events.rest", .any_status = true});
+    const Json pj = row->params;
     threshold = pj["detection"]["record"]["threshold"].get<double>();
     return above / (static_cast<double>(Vg) * H.values[1]);
   };
   double thr_p = 0, thr_r = 0;
   const double fa_p = share(eset, thr_p);                                       // the DEFAULT: percentile 99
-  { const auto row = sub.db().one("SELECT params_json FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V("spatial_events.events.rest")});
-    const Json rec = Json::parse(text(*row, "params_json"))["detection"]["record"];
+  { const auto row = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "spatial_events.events.rest", .any_status = true});
+    const Json rec = row->params["detection"]["record"];
     CHECK(rec["threshold_rule"].get<std::string>().rfind("percentile", 0) == 0 && rec["percentile"] == 99.0 && rec["threshold_statistic"]["name"] == "spatial_threshold.histogram.rest"); }
   Json rset = eset; rset["threshold"] = "ratio"; rset["ratio"] = 2.0;
   const double fa_r = share(rset, thr_r);

@@ -13,6 +13,7 @@
 #include <random>
 
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
 #include "nxr/pipelines/input.h"
@@ -200,7 +201,7 @@ int main() {
       }
       FieldSpec rec;
       rec.name = "rest";
-      rec.path = node_path(sub.db(), prod, "rest");
+      rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest");
       rec.kind = "recording";
       rec.manifold_id = prod;
       rec.data = view(xf, {M, T});

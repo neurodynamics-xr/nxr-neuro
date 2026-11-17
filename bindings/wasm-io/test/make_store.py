@@ -49,18 +49,18 @@ for h, cx in (("lh", -40.0), ("rh", 40.0)):
         write_fs(surf / f"{h}.{name}", P, F)
     write_fs(surf / f"{h}.sphere.reg", V * 100, F)
 store = out / "store"
-run("dataset", "create", "--datastore", store, "--name", "d", "--templates", out / "templates", "--atlas-depth", "2", "--lc-levels", "2")
-run("subject", "create", "--dataset", store / "d", "--name", "sub-1")
+run("create", "dataset", "--datastore", store, "--name", "d", "--templates", out / "templates", "--atlas-depth", "2", "--lc-levels", "2")
+run("create", "subject", "--dataset", store / "d", "--name", "sub-1")
 obj = out / "oct.obj"
 obj.write_text("v 0.01 0 0\nv -0.01 0 0\nv 0 0.01 0\nv 0 -0.01 0\nv 0 0 0.01\nv 0 0 -0.01\n"
                "f 1 3 5\nf 3 2 5\nf 2 4 5\nf 4 1 5\nf 3 1 6\nf 2 3 6\nf 4 2 6\nf 1 4 6\n")
-run("surface", "add", "--dataset", store / "d", "--subject", "sub-1", obj)
+run("add", "surface", "--dataset", store / "d", "--subject", "sub-1", obj)
 # a BUMPY sphere of one piece (random radii: no symmetry, so no repeated eigenvalues) — what `eigen solve` is compared on
 Vb, Fb = icosphere(2)
 Pb = Vb * (0.05 + rng.uniform(-0.004, 0.004, (len(Vb), 1)))
 bumpy = out / "bumpy.obj"
 bumpy.write_text("".join(f"v {x!r} {y!r} {z!r}\n" for x, y, z in Pb.tolist()) + "".join(f"f {a + 1} {b + 1} {c + 1}\n" for a, b, c in Fb.tolist()))
-run("surface", "add", "--dataset", store / "d", "--subject", "sub-1", bumpy)
+run("add", "surface", "--dataset", store / "d", "--subject", "sub-1", bumpy)
 # STATISTIC rows (the bundle's `statistics`: complete rows only, ordered by path then name): the table is added as the writer's ensure_statistics adds it
 # (the block of model.sql between its markers), then three rows, one of them pending
 import sqlite3, re

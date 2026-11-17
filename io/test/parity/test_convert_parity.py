@@ -24,6 +24,7 @@ import pytest
 
 HERE = Path(__file__).parent
 sys.path.insert(0, str(HERE))
+from spellings import to_io  # noqa: E402
 
 NXR = Path(os.environ["NXR"]) if "NXR" in os.environ else None
 IO = Path(os.environ["NXR_NEURO"]) if "NXR_NEURO" in os.environ else None
@@ -40,7 +41,7 @@ SCANNED = re.compile(r'"scanned_at": "[^"]*"')
 
 def run_io(*args, start=None, ok=None):
     env = {**os.environ, **({"NXR_IO_DETERMINISTIC": str(start)} if start is not None else {})}
-    p = subprocess.run([str(IO), *map(str, args)], capture_output=True, text=True, env=env)
+    p = subprocess.run([str(IO), *to_io(args)], capture_output=True, text=True, env=env)
     if ok is True:
         assert p.returncode == 0, p.stdout + p.stderr
     return p

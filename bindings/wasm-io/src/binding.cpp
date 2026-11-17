@@ -978,7 +978,7 @@ class Datastore {
       if (any_row && replace) {
         const std::string old = std::get<std::string>(any_row->at("id"));
         for (const Row& r : db().all("SELECT id FROM subject WHERE template_id = ?", {Value(old)})) riding.push_back(std::get<std::string>(r.at("id")));
-        run({"subject", "delete", "--dataset", dataset_dir, "--subject", stem});
+        run({"delete", "subject", "--dataset", dataset_dir, "--subject", stem});
         if (db().one("SELECT 1 FROM subject WHERE id = ?", {Value(old)})) invalid(stem + ": still a subject of " + dataset_name + " after the converter's remove");
       } else if (any_row && kind != "brainstorm") {
         invalid(folder + ": already a subject of " + dataset_name + " \xe2\x80\x94 pass replace to overwrite");
@@ -989,13 +989,13 @@ class Datastore {
       std::vector<std::string> argv;
       const std::string root = src.value("root", std::string());
       if (kind == "brainstorm") {
-        argv = {"convert", "convert", root, "--subject", stem, "--condition", src.value("condition", std::string()), "--dataset", dataset_dir};
+        argv = {"import", "condition", root, "--subject", stem, "--condition", src.value("condition", std::string()), "--dataset", dataset_dir};
         for (const auto& a : src.value("args", Json::array())) argv.push_back(a.get<std::string>());
       } else if (kind == "brainstorm-template") {
-        argv = {"convert", "template", root, "--dataset", dataset_dir};
+        argv = {"import", "template", root, "--dataset", dataset_dir};
         for (const auto& sf : src.value("surfaces", Json::array())) { argv.push_back("--surface"); argv.push_back(sf.get<std::string>()); }
       } else {
-        argv = {"convert", "group", root, "--dataset", dataset_dir};
+        argv = {"import", "group", root, "--dataset", dataset_dir};
       }
       try { run(argv); }
       catch (const Error& e) {
