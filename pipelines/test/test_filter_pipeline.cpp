@@ -200,12 +200,12 @@ int main() {
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
     const std::string common = " --dataset " + d + " --subject S1 --recording rest";
-    CHECK_EQ(std::system((cli + " highpass" + common + " --fpass 5 > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " highpass" + common + " --fpass 5 >> " + log).c_str()), 0);   // a hit
-    CHECK_EQ(std::system((cli + " bandstop" + common + " --fstop 48.5,51.5 --name cli_bs >> " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " notch" + common + " --line 50 --harmonics 1 --name cli_notch --bandwidth 2 >> " + log).c_str()), 0);
-    CHECK(std::system((cli + " lowpass" + common + " > /dev/null 2>&1").c_str()) != 0);          // --fpass missing
-    CHECK(std::system((cli + " lowpass" + common + " --fpass 400 --name bad > /dev/null 2>&1").c_str()) != 0);   // beyond Nyquist
+    CHECK_EQ(std::system((cli + " run highpass" + common + " --fpass 5 > " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run highpass" + common + " --fpass 5 >> " + log).c_str()), 0);   // a hit
+    CHECK_EQ(std::system((cli + " run bandstop" + common + " --fstop 48.5,51.5 --name cli_bs >> " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run notch" + common + " --line 50 --harmonics 1 --name cli_notch --bandwidth 2 >> " + log).c_str()), 0);
+    CHECK(std::system((cli + " run lowpass" + common + " > /dev/null 2>&1").c_str()) != 0);          // --fpass missing
+    CHECK(std::system((cli + " run lowpass" + common + " --fpass 400 --name bad > /dev/null 2>&1").c_str()) != 0);   // beyond Nyquist
     std::ifstream in(log);
     std::string line, all;
     while (std::getline(in, line)) all += line + "\n";

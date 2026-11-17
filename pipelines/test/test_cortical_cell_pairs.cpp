@@ -158,7 +158,7 @@ int main() {
   {
     std::string why;
     try { g::plan_runs(d, sub.db(), sub.id(), Json{{"space_levels", Json::array({3, 5})}, {"bands", bands}, {"method", "dSPM"}}); } catch (const Error& e) { why = e.what(); }
-    CHECK(why.find("cells_l5_b8_16") != std::string::npos && why.find("cells_l5_b16_32") != std::string::npos && why.find("joint compute") != std::string::npos && why.find("--space-level 5") != std::string::npos);
+    CHECK(why.find("cells_l5_b8_16") != std::string::npos && why.find("cells_l5_b16_32") != std::string::npos && why.find("run joint") != std::string::npos && why.find("--space-level 5") != std::string::npos);
     CHECK(why.find("cells_l3_") == std::string::npos);                                          // the pairs that exist are not named
     why.clear();
     try { g::plan_runs(d, sub.db(), sub.id(), Json{{"bands", Json::array({Json::array({9.0, 17.0})})}, {"method", "dSPM"}}); } catch (const Error& e) { why = e.what(); }

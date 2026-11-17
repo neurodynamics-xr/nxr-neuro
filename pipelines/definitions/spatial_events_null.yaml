@@ -1,9 +1,9 @@
 # ONE DRAW OF THE LAG-FREE NULL of the spatial events (spec docs/specs/2026-11-14-spatial-events.md, "Statistics and nulls"; vortex-cores spec, piece 10): the SAME graph as `run spatial_events`, run on a lag-free surrogate of the recording in place of the
 # recording (Gaussian noise with the data's own spectrum, the band's real cross-spectrum as its zero-lag covariance, no lag, scaled to the data's band envelope: `run lagfree_envelope`, `lagfree_surrogate`). The baseline, the threshold and the burst frames are the DATA's: only the signal is replaced,
 # so the draw's patches are what the same threshold finds in a signal with the data's covariance, spectrum and envelope and no travelling. A draw is the run with `seed: i` (the seed is in the cache key and in the stored nodes' names: `draw: seed`); only the HOME MAP and the PATCH
-# SUMMARY are stored (small statistics: `spatial_events_null.draw<seed>.home.<recording>`, `.summary.<recording>`), never the surrogate or the patches. `spatialnull compute` runs the draws in batches with early stopping.
+# SUMMARY are stored (small statistics: `spatial_events_null.draw<seed>.home.<recording>`, `.summary.<recording>`), never the surrogate or the patches. `run spatialnull` runs the draws in batches with early stopping.
 #
-#   nxr-neuro run spatial_events_null --dataset <folder> --subject sub-01 --set recording=rest --set cross_spectrum=rest_crossspectrum_alpha --set seed=1 --chunks all
+#   nxr-neuro run spatial_events_null --dataset <folder> --subject sub-01 --recording rest --cross-spectrum rest_crossspectrum_alpha --seed 1 --all
 pipeline: spatial_events_null
 version: 1
 description: one draw of the lag-free null of the spatial events (the same graph on a lag-free surrogate of the recording), its home map and patch summary as statistics
@@ -24,33 +24,33 @@ inputs:
   power_series:   {statistic: power_tiles, where: {name: $power_series_statistic}}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  seed: 0                    # the draw (a whole number >= 0): its own node, its own cache key
-  taps_half: 0               # the surrogate's taps: 0 from the PSD's resolution
-  psd_statistic: "{recording}_psd_welch"
-  cross_spectrum: none       # the band's stored cross-spectrum (`crossspectrum compute --channels-of KERNEL`), by name
-  power_series_statistic: "lagfree_envelope.series.{recording}"
-  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
-  band: [8.0, 12.0]
-  shape: morlet
-  spatial_shape: mexhat
-  levels: [2, 3, 4, 5, 6, 7, 8]   # the scale space: one hat each (2 and 3 reach the coarse sizes level 4 cut off;); must be the baseline's
-  reference_level: 6         # the level whose relative power the patches are cut from
-  method: MNE
-  transform: auto
-  modes: 0
-  order: 0
-  tolerance: 0.01
-  tiling: "{recording} frames 0.00257492 s"
-  bursts: "global_bursts.bursts_kept.{recording}"
-  baseline_statistic: "spatial_baseline.baseline.{recording}"   # the stored baseline (`run spatial_baseline`), by name
-  threshold_statistic: "spatial_threshold.histogram.{recording}"   # the stored distribution of the relative power outside the bursts (`run spatial_threshold`), by name
-  threshold: percentile      # percentile (the default: the false-alarm rate, measured) | ratio (a multiple of the vertex's baseline)
-  percentile: 99.0           # threshold percentile: the relative power's 99th percentile outside the bursts (about 1 % of vertices above it on frames with no event)
-  ratio: 2.0                 # threshold ratio: the patches are where the relative power is at least this multiple of the vertex's baseline (about 13.5 % of vertices on noise alone)
-  min_area: 0.0              # m²: smaller patches are dropped
-  bad_segments: exclude
-  block_frames: 256          # the frames cut at once by the finder (memory only: the result does not depend on it)
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  seed: {default: 0, meaning: "the draw (a whole number >= 0): its own node, its own cache key", unit: "-"}
+  taps_half: {default: 0, meaning: "the surrogate's taps: 0 from the PSD's resolution", unit: "samples"}
+  psd_statistic: {default: "{recording}_psd_welch", meaning: "the stored PSD statistic, by name", unit: "-"}
+  cross_spectrum: {default: none, meaning: "the band's stored cross-spectrum (`run crossspectrum --channels-of KERNEL`), by name", unit: "-"}
+  power_series_statistic: {default: "lagfree_envelope.series.{recording}", meaning: "the stored power series statistic, by name", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
+  band: {default: [8.0, 12.0], meaning: "the time level's band (its `resolves_hz`)", unit: "Hz"}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer", unit: "-"}
+  spatial_shape: {default: mexhat, meaning: "the spatial level's gain: mexhat | meyer", unit: "-"}
+  levels: {default: [2, 3, 4, 5, 6, 7, 8], meaning: "the scale space: one hat each (2 and 3 reach the coarse sizes level 4 cut off;); must be the baseline's", unit: "level"}
+  reference_level: {default: 6, meaning: "the level whose relative power the patches are cut from", unit: "level"}
+  method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
+  transform: {default: auto, meaning: "the spatial band's transform: auto | eigen | chebyshev | exact", unit: "-"}
+  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
+  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: "degree"}
+  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
+  tiling: {default: "{recording} frames 0.00257492 s", meaning: "the frame tiling's name", unit: "-"}
+  bursts: {default: "global_bursts.bursts_kept.{recording}", meaning: "the spans Selection the run uses, by name", unit: "-"}
+  baseline_statistic: {default: "spatial_baseline.baseline.{recording}", meaning: "the stored baseline (`run spatial_baseline`), by name", unit: "-"}
+  threshold_statistic: {default: "spatial_threshold.histogram.{recording}", meaning: "the stored distribution of the relative power outside the bursts (`run spatial_threshold`), by name", unit: "-"}
+  threshold: {default: percentile, meaning: "percentile (the default: the false-alarm rate, measured) | ratio (a multiple of the vertex's baseline)", unit: "-"}
+  percentile: {default: 99.0, meaning: "threshold percentile: the relative power's 99th percentile outside the bursts (about 1 % of vertices above it on frames with no event)", unit: "percentile"}
+  ratio: {default: 2.0, meaning: "threshold ratio: the patches are where the relative power is at least this multiple of the vertex's baseline (about 13.5 % of vertices on noise alone)", unit: "ratio"}
+  min_area: {default: 0.0, meaning: "m²: smaller patches are dropped", unit: "m2"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
+  block_frames: {default: 256, meaning: "the frames cut at once by the finder (memory only: the result does not depend on it)", unit: "frames"}
 
 steps:
   chunks:

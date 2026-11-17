@@ -4,10 +4,10 @@
 # `envelope_max` (the largest |z|). The pair (spatial level, time level) names BOTH bands, so the rows are of the recording as the time tiles' are (no band in the key). A cell whose time
 # tile is not whole and good is NaN. Stored: [spatial tiles × time tiles × 2] beside the recording (the measure, the samples counted), two rows on the joint Selection.
 #
-#   nxr-neuro tiles compute     --dataset <folder> --subject sub-01                                    # the surface's tile ladder, once
-#   nxr-neuro constantq compute --dataset <folder> --subject sub-01 --recording rest                   # the time ladder, once
-#   nxr-neuro joint compute     --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3     # the joint cells of the pair, once
-#   nxr-neuro run cortical_cells --dataset <folder> --subject sub-01 --set space_level=5 --set band=[8.0,16.0] --chunks all
+#   nxr-neuro run tiles      --dataset <folder> --subject sub-01                                    # the surface's tile ladder, once
+#   nxr-neuro run constantq  --dataset <folder> --subject sub-01 --recording rest                   # the time ladder, once
+#   nxr-neuro run joint      --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3     # the joint cells of the pair, once
+#   nxr-neuro run cortical_cells --dataset <folder> --subject sub-01 --space-level 5 --band '[8.0,16.0]' --all
 pipeline: cortical_cells
 version: 1
 description: the band's amplitude and largest |z| of the source estimate per joint cell (spatial tile × time tile), from the kernel with the level's spatial band folded in
@@ -21,19 +21,19 @@ inputs:
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
-  band: [8.0, 16.0]          # Hz: a time level's band (its `resolves_hz`); alpha at the hertz anchor
-  shape: morlet              # the temporal band's shape: morlet | meyer (compact edges: bands that add up)
-  spatial_shape: mexhat        # the spatial level's gain: mexhat | meyer (the level IS its Weyl band: compact edges)
-  space_level: 5             # the surface ladder's level: its Weyl band is the spatial band
-  method: MNE                # the kernel's inverse method (its params.inverse.measure)
-  transform: auto            # the spatial band's transform: auto = the stored eigenmodes when they reach the level's band, else computed and stored (said), else chebyshev (announced) | eigen | chebyshev | exact (dense, at most 4096 vertices)
-  envelope: temporal         # the spatial amplitude: temporal = |z| of the band-passed field (signed lobes: |z| dips to 0 where lobes of opposite sign meet) | spatiotemporal = the MONOGENIC amplitude sqrt(|z|^2 + |R z|^2), R the band's Riesz part (no zero-crossing dips; the rows are another recipe: a rerun of the other envelope needs --replace)
-  modes: 0                   # when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it
-  order: 0                   # chebyshev degree; 0: the smallest of 40 … 5120 within `tolerance` of the band's gain
-  tolerance: 0.01
-  bad_segments: exclude      # exclude | ignore the recording's bad spans
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
+  band: {default: [8.0, 16.0], meaning: "Hz: a time level's band (its `resolves_hz`); alpha at the hertz anchor", unit: "Hz"}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer (compact edges: bands that add up)", unit: "-"}
+  spatial_shape: {default: mexhat, meaning: "the spatial level's gain: mexhat | meyer (the level IS its Weyl band: compact edges)", unit: "-"}
+  space_level: {default: 5, meaning: "the surface ladder's level: its Weyl band is the spatial band", unit: "level"}
+  method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
+  transform: {default: auto, meaning: "the spatial band's transform: auto = the stored eigenmodes when they reach the level's band, else computed and stored (said), else chebyshev (announced) | eigen | chebyshev | exact (dense, at most 4096 vertices)", unit: "-"}
+  envelope: {default: temporal, meaning: "the spatial amplitude: temporal = |z| of the band-passed field (signed lobes: |z| dips to 0 where lobes of opposite sign meet) | spatiotemporal = the MONOGENIC amplitude sqrt(|z|^2 + |R z|^2), R the band's Riesz part (no zero-crossing dips; the rows are another recipe: a rerun of the other envelope needs --replace)", unit: "-"}
+  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
+  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 … 5120 within `tolerance` of the band's gain", unit: "degree"}
+  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
 
 steps:
   chunks:

@@ -5,9 +5,9 @@
 # Stored: the amplitude rows (selection_measurement, on the level), the baseline (a statistic beside the recording) and the bursts as a spans Selection
 # (the importer's form of events: code = the type `burst`, the channel in params_json.channels).
 #
-#   nxr-neuro constantq compute --dataset <folder> --subject sub-01 --recording rest           # the constant-Q tiling of the recording's time line, once
-#   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --chunks all                  # alpha (8-16 Hz at the hertz anchor), the whole recording
-#   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --set band=[4.0,8.0]          # theta's level
+#   nxr-neuro run constantq  --dataset <folder> --subject sub-01 --recording rest           # the constant-Q tiling of the recording's time line, once
+#   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --all                  # alpha (8-16 Hz at the hertz anchor), the whole recording
+#   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --band '[4.0,8.0]'          # theta's level
 pipeline: band_bursts
 version: 1
 description: the bursts of a band on the recording's time axis, from the band's amplitude per tile of its constant-Q level
@@ -19,17 +19,17 @@ inputs:
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  band: [8.0, 16.0]          # Hz: a level's band (its `resolves_hz`); alpha at the hertz anchor
-  shape: morlet              # the temporal band's shape: morlet | meyer (compact edges: bands that add up)
-  combine: each              # each: per channel (detect.spindle) | mean: one trace, the mean over channels
-  enter_sd: 1.5              # robust SDs above the median to enter (labelalpha's hiSD)
-  exit_sd: 1.0               # ... to extend (loSD)
-  merge_s: 0.1               # gaps up to this joined (s)
-  min_s: 0.4                 # shortest burst kept (s)
-  max_s: null                # longest (s); null: no limit
-  bad_segments: exclude      # exclude | ignore the recording's bad spans
-  burst_summaries: [count, sum, median, mean, sd, "percentile:25", "percentile:75", "percentile:90"]   # the statistics across the bursts, per measurement
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  band: {default: [8.0, 16.0], meaning: "Hz: a level's band (its `resolves_hz`); alpha at the hertz anchor", unit: "Hz"}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer (compact edges: bands that add up)", unit: "-"}
+  combine: {default: each, meaning: "each: per channel (detect.spindle) | mean: one trace, the mean over channels", unit: "-"}
+  enter_sd: {default: 1.5, meaning: "robust SDs above the median to enter (labelalpha's hiSD)", unit: "robust SD"}
+  exit_sd: {default: 1.0, meaning: "robust SDs above the median to extend a burst (labelalpha's loSD)", unit: "robust SD"}
+  merge_s: {default: 0.1, meaning: "gaps up to this joined (s)", unit: "s"}
+  min_s: {default: 0.4, meaning: "shortest burst kept (s)", unit: "s"}
+  max_s: {default: null, meaning: "longest (s); null: no limit", unit: "s"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
+  burst_summaries: {default: [count, sum, median, mean, sd, "percentile:25", "percentile:75", "percentile:90"], meaning: "the statistics across the bursts, per measurement", unit: "-"}
 
 steps:
   chunks:

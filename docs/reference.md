@@ -273,7 +273,7 @@ reads and writes the real disk; the browser's file connection (a folder the user
 ## The command `nxr-neuro`
 
 `build/cli/nxr-neuro`: one grammar, **verb first**: `nxr-neuro <verb> <what> [options]`. `nxr-neuro --help` lists the verbs, `nxr-neuro <verb> --help` the commands of a verb
-(`compute` groups them by topic: source imaging, geometry, time, spectra, cortical flow and patterns, measurements, nulls), and `nxr-neuro <verb> <what> --help` one command: each
+(`run` groups the built-in pipelines by topic: source imaging, geometry, time, spectra, cortical flow and patterns, measurements, nulls), and `nxr-neuro <verb> <what> --help` one command: each
 option with its meaning, default and unit, and an example. The help, the man pages (`nxr-neuro __man DIR`) and the shell completion (`nxr-neuro completion bash|zsh|fish`) are made from
 one table (`cli/command_table.cpp`), checked against the parsers by a test. The grammar, the old spellings and the rules are in `docs/specs/2026-11-16-command-line.md`.
 
@@ -284,53 +284,68 @@ The engine still reads one chunk at a time with bounded memory, whatever the ran
 the JSON lines (`"stage"` keyed; the result line has `"cache": "hit" | "miss"`) are unchanged. `--quiet` prints only the result line; colour only in a terminal and never with `NO_COLOR`.
 A failure is a message on stderr (a `"stage": "error"` object, with its `code`, under `--json`) and a non-zero exit status (1 a failure, 2 a usage error).
 
-**The old spellings** (`psd compute`, `dataset list`, `convert subject`, `eigen solve`, ...) keep working as hidden aliases for a deprecation period and print a one-line notice on stderr.
+**The old spellings of the pipelines are not kept** (amended 2026-11-17, `docs/specs/2026-11-17-compute-and-run.md`, section 6.3): `compute <what>`, the old words (`psd compute`, `eigen solve`, `pyramid build`, `lowpass`, ...; the last column of the table below) and `run --list` are refused with exit status 2 and a message naming the new spelling (`'psd compute' is now 'run psd'`); no alias runs. The other old spellings (`dataset list`, `convert subject`, ...) still work as hidden aliases for a deprecation period and print a one-line notice on stderr.
 
-### `compute`: Compute something from a recording or from stored results (psd, crossspectrum, phasegradient, pyramid, ...)
+### `run`: Run a pipeline on a subject: a built-in (psd, crossspectrum, phasegradient, pyramid, ...), a built-in definition, or a definition file
 
-| command | what it does | old spelling |
+| command | what it does | old spelling (refused) |
 |---|---|---|
-| `nxr-neuro compute noisecov` | The noise covariance of a recording's good channels. | `noisecov compute` |
-| `nxr-neuro compute inverse` | The depth-weighted minimum-norm inverse kernel, from a noise covariance and a head model. | `inverse compute` |
-| `nxr-neuro compute headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
-| `nxr-neuro compute pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
-| `nxr-neuro compute eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface (cached). | `eigen solve` |
-| `nxr-neuro compute frames` | The canonical (north, west) and anatomical frames of a surface. | `frames compute` |
-| `nxr-neuro compute tiles` | The dyadic equal-area tile ladder of a surface. | `tiles compute` |
-| `nxr-neuro compute constantq` | The constant-Q tiling of a time line (a ladder of dyadic windows). | `constantq compute` |
-| `nxr-neuro compute frametiling` | The frame tiling on the time tower: the cycles of one tower level over a recording. | `frametiling compute` |
-| `nxr-neuro compute joint` | The joint partition of space and time: cells of a spatial tile level by a time tile level. | `joint compute` |
-| `nxr-neuro compute lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
-| `nxr-neuro compute highpass` | A zero-phase high-pass filter, written as a new recording. | `highpass` |
-| `nxr-neuro compute bandpass` | A zero-phase band-pass filter, written as a new recording. | `bandpass` |
-| `nxr-neuro compute bandstop` | A zero-phase band-stop filter, written as a new recording. | `bandstop` |
-| `nxr-neuro compute notch` | A zero-phase notch filter (line noise and harmonics), written as a new recording. | `notch` |
-| `nxr-neuro compute psd` | The Welch power spectral density of a recording, bad segments left out. | `psd compute` |
-| `nxr-neuro compute sourcepsd` | The band power maps of the sources (the Welch PSD of the sources, grouped in bands). | `sourcepsd compute` |
-| `nxr-neuro compute sourcetensor` | The band cross-spectral tensor of the current, its Stokes quaternion, normal power and share. | `sourcetensor compute` |
-| `nxr-neuro compute crossspectrum` | The sensor cross-spectral density per band (Welch, or per time window with the analytic estimator). | `crossspectrum compute` |
-| `nxr-neuro compute quadrature` | The quadrature spectrum of the sources per band: fraction, energy map and leading pairs. | `quadrature compute` |
-| `nxr-neuro compute hodgepower` | The band power of the Hodge-Dirac eigenmode coefficients of a free-orientation kernel. | `hodgepower compute` |
-| `nxr-neuro compute speedspectrum` | The speed spectrum: mode energy per phase speed from the joint eigenvalue and frequency bank. | `speedspectrum compute` |
-| `nxr-neuro compute phasegradient` | The phase gradient of a band from a stored cross-spectrum: phase current, power, speed and travelling index. | `phasegradient compute` |
-| `nxr-neuro compute cyclepattern` | The most consistent cycle patterns of the current from a cross-spectrum per window. | `cyclepattern compute` |
-| `nxr-neuro compute opticalflow` | Optical flow (Horn-Schunck) of the source estimate: where and how fast the activity moves. | `opticalflow compute` |
-| `nxr-neuro compute cellquadrature` | Quadrature (travelling vs standing) per joint cell and per burst, from the stored cross-spectrum. | `cellquadrature compute` |
-| `nxr-neuro compute patches` | Patches on a static cortical map: where it stands out from its surroundings, at the size of its tiles. | `patches compute` |
-| `nxr-neuro compute scaleselection` | Each event's own size and rhythm: the best spatial and temporal level by standardised response. | `scaleselection compute` |
-| `nxr-neuro compute pyramid` | The measurement pyramid of a recording's cortical current, from space and time tiles. | `pyramid build` |
-| `nxr-neuro compute measure` | Stored fields measured over a partition's members, with their recipe. | `measure compute` |
-| `nxr-neuro compute statistic` | A stored measurement summarised over its partition's members. | `statistic compute` |
-| `nxr-neuro compute wishart` | The Wishart null of the second-moment measures of bursts. | `wishart compute` |
-| `nxr-neuro compute spatialnull` | The lag-free null of the spatial events: draws with early stopping, per-vertex p and q. | `spatialnull compute` |
-| `nxr-neuro compute null` | The lag-free null's tests of the vortex cores' crossings, per tile. | `null compute` |
-| `nxr-neuro compute repeat` | The vortex cores' run-to-run repeat: two recordings' stored tile crossings compared. | `repeat compute` |
+| `nxr-neuro run noisecov` | The noise covariance of a recording's good channels. | `noisecov compute` |
+| `nxr-neuro run inverse` | The depth-weighted minimum-norm inverse kernel, from a noise covariance and a head model. | `inverse compute` |
+| `nxr-neuro run headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
+| `nxr-neuro run pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
+| `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface (cached). | `eigen solve` |
+| `nxr-neuro run frames` | The canonical (north, west) and anatomical frames of a surface. | `frames compute` |
+| `nxr-neuro run tiles` | The dyadic equal-area tile ladder of a surface. | `tiles compute` |
+| `nxr-neuro run constantq` | The constant-Q tiling of a time line (a ladder of dyadic windows). | `constantq compute` |
+| `nxr-neuro run frametiling` | The frame tiling on the time tower: the cycles of one tower level over a recording. | `frametiling compute` |
+| `nxr-neuro run joint` | The joint partition of space and time: cells of a spatial tile level by a time tile level. | `joint compute` |
+| `nxr-neuro run lowpass` | A zero-phase low-pass filter, written as a new recording. | `lowpass` |
+| `nxr-neuro run highpass` | A zero-phase high-pass filter, written as a new recording. | `highpass` |
+| `nxr-neuro run bandpass` | A zero-phase band-pass filter, written as a new recording. | `bandpass` |
+| `nxr-neuro run bandstop` | A zero-phase band-stop filter, written as a new recording. | `bandstop` |
+| `nxr-neuro run notch` | A zero-phase notch filter (line noise and harmonics), written as a new recording. | `notch` |
+| `nxr-neuro run psd` | The Welch power spectral density of a recording, bad segments left out. | `psd compute` |
+| `nxr-neuro run sourcepsd` | The band power maps of the sources (the Welch PSD of the sources, grouped in bands). | `sourcepsd compute` |
+| `nxr-neuro run sourcetensor` | The band cross-spectral tensor of the current, its Stokes quaternion, normal power and share. | `sourcetensor compute` |
+| `nxr-neuro run crossspectrum` | The sensor cross-spectral density per band (Welch, or per time window with the analytic estimator). | `crossspectrum compute` |
+| `nxr-neuro run quadrature` | The quadrature spectrum of the sources per band: fraction, energy map and leading pairs. | `quadrature compute` |
+| `nxr-neuro run hodgepower` | The band power of the Hodge-Dirac eigenmode coefficients of a free-orientation kernel. | `hodgepower compute` |
+| `nxr-neuro run speedspectrum` | The speed spectrum: mode energy per phase speed from the joint eigenvalue and frequency bank. | `speedspectrum compute` |
+| `nxr-neuro run phasegradient` | The phase gradient of a band from a stored cross-spectrum: phase current, power, speed and travelling index. | `phasegradient compute` |
+| `nxr-neuro run cyclepattern` | The most consistent cycle patterns of the current from a cross-spectrum per window. | `cyclepattern compute` |
+| `nxr-neuro run opticalflow` | Optical flow (Horn-Schunck) of the source estimate: where and how fast the activity moves. | `opticalflow compute` |
+| `nxr-neuro run cellquadrature` | Quadrature (travelling vs standing) per joint cell and per burst, from the stored cross-spectrum. | `cellquadrature compute` |
+| `nxr-neuro run patches` | Patches on a static cortical map: where it stands out from its surroundings, at the size of its tiles. | `patches compute` |
+| `nxr-neuro run scaleselection` | Each event's own size and rhythm: the best spatial and temporal level by standardised response. | `scaleselection compute` |
+| `nxr-neuro run pyramid` | The measurement pyramid of a recording's cortical current, from space and time tiles. | `pyramid build` |
+| `nxr-neuro run measure` | Stored fields measured over a partition's members, with their recipe. | `measure compute` |
+| `nxr-neuro run statistic` | A stored measurement summarised over its partition's members. | `statistic compute` |
+| `nxr-neuro run wishart` | The Wishart null of the second-moment measures of bursts. | `wishart compute` |
+| `nxr-neuro run spatialnull` | The lag-free null of the spatial events: draws with early stopping, per-vertex p and q. | `spatialnull compute` |
+| `nxr-neuro run null` | The lag-free null's tests of the vortex cores' crossings, per tile. | `null compute` |
+| `nxr-neuro run repeat` | The vortex cores' run-to-run repeat: two recordings' stored tile crossings compared. | `repeat compute` |
 
-### `run`: Run a pipeline definition on a subject
+**`run` takes every pipeline** (`nxr-neuro list pipelines` lists them): the hand-wired ones above, each dispatched to its own function with the options it always had, and the YAML definitions, shipped
+(`pipelines/definitions/`, compiled in) or your own (`nxr-neuro run my_pipeline.yaml ...`, a path ending in `.yaml` or holding a `/`). A pipeline's name has no dot (a dot is a node's:
+`<group>.<name>`), and a name is in one table only (a test checks it).
 
-| command | what it does | old spelling |
-|---|---|---|
-| `nxr-neuro run PIPELINE` | Run a pipeline definition (a YAML file or one of the built-in definitions) on a subject. |  |
+| command | what it does |
+|---|---|
+| `nxr-neuro run <built-in>` | one of the commands in the table above |
+| `nxr-neuro run <definition> --dataset D --subject S [--<parameter> VALUE ...] (--from T --to T \| --all) [--replace] [--dry-run]` | a shipped definition (`band_bursts`, `global_bursts`, `cortical_cells`, `spatial_events`, ...) on a subject |
+| `nxr-neuro run FILE.yaml ...` | your own definition, the same options |
+
+A definition's parameters are options, `--<parameter> VALUE` with dashes for underscores (`--space-level 5`, `--band '[8,16]'`; VALUE is read as YAML); `--set NAME=VALUE` is gone (refused, naming
+the new form). **Help is generated from the definition.** A parameter is written in the definition's long form,
+`band: {default: [8.0, 16.0], meaning: "the time level's band", unit: Hz}` (and `choices:` for a closed list), and `nxr-neuro run <definition> --help` prints each parameter's meaning, default and unit.
+The short form (`band: [8.0, 16.0]`, the default alone) is accepted for your own definitions; their help says the parameter is undocumented. A shipped definition must declare all three
+(the test `cli_pipelines`). A parameter named as one of the verb's own options (`dataset`, `subject`, `from`, `to`, `all`, `replace`, `dry_run`, `json`, `help`, `quiet`, `no_color`, `human`, `version`,
+`chunks`, `start`, `stop`) is refused when the definition is read. The time range is `--from/--to` or `--all`, as for every pipeline over a recording (`--chunks`, `--start` and `--stop` are hidden
+developer options).
+
+`nxr-neuro compute` is reserved for applying a node or a graph to arrays and files (a later step of the compute-and-run spec); today it prints that it is not available, and `compute <pipeline>` is refused
+with the `run` spelling.
 
 ### `list`: List datasets, subjects, recordings, kernels, results or pipelines
 
@@ -341,7 +356,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro list recordings` | List the recordings of a subject. |  |
 | `nxr-neuro list kernels` | List the inverse kernels of a subject. |  |
 | `nxr-neuro list results` | List the fields and statistics the computations stored for a subject. |  |
-| `nxr-neuro list pipelines` | List the pipeline definitions and the steps they are made of. | `run --list` |
+| `nxr-neuro list pipelines` | List the pipelines `run` takes (the hand-wired ones and the definitions) and the steps the definitions are made of. | (`run --list`, refused) |
 | `nxr-neuro list spatial-bands` | List a surface's spatial bands (one per level of its tile ladder). | `pyramid spatial-bands` |
 
 ### `show`: Show a dataset or a subject
@@ -435,11 +450,11 @@ Every subject of a dataset is registered to one average anatomy, Brainstorm's `@
 neither): a subject `@default_subject` of kind `template`, written as any subject is, holding fsaverage5's `cortex_pial` (primary, with its hemispheres and `sphere.reg`), `cortex_white` and
 `cortex_inflated` in metres (`--default` picks another resolution), and the pial's parcellations: the selection set `source/cortex_pial_atlases` with Structures, Desikan-Killiany
 (`label/{lh,rh}.aparc.annot`) and Destrieux (`aparc.a2009s`), each a partition (a code per vertex) whose app-scope dictionary names "<region> L|R" with FreeSurfer's colours, as nxr's default
-subject writes them. `--modes K` (with the pipelines built) also SOLVES the pial's Hodge–Dirac basis with `eigen solve`'s pipeline (about K modes; the glued surface, its bridge, the eigen axis and the eigenvectors, stored as below); without it,
-run `nxr-neuro eigen solve --dataset D/N --subject @default_subject --surface cortex_pial` on the default subject. io never solves: the basis is compute's, so it is made by the pipelines.
-With the pipelines built it also writes the pial's **frames** (`frames compute` on the default subject: the canonical frames, north / west from its registered sphere, and its
+subject writes them. `--modes K` (with the pipelines built) also SOLVES the pial's Hodge–Dirac basis with `run eigenmodes`'s pipeline (about K modes; the glued surface, its bridge, the eigen axis and the eigenvectors, stored as below); without it,
+run `nxr-neuro run eigenmodes --dataset D/N --subject @default_subject --surface cortex_pial` on the default subject. io never solves: the basis is compute's, so it is made by the pipelines.
+With the pipelines built it also writes the pial's **frames** (`run frames` on the default subject: the canonical frames, north / west from its registered sphere, and its
 anatomical frame from FreeSurfer's RAS axes, the template every subject's anatomical frame is carried from) and the **group tree**: the dyadic ladder of the default pial (`cortex_pial tiles`, Selection type `ladder`, decision D85; its levels
-`cortex_pial tiles L0 … L<finest>` are partitions, one tile code `h·2^l + t` per vertex), as `tiles compute` writes any ladder but with `tree: "group"` and the dataset's default atlas
+`cortex_pial tiles L0 … L<finest>` are partitions, one tile code `h·2^l + t` per vertex), as `run tiles` writes any ladder but with `tree: "group"` and the dataset's default atlas
 definitions in its params (`atlas`: leaf depth `--atlas-depth`, 8 by default; resolution; frames (the canonical frames' id); the time convention, frames = cycles of the day-anchored tower at
 level −18, ≈ 0.33 s; the default bands, octaves 1–64 Hz; the Levi-Civita levels; the trajectory scales), the settings every subject's atlas and the group sums share. On fsaverage5 its
 codes equal the Studio's `surfaceLadder` and nxr's at every level. The group tree carries the **Levi-Civita connection** between its tile centres at `--lc-levels` (4,6 by default), as nxr
@@ -480,7 +495,7 @@ one place a recording is read and looped over.
 - **The guard.** The test `layering_recordings_read_by_chunk_service` fails if code outside io reads a recording or works out chunks itself.
 - **The filters.** They walk every chunk, because they write a whole new recording. Their span is to be decided by the maintainers.
 
-## The constant-Q time ladder (`io/include/nxr/io/constant_q.h`; `constantq compute`)
+## The constant-Q time ladder (`io/include/nxr/io/constant_q.h`; `run constantq`)
 
 **Why.** Time is partitioned as space is (the cardinal rule): measurements over windows of a recording need the windows to be a Selection. The
 Studio's time-tile policy defines them once, and nxr-neuro ports it.
@@ -498,7 +513,7 @@ Studio's time-tile policy defines them once, and nxr-neuro ports it.
     nothing per sample);
   - a level dictionary (window in samples and seconds, tile count, finest tiles, what it resolves);
   - an empty tile dictionary per level (where a tile's label or note goes, D83).
-- **The command:** `constantq compute` writes it on a recording's time line (`--recording`), a line (`--line`) or every recording's (`--all`). It is
+- **The command:** `run constantq` writes it on a recording's time line (`--recording`), a line (`--line`) or every recording's (`--all`). It is
   idempotent. The importer does not write it, so its parity with nxr's converter holds.
 - **On the fixture** (1200 Hz): 7 levels, windows 256…16,384 samples, resolving 32–64, 16–32, 8–16, 4–8, 2–4, 1–2 and 0.5–1 Hz.
 - **Tested** (`test_constant_q`):
@@ -509,9 +524,9 @@ Studio's time-tile policy defines them once, and nxr-neuro ports it.
 
 ## MEG/EEG source imaging (`meeg/`; spec: `docs/specs/2026-11-10-neuro-forward-inverse.md`)
 
-When a dataset has no head model from import, `headmodel compute` computes a sphere one (MEG: Sarvas in one sphere or overlapping spheres fitted to the inner skull; EEG: three shells fitted to the scalp), stored as an imported one (spec section 8).
-When a dataset has no inverse kernel from import, `inverse compute` makes one: the **unconstrained minimum-norm kernel with depth weighting** from the stored head model (the gain) and a
-noise covariance. When it has no noise covariance either, `noisecov compute` estimates one from a recording (the good channels over a time window, the mean removed per block, read chunk by
+When a dataset has no head model from import, `run headmodel` computes a sphere one (MEG: Sarvas in one sphere or overlapping spheres fitted to the inner skull; EEG: three shells fitted to the scalp), stored as an imported one (spec section 8).
+When a dataset has no inverse kernel from import, `run inverse` makes one: the **unconstrained minimum-norm kernel with depth weighting** from the stored head model (the gain) and a
+noise covariance. When it has no noise covariance either, `run noisecov` estimates one from a recording (the good channels over a time window, the mean removed per block, read chunk by
 chunk). The defaults reproduce Brainstorm's default output (depth exponent 0.5, limit 10, SNR 3, regularisation 'reg' 0.1, per-type whitening); `--mne` and the named options give MNE-Python's.
 The kernel and its `_channels`, `_noise_cov`, `_whitener` and `_source_rr/_nn` are stored as the importer stores them, so a reader tells a computed kernel from an imported one by its producer string
 only. The maths is written from the papers, not translated from Brainstorm (GPLv3); Brainstorm and MNE-Python are reference outputs (goldens in `meeg/test/golden/`, with their generators).
@@ -524,7 +539,7 @@ high-pass part, both ends padded with the mean of the first/last K samples); not
 (MATLAB filtfilt's ends). `nxr-neuro <verb> --dataset D/N --subject S --recording R --fpass HZ[,HZ] | --fstop LO,HI | --frequencies F,.. | --line F [--harmonics N]` writes a new recording
 `<R>_<verb>` on the same channels and time line, with flags, events, bad segments, projectors and CTF compensation carried over. MNE-Python's option set: not done.
 
-## The Welch PSD (`compute/include/nxr/welch.h`, `psd compute`)
+## The Welch PSD (`compute/include/nxr/welch.h`, `run psd`)
 
 `nxr::welch::Welch` is a streaming estimator: fed [channels x samples] chunks of any size, it carries the samples left at a chunk's end into the next, so segments cross chunk edges and **the result is identical to the last bit
 whatever the chunk size** (tested for 1 to the whole record). Memory: the carried samples + one chunk + one segment. A sample mask leaves out every segment that touches a bad sample (the segment grid does not move).
@@ -539,7 +554,7 @@ half overlapping, so the hop is level k − 1 and the overlap must keep it a til
 4 s gives level 12 at 1200 Hz, 4096 samples, 3.41 s) · `brainstorm` (Brainstorm's exact behaviour, the default until 2026-11-13: round(4 · fs) samples from the
 span's start) · `scipy` · `nxr-chain`. Segments still cross chunk edges at ½ overlap, and the estimator carries them. Parity (`compute/test/test_welch.cpp`, goldens in `compute/test/golden/`, synthetic signals; generators `gen_welch_golden.py`/`.m`): scipy, nxr and Brainstorm's `bst_psd` outputs agree to 1e-15.
 
-`psd compute` reads a recording chunk by chunk, leaves out the recording's bad segments (the Selection `<recording>_bad_segments`) and stores the PSD as
+`run psd` reads a recording chunk by chunk, leaves out the recording's bad segments (the Selection `<recording>_bad_segments`) and stores the PSD as
 a STATISTIC (2026-11-13, `docs/specs/2026-11-13-statistics.md`; until then a Field on channels × frequency, which stays readable): `<recording>_psd_welch`,
 measure `power_density` (`power` for the spectrum and chain scalings), method `welch`, OF the recording, computed from its segment partition
 `<name>_segments` (Welch's segments as a closed-form spans Selection on the time line: width, hop, count) and resting on `n_members` segments
@@ -547,7 +562,7 @@ measure `power_density` (`power` for the spectrum and chain scalings), method `w
 option in `options_json`, the spectral scaling record, and in `producer_json` the cache key, the share of samples excluded and the
 projectors the recording carries (which are in the samples). All channels are kept, the bad ones too.
 
-### `psd compute --through OPERATOR`: the rotary spectrum (2026-11-16; nxr's `docs/specs/2026-11-15-nxr-scopes.md`, "Rotary spectra ...")
+### `run psd --through OPERATOR`: the rotary spectrum (2026-11-16; nxr's `docs/specs/2026-11-15-nxr-scopes.md`, "Rotary spectra ...")
 
 **What it is for.** A rotating pattern is one pair of sensor filters turning from x towards y: its power sits at ONE sign of frequency. The rotary spectrum is the two-sided spectrum of
 that pair, and its sense index (P₊ − P₋)/(P₊ + P₋) over a band (derived at read, `nxr.spectral.rotary.sense_index`) says which way the pair turns, from +1 (all forward) to 0 (no preferred sense).
@@ -557,7 +572,7 @@ already negates fy when −f wins, so +f is forward and nothing is flipped here)
 **The graph** (the Editor's chain: members → filter → transform, a linear map before any non-linear step): the chunk service gives each block of the recording (rows = the operator's channels, in its
 order, the bad-sample mask) → *members*: z = fx·X + i fy·X (`nxr::rotary::pairSeries`, a pointwise node) → *spectrum*: the two-sided Welch periodogram of each segment (`nxr::welch::ComplexWelch`, pure)
 → *reduce*: the mean over the segment partition, the estimator's own reduction, the same segments, window, detrend, scaling, carrying across chunk edges and bad-segment rule as the sensor PSD
-(`--set`, `--segment-*`, `--window` … apply as they do to `psd compute`). The host type-checks before any data flows: a dense Operator of two rows whose channels (from_selection) are on the
+(`--set`, `--segment-*`, `--window` … apply as they do to `run psd`). The host type-checks before any data flows: a dense Operator of two rows whose channels (from_selection) are on the
 recording's channel manifold and inside it; otherwise it is refused with its reason.
 
 **Stored.** The STATISTIC `<recording>_<operator>_psd_welch` (`--name`), measure `power_density` (`power` for the spectrum and chain scalings), method `welch`, OF the recording, from its segment
@@ -569,37 +584,37 @@ independence to the last bit and the mirror (fy negated gives P(−f)) are in `t
 
 ## Source maps: band power, quadrature, Hodge power (`pipelines/include/nxr/pipelines/meeg.h`)
 
-All three read a recording chunk by chunk through a stored inverse kernel (default: the subject's only one), take the sensors' cross-spectrum per band with the Welch options of `psd compute`
+All three read a recording chunk by chunk through a stored inverse kernel (default: the subject's only one), take the sensors' cross-spectrum per band with the Welch options of `run psd`
 (the same `--set` and overrides), and never form the N x N source matrix. Bands default to Brainstorm's (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90; the mean of the bins
 from lo to hi inclusive).
 
-- `sourcepsd compute`: Brainstorm's PSD on sources grouped in bands: diag(K S K^T) per band, a free kernel's three orientations summed in power, `--normalisation relative` divides by the
+- `run sourcepsd`: Brainstorm's PSD on sources grouped in bands: diag(K S K^T) per band, a free kernel's three orientations summed in power, `--normalisation relative` divides by the
   source's whole-spectrum power. Stored as a STATISTIC read as maps (2026-11-13): `<R>_<kernel>_psd`, `power_density` (`power`; `relative_power`) by `welch`, OF
   the recording, from its segment partition, axes vertex (the kernel's target) × band (each entry named, with its edges and bins), so band k's map is
   `<R>_<kernel>_psd_<band>` (as its Field was named; one stored before as Fields stays readable). `io::map_slices` lists a surface's maps of statistics and
-  `read_map_slice` reads one; `measure compute` and `measure export` take them as they take Fields (their rows name the statistic and the band:
+  `read_map_slice` reads one; `run measure` and `measure export` take them as they take Fields (their rows name the statistic and the band:
   `of_statistic_id`, `of_index`, added to the measurement table in place).
-- `quadrature compute`: the quadrature (imaginary) part of the source cross-spectrum, which no zero-delay mixture produces. Per band: `quadratureFraction` ||Im C|| / ||C|| (in the
+- `run quadrature`: the quadrature (imaginary) part of the source cross-spectrum, which no zero-delay mixture produces. Per band: `quadratureFraction` ||Im C|| / ||C|| (in the
   fields' params), the `quadratureEnergy` map per source `<stem>_energy_<band>`, and the top K quadrature pairs (p leads q by a quarter cycle) `<stem>_pair<k>_p_<band>` / `_q_`
   (vector3 fields for a free kernel). nxr's `lagged.py` is the reference. Since 2026-11-13 they are MAP STATISTICS by `welch`: `<stem>_energy`
   (`quadrature_energy`, vertex × band, each band entry with its quadrature fraction and the sensors' rank) and `<stem>` (`quadrature_pattern`, vertex ×
   patterns, vector3 for a free kernel; an entry a band's p or q of pair k with its sigma, share and rotary sense); each map keeps its Field's name.
-- `hodgepower compute`: the band power of the Hodge–Dirac mode coefficients of the sources: the free-orientation kernel fused into the subject's Hodge–Dirac package (`nxr.inverse.fused`), two
+- `run hodgepower`: the band power of the Hodge–Dirac mode coefficients of the sources: the free-orientation kernel fused into the subject's Hodge–Dirac package (`nxr.inverse.fused`), two
   parts per band on the eigen axis, `<stem>_<band>_current` (coexact) and `<stem>_<band>_flow`: since 2026-11-13 one MAP STATISTIC `<stem>` (`power_density`
   by `welch`, axes mode × band part), each part's map keeping its Field's name. A fixed-orientation kernel is refused.
-- `sourcetensor compute`: the VECTOR analogue of the band power map. Per source and band, the complex 3×3 Hermitian cross-spectral tensor of the current,
+- `run sourcetensor`: the VECTOR analogue of the band power map. Per source and band, the complex 3×3 Hermitian cross-spectral tensor of the current,
   T = K_v (S + i Sq) K_vᵀ (K_v the source's three kernel rows; S + i Sq the band's sensor cross-spectrum with its quadrature part), stored as value type
   `hermitian3` (float32 [N × 3 × 3 × 2], real and imaginary parts; ambient axes, gauge-free). Since 2026-11-13 its four outputs are MAP STATISTICS by
   `welch` on the axes vertex × band, each with its value type: `<stem>` (`cross_spectral_density`, hermitian3), `<stem>_stokes` (`stokes`, quaternion),
-  `<stem>_normalpower` (`power_density`, scalar), `<stem>_normalshare` (`share`, scalar); a band's map keeps its Field's name, and `measure compute` reads
+  `<stem>_normalpower` (`power_density`, scalar), `<stem>_normalshare` (`share`, scalar); a band's map keeps its Field's name, and `run measure` reads
   a hermitian3 map as it reads a hermitian3 Field (the `tensor_*` sums). Its trace IS the band power of `sourcepsd` with the same
   options (tested). Read from it, per vertex: the tangential Stokes parameters in the canonical frames as a quaternion `[S0, S1, S2, S3]` (S0 the
   tangential power, S1 + iS2 the linear polarisation — axis ½·arg from north, strength |S1 + iS2| —, S3 the circular, > 0 turning from north towards west,
   counter-clockwise about the outward normal; S0, S3 and |S1 + iS2| do not depend on the frames), the normal power nᵀ Re(T) n and the normal share.
-  Needs the canonical frames (`frames compute`); a free-orientation kernel only. What it cannot show: the tensor is the KERNEL's estimate — a minimum-norm
+  Needs the canonical frames (`run frames`); a free-orientation kernel only. What it cannot show: the tensor is the KERNEL's estimate — a minimum-norm
   kernel spreads each source over its neighbours, and resolves its orientation only as far as the kernel does (on OMEGA sub-0181 the MNE kernel gives a
   median normal share of 0.35, an anisotropy of 0.57 and a circularity of 3 % per vertex in alpha).
-- `crossspectrum compute` (named `csd compute` until 2026-11-13; renamed so it is not read as current source density): the sensor cross-spectral density per band, **stored**: the root every quantity above is read from. **Why:** the source cross-spectrum
+- `run crossspectrum` (named `csd compute` until 2026-11-13; renamed so it is not read as current source density): the sensor cross-spectral density per band, **stored**: the root every quantity above is read from. **Why:** the source cross-spectrum
   between every pair of sources (3N × 3N complex, ~16 GB a band for 15k sources) is K C Kᵀ, so it holds nothing beyond the band's sensor cross-spectrum C
   (M × M, ~0.7 MB) and the kernel. Stored, any block between two places is read on demand, T_ij = K_i C K_jᵀ (`nxr::meeg::crossTensor`; T_ii is
   `sourcetensor`'s), and so is a region-to-region block, (Σ_A K_i) C (Σ_B K_j)ᵀ, without forming the full matrix. C does not depend on a kernel: one C
@@ -645,16 +660,16 @@ from lo to hi inclusive).
   the phase over the band's bins, ONE delay per pair for the whole band, from a band only a few Hz wide; within that range a constant delay and a phase that is not linear in frequency are not told
   apart beyond the fit's residual. Neighbouring bins are correlated (the window's width), so the bins are not independent estimates; on sensors a pair's phase is mixed by the field spread, so a
   sensor delay is not a transmission delay between the sources.
-- `phasegradient compute`: whether the band's activity MOVES across the cortex, which way and how fast, in physical units. nxr's phase reader
+- `run phasegradient`: whether the band's activity MOVES across the cortex, which way and how fast, in physical units. nxr's phase reader
   (`nxr.detect.core_phase`, `PhaseReader.read_out`: ∇φ = Im(z̄ ∇z)/|z|², no unwrapping; velocity u = −ω ∇φ/|∇φ|²) in its spectral form, read from a
-  stored band cross-spectrum (`--cross-spectrum`, the first reader of `crossspectrum compute`) through a free kernel and the mesh's P1 gradient (the area-weighted mean of the
+  stored band cross-spectrum (`--cross-spectrum`, the first reader of `run crossspectrum`) through a free kernel and the mesh's P1 gradient (the area-weighted mean of the
   face gradients, projected on the tangent plane): with z_v = a_v X the signal at v and g_v its tangent gradient, the sums P = ⟨|z|²⟩ = a S aᵀ,
   H = Im⟨z̄ g⟩ = B Sq aᵀ and Q = ⟨|g|²⟩ = tr(B S Bᵀ) (`nxr/meeg/wave.h`) are power-weighted over the band's segments and bins and add over regions. The
   signal is the full current as the inverse gives it, the x y z components summed (`--signal ambient`, default) or `--signal normal`, the normal current n·J.
   **Stored on the measurement pyramid** (spec `docs/specs/2026-11-14-measurement-pyramid.md`, step 5;: a reduction over space is a measurement over a partition, never a
   per-vertex ratio; the earlier per-vertex Fields broke the cardinal rule and are no longer written; those already in a dataset are untouched):
   - **The leaves** are the pyramid's: the tree partition `<surface> tiles L<D>` of the surface's ladder (`--depth D`, default the finest level every piece reaches; the ladder is made when
-    the surface has none), the same `pyramid_leaves` as `pyramid build`. `frames compute` first: the current is stored in the canonical frames.
+    the surface has none), the same `pyramid_leaves` as `run pyramid`. `run frames` first: the current is stored in the canonical frames.
   - **What is stored** (the additive INGREDIENTS, array-backed `[leaf]` measurements of a byte-less Field `<stem>_<band>` of kind `phase gradient`, by_operator the kernel, in the partition's node `<node>/phase/<name>/`,
     within the band when it is one of the Frequency manifold's `bands`), each a SUM over the leaf's vertices weighted by the vertex's lumped area a, with nxr's registry names:
     `phase_power` = Σ a P, `phase_gradient_power` = Σ a Q, `phase_current_1`, `phase_current_2` = Σ a (H·e1), Σ a (H·e2) (the phase current H = Im⟨z̄ g⟩ in the canonical frames, e1 north, e2 west: nxr's
@@ -670,17 +685,17 @@ from lo to hi inclusive).
     turning wave out (said in the warnings). The per-vertex velocity and speed are gone (they were ratios of per-vertex sums); the speed at a leaf is ω / `phase_gradient_magnitude`.
   - **Tested** (`test_phasegradient`, synthetic spheres, never a real dataset): the leaf sums equal the vertex-area-weighted per-vertex sums computed directly (**2.6e-15** relative, 512 leaves); the derived gradient equals the
     power-weighted mean of the vertices' gradients (**6.5e-16**; it equals the area-weighted mean of H/P only where P is uniform, which the planted wave's is to 3 decimals); a roll-up D → D−1 equals a run on the merged leaves
-    (**2.9e-14**, every stored sum and the derived magnitude, travelling index and coherence); against ground truth at leaf level (a wave travelling round two spheres, through `crossspectrum compute`): speed within
+    (**2.9e-14**, every stored sum and the derived magnitude, travelling index and coherence); against ground truth at leaf level (a wave travelling round two spheres, through `run crossspectrum`): speed within
     1.2 % (median; 3.9 % worst), travelling index 0.999 against 0.002 for the standing pattern, the ambient signal within 1.1 %, the vertices' direction within 11° of the ground truth (cos > 0.98); `test_wave`:
     `phaseCurrentInFrames`.
   - What it cannot show: the kernel spreads each source with
     no lag, which shrinks the phase gradient (the speed is overestimated where the spread is wide; not yet measured on a real head model); the readout is a
     power-weighted mean over the whole window and the band (waves that change direction cancel, nothing is resolved in time); ω is the band's centre;
     the P1 gradient resolves a wavelength of a few edges at best.
-- `phasegradient compute --spatial-band modes|weyl:J|weyl:all --signal ambient`: the same question **at a spatial scale**, with the **timing map** and
+- `run phasegradient --spatial-band modes|weyl:J|weyl:all --signal ambient`: the same question **at a spatial scale**, with the **timing map** and
   its **consistency** (spec `docs/specs/2026-11-12-direction-timing.md`). **Why:** at the mesh's own scale the lags are tiny and lag content lives at
   coarser scales, so a spatial band is chosen as a time-frequency band is; and a timing map says in what order places are reached. **Everything is on
-  ONE triangulation**: the intrinsic complex the surface's Hodge–Dirac modes are solved on, with the modes' full forms (`eigen solve`
+  ONE triangulation**: the intrinsic complex the surface's Hodge–Dirac modes are solved on, with the modes' full forms (`run eigenmodes`
   stores both; `compute/include/nxr/intrinsic_forms.h`):
   - **the band:** the free kernel on the glued surface, its tangent part as a 1-form on the intrinsic edges (flat: each edge's direction at its ends
     from the signposts, embedded through the input's own edges) and its normal part as a 2-form on the faces, read into the modes by inner products with
@@ -706,7 +721,7 @@ from lo to hi inclusive).
   - **What the leaf integrals cannot resolve:** a leaf on the edge of the cut (the medial wall) has an open boundary there (the flow across the cut is in its integrals); an edge's lag wraps at ±π, so a winding the edges cannot resolve (a double winding in a few edges) counts once;
     the spatial band is in the Field's name and provenance, not in the measurements' `within` key (the package's Weyl bank is of the glued surface's whole area; the pyramid's spatial bands are the ladder's).
   Needs the package's
-  full forms (`eigen solve --replace` on a package stored before them). Tested against ground truth on two glued spheres (`test_phasegradient_band`):
+  full forms (`run eigenmodes --replace` on a package stored before them). Tested against ground truth on two glued spheres (`test_phasegradient_band`):
   a plane wave's timing map against −k z/ω, r 1.0000, slope 0.99, inconsistency 0.007, its leaves' flux / area against the divergence −2k z, r 0.96; the same wave with its amplitude falling to near zero along
   lines, r 0.999; a wave rotating round each sphere's axis, inconsistency 0.98, the leaf holding a pole circulating 2π; the plane wave's circulation 0 (< 0.04); the Weyl bands' leaf powers add up to the unfiltered (0.97).
   The forms (`test_intrinsic_forms`, a jittered sphere with 784 flips): an unflipped edge's direction is the mesh edge's (1 − cos < 1e-5), flat of a
@@ -714,13 +729,13 @@ from lo to hi inclusive).
   change direction cancel); ω at the band's centre; the edge lag is arg T, so a lag beyond ±π along one edge wraps (the magnetic Laplacian handles
   large lags); band-limited by the modes; a power-weighted timing fit is not built (a weighted solve, not inner products).
 
-## Cycle patterns (`cyclepattern compute`; `compute/include/nxr/patterns.h`; spec `docs/specs/2026-11-13-cycle-pattern.md`)
+## Cycle patterns (`run cyclepattern`; `compute/include/nxr/patterns.h`; spec `docs/specs/2026-11-13-cycle-pattern.md`)
 
 **Why:** phases rotate from one cycle of a rhythm to the next and cannot be averaged; products z zᴴ can. A cross-spectrum over a window keeps what is
 consistent across its cycles, and its leading eigenvector m is the most consistent cycle pattern: Re(m e^{iφ}) over φ ∈ [0, 2π) is that pattern through
 one cycle, and λ / trace says how much of the band's power it holds.
 
-**What:** from a per-window cross-spectrum (`crossspectrum compute --estimator analytic`) and a FREE kernel read into the package's full forms on the intrinsic
+**What:** from a per-window cross-spectrum (`run crossspectrum --estimator analytic`) and a FREE kernel read into the package's full forms on the intrinsic
 complex (as `phasegradient --spatial-band`: the normal current a 2-form, the tangent current a 1-form; no orientation assumed). Per spatial band, B [n × M]
 stacks the coexact modes' normal rows and every mode's tangent rows, each times the band's gain (kept where |g| ≥ 1e-3); C_Φ = B C Bᵀ
 (`algebra::congruence`, dense) over the span (the window partition's sum over its counts) and per window; its q leading eigenvectors
@@ -780,7 +795,7 @@ reference is nxr's `nxr/pipelines/` (`definition.py`, `registry.py`, `inputs.py`
   global statistic read BY NAME; it lies on no manifold), narrowed by links such as
   `from: recording.manifold.0` and by `where` on its columns or `params_json`; a `where` value that is a `$parameter` holding a name may carry `{input}`, e.g. `bursts: "global_bursts.bursts_kept.{recording}"`; `each: true` the anchor, one run per match), `parameters` (defaults,
   overridden by `--set`), `steps` (`before` · `chunks: {over, do}` · `after`), `outputs`. `parse` refuses every structural fault with where it is.
-  nxr-neuro's own definitions are in `pipelines/definitions/` (compiled in; `run --list`); any `.yaml` path runs too.
+  nxr-neuro's own definitions are in `pipelines/definitions/` (compiled in; `nxr-neuro list pipelines`); any `.yaml` path runs too.
   **Every definition names its recording and kernel ().** `--set recording=NAME` runs on that one recording (default `none`: every recording of the subject, one run each, as before; an empty-room recording without its own kernel is left out by naming the others, one run each); `--set kernel=NAME` picks that inverse kernel (default `none`: found by `method`, as before). The finder's rule: an input's `where: {name: $recording}` entry whose `$parameter` is `none` (or null) filters nothing. A named kernel must also be of `method` (its `params.inverse.measure`, default MNE): name its method too (`--set kernel=K --set method=dSPM`). Adding the parameters changes each definition's text, so its cached results are recomputed once.
 - **The steps** (`registry.cpp`): `band_filter`, `analytic`, `envelope`, `apply_kernel`, `form`, `power`, `phase_current`, `gradient_power` (chunk:
   pointwise), `measure` (accumulate: a reduction over the run's span, per element; the cardinal rule; or, with `over` a constant-Q ladder, `amplitude` /
@@ -832,7 +847,7 @@ segments, beside the imported Brainstorm events), through the selection/measurem
 events, so every reader of `<rec>_events` reads it.
 
 - **`band_bursts`** (a definition, `pipelines/definitions/band_bursts.yaml`): the band's envelope (`envelope`), its `amplitude` (mean |z|) per tile of the
-  constant-Q level of the band (`measure` over the ladder; `constantq compute` first; a band that is no level's is refused, D84), then `detect_spans`.
+  constant-Q level of the band (`measure` over the ladder; `run constantq` first; a band that is no level's is refused, D84), then `detect_spans`.
   - Per channel (`combine each`, `detect.spindle`'s rule) or on the mean over channels (`combine mean`): the median and robust SD (1.4826 × MAD) over the
     good tiles of the run's span; tiles ≥ median + 1.5 SD entered, extended while ≥ + 1.0 SD, gaps ≤ 0.1 s joined, spans ≥ 0.4 s kept.
   - The reference parameters are Rheome's alpha episodes (`flow.labelalpha` → `detect.spindle` in envelope mode); the default band is alpha's level, 8–16 Hz
@@ -861,14 +876,14 @@ events, so every reader of `<rec>_events` reads it.
 - **What it cannot resolve:** the time resolution is the band's tile (alpha at 1200 Hz: 0.85 s), and the band's response can carry an edge into the next
   tile; the band is an octave level, so 8–12 Hz is no band here; a burst on a sensor says nothing about where in the cortex it is.
 
-## Patches on a static cortical map (`patches compute`; `compute/include/nxr/regions.h`; spec `docs/specs/2026-11-13-cortical-events.md`, phase 1)
+## Patches on a static cortical map (`run patches`; `compute/include/nxr/regions.h`; spec `docs/specs/2026-11-13-cortical-events.md`, phase 1)
 
 **Why.** The spatial equivalent of the bursts of a band, on a map with no time axis (a PET map; any scalar Field on a surface): where the map stands out from its
 surroundings at the size of a level of the surface's tile ladder, as where, how big, how strong. The same idea as `band_bursts` with the selection system: a level IS
 its band, the baseline is a statistic, an event is a connected run of tiles above it, each event measured from its tiles. Only the neighbourhood differs.
 
 - **The graph**: preparation reads the map, the surface and the level's tiling and type-checks them (a scalar Field on a
-  surface; a ladder made by `tiles compute`; the level exists; no hole in the map), then the nodes, each a pure function of matrices, and the results go back to io.
+  surface; a ladder made by `run tiles`; the level exists; no hole in the map), then the nodes, each a pure function of matrices, and the results go back to io.
 
       map → spatial_band → measure (per tile) → summarize (baseline) → sign → detect_regions → measure (per patch) → summarize (across patches)
 
@@ -878,8 +893,8 @@ its band, the baseline is a statistic, an event is a connected run of tiles abov
     Chebyshev series in the cotangent pencil of the intrinsic Delaunay mesh (the degree is the smallest of 40, 80, … 5120 whose series is within `--tolerance` 0.01 of the band's gain, else the run is refused,
     never silently coarse: coarse levels and fine meshes need a high degree); `--transform exact` is the dense modes of the mesh (at most 4096 vertices; the reference the tests compare to).
     Stored as the Field `<map>_band_L<l>` (float64, the map's unit): the band-passed map; its `producer_json` records the transform, the source of the modes (or the degree) and any `warnings`.
-  - **measure**: the area-weighted mean, max, min and abs_max of the band over the level's tiling (`nxr::partition`, `measure compute`, recipe `patches-barycentric`).
-    These rows are OF THE BAND FIELD. A plain `measure compute` of the map over the same tiling is a different row (a different `of_field_id`) and is never overwritten.
+  - **measure**: the area-weighted mean, max, min and abs_max of the band over the level's tiling (`nxr::partition`, `run measure`, recipe `patches-barycentric`).
+    These rows are OF THE BAND FIELD. A plain `run measure` of the map over the same tiling is a different row (a different `of_field_id`) and is never overwritten.
   - **summarize**: the baseline of the level, the median and robust SD (1.4826 MAD) of the tile means (`<map>_band_L<l>_baseline`, a statistic).
   - **sign** (`nxr::regions::applySign`): positive (x), negative (−x: dips), magnitude (|x|). The caller's; the detection never knows. For magnitude the baseline is of the
     absolute tile means, computed with the same functions (the stored statistic is of the signed means); the record says so.
@@ -892,7 +907,7 @@ its band, the baseline is a statistic, an event is a connected run of tiles abov
     mean of the tile means; the max of the tile maxima); `area` (m²) and `n_elements` are its geometry. `n_tiles` and `centre_vertex` (the vertex nearest the area-weighted
     centroid) are nxr-neuro's own measures (`measures_nxr.json` 1012, 1013; a count and a place).
   - **summarize across the patches**: `count, sum, median, mean, sd, percentile:25/75/90` (`--summaries`) of the patches' area, n_tiles, mean and peak (max for positive, min for
-    negative, abs_max for magnitude), as statistics `<map>_patches_L<l>_<sign>_<what>` (`statistic compute --members-own` is the area and n_tiles: the members' own rows).
+    negative, abs_max for magnitude), as statistics `<map>_patches_L<l>_<sign>_<what>` (`run statistic --members-own` is the area and n_tiles: the members' own rows).
 - **Stored**: the band Field; the tiles' rows; the baseline statistic; the patches as a `set` Selection `<map> patches L<l> <sign>` on the surface (a code per vertex = its patch's
   ordinal numbered by its lowest tile, −1 in none; `n_members` = the patches (the writer does not count the −1); dictionary `patch k` with its tiles and centre); its record
   (`params_json`: map, level, band with its λ range and transform, sign, thresholds, baseline, limits, cache key); the patches' rows; the statistics. A rerun with the same
@@ -916,7 +931,7 @@ its band, the baseline is a statistic, an event is a connected run of tiles abov
 
 > The default spatial transform is the stored eigenmodes when they exist, with a Chebyshev fallback that is never silent: when eigenmodes are absent they are computed, with a message. Eigenmodes first, Chebyshev second.
 
-**Why.** The level-l band F_l of a surface's fields (`patches compute`, `apply_kernel` with `tiles`/`level` in `run cortical_cells` and `run global_bursts`) is a function of the surface's Laplace–Beltrami spectrum. The subject's stored
+**Why.** The level-l band F_l of a surface's fields (`run patches`, `apply_kernel` with `tiles`/`level` in `run cortical_cells` and `run global_bursts`) is a function of the surface's Laplace–Beltrami spectrum. The subject's stored
 Hodge–Dirac package holds that spectrum (its exact modes); the series only approximates it. So the stored modes are the first choice, and the series never a silent one.
 
 - **`spatial_shape`: a spatial level is the hat peaked at its band's centre.** `apply_kernel` with `tiles`/`level` takes `spatial_shape`:
@@ -927,7 +942,7 @@ Hodge–Dirac package holds that spectrum (its exact modes); the series only app
   - **`meyer` (named)**: the level IS its Weyl band (compact edges, the frame: levels add up). Hats overlap and do not add up, so every analysis that splits power across levels or
     bands (scale spectra, the joint eigenmode × frequency plane, power shares, scale selection) sets `spatial_shape: meyer` (and `shape: meyer`): the definitions `cortical_cell_pairs` and `cortical_event_pairs`
     do. `global_bursts`, `cortical_cells` and `cell_phase_current` take the hat (their stored numbers differ from before 2026-11-14; rerun with `--replace`). The library's `SpatialBandOptions`
-    stays `meyer` by default, so `patches compute` and the cell quadrature are unchanged.
+    stays `meyer` by default, so `run patches` and the cell quadrature are unchanged.
   - **The tail.** The hat has no compact support: the eigen route needs modes to where its gain is under 1e-3 (about 10 centres up, `hat_reach_lambda`), against 2^(1/3) · λ_max for Meyer. A stored package
     that reaches the Meyer band often does not reach the hat: `auto` then falls back to the Chebyshev series, ANNOUNCED (a warning naming the hat, the level, the package and the reach); forced `eigen` refuses
     with that reason; a computed package is sized for the reach (Weyl's law). The series follows the hat's smooth gain within `tolerance`. The hat's gain below its peak is linear in λ: it passes the
@@ -946,7 +961,7 @@ Hodge–Dirac package holds that spectrum (its exact modes); the series only app
     surface's modes, fills them (exactly nxr `Cortex.coords` → the gain → `P.T`, read at every glued vertex, where nxr's `hat_operator` reads only the kept ones). Still ONE linear operator bound in preparation, now
     [glued vertices × channels]. The output's surface is the glued one (a cortex of two hemispheres; the surface itself for one closed piece). **Eigenmode first, Chebyshev second, announced:** the stored glued
     eigenmodes (`hodgeDirac_eigenvectors`, `hodgeDirac_support` maps them to the kept vertices) when they reach where the hat's gain falls under 1e-3; else the Chebyshev series of the GLUED mesh (never the native mesh: it
-    has no bridge), with a warning in the progress and the provenance; `exact` is the dense modes of the glued mesh. The glued surface must be stored (`nxr-neuro eigen solve`; the run is refused, saying so, when it is not).
+    has no bridge), with a warning in the progress and the provenance; `exact` is the dense modes of the glued mesh. The glued surface must be stored (`nxr-neuro run eigenmodes`; the run is refused, saying so, when it is not).
     Without `tiles` there is no band and the form stays on the kernel's own vertices. The Riesz part is not built on the glued surface.
 - **`levels` and `glued` (; spatial-events spec, piece 3): the scale space as ONE operator.** `levels: [4, 5, 6, 7, 8]` (instead of `level`) binds one operator a hat level in preparation and stacks them: the output is
   [vertex × level] per component, row = (vertex · levels + level) · components + component (`facts.levels` names them; `at_level` reads one back). Each level's band is the single-level step's (same `transform`, `modes`, `spatial_shape`,
@@ -965,11 +980,11 @@ Hodge–Dirac package holds that spectrum (its exact modes); the series only app
     vertices; a level beyond the modes falls back announced; one closed piece is its own glued domain) and (`test_apply_kernel_form`: the run's band power on every glued vertex equals the direct operator
     `F_l · form(K)` for the three forms (5e-8); the order against the form after the hat).
 - **`transform` = `auto` (the default).**
-  1. **Stored modes reach the band**: the package of the surface (`hodgeDirac[__<surface>]`, as `eigen solve` stores it) has an exact-mode eigenvalue λ_max at or above the band's top *with its Meyer edge* (`hi · 2^(1/3)`).
+  1. **Stored modes reach the band**: the package of the surface (`hodgeDirac[__<surface>]`, as `run eigenmodes` stores it) has an exact-mode eigenvalue λ_max at or above the band's top *with its Meyer edge* (`hi · 2^(1/3)`).
      F_l = Φ g(λ) Φᵀ ⋆0 on the package's exact modes (those with a non-zero gain; the constant is added exactly for the level-0 scaling member, which no package stores), g the level's Weyl member, Φ unit-norm in the glued mesh's vertex mass
      (read off the stored potentials ψ/√2).
-  2. **No package**: the modes are COMPUTED (`eigen_solve`, enough by Weyl's law: exact modes ≥ 1.25 · A · reach / 4π + 16, A the surface's area; package size = `--modes`, default max(3000, 2 × that), so a later `eigen solve` of the standard size is a hit),
-     STORED as `eigen solve` stores them, and SAID: `eigenmodes computed and stored: N modes (n exact), largest exact eigenvalue λ 1/m^2, name hodgeDirac` in the progress (`{"stage": "spatial_band", "message": …}`), in the
+  2. **No package**: the modes are COMPUTED (`eigen_solve`, enough by Weyl's law: exact modes ≥ 1.25 · A · reach / 4π + 16, A the surface's area; package size = `--modes`, default max(3000, 2 × that), so a later `run eigenmodes` of the standard size is a hit),
+     STORED as `run eigenmodes` stores them, and SAID: `eigenmodes computed and stored: N modes (n exact), largest exact eigenvalue λ 1/m^2, name hodgeDirac` in the progress (`{"stage": "spatial_band", "message": …}`), in the
      result's `messages`, and in the provenance (`spatial_band.messages`, `spatial_band.package.computed`).
   3. **Stored modes that do not reach the band** (a fine level), or modes that cannot be computed (a cortex of two pieces with no Desikan–Killiany medial wall, more than two pieces, a package above `max_modes` = 8000): **Chebyshev, ANNOUNCED**:
      a warning in the progress, the report's `warnings`, and the stored `producer_json.warnings`, e.g. `spatial band of level 6 of cortex: CHEBYSHEV fallback, not eigenmodes: the stored eigenmodes (hodgeDirac: 51 Laplace-Beltrami modes, largest
@@ -985,16 +1000,16 @@ Hodge–Dirac package holds that spectrum (its exact modes); the series only app
 - **Cost, for later.** The solve is the package's (the standard 3000 modes on a 20k-vertex cortex: minutes to hours, memory of the eigenvectors V × K × 4 bytes ≈ 240 MB); a level needs about 1.6 · 2^l · pieces exact modes (two hemispheres: level 5: ~100, level 8: ~800, level 9: ~1600), so a 3000-mode
   package (about 1500 exact) reaches level 9, not 10. Reading a package reads the whole eigenvector file once per band (the columns of the band are kept); a column-wise read would avoid it. The package is the subject's: computing it here stores it for every later user.
 - **Cannot resolve / limits.** Modes are the glued surface's (above). A band whose λ range exceeds the package is the series (announced), never extrapolated. Eigenvalues come from the package's own solve (its mollified intrinsic Delaunay mesh), the series from the unmollified one: they agree to the solver's tolerance, not bit for bit.
-- **Tested** (`test_spatial_band`, synthetic): no stored modes → computed, stored (`eigen solve`'s rows), the message in the progress, the result and the provenance, the band equal to the dense exact one (7e-8); stored modes → used with no computation and no message, the same key and result; a level beyond the
+- **Tested** (`test_spatial_band`, synthetic): no stored modes → computed, stored (`run eigenmodes`'s rows), the message in the progress, the result and the provenance, the band equal to the dense exact one (7e-8); stored modes → used with no computation and no message, the same key and result; a level beyond the
   stored modes → the series with the warning (level, both λ, the degree), forced `eigen` refused; too few modes asked, over the cap, or a two-piece surface with no atlas → the announced fallback, forced `eigen` refused, forced `chebyshev` silent and writing nothing; a two-hemisphere cortex glued by anatomy → the stored
   modes on the glued surface equal the dense glued band, the wall carries 0; the plan's key differs by transform; `test_cortical_cells` and `test_patches_pipeline` check the announced fallback of the default run.
 
-## Tile features of a source estimate over space × time (`joint compute`, `run cortical_cells`; spec `docs/specs/2026-11-13-cortical-events.md`, phase 2a)
+## Tile features of a source estimate over space × time (`run joint`, `run cortical_cells`; spec `docs/specs/2026-11-13-cortical-events.md`, phase 2a)
 
 **Why.** The windowed features of a source estimate on the cortex: where and when a band's amplitude is large, per CELL = (a spatial tile of a level of the surface ladder) × (a time tile of the band's
 constant-Q level). The cells are the ground the space × time events (phase 2b) will be detected on. The graph, its decisions and its check against the Studio's chain and the atlas audit: the spec's "Phase 2a: the graph".
 
-- **The joint partition** (`joint compute`, `nxr/pipelines/joint.h`): a closed-form `set` Selection on (surface × the recording's time line), the Studio atlas's code layout ported: code = (tile << B) | time tile, B =
+- **The joint partition** (`run joint`, `nxr/pipelines/joint.h`): a closed-form `set` Selection on (surface × the recording's time line), the Studio atlas's code layout ported: code = (tile << B) | time tile, B =
   max(1, ceil(log2(max(2, F)))) with F the time tiles. One per (spatial level, time level, recording): the PAIR names both bands (the level IS the band, in space and in time). `params_json.joint` records the layout, the band
   and both levels. Rerun keeps it; `--replace` rewrites it and drops the measurements over it.
 - **The chain** (`run cortical_cells`, `pipelines/definitions/cortical_cells.yaml`): `analytic` (the time band) → `apply_kernel` with `tiles` and `level` (M = (F_l ⊗ I) K, the level's Weyl band folded into the kernel
@@ -1016,11 +1031,11 @@ constant-Q level). The cells are the ground the space × time events (phase 2b) 
 **Why.** The joint plane per tile: the same cells at several spatial scales and several bands at once, so the events of phase 2b can be compared across scales. `cortical_cell_pairs` is `cortical_cells` for every pair of
 `space_levels` × `bands` in ONE chunk pass: each band's analytic signal once, each level's M_l = (F_l ⊗ I) K bound once (shared by every band: a run-scoped constant, `ExecContext::shared`), then per pair |z| and the two measures over that pair's joint Selection.
 
-    nxr-neuro joint compute --dataset D --subject S --recording R --space-level 5 --time-level 3        # once per pair (and recording)
-    nxr-neuro run cortical_cell_pairs --dataset D --subject S --set 'space_levels=[3,4,5]' --set 'bands=[[4.0,8.0],[8.0,16.0],[16.0,32.0]]' --chunks all
+    nxr-neuro run joint --dataset D --subject S --recording R --space-level 5 --time-level 3        # once per pair (and recording)
+    nxr-neuro run cortical_cell_pairs --dataset D --subject S --space-levels '[3,4,5]' --bands '[[4.0,8.0],[8.0,16.0],[16.0,32.0]]' --all
 
 - **The pairs are the product of two lists**, each band a constant-Q level's `resolves_hz` (D84), each level the ladder's Weyl band (`transform: auto`: eigenmode first, Chebyshev second, as *The spatial band's transform*, per pair). A set that is not a product is two runs.
-- **The joint Selections must exist** (`joint compute`, one per pair and recording): a missing one is refused before any data is read, naming EVERY missing pair with the command that makes it; a band that is no level of the recording is the same refusal.
+- **The joint Selections must exist** (`run joint`, one per pair and recording): a missing one is refused before any data is read, naming EVERY missing pair with the command that makes it; a band that is no level of the recording is the same refusal.
 - **Stored exactly as `cortical_cells` stores one**: per pair, rows of the recording on its joint Selection (`amplitude`, `envelope_max`, `count`; the array [spatial tiles × time tiles × 2] beside the recording, named `<recording>_cortical_cell_pairs.<measure>_l<level>_b<band>`), so
   every reader works unchanged. A pair measured by `cortical_cells` and by this run is "another job's" for the other (`--replace`).
 - **The definition repeats, the executor does not**: a definition may repeat an input, an output or a block of steps over list parameters (`for: {band: $bands}`, `{band}` in a name and `$band` as a value: the written-out names are `cells_l5_b8_16`, `amplitude_l5_b8_16`);
@@ -1065,7 +1080,7 @@ constant-Q level). The cells are the ground the space × time events (phase 2b) 
     recorded, a minimum longer than any burst gives empty sets). The dev check of the spec (both detectors on the fixture and on a stationary lag-free surrogate) is not done here: it needs the surrogate of piece 10.
 - **Not built**: the trace stored as a Field, the decimated trace, the `posterior` model.
 
-## The time tower and the frame tiling (`frametiling compute`, step `frames`; `compute/include/nxr/tower.h`, `frame_tiling.h`; spec `docs/specs/2026-11-14-measurement-pyramid.md`, step 1)
+## The time tower and the frame tiling (`run frametiling`, step `frames`; `compute/include/nxr/tower.h`, `frame_tiling.h`; spec `docs/specs/2026-11-14-measurement-pyramid.md`, step 1)
 
 **Why.** Every reduction in time is a measurement on the dyadic tile system, so a frame must have a dyadic parent. nxr's time convention (D135, TOWER; `nxr/pipelines/atlas/tower.py`) does: **level L is a cycle of 86 400 · 2^L s** (the day is level 0; −18 is 0.33 s, −25 is 2.57 ms);
 the tile of a sample is `floor((start_s · fs + i) / (period · fs))` computed in samples (a frame is generally not a whole number of samples: 395.5 at 1200 Hz); a level-m tile above a frame is `code >> m`. Anchors: **recording** (tiles counted from its first sample), **day** (`--start-s`, seconds from
@@ -1073,7 +1088,7 @@ local midnight), **birth** (days since birth; in the pure functions only). The f
 - **`nxr::tower`** (pure functions of numbers and arrays): `periodS`, `levelForSeconds`, `levelAtOrUnder`, `frameLevelFor(centre, frames_per_cycle)`, `parent(code, up)`, `Placement::sampleCodes(level)` (nxr `Placement.sample_codes`, refuses a level above what is known), `FrameTiling` (`code0`, `count`, `position(k)`,
   `origin_s()`, `frameOfSample`, `tileOfFrame`), `frameSpan` (the frames whose start falls in a span of samples: a partition over any partition of the samples) and `rollTime` (below). **Golden:** `compute/test/golden/tower_golden.txt` from nxr's own `tower.py` and `rollup.time` (`gen_tower_golden.py`, synthetic placements and arrays): the code of every sample,
   the frames' count and per-frame samples, the roll-up for sum, max and min at every `code0` phase; `test_tower`.
-- **`nxr-neuro frametiling compute --recording R (--frame-level L | --centre HZ | --band LO,HI) [--frames-per-cycle 36] [--start-s S]`** stores the frame tiling as nxr stores it: a closed-form `spans` Selection **`<recording> frames <frame_s:g> s`** on the recording's time line, `params_json.tiling` {origin, width = hop = frame_s, count} and `params_json.atlas`
+- **`nxr-neuro run frametiling --recording R (--frame-level L | --centre HZ | --band LO,HI) [--frames-per-cycle 36] [--start-s S]`** stores the frame tiling as nxr stores it: a closed-form `spans` Selection **`<recording> frames <frame_s:g> s`** on the recording's time line, `params_json.tiling` {origin, width = hop = frame_s, count} and `params_json.atlas`
   {frame_s, frame_level, frame_code0, anchor, start_s, made} (nxr's own keys, so nxr and the Studio read it unchanged); the project's extras (the band, frames a cycle, the rate) are under `params_json.frame_tiling`. The level is **named** (`--frame-level`) or **derived from the band**: the coarsest tower level whose frame is **at or under 1/(centre × frames per cycle)**
   (10 Hz × 36 → level −25 = 2.57 ms; 12 Hz × 36 → −26 = 1.29 ms, since −25 is 2.57 ms, over 2.31 ms); the level, `frame_code0` and the anchor are recorded. One tiling per (recording, level); a rerun keeps it, `--replace` rewrites it.
   **This replaces the per-band tiling of PR #144** (frames_per_cycle × centre frames a second, `<recording>_frames_<centre>Hz_<n>`), which is **not kept as an option**: its frames did not nest in the dyadic tiles (the time-tiles rule).
@@ -1087,25 +1102,25 @@ local midnight), **birth** (days since birth; in the pure functions only). The f
 - **`nxr::tower::rollTime`** (nxr `rollup.time`, the Studio's `rollTime`): an array [rows × frames] rolled up to the tower's tiles of 2^m frames, frame 0 being code `code0`, so tile i is the code `(code0 >> m) + i`: a neutral front pad of `code0 mod 2^m` frames and a neutral tail (0, −∞, +∞); **only sum, max and min merge**. Golden-tested; **not yet wired into the lookup** (step 3 of the port).
 - **Tested** (`test_tower`; `test_frame_tiling`: the Kaiser-sinc of a 10 Hz exponential at 250 Hz to 6e-6; `test_frame_tiling_pipeline`: the stored Selection and its keys, a named level, a derived one, a day anchor, the mean over the frames equal to the direct sum, two chunk widths, the refusals).
 
-## The measurement pyramid (`pyramid build`; `compute/include/nxr/pyramid.h`, `pipelines/include/nxr/pipelines/pyramid.h`; spec `docs/specs/2026-11-14-measurement-pyramid.md`, step 2)
+## The measurement pyramid (`run pyramid`; `compute/include/nxr/pyramid.h`, `pipelines/include/nxr/pipelines/pyramid.h`; spec `docs/specs/2026-11-14-measurement-pyramid.md`, step 2)
 
 **Why.** Every reduction is a measurement on the dyadic space-time tiles, so band power is measured once, as mergeable ingredients, on cells every coarser tile is a sum of. This is nxr's design (D127-D135, D157, D158, D163) ported: the stored form is nxr's exactly, so nxr and the Studio read
 what nxr-neuro writes. "Atlas" survives only in the stored keys (`params_json.atlas`, `<partition>_atlas` nodes, the `atlas bands` Selection), which nxr owns; nxr-neuro's own names are the pyramid's.
 
-- **`nxr-neuro pyramid build --recording R [--kernel K] [--depth D] [--bands LO-HI,...] [--shape morlet|power_partition] [--halo-seconds 8] [--frame-level -18] [--start-s S] [--chunks ... | --start S --stop S] [--keep-bad-segments] [--replace]`**
+- **`nxr-neuro run pyramid --recording R [--kernel K] [--depth D] [--bands LO-HI,...] [--shape morlet|power_partition] [--halo-seconds 8] [--frame-level -18] [--start-s S] [--chunks ... | --start S --stop S] [--keep-bad-segments] [--replace]`**
   measures the band power of the cortical current `J = K A` (A: the band's analytic signal at the sensors; a constrained-orientation kernel) per **band × leaf × frame**: `power = sum a|J|^2`, `env = sum a|J|`, `envmax = max |J|`, `a` the lumped vertex area.
 - **The graph** (a chain of pure nodes, the Studio's device chain; the host loads, prepares and stores, and loops over no sample or chunk): sensors block (chunk + halo, io's chunk service) → spectrum → band analytic signal → `K A` → `partition::analyticSums` over (leaf, frame) → gather → io.
   `nxr::pyramid` and `partition::analyticSums` are functions of matrices; the chunk loop, the halo and the bad-sample mask are the chunk service's.
-- **Leaves (the tree partition).** The `set` Selection `<surface> tiles L<D>` of the surface's ladder (`tiles compute`, run first when the surface has none), leaf code `h 2^D + t`, `w` its leaf areas (the ladder's own arrays; nothing recomputed). **`D` defaults to the finest level every piece reaches** (leaves a few vertices each;
+- **Leaves (the tree partition).** The `set` Selection `<surface> tiles L<D>` of the surface's ladder (`run tiles`, run first when the surface has none), leaf code `h 2^D + t`, `w` its leaf areas (the ladder's own arrays; nothing recomputed). **`D` defaults to the finest level every piece reaches** (leaves a few vertices each;
   the spec's decision), `--depth` chooses (nxr's own default is 8). The partition's `params_json` gains nxr's `atlas` block `{tree, level, finest, gauge (the canonical frames' id or null), areas, node}`.
-- **Bands.** `atlas bands`: a `spans` Selection on the dataset's Frequency manifold (D158), code = the band's index; default the octaves 1-2 ... 32-64 Hz (nxr `DEFAULT_BANDS`); `--bands` names others. A subject has one bank: asking for another is refused (a code is an index into it). **The Frequency manifold is made when absent** (2026-11-15): when the dataset's default subject has none, `pyramid build` makes it there (the manifold and its standard `bands` Selection, the same rows `nxr-convert atlas default-subject` writes), additively, as `pyramid spatial-bands` makes the Eigenvalue line; a second run reuses it.
-- **Frames.** The tower frame tiling of the recording (`frametiling compute`, step 1; made when absent): `<recording> frames <s> s`, frame k = tower code `frame_code0 + k`; its per-frame good-sample `count` is the array `time/<recording>__<kernel>_samples` (with the time line), a `count` row on the tiling.
+- **Bands.** `atlas bands`: a `spans` Selection on the dataset's Frequency manifold (D158), code = the band's index; default the octaves 1-2 ... 32-64 Hz (nxr `DEFAULT_BANDS`); `--bands` names others. A subject has one bank: asking for another is refused (a code is an index into it). **The Frequency manifold is made when absent** (2026-11-15): when the dataset's default subject has none, `run pyramid` makes it there (the manifold and its standard `bands` Selection, the same rows `nxr-convert atlas default-subject` writes), additively, as `pyramid spatial-bands` makes the Eigenvalue line; a second run reuses it.
+- **Frames.** The tower frame tiling of the recording (`run frametiling`, step 1; made when absent): `<recording> frames <s> s`, frame k = tower code `frame_code0 + k`; its per-frame good-sample `count` is the array `time/<recording>__<kernel>_samples` (with the time line), a `count` row on the tiling.
 - **What is stored (nxr's names).** A byte-less Field of kind `source estimate` `<recording> x <kernel>` (by_operator the kernel, derived_from the recording, on cortex x time); one `set` Selection per recording x kernel x tree `<recording> x <kernel> <partition> x <frame_s> s` with code `(tile << B) | frame`,
   `params_json.joint {space, time, bits, tiles, frames, layout [band, tile, frame]}`; array-backed measurement rows `power_sum`, `envelope_sum`, `envelope_max` (within = `atlas bands`, within_code = the band's index, of the estimate); their float64 arrays `[band, leaf, frame]` in the node
   `source-time/<recording>__<kernel>_atlas/<tree>/{power,env,envmax}` (nxr's `atlas_node`). **The node key is nxr's `<recording>__<method>_<stamp>`** when the kernel is named as Brainstorm names it (`<method>_KERNEL_<stamp>`: method = before `_KERNEL_`, stamp = the 11 characters after, as nxr's `nxr_store`); a kernel of any other name keeps its whole name there (rows authoritative). The estimate's `producer_json` carries `method` and `stamp` (null for such a kernel), its `label` is `<method> (constrained)` and its `data_type` `float32`, as nxr. **dtypes are nxr's** (checked in nxr's `scalars.band_power`, which allocates with `np.zeros`): power, env, envmax float64, the per-frame count int64, the kernel float32, the leaf codes int32; nothing to convert. **Derived at read (`measure query`, below):** every mean, density and ratio, and every roll-up (space by reshape on `code >> (D - l)`, time on the tower, `nxr::tower::rollTime`).
   A bad sample carries no current and no count (zero before the projection, as nxr), so sums stay mergeable; a frame outside the span holds 0 (maxima -inf) and a count of 0.
 - **Old `divergence` Fields have the inverted sign (found 2026-11-14).** Before the exact tile flux replaced it (#189), `phasegradient --spatial-band` stored the per-vertex divergence of the propagation as `d0ᵀ ⋆1 (−∇φ) / ⋆0`, the NEGATIVE of the divergence (sources were stored as sinks). Fields of kind `divergence` made by it between 2026-11-13 and #189 carry that sign: multiply by −1 to read them (verified on a sphere with a plane wave: slope −1.005 against the analytic −2kz; nxr, the Studio and the stored `phase_flux` have the correct sign). No dataset was changed. See `docs/open-items.md`.
-- **`band_power_source_map` is retired (the maintainers delegated, 2026-11-14).** The measurement pyramid's `power` (`pyramid build`) is the band power of the source estimate, at leaf resolution, as mergeable sums with the mean power and density derived at read; a per-vertex mean-square Field is no longer written. **Factor 2:** the pyramid's power is that of the ANALYTIC signal, |K z|², which is twice the mean square of the real band-pass (⟨x²⟩ = ⟨|z|²⟩/2 for the same band), so a map converted from the retired definition is divided by 2 (or the pyramid's multiplied by ½). The runner's tests run on a fixture definition of the same chain (`pipelines/test/definitions/band_power_test.yaml`, not shipped).
+- **`band_power_source_map` is retired (the maintainers delegated, 2026-11-14).** The measurement pyramid's `power` (`run pyramid`) is the band power of the source estimate, at leaf resolution, as mergeable sums with the mean power and density derived at read; a per-vertex mean-square Field is no longer written. **Factor 2:** the pyramid's power is that of the ANALYTIC signal, |K z|², which is twice the mean square of the real band-pass (⟨x²⟩ = ⟨|z|²⟩/2 for the same band), so a map converted from the retired definition is divided by 2 (or the pyramid's multiplied by ½). The runner's tests run on a fixture definition of the same chain (`pipelines/test/definitions/band_power_test.yaml`, not shipped).
 - **The filter.** `morlet` (the default; the project's fixed-band rule: a Gaussian gain, unit peak, centred on (lo+hi)/2, FWHM hi-lo, analytic = positive frequencies doubled; `filterbank::morletBand`) or **`power_partition`** (nxr's `band_gains`: squared gains sum to 1, so band powers add to broadband).
   nxr filters the whole record with one FFT; here each chunk is filtered WITH a halo (default 8 s, `--halo-seconds`), circular over the block, so the first and last `halo` seconds of a recording carry the filter's edge effect (nxr's whole-record filter has the same at both ends).
 - **Refusals come before the compute.** A stored `atlas bands` bank that differs from the one asked for, and a dataset with no default subject to hold the Frequency manifold, are refused before the first chunk is read, not after the run (`test_pyramid_pipeline`).
@@ -1115,7 +1130,7 @@ what nxr-neuro writes. "Atlas" survives only in the stored keys (`params_json.at
   record in one block: **max relative error 2.4e-7** (nxr computes in float32). The Morlet shape in an 8 s halo against the same filter on the whole record: 1.0e-6. `test_pyramid_pipeline`: the stored rows and arrays; the chain over the whole record against the stored power on interior frames with a 4 s halo and the power-partition bank
   (**3.9e-5**: the halo's truncation of the bank's 1 Hz edge); the Morlet default on the same samples in chunks of 2048 and 1000 (**1.7e-6**); one chunk by default; refusals. `io/test/parity/test_pyramid_parity.py` (nxr's Python reads what was written: its `atlas_view` discovers the frames, the estimate and the joint partition; its keys, measure names and `atlas_node`; its `rollup`).
 - **The cache (method rule 3; `pipelines/cache.h`, the same stamp as the other verbs).** The estimate's `producer_json.cache` = `{pipeline: pyramid_build, params, input, compute}`: **params** every option that changes the arrays (shape, bands, halo seconds and samples, frame level, `start_s`, depth, the span with its chunk range, the recording's chunk width, `block_samples`, whether bad segments are excluded, orientation), **input** the identity of what it ran on (the recording's id and length, the kernel's id and a hash of its array and channels, the leaf partition's id, a hash of the bad spans), **compute** the library version. A rerun with the same key is a **hit**: nothing is read, computed or written, the stored result is byte-identical, and `info.cache` says `hit`. Any other option is another result; it collides on the stored name (`<recording> x <kernel>`) and is refused without `--replace`, as other verbs do. Every option is also written out in `producer_json` (so a reader sees them without decoding the key).
-- **Free-orientation kernels: the orientation tensor** (`nxr::partition::tensorSums`, `nxr::pyramid::frameKernel` / `tensorBandSums`; nxr `measure/vectors.py` `band_tensor`). A kernel of three rows a source (x y z; `to_value_type vector3`) is projected on the surface's stored **canonical frames** (the gauge: `<surface>_canonical_frames`, e1 north, e2 west, n outward; `frames compute` first, refused without) and the Hermitian tensor of the band's analytic current J = (J1, J2, Jn) is summed per band x leaf x frame, as nxr:
+- **Free-orientation kernels: the orientation tensor** (`nxr::partition::tensorSums`, `nxr::pyramid::frameKernel` / `tensorBandSums`; nxr `measure/vectors.py` `band_tensor`). A kernel of three rows a source (x y z; `to_value_type vector3`) is projected on the surface's stored **canonical frames** (the gauge: `<surface>_canonical_frames`, e1 north, e2 west, n outward; `run frames` first, refused without) and the Hermitian tensor of the band's analytic current J = (J1, J2, Jn) is summed per band x leaf x frame, as nxr:
   `t11 t22 tnn` = Σ a|J1|², Σ a|J2|², Σ a|Jn|²; `t12r t12i` = Σ a Re / Im(J1 J2*); `t1nr t1ni`, `t2nr t2ni` the same of 1 and 2 with n; `total` = Σ b (|J1|² + |J2|² + |Jn|²). Stored as float64 `[band, leaf, frame]` in `source-time/<recording>__<method>_<stamp>_atlas/<tree>/tensor/{t11,...,total}`;
   measures `tensor_11 tensor_22 tensor_nn tensor_12_re tensor_12_im tensor_1n_re tensor_1n_im tensor_2n_re tensor_2n_im tensor_total` (10 x bands rows, `within` the bands); the estimate is `value_type vector3`, label `<method> (free)`, and has no `power` / `env` / `envmax` (as nxr: the trace is `tensor_total`).
   **Singular vertices** (no canonical frame: the registered sphere's poles and ill-conditioned ones, NaN in the stored frames) are out of the nine sums (weight 0) and in `total` with their whole |J|² under an arbitrary orthonormal basis completed by a fallback normal, normal share included (corrected in nxr and here together, 2026-11-14; nxr had a zero normal row). All are sums, so any coarser tile is a sum of them
@@ -1134,7 +1149,7 @@ what nxr-neuro writes. "Atlas" survives only in the stored keys (`params_json.at
   - **A measurement's spatial band is its `within` key** (`within_selection_id` = the bank, `within_code` = the level), exactly as the frequency band is.
   - **Both a frequency band and a spatial band: no schema change.** A measurement row has one `within` pair, and a conjunction is a labelling of its own (the schema, D30). So the **joint bands Selection** (`band_key_selection`): a `set` Selection (no members stored) on the product Frequency x Eigenvalue, `params_json.band_key = {bands, spatial_bands, n_bands, n_spatial, layout}`, **code = band * n_spatial + spatial band**; a measurement with both takes it as its `within_selection_id`. `band_key_code` / `band_key_split` are the one place the arithmetic lives.
   - **The lookup** (`query_measurements` with the store): `spatialBand` (CLI `--spatial-band K`) beside `band`. The row's within Selection says what its code means (frequency bank, spatial bank or joint key); `band` and `spatialBand` together pick one row of a joint key, one alone is refused when the other still has several values (naming it), a band the rows do not carry is refused (`no_such_row`); the answer's rows carry `band` and `spatial_band`. Roll-up in space and time is unchanged (the band selects the row; for a joint array the leading axis is indexed by the within code).
-  - **What it does not do yet.** The pyramid's own `pyramid build` rows (power, tensor) have a frequency band only, and no spatial band: a band-limited current at a spatial scale is a step-5 measurement (`phasegradient` takes it). `test_spatial_bands`: the line, the bank's edges against the ladder, a rerun, spatial-band rows read and rolled up against a brute-force sum (three bands, three levels of space), the joint key's pick and refusals.
+  - **What it does not do yet.** The pyramid's own `run pyramid` rows (power, tensor) have a frequency band only, and no spatial band: a band-limited current at a spatial scale is a step-5 measurement (`phasegradient` takes it). `test_spatial_bands`: the line, the bank's edges against the ladder, a rerun, spatial-band rows read and rolled up against a brute-force sum (three bands, three levels of space), the joint key's pick and refusals.
 - **What it cannot resolve** (in the estimate's `producer_json.warnings`): the minimum-norm current is smooth, so its resolution is the kernel's point-spread, not the leaves' (a leaf finer than it carries no independent information); octave bands are wide, so the amplitude is band-limited energy, not an oscillation's amplitude; Morlet bands overlap, so their powers do not add to broadband;
   the filter's edge effect at a recording's ends. **Not yet:** the Levi-Civita levels (`tensor_lc/L<k>`, `lc/L<k>`), the peak trajectory, the dataset's default-atlas definitions as defaults (depth, bands, frame level are options here), (spatial bands: done, step 4), the group reduce (step 6).
 
@@ -1142,8 +1157,8 @@ what nxr-neuro writes. "Atlas" survives only in the stored keys (`params_json.at
 
 **Why.** A group statistic needs every subject measured on the SAME cells. The pyramid's leaves in a subject's own tree are equal-area on that cortex, so two subjects' leaves are not the same tiles; the group tree is the default subject's ladder, reached by every subject through its registered sphere (nxr D127/D128), so the leaf of code `c` is the same region in every subject and what is measured on it adds cell for cell (D130). This is nxr's `geom/trees.py` `Template.tree_for` and `pipelines/atlas/reduce.py` ported; the stored keys are nxr's.
 
-- **The group tree per subject** (`nxr::ladder::groupTreeFor`, a pure function of arrays; `pipelines/group.h` `group_tiles_compute`). Each vertex takes the code of the nearest vertex of the default subject's primary cortex on the registered sphere (`<surface>_sphere` of both, normalised, piece by piece: left then right), at the template's code at that level (`code >> (finest - level)`). Stored as nxr stores it: the set `<surface>_group_tiles` (template, finest, the sphere match) with a member `<surface> group tiles L<l>` for every level 0 ... finest of the default ladder (code `h 2^l + t`, the default subject's level dictionary, its node `<name>_atlas/{codes, w}`, `w` the leaf areas on THIS subject's surface). Made by `pyramid build --tree group` when absent. **Cannot resolve:** the correspondence is the registration's (nearest vertex on the sphere, not a geodesic or a smooth map; `sphere_match_median`, `sphere_match_max` in the set's record); a subject whose sphere is poorly registered has leaves that are not the same region. The registration operator `<surface>_to_default` (nxr writes it) is not stored.
-- **`pyramid build --tree group [--depth D]`** measures on those leaves (`<surface> group tiles L<D>`, `atlas.tree = group`; D defaults to the dataset's atlas depth, the same in every subject). The subject tree and the group tree SHARE the estimate: one source estimate, one joint Selection a tree (`<recording> x <kernel> <partition> x <frame_s> s`), arrays in `<recording>__<method>_<stamp>_atlas/<tree>/...` (nxr's). The cache key of each tree's build is also stamped on its joint (`params_json.cache`; the tree is in the group's key only), a rebuild with other options needs `--replace` (which keeps the estimate when its options are the same and removes the other tree's joints when not).
+- **The group tree per subject** (`nxr::ladder::groupTreeFor`, a pure function of arrays; `pipelines/group.h` `group_tiles_compute`). Each vertex takes the code of the nearest vertex of the default subject's primary cortex on the registered sphere (`<surface>_sphere` of both, normalised, piece by piece: left then right), at the template's code at that level (`code >> (finest - level)`). Stored as nxr stores it: the set `<surface>_group_tiles` (template, finest, the sphere match) with a member `<surface> group tiles L<l>` for every level 0 ... finest of the default ladder (code `h 2^l + t`, the default subject's level dictionary, its node `<name>_atlas/{codes, w}`, `w` the leaf areas on THIS subject's surface). Made by `run pyramid --tree group` when absent. **Cannot resolve:** the correspondence is the registration's (nearest vertex on the sphere, not a geodesic or a smooth map; `sphere_match_median`, `sphere_match_max` in the set's record); a subject whose sphere is poorly registered has leaves that are not the same region. The registration operator `<surface>_to_default` (nxr writes it) is not stored.
+- **`run pyramid --tree group [--depth D]`** measures on those leaves (`<surface> group tiles L<D>`, `atlas.tree = group`; D defaults to the dataset's atlas depth, the same in every subject). The subject tree and the group tree SHARE the estimate: one source estimate, one joint Selection a tree (`<recording> x <kernel> <partition> x <frame_s> s`), arrays in `<recording>__<method>_<stamp>_atlas/<tree>/...` (nxr's). The cache key of each tree's build is also stamped on its joint (`params_json.cache`; the tree is in the group's key only), a rebuild with other options needs `--replace` (which keeps the estimate when its options are the same and removes the other tree's joints when not).
 - **`nxr-neuro pyramid reduce --dataset D/N --subjects A,B,C [--kernels SPEC] [--depth D]`** (dataset scope: **the subjects the caller names, never all by default**; a cohort). Sums the members into the DEFAULT SUBJECT's store (D131), in the node of its tile partition `<surface> tiles L<D>` (nxr's `atlas_node`), reading each member through its rows only:
   - **spatial maps**, by the field's KIND (a name carries a per-subject stamp, a kind does not): the measurement rows (`weight sum sum_square count min max`, the gradient sums) on the member's group partition, `maps/<kind>/{w,s1,s2,n,min,max}, grad/...`; sums add, `min` takes the minimum, `max` the maximum (the measure's own rule); `per_subject/mean` [subjects, leaves] = `s1 / w` of each member.
   - **source estimates**, by (task of the recording name, kernel method, orientation) with **time collapsed** (subjects share no clock): each member's frames are summed (maxima maxed) and so are its runs, then members merged: `time/<task>__<method>__<orientation>/{power, env, envmax | tensor/...}` [bands, leaves], `samples` (the good samples summed) and `per_subject/density` [subjects, bands, leaves] (power, or the tensor total, per m^2 per sample of each member). One kernel a member recording: `--kernels` (nxr's selector: `all`, `constrained`, `free`, `latest`, a kernel's method, stamp, name or a glob; tokens of one kind OR, kinds AND) chooses; two kernels of one method for one recording are REFUSED, never pooled. A kernel with no method (not Brainstorm-named) takes its own name in the key where nxr would write `None`.
@@ -1163,7 +1178,7 @@ histogram's range from the first 3000 burst frames, the cores stored as point ev
 - **`nxr::cores::corePatches`** (a pure function of a [vertices × frames] map, the mesh's edges, the vertex areas and positions, and a threshold; nxr `_core_patches`): per frame and per sense (+1 first), the connected vertices with
   sense · value ≥ threshold; no merging of patches that do not touch. Each core has its frame, sense, centre (the |value| · area-weighted centroid, in the positions' unit), area, and nxr-neuro's own **centre vertex** (the patch's vertex
   nearest the centre) and **peak** (the largest sense · value). Frames are independent: blocks of frames, each given its first frame, give the same list (the memory of a call is the block's frames × vertices).
-- **The chain (both runs; one linear map before any non-linear step, D106).** `analytic` (band, Morlet) → `frames` (the frame tiling of `frametiling compute`, with `within` the named bursts: the good frames are the burst frames, and not the bad segments')
+- **The chain (both runs; one linear map before any non-linear step, D106).** `analytic` (band, Morlet) → `frames` (the frame tiling of `run frametiling`, with `within` the named bursts: the good frames are the burst frames, and not the bad segments')
   → `apply_kernel` (form `curl_tan`, the level's Mexican hat, on the GLUED surface: one cortex, the bridge filled by the hat; linear, so it commutes with the frame sampling, and runs on the frames in blocks) → `core_histogram` or `cores`. The bursts (`bursts`, e.g. `global_bursts.bursts_kept.{recording}`) and the
   tiling (`tiling`, `{recording} frames <frame_s> s`) are stored nodes read by name; the caller names them. A complex field is read by its real part (Re(M z) = M Re(z) for a real linear map: the real band's curl).
 - **Pass one, `run vortex_core_threshold` (step `core_histogram`, accumulate).** The distribution of |curl| over the good frames, pooled over the vertices, in 4096 log bins, a **statistic** `vortex_core_threshold.histogram.<recording>`
@@ -1226,7 +1241,7 @@ tile's crossings are counted so that places with many tracks do not outvote plac
 - **Derived at read** (never stored; `measure` registry, nxr-neuro's own 1121-1126): **`crossing_consistency`** R = |S| / n and the unbiased **`crossing_rho2`** = (|S|² − n) / (n (n − 1)) (undefined for n < 2), read member by member with `derived_measurement_values`. R is biased upward for
   small n (one crossing has R = 1): **compare places of different counts by ρ², never R, and report the counts** (the project's trap, 2026-10-30; the data-to-null crossing ratio comes with the null, piece 10). The stored sums and counts do not roll up the ladder (vectors of different tiles are never
   added; reduction none): they are at the level they were made.
-- **Frames and transport.** The canonical frames when `frames compute` stored them, else the signpost basis (said); each tile's centre is the non-singular member nearest its area-weighted centroid, and ρ is `ladder::leviCivita(...).rho` on the NATIVE surface (the cores' glued vertices map to it through the stored
+- **Frames and transport.** The canonical frames when `run frames` stored them, else the signpost basis (said); each tile's centre is the non-singular member nearest its area-weighted centroid, and ρ is `ladder::leviCivita(...).rho` on the NATIVE surface (the cores' glued vertices map to it through the stored
   package's support, the bridge has none).
 - **What it cannot resolve.** A crossing is the direction a core moved through a tile between frames of the band's signal. The transport is path-dependent on a folded cortex (the Studio's intrinsic-Delaunay heat method against nxr's geometry-central one: 0.08° on a sphere, more on a fold); a tile's R by itself
   is no evidence of travelling: the lag-free null is (piece 10). Tracks shorter than `min_frames` make no crossing. Warnings are in the provenance.
@@ -1235,16 +1250,16 @@ tile's crossings are counted so that places with many tracks do not outvote plac
   the stored tracks, 1 358 crossings in 16 tiles) equal `nxr::crossings::crossings` on the stored cores with the frames and transport made in the test (counts identical, sums to 2e-4 of 172), R and ρ² are the formulas, a stage's rows equal the direct run with the mask, a rerun is a hit, a stage named without
   its Selection is refused). The synthetic source space has no crossing on its bridge: the bridge member is tested by hand only.
 
-### Run-to-run repeat of the crossings (`repeat compute`, `pipelines/include/nxr/pipelines/run_repeat.h`, `nxr::crossings::repeat`; spec piece 8)
+### Run-to-run repeat of the crossings (`run repeat`, `pipelines/include/nxr/pipelines/run_repeat.h`, `nxr::crossings::repeat`; spec piece 8)
 
 **Why.** If cores really move in a preferred direction in a tile, it should be the same direction when the subject is recorded again. The project's population work used the repeat across two rest runs as its test (nxr `repeat`, `tile_dot`).
-- **`nxr-neuro repeat compute --dataset D/N --subject S --recording-a A --recording-b B [--over TILES] [--stage NAME|INDEX] [--min-crossings 10] [--name NAME] [--replace]`**: a statistic over the two recordings' stored `tile_crossings` (`run vortex_cores` first on both, on
+- **`nxr-neuro run repeat --dataset D/N --subject S --recording-a A --recording-b B [--over TILES] [--stage NAME|INDEX] [--min-crossings 10] [--name NAME] [--replace]`**: a statistic over the two recordings' stored `tile_crossings` (`run vortex_cores` first on both, on
   the same tile level; read through io, never a recording). A tile's two senses are POOLED (a core turns sense each half cycle: the direction is the tile's, not the sense's; the two 3-D sums are vectors at the same centre). Only tiles with at least `min_crossings` (10, nxr's
   NMIN_TILE) crossings in BOTH runs count:
   - **per tile:** the dot product of the two runs' mean resultant vectors (S/n), large only when both runs are consistent and agree, near 0 when either is inconsistent, negative when they go opposite ways (NaN with fewer crossings);
   - **whole recording:** the count-weighted mean cosine of the tiles' directions, weight min(n_a, n_b) (a tile whose sum vanishes in a run has no direction and is left out).
 - **Stored** as two statistics of the first run's Field (the other named in `options`): `vortex_cores.run_repeat.<a>.<b>.tiles` (measure `repeat_dot`, method `run_repeat`, [tiles], the axis the level's Selection) and `….whole` (measure `repeat_cosine`, [1]); `--stage NAME` (burst, onset, within, offset) takes that stage's pair of rows (2i, 2i+1) in EACH run: `run vortex_cores` writes the stage names on the crossing rows (` · stages burst,within` at the end of their `computed_by`; no schema change), so two runs may list their stages in another order, and a name a run lacks is refused with the names it has. `--stage INDEX` takes rows 2S and 2S+1 of both (crossings stored before the names exist have only this); the default is stage 0 (`burst`). A stage other than the first names the statistic `….<stage>` (`….stageS` by index). A rerun is a hit; `--replace` moves the old aside. Maths: `nxr::crossings::poolSenses`, `repeat` (pure functions of arrays).
-- **The p-value is `null compute`'s** (`nxr-neuro null compute --recording-a A --recording-b B`: a tile's dot against the lag-free null's draws, run A's draw i against run B's, Benjamini-Hochberg over the tiles, stored as `….p` and `….whole_p`; see *The lag-free null in the graph and its tests*); `repeat compute` stores the statistic only (said in its provenance warnings).
+- **The p-value is `run null`'s** (`nxr-neuro run null --recording-a A --recording-b B`: a tile's dot against the lag-free null's draws, run A's draw i against run B's, Benjamini-Hochberg over the tiles, stored as `….p` and `….whole_p`; see *The lag-free null in the graph and its tests*); `run repeat` stores the statistic only (said in its provenance warnings).
 - **What it cannot resolve.** Two runs of one subject share the cortex, the kernel and the instrument's leakage: agreement is evidence only against the null. A tile needs 10 crossings in each run: with few cores most tiles are left out (`tiles_used` of `tiles`
   are reported).
 - **Tested** (`test_crossings`, golden `gen_repeat_golden.py`: nxr's `repeat` and `tile_dot` on planted tile sums of two runs, most tiles agreeing, three opposed, a few with too few crossings: per-tile dots to 1e-16, the cosine to 1e-12; the same motion twice gives 1, reversed -1,
@@ -1266,17 +1281,17 @@ spectrum (never flat), its zero-lag covariance and its amplitude envelope, and r
 - **`besagCliffordP`** (h exceedances: h / n when stopped, else (e + 1) / (n + 1)) and **`benjaminiHochberg`** (NaN tiles left out of the tests).
 - **What it cannot resolve.** The null has the data's covariance at zero lag, its spectrum and its envelope, and nothing else: a result beyond it is beyond what mixing and amplitude modulation produce, never a proof of a wave. Its spatial structure is the band's (the cross-spectrum's real part), the same at every frequency.
 
-### The lag-free null in the graph and its tests (`run lagfree_envelope`, `run vortex_null`, `null compute`; steps `power_series`, `lagfree_surrogate`; spec piece 10)
+### The lag-free null in the graph and its tests (`run lagfree_envelope`, `run vortex_null`, `run null`; steps `power_series`, `lagfree_surrogate`; spec piece 10)
 
 **Why.** Cores, tracks and crossings are descriptions; a tile's direction consistency and the run-to-run repeat are evidence only beyond the lag-free null. The null is the SAME vortex graph run on a surrogate of the recording.
-- **Ingredients (all stored, read by name):** the recording's Welch PSD (`psd compute`: the spectrum's shape, never flat), the band's cross-spectrum (`crossspectrum compute --channels-of KERNEL --bands alpha:8-12`: √(Re C) mixes the draw and its channels are the null's), and the data's band power
+- **Ingredients (all stored, read by name):** the recording's Welch PSD (`run psd`: the spectrum's shape, never flat), the band's cross-spectrum (`run crossspectrum --channels-of KERNEL --bands alpha:8-12`: √(Re C) mixes the draw and its channels are the null's), and the data's band power
   in dyadic time tiles (`run lagfree_envelope`: step `power_series`, a reduction over a time partition folded chunk by chunk; the statistic `lagfree_envelope.series.<recording>`, [tiles x (sum, count)], measure `power_sum`, method `power_tiles`; the mean is derived at read; bad samples leave the tiles).
   The stored band cross-spectrum is one matrix a band (the bins averaged): it carries the covariance but not the spectrum's shape within the band, which is why the shape comes from the PSD.
 - **`lagfree_surrogate`** (a chunk step, `x: recording` gives the rows, rate and samples only): `nxr::surrogate::lagfreeBlock` for the cross-spectrum's channels (the others are 0, the kernel uses none), scaled by √(the data's tile power / the draw's expected power through the band's analytic gain), so the analytic signal of the draw
   has the data's envelope. A function of the sample index: chunk-size independent (tested in compute to the last bit). `seed` is a parameter; a draw is the graph with another seed, in the cache key and, by the definition header `draw: seed`, in the stored node's name.
 - **`run vortex_null`** is `vortex_cores` after `lagfree_surrogate`: analytic, frames on the DATA's burst frames, the curl of the hat, cores at the DATA's stored threshold, tracks, `tile_crossings` with `as: statistic`. Only the draw's tile crossings are stored, as a statistic beside the recording
   (`vortex_null.draw<seed>.null_crossings.<recording>`, [stage x sense, tiles + bridge, (x y z, count)], measure `crossing_sum`, method `lagfree_null`: small); the surrogate, cores and tracks of a draw are never stored.
-- **`nxr-neuro null compute --recording-a A [--recording-b B] [--set NAME=VALUE ...]`** runs the draws in batches (default 20; at least 20, at most 100; `--batch`, `--min-draws`, `--max-draws`), reading each from the store, and tests the data's crossings against them (stage by `--stage NAME|INDEX`, the senses pooled, tiles with at least `--min-crossings` 10):
+- **`nxr-neuro run null --recording-a A [--recording-b B] [--NAME VALUE ...]`** runs the draws in batches (default 20; at least 20, at most 100; `--batch`, `--min-draws`, `--max-draws`), reading each from the store, and tests the data's crossings against them (stage by `--stage NAME|INDEX`, the senses pooled, tiles with at least `--min-crossings` 10):
   - the **crossing consistency** per tile: the unbiased ρ² = (|S|² - n) / (n (n - 1)) (never R), one-sided; with B, the **run repeat** per tile (the dot of the two runs' mean resultants, draw i of A against draw i of B: the two runs' seeds are 100000 apart so their noise is independent) and the count-weighted mean cosine;
   - the **sequential p** of Besag and Clifford (h = 10 exceedances: h / n, else (e + 1) / (n + 1)); the draws stop when every tile with a statistic has h exceedances (after the minimum), else at the maximum; **Benjamini-Hochberg** q over the tiles. A rerun is a hit; draws that exist are kept, so a larger `--max-draws` continues.
   - **Stored** (statistics of the recording over the level's Selection): `vortex_cores.null.<rec>.consistency_p` [tiles x (p, q, exceedances)] (measure `null_p`, method `besag_clifford`), `.crossing_ratio` [tiles] (the data's crossings over the null's mean: the **data-to-null crossing ratio**, measure `crossing_ratio`), `.resultant` [tiles x (x, y, z, mean crossings)]
@@ -1298,7 +1313,7 @@ an area and a characteristic size. This section grows with the spec's pieces (th
   exclusion the chunk service applies to the samples. It is a mean over a partition's members folded by additive sums (a measurement), never a reduction inside a pointwise step. **Stored:** a STATISTIC
   `spatial_baseline.baseline.<recording>` (measure power, method mean, `[vertex × level]`, the vertex axis on the glued surface, the levels named `level<l>` and listed in `options`; the chain it is of in `options.chain`; `n_members` the
   good frames), beside the recording. A cut of the run (`--chunks`) cuts it. **Memory** per block of frames: see `apply_kernel` `levels` (the operator) and `--block-frames`.
-  `nxr-neuro run spatial_baseline --dataset D --subject S --set band=[8.0,12.0] --set levels=[2,3,4,5,6,7,8] --set bursts=<the kept bursts> --chunks all`. **What it cannot resolve:** the baseline is the power with no named burst
+  `nxr-neuro run spatial_baseline --dataset D --subject S --band '[8.0,12.0]' --levels '[2,3,4,5,6,7,8]' --bursts '<the' kept bursts> --all`. **What it cannot resolve:** the baseline is the power with no named burst
   on, not the brain's noise-free state: bursts that were missed, or activity below the detection threshold, are in it.
 - **`relative` (piece 2; step, chunk, pointwise).** x (a band's power per vertex and level) divided row by row by a stored baseline read BY NAME (`baseline`: a statistic of method mean, measure power): a diagonal scaling,
   `nxr::scaling::divideRows` (compute/, general algebra: a matrix and a vector of divisors in, a matrix out; refuses a divisor that is not finite and above 0). It is bound once in preparation, refuses a baseline of another chain (band,
@@ -1325,10 +1340,10 @@ an area and a characteristic size. This section grows with the spec's pieces (th
   the centre vertex and frame), `size_cm` (that level's centre wavelength 2π/√λ_c, cm), `relative_peak` (the largest relative power in the patch; unitless, 1 is the baseline). `min_area` (m², 0: none) drops smaller patches. **Home map (piece 6):**
   a second output, the statistic `spatial_events.home.<recording>` (measure count, method occupancy, `[vertex × (frames in a patch, burst frames)]`): counts, additive over frames; the fraction frames_in_patch / frames is DERIVED at read.
   A vertex is in a patch when its relative power is at least the threshold (`min_area` drops events, not vertices). Frames are independent: the result does not depend on the storage chunk or on `--block-frames` (tested).
-  Run order on a recording: `frametiling compute` (its band), `run global_bursts` (the bursts), then
-  `nxr-neuro run spatial_baseline --dataset D --subject S --set band=[8.0,12.0] --set levels=[2,3,4,5,6,7,8] --chunks all`,
-  `nxr-neuro run spatial_threshold --dataset D --subject S --set band=[8.0,12.0] --set levels=[2,3,4,5,6,7,8] --set reference_level=6 --chunks all` and
-  `nxr-neuro run spatial_events --dataset D --subject S --set band=[8.0,12.0] --set levels=[2,3,4,5,6,7,8] --set reference_level=6 --chunks all` (`--set bursts=…` names other bursts; `--set percentile=…`, `--set threshold=ratio --set ratio=…`, `--set transform=…`).
+  Run order on a recording: `run frametiling` (its band), `run global_bursts` (the bursts), then
+  `nxr-neuro run spatial_baseline --dataset D --subject S --band '[8.0,12.0]' --levels '[2,3,4,5,6,7,8]' --all`,
+  `nxr-neuro run spatial_threshold --dataset D --subject S --band '[8.0,12.0]' --levels '[2,3,4,5,6,7,8]' --reference-level 6 --all` and
+  `nxr-neuro run spatial_events --dataset D --subject S --band '[8.0,12.0]' --levels '[2,3,4,5,6,7,8]' --reference-level 6 --all` (`--bursts …` names other bursts; `--percentile '…`,' `--threshold ratio --ratio '…`,' `--transform …`).
   **What it cannot resolve:** a patch is where the band is strong inside a burst, not that a local generator is there (volume conduction and the inverse spread power over the cortex; the point-source reference is a separate measurement);
   the size is octave-spaced and one level per patch; the finest level bounds the resolution; the atom norms of `scale` are recomputed every run (open: storing them as a node read by name); the false-alarm threshold is a statement about the noise outside the bursts, so it assumes the outside frames are a fair sample of the noise inside them (a burst's own broadband tail is not).
 - **Tested** (`test_scaling`; `test_spatial_events_pipeline`, a synthetic two-hemisphere cortex, never a real dataset): the stored baseline equals the direct computation (taps, Kaiser-sinc at the frames, each level's dense exact hat) to 10⁻⁹ of the largest
@@ -1349,27 +1364,27 @@ an area and a characteristic size. This section grows with the spec's pieces (th
   what the events inside are to be read against. `patches` takes exactly one of `bursts` (the frames are inside) and `outside`.
 - **What it cannot resolve.** The reference is the band outside the bursts under the same instrument (the inverse's spread, volume conduction): it says what the threshold finds where no burst is on, not that patches inside the bursts are anything but more numerous or larger than that. It is not the lag-free null (below).
 
-### The spatial events against the lag-free null, and the instrument's blur (`run spatial_events_null`, `spatialnull compute`, `pointspread compute`)
+### The spatial events against the lag-free null, and the instrument's blur (`run spatial_events_null`, `run spatialnull`, `run pointspread`)
 
 - **`run spatial_events_null`** is `run spatial_events` on a lag-free surrogate of the recording (`lagfree_surrogate`: the recording's own spectrum, the band's real cross-spectrum as its zero-lag covariance, the data's band envelope; see the lag-free null above), the baseline, the threshold and the burst frames the DATA's. A draw is the run with `seed: i`
   (`draw: seed`: its own node, its own cache key); only its home map and its patch summary are stored (`spatial_events_null.draw<seed>.home.<recording>`, `.summary.<recording>`), never the surrogate or the patches (`events: false`).
-- **`nxr-neuro spatialnull compute --recording R [--set NAME=VALUE ...]`** runs the draws in batches (20, at least 20, at most 100, h = 10: Besag-Clifford) and tests the data's `spatial_events.home.<R>` and `.summary.<R>`: per glued vertex the HOME OCCUPANCY (the fraction of burst frames in a patch) one-sided against the draws, BH q over the vertices; and the SIZE
+- **`nxr-neuro run spatialnull --recording R [--NAME VALUE ...]`** runs the draws in batches (20, at least 20, at most 100, h = 10: Besag-Clifford) and tests the data's `spatial_events.home.<R>` and `.summary.<R>`: per glued vertex the HOME OCCUPANCY (the fraction of burst frames in a patch) one-sided against the draws, BH q over the vertices; and the SIZE
   DISTRIBUTION: the share of the patches at each characteristic level and in each area bin, and the patches per frame, two-sided (the draws at least as large, and at most as large). Stored (statistics of the recording): `spatial_events.null.<R>.home_p` [vertex x (p, q, exceedances)], `.home_null` [vertex] (the null's mean occupancy, what the home map is read against),
   `.size_null` [entry x (data, null mean, p_upper, p_lower, q_upper, q_lower)].
 - **What the null says.** It keeps the data's zero-lag covariance, so a STATIONARY spatial structure (a place that is always strong in the band) is reproduced by it: in the test (two planted blobs on a sphere) the null occupies the narrow blob's vertex in 0.97 of the burst frames against the data's 0.99. What the data has beyond it is what is left: an excess over the null, or a pattern that moves.
   It is not the instrument's blur, which is the next measurement.
-- **`nxr-neuro pointspread compute --recording R [--forward NAME] [--kernel NAME] [--vertices 20 | --list V,V,..]`** is the instrument's blur, a SEPARATE measurement (never built into a tool): a unit current at each sampled native vertex, along x, y and z separately (no orientation assumed), through the stored head model's gain (the operator of kind `forward`:
-  `headmodel compute`, `headmodel_surf_os_meg` and the like) and the stored inverse kernel (the resolution matrix's column of that source: K G e), read by the SAME chain the events are: each level's hat on the glued cortex, the power summed over the components, the patch where the reference level's power is at least `--fraction` (0.5) of its peak
+- **`nxr-neuro run pointspread --recording R [--forward NAME] [--kernel NAME] [--vertices 20 | --list V,V,..]`** is the instrument's blur, a SEPARATE measurement (never built into a tool): a unit current at each sampled native vertex, along x, y and z separately (no orientation assumed), through the stored head model's gain (the operator of kind `forward`:
+  `run headmodel`, `headmodel_surf_os_meg` and the like) and the stored inverse kernel (the resolution matrix's column of that source: K G e), read by the SAME chain the events are: each level's hat on the glued cortex, the power summed over the components, the patch where the reference level's power is at least `--fraction` (0.5) of its peak
   (a point source has no noise floor, so the half maximum, not the events' false-alarm threshold; `nxr::cores::corePatches`), and the characteristic level at the patch's centre (`nxr::scalespace`, the atoms' norms as `scale`). Stored as ONE statistic of the recording, `pointspread.<kernel>` (measure `point_spread`, method `point_source`) [source vertex x orientation x
   (peak_error_cm, diameter_cm, area_cm2, characteristic_level, size_cm, peak_power)]. A reader compares the events' sizes with it: a patch no larger than a point source's is the instrument's blur, not the source's extent.
   Tested (`test_pointspread`: a 10 cm sphere, a Gaussian smoothing gain of KNOWN width, a kernel that hands each sensor back to its vertex): the peak is at the source (0 cm over 54 sources); the patch diameter grows with the blur (4.4 cm for the identity, 4.9 for a 2 cm Gaussian, 8.1 for a 6 cm one); the three orientations agree where the model has no preference; a rerun is a hit. The sphere is small
   (its finest hat is 18.6 cm), so the characteristic LEVEL is the coarsest at every source: the test fixes the order and the localization, not the absolute width. **What it cannot resolve:** the blur of THIS head model and kernel (their noise model and regularisation) for a source ALONE, not of many together; sizes are octave-spaced levels.
 
-### The Wishart null of the second-moment measures (`wishart compute`, `nxr::surrogate::wishartDraw`; spec piece 10)
+### The Wishart null of the second-moment measures (`run wishart`, `nxr::surrogate::wishartDraw`; spec piece 10)
 
 - **Why a second null.** The surrogate (above) is a null for cores, tracks and patches (thresholds, links: not quadratic in the data). A quantity LINEAR in a burst's second moment Q_b = Σ z zᴴ (the quadrature, the lagged share, a phase current) needs no surrogate recording: its null is a distribution of Q. Under no lag Q_null ~ complex Wishart(Re Q_b / ν, ν), the burst's own
   zero-lag covariance with ν degrees of freedom (nxr `wishart`): 1000 draws a burst cost almost nothing. It complements the sign-flip test (is a direction SHARED across bursts?): the Wishart null asks whether LAGS EXIST AT ALL in each burst.
-- **`nxr-neuro wishart compute --recording R --windows <stem>_<band>_windows --bursts NAME --psd NAME --band LO,HI [--draws 1000] [--seed 1]`** is a statistic node on STORED inputs only: the analytic cross-spectrum windows (`crossspectrum compute --estimator analytic`), summed over the tiles wholly inside each burst (products add: exact; a burst with a missing tile has no test), the Welch PSD
+- **`nxr-neuro run wishart --recording R --windows <stem>_<band>_windows --bursts NAME --psd NAME --band LO,HI [--draws 1000] [--seed 1]`** is a statistic node on STORED inputs only: the analytic cross-spectrum windows (`run crossspectrum --estimator analytic`), summed over the tiles wholly inside each burst (products add: exact; a burst with a missing tile has no test), the Welch PSD
   (the band's EFFECTIVE BANDWIDTH: `nxr::surrogate::effectiveBandwidth` of the channels' mean PSD through the band's analytic gain, so ν = the burst's duration × that bandwidth), seeded draws (a draw is a function of seed, burst and draw index). What it measures is the **sensor-level lagged share** of each burst,
   ‖Im Q_b‖²_F / ‖Q_b‖²_F: per burst the draws at least as large (p = (e + 1) / (draws + 1)), Benjamini-Hochberg q over the bursts, and for the run the mean share against the null's mean over the same bursts. Stored: `wishart.<windows>.<bursts>` [bursts × (lagged_share, null_mean, p, q, dof)] (measure `null_p`, method `wishart_null`) and `….run` [(mean share, null mean, null sd, p)].
 - **Tested** (`test_wishart_null`, synthetic: a 10 Hz band process on six channels, no lag in bursts 0 and 2, 24 ms a channel in 1 and 3; 400 draws): the lagged bursts' shares 0.24 and 0.31 against null means 0.04 (p 0.005 and 0.0025, q 0.01), the lag-free bursts' 0.005 and 0.09 against 0.02 (p 0.59 and 0.027); the run's mean share is beyond its null; the same seed is the same result, a rerun is a hit.
@@ -1454,17 +1469,17 @@ Studio have no Riesz transform, so this is new, and the maths is written from th
   the other envelope refused without `--replace`; chunk widths 4096 and 1000 identical; a rerun a hit; a free kernel (1, 2, 2) gives 3 times the fixed cells; `cortical_cell_pairs` the same cells; the hand-over is TWO events under `temporal` and ONE under `spatiotemporal` at one
   exit level (extent z 5909 vs 6988 at the trough).
 
-## Quadrature per cell and per burst: travelling or standing (`cellquadrature compute`; `compute/include/nxr/quadrature.h`; spec `docs/specs/2026-11-13-cortical-events.md`, phase 2d)
+## Quadrature per cell and per burst: travelling or standing (`run cellquadrature`; `compute/include/nxr/quadrature.h`; spec `docs/specs/2026-11-13-cortical-events.md`, phase 2d)
 
 **Why.** Is the activity at a joint cell, or in a global burst, travelling or standing? A travelling or rotating pattern has a source cross-spectrum with a quadrature (imaginary) part, which no zero-delay mixing makes; a standing pattern (one real
 pattern times one phase) has none. Read per spatial tile of a level and per time band at its constant-Q level, so each cell and each burst carries its own answer, from stored products only: no recording pass.
 
-- **The inputs (all stored):** the analytic cross-spectrum's tiles (`crossspectrum compute --estimator analytic`: Σ z zᴴ per time tile, `<stem>_<band>_windows`), the inverse kernel (free or fixed; every component is used, no orientation assumed), the joint Selection of
-  the pair (`joint compute`; found by the cross-spectrum's recording, `--space-level` and its tile level, or `--joint NAME`) and, for bursts, a spans Selection on the recording's line (`--bursts NAME`, e.g. `run global_bursts`'s `bursts`).
+- **The inputs (all stored):** the analytic cross-spectrum's tiles (`run crossspectrum --estimator analytic`: Σ z zᴴ per time tile, `<stem>_<band>_windows`), the inverse kernel (free or fixed; every component is used, no orientation assumed), the joint Selection of
+  the pair (`run joint`; found by the cross-spectrum's recording, `--space-level` and its tile level, or `--joint NAME`) and, for bursts, a spans Selection on the recording's line (`--bursts NAME`, e.g. `run global_bursts`'s `bursts`).
   **The cross-spectrum's tile level must equal the joint pair's time level** (window_samples = 2^level): otherwise it is refused, with the levels the recording does have joints for. The cross-spectrum's band is the caller's: a band that is not
   the one the joint's level resolves is not refused but reported in `warnings`.
 - **The quantity.** For a spatial tile s of level l, B_s are the rows of M_l = F_l K of the tile's vertices (all components; M_l bound once, the level's spatial band folded in: eigenmodes first, Chebyshev an announced fallback, *The spatial band's transform*), T = B_s C B_sᵀ the
-  tile's source cross-spectrum, and the reading ‖Im T‖_F / ‖T‖_F (nxr's `lagged_fraction`; `quadrature compute`'s per-band figure, here per tile and per time tile or burst). For ONE travelling pattern it is at most 1/√2 ≈ 0.707; 0 for any standing pattern; up to 1 for several patterns at different phases.
+  tile's source cross-spectrum, and the reading ‖Im T‖_F / ‖T‖_F (nxr's `lagged_fraction`; `run quadrature`'s per-band figure, here per tile and per time tile or burst). For ONE travelling pattern it is at most 1/√2 ≈ 0.707; 0 for any standing pattern; up to 1 for several patterns at different phases.
 - **Without forming T:** with the channel Gram G = B_sᵀ B_s, ‖T‖² = tr(Cr G Cr G) − tr(Cq G Cq G) and ‖Im T‖² = −tr(Cq G Cq G) (C = Cr + i Cq): two channels × channels products per (tile, time tile) and nothing larger (`quadrature::groupedCongruenceNorms`, a function of matrices).
   Cost: 2 m³ flops per spatial tile and time tile (m channels); 128 tiles × 600 time tiles × 270 channels is about 10 minutes. Memory: M_l (rows × channels doubles) and the tiles of C (tiles × m² complex).
 - **What is stored: the ingredients, never the ratio.** `cross_spectrum_norm2` = Σ|T_ij|² and `cross_spectrum_quadrature_norm2` = Σ|Im T_ij|² (nxr-neuro's own measures 1022 and 1023, reduction sum), as measurements OF the recording over (a) the JOINT cells: an array beside the recording
@@ -1475,7 +1490,7 @@ pattern times one phase) has none. Read per spatial tile of a level and per time
   over the burst's tiles (Σ_t ‖T_t‖² ≠ ‖T of Σ_t C_t‖²: on a stable travelling wave of n tiles the second is n times the first, tested). Over SPACE the ingredients of a union of tiles are not the sum of the tiles' (the cross-tile blocks are missing). The stored measures say so in their descriptions.
   A burst's time tiles are those stored tiles wholly inside its [start, stop]; a burst with a missing tile (dropped for a bad sample, or outside the stored span) reads NaN, never a partial sum (`events_read` in the result).
 - **What it cannot show.** The cells' ingredients are a tile's own internal quadrature only; the quadrature BETWEEN two tiles (a wave running from one tile into the next) is in the cross-tile blocks, which are the tile pairs (next item). A source-space quadrature is the sensors' quadrature through the kernel
-  (no zero-delay mixing adds any), and the kernel's spread blurs a pattern into neighbouring tiles. The fraction is a summary: it discards which vertices lead which, the direction and the speed (`phasegradient`, `speedspectrum`, `quadrature compute`'s pairs).
+  (no zero-delay mixing adds any), and the kernel's spread blurs a pattern into neighbouring tiles. The fraction is a summary: it discards which vertices lead which, the direction and the speed (`phasegradient`, `speedspectrum`, `run quadrature`'s pairs).
   Noise alone reads a high fraction on a short window (a band of width B over T seconds holds about B·T independent samples), so a fraction is read where the tile carries power (its `cross_spectrum_norm2`). No nulls (out of scope).
 - **Area weights (`--weights area|none`, default `area`.** The ingredients are Σ_ij a_i a_j |T_ij|² and Σ_ij a_i a_j |Im T_ij|², a the barycentric vertex areas (the tiles' areas are sums of them), so the value does not change when a region of the mesh is sampled more
   finely; `none` counts every vertex equally (the behaviour before this option; same cache key and rows). The trace form with W = diag(a): G = Bᵀ W B, ‖W^½ B X Bᵀ W^½‖² = tr(X G Xᵀ G), the same two products. It is a new measure definition: rows made under the other setting are another job's and refused unless `--replace`.
@@ -1487,18 +1502,18 @@ pattern times one phase) has none. Read per spatial tile of a level and per time
   (3-component) kernel; the planted travelling tiles read 0.50 and the standing 0.0005 (cells and bursts); a burst's ingredients equal the dense form on the summed C (1e-14) and are 4 times the cells' sum on a 4-tile wave; a burst with a dropped tile is NaN; the derived fraction equals √(‖Im T‖²/‖T‖²); a rerun is a hit; other rows refused unless `--replace`;
   the refusals (tile level of the cross-spectrum not the pair's, no joint at the level, not a cross-spectrum, not events).
 
-## Scale selection: each event's own size and rhythm across level pairs (`run cortical_event_pairs`, `scaleselection compute`; `compute/include/nxr/scale.h`; spec `docs/specs/2026-11-13-cortical-events.md`, "Phase 2e")
+## Scale selection: each event's own size and rhythm across level pairs (`run cortical_event_pairs`, `run scaleselection`; `compute/include/nxr/scale.h`; spec `docs/specs/2026-11-13-cortical-events.md`, "Phase 2e")
 
 **Why.** An event has its OWN size and rhythm; we do not impose them. Detected over a declared set of (spatial level, time level) pairs, the same episode is seen at several pairs. The pair of its strongest response is its characteristic size (the level's tile,
 its Weyl band) and rhythm (the time level's band): scale selection as in blob detection (Rheome's `detect.blobscale`: the scale of the largest normalised response, read AT the blob; a selection on the ladder's edge is unresolved). Its response across the pairs
 (the footprint) says whether it is a single-scale rhythm or spread over scales. Descriptive: no nulls, no tests (out of scope).
 
-    nxr-neuro run cortical_event_pairs --dataset D --subject S --set 'space_levels=[3,4,5]' --set 'bands=[[4.0,8.0],[8.0,16.0]]' --chunks all     # one pass: every pair's cells, global bursts and extents
-    nxr-neuro scaleselection compute --dataset D --subject S --recording rest --space-levels 3,4,5 --time-levels 2,3                        # stored rows only: the selection
+    nxr-neuro run cortical_event_pairs --dataset D --subject S --space-levels '[3,4,5]' --bands '[[4.0,8.0],[8.0,16.0]]' --all     # one pass: every pair's cells, global bursts and extents
+    nxr-neuro run scaleselection --dataset D --subject S --recording rest --space-levels 3,4,5 --time-levels 2,3                        # stored rows only: the selection
 
 - **The per-pair half (`run cortical_event_pairs`).** `cortical_cell_pairs`' chain for every pair of `space_levels` × `bands`, and, after the loop and for each pair, what `global_bursts` does with one: the trace (the max over the level's tiles of the cells' amplitude),
   its baseline, the pair's OWN global bursts (`detect_spans`) and the extents of the bursts on the pair's cells (`cell_extent`, a labelling of the joint cells). The same steps, unchanged, written once a pair by `for:`; the executor has nothing analysis-specific.
-  The joint Selections of every pair must exist (`joint compute`; a missing one is refused naming every missing pair and its command). Not here (`global_bursts` has them for one pair): Rheome's fit of the burst's edges and the per-event measures. Options as `global_bursts`'
+  The joint Selections of every pair must exist (`run joint`; a missing one is refused naming every missing pair and its command). Not here (`global_bursts` has them for one pair): Rheome's fit of the burst's edges and the per-event measures. Options as `global_bursts`'
   (`enter_sd`, `exit_sd`, `merge_s`, `min_s`, `extent_enter_sd`, `extent_exit_sd`, `min_cells`, `min_area`, `groups`, `combine`). Stored per pair: the cells (as `cortical_cell_pairs`), `bursts_l<l>_b<band>` (spans), `cell_baseline_l<l>_b<band>` (median and robust SD
   a tile), `extents_l<l>_b<band>` (the labelling).
 - **The comparable unit.** Each event's response at a pair is read in standardized units: z = (cell amplitude − the tile's median) / its robust SD over the run's time tiles, as the extents were found. A raw amplitude (or the raw max over tiles) is not comparable across
@@ -1537,15 +1552,15 @@ is a STATISTIC: "field -> selection/measurements -> statistic. the statistic is 
   until then reads as one with no statistics: no migration. The parity test against nxr's `model.sql` compares everything but that block.
 - **Tested** (`test_statistic`): written and read back with its axes and record, its zarr.json, listed by its field, refusals (an unknown measure or method,
   axes that are not the values', no parent), removed; a dataset made before the table opens, recovers, has none, and gets the table with its first one.
-- **Statistic summaries** (`statistic compute`, the runner step `summarize`; spec `docs/specs/2026-11-13-statistic-summaries.md`): a stored measurement summarised
+- **Statistic summaries** (`run statistic`, the runner step `summarize`; spec `docs/specs/2026-11-13-statistic-summaries.md`): a stored measurement summarised
   over its partition's members into a statistic (method `summary`; a statistic ACROSS the members: MATLAB's ScalarizationMethod, by contrast, reduces within a frame, our measurement layer), per row, pooled or of the mean over rows; summaries
   mean · sd (n − 1) · median · mad (1.4826 MAD) · percentile:p (numpy linear) · peak · kurtosis · skewness · min · max (`nxr::stats`, golden from
   numpy/scipy). It reads either stored form (array-backed or scalar rows), never the recording; a rerun is a hit. `band_bursts` stores its thresholds'
   ingredients this way (its baseline) and detects from them.
-- **Next** (the spec's order): the other spectral producers, the histogram, Brainstorm's sensor-level timefreq on import. (`psd compute`'s PSD is a statistic since 2026-11-13; checked
+- **Next** (the spec's order): the other spectral producers, the histogram, Brainstorm's sensor-level timefreq on import. (`run psd`'s PSD is a statistic since 2026-11-13; checked
   against the code 2026-11-14, step 5 of the measurement pyramid: the `<recording>_psd_welch` Field of the spec's table is already gone.)
 
-## Measurements over a partition (`compute/include/nxr/partition.h`, `pipelines/include/nxr/pipelines/measure.h`; `measure compute`, `measure export`)
+## Measurements over a partition (`compute/include/nxr/partition.h`, `pipelines/include/nxr/pipelines/measure.h`; `run measure`, `measure export`)
 
 **Why.** A result Field (a band power map, a PET map) is vertex-resolved; statistics across people are run on its values per REGION or TILE. This is the
 second stage of a measurement: a stored Field reduced over the members of a partition, stored as measurements the Studio and nxr read and roll up.
@@ -1555,7 +1570,7 @@ second stage of a measurement: a stored Field reduced over the members of a part
   which `skewness` and `kurtosis` WITHIN a member are derived at read (1/n, MATLAB's; kurtosis not excess). Being raw moments, they lose precision when a
   member's mean is large against its spread (stated, never hidden).
 - **The median within a member** (`median`; numpy's: the mean of the two middle values for an even count) is EXACT and UNWEIGHTED, built by
-  `nxr::partition::medians` from the member's finite values; `measure compute` refuses it with a weight other than `none` (a weighted median is not built).
+  `nxr::partition::medians` from the member's finite values; `run measure` refuses it with a weight other than `none` (a weighted median is not built).
   It does not roll up: its reduction is `none`, so the lookup returns a member's own value and REFUSES a shift that groups members. In the runner's `measure`
   step it is taken over the run's whole span (per row) or over a constant-Q level's tiles (the median of the band's envelope |z|); each member's good
   samples are held per row until it closes, so a member over 2^20 samples is refused, never truncated (memory: the longest open member's samples x rows).
@@ -1605,8 +1620,8 @@ second stage of a measurement: a stored Field reduced over the members of a part
   tiling (one window over the run's span, constant-Q windows, events), never the block handed in. In sensor space it is the compact statistic of every
   source pair (K_u C K_vᵀ, the kernel being linear); the mean and the coherency are taken at read. Summing filterbank members' windows averages over
   frequency. `test_cross_spectrum`.
-- **Measuring a time-resolved Field over a time partition (`measure compute --over`).** `--over` names the tiling: a constant-Q ladder (`--level K`,
-  from `constantq compute`) or a closed-form `spans` Selection (the chunk grid `<recording>_chunks`, or any tiling of contiguous windows from the line's
+- **Measuring a time-resolved Field over a time partition (`run measure --over`).** `--over` names the tiling: a constant-Q ladder (`--level K`,
+  from `run constantq`) or a closed-form `spans` Selection (the chunk grid `<recording>_chunks`, or any tiling of contiguous windows from the line's
   start). `--fields` matches the time-resolved Fields on that tiling's time line (a recording, a filtered recording, a source series). The span is read
   through the chunk service, one chunk by default (`--chunks all` for the whole recording); each chunk is cut at the window edges and each piece reduced
   by `reduceTiles`, folded per window (the sums in double, narrowed once). Stored per Field, as the envelope is (D96): ONE array beside the Field,
@@ -1622,7 +1637,7 @@ second stage of a measurement: a stored Field reduced over the members of a part
   length unit, against the travel), `phase_gradient_magnitude`, `phase_gradient_direction_deg` (from north towards west: depends on the gauge),
   `travelling_index` (|Σj| / √(Σ|z|² Σ|∇z|²), 0…1: 1 a plane wave across the member, 0 a standing pattern or directions that cancel) and `phase_coherence`
   (|Σj| / Σ|j|). Each is a ratio of sums rolled up first, so a coarser member's travelling index is not the mean of its children's (`test_measures`).
-  **The quadrature family:** the stored sums `cross_spectrum_norm2` (Σ|T|²) and `cross_spectrum_quadrature_norm2` (Σ|Im T|²) of a member's source cross-spectrum (written by `cellquadrature compute`), and the derived `quadrature_fraction`
+  **The quadrature family:** the stored sums `cross_spectrum_norm2` (Σ|T|²) and `cross_spectrum_quadrature_norm2` (Σ|Im T|²) of a member's source cross-spectrum (written by `run cellquadrature`), and the derived `quadrature_fraction`
   (√(Σ|Im T|² / Σ|T|²), 0 for a standing pattern); a union's ingredients are NOT the sum of its members' (the cross blocks are missing), so a coarser member is measured, not rolled up (*Quadrature per cell and per burst*).
   Not yet: the speed (ω over the phase gradient's length needs the band's ω recorded with the Field), and the step that writes the sums (the chain's
   pointwise `phaseCurrent`, `power`, `gradientPower` reduced over a partition by the runner).
@@ -1631,7 +1646,7 @@ second stage of a measurement: a stored Field reduced over the members of a part
   member's moments are not written. A code with no vertex is written with a mean of 0, as the reference does. The `voronoi` weights are taken on the
   whole surface; the Studio's kit takes them per piece (the mollification differs in the last digits).
 
-## Optical flow (`compute/include/nxr/opticalflow*.h`, `opticalflow compute`)
+## Optical flow (`compute/include/nxr/opticalflow*.h`, `run opticalflow`)
 
 Rheome's `flow.apparent` for a recording, streamed (the memory held does not depend on the window's length). One member of a time filterbank (`--family`, `--gain`, `--freq`: no defaults) is
 applied at the sensors, carried through the kernel, and reduced to the amplitude |J| per source (`--input signed`: the band signal itself, fixed kernel only). Horn–Schunck optical flow is solved per
@@ -1643,7 +1658,7 @@ frame on the cortex, and each velocity is read at once in the Hodge–Dirac mode
 - Stored: `<stem>_flow_modes` (float32 [modes x frames-1]) on the eigen axis x `<stem>_time` (the coefficients are per frame, not a reduction), and, since step 5 of the measurement pyramid (2026-11-14), the
   divergence, curl, speed and velocity as additive **sums on the measurement pyramid**: a byte-less Field `<stem>_flow` and, per leaf of `<surface> tiles L<D>` (`--depth`) and per tower frame of the recording
   (`--frame-level`, `--start-s`), sums of the vertex values weighted by vertex area, per second, over the flow steps in the frame: `flow_divergence`, `flow_curl` (1/s), `flow_speed` (m/s, the tangent speed),
-  `flow_velocity_1` / `flow_velocity_2` (v . e1 / e2 in the canonical frames, with `frames compute`) and `flow_velocity_anterior` / `flow_velocity_second` (the anatomical frame), on a joint Selection
+  `flow_velocity_1` / `flow_velocity_2` (v . e1 / e2 in the canonical frames, with `run frames`) and `flow_velocity_anterior` / `flow_velocity_second` (the anatomical frame), on a joint Selection
   `<recording> x <stem> <leaves> x <frame_s> s`; the frame tiling's `count` of the Field is the steps a frame holds. The time means are derived at read (`measure query ... --measure flow_speed_density`: sum / (area x
   steps), at any space level and time level; the mean speed is the area-weighted mean of the vertices' mean speeds, `test_opticalflow_pipeline`: the leaf sums equal the steps x the vertex time means to 1e-6, the whole-cortex mean
   speed to 7 digits). **No per-vertex time-mean Field is written any more** (a correction, no option; Fields of earlier runs are untouched; a rerun over one needs `--replace`). A frame the member's rate does not
@@ -1828,12 +1843,12 @@ and λ₁ the frustration: the misfit no single map removes. The pointwise phase
 
 Directions and areas on the cortex need a coordinate system shared across people. Two of its steps are here:
 
-- `frames compute`: the **canonical frames** (north / west from the registered sphere `<surface>_sphere`; Rheome's sphereframe), and the **anatomical frame** (one angle per vertex from north
+- `run frames`: the **canonical frames** (north / west from the registered sphere `<surface>_sphere`; Rheome's sphereframe), and the **anatomical frame** (one angle per vertex from north
   to anterior, the second axis superior or medial, and a reliability mask stored as a Selection of the reliable vertices). The anatomical axes come from `--template` through the registered
   spheres, or else from the surface's own SCS axes projected on its tangent planes.
-- `tiles compute`: the **dyadic tile ladder** (the Studio's `surfaceLadder`, nxr's `geom.ladder`; it reads the surface's positions as stored, float64, as the Studio's backend and nxr
+- `run tiles`: the **dyadic tile ladder** (the Studio's `surfaceLadder`, nxr's `geom.ladder`; it reads the surface's positions as stored, float64, as the Studio's backend and nxr
   do: rounded to float32 first, a few vertices of the finer levels moved, 169 of fsaverage5's at level 11, fixed 2026-11-11): 2^l equal-area tiles per connected piece at level l, paired with spatial scale by Weyl's law,
-  stored as Selections with their areas, centres and adjacency. `opticalflow compute` and `quadrature compute` take `--tiles` to write their maps' tile summaries per level: scalars
+  stored as Selections with their areas, centres and adjacency. `run opticalflow` and `run quadrature` take `--tiles` to write their maps' tile summaries per level: scalars
   area-weighted, vectors in the canonical frame's components and in the Levi-Civita (transported) form, labelled, never raw 3-D sums.
   **A scalar map's summary is measurement rows** (step 5 of the measurement pyramid, 2026-11-14; `tile_summaries_write`): per level and map, nxr's `<node>/maps/<field>/{w,s1,s2,n,min,max}` arrays
   and the rows `weight`, `sum`, `sum_square`, `count`, `min`, `max` of the map's Field on the level's Selection (its `params_json.atlas` block makes it a partition the lookup reads); the mean (sum / weight),
@@ -1843,7 +1858,7 @@ Directions and areas on the cortex need a coordinate system shared across people
 
 The charts the frames are built on (heat distance, vector heat transport, log map, gauge heading, geodesic disc) are in `compute/include/nxr/chart.h`, ported line for line from the Studio.
 
-## The speed spectrum (`compute/include/nxr/speedspectrum.h`, `jointbank.h`; `speedspectrum compute`)
+## The speed spectrum (`compute/include/nxr/speedspectrum.h`, `jointbank.h`; `run speedspectrum`)
 
 **Stored (2026-11-13) as STATISTICS** by `welch`, one per mode kind and part: `<stem>_<kind>_<part>` (energy and histogram `power`, tile_speed `speed`,
 quadrature `quadrature_fraction`) on the axes graph member × time member (the histogram: × speed bin), from the Welch segment partition.

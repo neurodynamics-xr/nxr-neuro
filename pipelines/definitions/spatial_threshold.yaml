@@ -5,9 +5,9 @@
 # THE CHAIN, the same as spatial_events' up to the relative power at the reference level (one linear map before any non-linear step, D106): analytic (Morlet) → frames (the frame tiling; NO `within`: the run's frames) → apply_kernel
 # (no form; the hat at each of `levels` on the GLUED surface) → power → relative (÷ the stored baseline of `run spatial_baseline`, read by name) → at_level (the reference level) → relative_histogram. The good frames are the run
 # LEAVING OUT the bursts (`outside`) and the bad segments (`exclude`). The histogram's range is fixed from the run's first 3000 good frames, counted from its first, so it does not depend on the chunk size. A cut of the run
-# (`--chunks`) cuts the distribution. `levels`, `reference_level`, `band`, `shape`, `tiling` and the baseline must be those `run spatial_events` is run with: it refuses a distribution of another chain.
+# (`--from`/`--to`) cuts the distribution. `levels`, `reference_level`, `band`, `shape`, `tiling` and the baseline must be those `run spatial_events` is run with: it refuses a distribution of another chain.
 #
-#   nxr-neuro run spatial_threshold --dataset <folder> --subject sub-01 --set band=[8.0,12.0] --set levels=[2,3,4,5,6,7,8] --set reference_level=6 --chunks all
+#   nxr-neuro run spatial_threshold --dataset <folder> --subject sub-01 --band '[8.0,12.0]' --levels '[2,3,4,5,6,7,8]' --reference-level 6 --all
 pipeline: spatial_threshold
 version: 1
 description: the distribution of the relative band power outside the bursts (4096 log bins), a statistic from which the spatial events' false-alarm threshold is read
@@ -23,25 +23,25 @@ inputs:
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
-  band: [8.0, 12.0]
-  shape: morlet
-  spatial_shape: mexhat
-  levels: [2, 3, 4, 5, 6, 7, 8]   # the scale space: one hat each (2 and 3 reach the coarse sizes level 4 cut off;); must be the baseline's
-  reference_level: 6         # the level whose relative power the distribution is of
-  method: MNE
-  transform: auto
-  modes: 0
-  order: 0
-  tolerance: 0.01
-  tiling: "{recording} frames 0.00257492 s"
-  bursts: "global_bursts.bursts_kept.{recording}"            # the spans Selection the distribution LEAVES OUT (the bursts the events are cut inside)
-  baseline_statistic: "spatial_baseline.baseline.{recording}"   # the stored baseline (`run spatial_baseline`), by name
-  bad_segments: exclude
-  bins: 4096                 # nxr `_core_threshold`
-  range_frames: 3000         # the first good frames that fix the bins' range (nxr's chunk of 3000)
-  block_frames: 256          # the frames binned at once (memory only: the result does not depend on it)
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
+  band: {default: [8.0, 12.0], meaning: "the time level's band (its `resolves_hz`)", unit: "Hz"}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer", unit: "-"}
+  spatial_shape: {default: mexhat, meaning: "the spatial level's gain: mexhat | meyer", unit: "-"}
+  levels: {default: [2, 3, 4, 5, 6, 7, 8], meaning: "the scale space: one hat each (2 and 3 reach the coarse sizes level 4 cut off;); must be the baseline's", unit: "level"}
+  reference_level: {default: 6, meaning: "the level whose relative power the distribution is of", unit: "level"}
+  method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
+  transform: {default: auto, meaning: "the spatial band's transform: auto | eigen | chebyshev | exact", unit: "-"}
+  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
+  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: "degree"}
+  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
+  tiling: {default: "{recording} frames 0.00257492 s", meaning: "the frame tiling's name", unit: "-"}
+  bursts: {default: "global_bursts.bursts_kept.{recording}", meaning: "the spans Selection the distribution LEAVES OUT (the bursts the events are cut inside)", unit: "-"}
+  baseline_statistic: {default: "spatial_baseline.baseline.{recording}", meaning: "the stored baseline (`run spatial_baseline`), by name", unit: "-"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
+  bins: {default: 4096, meaning: "nxr `_core_threshold`", unit: "bins"}
+  range_frames: {default: 3000, meaning: "the first good frames that fix the bins' range (nxr's chunk of 3000)", unit: "frames"}
+  block_frames: {default: 256, meaning: "the frames binned at once (memory only: the result does not depend on it)", unit: "frames"}
 
 steps:
   chunks:

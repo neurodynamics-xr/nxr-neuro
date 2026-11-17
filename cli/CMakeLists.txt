@@ -26,7 +26,7 @@ install(FILES ${CMAKE_BINARY_DIR}/share/completions/nxr-neuro.fish DESTINATION s
 
 # the command line, tested through the built executable (cli/test/cli_tests.cmake); the cases need the pipelines
 if(NXR_NEURO_BUILD_TESTS AND TARGET nxr_pipelines)
-  foreach(case table helptext help verbs aliases range output json generated packages)
+  foreach(case table helptext help verbs aliases range output json generated packages pipelines)
     add_test(NAME cli_${case} COMMAND ${CMAKE_COMMAND} -DCLI=$<TARGET_FILE:nxr-neuro> -DWORK=${CMAKE_CURRENT_BINARY_DIR}/test-${case} -DCASE=${case}
                                       -P ${CMAKE_CURRENT_SOURCE_DIR}/test/cli_tests.cmake)
   endforeach()

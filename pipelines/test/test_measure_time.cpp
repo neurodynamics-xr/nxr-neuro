@@ -187,7 +187,7 @@ int main() {
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string();
-    const std::string common = " measure compute --dataset " + d + " --subject S1 --fields rest --chunks 0";
+    const std::string common = " run measure --dataset " + d + " --subject S1 --fields rest --chunks 0";
     CHECK_EQ(std::system((cli + common + " --over rest_time_constantQ --level " + std::to_string(lev) + " --replace > " + (root / "cli.log").string() + " 2>&1").c_str()), 0);
     CHECK(std::system((cli + common + " --over rest_time_constantQ --level " + std::to_string(lev) + " --weight none > /dev/null 2>&1").c_str()) != 0);
     DatasetWriter d2 = open_writer(root / "demo");

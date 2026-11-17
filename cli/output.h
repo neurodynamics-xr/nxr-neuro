@@ -13,7 +13,7 @@ struct OutputState {
   bool json_asked = false;     // `--json` was given (errors then carry their code)
   bool quiet = false;
   bool color = false;
-  std::string command;         // "compute psd": named in the result line
+  std::string command;         // "run psd": named in the result line
 };
 OutputState& output();
 

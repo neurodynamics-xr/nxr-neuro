@@ -93,17 +93,17 @@ async function both(argv, ok = true, { digits = 12, arrayTol } = {}) {
 const S = ['--dataset', '<DS>', '--subject', 'S01'];
 // a recording command states its time range (the caller's choice, never the command's): the whole of this short synthetic recording, read one chunk at a time
 const ALL = ['--all'];
-await both(['compute', 'noisecov', ...S, '--recording', REC, ...ALL]);
-await both(['compute', 'psd', ...S, '--recording', REC, ...ALL]);
-await both(['compute', 'lowpass', ...S, '--recording', REC, '--fpass', '20']);
-await both(['compute', 'headmodel', ...S, '--meg', 'none', '--eeg-surface', 'cortex_pial_low']);   // the synthetic subject has no scalp: the sphere fitted to its cortex
-await both(['compute', 'inverse', ...S, '--recording', REC, ...ALL]);
-await both(['compute', 'sourcepsd', ...S, '--recording', REC, ...ALL, '--bands', 'alpha:8-12']);
-await both(['compute', 'tiles', '--dataset', '<DS>', '--subject', 'sub-1']);
-await both(['compute', 'frames', '--dataset', '<DS>', '--subject', '@default_subject', '--convention', 'ras', '--replace']);
+await both(['run', 'noisecov', ...S, '--recording', REC, ...ALL]);
+await both(['run', 'psd', ...S, '--recording', REC, ...ALL]);
+await both(['run', 'lowpass', ...S, '--recording', REC, '--fpass', '20']);
+await both(['run', 'headmodel', ...S, '--meg', 'none', '--eeg-surface', 'cortex_pial_low']);   // the synthetic subject has no scalp: the sphere fitted to its cortex
+await both(['run', 'inverse', ...S, '--recording', REC, ...ALL]);
+await both(['run', 'sourcepsd', ...S, '--recording', REC, ...ALL, '--bands', 'alpha:8-12']);
+await both(['run', 'tiles', '--dataset', '<DS>', '--subject', 'sub-1']);
+await both(['run', 'frames', '--dataset', '<DS>', '--subject', '@default_subject', '--convention', 'ras', '--replace']);
 // LAST: its rows stay in the dataset at the solver's tolerance, which a later command's comparison would hold to the last place
 // a bumpy, asymmetric mesh of one piece (make_store.py: an icosphere with random radii): a symmetric one (the octahedron) has repeated eigenvalues, met only to the solver's tolerance, whose eigenvectors may turn freely within their space
-await both(['compute', 'eigenmodes', '--dataset', '<DS>', '--subject', 'sub-1', '--surface', 'bumpy', '--modes', '6'], true, { digits: 8, arrayTol: 1e-6 });
+await both(['run', 'eigenmodes', '--dataset', '<DS>', '--subject', 'sub-1', '--surface', 'bumpy', '--modes', '6'], true, { digits: 8, arrayTol: 1e-6 });
 for (const r of roundings.values()) console.log(`  not bit-equal (within tolerance): ${r}`);
 wasm.close();
 console.log(`wasm-io analysis vs the native command: ${checks} checks passed`);

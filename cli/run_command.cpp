@@ -1,11 +1,13 @@
-// nxr-neuro run — a pipeline definition (nxr's format, YAML) run on a subject: the runner (pipelines/include/nxr/pipelines/runner.h; the spec
-// docs/specs/2026-11-12-chain-graph.md §4). nxr's command (`nxr run`), the same options.
+// nxr-neuro run <pipeline definition> — a pipeline definition (nxr's format, YAML) run on a subject: the runner (pipelines/include/nxr/pipelines/runner.h; the spec
+// docs/specs/2026-11-12-chain-graph.md §4). The command line (cli/registry.cpp) is what the user types: `run <name | file.yaml> --dataset D --subject S --<parameter> VALUE
+// (--from S --to S | --all)`, each definition's parameters its own options with their declared meaning, default and unit (docs/specs/2026-11-17-compute-and-run.md, 6.2);
+// it hands this parser the old form below. The hand-wired pipelines (`run psd`, ...) have their own parsers.
 //
-//   nxr-neuro run DEFINITION --dataset D/N --subject S [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--replace] [--dry-run]
-//   nxr-neuro run --list
+//   DEFINITION [--set NAME=VALUE ...] --dataset D/N --subject S [--chunks K|A-B|all | --start S --stop S] [--replace] [--dry-run]
+//   --list       (reached as `nxr-neuro list pipelines`)
 //
-//   DEFINITION   one of nxr-neuro's own (by name: `run --list`) or a .yaml path
-//   --set        a parameter overridden; VALUE read as YAML (8, [15, 29], dSPM); repeatable
+//   DEFINITION   one of nxr-neuro's own (by name) or a .yaml path
+//   --set        a parameter overridden; VALUE read as YAML (8, [15, 29], dSPM); repeatable (what `--<parameter> VALUE` is turned into)
 //   --chunks / --start --stop   the span read (io's chunk service: one chunk by default)
 //   --replace    another job's outputs of the same names are moved aside (never deleted) and replaced; without it they are refused. A rerun with the same
 //                definition, parameters, inputs and span is a cache hit (nothing computed).
@@ -15,6 +17,7 @@
 #include <iostream>
 
 #include "cli.h"
+#include "registry.h"
 #include "nxr/io/database.h"
 #include "nxr/io/writer.h"
 #include "nxr/io/errors.h"
@@ -33,12 +36,13 @@ int run_main(const std::vector<std::string>& rest) {
   const bool list = std::find(rest.begin(), rest.end(), "--list") != rest.end();
   const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--chunks", "--start", "--stop", "--block-samples", "--block-frames"}, {"--dry-run", "--list", "--replace"}, {}, list ? 0 : 1, {"--set"}, "DEFINITION");
   if (a.flag.count("--list")) {
-    Json defs = Json::array();
+    Json defs = Json::array(), all = Json::array();
     for (const auto& n : g::available()) defs.push_back(n);
-    cli::emit(Json{{"stage", "result"}, {"pipelines", defs}, {"steps", g::catalogue()}});
+    for (const auto& n : cli::pipeline_names()) all.push_back(n);   // every pipeline `run` takes: the hand-wired ones and the definitions
+    cli::emit(Json{{"stage", "result"}, {"pipelines", all}, {"definitions", defs}, {"steps", g::catalogue()}});
     return 0;
   }
-  if (a.pos.empty()) usage(prog, "name a DEFINITION (one of nxr-neuro's: `run --list`; or a .yaml path)");
+  if (a.pos.empty()) usage(prog, "name a DEFINITION (one of nxr-neuro's: `list pipelines`; or a .yaml path)");
   if (!a.maybe("--dataset") || !a.maybe("--subject")) usage(prog, "--dataset and --subject are required");
   Json set = Json::object();
   if (a.multi.count("--set"))

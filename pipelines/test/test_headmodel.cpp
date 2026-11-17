@@ -2,7 +2,7 @@
 // layout the Brainstorm importer writes (3 magnetometers of four integration points, 2 planar gradiometers of two coils, 5 electrodes; per-channel orientations; the coils
 // manifold, its orientations and the csr coil weights), and a recording. Checks: the gain equals the library's on the same inputs (spheres fitted to the surfaces), it is
 // stored as an imported head model is (kind, shapes, value types, producer, params, GridLoc), a second call hits, a missing surface is refused naming the subject's surfaces,
-// and the CHAIN headmodel compute -> noisecov compute -> inverse compute runs on the computed head model, through the library and through the nxr-neuro command.
+// and the CHAIN run headmodel -> run noisecov -> run inverse runs on the computed head model, through the library and through the nxr-neuro command.
 #include <unistd.h>
 
 #include <cmath>
@@ -341,10 +341,10 @@ int main() {
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
-    CHECK_EQ(std::system((cli + " headmodel compute --dataset " + d + " --subject S1 --name hm_cli --meg single --sensor-weight-exponent 3 --eeg-series --eeg-series-terms 100 > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " headmodel compute --dataset " + d + " --subject S1 --name hm_cli --meg single --sensor-weight-exponent 3 --eeg-series --eeg-series-terms 100 >> " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " inverse compute --dataset " + d + " --subject S1 --forward hm_cli --noise-cov rest_noise_cov --name MN_cli >> " + log).c_str()), 0);
-    CHECK(std::system((cli + " headmodel compute --dataset " + d + " --subject S2 --name x --channels nothing > /dev/null 2>&1").c_str()) != 0);
+    CHECK_EQ(std::system((cli + " run headmodel --dataset " + d + " --subject S1 --name hm_cli --meg single --sensor-weight-exponent 3 --eeg-series --eeg-series-terms 100 > " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run headmodel --dataset " + d + " --subject S1 --name hm_cli --meg single --sensor-weight-exponent 3 --eeg-series --eeg-series-terms 100 >> " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run inverse --dataset " + d + " --subject S1 --forward hm_cli --noise-cov rest_noise_cov --name MN_cli --all >> " + log).c_str()), 0);
+    CHECK(std::system((cli + " run headmodel --dataset " + d + " --subject S2 --name x --channels nothing > /dev/null 2>&1").c_str()) != 0);
     std::ifstream in(log);
     std::string line, all;
     while (std::getline(in, line)) all += line + "\n";

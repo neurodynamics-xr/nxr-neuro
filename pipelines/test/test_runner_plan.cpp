@@ -191,9 +191,9 @@ int main() {
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
     ds.close();
-    CHECK_EQ(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --set method=dSPM --set 'band=[15, 29]' --dry-run > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " run --list >> " + log).c_str()), 0);
-    CHECK(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --set 'band=[1, 200]' --dry-run > /dev/null 2>&1").c_str()) != 0);   // past Nyquist
+    CHECK_EQ(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --method dSPM --band '[15, 29]' --dry-run > " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " list pipelines >> " + log).c_str()), 0);
+    CHECK(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --band '[1, 200]' --dry-run > /dev/null 2>&1").c_str()) != 0);   // past Nyquist
   }
 #endif
   fs::remove_all(root);

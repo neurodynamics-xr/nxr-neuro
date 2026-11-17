@@ -33,6 +33,35 @@ const std::regex kName("^[a-z][a-z0-9_]*$");
 std::string join(const std::vector<std::string>& v, const char* sep = ", ") { std::string s; for (const auto& x : v) s += (s.empty() ? "" : sep) + x; return s; }
 std::vector<std::string> keys(const Json& o) { std::vector<std::string> k; for (const auto& [a, b] : o.items()) { (void)b; k.push_back(a); } return k; }
 [[noreturn]] void err(const std::string& where, const std::string& msg) { refuse(where + ": " + msg); }
+
+// A PARAMETER, short or long. Short: `name: default`. Long: `name: {default: X, meaning: "...", unit: Hz}` (and `choices: [...]`): the command line's help is made from these
+// (docs/specs/2026-11-17-compute-and-run.md, 6.2). The long form is a table with a `default` key and no key but meaning, unit and choices; anything else is a default as written.
+bool long_form(const Json& v) {
+  if (!v.is_object() || !v.contains("default")) return false;
+  for (const auto& [k, _] : v.items()) if (k != "default" && k != "meaning" && k != "unit" && k != "choices") return false;
+  return true;
+}
+// a parameter named as a command-line option the verb reserves cannot be one (the option would be ambiguous): refused when the definition is read
+const std::set<std::string> kReserved = {"dataset", "subject", "from", "to", "all", "replace", "dry_run", "json", "help", "quiet", "no_color", "human", "version", "chunks", "start", "stop"};
+// the defaults (what the runner reads) and, apart, what each parameter declares about itself
+Json split_parameters(const Json& raw, Json& docs, const std::string& where) {
+  Json defaults = Json::object();
+  for (const auto& [k, v] : raw.items()) {
+    if (kReserved.count(k)) err(where, "parameters: '" + k + "' is a reserved option name of `run` (reserved: dataset, subject, from, to, all, replace, dry_run, json, help, quiet, no_color, human, version, chunks, start, stop)");
+    Json doc = Json::object();
+    if (long_form(v)) {
+      defaults[k] = v["default"];
+      for (const char* key : {"meaning", "unit", "choices"}) if (v.contains(key)) doc[key] = v[key];
+      if (doc.contains("meaning") && !doc["meaning"].is_string()) err(where, "parameters: " + k + ": meaning is a sentence");
+      if (doc.contains("unit") && !doc["unit"].is_string()) err(where, "parameters: " + k + ": unit is text ('-' for none)");
+      if (doc.contains("choices") && !doc["choices"].is_array()) err(where, "parameters: " + k + ": choices is a list");
+    } else {
+      defaults[k] = v;
+    }
+    docs[k] = doc;
+  }
+  return defaults;
+}
 std::vector<std::string> names(const Json& x, const std::string& where) {
   std::vector<std::string> out;
   if (x.is_string()) out.push_back(x.get<std::string>());
@@ -172,13 +201,18 @@ std::vector<StepUse> Definition::uses() const {
   return u;
 }
 
-Definition parse(const Json& doc, const std::string& source, const std::string& text) {
+Definition parse(const Json& written, const std::string& source, const std::string& text) {
   const std::string where = source.empty() ? "pipeline" : source;
-  if (!doc.is_object()) err(where, "a pipeline definition is a YAML mapping");
+  if (!written.is_object()) err(where, "a pipeline definition is a YAML mapping");
+  // the parameters' long form read: from here on `parameters` holds the defaults, and what each declares goes to `parameter_docs`
+  Json parameter_docs = Json::object();
+  Json doc = written;
+  if (written.contains("parameters") && written["parameters"].is_object()) doc["parameters"] = split_parameters(written["parameters"], parameter_docs, where);
   if (has_for(doc)) {                      // written out with the parameters' defaults to check it; `expand` writes it out again with a run's own
     const Json defaults = doc.contains("parameters") && doc["parameters"].is_object() ? doc["parameters"] : Json::object();
     Definition d = parse(expand_doc(doc, defaults, where), source, text);
     d.templ = doc;
+    d.parameter_docs = parameter_docs;
     return d;
   }
   std::vector<std::string> unknown;
@@ -210,6 +244,7 @@ Definition parse(const Json& doc, const std::string& source, const std::string& 
   if (!params.is_object()) err(where, "parameters: a mapping of name → default");
   names(Json(keys(params)), where + ": parameters");
   d.parameters = params;
+  d.parameter_docs = parameter_docs;
 
   const Json inputs = doc.contains("inputs") && !doc["inputs"].is_null() ? doc["inputs"] : Json::object();
   if (!inputs.is_object() || inputs.empty()) err(where, "inputs: at least one");

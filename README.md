@@ -82,14 +82,14 @@ The functions, their options and the readers are listed in [docs/reference.md](d
 One command, verb first: `nxr-neuro <verb> <what> [options]`.
 
     nxr-neuro --help                         # the verbs
-    nxr-neuro compute --help                 # the computations, by topic
-    nxr-neuro compute psd --help             # one command: every option with its meaning, default and unit, and an example
-    nxr-neuro compute psd --dataset store/demo --subject S1 --recording rest --from 0:10 --to 1:10
+    nxr-neuro run --help                     # the pipelines, by topic
+    nxr-neuro run psd --help                 # one command: every option with its meaning, default and unit, and an example
+    nxr-neuro run psd --dataset store/demo --subject S1 --recording rest --from 0:10 --to 1:10
 
 | verb | what it does |
 |---|---|
-| `compute <what>` | every computation (psd, crossspectrum, phasegradient, pyramid, opticalflow, nulls, ...) |
-| `run <pipeline>` | a pipeline definition (YAML) on a subject |
+| `run <pipeline>` | every pipeline on a subject: the built-in computations (psd, crossspectrum, phasegradient, pyramid, opticalflow, nulls, ...), the shipped definitions (`run global_bursts --band '[8,16]' --all`) and your own definition file (`run my.yaml ...`); a definition's parameters are options, each with its meaning, default and unit in `--help` |
+| `compute <node>` | reserved for applying a node or a graph to arrays and files (not available yet) |
 | `list datasets\|subjects\|recordings\|kernels\|results\|pipelines` | what exists |
 | `show dataset\|subject`, `read`, `query`, `export` | one thing in detail, stored arrays, measurements, a table for statistics |
 | `import <what>` | from a Brainstorm protocol |
@@ -101,7 +101,7 @@ Recordings are streamed one chunk at a time with bounded memory whatever the ran
 
 In a terminal the output is readable (a progress bar on stderr, a result line, what was stored); with `--json`, or when stdout is not a terminal, it is JSON lines, one per event,
 unchanged. `--quiet` prints only the result line; colour only in a terminal and never with `NO_COLOR`. Man pages and shell completion for bash, zsh and fish are built with the command
-(`nxr-neuro completion bash|zsh|fish`). The old spellings (`psd compute`, `dataset list`, ...) still work for now and print a notice on stderr. [docs/reference.md](docs/reference.md) lists every
+(`nxr-neuro completion bash|zsh|fish`). The old spellings of the pipelines (`psd compute`, `compute psd`, `run DEFINITION --set NAME=VALUE`, ...) are refused with the new spelling named; the other old spellings (`dataset list`, ...) still work for now and print a notice on stderr. [docs/reference.md](docs/reference.md) lists every
 command, its reference method, what it stores and what it cannot resolve; the grammar is in [docs/specs/2026-11-16-command-line.md](docs/specs/2026-11-16-command-line.md).
 
 ## Contributing
