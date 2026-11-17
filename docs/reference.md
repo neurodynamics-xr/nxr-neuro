@@ -263,6 +263,15 @@ linked statically and hidden (`nxr_io_hide_static_symbols`), zlib too where a st
 expected values as `bindings/python/tests`. `.github/workflows/matlab.yml` builds the MEX on Linux x86_64 and macOS arm64 and runs them with `matlab-actions/setup-matlab` and `run-tests` (tags, dispatch, and pull
 requests touching `bindings/mex/**`). Not in this slice: the pipeline commands (`nxr.compute.<verb>`), which wait for io's task-level API.
 
+## Exporters (`io/export/`, `io/include/nxr/exporters/`; spec `docs/specs/2026-11-17-interoperability.md` sections 3.3 and 5; D6: exports first)
+
+An exporter finds stored nodes through io's task API, opens their arrays, and hands them to a pure writer of `io/formats/`: it writes what is stored, in the units stored, or refuses, and does no maths. Every export:
+- writes a **provenance sidecar** `<first file>.json` (`nxr-export/1`): the producer and its version, the command and every option, the time range read (`span`), the package's name and content hash, each input (class, name, kind, unit, producer record, and the digest of its arrays: key count, bytes and one SHA-256 over the keys' recorded digests), the **terms** and each output file with its SHA-256. The same command writes the same bytes (no timestamps);
+- carries **licence and attribution** from the inputs' `origin` records: a ShareAlike licence among them (CC BY-SA, ODbL) becomes the output's licence and the output is flagged `share_alike`; `redistributable` only when every input's record says so; an input with no record is `unknown` and not redistributable; two different ShareAlike licences cannot be combined and are refused;
+- states the time range explicitly where it reads a series: `--from`/`--to` in seconds (or `--all`), required, refused for a map. The series is read chunk by chunk through the chunk service.
+
+**`export gifti`** (`nxr/exporters/gifti.h`): a Field on a surface (a map: `.func.gii` or `.shape.gii` with `--kind shape`; a series on surface x time line: one `NIFTI_INTENT_TIME_SERIES` array per frame of the range, each with `nxr-neuro:time`, the file with `TimeStep`), or a labelling (a partition or set Selection: `.label.gii`, an int32 array and the label table from the dictionary's names and colours; code -1 is key 0 `???` when the dictionary leaves 0 free, else refused). `--with-surface` adds `.surf.gii`; `--hemispheres` writes one file of each kind per hemisphere (`_hemi-L`, `_hemi-R`, `AnatomicalStructurePrimary` CortexLeft / CortexRight) from the components the glued cortex stores. The file metadata carries `nxr-neuro:version`, `:command`, `:producer`, `:origin`, `:licence`, `:attribution`, and per data array `Name`, `nxr-neuro:field`, `nxr-neuro:unit`. What GIFTI cannot hold is recorded in the sidecar, not hidden: values are written as float32 (`details.converted` says when the field was float64), and coordinates are written in the stored unit unless `--surface-unit m|mm` scales them. Only scalar fields are written. A GIFTI file is one XML document, so the frames of the stated range are held (as float32) to write it: the range bounds the memory. Tests: `test_export_gifti` (round trips with the pure reader) and `io/test/parity/test_export_gifti.py` (nibabel reads the files; with `NXR_EXPORT_GOLDEN_DIR` set the test keeps its files for it).
+
 ## Build
 
 CMake 3.20+, Ninja, a C++17 compiler; SQLite, zlib and zstd from the system (`brew install zstd`). c-blosc, HDF5, matio, Spectra and Eigen 3.4 are fetched into the build
@@ -397,11 +406,12 @@ with the `run` spelling.
 |---|---|---|
 | `nxr-neuro query measurements` | Query a stored measurement pyramid at any spatial and temporal scale. | `measure query` |
 
-### `export`: Export stored measurements as a table
+### `export`: Export stored results: measurements as a table, cortical maps as GIFTI
 
 | command | what it does | old spelling |
 |---|---|---|
 | `nxr-neuro export measurements` | Export stored measurements as a table for statistics (a row per subject), with its dictionary and provenance. | `measure export` |
+| `nxr-neuro export gifti` | Write a cortical Field (a map, or a series over a stated time range) or a labelling as GIFTI (.func.gii, .shape.gii, .label.gii), with the surface on request and a provenance sidecar. | - |
 
 ### `import`: Import data from Brainstorm into a dataset
 

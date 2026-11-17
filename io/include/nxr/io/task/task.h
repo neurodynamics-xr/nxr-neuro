@@ -9,6 +9,7 @@
 // Conventions: `find` returns one node or none and throws Error(ambiguous) when several match (the message names them); `require` throws Error(no_such_row) naming
 // what was asked for; only complete nodes are found unless `Want::status` says otherwise; `find_all` is ordered by name, then id.
 #pragma once
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -180,6 +181,23 @@ struct ProductOut {
   std::vector<std::string> factors;
   std::optional<std::string> acquisition_id;
 };
+// where a stored node came from and under what terms it may go on (the package's `origin` record); what an export carries with every file
+struct Origin {
+  std::string source, licence, attribution;
+  bool redistributable = false;
+};
+// one level of a dictionary (a labelling's names, with the colour when the level has one: [r, g, b], 0 to 255)
+struct DictionaryLevel {
+  std::int64_t code = 0;
+  std::string name;
+  std::optional<std::array<int, 3>> color;
+};
+// the size and SHA-256 of one stored key (a package records them as it writes)
+struct KeyDigest {
+  std::string key;
+  std::int64_t size_bytes = 0;
+  std::string sha256;
+};
 // How many nodes a subject holds, of each class, any status.
 struct NodeCounts {
   std::int64_t manifolds = 0, fields = 0, operators = 0, selections = 0;
@@ -209,6 +227,11 @@ class Subject {
   // the stored fields whose manifold is a product with `factor_manifold_id` as its axis `ordinal` (the fields over one time line, by name)
   std::vector<Node> fields_on_axis(const std::string& factor_manifold_id, std::int64_t ordinal) const;
   std::int64_t entry_count(const std::string& dictionary_id) const;   // the entries of a dictionary (a labelling's levels)
+  std::vector<DictionaryLevel> dictionary_entries(const std::string& dictionary_id) const;   // by display order, then code
+  // the origin record of a node with arrays (none: the package holds no record for it, or the database has no origin table)
+  std::optional<Origin> origin(const Node& n) const;
+  // the recorded digests of the keys under `prefix` (a package records them; a database that does not gives none), by key
+  std::vector<KeyDigest> key_digests(const std::string& prefix) const;
   std::vector<Span> spans(const Node& selection) const;
   Geometry geometry(const std::string& manifold_id) const;
   // The model's description of a found node (its manifolds, value type, time line and rate, unit): io's finder::Value.
