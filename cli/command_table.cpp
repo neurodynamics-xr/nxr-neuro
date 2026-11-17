@@ -1232,7 +1232,6 @@ summary: Optical flow (Horn-Schunck) of the source estimate: where and how fast 
 span: yes
 opts: --alpha --anchor --centres --chunks --cycles --datafit --dataset* --depth --family --flow-tolerance --frame-level --freq --gain --gamma --half-width --input --kernel --limits --max-iterations --method --name --no-levi-civita --oversample --package --preconditioner --recording* --regulariser --replace --resolution --scale-family --scale-filters --scale-voices --start --start-s --stop --subject* --tile-levels --tile-max-level --tiles --time-bandwidth --tolerance --voices --templates+
 )TBL",
-)TBL",
 R"TBL(@ run pyramid
 old: pyramid build
 alias: refused

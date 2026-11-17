@@ -9,7 +9,7 @@
 #   nxr-neuro run scaleselection --dataset <folder> --subject sub-01 --recording rest --space-levels '[4,5]' --time-levels '[2,3]'
 pipeline: scaleselection
 version: 1
-description: each event's own size and rhythm: the best spatial and temporal level of the stored pairs, by standardised response
+description: "each event's own size and rhythm, the best spatial and temporal level of the stored pairs by standardised response"
 scope: subject
 
 inputs:
