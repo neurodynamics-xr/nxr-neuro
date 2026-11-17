@@ -9,6 +9,7 @@
 #include <limits>
 
 #include "nxr/bst/sensors.h"
+#include "nxr/convert/recording_operators.h"
 #include "nxr/convert/sensor_frames.h"
 #include "nxr/formats/brainvision.h"
 #include "nxr/formats/ctf.h"
@@ -213,9 +214,7 @@ Json format_record(const std::string& format, const nxr::formats::RecordingReade
       for (const auto& d : in.dig) dig.push_back(Json{{"kind", d.kind}, {"ident", d.ident}, {"r", std::vector<double>(d.r.begin(), d.r.end())}, {"coord_frame", d.coord_frame}});
       rec["digitisation"] = dig;
     }
-    Json proj = Json::array();
-    for (const auto& p : in.projectors) proj.push_back(Json{{"description", p.desc}, {"active", p.active}, {"n_vectors", p.nvec}});
-    if (!proj.empty()) rec["projectors"] = proj;   // recorded; the samples are copied as the file stores them (no projector is applied)
+    // the projectors and the CTF compensation are operators (recording_operators.h); their record is added by import_recording
     if (!anonymize) {
       if (in.meas_date) rec["meas_date"] = Json::array({(*in.meas_date)[0], (*in.meas_date)[1]});
       if (in.experimenter) rec["experimenter"] = *in.experimenter;
@@ -263,6 +262,8 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
   }
   producer["origin"] = origin;
 
+  RecordingOperators ops = operators_of(reader);
+  const std::vector<double> projection = applied_projection(ops);     // the active projectors, applied as the samples are copied
   Json out;
   sub.compose([&] {
     std::map<std::string, std::string> units_by_type;
@@ -286,6 +287,8 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     if (!place.headpoints_cs_key.empty()) so.headpoints_cs_key = place.headpoints_cs_key;
     so.producer = Json{{"format", opt.format}, {"origin", origin}, {"frames", place.record}};
     const nxr::bst::SensorInfo si = nxr::bst::export_sensors(sub, mat, flags, so);
+    write_operators(sub, ops, so.name, si.id, opt.acquisition);
+    for (auto it = ops.record.begin(); it != ops.record.end(); ++it) producer[it.key()] = it.value();
     write_links(sub, place, si.id, opt.acquisition.empty() ? std::nullopt : std::optional<std::string>(opt.acquisition));
 
     nxr::bst::BlockRecording b;
@@ -305,6 +308,11 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     b.read = [&](std::int64_t s0, std::int64_t n, std::vector<float>& blk) {
       blk.resize(static_cast<std::size_t>(n_chan * n));
       reader.read(static_cast<std::uint64_t>(s0), static_cast<std::uint64_t>(n), 0, static_cast<std::size_t>(n_chan), blk.data());
+      if (!projection.empty()) {
+        std::vector<float> y;
+        nxr::bst::project(projection, static_cast<std::size_t>(n_chan), blk, static_cast<std::size_t>(n), y);
+        blk.swap(y);
+      }
     };
     out = nxr::bst::write_recording_blocks(sub, b);
     out["channels"] = si.name;

@@ -3,6 +3,7 @@
 #include <unistd.h>
 
 #include <cmath>
+#include <algorithm>
 #include <cstring>
 #include <set>
 #include <filesystem>
@@ -150,6 +151,50 @@ int main() {
     std::vector<float> hpos(18);
     std::memcpy(hpos.data(), hraw.data(), hraw.size());
     CHECK(std::fabs(hpos[0] + 0.08f) < 1e-6f && std::fabs(hpos[4] - 0.1f) < 1e-6f);
+    CHECK(p.verify().ok);
+  }
+  // an ACTIVE SSP projector is an operator and is applied to the samples as they are copied; an inactive one is only an operator
+  {
+    const fs::path pkg = root / "proj.nxr.zarr";
+    import_into(pkg, "fif_nodate_activeproj_raw.fif", false);
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node op = s.require({.cls = task::Cls::operator_, .name = "rec_channels_projector_1"}, "the projector");
+    CHECK_EQ(*op.kind, std::string("projector"));
+    const task::Node rec = s.require({.cls = task::Cls::field, .name = "rec"}, "the recording");
+    CHECK(rec.producer["projectors"][0]["active"].get<bool>());
+    const ArrayReader ar = ArrayReader::open(p.store(), *rec.path);
+    const std::int64_t C = ar.shape()[0], T = ar.shape()[1];
+    std::vector<float> got(static_cast<std::size_t>(C * T)), raw(static_cast<std::size_t>(C * T));
+    const std::vector<std::uint8_t> bytes = ar.read({0, 0}, {C, T});
+    std::memcpy(got.data(), bytes.data(), bytes.size());
+    auto reader = cv::open_recording("fif", data + "fif_nodate_activeproj_raw.fif");
+    reader->read(0, static_cast<std::uint64_t>(T), 0, static_cast<std::size_t>(C), raw.data());
+    const double v[3] = {0.618984043598175, -0.7750996947288513, 0.1268039047718048};   // MNE's projector vector over EEG000..2 (the golden)
+    double worst = 0, scale = 0;
+    for (std::int64_t t = 0; t < T; ++t) {
+      double d = 0;
+      for (int c = 0; c < 3; ++c) d += v[c] * raw[static_cast<std::size_t>(c * T + t)];
+      for (int c = 0; c < 3; ++c) {
+        const double want = raw[static_cast<std::size_t>(c * T + t)] - v[c] * d;
+        worst = std::max(worst, std::fabs(got[static_cast<std::size_t>(c * T + t)] - want));
+        scale = std::max(scale, std::fabs(want));
+      }
+      CHECK(got[static_cast<std::size_t>(3 * T + t)] == raw[static_cast<std::size_t>(3 * T + t)]);   // the other channel is untouched
+    }
+    CHECK(worst < 1e-5 * scale);
+  }
+  // the CTF compensation of a FIF file: an operator on the channels (MEG rows, reference columns), at the grade the data are at
+  {
+    const fs::path pkg = root / "comp.nxr.zarr";
+    import_into(pkg, "fif_comp_raw.fif", false);
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node op = s.require({.cls = task::Cls::operator_, .name = "rec_channels_ctf_compensation"}, "the compensation");
+    CHECK_EQ(*op.kind, std::string("ctf compensation"));
+    CHECK_EQ(op.fact("nnz").get<std::int64_t>(), std::int64_t(4));
+    const task::Node rec = s.require({.cls = task::Cls::field, .name = "rec"}, "the recording");
+    CHECK_EQ(rec.producer["ctf_compensation"]["grade"]["current"].get<int>(), 3);
     CHECK(p.verify().ok);
   }
   // an MNE head -> MRI transform becomes a transition operator from the head frame to freesurfer-tkr
