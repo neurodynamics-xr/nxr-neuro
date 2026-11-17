@@ -13,15 +13,23 @@
 //   package split   --dataset D --registered-by WHO [--dry-run]            package join --dataset D
 //   package release --package P --name N --template-version V --released-by WHO --into DIR    package release-redistributable --package P --into DIR --released-by WHO
 //   package templates [--templates DIR ...]
+//   package template-create --recipe fsaverage|icbm152 --sources DIR --package P [--name N] [--surface S ...] [--parcellation NAME ...] [--cortex-mask] [--hcp-trk FILE --hcp-end-surface S
+//                            [--max-end-distance MM] [--hcp-points N]] [--accept-unlisted-sources] [--home-dataset N]
+//   package registration-create --package P --name N --from NAME@VERSION --to NAME@VERSION --from-sphere S --to-sphere S [--method shepard|nearest|barycentric]
+//                               [--neighbours K] [--one-direction] [--templates DIR ...] [--home-dataset N] [--source TEXT --licence TEXT --attribution TEXT --redistributable yes|no]
 #include <sstream>
 
 #include "cli.h"
+#include "nxr/convert/templates.h"
 #include "nxr/io/catalogue.h"
 #include "nxr/io/dataset_index.h"
 #include "nxr/io/migrate.h"
 #include "nxr/io/participants.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/templates.h"
+#ifdef NXR_NEURO_WITH_PIPELINES
+#include "nxr/pipelines/registration.h"
+#endif
 
 using namespace nxr::io;
 using namespace cli;
@@ -135,9 +143,65 @@ int package_main(const std::vector<std::string>& argv) {
     for (const auto& l : list_templates(search_of(a)))
       out.push_back(Json{{"folder", l.folder.string()}, {"name", l.name}, {"version", l.version}, {"edition", l.edition}, {"kind", l.kind}, {"content_hash", l.content_hash}});
     emit(Json{{"stage", "result"}, {"templates", out}});
+  } else if (action == "template-create") {
+    const Args a = parse(prog, rest, {"--recipe", "--sources", "--package", "--name", "--hcp-trk", "--hcp-end-surface", "--max-end-distance", "--hcp-points", "--home-dataset"},
+                         {"--cortex-mask", "--accept-unlisted-sources"}, {"--recipe", "--sources", "--package"}, 0, {"--surface", "--parcellation"});
+    nxr::convert::BuildRequest r;
+    r.recipe = a.get("--recipe");
+    r.sources = a.get("--sources");
+    r.package = a.get("--package");
+    if (const auto n = a.maybe("--name")) r.name = *n;
+    if (const auto h = a.maybe("--home-dataset")) r.home_dataset = *h;
+    r.created_by = stamp();
+    r.accept_unlisted_sources = a.flag.count("--accept-unlisted-sources") > 0;
+    r.cortex_mask = a.flag.count("--cortex-mask") > 0;
+    if (a.multi.count("--surface")) r.surfaces = a.multi.at("--surface");
+    if (a.multi.count("--parcellation")) r.annotations = a.multi.at("--parcellation");
+    if (const auto t = a.maybe("--hcp-trk")) r.hcp_trk = std::filesystem::path(*t);
+    if (const auto s = a.maybe("--hcp-end-surface")) r.hcp_end_surface = *s;
+    try {
+      if (const auto m = a.maybe("--max-end-distance")) r.hcp_max_end_distance_mm = std::stod(*m);
+      if (const auto n = a.maybe("--hcp-points")) r.hcp_points = std::stoi(*n);
+    } catch (const std::exception&) { throw Usage(prog + ": error: --max-end-distance and --hcp-points take numbers"); }
+    emit([&] { Json j = nxr::convert::build_template(r); j["stage"] = "result"; return j; }());
+  } else if (action == "registration-create") {
+#ifdef NXR_NEURO_WITH_PIPELINES
+    const Args a = parse(prog, rest, {"--package", "--name", "--from", "--to", "--from-sphere", "--to-sphere", "--method", "--neighbours", "--home-dataset", "--source", "--licence", "--attribution", "--redistributable"},
+                         {"--one-direction"}, {"--package", "--name", "--from", "--to", "--from-sphere", "--to-sphere"}, 0, {"--templates"});
+    nxr::pipelines::RegistrationCreateOptions o;
+    o.package = a.get("--package");
+    o.name = a.get("--name");
+    o.from = a.get("--from");
+    o.to = a.get("--to");
+    o.from_sphere = a.get("--from-sphere");
+    o.to_sphere = a.get("--to-sphere");
+    if (const auto m = a.maybe("--method")) o.method = *m;
+    if (const auto k = a.maybe("--neighbours")) {
+      try { o.neighbours = std::stoi(*k); } catch (const std::exception&) { throw Usage(prog + ": error: argument --neighbours: invalid integer value: '" + *k + "'"); }
+    }
+    o.both_directions = a.flag.count("--one-direction") == 0;
+    if (a.multi.count("--templates")) for (const auto& p : a.multi.at("--templates")) o.templates.push_back(p);
+    if (const auto h = a.maybe("--home-dataset")) o.home_dataset = *h;
+    o.created_by = stamp();
+    o.source = a.maybe("--source");
+    o.licence = a.maybe("--licence");
+    o.attribution = a.maybe("--attribution");
+    if (const auto r = a.maybe("--redistributable")) {
+      if (*r != "yes" && *r != "no") throw Usage(prog + ": error: argument --redistributable: invalid choice: '" + *r + "' (choose from 'yes', 'no')");
+      o.redistributable = *r == "yes";
+    }
+    const auto res = nxr::pipelines::registration_create(o, [](const Json& j) { emit(j); });
+    Json out = res.info;
+    out["stage"] = "result";
+    out["package"] = res.package.string();
+    out["content_hash"] = SubjectPackage::open(res.package).record().content_hash;
+    emit(out);
+#else
+    throw Error(code::unsupported, "nxr-neuro create registration needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+#endif
   } else {
     throw Usage("nxr-neuro package: error: argument action: invalid choice: '" + action +
-                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'release', 'release-redistributable', 'templates')");
+                "' (choose from 'create', 'verify', 'show', 'register', 'status', 'select', 'index', 'participants-import', 'participants-export', 'split', 'join', 'release', 'release-redistributable', 'templates', 'registration-create', 'template-create')");
   }
   return 0;
 }

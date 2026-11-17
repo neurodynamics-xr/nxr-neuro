@@ -50,6 +50,7 @@ add_library(nxr_pipelines
   src/input.cpp
   src/eigen.cpp
   src/frames.cpp
+  src/registration.cpp
   src/dataset.cpp
   src/listing.cpp
   src/measure.cpp
@@ -88,6 +89,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_dataset_with_template PRIVATE nxr_pipelines)
   target_include_directories(test_dataset_with_template PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_dataset_with_template COMMAND test_dataset_with_template)
+  add_executable(test_registration test/test_registration.cpp)
+  target_link_libraries(test_registration PRIVATE nxr_pipelines)
+  target_include_directories(test_registration PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
+  add_test(NAME test_registration COMMAND test_registration)
   add_executable(test_meeg_pipelines test/test_meeg_pipelines.cpp)
   target_link_libraries(test_meeg_pipelines PRIVATE nxr_pipelines)
   target_include_directories(test_meeg_pipelines PRIVATE ${CMAKE_SOURCE_DIR}/io/test)

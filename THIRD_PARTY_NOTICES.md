@@ -13,9 +13,9 @@ licence texts are in the source trees named below or at the project URLs. Versio
 | rapidyaml (ryml, single header) | 0.15.2 | vendored, `io/extern/ryml/` (licence: `LICENSE.txt` there) | MIT | Copyright (c) 2018, Joao Paulo Magalhaes |
 | CLI11 (single header) | 2.4.2 | vendored, `cli/extern/CLI11/` (licence: `LICENSE` there) | BSD-3-Clause | Copyright (c) 2017-2024 University of Cincinnati, developed by Henry Schreiner under NSF award 1414736 |
 | c-blosc | v1.21.6 | fetched (`io/CMakeLists.txt`) | BSD-3-Clause | Copyright (c) Francesc Alted and the Blosc Development Team |
-| zstd | the copy carried by c-blosc, or a system libzstd | linked | BSD-3-Clause (dual-licensed with GPL-2.0; used under BSD-3-Clause) | Copyright (c) Meta Platforms, Inc. and affiliates |
-| zlib | system zlib (Emscripten's port in the WebAssembly build) | linked | zlib licence | Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler |
-| SQLite | system library; the 3.51 amalgamation in the WebAssembly build | linked / fetched | public domain | the SQLite authors, https://sqlite.org |
+| zstd | the copy carried by c-blosc (always in the release binaries), or a system libzstd | linked | BSD-3-Clause (dual-licensed with GPL-2.0; used under BSD-3-Clause) | Copyright (c) Meta Platforms, Inc. and affiliates |
+| zlib | system zlib (Emscripten's port in the WebAssembly build; zlib 1.3.1 built from source for the Linux release binary) | linked | zlib licence | Copyright (C) 1995-2024 Jean-loup Gailly and Mark Adler |
+| SQLite | system library; the 3.51 amalgamation in the WebAssembly build and the release binaries (`NXR_NEURO_PORTABLE`) | linked / fetched | public domain | the SQLite authors, https://sqlite.org |
 | HDF5 | hdf5_1.14.6 (built only when MATLAB v7.3 files are read) | fetched | BSD-3-Clause-style (HDF Group licence) | Copyright (c) The HDF Group; University of Illinois Board of Trustees |
 | matio | v1.5.28 | fetched | BSD-2-Clause | Copyright (c) Christopher C. Hulbert and the matio contributors |
 

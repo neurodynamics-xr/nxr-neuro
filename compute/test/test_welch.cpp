@@ -211,11 +211,63 @@ static void refusals() {
     EXPECT(empty.segments == 0 && empty.psd.cols() == 51 && empty.psd.isZero(), "a record shorter than a segment: no segment, a zero PSD");
 }
 
+static void linearMap() {
+    std::cout << "=== the Welch of a linear map (LinearWelch) ===\n";
+    std::mt19937 rng(11);
+    std::normal_distribution<double> nd;
+    const int C = 6, T = 1700, rows = 12;
+    MatrixXd x(C, T), A(rows, C);
+    for (auto& v : x.reshaped()) v = nd(rng);
+    for (auto& v : A.reshaped()) v = nd(rng);
+    std::vector<std::uint8_t> good(T, 1);
+    for (int i = 700; i < 760; ++i) good[i] = 0;                // a bad stretch: the segments touching it are left out
+    for (const char* which : {"brainstorm", "scipy-odd"}) {
+        WelchOptions o = std::string(which) == "brainstorm" ? brainstormPsdOptions(100.0, 2.0) : scipyWelchOptions(100.0, 201);   // an even and an odd segment length
+        const WelchResult direct = welch(A * x, o, &good);
+        const std::size_t first = 3, last = 40;
+        for (std::size_t group : {std::size_t(1), std::size_t(3)}) {
+            LinearWelch lw(A, group, o, first, last);
+            for (int t = 0; t < T; t += 333) {
+                const int n = std::min(333, T - t);
+                lw.add(x.middleCols(t, n), std::vector<std::uint8_t>(good.begin() + t, good.begin() + t + n));
+            }
+            const LinearWelchResult r = lw.result();
+            MatrixXd want(rows / static_cast<int>(group), last - first + 1);
+            for (int o2 = 0; o2 < want.rows(); ++o2) {
+                want.row(o2).setZero();
+                for (std::size_t g = 0; g < group; ++g) want.row(o2) += direct.psd.block(o2 * static_cast<int>(group) + static_cast<int>(g), first, 1, last - first + 1);
+            }
+            const double e = (r.psd - want).cwiseAbs().maxCoeff() / want.cwiseAbs().maxCoeff();
+            EXPECT(r.segments == direct.segments && r.segmentsSkipped == direct.segmentsSkipped && direct.segmentsSkipped > 0, std::string(which) + ", " + std::to_string(group) + " row(s) an output: the same segments as Welch on A x");
+            EXPECT(e < 1e-12 && r.psd.cols() == static_cast<Eigen::Index>(last - first + 1) && std::abs(r.frequencies[0] - direct.frequencies[first]) < 1e-12, std::string(which) + ", " + std::to_string(group) + " row(s) an output: equal to Welch on A x over the bins kept, " + sci(e));
+            // independent of the chunk size: another cutting gives the same sums to rounding
+            LinearWelch lw2(A, group, o, first, last);
+            lw2.add(x, good);
+            EXPECT((lw2.result().psd - r.psd).cwiseAbs().maxCoeff() / r.psd.cwiseAbs().maxCoeff() < 1e-13, std::string(which) + ", " + std::to_string(group) + ": independent of the chunk size");
+        }
+    }
+    // the whole spectrum with the Nyquist bin and DC (the one-sided doubling): bins 0 .. n/2
+    {
+        WelchOptions o = scipyWelchOptions(100.0, 100);
+        const WelchResult direct = welch(A * x, o);
+        LinearWelch lw(A, 1, o, 0, 50);
+        lw.add(x);
+        EXPECT((lw.result().psd - direct.psd).cwiseAbs().maxCoeff() / direct.psd.cwiseAbs().maxCoeff() < 1e-12, "bins 0 .. Nyquist: DC and Nyquist not doubled, the rest doubled, as Welch");
+    }
+    // refusals
+    WelchOptions o = scipyWelchOptions(100.0, 100);
+    EXPECT(throws([&] { LinearWelch(A, 5, o, 0, 10); }), "rows not a multiple of the group");
+    EXPECT(throws([&] { LinearWelch(A, 1, o, 10, 4); }) && throws([&] { LinearWelch(A, 1, o, 0, 51); }), "bins out of order or outside the spectrum");
+    LinearWelch lw(A, 1, o, 0, 10);
+    EXPECT(throws([&] { lw.add(MatrixXd::Zero(3, 10)); }), "a chunk with the wrong channels");
+}
+
 int main() {
     parity();
     chunkInvariance();
     levels();
     rotary();
+    linearMap();
     refusals();
     std::cout << "\n" << (g_failures ? "FAILED" : "all passed") << " (" << g_failures << " failures)\n";
     return g_failures ? 1 : 0;

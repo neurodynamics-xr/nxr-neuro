@@ -27,7 +27,7 @@ using Emit = std::function<void(const Json&)>;   // one progress line (`stage` k
 
 // One Brainstorm tess_*.mat as a `surface` manifold and what describes it: its hemispheres, its registration sphere (`Reg.Sphere`) and its parcellations.
 // `primary`: the surface the kernel indexes (refused when its mesh is unhealthy only under NXR_STRICT_MESH=1; a display surface only warns); only a primary is
-// marked `is_primary`. `bst_root`: the protocol root, which makes the manifold's `source` the file's path under `anat/`. `atlases`: only these parcellations.
+// marked `is_primary`. `bst_root`: the protocol root, which makes the manifold's `source` the file's path under `anat/`. `atlases`: only these parcellations (an empty list: none; unset: every one).
 nxr::io::SurfaceInfo export_surface(nxr::io::SubjectWriter& sub, const std::filesystem::path& surface_file, const std::string& bst_root = "",
                                     bool primary = true, const std::optional<std::vector<std::string>>& atlases = std::nullopt);
 
