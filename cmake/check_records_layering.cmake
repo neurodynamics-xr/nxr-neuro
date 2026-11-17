@@ -2,8 +2,9 @@
 # the bindings, compute and meeg (tests included) ask io's record API (nxr/io/records/records.h) typed questions.
 # Run as a test:  cmake -DROOT=<repo> [-DALLOW=<file>|NONE] [-DLIST=1] -P cmake/check_records_layering.cmake
 #
+# bindings/wasm-io is exempt: it serves the Studio and keeps level 1 (the repositories). Every other binding is checked like the pipelines.
 # It fails on, in a .cpp or .h under pipelines/, cli/, bindings/, compute/, meeg/ (vendored trees skipped; comment lines skipped):
-#   - an #include of nxr/io/database.h or sqlite3.h, or of nxr/io/records/ (the repositories are inside io; only bindings/wasm-io may use them), or of nxr/io/testing/ outside a test/ folder;
+#   - an #include of nxr/io/database.h or sqlite3.h, or of nxr/io/records/ (the repositories are inside io; bindings/wasm-io is exempt), or of nxr/io/testing/ outside a test/ folder;
 #   - a string literal that starts with an SQL verb (SELECT, INSERT, UPDATE x, DELETE FROM, WITH x AS, CREATE/DROP/ALTER, PRAGMA, BEGIN, ...);
 #   - `.db()`, `->db()`, `Database`, `sqlite3_`.
 # A line with `tamper(` (the test probe's corruption on purpose) is exempt.
@@ -40,6 +41,9 @@ foreach(f ${files})
   endif()
   math(EXPR scanned "${scanned} + 1")
   file(RELATIVE_PATH rel ${ROOT} ${f})
+  if(rel MATCHES "^bindings/wasm-io/")
+    continue()   # the Studio's server-side surface: it keeps the repositories (level 1) and the database; every other binding uses the task API only
+  endif()
   set(in_test OFF)
   if(rel MATCHES "(^|/)test/" OR rel MATCHES "(^|/)smoke\\.cpp$")
     set(in_test ON)
