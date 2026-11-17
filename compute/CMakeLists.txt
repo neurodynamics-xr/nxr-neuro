@@ -130,11 +130,10 @@ add_library(nxr_compute STATIC
   src/speedspectrum.cpp
   src/opticalflow_methods.cpp
   src/ladder.cpp
+  src/selection.cpp
   src/selection_partition.cpp
   src/selection_dyadic.cpp
-  src/selection_spans.cpp
   src/selection_scales.cpp
-  src/selection_regions.cpp
   src/partition.cpp
   src/glue.cpp
   src/forms.cpp

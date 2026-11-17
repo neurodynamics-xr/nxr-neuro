@@ -1,4 +1,4 @@
-// nxr::selection::dyadic — THE DYADIC EQUAL-AREA PARTITION OF A SURFACE: a line port of the Cortical Flow Studio's `engine/ladder.ts` (`surfaceLadder`,
+// nxr::selection::bisection — THE DYADIC EQUAL-AREA PARTITION OF A SURFACE: a line port of the Cortical Flow Studio's `engine/ladder.ts` (`surfaceLadder`,
 // `vertexAreas`, `onePiece`, the Weyl pairing), which nxr (`nxr.geom.ladder`, `nxr.geom.trees`) and Rheome (`+geom/surfaceladder.m`) reproduce bit for bit.
 //
 // Each tile is halved by EQUAL MASS across its geodesic diameter (Dijkstra on the input edge graph, two sweeps, a stable sort by d_a - d_b, the cut at half
@@ -13,7 +13,7 @@
 #include <utility>
 #include <vector>
 
-namespace nxr::selection::dyadic {
+namespace nxr::selection::bisection {
 
 // ── Weyl ─────────────────────────────────────────────────────────────────────────────────
 double weylLambda(double modes, double area);      // 4 pi m / A
@@ -99,4 +99,4 @@ Tree groupTreeFor(const double* tplSphere, const int32_t* tplCodes, const std::v
 /** The connected pieces of a mesh: a piece number per vertex, numbered in order of their lowest vertex. */
 std::vector<int> pieces(const int32_t* faces, int nF, int nV);
 
-}  // namespace nxr::selection::dyadic
+}  // namespace nxr::selection::bisection

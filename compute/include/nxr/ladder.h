@@ -34,7 +34,7 @@ namespace nxr::ladder {
 using frames::Mat3;
 
 // ── the partition (moved to the selection module, nxr/selection/dyadic.h; these names stay visible here) ─────────────
-using namespace nxr::selection::dyadic;
+using namespace nxr::selection::bisection;
 
 // ── tiles ────────────────────────────────────────────────────────────────────────────────
 /** A tile's mass (area) per node of `nodes` entries. */
