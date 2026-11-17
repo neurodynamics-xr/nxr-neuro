@@ -248,7 +248,7 @@ Arrays Execution::finish() {
       if (o == n.out.end()) refuse(n.label + ": finished '" + port + "', which is not one of its outputs");
       data_[o->second] = std::move(a);
     }
-    for (const auto& [port, name] : n.out) if (!data_.count(name)) refuse(n.label + ": finished no '" + port + "'");
+    // an accumulate node may leave an output unmade when it has nothing to report (a run that found no event): what reads it, or the graph's outputs, refuse then
   }
   for (std::size_t i = 0; i < checked_.nodes.size(); ++i) if (checked_.nodes[i].section == Section::after) run_arrays(i);
   Arrays out;

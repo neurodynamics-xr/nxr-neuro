@@ -122,6 +122,7 @@ struct Recording {
   Write write;
   std::vector<std::int64_t> flags;
   const Value* events = nullptr;
+  std::optional<EventTable> table;   // events given as a table (an importer of another format); `events` then unused
   std::vector<std::string> channel_names;
   std::optional<std::string> comment;
   std::string kind, source;
@@ -234,7 +235,7 @@ Json write_recording(SubjectWriter& sub, const Recording& r) {
     sub.selection(std::move(s));
   }
   if (!r.flags.empty()) write_flags(sub, nxr::io::node_path(db, r.channels_id, r.name), r.flags, aid, r.channels_id, rid);
-  const EventTable table = parse_events(r.events, r.channel_names);
+  const EventTable table = r.table ? *r.table : parse_events(r.events, r.channel_names);
   const Json ev = export_events(sub, tpath, table, time_id, rid, std::nullopt, aid);
   return Json{{"name", r.name}, {"id", rid}, {"time_id", time_id}, {"n_channels", r.n_chan}, {"n_samples", r.n_samples}, {"sfreq", r.sfreq},
               {"events", ev["n_events"]}, {"event_types", ev["n_types"]}, {"bad_segments", ev["bad_segments"]}};
@@ -643,6 +644,37 @@ const MapHooks& recording_map_hooks() {
       },
       [](SubjectWriter& sub, const TimeLineRequest& q) -> std::string { return write_time_line(sub, q.path, q.acquisition_id, q.samples, q.sfreq, q.t0); }};
   return hooks;
+}
+
+// ── a recording from any block source (the importers of other formats) ──
+Json write_recording_blocks(SubjectWriter& sub, const BlockRecording& b) {
+  Recording r;
+  r.name = b.name;
+  r.n_chan = b.n_channels;
+  r.n_samples = b.n_samples;
+  r.sfreq = b.sfreq;
+  r.t0 = b.t0;
+  r.acquisition = b.acquisition;
+  r.channels_id = b.channels_id;
+  r.flags = b.flags;
+  r.table = b.events;
+  r.channel_names = b.channel_names;
+  if (!b.comment.empty()) r.comment = b.comment;
+  r.kind = "sensor";
+  r.source = b.source;
+  r.producer = b.producer;
+  r.progress = b.progress;
+  r.write = [&b](EnvelopeTee& tee) {
+    std::vector<float> blk;
+    for (std::int64_t s0 = 0; s0 < b.n_samples; s0 += kBlock) {
+      const std::int64_t n = std::min(kBlock, b.n_samples - s0);
+      b.read(s0, n, blk);
+      if (static_cast<std::int64_t>(blk.size()) != b.n_channels * n) value_error("a block of the source has the wrong size");
+      tee.write(s0, blk, n);
+      if (b.progress) b.progress(Json{{"stage", "raw-stream"}, {"name", b.name}, {"written", s0 + n}, {"of", b.n_samples}});
+    }
+  };
+  return write_recording(sub, r);
 }
 
 }  // namespace nxr::bst

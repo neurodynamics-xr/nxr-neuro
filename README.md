@@ -95,7 +95,7 @@ One command, verb first: `nxr-neuro <verb> <what> [options]`.
 | `import <what>` | from a Brainstorm protocol |
 | `create`, `delete`, `compact`, `recover`, `reduce`, `add` | a dataset's, a subject's and a pyramid's housekeeping |
 
-Datasets are named `--dataset <datastore>/<name>` and subjects `--subject <id>`. Results are written into the dataset with their provenance and a cache key, so a repeated
+A dataset is a folder, named by its path with `--dataset <folder>`, and subjects `--subject <id>`. Results are written into the dataset with their provenance and a cache key, so a repeated
 run with the same options is a cache hit. **A computation over a recording states its time range**: `--from <s> --to <s>` (seconds or `m:ss`) or `--all`; without one it refuses.
 Recordings are streamed one chunk at a time with bounded memory whatever the range, and the range actually used is recorded with the result.
 

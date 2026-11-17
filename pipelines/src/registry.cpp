@@ -1705,18 +1705,6 @@ const StepSpec& step(const std::string& name) {
   refuse("no pipeline step '" + name + "' (registered: " + list + ")");
 }
 
-const char* to_string(TimeBehaviour t) {
-  switch (t) {
-    case TimeBehaviour::pointwise: return "pointwise";
-    case TimeBehaviour::windowed: return "windowed";
-    case TimeBehaviour::stateful: return "stateful";
-    case TimeBehaviour::undeclared: break;
-  }
-  return "undeclared";
-}
-const char* to_string(Precision p) { return p == Precision::float32 ? "float32" : p == Precision::float64 ? "float64" : "undeclared"; }
-const char* to_string(OutputPrecision p) { return p == OutputPrecision::follows_input ? "follows_input" : p == OutputPrecision::float64 ? "float64" : "undeclared"; }
-
 std::vector<std::string> undeclared_traits() {
   std::vector<std::string> out;
   for (const auto& s : registry()) if (!s.traits.declared()) out.push_back(s.name);
