@@ -155,7 +155,7 @@ void add_extent_steps(std::vector<StepSpec>& r) {
   auto at = [&](const char* n) -> StepSpec& { for (auto& s : r) if (s.name == n) return s; refuse(std::string("no step ") + n); };
   StepSpec& ce = at("cell_extent");
   ce.traits = node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64,
-                          "grows hysteresis regions over the graph of touching tiles within a time tile and from each time tile to the next: the labelling is carried forward in time; a region's extent is not defined per timestep", {}, true);
+                          "grows hysteresis regions over the graph of touching tiles within a time tile and from each time tile to the next: the labelling is carried forward in time; a region's extent is not defined per timestep: stateful, confirmed", {});
   ce.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     ExtentState st;
     st.p = p;
@@ -221,7 +221,7 @@ void add_extent_steps(std::vector<StepSpec>& r) {
 
   StepSpec& em = at("extent_measure");
   em.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64,
-                          "rolls the cells of each labelled event up exactly; the unit is the event", "the event's own cells, from its first to its last time tile (variable length)", true);
+                          "rolls the cells of each labelled event up exactly; the unit is the event", "the event's own cells, from its first to its last time tile (variable length)");
   em.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     ExtentState st;
     st.p = p;

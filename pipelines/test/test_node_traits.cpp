@@ -32,11 +32,15 @@ int main() {
   for (const auto& node : g::registry()) {
     const g::NodeTraits& t = node.traits;
     CHECK(t.declared());
+    CHECK(!t.uncertain);                                              // every classification has been settled (docs/reference.md, Node traits)
     CHECK(!t.note.empty());                                           // every classification says why
     if (t.time == g::TimeBehaviour::windowed) CHECK(!t.window_rule.empty());
     if (t.time != g::TimeBehaviour::windowed) CHECK(t.window_rule.empty());
     ++by_time[g::to_string(t.time)];
     doubled += node.computes_double_on_float_input();
+    // precision follows the input: a node that computes in double on float32 input and gives a field-valued result declares `follows_input` and says it stores float32;
+    // only statistics and tables of events (a sum, a count, a list) declare float64 output
+    if (node.computes_double_on_float_input() && t.output == g::OutputPrecision::follows_input) CHECK(t.note.find("float32") != std::string::npos || t.note.find("stored as") != std::string::npos || t.note.find("no arithmetic") != std::string::npos || t.note.find("formed") != std::string::npos || t.note.find("quotient") != std::string::npos || t.note.find("draw") != std::string::npos || t.note.find("level") != std::string::npos || t.note.find("linear map") != std::string::npos || t.note.find("per sample") != std::string::npos);
   }
   std::printf("  nodes: %zu (pointwise %d, windowed %d, stateful %d); in double on float input: %d\n", g::registry().size(), by_time["pointwise"], by_time["windowed"], by_time["stateful"], doubled);
 
