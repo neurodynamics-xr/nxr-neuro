@@ -59,7 +59,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --bands@run hodgepower	NAME:LO-HI,...	The frequency bands to compute power in, as name:lo-hi in Hz, e.g. alpha:8-12.	delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90	Hz
 --bands@run pyramid	LO-HI,...	Frequency bands to build, as comma-separated LO-HI edges (half-open [LO, HI)).	octaves 1-2 to 32-64 Hz	Hz
 --bands@run quadrature	NAME:LO-HI,...	Frequency bands to analyse, each a name and edges; the band's cross-spectrum is the mean of the bins from LO to HI inclusive.	Brainstorm's bands (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90)	Hz
---bands@run sourcepsd	NAME:LO-HI,...	Frequency bands to map, each a name with its low and high edge (the mean over the bins from LO to HI, inclusive).	Brainstorm's bands: delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90	Hz
 --bands@run sourcetensor	NAME:LO-HI,...	The frequency bands to compute, each a name and its low and high edge in Hz (the mean over the bins from LO to HI, inclusive).	Brainstorm's bands (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90)	Hz
 --bandwidth	HZ	Notch width: the 3 dB bandwidth of each notch	1	Hz
 --bandwidth@run bandpass	HZ	Notch width; it belongs to the notch filter and has no effect on a bandpass.	1	Hz
@@ -154,7 +153,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --detrend@run crossspectrum	none|constant|linear	Trend removed from each Welch segment before the taper is applied; used by the Welch estimator.	constant	-
 --detrend@run hodgepower	none|constant|linear	What is removed from each Welch segment before the window.	constant	-
 --detrend@run quadrature	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (set tiles, brainstorm, scipy); none (nxr-chain)	-
---detrend@run sourcepsd	none|constant|linear	Trend removed from each Welch segment before the window is applied.	constant	-
 --detrend@run sourcetensor	none|constant|linear	Trend removed from each Welch segment before windowing.	constant	-
 --detrend@run speedspectrum	none|constant|linear	What is removed from each segment before windowing	constant	-
 --divisor	samples-minus-blocks|samples|samples-minus-one	What the covariance sum is divided by: samples minus the number of blocks, the samples, or samples minus one.	samples-minus-blocks	-
@@ -301,7 +299,6 @@ R"TBL(--harmonics@run notch	N	With --line, remove the first N multiples of the l
 --kernel@run pointspread	NAME	The inverse kernel the planted currents are read back through	the subject's only kernel of the forward model's sources	-
 --kernel@run pyramid	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
 --kernel@run quadrature	NAME	Name of the stored inverse kernel that maps the sensors to the sources.	the subject's only kernel	-
---kernel@run sourcepsd	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
 --kernel@run sourcetensor	NAME	Name of the stored free-orientation inverse kernel (channels to sources) whose current's tensor is computed; a fixed-orientation kernel is refused.	the subject's only kernel	-
 --kernel@run speedspectrum	NAME	The free-orientation inverse kernel the recording is mapped to the cortex with	the subject's only kernel	-
 --kernels	SPEC,...	Which kernels' pyramids are summed: all, constrained, free, latest, a method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
@@ -411,7 +408,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
 --name@run repeat	NAME	Name the repeat result is stored under.	derived from the two recording names (plus the stage when not the first)	-
 --name@run scaleselection	NAME	Name of the cross-pair events' Selection	<recording>_scale_selection	-
---name@run sourcepsd	NAME	Stem of the names of the stored band power maps.	<recording>_<kernel>_psd	-
 --name@run sourcetensor	NAME	Stem of the stored fields (tensor, Stokes quaternion, normal power and share, each per band).	<recording>_<kernel>_tensor	-
 --name@run speedspectrum	STEM	Stem of the stored result names	<recording>_<kernel>_speedspectrum	-
 --name@run statistic	NAME	Name of the stored statistic.	<of>_<measure>_<over>	-
@@ -427,7 +423,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-bad-segments@run crossspectrum		Keep the recording's marked bad segments in the estimate instead of leaving out the Welch segments that touch a bad sample.	off (segments with a bad sample are left out)	-
 --no-bad-segments@run hodgepower		Keep Welch segments that touch the recording's bad segments.	off (they are left out)	-
 --no-bad-segments@run quadrature		Also use segments that overlap the recording's marked bad segments.	off (bad segments excluded)	-
---no-bad-segments@run sourcepsd		Keep the recording's bad segments in the estimate instead of leaving out the segments that touch them.	off (bad segments are left out)	-
 --no-bad-segments@run sourcetensor		Keep the recording's marked bad segments in the estimate instead of leaving out the Welch segments that touch them.	off (bad segments are left out)	-
 --no-bad-segments@run speedspectrum		Keep segments that touch the recording's bad segments instead of leaving them out	off	-
 --no-depth		Turn depth weighting off.	off (depth weighting on)	-
@@ -465,7 +460,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --noise-cov	NAME	Name of a stored noise covariance to use (alternative to --recording)	none	-
 --noise-cov@run inverse	NAME	Name of a stored noise covariance to whiten with; an alternative to --recording.	none (give this or --recording)	-
 --normalisation	none|relative	Normalisation of the band power maps: none, or relative (each map divided by the source's total power over all bins up to Nyquist).	none	-
---normalisation@run sourcepsd	none|relative	Divide each source's band power map by its total power over all bins up to Nyquist (relative), or leave it as power.	none	-
 --normalisation@run sourcetensor	none	Only none is accepted: a tensor is not normalised, since the shares are read from it.	none	-
 --normalize		Re-orthonormalise the eigenmodes afterwards (orthonormal in the mass matrix).	off	-
 --normalize@run eigenmodes		Make the modes orthonormal under the mass matrix after the solve (Cholesky whitening); the reference method does not.	off	-
@@ -496,7 +490,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --overlap@run crossspectrum	FRACTION	Fraction of a Welch segment shared with the next, in [0, 1); under the default tiles set it must keep the hop a power of two (0, 0.5, 0.75, ...).	0.5	fraction
 --overlap@run hodgepower	FRACTION	The fraction of a Welch segment shared with the next, in [0, 1).	0.5	fraction
 --overlap@run quadrature	F	Fraction of a Welch segment shared with the next; under --set tiles the hop must also be a tile (0, 0.5, 0.75, ...).	0.5	fraction
---overlap@run sourcepsd	FRACTION	Fraction of a Welch segment shared with the next, in [0, 1); under the default tile set the hop must stay a power of two samples.	0.5	fraction
 --overlap@run sourcetensor	FRACTION	Fraction by which successive Welch segments overlap.	0.5	fraction
 --overlap@run speedspectrum	FRACTION	Fraction of a segment shared with the next, in [0, 1)	0.5	fraction
 --oversample	X	Oversampling of each filterbank member's own sample rate.	2.0	-
@@ -523,7 +516,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --periodic@run crossspectrum		Use the periodic (DFT-even) form of the Welch taper instead of the symmetric form.	off (symmetric, as the default tiles and brainstorm sets)	-
 --periodic@run hodgepower		Use the periodic (DFT-even) form of the window.	off (set tiles: symmetric)	-
 --periodic@run quadrature		Use the periodic (DFT-even) form of the window; an alternative to --symmetric.	set-dependent (symmetric in tiles and brainstorm; periodic in scipy, nxr-chain)	-
---periodic@run sourcepsd		Use the periodic (DFT-even) form of the window instead of the symmetric form.	off (symmetric, as the default set)	-
 --periodic@run sourcetensor		Use the periodic (DFT-even) form of the taper instead of the symmetric form.	off (symmetric, except the scipy set)	-
 --periodic@run speedspectrum		Use the periodic (DFT-even) form of the window	off (the default set uses the symmetric form)	-
 --phase-of	current|stream	Signal whose phase is taken: the band's current vector field, or its scalar stream function	current	-
@@ -569,7 +561,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
 --recording@run quadrature	NAME	Name of the stored recording to analyse.	required	-
 --recording@run scaleselection	NAME	The recording whose scale pairs are selected over	required	-
---recording@run sourcepsd	NAME	Name of the stored recording to read.	required	-
 --recording@run sourcetensor	NAME	Name of the stored recording to read.	required	-
 --recording@run spatialnull	NAME	The recording whose stored spatial events are tested against the null.	required	-
 --recording@run speedspectrum	NAME	The recording whose cortical activity is analysed	required	-
@@ -616,7 +607,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --scaling@run crossspectrum	density|spectrum|chain	Scaling of the Welch estimate: power per hertz, power per bin, or the nxr chain's scaling.	density	-
 --scaling@run hodgepower	density|spectrum|chain	How the Welch power is scaled: per Hz, as a power spectrum, or as nxr's chain.	density	-
 --scaling@run quadrature	density|spectrum|chain	Scaling of the Welch spectrum: power per Hz, power per bin, or nxr's chain scaling.	density	-
---scaling@run sourcepsd	density|spectrum|chain	Scaling of the spectrum: power per Hz, power per bin, or the chain scaling.	density	-
 --scaling@run sourcetensor	density|spectrum|chain	How the spectrum is scaled: power per Hz (density), power per bin (spectrum), or the chain scaling.	density	-
 --scaling@run speedspectrum	density|spectrum|chain	Scaling of the spectral estimate: power per Hz, power per bin, or the nxr spectral chain's convention	density	-
 --scaling@export measurements	NAME	Scaling applied to the values at read: stored, density, power, amplitude, amplitude-density, db or db-density (needs the Field's recorded spectral scaling)	stored	-
@@ -627,7 +617,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --segment-level@run crossspectrum	L	Welch segment of 2^L samples (tiles set only); an alternative to --segment-seconds and --segment-samples.	none (the segment length in seconds is used)	level
 --segment-level@run hodgepower	K	The Welch segment is a tile of 2^K samples (set tiles only); alternative to --segment-seconds and --segment-samples.	round(log2(4 s x sampling rate))	level
 --segment-level@run quadrature	K	Welch segment as a tile of 2^K samples; only under --set tiles; an alternative to --segment-seconds and --segment-samples.	the level nearest 4 s	level
---segment-level@run sourcepsd	L	Welch segment length as a tile level: 2^L samples (alternative to --segment-seconds and --segment-samples; tiles set only).	none (the 4 s segment is used)	level
 --segment-level@run sourcetensor	L	Welch segment of 2^L samples (an alternative to the segment length in seconds or samples).	none (the 4 s segment is used)	level
 )TBL",
 R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^level samples; an alternative to --segment-seconds and --segment-samples	none	level
@@ -635,14 +624,12 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --segment-samples@run crossspectrum	N	Welch segment length in samples; under the tiles set it must be a power of two. Alternative to --segment-seconds and --segment-level.	none (derived from the 4 s segment)	samples
 --segment-samples@run hodgepower	N	The Welch segment length in samples; alternative to --segment-seconds and --segment-level.	none	samples
 --segment-samples@run quadrature	N	Welch segment length in samples (a power of two under --set tiles); an alternative to --segment-seconds and --segment-level.	none	samples
---segment-samples@run sourcepsd	N	Welch segment length in samples; under the tiles set it must be a power of two.	none (from --segment-seconds)	samples
 --segment-samples@run sourcetensor	N	Welch segment length in samples; an alternative to the other segment options.	derived from the 4 s segment	samples
 --segment-samples@run speedspectrum	N	Segment length in samples; an alternative to --segment-seconds and --segment-level	none	samples
 --segment-seconds	SECONDS	Length of each Welch segment (under the tiles setting it is snapped to a power-of-two number of samples)	4	s
 --segment-seconds@run crossspectrum	SECONDS	Length of each Welch segment; under the tiles set it is snapped to a power-of-two number of samples.	4	s
 --segment-seconds@run hodgepower	SECONDS	The Welch segment length in seconds; alternative to --segment-samples and --segment-level.	4	s
 --segment-seconds@run quadrature	SECONDS	Welch segment length; under --set tiles it snaps to the nearest 2^k-sample tile.	4	s
---segment-seconds@run sourcepsd	SECONDS	Welch segment length; under the tiles set it snaps to the nearest power-of-two number of samples.	4	s
 --segment-seconds@run sourcetensor	SECONDS	Length of each Welch segment; under the tiles set it is snapped to a power-of-two number of samples.	4	s
 --segment-seconds@run speedspectrum	SECONDS	Segment length in seconds; under the tiles set it is rounded to a 2^k-sample segment	4	s
 --selection	NAME	The stored joint Selection (space x time cells) whose measurement is read.	none (required)	-
@@ -654,7 +641,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --set@run hodgepower	tiles|brainstorm|scipy|nxr-chain	The named set of Welch options to start from: tiles (Brainstorm's taper, detrend and scaling on 2^k-sample segments), brainstorm, scipy or nxr-chain.	tiles	-
 --set@run null	NAME=VALUE	Parameter of every null draw (repeatable); {recording} stands for each recording's name	none	-
 --set@run quadrature	tiles|brainstorm|scipy|nxr-chain	Option set for the Welch estimate: tiles (Brainstorm's taper and detrend on 2^k-sample segments), brainstorm, scipy or nxr-chain.	tiles	-
---set@run sourcepsd	tiles|brainstorm|scipy|nxr-chain	Reference whose Welch settings (window, overlap, detrend, scaling, segment rule) are the starting point; other options then override them.	tiles	-
 --set@run sourcetensor	tiles|brainstorm|scipy|nxr-chain	The reference set of Welch options to start from (taper, overlap, detrend, scaling); the other Welch options then override it.	tiles	-
 --set@run spatialnull	NAME=VALUE	A parameter of every null draw's spatial-events run (levels, threshold, band, ...); repeatable.	none (the data's parameters)	-
 --set@run speedspectrum	tiles|brainstorm|scipy|nxr-chain	Named set of Welch options to start from (Brainstorm's taper, detrend and density on 2^k-sample segments; Brainstorm's exact 4 s; scipy.signal.welch; or the nxr chain)	tiles	-
@@ -750,7 +736,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --symmetric@run crossspectrum		Use the symmetric form of the Welch taper instead of the periodic form.	off (the form follows --set)	-
 --symmetric@run hodgepower		Use the symmetric form of the window.	off (set tiles: symmetric)	-
 --symmetric@run quadrature		Use the symmetric form of the window (as MATLAB's hamming(n)); an alternative to --periodic.	set-dependent (symmetric in tiles and brainstorm)	-
---symmetric@run sourcepsd		Use the symmetric form of the window instead of the periodic form.	on for tiles and brainstorm sets (periodic for scipy)	-
 --symmetric@run sourcetensor		Use the symmetric form of the taper window instead of the periodic one.	off (the form follows --set)	-
 --symmetric@run speedspectrum		Use the symmetric form of the window (MATLAB-style)	on under the default set	-
 --table	NAME	Name of the exported table.	none (required)	-
@@ -858,7 +843,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run bandpass	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run bandstop	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run notch	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run sourcepsd	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run sourcetensor	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -987,7 +971,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --window@run crossspectrum	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming	-
 --window@run hodgepower	hann|hamming|blackman|rectangular	The taper applied to each Welch segment.	hamming	-
 --window@run quadrature	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming (set tiles, brainstorm); hann (scipy, nxr-chain)	-
---window@run sourcepsd	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming (hann for the scipy set)	-
 --window@run sourcetensor	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming (hann under the scipy set)	-
 --window@run speedspectrum	hann|hamming|blackman|rectangular	Taper applied to each segment	hamming	-
 --windows	NAME	The stored analytic cross-spectrum windows (named <stem>_<band>_windows) the bursts are read from.	none (required)	-
@@ -1579,14 +1562,6 @@ alias: refused
 group: Time
 summary: A zero-phase notch filter (line noise and harmonics), written as a new recording.
 opts: --bandwidth --dataset* --fpass --frequencies --fstop --harmonics --line --name --no-remove-mean --order --padding --recording* --ripple --subject* --tolerance --transient-samples --transition --templates+
-)TBL",
-R"TBL(@ run sourcepsd
-old: sourcepsd compute
-alias: refused
-group: Spectra
-summary: The band power maps of the sources (the Welch PSD of the sources, grouped in bands).
-span: yes
-opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --normalisation --overlap --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window --templates+
 )TBL",
 R"TBL(@ run sourcetensor
 old: sourcetensor compute

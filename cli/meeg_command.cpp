@@ -483,8 +483,8 @@ static int source_spectral_main(const std::vector<std::string>& argv, bool tenso
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = tensor ? nxr::pipelines::sourcetensor_compute(ds, sub, o, [](const Json& j) { cli::emit(j); })
-                          : nxr::pipelines::sourcepsd_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
+    (void)tensor;
+    const auto r = nxr::pipelines::sourcetensor_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     out["seconds"] = std::round(r.seconds * 1000) / 1000;
@@ -495,7 +495,6 @@ static int source_spectral_main(const std::vector<std::string>& argv, bool tenso
   return 0;
 }
 
-int sourcepsd_main(const std::vector<std::string>& argv) { return source_spectral_main(argv, false); }
 int sourcetensor_main(const std::vector<std::string>& argv) { return source_spectral_main(argv, true); }
 
 // --tiles [--tile-levels 1,2,3] [--tile-max-level N] [--no-levi-civita]: the maps' tile summaries per level

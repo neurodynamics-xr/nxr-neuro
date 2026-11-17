@@ -684,6 +684,8 @@ nxr::graph::Array operator_constant(const Bound& bound, nxr::io::SubjectWriter& 
   a.meta["channels"] = channels;
   a.meta["name"] = name;
   a.meta["id"] = text(op, "id");
+  a.meta["to_value_type"] = nxr::io::opt_text(op, "to_value_type").value_or("vector3");
+  a.meta["to_manifold_id"] = nxr::io::opt_text(op, "to_manifold_id").value_or("");
   return a;
 }
 

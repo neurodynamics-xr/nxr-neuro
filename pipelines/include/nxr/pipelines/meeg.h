@@ -137,7 +137,6 @@ struct SourcePsdResult {
   Eigen::MatrixXd maps;                                   // [sources x bands] (empty on a cache hit)
 };
 // The kernel's channels are the ones read from the recording; a kernel on other channels than the recording is an nxr::io::Error.
-SourcePsdResult sourcepsd_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const SourcePsdOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // ── the cross-spectral TENSOR of sources: the vector analogue of the band power map ──
 // Per source and band, the complex 3x3 Hermitian T = K_v (S + i Sq) K_v^T (nxr/meeg/tensor.h): the source current's band cross-spectral density between its

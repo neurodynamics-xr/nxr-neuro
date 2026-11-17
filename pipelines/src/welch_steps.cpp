@@ -18,6 +18,7 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/spectral_record.h"
+#include "nxr/meeg/sources.h"
 #include "nxr/rotary.h"
 #include "nxr/welch.h"
 
@@ -403,11 +404,139 @@ ng::NodeSpec welch_complex_psd() {
   };
   return n;
 }
+
+// ── welch.source_band_power ─────────────────────────────────────────────────────────────────────────────────────
+// The band power of a recording's SOURCES (the hand-wired `sourcepsd` it replaces): the channels' cross-spectral density accumulated per band (bins lo..hi Hz
+// inclusive, mean over the band's bins), then diag(K Re(S) K^T) through the inverse kernel K, the orientations' power summed (nxr::meeg::sourcePower). With
+// normalisation relative, each band over the total (all bins, summed). Exactly Welch run on K x, at the cost of channels^2 per band.
+struct SourceBandPrepared {
+  Resolved r;
+  Eigen::MatrixXd K;
+  std::vector<std::int32_t> channels;
+  int orientations = 3;
+  std::vector<nw::BinGroup> groups;
+  Json bands = Json::array();
+  bool relative = false;
+  std::string kernel;
+};
+struct SourceBandState {
+  std::optional<nw::CrossWelch> w;
+  std::int64_t first = -1, samples = 0, bad = 0;
+};
+
+ng::NodeSpec welch_source_band_power() {
+  ng::NodeSpec n;
+  n.name = "welch.source_band_power";
+  n.kind = ng::Kind::accumulate;
+  n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"kernel", "the inverse kernel: a stored operator, sources x the recording's channels", false},
+              {"exclude", "the recording's bad segments (spans): a segment touching one is left out when bad_segments is exclude", true}};
+  n.outputs = {{"power", "the band power of every source, sources x bands, a statistic over the segment partition", false}};
+  n.parameters = welch_parameters();
+  n.parameters.push_back({"bands", Json::array(), "the bands: a list of {name, lo, hi} in Hz (a band holds the bins from lo to hi inclusive)", "Hz", {}, false});
+  n.parameters.push_back({"normalisation", Json("none"), "none = the band power | relative = each band over the source's total power (all bins)", "-", {"none", "relative"}, false});
+  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
+                             "segments are carried across blocks; the cross-spectra are accumulated in double and the kernel applied once at the end");
+  n.matches = "Brainstorm's band power of sources (bst_psd through the kernel); meeg nxr::meeg::sourcePower";
+  n.description = "the band power of the sources through an inverse kernel, from the channels' cross-spectral density per band (Welch), orientations summed";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    const ng::PortType& x = streamed_real(in, "x", "welch.source_band_power");
+    const auto k = in.find("kernel");
+    if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("welch.source_band_power: kernel is a stored operator (an inverse kernel)");
+    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("welch.source_band_power: at least one band");
+    const Resolved r = resolve(p, *x.sfreq);
+    ng::Planned out;
+    out.out["power"] = statistic_port();
+    out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    return out;
+  };
+  n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) {
+    SourceBandPrepared pr;
+    pr.r = resolve(p, *in.at("x").sfreq);
+    const auto it = constants.find("kernel");
+    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("welch.source_band_power: the kernel's matrix was not handed over");
+    const ng::Array& a = it->second;
+    pr.K = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(a.data.data(), a.rows, a.cols);
+    for (const auto& c : a.meta.value("channels", Json::array())) pr.channels.push_back(c.get<std::int32_t>());
+    pr.orientations = a.meta.value("to_value_type", std::string("vector3")) == "scalar" ? 1 : 3;
+    pr.kernel = a.meta.value("name", std::string());
+    if (pr.K.rows() % pr.orientations != 0) ng::refuse("welch.source_band_power: the kernel's rows are not a multiple of " + std::to_string(pr.orientations));
+    const std::string norm = p.value("normalisation", std::string("none"));
+    if (norm != "none" && norm != "relative") ng::refuse("welch.source_band_power: normalisation is none or relative");
+    pr.relative = norm == "relative";
+    const std::size_t nbins = pr.r.wo.segmentSamples / 2 + 1;
+    const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
+    for (const auto& b : p["bands"]) {
+      const std::string name = b.value("name", std::string());
+      const double lo = b.value("lo", b.value("lo_hz", 0.0)), hi = b.value("hi", b.value("hi_hz", 0.0));
+      if (!(hi >= lo)) ng::refuse("welch.source_band_power: band " + name + " has hi < lo");
+      const double first = std::ceil(lo / df - 1e-9), last = std::floor(hi / df + 1e-9);
+      if (first > last || last < 0 || first >= static_cast<double>(nbins)) ng::refuse("welch.source_band_power: band " + name + " holds no frequency bin at " + std::to_string(df) + " Hz resolution");
+      pr.groups.push_back({static_cast<std::size_t>(first), static_cast<std::size_t>(std::min(last, static_cast<double>(nbins - 1))), true});
+      pr.bands.push_back(Json{{"name", name}, {"lo_hz", lo}, {"hi_hz", hi}, {"bins", Json::array({pr.groups.back().first, pr.groups.back().last})}, {"function", "mean"}});
+    }
+    if (pr.relative) pr.groups.push_back({0, nbins - 1, false});
+    try { nw::CrossWelch probe(1, pr.r.wo, pr.groups); } catch (const std::invalid_argument& e) { ng::refuse(e.what()); }
+    return std::any(std::move(pr));
+  };
+  n.start = [](const std::any&) { return std::any(SourceBandState{}); };
+  n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
+    const SourceBandPrepared& pr = std::any_cast<const SourceBandPrepared&>(prepared);
+    SourceBandState& s = std::any_cast<SourceBandState&>(state);
+    const ng::Block& b = in.at("x");
+    const Eigen::MatrixXd all = own_real(b);
+    Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
+    for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
+    if (s.first < 0) s.first = at.first;
+    if (!s.w) s.w.emplace(static_cast<int>(pr.channels.size()), pr.r.wo, pr.groups);
+    if (!pr.r.exclude || all_good(at)) s.w->add(chunk); else s.w->add(chunk, *at.good);
+    s.samples += b.own();
+    if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
+    return std::make_pair(ng::Blocks{}, std::move(state));
+  };
+  n.finish = [](const std::any& prepared, std::any state) {
+    const SourceBandPrepared& pr = std::any_cast<const SourceBandPrepared&>(prepared);
+    const SourceBandState& s = std::any_cast<const SourceBandState&>(state);
+    if (!s.w) ng::refuse("welch.source_band_power: no sample was read");
+    const nw::CrossWelchResult cw = s.w->result();
+    if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
+    const std::size_t B = pr.bands.size();
+    Eigen::MatrixXd maps = nxr::meeg::sourcePower(pr.K, std::vector<Eigen::MatrixXd>(cw.S.begin(), cw.S.begin() + static_cast<std::ptrdiff_t>(B)), pr.orientations, nxr::meeg::Orientation::Norm);
+    if (pr.relative) maps = nxr::meeg::relativePower(maps, nxr::meeg::sourcePower(pr.K, {cw.S.back()}, pr.orientations, nxr::meeg::Orientation::Norm).col(0));
+    const std::int64_t N = maps.rows();
+    const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
+    const bool density = pr.r.wo.scaling == nw::Scaling::Density;
+    const std::string base = std::string("A") + kSq + "\xc2\xb7m" + kSq;
+    ng::Array a;
+    a.rows = N; a.cols = static_cast<std::int64_t>(B);
+    a.data.resize(static_cast<std::size_t>(N) * B);
+    for (std::int64_t i = 0; i < N; ++i) for (std::size_t b = 0; b < B; ++b) a.data[static_cast<std::size_t>(i) * B + b] = maps(i, static_cast<Eigen::Index>(b));
+    Json entries = pr.bands;
+    if (!pr.relative)
+      for (std::size_t b = 0; b < B; ++b) entries[b]["spectral_scaling"] = welch_scaling_record(pr.r.wo, static_cast<double>(pr.groups[b].last - pr.groups[b].first + 1) * df, base);
+    Json o = options_of(pr.r);
+    o["normalisation"] = pr.relative ? "relative" : "none";
+    o["relative_total"] = pr.relative ? Json("sum of the source's PSD over all bins, 0 to Nyquist") : Json();
+    o["orientation_combination"] = pr.orientations == 3 ? "sum of the three orientations' power" : "fixed orientation";
+    o["kernel"] = pr.kernel;
+    a.meta["describe"] = Json{
+        {"measure", pr.relative ? "relative_power" : density ? "power_density" : "power"}, {"method", "welch"}, {"label", "welch"}, {"precision", "float32"},
+        {"unit", pr.relative ? Json() : Json(density ? base + "/Hz" : base)},
+        {"axes", Json::array({Json{{"name", "vertex"}, {"size", N}}, Json{{"name", "band"}, {"size", static_cast<std::int64_t>(B)}, {"values", entries}}})},
+        {"tiling", tiling_of(pr.r.wo, s.first, s.samples, cw.segments, cw.segmentsSkipped)},
+        {"n_members", cw.segments}, {"members_skipped", cw.segmentsSkipped},
+        {"producer", producer_of(pr.r, cw.segments, cw.segmentsSkipped, s.samples, s.bad, df, Json())},
+        {"options", o},
+        {"description", std::string("the ") + (pr.relative ? "relative " : "") + "band power of the sources through " + pr.kernel + ", per band"},
+        {"bad_samples", s.bad}};
+    return ng::Arrays{{"power", std::move(a)}};
+  };
+  return n;
+}
 }  // namespace
 
 void register_welch_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd()})
+  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 
