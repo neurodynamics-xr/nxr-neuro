@@ -33,7 +33,10 @@ enum class PortClass {
   measurement, statistic, manifold                                  // the type system's: one value per member of a partition; what is computed from members; a line or space made
 };
 /** what a field's columns are: samples (streamed, inside the loop), frames (a retimed stream), or none (an array outside the loop) */
-enum class Axis { none, samples, frames, members };
+/** where a value lies in a run: none, an array (outside the loop); samples, a stream of the recording's samples; frames, a stream of frames (after a retiming
+ *  node); members; BLOCK, a value a node inside the loop makes ONCE PER BLOCK on axes of its own (a chunk's spectrum: channels x frequency bins; a change of
+ *  basis), no halo and never cut into sub-blocks; a node after it reads it whole, and an accumulate node reduces it across blocks. */
+enum class Axis { none, samples, frames, members, block };
 
 const char* to_string(ValueType v);
 const char* to_string(PortClass c);
@@ -154,7 +157,7 @@ struct PortType {
   PortClass cls = PortClass::field;
   ValueType value = ValueType::real;
   std::int64_t rows = 0;                 // elements (channels, vertices, members), a vertex's components consecutive
-  Axis axis = Axis::none;                // samples: streamed (inside the loop); frames: retimed; none: an array
+  Axis axis = Axis::none;                // samples: streamed (inside the loop); frames: retimed; block: made once per block on its own axes; none: an array
   std::optional<double> sfreq;           // Hz, for samples (frames: the frame rate)
   std::string unit;                      // SI, as stored
   std::string on, to;                    // the manifold an element lies on (a label the caller gives: "sensors", "cortex"); an operator's target

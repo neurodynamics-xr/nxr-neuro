@@ -167,7 +167,7 @@ Blocks Execution::block(const Blocks& in, const Place& at) {
     Blocks ins;
     for (const auto& [port, name] : n.in) if (s.count(name)) ins[port] = s.at(name);
     for (const auto& [port, b] : ins)
-      if (b.own() != place.n) refuse(n.label + ": " + port + " has " + std::to_string(b.own()) + " own columns in a block of " + std::to_string(place.n) + ": a node's halo bookkeeping is off");
+      if (c.values.at(n.in.at(port)).streamed() && b.own() != place.n) refuse(n.label + ": " + port + " has " + std::to_string(b.own()) + " own columns in a block of " + std::to_string(place.n) + ": a node's halo bookkeeping is off");
     Blocks made;
     if (n.uses_step()) {
       NodeCall call = NodeCall::step(prepared_[idx], std::move(states_[idx]), ins, n.keep, place);
