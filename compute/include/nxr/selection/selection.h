@@ -75,7 +75,8 @@ struct SpanRow { double start = 0, stop = 0; std::optional<std::int64_t> code; }
 struct Grid {
   enum class Kind {
     elements,                               // every element of a manifold of `size` elements is its own member (the channels of a sensor array); nothing per element is held
-    dyadic                                  // the dyadic tiles of a surface: `member_of` holds the finest tile code h 2^depth + t; level l's member = that code >> (depth - l)
+    dyadic,                                 // the dyadic tiles of a surface: `member_of` holds the finest tile code h 2^depth + t; level l's member = that code >> (depth - l)
+    time                                    // a line's time grid, closed form: sample i at origin + i / rate, level k tiles 2^k samples from the first; `size` the line's samples, nothing held per element or level
   };
   Kind kind = Kind::elements;
   std::int64_t size = 0;                    // elements: the manifold's elements
@@ -83,6 +84,7 @@ struct Grid {
   std::int64_t slots = 0;                   // dyadic: the piece slots the codes reserve (h in 0 .. slots - 1): level l has slots << l members
   int finest = -1;                          // dyadic: the deepest level every piece reaches (>= depth; -1 unknown); a transfer carries the template's
   std::optional<double> match_median, match_max;   // dyadic made by transfer: the median and the maximum chord distance (unit sphere) from a vertex to the template vertex it took
+  double origin = 0, rate = 0;              // time: the first sample's time (seconds) and the sample rate (Hz)
 };
 
 struct Selection {
