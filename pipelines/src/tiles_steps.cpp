@@ -196,22 +196,25 @@ StepSpec tile_grid_step() {
       if (lc && std::find(st.group.lc_levels.begin(), st.group.lc_levels.end(), l) != st.group.lc_levels.end()) {
         // THE LEVI-CIVITA CONNECTION of the group tree at this level (nxr's default subject: `measure.vectors.levi_civita`): the centre vertex of each tile (the non-singular member nearest its
         // area-weighted centroid; -1 empty) and Omega[a, b], the angle at centre b, from b's north towards west, of centre a's north carried there by the vector heat transport, antisymmetrised
-        // (half the round-trip defect taken from each direction); a value over a PAIR of the level's tiles, so rows of the level's selection (code a, within_code b). Pairs in different hemispheres have none.
+        // (half the round-trip defect taken from each direction); a value over a PAIR of the level's tiles: a measurement over a selection of pairs (never rows riding on the grid). Pairs in different hemispheres have none.
         // The transport is the Studio's (ChartKit::transported, intrinsic Delaunay); nxr's is geometry-central's on the input mesh: they agree to a fraction of a degree, not bit for bit.
         const std::vector<int> lcen = lad::tileCentres(S.vertices.data(), node, nodes, area, singular);
         const lad::LeviCivita conn = lad::leviCivita(*kit, sf.e1, sf.e2, gauge, node, nodes, lcen);
         const Eigen::MatrixXd anti = lad::antisymmetric(conn.omega);
-        Json values = Json::array();
+        std::vector<std::int64_t> pair_index;                                 // the pairs (a, b) of the level's members, in order of a * tiles + b
+        std::vector<double> values;                                           // Omega[a, b] of each pair
         for (int a = 0; a < nodes; ++a)
           for (int b = 0; b < nodes; ++b) {
             const int ca = lcen[static_cast<std::size_t>(a)], cb = lcen[static_cast<std::size_t>(b)];
             if (ca < 0 || cb < 0 || piece[static_cast<std::size_t>(ca)] != piece[static_cast<std::size_t>(cb)]) continue;
             const double om = anti(a, b);
-            if (std::isfinite(om)) values.push_back(Json::array({a, om, b}));
+            if (std::isfinite(om)) { pair_index.push_back(static_cast<std::int64_t>(a) * nodes + b); values.push_back(om); }
           }
         const std::string cname = st.surface + "_lc_centres_L" + std::to_string(l);
         lv["centres"] = Json{{"name", cname}, {"description", "the centre vertex of each tile of level " + std::to_string(l) + " (\xe2\x88\x92" "1: empty tile)"}, {"indices", std::vector<std::int32_t>(lcen.begin(), lcen.end())}};
-        lv["member_values"] = Json{{"measure", "levi-civita connection"}, {"unit", "rad"}, {"values", values}};
+        // a value over PAIRS of members is a measurement over a selection of pairs (an `indices` selection, pair number a * tiles + b), never rows riding on the grid
+        lv["pairs"] = Json{{"name", st.surface + "_lc_pairs_L" + std::to_string(l)}, {"description", "the pairs (a, b) of tiles of level " + std::to_string(l) + " that have a Levi-Civita connection (a, b in one piece; pair number a * " + std::to_string(nodes) + " + b)"},
+                           {"measure", "levi-civita connection"}, {"unit", "rad"}, {"tiles", nodes}, {"indices", pair_index}, {"values", values}};
         levi_levels.push_back(Json{{"level", l}, {"tiles", nodes}, {"centres", cname}, {"pairs", values.size()}});
         if (ctx.say) ctx.say(Json{{"stage", "levi-civita"}, {"level", l}, {"pairs", values.size()}});
       }
@@ -227,7 +230,7 @@ StepSpec tile_grid_step() {
     if (!atlas.is_null()) params["atlas"] = atlas;
     if (lc)
       params["levi_civita"] = Json{{"levels", levi_levels}, {"measure", "levi-civita connection"}, {"unit", "rad"}, {"frames", st.frames_id},
-          {"definition", "Omega[a, b]: the angle at centre b, from north towards west, of centre a's north carried to b; rows on level l's selection, code a, within_code b"},
+          {"definition", "Omega[a, b]: the angle at centre b, from north towards west, of centre a's north carried to b; a measurement over the selection of tile pairs `<surface>_lc_pairs_L<l>` (pair number a * tiles + b)"},
           {"transport", "the vector heat method (ChartKit::transported, the Studio's: intrinsic Delaunay mesh), calibrated to the identity at its source"},
           {"antisymmetrised", "Omega_ab - wrap(Omega_ab + Omega_ba) / 2 (nxr joint.antisymmetric since nxr #68; the earlier halving on the circle turned |Omega| > 90 degrees by 180)"},
           {"centres", "the non-singular member vertex nearest the tile's area-weighted centroid (nxr node_centres)"},

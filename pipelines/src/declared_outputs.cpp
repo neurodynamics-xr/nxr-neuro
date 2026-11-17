@@ -149,7 +149,7 @@ task::GridOut grid_of(const ng::Array& a, const Json& d, const std::string& o) {
       L.arrays.push_back(std::move(out));
     }
     if (x.contains("centres")) L.centres = x["centres"];
-    if (x.contains("member_values")) L.member_values = x["member_values"];
+    if (x.contains("pairs")) L.pairs = x["pairs"];
     g.levels.push_back(std::move(L));
   }
   return g;

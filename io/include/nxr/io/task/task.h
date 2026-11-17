@@ -175,7 +175,7 @@ struct GridLevelOut {
   std::optional<std::string> dictionary_id;        // or the id of a dictionary already stored (the group tree's levels reuse the template's)
   std::vector<GridArrayOut> arrays;
   Json centres;                                    // {name, description, indices}: a pick of the tiles' centre vertices made beside the level (null: none)
-  Json member_values;                              // {measure, unit, values: [[code, value, within_code], ...]}: a value over pairs of the level's members, rows on the level's selection (null: none)
+  Json pairs;                                      // {name, description, measure, unit, tiles, indices, values}: a value over PAIRS of the level's members, as a measurement over a selection of pairs (an `indices` selection made beside the level, pair number a * tiles + b; null: none)
 };
 // a dyadic GRID with its levels: a `ladder` row (its levels' dictionary) and one `set` row per level; the hierarchy is the closed form, no parent arrays (io's save_grid)
 struct GridOut {

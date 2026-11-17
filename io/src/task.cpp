@@ -18,6 +18,7 @@
 #include "nxr/io/store.h"
 
 #include <cmath>
+#include <limits>
 #include <set>
 
 namespace nxr::io::task {
@@ -713,10 +714,25 @@ std::string Unit::selection(const SelectionOut& s) {
         cs.description = L.centres.value("description", std::string());
         selection::save(sub, picks, cs);
       }
-      if (L.member_values.is_object()) {            // a value over pairs of the level's tiles: rows on the level's selection (code a, within_code b)
-        std::vector<selection::MemberValue> rows;
-        for (const auto& v : L.member_values["values"]) rows.push_back({v[0].get<std::int64_t>(), v[1].get<double>(), v[2].get<std::int64_t>()});
-        selection::save_member_values(sub, sid, L.member_values.value("measure", std::string()), rows, L.member_values.value("unit", std::string()), by_.tool, sid);
+      if (L.pairs.is_object()) {                    // a value over pairs of the level's tiles: a MEASUREMENT over a selection of pairs (indices: pair number a * tiles + b), one value a pair
+        const std::int64_t tiles = L.pairs.value("tiles", std::int64_t(0));
+        if (tiles < 1 || tiles * tiles > std::numeric_limits<std::int32_t>::max()) throw Error(code::invalid_argument, "grid " + s.name + ": level " + L.name + " has too many tiles for a selection of pairs (" + std::to_string(tiles) + ")");
+        selection::Description pd;
+        pd.type = selection::Type::indices;
+        for (const auto& i : L.pairs["indices"]) pd.indices.push_back(i.get<std::int32_t>());
+        selection::Placement ps;
+        ps.name = L.pairs.value("name", std::string()); ps.path = ps.name; ps.manifold_id = s.manifold_id;
+        ps.description = L.pairs.value("description", std::string());
+        ps.params = Json{{"pairs_of", sid}, {"tiles", tiles}, {"pair_number", "a * tiles + b (a, b the level's member numbers)"}};
+        const selection::Saved pairs = selection::save(sub, pd, ps);
+        std::vector<double> values;
+        for (const auto& v : L.pairs["values"]) values.push_back(v.get<double>());
+        if (values.size() != pd.indices.size()) throw Error(code::invalid_argument, "grid " + s.name + ": " + std::to_string(values.size()) + " values for " + std::to_string(pd.indices.size()) + " pairs");
+        const std::string measure = L.pairs.value("measure", std::string());
+        const std::string vpath = "measurements/" + safe_name(ps.name) + "/" + safe_name(measure);
+        Cols mc;
+        mc.set("measure", measure).set("array_path", vpath).set("unit", L.pairs.value("unit", std::string())).set("computed_by", by_.tool);
+        selection::save_measurement_array(sub, pairs.id, vpath, view(values, {static_cast<std::int64_t>(values.size())}), mc);
       }
     }
     return saved.id;

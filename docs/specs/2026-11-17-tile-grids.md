@@ -24,7 +24,7 @@ group_tiles  surface (+ the default subject's group tree, bound by the runner) â
 |---|---|---|
 | the grid | `tile_grid` calls `nxr::selection::dyadic(surface, {depth})`; `group_tile_grid` calls `nxr::ladder::groupTreeFor` (the transfer through the registered spheres) | compute: arrays in, a grid out |
 | the levels' facts | area, tile centres, adjacency, the Weyl band per level (`lad::tileAreas / tileCentres / tileAdjacency`, `wavelengthOf`) | pure functions of the arrays; no loop over data |
-| the Levi-Civita connection | `lad::leviCivita`, `antisymmetric` on the stored canonical frames (the optional input `frames`) | a value over a PAIR of tiles: rows of the level's selection (code a, within_code b), not a reduction |
+| the Levi-Civita connection | `lad::leviCivita`, `antisymmetric` on the stored canonical frames (the optional input `frames`) | a value over a PAIR of tiles: a measurement over a selection of pairs (an `indices` selection, pair number a * tiles + b), not rows on the grid and not a reduction |
 | the store | output type `grid`: io's `save_grid` (a `ladder` row, one `set` row per level, the tile codes as the member numbers, the level node's `w`, centres, adjacency); dictionaries as the Studio's | io: load and store only |
 
 The runner reads the surface, the stored frames and (group tiles) the default subject through `Bound` (`coordinate_unit`, `subject_kind`, `group_template`); the steps hold no handle.
