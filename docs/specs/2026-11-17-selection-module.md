@@ -30,6 +30,8 @@ Changes to the Studio's model, decided here:
 6. Compute creates selections in memory, mirroring these types (`compute/include/nxr/selection/selection.h`: one `Selection`; the partition methods in
    `partition.h`: `constant_q`, `constant_q_bands`, `dyadic`, `eigenvalue_bands`, `transfer`; named scales in `scales.h`); io stores, loads and updates
    them; a loaded selection follows the same rules.
+7. A compute takes a selection in one of four RESOLVED FORMS (`resolved.h`: `Rule`, `Intervals`, `Elements`, `Codes`; section 8). A PRODUCT of
+   selections is a `set` whose members are given by factors, numbered row-major, labelled by the factors' own lookups (section 9); no sixth type.
 
 The sections below record how this was reached; where they use other words (`Partition`, `Spans`, `Regions`), section 0 governs.
 
@@ -248,3 +250,96 @@ complement of the bad segments).
 `speedspectrum::compute`, `pyramid::frameKernel`, `quadrature::rotarySpectrum` (a window per frequency), `connectome::partitionCounts`,
 `smoothMemberships`, and compute.h's generators, loci and isolines; the covariant operators and vector-field operations' neighbourhoods were not read at
 line level.
+
+## 8. Resolved forms: the one array form each compute takes (2026-11-17)
+
+A selection says what a part of a manifold IS; a compute needs which elements it holds, as arrays it can loop over. Section 7 found the same thing passed
+under many names. They become FOUR forms, one name each (`compute/include/nxr/selection/resolved.h`, `compute/src/selection_resolved.cpp`), resolved from
+a `Selection` by one resolver each:
+
+| form | what it holds | arrays | resolver | accepts |
+|---|---|---|---|---|
+| `Rule` (the closed form) | a regular family of intervals on a line, by a rule, never materialized: member k = [origin + k·hop, origin + k·hop + width) ∩ [0, size) | origin, width, hop, count (in points), the line's size | `resolve_rule(s, line)` | a set by a rule (a tiling) whose origin, width and hop are whole points of the line |
+| `Intervals` | per member, sorted disjoint [start, stop) point intervals on a line | CSR: `offsets` [members + 1], `start`, `stop` | `resolve_intervals(s, line)` | point, span (one axis), distance (on a line), indices, and sets of these: listed, by a tiling, by codes over the line's points |
+| `Elements` | per member, its sorted elements (members may overlap) | CSR: `offsets` [members + 1], `elements` | `resolve_elements(s, size)` | point, indices, a set by codes, a set of listed points and indices |
+| `Codes` | a member code per element (-1: in none) and the member count; DISJOINT members only | `codes` [size], `members` | `resolve_codes(s, size)`, `resolve_codes(s, line)` | as `Elements` (or `Intervals` on a line), with disjoint members |
+
+Rules shared by every form:
+- **A member's identity is its ordinal, and every form keeps every ordinal**, an empty member included (a span that falls outside the line, a code that
+  holds no element): a measurement's k-th value is always member k's. A set by codes numbers its members by the codes themselves (`ordinal_count`: the
+  largest code in its codes or its lookup, + 1).
+- **Onto a line**: a span [a, b) holds the points whose coordinate lies in it, indices [⌈(a − origin)/spacing⌉, ⌈(b − origin)/spacing⌉) (with a 1e-9
+  tolerance, so a corner on a point is that point; the rule `measure.band_amplitude` uses for a band's bins). An instant (a = b) holds the point nearest it.
+  A distance on a line is the span [c − r, c + r). A unit on the selection must be the line's.
+- **A tiling resolves to a `Rule`** only when it is whole points of the line; otherwise `resolve_intervals` rounds its members one by one, by the span rule.
+  The rule's origin may lie before the line (a block that starts inside a tiling): `rule_codes(rule, first, n)` gives the member of each point of a block
+  without the whole line's codes (today's `tile[samples]`, `frameOfSamples`), `rule_members_at(rule, i)` the members holding a point (several when
+  hop < width: Welch's overlapping segments), `rule_member(rule, k)` one member's interval.
+- **Refusals name the way forward**: a set with levels (name one: `level(set, k)`, the grammar's `level(k)`, added to `selection.h`), a product
+  (`resolve_product`, section 9), a span or a tiling asked for as elements (they lie on a line: `resolve_intervals`, then `elements_of`), a distance on a
+  surface (it needs the metric: `resolve_distance` first), members that share an element asked for as codes.
+- **Conversions** where exact: `intervals_of` (Rule, Elements, Codes), `elements_of` (Intervals, Codes), `codes_of` (Elements, Intervals, Rule; disjoint
+  members only). `resolve(s, Space)` picks the resolver from the form a caller names (`FormKind`) and where the selection lies (a `Line`, or a size).
+- Indices are 64-bit on a line and in `Elements` (hours of samples; a product manifold's cells); codes are 32-bit, as every compute that takes codes reads them.
+
+What each disguised parameter of section 7 becomes (the later wave rewrites these functions to take the form):
+
+| today (section 7) | functions | the form |
+|---|---|---|
+| `codes`, `node`, `rowGroup`, `members`, `Surface.node` + a count | `partition::accumulate`, `medians`, `meanOverMembers`; `ladder::*Summary`, `leviCivita`, `lcResultant`, `tileAreas`, `tileCentres`; `integrals::flux`, `circulation`; `tileFlux`, `tileCirculation`; `region::collapse`; `quadrature::groupedCongruenceNorms`, `pairCongruenceNorms`; `crossings::crossings` | `Codes` |
+| a tile width and a tile count | `partition::reduceTiles`, `crossSpectrum`; `histogram::histogramTiles` | `Rule` (hop = width) |
+| a segment length and an overlap | `welch`, `Welch`, `ComplexWelch`, `LinearWelch`, `CrossWelch` (and `segmentFor`, which makes the tiling) | `Rule` (hop = n − ⌊n·overlap⌋; members overlap) |
+| a tile index per sample (`tile[samples]`) with codes per row | `partition::analyticSums`, `tensorSums`; `pyramid::bandSums`, `tensorBandSums`, `frameOfSamples`, `addSampleCounts`; `tower::sampleCounts` | `ProductForm` of (`Rule` on time, `Codes` on the rows) (section 9); `rule_codes` gives a block's tile per sample |
+| bin groups `{first, last}` (inclusive) | `CrossWelch`; `bandAmplitude`'s `BinRange` | `Intervals` on the frequency line (bins: a `Line` of count bins, spacing Δf, in Hz) |
+| span and event lists (`intervals::Span`, `TileEvent`), a span as two numbers | `intervals::rollupEvents`, `eventDurations`, `eventIntervalNext`; `extent::rollup`, `centres`, `pathLength`; `risefall::fit` | `Intervals` (one member per event; a `TileEvent` is an interval of a level's tiles: `Intervals` on that level's tile line) |
+| an event-label matrix (`Labels`), events of cells on tiles × time tiles | `extent::areaByFrame`, `windowRegions` | `Codes` on the product manifold's cells, or `Elements` when events overlap (section 9) |
+| the `good` sample mask | Welch, the pyramid, several reductions | `Intervals`, one member: the good samples (the complement of the bad segments, `subtract`) |
+| a baseline per member as numbers | `extent::standardize` | stays numbers: a measurement over a selection, handed in (not a form) |
+| a neighbourhood: a half-width, a margin, a halo (section 7.3) | `timebank::haloOf`, `frame_tiling::sincInterpolate`, `taps`, `surrogate::shapingTaps`, `filterValid`, `wt`'s margin | a `Rule` with hop 1 and width 2h + 1 (origin −h): the planner reads the halo from it; the function keeps its half-width parameter until the planner does |
+| a radius or a distance | `ChartKit::disc`, `quadrature::weightedPhaseGradient`, `tracks::link`, `lag::pairsAtDistance` | a `distance` selection, resolved by `resolve_distance` to `Elements` |
+| selections made in compute (section 7.5) | `tower::makeFrameTiling`, `frameSpan`, `parent`; `regions::detectRegions`, `cores::corePatches`; `intervals` detection; `lag::pairsAtDistance` | return a `Selection` (a tiling; a set of indices; a set of spans); the pair list is a product's members (section 9) |
+
+## 9. Product selections (2026-11-17)
+
+A measurement per chunk per band, per time tile per cortical tile, or a burst on some channels for some time, lies on a PRODUCT manifold (the schema's
+`manifold.type = 'product'`, D37: a recording is on sensors × time). Its selections stay within the five types:
+
+- **`product(factors)`** (`selection.h`) is a `set` whose members are given a fourth way, by FACTORS: each factor a selection on its own manifold, the
+  members the tuples of the factors' members. A factor that is not a set is one member, so a single burst on three channels for 200 ms is
+  `product(span on time, indices of the three channels)`, one member; a set of such bursts is a `set` of those products. A product of products is
+  flattened; a factor with levels is refused (name the level).
+- **Identity: the member ordinal is row-major over the factors' ordinals**, the last factor fastest: k = ((i₀·n₁ + i₁)·n₂ + i₂)…, nₓ = `ordinal_count`
+  of factor x. This is the layout the computes already use (`AnalyticSums`, `TensorSums`: [tile × member]; `measure.band_amplitude`: chunk × channel ×
+  band). `factor_ordinals(p, k)` and `product_ordinal(p, …)` convert.
+- **Label: the tuple of the factors' labels, each read with its own factor's lookup** (`factor_labels(p, k)`). A product carries no lookup of its own.
+  Why not a lookup of pairs: it would repeat n₀·n₁ entries that the factors already hold, go stale when a factor's lookup is edited, and lose the
+  factors' own structure (a band's range, a tile's level); two lookups are the factors' own, unchanged, and a measurement filtered by one factor
+  ("every chunk in alpha") is arithmetic on the ordinal, never a string match.
+- **Partition**: a product is disjoint when every factor is (`disjoint`), and covers the product manifold when every factor covers its own.
+- **Resolved form: `ProductForm`** (`resolve_product(p, spaces)`, one `Space` per factor saying where it lies and which form to take): the factors'
+  forms (a `Rule` for the chunks, `Intervals` for the bands' bins, `Codes` for the channels or tiles) and the row-major numbering (`counts`,
+  `ordinals(k)`, `ordinal(…)`). A compute loops over the factors' forms and writes value k at the product ordinal; the product is never materialized.
+- **Events that are not boxes** (a burst whose channels change over time; a region that moves) are not products: they are `indices` (or a set by codes,
+  `Codes`) on the product manifold's cells, numbered row-major as the field's array is (time slow, element fast); `Elements` when they overlap. Section
+  6's question 4 is answered this way for compute: a box is a product, any other spatiotemporal shape is a set of cells.
+
+Examples (compute):
+
+```cpp
+Selection chunks = tiled({0, 32768 / sfreq, 32768 / sfreq, n_chunks}, "s");            // the chunk partition of time
+Selection bands  = set_of_spans({{8, 13, 0}, {13, 30, 1}}, "Hz", {{0, "alpha"}, {1, "beta"}});
+Selection cells  = product({chunks, labels(channel_codes), bands});                     // time x channel x band
+ProductForm f = resolve_product(cells, {{FormKind::rule, time_line}, {FormKind::codes, std::nullopt, n_channels}, {FormKind::intervals, bin_line}});
+```
+
+**How io should store a product** (a description for io's selection CRUD; not built here):
+- One `selection` row: `type = 'set'`, `manifold_id` the product manifold (its `geometry_dimension` rows name the factors' manifolds), `cell` one rank
+  per factor (`'1,0,1'`: time edges × channel vertices × frequency edges), `n_members` the product of the factors' ordinal counts, `array_path` null (a
+  rule: nothing per element is stored), no `dictionary_id` (the factors carry theirs).
+- Each factor is a stored selection in its own right, on its own manifold, with its own dictionary. The product names them in order in a new detail
+  table, the shape of `operator_factor`: `selection_factor (selection_id, ordinal, factor_selection_id)`, primary key (selection_id, ordinal).
+- Measurements: `selection_measurement.code` is the product's member ORDINAL (row-major); an array-backed measurement is `[rows × members]` with the
+  members in the same order. "Every chunk in beta" and `within` one factor's member are arithmetic on the ordinal (k / stride mod nₓ), which io's
+  measurement query does from the factors' counts; the roll-up `coarser(shift)` applies to one factor's ordinal (unpack, shift, repack).
+- A set of products (a set of box events) is a `set` whose members are product rows (`member_of_id`, `member_ordinal`), each with its factor rows; a
+  shape that is not a box is `indices` or codes on the product manifold (an array, as today).
