@@ -1417,6 +1417,7 @@ void register_meeg_nodes() {
   ng::Registry& r = ng::registry();
   for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum(), phase_gradient(), channel_mean(), filter_apply(), hodge_weights(), speed_spectrum()})
     if (!r.find(n.name)) r.add(std::move(n));
+  register_quadrature_nodes();
 }
 
 }  // namespace nxr::pipelines::graph

@@ -263,6 +263,16 @@ Eigen::MatrixXcd hilbertRows(const MatrixXd& X) {
     return nxr::fft::fftColumns(F, false).transpose();
 }
 
+std::int64_t hilbertHalo(double sfreq, double lowestHz, double cycles) {
+    if (!(sfreq > 0) || !(lowestHz > 0) || !(cycles > 0)) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "hilbertHalo: the rate, the band's lowest frequency and the cycles are positive");
+    return static_cast<std::int64_t>(std::ceil(cycles * sfreq / lowestHz));
+}
+
+Eigen::MatrixXcd hilbertRowsOwn(const MatrixXd& block, Eigen::Index left, Eigen::Index own) {
+    if (left < 0 || own < 1 || left + own > block.cols()) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "hilbertRowsOwn: the block holds " + std::to_string(block.cols()) + " columns, the own columns are [" + std::to_string(left) + ", " + std::to_string(left + own) + ")");
+    return hilbertRows(block).middleCols(left, own);
+}
+
 MatrixXd activation(const Eigen::MatrixXcd& Jin, ActivationMethod method, bool alreadyAnalytic) {
     if (Jin.rows() % 3 != 0) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "activation: J must be [3V x T] interleaved; got " + std::to_string(Jin.rows()) + " rows");
     Eigen::MatrixXcd J = Jin;

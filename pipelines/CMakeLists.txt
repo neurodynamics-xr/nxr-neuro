@@ -37,6 +37,7 @@ add_library(nxr_pipelines
   src/step_nodes.cpp
   src/welch_steps.cpp
   src/meeg_steps.cpp
+  src/quadrature_steps.cpp
   src/partition_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp

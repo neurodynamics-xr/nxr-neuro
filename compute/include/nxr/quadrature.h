@@ -37,6 +37,7 @@
 #include "nxr/chart.h"
 #include "nxr/frames.h"
 #include "nxr/hodge_weights.h"
+#include "nxr/selection/resolved.h"
 
 namespace nxr::quadrature {
 
@@ -96,6 +97,11 @@ GroupedCongruenceNorms groupedCongruenceNorms(const MatrixXd& A, const std::vect
  *  Memory: the groups' Grams and two m x m products per group at a time. Throws std::invalid_argument on a shape mismatch or a pair outside [0, groups). */
 struct PairCongruenceNorms { GroupedCongruenceNorms tiles; MatrixXd pairTotal, pairQuadrature; };   // pair* are [pairs x Cs.size()], NaN for a pair with an empty group or an empty C
 PairCongruenceNorms pairCongruenceNorms(const MatrixXd& A, const std::vector<int>& rowGroup, int groups, const std::vector<std::pair<int, int>>& pairs, const std::vector<MatrixXcd>& Cs,
+                                        const VectorXd& rowWeights = VectorXd());
+/** The same two functions with the groups as the RESOLVED SELECTION FORM (selection/resolved.h, section 8 of the selection spec): the member number of each row (-1: in no member) and the member count.
+ *  A grid (a level of a dyadic grid, an elements grid) or an irregular set whose members are disjoint, resolved by resolve_member_of; the groups are the members, an empty member included (its row is NaN). */
+GroupedCongruenceNorms groupedCongruenceNorms(const MatrixXd& A, const selection::MemberOfElement& groups, const std::vector<MatrixXcd>& Cs, const VectorXd& rowWeights = VectorXd());
+PairCongruenceNorms pairCongruenceNorms(const MatrixXd& A, const selection::MemberOfElement& groups, const std::vector<std::pair<int, int>>& pairs, const std::vector<MatrixXcd>& Cs,
                                         const VectorXd& rowWeights = VectorXd());
 
 // ── quadrature pairs ───────────────────────────────────────────────────────────────────────────────────────────────
@@ -165,6 +171,10 @@ struct AnatomicalFrame { const frames::Anatomical* anatomical; const frames::Mat
  *  `maxRadius` the chart's validity radius (ChartKit::disc refuses a larger `radius`). A disc whose faces carry no |z| |grad z| has alignment 0. `faces` and `ops` are the mesh `kit` was made from. */
 PhaseGradient weightedPhaseGradient(const VectorXcd& z, const hodge::FaceOperators& ops, const hodge::FaceMat& faces, const VectorXd& areas, chart::ChartKit& kit, int anchor, double radius,
                                     const AnatomicalFrame* anatomy = nullptr, double maxRadius = std::numeric_limits<double>::infinity());
+/** The same over a NEIGHBOURHOOD given as a selection: `disc` is the Elements form of a `distance` selection (centre vertex `anchor`, a radius) resolved by selection::resolve_distance, which always holds
+ *  the centre; the disc is its member 0 (the one member of the resolved distance). The radius is not a parameter here: the neighbourhood is the selection. */
+PhaseGradient weightedPhaseGradient(const VectorXcd& z, const hodge::FaceOperators& ops, const hodge::FaceMat& faces, const VectorXd& areas, chart::ChartKit& kit, int anchor,
+                                    const selection::Elements& disc, const AnatomicalFrame* anatomy = nullptr);
 /** Z rotated so that sum Z^2 is real and positive, its real part kept, then rotated back: the standing pattern with the same real part up to its best phase (alignment 0 by construction). */
 VectorXcd standingSurrogate(const VectorXcd& z);
 

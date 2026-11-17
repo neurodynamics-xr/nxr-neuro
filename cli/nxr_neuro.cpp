@@ -57,7 +57,6 @@ int convert_main(const std::vector<std::string>& argv);
 int eigen_main(const std::vector<std::string>& argv);   // pipelines/tools/eigen_command.cpp
 int phasegradient_main(const std::vector<std::string>& argv); // cli/meeg_command.cpp
 int cyclepattern_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
-int quadrature_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
 int measure_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
 int spatialnull_main(const std::vector<std::string>& argv);     // cli/measure_command.cpp
 int null_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
@@ -513,9 +512,9 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       throw Error(code::unsupported, "nxr-neuro measure needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
-    if (cmd == "phasegradient" || cmd == "cyclepattern" || cmd == "quadrature" || cmd == "opticalflow" || cmd == "tiles") {
+    if (cmd == "phasegradient" || cmd == "cyclepattern" || cmd == "opticalflow" || cmd == "tiles") {
 #ifdef NXR_NEURO_WITH_PIPELINES
-      return cmd == "phasegradient" ? phasegradient_main(rest) : cmd == "cyclepattern" ? cyclepattern_main(rest) : cmd == "quadrature" ? quadrature_main(rest) : cmd == "opticalflow" ? opticalflow_main(rest) : tiles_main(rest);
+      return cmd == "phasegradient" ? phasegradient_main(rest) : cmd == "cyclepattern" ? cyclepattern_main(rest) : cmd == "opticalflow" ? opticalflow_main(rest) : tiles_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro " + cmd + " needs the pipelines (nxr_compute + nxr_io + nxr_meeg): build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
