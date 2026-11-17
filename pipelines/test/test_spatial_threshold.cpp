@@ -16,6 +16,7 @@
 #include <set>
 
 #include "check.h"
+#include "measurement_helpers.h"
 #include "store_at.h"
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
@@ -175,7 +176,7 @@ int main() {
   double mx = 0;
   for (std::int64_t v = 0; v < Vg; ++v) for (std::size_t k = 0; k < range; ++k) mx = std::max(mx, static_cast<double>(rel[static_cast<std::size_t>(v) * outside.size() + k]));
   const nxr::histogram::LogBins lb = nxr::histogram::logBinsFor(mx, 4096);
-  const nxr::histogram::Counts dc = nxr::histogram::histogramTiles(rel.data(), static_cast<std::size_t>(Vg), outside.size(), outside.size(), 1, lb);
+  const nxr::histogram::Counts dc = histogramTiles(rel.data(), static_cast<std::size_t>(Vg), outside.size(), outside.size(), 1, lb);
   double l1 = 0, total = 0;
   std::vector<std::int64_t> dcounts(4096);
   for (int k = 0; k < 4096; ++k) { dcounts[static_cast<std::size_t>(k)] = dc.counts[static_cast<std::size_t>(k)]; l1 += std::abs(Hs.values[static_cast<std::size_t>(k)] - dcounts[static_cast<std::size_t>(k)]); total += dcounts[static_cast<std::size_t>(k)]; }

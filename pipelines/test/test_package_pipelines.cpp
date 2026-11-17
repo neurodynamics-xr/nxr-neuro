@@ -18,6 +18,8 @@
 #include "brain_helpers.h"
 #include "psd_run.h"
 #include "check.h"
+#include "filter_runs.h"
+#include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io/catalogue.h"
@@ -106,17 +108,14 @@ void make_old(const fs::path& datastore) {
 // every pipeline family, on whatever writer it is given
 void run_chains(DatasetWriter& ds, SubjectWriter& sub) {
   CHECK(!nxrtest::run_psd(ds, sub, "rest").hit);
-  SourcePsdOptions so;
-  so.recording = "rest"; so.chunks = "all"; so.bands = {{"alpha", 8, 12}};
-  CHECK(!sourcepsd_compute(ds, sub, so).hit);
-  CrossSpectrumOptions co;
-  co.recording = "rest"; co.chunks = "all"; co.channels_of = "kern"; co.bands = {{"alpha", 8, 12}};
-  CHECK(!crossspectrum_compute(ds, sub, co).hit);
-  FilterComputeOptions fo;                                               // the field chain: a filter, then the PSD of what it wrote
+  const Json alpha = Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}});
+  { const auto r = nxrtest::run_definition(ds, sub, "sourcepsd", Json{{"recording", "rest"}, {"bands", alpha}}); CHECK(!r.empty() && !r[0].value("hit", false)); }
+  { const auto r = nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", "rest"}, {"channels_of", "kern"}, {"bands", alpha}}); CHECK(!r.empty() && !r[0].value("hit", false)); }
+  nxrtest::FilterComputeOptions fo;                                               // the field chain: a filter, then the PSD of what it wrote
   fo.recording = "rest";
   fo.filter.kind = nxr::filter::Kind::Bandpass;
   fo.filter.lowerEdge = 8; fo.filter.upperEdge = 12;
-  filter_compute(ds, sub, fo);
+  nxrtest::filter_compute(ds, sub, fo);
   CHECK(!nxrtest::run_psd(ds, sub, "rest_bandpass").hit);
   nxr::pipelines::run_shipped(ds, sub, "measure", Json{{"field", "rest_kern_psd_alpha"}, {"over", "parcels"}, {"weight", "none"}, {"measures", Json::array({"mean", "max"})}}, false);   // a measurement over a partition
   nxr::pipelines::run_shipped(ds, sub, "summarize", Json{{"over", "parcels"}, {"of", "rest_kern_psd_alpha"}, {"measure", "mean"}, {"summaries", Json::array({"median", "mean"})}, {"combine", "pool"}}, false);   // its statistic across the members

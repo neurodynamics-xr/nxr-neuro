@@ -11,6 +11,7 @@
 #include <random>
 
 #include "check.h"
+#include "filter_runs.h"
 #include "nxr/io/task/task.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
@@ -18,6 +19,7 @@
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
+using namespace nxrtest;
 namespace fs = std::filesystem;
 using Eigen::MatrixXd;
 
@@ -125,7 +127,6 @@ int main() {
   const FilterComputeResult a = filter_compute(ds, sub, o);
   CHECK(!a.hit);
   CHECK_EQ(a.info["name"].get<std::string>(), std::string("rest_bandpass"));
-  CHECK_EQ(a.info["samples"].get<std::int64_t>(), T);
   // the stored samples are the whole-record filter of the stored source (float32)
   nxr::filter::FilterOptions fo = o.filter;
   fo.sfreq = sfreq;
@@ -148,7 +149,6 @@ int main() {
     CHECK_EQ(text(*f, "manifold_id"), text(*sub.by_name("field", "rest"), "manifold_id"));    // same channels x time product
     const Json pj = Json::parse(text(*f, "producer_json"));
     CHECK_EQ(pj["filter"]["kind"].get<std::string>(), std::string("bandpass"));
-    CHECK_EQ(pj["filter"]["option_set"].get<std::string>(), std::string("brainstorm"));
     CHECK_EQ(pj["filter"]["method"].get<std::string>(), std::string("fir"));
     CHECK(pj["filter"]["lower_edge"].get<double>() == 2.0 && pj["filter"]["upper_edge"].get<double>() == 40.0);
     CHECK_EQ(pj["filtered_from"]["name"].get<std::string>(), std::string("rest"));

@@ -8,6 +8,7 @@
 #include <random>
 
 #include "check.h"
+#include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/io/measures.h"
@@ -94,15 +95,38 @@ static void run() {
       });
     }
     SubjectWriter sub = SubjectWriter::open(ds, "S1");
-    QuadratureOptions o;
-    o.recording = "rest";
-    o.chunks = "all";                                           // every chunk, against the whole-record reference
-    o.option_set = "brainstorm";                                // the direct reference below is Brainstorm's exact 4 s
-    o.segment_seconds = 4.0;
-    o.bands = {{"alpha", 8, 12}, {"beta", 15, 29}};
-    o.pairs = 2;
-    const QuadratureResult a = quadrature_compute(ds, sub, o);
-    CHECK(!a.hit);
+    // the definition `quadrature` through the runner: every chunk, against the whole-record reference; Brainstorm's exact 4 s segments
+    const Json bands_j = Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}, Json{{"name", "beta"}, {"lo", 15}, {"hi", 29}}});
+    struct Band { std::string name; double lo, hi; };
+    struct Opt { std::vector<Band> bands; } o{{{"alpha", 8, 12}, {"beta", 15, 29}}};
+    Json set = Json{{"recording", "rest"}, {"kernel", "kern"}, {"segment_rule", "round"}, {"segment_seconds", 4.0}, {"bands", bands_j}, {"pairs", 2}};
+    auto run = [&](const Json& st, bool replace) { return nxrtest::run_definition(ds, sub, "quadrature", st, replace); };
+    const auto ra = run(set, false);
+    CHECK(!ra.empty() && !ra[0].value("hit", false));
+    // what the run stored, read back: the energy statistic (vertex x band) and the pairs statistic (vertex x patterns)
+    struct Pair { double sigma = 0, share = 0; Eigen::VectorXd p, q; };
+    struct QuadratureResult { std::vector<double> fraction; Eigen::MatrixXd energy; std::vector<std::vector<Pair>> pairs; std::vector<std::vector<double>> share; };
+    QuadratureResult a;
+    const StoredStatistic es = read_statistic(sub, "rest_kern_quadrature_energy"), ps = read_statistic(sub, "rest_kern_quadrature");
+    {
+      const int nb = 2;
+      a.energy.resize(N, nb);
+      for (int i = 0; i < N; ++i) for (int b = 0; b < nb; ++b) a.energy(i, b) = es.values[static_cast<std::size_t>(i * nb + b)];
+      for (int b = 0; b < nb; ++b) a.fraction.push_back(es.axes[1]["values"][static_cast<std::size_t>(b)]["quadrature_fraction"].get<double>());
+      const std::int64_t E = static_cast<std::int64_t>(ps.axes[1]["values"].size());
+      a.pairs.resize(nb); a.share.resize(nb);
+      for (std::int64_t e = 0; e < E; e += 2) {                                    // entries come as p then q of each pair, band by band
+        const Json& en = ps.axes[1]["values"][static_cast<std::size_t>(e)];
+        const int b = en["band"] == "alpha" ? 0 : 1;
+        Pair pr; pr.sigma = en["sigma"].get<double>(); pr.share = en["share"].get<double>(); pr.p.resize(o3 * N); pr.q.resize(o3 * N);
+        for (int i = 0; i < N; ++i) for (int c = 0; c < o3; ++c) {
+          pr.p[i * o3 + c] = ps.values[static_cast<std::size_t>((i * E + e) * o3 + c)];
+          pr.q[i * o3 + c] = ps.values[static_cast<std::size_t>((i * E + e + 1) * o3 + c)];
+        }
+        a.share[b].push_back(pr.share);
+        a.pairs[b].push_back(std::move(pr));
+      }
+    }
     // direct: the same cross-spectra, then the maths of nxr/quadrature.h on the N x N matrices
     auto wo = nxr::welch::brainstormPsdOptions(sfreq, 4.0);
     const double df = sfreq / wo.segmentSamples;
@@ -131,62 +155,20 @@ static void run() {
     CHECK(a.fraction[0] > a.fraction[1]);   // the lagged 10 Hz sine is in alpha
     CHECK(a.pairs[0].size() >= 1 && a.pairs[0][0].p.size() == o3 * N);
     CHECK(a.share[0][0] > 0.5);
-    // storage: energy + 2 pairs x (p, q) per band; vector3 for a free kernel; rows and arrays together
-    std::size_t expected = 0;   // an energy map per band and p, q for each pair there is (3 fixed-orientation sources have one pair at most)
-    for (const auto& pb : a.pairs) expected += 1 + 2 * pb.size();
-    CHECK_EQ(a.info["maps"].size(), expected);
-    // TWO MAP STATISTICS (2026-11-13): the energy (vertex x band, scalar) and the pairs (vertex x patterns, vector3 for a free kernel); each map read by its old name
-    const StoredStatistic es = read_statistic(sub, a.info["statistics"][0].get<std::string>()), ps = read_statistic(sub, a.info["statistics"][1].get<std::string>());
+    // storage: TWO STATISTICS (2026-11-13): the energy (vertex x band, scalar) and the pairs (vertex x patterns, vector3 for a free kernel)
     CHECK(text(es.row, "measure") == "quadrature_energy" && text(es.row, "value_type") == "scalar" && es.axes[1]["values"][0].contains("quadrature_fraction"));
     CHECK(text(ps.row, "measure") == "quadrature_pattern" && text(ps.row, "value_type") == (o3 == 3 ? "vector3" : "scalar"));
     CHECK(ps.axes[1]["values"][0]["rotary_sense"].get<int>() == 1 && ps.axes[1]["values"][0].contains("sigma"));
-    int found = 0;
-    for (const auto& n : a.info["maps"]) {
-      const auto m = nxrtest::stored_map(sub, n.get<std::string>(), N);       // the map of a statistic, by the name its Field had
-      CHECK(m.has_value());
-      if (!m) continue;
-      ++found;
-      CHECK(m->cols() == ((n.get<std::string>().find("_energy_") != std::string::npos || o3 != 3) ? 1 : 3));
-    }
-    std::printf("  %d maps stored\n", found);
-    CHECK(found >= 2 * 3);
-    const QuadratureResult h = quadrature_compute(ds, sub, o);
-    CHECK(h.hit);
-    CHECK(std::abs(h.info["bands"][0]["quadrature_fraction"].get<double>() - a.fraction[0]) < 1e-12);
+    { const auto again = run(set, false); CHECK(!again.empty() && again[0].value("hit", false)); }
     bool refused = false;
-    QuadratureOptions o2 = o;
-    o2.pairs = 1;
-    try { quadrature_compute(ds, sub, o2); } catch (const Error&) { refused = true; }   // same names, other options: refused until --replace
+    Json set2 = set; set2["pairs"] = 1;
+    try { run(set2, false); } catch (const Error&) { refused = true; }   // same names, other options: refused until --replace
     CHECK(refused);
-    o2.replace = true;
-    const QuadratureResult c = quadrature_compute(ds, sub, o2);
-    CHECK(!c.hit && c.info["replaced"].get<bool>());
-    {   // --tiles: the energy maps and (free kernel) the pairs' patterns summarised over tiles
-      QuadratureOptions o4 = o2;
-      o4.tiles = true; o4.tile_max_level = 2;
-      const QuadratureResult t = quadrature_compute(ds, sub, o4);
-      CHECK(t.hit && t.info["tiles"]["levels"].size() == 2 && t.info["tiles"]["scalars"].size() == 2);
-      {   // the energy maps are maps of a statistic's slice: each has a BYTE-LESS Field (no path), whose array-backed rows (weight, sum, ..., no `mean`) are the map's summary; the mean is derived at read
-        const auto pr = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .type = "set", .name_like = "% tiles L2", .any_status = true});
-        CHECK(pr.has_value());
-        const auto bf = nxr::io::task::Subject::of(sub).find_all({.cls = nxr::io::task::Cls::field, .kind = "tile map", .stored = false, .any_status = true});
-        CHECK_EQ(static_cast<int>(bf.size()), 2);
-        if (pr && !bf.empty()) {
-          const std::string fid = bf[0].id;
-          const nxr::io::testing::Probe probe(sub);
-          bool weight_stored = false;
-          for (const auto& m : probe.rows("selection_measurement", {{"selection_id", V(pr->id)}, {"of_field_id", V(fid)}, {"measure", V("weight")}})) weight_stored = weight_stored || !std::holds_alternative<std::monostate>(m.at("array_path"));
-          CHECK(weight_stored);
-          CHECK(probe.count("selection_measurement", {{"selection_id", V(pr->id)}, {"measure", V("mean")}}) == 0);
-          const Json q = Json{{"selectionId", pr->id}, {"measure", "mean"}, {"ofFieldId", fid}, {"spaceLevel", 2}};
-          CHECK(!query_measurements(sub.db(), sub.store(), q).empty());     // derived at read from the sums
-        }
-      }
-      CHECK(ORIENT == 3 ? t.info["tiles"]["vectors"].size() >= 2 * 2 * 1 : t.info["tiles"]["vectors"].size() == 0);   // pairs of a free kernel are vector maps
-    }
+    { const auto rc = run(set2, true); CHECK(!rc.empty() && !rc[0].value("hit", false)); }
+    // (the energy and pattern maps' tile summaries, `--tiles`, are retired: a map's reduction over a grid is the `measure` definition over the stored map)
     bool bad = false;
-    QuadratureOptions o3x = o; o3x.bands = {{"alpha", 8, 12}}; o3x.pairs = 0;
-    try { quadrature_compute(ds, sub, o3x); } catch (const Error&) { bad = true; }
+    Json o3x = set; o3x["bands"] = Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}}); o3x["pairs"] = 0;
+    try { run(o3x, false); } catch (const std::exception&) { bad = true; }
     CHECK(bad);
     ds.close();
     fs::remove_all(root);

@@ -11,7 +11,7 @@
 #   nxr-neuro run quadrature --dataset <folder> --subject sub-01 --recording rest --all --kernel KERNEL [--bands '[{name: alpha, lo: 8, hi: 12}]'] [--pairs 3]
 pipeline: quadrature
 version: 1
-description: the quadrature spectrum of the sources per band: the quadrature fraction, the energy per source and the strongest quadrature pairs
+description: "the quadrature spectrum of the sources per band (the quadrature fraction, the energy per source, the strongest quadrature pairs)"
 scope: subject
 
 inputs:
@@ -43,7 +43,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.cross_spectrum, in: {x: recording, channels_of: kernel, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum]}
+      - {node: welch.cross_spectrum, in: {x: recording, channels_of: kernel, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum, bins]}
   after:
     - {node: quadrature.source_pairs, in: {spectrum: spectrum, kernel: kernel}, with: {pairs: $pairs}, out: [energy, pairs]}
 
