@@ -17,7 +17,6 @@ namespace nxr::io {
 namespace {
 
 const char* const kPackageTables =
-    "CREATE TABLE IF NOT EXISTS key_digest (key TEXT PRIMARY KEY, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL) STRICT;\n"
     "CREATE TABLE IF NOT EXISTS anchor_row (table_name TEXT NOT NULL, row_id TEXT NOT NULL, from_subject_id TEXT NOT NULL, PRIMARY KEY (table_name, row_id)) STRICT;\n"
     "CREATE TABLE IF NOT EXISTS origin (table_name TEXT NOT NULL, row_id TEXT NOT NULL, source TEXT NOT NULL, licence TEXT NOT NULL, attribution TEXT NOT NULL,"
     " redistributable INTEGER NOT NULL CHECK (redistributable IN (0, 1)), PRIMARY KEY (table_name, row_id)) STRICT;\n";
