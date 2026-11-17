@@ -3,7 +3,7 @@
 //
 //   pipeline: band_power_source_map          # the header: name, version, scope (subject)
 //   inputs:   {recording: {field: recording, each: true}, kernel: {operator: inverse kernel, from: recording.manifold.0}}
-//   parameters: {band: [8.0, 12.0]}
+//   parameters: {band: {default: [8.0, 12.0], meaning: "the band's edges", unit: Hz}}   # long form; the short form `band: [8.0, 12.0]` is the default alone (undocumented)
 //   steps:
 //     before: [ … ]                          # setup steps
 //     chunks: {over: recording, do: [ … ]}   # THE CHUNK LOOP: chunk and accumulate steps, on every chunk of `over` (read by io's chunk service)
@@ -41,6 +41,7 @@ struct Definition {
   std::string draw;                            // a header key `draw: <parameter>`: the run's stored nodes carry that parameter's value in their names (a null's draw: `seed`), so every draw is a node of its own
   int version = 1;
   Json inputs = Json::object(), parameters = Json::object(), outputs = Json::object();
+  Json parameter_docs = Json::object();        // name -> {meaning, unit, choices}: what a parameter declares about itself in the long form (empty: the short form, undocumented); `run <pipeline> --help` is made from it
   std::vector<StepUse> before, do_, after;
   std::optional<std::string> over;             // the input the chunk loop walks
   std::string source, text;                    // the file it was read from, and its text (its sha256 goes into the provenance)

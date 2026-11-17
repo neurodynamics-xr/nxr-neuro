@@ -235,8 +235,8 @@ outputs:
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
     ds.close();
     CHECK_EQ(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --chunks 0 > " + log).c_str()), 0);        // chunk 0, as stored last: a hit
-    CHECK_EQ(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --set 'band=[15, 29]' --chunks all --replace >> " + log).c_str()), 0);
-    CHECK(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --set 'band=[15, 29]' --chunks 0 > /dev/null 2>&1").c_str()) != 0);   // another span: refused
+    CHECK_EQ(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --band '[15, 29]' --all --replace >> " + log).c_str()), 0);
+    CHECK(std::system((cli + " run " + kBandPower + " --dataset " + d + " --subject S1 --band '[15, 29]' --chunks 0 > /dev/null 2>&1").c_str()) != 0);   // another span: refused
   }
 #endif
   fs::remove_all(root);

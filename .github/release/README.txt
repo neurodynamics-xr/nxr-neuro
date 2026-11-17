@@ -14,7 +14,7 @@ Check it:
 
   nxr-neuro --version
   nxr-neuro --help
-  nxr-neuro compute --help
+  nxr-neuro run --help
 
 Linux: x86_64, glibc 2.28 or newer (any distribution from 2018 on). It needs no other library.
 macOS: Apple silicon (arm64), macOS 13.3 or newer. The binary is not signed or notarised yet; if macOS refuses to open it, run

@@ -303,9 +303,9 @@ int main() {
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
-    CHECK_EQ(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear --chunks 0 > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear --chunks 0 >> " + log).c_str()), 0);   // a hit
-    CHECK(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --set bogus --chunks 0 > /dev/null 2>&1").c_str()) != 0);
+    CHECK_EQ(std::system((cli + " run psd --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear --chunks 0 > " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run psd --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear --chunks 0 >> " + log).c_str()), 0);   // a hit
+    CHECK(std::system((cli + " run psd --dataset " + d + " --subject S1 --recording rest --set bogus --chunks 0 > /dev/null 2>&1").c_str()) != 0);
     std::ifstream in(log);
     std::string line, all;
     while (std::getline(in, line)) all += line + "\n";

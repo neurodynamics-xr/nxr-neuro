@@ -1,11 +1,11 @@
 # THE DATA'S BAND ENVELOPE for the lag-free null (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10): the band power of the recording in dyadic time tiles, over the channels of the band's stored cross-spectrum, stored as a statistic
 # (sums and counts; the mean derived at read). `lagfree_surrogate` scales its draws to it, so a draw bursts when the data bursts (nxr `envelope_matched_null`'s one-cycle RMS: a tile of 2^level samples is the nearest power of two to a cycle).
 #
-# THE CHAIN: analytic (the band, Morlet) → power_series. The channels are the cross-spectrum's (`crossspectrum compute --channels-of KERNEL --bands alpha:8-12`); bad samples are left out of the tiles.
+# THE CHAIN: analytic (the band, Morlet) → power_series. The channels are the cross-spectrum's (`run crossspectrum --channels-of KERNEL --bands alpha:8-12`); bad samples are left out of the tiles.
 #
-#   nxr-neuro psd compute          --dataset <folder> --subject sub-01 --recording rest --chunks all
-#   nxr-neuro crossspectrum compute --dataset <folder> --subject sub-01 --recording rest --channels-of <kernel> --bands alpha:8-12 --chunks all
-#   nxr-neuro run lagfree_envelope --dataset <folder> --subject sub-01 --set cross_spectrum=rest_crossspectrum_alpha --set band=[8.0,12.0] --chunks all
+#   nxr-neuro run psd           --dataset <folder> --subject sub-01 --recording rest --all
+#   nxr-neuro run crossspectrum  --dataset <folder> --subject sub-01 --recording rest --channels-of <kernel> --bands alpha:8-12 --all
+#   nxr-neuro run lagfree_envelope --dataset <folder> --subject sub-01 --cross-spectrum rest_crossspectrum_alpha --band '[8.0,12.0]' --all
 pipeline: lagfree_envelope
 version: 1
 description: the band power of the recording in dyadic time tiles over the null's channels, a statistic the lag-free surrogate is scaled to
@@ -17,12 +17,12 @@ inputs:
   bad:            {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  cross_spectrum: none       # the band's stored cross-spectrum (`crossspectrum compute`), by name: its channels are the null's
-  band: [8.0, 12.0]
-  shape: morlet
-  bad_segments: exclude      # the recording's bad segments leave the tiles (their counts fall)
-  level: 7                   # the tile is 2^level samples (7: 128 samples, a cycle of 10 Hz at 1200 Hz)
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  cross_spectrum: {default: none, meaning: "the band's stored cross-spectrum (`run crossspectrum`), by name: its channels are the null's", unit: "-"}
+  band: {default: [8.0, 12.0], meaning: "the time level's band (its `resolves_hz`)", unit: "Hz"}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer", unit: "-"}
+  bad_segments: {default: exclude, meaning: "the recording's bad segments leave the tiles (their counts fall)", unit: "-"}
+  level: {default: 7, meaning: "the tile is 2^level samples (7: 128 samples, a cycle of 10 Hz at 1200 Hz)", unit: "level"}
 
 steps:
   chunks:

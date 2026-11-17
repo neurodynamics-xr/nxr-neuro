@@ -3,17 +3,17 @@
 # preparation (shared by every band: a run-scoped constant); per pair |z| (the norm over the components) and the measure over that pair's joint Selection. Each pair is stored as `cortical_cells`
 # stores one (rows of the recording on the pair's joint Selection: `amplitude`, `envelope_max`, the `count` row), so every reader of those rows works unchanged.
 #
-# The JOINT SELECTIONS MUST EXIST, one per pair (`joint compute`): a missing one is refused before any data is read, naming EVERY missing pair and its command. Each band is a constant-Q level's
+# The JOINT SELECTIONS MUST EXIST, one per pair (`run joint`): a missing one is refused before any data is read, naming EVERY missing pair and its command. Each band is a constant-Q level's
 # `resolves_hz` (D84), each level the ladder's (its Weyl band; eigenmode first, chebyshev second, per pair's `transform`).
 #
 # What is held (no limit set): the bound maps, Σ over the levels of M_l [vertices × components × used channels] float64 (a 20k-vertex free cortex, 300 channels: 144 MB a level), for the whole run; the
 # accumulators, Σ over the pairs of cells × (2 doubles + a count); a chunk's work, one pair at a time (a block is released after its last reader): z_b [channels × (chunk + halo)] complex float32 while a
 # band's levels run, then that pair's sources [vertices × components × (chunk + halo)] complex and |z|. Per chunk the work is bands × levels × (M_l z + |z| + two folds).
 #
-#   nxr-neuro tiles compute     --dataset <folder> --subject sub-01
-#   nxr-neuro constantq compute --dataset <folder> --subject sub-01 --recording rest
-#   nxr-neuro joint compute     --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3      # once per pair
-#   nxr-neuro run cortical_cell_pairs --dataset <folder> --subject sub-01 --set 'space_levels=[4,5]' --set 'bands=[[4.0,8.0],[8.0,16.0]]' --chunks all
+#   nxr-neuro run tiles      --dataset <folder> --subject sub-01
+#   nxr-neuro run constantq  --dataset <folder> --subject sub-01 --recording rest
+#   nxr-neuro run joint      --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3      # once per pair
+#   nxr-neuro run cortical_cell_pairs --dataset <folder> --subject sub-01 --space-levels '[4,5]' --bands '[[4.0,8.0],[8.0,16.0]]' --all
 pipeline: cortical_cell_pairs
 version: 1
 description: the band's amplitude and largest |z| of the source estimate per joint cell, for every (spatial level × time band) pair of two lists, in one pass
@@ -27,23 +27,23 @@ inputs:
     for: {band: $bands, level: $space_levels}
     selection: set
     where: {params.joint.space_level: $level, params.joint.band: $band, params.joint.recording: "{recording}"}
-    hint: "make it with: nxr-neuro joint compute --recording {recording} --space-level {level} --time-level <the constant-Q level whose band is {band} Hz: `resolves_hz` lo_hi; a band that is no level has no joint partition>"
+    hint: "make it with: nxr-neuro run joint  --recording {recording} --space-level {level} --time-level <the constant-Q level whose band is {band} Hz: `resolves_hz` lo_hi; a band that is no level has no joint partition>"
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
-  space_levels: [5]          # the surface ladder's levels: each one's Weyl band is its spatial band
-  bands: [[8.0, 16.0]]       # Hz: each a time level's band (its `resolves_hz`); alpha at the hertz anchor
-  shape: meyer               # the temporal bands' shape: meyer here | morlet (a Gaussian centred on the band, its width the FWHM; bands overlap)
-  spatial_shape: meyer         # the spatial level's gain: meyer here (the levels add up: scale selection splits power across levels) | mexhat (the Mexican hat peaked at the Weyl band's geometric centre; levels overlap)
-  method: MNE                # the kernel's inverse method (its params.inverse.measure)
-  transform: auto            # the spatial band's transform (eigenmode first, chebyshev second): auto | eigen | chebyshev | exact (dense, at most 4096 vertices)
-  envelope: temporal         # the spatial amplitude: temporal = |z| of the band-passed field (signed lobes: |z| dips to 0 where lobes of opposite sign meet) | spatiotemporal = the MONOGENIC amplitude sqrt(|z|^2 + |R z|^2), R the band's Riesz part (no zero-crossing dips; the rows are another recipe: a rerun of the other envelope needs --replace)
-  modes: 0                   # when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when a level needs it
-  order: 0                   # chebyshev degree; 0: the smallest of 40 … 5120 within `tolerance` of the band's gain
-  tolerance: 0.01
-  bad_segments: exclude      # exclude | ignore the recording's bad spans
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
+  space_levels: {default: [5], meaning: "the surface ladder's levels: each one's Weyl band is its spatial band", unit: "level"}
+  bands: {default: [[8.0, 16.0]], meaning: "Hz: each a time level's band (its `resolves_hz`); alpha at the hertz anchor", unit: "Hz"}
+  shape: {default: meyer, meaning: "the temporal bands' shape: meyer here | morlet (a Gaussian centred on the band, its width the FWHM; bands overlap)", unit: "-"}
+  spatial_shape: {default: meyer, meaning: "the spatial level's gain: meyer here (the levels add up: scale selection splits power across levels) | mexhat (the Mexican hat peaked at the Weyl band's geometric centre; levels overlap)", unit: "-"}
+  method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
+  transform: {default: auto, meaning: "the spatial band's transform (eigenmode first, chebyshev second): auto | eigen | chebyshev | exact (dense, at most 4096 vertices)", unit: "-"}
+  envelope: {default: temporal, meaning: "the spatial amplitude: temporal = |z| of the band-passed field (signed lobes: |z| dips to 0 where lobes of opposite sign meet) | spatiotemporal = the MONOGENIC amplitude sqrt(|z|^2 + |R z|^2), R the band's Riesz part (no zero-crossing dips; the rows are another recipe: a rerun of the other envelope needs --replace)", unit: "-"}
+  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when a level needs it", unit: "modes"}
+  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 … 5120 within `tolerance` of the band's gain", unit: "degree"}
+  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
 
 steps:
   chunks:

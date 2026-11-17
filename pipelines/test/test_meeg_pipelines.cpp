@@ -334,10 +334,10 @@ int main() {
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
-    CHECK_EQ(std::system((cli + " noisecov compute --dataset " + d + " --subject S1 --recording rest --name cli_cov --start 1 --stop 20 > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " inverse compute --dataset " + d + " --subject S1 --noise-cov cli_cov --name MN_cli --snr 2 >> " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " inverse compute --dataset " + d + " --subject S1 --noise-cov cli_cov --name MN_cli --snr 2 >> " + log).c_str()), 0);   // a hit
-    CHECK(std::system((cli + " inverse compute --dataset " + d + " --subject S1 > /dev/null 2>&1").c_str()) != 0);                                    // neither a covariance nor a recording
+    CHECK_EQ(std::system((cli + " run noisecov --dataset " + d + " --subject S1 --recording rest --name cli_cov --start 1 --stop 20 > " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run inverse --dataset " + d + " --subject S1 --noise-cov cli_cov --name MN_cli --snr 2 --all >> " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run inverse --dataset " + d + " --subject S1 --noise-cov cli_cov --name MN_cli --snr 2 --all >> " + log).c_str()), 0);   // a hit
+    CHECK(std::system((cli + " run inverse --dataset " + d + " --subject S1 > /dev/null 2>&1").c_str()) != 0);                                    // neither a covariance nor a recording
     std::ifstream in(log);
     std::string line, all;
     while (std::getline(in, line)) all += line + "\n";

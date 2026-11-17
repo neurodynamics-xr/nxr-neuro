@@ -17,10 +17,10 @@
 # the event's ordinal) and each event's measures by the exact roll-up of its cells (`extent_*`: cells, tiles, area, amplitude, peak, first and last time tile, duration, path length of the centres;
 # per time tile the area and the centre), with their statistics across the events.
 #
-#   nxr-neuro tiles compute     --dataset <folder> --subject sub-01
-#   nxr-neuro constantq compute --dataset <folder> --subject sub-01 --recording rest
-#   nxr-neuro joint compute     --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3
-#   nxr-neuro run global_bursts --dataset <folder> --subject sub-01 --set space_level=5 --set band=[8.0,16.0] --chunks all [--set groups=per_hemisphere]
+#   nxr-neuro run tiles      --dataset <folder> --subject sub-01
+#   nxr-neuro run constantq  --dataset <folder> --subject sub-01 --recording rest
+#   nxr-neuro run joint      --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3
+#   nxr-neuro run global_bursts --dataset <folder> --subject sub-01 --space-level 5 --band '[8.0,16.0]' --all [--groups per_hemisphere]
 pipeline: global_bursts
 version: 1
 description: the global bursts of a band from the cortex (the max over the spatial tiles), their edges refined on samples by Rheome's rise and fall fit
@@ -34,44 +34,44 @@ inputs:
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
-  band: [8.0, 16.0]          # Hz: a time level's band (its `resolves_hz`)
-  shape: morlet              # the temporal band's shape: morlet | meyer (compact edges: bands that add up)
-  spatial_shape: mexhat        # the spatial level's gain: mexhat | meyer (the level IS its Weyl band: compact edges)
-  space_level: 5             # the surface ladder's level: its Weyl band is the spatial band, its tiles the spatial partition
-  groups: whole_brain        # whole_brain | per_hemisphere: the max over all the spatial tiles, or over each connected piece's
-  combine: mean              # the detection's series: mean (one global trace: GLOBAL events, no row) | each (a trace a group: with per_hemisphere, each event carries its hemisphere); per_hemisphere needs `each`
-  method: MNE
-  transform: auto            # the spatial band's transform: auto = the stored eigenmodes when they reach the level's band, else computed and stored (said), else chebyshev (announced) | eigen | chebyshev | exact (dense, at most 4096 vertices)
-  envelope: temporal         # the spatial amplitude: temporal = |z| of the band-passed field (signed lobes: |z| dips to 0 where lobes of opposite sign meet) | spatiotemporal = the MONOGENIC amplitude sqrt(|z|^2 + |R z|^2), R the band's Riesz part (no zero-crossing dips; the rows are another recipe: a rerun of the other envelope needs --replace)
-  modes: 0                   # when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it
-  order: 0
-  tolerance: 0.01
-  bad_segments: exclude
-  enter_sd: 1.5              # Rheome's labelalpha (as band_bursts)
-  exit_sd: 1.0
-  merge_s: 0.1
-  min_s: 0.4
-  max_s: null
-  durations: seconds         # the bursts' durations: seconds (merge_s 0.1, min_s 0.4: Rheome's labelalpha, the default) | cycles (the project's nxr spindle_envelope: merge_cycles, min_cycles, max_cycles of the band's CENTRE; and risefall's margin_cycles, smooth_cycles, tau_max_cycles); the seconds above are then not used
-  merge_cycles: 1
-  min_cycles: 3
-  max_cycles: null
-  margin_cycles: 10          # risefall in cycles (nxr burst_stages)
-  smooth_cycles: 1
-  tau_max_cycles: 10
-  gate_min_r2: 0.7           # fit_gate (nxr burst_stages, labelalpha's): a burst is kept when its fit has r2 at least this and neither tau at its bound
-  model: linear              # risefall: linear | quadrature (the posterior model is not built)
-  margin: 1.0                # risefall: seconds either side of a burst included in its fit
-  smooth: 0.1                # risefall: the symmetric moving mean applied first (s)
-  tau_max: 1.0               # risefall: the bound of the rise and fall times (s)
-  min_r2: null               # risefall: a fit below it is set NaN; null keeps every fit (the caller filters on fit_r2)
-  burst_summaries: [count, sum, median, mean, sd, "percentile:25", "percentile:75", "percentile:90"]
-  extent_enter_sd: 1.5       # the extent's hysteresis on z = (cell amplitude - the tile's median) / the tile's robust SD (as the bursts')
-  extent_exit_sd: 1.0
-  min_cells: 1               # an event holds at least this many cells ...
-  min_area: 0.0              # ... and its cells' tiles at least this area (m2)
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
+  band: {default: [8.0, 16.0], meaning: "Hz: a time level's band (its `resolves_hz`)", unit: "Hz"}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer (compact edges: bands that add up)", unit: "-"}
+  spatial_shape: {default: mexhat, meaning: "the spatial level's gain: mexhat | meyer (the level IS its Weyl band: compact edges)", unit: "-"}
+  space_level: {default: 5, meaning: "the surface ladder's level: its Weyl band is the spatial band, its tiles the spatial partition", unit: "level"}
+  groups: {default: whole_brain, meaning: "whole_brain | per_hemisphere: the max over all the spatial tiles, or over each connected piece's", unit: "-"}
+  combine: {default: mean, meaning: "the detection's series: mean (one global trace: GLOBAL events, no row) | each (a trace a group: with per_hemisphere, each event carries its hemisphere); per_hemisphere needs `each`", unit: "-"}
+  method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
+  transform: {default: auto, meaning: "the spatial band's transform: auto = the stored eigenmodes when they reach the level's band, else computed and stored (said), else chebyshev (announced) | eigen | chebyshev | exact (dense, at most 4096 vertices)", unit: "-"}
+  envelope: {default: temporal, meaning: "the spatial amplitude: temporal = |z| of the band-passed field (signed lobes: |z| dips to 0 where lobes of opposite sign meet) | spatiotemporal = the MONOGENIC amplitude sqrt(|z|^2 + |R z|^2), R the band's Riesz part (no zero-crossing dips; the rows are another recipe: a rerun of the other envelope needs --replace)", unit: "-"}
+  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
+  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: "degree"}
+  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
+  enter_sd: {default: 1.5, meaning: "Rheome's labelalpha (as band_bursts)", unit: "robust SD"}
+  exit_sd: {default: 1.0, meaning: "robust SDs above the median to extend a burst (Rheome's loSD)", unit: "robust SD"}
+  merge_s: {default: 0.1, meaning: "gaps up to this are joined", unit: "s"}
+  min_s: {default: 0.4, meaning: "the shortest burst kept", unit: "s"}
+  max_s: {default: null, meaning: "the longest burst kept; null: no limit", unit: "s"}
+  durations: {default: seconds, meaning: "the bursts' durations: seconds (merge_s 0.1, min_s 0.4: Rheome's labelalpha, the default) | cycles (the project's nxr spindle_envelope: merge_cycles, min_cycles, max_cycles of the band's CENTRE; and risefall's margin_cycles, smooth_cycles, tau_max_cycles); the seconds above are then not used", unit: "-"}
+  merge_cycles: {default: 1, meaning: "gaps up to this many cycles of the band's centre are joined", unit: "cycles"}
+  min_cycles: {default: 3, meaning: "the shortest burst kept, in cycles of the band's centre", unit: "cycles"}
+  max_cycles: {default: null, meaning: "the longest burst kept, in cycles; null: no limit", unit: "cycles"}
+  margin_cycles: {default: 10, meaning: "risefall in cycles (nxr burst_stages)", unit: "cycles"}
+  smooth_cycles: {default: 1, meaning: "risefall smoothing, in cycles", unit: "cycles"}
+  tau_max_cycles: {default: 10, meaning: "risefall bound, in cycles", unit: "cycles"}
+  gate_min_r2: {default: 0.7, meaning: "fit_gate (nxr burst_stages, labelalpha's): a burst is kept when its fit has r2 at least this and neither tau at its bound", unit: "R2"}
+  model: {default: linear, meaning: "risefall: linear | quadrature (the posterior model is not built)", unit: "-"}
+  margin: {default: 1.0, meaning: "risefall: seconds either side of a burst included in its fit", unit: "s"}
+  smooth: {default: 0.1, meaning: "risefall: the symmetric moving mean applied first (s)", unit: "s"}
+  tau_max: {default: 1.0, meaning: "risefall: the bound of the rise and fall times (s)", unit: "s"}
+  min_r2: {default: null, meaning: "risefall: a fit below it is set NaN; null keeps every fit (the caller filters on fit_r2)", unit: "R2"}
+  burst_summaries: {default: [count, sum, median, mean, sd, "percentile:25", "percentile:75", "percentile:90"], meaning: "the statistics across the bursts, per measurement", unit: "-"}
+  extent_enter_sd: {default: 1.5, meaning: "the extent's hysteresis on z = (cell amplitude - the tile's median) / the tile's robust SD (as the bursts')", unit: "robust SD"}
+  extent_exit_sd: {default: 1.0, meaning: "the extent's lower hysteresis threshold", unit: "robust SD"}
+  min_cells: {default: 1, meaning: "an event holds at least this many cells ...", unit: "cells"}
+  min_area: {default: 0.0, meaning: "... and its cells' tiles at least this area (m2)", unit: "m2"}
 
 steps:
   chunks:

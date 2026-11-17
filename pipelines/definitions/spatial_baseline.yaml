@@ -1,12 +1,12 @@
 # THE SPATIAL BASELINE (spec docs/specs/2026-11-14-spatial-events.md, piece 1): the band power each glued vertex has at each hat level when no burst is on, stored as a STATISTIC (measure power, method mean, [vertex × level]) and read
 # BY NAME by `relative` (and so by `run spatial_events`). Dividing a burst's power by it removes the depth and sensitivity bias of MEG source power: deep and radial cortex looks weak in raw maps.
 #
-# THE CHAIN (one linear map before any non-linear step, D106), the same as spatial_events' up to the power: analytic (Morlet) → frames (the frame tiling, `frametiling compute`; NO `within`: the run's frames) → apply_kernel
+# THE CHAIN (one linear map before any non-linear step, D106), the same as spatial_events' up to the power: analytic (Morlet) → frames (the frame tiling, `run frametiling`; NO `within`: the run's frames) → apply_kernel
 # (no form: the free current as the inverse gives it, no orientation assumed; the hat at each of `levels`, on the GLUED surface: one cortex, the bridge filled) → power (|z|² summed over the components) → baseline.
 # The GOOD frames are the run LEAVING OUT the bad segments and the named bursts (`bursts`, e.g. the kept bursts of `run global_bursts`, or a wider stage): the baseline is what each vertex has with no burst on. A cut of
-# the run (`--chunks`) cuts the baseline.
+# the run (`--from`/`--to`) cuts the baseline.
 #
-#   nxr-neuro run spatial_baseline --dataset <folder> --subject sub-01 --set band=[8.0,12.0] --set levels=[2,3,4,5,6,7,8] --chunks all
+#   nxr-neuro run spatial_baseline --dataset <folder> --subject sub-01 --band '[8.0,12.0]' --levels '[2,3,4,5,6,7,8]' --all
 pipeline: spatial_baseline
 version: 1
 description: the band power per glued vertex and hat level outside the bursts and bad segments, a statistic read by name
@@ -21,20 +21,20 @@ inputs:
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
-  band: [8.0, 12.0]          # Hz: the band the power is of
-  shape: morlet              # the temporal band's shape: morlet (the project's fixed-band rule) | meyer
-  spatial_shape: mexhat      # the hat levels' gain: mexhat (the level is the Mexican hat) | meyer (the level IS its Weyl band)
-  levels: [2, 3, 4, 5, 6, 7, 8]   # the surface ladder's levels: one hat each (the scale space the events' size is selected in); 2 and 3 reach the coarse sizes level 4 cut off
-  method: MNE
-  transform: auto            # the spatial band's transform: auto (eigenmodes first, Chebyshev an announced fallback) | eigen | chebyshev | exact
-  modes: 0
-  order: 0
-  tolerance: 0.01
-  tiling: "{recording} frames 0.00257492 s"                      # the frame tiling's name (`frametiling compute`): `<recording> frames <frame_s> s`: level -25 = 2.57 ms, what `frametiling compute --band 8,12` derives (36 frames to a cycle of 10 Hz); another band or level: name it here
-  bursts: "global_bursts.bursts_kept.{recording}"            # the spans Selection the baseline LEAVES OUT (the named bursts, or a stage of them)
-  bad_segments: exclude
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
+  band: {default: [8.0, 12.0], meaning: "Hz: the band the power is of", unit: "Hz"}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet (the project's fixed-band rule) | meyer", unit: "-"}
+  spatial_shape: {default: mexhat, meaning: "the hat levels' gain: mexhat (the level is the Mexican hat) | meyer (the level IS its Weyl band)", unit: "-"}
+  levels: {default: [2, 3, 4, 5, 6, 7, 8], meaning: "the surface ladder's levels: one hat each (the scale space the events' size is selected in); 2 and 3 reach the coarse sizes level 4 cut off", unit: "level"}
+  method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
+  transform: {default: auto, meaning: "the spatial band's transform: auto (eigenmodes first, Chebyshev an announced fallback) | eigen | chebyshev | exact", unit: "-"}
+  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
+  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: "degree"}
+  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
+  tiling: {default: "{recording} frames 0.00257492 s", meaning: "the frame tiling's name (`run frametiling`): `<recording> frames <frame_s> s`: level -25 = 2.57 ms, what `run frametiling --band 8,12` derives (36 frames to a cycle of 10 Hz); another band or level: name it here", unit: "-"}
+  bursts: {default: "global_bursts.bursts_kept.{recording}", meaning: "the spans Selection the baseline LEAVES OUT (the named bursts, or a stage of them)", unit: "-"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
 
 steps:
   chunks:

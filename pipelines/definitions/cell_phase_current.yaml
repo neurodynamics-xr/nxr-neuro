@@ -10,11 +10,11 @@
 # -phase_gradient; the speed is 2πf / |phase_gradient|. What it cannot resolve: the gradient is of the band at the level (the spatial band's scale), the speed shrinks with leakage of the inverse, and a
 # standing pattern has no gradient to travel along.
 #
-#   nxr-neuro tiles compute      --dataset <folder> --subject sub-01
-#   nxr-neuro constantq compute  --dataset <folder> --subject sub-01 --recording rest
-#   nxr-neuro joint compute      --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3
-#   nxr-neuro run global_bursts  --dataset <folder> --subject sub-01 --set space_level=5 --chunks all          # the bursts this reads (or any spans Selection of the recording on the tiles)
-#   nxr-neuro run cell_phase_current --dataset <folder> --subject sub-01 --set space_level=5 --set method=MNE --chunks all
+#   nxr-neuro run tiles       --dataset <folder> --subject sub-01
+#   nxr-neuro run constantq   --dataset <folder> --subject sub-01 --recording rest
+#   nxr-neuro run joint       --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3
+#   nxr-neuro run global_bursts  --dataset <folder> --subject sub-01 --space-level 5 --all          # the bursts this reads (or any spans Selection of the recording on the tiles)
+#   nxr-neuro run cell_phase_current --dataset <folder> --subject sub-01 --space-level 5 --method MNE --all
 pipeline: cell_phase_current
 version: 1
 description: the band's phase current and power per joint cell (spatial tile × time tile) of the source estimate, rolled up over the stored bursts; the phase gradient is their ratio, derived at read
@@ -29,19 +29,19 @@ inputs:
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  kernel: none               # the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --set method=...)
-  band: [8.0, 16.0]          # Hz: a time level's band (its `resolves_hz`); alpha at the hertz anchor
-  shape: morlet              # the temporal band's shape: morlet | meyer (compact edges: bands that add up)
-  spatial_shape: mexhat        # the spatial level's gain: mexhat | meyer (the level IS its Weyl band: compact edges)
-  space_level: 5             # the surface ladder's level: its Weyl band is the spatial band, its tiles the spatial partition (the gradient is of the band at this level)
-  method: MNE                # the kernel's inverse method (its params.inverse.measure); a FREE kernel (three components a vertex)
-  bursts_pipeline: global_bursts   # the pipeline whose stored spans (of this recording, on its time line) are the events rolled up over: any spans Selection named by its pipeline
-  transform: auto            # the spatial band's transform: auto = the stored eigenmodes when they reach the level's band, else computed and stored (said), else chebyshev (announced) | eigen | chebyshev | exact (dense, at most 4096 vertices)
-  modes: 0                   # when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it
-  order: 0                   # chebyshev degree; 0: the smallest of 40 … 5120 within `tolerance` of the band's gain
-  tolerance: 0.01
-  bad_segments: exclude      # exclude | ignore the recording's bad spans
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
+  band: {default: [8.0, 16.0], meaning: "Hz: a time level's band (its `resolves_hz`); alpha at the hertz anchor", unit: "Hz"}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer (compact edges: bands that add up)", unit: "-"}
+  spatial_shape: {default: mexhat, meaning: "the spatial level's gain: mexhat | meyer (the level IS its Weyl band: compact edges)", unit: "-"}
+  space_level: {default: 5, meaning: "the surface ladder's level: its Weyl band is the spatial band, its tiles the spatial partition (the gradient is of the band at this level)", unit: "level"}
+  method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure); a FREE kernel (three components a vertex)", unit: "-"}
+  bursts_pipeline: {default: global_bursts, meaning: "the pipeline whose stored spans (of this recording, on its time line) are the events rolled up over: any spans Selection named by its pipeline", unit: "-"}
+  transform: {default: auto, meaning: "the spatial band's transform: auto = the stored eigenmodes when they reach the level's band, else computed and stored (said), else chebyshev (announced) | eigen | chebyshev | exact (dense, at most 4096 vertices)", unit: "-"}
+  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
+  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 … 5120 within `tolerance` of the band's gain", unit: "degree"}
+  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
 
 steps:
   chunks:

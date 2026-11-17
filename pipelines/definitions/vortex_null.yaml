@@ -2,9 +2,9 @@
 # recording: Gaussian noise with the data's own spectrum (the stored Welch PSD), mixed by the square root of the band's real cross-spectrum (the zero-lag structure kept, no lag), scaled to the data's band envelope (`run lagfree_envelope`).
 # The threshold is the DATA's (the stored `vortex_core_threshold` histogram, by name), the burst frames the data's: only the signal is replaced. A draw is the run with `seed: i` (the seed is in the cache key and in the stored node's name:
 # `draw: seed`); only the draw's TILE CROSSINGS are stored, as a statistic beside the recording (`vortex_null.draw<seed>.null_crossings.<recording>`), small; the surrogate and the draw's cores and tracks are never stored.
-# `null compute` runs the draws in batches with early stopping and stores the per-tile p-values.
+# `run null` runs the draws in batches with early stopping and stores the per-tile p-values.
 #
-#   nxr-neuro run vortex_null --dataset <folder> --subject sub-01 --set recording=rest --set psd_statistic=rest_psd_welch --set cross_spectrum=rest_crossspectrum_alpha --set seed=1 --set space_level=5 --chunks all
+#   nxr-neuro run vortex_null --dataset <folder> --subject sub-01 --recording rest --psd-statistic rest_psd_welch --cross-spectrum rest_crossspectrum_alpha --seed 1 --space-level 5 --all
 pipeline: vortex_null
 version: 1
 description: one draw of the lag-free null of the vortex chain (the same graph on a lag-free surrogate of the recording), its tile crossings as a statistic
@@ -27,34 +27,34 @@ inputs:
   offset:         {selection: spans, manifold: recording.time, where: {name: $offset}, required: false}
 
 parameters:
-  recording: none            # the recording's name, or none: every recording of the subject, one run each
-  kernel: none
-  seed: 0                    # the draw (a whole number >= 0): its own node, its own cache key
-  band: [8.0, 12.0]
-  shape: morlet
-  spatial_shape: mexhat
-  space_level: 5
-  method: MNE
-  transform: auto
-  modes: 0
-  order: 0
-  tolerance: 0.01
-  taps_half: 0               # the surrogate's taps: 0 from the PSD's resolution
-  psd_statistic: "{recording}_psd_welch"
-  cross_spectrum: none       # the band's stored cross-spectrum (`crossspectrum compute --channels-of KERNEL`), by name
-  power_series_statistic: "lagfree_envelope.series.{recording}"
-  tiling: "{recording} frames 0.00257492 s"
-  bursts: "global_bursts.bursts_kept.{recording}"
-  threshold_statistic: "vortex_core_threshold.histogram.{recording}"   # the DATA's threshold
-  percentile: 98.0
-  bad_segments: exclude
-  block_frames: 256
-  link_mm: 15.0
-  stages: [burst]
-  onset: "global_bursts.burst_onset.{recording}"
-  within: "global_bursts.burst_within.{recording}"
-  offset: "global_bursts.burst_offset.{recording}"
-  min_frames: 2
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method`", unit: "-"}
+  seed: {default: 0, meaning: "the draw (a whole number >= 0): its own node, its own cache key", unit: "-"}
+  band: {default: [8.0, 12.0], meaning: "the time level's band (its `resolves_hz`)", unit: "Hz"}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer", unit: "-"}
+  spatial_shape: {default: mexhat, meaning: "the spatial level's gain: mexhat | meyer", unit: "-"}
+  space_level: {default: 5, meaning: "the surface ladder's level: its Weyl band is the spatial band", unit: "level"}
+  method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
+  transform: {default: auto, meaning: "the spatial band's transform: auto | eigen | chebyshev | exact", unit: "-"}
+  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
+  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: "degree"}
+  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
+  taps_half: {default: 0, meaning: "the surrogate's taps: 0 from the PSD's resolution", unit: "samples"}
+  psd_statistic: {default: "{recording}_psd_welch", meaning: "the stored PSD statistic, by name", unit: "-"}
+  cross_spectrum: {default: none, meaning: "the band's stored cross-spectrum (`run crossspectrum --channels-of KERNEL`), by name", unit: "-"}
+  power_series_statistic: {default: "lagfree_envelope.series.{recording}", meaning: "the stored power series statistic, by name", unit: "-"}
+  tiling: {default: "{recording} frames 0.00257492 s", meaning: "the frame tiling's name", unit: "-"}
+  bursts: {default: "global_bursts.bursts_kept.{recording}", meaning: "the spans Selection the run uses, by name", unit: "-"}
+  threshold_statistic: {default: "vortex_core_threshold.histogram.{recording}", meaning: "the DATA's threshold", unit: "-"}
+  percentile: {default: 98.0, meaning: "the percentile of the distribution used as the threshold", unit: "percentile"}
+  bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
+  block_frames: {default: 256, meaning: "the frames processed at once (memory only: the result does not depend on it)", unit: "frames"}
+  link_mm: {default: 15.0, meaning: "a core joins the nearest free track of the previous frame within this distance of its last centre", unit: "mm"}
+  stages: {default: [burst], meaning: "the stages the crossings are counted in", unit: "-"}
+  onset: {default: "global_bursts.burst_onset.{recording}", meaning: "the burst onset spans, by name", unit: "-"}
+  within: {default: "global_bursts.burst_within.{recording}", meaning: "the within-burst spans, by name", unit: "-"}
+  offset: {default: "global_bursts.burst_offset.{recording}", meaning: "the burst offset spans, by name", unit: "-"}
+  min_frames: {default: 2, meaning: "the tracks stored hold at least this many frames", unit: "frames"}
 
 steps:
   chunks:

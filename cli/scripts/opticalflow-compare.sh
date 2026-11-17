@@ -15,7 +15,7 @@ for m in direct pcg perscale; do
   meth=$m
   [ "$m" = perscale ] && extra="--scale-family ${SCALE_FAMILY:-itersine}"
   echo "== $m"
-  "$bin" opticalflow compute --dataset "$ds" --subject "$sub" --recording "$rec" --name "${name}_$m" --method "$meth" $extra "$@" --replace \
+  "$bin" run opticalflow --dataset "$ds" --subject "$sub" --recording "$rec" --name "${name}_$m" --method "$meth" $extra "$@" --replace \
     | python3 -c '
 import sys, json
 for line in sys.stdin:
