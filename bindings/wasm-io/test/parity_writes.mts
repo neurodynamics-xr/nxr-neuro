@@ -2,9 +2,10 @@
 // the same calls through each, then the two databases compared table by table (ids equal by construction; times masked).
 //   npx tsx <this> <studio checkout> <wasm-io build folder> <datastore>
 import assert from 'node:assert/strict';
-import { cpSync, readFileSync, readdirSync } from 'node:fs';
+import { cpSync, readFileSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import path from 'node:path';
+import { copyKeys, keysOf, readKey } from './store_keys.mjs';   // the store's KEYS, at format 51 (files) and 52 (rows of the subject's small_files.sqlite)
 
 const [, , STUDIO, PKG, STORE] = process.argv;
 const { createModelService } = await import(path.join(STUDIO, 'backend/src/service/model.ts'));
@@ -76,10 +77,8 @@ function sameDb(what: string, a: InstanceType<typeof DatabaseSync>, b: InstanceT
   a.close(); b.close();
 }
 function sameFiles(what: string, onlyInStudio: readonly string[]) {
-  // the FILES: every file of the two datastores (the database, its journal and lock files, and the catalog aside), by relative path
-  const files = (root: string) => (readdirSync(root, { recursive: true, withFileTypes: true }) as { isFile(): boolean; parentPath: string; name: string }[])
-    .filter((e) => e.isFile()).map((e) => path.relative(root, path.join(e.parentPath, e.name)))
-    .filter((f) => !/dataset\.sqlite|catalog\.json|writer\.lock|\.lock$/.test(f)).sort();
+  // the KEYS: every file and every small-file row of the two datastores (the database, its journal and lock files, and the catalog aside), by relative path
+  const files = (root: string) => keysOf(root).filter((f) => !/dataset\.sqlite|catalog\.json|writer\.lock|\.lock$/.test(f));
   // a KNOWN difference, asserted rather than hidden: files the Studio keeps and nxr-neuro (with nxr) removes
   const fa = files(A);
   for (const f of onlyInStudio) assert.ok(fa.includes(f) && !files(B).includes(f), `${what}: ${f} should be the Studio's alone`);
@@ -106,7 +105,7 @@ await assert.rejects(wasm.subjects.put('no-such-id', {}), (e: InstanceType<typeo
   const put = async (p: string, data: Float32Array | Int32Array, shape: number[]) => {
     await wasm.arrays.create(storePath, p, { shape, dtype: data instanceof Int32Array ? 'int32' : 'float32' });
     await wasm.arrays.put(storePath, p, data, shape.map((n) => [0, n] as [number, number]));
-    cpSync(path.join(B, storePath, p), path.join(A, storePath, p), { recursive: true });
+    copyKeys(B, A, path.posix.join(storePath, p));
   };
   await put('source/oct_curv', Float32Array.from({ length: oct.n_vertices }, (_, i) => i / 10), [oct.n_vertices]);
   await put('source/oct_face_area', Float32Array.from({ length: oct.n_faces }, (_, i) => 1 + i), [oct.n_faces]);
@@ -126,7 +125,7 @@ await assert.rejects(wasm.subjects.put('no-such-id', {}), (e: InstanceType<typeo
   await wasm.fields.post(f2, 'tester', c2);
   same('fields.post');
   for (const p of ['source/oct_curv', 'source/oct_face_area', 'source/oct_big']) {
-    const za = JSON.parse(readFileSync(path.join(A, storePath, p, 'zarr.json'), 'utf8')), zb = JSON.parse(readFileSync(path.join(B, storePath, p, 'zarr.json'), 'utf8'));
+    const za = JSON.parse(readKey(A, `${storePath}/${p}/zarr.json`).toString('utf8')), zb = JSON.parse(readKey(B, `${storePath}/${p}/zarr.json`).toString('utf8'));
     assert.deepEqual(mask([zb])[0], mask([za])[0], `${p}: zarr.json`); checks++;
   }
   // refused alike: a value count that does not fit the cells; a cell above the manifold's rank; no path
@@ -188,7 +187,7 @@ await assert.rejects(wasm.subjects.put('no-such-id', {}), (e: InstanceType<typeo
   const put = async (p: string, data: Float32Array, shape: number[]) => {
     await wasm.arrays.create(storePath, p, { shape, dtype: 'float32' });
     await wasm.arrays.put(storePath, p, data, shape.map((n) => [0, n] as [number, number]));
-    cpSync(path.join(B, storePath, p), path.join(A, storePath, p), { recursive: true });
+    copyKeys(B, A, path.posix.join(storePath, p));
   };
   await put('source/oct_smooth', Float32Array.from({ length: 36 }, (_, i) => (i % 7 === 0 ? 0.5 : 0.1)), [6, 6]);
   await put('source/oct_smoothed', new Float32Array(6), [6]);
@@ -248,7 +247,7 @@ await assert.rejects(wasm.subjects.put('no-such-id', {}), (e: InstanceType<typeo
   const put = async (p: string, data: Float32Array | Int32Array, shape: number[]) => {
     await wasm.arrays.create(storePath, p, { shape, dtype: data instanceof Int32Array ? 'int32' : 'float32' });
     await wasm.arrays.put(storePath, p, data, shape.map((n) => [0, n] as [number, number]));
-    cpSync(path.join(B, storePath, p), path.join(A, storePath, p), { recursive: true });
+    copyKeys(B, A, path.posix.join(storePath, p));
   };
   await put('source/oct2/positions', Float32Array.from([1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1, 0, 0, 0, 1, 0, 0, -1].map((x) => x * 0.02)), [6, 3]);
   await put('source/oct2/faces', Int32Array.from([0, 2, 4, 2, 1, 4, 1, 3, 4, 3, 0, 4, 2, 0, 5, 1, 2, 5, 3, 1, 5, 0, 3, 5]), [8, 3]);
@@ -318,7 +317,7 @@ await assert.rejects(wasm.subjects.put('no-such-id', {}), (e: InstanceType<typeo
   const storePath = `d/${(dbOf(B).prepare('SELECT path FROM subject WHERE id = ?').get(sub.id) as { path: string }).path}`;
   await wasm.arrays.create(storePath, 'source/oct_regions', { shape: [6], dtype: 'int32' });
   await wasm.arrays.put(storePath, 'source/oct_regions', Int32Array.from([0, 1, 1, 0, 1, 0]), [[0, 6]]);
-  cpSync(path.join(B, storePath, 'source/oct_regions'), path.join(A, storePath, 'source/oct_regions'), { recursive: true });
+  copyKeys(B, A, path.posix.join(storePath, 'source/oct_regions'));
   const sel = { id: id(2), subject_id: sub.id, name: 'regions', path: 'source/oct_regions', type: 'set', manifold_id: oct.id, dictionary_id: dict.id, array_path: 'source/oct_regions', n_elements: 6, n_members: 2 };
   await repos.selections.create(sel as never, undefined, 'tester');
   await wasm.selections.post(sel, undefined, 'tester');

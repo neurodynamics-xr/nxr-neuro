@@ -3,10 +3,11 @@
 // the exit code, the result lines and every table and file compared after each.
 //   node parity_analysis.mjs <wasm-io build folder> <datastore (with the session subject S01 imported)> <native nxr-neuro>
 import assert from 'node:assert/strict';
-import { cpSync, readFileSync, readdirSync } from 'node:fs';
+import { cpSync } from 'node:fs';
 import { DatabaseSync } from 'node:sqlite';
 import { spawnSync } from 'node:child_process';
 import path from 'node:path';
+import { keysOf, readKey } from './store_keys.mjs';   // the store's KEYS, at format 51 (files) and 52 (rows of the subject's small_files.sqlite)
 
 const [, , PKG, STORE, NATIVE] = process.argv;
 const { wasmClient } = await import(path.join(PKG, 'index.mjs'));
@@ -28,8 +29,7 @@ const deep = (v, root) => typeof v === 'number' ? (Number.isInteger(v) ? v : Num
   : v && typeof v === 'object' ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, TIMING.has(k) ? '<elapsed>' : deep(x, root)])) : v;
 // how long a step took (a measurement of the run, not of the data)
 const rowsOf = (root, sql) => { const db = new DatabaseSync(path.join(root, 'd', 'dataset.sqlite'), { readOnly: true }); try { return JSON.parse(JSON.stringify(db.prepare(sql).all())); } finally { db.close(); } };
-const files = (root) => readdirSync(root, { recursive: true, withFileTypes: true }).filter((e) => e.isFile())
-  .map((e) => path.relative(root, path.join(e.parentPath, e.name))).filter((f) => !/dataset\.sqlite|catalog\.json|\.lock$/.test(f)).sort();
+const files = (root) => keysOf(root).filter((f) => !/dataset\.sqlite|catalog\.json|\.lock$/.test(f));
 async function same(what) {
   for (const { name: t } of rowsOf(A, "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'")) {
     const q = t === 'datastore' ? 'SELECT id, driver FROM datastore' : `SELECT * FROM "${t}"`;
@@ -41,7 +41,7 @@ async function same(what) {
   // arm64 build fuses multiply-adds (FMA) and sums in NEON lanes, WebAssembly does neither, so sums of many terms differ in their last bits.
   const arrays = new Set();
   for (const f of files(A)) {
-    const a = readFileSync(path.join(A, f)), b = readFileSync(path.join(B, f));
+    const a = readKey(A, f), b = readKey(B, f);
     if (f.endsWith('zarr.json')) { assert.deepEqual(deep(JSON.parse(b), B), deep(JSON.parse(a), A), `${what}: ${f}`); continue; }
     if (a.equals(b)) continue;
     const m = /^(d\/[^/]+\.nxr\.zarr)\/(.+?)\/c(\/|$)/.exec(f);
