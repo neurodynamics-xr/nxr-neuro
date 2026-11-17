@@ -12,7 +12,7 @@ constexpr double kTwoPi = 2 * M_PI, kFourPi = 4 * M_PI;
 Selection named(std::vector<SpanRow> list, const std::vector<Scale>& scales, const std::string& unit) {
   Lookup lookup;
   for (std::size_t i = 0; i < scales.size(); ++i) lookup.push_back(Entry{static_cast<std::int64_t>(i), scales[i].name, std::nullopt});
-  return spans(std::move(list), "1/" + unit + "^2", std::move(lookup));
+  return set_of_spans(std::move(list), "1/" + unit + "^2", std::move(lookup));
 }
 }  // namespace
 

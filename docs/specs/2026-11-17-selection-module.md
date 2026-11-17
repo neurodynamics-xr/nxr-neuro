@@ -13,16 +13,16 @@ a named part of a manifold, with a code (its label) read through a dictionary (i
 | `point` | one element (or a position on a space) | a seed vertex, an instant |
 | `span` | bounds: `[start, stop)` on each axis it constrains, in that axis's coordinates | a time range, a frequency band, a box in a chart |
 | `distance` | a centre element and a radius under the manifold's metric | a geodesic disc (heat distance) |
-| `spans` | a set of spans on a line: rows, or a closed form (origin, width, hop, count) | events, bursts, bad segments, named bands, a time tiling |
 | `indices` | an explicit list of elements | a drawn region, a burst's vertices, picked channels |
-| `set` | members that are selections, or a code per element (a partition) | DK, a dyadic or constant-Q level, a set of regions |
+| `set` | members given as selections, as a code per element, or by a rule (a tiling: origin, width, hop, count) | events, bursts, bad segments and named bands (a set of spans); DK (by codes); a time tiling (by a rule); a set of regions |
 
 Changes to the Studio's model, decided here:
 
 1. A `kernel` is not a selection: it is the weights a measurement uses (applying a wavelet to a field is a measurement). Choosing atoms or bands is a
    selection.
-2. A `ladder` is not a kind of its own: it is a `set` with LEVELS, nested partitions each refining the one above, named by their power of two. (Stored as
-   the schema's `ladder` rows, unchanged.)
+2. A `ladder` is not a kind of its own: it is a `set` with LEVELS, a grid hierarchy of nested partitions each refining the one above, named by their power
+   of two. `spans` is not a kind of its own either: it is a `set` whose members are spans (listed, or by a rule). (Stored as the schema's `ladder` and
+   `spans` rows, unchanged; io maps them.)
 3. PARTITION is a property: a selection whose members are disjoint and cover the manifold. Measuring over members needs no property; grouping by members
    (`within`) and rolling up across them need disjoint members.
 4. A member's IDENTITY (its ordinal) and its LABEL (its code) are distinct: five bursts are five members with one label. Measurements are kept per member.

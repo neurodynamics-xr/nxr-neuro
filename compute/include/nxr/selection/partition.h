@@ -1,12 +1,12 @@
 // nxr::selection (compute) — THE PARTITION METHODS: selections whose members are disjoint and cover a manifold, made in memory (selection.h); io stores them.
 // Compute takes arrays: a line is a count and a spacing, a surface its positions and faces.
 //
-//   constant_q        a time line   a set with LEVELS, each a spans selection in closed form (tiles of 2^k samples from the first sample, level k), the levels a
+//   constant_q        a time line   a set with LEVELS, each a set of spans by a rule (a tiling) (tiles of 2^k samples from the first sample, level k), the levels a
 //                                   constant-Q band design needs, each with the band (Hz) it resolves
-//   constant_q_bands  a time line   the same design's FREQUENCY partition: spans on the frequency line, one row a band, labelled by its range
+//   constant_q_bands  a time line   the same design's FREQUENCY partition: a set of spans on the frequency line, one member a band, labelled by its range
 //   dyadic            a surface     a set with LEVELS by codes: equal-area bisection, 2^l tiles a connected piece (level l), each level with its eigenvalue band
 //                                   by Weyl's law (1/unit^2)
-//   eigenvalue_bands  a set with levels   the EIGENVALUE partition: spans on the eigenvalue line, one row a level's band
+//   eigenvalue_bands  a set with levels   the EIGENVALUE partition: a set of spans on the eigenvalue line, one member a level's band
 //   transfer          a surface     a set by codes carried from another surface through the registered spheres (nearest vertex, piece by piece)
 #pragma once
 #include <cstdint>

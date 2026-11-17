@@ -53,7 +53,7 @@ std::vector<Band> design(const Line& line, const ConstantQ& o) {
   return bands;
 }
 
-// spans on a spectrum line, one row a band [lo, hi), labelled by its range; the bands must tile the line without gap or overlap
+// a set of spans on a spectrum line, one member a band [lo, hi), labelled by its range; the bands must tile the line without gap or overlap
 Selection band_spans(std::vector<std::pair<double, double>> b, const std::string& unit) {
   if (b.empty()) throw std::invalid_argument("bands: there are none");
   std::sort(b.begin(), b.end());
@@ -65,7 +65,7 @@ Selection band_spans(std::vector<std::pair<double, double>> b, const std::string
     rows.push_back(SpanRow{b[i].first, b[i].second, static_cast<std::int64_t>(i)});
     lookup.push_back(Entry{static_cast<std::int64_t>(i), number(b[i].first) + "-" + number(b[i].second) + " " + unit, std::nullopt});
   }
-  return spans(std::move(rows), unit, std::move(lookup));
+  return set_of_spans(std::move(rows), unit, std::move(lookup));
 }
 }  // namespace
 
@@ -79,7 +79,7 @@ Selection constant_q(const Line& line, const ConstantQ& o) {
   std::vector<Selection> levels;
   for (const auto& [k, band] : by_k) {
     const std::int64_t width = std::int64_t(1) << k;
-    Selection level = spans(Tiling{line.origin, static_cast<double>(width) * line.spacing, static_cast<double>(width) * line.spacing, (line.count + width - 1) / width}, line.unit);
+    Selection level = tiled(Tiling{line.origin, static_cast<double>(width) * line.spacing, static_cast<double>(width) * line.spacing, (line.count + width - 1) / width}, line.unit);
     level.level = k;
     level.code = k;
     level.band = band;
@@ -138,7 +138,6 @@ Selection transfer(const Surface& s, const Transfer& o) {
   const bisection::Tree t = bisection::groupTreeFor(o.from_sphere, o.from->codes.data(), from_runs, o.from->depth, o.sphere, s.vertices, runs, o.from->depth);
   Selection p = *o.from;                                               // its levels (bands in the source's units) and lookup
   p.codes = t.codes;
-  p.elements = s.vertices;
   p.unit = s.unit;
   return p;
 }

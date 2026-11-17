@@ -5,7 +5,7 @@
 //   by parts        a scale that divides a connected piece of area A into m in [fewest, most) parts: lambda = 4 pi m / A (Weyl's law, as the dyadic levels);
 //                   the counts may be read from an atlas (a hemisphere 1; DK's regions on a hemisphere, …)
 //
-// The ranges and their names are the caller's, never defaulted. The result is a spans selection on the eigenvalue line, in 1/unit^2, one row a scale, labelled by its name.
+// The ranges and their names are the caller's, never defaulted. The result is a set of spans on the eigenvalue line, in 1/unit^2, one member a scale, labelled by its name.
 #pragma once
 #include <string>
 #include <vector>
