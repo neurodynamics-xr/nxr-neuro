@@ -1,0 +1,54 @@
+// nxr-neuro import recording: a recording file (FIF, EDF/BDF, BrainVision, EEGLAB, CTF, KIT) copied into a subject package (docs/specs/2026-11-17-interoperability.md, 3.2).
+//
+//   nxr-neuro import recording --from FILE --package PATH [--name REC] [--acquisition NAME] [--format F] [--source-root DIR] [--licence T --attribution T] [--anonymize]
+//
+// The package is made first (`create package`). The recording is COPIED, block by block, never loaded whole; the file's header fields are kept as the file has them unless
+// --anonymize drops the identifying ones. The command parses and prints; io's importer (nxr/convert/recording.h) does the work. Progress and results are JSON lines.
+#include <filesystem>
+
+#include "cli.h"
+#include "nxr/convert/recording.h"
+#include "nxr/io/subject_package.h"
+
+using namespace nxr::io;
+using namespace cli;
+namespace fs = std::filesystem;
+
+namespace {
+int recording_command(const std::vector<std::string>& rest) {
+  const Args a = parse("nxr-neuro import recording", rest, {"--from", "--package", "--name", "--acquisition", "--format", "--source-root", "--licence", "--attribution"}, {"--anonymize"},
+                       {"--from", "--package"});
+  const std::string file = a.get("--from");
+  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
+  nxr::convert::RecordingImport opt;
+  opt.format = a.maybe("--format").value_or(nxr::convert::format_of(file));
+  opt.name = a.maybe("--name").value_or(fs::path(file).stem().string());
+  opt.acquisition = a.maybe("--acquisition").value_or("rest");
+  opt.anonymize = a.flag.count("--anonymize") > 0;
+  opt.licence = a.maybe("--licence").value_or("unknown");
+  opt.attribution = a.maybe("--attribution").value_or("unknown");
+  opt.redistributable = false;
+  // the recorded source is relative to the root the caller names, never an absolute path
+  const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
+  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
+  opt.source_file = fs::is_directory(file) ? "" : file;   // a CTF .ds folder is not one file: no hash
+  opt.progress = [](const Json& j) { emit(j); };
+  auto reader = nxr::convert::open_recording(opt.format, file);
+  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
+  DatasetWriter w = open_package_writer(a.get("--package"));
+  SubjectWriter sub = SubjectWriter::open(w, rec.name);
+  Json out = nxr::convert::import_recording(w, sub, *reader, opt);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
+}  // namespace
+
+int import_main(const std::vector<std::string>& argv) {
+  if (argv.empty()) throw Usage("nxr-neuro import: error: the following arguments are required: what");
+  const std::string what = argv[0];
+  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
+  if (what == "recording") return recording_command(rest);
+  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording')");
+}
