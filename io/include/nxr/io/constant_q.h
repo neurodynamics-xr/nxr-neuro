@@ -7,7 +7,7 @@
 // compute/include/nxr/selection/partition.h). io is handed the designed levels and stores them: selection_store.h (`save` of a set with levels, stored as a `ladder`
 // Selection on the time Line). The pipelines call compute's design and hand the result to io (pipelines/include/nxr/pipelines/constant_q.h).
 //
-// TO MOVE TO COMPUTE (design arithmetic compute does not offer yet; the pipelines' analytic nodes still call them from here): `anchorsFor`, `strideFor`, `windowFor`.
+// The band-design arithmetic (`anchorsFor`, `strideFor`, `windowFor`) is compute's: compute/include/nxr/selection/constant_q.h.
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -16,20 +16,9 @@
 namespace nxr::io {
 namespace constantq {
 
-enum class Method { Hertz, Cycles };
-constexpr double kCapHz = 64, kFloorHz = 0.5;
-constexpr int kMultirateMin = 24, kMultirateMax = 48;
-
 struct Closed { double origin = 0, width = 0, hop = 0; std::int64_t count = 0; };   // one member's windows (seconds)
 
-/** TO MOVE TO COMPUTE: the anchors a method implies at this rate: {cycles, fMax} */
-std::pair<double, double> anchorsFor(Method method, double sfreq, double target = 8);
-/** TO MOVE TO COMPUTE: the decimation for a band, a power of two leaving at least `min` samples a cycle at `hz` (never below 1) */
-std::int64_t strideFor(double sfreq, double hz, int min = kMultirateMin);
-/** TO MOVE TO COMPUTE: a band's window in samples, as the ladder sizes it: `cycles` cycles of its LOW edge rounded UP to a power of two (the Studio's
- *  `pow2ceil(cycles·sfreq/lo)`); `cycles` defaults to the hertz anchor's (`anchorsFor(Hertz, sfreq)`: 6.83 at 1200 Hz) */
-std::int64_t windowFor(double sfreq, double lo, std::optional<double> cycles = std::nullopt);
-/** the tile level of a duration: the NEAREST power of two of samples, round(log2(seconds·sfreq)) (the rounding `anchorsFor` uses; seconds snap to the nearest
+/** the tile level of a duration: the NEAREST power of two of samples, round(log2(seconds·sfreq)) (the rounding compute's `anchorsFor` uses; seconds snap to the nearest
  *  division); at least 0 */
 int levelOf(double seconds, double sfreq);
 /** the level of a power-of-two width (`log2`), or -1 when the width is not a power of two */

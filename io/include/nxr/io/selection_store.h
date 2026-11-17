@@ -1,11 +1,11 @@
 // nxr-io — THE SELECTION CRUD: saving, loading, updating and deleting a selection (all five types: point, span, distance, indices, set), its lookup (the dictionary its
-// codes are read with), and the rows beneath it. The one place io writes or reads a selection's rows; the writer (SubjectWriter::selection / set_spans / set_extents),
+// labels are read with), and the rows beneath it. The one place io writes or reads a selection's rows; the writer (SubjectWriter::selection / set_spans / set_extents),
 // the task API (Unit::selection, set_params) and the pipelines call into it and carry no SQL of their own for selections. Spec:
 // docs/specs/2026-11-17-selection-module.md, section 0 and "where it lives".
 //
 //   Create   save(sub, description, placement)        a made selection (selection_description.h) -> its rows, array and dictionary; returns its id (and its members')
 //   Read     load(db, store, id)                      a stored selection -> the same description a made one has (+ its row); the entity `Selection::read` (selection.h) resolves it
-//   Update   update(sub, id, description)             replace what the description holds (a point's centre, a span's extents, a set's spans, tiling, codes, picks, lookup)
+//   Update   update(sub, id, description)             replace what the description holds (a point's centre, a span's extents, a set's spans, tiling, member numbers and labels, picks, lookup)
 //   Delete   remove(sub, id)                          the selection, its members (they cascade), its arrays
 //   Lookup   save_lookup / load_lookup / update_lookup
 //   Rows     the row-level functions the writer's composition calls (insert_row, replace_spans, ...)
@@ -35,15 +35,16 @@ namespace nxr::io::selection {
 /** WHERE a description is stored: its name, path and manifold, and what the row says about it that the description does not. */
 struct Placement {
   std::string name;
-  std::optional<std::string> path;                // store-relative; the array of indices or codes is written here (required for those)
+  std::optional<std::string> path;                // store-relative; the array of indices or member numbers is written here (required for those)
   std::optional<std::string> manifold_id;         // what it lies on
   std::optional<std::string> of_field_id, id, created_utc, created_by, label, description;
   std::optional<std::string> acquisition;         // an acquisition LABEL (made on first use) ...
   std::optional<std::string> acquisition_id;      // ... or its id
-  std::optional<std::string> cell;                // which cells of the manifold (default by type: point, indices, codes '0'; span, spans '1')
+  std::optional<std::string> cell;                // which cells of the manifold (default by type: point, indices, a set per element '0'; span, spans '1')
   std::optional<std::string> dictionary_id;       // an existing dictionary the code reads with (else the description's lookup is saved under `name`)
   std::optional<std::int64_t> n_members;          // a set given by a rule with nothing stored (the joint cells of a product): how many members it has
   Json params;                                    // params_json (object; null: none); a tiling and the levels' windows are added by save
+  std::vector<Json> level_params;                 // a ladder: what the design settled about each level, by position (stride, rate_hz, ...): merged into the level's record
   Cols cols;                                      // any further columns of the row
 };
 
@@ -61,12 +62,19 @@ struct Loaded {
 };
 
 // ── create ───────────────────────────────────────────────────────────────────────────────────────────────────────
-/** SAVE a selection: its row, its detail rows (extents, span members, member selections), its array (indices, codes) and its dictionary. Inside the caller's composition.
+/** SAVE a selection: its row, its detail rows (extents, span members, member selections), its array (indices, member numbers) and its dictionary. Inside the caller's composition.
  *  A set stores as: a tiling -> `spans` (closed form); members all spans -> `spans` rows (an empty set too, unless `n_members` is given: then a `set` with nothing
- *  stored); codes -> `set` with its array and lookup (an empty lookup: each code its own name); other members -> `set` with member rows; members all tilings with
- *  levels -> `ladder` (a dictionary of the levels, an empty tile dictionary per level, each level a `spans` member holding its tiling).
+ *  stored); a set per element -> `set` with its array of member numbers and a dictionary of one entry per member (its label, name and colour: selection_description.h); other members -> `set` with member rows; members all tilings with
+ *  levels -> `ladder` (a dictionary of the levels, an empty tile dictionary per level, each level a `spans` member holding its tiling: its member_ordinal the level's identity,
+ *  its code its power of two); a set per element with levels keeps them in params_json `levels`.
  *  A ladder's line (its manifold) must be a closed-form line: its sample rate and length give each level's window in samples. */
 Saved save(SubjectWriter& sub, const Description& description, const Placement& at);
+
+/** SAVE a LABEL per element as an array (-1: none) with its lookup (each label its entry; empty: the labels are their own names), under the dictionary of the
+ *  labels, WITHOUT member numbers: the form the pipelines that read an array's values as tile or region codes (a ladder's leaf code, a labelling's code) still
+ *  read, and the form an imported atlas has. `load` maps such an array to member numbers (ascending labels). The task API's partitions use it until those readers
+ *  take member numbers and per-member labels; new code saves a set per element with `save`. */
+Saved save_element_labels(SubjectWriter& sub, const std::vector<std::int32_t>& labels, const Lookup& lookup, const Placement& at);
 
 // ── read ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** a stored selection (any status) as its description; Error(no_such_row) when there is none; a kernel is not a selection (Error(invalid_argument)). */
@@ -92,7 +100,7 @@ TimeLine time_line(const Database& db, const std::string& manifold_id);
 
 // ── update ───────────────────────────────────────────────────────────────────────────────────────────────────────
 /** UPDATE a stored selection to `description` (its type must be the stored one): a point's or distance's centre and radius, a span's extents, a spans set's rows or
- *  tiling, the codes or picks of a set or indices (the array is rewritten), and its lookup when the description has one. A set with member selections (or a ladder)
+ *  tiling, the member numbers (and labels) or picks of a set or indices (the array is rewritten), and its lookup when the description has one. A set with member selections (or a ladder)
  *  is updated member by member. Stamps modified_utc. Error(invalid_argument) for a description of another type. */
 void update(SubjectWriter& sub, const std::string& id, const Description& description);
 /** a selection's parameters (params_json), replaced */

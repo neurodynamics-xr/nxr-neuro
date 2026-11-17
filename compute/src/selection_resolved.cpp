@@ -18,7 +18,7 @@ std::string describe(const Selection& s) {
   if (s.type != Type::set) return std::string("a ") + type_name(s.type);
   if (!s.factors.empty()) return "a product";
   if (s.tiling) return "a set by a rule (a tiling)";
-  if (!s.codes.empty()) return "a set by codes";
+  if (!s.member_of.empty()) return "a set per element (a member number per element)";
   return "a set of listed members";
 }
 
@@ -47,7 +47,7 @@ std::int64_t floor_div(std::int64_t a, std::int64_t b) {                // b > 0
   return q;
 }
 
-std::int32_t as_code(std::int64_t m, const char* what) {
+std::int32_t as_member_number(std::int64_t m, const char* what) {
   if (m > std::numeric_limits<std::int32_t>::max()) refuse(std::string(what) + ": more members than a 32-bit code holds");
   return static_cast<std::int32_t>(m);
 }
@@ -121,7 +121,7 @@ const char* form_name(FormKind kind) {
     case FormKind::rule: return "rule";
     case FormKind::intervals: return "intervals";
     case FormKind::elements: return "elements";
-    case FormKind::codes: return "codes";
+    case FormKind::member_of: return "member_of";
   }
   return "?";
 }
@@ -130,14 +130,14 @@ std::int64_t member_count(const Form& f) {
   if (const auto* r = std::get_if<Rule>(&f)) return r->count;
   if (const auto* i = std::get_if<Intervals>(&f)) return i->members();
   if (const auto* e = std::get_if<Elements>(&f)) return e->members();
-  return std::get<Codes>(f).members;
+  return std::get<MemberOfElement>(f).members;
 }
 
 std::int64_t form_size(const Form& f) {
   if (const auto* r = std::get_if<Rule>(&f)) return r->size;
   if (const auto* i = std::get_if<Intervals>(&f)) return i->size;
   if (const auto* e = std::get_if<Elements>(&f)) return e->size;
-  return std::get<Codes>(f).size();
+  return std::get<MemberOfElement>(f).size();
 }
 
 // ── resolving ────────────────────────────────────────────────────────────────────────────
@@ -182,12 +182,12 @@ Intervals resolve_intervals(const Selection& s, const Line& line) {
     }
     return std::move(b.out);
   }
-  if (!s.codes.empty()) {
-    if (static_cast<std::int64_t>(s.codes.size()) != line.count)
-      refuse("resolve_intervals: a set by codes over " + std::to_string(s.codes.size()) + " elements, on a line of " + std::to_string(line.count) + " points");
-    Codes c;
-    c.codes = s.codes;
-    c.members = ordinal_count(s);
+  if (!s.member_of.empty()) {
+    if (static_cast<std::int64_t>(s.member_of.size()) != line.count)
+      refuse("resolve_intervals: a set per element over " + std::to_string(s.member_of.size()) + " elements, on a line of " + std::to_string(line.count) + " points");
+    MemberOfElement c;
+    c.member_of = s.member_of;
+    c.members = count(s);
     return intervals_of(c);
   }
   for (const Selection& m : s.members) { add_member(b, m, line); b.close(); }
@@ -217,36 +217,36 @@ Elements resolve_elements(const Selection& s, std::int64_t size) {
   };
   if (s.type != Type::set) { add_one(s); return out; }
   if (s.tiling) refuse("resolve_elements: a tiling lies on a line; resolve_rule or resolve_intervals(selection, line), then elements_of");
-  if (!s.codes.empty()) {
-    if (static_cast<std::int64_t>(s.codes.size()) != size)
-      refuse("resolve_elements: a set by codes over " + std::to_string(s.codes.size()) + " elements, on a manifold of " + std::to_string(size));
-    Codes c;
-    c.codes = s.codes;
-    c.members = ordinal_count(s);
+  if (!s.member_of.empty()) {
+    if (static_cast<std::int64_t>(s.member_of.size()) != size)
+      refuse("resolve_elements: a set per element over " + std::to_string(s.member_of.size()) + " elements, on a manifold of " + std::to_string(size));
+    MemberOfElement c;
+    c.member_of = s.member_of;
+    c.members = count(s);
     return elements_of(c);
   }
   for (const Selection& m : s.members) add_one(m);
   return out;
 }
 
-Codes resolve_codes(const Selection& s, std::int64_t size) {
-  need_plain(s, "resolve_codes");
-  if (s.type == Type::set && !s.codes.empty()) {                     // already in this form
-    if (static_cast<std::int64_t>(s.codes.size()) != size)
-      refuse("resolve_codes: a set by codes over " + std::to_string(s.codes.size()) + " elements, on a manifold of " + std::to_string(size));
-    Codes c;
-    c.codes = s.codes;
-    c.members = ordinal_count(s);
+MemberOfElement resolve_member_of(const Selection& s, std::int64_t size) {
+  need_plain(s, "resolve_member_of");
+  if (s.type == Type::set && !s.member_of.empty()) {                     // already in this form
+    if (static_cast<std::int64_t>(s.member_of.size()) != size)
+      refuse("resolve_member_of: a set per element over " + std::to_string(s.member_of.size()) + " elements, on a manifold of " + std::to_string(size));
+    MemberOfElement c;
+    c.member_of = s.member_of;
+    c.members = count(s);
     return c;
   }
-  return codes_of(resolve_elements(s, size));
+  return member_of_from(resolve_elements(s, size));
 }
 
-Codes resolve_codes(const Selection& s, const Line& line) {
-  need_line(line, "resolve_codes");
-  need_plain(s, "resolve_codes");
-  if (s.type == Type::set && !s.codes.empty()) return resolve_codes(s, line.count);
-  return codes_of(resolve_intervals(s, line));
+MemberOfElement resolve_member_of(const Selection& s, const Line& line) {
+  need_line(line, "resolve_member_of");
+  need_plain(s, "resolve_member_of");
+  if (s.type == Type::set && !s.member_of.empty()) return resolve_member_of(s, line.count);
+  return member_of_from(resolve_intervals(s, line));
 }
 
 Form resolve(const Selection& s, const Space& space) {
@@ -260,9 +260,9 @@ Form resolve(const Selection& s, const Space& space) {
     case FormKind::elements:
       if (space.line) return elements_of(resolve_intervals(s, *space.line));
       return resolve_elements(s, space.size);
-    case FormKind::codes:
-      if (space.line) return resolve_codes(s, *space.line);
-      return resolve_codes(s, space.size);
+    case FormKind::member_of:
+      if (space.line) return resolve_member_of(s, *space.line);
+      return resolve_member_of(s, space.size);
   }
   refuse("resolve: an unknown form");
 }
@@ -293,7 +293,7 @@ Intervals intervals_of(const Elements& e) {
   return std::move(b.out);
 }
 
-Intervals intervals_of(const Codes& c) { return intervals_of(elements_of(c)); }
+Intervals intervals_of(const MemberOfElement& c) { return intervals_of(elements_of(c)); }
 
 Elements elements_of(const Intervals& in) {
   Elements out;
@@ -306,11 +306,11 @@ Elements elements_of(const Intervals& in) {
   return out;
 }
 
-Elements elements_of(const Codes& c) {
+Elements elements_of(const MemberOfElement& c) {
   Elements out;
   out.size = c.size();
   std::vector<std::int64_t> counts(static_cast<std::size_t>(c.members), 0);
-  for (std::int32_t k : c.codes) {
+  for (std::int32_t k : c.member_of) {
     if (k < -1 || k >= c.members) refuse("elements_of: code " + std::to_string(k) + " outside -1.." + std::to_string(c.members - 1));
     if (k >= 0) ++counts[static_cast<std::size_t>(k)];
   }
@@ -318,45 +318,45 @@ Elements elements_of(const Codes& c) {
   for (std::size_t m = 0; m < counts.size(); ++m) out.offsets[m + 1] = out.offsets[m] + counts[m];
   out.elements.resize(static_cast<std::size_t>(out.offsets.back()));
   std::vector<std::int64_t> next(out.offsets.begin(), out.offsets.end() - 1);
-  for (std::size_t v = 0; v < c.codes.size(); ++v)                     // in element order, so each member's elements come sorted
-    if (c.codes[v] >= 0) out.elements[static_cast<std::size_t>(next[static_cast<std::size_t>(c.codes[v])]++)] = static_cast<std::int64_t>(v);
+  for (std::size_t v = 0; v < c.member_of.size(); ++v)                     // in element order, so each member's elements come sorted
+    if (c.member_of[v] >= 0) out.elements[static_cast<std::size_t>(next[static_cast<std::size_t>(c.member_of[v])]++)] = static_cast<std::int64_t>(v);
   return out;
 }
 
-Codes codes_of(const Elements& e) {
-  Codes out;
+MemberOfElement member_of_from(const Elements& e) {
+  MemberOfElement out;
   out.members = e.members();
-  as_code(out.members, "codes_of");
-  out.codes.assign(static_cast<std::size_t>(e.size), -1);
+  as_member_number(out.members, "member_of_from");
+  out.member_of.assign(static_cast<std::size_t>(e.size), -1);
   for (std::int64_t m = 0; m < e.members(); ++m)
     for (auto i = e.offsets[static_cast<std::size_t>(m)]; i < e.offsets[static_cast<std::size_t>(m) + 1]; ++i) {
       const std::int64_t v = e.elements[static_cast<std::size_t>(i)];
-      if (v < 0 || v >= e.size) refuse("codes_of: element " + std::to_string(v) + " outside 0.." + std::to_string(e.size - 1));
-      std::int32_t& slot = out.codes[static_cast<std::size_t>(v)];
-      if (slot >= 0) refuse("codes_of: members " + std::to_string(slot) + " and " + std::to_string(m) + " share element " + std::to_string(v) + "; codes need disjoint members");
+      if (v < 0 || v >= e.size) refuse("member_of_from: element " + std::to_string(v) + " outside 0.." + std::to_string(e.size - 1));
+      std::int32_t& slot = out.member_of[static_cast<std::size_t>(v)];
+      if (slot >= 0) refuse("member_of_from: members " + std::to_string(slot) + " and " + std::to_string(m) + " share element " + std::to_string(v) + "; a member number per element needs disjoint members");
       slot = static_cast<std::int32_t>(m);
     }
   return out;
 }
 
-Codes codes_of(const Intervals& in) {
-  Codes out;
+MemberOfElement member_of_from(const Intervals& in) {
+  MemberOfElement out;
   out.members = in.members();
-  as_code(out.members, "codes_of");
-  out.codes.assign(static_cast<std::size_t>(in.size), -1);
+  as_member_number(out.members, "member_of_from");
+  out.member_of.assign(static_cast<std::size_t>(in.size), -1);
   for (std::int64_t m = 0; m < in.members(); ++m)
     for (auto i = in.offsets[static_cast<std::size_t>(m)]; i < in.offsets[static_cast<std::size_t>(m) + 1]; ++i)
       for (auto v = in.start[static_cast<std::size_t>(i)]; v < in.stop[static_cast<std::size_t>(i)]; ++v) {
-        std::int32_t& slot = out.codes[static_cast<std::size_t>(v)];
-        if (slot >= 0) refuse("codes_of: members " + std::to_string(slot) + " and " + std::to_string(m) + " share point " + std::to_string(v) + "; codes need disjoint members");
+        std::int32_t& slot = out.member_of[static_cast<std::size_t>(v)];
+        if (slot >= 0) refuse("member_of_from: members " + std::to_string(slot) + " and " + std::to_string(m) + " share point " + std::to_string(v) + "; a member number per element needs disjoint members");
         slot = static_cast<std::int32_t>(m);
       }
   return out;
 }
 
-Codes codes_of(const Rule& r) {
-  Codes out;
-  out.codes = rule_codes(r, 0, r.size);
+MemberOfElement member_of_from(const Rule& r) {
+  MemberOfElement out;
+  out.member_of = rule_member_of(r, 0, r.size);
   out.members = r.count;
   return out;
 }
@@ -377,10 +377,10 @@ std::pair<std::int64_t, std::int64_t> rule_members_at(const Rule& r, std::int64_
   return stop > first ? std::make_pair(first, stop) : std::make_pair(std::int64_t(0), std::int64_t(0));
 }
 
-std::vector<std::int32_t> rule_codes(const Rule& r, std::int64_t first, std::int64_t n) {
-  if (r.hop < r.width) refuse("rule_codes: the rule's members overlap (hop < width); a code per point needs disjoint members");
-  if (n < 0) refuse("rule_codes: n >= 0");
-  as_code(r.count, "rule_codes");
+std::vector<std::int32_t> rule_member_of(const Rule& r, std::int64_t first, std::int64_t n) {
+  if (r.hop < r.width) refuse("rule_member_of: the rule's members overlap (hop < width); a code per point needs disjoint members");
+  if (n < 0) refuse("rule_member_of: n >= 0");
+  as_member_number(r.count, "rule_member_of");
   std::vector<std::int32_t> out(static_cast<std::size_t>(n), -1);
   for (std::int64_t j = 0; j < n; ++j) {
     const auto [a, b] = rule_members_at(r, first + j);
@@ -392,7 +392,7 @@ std::vector<std::int32_t> rule_codes(const Rule& r, std::int64_t first, std::int
 // ── products ─────────────────────────────────────────────────────────────────────────────
 std::int64_t ProductForm::members() const {
   std::int64_t n = 1;
-  for (std::int64_t c : counts) n *= c;                               // resolve_product refused an overflow (ordinal_count)
+  for (std::int64_t c : counts) n *= c;                               // resolve_product refused an overflow (count)
   return n;
 }
 
@@ -417,13 +417,13 @@ ProductForm resolve_product(const Selection& p, const std::vector<Space>& spaces
   if (p.type != Type::set || p.factors.empty()) refuse("resolve_product: a product, not " + describe(p));
   if (spaces.size() != p.factors.size())
     refuse("resolve_product: " + std::to_string(p.factors.size()) + " factors, " + std::to_string(spaces.size()) + " spaces (one per factor)");
-  ordinal_count(p);                                                    // refuses a product too large to number
+  count(p);                                                    // refuses a product too large to number
   ProductForm out;
   for (std::size_t f = 0; f < spaces.size(); ++f) {
     Form form = resolve(p.factors[f], spaces[f]);
     const std::int64_t c = member_count(form);
-    if (c != ordinal_count(p.factors[f]))                              // every form keeps every ordinal; a mismatch is a bug, never a silent renumbering
-      refuse("resolve_product: factor " + std::to_string(f) + " resolved to " + std::to_string(c) + " members, not its " + std::to_string(ordinal_count(p.factors[f])));
+    if (c != count(p.factors[f]))                              // every form keeps every ordinal; a mismatch is a bug, never a silent renumbering
+      refuse("resolve_product: factor " + std::to_string(f) + " resolved to " + std::to_string(c) + " members, not its " + std::to_string(count(p.factors[f])));
     out.counts.push_back(c);
     out.factors.push_back(std::move(form));
   }

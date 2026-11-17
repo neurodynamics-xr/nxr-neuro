@@ -20,6 +20,7 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/io/constant_q.h"
+#include "nxr/selection/constant_q.h"
 #include "nxr/meeg/covariance.h"
 #include "nxr/filter.h"
 #include "nxr/filterbank.h"
@@ -741,7 +742,8 @@ ng::NodeSpec tile_cross_spectrum() {
   n.matches = "the Studio's envelope tiles (D96); compute nxr::partition::crossSpectrum";
   n.description = "per band and tile of a level, the sum of z z^H of the band's analytic signal decimated on the line's grid";
   auto prep = [](const ng::Types& in, const ng::Arrays* constants, const Json& p) {
-    namespace cq = nxr::io::constantq;
+    namespace cq = nxr::selection::constantq;   // the band design (compute)
+    namespace tg = nxr::io::constantq;          // the tile grid's own arithmetic (io)
     TilePrepared t;
     const ng::PortType& x = streamed(in, "x", "analytic.tile_cross_spectrum");
     t.sfreq = *x.sfreq;
@@ -753,14 +755,14 @@ ng::NodeSpec tile_cross_spectrum() {
       if (hi >= t.sfreq / (2.0 * static_cast<double>(d)))
         ng::refuse("analytic.tile_cross_spectrum: band " + b.value("name", std::string()) + " reaches its decimated Nyquist rate (the ladder's stride is sized from the low edge: a band is at most 12 times its low edge wide)");
       t.stride.push_back(d);
-      level = std::min(level, cq::levelOfWidth(cq::windowFor(t.sfreq, lo)));
+      level = std::min(level, tg::levelOfWidth(cq::windowFor(t.sfreq, lo)));
       t.bands.push_back(Json{{"name", b.value("name", std::string())}, {"lo_hz", lo}, {"hi_hz", hi}, {"decimation", d}});
     }
     if (t.stride.empty()) ng::refuse("analytic.tile_cross_spectrum: at least one band");
     const bool lv = p.contains("level") && !p["level"].is_null(), ws = p.contains("window_seconds") && !p["window_seconds"].is_null();
     if (lv && ws) ng::refuse("analytic.tile_cross_spectrum: level and window_seconds are alternatives");
     if (lv) level = p["level"].get<int>();
-    else if (ws) level = cq::levelOf(p["window_seconds"].get<double>(), t.sfreq);
+    else if (ws) level = tg::levelOf(p["window_seconds"].get<double>(), t.sfreq);
     if (level < 0 || level > 15) ng::refuse("analytic.tile_cross_spectrum: the tile level is 0 to 15, got " + std::to_string(level));
     t.level = level;
     t.tile = std::int64_t(1) << level;
