@@ -1015,6 +1015,17 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --anonymize@import bids		Drop the identifying header fields of every recording and the sidecar's institution and device-serial keys.	off (kept as the files have them)	-
 --dataset@import bids	PATH	The folder of the new dataset (made by the import; refused if it holds a catalogue): one subject package per BIDS subject, registered in its catalogue.	required	-
 --from@import bids	DIR	The BIDS dataset's folder (MEG, EEG or iEEG recordings).	required	-
+--amplitude	VOLTS	The amplitude of the first sine of a synthetic recording (the second has half of it, the third a third, ...).	2e-05	V
+--channels@create recording	N	The number of channels of the synthetic recording (1 to 4096).	8	-
+--duration	SECONDS	The duration of a synthetic recording.	60	s
+--frequency	HZ	The frequency of a sine of a synthetic recording (repeatable); each is below half the sampling rate.	10	Hz
+--noise	VOLTS	The standard deviation of the white noise of a synthetic recording (0 for none).	5e-06	V
+--seed@create recording	N	The seed of the synthetic recording: the same seed and options give the same samples.	1	-
+--sfreq	HZ	The sampling rate of a synthetic recording.	250	Hz
+--package@create recording	PATH	The subject package (made by `create package`) the recording is written into.	required	-
+--name@create recording	NAME	Name the recording is stored under.	synthetic	-
+--acquisition@create recording	NAME	The session of the subject the recording is stored under.	rest	-
+--synthetic		Make a synthetic recording: sine waves plus noise from a seed (create recording).	off	-
 --in-place@import bids		Link every recording's file instead of copying its samples (the packages record each file's path and SHA-256).	off (the samples are copied)	-
 --no-participants		Do not import participants.tsv (import bids).	off	-
 --no-participants@import bids		Do not import participants.tsv as the dataset's participant variables.	off (participants are imported)	-
@@ -1068,6 +1079,13 @@ old: dataset compact
 alias: refused
 summary: Pack a dataset's small files and shards to save space (a dry run shows what would change).
 opts: --dataset* --dry-run --no-shard --no-small-files --subject
+)TBL",
+R"TBL(@ create recording
+old: __import synthetic
+alias: no
+summary: Make a small synthetic recording (sine waves plus noise from a seed; channels, sampling rate and duration as options) in a subject package, as an imported recording is stored.
+opts: --acquisition --amplitude --channels --duration --frequency+ --name --noise --package* --seed --sfreq --synthetic*
+example: nxr-neuro create recording --synthetic --package work/s1.nxr.zarr --name rest --channels 8 --sfreq 250 --duration 60 --seed 1
 )TBL",
 R"TBL(@ create package
 old: package create
