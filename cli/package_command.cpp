@@ -26,6 +26,7 @@
 #include "nxr/io/migrate.h"
 #include "nxr/io/participants.h"
 #include "nxr/io/subject_package.h"
+#include "nxr/io/task/dataset.h"
 #include "nxr/io/templates.h"
 #ifdef NXR_NEURO_WITH_PIPELINES
 #include "nxr/pipelines/registration.h"
@@ -61,7 +62,7 @@ int package_main(const std::vector<std::string>& argv) {
     o.subject.created_by = stamp();
     o.built_by = stamp();
     DatasetWriter w = create_package(a.get("--package"), a.get("--name"), o);
-    emit(Json{{"stage", "result"}, {"package", a.get("--package")}, {"subject_id", read_package_record(w.db()).subject_id}});
+    emit(Json{{"stage", "result"}, {"package", a.get("--package")}, {"subject_id", nxr::io::task::Dataset::of(w).package_subject_id()}});
     w.close();
     emit(Json{{"stage", "result"}, {"content_hash", SubjectPackage::open(a.get("--package")).record().content_hash}});
   } else if (action == "verify") {

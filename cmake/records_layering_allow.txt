@@ -1,9 +1,4 @@
 # The files not yet migrated to the record API (cmake/check_records_layering.cmake). Each migration PR removes its files; the last deletes this list.
-cli/main.cpp
-cli/measure_command.cpp
-cli/nxr_neuro.cpp
-cli/package_command.cpp
-cli/read_command.cpp
 cli/run_command.cpp
 pipelines/include/nxr/pipelines/cache.h
 pipelines/include/nxr/pipelines/runner.h

@@ -12,6 +12,7 @@
 #include <variant>
 #include <vector>
 
+#include "nxr/io/deterministic.h"
 #include "nxr/io/errors.h"
 #include "nxr/io/json_text.h"
 #include "nxr/io/store.h"
@@ -64,12 +65,6 @@ std::optional<std::string> opt_text(const Row& r, const std::string& column);
 // A version-7 UUID, the primary key of every row (D16), and ISO 8601 UTC as JavaScript's toISOString writes it.
 std::string uuid7();
 std::string now_utc(bool ms = true);
-
-namespace testing {
-// Deterministic ids (00000000-0000-7000-8000-<counter>) and a fixed clock, so two writers' output can be compared byte for byte.
-// Used only by the conformance tests.
-void deterministic(bool on, std::uint64_t start = 0);   // `start`: the counter's first value (ids continue after it)
-}  // namespace testing
 
 class Database {
  public:

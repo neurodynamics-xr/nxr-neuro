@@ -14,6 +14,7 @@
 
 #include "nxr/io/array_reader.h"
 #include "nxr/io/dataset.h"
+#include "nxr/io/task/dataset.h"
 #include "nxr/io/small_file_store.h"
 #include "nxr/io/store.h"
 
@@ -71,7 +72,8 @@ void print_array(const Store& store, const std::string& subject, const std::stri
 int read_command(int argc, char** argv) {
   try {
     if (argc < 2) { std::cerr << "usage: nxr-neuro read <dataset folder> [--array <subject> <path> [--region a:b,c:d] [--out FILE]]\n"; return 2; }
-    const Dataset ds = Dataset::open(argv[1]);
+    const fs::path folder = argv[1];
+    const nxr::io::task::Dataset ds = nxr::io::task::Dataset::open_readonly(folder);
     std::string subject, path, region, out;
     bool one = false;
     for (int i = 2; i < argc; ++i) {
@@ -82,11 +84,11 @@ int read_command(int argc, char** argv) {
       else { std::cerr << "unknown argument: " << a << '\n'; return 2; }
     }
     if (one) {
-      const auto s = ds.query("SELECT path FROM subject WHERE name = ? OR path = ?", {subject, subject});
-      if (s.empty()) { std::cerr << "no subject \"" << subject << "\"\n"; return 1; }
-      const DatasetKeys dk(ds.folder());
+      const auto s = ds.find_subject(subject);
+      if (!s) { std::cerr << "no subject \"" << subject << "\"\n"; return 1; }
+      const DatasetKeys dk(folder);
       const Store& store = dk.keys;
-      const ArrayReader a = ArrayReader::open(store, join_key(text(s[0], "path"), path));
+      const ArrayReader a = ArrayReader::open(store, join_key(s->path, path));
       std::vector<std::int64_t> lo(a.shape().size(), 0), hi = a.shape();
       if (!region.empty()) {
         std::stringstream ss(region);
@@ -105,29 +107,17 @@ int read_command(int argc, char** argv) {
       if (!out.empty()) std::ofstream(out, std::ios::binary).write(reinterpret_cast<const char*>(bytes.data()), static_cast<std::streamsize>(bytes.size()));
       return 0;
     }
-    for (const auto& s : ds.query("SELECT name, path, kind FROM subject ORDER BY name"))
-      std::cout << "subject\t" << text(s, "name") << '\t' << text(s, "path") << '\t' << text(s, "kind") << '\n';
-    struct Named { const char* table; const char* sql; };
-    const Named named[] = {
-        {"field", "SELECT s.path AS sp, s.name AS sn, r.path AS p FROM field r JOIN subject s ON s.id = r.subject_id WHERE r.path IS NOT NULL"},
-        {"selection", "SELECT s.path AS sp, s.name AS sn, r.array_path AS p FROM selection r JOIN subject s ON s.id = r.subject_id WHERE r.array_path IS NOT NULL"},
-        {"operator", "SELECT s.path AS sp, s.name AS sn, r.path AS p FROM operator r JOIN subject s ON s.id = r.subject_id WHERE r.path IS NOT NULL"},
-        {"geometry", "SELECT s.path AS sp, s.name AS sn, r.positions_path AS p FROM geometry r JOIN subject s ON s.id = r.subject_id WHERE r.positions_path IS NOT NULL"},
-        {"topology_cell", "SELECT s.path AS sp, s.name AS sn, r.path AS p FROM topology_cell r JOIN topology t ON t.id = r.topology_id JOIN subject s ON s.id = t.subject_id WHERE r.path IS NOT NULL"},
-        {"selection_measurement", "SELECT s.path AS sp, s.name AS sn, r.array_path AS p FROM selection_measurement r JOIN selection x ON x.id = r.selection_id JOIN subject s ON s.id = x.subject_id WHERE r.array_path IS NOT NULL"},
-    };
+    for (const auto& s : ds.subjects()) std::cout << "subject\t" << s.name << '\t' << s.path << '\t' << s.kind << '\n';
     std::set<std::string> seen;
-    const DatasetKeys dk(ds.folder());
-      const Store& store = dk.keys;
-    for (const auto& n : named) {
-      for (const auto& r : ds.query(n.sql)) {
-        std::vector<std::string> keys;
-        const std::string sp = text(r, "sp");
-        collect(store, join_key(sp, text(r, "p")), keys);
-        for (const auto& key : keys) {
-          const std::string rel = key.substr(sp.size() + 1);   // the subject's own key, as the rows state it
-          if (seen.insert(sp + "\n" + rel).second) print_array(store, text(r, "sn"), n.table, key, rel);
-        }
+    const DatasetKeys dk(folder);
+    const Store& store = dk.keys;
+    for (const auto& r : ds.stored_arrays()) {
+      std::vector<std::string> keys;
+      const std::string& sp = r.subject_path;
+      collect(store, join_key(sp, r.path), keys);
+      for (const auto& key : keys) {
+        const std::string rel = key.substr(sp.size() + 1);   // the subject's own key, as the rows state it
+        if (seen.insert(sp + "\n" + rel).second) print_array(store, r.subject_name, r.record, key, rel);
       }
     }
     return 0;
