@@ -25,6 +25,7 @@
 #include "nxr/facets.h"
 #include "nxr/field_registry.h"
 #include "nxr/operator_registry.h"
+#include "first_slice.h"
 #include "marshal.h"
 #include "mex.h"
 
@@ -2103,6 +2104,9 @@ void mexFunction(int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
     }
 
     try {
+        // the first slice (the Python wheel's functions): "ops.*" and "io.*" commands, called by the MATLAB package +nxr/+ops and +nxr/+io
+        if (nxr::mex::dispatchFirstSlice(cmd, nlhs, plhs, nrhs, prhs)) return;
+
         if      (cmd == "create")        cmdCreate(nlhs, plhs, nrhs, prhs);
         else if (cmd == "destroy")       cmdDestroy(nlhs, plhs, nrhs, prhs);
         else if (cmd == "assembleManifoldOperators")   cmdAssembleMeshOperators(nlhs, plhs, nrhs, prhs);
@@ -2167,9 +2171,11 @@ void mexFunction(int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
                 "topology, geometry, gauge, bundle, operators, "
                 "frameTransport, liftToWorld, liftToFrame, "
                 "embedded, intrinsic, extrinsic, facets, "
-                "operatorInfo, fieldInfo, version.",
+                "operatorInfo, fieldInfo, version; and the commands named ops.* and io.* (use nxr.ops and nxr.io).",
                 cmd.c_str());
         }
+    } catch (const nxr::mex::SliceFailure& e) {
+        mexErrMsgIdAndTxt(e.id.c_str(), "%s", e.text.c_str());
     } catch (const nxr::core::Error& e) {
         // Route structured nxr-compute errors to MException identifiers MATLAB
         // can pattern-match (e.g. ME.identifier == "nxr:cancelled").
