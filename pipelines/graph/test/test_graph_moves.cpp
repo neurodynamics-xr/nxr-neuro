@@ -91,7 +91,7 @@ void test_apply() {
   // a kernel from another manifold: no implicit move
   CHECK(refused([&] { use("apply_kernel", {{"x", field_t({cortex, time})}, {"kernel", k}}); }, {"port `kernel`"}));
   // D106
-  const auto power = use("power", {{"x", rec}}).at("y");
+  const auto power = use("field.form", {{"x", rec}}, Json{{"form", "power"}}).at("y");
   CHECK(power.nonlinear && power.quantity == "power");
   CHECK(refused([&] { use("apply_kernel", {{"x", power}, {"kernel", k}}); }, {"port `x`", "is non-linear", "D106", "apply it first"}));
   // the output's value: a free kernel and a fixed one; a form makes a real quantity; glued derives the surface
@@ -100,9 +100,9 @@ void test_apply() {
   CHECK(curl.quantity == "curl_tan" && curl.value == VT::complex && g::print(curl.domain.factors[0]) == "glued(cortex(kernel))");
   // tiles: the ladder of the kernel's target, with its level; the ladder of the sensors is refused
   const auto tiles = selection_t({cortex}, "ladder", false, "tiles");
-  const auto y5 = use("apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", tiles}}, Json{{"level", 5}}).at("y");
+  const auto y5 = use("apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", tiles}}, Json{{"level", "index:5"}}).at("y");
   CHECK(y5.res.ladder == "tiles" && y5.res.levels == std::vector<int>{5});
-  CHECK(refused([&] { use("apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", selection_t({sensors}, "ladder", false, "tiles")}}, Json{{"level", 5}}); }, {"port `tiles`", "sensors(rest) is not cortex(kernel)"}));
+  CHECK(refused([&] { use("apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", selection_t({sensors}, "ladder", false, "tiles")}}, Json{{"level", "index:5"}}); }, {"port `tiles`", "sensors(rest) is not cortex(kernel)"}));
   CHECK(refused([&] { use("apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", tiles}}); }, {"`tiles` comes with `level` or `levels`"}));
   // frames: the interpolation maps the time line onto the frame tiling's members; a non-linear x is refused
   const auto tiling = selection_t({time}, "tiling", true, "tiling");
@@ -146,9 +146,9 @@ void test_compose_restrict_make() {
   // restrict: at_level narrows the stack of levels; the domain is unchanged
   g::PortType stack = field_t({cortex, time});
   stack.res.ladder = "tiles"; stack.res.levels = {4, 5, 6};
-  const auto one = use("at_level", {{"x", stack}}, Json{{"level", 5}}).at("y");
+  const auto one = use("at_level", {{"x", stack}}, Json{{"level", "index:5"}}).at("y");
   CHECK(one.res.levels == std::vector<int>{5} && g::same(one.domain, stack.domain));
-  CHECK(refused([&] { use("at_level", {{"x", one}}, Json{{"level", 5}}); }, {"is not a multi-level field"}));
+  CHECK(refused([&] { use("at_level", {{"x", one}}, Json{{"level", "index:5"}}); }, {"is not a multi-level field"}));
   // make: no field input
   g::Signature mk = g::sig(g::Move::make).in("x", g::field({g::var("M")})).out("t", g::make_of(g::PortClass::selection));
   CHECK(refused([&] { mk.validate("toy.make"); }, {"a `make` node has no field input"}));
@@ -164,34 +164,34 @@ void test_measure() {
   // a joint partition of the surface x the time line, at level 5 and 8-16 Hz
   g::PortType cells = selection_t({cortex, time}, "set", true, "cells");
   cells.res = mag().res;
-  const auto m = use("measure", {{"x", mag()}, {"over", cells}}, Json{{"measure", "amplitude"}}, false).at("y");
+  const auto m = use("reduce", {{"x", mag()}, {"over", cells}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}).at("values");
   CHECK(g::print(m) == "measurement<members(cells); amplitude; band 8-16 Hz; level tiles@5>");
   CHECK(m.domain.factors[0]->label == "joint" && m.domain.factors[0]->of && g::same(m.domain.factors[0]->of, time));
   // the level IS the band: another level or another band is refused, naming both
   g::PortType x4 = mag(); x4.res.levels = {4};
-  CHECK(refused([&] { use("measure", {{"x", x4}, {"over", cells}}, Json{{"measure", "amplitude"}}, false); },
+  CHECK(refused([&] { use("reduce", {{"x", x4}, {"over", cells}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}); },
                 {"port `over`", "the joint partition `cells` is at level 5 of `tiles`", "x is limited to level 4 of `tiles`", "the level IS the band"}));
   g::PortType xb = mag(); xb.res.band = std::array<double, 2>{14.0, 30.0};
-  CHECK(refused([&] { use("measure", {{"x", xb}, {"over", cells}}, Json{{"measure", "amplitude"}}, false); }, {"band 8-16 Hz", "band-limited to 14-30 Hz"}));
+  CHECK(refused([&] { use("reduce", {{"x", xb}, {"over", cells}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}); }, {"band 8-16 Hz", "band-limited to 14-30 Hz"}));
   // a partition of other manifolds
-  CHECK(refused([&] { use("measure", {{"x", field_t({sensors, time}, VT::real, "amplitude")}, {"over", cells}}, Json{{"measure", "amplitude"}}, false); }, {"not factors of x"}));
+  CHECK(refused([&] { use("reduce", {{"x", field_t({sensors, time}, VT::real, "amplitude")}, {"over", cells}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}); }, {"not factors of x"}));
   // the measure must fit the quantity; a complex x is refused
-  CHECK(refused([&] { use("measure", {{"x", mag("power")}, {"over", cells}}, Json{{"measure", "amplitude"}}, false); }, {"the measure amplitude is a measure of amplitude or envelope"}));
-  CHECK(refused([&] { use("measure", {{"x", field_t({cortex, time}, VT::complex)}, {"over", cells}}, Json{{"measure", "mean"}}, false); }, {"is complex", "this node reads real or vector3"}));
+  CHECK(refused([&] { use("reduce", {{"x", mag("power")}, {"over", cells}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}); }, {"the measure amplitude is a measure of amplitude or envelope"}));
+  CHECK(refused([&] { use("reduce", {{"x", field_t({cortex, time}, VT::complex)}, {"over", cells}}, Json{{"measures", Json::array({"mean"})}}, false, {"out"}); }, {"is complex", "this node reads real or vector3"}));
   // any selection on factors of x is measured (no property needed): a selection of one member is one region or time range
-  CHECK(g::print(use("measure", {{"x", mag()}, {"over", selection_t({cortex, time}, "set", false, "loose")}}, Json{{"measure", "amplitude"}}, false).at("y").domain).find("members(loose)") != std::string::npos);
+  CHECK(g::print(use("reduce", {{"x", mag()}, {"over", selection_t({cortex, time}, "set", false, "loose")}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}).at("values").domain).find("members(loose)") != std::string::npos);
   // a time ladder: the level is chosen by the band; a field without a band is refused; the output's member set is named after the level
   g::PortType env = field_t({sensors, time}, VT::real, "envelope", true);
   env.res.band = std::array<double, 2>{8.0, 16.0};
   const auto ladder = selection_t({time}, "ladder", false, "ladder");
-  const auto am = use("measure", {{"x", env}, {"over", ladder}}, Json{{"measure", "amplitude"}}, false).at("y");
+  const auto am = use("reduce", {{"x", env}, {"over", ladder}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}).at("values");
   CHECK(g::print(am.domain) == "sensors(rest) × members(ladder@8-16)" && am.domain.factors.back()->role == g::Role::time_tiles);
   g::PortType nob = env; nob.res.band.reset();
-  CHECK(refused([&] { use("measure", {{"x", nob}, {"over", ladder}}, Json{{"measure", "amplitude"}}, false); }, {"carries no band", "the level IS the band"}));
+  CHECK(refused([&] { use("reduce", {{"x", nob}, {"over", ladder}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}); }, {"carries no band", "the level IS the band"}));
   // a chunk node measuring a partition of the stream needs an accumulate node; no partition: the run's span, also an accumulate node's
-  CHECK(refused([&] { use("measure", {{"x", env}, {"over", selection_t({time}, "tiling", true, "tiles")}}, Json{{"measure", "mean"}}, true); }, {"needs an accumulate node"}));
-  CHECK(refused([&] { use("measure", {{"x", env}}, Json{{"measure", "mean"}}, true); }, {"needs an accumulate node"}));
-  CHECK(g::print(use("measure", {{"x", env}}, Json{{"measure", "mean"}}, false).at("y").domain) == "sensors(rest)");
+  CHECK(refused([&] { use("reduce", {{"x", env}, {"over", selection_t({time}, "tiling", true, "tiles")}}, Json{{"measures", Json::array({"mean"})}}, true, {"out"}); }, {"needs an accumulate node"}));
+  CHECK(refused([&] { use("reduce", {{"x", env}}, Json{{"measures", Json::array({"mean"})}}, true, {"out"}); }, {"needs an accumulate node"}));
+  CHECK(g::print(use("reduce", {{"x", env}}, Json{{"measures", Json::array({"mean"})}}, false, {"out"}).at("values").domain) == "sensors(rest)");
   // the cardinal rule: only measure removes a factor, so a measurement has the member set in the place of the factors it partitions
   CHECK(am.cls == g::PortClass::measurement);
 }
@@ -200,24 +200,24 @@ void test_summarize_detect() {
   g::PortType env = field_t({sensors, time}, VT::real, "envelope", true);
   env.res.band = std::array<double, 2>{8.0, 16.0};
   const auto ladder = selection_t({time}, "ladder", false, "ladder");
-  const auto amp = use("measure", {{"x", env}, {"over", ladder}}, Json{{"measure", "amplitude"}}, false).at("y");
+  const auto amp = use("reduce", {{"x", env}, {"over", ladder}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}).at("values");
   // summarize: a statistic that remembers what it is of; the member set leaves the axes
   const auto st = use("summarize", {{"x", amp}}, Json{{"summaries", Json::array({"median", "mad"})}}, false).at("y");
   CHECK(g::print(st.domain) == "sensors(rest)" && st.of && st.of->quantity == "amplitude" && st.of->res.band && g::same(st.of->on, amp.domain));
   // a field is measured first
   CHECK(refused([&] { use("summarize", {{"x", env}}, Json::object(), false); }, {"port `x`", "is a field; a measurement is wanted", "measure the field over a partition first"}));
   // detect: events on a measurement over a time partition's members, a selection on the time line with an identity and what it was detected over
-  const auto sp = use("detect_spans", {{"x", amp}, {"baseline", st}}, Json::object(), false, {"bursts"}).at("spans");
+  const auto sp = use("select.events.spans", {{"x", amp}, {"baseline", st}}, Json{{"rule", "detect"}}, false, {"bursts"}).at("spans");
   CHECK(g::print(sp) == "selection<spans on time(rest); detected over ladder@8-16; as bursts; band 8-16 Hz>");
-  CHECK(refused([&] { use("detect_spans", {{"x", env}}, Json::object(), false); }, {"is a field; a measurement is wanted", "it over the constant-Q level first"}));
+  CHECK(refused([&] { use("select.events.spans", {{"x", env}}, Json{{"rule", "detect"}}, false); }, {"is a field; a measurement is wanted", "over the constant-Q level first"}));
   g::PortType other = st; other.of->quantity = "power";
-  CHECK(refused([&] { use("detect_spans", {{"x", amp}, {"baseline", other}}, Json::object(), false); }, {"port `baseline`", "is not a statistic of x"}));
+  CHECK(refused([&] { use("select.events.spans", {{"x", amp}, {"baseline", other}}, Json{{"rule", "detect"}}, false); }, {"port `baseline`", "is not a statistic of x"}));
   // a measurement of events detected on another grid's members is refused (events themselves may overlap: no disjointness is asked)
   g::PortType amp2 = amp;
   amp2.domain.factors.back() = g::members("ladder@14-30", time, g::Role::time_tiles);
   amp2.quantity = "amplitude";
-  CHECK(refused([&] { use("measure_events", {{"x", amp2}, {"events", sp}}, Json{{"measure", "amplitude"}}, false); }, {"port `events`", "were detected on the members of `ladder@8-16`", "`ladder@14-30`"}));
-  const auto roll = use("measure_events", {{"x", amp}, {"events", sp}}, Json{{"measure", "amplitude"}}, false).at("y");
+  CHECK(refused([&] { use("reduce.members", {{"x", amp2}, {"over", sp}}, Json{{"measures", Json::array({"amplitude"})}}, false); }, {"port `over`", "were detected on the members of `ladder@8-16`", "`ladder@14-30`"}));
+  const auto roll = use("reduce.members", {{"x", amp}, {"over", sp}}, Json{{"measures", Json::array({"amplitude"})}}, false, {"out"}).at("values");
   CHECK(g::print(roll.domain) == "sensors(rest) × members(bursts)");
 }
 
@@ -279,7 +279,7 @@ void test_in_check() {
 
 void test_builtin_table() {
   const auto names = g::builtin_signature_names();
-  CHECK(names.size() == 31);
+  CHECK(names.size() == 46);
   for (const auto& n : names) {
     const g::Signature* s = g::builtin_signature(n);
     CHECK(s && !s->outputs.empty());

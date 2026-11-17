@@ -34,7 +34,7 @@ g::Block shaped(const g::Block& in, std::int64_t keep, std::int64_t rows, bool c
 }
 g::NodeTraits pointwise() { return g::node_traits(g::TimeBehaviour::pointwise, g::Precision::float32, g::OutputPrecision::follows_input, "each column on its own"); }
 
-// three toys carrying the built-in signatures of `analytic`, `power` and `apply_kernel` (the signature is the type rule; the node only computes)
+// three toys carrying the built-in signatures of `analytic`, `field.form` (power) and `apply_kernel` (the signature is the type rule; the node only computes)
 g::Registry toys() {
   g::Registry r;
   g::NodeSpec a; a.name = "analytic"; a.kind = g::Kind::chunk; a.traits = pointwise(); a.inputs = {{"x", ""}}; a.outputs = {{"y", ""}};
@@ -45,7 +45,7 @@ g::Registry toys() {
     return g::Blocks{{"y", y}};
   };
   r.add(a);
-  g::NodeSpec p; p.name = "power"; p.kind = g::Kind::chunk; p.traits = pointwise(); p.inputs = {{"x", ""}}; p.outputs = {{"y", ""}};
+  g::NodeSpec p; p.name = "field.form"; p.parameters = {{"form", Json("power"), "", "", {}, false}}; p.kind = g::Kind::chunk; p.traits = pointwise(); p.inputs = {{"x", ""}}; p.outputs = {{"y", ""}};
   p.chunk = [](const std::any&, const g::Blocks& in, std::int64_t keep, const g::Place&) {
     const g::Block& x = in.at("x"); g::Block y = shaped(x, keep, x.rows);
     for (std::int64_t i = 0; i < y.rows * y.width; ++i) { const float a = x.re[static_cast<std::size_t>(i)], b = x.im[static_cast<std::size_t>(i)]; y.re[static_cast<std::size_t>(i)] = a * a + b * b; }
@@ -53,7 +53,7 @@ g::Registry toys() {
   };
   r.add(p);
   g::NodeSpec k; k.name = "apply_kernel"; k.kind = g::Kind::chunk; k.traits = pointwise(); k.linear_map = true;
-  k.inputs = {{"x", ""}, {"kernel", ""}, {"tiles", "", true}}; k.outputs = {{"y", ""}};
+  k.inputs = {{"x", ""}, {"kernel", ""}, {"tiles", "", true}, {"pre_operator", "", true}}; k.outputs = {{"y", ""}};
   k.prepare = [](const g::Types&, const g::Arrays& c, const Json&, g::Shared&) { return std::any(c.at("kernel")); };
   k.chunk = [](const std::any& prepared, const g::Blocks& in, std::int64_t keep, const g::Place&) {
     const g::Array& K = std::any_cast<const g::Array&>(prepared);
@@ -102,7 +102,7 @@ void test_labels() {
                 {"label 'sensors'", "4 elements", "5"}));
   // a node that is not a node, an input that is not a port, a port not given
   CHECK(refused([&] { g::compute_node("nothing.here", {{"x", field_in(4, 20, {})}}, Json::object(), reg); }, {"nothing.here"}));
-  CHECK(refused([&] { g::compute_node("power", {{"z", field_in(4, 20, {})}}, Json::object(), reg); }, {"no input port 'z'"}));
+  CHECK(refused([&] { g::compute_node("field.form", {{"z", field_in(4, 20, {})}}, Json{{"form", "power"}}, reg); }, {"no input port 'z'"}));
   CHECK(refused([&] { g::compute_node("apply_kernel", {{"x", field_in(4, 20, {})}}, Json::object(), reg); }, {"required input port 'kernel'"}));
 }
 
@@ -110,16 +110,16 @@ void test_chain() {
   const g::Registry reg = toys();
   // a chain without labels: analytic -> power, both the variable M: no label needed
   const g::Graph chain = g::graph_from_json(Json::parse(R"({"name":"chain","inputs":["x"],"outputs":["p"],
-      "chunks":[{"node":"analytic","in":{"x":"x"},"out":"z"},{"node":"power","in":{"x":"z"},"out":"p"}]})"));
+      "chunks":[{"node":"analytic","in":{"x":"x"},"out":"z"},{"node":"field.form","with":{"form":"power"},"in":{"x":"z"},"out":"p"}]})"));
   auto r = g::compute(chain, {{"x", field_in(2, 16, {})}}, Json::object(), reg);
   CHECK(r.arrays.at("p").rows == 2 && std::fabs(r.arrays.at("p").data[0] - 5.0) < 1e-5);     // x = 1: |1 + 2i|^2
   CHECK(g::print(r.types.at("p")).find("power") != std::string::npos);
   // the real map before the analytic signal is refused: power of a real field
-  const g::Graph bad = g::graph_from_json(Json::parse(R"({"name":"bad","inputs":["x"],"outputs":["p"],"chunks":[{"node":"power","in":{"x":"x"},"out":"p"}]})"));
-  CHECK(refused([&] { g::compute(bad, {{"x", field_in(2, 16, {})}}, Json::object(), reg); }, {"chunks[0] power", "port `x`", "is real", "analytic"}));
+  const g::Graph bad = g::graph_from_json(Json::parse(R"({"name":"bad","inputs":["x"],"outputs":["p"],"chunks":[{"node":"field.form","with":{"form":"power"},"in":{"x":"x"},"out":"p"}]})"));
+  CHECK(refused([&] { g::compute(bad, {{"x", field_in(2, 16, {})}}, Json::object(), reg); }, {"chunks[0] field.form", "port `x`", "is real", "analytic"}));
   // D106 from arrays: a linear map after a non-linear node
   const g::Graph d106 = g::graph_from_json(Json::parse(R"({"name":"d106","inputs":["x","K"],"outputs":["y"],
-      "chunks":[{"node":"analytic","in":{"x":"x"},"out":"z"},{"node":"power","in":{"x":"z"},"out":"p"},{"node":"apply_kernel","in":{"x":"p","kernel":"K"},"out":"y"}]})"));
+      "chunks":[{"node":"analytic","in":{"x":"x"},"out":"z"},{"node":"field.form","with":{"form":"power"},"in":{"x":"z"},"out":"p"},{"node":"apply_kernel","in":{"x":"p","kernel":"K"},"out":"y"}]})"));
   CHECK(refused([&] { g::compute(d106, {{"x", field_in(4, 16, {"sensors", "time"})}, {"K", kernel_in(3, 4, "sensors", "cortex")}}, Json::object(), reg); }, {"apply_kernel", "non-linear", "D106"}));
   // the same chain checks without running when only the check is asked for
   const g::Checked ck = g::check_arrays(chain, {{"x", field_in(2, 16, {})}}, Json::object(), reg);
@@ -162,7 +162,7 @@ void test_partition_gauge_sidecar() {
   CHECK(!g::same(ta.domain, g::type_from_sidecar(other, "y").domain));
   // an array read back with its type runs through the checker as typed: power accepts it, the labels are not asked for
   g::ComputeInput back; back.array = a.arrays.at("y"); back.type = ta;
-  auto p = g::compute_node("power", {{"x", back}}, Json::object(), reg);
+  auto p = g::compute_node("field.form", {{"x", back}}, Json{{"form", "power"}}, reg);
   CHECK(p.arrays.at("y").rows == 4);
   CHECK(refused([&] { g::type_from_sidecar(a.sidecar, "nope"); }, {"no type for 'nope'"}));
 }

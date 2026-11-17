@@ -601,6 +601,11 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
     if (pattern->subsume) {
       // the one implicit move: a source restricted to S accepts the whole manifold it is of (the kernel reads its channels of the recording) and a restriction to the same S
       if (actual->form == Manifold::Form::restricted && same(bound, actual->of)) return true;
+      if (actual->form == Manifold::Form::restricted && actual->of && bound->key == actual->of->key && bound->label == actual->of->label && !same_cs(bound->cs, actual->of->cs)) {
+        why = print(actual) + " is a selection of the manifold " + print(bound) + " in another coordinate system (" + print_cs(actual->of->cs) + ", not " + print_cs(bound->cs) +
+              "); no transition is applied by the checker: add the node `positions.transition` with the transition operator " + print_cs(actual->of->cs) + " to " + print_cs(bound->cs);
+        return false;
+      }
       if (actual->form == Manifold::Form::restricted && bound->form == Manifold::Form::restricted && same(bound->of, actual->of)) {
         why = "it reads " + print(actual) + "; the value lies on " + print(bound) + " (another selection of the same manifold)";
         return false;

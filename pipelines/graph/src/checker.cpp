@@ -344,7 +344,9 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
           u.fail(port, "its positions are in the space " + m->cs->space + "; those of `" + first_port + "` in " + first->cs->space + ". Positions of two spaces are not compared.");
         if (!same_cs(first->cs, m->cs))
           u.fail(port, "its positions (" + print(m) + ") are in " + m->cs->space + "/" + m->cs->name + " (" + m->cs->unit + "); those of `" + first_port + "` (" + print(first) + ") in " +
-                       first->cs->space + "/" + first->cs->name + " (" + first->cs->unit + "). " + transition_hint(m, first));
+                       first->cs->space + "/" + first->cs->name + " (" + first->cs->unit + "). " +
+                       // the node names the system it needs for one of its ports: the transition goes into that one
+                       [&] { for (const auto& [np, want] : sg.positions_named) if (want == m->cs->name && std::find(group.begin(), group.end(), np) != group.end()) return transition_hint(first, m); return transition_hint(m, first); }());
       }
   }
   for (const auto& [port, want] : sg.positions_named)

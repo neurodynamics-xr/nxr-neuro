@@ -95,6 +95,14 @@ Signature s_frames() {
       });
 }
 
+// a level as a signature reads it: the explicit index chart ("index:5", diagnostics and tests) is its number; a quantity ("20 mm", "8-12 Hz") is resolved at the run, not by the type rule (-1)
+int level_number(const Json& v) {
+  if (v.is_number()) return v.get<int>();
+  if (v.is_string()) { const std::string t = v.get<std::string>(); if (t.rfind("index:", 0) == 0) return std::stoi(t.substr(6)); }
+  return -1;
+}
+bool has_level(const Json& v) { return v.is_number() || (v.is_string() && !v.get<std::string>().empty()); }
+
 Signature s_apply_kernel() {
   return sig(Move::apply)
       .in("x", field({A, R, TF}).streamed().linear())
@@ -113,8 +121,8 @@ Signature s_apply_kernel() {
           const PortType& t = u.in.at("tiles");
           if (!t.sel || t.sel->type != "ladder") u.fail("tiles", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a tile ladder");
           std::vector<int> lv;
-          if (p.contains("levels") && p["levels"].is_array()) for (const auto& l : p["levels"]) lv.push_back(l.get<int>());
-          else if (p.contains("level") && p["level"].is_number()) lv.push_back(p["level"].get<int>());
+          if (p.contains("levels") && p["levels"].is_array()) for (const auto& l : p["levels"]) lv.push_back(level_number(l));
+          else if (p.contains("level") && has_level(p["level"])) lv.push_back(level_number(p["level"]));
           if (lv.empty()) u.fail("tiles", "`tiles` comes with `level` or `levels`");
           y.res.ladder = id_of(u, "tiles");
           y.res.levels = lv;
@@ -297,7 +305,7 @@ Signature s_select_product() {
 // select.events.spans: the three rules (detect, keep_where, stages) of one node; each rule's own signature is applied to its own ports
 Signature s_select_events_spans() {
   Signature s = sig(Move::detect);
-  s.in("x", measurement_any().optional()).in("baseline", statistic_any().optional()).in("events", selection_any().optional()).in("fit_r2", measurement_any().optional())
+  s.in("x", measurement_any().optional().because("Events are detected on a measurement over a time partition's members: reduce the field over the constant-Q level first (reduce with `over`).")).in("baseline", statistic_any().optional()).in("events", selection_any().optional()).in("fit_r2", measurement_any().optional())
    .in("t_on", measurement_any().optional()).in("t_off", measurement_any().optional()).in("tau_rise", measurement_any().optional()).in("tau_fall", measurement_any().optional()).in("kept", selection_any().optional());
   s.out("spans", make_of(PortClass::selection)).out("onset", make_of(PortClass::selection)).out("within", make_of(PortClass::selection)).out("offset", make_of(PortClass::selection));
   return s.refine([](Unified& u, const Json& p) {
@@ -455,7 +463,7 @@ Signature s_at_level() {
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
         if (x.res.levels.size() < 2) u.fail("x", "is not a multi-level field (`apply_kernel` with `levels`); its spatial band is " + level_text(x.res));
-        u.out.at("y").res.levels = {p.value("level", 0)};
+        u.out.at("y").res.levels = {p.contains("level") ? level_number(p["level"]) : 0};
       });
 }
 
@@ -572,8 +580,8 @@ Signature s_tile_crossings() {
         if (!t.sel || t.sel->type != "ladder") u.fail("tiles", "must be a tile ladder");
         if (ev.domain.factors.empty() || t.domain.factors.empty() || !same(strip_glued(ev.domain.factors[0]), t.domain.factors[0]))
           u.fail("tiles", "the ladder is on " + print(t.domain) + "; the events lie on " + print(ev.domain) + ": the tile ladder of the events' surface is wanted");
-        if (!p.contains("level") || !p["level"].is_number()) u.fail("tiles", "`level` names the tile level");
-        const std::string lvl = id_of(u, "tiles") + "@" + std::to_string(p["level"].get<int>());
+        if (!p.contains("level") || !has_level(p["level"])) u.fail("tiles", "`level` names the tile level");
+        const std::string lvl = id_of(u, "tiles") + "@" + (level_number(p["level"]) >= 0 ? std::to_string(level_number(p["level"])) : p["level"].get<std::string>());
         PortType& y = u.out.at("crossings");
         y.domain = dom_of({members(lvl, t.domain.factors[0], Role::none)});
         if (p.value("as", std::string("measurement")) == "statistic") y.cls = PortClass::statistic;   // a null draw's crossings: a statistic of its own, never the data's rows
