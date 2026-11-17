@@ -79,7 +79,7 @@ const { writeFileSync } = await import('node:fs');
 const v73 = path.join(PROTOCOLS, 'tess_v73.mat');
 const head = Buffer.alloc(128, 0x20); head.write('MATLAB 7.3 MAT-file, Platform: x, Created on: x HDF5 schema 1.00 .'); head.writeUInt16LE(0x0200, 124); head.write('IM', 126);
 writeFileSync(v73, Buffer.concat([head, Buffer.alloc(512)]));
-const r = await wasm.cli(['convert', 'surface', '--dataset', path.join(B, 'd'), '--subject', 'S01', '--file', v73]);
+const r = await wasm.cli(['import', 'surface', '--dataset', path.join(B, 'd'), '--subject', 'S01', '--file', v73]);
 assert.equal(r.code, 1, JSON.stringify(r));
 assert.match(JSON.stringify(r.lines), /MATLAB v7\.3 \(HDF5\) file, which nxr-neuro's WebAssembly build does not read/); checks++;
 wasm.close();

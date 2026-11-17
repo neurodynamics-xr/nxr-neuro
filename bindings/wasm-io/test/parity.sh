@@ -20,7 +20,7 @@ STORE="$(python3 "$ROOT/bindings/wasm-io/test/make_store.py" "$ROOT/build/cli/nx
 PROTOCOLS="$(NXR="$NXR" uv run --project "$NXR" python "$ROOT/bindings/wasm-io/test/make_protocols.py" "$T/protocols" | tail -1)"
 (cd "$STUDIO" && npx tsx "$ROOT/bindings/wasm-io/test/parity_imports.mts" "$STUDIO" "$W/bindings/wasm-io" "$STORE" "$PROTOCOLS" "$ROOT/build/cli/nxr-neuro")
 # the ANALYSIS commands (noisecov · psd · lowpass · headmodel · inverse · sourcepsd · tiles · frames · eigen solve): native vs the module, on the session subject
-NXR_IO_DETERMINISTIC=1000 "$ROOT/build/cli/nxr-neuro" convert convert "$PROTOCOLS/session" --subject S01 --condition sub-S01_ses-01_task-rest_run-01_meg --dataset "$STORE/d" >/dev/null
+NXR_IO_DETERMINISTIC=1000 "$ROOT/build/cli/nxr-neuro" import condition "$PROTOCOLS/session" --subject S01 --condition sub-S01_ses-01_task-rest_run-01_meg --dataset "$STORE/d" >/dev/null
 node "$ROOT/bindings/wasm-io/test/parity_analysis.mjs" "$W/bindings/wasm-io" "$STORE" "$ROOT/build/cli/nxr-neuro"
 # the GEOMETRY COMPUTE on meshes in memory (the Manifold API, raw and wrapped), in this same module: the compute binding's smoke (expected values from the native tests)
 node "$ROOT/bindings/scripts/_smoke-wasm.mjs" "$W/bindings/wasm-io/nxr_io.mjs" | tail -1

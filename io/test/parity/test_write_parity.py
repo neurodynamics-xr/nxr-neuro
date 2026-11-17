@@ -27,6 +27,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import writer_scenario as ws  # noqa: E402
+from spellings import to_io  # noqa: E402
 
 NXR = Path(os.environ["NXR"]) if "NXR" in os.environ else None
 IO = Path(os.environ["NXR_NEURO"]) if "NXR_NEURO" in os.environ else None
@@ -37,7 +38,7 @@ NXR_MAIN = "import sys; from nxr.cli.main import main; sys.exit(main(sys.argv[1:
 
 
 def run_io(*args, env=None, ok=None):
-    p = subprocess.run([str(IO), *map(str, args)], capture_output=True, text=True, env={**os.environ, **(env or {})})
+    p = subprocess.run([str(IO), *map(str, to_io(args))], capture_output=True, text=True, env={**os.environ, **(env or {})})
     if ok is True:
         assert p.returncode == 0, p.stdout + p.stderr
     return p
