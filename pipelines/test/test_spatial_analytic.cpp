@@ -166,10 +166,7 @@ int main() {
       }
     });
   }
-  JointComputeOptions jo; jo.recording = "rest"; jo.space_level = L; jo.time_level = timeLevel;
-  joint_compute(ds, sub, jo);
-  JointComputeOptions jb = jo; jb.recording = "rest_b";
-  joint_compute(ds, sub, jb);
+  // (the joint cells are no longer made by a verb: the definitions make their product themselves, `select.product` with the joint layout)
   const std::int64_t tiles = 2 * (1 << L), frames = T / W;
   const double width_s = static_cast<double>(W) / sfreq;
 

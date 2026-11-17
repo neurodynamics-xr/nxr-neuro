@@ -12,6 +12,7 @@
 #include <random>
 
 #include "check.h"
+#include "meeg_runs.h"
 #include "nxr/io/task/task.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
@@ -19,6 +20,7 @@
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
+using namespace nxrtest;
 
 // a stored statistic by its name (the covariances are statistics)
 static std::optional<nxr::io::task::Node> statistic_named(SubjectWriter& sub, const std::string& name) {
@@ -325,12 +327,12 @@ int main() {
   CHECK(inverse_compute(ds, sub, io).hit);
   io.kernel.depth.enabled = false;
   CHECK_EQ(code_of([&] { inverse_compute(ds, sub, io); }), std::string(code::already_exists));
-  // a kernel straight from a recording: the covariance is computed and stored on the way; MNE's conventions as one switch
+  // a kernel from a covariance made on the way (the definition `inverse` takes a stored covariance: `noisecov` first); MNE's conventions as one switch
+  NoiseCovOptions n2 = no;
+  n2.name = "rest_cov2"; n2.start = 0; n2.stop = 20.0;
+  noisecov_compute(ds, sub, n2);
   InverseComputeOptions ir;
-  ir.from_recording = no;
-  ir.from_recording->name = "rest_cov2";
-  ir.from_recording->start = 0;
-  ir.from_recording->stop = 20.0;
+  ir.noise_cov = "rest_cov2";
   ir.name = "MN_mne";
   ir.mne_conventions = true;
   const InverseComputeResult k2 = inverse_compute(ds, sub, ir);

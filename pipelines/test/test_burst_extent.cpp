@@ -154,8 +154,7 @@ int main() {
       w.field(std::move(rec));
     });
   }
-  JointComputeOptions jo; jo.recording = "rest"; jo.space_level = L; jo.time_level = timeLevel;
-  joint_compute(ds, sub, jo);
+  // (the joint cells are no longer made by a verb: the definitions make their product themselves, `select.product` with the joint layout)
 
   // ── THE CELLS (run cortical_cells, the same chain: the reference for the independent detection) ──
   const g::Definition dc = g::load("cortical_cells");
