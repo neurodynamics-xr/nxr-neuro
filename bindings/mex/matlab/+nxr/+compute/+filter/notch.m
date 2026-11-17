@@ -1,12 +1,12 @@
-function y = highpass(x, lower, sfreq, opts)
-%NXR.OPS.FILTER.HIGHPASS  High-pass filter (nxr::filter::highpass).
-%   y = nxr.ops.filter.highpass(x, 1, 1000)
+function y = notch(x, frequencies, sfreq, opts)
+%NXR.OPS.FILTER.NOTCH  Notch filter at the line frequency and its harmonics (nxr::filter::notch).
+%   y = nxr.compute.filter.notch(x, [50 100], 1000)
 %   Zero-phase filters of a whole in-memory record [channels x samples]: Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop)
 %   filters as documented in nxr/filter.h. The result has the same shape and precision.
 %
 %   Inputs
 %     x         [channels x samples]  The record, single or double.
-%     lower     Hz: the highpass edge.
+%     frequencies   Hz: the line frequency and its harmonics.
 %     sfreq     Sampling frequency, Hz.
 %   Name-value options (the library's FilterOptions; the same names as in the Python wheel)
 %     method               "fir" or "iir". Default [] (unset): the reference's (FIR, but IIR for bandstop and notch).
@@ -25,7 +25,7 @@ function y = highpass(x, lower, sfreq, opts)
 %     y   [channels x samples], in the input's precision.
     arguments
         x {mustBeNumericOrLogical}
-        lower (1,1) double
+        frequencies {mustBeNumeric}
         sfreq (1,1) double
         opts.method = []
         opts.ripple (1,1) double = 1e-3
@@ -37,5 +37,5 @@ function y = highpass(x, lower, sfreq, opts)
         opts.notch_bandwidth = []
         opts.bandstop_order (1,1) double = 4
     end
-    y = nxr.impl.filter_run('highpass', x, sfreq, lower, 0, [], opts);
+    y = nxr.impl.filter_run('notch', x, sfreq, 0, 0, frequencies, opts);
 end

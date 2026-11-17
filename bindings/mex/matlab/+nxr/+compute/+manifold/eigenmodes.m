@@ -1,7 +1,7 @@
 function r = eigenmodes(vertices, faces, k, opts)
 %NXR.OPS.MANIFOLD.EIGENMODES  The Laplace-Beltrami eigenmodes of a triangle mesh (nxr::manifold).
-%   r = nxr.ops.manifold.eigenmodes(vertices, faces, k)
-%   r = nxr.ops.manifold.eigenmodes(vertices, faces, k, normalize=true, remove_dc=true)
+%   r = nxr.compute.manifold.eigenmodes(vertices, faces, k)
+%   r = nxr.compute.manifold.eigenmodes(vertices, faces, k, normalize=true, remove_dc=true)
 %
 %   The k smallest eigenpairs of K phi = lambda M phi on a mesh (the cotangent Laplacian K and the mixed-Voronoi mass M of the operator mesh).
 %   (The pre-existing nxr_compute commands 'create' and 'solve' give the same modes on a kept mesh handle.)
@@ -31,6 +31,6 @@ function r = eigenmodes(vertices, faces, k, opts)
         opts.remove_dc (1,1) logical = false
         opts.intrinsic_delaunay (1,1) logical = true
     end
-    [ev, evec, n] = nxr_compute('ops.manifold.eigenmodes', vertices, faces, k, opts.sigma, opts.normalize, opts.remove_dc, opts.intrinsic_delaunay);
+    [ev, evec, n] = nxr_compute('compute.manifold.eigenmodes', vertices, faces, k, opts.sigma, opts.normalize, opts.remove_dc, opts.intrinsic_delaunay);
     r = struct('eigenvalues', ev, 'eigenvectors', evec, 'n_converged', n);
 end

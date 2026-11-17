@@ -4,7 +4,7 @@ import scipy.signal as sps
 
 import nxr_neuro as nn
 
-welch = nn.ops.welch
+welch = nn.compute.welch
 
 
 @pytest.mark.parametrize("scaling", ["density", "spectrum"])
@@ -100,3 +100,9 @@ def test_cross_spectrum_sum_versus_mean(signal):
     a = welch.cross_spectrum(x, fs, [(10, 14)], mean=True).real
     b = welch.cross_spectrum(x, fs, [(10, 14)], mean=False).real
     np.testing.assert_allclose(b, a * 5, rtol=1e-12)
+
+
+def test_ops_is_a_deprecated_alias_of_compute():
+    with pytest.warns(DeprecationWarning, match="nxr_neuro.compute"):
+        ops = nn.ops
+    assert ops.welch is nn.compute.welch

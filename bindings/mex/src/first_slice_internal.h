@@ -1,5 +1,5 @@
 #pragma once
-// Conversions shared by the first slice's commands (ops and io): mxArray <-> Eigen, strings, structs. Nothing here computes.
+// Conversions shared by the first slice's commands (compute and io): mxArray <-> Eigen, strings, structs. Nothing here computes.
 #include <Eigen/Dense>
 #include <cctype>
 #include <cstdint>

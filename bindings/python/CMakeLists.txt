@@ -8,7 +8,7 @@ find_package(nanobind CONFIG REQUIRED)
 
 nanobind_add_module(nxr_neuro_core NB_STATIC STABLE_ABI NB_DOMAIN nxr
   src/module.cpp
-  src/ops.cpp
+  src/compute.cpp
   src/formats.cpp)
 set_target_properties(nxr_neuro_core PROPERTIES OUTPUT_NAME _core)
 target_compile_features(nxr_neuro_core PRIVATE cxx_std_17)

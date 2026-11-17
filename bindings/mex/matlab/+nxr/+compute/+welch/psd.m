@@ -1,7 +1,7 @@
 function r = psd(x, sfreq, opts)
 %NXR.OPS.WELCH.PSD  Welch's power spectral density of every channel (nxr::welch::Welch).
-%   r = nxr.ops.welch.psd(x, sfreq)
-%   r = nxr.ops.welch.psd(x, sfreq, segment_samples=512, window="hamming", ...)
+%   r = nxr.compute.welch.psd(x, sfreq)
+%   r = nxr.compute.welch.psd(x, sfreq, segment_samples=512, window="hamming", ...)
 %
 %   A record x(0..T) of C channels is cut into segments of segment_samples (n) samples, a new segment every hop = n - floor(n*overlap) samples, from
 %   the first sample, as many as fit whole (a partial last segment is dropped, as scipy.signal.welch and Brainstorm do). Each segment is detrended,
@@ -41,7 +41,7 @@ function r = psd(x, sfreq, opts)
         opts.scaling {mustBeTextScalar} = "density"
         opts.good = []
     end
-    [f, p, n, skipped] = nxr_compute('ops.welch.psd', x, sfreq, opts.segment_samples, opts.overlap, char(opts.window), opts.periodic, ...
+    [f, p, n, skipped] = nxr_compute('compute.welch.psd', x, sfreq, opts.segment_samples, opts.overlap, char(opts.window), opts.periodic, ...
                                      char(opts.detrend), char(opts.scaling), opts.good);
     r = struct('frequencies', f, 'psd', p, 'segments', n, 'segments_skipped', skipped);
 end

@@ -1,12 +1,12 @@
-function y = bandpass(x, lower, upper, sfreq, opts)
-%NXR.OPS.FILTER.BANDPASS  Band-pass filter (nxr::filter::bandpass).
-%   y = nxr.ops.filter.bandpass(x, 8, 16, 1000)
+function y = lowpass(x, upper, sfreq, opts)
+%NXR.OPS.FILTER.LOWPASS  Low-pass filter (nxr::filter::lowpass).
+%   y = nxr.compute.filter.lowpass(x, 30, 1000)
 %   Zero-phase filters of a whole in-memory record [channels x samples]: Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop)
 %   filters as documented in nxr/filter.h. The result has the same shape and precision.
 %
 %   Inputs
 %     x         [channels x samples]  The record, single or double.
-%     lower, upper   Hz: the lower and upper passband edges (0 < lower < upper < Nyquist).
+%     upper     Hz: the lowpass edge.
 %     sfreq     Sampling frequency, Hz.
 %   Name-value options (the library's FilterOptions; the same names as in the Python wheel)
 %     method               "fir" or "iir". Default [] (unset): the reference's (FIR, but IIR for bandstop and notch).
@@ -25,7 +25,6 @@ function y = bandpass(x, lower, upper, sfreq, opts)
 %     y   [channels x samples], in the input's precision.
     arguments
         x {mustBeNumericOrLogical}
-        lower (1,1) double
         upper (1,1) double
         sfreq (1,1) double
         opts.method = []
@@ -38,5 +37,5 @@ function y = bandpass(x, lower, upper, sfreq, opts)
         opts.notch_bandwidth = []
         opts.bandstop_order (1,1) double = 4
     end
-    y = nxr.impl.filter_run('bandpass', x, sfreq, lower, upper, [], opts);
+    y = nxr.impl.filter_run('lowpass', x, sfreq, 0, upper, [], opts);
 end

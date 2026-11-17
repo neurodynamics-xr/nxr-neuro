@@ -1,7 +1,7 @@
 function r = pca(x, opts)
 %NXR.OPS.PCA.PCA  Principal components of a table of observations x features (nxr::pca::pca), by the thin singular value decomposition.
-%   r = nxr.ops.pca.pca(x)
-%   r = nxr.ops.pca.pca(x, scale="unit_variance")
+%   r = nxr.compute.pca.pca(x)
+%   r = nxr.compute.pca.pca(x, scale="unit_variance")
 %
 %   Each column's mean is removed; optionally each column is then divided by its standard deviation (ddof 1; the correlation matrix's components). Never
 %   the p x p covariance matrix: p can be tens of thousands where n is a few hundred. Every component up to the rank of the centred table is returned.
@@ -30,7 +30,7 @@ function r = pca(x, opts)
         x {mustBeNumericOrLogical}
         opts.scale {mustBeTextScalar} = "none"
     end
-    [c, s, ev, evr, sc, mu, scl, rk] = nxr_compute('ops.pca.pca', x, char(opts.scale));
+    [c, s, ev, evr, sc, mu, scl, rk] = nxr_compute('compute.pca.pca', x, char(opts.scale));
     r = struct('components', c, 'singular_values', s, 'explained_variance', ev, 'explained_variance_ratio', evr, 'scores', sc, 'mean', mu, ...
                'scale', scl, 'rank', rk);
 end

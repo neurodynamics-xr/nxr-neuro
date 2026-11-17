@@ -1,6 +1,6 @@
 #pragma once
-// The first slice of the MATLAB face (the same functions as the Python wheel's first slice): the pure functions (`ops.*`) and the readers of the
-// field's file formats (`io.*`), as commands of the one `nxr_compute` mexFunction. The MATLAB package (+nxr/+ops, +nxr/+io) is what users call.
+// The first slice of the MATLAB face (the same functions as the Python wheel's first slice): the pure functions (`compute.*`) and the readers of the
+// field's file formats (`io.*`), as commands of the one `nxr_compute` mexFunction. The MATLAB package (+nxr/+compute, +nxr/+io) is what users call.
 //
 // A binding only converts and calls (ARCHITECTURE.md, bindings): arrays in, the library's call, arrays out. The 1-based MATLAB indices
 // (faces, bins, samples, channels) are converted at this boundary and nowhere else.
@@ -17,7 +17,7 @@ struct SliceFailure {
   std::string id, text;
 };
 
-// Runs the command when it is one of the first slice's (its name starts with "ops." or "io."); returns false when it is not. Throws SliceFailure for the
+// Runs the command when it is one of the first slice's (its name starts with "compute." or "io."); returns false when it is not. Throws SliceFailure for the
 // library's invalid-argument and io errors; the library's other errors (nxr::core::Error) pass through.
 bool dispatchFirstSlice(const std::string& cmd, int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs);
 

@@ -2104,7 +2104,7 @@ void mexFunction(int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
     }
 
     try {
-        // the first slice (the Python wheel's functions): "ops.*" and "io.*" commands, called by the MATLAB package +nxr/+ops and +nxr/+io
+        // the first slice (the Python wheel's functions): "compute.*" and "io.*" commands, called by the MATLAB package +nxr/+ops and +nxr/+io
         if (nxr::mex::dispatchFirstSlice(cmd, nlhs, plhs, nrhs, prhs)) return;
 
         if      (cmd == "create")        cmdCreate(nlhs, plhs, nrhs, prhs);
@@ -2171,7 +2171,7 @@ void mexFunction(int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
                 "topology, geometry, gauge, bundle, operators, "
                 "frameTransport, liftToWorld, liftToFrame, "
                 "embedded, intrinsic, extrinsic, facets, "
-                "operatorInfo, fieldInfo, version; and the commands named ops.* and io.* (use nxr.ops and nxr.io).",
+                "operatorInfo, fieldInfo, version; and the commands named compute.* and io.* (use nxr.compute and nxr.io).",
                 cmd.c_str());
         }
     } catch (const nxr::mex::SliceFailure& e) {

@@ -1,15 +1,15 @@
 """nxr-neuro: measuring the spatiotemporal patterns of cortical activity from MEG/EEG.
 
-This first slice of the Python face holds the pure functions over NumPy arrays (`nxr_neuro.ops`) and the readers of the field's file formats
+This first slice of the Python face holds the pure functions over NumPy arrays (`nxr_neuro.compute`) and the readers of the field's file formats
 (`nxr_neuro.io`). Both call the same C++ library as the `nxr-neuro` command; nothing here is a second implementation.
 
     import nxr_neuro as nn
-    freqs, psd, *_ = nn.ops.welch.psd(x, sfreq=1000.0)
+    freqs, psd, *_ = nn.compute.welch.psd(x, sfreq=1000.0)
 """
 
 from importlib import metadata as _metadata
 
-from . import io, ops
+from . import compute, io
 from ._errors import (
     CancelledError,
     Error,
@@ -20,6 +20,15 @@ from ._errors import (
     UnsupportedError,
 )
 
+def __getattr__(name):
+    if name == "ops":   # deprecated alias of `compute`, for one release: warns when used
+        import warnings
+
+        warnings.warn("nxr_neuro.ops is deprecated: use nxr_neuro.compute (the same functions)", DeprecationWarning, stacklevel=2)
+        return compute
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
+
+
 try:
     __version__ = _metadata.version("nxr-neuro")
 except _metadata.PackageNotFoundError:  # a source tree that is not installed
@@ -27,7 +36,7 @@ except _metadata.PackageNotFoundError:  # a source tree that is not installed
 
 __all__ = [
     "io",
-    "ops",
+    "compute",
     "Error",
     "FormatError",
     "UnsupportedError",

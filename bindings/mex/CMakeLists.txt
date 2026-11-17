@@ -146,7 +146,7 @@ endif()
 # consumer that needs Spectra paths exposed — those propagate through
 # nxr-compute's PUBLIC interface link.
 
-# ── The first slice (the Python wheel's functions: ops.* and io.*) ─────────────────────────────────────────────────────────────────────────────────
+# ── The first slice (the Python wheel's functions: compute.* and io.*) ─────────────────────────────────────────────────────────────────────────────────
 # The readers need the pure formats (io/formats: nxr_io_formats), which carry matio, HDF5 and zlib as static archives. A MEX meets MATLAB's own
 # HDF5 and zlib in the same process, so none of theirs is exported from it: the symbols are hidden at the link (nxr_io_hide_static_symbols), and FindMatlab's
 # export map leaves mexFunction the only symbol the module exports. (SQLite, io's database engine, is not linked: the readers do not need it.)

@@ -2,7 +2,7 @@ function image = read_gifti(path)
 %NXR.IO.READ_GIFTI  Read a GIFTI file (surfaces, shape and functional maps, label maps): a struct with version, metadata, labels and arrays.
 %   image = nxr.io.read_gifti("lh.pial.surf.gii")
 %   vertices = image.arrays(1).data;    % [n x 3] single
-%   faces = image.arrays(2).data;       % [n x 3] int32, 1-based: straight into nxr.ops.manifold.eigenmodes
+%   faces = image.arrays(2).data;       % [n x 3] int32, 1-based: straight into nxr.compute.manifold.eigenmodes
 %
 %   Each element of arrays is a struct: intent ("NIFTI_INTENT_POINTSET", "NIFTI_INTENT_TRIANGLE", "NIFTI_INTENT_SHAPE", ...), datatype, metadata,
 %   transforms and data, an array of the file's dimensions whatever the file's indexing order (single, int32 or uint8). The vertex indices of a

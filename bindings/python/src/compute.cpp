@@ -212,7 +212,7 @@ void def_both(nb::module_& m, const char* name, F1 f64, F2 f32, Extra&&... extra
 
 }  // namespace
 
-void bind_ops(nb::module_& m) {
+void bind_compute(nb::module_& m) {
   using nb::arg;
   def_both(m, "welch_psd", &welch_psd<double>, &welch_psd<float>, arg("x"), arg("sfreq"), arg("segment_samples"), arg("overlap"), arg("window"),
            arg("periodic"), arg("detrend"), arg("scaling"), arg("good").none());
