@@ -60,6 +60,7 @@ void add_tracks_steps(std::vector<StepSpec>& r);   // tracks_steps.cpp: tracks
 void add_crossings_steps(std::vector<StepSpec>& r);   // crossings_steps.cpp: tile_crossings
 void add_surrogate_steps(std::vector<StepSpec>& r);   // surrogate_steps.cpp: power_series, lagfree_surrogate
 void add_connectome_steps(std::vector<StepSpec>& r);   // connectome_steps.cpp: fiber_ends, nearest_vertex, end_gate, registration_match, carry_ends, smooth_memberships, partition_counts, end_connectome, connection_weights, prune_below, largest_component
+void add_montage_steps(std::vector<StepSpec>& r);       // montage_steps.cpp: eeg_montage_1005
 void add_spatial_events_steps(std::vector<StepSpec>& r);   // spatial_events_steps.cpp: at_level, relative, …
 
 void refuse(const std::string& message) { throw nxr::io::Error(nxr::io::code::invalid_argument, message); }
@@ -697,6 +698,7 @@ std::vector<StepSpec> build() {
   add_spatial_events_steps(r);
   add_surrogate_steps(r);
   add_connectome_steps(r);
+  add_montage_steps(r);
   return r;
 }
 
