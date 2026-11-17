@@ -633,6 +633,12 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
     selection::save_measurement(sub, m.selection_id, c);
     ++n;
   }
+  if (!m.pair_measure.empty()) {                    // two codes a row: the member and the other
+    std::vector<selection::MemberValue> rows;
+    rows.reserve(m.pairs.size());
+    for (const auto& p : m.pairs) rows.push_back({p.code, p.value, p.within_code});
+    n += selection::save_member_values(sub, m.selection_id, m.pair_measure, rows, m.pair_unit.empty() ? std::nullopt : std::optional<std::string>(m.pair_unit), by_.tool, m.selection_id);
+  }
   return n;
 }
 

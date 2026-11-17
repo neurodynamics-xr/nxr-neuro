@@ -360,7 +360,7 @@ if(NXR_NEURO_BUILD_TESTS)
   add_test(NAME test_connectome_nodes COMMAND test_connectome_nodes)
   add_executable(test_connectome_definition test/test_connectome_definition.cpp)
   target_link_libraries(test_connectome_definition PRIVATE nxr_pipelines)
-  target_compile_definitions(test_connectome_definition PRIVATE NXR_PENDING_DEFINITIONS="${CMAKE_CURRENT_SOURCE_DIR}/definitions/pending")
+  target_compile_definitions(test_connectome_definition PRIVATE NXR_PENDING_DEFINITIONS="${CMAKE_CURRENT_SOURCE_DIR}/definitions/pending" NXR_DEFINITIONS="${CMAKE_CURRENT_SOURCE_DIR}/definitions")
   add_test(NAME test_connectome_definition COMMAND test_connectome_definition)
 
   add_executable(test_runner_outputs test/test_runner_outputs.cpp)

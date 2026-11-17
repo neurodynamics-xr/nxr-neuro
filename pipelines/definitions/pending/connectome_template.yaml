@@ -1,4 +1,4 @@
-# THE STRUCTURAL CONNECTOME OVER A PARTITION, FROM A TEMPLATE'S FIBERS (spec section 5 and 7). DRAFT, NOT YET SHIPPED (see connectome.yaml, "Needs"). A definition has no
+# THE STRUCTURAL CONNECTOME OVER A PARTITION, FROM A TEMPLATE'S FIBERS (spec section 5 and 7). DRAFT, NOT YET SHIPPED: it waits for the runner's `registration` input (the sphere registration of a template's surface and the subject's) and for a template's curve and surface as inputs. A definition has no
 # conditional steps, so the template's route is its own definition: the ends are placed on the TEMPLATE's end surface, then carried onto the subject's through the registration
 # of the spheres (an empty column goes to its NEAREST subject vertex on the sphere, never to vertex 0: the reference's quirk, fixed).
 #

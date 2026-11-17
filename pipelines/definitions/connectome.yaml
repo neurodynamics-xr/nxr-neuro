@@ -1,6 +1,4 @@
-# THE STRUCTURAL CONNECTOME OVER A PARTITION (spec docs/specs/2026-11-16-structural-connectome.md; outputs: docs/specs/2026-11-17-definition-outputs.md). DRAFT, NOT YET SHIPPED: it
-# is written on the nodes that are registered and on the declarations the runner does not read yet (listed under "Needs", below), so it sits here, outside the `definitions/*.yaml`
-# that are compiled in. When the runner has them, it moves up one folder and its test (`test_connectome_definition`) runs it through `run connectome`.
+# THE STRUCTURAL CONNECTOME OVER A PARTITION (spec docs/specs/2026-11-16-structural-connectome.md; outputs: docs/specs/2026-11-17-definition-outputs.md).
 #
 #   nxr-neuro run connectome --fibers tracts --end-surface pial --over desikan-killiany [--smooth-hops N] [--max-end-distance MM|none] --dataset d --subject s
 #
@@ -8,14 +6,7 @@
 # The counts are a MEASUREMENT over the partition: the fibers are the elements, the region pairs the members; two codes a row (the region and the other), both orders, the
 # within-region pairs stored (a fiber with both ends in one region adds 2 at its diagonal). Smoothing is pushed onto the memberships (the adjoint of the mesh's smoothing step):
 # the vertex matrix is never formed here. Default smoothing: 0 hops for a partition (3 at the vertex level, `connectome_vertices`).
-#
-# Needs (runner features; status 2026-11-17):
-#   1. input classes: DONE with the classes the finder has: `manifold: curve` (a fiber bundle, read as its points with `points_per_fiber` in its meta), `manifold: surface`
-#      (vertices, faces) and `selection: set` (a partition read as a member number per vertex), handed to a node that declares `reads_arrays`;
-#   2. a required parameter (default `required`: refused when missing, naming it, its meaning and valid values): DONE (the runner's `parameters_of`);
-#   3. an output of kind `measurement` made of an ARRAY (`counts`, COO regions x regions) with two codes a row (`codes: 2`), on the input partition: NOT DONE (the runner stores a
-#      measurement only over the chunk loop's recording; an array measurement needs the selection store's measurement rows with two codes);
-#   4. the provenance of an output taking the input bundle's `origin` when it has one (the fiber array's meta carries it): the output side is NOT DONE (see connectome_template).
+# The fibers and the surface keep the precision they are stored in (no widening); a pair stored in different precision is refused, naming both.
 pipeline: connectome
 version: 1
 description: the fiber counts between the regions of a partition of the end surface (a measurement over the partition), from a fiber bundle's ends

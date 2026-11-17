@@ -155,6 +155,11 @@ struct MeasurementOut {
   std::vector<Measure> measures;
   Json band;                                       // {name, lo_hz, hi_hz} or null
   Json attributes;                                 // what each measure's array says of its own axes (the zarr attributes: rows = ..., columns = ...); null: none
+  // TWO CODES A ROW (a measurement of a non-chunk array: the fiber counts between the regions of a partition): one value per ordered pair of the selection's members, a row (code, within_code, value)
+  // on `selection_id` (the member and the other); the rows are of the members themselves (no field)
+  struct Pair { std::int64_t code = 0, within_code = 0; double value = 0; };
+  std::string pair_measure, pair_unit;
+  std::vector<Pair> pairs;
 };
 // a closed-form tiling of a time line: `count` tiles of `width` a new one every `hop` from `origin` (in `unit`), `skipped` of them left out
 struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };
