@@ -447,8 +447,9 @@ Json import_hcp(SubjectWriter& sub, const HcpSource& h, SourceChecker& sc) {
 // ── building a template package ─────────────────────────────────────────────────────────────────────────────────
 
 Json build_template(const BuildRequest& rq) {
-  if (rq.recipe != "fsaverage" && rq.recipe != "icbm152") refuse("recipe '" + rq.recipe + "': choose fsaverage or icbm152");
-  if (rq.hcp_trk && rq.recipe != "icbm152") refuse("the streamlines are imported into the ICBM152 template (their coordinates are MNI's): use the icbm152 recipe");
+  const bool icbm = rq.recipe.rfind("icbm152", 0) == 0;   // icbm152 (Brainstorm's current default anatomy) or icbm152_2023b
+  if (rq.recipe != "fsaverage" && !icbm) refuse("recipe '" + rq.recipe + "': choose fsaverage, icbm152 or icbm152_2023b");
+  if (rq.hcp_trk && !icbm) refuse("the streamlines are imported into the ICBM152 template (their coordinates are MNI's): use the icbm152 recipe");
   if (rq.hcp_trk && rq.hcp_end_surface.empty()) refuse("--hcp-trk needs --hcp-end-surface: the surface the ends are placed on is a choice of data");
   if (fs::exists(rq.package)) refuse(rq.package.string() + ": exists (a package is made new)");
   SourceChecker sc(rq.recipe, rq.sources, rq.accept_unlisted_sources);
@@ -507,7 +508,7 @@ Json build_template(const BuildRequest& rq) {
     Json terms = Json::array();
     for (const auto& it : nxr::io::package_items(w.db())) {
       nxr::io::OriginRecord o = base;
-      if (it.table == "selection" && rq.recipe == "icbm152" && atlas_names.count(it.name)) {
+      if (it.table == "selection" && icbm && atlas_names.count(it.name)) {
         const AtlasTerms t = atlas_terms(it.name);
         o.source = "the '" + it.name + "' parcellation of the Brainstorm default anatomy ICBM152, read natively by nxr-neuro from: " + files_text;
         o.licence = t.licence;
