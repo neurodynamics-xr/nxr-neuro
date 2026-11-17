@@ -158,9 +158,37 @@ struct MeasurementOut {
 };
 // a closed-form tiling of a time line: `count` tiles of `width` a new one every `hop` from `origin` (in `unit`), `skipped` of them left out
 struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };
+// one array beside a grid level's tile codes, in the level's node (the tiles' areas `w`, the tile centres, the tiles' adjacency): float64 or int32, its shape
+struct GridArrayOut {
+  std::string suffix;                              // the array's key under the level's node, e.g. `w`, `lc/L3/centre`
+  std::vector<std::int64_t> shape;
+  std::vector<double> f64;                         // float64 values, or ...
+  std::vector<std::int32_t> i32;                   // ... int32 values (the one that is not empty)
+};
+// one level of a dyadic GRID as a node made it: the tile of every element as the tile CODE h 2^l + t (which is the member number; -1 none), the level's row and its arrays
+struct GridLevelOut {
+  std::string name, label, description;            // the level's selection name (`<surface> tiles L3`), its label and description
+  Json params;                                     // the level row's parameters (the store adds `node` and, when an array `w` is given, `areas`)
+  std::int64_t tiles = 0;                          // the level's member count (empty tiles included)
+  std::vector<std::int32_t> codes;                 // the tile code of every element at this level
+  Json dictionary;                                 // {name, description, entries: [{code, name, measurement, measurement_unit, attributes}]} to make, or null
+  std::optional<std::string> dictionary_id;        // or the id of a dictionary already stored (the group tree's levels reuse the template's)
+  std::vector<GridArrayOut> arrays;
+  Json centres;                                    // {name, description, indices}: a pick of the tiles' centre vertices made beside the level (null: none)
+  Json member_values;                              // {measure, unit, values: [[code, value, within_code], ...]}: a value over pairs of the level's members, rows on the level's selection (null: none)
+};
+// a dyadic GRID with its levels: a `ladder` row (its levels' dictionary) and one `set` row per level; the hierarchy is the closed form, no parent arrays (io's save_grid)
+struct GridOut {
+  std::string label, description, unit;
+  Json params;                                     // the ladder row's parameters (including the rule `grid` {kind, depth, slots, pieces})
+  Json dictionary;                                 // the levels' dictionary to make: {name, description, entries: [...]}, or null
+  std::optional<std::string> dictionary_id;        // or one already stored
+  std::vector<GridLevelOut> levels;
+};
 // a Selection on a manifold: a partition or set (a code per element), spans (on a time line), or a tiling (a closed-form spans Selection)
 struct SelectionOut {
-  std::string name, output, type, manifold_id;     // type: partition · set · indices · spans · tiling · cells (a closed-form set: codes by a rule, no element stored)
+  std::string name, output, type, manifold_id;     // type: partition · set · indices · spans · tiling · cells (a closed-form set: codes by a rule, no element stored) · grid (a dyadic grid with levels: `grid`)
+  std::optional<GridOut> grid;                     // grid
   std::optional<std::string> path;                 // default: io's node path for the name on the manifold
   std::vector<std::int64_t> codes;                 // indices: the elements picked, in order
   std::vector<std::int32_t> member_of;             // partition, set: the member NUMBER of each element (dense 0 .. n - 1, -1: none), made from the labels by compute's `from_labels` (pipelines)

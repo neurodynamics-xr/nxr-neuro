@@ -17,6 +17,7 @@
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg_internal.h"
+#include "nxr/pipelines/run_shipped.h"
 
 namespace nxr::pipelines {
 
@@ -50,123 +51,43 @@ std::optional<Stored> stored_ladder(SubjectWriter& sub, const std::string& mid, 
   return s;
 }
 
-void remove_stored(SubjectWriter& sub, const Stored& s) {
-  std::set<std::string> nodes;
-  for (const Row& r : s.levels) {
-    const Json p = Json::parse(opt_text(r, "params_json").value_or("{}"), nullptr, false);
-    if (p.is_object() && p.contains("node")) nodes.insert(p["node"].get<std::string>());
-  }
-  for (const Row& r : s.levels) sub.remove("selection", text(r, "id"));
-  sub.remove("selection", text(s.ladder, "id"));
-  for (const std::string& n : nodes) sub.store().erase_prefix(n);
-}
-
 void put_array(SubjectWriter& sub, const std::string& path, const ArrayView& v) { sub.write_array(path, v); }
 
-Json level_json(const lad::Tree& t, int l, double meanPieceArea) {
-  const double lam = lad::weylLambda(std::pow(2.0, l), meanPieceArea);
-  const double lo = l == 0 ? 0.0 : lam / 2;
-  return Json{{"level", l}, {"tiles", t.nodes(l)}, {"lambda_min", lo}, {"lambda_max", lam}, {"wavelength_m", lad::wavelengthOf(lam)}, {"tau", 1 / lam}, {"modes_per_piece", 1 << l}};
+}  // namespace
+
+// THE TILE LADDER of a surface is a definition (`run tiles`, pipelines/definitions/tiles.yaml: the registered node `tile_grid` makes the dyadic grid with compute's builder, the runner stores it
+// through io's save_grid); this is the library's entry to it for the callers that need the ladder first (the pyramid, the tile summaries, `dataset create`).
+namespace {
+Json params_of(const Row& r) {
+  const Json p = Json::parse(opt_text(r, "params_json").value_or("{}"), nullptr, false);
+  return p.is_object() ? p : Json::object();
+}
+// what a stored ladder says of itself, the shape `tiles_compute` has always answered
+Json ladder_info(SubjectWriter& sub, const std::string& mid, const std::string& sname) {
+  const std::optional<Stored> st = stored_ladder(sub, mid, sname);
+  if (!st) invalid(sname + ": no ladder `" + ladder_name(sname) + "` is stored");
+  const Json p = params_of(st->ladder);
+  const int depth = p.value("depth", 0);
+  const std::int64_t slots = p.contains("grid") && p["grid"].is_object() ? p["grid"].value("slots", std::int64_t(2)) : 2;
+  return Json{{"surface", sname}, {"ladder", ladder_name(sname)}, {"levels", st->levels.size()}, {"depth", depth}, {"finest", p.value("finest", depth)}, {"pieces", p.value("pieces", 0)},
+              {"tiles_at_depth", slots << depth}, {"area_m2", p.value("area_m2", 0.0)}, {"selections", Json::array({ladder_name(sname), level_name(sname, 0) + " ... " + level_name(sname, depth)})}, {"kept", false}};
 }
 }  // namespace
 
 TilesComputeResult tiles_compute(DatasetWriter& ds, SubjectWriter& sub, const TilesComputeOptions& opt, const std::function<void(const Json&)>& progress) {
-  (void)ds;
-  auto say = [&](const Json& j) { if (progress) progress(j); };
-  const SurfaceInput S = read_surface(sub, opt.surface, true);   // float64 as stored: the Studio's stored ladder and nxr read it so
-  const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
-  const std::string sname = S.name, mid = S.id;
-  TilesComputeResult res;
   if (opt.tree != "subject" && opt.tree != "group") invalid("tiles: tree must be subject or group, not " + opt.tree);
-  if (const auto have = stored_ladder(sub, mid, sname)) {
-    if (!opt.replace) {
-      res.existed = true;
-      res.info = Json{{"surface", sname}, {"ladder", ladder_name(sname)}, {"levels", have->levels.size()}, {"kept", true}};
-      return res;
-    }
-    remove_stored(sub, *have);
+  if (opt.tree == "group") invalid("tiles: the group tree is made by `run group_tree` on the default subject (group_tree_compute)");
+  const SurfaceInput S = read_surface(sub, opt.surface, true);   // float64 as stored: the Studio's stored ladder and nxr read it so
+  TilesComputeResult res;
+  if (const auto have = stored_ladder(sub, S.id, S.name); have && !opt.replace) {
+    res.existed = true;
+    res.info = Json{{"surface", S.name}, {"ladder", ladder_name(S.name)}, {"levels", have->levels.size()}, {"kept", true}};
+    return res;
   }
-  const lad::Tree tree = lad::subjectTree(S.vertices.data(), nV, S.faces.data(), nF, opt.depth);
-  say(Json{{"stage", "ladder"}, {"surface", sname}, {"pieces", tree.runs.size()}, {"finest", tree.finest}, {"depth", tree.depth}});
-  const lad::Mesh whole = [&] { lad::Mesh m; m.n = nV; m.positions = S.vertices; m.faces = S.faces; return m; }();
-  const std::vector<double> area = lad::vertexAreas(whole);
-  double total = 0;
-  for (double a : tree.pieceArea) total += a;
-  const double meanPiece = total / static_cast<double>(tree.runs.size());
-  const std::string by = "nxr-neuro tiles compute", producer = internal::producer_string("tiles compute");
-
-  sub.compose([&] {
-    // the ladder's dictionary: one entry per level
-    DictionarySpec ld;
-    ld.name = ladder_name(sname); ld.scope = "subject";
-    ld.description = "the levels of the dyadic tiling '" + ld.name + "': code = the level, 2^level equal-area tiles per connected piece paired by Weyl's law (N(lambda) = A lambda / 4 pi) with the band their count fills";
-    ld.entries = std::vector<DictionaryEntry>();
-    for (int l = 0; l <= tree.depth; ++l) {
-      DictionaryEntry e;
-      e.code = l; e.ordinal = l;
-      const Json lj = level_json(tree, l, meanPiece);
-      e.name = l == 0 ? "the whole surface" : std::to_string(tree.nodes(l)) + " tiles";
-      e.cols.set("measurement", lj["wavelength_m"].get<double>()).set("measurement_unit", "m").json("attributes_json", lj);
-      ld.entries->push_back(e);
-    }
-    const DictionaryResult ldr = sub.dictionary(ld);
-    nxr::io::selection::Placement top;
-    top.name = ladder_name(sname); top.manifold_id = mid; top.dictionary_id = ldr.id;
-    top.cols.set("unit", "m")
-        .set("label", "dyadic tiles, " + std::to_string(tree.depth + 1) + " levels, 1 ... " + std::to_string(tree.nodes(tree.depth)) + " tiles")
-        .set("description", "the dyadic tiling of the surface (Cortical Flow Studio engine/ladder.ts, nxr geom.ladder / geom.trees): each tile halved by equal mass across its geodesic diameter, every tile one piece; level l has 2^l tiles per connected piece, paired with scale by Weyl's law");
-    top.params = [&] {
-      Json p = Json{{"weyl", "4pi m/A"}, {"tree", opt.tree}, {"area_m2", total}, {"pieces", tree.runs.size()}, {"depth", tree.depth}, {"finest", tree.finest}, {"by", by}, {"producer", producer},
-                    {"grid", Json{{"kind", "dyadic"}, {"depth", tree.depth}, {"pieces", tree.runs.size()}}}};   // the hierarchy is a rule: a member's number at level l is its finest number >> (depth - l)
-      if (opt.atlas) p["atlas"] = *opt.atlas;
-      return p;
-    }();
-    std::vector<nxr::io::selection::GridLevel> grid;
-    for (int l = 0; l <= tree.depth; ++l) {
-      const std::vector<std::int32_t> node = tree.at(l);
-      const int nodes = tree.nodes(l);
-      const std::string name = level_name(sname, l);
-      const std::string dir = atlas_node(sub.db(), mid, name);
-      const std::vector<double> w = lad::tileAreas(node, nodes, area);
-      put_array(sub, dir + "/w", view(w, {static_cast<std::int64_t>(nodes)}));
-      const std::vector<int> cen = lad::tileCentres(S.vertices.data(), node, nodes, area);
-      std::vector<std::int32_t> cen32(cen.begin(), cen.end());
-      put_array(sub, dir + "/lc/L" + std::to_string(l) + "/centre", view(cen32, {static_cast<std::int64_t>(nodes)}));
-      const auto adj = lad::tileAdjacency(S.faces.data(), nF, node);
-      std::vector<std::int32_t> adj32;
-      for (const auto& e : adj) { adj32.push_back(e.first); adj32.push_back(e.second); }
-      put_array(sub, dir + "/lc/L" + std::to_string(l) + "/adjacency", view(adj32, {static_cast<std::int64_t>(adj.size()), 2}));
-      DictionarySpec td;
-      td.name = name; td.scope = "subject";
-      td.description = "the tiles of level " + std::to_string(l) + " of the dyadic tiling, every connected piece";
-      td.entries = std::vector<DictionaryEntry>();
-      if (nodes <= 1024) {
-        const int per = 1 << l;
-        for (int c = 0; c < nodes; ++c) {
-          DictionaryEntry e;
-          e.code = c; e.ordinal = c;
-          e.name = (tree.runs.size() > 1 ? "piece " + std::to_string(c / per) + " tile " : std::string("tile ")) + std::to_string(c % per);
-          e.cols.set("measurement", w[static_cast<size_t>(c)]).set("measurement_unit", "m2").json("attributes_json", Json{{"level", l}, {"tile", c % per}, {"piece", c / per}});
-          td.entries->push_back(e);
-        }
-      }
-      const DictionaryResult tdr = sub.dictionary(td);
-      nxr::io::selection::GridLevel g;
-      g.at.name = name; g.at.manifold_id = mid; g.at.dictionary_id = tdr.id;
-      Json lj = level_json(tree, l, meanPiece);
-      lj["tree"] = opt.tree; lj["depth"] = tree.depth; lj["finest"] = tree.finest; lj["node"] = dir; lj["areas"] = dir + "/w"; lj["summaries"] = Json::array();
-      g.at.params = lj;
-      g.at.cols.set("unit", "m").set("label", l == 0 ? "the whole surface" : std::to_string(nodes) + " tiles")
-          .set("description", "level " + std::to_string(l) + " of the dyadic tiling: " + std::to_string(nodes) + " tiles, tile code h 2^" + std::to_string(l) + " + t (h the connected piece, a hemisphere); the tile code is the member number");
-      g.array_path = dir + "/codes";
-      g.tile_codes = node;
-      g.tiles = nodes;
-      grid.push_back(std::move(g));
-    }
-    nxr::io::selection::save_grid(sub, top, grid);
-  });
-  res.info = Json{{"surface", sname}, {"ladder", ladder_name(sname)}, {"levels", tree.depth + 1}, {"depth", tree.depth}, {"finest", tree.finest}, {"pieces", tree.runs.size()}, {"tiles_at_depth", tree.nodes(tree.depth)},
-                  {"area_m2", total}, {"selections", Json::array({ladder_name(sname), level_name(sname, 0) + " ... " + level_name(sname, tree.depth)})}, {"kept", false}};
+  Json set = Json{{"surface", S.name}};
+  if (opt.depth >= 0) set["depth"] = opt.depth;
+  run_shipped(ds, sub, "tiles", set, opt.replace, progress);
+  res.info = ladder_info(sub, S.id, S.name);
   return res;
 }
 
@@ -181,94 +102,17 @@ Json group_tree_definitions(const GroupTreeOptions& o) {
 
 TilesComputeResult group_tree_compute(DatasetWriter& ds, SubjectWriter& sub, const GroupTreeOptions& o, const std::function<void(const Json&)>& progress) {
   if (text(sub.row(), "kind") != "template") invalid(sub.name() + ": the group tree is the default subject's (a template), not a " + text(sub.row(), "kind") + "'s");
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);   // float64 as stored, as the ladder and nxr read it
-  const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
-  const std::string sname = S.name, mid = S.id;
-  // the canonical frames (frames compute, run before): the definitions name them, and the Levi-Civita connection is read in them
-  const StoredFrames sf = read_stored_frames(sub, sname, nV);
-  const auto frames_row = find_field(sub.db(), sub.id(), FieldQuery{sname + "_canonical_frames"});
-  TilesComputeOptions t;
-  t.tree = "group";
-  t.atlas = group_tree_definitions(o);
-  if (sf.canonical && frames_row) (*t.atlas)["frames"] = text(*frames_row, "id");
-  TilesComputeResult r = tiles_compute(ds, sub, t, progress);
-  if (r.existed) invalid(sub.name() + ": its primary cortex already has a ladder");
-  const int depth = r.info.value("depth", 0);
-  if (depth < o.atlas_depth) invalid(sub.name() + ": the ladder reaches level " + std::to_string(depth) + ", short of the atlas depth " + std::to_string(o.atlas_depth));
-  if (!sf.canonical || !frames_row) { r.info["frames"] = nullptr; r.info["levi_civita"] = nullptr; return r; }
-
-  // THE LEVI-CIVITA CONNECTION of the group tree at lc_levels (nxr's default subject: `measure.vectors.levi_civita`): per level, the centre vertex of each tile (the non-singular member
-  // nearest its area-weighted centroid; the Selection `<surface>_lc_centres_L<l>`, -1 for an empty tile) and Omega[a, b], the angle at centre b, from b's north towards west, of centre a's north
-  // carried there by the vector heat transport, antisymmetrised (half the round-trip defect taken from each direction); a value over a PAIR of the level's tiles, so a measurement on that level's Selection
-  // (D158): code a, within_code b, measure "levi-civita connection", rad. Pairs in different hemispheres have none. The transport is the Studio's (ChartKit::transported, intrinsic Delaunay);
-  // nxr's is geometry-central's on the input mesh: they agree to a fraction of a degree, not bit for bit.
-  const std::optional<Stored> st = stored_ladder(sub, mid, sname);
-  lad::Mesh whole; whole.n = nV; whole.positions = S.vertices; whole.faces = S.faces;
-  const std::vector<double> area = lad::vertexAreas(whole);
-  std::vector<char> singular(static_cast<size_t>(nV), 0);
-  for (int i = 0; i < nV; ++i) singular[static_cast<size_t>(i)] = !(std::isfinite(sf.e1(i, 0)) && std::isfinite(sf.e1(i, 1)) && std::isfinite(sf.e1(i, 2)));
-  std::vector<int> piece(static_cast<size_t>(nV), -1);
-  int n_pieces = 0;
-  {
-    const auto runs = lad::pieceRuns(S.faces.data(), nF, nV);
-    n_pieces = static_cast<int>(runs.size());
-    for (size_t p = 0; p < runs.size(); ++p) for (int i = runs[p].first; i < runs[p].first + runs[p].second; ++i) piece[static_cast<size_t>(i)] = static_cast<int>(p);
-  }
-  nxr::chart::ChartKit kit(S.vertices.data(), nV, S.faces.data(), nF);
-  const VectorXd gauge = nxr::frames::gaugeAngle(kit, sf.e1);
-  const std::string stamp = now_utc(), by = internal::producer_string("dataset create (group tree)");
-  Json lc_info = Json::array();
-  for (int l : o.lc_levels) {
-    if (l < 0 || l > depth) invalid("the Levi-Civita level " + std::to_string(l) + " is outside the ladder 0.." + std::to_string(depth));
-    const Row& lrow = st->levels.at(static_cast<size_t>(l));
-    const std::vector<std::int32_t> node = read_i32(sub.store(), text(lrow, "array_path"));
-    const int n_nodes = n_pieces << l;     // tile code h 2^l + t
-    const std::vector<int> cen = lad::tileCentres(S.vertices.data(), node, n_nodes, area, singular);
-    const lad::LeviCivita lc = lad::leviCivita(kit, sf.e1, sf.e2, gauge, node, n_nodes, cen);
-    std::vector<std::int32_t> centres(cen.begin(), cen.end());
-    int rows = 0;
-    sub.compose([&] {
-      nxr::io::selection::Description picks;
-      picks.type = nxr::io::selection::Type::indices;
-      picks.indices = centres;
-      nxr::io::selection::Placement cs;
-      cs.name = sname + "_lc_centres_L" + std::to_string(l); cs.path = cs.name; cs.manifold_id = mid;
-      cs.description = "the centre vertex of each tile of level " + std::to_string(l) + " (\xe2\x88\x92" "1: empty tile)";
-      nxr::io::selection::save(sub, picks, cs);
-    });
-    const std::string sid = text(lrow, "id");
-    const Eigen::MatrixXd anti = lad::antisymmetric(lc.omega);
-    std::vector<nxr::io::selection::MemberValue> connection;
-    {
-      for (int a = 0; a < n_nodes; ++a) {
-        for (int b = 0; b < n_nodes; ++b) {
-          const int ca = cen[static_cast<size_t>(a)], cb = cen[static_cast<size_t>(b)];
-          if (ca < 0 || cb < 0 || piece[static_cast<size_t>(ca)] != piece[static_cast<size_t>(cb)]) continue;
-          const double om = anti(a, b);                // antisymmetrised (lad::antisymmetric; shown on exact spheres, test_f)
-          if (!std::isfinite(om)) continue;
-          connection.push_back({static_cast<std::int64_t>(a), om, static_cast<std::int64_t>(b)});
-          ++rows;
-        }
-      }
-    }
-    nxr::io::selection::save_member_values(sub, sid, "levi-civita connection", connection, std::string("rad"), by, sid);
-    lc_info.push_back(Json{{"level", l}, {"tiles", n_nodes}, {"centres", sname + "_lc_centres_L" + std::to_string(l)}, {"pairs", rows}});
-    if (progress) progress(Json{{"stage", "levi-civita"}, {"level", l}, {"pairs", rows}});
-  }
-  // the record, with the ladder's definitions (the measurements carry no params of their own)
-  Json lp = Json::parse(opt_text(st->ladder, "params_json").value_or("{}"), nullptr, false);
-  if (!lp.is_object()) lp = Json::object();
-  lp["levi_civita"] = Json{{"levels", lc_info}, {"measure", "levi-civita connection"}, {"unit", "rad"}, {"frames", text(*frames_row, "id")},
-      {"definition", "Omega[a, b]: the angle at centre b, from north towards west, of centre a's north carried to b; a measurement on level l's Selection, code a, within_code b"},
-      {"transport", "the vector heat method (ChartKit::transported, the Studio's: intrinsic Delaunay mesh), calibrated to the identity at its source"},
-      {"antisymmetrised", "Omega_ab - wrap(Omega_ab + Omega_ba) / 2 (nxr joint.antisymmetric since nxr #68; the earlier halving on the circle turned |Omega| > 90 degrees by 180)"},
-      {"centres", "the non-singular member vertex nearest the tile's area-weighted centroid (nxr node_centres)"},
-      {"by", by},
-      {"warnings", Json::array({"transport on a curved surface depends on the path: Omega is the transport along (about) the shortest path, which is not unique between distant tiles; on a folded pial, Omega between distant centres can differ by tens of degrees between two meshes of the same cortex (nxr's input-mesh transport against this one on fsaverage5: median 2-3 degrees, p90 8-12, max 86)",
-                               "no value across hemispheres"})}};
-  nxr::io::selection::set_params(sub.db(), text(st->ladder, "id"), lp);
-  r.info["frames"] = text(*frames_row, "id");
-  r.info["levi_civita"] = lc_info;
+  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  if (stored_ladder(sub, S.id, S.name)) invalid(sub.name() + ": its primary cortex already has a ladder");
+  Json lc = Json::array();
+  for (const int l : o.lc_levels) lc.push_back(l);
+  run_shipped(ds, sub, "group_tree", Json{{"surface", S.name}, {"resolution", o.resolution}, {"atlas_depth", o.atlas_depth}, {"frame_level", o.frame_level}, {"lc_levels", lc}}, false, progress);
+  TilesComputeResult r;
+  r.info = ladder_info(sub, S.id, S.name);
+  const std::optional<Stored> st = stored_ladder(sub, S.id, S.name);
+  const Json p = params_of(st->ladder);
+  r.info["frames"] = p.contains("atlas") && p["atlas"].is_object() ? p["atlas"].value("frames", Json()) : Json();
+  r.info["levi_civita"] = p.contains("levi_civita") && p["levi_civita"].is_object() ? p["levi_civita"].value("levels", Json()) : Json();
   return r;
 }
 

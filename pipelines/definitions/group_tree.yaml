@@ -1,0 +1,34 @@
+# THE GROUP TREE (D127/D128, nxr `geom.trees`): the dyadic grid of the DEFAULT SUBJECT's primary cortex (`tiles`), written with `tree: group` and the dataset's default ATLAS DEFINITIONS in its record
+# (the tree, the atlas leaf depth, the resolution, the id of the pial's canonical frames, the time convention: frames are cycles of the day-anchored tower at `frame_level`, 86 400 x 2^frame_level s,
+# a level-m tile is tower level frame_level + m; the default bands, octaves 1-64 Hz; the Levi-Civita levels; the default trajectory scales). Every subject's tiles reach it through its registered sphere
+# (`group_tiles`). With the canonical frames stored (`frames` first) the grid also carries its LEVI-CIVITA CONNECTION at `lc_levels` (nxr's default subject): the pick `<surface>_lc_centres_L<l>` (each
+# tile's centre vertex, -1 empty) and Omega[a, b] as `levi-civita connection` rows (rad) of level l's selection, code a, within_code b; its record (transport, antisymmetrisation, warnings) in the
+# ladder's parameters. The antisymmetrisation is NOT nxr's (which turns |Omega| > 90 degrees by 180).
+#
+# THE GRAPH:
+#   surface, frames? (the canonical frames of the surface)  -- tile_grid {tree: group, atlas definitions, lc_levels} -->  tiles (the grid, with the connection on its levels)
+# The default subject's only (a template subject): any other is refused. `dataset create --templates` runs it after `frames`.
+#
+#   nxr-neuro run group_tree --dataset <folder> --subject @default_subject --surface cortex_pial
+pipeline: group_tree
+version: 1
+description: the default subject's tile grid as the dataset's group tree, with the atlas definitions and the Levi-Civita connection
+scope: subject
+
+inputs:
+  surface: {manifold: surface, where: {name: $surface}, hint: "name the default subject's primary cortex (--surface)"}
+  frames:  {field: canonical frames, where: {name: "{surface}_canonical_frames"}, required: false}
+
+parameters:
+  surface: {default: null, meaning: "the default subject's primary cortex, by name", unit: "-"}
+  resolution: {default: fsaverage5, meaning: "the template's resolution, recorded in the atlas definitions", unit: "-"}
+  atlas_depth: {default: 8, meaning: "the leaf level of the dataset's atlases (nxr's --depth); the grid must reach it", unit: level}
+  frame_level: {default: -18, meaning: "the base frame's tower level (nxr's --frame-level): a frame lasts 86 400 x 2^frame_level s (about 0.33 s)", unit: level}
+  lc_levels: {default: [4, 6], meaning: "the levels at which the Levi-Civita connection between tile centres is written (needs the canonical frames)", unit: levels}
+
+steps:
+  before:
+    - {step: tile_grid, in: {surface: surface, frames: frames}, with: {tree: group, resolution: $resolution, atlas_depth: $atlas_depth, frame_level: $frame_level, lc_levels: $lc_levels}, out: tiles}
+
+outputs:
+  tiles: {kind: selection, type: grid, on: surface.manifold.0, name: "{surface} tiles"}

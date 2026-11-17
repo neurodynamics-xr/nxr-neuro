@@ -105,7 +105,7 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --default	NAME	The template resolution used for the dataset's default subject (needs --templates).	fsaverage5	-
 --default@create dataset	NAME	The subject of the --templates folder (the template resolution) that becomes the dataset's default subject; needs --templates.	fsaverage5	-
 --defects	keep|exclude	keep: use every edge of the mesh in the weighted fit; exclude: give zero weight to folded or very short edges (needs --spatial-band)	keep	-
---depth	LEVEL	Level of the surface's tile ladder that gives the leaf tiles on which sums are stored (2^LEVEL tiles per piece); for tiles compute, the finest level written.	the finest level every piece of the surface reaches (pyramid reduce: the stored depth)	level
+--depth	LEVEL	Level of the surface's tile ladder that gives the leaf tiles on which sums are stored (2^LEVEL tiles per piece); for run tiles, the finest level written.	the finest level every piece of the surface reaches (pyramid reduce: the stored depth)	level
 --depth-channels	all|one-type	Which channels the depth-weighting norm is computed on: all channels, or one channel type (gradiometers if present, else magnetometers, else EEG).	all	-
 --depth-exponent	P	Exponent of the depth weighting that counteracts the bias of the minimum-norm solution towards superficial sources	0.5	-
 --depth-limit	X	Upper limit of the depth weighting (Brainstorm's WeightLimit): the largest-to-smallest weight ratio is limited to this value squared in variance.	10	-
@@ -113,7 +113,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --depth-norm	frobenius|spectral	Matrix norm used for each source's gain when depth weighting	frobenius	-
 --depth@run opticalflow	LEVEL	Level of the surface's tile ladder whose leaf tiles hold the stored sums of divergence, curl, speed and velocity; the ladder is made if absent.	the finest level every piece of the surface reaches	level
 --depth@run pyramid	LEVEL	Level of the leaf tiles (2^LEVEL tiles per surface piece) on which the sums are stored.	the finest level every piece reaches (group tree: the dataset's atlas depth)	level
---depth@run tiles	LEVEL	Finest level of the tile ladder written; level l has 2^l tiles per connected piece of the surface.	the finest level every piece of the surface reaches	level
 --depth@reduce pyramid	LEVEL	Level of the group tree at which the members' pyramids are summed, cell for cell.	the atlas depth of the group tree definitions	level
 --detrend	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (the Brainstorm option set)	-
 --divisor	samples-minus-blocks|samples|samples-minus-one	What the covariance sum is divided by: samples minus the number of blocks, the samples, or samples minus one.	samples-minus-blocks	-
@@ -446,7 +445,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --surface-id	ID	The id of the surface the kernel was made on.	found from the kernel file	-
 --surface-id@import inverse	ID	Id of the stored cortex surface the kernel was made on.	found from the kernel's SurfaceFile link	-
 --surface@run eigenmodes	NAME	Name of the subject's stored surface to solve on.	the subject's primary surface	-
---surface@run tiles	NAME	The subject's surface whose tile ladder is computed, by name.	the primary (cortex) surface	-
 --surface@import condition	FILE	The subject's cortex surface file (tess_*.mat) the condition is imported on, instead of the one its head model names.	none (the condition's own surface)	-
 --surface@import template	NAME	Convert only this surface (a tess_*.mat file of the template anatomy); repeat for several.	every surface of the template's default anatomy	-
 --surface@import templates	NAME	The surface the template maps are placed on	the subject's surface with each map's vertex count	-
@@ -514,7 +512,6 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run eigenmodes	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run tiles	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1177,13 +1174,6 @@ alias: refused
 group: Geometry
 summary: The Hodge-Dirac eigenmodes of a stored surface (cached).
 opts: --dataset* --flip-eps --modes --mollify --normalize --replace --shift --sigma --slice --star1-floor --subject* --surface --templates+
-)TBL",
-R"TBL(@ run tiles
-old: tiles compute
-alias: refused
-group: Geometry
-summary: The dyadic equal-area tile ladder of a surface.
-opts: --dataset* --depth --replace --subject* --surface --templates+
 )TBL",
 R"TBL(@ run constantq
 old: constantq compute

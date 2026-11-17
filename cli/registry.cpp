@@ -53,7 +53,7 @@ struct Table {
 // each helped with its declared meaning, default and unit (the definition's long form); a parameter written in the short form is helped as undocumented.
 // the old spellings of the pipelines that became definitions (their table entry went with the hand-wired code): refused, naming the new one (docs/specs/2026-11-17-compute-and-run.md, 6.3)
 const std::vector<std::pair<std::vector<std::string>, std::string>>& converted_spellings() {
-  static const std::vector<std::pair<std::vector<std::string>, std::string>> v = {{{"psd", "compute"}, "run psd"}};
+  static const std::vector<std::pair<std::vector<std::string>, std::string>> v = {{{"psd", "compute"}, "run psd"}, {{"tiles", "compute"}, "run tiles"}};
   return v;
 }
 std::string dashed(std::string s) {

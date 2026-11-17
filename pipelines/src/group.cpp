@@ -17,6 +17,8 @@
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/pipelines/pyramid.h"
+#include "nxr/pipelines/group_template.h"
+#include "nxr/pipelines/run_shipped.h"
 
 namespace nxr::pipelines {
 
@@ -176,25 +178,12 @@ int group_default_depth(DatasetWriter& ds) {
   return p.contains("atlas") && p["atlas"].is_object() ? p["atlas"].value("depth", 8) : 8;
 }
 
-GroupTilesResult group_tiles_compute(DatasetWriter& ds, SubjectWriter& sub, const GroupTilesOptions& opt, const std::function<void(const Json&)>& progress) {
-  auto say = [&](const Json& j) { if (progress) progress(j); };
-  if (text(sub.row(), "kind") == "template") invalid(sub.name() + ": the default subject's group tree is its own ladder (`tiles compute`, made by `dataset create`)");
+// the default subject's group tree as the subject `sub` is carried onto it (the node `group_tile_grid` reads it through the runner: Bound::group_template)
+GroupTemplate read_group_template(DatasetWriter& ds, SubjectWriter& sub, const std::string& sname) {
   const auto tpl = ds.template_();
   if (!tpl) missing("the dataset has no default subject: the group tree is its ladder");
-  const SurfaceInput S = read_surface(sub, opt.surface, true);
-  const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
-  const std::string sname = S.name, mid = S.id, gname = sname + "_group_tiles";
-  GroupTilesResult res;
-  const auto have = nxr::io::selection::ladder_row(sub.db(), sub.id(), gname, mid);
-  if (have) {
-    if (!opt.replace) { res.existed = true; res.info = Json{{"surface", sname}, {"group_tiles", gname}, {"kept", true}}; return res; }
-    std::set<std::string> nodes;
-    const auto members = nxr::io::selection::member_rows(sub.db(), text(*have, "id"), false);
-    for (const Row& m : members) { const Json p = parse_obj(m); if (p.contains("node")) nodes.insert(p["node"].get<std::string>()); sub.remove("selection", text(m, "id")); }
-    sub.remove("selection", text(*have, "id"));
-    for (const std::string& n : nodes) sub.store().erase_prefix(n);
-  }
-  // the template: its primary cortex, its registered sphere, its group ladder and the finest level's codes
+  const SurfaceInput S = read_surface(sub, sname, true);
+  const int nV = static_cast<int>(S.n_vertices());
   SubjectWriter tsub = SubjectWriter::open(ds, text(*tpl, "name"));
   const SurfaceInput T = read_surface(tsub, std::nullopt, true);
   const auto tsphere = sphere_of(tsub, T.name), ssphere = sphere_of(sub, sname);
@@ -207,47 +196,38 @@ GroupTilesResult group_tiles_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   if (parse_obj(*tl).value("tree", std::string()) != "group") invalid(text(*tpl, "name") + ": `" + T.name + " tiles` is not a group tree (tree = " + parse_obj(*tl).value("tree", std::string("subject")) + ")");
   const std::vector<Row> tlevels = nxr::io::selection::member_rows(tsub.db(), text(*tl, "id"));
   if (tlevels.empty()) invalid(text(*tpl, "name") + ": its group ladder has no levels");
-  const int finest = static_cast<int>(tlevels.size()) - 1;
-  const std::vector<std::int32_t> tcodes = read_i32(tsub.store(), text(tlevels.back(), "array_path"));
-  if (static_cast<std::int64_t>(tcodes.size()) != T.n_vertices()) invalid(text(*tpl, "name") + ": its finest level does not fit its surface");
-  std::vector<std::pair<int, int>> truns, sruns;
-  try { truns = lad::pieceRuns(T.faces.data(), static_cast<int>(T.n_faces()), static_cast<int>(T.n_vertices())); sruns = lad::pieceRuns(S.faces.data(), nF, nV); }
-  catch (const std::exception& e) { invalid(std::string("group tree: ") + e.what()); }
-  say(Json{{"stage", "group tiles"}, {"surface", sname}, {"template", text(*tpl, "name")}, {"finest", finest}});
-  double med = 0, mx = 0;
-  std::vector<lad::Tree> trees;
-  try {
-    for (int l = 0; l <= finest; ++l) trees.push_back(lad::groupTreeFor(tsphere->vertices.data(), tcodes.data(), truns, finest, ssphere->vertices.data(), nV, sruns, l, l == finest ? &med : nullptr, l == finest ? &mx : nullptr));
-  } catch (const std::invalid_argument& e) { invalid(sname + ": " + e.what()); }
-  lad::Mesh mesh; mesh.n = nV; mesh.positions = S.vertices; mesh.faces = S.faces;
-  const std::vector<double> area = lad::vertexAreas(mesh);
-  const std::string by = "nxr-neuro pyramid build (group tiles)", producer = internal::producer_string("group tiles");
-  sub.compose([&] {
-    nxr::io::selection::Placement top;
-    top.name = gname; top.manifold_id = mid;
-    top.dictionary_id = text(*tl, "dictionary_id");
-    top.cols.set("description", "this subject's vertices on the dataset's GROUP tree (the default subject's tiles, through the registered sphere); member L<k> codes h 2^k + t");
-    top.params = Json{{"tree", "group"}, {"template", text(*tpl, "name")}, {"finest", finest}, {"sphere_match_median", med}, {"sphere_match_max", mx}, {"by", by}, {"producer", producer},
-                      {"grid", Json{{"kind", "dyadic"}, {"depth", finest}, {"pieces", truns.size()}}}};   // the hierarchy is a rule (closed form), never parent arrays
-    std::vector<nxr::io::selection::GridLevel> grid;
-    for (int l = 0; l <= finest; ++l) {
-      const std::vector<std::int32_t>& node = trees[static_cast<std::size_t>(l)].codes;
-      const int nodes = trees[static_cast<std::size_t>(l)].nodes(l);
-      const std::string name = level_name(sname, l), dir = atlas_node(sub.db(), mid, name);
-      const std::vector<double> w = lad::tileAreas(node, nodes, area);
-      sub.write_array(dir + "/w", view(w, {static_cast<std::int64_t>(nodes)}));
-      nxr::io::selection::GridLevel g;
-      g.at.name = name; g.at.manifold_id = mid; g.at.dictionary_id = text(tlevels[static_cast<std::size_t>(l)], "dictionary_id");
-      g.at.cols.set("description", "level " + std::to_string(l) + " of the GROUP tree: the default subject's tile of the nearest vertex on the registered sphere, tile code h 2^" + std::to_string(l) + " + t");
-      g.at.params = Json{{"tree", "group"}, {"level", l}, {"tiles", nodes}, {"finest", finest}, {"node", dir}, {"areas", dir + "/w"}};
-      g.array_path = dir + "/codes";
-      g.tile_codes = node;
-      g.tiles = nodes;
-      grid.push_back(std::move(g));
-    }
-    nxr::io::selection::save_grid(sub, top, grid);
-  });
-  res.info = Json{{"surface", sname}, {"group_tiles", gname}, {"template", text(*tpl, "name")}, {"levels", finest + 1}, {"finest", finest}, {"sphere_match_median", med}, {"sphere_match_max", mx}, {"kept", false}};
+  GroupTemplate g;
+  g.subject = text(*tpl, "name");
+  g.surface = T.name;
+  g.n_vertices = T.n_vertices();
+  g.faces = T.faces;
+  g.sphere = tsphere->vertices;
+  g.subject_sphere = ssphere->vertices;
+  g.finest = static_cast<int>(tlevels.size()) - 1;
+  g.codes = read_i32(tsub.store(), text(tlevels.back(), "array_path"));
+  if (static_cast<std::int64_t>(g.codes.size()) != T.n_vertices()) invalid(g.subject + ": its finest level does not fit its surface");
+  g.slots = static_cast<int>(std::max<std::int64_t>(2, integer(tlevels.back(), "n_members") >> g.finest));   // the piece slots the codes reserve
+  g.ladder_dictionary_id = text(*tl, "dictionary_id");
+  for (const Row& r : tlevels) g.level_dictionary_ids.push_back(text(r, "dictionary_id"));
+  return g;
+}
+
+// THE GROUP TREE PER SUBJECT is a definition (`run group_tiles`: the node `group_tile_grid` carries the default subject's tiles through the registered spheres, the runner stores the grid through
+// io's save_grid); this is the library's entry to it for the callers that need it first (`pyramid build --tree group`).
+GroupTilesResult group_tiles_compute(DatasetWriter& ds, SubjectWriter& sub, const GroupTilesOptions& opt, const std::function<void(const Json&)>& progress) {
+  if (text(sub.row(), "kind") == "template") invalid(sub.name() + ": the default subject's group tree is its own ladder (`tiles compute`, made by `dataset create`)");
+  if (!ds.template_()) missing("the dataset has no default subject: the group tree is its ladder");
+  const SurfaceInput S = read_surface(sub, opt.surface, true);
+  const std::string gname = S.name + "_group_tiles";
+  GroupTilesResult res;
+  const auto have = nxr::io::selection::ladder_row(sub.db(), sub.id(), gname, S.id);
+  if (have && !opt.replace) { res.existed = true; res.info = Json{{"surface", S.name}, {"group_tiles", gname}, {"kept", true}}; return res; }
+  run_shipped(ds, sub, "group_tiles", Json{{"surface", S.name}}, opt.replace, progress);
+  const auto made = nxr::io::selection::ladder_row(sub.db(), sub.id(), gname, S.id);
+  if (!made) missing(sub.name() + ": the group tree of " + S.name + " was not stored");
+  const Json p = parse_obj(*made);
+  res.info = Json{{"surface", S.name}, {"group_tiles", gname}, {"template", p.value("template", std::string())}, {"levels", p.value("finest", 0) + 1}, {"finest", p.value("finest", 0)},
+                  {"sphere_match_median", p.value("sphere_match_median", 0.0)}, {"sphere_match_max", p.value("sphere_match_max", 0.0)}, {"kept", false}};
   return res;
 }
 

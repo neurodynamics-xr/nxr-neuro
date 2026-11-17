@@ -1,0 +1,29 @@
+# THE GROUP TREE PER SUBJECT (nxr `geom.trees` Template.tree_for, D127/D128): every vertex of the subject takes the code of the nearest vertex of the default subject's primary cortex on the REGISTERED
+# SPHERE (`<surface>_sphere` of both), hemisphere (piece) by piece, in the default subject's group tree (`group_tree`): so the leaves of the group tree at depth D are the SAME 2 x 2^D tiles in every
+# subject, and what is measured on them adds cell for cell across subjects. A grid like any other: the `ladder` `<surface>_group_tiles` (params: tree group, template, finest, the sphere match's median and
+# maximum chord) and one `set` per level `<surface> group tiles L<l>` (tile code h 2^l + t of every vertex, the default subject's level dictionary), each with its node's tile areas on THIS subject's
+# surface. The template's codes are kept: a tile no vertex of the subject reaches is an empty member. Not for the default subject (its group tree IS its `tiles`).
+#
+# THE GRAPH:
+#   surface (+ the default subject's group tree, handed over by the runner)  -- group_tile_grid -->  tiles (the grid: the template's codes through the registered spheres)
+#
+# What it cannot resolve: the match is the nearest vertex on the registered sphere (median and maximum chord on the unit sphere are recorded); a piece-count mismatch is refused.
+#
+#   nxr-neuro run group_tiles --dataset <folder> --subject sub-01 --surface cortex
+pipeline: group_tiles
+version: 1
+description: a subject's vertices on the dataset's group tree, through the registered spheres
+scope: subject
+
+inputs:
+  surface: {manifold: surface, where: {name: $surface}, hint: "name the surface (--surface)"}
+
+parameters:
+  surface: {default: null, meaning: "the subject's surface, by name (its registered sphere `<surface>_sphere` must be stored)", unit: "-"}
+
+steps:
+  before:
+    - {step: group_tile_grid, in: {surface: surface}, out: tiles}
+
+outputs:
+  tiles: {kind: selection, type: grid, on: surface.manifold.0, name: "{surface}_group_tiles"}

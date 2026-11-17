@@ -377,7 +377,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
       if (!declared_kind && kind != "field" && kind != "measurement" && kind != "recording" && std::set<std::string>{"name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors", "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator"}.count(kk))
         err(w, kk + ": belongs to the declared kinds (statistic with axes, operator, selection, manifold, field)");
     if (kind == "operator" && (!spec.contains("operator_kind") || !spec.contains("from") || !spec.contains("to"))) err(w, "an operator output names operator_kind, from and to (links to found manifolds)");
-    if (kind == "selection" && !spec.contains("type")) err(w, "a selection output names its type: partition, spans, set, tiling or ladder");
+    if (kind == "selection" && !spec.contains("type")) err(w, "a selection output names its type: partition, spans, set, tiling, ladder or grid");
     if (kind == "manifold" && !spec.contains("type")) err(w, "a manifold output names its type: line, surface or product");
     if (spec.contains("axes") && !spec["axes"].is_array()) err(w, "axes: a list of {name, on | line}");
   }

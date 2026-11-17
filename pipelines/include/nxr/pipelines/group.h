@@ -47,7 +47,8 @@ struct GroupTilesResult {
   nxr::io::Json info;
   bool existed = false;
 };
-// Not for the default subject (its group tree IS its ladder: `dataset create`, `tiles compute`).
+// THE GROUP TREE PER SUBJECT is a DEFINITION (`run group_tiles`, the registered step `group_tile_grid`); this runs it for the callers that need it first.
+// Not for the default subject (its group tree IS its ladder: `dataset create`, `run group_tree`).
 GroupTilesResult group_tiles_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const GroupTilesOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // The group leaves of a subject as `pyramid_leaves` returns them (the partition `<surface> group tiles L<D>`; the group tiles are made when absent). D defaults to `group_default_depth`.
