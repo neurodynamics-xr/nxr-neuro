@@ -1,0 +1,77 @@
+# THE WEEKLY UPSTREAM BUILD (docs/specs/2026-11-17-geometry-central-switch.md, section 7 and G8): nxr-neuro is pinned to one geometry-central commit (the submodule); once a
+# week this builds the compute library and its tests against geometry-central's current master, native and WebAssembly, so a change upstream is seen before the pin moves.
+# It never runs on a pull request and changes nothing: the pin is moved by a person, in a pull request of its own.
+name: upstream
+
+on:
+  schedule:
+    - cron: "17 5 * * 1"          # Mondays, 05:17 UTC
+  workflow_dispatch:
+
+concurrency:
+  group: upstream
+  cancel-in-progress: true
+
+env:
+  EMSCRIPTEN_VERSION: "5.0.6"                 # as wasm.yml
+
+jobs:
+  native:
+    name: native (geometry-central master)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: geometry-central at master (the pin left aside for this build only)
+        run: |
+          git -C compute/deps/geometry-central fetch --depth 1 origin master
+          git -C compute/deps/geometry-central checkout --detach FETCH_HEAD
+          git -C compute/deps/geometry-central submodule update --init --recursive
+          echo "GC_UPSTREAM=$(git -C compute/deps/geometry-central rev-parse --short=7 HEAD)" >> "$GITHUB_ENV"
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build zlib1g-dev libzstd-dev pkg-config
+      - name: Configure
+        run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - name: Build the compute library and its tests
+        run: cmake --build build
+      - name: The compute tests (the geometry they check is geometry-central's)
+        run: ctest --test-dir build --output-on-failure -j 4 -L compute
+      - name: Summary
+        if: always()
+        run: |
+          echo "geometry-central master ${GC_UPSTREAM}, native build ${{ job.status }}" >> "$GITHUB_STEP_SUMMARY"
+
+  wasm:
+    name: WebAssembly (geometry-central master)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+      - name: geometry-central at master
+        run: |
+          git -C compute/deps/geometry-central fetch --depth 1 origin master
+          git -C compute/deps/geometry-central checkout --detach FETCH_HEAD
+          git -C compute/deps/geometry-central submodule update --init --recursive
+      - name: Tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends ninja-build zlib1g-dev libzstd-dev pkg-config
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Emscripten
+        uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: ${{ env.EMSCRIPTEN_VERSION }}
+      - name: Emscripten's zlib port
+        run: embuilder build zlib
+      - name: Native command (the smoke test's other side)
+        run: |
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+          cmake --build build --target nxr-neuro
+      - name: WebAssembly build and smoke test
+        run: bash -x bindings/wasm-io/smoke.sh "$PWD/build/wasm"
