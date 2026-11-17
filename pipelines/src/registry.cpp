@@ -1723,6 +1723,7 @@ const std::vector<StepSpec>& registry() {
     nxr::pipelines::graph::register_partition_nodes();
     std::vector<StepSpec> all = build();
     append_verb_steps(all);                                               // the verbs as registered steps (verb_steps.cpp)
+    append_patches_steps(all);                                            // run_repeat, cellquadrature, patches (steps_patches.cpp)
     for (const auto& name : nxr::graph::registry().names()) all.push_back(describe_native(nxr::graph::registry().at(name)));   // the nodes registered before the first use
     return all;
   }();

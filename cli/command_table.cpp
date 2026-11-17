@@ -267,7 +267,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --min-area@run patches	AREA	The smallest patch kept.	none	m2
 --min-crossings	N	Minimum number of crossings a tile needs (in both runs for repeat) to be tested.	10	crossings
 --min-crossings@run null	N	A tile counts only with at least this many crossings	10	crossings
---min-crossings@run repeat	N	Minimum number of crossings a tile needs in both recordings to count in the repeat statistic.	10	crossings
 --min-draws	N	Smallest number of null draws made before early stopping may decide a tile or vertex	20	draws
 --min-draws@run null	N	Fewest null draws made	20	draws
 --min-draws@run spatialnull	N	The fewest draws made before stopping, even if every vertex has reached --exceedances.	20	draws
@@ -291,7 +290,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run cyclepattern	NAME	Stem of the stored cycle-pattern results.	<cross-spectrum without _windows>_cycle	-
 --name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
---name@run repeat	NAME	Name the repeat result is stored under.	derived from the two recording names (plus the stage when not the first)	-
 --name@run scaleselection	NAME	Name of the cross-pair events' Selection	<recording>_scale_selection	-
 --name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
@@ -341,7 +339,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --over	NAME	Name of the partition (stored selection) measured over: statistic: the partition whose members were measured; null, repeat: the tile-level selection of the stored crossings; measure compute: the time tiling	statistic, measure compute: none (required); null, repeat: the one the recordings share	-
 --over@run measure	NAME	Measure over a time partition instead of a surface one: a constant-Q ladder (with --level) or a spans tiling such as the chunk grid; the result is a time-resolved field.	none (a surface partition is measured)	-
 --over@run null	NAME	The tile level Selection the crossings were measured over	the one the recordings have	-
---over@run repeat	NAME	The tile-level partition both recordings were measured over.	the one both recordings have (several is refused)	-
 --overlap	FRACTION	Fraction by which successive Welch segments overlap.	0.5 (the Brainstorm option set)	fraction
 --overlap@run quadrature	F	Fraction of a Welch segment shared with the next; under --set tiles the hop must also be a tile (0, 0.5, 0.75, ...).	0.5	fraction
 --oversample	X	Oversampling of each filterbank member's own sample rate.	2.0	-
@@ -378,10 +375,8 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording	NAME	Name of the stored recording to read.	none (required)	-
 --recording-a	NAME	First recording, whose stored tile crossings are used (repeat: one of the two compared)	none (required)	-
 --recording-a@run null	NAME	A recording whose stored tile crossings are tested against the null	required	-
---recording-a@run repeat	NAME	First recording, whose stored tile crossings are compared.	required	-
 --recording-b	NAME	Second recording whose crossings are compared with the first (run-to-run repeat).	none	-
 --recording-b@run null	NAME	A second recording, to test the run-to-run repeat as well (draws made in step)	none	-
---recording-b@run repeat	NAME	Second recording, whose crossings are compared with the first; the order does not change the result.	required	-
 --recording@run constantq	NAME	Recording whose time line gets the ladder (alternative to --line and --all).	none	-
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
 --recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
@@ -477,7 +472,6 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 )TBL",
 R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, onset, within, offset) or by index	0 (the first stage, burst)	-
 --stage@run null	NAME|INDEX	The stage of the stored crossings to test, by name (burst, onset, within, offset) or index	0	-
---stage@run repeat	NAME|INDEX	Stage of the stored crossings to compare, by name (burst, onset, within, offset) or by index.	0 (the first stage, burst)	-
 --star1-floor	X	Floor on the cotangent weights of the Hodge star; values at or below 0 mean no floor.	none	-
 --star1-floor@run eigenmodes	F	Raise the edge cotan weights (the 1-form Hodge star) that fall below F up to F; unset means no floor.	none	-
 --start	SEC	Start of the span read, in seconds on the recording's clock; give together with --stop. Exclusive with --chunks.	none (one chunk)	s
@@ -596,7 +590,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run measure	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run spatialnull	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run null	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run repeat	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@register package	DIR	A folder of released templates to look in (repeatable); when given, each package's template must be found there by name, version and hash and its anchor rows must equal the template's.	none (not checked)	-
 --templates@list templates	DIR	A folder to look in for released templates (repeatable), before NXR_TEMPLATE_PATH and the user setting template_path.	none (the environment variable and the user setting only)	-
 --package@create package	PATH	The folder of the subject package to make (<subject>.nxr.zarr); it must not exist yet.	required	-
@@ -1349,13 +1342,6 @@ group: Nulls
 summary: The lag-free null's tests of the vortex cores' crossings, per tile.
 span: yes
 opts: --batch --chunks --dataset* --exceedances=--h --max-draws --min-crossings --min-draws --over --recording-a* --recording-b --replace --set+ --stage --start --stop --subject* --templates+
-)TBL",
-R"TBL(@ run repeat
-old: repeat compute
-alias: refused
-group: Nulls
-summary: The vortex cores' run-to-run repeat: two recordings' stored tile crossings compared.
-opts: --dataset* --min-crossings --name --over --recording-a* --recording-b* --replace --stage --subject* --templates+
 )TBL",
   };
 }

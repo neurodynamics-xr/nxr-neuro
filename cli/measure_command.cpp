@@ -7,9 +7,6 @@
 // nxr-neuro null compute --dataset D/N --subject S --recording-a A [--recording-b B] [--over TILES] [--stage NAME|INDEX] [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--batch 20] [--min-draws 20] [--max-draws 100] [--h 10] [--min-crossings 10] [--replace]
 //   THE LAG-FREE NULL'S TESTS (nxr/pipelines/null_compute.h; spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10): the draws of `vortex_null` (the vortex chain on a lag-free surrogate; each a cached node, `--set` its parameters, `{recording}` the recording's name) in batches
 //   with early stopping (Besag-Clifford), and the per-tile p and Benjamini-Hochberg q of the crossing consistency (and, with --recording-b, of the run repeat), the data-to-null crossing ratio and the null's mean resultants, as statistics.
-// nxr-neuro repeat compute --dataset D/N --subject S --recording-a A --recording-b B [--over TILES] [--stage NAME|INDEX] [--min-crossings 10] [--name NAME] [--replace]
-//   THE RUN-TO-RUN REPEAT of the vortex cores' crossings (nxr/pipelines/run_repeat.h; spec docs/specs/2026-11-14-vortex-cores-port.md, piece 8): a statistic over the two recordings' stored `tile_crossings` (`run vortex_cores` first, on both):
-//   per tile the dot product of the two runs' mean resultant vectors (senses pooled; tiles with >= --min-crossings crossings in both), and for the whole recording the count-weighted mean cosine. Its p-value needs the null (piece 10).
 // nxr-neuro cellquadrature compute --dataset D/N --subject S --cross-spectrum NAME --space-level L [--kernel NAME] [--joint NAME] [--bursts NAME]
 //     [--weights area|none] [--tile-pairs on|off]
 //     [--transform auto|eigen|chebyshev|exact] [--modes N] [--order N] [--tolerance 0.01] [--replace]
@@ -53,7 +50,6 @@
 #include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
 #include "nxr/pipelines/cellquadrature.h"
-#include "nxr/pipelines/run_repeat.h"
 #include "nxr/pipelines/null_compute.h"
 #include "nxr/pipelines/spatial_null.h"
 #include "nxr/io/yaml.h"
@@ -427,37 +423,6 @@ int null_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-int repeat_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro repeat: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro repeat compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording-a", "--recording-b", "--over", "--stage", "--min-crossings", "--name"}, {"--replace"}, {"--dataset", "--subject", "--recording-a", "--recording-b"});
-  nxr::pipelines::RunRepeatOptions o;
-  o.recording_a = a.get("--recording-a");
-  o.recording_b = a.get("--recording-b");
-  o.over = a.maybe("--over");
-  if (const auto v = a.maybe("--stage")) {       // a name (burst, onset, within, offset) or an index
-    const bool digits = !v->empty() && std::all_of(v->begin(), v->end(), [](unsigned char c) { return std::isdigit(c); });
-    if (digits) { try { o.stage = std::stoi(*v); } catch (...) { usage(prog, "--stage is a stage's name or a whole number >= 0"); } }
-    else o.stage_name = *v;
-  }
-  if (const auto v = a.maybe("--min-crossings")) { try { o.min_crossings = std::stoi(*v); } catch (...) { usage(prog, "--min-crossings is a whole number >= 1"); } }
-  o.name = a.maybe("--name");
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::run_repeat_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
 
 int scaleselection_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro scaleselection: error: the following arguments are required: action (compute)");

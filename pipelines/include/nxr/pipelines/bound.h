@@ -61,6 +61,7 @@ class Bound {
   internal::GluedDomain glued_domain(const SurfaceInput& surface) const;
   StoredCrossSpectrum cross_spectrum(const std::string& name) const;
   CrossSpectrumWindows cross_spectrum_windows(const std::string& name) const;       // an analytic series on time tiles, by its band's name (as stored)
+  CrossSpectrumWindows cross_spectrum_windows(const std::string& name, const std::vector<std::int32_t>& channels) const;   // the same, on these recording channels in this order (refused for a channel it does not cover)
   nxr::io::StoredStatistic statistic(const std::string& name) const;
   /** the values of a measure over a selection's members (io's measurement_values): of a field, of a map statistic's slice (by its name, a band of a map), or the members' own */
   nxr::io::MeasurementValues measurement_values(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_slice,
