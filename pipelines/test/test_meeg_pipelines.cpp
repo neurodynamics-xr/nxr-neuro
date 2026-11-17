@@ -218,7 +218,7 @@ int main() {
   CHECK_EQ(b.info["samples"].get<std::int64_t>(), 2300);
   // stored as a STATISTIC: measure covariance, float64 [M x M] on the channels' Selection of indices, its blocks the members and its divisor the degrees of freedom
   {
-    const auto row = sub.db().one("SELECT * FROM statistic WHERE subject_id = ? AND name = ?", {V(sub.id()), V("rest_noise_cov")});
+    const auto row = sub.db().one("SELECT * FROM statistic WHERE subject_id = ? AND name = ?", {nxr::io::V(sub.id()), nxr::io::V("rest_noise_cov")});
     CHECK(row.has_value());
     CHECK_EQ(text(*row, "measure"), std::string("covariance"));
     CHECK_EQ(text(*row, "method"), std::string("sample"));
@@ -231,7 +231,8 @@ int main() {
     CHECK_EQ(pj["window"]["start_sample"].get<std::int64_t>(), 200);
     const auto sel = sub.find("selection", "rest_noise_cov_channels");
     CHECK(sel.has_value());
-    CHECK_EQ(Json::parse(text(*row, "axes_json"))[0]["selection_id"].get<std::string>(), text(*sel, "id"));
+    const Json axes = Json::parse(text(*row, "axes_json"));
+    CHECK_EQ(axes[0]["selection_id"].get<std::string>(), text(*sel, "id"));
     CHECK(!is_null(*row, "dof"));
   }
   // blocks of 10 s: two blocks and a third of 3 s; each its own mean; N - B
@@ -312,7 +313,7 @@ int main() {
     CHECK_EQ(prod["units"].get<std::string>(), std::string("A.m"));
     for (const char* n : {"MN_channels", "MN_whitener", "MN_source_rr", "MN_source_nn"})
       CHECK(sub.find(std::string(n).find("_channels") != std::string::npos ? "selection" : std::string(n).find("source") != std::string::npos ? "field" : "operator", n).has_value());
-    const auto kc = sub.db().one("SELECT * FROM statistic WHERE subject_id = ? AND name = ?", {V(sub.id()), V("MN_noise_cov")});
+    const auto kc = sub.db().one("SELECT * FROM statistic WHERE subject_id = ? AND name = ?", {nxr::io::V(sub.id()), nxr::io::V("MN_noise_cov")});
     CHECK(kc.has_value());
     CHECK_EQ(text(*kc, "measure"), std::string("covariance"));
     const auto wh = sub.find("operator", "MN_whitener");
@@ -333,7 +334,7 @@ int main() {
   ir.mne_conventions = true;
   const InverseComputeResult k2 = inverse_compute(ds, sub, ir);
   CHECK(!k2.hit);
-  CHECK(sub.db().one("SELECT 1 FROM statistic WHERE subject_id = ? AND name = ?", {V(sub.id()), V("rest_cov2")}).has_value());
+  CHECK(sub.db().one("SELECT 1 FROM statistic WHERE subject_id = ? AND name = ?", {nxr::io::V(sub.id()), nxr::io::V("rest_cov2")}).has_value());
   CHECK(sub.find("operator", "MN_mne").has_value());
   CHECK_EQ(code_of([&] { InverseComputeOptions bad_opt; bad_opt.name = "z"; inverse_compute(ds, sub, bad_opt); }), std::string(code::invalid_argument));
 
