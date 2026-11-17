@@ -182,6 +182,11 @@ SensorInfo export_sensors(SubjectWriter& sub, const std::map<std::string, Value>
     const Value* g = chv->field("Group", i);
     groups.push_back(g && g->is_char() ? strip(text_of(g)) : "");
   }
+  std::vector<std::string> coil_types;                       // a `CoilType` field (an importer's): the coil each channel is, for the forward model
+  for (std::size_t i = 0; i < n; ++i) {
+    const Value* c = chv->field("CoilType", i);
+    coil_types.push_back(c && c->is_char() ? strip(text_of(c)) : "");
+  }
   std::vector<std::string> modalities;
   for (const auto& t : types) if (std::find(modalities.begin(), modalities.end(), t) == modalities.end()) modalities.push_back(t);
   const std::string path = nxr::io::folder_for("points") + "/" + name;
@@ -332,6 +337,12 @@ SensorInfo export_sensors(SubjectWriter& sub, const std::map<std::string, Value>
   {
     auto [c, l] = family(units);
     fams.push_back({"unit", c, l, {}});
+  }
+  if (std::any_of(coil_types.begin(), coil_types.end(), [](const std::string& c) { return !c.empty(); })) {
+    std::vector<std::string> c2;
+    for (const auto& c : coil_types) c2.push_back(c.empty() ? "-" : c);
+    auto [c, l] = family(c2);
+    fams.push_back({"coil type", c, l, {}});
   }
   for (int group : {1, 2}) {
     std::vector<std::string> parsed;

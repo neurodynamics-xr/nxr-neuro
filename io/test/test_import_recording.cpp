@@ -195,6 +195,10 @@ int main() {
     CHECK_EQ(op.fact("nnz").get<std::int64_t>(), std::int64_t(4));
     const task::Node rec = s.require({.cls = task::Cls::field, .name = "rec"}, "the recording");
     CHECK_EQ(rec.producer["ctf_compensation"]["grade"]["current"].get<int>(), 3);
+    // the coil definitions the channels refer to (the forward model's integration points are looked up by these names)
+    const task::Node man = s.require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
+    CHECK(man.producer["coil_definitions"]["coil_types"].size() == 2);
+    CHECK(man.producer["coil_definitions"]["source"].get<std::string>().find("coil_def.dat") != std::string::npos);
     CHECK(p.verify().ok);
   }
   // an MNE head -> MRI transform becomes a transition operator from the head frame to freesurfer-tkr

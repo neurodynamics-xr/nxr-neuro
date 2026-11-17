@@ -42,7 +42,14 @@ std::string ends_with_any(const std::string& path, std::initializer_list<const c
 // Brainstorm's channel type of a reader channel (the vocabulary the Brainstorm importer writes)
 std::string bst_type(const nxr::formats::Channel& c) {
   const std::string k = lower(c.kind);
-  if (k == "meg") return c.unit == "T/m" ? "MEG GRAD" : "MEG";
+  // Brainstorm's vocabulary: Neuromag's magnetometers and planar gradiometers are told apart by their coils, the reference sensors are `MEG REF`, and the
+  // axial gradiometers of CTF and KIT are plain `MEG`
+  if (k == "meg_ref") return "MEG REF";
+  if (k == "meg") {
+    if (c.coil_type.find("PLANAR") != std::string::npos || c.unit == "T/m") return "MEG GRAD";
+    if (c.coil_type.find("MAG") != std::string::npos) return "MEG MAG";
+    return "MEG";
+  }
   if (k == "eeg" || k == "eog" || k == "ecg" || k == "emg" || k == "seeg" || k == "ecog") {
     std::string u = k;
     for (auto& ch : u) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
@@ -100,7 +107,7 @@ std::map<std::string, nxr::bst::Value> channel_mat(const nxr::formats::Recording
   nxr::bst::Value ch;
   ch.cls = nxr::bst::Class::Struct;
   ch.dims = {1, h.channels.size()};
-  ch.fields = {"Name", "Type", "Loc", "Orient"};
+  ch.fields = {"Name", "Type", "Loc", "Orient", "CoilType"};
   std::size_t ci = 0;
   for (const auto& c : h.channels) {
     const std::size_t i = ci++;
@@ -117,6 +124,7 @@ std::map<std::string, nxr::bst::Value> channel_mat(const nxr::formats::Recording
     else ch.elems.emplace_back();
     if (place.orientation[i]) ch.elems.push_back(doubles_value(*place.orientation[i]));
     else ch.elems.emplace_back();
+    ch.elems.push_back(text_value(c.coil_type));
   }
   return {{"Channel", std::move(ch)}};
 }
@@ -285,7 +293,11 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     so.cs_key = place.cs_key.empty() ? "scs" : place.cs_key;
     so.placed = !place.cs_key.empty();
     if (!place.headpoints_cs_key.empty()) so.headpoints_cs_key = place.headpoints_cs_key;
+    Json coils = Json::array();
+    for (const auto& c : h.channels) if (!c.coil_type.empty() && std::find(coils.begin(), coils.end(), Json(c.coil_type)) == coils.end()) coils.push_back(c.coil_type);
     so.producer = Json{{"format", opt.format}, {"origin", origin}, {"frames", place.record}};
+    if (!coils.empty())
+      (*so.producer)["coil_definitions"] = Json{{"coil_types", coils}, {"source", "coil_def.dat (MNE-Python, MaxFilter): each coil type's integration points and weights, by the coil type's name"}};
     const nxr::bst::SensorInfo si = nxr::bst::export_sensors(sub, mat, flags, so);
     write_operators(sub, ops, so.name, si.id, opt.acquisition);
     for (auto it = ops.record.begin(); it != ops.record.end(); ++it) producer[it.key()] = it.value();
