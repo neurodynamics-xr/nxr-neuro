@@ -46,7 +46,9 @@ static double mOrthoDeviation(const EigenResult& r, const Eigen::SparseMatrix<do
     return (G - Eigen::MatrixXd::Identity(G.rows(), G.cols())).cwiseAbs().maxCoeff();
 }
 
-static void runMesh(const std::string& name, const Mesh& mesh, int k) {
+// `cutMultiplet`: k ends inside a multiple eigenvalue (the MATLAB tests' case: the icosahedron, k = 6, cuts the 5-fold degree-2 value after 2),
+// so which basis of that value is returned is free: those eigenvectors are checked as M-orthonormal, their eigenvalues one by one.
+static void runMesh(const std::string& name, const Mesh& mesh, int k, bool cutMultiplet = false) {
     std::printf("[%s] nV=%d k=%d\n", name.c_str(), mesh.nV(), k);
     const double tol = 1e-10;
 
@@ -67,7 +69,7 @@ static void runMesh(const std::string& name, const Mesh& mesh, int k) {
     const double dl = maxLambdaDiff(oneShot, stepped), dv = maxSubspaceDiff(oneShot, stepped, ops1.mass);
     std::printf("  one-shot vs step-by-step: max|dlambda| %.2e, subspace %.2e\n", dl, dv);
     CHECK(dl < tol, "one-shot vs step-by-step eigenvalues differ by %g", dl);
-    CHECK(dv < 1e-7, "one-shot vs step-by-step eigenvectors differ by %g", dv);
+    CHECK(cutMultiplet || dv < 1e-7, "one-shot vs step-by-step eigenvectors differ by %g", dv);
     CHECK(mOrthoDeviation(oneShot, ops1.mass) < 1e-10, "one-shot not M-orthonormal");
 
     // the ladder entry point (eigenSmallest) agrees too
@@ -82,7 +84,7 @@ static void runMesh(const std::string& name, const Mesh& mesh, int k) {
     const double dsh = maxLambdaDiff(oneShot, shifted), dshv = maxSubspaceDiff(oneShot, shifted, ops1.mass);
     std::printf("  sigma=-1e-3 vs default: max|dlambda| %.2e, subspace %.2e\n", dsh, dshv);
     CHECK(dsh < tol, "sigma=-1e-3 eigenvalues differ from the default by %g", dsh);
-    CHECK(dshv < 1e-7, "sigma=-1e-3 eigenvectors differ from the default by %g", dshv);
+    CHECK(cutMultiplet || dshv < 1e-7, "sigma=-1e-3 eigenvectors differ from the default by %g", dshv);
 
     // the normalisation flag does not change the eigenvalues; the vectors agree once M-orthonormalised
     const EigenResult unnorm = eigen(ops2.cotanLaplacian, ops2.mass, k, kShiftLadder, /*normalize=*/false, /*removeDC=*/true);
@@ -92,10 +94,12 @@ static void runMesh(const std::string& name, const Mesh& mesh, int k) {
     EigenResult unnormO = unnorm;
     unnormO.eigenvectors = normalize(unnorm.eigenvectors, ops2.mass);
     const double dnv = maxSubspaceDiff(oneShot, unnormO, ops1.mass);
-    CHECK(dnv < 1e-7, "normalisation flag changes the eigenvector subspaces by %g", dnv);
+    CHECK(cutMultiplet || dnv < 1e-7, "normalisation flag changes the eigenvector subspaces by %g", dnv);
 }
 
 int main() {
+    // The conditions of the MATLAB command tests (nxr_compute_mex_smoke.m, test_mex_context.m): the 12-vertex icosahedron, k = 6 (a cut multiplet).
+    runMesh("icosahedron, k = 6 (the MATLAB tests' mesh)", icosphere(0), 6, true);
     runMesh("icosphere level 2 (repeated eigenvalues)", icosphere(2), 9);   // 1 + 3 + 5: ends on a multiplet boundary
     runMesh("jittered icosphere level 2", jitterSphere(icosphere(2), 0.25, 7u), 8);
     if (g_fail) { std::printf("test_eigen_consistency: %d FAILED\n", g_fail); return 1; }
