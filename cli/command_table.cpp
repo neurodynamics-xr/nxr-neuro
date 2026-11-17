@@ -894,6 +894,29 @@ R"TBL(--tolerance@compute patches	X	Chebyshev: the largest difference between th
 --licence@create registration	TEXT	The licence recorded in the origin of every item.	derived from the two spheres' origin records	-
 --attribution@create registration	TEXT	The attribution recorded in the origin of every item.	derived from the two spheres' origin records	-
 --redistributable@create registration	yes|no	Whether the registration may be redistributed (decides what the redistributable edition keeps).	yes only when both spheres' origin records say so	-
+--recipe	fsaverage|icbm152	Which template to build from its source files.	none (required)	-
+--sources	DIR	The folder of the downloaded source files the recipe reads.	none (required)	-
+--parcellation	NAME	A parcellation to write, named explicitly (repeatable); none is written unless named.	none (no parcellation)	-
+--cortex-mask		Also write the cortex mask (the vertices that are not the medial wall).	off	-
+--surface	NAME	A surface to write (repeatable).	the recipe's own	-
+--hcp-trk	FILE	A DSI Studio .trk of streamlines on the HCP-1065 template, to import into the ICBM152 template.	none	-
+--hcp-end-surface	NAME	The surface of the package the streamline ends are placed on (a choice of data).	none (required with --hcp-trk)	-
+--max-end-distance	MM	An end farther than this from the end surface is left out of the ends operator; every end's distance is stored.	5	mm
+--hcp-points	N	Points per streamline after resampling at equal arc length.	64	points
+--accept-unlisted-sources		Read a source file the manifest does not list or whose checksum differs; the checksum read is recorded in the origin.	off (refused)	-
+--recipe@create template	fsaverage|icbm152	fsaverage: FreeSurfer's fsaverage; icbm152: Brainstorm's default anatomy ICBM152 (with --hcp-trk, also HCP-1065 streamlines).	required	-
+--sources@create template	DIR	The folder of the downloaded source files (for fsaverage a FreeSurfer subject folder holding surf/ and label/; for icbm152 Brainstorm's default-anatomy folder). Each file is checked against the manifest.	required	-
+--package@create template	PATH	The folder of the template package to make (a working copy; `release template` freezes it); it must not exist yet.	required	-
+--name@create template	NAME	Name of the template, the subject the package holds.	the recipe's template name	-
+--surface@create template	NAME	fsaverage: a FreeSurfer surface name (pial, white, inflated; the first is primary); icbm152: a Brainstorm tess_*.mat file name (the first is primary).	pial white inflated (fsaverage); tess_cortex_pial_high.mat (icbm152)	-
+--parcellation@create template	NAME	A parcellation to write, named explicitly (repeatable): fsaverage an annotation (aparc, aparc.a2009s); icbm152 an atlas named in the surface file (Desikan-Killiany, Schaefer_100_7net, ...). None is written unless named; an atlas whose terms are not confirmed is written as not redistributable.	none (no parcellation)	-
+--cortex-mask@create template		Also write the cortex mask (fsaverage only): the vertices that are not the medial wall.	off	-
+--hcp-trk@create template	FILE	A DSI Studio .trk of streamlines (icbm152 only); imported by its MNI coordinates with its origin (CC BY-SA 4.0 and the HCP terms).	none	-
+--hcp-end-surface@create template	NAME	The surface of the package the streamline ends are placed on (e.g. cortex_pial_high); a choice of data.	required with --hcp-trk	-
+--max-end-distance@create template	MM	An end farther than this from the end surface is left out of the ends operator; every end's distance is stored either way.	5	mm
+--hcp-points@create template	N	Points per streamline after resampling at equal arc length; the two ends are kept exactly.	64	points
+--accept-unlisted-sources@create template		Read a source file the manifest does not list or whose checksum differs; the checksum read is recorded in the origin.	off (refused)	-
+--home-dataset@create template	NAME	The dataset the package is made for, by its name: provenance, not membership.	templates	-
 --tree	subject|group	The tree the leaves belong to: the surface's own ladder, or the dataset's group tree through the registered sphere (the same leaves in every subject).	subject	-
 --tree@compute pyramid	subject|group	Tree the leaf tiles belong to: the surface's own ladder, or the dataset's group tree (the same leaves in every subject).	subject	-
 --trk	FILE	A fibre-tract file (.trk) to import with the templates.	none	-
@@ -1038,6 +1061,13 @@ old: package release-redistributable
 alias: no
 summary: Make the redistributable edition of a released template, keeping only the items whose origin allows it.
 opts: --into* --package* --released-by*
+)TBL",
+R"TBL(@ create template
+old: package template-create
+alias: no
+summary: Build a template package (fsaverage, or ICBM152 with HCP-1065 streamlines) from a folder of the source files you downloaded, each checked against the manifest and given an origin record.
+opts: --accept-unlisted-sources --cortex-mask --hcp-end-surface --hcp-points --hcp-trk --home-dataset --max-end-distance --name --package* --parcellation+ --recipe* --sources* --surface+
+example: nxr-neuro create template --recipe fsaverage --sources ~/downloads/fsaverage --package work/fsaverage.nxr.zarr --parcellation aparc --parcellation aparc.a2009s
 )TBL",
 R"TBL(@ create registration
 old: package registration-create
