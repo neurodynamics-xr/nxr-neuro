@@ -13,6 +13,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/meeg.h"
@@ -22,19 +23,29 @@ using namespace nxr::pipelines;
 namespace fs = std::filesystem;
 
 template <class T> static std::vector<T> read_field(SubjectWriter& sub, const std::string& name) {
-  const auto r = sub.db().one("SELECT path FROM field WHERE subject_id = ? AND name = ?", {V(sub.id()), V(name)});
-  ArrayReader a = ArrayReader::open(sub.store(), text(*r, "path"));
+  const auto r = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = name, .any_status = true});
+  ArrayReader a = ArrayReader::open(sub.store(), *r->path);
   const auto raw = a.read();
   std::vector<T> out(raw.size() / sizeof(T));
   std::memcpy(out.data(), raw.data(), out.size() * sizeof(T));
   return out;
 }
 
+// a band of a map statistic as its values [n x n_components]: the statistic's values [n x entries x n_components] at the entry (the slice's index)
+static std::vector<double> slice_values(nxr::io::SubjectWriter& sub, const std::string& statistic, const nxr::io::task::MapSlice& m) {
+  const nxr::io::StoredStatistic st = nxr::io::read_statistic(sub, statistic);
+  const std::int64_t K = st.shape.at(1), C = m.n_components;
+  std::vector<double> v(static_cast<std::size_t>(m.n * C));
+  for (std::int64_t i = 0; i < m.n; ++i)
+    for (std::int64_t c = 0; c < C; ++c) v[static_cast<std::size_t>(i * C + c)] = st.values[static_cast<std::size_t>((i * K + m.index) * C + c)];
+  return v;
+}
+
 // a map of a statistic by its name (`<statistic>_<band>`), as float [n x components] (since 2026-11-13 the source maps are statistics)
 static std::vector<float> map_named(nxr::io::SubjectWriter& sub, const std::string& statistic, const std::string& name) {
   const std::string surf = nxr::io::read_statistic(sub, statistic).axes[0]["manifold_id"].get<std::string>();
-  for (const auto& m : nxr::io::map_slices(sub.db(), sub.id(), surf))
-    if (m.name == name) { const auto d = nxr::io::read_map_slice(sub, m); return std::vector<float>(d.begin(), d.end()); }
+  for (const auto& m : nxr::io::task::Subject::of(sub).map_slices(surf))
+    if (m.name == name) { const auto d = slice_values(sub, statistic, m); return std::vector<float>(d.begin(), d.end()); }
   return {};
 }
 
@@ -84,7 +95,7 @@ int main() {
       const std::string tid = sub.manifold(std::move(tm));
       const std::string prod = sub.product({cid, tid});
       FieldSpec rec;
-      rec.name = "rest"; rec.path = node_path(sub.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, 700}; rec.array.compress = false; rec.cols.set("unit", "T");
       sub.field(std::move(rec));
       std::vector<std::int32_t> chans = {0, 1, 2};

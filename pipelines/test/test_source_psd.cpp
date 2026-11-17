@@ -9,6 +9,7 @@
 #include <random>
 
 #include "check.h"
+#include "nxr/io/task/task.h"
 #include "golden_io.h"
 #include "nxr/bst/entities.h"
 #include "nxr/meeg/sources.h"
@@ -135,7 +136,7 @@ int main() {
         std::vector<float> xf(static_cast<std::size_t>(M * T));
         for (int i = 0; i < M; ++i) for (int t = 0; t < T; ++t) xf[static_cast<std::size_t>(i * T + t)] = static_cast<float>(X(i, t));
         FieldSpec rec;
-        rec.name = "rest"; rec.path = node_path(sub.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = "rest"; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, 700}; rec.array.compress = false; rec.cols.set("unit", "T");
         sub.field(std::move(rec));
         // the sources (3 points) and a kernel [3N x M] on all four channels
@@ -187,9 +188,14 @@ int main() {
       CHECK(text(st.row, "measure") == "power_density" && text(st.row, "method") == "welch" && st.shape == (std::vector<std::int64_t>{N, 2}));
       CHECK(st.axes[0]["manifold_id"] == surf && st.axes[1]["values"][0]["name"] == "alpha" && st.axes[1]["values"][1]["lo_hz"] == 15.0);
       CHECK(integer(st.row, "n_members") > 0 && !is_null(st.row, "partition_selection_id"));
-      const auto slices = map_slices(sub.db(), sub.id(), surf);
+      const auto slices = nxr::io::task::Subject::of(sub).map_slices(surf);
       CHECK(slices.size() == 2 && slices[0].name == a.info["maps"][0].get<std::string>() && slices[1].index == 1);
-      const auto beta = read_map_slice(sub, slices[1]);
+      const auto beta = [&] {   // the band's map: the statistic's values [N x entries] at the slice's entry
+        const std::int64_t K = st.shape.at(1);
+        std::vector<double> v(static_cast<std::size_t>(N));
+        for (int i = 0; i < N; ++i) v[static_cast<std::size_t>(i)] = st.values[static_cast<std::size_t>(i * K + slices[1].index)];
+        return v;
+      }();
       double worst = 0;
       for (int i = 0; i < N; ++i) worst = std::max(worst, std::abs(beta[static_cast<std::size_t>(i)] / want(i, 1) - 1));
       CHECK(worst < 1e-6);                                       // float32 storage

@@ -19,6 +19,7 @@
 #include "nxr/bst/entities.h"
 #include "nxr/forms.h"
 #include "nxr/io.h"
+#include "nxr/io/task/task.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
@@ -95,7 +96,7 @@ int main() {
       tid = sub.manifold(std::move(tm));
       const std::string prod = sub.product({cid, tid});
       FieldSpec rec;
-      rec.name = "rest"; rec.path = node_path(sub.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, 4096}; rec.array.compress = false; rec.cols.set("unit", "A");
       sub.field(std::move(rec));
       std::vector<std::int32_t> chans(static_cast<std::size_t>(M));
@@ -155,13 +156,13 @@ int main() {
     const auto r = g::run(ds, sub, d, Json::object(), g::RunOptions{[] { g::RunOptions o; o.replace = true; o.chunks = "0"; return o; }()});
     CHECK(r.size() == 1 && r[0]["stored"].size() == 1);
     if (r.size() != 1) continue;
-    const auto row = sub.db().read("field", r[0]["stored"][0]["id"].get<std::string>());
+    const auto row = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::field, r[0]["stored"][0]["id"].get<std::string>());
     const std::vector<float> got = read_floats((sub.folder() / (r[0]["stored"][0]["path"].get<std::string>())));
     const Eigen::MatrixXd Mop = sband.apply_glued(nxr::forms::formOfFreeColumns(id, Kfree, op));
     const std::vector<double> want = direct(Mop);
     const double e = worst(got, want);
     std::printf("  form %s, mexhat level %d: band power per vertex vs the direct operator: %.2e\n", name.c_str(), level, e);
-    CHECK(e < 5e-4 && row && text(*row, "value_type") == "scalar" && got.size() == static_cast<std::size_t>(Vg));
+    CHECK(e < 5e-4 && row && row->value_type == "scalar" && got.size() == static_cast<std::size_t>(Vg));
     if (name == "curl_tan") {
       folded_curl = want;
       const std::vector<double> wantN = direct(sband.apply(nxr::forms::formOfFreeColumns(id, Kfree, op)));            // the same operator read back on the native vertices

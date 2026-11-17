@@ -20,6 +20,8 @@
 #include "nxr/bst/entities.h"
 #include "nxr/forms.h"
 #include "nxr/io.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/yaml.h"
@@ -107,7 +109,7 @@ int main() {
       struct Rec { const char* name; const std::vector<float>* x; std::int64_t chunk; };
       for (const Rec& r : {Rec{"rest", &xplane, 4096}, Rec{"rest_b", &xplane, 1000}, Rec{"stand", &xstand, 4096}, Rec{"flip", &xflip, 4096}}) {   // the plane wave in two chunk widths
         FieldSpec rec;
-        rec.name = r.name; rec.path = node_path(sub.db(), prod, r.name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = r.name; rec.path = nxr::io::task::Subject::of(sub).node_path(prod, r.name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(*r.x, {M, T}); rec.array.chunks = Shape{M, r.chunk}; rec.array.compress = false; rec.cols.set("unit", "A");
         rid[r.name] = sub.field(std::move(rec));
       }
@@ -127,9 +129,10 @@ int main() {
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   tiles_compute(ds, sub, TilesComputeOptions{});
   int timeLevel = -1;
-  for (const Row& m : sub.db().all("SELECT member_ordinal, params_json FROM selection WHERE subject_id = ? AND member_of_id IS NOT NULL AND params_json LIKE '%resolves_hz%'", {V(sub.id())})) {
-    const Json pj = Json::parse(text(m, "params_json"));
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(integer(m, "member_ordinal"));
+  for (const auto& m : nxr::io::task::Subject::of(sub).find_all({.cls = nxr::io::task::Cls::selection, .params_present = {"resolves_hz"}, .any_status = true})) {
+    if (!m.member_of_id) continue;
+    const Json pj = m.params;
+    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(*m.member_ordinal);
   }
   CHECK(timeLevel >= 0);
   if (timeLevel < 0) return 1;
@@ -246,10 +249,11 @@ int main() {
       CHECK(ep < 1e-3);
     }
     // the count row: ONE a Selection and recording, the samples of a whole tile, at component 3 of the vector measurement's array
-    const std::string jid = [&] { const auto row = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(pc["over"].get<std::string>())}); return text(*row, "id"); }();
-    const auto crow = sub.db().all("SELECT array_path, component FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = 'count'", {V(jid), V(rid.at(rec))});
+    const std::string jid = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = pc["over"].get<std::string>(), .any_status = true})->id;
+    const nxr::io::testing::Probe probe(sub);
+    const auto crow = probe.rows("selection_measurement", {{"selection_id", V(jid)}, {"of_field_id", V(rid.at(rec))}, {"measure", V("count")}});
     CHECK(crow.size() == 1);
-    const auto kinds = sub.db().all("SELECT measure, component FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? ORDER BY measure", {V(jid), V(rid.at(rec))});
+    const auto kinds = probe.rows("selection_measurement", {{"selection_id", V(jid)}, {"of_field_id", V(rid.at(rec))}}, "measure");
     CHECK(kinds.size() == 5 && text(kinds[0], "measure") == "count" && text(kinds[1], "measure") == "phase_current_x" && text(kinds[2], "measure") == "phase_current_y" && text(kinds[3], "measure") == "phase_current_z" && text(kinds[4], "measure") == "power");
     CHECK(integer(kinds[1], "component") == 0 && integer(kinds[2], "component") == 1 && integer(kinds[3], "component") == 2);
     const MeasurementValues cv = measurement_values(sub, jid, rid.at(rec), std::nullopt, std::nullopt, "count");
@@ -308,12 +312,12 @@ int main() {
     std::printf("  %s: burst roll-up vs the cells' mean: phase_current %.2e (of %.3g), power %.2e (relative)\n", rec, worst_pc, top, worst_pw);
     CHECK(worst_pc < 1e-5 * std::max(top, 1e-12) + 1e-9 && worst_pw < 1e-5);
     // the burst's count row: one a Selection and recording, on the bursts' Selection
-    const auto brow = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(bpc["over"].get<std::string>())});
+    const auto brow = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = bpc["over"].get<std::string>(), .any_status = true});
     CHECK(brow.has_value());
-    CHECK(sub.db().all("SELECT 1 FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = 'count'", {V(text(*brow, "id")), V(rid.at(rec))}).size() == 1);
+    CHECK(nxr::io::testing::Probe(sub).count("selection_measurement", {{"selection_id", V(brow->id)}, {"of_field_id", V(rid.at(rec))}, {"measure", V("count")}}) == 1);
     // the DERIVED phase gradient is the ratio of the rolled-up means, per component: rad/m
     Burst B;
-    B.sel = text(*brow, "id");
+    B.sel = brow->id;
     B.grad.assign(static_cast<std::size_t>(tiles * 2 * 3), 0.0);
     const char* gn[3] = {"phase_gradient_x", "phase_gradient_y", "phase_gradient_z"};
     for (int c = 0; c < 3; ++c) {
