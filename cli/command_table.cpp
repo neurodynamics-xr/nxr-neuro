@@ -152,7 +152,6 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --field	NAME	Name of a stored field to read (measure query: restrict the query to this field; phasegradient: the phase 1-form to build, only gradient exists).	measure query: none; phasegradient: gradient	-
 --field@query measurements	NAME	The stored field the measurement was made of, by name or id.	the only field measured	-
 --fields	PATTERN	Regular expression matched against the whole name of each stored field to measure (export: the first capture group names the condition)	none (required)	-
---fields@run measure	PATTERN	Regular expression matched against the whole name of each stored field to measure (a scalar per vertex for a surface partition; a time-resolved field with --over).	required	-
 --fields@export measurements	REGEX	Regular expression over Field names selecting the Fields to export; its first capture group names the condition (e.g. the band)	required	-
 --file	FILE	A Brainstorm anatomy file (tess_*.mat) to convert; repeat or give several.	none (required)	-
 --file@import inverse	FILE	The Brainstorm inverse kernel file (results_*KERNEL*.mat) to import; one kernel per call, never overwritten.	required	-
@@ -189,7 +188,6 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --gamma	G	Morse family: the gamma parameter of the wavelet.	3	-
 --gamma@run opticalflow	X	Morse family only: the gamma parameter of the wavelet.	3	-
 --gradient		Also measure the gradient of each scalar field (area-weighted face gradients projected on the vertex tangent plane)	off	-
---gradient@run measure		Also measure the gradient of each scalar field (area-weighted face gradients projected on the vertex tangent plane); needs the canonical frames from frames compute. Surface partitions only.	off	-
 --graph-family	mexhat|heat|itersine|logitersine	Family of the spatial (graph) filter bank over the eigenvalue.	none (required)	-
 --graph-filters	N	Number of members of the graph (eigenvalue) filterbank; 0 means derived from --graph-voices.	0	filters
 --graph-voices	N	Members per octave of the spatial (graph) filterbank	3	members/octave
@@ -221,7 +219,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --kind	subject|template|group	Kind of subject to create	subject	-
 --kind@create subject	subject|template|group	Kind of the new subject: an ordinary subject, a template subject or a group subject.	subject	-
 --labelling	NAME	The partition (a stored Selection with one code per vertex, e.g. a parcellation or a tile level) whose members are measured.	none (required)	-
---labelling@run measure	NAME	The partition (a stored Selection with one code per vertex, e.g. a parcellation or a tile level) whose members are measured; not used with --over.	required unless --over is given	-
 --labelling@export measurements	NAME	The partition (labelling) whose members are the table's columns, named the same in every subject	required	-
 --layout	split|wide	Table layout: split gives a table per condition and statistic with a column per member; wide gives one table with a column per condition, member and statistic.	split	-
 --layout@export measurements	split|wide	split writes one table per condition and statistic with a column per member; wide writes one table with a column per condition, member and statistic	split	-
@@ -254,7 +251,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --measure	NAME	The measure to summarise or read (e.g. mean, max, power_sum).	none (required)	-
 --measure@query measurements	NAME	The measure to read, e.g. a stored measure of the pyramid or one derived from its sums.	required	-
 --measures	NAME,...	Which measures to compute per member: mean, max, min, mean_square, abs_max, sum.	mean, max, min, mean_square, abs_max	-
---measures@run measure	NAME,...	Which measures to compute per member: mean, max, min, mean_square, abs_max, sum (with --over: mean, mean_square, max, min, abs_max; the sample count is always stored).	mean, max, min, mean_square, abs_max (with --over: mean, mean_square, max, min)	-
 --meg	overlapping|single|none	MEG head model: per-sensor overlapping spheres, one single sphere, or no MEG channels	overlapping	-
 --meg-surface	NAME	Name of the surface the MEG spheres are fitted to.	the surface called inner skull	-
 --members-own		The measure is the members' own (area, number of elements or tiles); --of then names its parent.	off	-
@@ -371,7 +367,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --reading@read crossspectrum	coherency|imag|phase|delay|psi	What to derive per pair from the bins: coherency, its imaginary part, phase, the phase-slope delay (ms) or the phase-slope index; positive delay and psi mean the row channel leads.	coherency	-
 )TBL",
 R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measurements are made or read by.	measure compute: partition-<weight>; measure export: any	-
---recipe@run measure	NAME	Name of the recipe (the recorded set of choices) the measurements are stored under; surface partitions only.	partition-<weight>	-
 --recipe@export measurements	NAME	Use only measurements made by this recipe (name or name@version); a subject with rows from another recipe is refused	none (any recipe)	-
 --recording	NAME	Name of the stored recording to read.	none (required)	-
 --recording-a	NAME	First recording, whose stored tile crossings are used (repeat: one of the two compared)	none (required)	-
@@ -591,7 +586,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run patches	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run scaleselection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run pyramid	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run measure	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run spatialnull	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run null	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run repeat	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -692,7 +686,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --voices@run constantq	N	Number of bands per octave, counted from the top down.	6	-
 --voices@run opticalflow	N	Itersine family only: filter-bank members per octave.	4	voices/octave
 --weight	none|barycentric|voronoi	How the vertices of each member are weighted (measure compute: none is the plain vertex mean, barycentric or voronoi weight by area); phasegradient: power|coherence, the edge weight of a weighted fit.	measure compute: none, must be given; phasegradient: power	-
---weight@run measure	none|barycentric|voronoi	How the vertices of each member are weighted: none is the plain vertex mean, barycentric or voronoi weight by area; not used with --over.	required unless --over is given	-
 --weights	area|none	cellquadrature: weight vertices by their area or equally; crossspectrum read: weight the delay and phase-slope fits by coherence or not	cellquadrature: area; crossspectrum read: coherence	-
 --weights@run cellquadrature	area|none	Weight each vertex of a tile by the area it stands for, or count all vertices equally.	area	-
 --weights@read crossspectrum	coherence|none	For --reading delay: weight each frequency bin of the phase-slope fit by its squared coherency, or count every bin equally.	coherence	-
@@ -1323,14 +1316,6 @@ group: Measurements
 summary: The measurement pyramid of a recording's cortical current, from space and time tiles.
 span: yes
 opts: --bands --block-samples --chunks --dataset* --depth --frame-level --halo-seconds --keep-bad-segments --kernel --recording* --replace --shape --start --start-s --stop --subject* --threads --tree --templates+
-)TBL",
-R"TBL(@ run measure
-old: measure compute
-alias: refused
-group: Measurements
-summary: Stored fields measured over a partition's members, with their recipe.
-span: yes
-opts: --chunks --dataset* --fields* --gradient --labelling --measures --recipe --replace --start --stop --subject* --weight --templates+
 )TBL",
 R"TBL(@ run spatialnull
 old: spatialnull compute

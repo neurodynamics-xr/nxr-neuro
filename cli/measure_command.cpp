@@ -140,31 +140,7 @@ int measure_query_main(const std::vector<std::string>& argv) {
 int measure_main(const std::vector<std::string>& argv) {
   if (!argv.empty() && argv[0] == "query") return measure_query_main(std::vector<std::string>(argv.begin() + 1, argv.end()));
   if (!argv.empty() && argv[0] == "export") return measure_export_main(std::vector<std::string>(argv.begin() + 1, argv.end()));
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro measure: error: the following arguments are required: action (compute, query, export)");
-  const std::string prog = "nxr-neuro measure compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--labelling", "--fields", "--weight", "--measures", "--recipe"},
-                                 {"--replace", "--gradient"}, {"--dataset", "--subject", "--fields"});
-  if (!a.maybe("--labelling") || !a.maybe("--weight")) usage(prog, "a surface partition needs --labelling and --weight");
-  nxr::pipelines::MeasureComputeOptions o;
-  o.labelling = a.get("--labelling");
-  o.fields = a.get("--fields");
-  o.weight = a.get("--weight");
-  if (const auto v = a.maybe("--measures")) o.measures = split(*v, ',');
-  o.recipe = a.maybe("--recipe");
-  o.replace = a.flag.count("--replace") > 0;
-  o.gradient = a.flag.count("--gradient") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::measure_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    cli::emit(r.info);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
+  throw cli::Usage("nxr-neuro measure: error: the following arguments are required: action (query, export); measuring is `nxr-neuro run measure` (a partition of a surface) or `nxr-neuro run measure_over_time` (a time tiling)");
 }
 
 int pyramid_main(const std::vector<std::string>& argv) {

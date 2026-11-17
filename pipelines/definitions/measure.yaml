@@ -1,0 +1,30 @@
+# A STORED FIELD MEASURED OVER A PARTITION OF ITS SURFACE: each member of a labelling (a `set` Selection with one code per vertex: a parcellation, a level of the surface's tile ladder) gets the field's measures as
+# additive ingredients (mean, max, min, mean_square, abs_max by default; sum; the exact median with weight none), and the members' own sizes (n_elements, and `area` when the weights are areas). A hermitian3 field is
+# measured as the tensor_* sums in the canonical frames; `gradient` adds a scalar field's gradient_* sums (`nxr-neuro run frames` first for both).
+# The WEIGHT is stated, never assumed: none (1 a vertex: the plain vertex mean), barycentric (a third of each incident triangle), voronoi (the mixed Voronoi area of the mollified input). On a real cortex they differ
+# by tens of percent per region.
+#
+#   nxr-neuro run measure --dataset <folder> --subject sub-01 --field rest_psd_alpha --labelling "cortex tiles L4" --weight barycentric
+pipeline: measure
+version: 1
+description: a stored field measured over the members of a partition of its surface
+scope: subject
+
+inputs:
+  field:     {field: any, each: true, where: {name: $field}}
+  labelling: {selection: set, manifold: field.manifold.0, where: {name: $labelling}, hint: "a set Selection with a code per vertex on the field's surface (a parcellation, a level of the surface's tile ladder)"}
+
+parameters:
+  field: {default: null, meaning: "the name of the stored field measured (a scalar or hermitian3 map on a surface)", unit: "-"}
+  labelling: {default: null, meaning: "the partition, by name: a set Selection with a code per vertex", unit: "-"}
+  weight: {default: null, meaning: "how the vertices of a member are weighted: none | barycentric | voronoi (it changes the numbers, so it is always stated)", unit: "-", choices: [none, barycentric, voronoi]}
+  measures: {default: null, meaning: "the measures per member: mean, mean_square, max, min, abs_max, sum, median (median needs weight none); null: mean, max, min, mean_square, abs_max", unit: "-"}
+  gradient: {default: false, meaning: "also the gradient of a scalar field: the registry's gradient_* sums in the canonical frames (the area-weighted face gradients projected on the vertex's tangent plane)", unit: "-"}
+
+steps:
+  before:
+    - {step: partition_measures, in: {x: field, labelling: labelling}, with: {weight: $weight, measures: $measures, gradient: $gradient}, out: [values, sizes]}
+
+outputs:
+  values: {kind: measurement, over: labelling, of: field}
+  sizes: {kind: measurement, over: labelling}
