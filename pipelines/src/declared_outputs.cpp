@@ -172,7 +172,12 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
       link_of(P, p, "on", nullptr, o);
     }
   } else if (k == "measurement") {
-    if (!spec.contains("of")) bad(o, "a measurement output names the field it is of (of: OUTPUT)");
+    // over: a selection found, or an output of this run; of: a field found, or an output of this run (none: the members' own measures, area and n_elements)
+    for (const char* key : {"over", "of"}) {
+      if (!spec.contains(key)) { if (std::string(key) == "over") bad(o, "a measurement output names the selection it is over (over: INPUT or OUTPUT)"); continue; }
+      const std::string r = spec[key].get<std::string>();
+      if (!P.found.count(r) && !P.definition.outputs.contains(r)) bad(o, std::string(key) + ": '" + r + "' is neither a found input nor an output of this definition");
+    }
   } else if (k == "operator") {
     link_of(P, spec, "from", nullptr, o);
     link_of(P, spec, "to", nullptr, o);
@@ -285,24 +290,63 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   }
 
   if (k == "measurement") {
-    // MEASUREMENTS OF A FIELD OVER A PARTITION (declared: over, of): the node's array is [members x measures], `describe.measures` names each column ({measure, unit})
+    // MEASUREMENTS OF A FIELD OVER A PARTITION (declared: over, of): the node's array is [members x measures], `describe.measures` names each column ({measure, unit}); a measure over a time partition
+    // of a time-resolved field is [rows x members] a measure (`describe.values_shape`: the shape each measure's values take, their product the node's rows), in float32 when `describe.values_f32`.
+    // `of` may be a field FOUND in the subject (stored beside it: <field path>_<partition name>/<measure>) or absent (the members' own measures); one this run stored is as before.
     task::MeasurementOut m;
     m.output = o;
-    const std::string over = spec["over"].get<std::string>(), of = spec["of"].get<std::string>();
-    if (made.count(over)) m.selection_id = made.at(over);
-    else if (P.found.count(over) && P.found.at(over).row) m.selection_id = text(*P.found.at(over).row, "id");
+    const std::string over = spec["over"].get<std::string>();
+    std::string over_name;
+    if (made.count(over)) { m.selection_id = made.at(over); over_name = declared_name(P, over); }
+    else if (P.found.count(over) && P.found.at(over).row) { m.selection_id = text(*P.found.at(over).row, "id"); over_name = text(*P.found.at(over).row, "name"); }
     else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
-    if (!made.count(of)) bad(o, "of: '" + of + "' is not a field output stored before it");
-    m.of_field_id = made.at(of);
-    m.path = made.count("path:" + of) ? made.at("path:" + of) : name;
+    bool own = false;                                                       // the rows are not of a field stored in this run: a found field's, or the members' own
+    if (spec.contains("of")) {
+      const std::string of = spec["of"].get<std::string>();
+      if (made.count(of)) {
+        m.of_field_id = made.at(of);
+        m.path = made.count("path:" + of) ? made.at("path:" + of) : name;
+      } else if (P.found.count(of) && P.found.at(of).row && P.found.at(of).cls == "field") {
+        own = true;
+        m.of_field_id = text(*P.found.at(of).row, "id");
+        m.path = text(*P.found.at(of).row, "path") + "_" + nxr::io::safe_name(over_name);
+      } else {
+        bad(o, "of: '" + of + "' is neither a field output stored before it nor a field found");
+      }
+    } else {
+      own = true;
+      m.path = "measurements/" + nxr::io::safe_name(over_name) + "_members";
+    }
     const Json measures = d.value("measures", Json::array());
     if (!measures.is_array() || static_cast<std::int64_t>(measures.size()) != a.cols) bad(o, "its node names " + std::to_string(measures.size()) + " measures for " + std::to_string(a.cols) + " columns");
+    std::vector<std::int64_t> vshape = {a.rows};
+    if (d.contains("values_shape")) {
+      vshape = ints(d["values_shape"]);
+      std::int64_t n = 1;
+      for (const auto x : vshape) n *= x;
+      if (n != a.rows) bad(o, "its node's values_shape holds " + std::to_string(n) + " values a measure, its array " + std::to_string(a.rows) + " rows");
+    }
+    const bool f32 = d.value("values_f32", false);
+    if (own) {                                                              // another job's rows of the same measures: refused, or replaced with --replace (a member's own sizes depend on the weights alone: rewritten)
+      const task::Subject ts = task::Subject::of(sub);
+      const std::optional<std::string> ofid = m.of_field_id.empty() ? std::nullopt : std::optional<std::string>(m.of_field_id);
+      for (const auto& mj : measures) {
+        const std::string nm = mj["measure"].get<std::string>();
+        if (!ts.has_measure(m.selection_id, nm, ofid)) continue;
+        if (!replace && ofid) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + P.definition.name + " output " + o + ": the measure '" + nm + "' of this field over " + over_name + " already exists; pass --replace");
+        unit.remove_measurements(m.selection_id, ofid, nm);
+        if (ofid) replaced = true;
+      }
+    }
     for (std::size_t c = 0; c < measures.size(); ++c) {
       task::MeasurementOut::Measure x;
       x.measure = measures[c]["measure"].get<std::string>();
       x.unit = measures[c].value("unit", std::string());
-      x.values.shape = {a.rows};
-      for (std::int64_t r = 0; r < a.rows; ++r) x.values.f64.push_back(a.data[static_cast<std::size_t>(r * a.cols) + c]);
+      x.values.shape = vshape;
+      for (std::int64_t r = 0; r < a.rows; ++r) {
+        const double v = a.data[static_cast<std::size_t>(r * a.cols) + c];
+        if (f32) x.values.f32.push_back(static_cast<float>(v)); else x.values.f64.push_back(v);
+      }
       m.measures.push_back(std::move(x));
     }
     if (d.contains("band")) m.band = d["band"];

@@ -143,35 +143,9 @@ int measure_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro measure: error: the following arguments are required: action (compute, query, export)");
   const std::string prog = "nxr-neuro measure compute";
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--labelling", "--fields", "--weight", "--measures", "--recipe", "--over", "--level", "--chunks", "--start", "--stop"},
+  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--labelling", "--fields", "--weight", "--measures", "--recipe"},
                                  {"--replace", "--gradient"}, {"--dataset", "--subject", "--fields"});
-  if (a.maybe("--over")) {
-    // OVER TIME: a time-resolved Field over a time partition (a constant-Q ladder's level, or a closed-form spans tiling such as <recording>_chunks)
-    if (a.maybe("--labelling") || a.maybe("--weight") || a.flag.count("--gradient")) usage(prog, "--over measures over a time partition: --labelling, --weight and --gradient are for a surface partition");
-    nxr::pipelines::MeasureOverTimeOptions t;
-    t.over = *a.maybe("--over");
-    if (const auto v = a.maybe("--level")) t.level = std::stoi(*v);
-    t.fields = a.get("--fields");
-    if (const auto v = a.maybe("--measures")) t.measures = split(*v, ',');
-    t.chunks = a.maybe("--chunks");
-    if (const auto v = a.maybe("--start")) t.start = std::stod(*v);
-    if (const auto v = a.maybe("--stop")) t.stop = std::stod(*v);
-    t.replace = a.flag.count("--replace") > 0;
-    try {
-      DatasetWriter ds = open_dataset(a);
-      OpenSubjectOptions oo;
-      oo.created_by = cli::stamp();
-      SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-      const auto r = nxr::pipelines::measure_over_time(ds, sub, t, [](const Json& j) { cli::emit(j); });
-      Json out = Json{{"stage", "result"}};
-      for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-      cli::emit(out);
-    } catch (const std::invalid_argument& e) {
-      usage(prog, e.what());
-    }
-    return 0;
-  }
-  if (!a.maybe("--labelling") || !a.maybe("--weight")) usage(prog, "a surface partition needs --labelling and --weight (or --over for a time partition)");
+  if (!a.maybe("--labelling") || !a.maybe("--weight")) usage(prog, "a surface partition needs --labelling and --weight");
   nxr::pipelines::MeasureComputeOptions o;
   o.labelling = a.get("--labelling");
   o.fields = a.get("--fields");

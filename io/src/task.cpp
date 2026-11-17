@@ -615,7 +615,8 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
     const std::string path = m.path + "/" + x.measure;
     sub.write_array(path, view_of(x.values, "measurement " + x.measure));
     Cols c;
-    c.set("measure", x.measure).set("of_field_id", m.of_field_id).set("array_path", path).set("unit", x.unit).set("computed_by", by_.tool);
+    c.set("measure", x.measure).set("array_path", path).set("unit", x.unit).set("computed_by", by_.tool);
+    if (!m.of_field_id.empty()) c.set("of_field_id", m.of_field_id);        // none: the members' own (a size)
     if (band && !(*band)["selection_id"].is_null()) c.set("within_selection_id", (*band)["selection_id"].get<std::string>()).set("within_code", (*band)["code"].get<std::int64_t>());
     sub.measurement(m.selection_id, c);
     ++n;

@@ -1,0 +1,29 @@
+# A TIME-RESOLVED FIELD MEASURED OVER THE WINDOWS OF A TIME TILING (a measurement of the field over a time partition: the cardinal rule, time is partitioned as space is): per row and window, mean, mean_square, max,
+# min (also abs_max) and the samples the value is over (`count`, always stored, the roll-up weight), the Studio's reduceTiles folded across the chunk service's chunks over the span the caller states (--from/--to or
+# --all). The tiling is a level of a constant-Q ladder (`nxr-neuro run constantq` first; the level's own name, `<ladder> L<k>`) or a closed-form spans tiling such as the chunk grid (`<recording>_chunks`).
+# A window is measured only when the span covers it whole (NaN elsewhere). Bad segments are not left out. Stored beside the field, one array a measure [rows x windows], and recorded as measurements of the field
+# over the tiling's window Selection.
+#
+#   nxr-neuro run measure_over_time --dataset <folder> --subject sub-01 --field rest --over "rest_time_constantQ L4" --all
+pipeline: measure_over_time
+version: 1
+description: a time-resolved field measured over the windows of a time tiling
+scope: subject
+
+inputs:
+  field:  {field: any, each: true, where: {name: $field}}
+  window: {selection: spans, manifold: field.time, where: {name: $over}, hint: "the time tiling: a level of the constant-Q ladder (`nxr-neuro run constantq` first) or a closed-form spans tiling such as <recording>_chunks"}
+
+parameters:
+  field: {default: null, meaning: "the name of the time-resolved field measured (a recording, a source series: rows x samples on a product whose time factor is the tiling's line)", unit: "-"}
+  over: {default: null, meaning: "the time tiling by name: a ladder's level (`<ladder> L<k>`) or a closed-form spans Selection on the field's time line", unit: "-"}
+  measures: {default: [mean, mean_square, max, min], meaning: "the measures per row and window: mean, mean_square, max, min, abs_max; the sample count is always stored", unit: "-"}
+
+steps:
+  chunks:
+    over: field
+    do:
+      - {step: window_measures, in: {x: field, over: window}, with: {measures: $measures}, out: measured}
+
+outputs:
+  measured: {kind: measurement, over: window, of: field}

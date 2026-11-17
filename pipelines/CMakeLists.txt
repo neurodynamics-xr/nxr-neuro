@@ -39,6 +39,7 @@ add_library(nxr_pipelines
   src/meeg_steps.cpp
   src/partition_steps.cpp
   src/verb_steps.cpp
+  src/steps_measure.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
@@ -65,7 +66,6 @@ add_library(nxr_pipelines
   src/meeg.cpp
   src/spectral_record.cpp
   src/reading.cpp
-  src/measure_time.cpp
   src/statistics.cpp
   src/patches.cpp
   src/spatial_band.cpp

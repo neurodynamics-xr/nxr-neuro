@@ -229,7 +229,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --lc-levels@create dataset	L,L,...	Comma-separated tile levels at which the Levi-Civita connection of the default subject is stored; needs --templates.	4,6	level
 --level	L	A level (patches: the tile-ladder level whose spatial band is used; crossspectrum, cyclepattern: the window tile level, windows of 2^L samples; measure compute: the level of a constant-Q time ladder).	none (required for patches; otherwise see the command's description)	level
 --level@run cyclepattern	L	Time-tile level of the windows, 2^L samples (at least the stored level); the stored tiles are rolled up to it. Alternative to --window-seconds.	none (--window-seconds applies)	level
---level@run measure	L	Level of the constant-Q time ladder named by --over; used only with --over.	none (required for a ladder)	level
 --level@run patches	LEVEL	The ladder level (tiles of 2^LEVEL per piece) whose Weyl band is the map's filter; the ladder must exist.	required	level
 --levels	L,...	Spatial tile levels of the scale space the blur is measured over.	2,3,4,5,6,7,8	levels
 --limit	N	Maximum number of rows returned	none	rows
@@ -339,7 +338,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --out@import scan	PATH	File to write the scanned protocol view to as JSON (writing it prints a one-line summary instead of the whole view).	none (the view is printed)	-
 --out@read dataset	FILE	Write the bytes of the array (or of its --region) read with --array to this file, as little-endian values of its data type.	none	-
 --over	NAME	Name of the partition (stored selection) measured over: statistic: the partition whose members were measured; null, repeat: the tile-level selection of the stored crossings; measure compute: the time tiling	statistic, measure compute: none (required); null, repeat: the one the recordings share	-
---over@run measure	NAME	Measure over a time partition instead of a surface one: a constant-Q ladder (with --level) or a spans tiling such as the chunk grid; the result is a time-resolved field.	none (a surface partition is measured)	-
 --over@run null	NAME	The tile level Selection the crossings were measured over	the one the recordings have	-
 --over@run repeat	NAME	The tile-level partition both recordings were measured over.	the one both recordings have (several is refused)	-
 --overlap	FRACTION	Fraction by which successive Welch segments overlap.	0.5 (the Brainstorm option set)	fraction
@@ -1332,7 +1330,7 @@ alias: refused
 group: Measurements
 summary: Stored fields measured over a partition's members, with their recipe.
 span: yes
-opts: --chunks --dataset* --fields* --gradient --labelling --level --measures --over --recipe --replace --start --stop --subject* --weight --templates+
+opts: --chunks --dataset* --fields* --gradient --labelling --measures --recipe --replace --start --stop --subject* --weight --templates+
 )TBL",
 R"TBL(@ run spatialnull
 old: spatialnull compute
