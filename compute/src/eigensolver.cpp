@@ -352,7 +352,12 @@ EigenResult eigenSmallest(
         const double sigmas[2] = { -1e-7 * lmax, -1e-4 * lmax };
         for (double sigma : sigmas) {
             try {
-                return completeLowest(A, B, eigen(A, B, k, sigma, normalize, /*removeDC=*/false, cancel, progress), sigma, cancel);
+                // The window is solved, completed and polished on the solver's own vectors; `normalize` is applied once, to the final result.
+                // (Normalising before the polish changed which basis of a multiple eigenvalue the polish started from, and an eigenvalue of the
+                // cut multiplet came back 6.5e-8 off: the result must not depend on the flag.)
+                EigenResult r = completeLowest(A, B, eigen(A, B, k, sigma, /*normalize=*/false, /*removeDC=*/false, cancel, progress), sigma, cancel);
+                if (normalize) r.eigenvectors = ::nxr::manifold::solve::normalize(r.eigenvectors, B);
+                return r;
             } catch (const Error& e) {
                 if (e.code() != ErrorCode::EigensolveNotConverged) throw;  // k-range etc: don't retry
             }
