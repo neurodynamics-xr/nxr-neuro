@@ -14,7 +14,7 @@ provenance stored with the result.
 - **not the Python analysis code:** `nxr` stays the reference that the C++ is tested against.
 - **no Brainstorm code:** Brainstorm is GPLv3; the maths here is written from the papers, and Brainstorm's outputs are only goldens.
 
-**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; bindings for `io` and `pipelines`.
+**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; bindings for `io` (beyond its pure formats, in the Python face) and `pipelines`.
 
 ## Layout
 
@@ -25,7 +25,7 @@ nxr-neuro/
   pipelines/   nxr_pipelines the glue: read with io, compute with compute, write with io, cached; every verb of the command below (the surface: eigen, frames, tiles; the sensors:
                filters, psd, noisecov; the sources: headmodel, inverse, sourcepsd, quadrature, hodgepower; the patterns: opticalflow, speedspectrum)
   meeg/        nxr_meeg      MEG/EEG source imaging: whitener, depth weights, unconstrained minimum-norm kernel, chunk-wise noise covariance; Eigen only; no file I/O
-  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (exposing io/pipelines comes later)
+  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (exposing io/pipelines comes later); python/: the wheel (nxr_compute and io/formats)
   cli/         the one command `nxr-neuro`
   cmake/       shared CMake (Eigen 3.4)
   CMakeLists.txt   the one top-level build
@@ -42,6 +42,7 @@ Each library keeps its include paths and namespaces (`nxr/compute.h`, `nxr::comp
 | `io` | SQLite, the Zarr codecs (zstd, blosc, zlib), matio, HDF5, nlohmann/json, rapidyaml (single header, vendored in `io/extern/ryml`, v0.15.2, MIT; amended 2026-11-12, the maintainers' decision 1 of the chain-graph spec: pipeline definitions are nxr's YAML). Never includes `compute`. |
 | `pipelines` | `compute`, `io` and `meeg`; the only place they meet. |
 | `meeg` | Eigen only. Never includes `compute` or `io`; reads no file (the pipelines hand it arrays). |
+| `bindings` | `compute` only, **except `bindings/python`** (amended 2026-11-17, `docs/specs/2026-11-17-interoperability.md` section 6 and D3 of `docs/specs/2026-11-16-distribution-and-interoperability.md`): it also links `io/formats` (`nxr_io_formats`, the pure file formats: no store, database or dataset), and nanobind and scikit-build-core to build the wheel. It still holds no maths: arrays in, the library's call, arrays out. Reaching `pipelines` and the rest of `io` (the dataset face) needs its own amendment. |
 
 ## The store: where a subject's keys live (`io/include/nxr/io/store.h`; spec `docs/specs/2026-11-14-dataset-wide-runs.md` section 1, phase A)
 
@@ -178,6 +179,43 @@ In the verb-first grammar, each with its own `--help`; they parse, call the func
 | `list templates [--templates DIR ...]` | the released templates on the search path (the `--templates` locations, then `NXR_TEMPLATE_PATH`, then the user setting `template_path`) |
 
 The shared `--dataset` help now says what it is: the path of the dataset's folder. The word "datastore" is gone from the help; `--datastore` stays as the name of the option of `create dataset`, `list datasets` and `delete dataset`, which name the folder that holds dataset folders.
+
+## The Python face (`nxr_neuro`, `bindings/python`; spec `docs/specs/2026-11-17-interoperability.md` section 6.1)
+
+The first slice of the Python face: **one wheel per platform** (Linux x86_64 manylinux_2_28, macOS arm64 13.3+; nanobind, stable ABI, so one wheel serves
+Python 3.12 and newer), built by `.github/workflows/wheels.yml` with cibuildwheel, which runs `bindings/python/tests` on each built wheel. Pinned build
+tools (`bindings/python/pyproject.toml`): nanobind 3.1.0, scikit-build-core 1.1.2, cibuildwheel 4.3.5. The version is the project's (`project(nxr_neuro VERSION ...)` in
+`CMakeLists.txt`); the wheel carries `LICENSE`, `AUTHORS` and `THIRD_PARTY_NOTICES.md` in its `.dist-info/licenses`. Build it by hand:
+
+    cd bindings/python && python -m build --wheel      # or: pip wheel .   (CMake, a C++17 compiler and the fetched dependencies, as the main build)
+
+A binding only binds: each Python function is one call into the library (`nxr_compute` for the maths, `nxr_io_formats` for the formats); the options
+carry the library's names and defaults, and their docstrings are the options structs' comments. This slice does **not** read the dataset format: `open`,
+`subject`, `nn.compute.<verb>` (the command's `compute` verbs), the importers and the exporters come with it.
+
+**Arrays.** A signal is `[channels, samples]`, C-ordered. float32 and float64 are accepted (anything else is converted to float64); the library computes
+in float64 and the result comes back in the input's precision. float64 results are handed over without a copy and may be Fortran-ordered. The C++ releases
+the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subclasses `FormatError`, `UnsupportedError` (also `NotImplementedError`),
+`InvalidArgumentError` (also `ValueError`), `IOError_` (also `OSError`), `NotConvergedError`, `CancelledError`; an option name that is not one of the library's is a `ValueError`.
+
+**`nn.ops`** (the pure functions: no file, no dataset, no recording):
+
+| function | the library's | what |
+|---|---|---|
+| `ops.welch.psd(x, sfreq, segment_samples=256, overlap=0.5, window="hann", periodic=True, detrend="constant", scaling="density", good=None)` | `nxr::welch::Welch` | Welch's PSD; with those defaults equal to `scipy.signal.welch(nperseg=256)`; `good` leaves out segments touching a bad sample |
+| `ops.welch.cross_spectrum(x, sfreq, bins, ..., mean=True, quadrature=False)` | `nxr::welch::CrossWelch` | the cross-spectral density between channels, per group of bins; optionally its imaginary part |
+| `ops.filter.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch` | `nxr::filter` | Brainstorm's zero-phase FIR and IIR filters, options as `FilterOptions` |
+| `ops.pca.pca(x, scale="none")`, `ops.pca.reconstruct(...)` | `nxr::pca` | principal components of observations x features (scikit-learn's `svd_solver="full"`, sign convention fixed) and the rank-k reconstruction |
+| `ops.manifold.eigenmodes(vertices, faces, k, ...)` | `nxr::manifold::solve::eigen` | the Laplace-Beltrami eigenpairs of a triangle mesh (cotangent Laplacian, mixed-Voronoi mass; the shift ladder by default) |
+
+**`nn.io`** (the pure formats, `io/formats`; native, no MATLAB and no Python library at run time): `open_edf` / `read_edf` (EDF, EDF+, BDF, BDF+; `open_bdf` and
+`read_bdf` are the same), `open_brainvision` / `read_brainvision`, `open_eeglab` / `read_eeglab` return a recording: `rec.header` (a dictionary holding every field of
+the file's header, channels with their units and locations, annotations, gaps) and `rec.read(start, stop, first_channel, last_channel)`, a block `[channels, samples]` in SI units, float32
+or float64 as the file holds them. **The span is always stated** (`start` and `stop` in samples, or `all=True` for `read_*`); a block's values never depend on the block. `read_nifti(path)` gives
+`(data, header)` (the file's axes, x first, with the 4 x 4 affine), `read_gifti(path)` a dictionary of arrays with their intents, metadata, labels and transforms, `read_tsv(path)` a dictionary of columns.
+
+**Tests** (`bindings/python/tests`, pytest; synthetic data only): Welch against `scipy.signal.welch` and a NumPy cross-spectrum; the filters against their passbands, stopbands and zero phase; PCA against the NumPy SVD with
+the sign convention; the sphere's eigenvalues l(l+1); the readers against the MNE-Python, nibabel and pandas goldens of `io/formats/test` and their refusals.
 
 ## Build
 

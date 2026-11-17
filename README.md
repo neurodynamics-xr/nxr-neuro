@@ -58,6 +58,25 @@ The macOS binary is **not signed or notarised yet**, so Gatekeeper may refuse a 
 verified"). After checking the SHA-256 sum, remove the quarantine mark once with `xattr -d com.apple.quarantine nxr-neuro`, or allow it in System Settings,
 Privacy & Security.
 
+## Python (a first slice: the wheel)
+
+A Python face over the same C++ library as the command: pure functions on NumPy arrays and the readers of the field's file formats. It is a first
+slice (the dataset, `compute` verbs and exporters come with the dataset format). Wheels for Linux x86_64 (manylinux_2_28) and macOS arm64 (13.3 or newer)
+are built by the `wheels` workflow (Actions, "wheels", on a version tag or by hand) and attached to the run as artefacts; nothing is published to PyPI yet.
+One wheel per platform serves every Python 3.12 or newer. Only NumPy is required.
+
+    pip install wheel-linux-x86_64/nxr_neuro-<version>-cp312-abi3-manylinux_2_28_x86_64.whl      # or the macOS wheel
+
+    import nxr_neuro as nn
+    r = nn.ops.welch.psd(x, sfreq=1000.0)                 # x: [channels, samples]; r.frequencies, r.psd (scipy.signal.welch's values)
+    y = nn.ops.filter.bandpass(x, 8, 13, sfreq=1000.0)
+    c = nn.ops.pca.pca(table)                             # observations x features
+    rec = nn.io.open_edf("rest.edf")                      # header now, samples by block; the span is always yours
+    block = rec.read(start=0, stop=10_000)                # [channels, samples], SI units
+    volume, header = nn.io.read_nifti("t1.nii.gz")
+
+The functions, their options and the readers are listed in [docs/reference.md](docs/reference.md), section "The Python face".
+
 ## The command
 
 One command, verb first: `nxr-neuro <verb> <what> [options]`.

@@ -1,0 +1,71 @@
+[build-system]
+requires = ["scikit-build-core==1.1.2", "nanobind==3.1.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "nxr-neuro"
+dynamic = ["version"]
+description = "nxr-neuro: measuring the spatiotemporal patterns of cortical activity from MEG/EEG. The pure functions and the file-format readers, over NumPy arrays."
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = ["numpy>=1.26"]
+license = "BSD-3-Clause"
+authors = [{ name = "the Neurodynamics-XR contributors" }]
+classifiers = [
+  "Programming Language :: C++",
+  "Programming Language :: Python :: 3",
+  "Topic :: Scientific/Engineering",
+  "Intended Audience :: Science/Research",
+]
+
+[project.urls]
+Repository = "https://github.com/neurodynamics-xr/nxr-neuro"
+
+[project.optional-dependencies]
+test = ["pytest>=8", "scipy>=1.11"]
+
+[tool.scikit-build]
+minimum-version = "build-system.requires"
+cmake.source-dir = "../.."
+cmake.build-type = "Release"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["python/nxr_neuro"]
+wheel.py-api = "cp312"        # the stable ABI: one wheel per platform for Python >= 3.12
+wheel.license-files = []      # LICENSE, AUTHORS and THIRD_PARTY_NOTICES.md are installed into the wheel's metadata by CMake
+install.components = ["nxr_neuro_python"]   # not the dependencies' install rules
+sdist.include = []
+
+[tool.scikit-build.metadata.version]
+provider = "scikit_build_core.metadata.regex"
+input = "../../CMakeLists.txt"
+regex = 'project\(nxr_neuro VERSION (?P<value>[0-9]+\.[0-9]+\.[0-9]+)'
+
+[tool.scikit-build.cmake.define]
+NXR_NEURO_BUILD_PYTHON = "ON"
+NXR_NEURO_PYTHON_ONLY = "ON"
+NXR_NEURO_BUILD_CLI = "OFF"
+NXR_NEURO_BUILD_PIPELINES = "OFF"
+NXR_NEURO_BUILD_MEEG = "OFF"
+NXR_NEURO_BUILD_TESTS = "OFF"
+NXR_NEURO_PORTABLE = "ON"             # SQLite and zstd linked into the module, not the system's
+CMAKE_POSITION_INDEPENDENT_CODE = "ON"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+# cibuildwheel (run from the repository root: `cibuildwheel bindings/python`; the whole repository is the project, this folder the package)
+[tool.cibuildwheel]
+build = "cp312-*"             # one stable-ABI wheel (cp312-abi3) per platform: it serves every Python >= 3.12
+skip = ["*-musllinux_*", "*-win32"]
+build-verbosity = 1
+test-extras = ["test"]
+test-command = "pytest {package}/tests -q -p no:cacheprovider"
+
+[tool.cibuildwheel.linux]
+manylinux-x86_64-image = "manylinux_2_28"
+archs = ["x86_64"]
+before-all = "yum install -y zlib-devel"
+
+[tool.cibuildwheel.macos]
+archs = ["arm64"]
+environment = { MACOSX_DEPLOYMENT_TARGET = "13.3" }   # std::to_chars for floating point, as the release build

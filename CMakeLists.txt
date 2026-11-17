@@ -7,7 +7,7 @@ project(nxr_neuro VERSION 0.1.0 LANGUAGES CXX)
 #   pipelines/  nxr_pipelines  the glue: read with nxr_io, compute with nxr_compute, write with nxr_io, cached
 #   meeg/       nxr_meeg       MEG/EEG source imaging (whitener, depth weights, minimum-norm kernel, chunk-wise covariance); Eigen only; no file I/O
 #               (each modality is its own folder: meeg/ now; pet/ etc. later)
-#   bindings/   MEX · Node · wasm · CLI shells around nxr_compute
+#   bindings/   MEX · Node · wasm · CLI shells around nxr_compute; Python (the wheel): nxr_compute and the pure formats of io/formats
 #   cli/        the `nxr-neuro` command
 # Neither compute nor io includes the other; only pipelines (and cli) see both.
 
@@ -27,6 +27,8 @@ option(NXR_NEURO_BUILD_MEEG      "Build the nxr_meeg library (meeg/): MEG/EEG so
 option(NXR_NEURO_BUILD_PIPELINES "Build the pipeline layer (pipelines/); needs compute and io" ON)
 option(NXR_NEURO_BUILD_CLI       "Build the nxr-neuro command (cli/); needs io (pipelines are in it when built)" ON)
 option(NXR_NEURO_BUILD_BINDINGS  "Build the nxr_compute bindings (bindings/: MEX when MATLAB is found, Node via cmake-js, wasm under Emscripten, CLI smoke)" ON)
+option(NXR_NEURO_BUILD_PYTHON    "Build the Python module (bindings/python; the wheel: pip install, scikit-build-core); needs compute and io" OFF)
+option(NXR_NEURO_PYTHON_ONLY      "With NXR_NEURO_BUILD_PYTHON: build the Python module as the only binding (the wheel build: no MATLAB, Node or smoke shells)" OFF)
 option(NXR_NEURO_PORTABLE      "Release build: SQLite (amalgamation) and zstd (c-blosc's copy) linked into the binary instead of the system's" OFF)
 option(NXR_NEURO_BUILD_TESTS     "Build the C++ tests of every library built, and register them with ctest" ON)
 
@@ -42,6 +44,9 @@ if(NXR_NEURO_BUILD_PIPELINES AND NOT (NXR_NEURO_BUILD_COMPUTE AND NXR_NEURO_BUIL
 endif()
 if(NXR_NEURO_BUILD_CLI AND NOT NXR_NEURO_BUILD_IO)
   message(FATAL_ERROR "NXR_NEURO_BUILD_CLI needs NXR_NEURO_BUILD_IO")
+endif()
+if(NXR_NEURO_BUILD_PYTHON AND NOT (NXR_NEURO_BUILD_BINDINGS AND NXR_NEURO_BUILD_IO))
+  message(FATAL_ERROR "NXR_NEURO_BUILD_PYTHON needs NXR_NEURO_BUILD_BINDINGS and NXR_NEURO_BUILD_IO")
 endif()
 if(NXR_NEURO_BUILD_BINDINGS AND NOT NXR_NEURO_BUILD_COMPUTE)
   message(FATAL_ERROR "NXR_NEURO_BUILD_BINDINGS needs NXR_NEURO_BUILD_COMPUTE")
