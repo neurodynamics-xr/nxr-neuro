@@ -212,13 +212,36 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
 | `ops.manifold.eigenmodes(vertices, faces, k, ...)` | `nxr::manifold::solve::eigen` | the Laplace-Beltrami eigenpairs of a triangle mesh (cotangent Laplacian, mixed-Voronoi mass; the shift ladder by default) |
 
 **`nn.io`** (the pure formats, `io/formats`; native, no MATLAB and no Python library at run time): `open_edf` / `read_edf` (EDF, EDF+, BDF, BDF+; `open_bdf` and
-`read_bdf` are the same), `open_brainvision` / `read_brainvision`, `open_eeglab` / `read_eeglab` return a recording: `rec.header` (a dictionary holding every field of
+`read_bdf` are the same), `open_brainvision` / `read_brainvision`, `open_eeglab` / `read_eeglab`, `open_fif` / `read_fif` (Neuromag / MNE raw; `allow_maxshield=False`) return a recording: `rec.header` (a dictionary holding every field of
 the file's header, channels with their units and locations, annotations, gaps) and `rec.read(start, stop, first_channel, last_channel)`, a block `[channels, samples]` in SI units, float32
 or float64 as the file holds them. **The span is always stated** (`start` and `stop` in samples, or `all=True` for `read_*`); a block's values never depend on the block. `read_nifti(path)` gives
 `(data, header)` (the file's axes, x first, with the 4 x 4 affine), `read_gifti(path)` a dictionary of arrays with their intents, metadata, labels and transforms, `read_tsv(path)` a dictionary of columns.
 
 **Tests** (`bindings/python/tests`, pytest; synthetic data only): Welch against `scipy.signal.welch` and a NumPy cross-spectrum; the filters against their passbands, stopbands and zero phase; PCA against the NumPy SVD with
 the sign convention; the sphere's eigenvalues l(l+1); the readers against the MNE-Python, nibabel and pandas goldens of `io/formats/test` and their refusals.
+
+## The MATLAB face (`+nxr`, `bindings/mex`; spec `docs/specs/2026-11-17-interoperability.md`)
+
+The same first slice as the Python wheel, **with the same names and options**, under the `+nxr` package: `nxr.ops.welch.psd`, `cross_spectrum`;
+`nxr.ops.filter.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch`; `nxr.ops.pca.pca`, `reconstruct`; `nxr.ops.manifold.eigenmodes`; `nxr.io.open_edf` / `open_bdf` /
+`open_brainvision` / `open_eeglab` / `open_fif` (a `nxr.io.Recording`: `header` as a struct, `read(first, last)`, `read_all`), `read_<format>` (header and block in one call, the span
+stated), `read_nifti`, `read_gifti`, `read_tsv`. FIF raw (`io/formats/fif.h`: MNE's raw reader, split files, skips, annotations, the whole `info`) is in both faces (`nn.io.open_fif` / `read_fif`).
+A binding only binds: each function is one command of the one `nxr_compute` mexFunction (`ops.*` and `io.*` commands, `bindings/mex/src/first_slice*.cpp`) into the library; the
+options are name=value with the library's names and defaults, and each function's help text is the options struct's comments (meaning, default, unit). The earlier
+commands (`nxr_compute('create', ...)`, `nxr.manifold.*`) are unchanged.
+
+**Conventions.** Signals are `[channels x samples]`. Precision follows the input (single in, single out; integers and logicals are computed as double); a recording reads as the file holds it
+(single for integer and 32-bit float files, double for 64-bit). **Indices are 1-based** (faces, bins, samples, channels, the gaps' first sample, a GIFTI triangle's vertex indices),
+the wheel's 0-based; the conversion is made at the boundary, once. Per-component lists (`singular_values`, `mean`, ...) are rows, `eigenvalues` a column; a cross-spectrum is `[groups x channels x channels]`.
+Errors have identifiers: `nxr:invalidArgument`, `nxr:formatError`, `nxr:unsupported`, `nxr:io`, and the library's (`nxr:...`).
+
+**Build and symbols.** `cmake --build build --target nxr_compute_mex` (MATLAB found by CMake; `bindings/mex/matlab/README.md`). The MEX shares MATLAB's process, which ships its own HDF5 and zlib: HDF5 and matio are
+linked statically and hidden (`nxr_io_hide_static_symbols`), zlib too where a static archive is found (`-DZLIB_USE_STATIC_LIBS=ON`; Linux, and Homebrew's on macOS), the C++ runtime on Linux; only
+`mexFunction` and `mexfilerequiredapiversion` are exported. SQLite (the pinned amalgamation) and zstd are io's and are not in it. `bindings/mex/test/check_symbols.sh` verifies it (`nm`, `otool`/`ldd`).
+
+**Tests and CI.** `bindings/mex/test/first_slice` (class-based `matlab.unittest`): the first slice against the C++ goldens (scipy, Brainstorm, numpy, MNE-Python, nibabel, pandas) and the same synthetic inputs and
+expected values as `bindings/python/tests`. `.github/workflows/matlab.yml` builds the MEX on Linux x86_64 and macOS arm64 and runs them with `matlab-actions/setup-matlab` and `run-tests` (tags, dispatch, and pull
+requests touching `bindings/mex/**`). Not in this slice: the pipeline commands (`nxr.compute.<verb>`), which wait for io's task-level API.
 
 ## Build
 
