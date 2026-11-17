@@ -1,5 +1,7 @@
 // nxr-pipelines — what a pipeline reads from a subject's rows, with nxr-io: a stored surface (its row, positions and faces).
 #pragma once
+
+#include "nxr/hodge_weights.h"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -46,6 +48,13 @@ SensorGeometry sensor_geometry(nxr::io::SubjectWriter& sub, const std::string& c
 std::string coordinate_system_of(nxr::io::SubjectWriter& sub, const std::string& manifold_id);
 // The length unit of a manifold's coordinate system ("m", "mm"; "" when it records none).
 std::string coordinate_unit_of(nxr::io::SubjectWriter& sub, const std::string& manifold_id);
+// A HODGE-DIRAC PACKAGE as a node reads it: the basis of its first `modes` modes (null: all), the input surface's positions, the package's identity.
+struct HodgePackageData {
+  nxr::hodge::Basis basis;
+  std::vector<double> input_positions;    // [V_in x 3] the kernel's sources
+  std::string input_surface_id, stem, axis_id, id;
+};
+HodgePackageData hodge_package_data(nxr::io::SubjectWriter& sub, const std::string& eigenvectors_name, const std::optional<std::int64_t>& modes);
 // The type of each channel of a channels manifold (its 'type' labelling); empty when there is none.
 std::vector<std::string> channel_types_of(nxr::io::SubjectWriter& sub, const std::string& channels_id);
 

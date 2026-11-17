@@ -950,8 +950,28 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         constants[name] = std::move(a);
       }
     }
+    for (const auto& [port, name] : n.in)                                   // A HODGE-DIRAC PACKAGE (its eigenvectors' operator): its basis, mass and meshes, read by pipelines
+      if (constants.count(name) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row &&
+          nxr::io::opt_text(*P.found.at(name).row, "kind") == std::optional<std::string>("eigenvectors")) {
+        const nxr::pipelines::HodgePackageData h = nxr::pipelines::hodge_package_data(sub, text(*P.found.at(name).row, "name"), std::nullopt);
+        nxr::graph::Array a;
+        a.rows = h.basis.P.rows(); a.cols = h.basis.P.cols();
+        a.data.resize(static_cast<std::size_t>(a.rows * a.cols));
+        for (Eigen::Index k = 0; k < h.basis.P.rows(); ++k) for (Eigen::Index v = 0; v < h.basis.P.cols(); ++v) a.data[static_cast<std::size_t>(k * a.cols + v)] = h.basis.P(k, v);
+        a.meta["hodge"] = true;
+        a.meta["mu"] = std::vector<double>(h.basis.mu.data(), h.basis.mu.data() + h.basis.mu.size());
+        a.meta["kind"] = h.basis.kind;
+        a.meta["mass"] = std::vector<double>(h.basis.mass.data(), h.basis.mass.data() + h.basis.mass.size());
+        a.meta["positions"] = std::vector<double>(h.basis.positions.data(), h.basis.positions.data() + h.basis.positions.size());
+        a.meta["faces"] = std::vector<std::int32_t>(h.basis.faces.data(), h.basis.faces.data() + h.basis.faces.size());
+        a.meta["keep"] = h.basis.keep;
+        a.meta["input_positions"] = h.input_positions;
+        a.meta["input_surface_id"] = h.input_surface_id;
+        a.meta["name"] = h.stem; a.meta["id"] = h.id; a.meta["axis_id"] = h.axis_id;
+        constants[name] = std::move(a);
+      }
     for (const auto& [port, name] : n.in)
-      if (constants.count(name) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row) constants[name] = operator_constant(bound, sub, *P.found.at(name).row, name);
+      if (constants.count(name) && !constants.at(name).meta.value("hodge", false) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row) constants[name] = operator_constant(bound, sub, *P.found.at(name).row, name);
   }
   // EIGENMODES FIRST (the spec, question 6): when a step needs a surface's eigenmodes and none are stored, the runner runs the `eigenmodes` pipeline as its OWN run (its own provenance and
   // cache key), says what it made and why, and starts again: nothing is ever stored hidden inside this run. The Chebyshev series stays the announced fallback (`transform: chebyshev`).

@@ -1211,11 +1211,92 @@ ng::NodeSpec filter_apply() {
   return n;
 }
 
+
+// ── hodge.weights ───────────────────────────────────────────────────────────────────────────────────────────────
+// THE FUSED HODGE-DIRAC WEIGHTS B [2K x channels] (nxr.inverse.fused fused_weights; nxr-compute hodgeWeights): a free kernel carried onto the package's glued surface, then each
+// mode's coefficients a (normal-current, rows 0..K) and b (flow: an exact mode's divergence potential, a coexact mode's stream function, rows K..2K) as linear maps of the
+// channels. Handed on as an operator from the kernel's channels: a node that applies a kernel applies it (band power, cross-spectra of the modes).
+nxr::hodge::Basis basis_of(const ng::Array& H, std::optional<std::int64_t> modes) {
+  nxr::hodge::Basis b;
+  const std::int64_t Ktot = H.rows, Vg = H.cols, K = modes ? std::min(*modes, Ktot) : Ktot;
+  b.P.resize(K, Vg);
+  for (std::int64_t k = 0; k < K; ++k) for (std::int64_t v = 0; v < Vg; ++v) b.P(k, v) = H.data[static_cast<std::size_t>(k * Vg + v)];
+  const std::vector<double> mu = H.meta.at("mu").get<std::vector<double>>();
+  const std::vector<int> kind = H.meta.at("kind").get<std::vector<int>>();
+  b.mu = Eigen::Map<const Eigen::VectorXd>(mu.data(), K);
+  b.kind.assign(kind.begin(), kind.begin() + K);
+  const std::vector<double> mass = H.meta.at("mass").get<std::vector<double>>();
+  b.mass = Eigen::Map<const Eigen::VectorXd>(mass.data(), static_cast<Eigen::Index>(mass.size()));
+  const std::vector<double> pos = H.meta.at("positions").get<std::vector<double>>();
+  b.positions = Eigen::Map<const nxr::hodge::RowMat3>(pos.data(), Vg, 3);
+  const std::vector<std::int32_t> faces = H.meta.at("faces").get<std::vector<std::int32_t>>();
+  b.faces = Eigen::Map<const nxr::hodge::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
+  b.keep = H.meta.at("keep").get<std::vector<std::int64_t>>();
+  return b;
+}
+struct WeightsPrepared { ng::Array K, H; std::optional<std::int64_t> modes; };
+ng::NodeSpec hodge_weights() {
+  ng::NodeSpec n;
+  n.name = "hodge.weights";
+  n.kind = ng::Kind::array;
+  n.inputs = {{"kernel", "a free-orientation inverse kernel on the package's input surface", false}, {"package", "a Hodge-Dirac package (its eigenvectors, as the runner hands them over)", false}};
+  n.outputs = {{"weights", "B [2K x the kernel's channels]: rows 0..K each mode's normal-current coefficient a, rows K..2K its flow coefficient b (an operator from the channels)", false}};
+  n.parameters = {{"modes", Json(), "the first K modes of the package; null: all", "-", {}, true}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "solved in double, once a run");
+  n.matches = "nxr.inverse.fused fused_weights; compute nxr::hodge::gluedKernel, hodgeWeights";
+  n.description = "the fused Hodge-Dirac weights of a free kernel: each mode's normal-current and flow coefficients as linear maps of the channels";
+  n.plan = [](const ng::Types& in, const Json&) {
+    for (const char* k : {"kernel", "package"}) if (!in.count(k)) ng::refuse(std::string("hodge.weights: ") + k + " is not given");
+    ng::Planned out;
+    ng::PortType t;
+    t.cls = ng::PortClass::operator_;
+    t.facts["cls"] = "operator";
+    out.out["weights"] = t;
+    return out;
+  };
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
+    for (const char* k : {"kernel", "package"}) if (!c.count(k) || c.at(k).meta.value("placeholder", false)) ng::refuse(std::string("hodge.weights: ") + k + " was not handed over");
+    if (!c.at("package").meta.value("hodge", false)) ng::refuse("hodge.weights: package is not a Hodge-Dirac package (an operator of kind eigenvectors, <stem>_eigenvectors)");
+    WeightsPrepared w{c.at("kernel"), c.at("package"), std::nullopt};
+    if (p.contains("modes") && !p["modes"].is_null()) w.modes = p["modes"].get<std::int64_t>();
+    return std::any(std::move(w));
+  };
+  n.run = [](const std::any& prepared, const ng::Arrays&) {
+    const WeightsPrepared& w = std::any_cast<const WeightsPrepared&>(prepared);
+    const ng::Array& KA = w.K;
+    const std::vector<std::int32_t> chans = KA.meta.value("channels", std::vector<std::int32_t>());
+    const std::int64_t M = static_cast<std::int64_t>(chans.size());
+    const std::vector<double> pin = w.H.meta.at("input_positions").get<std::vector<double>>();
+    const std::int64_t Vin = static_cast<std::int64_t>(pin.size() / 3);
+    if (KA.meta.value("to_value_type", std::string("vector3")) == "scalar" || KA.rows != 3 * Vin || KA.cols != M)
+      ng::refuse("hodge.weights: " + KA.meta.value("name", std::string()) + " is not a free-orientation kernel of the package's input surface (" + std::to_string(KA.rows) + " rows for " + std::to_string(Vin) + " sources)");
+    const nxr::hodge::Basis basis = basis_of(w.H, w.modes);
+    if (basis.mu.size() < 2) ng::refuse("hodge.weights: at least 2 modes");
+    const Eigen::MatrixXd W = Eigen::Map<const MatRM>(KA.data.data(), KA.rows, M);
+    const Eigen::MatrixXd Wg = nxr::hodge::gluedKernel(W, basis, Eigen::Map<const nxr::hodge::RowMat3>(pin.data(), Vin, 3));
+    const Eigen::MatrixXd B = nxr::hodge::hodgeWeights(basis, Wg);
+    ng::Array a;
+    a.rows = B.rows(); a.cols = B.cols();
+    a.data.resize(static_cast<std::size_t>(a.rows * a.cols));
+    for (Eigen::Index i = 0; i < B.rows(); ++i) for (Eigen::Index j = 0; j < B.cols(); ++j) a.data[static_cast<std::size_t>(i * a.cols + j)] = B(i, j);
+    a.meta["channels"] = chans;
+    a.meta["name"] = KA.meta.value("name", std::string()) + "+" + w.H.meta.value("name", std::string());
+    a.meta["to_value_type"] = "scalar";
+    a.meta["unit"] = "mode weight unit";
+    a.meta["modes"] = basis.mu.size();
+    a.meta["mu"] = std::vector<double>(basis.mu.data(), basis.mu.data() + basis.mu.size());
+    a.meta["kind"] = basis.kind;
+    a.meta["axis_id"] = w.H.meta.value("axis_id", std::string());
+    return ng::Arrays{{"weights", std::move(a)}};
+  };
+  return n;
+}
+
 }  // namespace
 
 void register_meeg_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum(), phase_gradient(), channel_mean(), filter_apply()})
+  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum(), phase_gradient(), channel_mean(), filter_apply(), hodge_weights()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

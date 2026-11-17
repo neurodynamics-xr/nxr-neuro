@@ -55,7 +55,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --band@run wishart	LO,HI	The frequency band the stored windows are of.	required	Hz
 --band@query measurements	N	The band (the row's within-code) to read when the pyramid's joint selection holds several.	none (all bands, or the only one)	-
 --bands	NAME:LO-HI,...	The frequency bands to compute, each a name and its low and high edge (the mean over the bins from LO to HI, inclusive); pyramid build takes LO-HI,... octave bands without names.	Brainstorm's bands (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90); pyramid build: octaves 1-2 to 32-64	Hz
---bands@run hodgepower	NAME:LO-HI,...	The frequency bands to compute power in, as name:lo-hi in Hz, e.g. alpha:8-12.	delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90	Hz
 --bands@run pyramid	LO-HI,...	Frequency bands to build, as comma-separated LO-HI edges (half-open [LO, HI)).	octaves 1-2 to 32-64 Hz	Hz
 --bands@run quadrature	NAME:LO-HI,...	Frequency bands to analyse, each a name and edges; the band's cross-spectrum is the mean of the bins from LO to HI inclusive.	Brainstorm's bands (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90)	Hz
 --bandwidth	HZ	Notch width: the 3 dB bandwidth of each notch	1	Hz
@@ -128,7 +127,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --depth@run tiles	LEVEL	Finest level of the tile ladder written; level l has 2^l tiles per connected piece of the surface.	the finest level every piece of the surface reaches	level
 --depth@reduce pyramid	LEVEL	Level of the group tree at which the members' pyramids are summed, cell for cell.	the atlas depth of the group tree definitions	level
 --detrend	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (the Brainstorm option set)	-
---detrend@run hodgepower	none|constant|linear	What is removed from each Welch segment before the window.	constant	-
 --detrend@run quadrature	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (set tiles, brainstorm, scipy); none (nxr-chain)	-
 --detrend@run speedspectrum	none|constant|linear	What is removed from each segment before windowing	constant	-
 --divisor	samples-minus-blocks|samples|samples-minus-one	What the covariance sum is divided by: samples minus the number of blocks, the samples, or samples minus one.	samples-minus-blocks	-
@@ -235,7 +233,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --kernel	NAME	Name of the stored inverse kernel (the map from channels to sources) to apply.	the subject's only kernel	-
 --kernel@run cellquadrature	NAME	Name of the stored inverse kernel (free or fixed orientation) with the spatial band folded in.	the subject's only kernel	-
 --kernel@run cyclepattern	NAME	Name of the stored free-orientation inverse kernel that maps the cross-spectrum to sources.	the subject's only kernel	-
---kernel@run hodgepower	NAME	The free-orientation inverse kernel the recording is read through.	the subject's only kernel	-
 --kernel@run opticalflow	NAME	Name of the stored inverse kernel that maps the channels to sources on the cortex.	the subject's only kernel	-
 --kernel@run pointspread	NAME	The inverse kernel the planted currents are read back through	the subject's only kernel of the forward model's sources	-
 --kernel@run pyramid	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
@@ -312,7 +309,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --modes	K	Number of Hodge-Dirac eigenmodes (eigen solve, dataset create: how many to solve; pointspread, cellquadrature, patches: size of the package when it must be computed, 0 = standard; speedspectrum, hodgepower: use the first K of the stored package)	eigen solve: 3000; dataset create: none; speedspectrum, hodgepower: all; pointspread, cellquadrature, patches: 0	modes
 --modes@run cellquadrature	K	Size of the Hodge-Dirac eigenmode package when it must be computed for the spatial band (0 = standard size).	0	modes
 --modes@run eigenmodes	K	About this many positive Hodge-Dirac modes are kept, half exact and half coexact.	3000	modes
---modes@run hodgepower	N	Use the first N modes of the Hodge-Dirac package.	all modes	-
 --modes@run patches	N	When the eigenmodes are computed, how many (more if the band needs it); 0 is the standard 3000.	0	-
 --modes@run pointspread	N	Number of eigenmodes to compute when the spatial filter package is built; 0 uses the standard size, or more when the band needs it	0	-
 --modes@run speedspectrum	N	Use only the first N modes of the Hodge-Dirac package	all modes	-
@@ -322,7 +318,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name	NAME	Name of what is stored: the dataset, subject or surface, or the stem of the stored result (filters: <recording>_<verb>).	derived from the inputs	-
 --name@add surface	NAME	Name the surface is stored under for the subject.	the mesh file's name without its extension, made safe as a node name	-
 --name@run cyclepattern	NAME	Stem of the stored cycle-pattern results.	<cross-spectrum without _windows>_cycle	-
---name@run hodgepower	NAME	The stem of the names of the stored fields (one current and one flow field per band).	<recording>_<kernel>_hodge	-
 --name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
 --name@run pointspread	NAME	Name of the stored point-spread statistic	pointspread.<kernel>	-
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
@@ -338,7 +333,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@read crossspectrum	NAME	The stored band-resolved cross-spectrum to read, named <stem>_<band>_bins (made by run crossspectrum --resolve bins).	required	-
 --no-average-reference		Do not re-reference the EEG gain rows and covariance to the average	off	-
 --no-bad-segments		Keep the recording's marked bad segments in the estimate instead of leaving out the segments that touch them.	off (bad segments are left out)	-
---no-bad-segments@run hodgepower		Keep Welch segments that touch the recording's bad segments.	off (they are left out)	-
 --no-bad-segments@run quadrature		Also use segments that overlap the recording's marked bad segments.	off (bad segments excluded)	-
 --no-bad-segments@run speedspectrum		Keep segments that touch the recording's bad segments instead of leaving them out	off	-
 --no-depth		Turn depth weighting off.	off (depth weighting on)	-
@@ -385,14 +379,12 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --over@run repeat	NAME	The tile-level partition both recordings were measured over.	the one both recordings have (several is refused)	-
 --over@run statistic	NAME	The partition measured over, by name: a stored selection whose members were measured (a parcellation, a level of a time ladder).	required	-
 --overlap	FRACTION	Fraction by which successive Welch segments overlap.	0.5 (the Brainstorm option set)	fraction
---overlap@run hodgepower	FRACTION	The fraction of a Welch segment shared with the next, in [0, 1).	0.5	fraction
 --overlap@run quadrature	F	Fraction of a Welch segment shared with the next; under --set tiles the hop must also be a tile (0, 0.5, 0.75, ...).	0.5	fraction
 --overlap@run speedspectrum	FRACTION	Fraction of a segment shared with the next, in [0, 1)	0.5	fraction
 --oversample	X	Oversampling of each filterbank member's own sample rate.	2.0	-
 --oversample@run opticalflow	X	Factor by which the filter bank's own sampling rate exceeds the number of frequency bins it keeps.	2	-
 --package	STEM	Stem of the stored Hodge-Dirac eigenmode package to use	the one of the kernel's surface	-
 --package@run cyclepattern	STEM	Stem of the stored Hodge-Dirac eigenmode package (with full forms) on the kernel's surface to use.	the one of the kernel's surface	-
---package@run hodgepower	NAME	The Hodge-Dirac package's name stem (hodgeDirac or hodgeDirac__<surface>).	the package of the kernel's surface	-
 --package@run opticalflow	STEM	Stem of the stored Hodge-Dirac eigenmode package used for the flow.	the one of the kernel's surface	-
 --package@run speedspectrum	STEM	Stem of the stored Hodge-Dirac mode package to use	the package of the kernel's surface	-
 --padding	mean|zeros	How the filter's edge transient is padded: with the mean of the signal's transient or with zeros.	mean	-
@@ -403,7 +395,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --patterns	Q	Number of leading cycle patterns kept per spatial band.	3	-
 --patterns@run cyclepattern	Q	Number of leading cycle patterns kept per spatial band (a whole number, at least 1).	3	-
 --periodic		Use the periodic (DFT-even) form of the taper instead of the symmetric form.	off for the default and brainstorm sets (symmetric); on for scipy	-
---periodic@run hodgepower		Use the periodic (DFT-even) form of the window.	off (set tiles: symmetric)	-
 --periodic@run quadrature		Use the periodic (DFT-even) form of the window; an alternative to --symmetric.	set-dependent (symmetric in tiles and brainstorm; periodic in scipy, nxr-chain)	-
 --periodic@run speedspectrum		Use the periodic (DFT-even) form of the window	off (the default set uses the symmetric form)	-
 --phase-of	current|stream	Signal whose phase is taken: the band's current vector field, or its scalar stream function	current	-
@@ -432,7 +423,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording-b@run null	NAME	A second recording, to test the run-to-run repeat as well (draws made in step)	none	-
 --recording-b@run repeat	NAME	Second recording, whose crossings are compared with the first; the order does not change the result.	required	-
 --recording@run constantq	NAME	Recording whose time line gets the ladder (alternative to --line and --all).	none	-
---recording@run hodgepower	NAME	The sensor recording whose cross-spectrum is read through the kernel.	required	-
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
 --recording@run pointspread	NAME	The recording whose band chain the statistic is of	required	-
 --recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
@@ -471,7 +461,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --scale-voices@run opticalflow	N	perscale only: members of the spatial filter bank per octave.	3	voices/octave
 --scale@add surface	X	Factor multiplied into every vertex coordinate of the mesh file to bring it to metres.	1	-
 --scaling	density|spectrum|chain	How the spectrum is scaled: power per Hz, power per bin, or the chain scaling (measure export: stored|density|power|amplitude|amplitude-density|db|db-density, applied to the stored values).	density (measure export: stored)	-
---scaling@run hodgepower	density|spectrum|chain	How the Welch power is scaled: per Hz, as a power spectrum, or as nxr's chain.	density	-
 --scaling@run quadrature	density|spectrum|chain	Scaling of the Welch spectrum: power per Hz, power per bin, or nxr's chain scaling.	density	-
 --scaling@run speedspectrum	density|spectrum|chain	Scaling of the spectral estimate: power per Hz, power per bin, or the nxr spectral chain's convention	density	-
 --scaling@export measurements	NAME	Scaling applied to the values at read: stored, density, power, amplitude, amplitude-density, db or db-density (needs the Field's recorded spectral scaling)	stored	-
@@ -479,23 +468,19 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --seed@run wishart	N	Seed of the random draws; the same seed reproduces the same null.	1	-
 --seed@read crossspectrum	A	Read channel A (a recording channel index) against every channel of the statistic; an alternative to --pair.	none (one of --pair or --seed)	-
 --segment-level	L	Welch segment of 2^L samples (an alternative to the segment length in seconds or samples).	none (the segment length option is used)	level
---segment-level@run hodgepower	K	The Welch segment is a tile of 2^K samples (set tiles only); alternative to --segment-seconds and --segment-samples.	round(log2(4 s x sampling rate))	level
 --segment-level@run quadrature	K	Welch segment as a tile of 2^K samples; only under --set tiles; an alternative to --segment-seconds and --segment-samples.	the level nearest 4 s	level
 )TBL",
 R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^level samples; an alternative to --segment-seconds and --segment-samples	none	level
 --segment-samples	N	Welch segment length in samples; wins over --segment-seconds.	derived from the 4 s segment	samples
---segment-samples@run hodgepower	N	The Welch segment length in samples; alternative to --segment-seconds and --segment-level.	none	samples
 --segment-samples@run quadrature	N	Welch segment length in samples (a power of two under --set tiles); an alternative to --segment-seconds and --segment-level.	none	samples
 --segment-samples@run speedspectrum	N	Segment length in samples; an alternative to --segment-seconds and --segment-level	none	samples
 --segment-seconds	SECONDS	Length of each Welch segment (under the tiles setting it is snapped to a power-of-two number of samples)	4	s
---segment-seconds@run hodgepower	SECONDS	The Welch segment length in seconds; alternative to --segment-samples and --segment-level.	4	s
 --segment-seconds@run quadrature	SECONDS	Welch segment length; under --set tiles it snaps to the nearest 2^k-sample tile.	4	s
 --segment-seconds@run speedspectrum	SECONDS	Segment length in seconds; under the tiles set it is rounded to a 2^k-sample segment	4	s
 --selection	NAME	The stored joint Selection (space x time cells) whose measurement is read.	none (required)	-
 --selection@query measurements	NAME	The pyramid's joint selection or spatial partition to read, by name or id; it must be complete.	required	-
 --sensor-weight-exponent	P	Exponent of the distance weighting used to fit each sensor's overlapping sphere.	4	-
 --set	NAME=VALUE	Set a pipeline parameter, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); repeatable.	none	-
---set@run hodgepower	tiles|brainstorm|scipy|nxr-chain	The named set of Welch options to start from: tiles (Brainstorm's taper, detrend and scaling on 2^k-sample segments), brainstorm, scipy or nxr-chain.	tiles	-
 --set@run null	NAME=VALUE	Parameter of every null draw (repeatable); {recording} stands for each recording's name	none	-
 --set@run quadrature	tiles|brainstorm|scipy|nxr-chain	Option set for the Welch estimate: tiles (Brainstorm's taper and detrend on 2^k-sample segments), brainstorm, scipy or nxr-chain.	tiles	-
 --set@run spatialnull	NAME=VALUE	A parameter of every null draw's spatial-events run (levels, threshold, band, ...); repeatable.	none (the data's parameters)	-
@@ -581,7 +566,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --surface@import templates	NAME	The surface the template maps are placed on	the subject's surface with each map's vertex count	-
 --surface@list spatial-bands	NAME	The subject's surface whose spatial band bank is listed	the subject's primary surface	-
 --symmetric		Use the symmetric form of the taper window instead of the periodic one	off (the window form follows --set)	-
---symmetric@run hodgepower		Use the symmetric form of the window.	off (set tiles: symmetric)	-
 --symmetric@run quadrature		Use the symmetric form of the window (as MATLAB's hamming(n)); an alternative to --periodic.	set-dependent (symmetric in tiles and brainstorm)	-
 --symmetric@run speedspectrum		Use the symmetric form of the window (MATLAB-style)	on under the default set	-
 --table	NAME	Name of the exported table.	none (required)	-
@@ -665,7 +649,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run tiles	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run hodgepower	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run speedspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -786,7 +769,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --window	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming (default and brainstorm sets); hann (scipy set)	-
 --window-seconds	SECONDS	Window length for the analytic estimator or the cycle patterns, snapped to the nearest time-tile level (alternative to --level)	crossspectrum: the finest of the bands' windows; cyclepattern: 4	s
 --window-seconds@run cyclepattern	SECONDS	Window length, snapped to the nearest time-tile level; ignored when --level is given.	4	s
---window@run hodgepower	hann|hamming|blackman|rectangular	The taper applied to each Welch segment.	hamming	-
 --window@run quadrature	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming (set tiles, brainstorm); hann (scipy, nxr-chain)	-
 --window@run speedspectrum	hann|hamming|blackman|rectangular	Taper applied to each segment	hamming	-
 --windows	NAME	The stored analytic cross-spectrum windows (named <stem>_<band>_windows) the bursts are read from.	none (required)	-
@@ -1375,14 +1357,6 @@ group: Spectra
 summary: The quadrature spectrum of the sources per band: fraction, energy map and leading pairs.
 span: yes
 opts: --bands --chunks --dataset* --detrend --kernel --name --no-bad-segments --no-levi-civita --overlap --pairs --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --tile-levels --tile-max-level --tiles --window --templates+
-)TBL",
-R"TBL(@ run hodgepower
-old: hodgepower compute
-alias: refused
-group: Spectra
-summary: The band power of the Hodge-Dirac eigenmode coefficients of a free-orientation kernel.
-span: yes
-opts: --bands --chunks --dataset* --detrend --kernel --modes --name --no-bad-segments --overlap --package --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --start --stop --subject* --symmetric --window --templates+
 )TBL",
 R"TBL(@ run speedspectrum
 old: speedspectrum compute

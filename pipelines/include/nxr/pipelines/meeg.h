@@ -353,7 +353,6 @@ struct HodgePowerResult {
   Eigen::MatrixXd power;                                  // [2K x bands] (empty on a cache hit)
 };
 // A fixed-orientation kernel is an nxr::io::Error: the coefficients need the current's three components.
-HodgePowerResult hodgepower_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const HodgePowerOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 
 // ── The apparent motion of a source map, read in the Hodge–Dirac modes ──

@@ -1062,6 +1062,36 @@ nxr::hodge::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& pk) {
   return basis;
 }
 
+}  // namespace
+
+// A HODGE-DIRAC PACKAGE as a node reads it (the runner hands it over: a node reads no store): the basis of its first `modes` modes (all: null), the input surface's
+// positions (the kernel's sources) and the package's identity
+HodgePackageData hodge_package_data(SubjectWriter& sub, const std::string& eigenvectors_name, const std::optional<std::int64_t>& modes) {
+  const std::string suffix = "_eigenvectors";
+  if (eigenvectors_name.size() <= suffix.size() || eigenvectors_name.compare(eigenvectors_name.size() - suffix.size(), suffix.size(), suffix) != 0)
+    invalid(eigenvectors_name + ": not a Hodge-Dirac package's eigenvectors (<stem>_eigenvectors)");
+  const std::string stem = eigenvectors_name.substr(0, eigenvectors_name.size() - suffix.size());
+  const auto opr = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'eigenvectors' AND name = ? AND status = 'complete'", {V(sub.id()), V(eigenvectors_name)});
+  if (!opr) missing(sub.name() + ": no stored Hodge-Dirac package '" + stem + "'");
+  const auto gm = sub.db().read("manifold", text(*opr, "to_manifold_id"));
+  if (!gm) missing(stem + ": its eigenvectors' target surface is not stored");
+  const Json gp = Json::parse(opt_text(*gm, "producer_json").value_or("{}"), nullptr, false);
+  const std::string input = gp.is_object() && gp.contains("glued_from") ? gp["glued_from"].get<std::string>() : text(*gm, "name");   // the glued surface's input, or itself
+  const auto smf = sub.db().one("SELECT * FROM manifold WHERE subject_id = ? AND name = ? AND type = 'surface' AND status = 'complete'", {V(sub.id()), V(input)});
+  if (!smf) missing(stem + ": its input surface '" + input + "' is not stored");
+  const HodgePackage pk = resolve_hodge_package(sub, *smf, stem, modes, "hodge package");
+  HodgePackageData d;
+  d.basis = load_hodge_basis(sub, pk);
+  d.input_positions = pk.in.vertices;
+  d.input_surface_id = pk.in.id;
+  d.stem = stem;
+  d.axis_id = pk.axis_id;
+  d.id = text(pk.opr, "id");
+  return d;
+}
+
+namespace {
+
 
 // ── phasegradient at a spatial scale: the band's current kernel, its phase sums, the reading of its phase field in the modes ──
 // ── SHARED BY THE SPATIAL-BAND VERBS (phasegradient --spatial-band, cyclepattern) ──
@@ -1802,173 +1832,6 @@ CyclePatternResult cyclepattern_compute(DatasetWriter& ds, SubjectWriter& sub, c
   return res;
 }
 
-HodgePowerResult hodgepower_compute(DatasetWriter& ds, SubjectWriter& sub, const HodgePowerOptions& opt, const std::function<void(const Json&)>& progress) {
-  auto say = [&](const Json& j) { if (progress) progress(j); };
-  const RecordingInput rec = read_recording(sub, opt.recording);
-  if (opt.bands.empty()) invalid("hodgepower: at least one band");
-  // the kernel: FREE orientation only
-  Row kern;
-  if (opt.kernel) {
-    const auto r = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.kernel)});
-    if (!r) missing(sub.name() + ": no inverse kernel named '" + *opt.kernel + "'");
-    kern = *r;
-  } else {
-    const auto rs = sub.db().all("SELECT * FROM operator WHERE subject_id = ? AND kind = 'inverse kernel' AND status = 'complete' AND path IS NOT NULL", {V(sub.id())});
-    if (rs.size() != 1) invalid(sub.name() + ": " + std::to_string(rs.size()) + " inverse kernels; name one with --kernel");
-    kern = rs[0];
-  }
-  const std::string kname = text(kern, "name"), surface_id = text(kern, "to_manifold_id");
-  if (text(kern, "from_manifold_id") != rec.channels_id) invalid(kname + " is on other channels than " + opt.recording);
-  const auto ksel = sub.db().read("selection", text(kern, "from_selection_id"));
-  if (!ksel || is_null(*ksel, "array_path")) invalid(kname + ": its channels (from_selection) are not stored");
-  const std::vector<std::int32_t> chans = read_all<std::int32_t>(sub.store(), text(*ksel, "array_path"));
-  const std::int64_t M = static_cast<std::int64_t>(chans.size());
-  for (std::int32_t c : chans) if (c < 0 || c >= rec.n_channels) invalid(kname + ": a channel index is outside the recording's channels");
-  std::vector<std::int64_t> kshape;
-  const std::vector<float> kf = read_all<float>(sub.store(), text(kern, "path"), &kshape);
-  if (kshape.size() != 2 || kshape[1] != M) invalid(kname + ": its array is not [rows x " + std::to_string(M) + " channels]");
-  const auto smf = sub.db().one("SELECT name, n_vertices FROM manifold WHERE id = ?", {V(surface_id)});
-  if (!smf) missing(kname + ": its target surface is not stored");
-  const std::int64_t Vin = integer(*smf, "n_vertices");
-  if (opt_text(kern, "to_value_type").value_or("vector3") == "scalar" || kshape[0] != 3 * Vin)
-    invalid(kname + " is a fixed-orientation kernel (" + std::to_string(kshape[0]) + " rows for " + std::to_string(Vin) + " sources): the Hodge-Dirac coefficients need the current's three components; "
-            "compute a free-orientation kernel (inverse compute with unconstrained orientations)");
-  // the stored Hodge–Dirac package
-  const HodgePackage pk = resolve_hodge_package(sub, *smf, opt.package, opt.modes, "hodgepower");
-  const SurfaceInput& in = pk.in;
-  const std::string& stem_pkg = pk.stem;
-  const std::optional<Row> opr = pk.opr;
-  const std::string& axis_id = pk.axis_id;
-  const SurfaceInput& glued = pk.glued;
-  const std::int64_t Vg = pk.Vg, K = pk.K, Ktot = pk.Ktot;
-  (void)glued; (void)Ktot;
-
-  nxr::welch::WelchOptions wo = opt.welch;
-  wo.sfreq = rec.sfreq;
-  const int seg_level = welch_segment("hodgepower", opt.option_set, opt.segment_samples, opt.segment_seconds, opt.segment_level, rec.sfreq, wo);   // the tile set: 2^k samples
-  const nxr::io::Span span = span_of(rec, opt.chunks, opt.start, opt.stop, seg_level);   // what is loaded: one chunk by default (the chunk service); snapped to the segment's tiles
-  const std::int64_t s0 = span.s0, s1 = span.s1;
-  [[maybe_unused]] const double start_s = rec.t0 + static_cast<double>(s0) / rec.sfreq, stop_s = rec.t0 + static_cast<double>(s1) / rec.sfreq;
-  if (wo.segmentSamples < 2) invalid("hodgepower: a segment holds at least 2 samples");
-  if (s1 - s0 < static_cast<std::int64_t>(wo.segmentSamples))
-    invalid(opt.recording + ": the window holds " + std::to_string(std::max<std::int64_t>(0, s1 - s0)) + " samples, fewer than one segment (" + std::to_string(wo.segmentSamples) + ")");
-  const std::size_t nbins = wo.segmentSamples / 2 + 1;
-  const double df = rec.sfreq / static_cast<double>(wo.segmentSamples);
-  std::vector<nxr::welch::BinGroup> groups;
-  Json band_bins = Json::array();
-  for (const nxr::meeg::Band& b : opt.bands) {
-    if (!(b.hi >= b.lo)) invalid("hodgepower: band " + b.name + " has hi < lo");
-    const double first = std::ceil(b.lo / df - 1e-9), last = std::floor(b.hi / df + 1e-9);
-    if (first > last || last < 0 || first >= static_cast<double>(nbins)) invalid("hodgepower: band " + b.name + " (" + std::to_string(b.lo) + "-" + std::to_string(b.hi) + " Hz) holds no frequency bin (resolution " + std::to_string(df) + " Hz, up to " + std::to_string(rec.sfreq / 2) + " Hz)");
-    groups.push_back({static_cast<std::size_t>(first), static_cast<std::size_t>(std::min(last, static_cast<double>(nbins - 1))), true});
-    band_bins.push_back(Json::array({groups.back().first, groups.back().last}));
-  }
-  try { nxr::welch::CrossWelch probe(1, wo, groups); } catch (const std::invalid_argument& e) { invalid(std::string("hodgepower: ") + e.what()); }
-  const auto spans = opt.exclude_bad_segments ? bad_spans(sub, rec) : std::nullopt;
-  const std::string stem = opt.name ? *opt.name : opt.recording + "_" + kname + "_hodge";
-  auto field_name = [&](const std::string& band, const char* part) { return nxr::bst::band_field_name(stem, band) + "_" + part; };
-  Json bands_json = Json::array();
-  for (const auto& b : opt.bands) bands_json.push_back(Json{{"name", b.name}, {"lo_hz", b.lo}, {"hi_hz", b.hi}});
-  CacheKey key;
-  key.pipeline = "hodgepower";
-  key.params = Json{{"name", stem}, {"modes", K}, {"window_samples", Json::array({s0, s1})}, {"segment_samples", wo.segmentSamples}, {"overlap", wo.overlap}, {"window", window_name(wo.window)},
-                    {"periodic", wo.periodic}, {"detrend", detrend_name(wo.detrend)}, {"scaling", scaling_name(wo.scaling)}, {"option_set", opt.option_set}, {"bands", bands_json},
-                    {"bad_segments", spans ? Json(*spans) : Json()}};
-  key.input = Json{{"recording", rec.id}, {"kernel", text(kern, "id")}, {"kernel_modified", opt_text(kern, "modified_utc").value_or("")}, {"package", text(*opr, "id")},
-                   {"package_modified", opt_text(*opr, "modified_utc").value_or("")}, {"sfreq", rec.sfreq}, {"channels", chans}};
-  key.compute = NXR_COMPUTE_VERSION;
-
-  HodgePowerResult res;
-  std::string moved_aside;
-  bool replaced = false;
-  std::int64_t segments = 0, skipped = 0;
-  double excluded_fraction = 0;
-  std::vector<std::string> names;
-  for (const auto& b : opt.bands) { names.push_back(field_name(b.name, "current")); names.push_back(field_name(b.name, "flow")); }
-
-  auto load = [&](const Row& f) {
-    const Json pj = Json::parse(opt_text(f, "producer_json").value_or("{}"), nullptr, false);
-    if (pj.is_object()) { segments = pj.value("segments", std::int64_t(0)); skipped = pj.value("segments_skipped", std::int64_t(0)); excluded_fraction = pj.value("excluded_fraction", 0.0); }
-    return 0;
-  };
-  auto compute = [&]() {
-    say(Json{{"stage", "cache"}, {"hit", false}, {"recording", rec.name}, {"kernel", kname}, {"package", stem_pkg}, {"channels", M}, {"sources", Vin}, {"modes", K}, {"glued_vertices", Vg}});
-    nxr::hodge::Basis basis = load_hodge_basis(sub, pk);
-    // the kernel W [3 V_in x C] on the recording's channels, glued, then fused
-    const Eigen::MatrixXd W = Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(kf.data(), kshape[0], M).cast<double>();
-    const nxr::hodge::RowMat3 Pin = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(in.vertices.data(), Vin, 3);
-    const Eigen::MatrixXd Wg = nxr::hodge::gluedKernel(W, basis, Pin);
-    const Eigen::MatrixXd B = nxr::hodge::hodgeWeights(basis, Wg, 256, [&](std::int64_t done, std::int64_t of) { say(Json{{"stage", "flow system"}, {"done", done}, {"of", of}}); });
-    say(Json{{"stage", "fused"}, {"rows", B.rows()}, {"channels", B.cols()}});
-    nxr::welch::CrossWelch w(static_cast<int>(M), wo, groups);
-    const nxr::io::ChunkSource src = source_of(sub, rec, chans, spans);     // the chunk service loads; this folds
-    const std::int64_t bad_samples = nxr::io::chunk_loop(src, span, [&](const nxr::io::Chunk& c) {
-      const Eigen::MatrixXd chunk = matrix_of(c, M);
-      if (c.good.empty()) w.add(chunk); else w.add(chunk, c.good);
-    }).bad_samples;
-    const nxr::welch::CrossWelchResult cw = w.result();
-    segments = cw.segments;
-    skipped = cw.segmentsSkipped;
-    excluded_fraction = static_cast<double>(bad_samples) / static_cast<double>(s1 - s0);
-    if (segments == 0) invalid(opt.recording + ": no whole segment of " + std::to_string(wo.segmentSamples) + " samples is free of the recording's bad segments (" + std::to_string(skipped) + " left out)");
-    say(Json{{"stage", "accumulated"}, {"segments", segments}, {"segments_skipped", skipped}});
-    // the rows of B are all 2 Ktot' (K modes used): B has 2K rows
-    res.power = nxr::hodge::modePower(B, cw.S);
-    return 0;
-  };
-  auto store = [&](const int&) {
-    // A MAP STATISTIC (2026-11-13: computed over the recording from the segment partition, read as maps): `<stem>`, power_density (power) by welch, axes
-    // mode (the package's eigen axis) x entries (each band's normal-current and flow parts, named `<band>_current` · `<band>_flow`, so a part's map keeps its
-    // Field's name `<stem>_<band>_current`)
-    moved_aside = clear_stored(ds, sub, {{"statistic", statistic_path(rec, stem)}, {"selection", segments_path(sub, rec, stem)}}, opt.replace, stem, replaced);
-    const std::string acq = acquisition_label(sub, rec.acquisition_id);
-    const std::string seg_id = welch_segments(sub, rec, stem, acq, s0, s1, wo, segments, skipped);
-    const Json pr = projector_record(rec.field);
-    const std::size_t E = 2 * opt.bands.size();
-    std::vector<float> data(static_cast<std::size_t>(K) * E);
-    Json entries = Json::array();
-    for (std::size_t b = 0; b < opt.bands.size(); ++b) {
-      const auto& band = opt.bands[b];
-      for (int part = 0; part < 2; ++part) {
-        const std::size_t e = 2 * b + static_cast<std::size_t>(part);
-        for (std::int64_t i = 0; i < K; ++i) data[static_cast<std::size_t>(i) * E + e] = static_cast<float>(res.power(part * K + i, static_cast<Eigen::Index>(b)));
-        entries.push_back(Json{{"name", band.name + (part == 0 ? "_current" : "_flow")}, {"band", nxr::bst::band_ref(sub.db(), band.name, band.lo, band.hi)}, {"lo_hz", band.lo}, {"hi_hz", band.hi},
-                               {"bins", band_bins[b]}, {"function", "mean"}, {"part", part == 0 ? "current" : "flow"},
-                               {"spectral_scaling", welch_scaling_record(wo, static_cast<double>(groups[b].last - groups[b].first + 1) * df, "mode weight unit\xc2\xb2")}});
-      }
-    }
-    StatisticSpec st;
-    st.name = stem; st.path = statistic_path(rec, stem); st.method = "welch";
-    st.measure = wo.scaling == nxr::welch::Scaling::Density ? "power_density" : "power";
-    st.of_field_id = rec.id; st.partition_selection_id = seg_id; st.n_members = segments; st.members_skipped = skipped;
-    st.axes = Json::array({Json{{"name", "mode"}, {"manifold_id", axis_id}, {"size", K}}, Json{{"name", "band_part"}, {"values", entries}, {"size", static_cast<std::int64_t>(E)}}});
-    st.span = nxr::io::span_record(span, rec.sfreq, rec.t0);
-    st.data = view(data, {K, static_cast<std::int64_t>(E)});
-    if (!acq.empty()) st.acquisition = acq;
-    st.description = "the band power of the Hodge-Dirac mode weights (normal-current coexact and flow parts) of the sources of " + rec.name + " by " + kname + ", per band";
-    st.options = welch_options(wo, opt.option_set, opt.exclude_bad_segments);
-    Json pj = stamp(key);
-    pj["stage"] = "hodgepower"; pj["by"] = "nxr-neuro hodgepower compute"; pj["producer"] = producer_name("hodgepower compute");
-    pj["recording"] = rec.name; pj["recording_id"] = rec.id; pj["kernel"] = kname; pj["kernel_id"] = text(kern, "id"); pj["package"] = stem_pkg; pj["package_id"] = text(*opr, "id"); pj["modes"] = K;
-    pj["fused"] = "nxr.inverse.fused fused_weights (nxr-compute hodgeWeights): B [2K x C] = [a; b]; power = diag(B S_b B^T)";
-    pj["sfreq"] = rec.sfreq; pj["segments"] = segments; pj["segments_skipped"] = skipped; pj["frequency_resolution_hz"] = df;
-    pj["bad_segments"] = spans ? Json{{"selection", rec.name + "_bad_segments"}, {"n_spans", static_cast<std::int64_t>(spans->size())}} : Json();
-    pj["excluded_fraction"] = excluded_fraction; pj["chunk_width"] = nxr::io::chunk_width(rec.field);
-    pj["projectors"] = pr["projectors"]; pj["projectors_applied_in_samples"] = pr["applied_in_samples"]; pj["projectors_not_applied"] = pr["not_applied"]; pj["ctf_compensation"] = pr["ctf_compensation"];
-    st.producer = pj;
-    sub.statistic(std::move(st));
-  };
-  const Outcome<int> o = cached<int>(sub, "statistic", statistic_path(rec, stem), key, load, compute, store);
-  res.hit = o.hit;
-  res.seconds = o.seconds;
-  if (o.hit) say(Json{{"stage", "cache"}, {"hit", true}, {"recording", rec.name}});
-  Json fields = Json::array();
-  for (const auto& n : names) fields.push_back(n);
-  res.info = Json{{"name", stem}, {"statistic", stem}, {"maps", fields}, {"recording", rec.name}, {"kernel", kname}, {"package", stem_pkg}, {"modes", K}, {"bands", bands_json},
-                  {"segment_samples", static_cast<std::int64_t>(wo.segmentSamples)}, {"segments", segments}, {"segments_skipped", skipped}, {"excluded_fraction", excluded_fraction},
-                  {"window", Json::array({s0, s1})}, {"replaced", replaced}, {"moved_aside", moved_aside.empty() ? Json() : Json(moved_aside)}, {"cache", o.hit ? "hit" : "miss"}};
-  return res;
-}
 
 // ── the stored package's scalar (exact) modes, for the spatial band of a tile level (spatial_band.cpp) ─────────────────
 

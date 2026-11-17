@@ -422,7 +422,7 @@ struct SourceBandPrepared {
   std::vector<nw::BinGroup> groups;
   Json bands = Json::array();
   bool relative = false;
-  std::string kernel;
+  std::string kernel, row_axis = "vertex", unit = std::string("A\xc2\xb2\xc2\xb7m\xc2\xb2");
 };
 struct SourceBandState {
   std::optional<nw::CrossWelch> w;
@@ -439,6 +439,7 @@ ng::NodeSpec welch_source_band_power() {
   n.parameters = welch_parameters();
   n.parameters.push_back({"bands", Json::array(), "the bands: a list of {name, lo, hi} in Hz (a band holds the bins from lo to hi inclusive)", "Hz", {}, false});
   n.parameters.push_back({"normalisation", Json("none"), "none = the band power | relative = each band over the source's total power (all bins)", "-", {"none", "relative"}, false});
+  n.parameters.push_back({"row_axis", Json("vertex"), "the name of the rows' axis (vertex for a kernel's sources; mode_part for the fused Hodge-Dirac weights)", "-", {}, false});
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
                              "segments are carried across blocks; the cross-spectra are accumulated in double and the kernel applied once at the end");
   n.matches = "Brainstorm's band power of sources (bst_psd through the kernel); meeg nxr::meeg::sourcePower";
@@ -464,6 +465,8 @@ ng::NodeSpec welch_source_band_power() {
     for (const auto& c : a.meta.value("channels", Json::array())) pr.channels.push_back(c.get<std::int32_t>());
     pr.orientations = a.meta.value("to_value_type", std::string("vector3")) == "scalar" ? 1 : 3;
     pr.kernel = a.meta.value("name", std::string());
+    pr.row_axis = p.value("row_axis", std::string("vertex"));
+    if (a.meta.contains("unit") && a.meta["unit"].is_string()) pr.unit = a.meta["unit"].get<std::string>() + kSq;
     if (pr.K.rows() % pr.orientations != 0) ng::refuse("welch.source_band_power: the kernel's rows are not a multiple of " + std::to_string(pr.orientations));
     const std::string norm = p.value("normalisation", std::string("none"));
     if (norm != "none" && norm != "relative") ng::refuse("welch.source_band_power: normalisation is none or relative");
@@ -510,7 +513,7 @@ ng::NodeSpec welch_source_band_power() {
     const std::int64_t N = maps.rows();
     const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
     const bool density = pr.r.wo.scaling == nw::Scaling::Density;
-    const std::string base = std::string("A") + kSq + "\xc2\xb7m" + kSq;
+    const std::string base = pr.unit;
     ng::Array a;
     a.rows = N; a.cols = static_cast<std::int64_t>(B);
     a.data.resize(static_cast<std::size_t>(N) * B);
@@ -526,12 +529,12 @@ ng::NodeSpec welch_source_band_power() {
     a.meta["describe"] = Json{
         {"measure", pr.relative ? "relative_power" : density ? "power_density" : "power"}, {"method", "welch"}, {"label", "welch"}, {"precision", "float32"},
         {"unit", pr.relative ? Json() : Json(density ? base + "/Hz" : base)},
-        {"axes", Json::array({Json{{"name", "vertex"}, {"size", N}}, Json{{"name", "band"}, {"size", static_cast<std::int64_t>(B)}, {"values", entries}}})},
+        {"axes", Json::array({Json{{"name", pr.row_axis}, {"size", N}}, Json{{"name", "band"}, {"size", static_cast<std::int64_t>(B)}, {"values", entries}}})},
         {"tiling", tiling_of(pr.r.wo, s.first, s.samples, cw.segments, cw.segmentsSkipped)},
         {"n_members", cw.segments}, {"members_skipped", cw.segmentsSkipped},
         {"producer", producer_of(pr.r, cw.segments, cw.segmentsSkipped, s.samples, s.bad, df, Json())},
         {"options", o},
-        {"description", std::string("the ") + (pr.relative ? "relative " : "") + "band power of the sources through " + pr.kernel + ", per band"},
+        {"description", std::string("the ") + (pr.relative ? "relative " : "") + "band power of the rows of " + pr.kernel + " (" + pr.row_axis + "), per band"},
         {"bad_samples", s.bad}};
     return ng::Arrays{{"power", std::move(a)}};
   };

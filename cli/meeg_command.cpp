@@ -411,50 +411,6 @@ int quadrature_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-int hodgepower_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro hodgepower: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro hodgepower compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const std::set<std::string> valued = {"--dataset", "--subject", "--recording", "--kernel", "--package", "--modes", "--name", "--chunks", "--start", "--stop", "--set", "--segment-seconds",
-                                        "--segment-samples", "--segment-level", "--overlap", "--window", "--detrend", "--scaling", "--bands"};
-  const std::set<std::string> flags = {"--periodic", "--symmetric", "--no-bad-segments", "--replace"};
-  const cli::Args a = cli::parse(prog, rest, valued, flags, {"--dataset", "--subject", "--recording"});
-  nxr::pipelines::HodgePowerOptions o;
-  o.recording = a.get("--recording");
-  o.kernel = a.maybe("--kernel");
-  o.package = a.maybe("--package");
-  if (const auto v = a.maybe("--modes")) o.modes = std::stoll(*v);
-  o.name = a.maybe("--name");
-  if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
-  if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
-  o.chunks = a.maybe("--chunks");
-  welch_args(prog, a, o);
-  if (const auto v = a.maybe("--bands")) {       // name:lo-hi,name:lo-hi
-    o.bands.clear();
-    for (const std::string& item : split(*v, ',')) {
-      const auto colon = item.find(':'), dash = item.find('-', colon == std::string::npos ? 0 : colon);
-      if (colon == std::string::npos || dash == std::string::npos) usage(prog, "--bands is name:lo-hi,name:lo-hi (Hz), e.g. alpha:8-12");
-      o.bands.push_back({item.substr(0, colon), std::stod(item.substr(colon + 1, dash - colon - 1)), std::stod(item.substr(dash + 1))});
-    }
-  }
-  o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::hodgepower_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    out["seconds"] = std::round(r.seconds * 1000) / 1000;
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
 int opticalflow_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro opticalflow: error: the following arguments are required: action (compute)");
   const std::string prog = "nxr-neuro opticalflow compute";
