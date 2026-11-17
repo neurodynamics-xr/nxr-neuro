@@ -33,7 +33,7 @@ licence texts are in the source trees named below or at the project URLs. Versio
 ## Build and test tools (not distributed)
 
 CMake and Ninja; Node.js with `cmake-js` and `node-addon-api` (MIT) for the Node binding; Emscripten (MIT/NCSA) for WebAssembly; pytest, NumPy and SciPy
-(BSD-3-Clause) for the parity tests. Golden test data were generated with Brainstorm (GPL-3.0), Rheome and nxr, and for the file formats with nibabel (MIT) and pandas (BSD-3-Clause), and for the EDF, BrainVision, EEGLAB and FIF recordings with MNE-Python (BSD-3-Clause), used as external reference programs: no
+(BSD-3-Clause) for the parity tests. Golden test data were generated with Brainstorm (GPL-3.0), Rheome and nxr, and for the file formats with nibabel (MIT) and pandas (BSD-3-Clause), and for the EDF, BrainVision, EEGLAB and FIF recordings with MNE-Python (BSD-3-Clause), and for the BIDS dataset with MNE-BIDS (BSD-3-Clause), used as external reference programs: no
 code of Brainstorm, Rheome, nibabel or pandas is in this repository (see `CONTRIBUTING.md`, the method rule). Of MNE-Python, the FIF reading was ported with attribution (BSD-3-Clause; the table above), and its `coil_def.dat` is vendored; nothing else of it is here.
 
 The licence texts of the MPL-2.0 components (Eigen, Spectra) require that their own source files stay available under the MPL-2.0; nxr-neuro does not modify them.

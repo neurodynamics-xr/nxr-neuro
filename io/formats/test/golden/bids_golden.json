@@ -1,0 +1,1342 @@
+{
+ "mne_bids": "0.20.0",
+ "recordings": [
+  {
+   "data_files": [
+    "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-01_eeg.edf"
+   ],
+   "entities": {
+    "subject": "01",
+    "session": "01",
+    "task": "rest",
+    "run": "01"
+   },
+   "datatype": "eeg",
+   "companions": [],
+   "sidecar_files": [
+    "task-rest_eeg.json",
+    "sub-01/sub-01_task-rest_eeg.json",
+    "sub-01/ses-01/sub-01_ses-01_task-rest_eeg.json",
+    "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-01_eeg.json"
+   ],
+   "sidecar": {
+    "Manufacturer": "n/a",
+    "CustomKey": 2,
+    "EEGReference": "n/a",
+    "Nested": {
+     "a": 9
+    },
+    "SubjectLevel": true,
+    "SessionLevel": "s1",
+    "TaskName": "rest",
+    "PowerLineFrequency": 50.0,
+    "SamplingFrequency": 100.0,
+    "SoftwareFilters": "n/a",
+    "RecordingDuration": 2.99,
+    "RecordingType": "continuous",
+    "EEGGround": "n/a",
+    "EEGPlacementScheme": "based on the extended 10/20 system",
+    "EEGChannelCount": 6,
+    "EOGChannelCount": 0,
+    "ECGChannelCount": 0,
+    "EMGChannelCount": 0,
+    "MiscChannelCount": 0,
+    "TriggerChannelCount": 0
+   },
+   "channels": {
+    "path": "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-01_channels.tsv",
+    "columns": [
+     "name",
+     "type",
+     "units",
+     "low_cutoff",
+     "high_cutoff",
+     "description",
+     "sampling_frequency",
+     "status",
+     "status_description"
+    ],
+    "rows": [
+     [
+      "Fz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Cz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Pz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Oz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C3",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C4",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ]
+    ]
+   },
+   "events": {
+    "path": "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-01_events.tsv",
+    "columns": [
+     "onset",
+     "duration",
+     "trial_type",
+     "value",
+     "sample"
+    ],
+    "rows": [
+     [
+      "0.5",
+      "0.10000002384185791",
+      "stim",
+      "2",
+      "50"
+     ],
+     [
+      "1.5",
+      "0.20000004768371582",
+      "resp",
+      "1",
+      "150"
+     ]
+    ]
+   },
+   "electrodes": [
+    {
+     "path": "sub-01/ses-01/eeg/sub-01_ses-01_space-CapTrak_electrodes.tsv",
+     "columns": [
+      "name",
+      "x",
+      "y",
+      "z"
+     ],
+     "rows": [
+      [
+       "Fz",
+       "-0.0012292786268517375",
+       "0.09327445179224014",
+       "0.10263929516077042"
+      ],
+      [
+       "Cz",
+       "-0.0013741408474743366",
+       "0.027617093175649643",
+       "0.14019949734210968"
+      ],
+      [
+       "Pz",
+       "-0.001709452481009066",
+       "-0.045212991535663605",
+       "0.1266729235649109"
+      ],
+      [
+       "Oz",
+       "-0.0020602536387741566",
+       "-0.08278299123048782",
+       "0.060736630111932755"
+      ],
+      [
+       "C3",
+       "-0.06714873015880585",
+       "0.023358235135674477",
+       "0.10451067984104156"
+      ],
+      [
+       "C4",
+       "0.06532887369394302",
+       "0.023573100566864014",
+       "0.1036924347281456"
+      ]
+     ]
+    }
+   ],
+   "coordsystems": [
+    "sub-01/ses-01/eeg/sub-01_ses-01_space-CapTrak_coordsystem.json"
+   ],
+   "mne_bids_channels": "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-01_channels.tsv"
+  },
+  {
+   "data_files": [
+    "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-02_eeg.edf"
+   ],
+   "entities": {
+    "subject": "01",
+    "session": "01",
+    "task": "rest",
+    "run": "02"
+   },
+   "datatype": "eeg",
+   "companions": [],
+   "sidecar_files": [
+    "task-rest_eeg.json",
+    "sub-01/sub-01_task-rest_eeg.json",
+    "sub-01/ses-01/sub-01_ses-01_task-rest_eeg.json",
+    "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-02_eeg.json"
+   ],
+   "sidecar": {
+    "Manufacturer": "n/a",
+    "CustomKey": 2,
+    "EEGReference": "n/a",
+    "Nested": {
+     "a": 9
+    },
+    "SubjectLevel": true,
+    "SessionLevel": "s1",
+    "TaskName": "rest",
+    "PowerLineFrequency": 50.0,
+    "SamplingFrequency": 100.0,
+    "SoftwareFilters": "n/a",
+    "RecordingDuration": 2.99,
+    "RecordingType": "continuous",
+    "EEGGround": "n/a",
+    "EEGPlacementScheme": "based on the extended 10/20 system",
+    "EEGChannelCount": 6,
+    "EOGChannelCount": 0,
+    "ECGChannelCount": 0,
+    "EMGChannelCount": 0,
+    "MiscChannelCount": 0,
+    "TriggerChannelCount": 0
+   },
+   "channels": {
+    "path": "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-02_channels.tsv",
+    "columns": [
+     "name",
+     "type",
+     "units",
+     "low_cutoff",
+     "high_cutoff",
+     "description",
+     "sampling_frequency",
+     "status",
+     "status_description"
+    ],
+    "rows": [
+     [
+      "Fz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Cz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Pz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Oz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C3",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C4",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ]
+    ]
+   },
+   "events": {
+    "path": "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-02_events.tsv",
+    "columns": [
+     "onset",
+     "duration",
+     "trial_type",
+     "value",
+     "sample"
+    ],
+    "rows": [
+     [
+      "0.5",
+      "0.10000002384185791",
+      "stim",
+      "2",
+      "50"
+     ],
+     [
+      "1.5",
+      "0.20000004768371582",
+      "resp",
+      "1",
+      "150"
+     ]
+    ]
+   },
+   "electrodes": [
+    {
+     "path": "sub-01/ses-01/eeg/sub-01_ses-01_space-CapTrak_electrodes.tsv",
+     "columns": [
+      "name",
+      "x",
+      "y",
+      "z"
+     ],
+     "rows": [
+      [
+       "Fz",
+       "-0.0012292786268517375",
+       "0.09327445179224014",
+       "0.10263929516077042"
+      ],
+      [
+       "Cz",
+       "-0.0013741408474743366",
+       "0.027617093175649643",
+       "0.14019949734210968"
+      ],
+      [
+       "Pz",
+       "-0.001709452481009066",
+       "-0.045212991535663605",
+       "0.1266729235649109"
+      ],
+      [
+       "Oz",
+       "-0.0020602536387741566",
+       "-0.08278299123048782",
+       "0.060736630111932755"
+      ],
+      [
+       "C3",
+       "-0.06714873015880585",
+       "0.023358235135674477",
+       "0.10451067984104156"
+      ],
+      [
+       "C4",
+       "0.06532887369394302",
+       "0.023573100566864014",
+       "0.1036924347281456"
+      ]
+     ]
+    }
+   ],
+   "coordsystems": [
+    "sub-01/ses-01/eeg/sub-01_ses-01_space-CapTrak_coordsystem.json"
+   ],
+   "mne_bids_channels": "sub-01/ses-01/eeg/sub-01_ses-01_task-rest_run-02_channels.tsv"
+  },
+  {
+   "data_files": [
+    "sub-01/ses-02/eeg/sub-01_ses-02_task-rest_eeg.edf"
+   ],
+   "entities": {
+    "subject": "01",
+    "session": "02",
+    "task": "rest"
+   },
+   "datatype": "eeg",
+   "companions": [],
+   "sidecar_files": [
+    "task-rest_eeg.json",
+    "sub-01/sub-01_task-rest_eeg.json",
+    "sub-01/ses-02/eeg/sub-01_ses-02_task-rest_eeg.json"
+   ],
+   "sidecar": {
+    "Manufacturer": "n/a",
+    "CustomKey": 2,
+    "EEGReference": "n/a",
+    "Nested": {
+     "a": 9
+    },
+    "SubjectLevel": true,
+    "TaskName": "rest",
+    "PowerLineFrequency": 50.0,
+    "SamplingFrequency": 100.0,
+    "SoftwareFilters": "n/a",
+    "RecordingDuration": 2.99,
+    "RecordingType": "continuous",
+    "EEGGround": "n/a",
+    "EEGPlacementScheme": "based on the extended 10/20 system",
+    "EEGChannelCount": 6,
+    "EOGChannelCount": 0,
+    "ECGChannelCount": 0,
+    "EMGChannelCount": 0,
+    "MiscChannelCount": 0,
+    "TriggerChannelCount": 0
+   },
+   "channels": {
+    "path": "sub-01/ses-02/eeg/sub-01_ses-02_task-rest_channels.tsv",
+    "columns": [
+     "name",
+     "type",
+     "units",
+     "low_cutoff",
+     "high_cutoff",
+     "description",
+     "sampling_frequency",
+     "status",
+     "status_description"
+    ],
+    "rows": [
+     [
+      "Fz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Cz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Pz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Oz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C3",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C4",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ]
+    ]
+   },
+   "events": {
+    "path": "sub-01/ses-02/eeg/sub-01_ses-02_task-rest_events.tsv",
+    "columns": [
+     "onset",
+     "duration",
+     "trial_type",
+     "value",
+     "sample"
+    ],
+    "rows": [
+     [
+      "0.5",
+      "0.10000002384185791",
+      "stim",
+      "2",
+      "50"
+     ],
+     [
+      "1.5",
+      "0.20000004768371582",
+      "resp",
+      "1",
+      "150"
+     ]
+    ]
+   },
+   "electrodes": [
+    {
+     "path": "sub-01/ses-02/eeg/sub-01_ses-02_space-CapTrak_electrodes.tsv",
+     "columns": [
+      "name",
+      "x",
+      "y",
+      "z"
+     ],
+     "rows": [
+      [
+       "Fz",
+       "-0.0012292786268517375",
+       "0.09327445179224014",
+       "0.10263929516077042"
+      ],
+      [
+       "Cz",
+       "-0.0013741408474743366",
+       "0.027617093175649643",
+       "0.14019949734210968"
+      ],
+      [
+       "Pz",
+       "-0.001709452481009066",
+       "-0.045212991535663605",
+       "0.1266729235649109"
+      ],
+      [
+       "Oz",
+       "-0.0020602536387741566",
+       "-0.08278299123048782",
+       "0.060736630111932755"
+      ],
+      [
+       "C3",
+       "-0.06714873015880585",
+       "0.023358235135674477",
+       "0.10451067984104156"
+      ],
+      [
+       "C4",
+       "0.06532887369394302",
+       "0.023573100566864014",
+       "0.1036924347281456"
+      ]
+     ]
+    }
+   ],
+   "coordsystems": [
+    "sub-01/ses-02/eeg/sub-01_ses-02_space-CapTrak_coordsystem.json"
+   ],
+   "mne_bids_channels": "sub-01/ses-02/eeg/sub-01_ses-02_task-rest_channels.tsv"
+  },
+  {
+   "data_files": [
+    "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_eeg.vhdr"
+   ],
+   "entities": {
+    "subject": "01",
+    "session": "01",
+    "task": "oddball"
+   },
+   "datatype": "eeg",
+   "companions": [
+    "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_eeg.eeg",
+    "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_eeg.vmrk"
+   ],
+   "sidecar_files": [
+    "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_eeg.json"
+   ],
+   "sidecar": {
+    "TaskName": "oddball",
+    "Manufacturer": "Brain Products",
+    "PowerLineFrequency": 50.0,
+    "SamplingFrequency": 100.0,
+    "SoftwareFilters": "n/a",
+    "RecordingDuration": 2.99,
+    "RecordingType": "continuous",
+    "EEGReference": "n/a",
+    "EEGGround": "n/a",
+    "EEGPlacementScheme": "based on the extended 10/20 system",
+    "EEGChannelCount": 6,
+    "EOGChannelCount": 0,
+    "ECGChannelCount": 0,
+    "EMGChannelCount": 0,
+    "MiscChannelCount": 0,
+    "TriggerChannelCount": 0
+   },
+   "channels": {
+    "path": "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_channels.tsv",
+    "columns": [
+     "name",
+     "type",
+     "units",
+     "low_cutoff",
+     "high_cutoff",
+     "description",
+     "sampling_frequency",
+     "status",
+     "status_description"
+    ],
+    "rows": [
+     [
+      "Fz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Cz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Pz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Oz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C3",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C4",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ]
+    ]
+   },
+   "events": {
+    "path": "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_events.tsv",
+    "columns": [
+     "onset",
+     "duration",
+     "trial_type",
+     "value",
+     "sample"
+    ],
+    "rows": [
+     [
+      "0.5",
+      "0.10000002384185791",
+      "stim",
+      "2",
+      "50"
+     ],
+     [
+      "1.5",
+      "0.20000004768371582",
+      "resp",
+      "1",
+      "150"
+     ]
+    ]
+   },
+   "electrodes": [
+    {
+     "path": "sub-01/ses-01/eeg/sub-01_ses-01_space-CapTrak_electrodes.tsv",
+     "columns": [
+      "name",
+      "x",
+      "y",
+      "z"
+     ],
+     "rows": [
+      [
+       "Fz",
+       "-0.0012292786268517375",
+       "0.09327445179224014",
+       "0.10263929516077042"
+      ],
+      [
+       "Cz",
+       "-0.0013741408474743366",
+       "0.027617093175649643",
+       "0.14019949734210968"
+      ],
+      [
+       "Pz",
+       "-0.001709452481009066",
+       "-0.045212991535663605",
+       "0.1266729235649109"
+      ],
+      [
+       "Oz",
+       "-0.0020602536387741566",
+       "-0.08278299123048782",
+       "0.060736630111932755"
+      ],
+      [
+       "C3",
+       "-0.06714873015880585",
+       "0.023358235135674477",
+       "0.10451067984104156"
+      ],
+      [
+       "C4",
+       "0.06532887369394302",
+       "0.023573100566864014",
+       "0.1036924347281456"
+      ]
+     ]
+    }
+   ],
+   "coordsystems": [
+    "sub-01/ses-01/eeg/sub-01_ses-01_space-CapTrak_coordsystem.json"
+   ],
+   "mne_bids_channels": "sub-01/ses-01/eeg/sub-01_ses-01_task-oddball_channels.tsv"
+  },
+  {
+   "data_files": [
+    "sub-02/eeg/sub-02_task-rest_eeg.vhdr"
+   ],
+   "entities": {
+    "subject": "02",
+    "task": "rest"
+   },
+   "datatype": "eeg",
+   "companions": [
+    "sub-02/eeg/sub-02_task-rest_eeg.eeg",
+    "sub-02/eeg/sub-02_task-rest_eeg.vmrk"
+   ],
+   "sidecar_files": [
+    "task-rest_eeg.json",
+    "sub-02/eeg/sub-02_task-rest_eeg.json"
+   ],
+   "sidecar": {
+    "Manufacturer": "Brain Products",
+    "CustomKey": 1,
+    "EEGReference": "n/a",
+    "Nested": {
+     "a": 1,
+     "b": 2
+    },
+    "TaskName": "rest",
+    "PowerLineFrequency": 50.0,
+    "SamplingFrequency": 100.0,
+    "SoftwareFilters": "n/a",
+    "RecordingDuration": 2.99,
+    "RecordingType": "continuous",
+    "EEGGround": "n/a",
+    "EEGPlacementScheme": "based on the extended 10/20 system",
+    "EEGChannelCount": 6,
+    "EOGChannelCount": 0,
+    "ECGChannelCount": 0,
+    "EMGChannelCount": 0,
+    "MiscChannelCount": 0,
+    "TriggerChannelCount": 0
+   },
+   "channels": {
+    "path": "sub-02/eeg/sub-02_task-rest_channels.tsv",
+    "columns": [
+     "name",
+     "type",
+     "units",
+     "low_cutoff",
+     "high_cutoff",
+     "description",
+     "sampling_frequency",
+     "status",
+     "status_description"
+    ],
+    "rows": [
+     [
+      "Fz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Cz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Pz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "Oz",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C3",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ],
+     [
+      "C4",
+      "EEG",
+      "\u00b5V",
+      "0.0",
+      "50.0",
+      "ElectroEncephaloGram",
+      "100.0",
+      "good",
+      "n/a"
+     ]
+    ]
+   },
+   "events": {
+    "path": "sub-02/eeg/sub-02_task-rest_events.tsv",
+    "columns": [
+     "onset",
+     "duration",
+     "trial_type",
+     "value",
+     "sample"
+    ],
+    "rows": [
+     [
+      "0.5",
+      "0.10000002384185791",
+      "stim",
+      "2",
+      "50"
+     ],
+     [
+      "1.5",
+      "0.20000004768371582",
+      "resp",
+      "1",
+      "150"
+     ]
+    ]
+   },
+   "electrodes": [
+    {
+     "path": "sub-02/eeg/sub-02_space-CapTrak_electrodes.tsv",
+     "columns": [
+      "name",
+      "x",
+      "y",
+      "z"
+     ],
+     "rows": [
+      [
+       "Fz",
+       "-0.0012292786268517375",
+       "0.09327445179224014",
+       "0.10263929516077042"
+      ],
+      [
+       "Cz",
+       "-0.0013741408474743366",
+       "0.027617093175649643",
+       "0.14019949734210968"
+      ],
+      [
+       "Pz",
+       "-0.001709452481009066",
+       "-0.045212991535663605",
+       "0.1266729235649109"
+      ],
+      [
+       "Oz",
+       "-0.0020602536387741566",
+       "-0.08278299123048782",
+       "0.060736630111932755"
+      ],
+      [
+       "C3",
+       "-0.06714873015880585",
+       "0.023358235135674477",
+       "0.10451067984104156"
+      ],
+      [
+       "C4",
+       "0.06532887369394302",
+       "0.023573100566864014",
+       "0.1036924347281456"
+      ]
+     ]
+    }
+   ],
+   "coordsystems": [
+    "sub-02/eeg/sub-02_space-CapTrak_coordsystem.json"
+   ],
+   "mne_bids_channels": "sub-02/eeg/sub-02_task-rest_channels.tsv"
+  }
+ ],
+ "names": [
+  {
+   "name": "sub-01_ses-a_task-rest_run-02_eeg.edf",
+   "mne_bids": {
+    "subject": "01",
+    "session": "a",
+    "task": "rest",
+    "run": "02"
+   }
+  },
+  {
+   "name": "sub-01_task-rest_eeg.fif",
+   "mne_bids": {
+    "subject": "01",
+    "task": "rest"
+   }
+  },
+  {
+   "name": "sub-01_task-rest_split-01_meg.fif",
+   "mne_bids": {
+    "subject": "01",
+    "task": "rest",
+    "split": "01"
+   }
+  },
+  {
+   "name": "sub-01_space-CapTrak_electrodes.tsv",
+   "mne_bids": {
+    "subject": "01",
+    "space": "CapTrak"
+   }
+  },
+  {
+   "name": "sub-01_coordsystem.json",
+   "mne_bids": {
+    "subject": "01"
+   }
+  },
+  {
+   "name": "task-rest_eeg.json",
+   "mne_bids": {
+    "task": "rest"
+   }
+  },
+  {
+   "name": "participants.tsv",
+   "mne_bids": {}
+  },
+  {
+   "name": "sub-01_acq-hi_proc-clean_desc-x_eeg.set",
+   "mne_bids": {
+    "subject": "01",
+    "acquisition": "hi",
+    "processing": "clean",
+    "description": "x"
+   }
+  },
+  {
+   "name": "sub-01_T1w.nii.gz",
+   "mne_bids": {
+    "subject": "01"
+   }
+  },
+  {
+   "name": "sub-01_task-rest_run-1_events.tsv",
+   "mne_bids": {
+    "subject": "01",
+    "task": "rest",
+    "run": "1"
+   }
+  },
+  {
+   "name": "sub-01_task-rest_eeg",
+   "mne_bids": {
+    "subject": "01",
+    "task": "rest"
+   }
+  },
+  {
+   "name": "sub-01_acq-a1_echo-2_flip-3_bold.nii.gz",
+   "mne_bids": null
+  },
+  {
+   "name": "sub-_task-rest_eeg.edf",
+   "mne_bids": {
+    "task": "rest"
+   }
+  },
+  {
+   "name": "sub-01_task_eeg.edf",
+   "mne_bids": {
+    "subject": "01"
+   }
+  },
+  {
+   "name": "sub-01_task-re_st_eeg.edf",
+   "mne_bids": {
+    "subject": "01",
+    "task": "re"
+   }
+  },
+  {
+   "name": "sub-01_task-rest_task-rest_eeg.edf",
+   "mne_bids": {
+    "subject": "01",
+    "task": "rest"
+   }
+  },
+  {
+   "name": "sub-01_ta sk-rest_eeg.edf",
+   "mne_bids": null
+  },
+  {
+   "name": ".bidsignore",
+   "mne_bids": {}
+  },
+  {
+   "name": "notes_misc.txt",
+   "mne_bids": {}
+  },
+  {
+   "name": "sub-01_task-rest_ee-g.edf",
+   "mne_bids": null
+  },
+  {
+   "name": "dataset_description.json",
+   "mne_bids": {}
+  }
+ ],
+ "build": [
+  {
+   "entities": {
+    "subject": "01",
+    "session": "a",
+    "task": "rest",
+    "run": "02",
+    "suffix": "eeg",
+    "extension": ".edf"
+   },
+   "name": "sub-01_ses-a_task-rest_run-02_eeg.edf"
+  },
+  {
+   "entities": {
+    "subject": "01",
+    "task": "rest",
+    "acquisition": "hi",
+    "processing": "clean",
+    "description": "x",
+    "suffix": "eeg",
+    "extension": ".set"
+   },
+   "name": "sub-01_task-rest_acq-hi_proc-clean_desc-x_eeg.set"
+  },
+  {
+   "entities": {
+    "subject": "01",
+    "space": "CapTrak",
+    "suffix": "electrodes",
+    "extension": ".tsv"
+   },
+   "name": "sub-01_space-CapTrak_electrodes.tsv"
+  },
+  {
+   "entities": {
+    "subject": "01",
+    "session": "1",
+    "task": "rest",
+    "split": "02",
+    "suffix": "meg",
+    "extension": ".fif"
+   },
+   "name": "sub-01_ses-1_task-rest_split-02_meg.fif"
+  }
+ ],
+ "description": {
+  "Name": "Synthetic EEG",
+  "BIDSVersion": "1.9.0",
+  "DatasetType": "raw",
+  "License": "CC0",
+  "Authors": [
+   "A. Invented",
+   "B. Imagined"
+  ],
+  "HowToAcknowledge": "Cite nothing: invented",
+  "Funding": [
+   "Invented Fund 1"
+  ],
+  "EthicsApprovals": [
+   "none"
+  ],
+  "ReferencesAndLinks": [
+   "https://example.invalid/ds"
+  ],
+  "DatasetDOI": "doi:10.0000/invented",
+  "GeneratedBy": [
+   {
+    "Name": "MNE-BIDS",
+    "Version": "0.20.0",
+    "CodeURL": "https://mne.tools/mne-bids/"
+   }
+  ]
+ },
+ "participants": {
+  "path": "participants.tsv",
+  "columns": [
+   "participant_id",
+   "age",
+   "sex",
+   "hand",
+   "weight",
+   "height"
+  ],
+  "rows": [
+   [
+    "sub-01",
+    "35",
+    "M",
+    "R",
+    "n/a",
+    "n/a"
+   ],
+   [
+    "sub-02",
+    "34",
+    "F",
+    "R",
+    "n/a",
+    "n/a"
+   ]
+  ]
+ },
+ "participants_json": {
+  "participant_id": {
+   "Description": "Unique participant identifier"
+  },
+  "age": {
+   "Description": "Age of the participant at time of testing",
+   "Units": "years"
+  },
+  "sex": {
+   "Description": "Sex of the participant",
+   "Levels": {
+    "F": "female",
+    "M": "male",
+    "O": "other"
+   }
+  },
+  "hand": {
+   "Description": "Handedness of the participant",
+   "Levels": {
+    "R": "right",
+    "L": "left",
+    "A": "ambidextrous"
+   }
+  },
+  "weight": {
+   "Description": "Body weight of the participant",
+   "Units": "kg"
+  },
+  "height": {
+   "Description": "Body height of the participant",
+   "Units": "m"
+  }
+ },
+ "scans": {
+  "sub-01/ses-01/sub-01_ses-01_scans.tsv": {
+   "path": "sub-01/ses-01/sub-01_ses-01_scans.tsv",
+   "columns": [
+    "filename",
+    "acq_time"
+   ],
+   "rows": [
+    [
+     "eeg/sub-01_ses-01_task-oddball_eeg.vhdr",
+     "2026-03-04T05:06:07.000000Z"
+    ],
+    [
+     "eeg/sub-01_ses-01_task-rest_run-01_eeg.edf",
+     "2026-03-04T05:06:07.000000Z"
+    ],
+    [
+     "eeg/sub-01_ses-01_task-rest_run-02_eeg.edf",
+     "2026-03-04T05:06:07.000000Z"
+    ]
+   ]
+  },
+  "sub-01/ses-02/sub-01_ses-02_scans.tsv": {
+   "path": "sub-01/ses-02/sub-01_ses-02_scans.tsv",
+   "columns": [
+    "filename",
+    "acq_time"
+   ],
+   "rows": [
+    [
+     "eeg/sub-01_ses-02_task-rest_eeg.edf",
+     "2026-03-04T05:06:07.000000Z"
+    ]
+   ]
+  },
+  "sub-02/sub-02_scans.tsv": {
+   "path": "sub-02/sub-02_scans.tsv",
+   "columns": [
+    "filename",
+    "acq_time"
+   ],
+   "rows": [
+    [
+     "eeg/sub-02_task-rest_eeg.vhdr",
+     "2026-03-04T05:06:07.000000Z"
+    ]
+   ]
+  }
+ },
+ "subjects": {
+  "01": [
+   "01",
+   "02"
+  ],
+  "02": []
+ },
+ "top_level_files": [
+  "CHANGES",
+  "README",
+  "task-rest_eeg.json",
+  "task-rest_events.json"
+ ],
+ "derivatives": [
+  "derivatives/pipeline-a"
+ ]
+}

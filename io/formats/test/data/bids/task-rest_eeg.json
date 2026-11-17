@@ -1,0 +1,9 @@
+{
+    "Manufacturer": "Invented Systems",
+    "CustomKey": 1,
+    "EEGReference": "root-ref",
+    "Nested": {
+        "a": 1,
+        "b": 2
+    }
+}
