@@ -261,6 +261,19 @@ class Reader final : public RecordingReader {
       if (v && numel(v) > 0) h_.info[f] = describe(mat_.get(), v);   // ICA operators and the like: recorded by size, not applied
     }
 
+    for (const char* f : {"icaweights", "icasphere", "icawinv", "icachansind"}) {
+      matvar_t* v = field(f);
+      if (!v || numel(v) == 0 || v->rank != 2 || v->class_type == MAT_C_CHAR || v->class_type == MAT_C_STRUCT || v->class_type == MAT_C_CELL) continue;
+      const std::vector<double> col = numbers(mat_.get(), v);   // column-major
+      HeaderMatrix mx;
+      mx.rows = v->dims[0];
+      mx.cols = v->dims[1];
+      mx.data.resize(col.size());
+      for (std::size_t r = 0; r < mx.rows; ++r)
+        for (std::size_t c = 0; c < mx.cols; ++c) mx.data[r * mx.cols + c] = col[r + mx.rows * c];
+      h_.matrices[f] = std::move(mx);
+    }
+
     // the data
     matvar_t* d = field("data");
     if (!d) throw format_error(path_ + ": the dataset has no data field");

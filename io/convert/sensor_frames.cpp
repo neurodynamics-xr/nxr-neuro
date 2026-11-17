@@ -255,6 +255,40 @@ SensorPlacement place_sensors(const nf::RecordingReader& reader, const std::stri
     l.producer = Json{{"source", ch.device_to_head_source}};
     p.links.push_back(std::move(l));
   }
+  if (const auto* fif = dynamic_cast<const nf::fif::RawReader*>(&reader); fif && ch.head_key == "head") {
+    // the file's CTF frames (a CTF recording converted to FIF): ctf_head_t (CTF head <-> Neuromag head) and dev_ctf_t (CTF device <-> CTF head), as transitions, each in the
+    // direction it is stated for (4 head, 1001 CTF device, 1004 CTF head) or inverted to it
+    auto system = [&](const std::string& key, const std::string& description) {
+      for (const auto& x : p.systems) if (x.name == key) return;
+      SensorPlacement::System sy;
+      sy.space = space;
+      sy.name = key;
+      sy.unit = "m";
+      sy.description = description;
+      p.systems.push_back(sy);
+    };
+    auto link = [&](const std::optional<nf::fif::CoordTrans>& t, int a, int b, const std::string& from, const std::string& to, const std::string& name, const std::string& what) {
+      if (!t) return;
+      Matrix4 m;
+      if (t->from == a && t->to == b) m = t->trans;
+      else if (t->from == b && t->to == a) m = geom::invert(t->trans);
+      else return;
+      SensorPlacement::Link l;
+      l.from = from;
+      l.to = to;
+      l.name = base + "_" + name;
+      l.matrix = three_by_four(m);
+      l.description = from + " \xe2\x86\x92 " + to + " (3x4 affine, metres): the file's " + what;
+      l.producer = Json{{"source", "the file's " + what}};
+      p.links.push_back(std::move(l));
+    };
+    const nf::fif::Info& in = fif->info();
+    if (in.ctf_head_t || in.dev_ctf_t) system("ctf-head", "CTF's head frame: origin between the ears, x toward the nasion (defined by the head coils)");
+    const std::string ctf_device_key = "ctf-device:" + (acquisition.empty() ? base : acquisition);
+    if (in.dev_ctf_t) system(ctf_device_key, "the CTF device frame of this acquisition (the sensor array in the CTF recording the file was converted from)");
+    link(in.ctf_head_t, 1004, 4, "ctf-head", "head", "ctf_head_to_head", "ctf_head_t");
+    link(in.dev_ctf_t, 1001, 1004, ctf_device_key, "ctf-head", "ctf_device_to_ctf_head", "dev_ctf_t");
+  }
   if (in_head_space) {
     SensorPlacement::Link l;
     l.from = ch.head_key;

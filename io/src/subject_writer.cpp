@@ -668,6 +668,11 @@ std::string SubjectWriter::operator_(OperatorSpec spec) {
     merge(r, prov(spec.created_utc));
     merge(r, cols);
     db_->insert("operator", r);
+    // a transition operator is the one home of its system's map: a system with one is 'operator', never an 'affine' with no parameters
+    if (spec.kind == "transition")
+      for (const char* end : {"from_coordinate_system_id", "to_coordinate_system_id"})
+        if (const auto it = cols.find(end); it != cols.end() && std::holds_alternative<std::string>(it->second))
+          db_->execute("UPDATE coordinate_system SET transition = 'operator' WHERE id = ? AND is_reference = 0 AND transition = 'affine' AND transition_json IS NULL", {std::get<std::string>(it->second)});
   };
   Populate pop;
   if (spec.path) {

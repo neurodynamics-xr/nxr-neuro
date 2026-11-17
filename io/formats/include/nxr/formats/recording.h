@@ -61,6 +61,12 @@ struct Span {
   std::uint64_t count = 0;     // number of samples
 };
 
+// A small numeric matrix a header carries (EEGLAB's ICA matrices), row-major.
+struct HeaderMatrix {
+  std::size_t rows = 0, cols = 0;
+  std::vector<double> data;
+};
+
 struct RecordingHeader {
   std::string format;                       // "edf", "edf+", "bdf", "bdf+", "brainvision", "eeglab", ...
   std::vector<Channel> channels;
@@ -73,6 +79,7 @@ struct RecordingHeader {
   std::vector<Span> gaps;                   // samples the file does not hold (EDF+D, BrainVision new segments): read as zeros, never interpolated
   std::string position_unit;                // the unit of channels' location ("m", "mm", "cm", "" when unstated)
   std::map<std::string, std::string> info;  // every other header field, by the file's own name
+  std::map<std::string, HeaderMatrix> matrices;  // numeric matrices the file holds (EEGLAB: icaweights, icasphere, icawinv, icachansind as a column), by the file's own name
 };
 
 class RecordingReader {

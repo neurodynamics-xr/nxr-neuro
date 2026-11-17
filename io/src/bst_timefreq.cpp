@@ -170,6 +170,63 @@ std::optional<Json> export_timefreq(SubjectWriter& sub, const fs::path& mat_path
               {"n_bands", static_cast<std::int64_t>(bands.size())}, {"sleep_stage", stage ? Json(*stage) : Json(nullptr)}, {"group", group}};
 }
 
+// A time-frequency file that is not source power by band (a sensor-level PSD or time-frequency map, a source map with a time axis) is a STATISTIC, as the statistic
+// spec's own model is this file: TF [rows x time x freq] as the values, RowNames / Time / Freqs as the axes (inline values), Measure and Method as what it is and how
+// it was estimated, nAvg as the members; computed in Brainstorm, so it is of no field in the package (`detached`) and its own method and options are in the provenance.
+std::optional<Json> export_timefreq_statistic(SubjectWriter& sub, const fs::path& mat_path, const std::optional<std::string>& acquisition) {
+  const std::map<std::string, Value> m = read_all_variables(mat_path);
+  const Value* TF = get(m, "TF");
+  if (!TF || !TF->is_numeric() || TF->is_complex || TF->dims.size() != 3) return std::nullopt;
+  const std::size_t nr = TF->dims[0], nt = TF->dims[1], nf = TF->dims[2];
+  const std::string stem = mat_path.stem().string();
+  const std::string method = lower(py_str(get(m, "Method"))), measure = lower(py_str(get(m, "Measure")));
+  std::string sm, sd;
+  if (measure == "power" && method == "psd") { sm = "power_density"; sd = "welch"; }
+  else if (measure == "power") { sm = "power"; sd = "empirical"; }
+  else if (measure == "magnitude") { sm = "amplitude"; sd = "empirical"; }
+  else value_error(mat_path.filename().string() + ": Brainstorm's measure '" + measure + "' has no entry in the statistics registry");
+  const std::vector<double> col = TF->doubles();                 // column-major: col[i + nr * (j + nt * k)]
+  std::vector<double> val(col.size());
+  for (std::size_t i = 0; i < nr; ++i)
+    for (std::size_t j = 0; j < nt; ++j)
+      for (std::size_t k = 0; k < nf; ++k) val[(i * nt + j) * nf + k] = col[i + nr * (j + nt * k)];
+  auto axis = [&](const char* name, std::size_t n, const Value* v, bool numbers) {
+    Json a = Json{{"name", name}, {"size", static_cast<std::int64_t>(n)}};
+    Json vals = Json::array();
+    if (numbers && v && v->is_numeric() && v->numel() == n) for (double x : v->doubles()) vals.push_back(x);
+    else if (!numbers) for (const std::string& t : strings_of(v)) vals.push_back(t);
+    if (vals.size() != n) {                                        // no usable values: the axis is its index
+      vals = Json::array();
+      for (std::size_t i = 0; i < n; ++i) vals.push_back(static_cast<std::int64_t>(i));
+    }
+    a["values"] = vals;
+    return a;
+  };
+  const bool sensors = py_str(get(m, "DataType")) != "results";
+  const Value* freqs = get(m, "Freqs");
+  const bool band_axis = freqs && freqs->is_cell();
+  nxr::io::StatisticSpec st;
+  st.name = stem;
+  st.measure = sm;
+  st.method = sd;
+  st.detached = true;
+  st.axes = Json::array({axis(sensors ? "channel" : "source", nr, get(m, "RowNames"), false), axis("time", nt, get(m, "Time"), true),
+                         axis(band_axis ? "band" : "frequency", nf, band_axis ? nullptr : freqs, true)});
+  if (band_axis) {                                               // the names of the bands, their edges kept beside
+    Json names = Json::array();
+    for (const Band& b : bands_of(freqs)) names.push_back(b.name);
+    if (names.size() == nf) st.axes[2]["values"] = names;
+  }
+  st.data = nxr::io::view(val, {static_cast<std::int64_t>(nr), static_cast<std::int64_t>(nt), static_cast<std::int64_t>(nf)});
+  st.acquisition = acquisition;
+  Json opt = Json{{"source", "Brainstorm timefreq"}, {"file", mat_path.filename().string()}, {"method", method}, {"measure", measure}, {"data_type", py_str(get(m, "DataType"))}};
+  if (const Value* na = get(m, "nAvg"); na && na->is_numeric() && na->numel() == 1) { st.n_members = static_cast<std::int64_t>(na->scalar()); opt["nAvg"] = *st.n_members; }
+  st.options = opt;
+  st.description = py_str(get(m, "Comment"));
+  const std::string id = sub.statistic(std::move(st));
+  return Json{{"name", stem}, {"id", id}, {"measure", sm}, {"method", sd}, {"shape", Json::array({nr, nt, nf})}};
+}
+
 int export_condition_timefreqs(SubjectWriter& sub, const fs::path& cond_dir, const std::string& condition, const std::optional<std::string>& acquisition, const Emit& emit) {
   std::set<fs::path> files;
   for (const fs::path& dir : {cond_dir, cond_dir.parent_path() / ("@raw" + condition)}) {
@@ -183,6 +240,11 @@ int export_condition_timefreqs(SubjectWriter& sub, const fs::path& cond_dir, con
     if (auto info = export_timefreq(sub, tf, acquisition)) {
       Json line = Json{{"stage", "field"}};
       for (auto it = info->begin(); it != info->end(); ++it) line[it.key()] = it.value();
+      emit(line);
+      ++n;
+    } else if (auto st = export_timefreq_statistic(sub, tf, acquisition)) {
+      Json line = Json{{"stage", "statistic"}};
+      for (auto it = st->begin(); it != st->end(); ++it) line[it.key()] = it.value();
       emit(line);
       ++n;
     }

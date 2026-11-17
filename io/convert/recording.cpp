@@ -2,6 +2,7 @@
 #include "nxr/convert/recording.h"
 
 #include <algorithm>
+#include <map>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -164,15 +165,37 @@ nxr::bst::EventTable event_table(const nxr::formats::RecordingHeader& h, double 
     t.type_colors.push_back({0.5, 0.5, 0.5});
     return static_cast<std::int32_t>(t.type_names.size() - 1);
   };
-  auto add = [&](double onset, double duration, const std::string& label) {
+  // an annotation that names channels is a box on sensor x time (D97): the channel scope is kept, as indices into the recording's channels. The file names them as text
+  // (a list separated by commas); a name the recording does not have is refused, never dropped.
+  std::map<std::string, std::int32_t> at;
+  for (std::size_t i = 0; i < h.channels.size(); ++i) at.emplace(h.channels[i].name, static_cast<std::int32_t>(i));
+  auto scope = [&](const std::string& named) {
+    std::vector<std::int32_t> out;
+    if (named.empty()) return out;
+    if (const auto whole = at.find(named); whole != at.end()) return std::vector<std::int32_t>{whole->second};   // a name that holds a comma
+    std::size_t from = 0;
+    while (from <= named.size()) {
+      std::size_t to = named.find(',', from);
+      if (to == std::string::npos) to = named.size();
+      const std::string c = named.substr(from, to - from);
+      const auto it = at.find(c);
+      if (it == at.end()) refuse("an annotation names the channel '" + c + "', which the recording does not have");
+      out.push_back(it->second);
+      from = to + 1;
+    }
+    return out;
+  };
+  t.channel_offsets.push_back(0);
+  auto add = [&](double onset, double duration, const std::string& label, const std::string& channels = std::string()) {
     t.type.push_back(type_of(label));
     t.onset.push_back(t0 + onset);
     t.duration.push_back(duration);
+    for (auto c : scope(channels)) t.channel_index.push_back(c);
+    t.channel_offsets.push_back(static_cast<std::int32_t>(t.channel_index.size()));
   };
-  for (const auto& a : h.annotations) add(a.onset, a.duration, a.label.empty() ? "event" : a.label);
+  for (const auto& a : h.annotations) add(a.onset, a.duration, a.label.empty() ? "event" : a.label, a.channels);
   // samples the file does not hold are zeros here, and a bad segment labelled as a skip: never interpolated
   for (const auto& g : h.gaps) add(static_cast<double>(g.first) / h.sampling_rate, static_cast<double>(g.count) / h.sampling_rate, "BAD_skip");
-  t.channel_offsets.assign(t.onset.size() + 1, 0);
   return t;
 }
 

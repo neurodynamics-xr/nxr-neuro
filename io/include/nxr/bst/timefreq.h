@@ -17,8 +17,13 @@ namespace nxr::bst {
 
 // One results-level timefreq file -> `source/<stem>_<band>` [nSources] float32 per band, Fields on its surface (this subject's, else the dataset's template's);
 // a group average's contributions are the members' fields. Returns nxr's info object (name, id, fields, n_sources, n_bands, sleep_stage, group), or nullopt
-// when the file is not source-level (a sensor-level timefreq is never loaded).
+// when the file is not source-level (a sensor-level timefreq is a statistic: below).
 std::optional<Json> export_timefreq(nxr::io::SubjectWriter& sub, const std::filesystem::path& mat_path, const std::optional<std::string>& acquisition, bool group = false);
+
+// Any other timefreq file (a sensor-level PSD or time-frequency map, a source map with a time axis) -> a STATISTIC (detached: computed in Brainstorm): TF [rows x time x
+// freq] with RowNames / Time / Freqs as its axes, measure from Measure and Method (power of a PSD: power_density by welch; else power, amplitude), nAvg as its members.
+// Returns nullopt when TF is not three-dimensional real; refuses a Measure the statistics registry lacks.
+std::optional<Json> export_timefreq_statistic(nxr::io::SubjectWriter& sub, const std::filesystem::path& mat_path, const std::optional<std::string>& acquisition);
 
 // SESSION HOOK. `convert_condition`'s step "SOURCE POWER BY BAND": every `timefreq_*.mat` of the condition's folder and of its `@raw<condition>` folder
 // (`cond_dir.parent / "@raw" + condition`), each exported on the cortex the kernel indexes; each one written is announced as `{"stage": "field", ...info}`.

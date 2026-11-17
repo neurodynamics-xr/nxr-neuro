@@ -123,6 +123,30 @@ RecordingOperators operators_of(const nf::RecordingReader& reader) {
       if (!rows.empty()) ops.compensation = csr_of(h, grade, true, rows, cols, co);
     }
   }
+  if (const auto w = h.matrices.find("icaweights"), sph = h.matrices.find("icasphere"), win = h.matrices.find("icawinv"); w != h.matrices.end() && sph != h.matrices.end()) {
+    // the channels the ICA ran on: EEGLAB's `icachansind` (1-based), else all
+    std::vector<std::size_t> at;
+    if (const auto ci = h.matrices.find("icachansind"); ci != h.matrices.end()) for (double x : ci->second.data) at.push_back(static_cast<std::size_t>(x) - 1);
+    else for (std::size_t i = 0; i < n; ++i) at.push_back(i);
+    for (std::size_t c : at) if (c >= n) refuse("EEGLAB: icachansind names a channel the dataset does not have");
+    const std::size_t nc = w->second.rows, ni = w->second.cols;
+    if (sph->second.rows != ni || sph->second.cols != ni || at.size() != ni) refuse("EEGLAB: icaweights, icasphere and icachansind do not agree on the channels the ICA ran on");
+    std::vector<double> un(nc * n, 0.0);
+    for (std::size_t k = 0; k < nc; ++k)
+      for (std::size_t j = 0; j < ni; ++j) {
+        double x = 0;
+        for (std::size_t i = 0; i < ni; ++i) x += w->second.data[k * ni + i] * sph->second.data[i * ni + j];
+        un[k * n + at[j]] = x;
+      }
+    ops.ica_unmixing = {static_cast<std::int64_t>(nc), std::move(un)};
+    if (win != h.matrices.end()) {
+      if (win->second.rows != ni || win->second.cols != nc) refuse("EEGLAB: icawinv is not channels x components");
+      std::vector<double> mx(n * nc, 0.0);
+      for (std::size_t j = 0; j < ni; ++j)
+        for (std::size_t k = 0; k < nc; ++k) mx[at[j] * nc + k] = win->second.data[j * nc + k];
+      ops.ica_mixing = {static_cast<std::int64_t>(nc), std::move(mx)};
+    }
+  }
   return ops;
 }
 
@@ -138,6 +162,25 @@ void write_operators(nxr::io::SubjectWriter& sub, RecordingOperators& ops, const
                          {"applied", e.status == 1 ? "applied by the import" : "not applied"}, {"operator", channels_name + "_projector_" + std::to_string(e.order)}});
     }
     ops.record["projectors"] = rec;
+  }
+  for (const bool mixing : {false, true}) {
+    const auto& m = mixing ? ops.ica_mixing : ops.ica_unmixing;
+    if (!m) continue;
+    const std::int64_t nc = m->first, M = static_cast<std::int64_t>(m->second.size()) / nc;
+    const std::string nm = channels_name + (mixing ? "_ica_mixing" : "_ica_unmixing");
+    nxr::io::OperatorSpec op;
+    op.name = nm;
+    op.path = nm;
+    op.kind = mixing ? "ica mixing" : "ica unmixing";
+    op.from_manifold_id = channels_id;
+    op.n_rows = mixing ? M : nc;
+    op.n_cols = mixing ? nc : M;
+    op.acquisition = acquisition;
+    op.data = nxr::io::view(m->second, {op.n_rows, op.n_cols});
+    op.cols.set("description", mixing ? "EEGLAB ICA mixing matrix (icawinv): component activations to channels, on the channels the ICA ran on; not applied"
+                                      : "EEGLAB ICA unmixing matrix (icaweights times icasphere): channels to component activations, on the channels the ICA ran on; not applied");
+    sub.operator_(std::move(op));
+    ops.record[mixing ? "ica_mixing" : "ica_unmixing"] = Json{{"operator", nm}, {"components", nc}, {"applied", false}};
   }
   if (ops.compensation) {
     const CtfCompensation& c = *ops.compensation;
