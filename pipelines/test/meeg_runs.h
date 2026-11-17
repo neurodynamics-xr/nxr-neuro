@@ -122,7 +122,7 @@ inline InverseComputeResult inverse_compute(nxr::io::DatasetWriter& ds, nxr::io:
   if (!o.forward.empty()) set["forward"] = o.forward;
   if (!o.noise_cov.empty()) set["noise_cov"] = o.noise_cov;
   if (!o.name.empty()) set["name"] = o.name;
-  if (!o.kernel.depth.enabled) set["depth"] = false;
+  if (!o.kernel.depth.enabled) set["depth_weighting"] = false;
   const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("inverse"), set, span_options(std::nullopt, std::nullopt, std::nullopt, o.replace));
   InverseComputeResult r;
   r.hit = !runs.empty() && runs[0].value("hit", false);

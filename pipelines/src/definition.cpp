@@ -487,7 +487,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   bool writes_recording = false;                                           // a recording output (a filter's) leaves the loop block by block, written as it runs
   if (doc.contains("outputs") && doc["outputs"].is_object())
     for (const auto& [o, spec] : doc["outputs"].items()) { (void)o; if (spec.is_object() && spec.value("kind", std::string()) == "recording") writes_recording = true; }
-  if (d.over && !accumulates && !writes_recording) err(where, "steps.chunks: nothing leaves the loop without an accumulate step or a recording output");
+  if (d.over && !accumulates && !writes_recording && d.kind != "chain") err(where, "steps.chunks: nothing leaves the loop without an accumulate step or a recording output");
 
   const Json outputs = doc.contains("outputs") && !doc["outputs"].is_null() ? doc["outputs"] : Json::object();
   if (!outputs.is_object() || outputs.empty()) err(where, "outputs: at least one (what the pipeline stores)");

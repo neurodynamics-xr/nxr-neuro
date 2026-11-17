@@ -20,7 +20,7 @@ parameters:
   name: {default: "{forward}_minnorm", meaning: "the kernel's name; beside it <name>_channels, <name>_noise_cov and <name>_whitener", unit: "-"}
   conventions: {default: brainstorm, meaning: "the defaults every option starts from: brainstorm | mne", unit: "-", choices: [brainstorm, mne]}
   average_reference: {default: true, meaning: "apply the average reference of EEG, sEEG and ECoG to the gain and the covariance, per family", unit: "-"}
-  depth: {default: null, meaning: "depth weighting on or off; null: the conventions'", unit: "-"}
+  depth_weighting: {default: null, meaning: "depth weighting on or off; null: the conventions'", unit: "-"}
   depth_exponent: {default: null, meaning: "the depth weighting's exponent; null: the conventions'", unit: "-"}
   depth_limit: {default: null, meaning: "the largest ratio of the depth weights; null: the conventions'", unit: "-"}
   depth_norm: {default: null, meaning: "frobenius | spectral; null: the conventions'", unit: "-"}
@@ -44,7 +44,7 @@ steps:
   before:
     - node: meeg.minimum_norm
       in: {forward: forward, covariance: covariance}
-      with: {conventions: $conventions, average_reference: $average_reference, depth: $depth, depth_exponent: $depth_exponent, depth_limit: $depth_limit, depth_norm: $depth_norm, depth_limit_on: $depth_limit_on, depth_channels: $depth_channels, snr: $snr, snr_normalisation: $snr_normalisation, regularisation: $regularisation, ridge_fraction: $ridge_fraction, whitener_form: $whitener_form, rank_tolerance: $rank_tolerance, joint_types: $joint_types, ridge_over_rank: $ridge_over_rank, detect_diagonal: $detect_diagonal}
+      with: {conventions: $conventions, average_reference: $average_reference, depth: $depth_weighting, depth_exponent: $depth_exponent, depth_limit: $depth_limit, depth_norm: $depth_norm, depth_limit_on: $depth_limit_on, depth_channels: $depth_channels, snr: $snr, snr_normalisation: $snr_normalisation, regularisation: $regularisation, ridge_fraction: $ridge_fraction, whitener_form: $whitener_form, rank_tolerance: $rank_tolerance, joint_types: $joint_types, ridge_over_rank: $ridge_over_rank, detect_diagonal: $detect_diagonal}
       out: [kernel, channels, used_covariance, whitener]
 
 outputs:
