@@ -1,4 +1,4 @@
-// nxr::intrinsic on the INTRINSIC complex of a sphere (delaunay::prepare of an icosphere whose vertices are jittered, so edges flip):
+// nxr::intrinsic on the INTRINSIC complex of a sphere (IntrinsicSurface of an icosphere whose vertices are jittered, so edges flip):
 //   d1·d0 = 0; ⋆1 ≥ 0 (Delaunay); an unflipped edge's direction at each end is the mesh edge's (the signposts embedded through the input's edges);
 //   flat of a GRADIENT field ∇f (f = z, its tangential part) ≈ d0 f, the exact edge differences (the field integrated along each edge);
 //   sharp(flat(J)) ≈ J for smooth tangent fields (a gradient and a rotation n × ẑ), away from nothing (a closed sphere);
@@ -26,14 +26,14 @@ int main() {
     // jitter along the sphere (tangentially, then back onto it): thin and obtuse triangles, so the construction flips edges
     for (int v = 0; v < nV; ++v) {
         Eigen::Vector3d p(V[3 * v], V[3 * v + 1], V[3 * v + 2]);
-        p += Eigen::Vector3d(nd(rng), nd(rng), nd(rng)) * 0.12;
+        p += Eigen::Vector3d(nd(rng), nd(rng), nd(rng)) * 0.06;
         p.normalize();
         for (int k = 0; k < 3; ++k) V[3 * v + k] = p(k);
     }
-    const auto m = nxr::manifold::delaunay::prepare(V.data(), nV, F.data(), static_cast<int>(F.size() / 3));
-    const nxr::intrinsic::Complex c = nxr::intrinsic::complexOf(m, V.data(), F.data(), static_cast<int>(F.size() / 3));
-    std::printf("  %d vertices, %d edges, %d faces; %d flips\n", c.nV, c.nE, c.nF, m.record.flips);
-    EXPECT(m.record.flips > 0, "the jittered sphere needed flips");
+    nxr::manifold::IntrinsicSurface m(V.data(), nV, F.data(), static_cast<int>(F.size() / 3));
+    const nxr::intrinsic::Complex c = nxr::intrinsic::complexOf(m);
+    std::printf("  %d vertices, %d edges, %d faces; %d flips\n", c.nV, c.nE, c.nF, m.record().flips);
+    EXPECT(m.record().flips > 0, "the jittered sphere needed flips");
     EXPECT(Eigen::SparseMatrix<double>(c.d1 * c.d0).norm() == 0.0, "d1 d0 = 0");
     EXPECT(c.star1.minCoeff() >= -1e-9, "every cotan weight >= 0 (Delaunay)");
     {
@@ -81,11 +81,11 @@ int main() {
         const int n3 = static_cast<int>(V3.size() / 3);
         for (int v = 0; v < n3; ++v) {
             Eigen::Vector3d p(V3[3 * v], V3[3 * v + 1], V3[3 * v + 2]);
-            p += Eigen::Vector3d(nd(rng), nd(rng), nd(rng)) * 0.12; p.normalize();
+            p += Eigen::Vector3d(nd(rng), nd(rng), nd(rng)) * 0.06; p.normalize();
             for (int k = 0; k < 3; ++k) V3[3 * v + k] = p(k);
         }
-        const auto m3 = nxr::manifold::delaunay::prepare(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3));
-        const nxr::intrinsic::Complex c3 = nxr::intrinsic::complexOf(m3, V3.data(), F3.data(), static_cast<int>(F3.size() / 3));
+        nxr::manifold::IntrinsicSurface m3(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3));
+        const nxr::intrinsic::Complex c3 = nxr::intrinsic::complexOf(m3);
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c3.d0.transpose() * c3.star1.asDiagonal() * c3.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c3.star0.asDiagonal()));
         const int K = 40;
@@ -114,8 +114,8 @@ int main() {
         std::vector<double> V2; std::vector<int32_t> F2;
         icosphere(2, V2, F2, 1.0);
         const int n2 = static_cast<int>(V2.size() / 3);
-        const auto m2 = nxr::manifold::delaunay::prepare(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
-        const nxr::intrinsic::Complex c2 = nxr::intrinsic::complexOf(m2, V2.data(), F2.data(), static_cast<int>(F2.size() / 3));
+        nxr::manifold::IntrinsicSurface m2(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
+        const nxr::intrinsic::Complex c2 = nxr::intrinsic::complexOf(m2);
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c2.d0.transpose() * c2.star1.asDiagonal() * c2.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c2.star0.asDiagonal()));
         const int K = 12;

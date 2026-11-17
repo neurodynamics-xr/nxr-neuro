@@ -171,7 +171,7 @@ void Manifold::releaseOperator(OperatorId id) {
 // call assembleManifoldOperators (which fuses cotan+mass+normals).
 const Eigen::SparseMatrix<double>& Manifold::cotanLaplacianCached_() {
     if (!cacheLaplacianCotan_)
-        cacheLaplacianCotan_ = std::make_unique<Eigen::SparseMatrix<double>>(delaunay::cotanLaplacian(*operatorMesh_));
+        cacheLaplacianCotan_ = std::make_unique<Eigen::SparseMatrix<double>>(operatorCotan());
     return *cacheLaplacianCotan_;
 }
 

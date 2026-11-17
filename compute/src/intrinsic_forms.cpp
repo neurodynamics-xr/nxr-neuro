@@ -1,4 +1,8 @@
 #include "nxr/intrinsic_forms.h"
+#include "geometrycentral/surface/intrinsic_geometry_interface.h"
+
+#include "geometrycentral/surface/manifold_surface_mesh.h"
+#include "geometrycentral/surface/vertex_position_geometry.h"
 
 #include <algorithm>
 #include <cmath>
@@ -20,64 +24,74 @@ void basisAt(const Complex& c, int v, Eigen::Vector3d& e1, Eigen::Vector3d& e2) 
 }
 }  // namespace
 
-Complex complexOf(const nxr::manifold::delaunay::Mesh& m, const double* positions, const std::int32_t* inputFaces, int nFin) {
-    namespace dl = nxr::manifold::delaunay;
-    if (!m.hasSignposts) throw std::invalid_argument("intrinsic::complexOf: the mesh carries no signposts (prepare adds them)");
+Complex complexOf(nxr::manifold::IntrinsicSurface& surface) {
+    const auto K = surface.complex();
     Complex c;
-    c.nV = m.nV; c.nE = m.nE(); c.nF = m.nF;
-    c.edges.resize(2 * static_cast<std::size_t>(c.nE));
+    c.nV = surface.nV(); c.nE = static_cast<int>(K.length.size()); c.nF = static_cast<int>(K.faces.size() / 3);
+    c.edges = K.edges;
     std::vector<Eigen::Triplet<double>> t0, t1;
     for (int e = 0; e < c.nE; ++e) {
-        const int h = m.edgeHe[static_cast<std::size_t>(e)];
-        const int a = m.F[static_cast<std::size_t>(h)], b = m.F[static_cast<std::size_t>(dl::nextHe(h))];
-        c.edges[2 * static_cast<std::size_t>(e)] = a; c.edges[2 * static_cast<std::size_t>(e) + 1] = b;
-        t0.emplace_back(e, a, -1.0); t0.emplace_back(e, b, 1.0);
+        t0.emplace_back(e, K.edges[2 * static_cast<std::size_t>(e)], -1.0);
+        t0.emplace_back(e, K.edges[2 * static_cast<std::size_t>(e) + 1], 1.0);
     }
-    for (int h = 0; h < 3 * c.nF; ++h) { const int e = m.edgeOf[static_cast<std::size_t>(h)]; t1.emplace_back(h / 3, e, m.edgeHe[static_cast<std::size_t>(e)] == h ? 1.0 : -1.0); }
+    for (int h = 0; h < 3 * c.nF; ++h) {
+        const int se = K.faceEdges[static_cast<std::size_t>(h)];
+        t1.emplace_back(h / 3, std::abs(se) - 1, se > 0 ? 1.0 : -1.0);
+    }
     c.d0.resize(c.nE, c.nV); c.d0.setFromTriplets(t0.begin(), t0.end());
     c.d1.resize(c.nF, c.nE); c.d1.setFromTriplets(t1.begin(), t1.end());
-    c.length = Eigen::Map<const VectorXd>(m.length.data(), c.nE);
-    c.star0 = Eigen::Map<const VectorXd>(m.mass.data(), c.nV);
-    c.star1.resize(c.nE); for (int e = 0; e < c.nE; ++e) c.star1(e) = dl::edgeWeight(m, e);
-    c.star2.resize(c.nF);
-    for (int f = 0; f < c.nF; ++f) {
-        const double a = m.length[static_cast<std::size_t>(m.edgeOf[static_cast<std::size_t>(3 * f)])], b = m.length[static_cast<std::size_t>(m.edgeOf[static_cast<std::size_t>(3 * f + 1)])],
-                     cc = m.length[static_cast<std::size_t>(m.edgeOf[static_cast<std::size_t>(3 * f + 2)])];
-        c.star2(f) = 1.0 / dl::triangleArea(a, b, cc);
-    }
+    c.length = Eigen::Map<const VectorXd>(K.length.data(), c.nE);
+    const std::vector<double> mass = surface.massDiagonal();
+    c.star0 = Eigen::Map<const VectorXd>(mass.data(), c.nV);
+    // ⋆1 = the cotangent weights and ⋆2 = 1 / area of geometry-central's DEC on the triangulation
+    auto& g = surface.geometry();
+    g.requireDECOperators();
+    c.star1 = g.hodge1.diagonal();
+    c.star2 = g.hodge2.diagonal();
+    g.unrequireDECOperators();
     c.angleTail.resize(c.nE); c.angleTip.resize(c.nE);
     for (int h = 0; h < 3 * c.nF; ++h) {
-        const int e = m.edgeOf[static_cast<std::size_t>(h)];
-        (m.edgeHe[static_cast<std::size_t>(e)] == h ? c.angleTail : c.angleTip)(e) = m.angle[static_cast<std::size_t>(h)];
+        const int se = K.faceEdges[static_cast<std::size_t>(h)], e = std::abs(se) - 1;
+        (se > 0 ? c.angleTail : c.angleTip)(e) = K.angle[static_cast<std::size_t>(h)];
     }
-    c.coneAngle = Eigen::Map<const VectorXd>(m.angleSum.data(), c.nV);
-    c.reference.assign(m.ref.begin(), m.ref.end());
-    attachEmbedding(c, positions, inputFaces, nFin);
+    c.coneAngle = Eigen::Map<const VectorXd>(K.angleSum.data(), c.nV);
+    c.reference.assign(K.reference.begin(), K.reference.end());
+    attachEmbedding(c, surface);
     return c;
 }
 
 void attachEmbedding(Complex& c, const double* positions, const std::int32_t* inputFaces, int nFin) {
-    namespace dl = nxr::manifold::delaunay;
-    c.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(positions, c.nV, 3);
-    c.normals = MatrixXd::Zero(c.nV, 3);
-    for (int f = 0; f < nFin; ++f) {
-        const int a = inputFaces[3 * f], b = inputFaces[3 * f + 1], d = inputFaces[3 * f + 2];
-        const Eigen::Vector3d N = (row3(c.positions, b) - row3(c.positions, a)).cross(row3(c.positions, d) - row3(c.positions, a));
-        for (int v : {a, b, d}) c.normals.row(v) += N.transpose();
+    // the input as it is (the same vertices; its own signposts: the same reference halfedges, the same cone angles as the intrinsic mesh's)
+    nxr::manifold::IntrinsicOptions o;
+    o.intrinsic = false;
+    nxr::manifold::IntrinsicSurface input(positions, c.nV, inputFaces, nFin, o);
+    attachEmbedding(c, input);
+}
+
+void attachEmbedding(Complex& c, nxr::manifold::IntrinsicSurface& surface) {
+    namespace gcs = geometrycentral::surface;
+    auto& E = surface.embedded();
+    E.requireVertexNormals();
+    E.requireVertexPositions();
+    c.positions = MatrixXd(c.nV, 3);
+    c.normals = MatrixXd(c.nV, 3);
+    for (gcs::Vertex v : surface.inputMesh().vertices()) {
+        const auto i = static_cast<Eigen::Index>(v.getIndex());
+        c.positions.row(i) << E.vertexPositions[v].x, E.vertexPositions[v].y, E.vertexPositions[v].z;
+        c.normals.row(i) << E.vertexNormals[v].x, E.vertexNormals[v].y, E.vertexNormals[v].z;
     }
-    for (int v = 0; v < c.nV; ++v) c.normals.row(v).normalize();
-    // the input's own signposts (the input as it is: the same reference halfedges, the same cone angles as the intrinsic mesh's)
-    const dl::Mesh in = dl::prepare(positions, c.nV, inputFaces, nFin, {}, /*intrinsic=*/false);
+    const std::vector<double> ang = surface.inputSignpostAngles();
     c.fans.assign(static_cast<std::size_t>(c.nV), {});
-    for (int h = 0; h < 3 * in.nF; ++h) {
-        const int v = in.F[static_cast<std::size_t>(h)], w = in.F[static_cast<std::size_t>(dl::nextHe(h))];
+    for (gcs::Halfedge he : surface.inputMesh().halfedges()) {
+        const int v = static_cast<int>(he.vertex().getIndex()), w = static_cast<int>(he.tipVertex().getIndex());
         const Eigen::Vector3d n = row3(c.normals, v);
         Eigen::Vector3d d = row3(c.positions, w) - row3(c.positions, v);
         d -= d.dot(n) * n;
-        c.fans[static_cast<std::size_t>(v)].push_back({in.angle[static_cast<std::size_t>(h)], d.normalized()});
+        c.fans[static_cast<std::size_t>(v)].push_back({ang[he.getIndex()], d.normalized()});
     }
     for (auto& fan : c.fans) std::sort(fan.begin(), fan.end(), [](const auto& x, const auto& y) { return x.first < y.first; });
 }
+
 
 Eigen::Vector3d tangentAt(const Complex& c, int e, bool atTip) {
     const int v = c.edges[static_cast<std::size_t>(2 * e + (atTip ? 1 : 0))];
