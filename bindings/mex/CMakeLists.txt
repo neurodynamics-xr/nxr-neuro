@@ -151,6 +151,7 @@ endif()
 # HDF5 and zlib in the same process, so none of theirs is exported from it: the symbols are hidden at the link (nxr_io_hide_static_symbols), and FindMatlab's
 # export map leaves mexFunction the only symbol the module exports. (SQLite, io's database engine, is not linked: the readers do not need it.)
 if(TARGET nxr_io_formats)
+    set_target_properties(nxr_io_formats PROPERTIES POSITION_INDEPENDENT_CODE ON)   # a static library linked into a shared object
     target_sources(nxr_compute_mex PRIVATE src/first_slice_io.cpp)
     target_compile_definitions(nxr_compute_mex PRIVATE NXR_MEX_WITH_IO=1)
     target_link_libraries(nxr_compute_mex nxr_io_formats)

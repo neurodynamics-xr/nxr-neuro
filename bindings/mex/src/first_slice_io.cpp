@@ -170,7 +170,9 @@ void ioRead(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
     throw nxr::formats::range_error("the channels are first_channel..last_channel, 1-based and inclusive");
   const std::uint64_t s0 = static_cast<std::uint64_t>(first) - 1, n = static_cast<std::uint64_t>(last - first + 1);
   const std::size_t c0 = static_cast<std::size_t>(cfirst) - 1, c1 = static_cast<std::size_t>(clast);
-  (void)h;
+  // the span and channels are checked against the header before the result is allocated (a request far past the end must be an error, not an allocation)
+  if (static_cast<std::uint64_t>(last) > h.n_samples) throw nxr::formats::range_error("samples " + std::to_string(static_cast<std::uint64_t>(first)) + ".." + std::to_string(static_cast<std::uint64_t>(last)) + " are outside the recording (" + std::to_string(h.n_samples) + " samples)");
+  if (c1 > h.channels.size()) throw nxr::formats::range_error("channels up to " + std::to_string(c1) + " are outside the recording (" + std::to_string(h.channels.size()) + " channels)");
   const std::size_t rows = c1 - c0;
   const bool single = r->header().precision == fm::Precision::float32;
   // the reader gives channel after channel (row-major [rows x n]); MATLAB wants the same matrix column-major: one transposing copy
