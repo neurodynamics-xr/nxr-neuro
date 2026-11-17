@@ -119,6 +119,7 @@ struct FieldOut {
   std::string value_type = "scalar";               // scalar · complex · vector3 · quaternion · hermitian3 …
   std::optional<std::string> unit, description, derived_from_id, acquisition;
   std::optional<std::string> of_operator_id;       // a field of an operator (a head model's source positions)
+  std::optional<std::string> by_operator_id;       // a field made BY an operator (a source estimate: the inverse kernel applied to a recording; derived_from_id is the recording)
   Json producer;                                   // added to the unit's producer record (null: nothing added)
   Values data;                                     // [n_vertices] or [n_vertices x components]; empty: a field with no array (what measurements are of)
 };
@@ -155,6 +156,9 @@ struct MeasurementOut {
   std::vector<Measure> measures;
   Json band;                                       // {name, lo_hz, hi_hz} or null
   Json attributes;                                 // what each measure's array says of its own axes (the zarr attributes: rows = ..., columns = ...); null: none
+  Json band;                                       // {name, lo_hz, hi_hz} or null: the band of the dataset's standard bank
+  std::optional<std::string> within_selection_id;  // the Selection a measure is WITHIN (a bank of bands whose code is the band's index: the pyramid's `atlas bands`) and the member of it: wins over `band`
+  std::optional<std::int64_t> within_code;
 };
 // a closed-form tiling of a time line: `count` tiles of `width` a new one every `hop` from `origin` (in `unit`), `skipped` of them left out
 struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };

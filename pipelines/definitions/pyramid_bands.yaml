@@ -1,0 +1,29 @@
+# THE PYRAMID'S BAND BANK (nxr D158 `atlas bands`): spans [lo, hi) on the frequency line (0-500 Hz in 0.5 Hz steps), the span's code = the band's index, so a measurement's `within` key is the band's index in the bank.
+# One bank a subject: `run pyramid` measures every band of it, and the bank it was run with must be the stored one. The default is nxr's DEFAULT_BANDS, the octaves 1-2 ... 32-64 Hz.
+#
+#   nxr-neuro run pyramid_bands --dataset <folder> --subject sub-01 [--bands '[[1,2],[2,4],[4,8],[8,16],[16,32],[32,64]]']
+pipeline: pyramid_bands
+version: 1
+description: the measurement pyramid's frequency band bank, spans on the frequency line with the band's index as the code
+scope: subject
+
+inputs:
+  frequency: {manifold: line, where: {name: Frequency}, required: false, hint: "the frequency line, when the subject already has one"}
+
+parameters:
+  bands: {default: [[1, 2], [2, 4], [4, 8], [8, 16], [16, 32], [32, 64]], meaning: "the bank [[lo, hi], ...] in Hz, each half open [lo, hi)", unit: Hz}
+
+steps:
+  before:
+    - {node: pyramid.bands, with: {bands: $bands}, out: [freq, bank]}
+
+outputs:
+  freq:
+    kind: manifold
+    type: line
+    name: Frequency
+  bank:
+    kind: selection
+    type: spans
+    name: atlas bands
+    on: freq

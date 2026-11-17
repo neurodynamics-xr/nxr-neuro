@@ -568,6 +568,7 @@ std::string Unit::field(const FieldOut& f) {
   if (f.description) fs.cols.set("description", *f.description);
   if (f.derived_from_id) fs.cols.set("derived_from_id", *f.derived_from_id);
   if (f.of_operator_id) fs.cols.set("of_operator_id", *f.of_operator_id);
+  if (f.by_operator_id) fs.cols.set("by_operator_id", *f.by_operator_id);
   fs.cols.set("source", by_.tool);
   fs.cols.json("producer_json", producer_of(by_, f.output, f.producer));
   return impl_->writer->field(std::move(fs));
@@ -625,7 +626,8 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
     Cols c;
     c.set("measure", x.measure).set("array_path", path).set("unit", x.unit).set("computed_by", by_.tool);
     if (!m.of_field_id.empty()) c.set("of_field_id", m.of_field_id);        // none: the members' own (a size)
-    if (band && !(*band)["selection_id"].is_null()) c.set("within_selection_id", (*band)["selection_id"].get<std::string>()).set("within_code", (*band)["code"].get<std::int64_t>());
+    if (m.within_selection_id) { c.set("within_selection_id", *m.within_selection_id); if (m.within_code) c.set("within_code", *m.within_code); }
+    else if (band && !(*band)["selection_id"].is_null()) c.set("within_selection_id", (*band)["selection_id"].get<std::string>()).set("within_code", (*band)["code"].get<std::int64_t>());
     selection::save_measurement(sub, m.selection_id, c);
     ++n;
   }

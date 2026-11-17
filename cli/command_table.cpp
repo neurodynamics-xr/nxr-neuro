@@ -53,7 +53,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --band	LO,HI	The frequency band in hertz (frametiling: its centre sets the frame length; wishart: the band of the stored windows; measure query: INDEX picks one band by its index, a whole number).	none	Hz
 --band@query measurements	N	The band (the row's within-code) to read when the pyramid's joint selection holds several.	none (all bands, or the only one)	-
 --bands	NAME:LO-HI,...	The frequency bands to compute, each a name and its low and high edge (the mean over the bins from LO to HI, inclusive); pyramid build takes LO-HI,... octave bands without names.	Brainstorm's bands (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90); pyramid build: octaves 1-2 to 32-64	Hz
---bands@run pyramid	LO-HI,...	Frequency bands to build, as comma-separated LO-HI edges (half-open [LO, HI)).	octaves 1-2 to 32-64 Hz	Hz
 --bandwidth	HZ	Notch width: the 3 dB bandwidth of each notch	1	Hz
 --batch	N	Number of null draws made at a time before the early-stopping test (Besag-Clifford).	20	draws
 --batch@run null	N	Draws are made in batches of this size	20	draws
@@ -64,7 +63,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --block-frames	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-frames@run	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-samples	N	Samples processed at a time, which sets memory use only and does not change the result (run: width for the steps after the last filter, 0 = whole chunk; pyramid build: samples projected at a time)	run: 1024; pyramid build: 512 (fixed-orientation kernel) or 128 (free)	samples
---block-samples@run pyramid	N	Samples projected through the kernel at a time; sets memory use only, not the result.	512 (fixed-orientation kernel) or 128 (free orientation)	samples
 --block-samples@run	N	Width in samples of the blocks that flow through the steps after the last filter; limits memory only, the result does not change (0 = the whole chunk).	1024	samples
 --block-seconds	SECONDS	Length of the blocks whose own mean is removed before the covariance is formed (noisecov: noise window; inverse: when computing the noise covariance from a recording).	one block (a single mean for the whole window)	s
 --bst-root	PATH	Root folder of the Brainstorm protocol, used to resolve the surface files named by --file.	none (empty)	-
@@ -112,7 +110,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --depth-limit-on	weight|norm	Where the depth limit is applied: on the weights (Brainstorm's way) or on the inverse norms (MNE-Python's way).	weight	-
 --depth-norm	frobenius|spectral	Matrix norm used for each source's gain when depth weighting	frobenius	-
 --depth@run opticalflow	LEVEL	Level of the surface's tile ladder whose leaf tiles hold the stored sums of divergence, curl, speed and velocity; the ladder is made if absent.	the finest level every piece of the surface reaches	level
---depth@run pyramid	LEVEL	Level of the leaf tiles (2^LEVEL tiles per surface piece) on which the sums are stored.	the finest level every piece reaches (group tree: the dataset's atlas depth)	level
 --depth@reduce pyramid	LEVEL	Level of the group tree at which the members' pyramids are summed, cell for cell.	the atlas depth of the group tree definitions	level
 --detrend	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (the Brainstorm option set)	-
 --divisor	samples-minus-blocks|samples|samples-minus-one	What the covariance sum is divided by: samples minus the number of blocks, the samples, or samples minus one.	samples-minus-blocks	-
@@ -166,7 +163,6 @@ R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (r
 --fraction	X	Fraction of the peak power at the reference level above which the connected region counts as the source's patch.	0.5	-
 --frame-level	L	Tower level of a time frame, a whole number: a frame lasts 86400 x 2^L seconds (-18 = 0.33 s, -25 = 2.57 ms). (frametiling: alternative to --centre or --band)	-18 (frametiling: none, give a level, centre or band)	-
 --frame-level@run opticalflow	L	Tower level of a stored time frame, a whole number: a frame lasts 86400 x 2^L seconds (-18 is 0.33 s).	-18	-
---frame-level@run pyramid	L	Tower level of a time frame, a whole number: a frame lasts 86400 x 2^L seconds.	-18 (0.33 s)	level
 --frames-per-cycle	N	Frames per cycle of the band's centre frequency, which sets the frame level (the coarsest whose frame is at or under 1/(centre x N))	36	frames
 --freq	HZ	Frequency whose nearest filter-bank member is analysed.	none (required)	Hz
 --freq@run opticalflow	HZ	Frequency whose nearest filter-bank member is analysed.	required	Hz
@@ -186,7 +182,6 @@ R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (r
 --half-width	OCT	Meyer family: half-width of each transition between members, in octaves.	0.3333 (1/3)	octaves
 --half-width@run opticalflow	OCTAVES	Meyer family only: half-width of the transition between neighbouring octave bands.	0.3333	octaves
 --halo-seconds	SECONDS	Context read on each side of a chunk so the band filter's edge effects fall inside it	8	s
---halo-seconds@run pyramid	SECONDS	Context read on each side of a chunk so the band filter's edge effects fall inside it.	8	s
 --harmonics	N	With --line, the number of harmonics of the line frequency to notch.	every multiple below the Nyquist frequency	-
 )TBL",
 R"TBL(--include-imported		Also import conditions that were themselves imported.	off	-
@@ -198,11 +193,9 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --keep-all		Keep every member in the table, including those excluded by default.	off	-
 --keep-all@export measurements		Keep every member in the table, including the default excluded one (clears --exclude)	off	-
 --keep-bad-segments		Keep the recording's bad segments in the computation instead of leaving them out	off	-
---keep-bad-segments@run pyramid		Keep the recording's bad segments in the sums instead of leaving them out.	off (bad segments are left out)	-
 --kernel	NAME	Name of the stored inverse kernel (the map from channels to sources) to apply.	the subject's only kernel	-
 --kernel@run cyclepattern	NAME	Name of the stored free-orientation inverse kernel that maps the cross-spectrum to sources.	the subject's only kernel	-
 --kernel@run opticalflow	NAME	Name of the stored inverse kernel that maps the channels to sources on the cortex.	the subject's only kernel	-
---kernel@run pyramid	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
 --kernels	SPEC,...	Which kernels' pyramids are summed: all, constrained, free, latest, a method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
 --kernels@reduce pyramid	SPEC,...	Which source estimates of each member are summed: all, constrained, free, latest, or a kernel's method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
 --kind	subject|template|group	Kind of subject to create	subject	-
@@ -343,7 +336,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording-b@run null	NAME	A second recording, to test the run-to-run repeat as well (draws made in step)	none	-
 --recording@run constantq	NAME	Recording whose time line gets the ladder (alternative to --line and --all).	none	-
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
---recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
 --recording@run spatialnull	NAME	The recording whose stored spatial events are tested against the null.	required	-
 --recording@import condition	FILE	Import only this data file of the condition (e.g. data_0raw_x.mat) instead of every data file the condition has.	none (all the condition's recordings)	-
 --recording@import resample	NAME	The recording to resample	required	-
@@ -388,7 +380,6 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --set@run spatialnull	NAME=VALUE	A parameter of every null draw's spatial-events run (levels, threshold, band, ...); repeatable.	none (the data's parameters)	-
 --set@run	NAME=VALUE	Override a parameter of the pipeline definition; the value is read as YAML (8, [15, 29], dSPM). Repeatable.	none (the definition's own values)	-
 --shape	morlet|meyer|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or meyer (wishart); pyramid build also accepts power_partition (band powers add to broadband).	morlet	-
---shape@run pyramid	morlet|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or power_partition (band powers add up to broadband).	morlet	-
 --shift	absolute|relative	How the eigenvalue solve is shifted: at one absolute shift (reference method) or by a scale-aware relative ladder.	absolute	-
 --shift@run eigenmodes	absolute|relative	Shift of the shift-invert solve: absolute (one solve per ladder at --sigma, the reference method) or relative (a ladder scaled to the spectrum).	absolute	-
 --side	auto|left|right	Hemisphere of a single-piece surface	auto	-
@@ -428,7 +419,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --start	SEC	Start of the span read, in seconds on the recording's clock; give together with --stop. Exclusive with --chunks.	none (one chunk)	s
 --start-s	SECONDS	Time of the recording's first sample as seconds from local midnight, anchoring the time-tile levels	the anchor is the recording	s
 --start-s@run opticalflow	SECONDS	Time of the recording's first sample as seconds from local midnight, anchoring the frame tiling.	none (the anchor is the recording)	s
---start-s@run pyramid	SECONDS	Time of the recording's first sample as seconds from local midnight, which anchors the time frames.	the anchor is the recording	s
 --statistics	LIST	Comma-separated statistics written per subject in the exported table (e.g. mean,sd).	see the command's description	-
 --statistics@export measurements	NAMES	Comma-separated statistics to export: mean, sd, variance, rms, mean_square, max, min, abs_max, sum, area, n_elements	mean	-
 --stop	SEC	End of the span read, in seconds on the recording's clock (exclusive); give together with --start.	none (one chunk)	s
@@ -448,7 +438,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --surface@import condition	FILE	The subject's cortex surface file (tess_*.mat) the condition is imported on, instead of the one its head model names.	none (the condition's own surface)	-
 --surface@import template	NAME	Convert only this surface (a tess_*.mat file of the template anatomy); repeat for several.	every surface of the template's default anatomy	-
 --surface@import templates	NAME	The surface the template maps are placed on	the subject's surface with each map's vertex count	-
---surface@list spatial-bands	NAME	The subject's surface whose spatial band bank is listed	the subject's primary surface	-
 --symmetric		Use the symmetric form of the taper window instead of the periodic one	off (the window form follows --set)	-
 --table	NAME	Name of the exported table.	none (required)	-
 --table@export measurements	NAME	Name of the table; it names the data_table and the output files	required	-
@@ -457,7 +446,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --templates	DIR	A folder of released templates to look in (repeatable), before NXR_TEMPLATE_PATH and the user setting template_path; read only when a template's arrays are used.	none (the environment variable and the user setting only)	-
 --templates@create dataset	DIR	A FreeSurfer subjects folder; the dataset is created together with its default subject (surfaces, parcellations, frames, group tree) read from it.	none (no default subject is written)	-
 --threads	N	Workers for the kernel products; the result is identical for every count (0 = the machine's performance cores, 1 = serial).	0	threads
---threads@run pyramid	N	Workers for the kernel products; the result is identical for every count (0 = the machine's performance cores, 1 = serial).	0	threads
 --through	NAME	Name of a stored 2-row operator (a rotation plane) over the channels: compute the two-sided rotary spectrum of its complex signal	none	-
 --tile-levels	L1,L2,..	Levels of the tile ladder at which tile summaries of the maps are written (needs --tiles).	1 up to --tile-max-level (6)	levels
 --tile-levels@run opticalflow	L1,L2,...	Levels of the tile ladder at which tile summaries of the maps are written; needs --tiles.	1 up to --tile-max-level	level
@@ -499,7 +487,6 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --templates@list recordings	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@list kernels	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@list results	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@list spatial-bands	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this listing uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@import subject	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@import surface	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@import mri	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -515,7 +502,6 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run pyramid	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run spatialnull	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run null	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@register package	DIR	A folder of released templates to look in (repeatable); when given, each package's template must be found there by name, version and hash and its anchor rows must equal the template's.	none (not checked)	-
@@ -606,7 +592,6 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --accept-unlisted-sources@create template		Read a source file the manifest does not list or whose checksum differs; the checksum read is recorded in the origin.	off (refused)	-
 --home-dataset@create template	NAME	The dataset the package is made for, by its name: provenance, not membership.	templates	-
 --tree	subject|group	The tree the leaves belong to: the surface's own ladder, or the dataset's group tree through the registered sphere (the same leaves in every subject).	subject	-
---tree@run pyramid	subject|group	Tree the leaf tiles belong to: the surface's own ladder, or the dataset's group tree (the same leaves in every subject).	subject	-
 --trk	FILE	A fibre-tract file (.trk) to import with the templates.	none	-
 --trk@import templates	FILE	A tractography streamline file (.trk) whose streamlines and their end points are added to the templates	none	-
 --types	TYPE,...	Channel types to use, e.g. "MEG MAG,MEG GRAD,EEG" (only good channels of these types).	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
@@ -968,12 +953,6 @@ summary: List the pipeline definitions and the steps they are made of.
 unprobed: yes
 opts: 
 )TBL",
-R"TBL(@ list spatial-bands
-old: pyramid spatial-bands
-alias: refused
-summary: List a surface's spatial bands (one per level of its tile ladder).
-opts: --dataset* --subject* --surface --templates+
-)TBL",
 R"TBL(@ import list
 old: convert list
 alias: refused
@@ -1196,14 +1175,6 @@ group: Cortical flow and patterns
 summary: Optical flow (Horn-Schunck) of the source estimate: where and how fast the activity moves.
 span: yes
 opts: --alpha --anchor --centres --chunks --cycles --datafit --dataset* --depth --family --flow-tolerance --frame-level --freq --gain --gamma --half-width --input --kernel --limits --max-iterations --method --name --no-levi-civita --oversample --package --preconditioner --recording* --regulariser --replace --resolution --scale-family --scale-filters --scale-voices --start --start-s --stop --subject* --tile-levels --tile-max-level --tiles --time-bandwidth --tolerance --voices --templates+
-)TBL",
-R"TBL(@ run pyramid
-old: pyramid build
-alias: refused
-group: Measurements
-summary: The measurement pyramid of a recording's cortical current, from space and time tiles.
-span: yes
-opts: --bands --block-samples --chunks --dataset* --depth --frame-level --halo-seconds --keep-bad-segments --kernel --recording* --replace --shape --start --start-s --stop --subject* --threads --tree --templates+
 )TBL",
 R"TBL(@ run spatialnull
 old: spatialnull compute
