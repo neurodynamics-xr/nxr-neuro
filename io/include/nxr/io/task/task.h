@@ -101,6 +101,86 @@ struct By {
   Json producer;                                   // null: none
 };
 
+// ---- WHAT A UNIT WRITES (spec docs/specs/2026-11-17-definition-outputs.md, section 4): one struct per kind of result, naming found nodes by id and holding its
+// values; never a row or a column. Each node written records the unit's `By` (the producer record, with the cache key), the output's name and its own `producer`.
+
+// an array handed to io: C order, in float32 or float64 (one of the two filled: the stored precision follows the input)
+struct Values {
+  std::vector<std::int64_t> shape;
+  std::vector<float> f32;
+  std::vector<double> f64;
+  std::int64_t size() const { return static_cast<std::int64_t>(f32.empty() ? f64.size() : f32.size()); }
+};
+// a Field on a manifold
+struct FieldOut {
+  std::string name, output, kind, manifold_id;
+  std::optional<std::string> path;                 // default: io's node path for the name on the manifold
+  std::string value_type = "scalar";               // scalar · complex · vector3 · quaternion · hermitian3 …
+  std::optional<std::string> unit, description, derived_from_id, acquisition;
+  Json producer;                                   // added to the unit's producer record (null: nothing added)
+  Values data;                                     // [n_vertices] or [n_vertices x components]
+};
+// a Statistic: what it is (measure, method), of what, from which partition, along which axes
+struct StatisticOut {
+  std::string name, output, measure, method;
+  std::optional<std::string> path;                 // default: beside the field it is of (`<field path>_statistics/<name>`), else `statistics/<name>`
+  std::string value_type = "scalar";
+  std::optional<std::string> of_field_id, of_statistic_id, partition_selection_id;
+  Json axes = Json::array(), components, span, scaling, options;
+  std::optional<std::int64_t> n_members, members_skipped;
+  std::optional<std::string> unit, description, label, acquisition;
+  Json producer;
+  Values data;
+};
+// an Operator from one manifold to another
+struct OperatorOut {
+  std::string name, output, kind, from_manifold_id, to_manifold_id;
+  std::optional<std::string> path;                 // default: the name
+  std::string from_value_type = "scalar", to_value_type = "scalar";
+  std::optional<std::string> from_selection_id, to_selection_id, derived_from_id, description, acquisition;
+  Json params;                                     // the operator's parameters (null: none)
+  Json producer;
+  Values data;                                     // dense [rows x cols]
+};
+// a closed-form tiling of a time line: `count` tiles of `width` a new one every `hop` from `origin` (in `unit`), `skipped` of them left out
+struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };
+// a Selection on a manifold: a partition or set (a code per element), spans (on a time line), or a tiling (a closed-form spans Selection)
+struct SelectionOut {
+  std::string name, output, type, manifold_id;     // type: partition · set · spans · tiling
+  std::optional<std::string> path;                 // default: io's node path for the name on the manifold
+  std::vector<std::int64_t> codes;                 // partition, set: a code per element (-1: none)
+  std::vector<Span> spans;                         // spans: [start, stop) in the manifold's unit, each with its code
+  std::optional<Tiling> tiling;                    // tiling
+  std::vector<std::string> entries;                // the codes' names (a dictionary of the selection's own), when any
+  std::optional<std::string> of_field_id, description, label, acquisition;
+  Json params;                                     // the selection's parameters (null: none)
+  Json producer;
+};
+// a closed-form line (a frequency axis, a bin axis): n points of `spacing` from `origin`, in `unit`; found by name and reused when it fits
+struct LineOut {
+  std::string name, alt;                           // `alt`: the name used when a line of `name` exists and does not fit
+  std::int64_t n = 0;
+  double spacing = 1, origin = 0;
+  std::string unit = "Hz", dimension = "frequency", folder = "spectral", cs_key = "hz";
+  std::optional<std::string> acquisition_id, derived_from_id;
+};
+
+// a surface: vertices [n x 3] (in its coordinate system) and triangles [m x 3] from a node's arrays; found by name and reused when its arrays are the same
+struct SurfaceOut {
+  std::string name, output;
+  std::optional<std::string> path;                 // default: `source/<name>`
+  std::string cs_key = "scs";                      // its coordinate system
+  std::optional<std::string> derived_from_id, acquisition_id, description;
+  Values vertices;                                 // [n x 3], float64
+  std::vector<std::int32_t> faces;                 // [m x 3], counter-clockwise seen from outside
+  Json producer;
+};
+// a product of manifolds (a sensor × time line, a surface × frequency): its factors in axis order, existing or made in the same unit
+struct ProductOut {
+  std::vector<std::string> factors;
+  std::optional<std::string> acquisition_id;
+};
+
 class Unit;
 
 // io's handle to ONE subject in one database. Cheap to copy; the writer or package it was made from must outlive it.
@@ -179,6 +259,23 @@ class Unit {
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
                                    const std::optional<std::string>& measure = std::nullopt);
   void set_params(const std::string& selection_id, const Json& params);
+  // ---- typed writes, each returning the new node's id (call `replace` on its `path_of` first: a node already there is refused or moved aside)
+  std::string field(const FieldOut&);
+  std::string statistic(const StatisticOut&);
+  std::string operator_(const OperatorOut&);
+  std::string selection(const SelectionOut&);
+  // MANIFOLDS (the sixth kind): made first, so the other results of the unit can lie on them; each found and reused when identical, never replaced
+  std::string line(const LineOut&);
+  std::string surface(const SurfaceOut&);
+  std::string product(const ProductOut&);
+  // the place a result would take (what `replace` and the cache look at)
+  std::string path_of(const FieldOut&) const;
+  std::string path_of(const StatisticOut&) const;
+  std::string path_of(const OperatorOut&) const;
+  std::string path_of(const SelectionOut&) const;
+  // a node of class `cls` already at `path`: refused (code already_exists, naming `what`) unless `replace`, then moved aside (its arrays to a dated
+  // `_replaced-*` folder, never deleted) and its row removed; returns where its arrays went (empty: nothing was there, or it had none)
+  std::string replace(Cls cls, const std::string& path, bool replace, const std::string& what);
   void commit();
   void rollback() noexcept;
   bool open() const { return open_; }
