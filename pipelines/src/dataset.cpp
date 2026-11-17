@@ -1,5 +1,6 @@
 // nxr-pipelines — a dataset made together with its default subject (see dataset.h).
 #include "nxr/pipelines/dataset.h"
+#include "nxr/pipelines/runner.h"
 
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/frames.h"
@@ -21,9 +22,11 @@ Json create_dataset_with_template(const std::filesystem::path& datastore, const 
     oo.created_by = created_by;
     SubjectWriter dsub = SubjectWriter::open(ds, kDefaultSubject, oo);
     // the canonical frames (north / west, from the registered sphere) and the anatomical frame from FreeSurfer's surface RAS axes (the template every subject's frame is carried from)
-    FramesComputeOptions fo;
-    fo.convention = "ras";
-    out["default_subject"]["frames"] = frames_compute(ds, dsub, fo).info;
+    {
+      graph::RunOptions ro;
+      const auto runs = graph::run(ds, dsub, graph::load("frames"), Json{{"surface", "cortex_pial"}, {"convention", "ras"}}, ro, false, progress);
+      out["default_subject"]["frames"] = runs.empty() ? Json() : runs.front();
+    }
     // the group tree: it names the frames, and carries the Levi-Civita connection between its tile centres
     GroupTreeOptions g;
     g.resolution = opt.subject.default_resolution;

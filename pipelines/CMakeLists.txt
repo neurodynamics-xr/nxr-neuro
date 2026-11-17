@@ -39,6 +39,7 @@ add_library(nxr_pipelines
   src/meeg_steps.cpp
   src/partition_steps.cpp
   src/verb_steps.cpp
+  src/steps_geometry.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp

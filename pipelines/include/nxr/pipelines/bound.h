@@ -62,6 +62,8 @@ class Bound {
   StoredCrossSpectrum cross_spectrum(const std::string& name) const;
   CrossSpectrumWindows cross_spectrum_windows(const std::string& name) const;       // an analytic series on time tiles, by its band's name (as stored)
   nxr::io::StoredStatistic statistic(const std::string& name) const;
+  /** a surface's frames as `frames` makes them (pipelines/frames.h make_frames): read through this binding (and a template subject of the dataset) */
+  FramesMade make_frames(const FramesComputeOptions& opt) const;
   /** the values of a measure over a selection's members (io's measurement_values): of a field, of a map statistic's slice (by its name, a band of a map), or the members' own */
   nxr::io::MeasurementValues measurement_values(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_slice,
                                                 const std::string& measure) const;

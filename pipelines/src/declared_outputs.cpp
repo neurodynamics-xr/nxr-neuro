@@ -275,6 +275,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       if (!made.count(r)) bad(o, "of_operator: '" + r + "' is not an operator output stored before it");
       f.of_operator_id = made.at(r);
     }
+    if (d.contains("producer") && d["producer"].is_object()) f.producer = d["producer"];
     if (!d.value("no_array", false)) f.data = values_of(a, shape_of(a, d), single_of(d), o);   // no_array: a field whose values are its measurements
     const std::string path = unit.path_of(f);
     clear(task::Cls::field, path);

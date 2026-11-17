@@ -90,7 +90,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --condition@import condition	NAME	The condition (acquisition) of the protocol to import; it is stored as a session of the subject.	required	-
 )TBL",
 R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given: scs (anterior +x, superior +z, left +y) or ras (anterior +y, superior +z, left -x).	scs	-
---convention@run frames	scs|ras	Axes in which the surface's own coordinates are given: scs (anterior +x, superior +z, left +y) or ras (anterior +y, superior +z, left -x); used when no template is given.	scs	-
 --cross-spectrum	NAME	Name of the stored sensor cross-spectrum (from crossspectrum compute) to read.	none (required)	-
 --cross-spectrum@run cellquadrature	NAME	Stored analytic cross-spectrum windows (<stem>_<band>_windows from crossspectrum compute --estimator analytic) to read; its tile level must match the joint's time level.	required	-
 --cross-spectrum@run cyclepattern	NAME	Name of the stored per-window sensor cross-spectrum series (<stem>_<band>_windows, from crossspectrum compute --estimator analytic) to read.	required	-
@@ -244,7 +243,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --max-area	M2	Largest patch area kept; larger patches are dropped.	none	m^2
 --max-area@run patches	AREA	The largest patch kept.	none	m2
 --max-condition	C	Canonical frames: a vertex whose push-forward Jacobian has a condition number above C is treated as singular	50	-
---max-condition@run frames	C	Canonical frames: a vertex whose push-forward Jacobian has a condition number above C is treated as singular.	50	-
 --max-draws	N	Largest number of null draws.	100	draws
 --max-draws@run null	N	Most null draws made; a rerun with a larger value continues where the last stopped	100	draws
 --max-draws@run spatialnull	N	The most draws made.	100	draws
@@ -274,7 +272,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --min-link	N	Two events of different scale pairs count as one event when at least this many pairs of their cells nest in space and overlap in time.	1	pairs
 --min-link@run scaleselection	N	Events of two pairs are one cross-pair event when at least this many of their cells nest in space and overlap in time	1	pairs
 --min-projection	P	Reliability limit of the anatomical frame: the anterior axis must project on the tangent plane with at least this length.	0.34	-
---min-projection@run frames	P	Reliability limit of the anatomical frame: the anterior axis must project on the tangent plane with at least this length (sin 20 degrees).	0.34	-
 --min-value	X	Keep only rows with a value at or above X	none	measure units
 --min-value@query measurements	X	Keep only rows whose rolled-up value is at least this.	none	measure's unit
 --mne		Use MNE-Python's conventions for the kernel: joint types, ridge over the rank, PCA whitener, depth exponent 0.8 by the spectral norm.	off	-
@@ -441,7 +438,6 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --shift	absolute|relative	How the eigenvalue solve is shifted: at one absolute shift (reference method) or by a scale-aware relative ladder.	absolute	-
 --shift@run eigenmodes	absolute|relative	Shift of the shift-invert solve: absolute (one solve per ladder at --sigma, the reference method) or relative (a ladder scaled to the spectrum).	absolute	-
 --side	auto|left|right	Hemisphere of a single-piece surface	auto	-
---side@run frames	auto|left|right	Hemisphere of a single-piece surface: auto decides each piece by position.	auto	-
 --sides	analytic|two-sided	Whether the time bank is one-sided (analytic, positive frequencies) or two-sided.	none (required)	-
 --sigma	S	Absolute shift of the eigenvalue solve (with --shift absolute).	-0.001	1/m^2
 --sigma@run eigenmodes	S	The absolute shift of the shift-invert solve (only with --shift absolute).	-1e-3	-
@@ -501,7 +497,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --surface-id	ID	The id of the surface the kernel was made on.	found from the kernel file	-
 --surface-id@import inverse	ID	Id of the stored cortex surface the kernel was made on.	found from the kernel's SurfaceFile link	-
 --surface@run eigenmodes	NAME	Name of the subject's stored surface to solve on.	the subject's primary surface	-
---surface@run frames	NAME	The subject's surface to compute the frames on.	the primary (cortex) surface	-
 --surface@run scaleselection	NAME	The subject's surface	the surface of the joint partitions	-
 --surface@run tiles	NAME	The subject's surface whose tile ladder is computed, by name.	the primary (cortex) surface	-
 --surface@import condition	FILE	The subject's cortex surface file (tess_*.mat) the condition is imported on, instead of the one its head model names.	none (the condition's own surface)	-
@@ -514,8 +509,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --table@export measurements	NAME	Name of the table; it names the data_table and the output files	required	-
 --template	SUBJECT	Template subject whose anatomical frame is carried over through the registered spheres.	none (the surface's own axes)	-
 --template-surface	NAME	Surface of the template subject whose frame is carried over	the template's primary surface	-
---template-surface@run frames	NAME	The template subject's surface whose frame is carried over.	the template's primary surface	-
---template@run frames	SUBJECT	Template subject of the same dataset whose anatomical frame is carried over through the registered spheres.	none (the surface's own axes)	-
 --templates	DIR	A folder of released templates to look in (repeatable), before NXR_TEMPLATE_PATH and the user setting template_path; read only when a template's arrays are used.	none (the environment variable and the user setting only)	-
 --templates@create dataset	DIR	A FreeSurfer subjects folder; the dataset is created together with its default subject (surfaces, parcellations, frames, group tree) read from it.	none (no default subject is written)	-
 --threads	N	Workers for the kernel products; the result is identical for every count (0 = the machine's performance cores, 1 = serial).	0	threads
@@ -583,7 +576,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run eigenmodes	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run frames	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run tiles	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1252,13 +1244,6 @@ alias: refused
 group: Geometry
 summary: The Hodge-Dirac eigenmodes of a stored surface (cached).
 opts: --dataset* --flip-eps --modes --mollify --normalize --replace --shift --sigma --slice --star1-floor --subject* --surface --templates+
-)TBL",
-R"TBL(@ run frames
-old: frames compute
-alias: refused
-group: Geometry
-summary: The canonical (north, west) and anatomical frames of a surface.
-opts: --convention --dataset* --max-condition --min-projection --replace --side --subject* --surface --template --template-surface --templates+
 )TBL",
 R"TBL(@ run tiles
 old: tiles compute

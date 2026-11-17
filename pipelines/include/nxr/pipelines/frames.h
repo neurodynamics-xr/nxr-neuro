@@ -33,11 +33,17 @@ struct FramesComputeOptions {
   double max_condition = 50.0;               // canonical frames: a vertex whose push-forward Jacobian is worse is singular (frames.py)
   bool replace = false;                      // an existing anatomical frame is moved aside
 };
-struct FramesComputeResult {
-  nxr::io::Json info;
-  bool canonical_computed = false;           // false: the stored ones were read
+/** WHAT THE FRAMES OF A SURFACE ARE (stored by the definition `frames`): the canonical frames [V x 9] (e1, e2, n) when computed here (empty when they were stored already),
+ *  their singular vertices and the gauge angle of north with its gauge record; the anatomical frame (angle from north to anterior, which way the second axis points, its sign)
+ *  and the vertices where it is reliable. `ds` opens a template subject when `opt.templ` is set. */
+struct FramesMade {
+  std::string surface_id, surface;
+  std::int64_t n = 0;
+  std::vector<double> canonical, gauge_angle, angle, second, handed;
+  std::vector<std::int32_t> singular, reliable;
+  nxr::io::Json gauge, producer, canonical_producer;
 };
-FramesComputeResult frames_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const FramesComputeOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
+FramesMade make_frames(nxr::io::DatasetWriter* ds, nxr::io::SubjectWriter& sub, const FramesComputeOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // What a surface has stored (read by `opticalflow compute`): the canonical frames and the anatomical frame, or nothing.
 struct StoredFrames {
