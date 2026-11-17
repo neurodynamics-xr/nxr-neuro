@@ -257,7 +257,11 @@ std::vector<std::map<std::string, Value>> resolve(const Database& db, const std:
           }
         if (unset) continue;
       }
-      const auto hits = matches(db, subject_id, name, spec, found, params);
+      std::vector<Row> hits;
+      try { hits = matches(db, subject_id, name, spec, found, params); }
+      catch (const Error& e) {                                              // an optional input on the time line of a field that has none (a map): nothing to find, absent
+        if (spec.value("required", true) || std::string(e.what()).find("has no time line") == std::string::npos) throw;
+      }
       const std::string label = anchor ? " (for " + *anchor + " '" + text(*found.at(*anchor).row, "name") + "')" : "";
       if (hits.empty()) {
         if (spec.value("required", true) || named_by_caller) {

@@ -38,7 +38,7 @@ parameters:
   weight: {default: null, meaning: "how the elements of a member are weighted: none | barycentric | voronoi (it changes the numbers, so it is always stated)", unit: "-", choices: [none, barycentric, voronoi]}
   weights: {default: null, meaning: "a stored per-element weight field by name (area, mass), when `weight` is given", unit: "-"}
   bad_segments: {default: exclude, meaning: "exclude = a sample in one of the recording's bad segments carries no value and no count | ignore = every sample counts", unit: "-", choices: [exclude, ignore]}
-  to: {default: null, meaning: "roll the measurement up to a coarser level of its grid, stated as a quantity (a tile diameter, a duration, pieces, whole), merged by each measure's rule; null: stored at the grid's own level", unit: mm, chart: diameter}
+  rolled_to: {default: null, meaning: "roll the measurement up to a coarser level of its grid, stated as a quantity (a tile diameter, a duration, pieces, whole), merged by each measure's rule; null: stored at the grid's own level", unit: mm, chart: diameter}
   summaries: {default: null, meaning: "also summarise across the members: mean, sd, median, mad, percentile:P, min, max, skewness, kurtosis, peak, count; null: none", unit: "-"}
   combine: {default: each, meaning: "summaries: each = per row | pool = the rows pooled | mean = the mean of the rows' summaries", unit: "-", choices: [each, pool, mean]}
   name: {default: null, meaning: "the stored measurement's name; null: derived from the field and the selection", unit: "-"}
@@ -80,7 +80,7 @@ presets:
     chain: member_activation
     make: {node: select.product, factors: [{span: run}, {elements: cortex}]}
     measures: [envelope_max]
-    to: whole
+    rolled_to: whole
   psd_channel_mean:
     field: psd
     make: {node: select.product, factors: [{set: channels, as: one_member}]}
@@ -90,12 +90,12 @@ steps:
   chunks:
     over: field
     do:
-      - {node: reduce, in: {x: field, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: values}
+      - {node: reduce, in: {x: field, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: [values, ingredients]}
   after:
-    - {node: roll_up, in: {x: values}, with: {to: $to}, out: rolled, when: $to}
+    - {node: roll_up, in: {x: values}, with: {to: $rolled_to}, out: rolled, when: $rolled_to}
     - {node: summarize, in: {x: values}, with: {summaries: $summaries, combine: $combine}, out: statistics, when: $summaries}
 
 outputs:
   values:     {kind: measurement, over: over, of: field, name: $name}
-  rolled:     {kind: measurement, over: over, of: field, when: $to}
+  rolled:     {kind: measurement, over: over, of: field, when: $rolled_to}
   statistics: {kind: statistic, of: values, when: $summaries}

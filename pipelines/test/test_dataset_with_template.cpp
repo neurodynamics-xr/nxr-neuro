@@ -107,8 +107,8 @@ int main() {
 
   DatasetWithTemplateOptions o;
   o.subject.templates = root / "templates";
-  o.atlas_depth = 1;
-  o.lc_levels = {1};
+  o.atlas_finest = "parts 2";                    // (was depth 1: parts per hemisphere 2^1)
+  o.lc_scales = {"parts 2"};                     // (was lc_levels {1})
   o.modes = 20;
   const Json r = create_dataset_with_template(root / "store", "demo", o, "test");
   const Json& d = r["default_subject"];
