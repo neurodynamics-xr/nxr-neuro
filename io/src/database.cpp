@@ -233,6 +233,30 @@ void migrate_51_to_52(Database& d) {
   const auto ok = d.one("PRAGMA quick_check");
   if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after it was migrated from schema 51 to 52");
 }
+// SCHEMA 52 -> 53, in place (docs/specs/2026-11-17-consolidation.md, section 6.2): `selection_factor.level` (a product's factor may be a LEVEL of a stored grid), the two views the
+// measurement query reads (member_value, product_factor_level), the two attribute views made again (they name the schema version), `user_version` 53. Additive: every row valid
+// before stays valid and the arrays are untouched (a null level is the factor as a whole). The data step (statistic rows with a member axis into selection_measurement, products
+// made for a coupling rewritten as products of (grid, level)) is `migrate_measurement_storage` (migrate.h), explicit and not run here. Idempotent: a database that has the column
+// (one made from this model.sql, or a 51 that passed through migrate_51_to_52) is not altered again.
+void migrate_52_to_53(Database& d) {
+  const std::string model = model_sql();
+  const auto cut = [&](const std::string& from, const std::string& to) {
+    const auto a = model.find(from);
+    const auto b = a == std::string::npos ? a : model.find(to, a);
+    if (b == std::string::npos) throw Error(code::not_a_database, "model.sql: no `" + from + "` in the schema, so a database at 52 cannot be migrated");
+    return model.substr(a, b - a);
+  };
+  ensure_statistics(d);   // the views read selection_measurement.of_statistic_id and of_index: a database made before the statistics has them added first (in place, user_version unchanged)
+  const bool has_level = !d.all("SELECT 1 FROM pragma_table_info('selection_factor') WHERE name = 'level'").empty();
+  const std::string views = cut("CREATE VIEW IF NOT EXISTS member_value AS", "-- ── schema 53 (end)");
+  const std::string subject_view = cut("CREATE VIEW subject_attributes AS", ";\n") + ";\n";
+  const std::string dataset_view = cut("CREATE VIEW dataset_attributes AS", ";\n") + ";\n";
+  d.exec_script("BEGIN;\n" + std::string(has_level ? "" : "ALTER TABLE selection_factor ADD COLUMN level INTEGER;\n") + views + "DROP VIEW IF EXISTS subject_attributes;\n" + subject_view +
+                "DROP VIEW IF EXISTS dataset_attributes;\n" + dataset_view +
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_migrated:52->53', '" + now_utc() + "');\nPRAGMA user_version = 53;\nCOMMIT;");
+  const auto ok = d.one("PRAGMA quick_check");
+  if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after it was migrated from schema 52 to 53");
+}
 }  // namespace
 
 Database Database::open(const fs::path& file, bool create, const std::string& built_by, bool read_only) {
@@ -265,21 +289,25 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
                          // the array store format of a dataset made now (additive: user_version unchanged): chunk key separator ".", large arrays sharded; every array's own zarr.json says which it has
                          "INSERT INTO meta (key, value) VALUES ('store_format', '" + std::string(kStoreFormat51) + "');\n"
                          // a dataset made now stores its selections in the member form (selection_store.h); one made before has the key only after `migrate_selection_storage`
-                         "INSERT INTO meta (key, value) VALUES ('selection_storage', '" + std::string(kSelectionStorage) + "');\nCOMMIT;");
+                         "INSERT INTO meta (key, value) VALUES ('selection_storage', '" + std::string(kSelectionStorage) + "');\n"
+                         // and its measurements in the one table for values over members (schema 53); one made before has the key only after `migrate_measurement_storage`
+                         "INSERT INTO meta (key, value) VALUES ('measurement_storage', '" + std::string(kMeasurementStorage) + "');\nCOMMIT;");
       d.close();            // on exFAT the connection that grew the file reads it as read-only: reconnect
       d.db_ = connect();
     }
     const std::int64_t v = integer(*d.one("PRAGMA user_version"), "user_version");
     const int want = schema_version();
-    if ((v == 50 || v == 51) && want == 52) {
-      // a database at 50 or 51 is a database at 52 without the additions: opened to write, it is migrated in place (additive, step by step); opened to read, it is read as it is
+    if ((v == 50 || v == 51 || v == 52) && want == 53) {
+      // a database at 50, 51 or 52 is a database at 53 without the additions: opened to write, it is migrated in place (additive, step by step); opened to read, it is read as it is
+      // (the query reads the columns it needs by asking the database whether it has them)
       if (!read_only) {
         if (v == 50) migrate_50_to_51(d);
-        migrate_51_to_52(d);
+        if (v <= 51) migrate_51_to_52(d);
+        migrate_52_to_53(d);
       }
     } else if (v != want) {
       const std::string how =
-          v == 49 ? "run `nxr migrate --dataset <dataset folder>` (49 to 50; this build then migrates 50 to 52 when it opens the dataset to write; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
+          v == 49 ? "run `nxr migrate --dataset <dataset folder>` (49 to 50; this build then migrates 50 to 53 when it opens the dataset to write; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
                         : "re-convert it from its source (D139/D144)";
       throw Error(code::schema_version, p + ": user_version " + std::to_string(v) + ", this build reads " + std::to_string(want) + " — " + how);
     }

@@ -61,7 +61,7 @@ FrequencyIds ensure_frequency(SubjectWriter& sub) {
     if (lc.n_volumes) ms.cols.set("n_volumes", *lc.n_volumes); else ms.cols.null("n_volumes");
     nxr::io::GeometrySpec g;
     g.form = "closed_form";
-    g.cs_key = "hz";
+    g.cs_key = "frequency:line";   // charts `linear` (Hz, the reference) and `log10` (schema 53); a Frequency line made before has the one chart it was made with
     nxr::io::DimensionSpec d;
     d.name = "frequency";
     d.n_vertices = kFrequencySamples;

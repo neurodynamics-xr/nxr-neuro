@@ -1254,11 +1254,29 @@ CREATE TABLE selection_factor (
   selection_id        TEXT NOT NULL REFERENCES selection (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
   ordinal             INTEGER NOT NULL,
   factor_selection_id TEXT NOT NULL REFERENCES selection (id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+  level               INTEGER,                -- schema 53: the LEVEL of the factor's grid (a `ladder`: a line's time grid, a surface's dyadic grid); null: the factor as it is, as a whole
   PRIMARY KEY (selection_id, ordinal),
   CHECK (factor_selection_id <> selection_id)
 ) STRICT;
 CREATE INDEX selection_factor_factor ON selection_factor (factor_selection_id);
 -- ── schema 52 (end) ──
+
+-- ── schema 53 (begin: Database::open runs this block on a database at 52, in place; `migrate_52_to_53` in database.cpp) ───────────────────────────
+-- docs/specs/2026-11-17-consolidation.md, section 6.2. DDL only (the data step is `migrate_measurement_storage`, io/migrate.h):
+--   * `selection_factor.level` (above): a product's factor may be a LEVEL of a stored grid, so a coupled level (a band's time or space level) needs no row of its own.
+--   * A line's TIME GRID is one `ladder` row `<line> time grid`, its rule closed form in `params_json.grid` {kind "time", origin, rate, samples}: every level 2^k samples is
+--     computed, never stored (io/selection_store.h `save_time_grid`).
+--   * Two views the measurement QUERY API reads (io/measurement_query.h): the member values of every subject with the grid level each lies at, and the factors of a product with
+--     their levels. Views only: nothing stored.
+CREATE VIEW IF NOT EXISTS member_value AS
+SELECT m.selection_id, s.subject_id, s.name AS selection_name, s.type AS selection_type, s.member_of_id, s.code AS level_code, s.manifold_id,
+       m.code AS member_code, m.of_field_id, m.of_statistic_id, m.of_index, m.measure, m.value, m.weight, m.within_selection_id, m.within_code, m.unit, m.array_path, m.component
+FROM selection_measurement m JOIN selection s ON s.id = m.selection_id
+WHERE m.code IS NOT NULL OR m.array_path IS NOT NULL;
+CREATE VIEW IF NOT EXISTS product_factor_level AS
+SELECT f.selection_id, f.ordinal, f.factor_selection_id, f.level, s.name AS factor_name, s.type AS factor_type, s.n_members AS factor_members, s.params_json AS factor_params
+FROM selection_factor f JOIN selection s ON s.id = f.factor_selection_id;
+-- ── schema 53 (end) ──
 
 -- ── BEGIN GENERATED: the attribute views (backend/scripts/gen-attribute-views.mjs) — do not edit ──
 -- One view per node table: its zarr.json attributes as TEXT (D145). Every writer writes zarr.json from these, in any language.
@@ -1295,12 +1313,12 @@ SELECT o.id, json_object('class', 'operator', 'id', o.id, 'status', o.status, 's
 ) AS attributes FROM operator o;
 
 CREATE VIEW subject_attributes AS
-SELECT s.id, json_object('class', 'subject', 'schema_version', 52, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
+SELECT s.id, json_object('class', 'subject', 'schema_version', 53, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
   'rows_without_path', json_object('manifold', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM manifold r JOIN manifold_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'selection', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM selection r JOIN selection_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'field', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM field r JOIN field_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'operator', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM operator r JOIN operator_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL)),
   'acquisitions', (SELECT json_group_array(json_object('id', a.id, 'label', a.label, 'ses', a.ses, 'task', a.task, 'run', a.run, 'acq', a.acq, 'proc', a.proc, 'split', a.split) ORDER BY a.label) FROM acquisition a WHERE a.subject_id = s.id)
 ) AS attributes FROM subject s;
 
 CREATE VIEW dataset_attributes AS
-SELECT d.id, json_object('class', 'dataset', 'schema_version', 52, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
+SELECT d.id, json_object('class', 'dataset', 'schema_version', 53, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
 -- ── END GENERATED: the attribute views ──
-PRAGMA user_version = 52;
+PRAGMA user_version = 53;

@@ -18,6 +18,7 @@
 #include "nxr/io/json_text.h"
 #include "nxr/io/records/records.h"
 #include "nxr/io/selection.h"
+#include "nxr/io/statistic.h"
 
 namespace nxr::io::selection {
 
@@ -303,9 +304,10 @@ Saved save_per_element(SubjectWriter& sub, const Description& d, const Placement
 
 // Why a stored selection cannot be a factor of a product (the Studio's D100: a factor is a set; a grid with levels names one level), or nothing when it can. An
 // irregular set (an atlas, listed spans) may be a factor: a measurement layout; it just does not roll up.
-std::optional<std::string> factor_refusal_of_row(const Row& f) {
+std::optional<std::string> factor_refusal_of_row(const Row& f, int level = -1) {
   const std::string t = text(f, "type");
-  if (t == "ladder") return std::string("a grid with levels: name one level (its member row)");
+  if (t == "ladder") return level >= 0 ? std::nullopt : std::optional<std::string>("a grid with levels: name one level (its member row, or the grid with `factor_levels`, schema 53)");
+  if (level >= 0) return std::string("a level is named only for a grid with levels (a `ladder`)");
   if (t == "set" || t == "spans") return std::nullopt;
   return std::string("a ") + t + " is one selection, not a set: a box on the product manifold is a span with one extent per factor";
 }
@@ -319,17 +321,24 @@ Saved save_product(SubjectWriter& sub, const Description& d, const Placement& at
   std::string cell;
   bool all_grids = true;
   Json product = Json::array();
+  const std::vector<int>& levels = !at.factor_levels.empty() ? at.factor_levels : d.factor_levels;
+  if (!levels.empty() && levels.size() != at.factor_ids.size()) refuse("selection " + at.name + ": one level (or -1) per factor");
   for (std::size_t k = 0; k < at.factor_ids.size(); ++k) {
     const auto f = sub.db().read("selection", at.factor_ids[k]);
     if (!f) refuse("selection " + at.name + ": factor " + at.factor_ids[k] + " has no row");
-    if (const auto why = factor_refusal_of_row(*f)) refuse("selection " + at.name + ": factor " + i2s(static_cast<std::int64_t>(k)) + " ('" + text(*f, "name") + "') cannot be a factor: " + *why);
+    const int level = levels.empty() ? -1 : levels[k];
+    if (const auto why = factor_refusal_of_row(*f, level)) refuse("selection " + at.name + ": factor " + i2s(static_cast<std::int64_t>(k)) + " ('" + text(*f, "name") + "') cannot be a factor: " + *why);
     all_grids = all_grids && row_is_grid(sub.db(), *f);
-    const std::int64_t count = is_null(*f, "n_members") ? 1 : std::max<std::int64_t>(0, integer(*f, "n_members"));
+    // a level of a grid has no member count of its own on the row (the rule is closed form): its radix is the caller's (a level's tiles of the line, or a dyadic level's slots << level)
+    if (level >= 0 && d.radices.empty()) refuse("selection " + at.name + ": factor " + i2s(static_cast<std::int64_t>(k)) + " is level " + i2s(level) + " of a grid: its radix (the level's member count) is given in `radices`");
+    const std::int64_t count = level >= 0 ? 1 : (is_null(*f, "n_members") ? 1 : std::max<std::int64_t>(0, integer(*f, "n_members")));
     const std::int64_t radix = d.radices.empty() ? count : d.radices[k];
     if (radix < count) refuse("selection " + at.name + ": factor " + i2s(static_cast<std::int64_t>(k)) + " has " + i2s(count) + " members, more than its radix " + i2s(radix));
     if (radix > 0 && members > std::numeric_limits<std::int64_t>::max() / radix) refuse("selection " + at.name + ": more members than a 64-bit code holds");
     members *= radix;
-    product.push_back(Json{{"selection", at.factor_ids[k]}, {"members", radix}});
+    Json entry{{"selection", at.factor_ids[k]}, {"members", radix}};
+    if (level >= 0) entry["level"] = level;
+    product.push_back(std::move(entry));
     cell += (k ? "," : "") + text(*f, "cell");
   }
   Saved out;
@@ -342,13 +351,118 @@ Saved save_product(SubjectWriter& sub, const Description& d, const Placement& at
   params_of(s, params);
   out.id = sub.selection(std::move(s));
   sub.update([&] {
-    for (std::size_t k = 0; k < at.factor_ids.size(); ++k)
-      sub.db().insert("selection_factor", {{"selection_id", out.id}, {"ordinal", V(static_cast<std::int64_t>(k))}, {"factor_selection_id", at.factor_ids[k]}});
+    for (std::size_t k = 0; k < at.factor_ids.size(); ++k) {
+      Row r{{"selection_id", out.id}, {"ordinal", V(static_cast<std::int64_t>(k))}, {"factor_selection_id", at.factor_ids[k]}};
+      if (!levels.empty() && levels[k] >= 0) r["level"] = V(levels[k]);
+      sub.db().insert("selection_factor", r);
+    }
   });
   return out;
 }
 
 }  // namespace
+
+// ── a line's time grid (schema 53) ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
+std::optional<std::pair<records::SelectionRow, TimeGridRule>> find_time_grid(const Database& db, const std::string& manifold_id) {
+  for (const Row& r : db.all("SELECT id FROM selection WHERE manifold_id = ? AND type = 'ladder' AND json_extract(params_json, '$.grid.kind') = 'time' ORDER BY created_utc, id", {V(manifold_id)})) {
+    const auto row = records::Selections(db).read(text(r, "id"));
+    if (!row) continue;
+    const Json& g = row->params_json["grid"];
+    return std::make_pair(*row, TimeGridRule{g.value("origin", 0.0), g.value("rate", 0.0), g.value("samples", std::int64_t(0))});
+  }
+  return std::nullopt;
+}
+
+Saved save_time_grid(SubjectWriter& sub, const std::string& manifold_id, const TimeGridRule& rule, const std::optional<std::string>& created_by) {
+  if (!(rule.rate > 0) || rule.samples < 1) refuse("a time grid needs a sample rate above 0 and at least one sample");
+  if (const auto have = find_time_grid(sub.db(), manifold_id)) {
+    const TimeGridRule& h = have->second;
+    if (h.samples != rule.samples || std::abs(h.rate - rule.rate) > 1e-12 * rule.rate || std::abs(h.origin - rule.origin) > 1e-12 * std::max(1.0, std::abs(rule.origin)))
+      refuse("the line already has a time grid with another rule (" + i2s(h.samples) + " samples at " + fixed(h.rate, 6) + " Hz from " + fixed(h.origin, 6) + " s)");
+    Saved out;
+    out.id = have->first.id;
+    out.dictionary_id = have->first.dictionary_id;
+    return out;
+  }
+  const auto line = sub.db().one("SELECT name FROM manifold WHERE id = ?", {V(manifold_id)});
+  if (!line) refuse("no manifold " + manifold_id + " for the time grid");
+  int levels = 0;
+  while ((std::int64_t(1) << (levels + 1)) <= rule.samples) ++levels;   // the coarsest level whose tile (2^k samples) fits the line at least once
+  DictionarySpec ds;
+  ds.name = text(*line, "name") + " time grid";
+  ds.description = "the levels of the time grid of '" + text(*line, "name") + "': code = ordinal = k, the tile of 2^k samples from the line's first sample; `measurement` its duration in seconds";
+  std::vector<DictionaryEntry> entries;
+  for (int k = 0; k <= levels; ++k) {
+    DictionaryEntry e;
+    e.code = k; e.ordinal = k;
+    e.name = i2s(std::int64_t(1) << k) + " samples";
+    e.cols.set("measurement", static_cast<double>(std::int64_t(1) << k) / rule.rate).set("measurement_unit", "s");
+    e.cols.json("attributes_json", Json{{"level", k}, {"samples", std::int64_t(1) << k}, {"tiles", (rule.samples + (std::int64_t(1) << k) - 1) >> k}});
+    entries.push_back(std::move(e));
+  }
+  ds.entries = std::move(entries);
+  const std::string dict_id = sub.dictionary(ds).id;
+  Placement at;
+  at.name = text(*line, "name") + " time grid";
+  at.manifold_id = manifold_id;
+  at.cell = "1";
+  at.created_by = created_by;
+  Description d;
+  d.unit = "s";
+  SelectionSpec top = base(d, at, "ladder", "1");
+  top.no_elements = true;
+  top.cols.set("dictionary_id", dict_id).set("n_elements", rule.samples).set("n_members", rule.samples).set("label", i2s(levels + 1) + " levels");
+  Json params{{"grid", Json{{"kind", "time"}, {"origin", rule.origin}, {"rate", rule.rate}, {"samples", rule.samples}, {"levels", levels + 1}}}, {"family", "grid"}};
+  params_of(top, params);
+  Saved out;
+  out.id = sub.selection(std::move(top));
+  out.dictionary_id = dict_id;
+  return out;
+}
+
+std::vector<GridLevelSize> grid_level_sizes(const Database& db, const std::string& ladder_id) {
+  const auto row = db.read("selection", ladder_id);
+  if (!row) throw Error(code::no_such_row, "selection " + ladder_id + ": no such row");
+  if (text(*row, "type") != "ladder" || is_null(*row, "dictionary_id")) refuse("selection " + text(*row, "name") + ": it is not a grid with levels");
+  std::vector<GridLevelSize> out;
+  const auto level_rows = db.all("SELECT id, member_ordinal, code FROM selection WHERE member_of_id = ? ORDER BY member_ordinal", {V(ladder_id)});
+  std::map<std::int64_t, std::string> row_of_code;
+  for (const Row& r : level_rows) if (!is_null(r, "code")) row_of_code[integer(r, "code")] = text(r, "id");
+  for (const Row& e : db.all("SELECT code, ordinal, measurement, measurement_unit FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(text(*row, "dictionary_id"))})) {
+    if (is_null(e, "measurement")) continue;
+    GridLevelSize g;
+    g.code = integer(e, "code");
+    g.level = static_cast<int>(integer(e, "ordinal"));
+    const Value& mv = e.at("measurement");
+    g.size = std::holds_alternative<double>(mv) ? std::get<double>(mv) : static_cast<double>(std::get<std::int64_t>(mv));
+    g.unit = opt_text(e, "measurement_unit").value_or("");
+    if (const auto it = row_of_code.find(g.code); it != row_of_code.end()) g.selection_id = it->second;
+    out.push_back(std::move(g));
+  }
+  return out;
+}
+
+GridLevelSize level_of_size(const Database& db, const std::string& ladder_id, double size, const std::string& unit) {
+  const auto levels = grid_level_sizes(db, ladder_id);
+  const GridLevelSize* best = nullptr;
+  for (const GridLevelSize& g : levels) {
+    if (g.unit != unit) continue;
+    if (!best || std::abs(g.size - size) < std::abs(best->size - size) || (std::abs(g.size - size) == std::abs(best->size - size) && g.size > best->size)) best = &g;
+  }
+  if (!best) refuse("the grid has no level sized in '" + unit + "'");
+  return *best;
+}
+
+std::vector<int> product_factor_levels(const Database& db, const std::string& id) {
+  const auto row = records::Selections(db).read(id);
+  if (!row) throw Error(code::no_such_row, "selection " + id + ": no such row");
+  const bool has_level = has_column(db, "selection_factor", "level");
+  const auto factors = db.all(has_level ? "SELECT level FROM selection_factor WHERE selection_id = ? ORDER BY ordinal" : "SELECT NULL AS level FROM selection_factor WHERE selection_id = ? ORDER BY ordinal", {V(id)});
+  if (factors.empty()) refuse("selection " + row->name + ": it is not a product");
+  std::vector<int> out;
+  for (const Row& f : factors) out.push_back(is_null(f, "level") ? -1 : static_cast<int>(integer(f, "level")));
+  return out;
+}
 
 // ── the arrays beside a set per element's element array ──────────────────────────────────────────────────────────
 std::string member_labels_path(const std::string& array_path) { return array_path + ".labels"; }
@@ -676,7 +790,8 @@ Description describe(const Database& db, const Store& store, const records::Sele
     }
   } else if (t == "set" || t == "ladder") {
     d.type = Type::set;
-    const auto factors = db.all("SELECT factor_selection_id FROM selection_factor WHERE selection_id = ? ORDER BY ordinal", {V(row.id)});
+    const bool has_level = has_column(db, "selection_factor", "level");   // a database at 50 to 52 has none (the factors are as they are)
+    const auto factors = db.all(has_level ? "SELECT factor_selection_id, level FROM selection_factor WHERE selection_id = ? ORDER BY ordinal" : "SELECT factor_selection_id FROM selection_factor WHERE selection_id = ? ORDER BY ordinal", {V(row.id)});
     const Json grid = p.is_object() && p.contains("grid") && p["grid"].is_object() ? p["grid"] : Json();
     if (!factors.empty()) {   // a product: its factors, each a stored grid, and their radices (params_json.product; else their member counts)
       require_member_storage(db);
@@ -685,8 +800,11 @@ Description describe(const Database& db, const Store& store, const records::Sele
         const auto fr = records::Selections(db).read(text(factors[k], "factor_selection_id"));
         if (!fr) throw Error(code::no_such_row, "selection " + row.name + ": a factor has no row");
         d.radices.push_back(radices.is_array() && k < radices.size() ? radices[k].value("members", std::int64_t(0)) : fr->n_members.value_or(1));
+        d.factor_levels.push_back(has_level && !is_null(factors[k], "level") ? static_cast<int>(integer(factors[k], "level")) : -1);
         d.factors.push_back(describe(db, store, *fr));
       }
+    } else if (t == "ladder" && grid.is_object() && grid.value("kind", std::string()) == "time") {   // a line's time grid: closed form, nothing stored per level
+      d.grid = Grid{Grid::Kind::time, grid.value("samples", std::int64_t(0)), 0, 0, -1, std::nullopt, std::nullopt, grid.value("origin", 0.0), grid.value("rate", 0.0)};
     } else if (t == "ladder" && grid.is_object() && grid.value("kind", std::string()) == "dyadic") {
       // a dyadic grid saved by save_grid: ONE description, its finest level's codes, the closed form, the levels as descriptions (label = the level)
       const auto levels = e.members();

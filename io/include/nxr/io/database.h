@@ -129,6 +129,10 @@ class Database {
 // one row per label), a product its factors (selection_store.h, selection_description.h). A dataset without the key holds label arrays and the JSON form of 2026-11-17:
 // `migrate_selection_storage` (migrate.h) converts it; the selection store refuses to read it before.
 constexpr const char* kSelectionStorage = "members";
+// meta `measurement_storage` (schema 53): "members" = ONE table holds a value over a selection's members, `selection_measurement` (an array-backed row [rows x members x components] for a value that is not a scalar);
+// the `statistic` table holds only values on axes that are not a selection's members, and the task-level writer refuses a statistic with a member axis. A dataset made now has the key; one made before has it
+// after `migrate_measurement_storage` (migrate.h).
+constexpr const char* kMeasurementStorage = "members";
 constexpr const char* kStoreFormat51 = "51: chunk key separator \".\", arrays over 4 MiB sharded (~64 MiB); both separators are read";
 // Format 52 (/15): each subject's small keys (every zarr.json, every value under 1 MiB) are rows of the subject's small_files.sqlite
 // (io/include/nxr/io/small_file_store.h); the shards over the threshold stay files. Formats 51 and 50 are read and written as before.

@@ -34,7 +34,9 @@
 //   set of other members                  a `set` row with member rows (`member_of_id`, `member_ordinal`)
 //   set with levels (tilings)             a `ladder` row, its members the levels (each a stored selection: member_ordinal = the level's identity, code = its power of
 //                                         two, its label), the level dictionary (code = the power, ordinal = the level's identity)
-//   product (`factors`)                   a `set` row, nothing per member: `selection_factor` rows name its factors (stored sets) in order and `params_json.product`
+//   time grid (grid.kind time)            a `ladder` row `<line> time grid`, `params_json.grid` {kind "time", origin, rate, samples}: every level 2^k samples is closed form
+//                                         (schema 53; save_time_grid); a product's factor names it with a LEVEL (`selection_factor.level`)
+//   product (`factors`)                   a `set` row, nothing per member: `selection_factor` rows name its factors (stored sets, or a LEVEL of a grid) in order and `params_json.product`
 //                                         [{selection, members}] their radices (the Studio's D100); `n_members` is the product of the radices; its measurements are keyed by
 //                                         the product CODE, mixed radix with the FIRST factor fastest: code = c0 + n0 (c1 + n1 (..)) (a joint's first radix is a power of
 //                                         two, D129: code = (tile << bits) | frame)
@@ -70,13 +72,15 @@ struct Entry {
 using Lookup = std::vector<Entry>;
 /** a grid's closed form, for the grids that are not tilings (compute's `nxr::selection::Grid`) */
 struct Grid {
-  enum class Kind { elements, dyadic };
+  enum class Kind { elements, dyadic, time };
   Kind kind = Kind::elements;
   std::int64_t size = 0;                    // elements: the manifold's elements, each its own member
   int depth = 0;                            // dyadic: the level the member array's codes are at
   std::int64_t slots = 0;                   // dyadic: the piece slots the codes reserve; level l has slots << l members
   int finest = -1;                          // dyadic: the deepest level every piece reaches (-1 unknown)
   std::optional<double> match_median, match_max;   // dyadic made by transfer: the sphere match's median and maximum chord (unit sphere)
+  double origin = 0, rate = 0;              // time (schema 53): a line's time grid, closed form: sample i at `origin + i / rate` (seconds, Hz); `size` the line's samples. Level k tiles
+                                            // 2^k samples from the line's first sample: never stored per level (the `ladder` row `<line> time grid`, selection_store.h `save_time_grid`)
 };
 
 struct Description {
@@ -97,7 +101,8 @@ struct Description {
   std::vector<std::int64_t> member_codes;   // an irregular set per element: each member's LABEL (one per member), read with the lookup
   std::optional<Tiling> tiling;             // as spans by a rule
   std::vector<Description> factors;         // as a PRODUCT of these sets (each a stored selection of its own: the factors are given to save by id, Placement::factor_ids; a load fills them)
-  std::vector<std::int64_t> radices;        // a product: each factor's radix (empty on save: the factors' member counts)
+  std::vector<std::int64_t> radices;        // a product: each factor's radix (empty on save: the factors' member counts; required for a factor that is a LEVEL of a grid)
+  std::vector<int> factor_levels;           // a product (schema 53): the LEVEL of each factor's grid (`selection_factor.level`), -1 for the factor as it is (empty on save: all -1); a load fills it
   std::optional<Grid> grid;                 // a grid that is not a tiling: its closed form
   int level = -1;                           // a level: its label, a power of two (tiles of 2^level samples; 2^level tiles a piece)
   std::optional<double> diameter;           // a dyadic level: the measured mean tile diameter (the surface's unit), kept in the level dictionary's attributes
