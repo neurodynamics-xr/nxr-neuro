@@ -453,7 +453,7 @@ MeasureComputeResult measure_compute(DatasetWriter& ds, SubjectWriter& sub, cons
     slice.reset();
   }
   if (!matched) throw Error(code::no_such_row, sub.name() + ": no scalar or hermitian3 Field, nor a map of a statistic, on " + S.name + " matches '" + opt.fields + "'");
-  drain(ds.db(), ds.store());
+  drain(ds.db(), ds.node_store());
 
   MeasureComputeResult out;
   out.info = Json{{"stage", "result"}, {"labelling", opt.labelling}, {"surface", S.name}, {"members", members}, {"weight", opt.weight}, {"measures", measures},

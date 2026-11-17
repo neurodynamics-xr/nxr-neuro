@@ -170,7 +170,7 @@ int noisecov_main(const std::vector<std::string>& argv) {
   const cli::Args a = cli::parse("nxr-neuro noisecov compute", rest, valued, flags, {"--dataset", "--subject", "--recording"});
   nxr::pipelines::NoiseCovOptions o = noise_options("nxr-neuro noisecov compute", a, true);
   o.replace = a.flag.count("--replace") > 0;
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = cli::stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -245,7 +245,7 @@ int psd_main(const std::vector<std::string>& argv) {
   o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -282,7 +282,7 @@ static int crossspectrum_read_main(const std::vector<std::string>& rest) {
   if (a.maybe("--pair") && a.maybe("--seed")) usage(prog, "--pair and --seed are alternatives");
   if (!a.maybe("--pair") && !a.maybe("--seed")) usage(prog, "name the channels to read: --pair A,B (row A, column B; recording channel indices) or --seed A (A against every channel)");
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -387,7 +387,7 @@ int crossspectrum_main(const std::vector<std::string>& argv) {
     for (const char* w : {"--set", "--overlap", "--window", "--detrend", "--scaling", "--segment-seconds", "--segment-samples", "--segment-level"})
       if (a.maybe(w)) usage(prog, std::string(w) + " is a Welch option: it does not apply to --estimator analytic (its windows are tiles: --level or --window-seconds)");
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -426,7 +426,7 @@ int cyclepattern_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--timing-of")) o.timing_of = split(*v, ',');
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -476,7 +476,7 @@ int phasegradient_main(const std::vector<std::string>& argv) {
   }
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -514,7 +514,7 @@ static int source_spectral_main(const std::vector<std::string>& argv, bool tenso
   o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -571,7 +571,7 @@ int quadrature_main(const std::vector<std::string>& argv) {
   o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -615,7 +615,7 @@ int hodgepower_main(const std::vector<std::string>& argv) {
   o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -691,7 +691,7 @@ int opticalflow_main(const std::vector<std::string>& argv) {
   } catch (...) { usage(prog, "--depth and --frame-level are whole numbers (the tile ladder's level, the tower level), --start-s a number (s)"); }
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -721,7 +721,7 @@ int frames_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--max-condition")) o.max_condition = std::stod(*v);
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -745,7 +745,7 @@ int tiles_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--depth")) o.depth = std::stoi(*v);
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -817,7 +817,7 @@ int inverse_main(const std::vector<std::string>& argv) {
     else usage(prog, "--rank-tolerance must be single or double");
   }
   o.kernel = k;
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = cli::stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -871,7 +871,7 @@ int headmodel_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--berg-dipoles")) o.eeg_sphere.berg.dipoles = std::stoi(*v);
   if (const auto v = a.maybe("--berg-terms")) o.eeg_sphere.berg.terms = std::stoi(*v);
   if (const auto v = a.maybe("--berg-starts")) o.eeg_sphere.berg.starts = std::stoi(*v);
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = cli::stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -937,7 +937,7 @@ int filter_main(const std::string& verb, const std::vector<std::string>& rest) {
   if (const auto v = a.maybe("--tolerance")) f.tolerance = std::stod(*v);
   f.removeMean = a.flag.count("--no-remove-mean") == 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);

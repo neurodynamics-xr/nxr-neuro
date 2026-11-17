@@ -36,7 +36,7 @@ jobs:
       - name: Build tools and system libraries
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends ninja-build ccache libsqlite3-dev zlib1g-dev libzstd-dev pkg-config
+          sudo apt-get install -y --no-install-recommends ninja-build ccache zlib1g-dev libzstd-dev pkg-config
       - name: Compiler cache
         uses: actions/cache@v4
         with:
@@ -70,6 +70,8 @@ jobs:
           submodules: recursive
       - name: Build tools and system libraries
         run: brew install ninja ccache zstd pkg-config
+      - name: System SQLite version (for the record; the build uses the pinned amalgamation)
+        run: /usr/bin/sqlite3 --version
       - name: Compiler cache
         uses: actions/cache@v4
         with:

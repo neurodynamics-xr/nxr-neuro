@@ -87,7 +87,7 @@ def dump(folder: Path) -> tuple[dict, dict]:
 def assert_same_dataset(a: Path, b: Path, expect_rows: int = 10) -> None:
     ra, fa = dump(a)
     rb, fb = dump(b)
-    assert ra["_user_version"] == rb["_user_version"] == 50
+    assert ra["_user_version"] == rb["_user_version"] == 51
     for t in sorted(set(ra) | set(rb)):
         x, y = json.loads(masked_text(json.dumps(ra[t], sort_keys=True))), json.loads(masked_text(json.dumps(rb[t], sort_keys=True)))
         if isinstance(x, list):                       # sorted again, the producing tool's name hidden (rows written by the two tools sort alike)

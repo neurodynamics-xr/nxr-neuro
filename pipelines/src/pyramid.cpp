@@ -73,6 +73,17 @@ std::string bands_selection_impl(SubjectWriter& sub, const py::Bands& bands, boo
   if (!f) throw Error(code::no_such_row, no_default);
   std::string id;
   sub.compose([&] {
+    // a dictionary of the bank already here (a group package carries the members' copies as anchor rows) is the bank's when it is this bank
+    std::string existing_dictionary;
+    if (const auto have = sub.db().one("SELECT id FROM dictionary WHERE scope = 'dataset' AND name = 'atlas bands' ORDER BY id LIMIT 1")) {
+      const auto entries = sub.db().all("SELECT code, attributes_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY code", {V(text(*have, "id"))});
+      bool same = entries.size() == bands.size();
+      for (std::size_t k = 0; same && k < entries.size(); ++k) {
+        const Json a = Json::parse(opt_text(entries[k], "attributes_json").value_or("{}"), nullptr, false);
+        same = integer(entries[k], "code") == static_cast<std::int64_t>(k) && a.is_object() && std::abs(a.value("low_hz", -1.0) - bands[k].first) < 1e-9 && std::abs(a.value("high_hz", -1.0) - bands[k].second) < 1e-9;
+      }
+      if (same) existing_dictionary = text(*have, "id");   // (another bank: left to the dictionary's own rules, as before)
+    }
     DictionarySpec ds;
     ds.name = "atlas bands"; ds.scope = "dataset";
     ds.description = "the measurement pyramid's band bank: code = the band's index";
@@ -84,13 +95,13 @@ std::string bands_selection_impl(SubjectWriter& sub, const py::Bands& bands, boo
       e.cols.set("measurement", std::sqrt(bands[k].first * bands[k].second)).set("measurement_unit", "Hz").json("attributes_json", Json{{"low_hz", bands[k].first}, {"high_hz", bands[k].second}});
       ds.entries->push_back(e);
     }
-    const DictionaryResult dr = sub.dictionary(ds);
+    const std::string dictionary_id = existing_dictionary.empty() ? sub.dictionary(ds).id : existing_dictionary;
     SelectionSpec ss;
     ss.name = "atlas bands"; ss.type = "spans"; ss.manifold_id = text(f->manifold, "id");
     std::vector<SpanSpec> spans;
     for (std::size_t k = 0; k < bands.size(); ++k) spans.push_back({bands[k].first, bands[k].second, static_cast<std::int64_t>(k)});
     ss.spans = spans;
-    ss.cols.set("cell", "1").set("dictionary_id", dr.id).set("unit", "Hz").set("description", "the pyramid's frequency bands: a span [lo, hi) of the Frequency manifold each, code = the band's index");
+    ss.cols.set("cell", "1").set("dictionary_id", dictionary_id).set("unit", "Hz").set("description", "the pyramid's frequency bands: a span [lo, hi) of the Frequency manifold each, code = the band's index");
     id = sub.selection(std::move(ss));
   });
   return id;

@@ -6,6 +6,7 @@
 #include <iostream>
 
 #include "nxr/io/array_reader.h"
+#include "nxr/io/small_file_store.h"
 #include "nxr/io/store.h"
 #include "nxr/io/surface.h"
 #include "nxr/io/writer.h"
@@ -17,7 +18,11 @@ static Json read_dataset(const std::filesystem::path& folder) {
   oo.lock = false;
   DatasetWriter ds = open_writer(folder, oo);
   Json subs = Json::array();
-  const FolderStore store(folder);
+  // the dataset's keys as its store format keeps them: files, or (format 52) a subject's small keys as rows of its small_files.sqlite
+  const std::filesystem::path abs = std::filesystem::absolute(folder).lexically_normal();
+  const std::filesystem::path dir = abs.has_filename() ? abs : abs.parent_path();
+  DatastoreStore datastore(dir.parent_path(), SmallFileOptions{kSmallFileThreshold, true});
+  const PrefixStore store(datastore, dir.filename().string());
   for (const Row& s : ds.db().all("SELECT id, name, kind, status FROM subject WHERE dataset_id = ? ORDER BY name", {ds.id()})) {
     Json surfs = Json::array();
     for (const Row& m : ds.db().all("SELECT m.name, g.positions_path, m.path AS mpath, sub.path AS spath FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN subject sub ON sub.id = m.subject_id "

@@ -465,15 +465,31 @@ place, under the dataset's writer lock, **subject by subject, verified byte for 
 5. **The commit**: the subject's catalogue entry. A crash before it leaves the old dataset whole (the package's new tables are rebuilt on the next
    run); after it, the subject is done and is skipped (a second run changes no byte).
 6. **The end**: `meta.store_format` 53 in every package and the catalogue; the original database is kept, renamed `dataset.sqlite.format52`, and is
-   removed only with the maintainers' OK (never delete data without it). Groups: group fields that `pyramid reduce` wrote into the default subject are
-   moved into a group package (decided 2026-11-16), verified as above.
+   removed only with the maintainers' OK (never delete data without it). Group results: the group fields that `pyramid reduce` wrote into the default
+   subject are moved into a group package (decided 2026-11-16), in the same split, under the mapping below, verified as above.
+
+   | what | old owner | new owner | what changes |
+   |---|---|---|---|
+   | `field` rows of the group results (no `path`; the producer record's `atlas` is `spatial` or `time`) | the default subject | the group package (a subject of kind `group`, named `group`, made by the split; its template is the default subject) | the row's `subject_id` column; every other column is kept |
+   | `field_contribution` rows of those fields | the default subject | the group package | nothing (they follow their field); their `subject_id` and `source_field_id` name the members' rows, held as anchor rows |
+   | `selection_measurement` rows of those fields | the default subject | the group package | nothing; their `selection_id` names the default subject's partition, held by the group package as an anchor row, as a subject holds its template's |
+   | the keys under `<node>/maps` and `<node>/time` (arrays and their small keys) | the default subject's folder | the group package's folder | copied, every file compared, the originals moved aside to `<dataset>/_moved-aside/<default subject folder>/`, never deleted |
+   | the group subject's own row | (none: made by the split) | the group package | a new row, the only one the original lacks |
+   | every other row (the default subject's partitions, the band bank the group measurements name, every subject's rows) | unchanged | unchanged | nothing |
+
+   The verification is "every row present exactly once, in the owner above": the index built from the packages equals the original database row for row, the
+   moved fields compared with their `subject_id` changed back, the row counts equal table by table, and the group subject the one row more. The default subject's
+   own bundle is not compared with the original's (it has fewer rows by design); its rows are compared one by one instead. The mapping is written into the split's
+   report (`group_results`) and the catalogue's `meta` (`split_groups`), from which `join` reverses it: the group fields' `subject_id` back to the default subject, the
+   group subject row dropped, the arrays returned (the originals from `_moved-aside` when they match the group package's copy, else the copy), the group package
+   folder kept renamed `*.format53`. A crash after the arrays were copied is resumed by running the same command again.
 7. **All at once, not on first use** (decided 2026-11-16): a dataset is split by one explicit command, never silently when a newer build
    opens it, so no reader meets a dataset half in one layout without being told. A build that knows format 53 still reads 50–52 as today.
 8. **Reverse**: `dataset join --dataset PATH` writes a format-52 `dataset.sqlite` from the packages (the index build, written as the
    dataset database) and removes the packages' row tables, leaving `small_files` as format 52 had it. `split` then `join` gives back the original
    database, compared table by table (`test_split`: synthetic datasets at 50, 51 and 52, a crash at each stage, idempotence, the round trip).
 
-**The version step**: store format **53** (packages and catalogue) and the model's schema version **51** (the new tables: `subject_entry`,
+**The version step** (built 2026-11-17: `model.sql` is at 51, with the subject kind `registration` and the tables `key_digest`, `subject_entry` and `template_reference`; `anchor_row`, `origin` and `vocabulary` stay package and catalogue tables; a database at 50 is migrated in place when it is opened to write, and read as it is when opened to read; the attribute views name schema 51; nxr and the Studio adopt the same `model.sql` next): store format **53** (packages and catalogue) and the model's schema version **51** (the new tables: `subject_entry`,
 `template_reference`, `key_digest`, the package record in `meta`, the subject kind `registration`), added to `model.sql` in all three implementations at once. Every reader refuses a
 version above the newest it knows (`schema_version` error), so a build from before this change refuses a format-53 package instead of misreading it,
 and a format-53 build still opens 50–52 datasets as today.

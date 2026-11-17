@@ -1,0 +1,8 @@
+<?xml version='1.0' encoding='UTF-8'?>
+<GIFTI Version="1.0" NumberOfDataArrays="2"><MetaData><MD><Name>Description</Name><Value>synthetic octahedron</Value></MD></MetaData><LabelTable /><DataArray Intent="NIFTI_INTENT_POINTSET" DataType="NIFTI_TYPE_FLOAT32" ArrayIndexingOrder="RowMajorOrder" Dimensionality="2" Encoding="Base64Binary" Endian="BigEndian" ExternalFileName="" ExternalFileOffset="0" Dim0="6" Dim1="3"><MetaData><MD><Name>AnatomicalStructurePrimary</Name><Value>CortexLeft</Value></MD></MetaData><CoordinateSystemTransformMatrix><DataSpace>NIFTI_XFORM_TALAIRACH</DataSpace><TransformedSpace>NIFTI_XFORM_TALAIRACH</TransformedSpace><MatrixData>  1.000000   0.000000   0.000000   1.500000
+  0.000000   1.000000   0.000000  -2.500000
+  0.000000   0.000000   1.000000   3.500000
+  0.000000   0.000000   0.000000   1.000000</MatrixData></CoordinateSystemTransformMatrix><Data>QfAXXLwV/U08Afd1wfAIGruWuUk8ANywOyk71EHv+6w8jDpUvMwh0cHwCAS7nm3vPIPaNLul2/ZB8AcjvACCvTyRmpjB7/lj</Data></DataArray><DataArray Intent="NIFTI_INTENT_TRIANGLE" DataType="NIFTI_TYPE_INT32" ArrayIndexingOrder="RowMajorOrder" Dimensionality="2" Encoding="Base64Binary" Endian="BigEndian" ExternalFileName="" ExternalFileOffset="0" Dim0="8" Dim1="3"><MetaData /><CoordinateSystemTransformMatrix><DataSpace>NIFTI_XFORM_UNKNOWN</DataSpace><TransformedSpace>NIFTI_XFORM_UNKNOWN</TransformedSpace><MatrixData>  1.000000   0.000000   0.000000   0.000000
+  0.000000   1.000000   0.000000   0.000000
+  0.000000   0.000000   1.000000   0.000000
+  0.000000   0.000000   0.000000   1.000000</MatrixData></CoordinateSystemTransformMatrix><Data>AAAAAAAAAAIAAAAEAAAAAgAAAAEAAAAEAAAAAQAAAAMAAAAEAAAAAwAAAAAAAAAEAAAAAgAAAAAAAAAFAAAAAQAAAAIAAAAFAAAAAwAAAAEAAAAFAAAAAAAAAAMAAAAF</Data></DataArray></GIFTI>
