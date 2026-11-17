@@ -93,9 +93,9 @@ int main() {
     // a covariance statistic on 8 "channels" (the cortex's vertices stand in): their names labelling and the channel Selection the statistic's axes name
     SelectionOut nm;
     nm.name = "cortex_names"; nm.output = "cortex_names"; nm.type = "partition"; nm.manifold_id = cortex_id;
-    SelectionOut chs = nm;
-    chs.name = "chans"; chs.output = "chans";
-    for (int v = 0; v < 8; ++v) { nm.codes.push_back(v); chs.codes.push_back(v); nm.entries.push_back("EEG" + std::to_string(v + 1)); chs.entries.push_back("c" + std::to_string(v)); }
+    SelectionOut chs;                                                    // the channels the statistic covers: a PICK (indices) of the manifold's elements, not a partition
+    chs.name = "chans"; chs.output = "chans"; chs.type = "indices"; chs.manifold_id = cortex_id;
+    for (int v = 0; v < 8; ++v) { nm.member_of.push_back(v); chs.codes.push_back(v); nm.entries.push_back("EEG" + std::to_string(v + 1)); }   // the names: a member number per element, each member labelled i
     u.selection(nm);
     const std::string chans_id = u.selection(chs);
     StatisticOut cv;
