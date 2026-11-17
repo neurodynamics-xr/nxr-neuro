@@ -267,7 +267,7 @@ both ways (WASM writes, the CLI reads; the CLI writes, WASM reads).
 **`wasmClient(datastore)`** (`bindings/wasm-io/js/index.mjs`, spec `docs/specs/2026-11-11-wasm-io.md`) is the Cortical Flow Studio's `DataClient` backed by this
 module, so the Studio can use nxr-neuro wherever it uses a data client. Step 1 (done): status, a subject's bundle (`nxr/io/bundle.h`, a port of the Studio's
 `bundleOf`), views, rows, array reads (as stored, cast, sliced) and array create/put/delete; step 2 has subject edit and delete, fields, selections, measurements, operators, manifolds, dictionaries, jobs, `layout` and imports — every call — and dataset create, delete and catalog. Imports run the command line's own `convert` code compiled into the module, with matio (no HDF5: a v7.3 `.mat` is refused by name); and every analysis verb (eigen solve, head model, noise covariance, inverse kernel, PSDs, filters, flow) runs the same way, `compute`, `meeg` and `pipelines` compiled in; and the geometry compute on meshes in memory (the Manifold API: operators, eigenmodes, frames, geodesics, transport…) in the same instance — `nxrNeuro()` gives `compute` and `client(root)` (8.5 MB); the other row writes throw `unsupported` until they are ported.
-`bindings/wasm-io/test/parity.sh <studio checkout>` compares it with the Studio's own `bundleOf`, queries and `read` on a synthetic datastore (143 read checks, the stored statistics included), and its writes with the Studio's own service on two copies (118 checks: every database, every file and the drained zarr.json), its imports with the Studio's running the native `nxr-neuro` (9 checks), and its analyses with the native command (18 checks: bit-equal or to the last places; an eigensolve to its tolerance). The checks read a store's keys, not its files, so they hold at store format 51 (files) and 52 (a subject's small keys as rows of its `small_files.sqlite`: `bindings/wasm-io/test/store_keys.mjs`). In Node it
+`bindings/wasm-io/test/parity.sh <studio checkout>` compares it with the Studio's own `bundleOf`, queries and `read` on a synthetic dataset folder (143 read checks, the stored statistics included), and its writes with the Studio's own service on two copies (118 checks: every database, every file and the drained zarr.json), its imports with the Studio's running the native `nxr-neuro` (9 checks), and its analyses with the native command (18 checks: bit-equal or to the last places; an eigensolve to its tolerance). The checks read a store's keys, not its files, so they hold at store format 51 (files) and 52 (a subject's small keys as rows of its `small_files.sqlite`: `bindings/wasm-io/test/store_keys.mjs`). In Node it
 reads and writes the real disk; the browser's file connection (a folder the user grants) comes later.
 
 ## The command `nxr-neuro`
@@ -351,7 +351,7 @@ with the `run` spelling.
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro list datasets` | List the datasets of a datastore. | `dataset list` |
+| `nxr-neuro list datasets` | List the dataset folders in a folder (`--datastore`). | `dataset list` |
 | `nxr-neuro list subjects` | List the subjects of a dataset. | `subject list` |
 | `nxr-neuro list recordings` | List the recordings of a subject. |  |
 | `nxr-neuro list kernels` | List the inverse kernels of a subject. |  |
@@ -415,7 +415,7 @@ with the `run` spelling.
 
 | command | what it does | old spelling |
 |---|---|---|
-| `nxr-neuro delete dataset` | Delete a dataset from its datastore. | `dataset delete` |
+| `nxr-neuro delete dataset` | Delete a dataset: its folder, inside the folder given by `--datastore`. | `dataset delete` |
 | `nxr-neuro delete subject` | Delete a subject, or one of its nodes, from a dataset. | `subject delete` |
 
 ### `compact`: Compact a dataset
@@ -489,7 +489,7 @@ one place a recording is read and looped over.
   - Chunk k + 1 is **read while chunk k is folded**. The memory held is two chunks.
   - **Progress:** a `"stage": "chunk"` line after each chunk.
   - **Cancel:** Ctrl-C stops the job cleanly. Nothing of it is stored (`code::cancelled`), and a second Ctrl-C kills the process.
-  - **One job at a time per datastore:** a queue file, `.nxr-chunk-queue.lock`, held for the job.
+  - **One job at a time per folder of datasets:** a queue file, `.nxr-chunk-queue.lock`, in the folder that holds the dataset's folder, held for the job.
   - The command line sets these once (`set_chunk_loop_defaults`); no pipeline passes them. In the WebAssembly build, without threads, the next chunk is read when
     it is needed and the queue is the Studio's.
 - **The guard.** The test `layering_recordings_read_by_chunk_service` fails if code outside io reads a recording or works out chunks itself.

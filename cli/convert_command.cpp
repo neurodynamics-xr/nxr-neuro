@@ -2,7 +2,7 @@
 //
 //   nxr-neuro convert list <protocol>
 //   nxr-neuro convert scan <protocol> [--prefer protocol.mat|walk] [--out FILE] [--summary]
-//   nxr-neuro convert subject <protocol> --subject S --dataset <datastore>/<dataset> [--resample HZ]
+//   nxr-neuro convert subject <protocol> --subject S --dataset <folder> [--resample HZ]
 //   nxr-neuro convert template <protocol> --dataset D [--surface tess_*.mat ...]
 //   nxr-neuro convert group <protocol> --dataset D
 //   nxr-neuro convert convert <protocol> --subject S --condition C --dataset D [--resample HZ] ...
