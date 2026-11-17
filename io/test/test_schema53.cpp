@@ -58,7 +58,8 @@ int main() {
     std::string again;
     sub.compose([&] { again = selection::save_time_grid(sub, line_id, selection::TimeGridRule{0.0, 100.0, 100}).id; });
     CHECK_EQ(again, grid_id);
-    CHECK_EQ(code_of([&] { sub.compose([&] { selection::save_time_grid(sub, line_id, selection::TimeGridRule{0.0, 200.0, 100}); }); }), std::string(code::invalid_argument));
+    // (a refusal is checked outside a composition: an aborted composition of a writer that owns its subject removes the subject)
+    CHECK_EQ(code_of([&] { selection::save_time_grid(sub, line_id, selection::TimeGridRule{0.0, 200.0, 100}); }), std::string(code::invalid_argument));
     const auto found = selection::find_time_grid(db, line_id);
     CHECK(found && found->first.id == grid_id && found->second.samples == 100 && found->second.rate == 100.0);
     CHECK(is_null(*db.read("selection", grid_id), "member_of_id") && text(*db.read("selection", grid_id), "type") == "ladder" && selection::is_grid(db, grid_id));
@@ -97,11 +98,9 @@ int main() {
     // refusals: a grid factor without a level, a level on a factor that is no grid, a level without its radix
     auto make = [&](std::vector<std::string> ids, std::vector<int> lv, std::vector<std::int64_t> rad) {
       return code_of([&] {
-        sub.compose([&] {
-          selection::Description pd; pd.type = selection::Type::set; pd.factors.resize(2); pd.radices = rad;
-          selection::Placement pp; pp.name = "refused"; pp.manifold_id = line_id; pp.factor_ids = ids; pp.factor_levels = lv;
-          selection::save(sub, pd, pp);
-        });
+        selection::Description pd; pd.type = selection::Type::set; pd.factors.resize(2); pd.radices = rad;
+        selection::Placement pp; pp.name = "refused"; pp.manifold_id = line_id; pp.factor_ids = ids; pp.factor_levels = lv;
+        selection::save(sub, pd, pp);
       });
     };
     CHECK_EQ(make({grid_id, elements_id}, {}, {13, 4}), std::string(code::invalid_argument));
