@@ -54,7 +54,7 @@ Studio's chain, and only then write code.
 | `meeg/` | `nxr_meeg` | Eigen only. **No file I/O, never `compute` or `io`** (the pipelines hand it arrays) |
 | `pipelines/` | `nxr_pipelines` | `compute`, `io`, `meeg`: **the only place they meet** |
 | `cli/` | `nxr-neuro` | argument parsing and JSON output only, with no maths |
-| `bindings/` | MEX, Node, wasm, Python | `compute` only; `bindings/python` also `io/formats` (the pure file formats), amended 2026-11-17 (`docs/reference.md`, dependency rule) |
+| `bindings/` | MEX, Node, wasm, Python | every library (`compute`, `meeg`, `io`, `pipelines`), as `cli/` does: **faces only**. A binding converts arguments and results and calls the library, with no maths, no SQL and no logic of its own (amended 2026-11-17: the earlier "`compute` only" came from the old nxr-compute repository) |
 
 ## The architecture policy: three layers, each knowing only its own job
 

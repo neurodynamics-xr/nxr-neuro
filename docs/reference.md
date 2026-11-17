@@ -42,7 +42,7 @@ Each library keeps its include paths and namespaces (`nxr/compute.h`, `nxr::comp
 | `io` | SQLite, the Zarr codecs (zstd, blosc, zlib), matio, HDF5, nlohmann/json, rapidyaml (single header, vendored in `io/extern/ryml`, v0.15.2, MIT; amended 2026-11-12, the maintainers' decision 1 of the chain-graph spec: pipeline definitions are nxr's YAML). Never includes `compute`. |
 | `pipelines` | `compute`, `io` and `meeg`; the only place they meet. |
 | `meeg` | Eigen only. Never includes `compute` or `io`; reads no file (the pipelines hand it arrays). |
-| `bindings` | `compute` only, **except `bindings/python`** (amended 2026-11-17, `docs/specs/2026-11-17-interoperability.md` section 6 and D3 of `docs/specs/2026-11-16-distribution-and-interoperability.md`): it also links `io/formats` (`nxr_io_formats`, the pure file formats: no store, database or dataset), and nanobind and scikit-build-core to build the wheel. It still holds no maths: arrays in, the library's call, arrays out. Reaching `pipelines` and the rest of `io` (the dataset face) needs its own amendment. |
+| `bindings` | every library (`compute`, `meeg`, `io`, `pipelines`), as the command line does (amended 2026-11-17; the earlier "`compute` only" rule came from the old nxr-compute repository). Bindings are faces: they convert arguments and results and call the library, with no maths, no SQL and no logic of their own. |
 
 ## The store: where a subject's keys live (`io/include/nxr/io/store.h`; spec `docs/specs/2026-11-14-dataset-wide-runs.md` section 1, phase A)
 
