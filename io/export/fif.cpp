@@ -2,9 +2,11 @@
 #include "nxr/exporters/fif.h"
 
 #include <cmath>
+#include <map>
 #include <memory>
 
 #include "cortex.h"
+#include "nxr/formats/fif_objects.h"
 #include "nxr/formats/stc.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/chunk_loop.h"
@@ -108,6 +110,72 @@ Json export_stc(const std::filesystem::path& package, const StcExport& o) {
   const Json prov = provenance(pkg, subject, o.ctx, inputs, span, details);
   const std::string sidecar = write_sidecar(files.front(), prov, files);
   return Json{{"files", files}, {"sidecar", sidecar}, {"frames", frames}, {"details", details}, {"terms", terms_of(subject, inputs).to_json()}};
+}
+
+Json export_covariance(const std::filesystem::path& package, const CovarianceExport& o) {
+  namespace fif = nxr::formats::fif;
+  if (o.statistic.empty()) refuse("name the covariance statistic to export");
+  if (o.out.empty()) refuse("an export names the path stem it writes under");
+  const nxr::io::SubjectPackage pkg = nxr::io::SubjectPackage::open(package);
+  const task::Subject subject = task::Subject::of(pkg);
+  const task::Node st = subject.require({.cls = task::Cls::statistic, .name = o.statistic}, "the statistic '" + o.statistic + "'");
+  const Json measure = st.fact("measure");
+  if (!measure.is_string() || measure.get<std::string>() != "covariance") refuse("'" + o.statistic + "' is a '" + (measure.is_string() ? measure.get<std::string>() : std::string("?")) + "' statistic: export fif --covariance writes a covariance");
+  if (!st.path) refuse("the statistic '" + o.statistic + "' stores no values");
+  if (st.value_type.value_or("scalar") != "scalar") refuse("'" + o.statistic + "' is a " + *st.value_type + " statistic: only a real covariance is written");
+  const ArrayReader a = ArrayReader::open(pkg.store(), *st.path);
+  if (a.shape().size() != 2 || a.shape()[0] != a.shape()[1]) refuse("'" + o.statistic + "' is not a square [channels x channels] matrix");
+  const std::int64_t M = a.shape()[0];
+  Json axes = st.fact("axes_json");
+  if (axes.is_string()) axes = Json::parse(axes.get<std::string>(), nullptr, false);
+  if (!axes.is_array() || axes.empty() || !axes[0].contains("selection_id") || !axes[0]["selection_id"].is_string()) refuse("'" + o.statistic + "': its first axis does not name the channels it covers (a Selection)");
+  const task::Node sel = subject.require_id(task::Cls::selection, axes[0]["selection_id"].get<std::string>());
+  if (!sel.manifold_id) refuse("the channel Selection '" + sel.name + "' lies on no manifold");
+  // the channel names: the names labelling of the channels' manifold (one level per channel, code = the channel's index)
+  std::map<std::int64_t, std::string> names;
+  for (const task::Node& cand : subject.find_all({.cls = task::Cls::selection, .manifold_id = *sel.manifold_id}))
+    if (cand.dictionary_id && cand.name.size() > 6 && cand.name.compare(cand.name.size() - 6, 6, "_names") == 0) {
+      for (const auto& e : subject.dictionary_entries(*cand.dictionary_id)) names[e.code] = e.name;
+      break;
+    }
+  if (names.empty()) refuse("the channels of '" + o.statistic + "' have no names labelling on their manifold: a covariance file names its channels");
+  std::vector<std::int64_t> index(static_cast<std::size_t>(M));
+  if (sel.array_path) {
+    const ArrayReader ia = ArrayReader::open(pkg.store(), *sel.array_path);
+    const std::vector<double> v = widen(ia.read(), ia.dtype());
+    if (static_cast<std::int64_t>(v.size()) != M) refuse("the channel Selection '" + sel.name + "' holds " + std::to_string(v.size()) + " channels, the covariance has " + std::to_string(M));
+    for (std::int64_t i = 0; i < M; ++i) index[static_cast<std::size_t>(i)] = static_cast<std::int64_t>(v[static_cast<std::size_t>(i)]);
+  } else {
+    for (std::int64_t i = 0; i < M; ++i) index[static_cast<std::size_t>(i)] = i;
+  }
+  fif::Covariance c;
+  c.kind = fif::mne::kNoiseCov;
+  c.dim = static_cast<std::int32_t>(M);
+  for (const std::int64_t i : index) {
+    const auto it = names.find(i);
+    if (it == names.end()) refuse("channel " + std::to_string(i) + " of '" + o.statistic + "' has no name");
+    c.names.push_back(it->second);
+  }
+  c.data = widen(a.read(), a.dtype());
+  const Json dof = st.fact("dof");
+  if (dof.is_number() && dof.get<double>() >= 1) c.nfree = static_cast<std::int32_t>(std::llround(dof.get<double>()));
+  const std::string file = o.out + "-cov.fif";
+  {
+    nxr::formats::FileSink sink(file);
+    fif::write_covariance_file(sink, c, fif::make_id(0, 0));
+    sink.close();
+  }
+  Json details = Json::object();
+  details["channels"] = M;
+  details["nfree"] = c.nfree > 0 ? Json(c.nfree) : Json();
+  details["unit"] = st.unit ? Json(*st.unit) : Json();
+  details["kind"] = "noise covariance";
+  details["method"] = st.method ? Json(*st.method) : Json();
+  if (a.dtype() != nxr::io::DType::Float64) details["converted"] = Json::array({std::string(nxr::io::dtype_to_string(a.dtype())) + " -> float64 (a covariance is written in double)"});
+  const std::vector<task::Node> inputs = {st, sel};
+  const Json prov = provenance(pkg, subject, o.ctx, inputs, st.fact("span_json"), details);
+  const std::string sidecar = write_sidecar(file, prov, {file});
+  return Json{{"files", Json::array({file})}, {"sidecar", sidecar}, {"channels", M}, {"details", details}, {"terms", terms_of(subject, inputs).to_json()}};
 }
 
 }  // namespace nxr::exporters

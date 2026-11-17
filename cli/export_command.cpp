@@ -1,7 +1,8 @@
 // nxr-neuro export <what>: stored results written as the field's standard files (docs/specs/2026-11-17-interoperability.md, sections 3.3 and 5).
 //
 //   nxr-neuro export bids-derivatives --package PATH --out DERIVATIVES_FOLDER --results REGEX [--space NAME] [--session S] [--task T] [--run N] [--from S --to S | --all] [--with-surface] [--stc] [--measurements P:F:m1,m2]
-//   nxr-neuro export fif --package PATH --field NAME --out STEM [--from S --to S | --all]
+//   nxr-neuro export fif --package PATH --field NAME --out STEM [--from S --to S | --all]      a source estimate (-lh.stc, -rh.stc)
+//   nxr-neuro export fif --package PATH --covariance NAME --out STEM                           a covariance statistic (-cov.fif)
 //   nxr-neuro export tsv --package PATH --out STEM (--statistic NAME | --partition NAME --field NAME --measures a,b,...)
 //   nxr-neuro export gifti --package PATH (--field NAME | --labelling NAME) --out STEM [--kind func|shape] [--with-surface] [--hemispheres] [--surface-unit m|mm] [--from S --to S | --all]
 //
@@ -111,7 +112,29 @@ int bids_command(const std::vector<std::string>& rest) {
 
 int fif_command(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro export fif";
-  const Args a = parse(prog, rest, {"--package", "--field", "--out", "--from", "--to"}, {"--all"}, {"--package", "--field", "--out"});
+  const Args a = parse(prog, rest, {"--package", "--field", "--covariance", "--forward", "--inverse", "--out", "--from", "--to"}, {"--all"}, {"--package", "--out"});
+  if (a.maybe("--forward") || a.maybe("--inverse"))
+    throw Usage(prog + ": error: a forward solution and an inverse operator are not written: an MNE forward needs each channel's FIF info (kind, coil type, position), which a package does not keep, and an MNE inverse operator is the eigen-decomposition of the whitened forward, which a stored kernel does not hold");
+  if (a.maybe("--covariance") && a.maybe("--field")) throw Usage(prog + ": error: give a field (--field) or a covariance (--covariance), not both");
+  if (!a.maybe("--covariance") && !a.maybe("--field")) throw Usage(prog + ": error: the following arguments are required: --field or --covariance");
+  if (a.maybe("--covariance")) {
+    if (a.maybe("--from") || a.maybe("--to") || a.flag.count("--all")) throw Usage(prog + ": error: a covariance has no time range");
+    nxr::exporters::CovarianceExport c;
+    c.statistic = a.get("--covariance");
+    c.out = a.get("--out");
+    c.ctx.version = NXR_NEURO_VERSION;
+    c.ctx.command = command_line("fif", rest);
+    Json copts = Json::object();
+    for (const auto& kv : a.opt) copts[kv.first.substr(2)] = kv.second;
+    c.ctx.options = copts;
+    c.ctx.progress = [](const Json& j) { emit(j); };
+    Json cout_ = nxr::exporters::export_covariance(a.get("--package"), c);
+    Json cline = Json{{"stage", "result"}};
+    for (auto it = cout_.begin(); it != cout_.end(); ++it) cline[it.key()] = it.value();
+    emit(cline);
+    return 0;
+  }
+  if (!a.maybe("--field")) throw Usage(prog + ": error: --field is required");
   nxr::exporters::StcExport o;
   o.field = a.get("--field");
   o.out = a.get("--out");

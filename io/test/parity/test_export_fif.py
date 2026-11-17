@@ -33,3 +33,12 @@ def test_series_chunked():
     np.testing.assert_array_equal(stc.data, want)
     assert abs(stc.tmin - 1.0) < 1e-6 and abs(stc.tstep - 0.5) < 1e-6
     assert stc.times[3] == pytest.approx(2.5)
+
+
+def test_covariance():
+    cov = mne.read_cov(str(G / "cov-cov.fif"))
+    assert cov["names"] == [f"EEG{i + 1}" for i in range(8)]
+    want = np.full((8, 8), 0.25)
+    np.fill_diagonal(want, [2.0 + i for i in range(8)])
+    np.testing.assert_allclose(cov["data"], want)
+    assert cov["nfree"] == 99 and not cov["diag"]

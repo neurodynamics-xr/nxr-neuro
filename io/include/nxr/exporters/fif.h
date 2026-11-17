@@ -7,8 +7,13 @@
 // over the range the caller states (required for a series, refused for a map; never defaulted) and written frame by frame, so memory is one frame whatever the range.
 // An .stc file has no room for metadata: the sidecar `<stem>-lh.stc.json` holds the provenance (nxr/exporters/common.h) and the field's unit. Values are written as float32
 // (`details.converted` says when the stored field was float64). Only scalar fields are written.
+//   a covariance STATISTIC (measure `covariance`, [M x M] on its channels' Selection)  ->  <stem>-cov.fif   (`mne.read_cov`)
 //
-// Covariances, forward solutions and inverse operators are not written yet (their mapping to MNE's objects is under review; the FIF writers for them are to follow).
+// The covariance is written as the noise covariance (kind 1) with the channel names the statistic's channel Selection stands for (the names labelling of the channel manifold), its
+// degrees of freedom as `nfree` (when stored), its values and unit as stored (the sidecar records the unit and the span it was computed over; MNE's covariances are in the units of the
+// channels: T^2, (T/m)^2, V^2). Only a real covariance is written; its projectors and bads (an imported one keeps them in its options) are not carried.
+// Forward solutions and inverse operators are NOT written (an MNE forward needs each channel's FIF info: kind, coil type and position, which a package does not keep; an MNE inverse
+// operator is the eigen-decomposition of the whitened forward, which a stored kernel does not hold): they are refused with that reason.
 #pragma once
 #include <filesystem>
 #include <optional>
@@ -24,6 +29,14 @@ struct StcExport {
   std::optional<SeriesRange> range;        // a series: the time range read (REQUIRED); a map: must be unset
   Context ctx;
 };
+
+struct CovarianceExport {
+  std::string statistic;                   // the covariance statistic, by name
+  std::string out;                         // the path stem: <out>-cov.fif
+  Context ctx;
+};
+// Writes <out>-cov.fif and the sidecar; returns {files, sidecar, channels, details}.
+Json export_covariance(const std::filesystem::path& package, const CovarianceExport& options);
 
 // Writes the two files and the sidecar; returns {files: [lh, rh], sidecar, frames, ...}.
 Json export_stc(const std::filesystem::path& package, const StcExport& options);
