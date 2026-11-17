@@ -5,6 +5,17 @@ BIDS-derivatives; imports from BIDS MEG/EEG and FIF) and the first slice of D3 (
 `2026-11-16-subject-centred-datasets.md` (what a subject package holds; importers write packages; every item carries an `origin` record; the
 importer rule, section 4.5) and `2026-11-16-command-line.md` (the verb-first grammar). Open questions are in section 8, each with a recommendation.
 
+## Amendment (2026-11-17): the faces' verbs are `compute` and `run`
+
+The bindings' levels are redrawn by `2026-11-17-compute-and-run.md` (decided by the maintainers the same day). Section 6 and question 13 below are read
+with these changes:
+- the pure-function level `nn.ops` (Python) and `nxr.ops` (MATLAB) becomes **`nn.compute` / `nxr.compute`**: `nn.compute.<group>.<node>(arrays, …)` for one
+  node and `nn.compute(graph, arrays, …)` for a graph or a composite node, generated from the node registry, so what can be computed alone is what can be
+  chained in a definition;
+- the planned pipeline level `nn.compute.<verb>(sub, …)` and `nxrneuro.compute('psd', sub, …)` becomes **`nn.run('<pipeline>', dataset, subject, …)`** and
+  **`nxr.run(...)`**, the command line's `run`;
+- the MATLAB package is `nxr` (as the first slice built it), not `nxrneuro`.
+
 ## 1. Why, and the rules this follows
 
 nxr-neuro measures the spatiotemporal patterns of cortical activity. Its results are worth something to the field only if the data can come in
@@ -422,7 +433,7 @@ r = nxrneuro.compute('psd', sub, 'rest', 'all', true);
 | 12 | `import bids` (a package per subject, the importer rules, participants through `participants import`) | 7, 9 | after 9 |
 | 13 | BIDS-derivatives exporter | 4, 10, 11 | after 11 |
 | 14 | CIFTI-2 read and write (`dscalar`, `dlabel`, `dtseries`) | 2, 3 | **reader built** (`io/formats/include/nxr/formats/cifti.h`); the writer with the exporters |
-| 15 | CTF, then KIT readers and importers | 5 (coil definitions), 9 | after 9 |
+| 15 | CTF, then KIT readers and importers | 5 (coil definitions), 9 | **pure readers built** (`ctf.h`, `kit.h`); importers after 9 |
 | 16 | Python wheel, first slice (6.1), with the dependency-rule amendment; cibuildwheel in CI | the amendment (D3) | **now** (in parallel with 1–8) |
 | 17 | MEX over the same API, first slice (6.2) | 16 | after 16 |
 | 18 | MNE `.h5` (`Spectrum`, CSD), TRX, XDF, 4D/BTi | question 6; demand | on demand |
