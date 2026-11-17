@@ -64,35 +64,26 @@ int measure_export_main(const std::vector<std::string>& rest) {
 // are compute's (pipelines/face.h `measurement_query`, rule 35); the level read is printed with its snapped quantity
 int measure_query_main(const std::vector<std::string>& argv) {
   const std::string prog = "nxr-neuro measure query";
-  const cli::Args a = cli::parse(prog, argv, {"--dataset", "--subject", "--selection", "--field", "--measure", "--band", "--spatial-scale", "--tile", "--min-value", "--max-value", "--limit", "--order"}, {},
+  const cli::Args a = cli::parse(prog, argv, {"--dataset", "--subject", "--selection", "--field", "--measure", "--band", "--spatial-scale", "--tile", "--min-value", "--max-value", "--limit", "--order", "--where", "--subjects", "--factor"}, {},
                                  {"--dataset", "--subject", "--selection", "--measure"});
   try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const std::string key = a.get("--selection");
-    const nxr::io::task::Subject ts = nxr::io::task::Subject::of(sub);
-    const auto sel = ts.by_id_or_name(nxr::io::task::Cls::selection, key);
-    if (!sel) throw Error(code::no_such_row, sub.name() + ": no selection '" + key + "'");
-    Json q = Json{{"selectionId", sel->id}, {"measure", a.get("--measure")}};
-    try {
-      if (const auto v = a.maybe("--field")) {
-        const auto f = ts.by_id_or_name(nxr::io::task::Cls::field, *v);
-        if (!f) throw Error(code::no_such_row, sub.name() + ": no field '" + *v + "'");
-        q["ofFieldId"] = f->id;
-      }
-      // the scale is a QUANTITY in a chart of the space it lies in ("8-12 Hz", "wavelength 40 mm", "2 s"): parsed and resolved to a level by the face (nxr::quantity, the grid's closed-form resolvers)
-      if (const auto v = a.maybe("--band")) q["band"] = *v;
-      if (const auto v = a.maybe("--spatial-scale")) q["spatialScale"] = *v;
-      if (const auto v = a.maybe("--tile")) q["tile"] = *v;
-      if (const auto v = a.maybe("--min-value")) q["minValue"] = std::stod(*v);
-      if (const auto v = a.maybe("--max-value")) q["maxValue"] = std::stod(*v);
-      if (const auto v = a.maybe("--limit")) q["limit"] = std::stoll(*v);
-    } catch (const std::logic_error&) { usage(prog, "--limit is a whole number; --min-value and --max-value numbers"); }
-    if (const auto v = a.maybe("--order")) { if (*v != "asc" && *v != "desc") usage(prog, "--order is asc or desc"); q["order"] = *v; }
-    const Json rows = nxr::pipelines::measurement_query(sub, q);   // the rows at the stated scale, with the snapped quantity of each level read
-    cli::emit(Json{{"stage", "result"}, {"selection", key}, {"measure", a.get("--measure")}, {"query", q}, {"rows", rows}, {"count", rows.size()}});
+    // the face's query (pipelines/face.h): the selection, the measure, the field, the level asked as ONE quantity (a band, a spatial scale or a tile: the quantity names its own chart), where it runs
+    // (io: the SQL query; compute: in memory from the finest ingredients) and the subjects it merges
+    nxr::pipelines::face::MeasurementQuery q;
+    q.selection = a.get("--selection");
+    q.measure = a.get("--measure");
+    q.of_field = a.maybe("--field");
+    int quantities = 0;
+    for (const char* flag : {"--band", "--spatial-scale", "--tile"})
+      if (const auto v = a.maybe(flag)) { q.to = *v; ++quantities; }
+    if (quantities > 1) usage(prog, "give one of --band, --spatial-scale, --tile: the level asked is one quantity");
+    q.factor = a.maybe("--factor");
+    if (const auto v = a.maybe("--subjects")) q.subjects = split(*v, ',');
+    if (const auto v = a.maybe("--where")) { if (*v != "io" && *v != "compute") usage(prog, "--where is io or compute"); q.where = *v; }
+    for (const char* flag : {"--min-value", "--max-value", "--limit", "--order"})
+      if (a.maybe(flag)) usage(prog, std::string(flag) + " is not offered by the measurement query yet (the face reads the whole table at the level asked)");
+    const Json result = nxr::pipelines::face::measurement_query(a.get("--dataset"), a.get("--subject"), q);
+    cli::emit(Json{{"stage", "result"}, {"selection", q.selection}, {"measure", q.measure}, {"result", result}});
   } catch (const std::invalid_argument& e) {
     usage(prog, e.what());
   }
