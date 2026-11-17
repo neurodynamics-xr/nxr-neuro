@@ -608,3 +608,30 @@ counts are for tracking, not accounting.
 ## Appendix B: the comparison with the old port
 
 Filled by G2.
+
+## Appendix B: the one-time comparison with the port (G2, `compute/test/test_gc_port_comparison.cpp`)
+
+Synthetic meshes (an icosphere, a jittered icosphere, a UV sphere with poles, a torus, a jittered planar disc), the port and `IntrinsicSurface` built on each. `flipEps` is 1e-12
+in the comparison (geometry-central flips at `<= -eps`, so an exact 0 would flip cocircular ties for ever; the port flips below `-eps`).
+
+| item | result |
+|---|---|
+| 1 gauge rotation | `K_gc = D K_port D^H`, D = diag(e^{iθ_v}), θ_v the angle of the port's reference halfedge in geometry-central's gauge (the other sign gives O(1) differences): max difference over interior entries 1.8e-15 (icosphere), 2.6e-13 (jittered), 4.4e-15 (UV), 6.4e-15 (torus), 2.7e-15 (disc) |
+| 2 triangulation | the same number of flips on every mesh (0, 102, 0, 0, 8); cotan Laplacians equal to 1.6e-13; at the default `flipEps` 1e-6 also equal (no near-tie edges on these meshes) |
+| 3 boundary | 30 boundary vertices (disc) in both; entries touching a boundary vertex differ by up to 0.15: the π rescaling (section 3.4), as documented |
+| 4 masses | mixed Voronoi, barycentric and Galerkin equal to 1e-15 on every mesh |
+| 5 frames | angle between the port's e1 and geometry-central's e1 after removing θ_v: median 1e-3 to 1e-2 rad; the tail (99%) 0.002 to 0.03 rad on the regular meshes, 1.7 rad at a few vertices of the strongly jittered sphere (cone angle far from 2π: the average of the edges rotated back differs from the reference edge there); it is the 3D realisation only |
+| 6 charts | heat distance equal to 1.6e-5 (relative 5e-6) on the closed meshes; on the disc the distances differ (the port takes the Dirichlet average at a boundary, geometry-central does not); log map angle after the rotation by θ_source: median 0.009 to 0.036 rad on the regular meshes (the two log maps are different estimators), 0.34 rad on the jittered sphere (not a chart there) |
+
+**Poor meshes** (same file; a UV sphere with every ring jittered in longitude and latitude, so skewed needle and obtuse triangles on the unit sphere), intrinsic against embedded:
+
+| mesh | flips | eigenvalue error (l ≤ 3) | heat distance error from a pole | negative cotan weights (embedded) |
+|---|---|---|---|---|
+| needle 6×96, skew 0.45 | 1126 | 0.133 / 0.112 | **0.037 / 0.43** | 0% / 31%, worst −3.1 |
+| needle 8×128, skew 0.45 | 2286 | 0.083 / 0.107 | **0.032 / 0.87** | 0% / 32%, worst −3.8 |
+| jittered icosphere 3 (0.7) | 778 | 0.33 / 0.30 | 0.22 / 0.13 | 0% / 24%, worst −5.5 |
+
+Correction to an expectation: the cotangent Laplacian is the P1 stiffness matrix, positive semidefinite for any valid triangulation, so the embedded one is positive semidefinite too (smallest
+eigenvalue 1e-13 to 1e-12 in every case). What obtuse triangles break is the **discrete maximum principle** (negative off-diagonal weights, 24 to 32% of the edges here), and with it the heat
+method's distance (10 to 25 times worse on the needle meshes). The intrinsic Delaunay triangulation removes every negative weight; eigenvalue errors are of the same order for both, because the
+spectrum error is dominated by the mesh's own geometric error. The jittered sphere (large jitter, little needle shape) is where intrinsic does not help the distance either.
