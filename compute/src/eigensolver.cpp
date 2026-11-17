@@ -528,10 +528,6 @@ static EigenResult sortAscending(EigenResult r) {
 static EigenResult polishPairs(const Eigen::SparseMatrix<double>& A, const Eigen::SparseMatrix<double>& B, EigenResult r, double sigma) {
     const int n = static_cast<int>(A.rows()), k = r.k;
     if (k < 1 || 2 * k > n) return r;
-    // The polish shifts further below the spectrum than the solver did: a shift of 1e-7 of the scale sits within rounding of the null space, (K − σM) is then
-    // nearly singular, and its shift-inverted images carry that null direction at 1e7 times the rest — the polish would stall at 1e-10 and differ between
-    // platforms. A shift of 1e-3 of the window's scale is well conditioned and still converges fast (the window is the lowest k).
-    sigma = std::min(sigma, -1e-3 * std::max(1.0, std::abs(r.eigenvalues(k - 1))));
     using Inner = DeflatedShiftInvertOp::Inner;
     Inner inner(A, B);
     inner.set_shift(sigma);
@@ -564,7 +560,7 @@ static EigenResult polishPairs(const Eigen::SparseMatrix<double>& A, const Eigen
         std::vector<int> useful;
         for (int j = 0; j < k; ++j) {
             const double nj = std::sqrt(std::max(0.0, Y.col(j).dot(B * Y.col(j))));
-            if (nj > 1e-8 * before[j]) { Y.col(j) /= nj; useful.push_back(j); }
+            if (nj > 1e-12 * before[j]) { Y.col(j) /= nj; useful.push_back(j); }
         }
         if (useful.empty()) break;
         const int nw = k + static_cast<int>(useful.size());
