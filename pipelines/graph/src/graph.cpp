@@ -148,6 +148,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
   add_section(g.chunks, Section::chunks);
   add_section(g.after, Section::after);
 
+  std::map<std::string, std::string> made_by;                  // value -> the use that made it, for the shared checker's messages
   for (const Item& it : items) {
     const Use& u = *it.use;
     CheckedNode n;
@@ -161,7 +162,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
     n.section = it.section;
 
     // a node is complete for its kind
-    if (!spec.plan) fail("the node has no `plan` (its arrows cannot be checked)");
+    if (!spec.plan && !spec.signature) fail("the node has no `plan` (its arrows cannot be checked)");
     if (spec.kind == Kind::array && !spec.run) fail("an array node needs `run`");
     if (spec.kind == Kind::chunk && spec.traits.time != TimeBehaviour::stateful && !spec.chunk) fail("a chunk node needs `chunk` (or `start` and `step`, when stateful)");
     if ((spec.kind == Kind::accumulate || (spec.kind == Kind::chunk && spec.traits.time == TimeBehaviour::stateful)) && (!spec.start || !spec.step)) fail("a stateful or accumulate node needs `start` and `step`");
@@ -239,7 +240,28 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
     }
 
     // 5. THE ARROWS: the node's plan on its inputs' types
-    try { n.planned = spec.plan(n.in_types, n.params); } catch (const std::invalid_argument& e) { fail(e.what()); }
+    try { if (spec.plan) n.planned = spec.plan(n.in_types, n.params); } catch (const std::invalid_argument& e) { fail(e.what()); }
+    //    and the SHARED CHECKER beside it: the node's signature, on typed inputs (types.h `typed`; a use with an untyped input is left to its plan)
+    bool typed_inputs = !n.in_types.empty();
+    for (const auto& [_, t] : n.in_types) typed_inputs = typed_inputs && t.typed;
+    if (spec.signature && typed_inputs) {
+      TypeUse tu;
+      tu.label = where;
+      tu.chunk_node = spec.kind == Kind::chunk;
+      tu.in = n.in_types;
+      tu.in_names = n.in;
+      tu.made_by = made_by;
+      for (std::size_t i = 0; i < spec.signature->outputs.size() && i < u.out.size(); ++i) tu.out_names[spec.signature->outputs[i].first] = u.out[i];
+      Types made_types;
+      try { made_types = type_use(u.node, *spec.signature, tu, n.params); } catch (const TypeRefusal& e) { refuse(e.what()); }
+      for (auto& [port, mt] : made_types) {
+        auto planned = n.planned.out.find(port);
+        if (planned == n.planned.out.end()) { n.planned.out[port] = mt; continue; }
+        PortType& dst = planned->second;                 // the plan's type keeps what C1 reads; the typed members are the checker's
+        dst.typed = true; dst.components = mt.components; dst.domain = mt.domain; dst.target = mt.target; dst.quantity = mt.quantity; dst.res = mt.res; dst.from_value = mt.from_value;
+        dst.spin = mt.spin; dst.gauge = mt.gauge; dst.sel = mt.sel; dst.of = mt.of; dst.transition = mt.transition; dst.complex_parts = mt.complex_parts;
+      }
+    }
     if (u.out.size() != spec.outputs.size()) fail("the node makes " + std::to_string(spec.outputs.size()) + " output(s); `out` names " + std::to_string(u.out.size()));
     for (std::size_t i = 0; i < spec.outputs.size(); ++i) {
       const std::string& port = spec.outputs[i].name;
@@ -253,6 +275,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
       if (c.values.count(name)) fail("`out` names '" + name + "', which already exists");
       n.out[port] = name;
       c.values[name] = ot;
+      made_by[name] = where;
     }
     if (spec.kind != Kind::chunk && n.planned.halo != 0) fail("only a chunk node has a halo");
     if (n.planned.halo < 0) fail("a negative halo");

@@ -2,6 +2,7 @@
 #include "nxr/graph/node.h"
 
 #include <algorithm>
+#include <set>
 #include <stdexcept>
 
 namespace nxr::graph {
@@ -84,6 +85,17 @@ void check_traits(const NodeSpec& node) {
 void Registry::add(NodeSpec node) {
   if (node.name.empty()) refuse("a node needs a name");
   if (nodes_.count(node.name)) refuse("node " + node.name + " is registered twice");
+  if (!node.signature) {
+    if (const Signature* s = builtin_signature(node.name)) {
+      // the signature's ports are the node's: the same input names, the same outputs in the same order (the definitions' `out` lists follow it)
+      std::set<std::string> in;
+      for (const auto& p : node.inputs) in.insert(p.name);
+      bool fits = s->inputs.size() == in.size() && s->outputs.size() == node.outputs.size();
+      for (const auto& [port, _] : s->inputs) fits = fits && in.count(port);
+      for (std::size_t i = 0; fits && i < s->outputs.size(); ++i) fits = s->outputs[i].first == node.outputs[i].name;
+      if (fits) node.signature = *s; else unmatched_.push_back(node.name);
+    }
+  }
   const std::string name = node.name;
   nodes_.emplace(name, std::move(node));
 }

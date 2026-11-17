@@ -57,7 +57,7 @@ struct CoordinateSystem {
 struct Manifold;
 using ManifoldRef = std::shared_ptr<const Manifold>;
 
-/** A MANIFOLD AS A TERM: which manifold, known or not yet known. Equality is structural (`same`): two ids are equal when the ids are; a member set
+/** A MANIFOLD AS A TERM: which manifold, known or not yet known. Equality is structural (`same`): two ids are equal when their labels and ids are; a member set
  *  when its partitions are; a restriction when the manifold and the selection are. Printed `label(key)` (a made one `label(~key)`, a variable by
  *  its name, an anonymous one `#n`). */
 struct Manifold {
@@ -98,6 +98,9 @@ ManifoldRef from_or_restriction_of(const ManifoldRef& v);   // an operator's sou
 ManifoldRef made(const std::string& label, const std::string& key, ManifoldKind kind = ManifoldKind::points, Role role = Role::none, std::optional<CoordinateSystem> cs = std::nullopt);
 ManifoldRef restricted(const ManifoldRef& of, const std::string& by);
 ManifoldRef members(const std::string& partition);
+/** the member set of `partition`, with the line it partitions (`of`: a time tile's line; the time line of a joint partition), the role it has (frames for a frame tiling,
+ *  time_tiles for a time ladder's level) and a label (`joint` for the cells of a joint partition of space x time). Equality ignores all three: it is the partition's. */
+ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role = Role::time_tiles, const std::string& label = "");
 ManifoldRef members_of_port(const std::string& port);      // in a signature: the member set of the selection read at `port` (instantiated to members(<its identity>))
 ManifoldRef derived(const std::string& relation, const ManifoldRef& of);
 bool same(const ManifoldRef& a, const ManifoldRef& b);                 // structural equality
