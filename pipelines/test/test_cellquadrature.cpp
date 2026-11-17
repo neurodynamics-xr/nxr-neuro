@@ -141,7 +141,7 @@ int main() {
   const std::string csname = "rest_crossspectrum_alpha_windows";
 
   // ── THE DENSE REFERENCE: the level's band (exact modes) on the kernel's rows, T = B C Bᵀ formed, its squared norms ──
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   const SurfaceLevel SL = read_surface_level(sub, S, spaceLevel);
   SpatialBandOptions sbo; sbo.transform = "exact";
   const SpatialBand sband = make_spatial_band(S, SL, sbo);

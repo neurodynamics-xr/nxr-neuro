@@ -386,6 +386,7 @@ int list_nodes_main(const std::vector<std::string>& argv) {
 int package_main(const std::vector<std::string>& argv);   // cli/package_command.cpp
 int import_main(const std::vector<std::string>& argv);    // cli/import_command.cpp
 int export_main(const std::vector<std::string>& argv);    // cli/export_command.cpp
+int crossspectrum_read_main(const std::vector<std::string>& rest);   // cli/meeg_command.cpp
 int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
   if (cmd == "__list") return list_nodes_main(rest);
   if (cmd == "read") {
@@ -421,6 +422,13 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return surrogate_lagfree_vortex_compare_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro run surrogate_lagfree_vortex_compare needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+#endif
+    }
+    if (cmd == "crossspectrum" && !rest.empty() && rest[0] == "read") {       // `read crossspectrum`
+#ifdef NXR_NEURO_WITH_PIPELINES
+      return crossspectrum_read_main(std::vector<std::string>(rest.begin() + 1, rest.end()));
+#else
+      throw Error(code::unsupported, "nxr-neuro read crossspectrum needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "measure") {

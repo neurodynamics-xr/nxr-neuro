@@ -146,7 +146,7 @@ int main() {
   CHECK(text(Hs.row, "method") == "histogram" && text(Hs.row, "measure") == "count" && Hs.values.size() == 4096);
 
   // ── THE DIRECT COMPUTATION of the relative power outside the window at the reference level ──
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
   const SpatialBand band = make_spatial_band(ds, sub, S, read_surface_level(sub, S, refl), sbo);
   const std::int64_t Vg = band.glued_vertices;

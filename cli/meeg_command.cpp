@@ -167,7 +167,7 @@ std::vector<nxr::meeg::Band> bands_arg(const std::string& prog, const std::strin
 }
 
 // crossspectrum read: the readings of a stored `<stem>_<band>_bins` (see the comment at the top of the file)
-static int crossspectrum_read_main(const std::vector<std::string>& rest) {
+int crossspectrum_read_main(const std::vector<std::string>& rest) {   // dispatched by run_legacy (nxr_neuro.cpp): `read crossspectrum`
   const std::string prog = "nxr-neuro crossspectrum read";
   const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--name", "--pair", "--seed", "--reading", "--weights"}, {}, {"--dataset", "--subject", "--name"});
   const std::string reading = a.maybe("--reading").value_or("coherency");

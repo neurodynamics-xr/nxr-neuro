@@ -126,7 +126,7 @@ int main() {
 
   // ── THE DIRECT COMPUTATION: the band's analytic signal on the sensors (Morlet taps), sampled at the frames by the Kaiser sinc, each level's free current through its dense exact hat on the glued surface ──
   const std::vector<int> lvs = {2, 3};
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
   std::vector<SpatialBand> bands;
   for (const int l : lvs) bands.push_back(make_spatial_band(ds, sub, S, read_surface_level(sub, S, l), sbo));

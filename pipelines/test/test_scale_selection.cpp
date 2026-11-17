@@ -99,7 +99,7 @@ int main() {
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   nxrtest::make_time_grids(ds, sub);
   nxrtest::make_tiles(ds, sub);
-  const SurfaceInput S0 = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S0 = read_surface(sub, std::string("cortex"), true);
   // the time levels of the two bands: the constant-Q levels that resolve 4-8 Hz and 8-16 Hz
   int tl_slow = -1, tl_fast = -1;
   std::int64_t w_slow = 0, w_fast = 0;

@@ -128,7 +128,7 @@ int main() {
   { EigenSolveOptions eo; eo.modes = 100; eo.surface = "cortex"; eigen_solve(ds, sub, eo, {}); }          // stores the glued surface (cortex_glued) and its modes: the form's output lives on it
 
   // the DIRECT computation: Z the band's analytic signal on the channels (Morlet taps), M = F_l form(K) with the dense exact hat, |M Z|² averaged over the run
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   const SurfaceLevel SL = read_surface_level(sub, S, level);
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
   const SpatialBand sband = make_spatial_band(ds, sub, S, SL, sbo);

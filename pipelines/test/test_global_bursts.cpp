@@ -97,7 +97,7 @@ int main() {
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   nxrtest::make_time_grids(ds, sub);
   nxrtest::make_tiles(ds, sub);
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   const SurfaceLevel SL = read_surface_level(sub, S, L);
   SpatialBandOptions sbo; sbo.transform = "exact";
   const SpatialBand sband = make_spatial_band(S, SL, sbo);

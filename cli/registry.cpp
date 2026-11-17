@@ -521,7 +521,7 @@ int run_command_line(int argc, char** argv) {
       diff("flag in the parser only:", p.flags, table_flg);
       diff("flag in the table only:", table_flg, p.flags);
       if ((p.npos > 0) != !c.positional.empty()) { std::cout << c.path() << ": positional argument differs\n"; ++bad; }
-      for (const auto& u : c.options) if (!table().options.count(u.name)) { std::cout << c.path() << ": " << u.name << " has no description\n"; ++bad; }
+      for (const auto& u : c.options) if (!table().options.count(u.name) && !table().options.count(u.name + "@" + c.path())) { std::cout << c.path() << ": " << u.name << " has no description\n"; ++bad; }
     }
     std::cout << (bad ? "the command table does not match the parsers\n" : "the command table matches the parsers\n");
     return bad ? 1 : 0;

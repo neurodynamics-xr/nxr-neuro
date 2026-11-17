@@ -213,7 +213,7 @@ int main() {
   const double fps = kFramesPerCycle * std::sqrt(8.0 * 12.0);
 
   // ── THE DIRECT FIELD: the band's real signal (Morlet taps), the folded operator M = F_l form(K) on the glued surface (dense exact hat), M Re sampled at the frames by the Kaiser-sinc ──
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   const SurfaceLevel SL = read_surface_level(sub, S, level);
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
   const SpatialBand sband = make_spatial_band(ds, sub, S, SL, sbo);

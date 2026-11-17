@@ -36,6 +36,8 @@ verb migrate	Migrate a dataset's stored layout in place
 )TBL",
 R"TBL(--atlas-finest	QUANTITY	The finest tile of the default subject's group tree (the dataset's atlas leaves), as a quantity: parts per hemisphere ("parts 256"), a tile diameter ("14 mm") or a tile area ("area 150 mm2"); needs --templates.	parts 256 (2^8 tiles a hemisphere)	parts
 --lc-scales	QUANTITY,...	The tile scales, as quantities, at which the Levi-Civita connection between neighbouring tiles is measured (a measurement over a level's product with itself); needs --templates.	parts 16, parts 64	parts
+--atlas-finest@create dataset	QUANTITY	The finest tile of the default subject's group tree (the dataset's atlas leaves), as a quantity: parts per hemisphere ("parts 256"), a tile diameter ("14 mm") or a tile area ("area 150 mm2"); needs --templates.	parts 256 (2^8 tiles a hemisphere)	parts
+--lc-scales@create dataset	QUANTITY,...	The tile scales, as quantities, at which the Levi-Civita connection between neighbouring tiles is measured (a measurement over a level's product with itself); needs --templates.	parts 16, parts 64	parts
 --acquisition	NAME	The Brainstorm acquisition (condition) the kernel or map belongs to.	none	-
 --acquisition@import inverse	NAME	The Brainstorm acquisition (condition) the kernel belongs to; it names the session the kernel is stored under.	required	-
 --acquisition@import map	NAME	The Brainstorm acquisition (condition) the map belongs to, used to find a map's surface or atlas when its file does not name one.	none	-
@@ -127,7 +129,9 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (repeatable).	none	-
 --extra-surface@import condition	FILE	An additional surface file of the subject's anatomy to import with the condition; repeat the option for several.	none	-
 --family	NAME	Family of the time filter bank: itersine, meyer, morlet, morse, amor or bump (see the command's description for the accepted names).	none (required)	-
+--factor	NAME	measure query: the factor of a product selection the roll-up runs along (its name); none: the only grid factor.	none	-
 --field	NAME	Name of a stored field to read (measure query: restrict the query to this field; phasegradient: the phase 1-form to build, only gradient exists).	measure query: none; phasegradient: gradient	-
+--factor@query measurements	NAME	For a product selection: the factor the roll-up runs along, by its name; with none, the only grid factor.	the only grid factor	-
 --field@query measurements	NAME	The stored field the measurement was made of, by name or id.	the only field measured	-
 --fields	PATTERN	Regular expression matched against the whole name of each stored field to measure (export: the first capture group names the condition)	none (required)	-
 --fields@export measurements	REGEX	Regular expression over Field names selecting the Fields to export; its first capture group names the condition (e.g. the band)	required	-
@@ -335,6 +339,7 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --source-surface	NAME	Surface whose vertices are the sources of the head model.	the primary (cortex) surface	-
 --source-tool	NAME	Records the tool that produced the source data in the dataset's provenance	none	-
 --source-tool@create dataset	NAME	Records the tool that produced the source data, in the dataset's provenance.	none	-
+--spatial-scale	QUANTITY	The spatial scale to read, as a quantity in a chart of the surface's space ("20 mm", "wavelength 40 mm", "parts 16", "area 400 mm2"); coarser than the stored level it is rolled up at read, through the grid's closed-form hierarchy and the measure's merge rule; the level is printed with the snapped quantity.	the stored level	mm
 --spatial-scale@query measurements	QUANTITY	The spatial scale to read, as a quantity in a chart of the surface's space ("20 mm", "wavelength 40 mm", "parts 16", "area 400 mm2"); coarser than the stored level it is rolled up at read, through the grid's closed-form hierarchy and the measure's merge rule; the level is printed with the snapped quantity.	the stored level	mm
 --space-levels	L,...	Spatial tile levels of the surface to select over (all combinations with --time-levels).	none (required)	levels
 --spatial-band@query measurements	N	The spatial band (eigenmode level) of the cells to read.	none	-
@@ -379,6 +384,7 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --tile-pairs	on|off	Also compute the blocks between touching tiles (waves crossing from one tile into the next)	on	-
 --tiles		Also write the maps' tile summaries per level of the tile ladder.	off	-
 --time-bandwidth	B	Morse family: the time-bandwidth product of the wavelet.	60	-
+--tile	QUANTITY	The time tile to read, as a duration ("2 s") or a band ("8-12 Hz"); coarser than the stored tile it is rolled up at read; the tile is printed with its snapped length in seconds.	the stored tile	s
 --tile@query measurements	QUANTITY	The time tile to read, as a duration ("2 s") or a band ("8-12 Hz"); coarser than the stored tile it is rolled up at read; the tile is printed with its snapped length in seconds.	the stored tile	s
 --time-levels	M1,M2,..	Constant-Q time levels (each one's band is a pair's rhythm) crossed with the space levels.	none (required)	levels
 --to	HZ	The sampling rate to resample to (import resample).	none	Hz
@@ -429,7 +435,9 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --scan@register package		Register every *.nxr.zarr package directly inside the dataset folder; an alternative to --package.	off	-
 --registered-by@register package	WHO	Who registers: recorded with each catalogue entry.	required	-
 --replace@register package		Another subject id under a name the catalogue holds replaces it; the old package is moved aside, never deleted.	off	-
+--where@query measurements	io|compute	Where the query runs: io (the SQL query, for value filters, order, limit and group queries) or compute (in memory, from the finest ingredients and the grid's closed form). A value filter, order or limit runs in io and refuses compute.	compute (io when a value filter, order or limit is given)	-
 --where@list subjects	FILTER	List the subjects whose participant variables satisfy this filter (version 1 of the filter language); the dataset must be a catalogue with a participants table.	none (all subjects are listed)	-
+--subjects@query measurements	A,B,...	Across these subjects (the same members in each): the ingredients are summed code for code before the roll-up.	the one subject	-
 --subjects@list subjects	A,B,...	List these subjects, by name or id (a catalogue dataset); not together with --where.	none (all subjects are listed)	-
 --force@create index		Rebuild the index even when it is current.	off	-
 --tsv@import participants	FILE	The BIDS participants.tsv to import: tab-separated, a participant_id column matched to subject names, n/a for missing.	required	-
@@ -1049,7 +1057,7 @@ R"TBL(@ query measurements
 old: measure query
 alias: refused
 summary: Query stored measurements over a selection's members at any spatial and temporal scale, stated as quantities (rolled up at read).
-opts: --band --dataset* --field --limit --max-value --measure* --min-value --order --selection* --spatial-scale --subject* --tile --templates+
+opts: --band --dataset* --factor --field --limit --max-value --measure* --min-value --order --selection* --spatial-scale --subject* --subjects --tile --templates+ --where
 )TBL",
 R"TBL(@ export measurements
 old: measure export
