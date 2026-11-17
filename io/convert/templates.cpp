@@ -9,12 +9,14 @@
 #include <limits>
 #include <set>
 
+#include "nxr/bst/entities.h"
 #include "nxr/bst/mat.h"
 #include "nxr/bst/subject.h"
 #include "nxr/io/default_subject.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/hash.h"
 #include "nxr/io/layout.h"
+#include "nxr/formats/fif.h"
 #include "nxr/io/surface.h"
 
 namespace nxr::convert {
@@ -184,7 +186,7 @@ Json import_freesurfer(SubjectWriter& sub, const FreeSurferSource& src, SourceCh
     o.name = "cortex_" + surf;
     o.primary = k == 0;
     o.source = src.label + " " + surf;
-    o.cs_key = "fsaverage";
+    o.cs_key = "freesurfer-tkr";   // FreeSurfer's surface RAS in metres (G13): a system with a unit, as the scalp and the montage are in
     o.producer = Json{{"source", src.label + " " + surf}, {"units", "m"}, {"coincident_vertices_moved", moved}};
     o.hemispheres = {{"left", 0, b.n_lh}, {"right", b.n_lh, n - b.n_lh}};
     if (o.primary) {
@@ -268,7 +270,70 @@ std::array<double, 12> mni_to_scs_from_subjectimage(const fs::path& mat) {
   return out;
 }
 
+HeadLandmarks landmarks_from_subjectimage(const fs::path& mat) {
+  const auto scs = nxr::bst::read_variable(mat, "SCS");
+  const auto vox = nxr::bst::read_variable(mat, "Voxsize");
+  if (!scs || !scs->is_struct() || !vox) refuse(mat.filename().string() + ": no SCS frame or no Voxsize");
+  for (const char* k : {"R", "T", "NAS", "LPA", "RPA"}) if (!scs->has_field(k)) refuse(mat.filename().string() + ": SCS has no " + k);
+  const std::vector<double> R = scs->field("R")->row_major(), T = scs->field("T")->doubles(), vs = vox->doubles();
+  if (R.size() != 9 || T.size() != 3 || vs.size() != 3) refuse(mat.filename().string() + ": SCS.R, SCS.T or Voxsize has the wrong size");
+  // scs_mm = R (voxel * voxsize) + T, as the anatomy import does; metres
+  auto point = [&](const char* k) {
+    const std::vector<double> v = scs->field(k)->doubles();
+    if (v.size() != 3) refuse(mat.filename().string() + ": SCS." + k + " is not 3 numbers");
+    std::array<double, 3> o{};
+    for (int r = 0; r < 3; ++r) o[static_cast<std::size_t>(r)] = (R[static_cast<std::size_t>(3 * r)] * v[0] * vs[0] + R[static_cast<std::size_t>(3 * r + 1)] * v[1] * vs[1] + R[static_cast<std::size_t>(3 * r + 2)] * v[2] * vs[2] + T[static_cast<std::size_t>(r)]) / 1000.0;
+    return o;
+  };
+  return {point("NAS"), point("LPA"), point("RPA")};
+}
+
+HeadLandmarks landmarks_from_fif(const fs::path& path) {
+  const nxr::formats::fif::File f(std::make_shared<nxr::formats::FileSource>(path.string()));
+  const nxr::formats::fif::Fiducials fid = nxr::formats::fif::read_fiducials(f);
+  if (fid.coord_frame != 5) refuse(path.filename().string() + ": the fiducials are in FIF coordinate frame " + std::to_string(fid.coord_frame) + ", not the MRI's surface RAS (5)");
+  HeadLandmarks out;
+  int found = 0;
+  for (const auto& d : fid.points) {
+    if (d.kind != 1) continue;
+    std::array<double, 3>* to = d.ident == 1 ? &out.lpa : d.ident == 2 ? &out.nasion : d.ident == 3 ? &out.rpa : nullptr;
+    if (!to) continue;
+    *to = d.r;
+    ++found;
+  }
+  if (found != 3) refuse(path.filename().string() + ": it holds " + std::to_string(found) + " of the nasion, LPA and RPA, not 3");
+  return out;
+}
+
 namespace {
+
+// the landmarks as a points manifold `head_landmarks` (NAS, LPA, RPA; positions in `cs_key`, metres) with their names as a labelling
+void write_head_landmarks(SubjectWriter& sub, const std::string& cs_key, const HeadLandmarks& lm, const Json& producer) {
+  const std::string name = "head_landmarks", path = nxr::io::folder_for("points") + "/" + name, mid = nxr::io::uuid7();
+  std::vector<float> pos;
+  for (const auto* p : {&lm.nasion, &lm.lpa, &lm.rpa}) for (int c = 0; c < 3; ++c) pos.push_back(static_cast<float>((*p)[static_cast<std::size_t>(c)]));
+  nxr::io::ManifoldSpec m;
+  m.id = mid;
+  m.name = name;
+  m.path = path;
+  m.type = "points";
+  m.n_vertices = 3;
+  m.topology = {"none", 0, 1, std::nullopt, {}};
+  nxr::io::GeometrySpec g;
+  g.form = "stored";
+  g.cs_key = cs_key;
+  g.positions_path = path;
+  m.geometry = g;
+  m.populate = [&sub, path, pos, mid](nxr::io::Store&, const std::string&) { sub.write_array(path, view(pos, {3, 3}), {}, std::nullopt, "manifold", mid); };
+  m.cols.json("producer_json", producer);
+  sub.manifold(std::move(m));
+  nxr::bst::LabellingOptions lo;
+  lo.manifold_id = mid;
+  lo.dictionary = name + "_names";
+  lo.scope = "subject";
+  lo.description = "the landmarks' names: the nasion, the left and the right preauricular points";
+  nxr::bst::labelling(sub, path + "_names", {0, 1, 2}, {"NAS", "LPA", "RPA"}, lo);
+}
 
 // ── HCP-1065 ──────────────────────────────────────────────────────────────────────────────────────────────────
 
@@ -473,12 +538,33 @@ Json build_template(const BuildRequest& rq) {
         s.annotations = rq.annotations;
         s.cortex_mask = rq.cortex_mask;
         info = import_freesurfer(sub, s, sc);
+        if (rq.scalp) {
+          // MNE-Python's fsaverage scalp (`bem/outer_skin.surf`, FreeSurfer surface format, mm) and its fiducials: for placement only, not a boundary-element model
+          nxr::io::Mesh sk = nxr::io::read_freesurfer_surface(sc.file("bem/outer_skin.surf"));
+          for (double& x : sk.vertices) x /= 1000.0;
+          nxr::io::SurfaceOptions o;
+          o.name = "head";
+          o.primary = false;
+          o.source = "fsaverage bem/outer_skin.surf";
+          o.cs_key = "freesurfer-tkr";
+          o.producer = Json{{"source", "fsaverage bem/outer_skin.surf"}, {"units", "m"}, {"use", "scalp for placing the standard electrode montages; not a boundary-element model"}};
+          const auto si = nxr::io::add_surface(sub, o, sk.vertices, sk.faces);
+          const HeadLandmarks lm = landmarks_from_fif(sc.file("bem/fsaverage-fiducials.fif"));
+          write_head_landmarks(sub, "freesurfer-tkr", lm, Json{{"source", "fsaverage bem/fsaverage-fiducials.fif"}, {"frame", "FreeSurfer surface RAS (FIF frame 5), metres"}, {"points", "NAS, LPA, RPA"}});
+          info["scalp"] = Json{{"name", si.name}, {"n_vertices", si.n_vertices}, {"n_faces", si.n_faces}, {"landmarks", "head_landmarks"}};
+        }
       } else {
         BrainstormAnatomySource s;
         s.folder = rq.sources;
         if (!rq.surfaces.empty()) s.surfaces = rq.surfaces;
         s.atlases = rq.annotations;
         info = import_bst_anatomy(sub, s, sc);
+        if (rq.scalp) {
+          const auto si = nxr::bst::export_surface(sub, sc.file("tess_head.mat"), "", false, std::vector<std::string>());
+          const HeadLandmarks lm = landmarks_from_subjectimage(sc.file("subjectimage_T1.mat"));
+          write_head_landmarks(sub, "scs", lm, Json{{"source", "subjectimage_T1.mat SCS.NAS, SCS.LPA, SCS.RPA"}, {"frame", "scs (metres)"}, {"points", "NAS, LPA, RPA"}});
+          info["scalp"] = Json{{"name", si.name}, {"n_vertices", si.n_vertices}, {"n_faces", si.n_faces}, {"landmarks", "head_landmarks"}};
+        }
         if (rq.hcp_trk) {
           HcpSource h;
           h.trk = *rq.hcp_trk;
@@ -521,6 +607,10 @@ Json build_template(const BuildRequest& rq) {
         o.attribution = "Yeh F-C (2022) Nat Commun 13:4933, doi:10.1038/s41467-022-32595-4. Data were provided [in part] by the Human Connectome Project, WU-Minn Consortium (Principal Investigators: David Van Essen and Kamil Ugurbil; "
                         "1U54MH091657) funded by the 16 NIH Institutes and Centers that support the NIH Blueprint for Neuroscience Research; and by the McDonnell Center for Systems Neuroscience at Washington University.";
         o.redistributable = true;
+      }
+      if (it.name == "head" || it.name == "head_landmarks") {
+        o.source = std::string(it.name == "head" ? "the scalp surface" : "the landmarks") + " of " + (rq.recipe == "fsaverage" ? "MNE-Python's fsaverage (bem/outer_skin.surf, bem/fsaverage-fiducials.fif; derived from FreeSurfer's fsaverage MRI)" : "the Brainstorm default anatomy ICBM152 (tess_head.mat, subjectimage_T1.mat)") +
+                   ", read natively by nxr-neuro from: " + files_text;
       }
       nxr::io::set_origin(w.db(), it.table, it.id, o);
     }

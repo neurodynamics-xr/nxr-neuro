@@ -14,6 +14,7 @@ extern "C" {
 }
 #include "check.h"
 #include "nxr/convert/templates.h"
+#include "nxr/formats/fif_write.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/templates.h"
 
@@ -157,7 +158,19 @@ void write_subjectimage(const fs::path& p) {
     Mat_VarSetStructFieldByName(s, "T", 0, numeric(nullptr, T, 3, 1));
     Mat_VarWrite(m, s, MAT_COMPRESSION_NONE);
   };
-  frame("SCS", {0, -1, 0, 1, 0, 0, 0, 0, 1}, {10, 20, 30});
+  {
+    // the SCS frame again, with the landmarks (in voxel units: NAS, LPA, RPA) and Voxsize, as Brainstorm's anatomy carries them
+    const char* fn[] = {"R", "T", "NAS", "LPA", "RPA"};
+    size_t one[2] = {1, 1};
+    matvar_t* sc = Mat_VarCreateStruct("SCS", 2, one, fn, 5);
+    Mat_VarSetStructFieldByName(sc, "R", 0, numeric(nullptr, {0, -1, 0, 1, 0, 0, 0, 0, 1}, 3, 3));
+    Mat_VarSetStructFieldByName(sc, "T", 0, numeric(nullptr, {10, 20, 30}, 3, 1));
+    Mat_VarSetStructFieldByName(sc, "NAS", 0, numeric(nullptr, {5, 1, 2}, 1, 3));
+    Mat_VarSetStructFieldByName(sc, "LPA", 0, numeric(nullptr, {1, 2, 3}, 1, 3));
+    Mat_VarSetStructFieldByName(sc, "RPA", 0, numeric(nullptr, {4, 5, 6}, 1, 3));
+    Mat_VarWrite(m, sc, MAT_COMPRESSION_NONE);
+    Mat_VarWrite(m, numeric("Voxsize", {2, 3, 1}, 1, 3), MAT_COMPRESSION_NONE);
+  }
   frame("NCS", {1, 0, 0, 0, 1, 0, 0, 0, 1}, {-100, -120, -80});
   Mat_Close(m);
 }
@@ -260,6 +273,58 @@ int main() {
     CHECK(red.left_out.empty());
   }
 
+  // ── the scalp and the landmarks: fsaverage (MNE's bem/outer_skin.surf and fiducials file, the surfaces in FreeSurfer's surface RAS in metres) ──
+  {
+    fs::create_directories(root / "fs" / "bem");
+    std::vector<double> skin;
+    std::vector<std::int32_t> sf;
+    octahedron(0, 90, skin, sf);
+    write_fs(root / "fs" / "bem" / "outer_skin.surf", skin, sf);
+    {
+      nxr::formats::FileSink sink((root / "fs" / "bem" / "fsaverage-fiducials.fif").string());
+      nxr::formats::fif::TagWriter w(sink);
+      w.start_file(nxr::formats::fif::Id{});
+      w.start_block(nxr::formats::fif::block::kIsotrak);
+      w.write_int(nxr::formats::fif::tag::kMneCoordFrame, 5);
+      for (const auto& [ident, x, y, z] : std::vector<std::array<double, 4>>{{2, 0.0, 0.08, -0.04}, {1, -0.07, 0.0, -0.04}, {3, 0.07, 0.0, -0.04}}) {
+        nxr::formats::fif::DigPoint d;
+        d.kind = 1; d.ident = static_cast<std::int32_t>(ident); d.r = {x, y, z};
+        w.write_dig_point(d);
+      }
+      w.end_block(nxr::formats::fif::block::kIsotrak);
+      w.end_file();
+    }
+    const HeadLandmarks lm = landmarks_from_fif(root / "fs" / "bem" / "fsaverage-fiducials.fif");
+    CHECK(std::fabs(lm.nasion[1] - 0.08) < 1e-6 && std::fabs(lm.lpa[0] + 0.07) < 1e-6 && std::fabs(lm.rpa[0] - 0.07) < 1e-6 && std::fabs(lm.rpa[2] + 0.04) < 1e-6);
+    BuildRequest rq;
+    rq.recipe = "fsaverage";
+    rq.sources = root / "fs";
+    rq.package = root / "work" / "fs-scalp.nxr.zarr";
+    rq.created_by = "test";
+    rq.accept_unlisted_sources = true;
+    rq.scalp = true;
+    const Json info = build_template(rq);
+    SubjectPackage p = SubjectPackage::open(rq.package);
+    CHECK(info["scalp"]["n_vertices"] == 6 && p.db().all("SELECT 1 FROM manifold WHERE name = 'head'").size() == 1 && p.db().all("SELECT 1 FROM manifold WHERE name = 'head_landmarks' AND n_vertices = 3").size() == 1);
+    CHECK(items_without_origin(p.db()).empty());
+    // every position (the cortex, the scalp, the landmarks) is in FreeSurfer's surface RAS, which has a unit: metres
+    CHECK(p.db().all("SELECT 1 FROM coordinate_system WHERE name = 'freesurfer-tkr' AND unit = 'm'").size() == 1);
+    CHECK(p.db().all("SELECT 1 FROM coordinate_system WHERE name = 'fsaverage'").empty());
+    const auto o = origin_of(p.db(), "manifold", text(*p.db().one("SELECT id FROM manifold WHERE name = 'head'"), "id"));
+    CHECK(o && has(o->source, "outer_skin.surf") && has(o->licence, "FreeSurfer"));
+    // a fiducials file in another frame is refused
+    {
+      nxr::formats::FileSink sink2((root / "fs" / "bem" / "device.fif").string());
+      nxr::formats::fif::TagWriter w2(sink2);
+      w2.start_file(nxr::formats::fif::Id{});
+      w2.start_block(nxr::formats::fif::block::kIsotrak);
+      w2.write_int(nxr::formats::fif::tag::kMneCoordFrame, 4);
+      w2.end_block(nxr::formats::fif::block::kIsotrak);
+      w2.end_file();
+    }
+    { const std::string why = what_of([&] { landmarks_from_fif(root / "fs" / "bem" / "device.fif"); }); CHECK(has(why, "surface RAS")); if (!has(why, "surface RAS")) std::printf("  got: %s\n", why.c_str()); }
+  }
+
   // ── Brainstorm's default anatomy (ICBM152) ──
   {
     fs::create_directories(root / "bst");
@@ -271,6 +336,28 @@ int main() {
         {"LPBA40", {{"l1", {1, 2, 3, 4, 5, 6}}, {"l2", {7, 8, 9, 10, 11, 12}}}},
         {"Mystery", {{"m1", {1, 2, 3, 4, 5, 6}}, {"m2", {7, 8, 9, 10, 11, 12}}}}};
     write_tess(root / "bst" / "tess_cortex_pial_high.mat", atlases);
+    write_tess(root / "bst" / "tess_head.mat", atlases);
+    {
+      // the landmarks through the SCS frame: scs_mm = R (voxel * Voxsize) + T, metres
+      const HeadLandmarks lm = landmarks_from_subjectimage(root / "bst" / "subjectimage_T1.mat");
+      CHECK(std::fabs(lm.nasion[0] - 0.007) < 1e-9 && std::fabs(lm.nasion[1] - 0.030) < 1e-9 && std::fabs(lm.nasion[2] - 0.032) < 1e-9);   // voxel (5,1,2) x (2,3,1) = (10,3,2); R = (-3,10,2); + T = (7,30,32) mm
+      BuildRequest r;
+      r.recipe = "icbm152";
+      r.sources = root / "bst";
+      r.package = root / "work" / "icbm-scalp.nxr.zarr";
+      r.created_by = "test";
+      r.accept_unlisted_sources = true;
+      r.scalp = true;
+      const Json info = build_template(r);
+      SubjectPackage p = SubjectPackage::open(r.package);
+      CHECK(info["scalp"]["name"] == "head" && p.db().all("SELECT 1 FROM manifold WHERE name = 'head'").size() == 1 && p.db().all("SELECT 1 FROM manifold WHERE name = 'head_landmarks' AND n_vertices = 3").size() == 1);
+      CHECK(items_without_origin(p.db()).empty());
+      // without --scalp nothing of it is written
+      r.scalp = false;
+      r.package = root / "work" / "icbm-noscalp.nxr.zarr";
+      build_template(r);
+      CHECK(SubjectPackage::open(r.package).db().all("SELECT 1 FROM manifold WHERE name = 'head'").empty());
+    }
     BuildRequest rq;
     rq.recipe = "icbm152";
     rq.sources = root / "bst";

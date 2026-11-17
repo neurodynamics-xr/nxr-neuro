@@ -955,6 +955,7 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --sources	DIR	The folder of the downloaded source files the recipe reads.	none (required)	-
 --parcellation	NAME	A parcellation to write, named explicitly (repeatable); none is written unless named.	none (no parcellation)	-
 --cortex-mask		Also write the cortex mask (the vertices that are not the medial wall).	off	-
+--scalp		Also write the scalp and the landmarks nasion, LPA, RPA, for placing the standard electrode montages (not a boundary-element model).	off	-
 --surface	NAME	A surface to write (repeatable).	the recipe's own	-
 --hcp-trk	FILE	A DSI Studio .trk of streamlines on the HCP-1065 template, to import into the ICBM152 template.	none	-
 --hcp-end-surface	NAME	The surface of the package the streamline ends are placed on (a choice of data).	none (required with --hcp-trk)	-
@@ -968,6 +969,7 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --surface@create template	NAME	fsaverage: a FreeSurfer surface name (pial, white, inflated; the first is primary); icbm152: a Brainstorm tess_*.mat file name (the first is primary).	pial white inflated (fsaverage); tess_cortex_pial_high.mat (icbm152)	-
 --parcellation@create template	NAME	A parcellation to write, named explicitly (repeatable): fsaverage an annotation (aparc, aparc.a2009s); icbm152 an atlas named in the surface file (Desikan-Killiany, Schaefer_100_7net, ...). None is written unless named; an atlas whose terms are not confirmed is written as not redistributable.	none (no parcellation)	-
 --cortex-mask@create template		Also write the cortex mask (fsaverage only): the vertices that are not the medial wall.	off	-
+--scalp@create template		Also write the scalp (a closed head surface, `head`) and the landmarks nasion, LPA, RPA (`head_landmarks`), for placing the standard electrode montages: ICBM152 tess_head.mat and subjectimage_T1.mat; fsaverage bem/outer_skin.surf and bem/fsaverage-fiducials.fif (MNE-Python's). Not a boundary-element model.	off	-
 --hcp-trk@create template	FILE	A DSI Studio .trk of streamlines (icbm152 only); imported by its MNI coordinates with its origin (CC BY-SA 4.0 and the HCP terms).	none	-
 --hcp-end-surface@create template	NAME	The surface of the package the streamline ends are placed on (e.g. cortex_pial_high); a choice of data.	required with --hcp-trk	-
 --max-end-distance@create template	MM	An end farther than this from the end surface is left out of the ends operator; every end's distance is stored either way.	5	mm
@@ -1234,7 +1236,7 @@ R"TBL(@ create template
 old: package template-create
 alias: no
 summary: Build a template package (fsaverage, or ICBM152 with HCP-1065 streamlines) from a folder of the source files you downloaded, each checked against the manifest and given an origin record.
-opts: --accept-unlisted-sources --cortex-mask --hcp-end-surface --hcp-points --hcp-trk --home-dataset --max-end-distance --name --package* --parcellation+ --recipe* --sources* --surface+
+opts: --accept-unlisted-sources --cortex-mask --scalp --hcp-end-surface --hcp-points --hcp-trk --home-dataset --max-end-distance --name --package* --parcellation+ --recipe* --sources* --surface+
 example: nxr-neuro create template --recipe fsaverage --sources ~/downloads/fsaverage --package work/fsaverage.nxr.zarr --parcellation aparc --parcellation aparc.a2009s
 )TBL",
 R"TBL(@ create registration

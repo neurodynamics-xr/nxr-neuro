@@ -146,7 +146,7 @@ int package_main(const std::vector<std::string>& argv) {
     emit(Json{{"stage", "result"}, {"templates", out}});
   } else if (action == "template-create") {
     const Args a = parse(prog, rest, {"--recipe", "--sources", "--package", "--name", "--hcp-trk", "--hcp-end-surface", "--max-end-distance", "--hcp-points", "--home-dataset"},
-                         {"--cortex-mask", "--accept-unlisted-sources"}, {"--recipe", "--sources", "--package"}, 0, {"--surface", "--parcellation"});
+                         {"--cortex-mask", "--scalp", "--accept-unlisted-sources"}, {"--recipe", "--sources", "--package"}, 0, {"--surface", "--parcellation"});
     nxr::convert::BuildRequest r;
     r.recipe = a.get("--recipe");
     r.sources = a.get("--sources");
@@ -156,6 +156,7 @@ int package_main(const std::vector<std::string>& argv) {
     r.created_by = stamp();
     r.accept_unlisted_sources = a.flag.count("--accept-unlisted-sources") > 0;
     r.cortex_mask = a.flag.count("--cortex-mask") > 0;
+    r.scalp = a.flag.count("--scalp") > 0;
     if (a.multi.count("--surface")) r.surfaces = a.multi.at("--surface");
     if (a.multi.count("--parcellation")) r.annotations = a.multi.at("--parcellation");
     if (const auto t = a.maybe("--hcp-trk")) r.hcp_trk = std::filesystem::path(*t);
