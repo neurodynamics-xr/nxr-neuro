@@ -8,6 +8,7 @@ name: matlab
 # goldens), the symbol check (nothing of HDF5, matio, zlib, zstd or SQLite is exported or shared), and the nxr_compute command tests (informational).
 on:
   push:
+    branches: [feat/mex-first-slice]   # TEMPORARY: to test before the workflow is on main (removed before review)
     tags: ["v*"]
   pull_request:
     paths:
