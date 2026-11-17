@@ -9,6 +9,11 @@
 #include <sstream>
 
 #include "check.h"
+#include "nxr/bst/timefreq.h"
+
+extern "C" {
+#include "matio.h"
+}
 #include "nxr/io.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/statistic.h"
@@ -143,6 +148,38 @@ int main() {
     CHECK(m && text(*m, "value").find("added in place") != std::string::npos);
     CHECK(text(*sub.db().one("PRAGMA quick_check"), "quick_check") == "ok");
     CHECK(sub.store().exists(join_key(text(read_statistic(sub, "rec_psd").row, "path"), "zarr.json")));
+  }
+
+  // 4. A BRAINSTORM SENSOR-LEVEL PSD (timefreq, DataType data): a detached statistic, rows x time x freq, power_density by welch, its axes' values inline
+  {
+    const fs::path mat = root / "timefreq_psd_x.mat";
+    fs::create_directories(root);
+    mat_t* mf = Mat_CreateVer(mat.string().c_str(), nullptr, MAT_FT_MAT5);
+    auto txt = [](const char* name, const std::string& t) { size_t d[2] = {1, t.size()}; return Mat_VarCreate(name, MAT_C_CHAR, MAT_T_UINT8, 2, d, const_cast<char*>(t.c_str()), 0); };
+    auto dbl = [](const char* name, std::vector<size_t> d, double* x) { return Mat_VarCreate(name, MAT_C_DOUBLE, MAT_T_DOUBLE, static_cast<int>(d.size()), d.data(), x, 0); };
+    double tf[6] = {1, 2, 3, 4, 5, 6};                               // [2 rows x 1 time x 3 freq], column-major: row 0 = 1 3 5, row 1 = 2 4 6
+    double tm[1] = {0}, fr[3] = {0, 25, 50};
+    Mat_VarWrite(mf, dbl("TF", {2, 1, 3}, tf), MAT_COMPRESSION_NONE);
+    Mat_VarWrite(mf, dbl("Time", {1, 1}, tm), MAT_COMPRESSION_NONE);
+    Mat_VarWrite(mf, dbl("Freqs", {1, 3}, fr), MAT_COMPRESSION_NONE);
+    Mat_VarWrite(mf, txt("Measure", "power"), MAT_COMPRESSION_NONE);
+    Mat_VarWrite(mf, txt("Method", "psd"), MAT_COMPRESSION_NONE);
+    Mat_VarWrite(mf, txt("DataType", "data"), MAT_COMPRESSION_NONE);
+    Mat_VarWrite(mf, txt("Comment", "PSD: MEG"), MAT_COMPRESSION_NONE);
+    size_t d12[2] = {1, 2};
+    matvar_t** cells = static_cast<matvar_t**>(std::calloc(3, sizeof(matvar_t*)));
+    cells[0] = txt(nullptr, "MEG0111"); cells[1] = txt(nullptr, "MEG0112");
+    Mat_VarWrite(mf, Mat_VarCreate("RowNames", MAT_C_CELL, MAT_T_CELL, 2, d12, cells, 0), MAT_COMPRESSION_NONE);
+    Mat_Close(mf);
+    DatasetWriter ds = create_dataset(root / "bst", "bst");
+    make_subject(ds, "S1");
+    SubjectWriter sub = SubjectWriter::open(ds, "S1");
+    sub.compose([&] { CHECK(nxr::bst::export_timefreq_statistic(sub, mat, std::nullopt).has_value()); });
+    const auto r = read_statistic(sub, "timefreq_psd_x");
+    CHECK(r.values == (std::vector<double>{1, 3, 5, 2, 4, 6}));        // C order: row, time, freq
+    CHECK_EQ(text(r.row, "measure"), std::string("power_density"));
+    CHECK_EQ(text(r.row, "method"), std::string("welch"));
+    CHECK(text(r.row, "axes_json").find("MEG0112") != std::string::npos && text(r.row, "axes_json").find("\"frequency\"") != std::string::npos);
   }
   return nxrtest::finish("test_statistic");
 }

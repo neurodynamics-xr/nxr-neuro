@@ -412,6 +412,27 @@ Json import_hcp(SubjectWriter& sub, const HcpSource& h, SourceChecker& sc) {
   const auto surf = sub.find("manifold", "source/" + h.end_surface);
   if (!surf) refuse("hcp1065: the package has no surface '" + h.end_surface + "' to place the ends on");
   const Tractogram t = read_trk(sc.file(h.trk.filename().string()));
+  // the map the fibres were moved by is a transition operator: MNI millimetres -> the anatomy's SCS metres (3x4, as the NIfTI and T1 transitions are)
+  {
+    std::array<double, 12> a{};
+    for (int r = 0; r < 3; ++r) {
+      for (int c = 0; c < 3; ++c) a[static_cast<std::size_t>(4 * r + c)] = h.mni_to_anatomy_m[static_cast<std::size_t>(3 * c + r)];
+      a[static_cast<std::size_t>(4 * r + 3)] = h.mni_to_anatomy_m[static_cast<std::size_t>(9 + r)];
+    }
+    nxr::io::OperatorSpec op;
+    op.name = "mni_scs";
+    op.path = op.name;
+    op.kind = "transition";
+    op.from_manifold_id = nxr::io::text(*surf, "id");   // the manifold it was placed on: a transition operator needs one to hang from
+    op.cols.set("from_coordinate_system_id", sub.cs("mni"));
+    op.cols.set("to_coordinate_system_id", sub.cs("scs"));
+    op.n_rows = 3;
+    op.n_cols = 4;
+    op.data = view(a.data(), {3, 4});
+    op.cols.set("description", "MNI millimetres \xe2\x86\x92 SCS metres (3x4 affine)");
+    op.cols.json("producer_json", Json{{"convention", "scs_m = A @ [mni_mm, 1]"}, {"input_unit", "mm"}, {"output_unit", "m"}});
+    sub.operator_(std::move(op));
+  }
   std::vector<std::int64_t> kept;
   const std::vector<float> res = resample_streamlines(t, h.points, &kept);
   const std::int64_t nf = static_cast<std::int64_t>(kept.size()), np = h.points, nfp = nf * np;

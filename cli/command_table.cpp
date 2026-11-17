@@ -714,6 +714,12 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --to-sphere	NAME	The surface of the second template that carries its registered sphere (e.g. cortex_pial_sphere).	none (required)	-
 --neighbours	K	Modified Shepard weights: the number of nearest source vertices looked at.	8	vertices
 --one-direction		Make only the operator from the first template to the second.	off (both directions are made)	-
+--surfaces	NAME...	The surfaces of a FreeSurfer subject to import (surf/lh.<name> and rh.<name>), e.g. white pial.	white	-
+--annotations	NAME...	The FreeSurfer annotations to import as labelling Selections (label/lh.<name>.annot and rh.<name>.annot): named explicitly, none is imported unless named.	none	-
+--overlays	NAME...	The FreeSurfer per-vertex files to import as Fields (surf/lh.<name> and rh.<name>, e.g. thickness curv sulc).	none	-
+--orig	FILE	The volume (orig.mgz) that holds c_ras, the offset from FreeSurfer's surface RAS to scanner RAS.	<subject>/mri/orig.mgz, else the surface file's own volume geometry	-
+--left	NAME	The package's surface for the left cortex (CIFTI_STRUCTURE_CORTEX_LEFT); its vertex count must be the file's.	required when the file has the left cortex	-
+--right	NAME	The package's surface for the right cortex (CIFTI_STRUCTURE_CORTEX_RIGHT); its vertex count must be the file's.	required when the file has the right cortex	-
 --field-kind	TEXT	The kind of the Field written (what its values are).	the command's own	-
 --label-names	FILE	A text file of `code name` lines naming the entries of a parcellation.	entries are named by their code	-
 --unit	TEXT	The unit of the values written, when known.	none	-
@@ -845,6 +851,42 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --licence@import nifti	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
 --attribution@import nifti	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
 --anonymize@import nifti		Drop the file's free-text description and auxiliary file name.	off (kept as the file has them)	-
+--from@import freesurfer	DIR	The FreeSurfer subject folder (with surf/, label/, mri/) to import.	required	-
+--package@import freesurfer	PATH	The subject package the surfaces are imported into.	required	-
+--name@import freesurfer	NAME	The prefix of what is written: <name>_<surface>, <name>_<annotation>, <name>_<overlay>.	cortex	-
+--surfaces@import freesurfer	NAME...	The surfaces to import (lh.<name> and rh.<name> are read as one surface in freesurfer-tkr, metres).	white	-
+--annotations@import freesurfer	NAME...	Annotations to import as labelling Selections; named explicitly, none otherwise.	none	-
+--overlays@import freesurfer	NAME...	Per-vertex files to import as Fields (thickness, curv, sulc, ...).	none	-
+--orig@import freesurfer	FILE	The volume that holds c_ras (the transition from FreeSurfer's surface RAS to scanner RAS).	<subject>/mri/orig.mgz, else the surface file's own volume geometry	-
+--field-kind@import freesurfer	TEXT	The kind of the overlay Fields.	overlay	-
+--source-root@import freesurfer	DIR	The folder the folder's recorded path is relative to (an absolute path is never recorded).	the folder's parent	-
+--licence@import freesurfer	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
+--attribution@import freesurfer	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
+--anonymize@import freesurfer		Drop the "created by" line and the volume file name the surfaces record.	off (kept as the files have them)	-
+--from@import gifti	FILE	The GIFTI file (.surf.gii, .func.gii, .shape.gii, .label.gii) to import.	required	-
+--package@import gifti	PATH	The subject package the file is imported into.	required	-
+--name@import gifti	NAME	The base name of what is written.	the file's name without .surf.gii / .gii	-
+--kind@import gifti	surface|overlay|labels	What the arrays are: a surface, maps (Fields), or labels (a codes Selection).	from the arrays	-
+--surface@import gifti	NAME	The surface of the package that maps or labels are on (the vertex counts must agree).	required for maps and labels	-
+--parcellation@import gifti	NAME	The name of the parcellation a label file is. A label file is imported only when it is named.	none	-
+--field-kind@import gifti	TEXT	The kind of the Fields written.	overlay	-
+--unit@import gifti	TEXT	The unit of the values, when known.	none	-
+--source-root@import gifti	DIR	The folder the file's recorded path is relative to (an absolute path is never recorded).	the file's own folder	-
+--licence@import gifti	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
+--attribution@import gifti	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
+--anonymize@import gifti		Drop the file's free-text metadata.	off (kept as the file has them)	-
+--from@import cifti	FILE	The dense CIFTI-2 map (.dscalar.nii, .dlabel.nii) to import.	required	-
+--package@import cifti	PATH	The subject package the map is imported into.	required	-
+--name@import cifti	NAME	The base name of what is written.	the file's name without .dscalar.nii / .nii	-
+--left@import cifti	NAME	The package's surface for the left cortex.	required when the file has the left cortex	-
+--right@import cifti	NAME	The package's surface for the right cortex.	required when the file has the right cortex	-
+--parcellation@import cifti	NAME	The name of the parcellation a dlabel is. A dlabel is imported only when it is named.	none	-
+--field-kind@import cifti	TEXT	The kind of the Fields written.	overlay	-
+--unit@import cifti	TEXT	The unit of the values, when known.	none	-
+--source-root@import cifti	DIR	The folder the file's recorded path is relative to (an absolute path is never recorded).	the file's own folder	-
+--licence@import cifti	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
+--attribution@import cifti	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
+--anonymize@import cifti		Accepted for uniformity: nothing identifying is copied.	off	-
 --from@import transform	FILE	The -trans.fif file (a head-to-MRI transform, either direction) to import.	required	-
 --package@import transform	PATH	The subject package the transform is imported into.	required	-
 --name@import transform	NAME	The name of the transition operator.	the file's name without its suffix	-
@@ -1168,6 +1210,24 @@ old: __import nifti
 alias: no
 summary: Import a NIfTI volume into a subject package: a lattice in its voxel chart (voxel size as spacing in mm), its intensities as a Field (or a named parcellation as a codes Selection), and the voxel-to-world transform as a transition operator in millimetres.
 opts: --anonymize --attribution --field-kind --from* --kind --label-names --licence --name --package* --parcellation --source-root --unit
+)TBL",
+R"TBL(@ import freesurfer
+old: __import freesurfer
+alias: no
+summary: Import a FreeSurfer subject into a subject package: surfaces in freesurfer-tkr (metres) with the transition to scanner RAS from c_ras, named annotations as labelling Selections, overlays as Fields.
+opts: --annotations+ --anonymize --attribution --field-kind --from* --licence --name --orig --overlays+ --package* --source-root --surfaces+
+)TBL",
+R"TBL(@ import gifti
+old: __import gifti
+alias: no
+summary: Import a GIFTI file into a subject package: a surface in the system its transform matrix names, maps as Fields, or a named parcellation as a codes Selection.
+opts: --anonymize --attribution --field-kind --from* --kind --licence --name --package* --parcellation --source-root --surface --unit
+)TBL",
+R"TBL(@ import cifti
+old: __import cifti
+alias: no
+summary: Import a dense CIFTI-2 map into a subject package: the cortical brain models on named surfaces through an indices Selection, maps as Fields, a named parcellation as codes Selections.
+opts: --anonymize --attribution --field-kind --from* --left --licence --name --package* --parcellation --right --source-root --unit
 )TBL",
 R"TBL(@ import transform
 old: __import transform

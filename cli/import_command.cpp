@@ -7,6 +7,11 @@
 //   nxr-neuro import fif --from FILE --package PATH [--kind K] [--name N] [--acquisition A] [--channels SENSORS] [--recording REC] [--surface S] [--licence T --attribution T] [--anonymize]
 //   nxr-neuro import transform --from FILE-trans.fif --package PATH [--name N] [--channels SENSORS]
 //
+// nxr-neuro import freesurfer: a FreeSurfer subject folder (surfaces in freesurfer-tkr, c_ras to scanner RAS, named annotations, overlays); import gifti: a GIFTI surface, maps or labels.
+//
+//   nxr-neuro import freesurfer --from SUBJECT_DIR --package PATH [--name N] [--surfaces white pial ...] [--annotations aparc ...] [--overlays thickness ...] [--orig FILE.mgz] [--anonymize]
+//   nxr-neuro import gifti --from FILE --package PATH [--name N] [--surface S] [--parcellation NAME] [--unit U] [--anonymize]
+//
 // nxr-neuro import nifti: a NIfTI volume into a subject package (nxr/convert/nifti_import.h).
 //
 //   nxr-neuro import nifti --from FILE --package PATH [--name N] [--parcellation NAME [--label-names FILE]] [--unit U] [--licence T --attribution T] [--anonymize]
@@ -21,7 +26,10 @@
 
 #include "cli.h"
 #include "nxr/convert/bids.h"
+#include "nxr/convert/cifti_import.h"
 #include "nxr/convert/fif_objects.h"
+#include "nxr/convert/freesurfer_import.h"
+#include "nxr/convert/gifti_import.h"
 #include "nxr/convert/nifti_import.h"
 #include "nxr/convert/recording.h"
 #include "nxr/convert/synthetic.h"
@@ -126,6 +134,95 @@ int nifti_command(const std::vector<std::string>& rest) {
   return 0;
 }
 
+// import freesurfer: a FreeSurfer subject folder (surfaces in freesurfer-tkr with c_ras to scanner RAS; named annotations; overlays)
+int freesurfer_command(const std::vector<std::string>& rest) {
+  const Args a = parse("nxr-neuro import freesurfer", rest, {"--from", "--package", "--name", "--orig", "--field-kind", "--source-root", "--licence", "--attribution"}, {"--anonymize"},
+                       {"--from", "--package"}, 0, {"--surfaces", "--annotations", "--overlays"});
+  const std::string dir = a.get("--from");
+  if (!fs::is_directory(dir)) throw Error(code::not_found, "no such folder: " + dir);
+  nxr::convert::FreeSurferImport opt;
+  opt.name = a.maybe("--name").value_or("cortex");
+  if (a.multi.count("--surfaces")) opt.surfaces = a.multi.at("--surfaces");
+  if (a.multi.count("--annotations")) opt.annotations = a.multi.at("--annotations");
+  if (a.multi.count("--overlays")) opt.overlays = a.multi.at("--overlays");
+  opt.orig = a.maybe("--orig").value_or("");
+  opt.field_kind = a.maybe("--field-kind").value_or("overlay");
+  opt.licence = a.maybe("--licence").value_or("unknown");
+  opt.attribution = a.maybe("--attribution").value_or("unknown");
+  opt.anonymize = a.flag.count("--anonymize") > 0;
+  const fs::path root = a.maybe("--source-root").value_or(fs::path(dir).parent_path().string());
+  opt.source = fs::relative(fs::absolute(dir), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
+  opt.progress = [](const Json& j) { emit(j); };
+  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
+  DatasetWriter w = open_package_writer(a.get("--package"));
+  SubjectWriter sub = SubjectWriter::open(w, rec.name);
+  Json out = nxr::convert::import_freesurfer_subject(w, sub, dir, opt);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
+
+// import gifti: a surface, maps or labels from a GIFTI file
+int gifti_command(const std::vector<std::string>& rest) {
+  const Args a = parse("nxr-neuro import gifti", rest, {"--from", "--package", "--name", "--kind", "--surface", "--parcellation", "--field-kind", "--unit", "--source-root", "--licence", "--attribution"},
+                       {"--anonymize"}, {"--from", "--package"});
+  const std::string file = a.get("--from");
+  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
+  nxr::convert::GiftiImport opt;
+  opt.name = a.maybe("--name").value_or("");
+  opt.kind = a.maybe("--kind").value_or("");
+  opt.surface = a.maybe("--surface").value_or("");
+  opt.parcellation = a.maybe("--parcellation").value_or("");
+  opt.field_kind = a.maybe("--field-kind").value_or("overlay");
+  opt.unit = a.maybe("--unit").value_or("");
+  opt.licence = a.maybe("--licence").value_or("unknown");
+  opt.attribution = a.maybe("--attribution").value_or("unknown");
+  opt.anonymize = a.flag.count("--anonymize") > 0;
+  const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
+  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
+  opt.source_file = file;
+  opt.progress = [](const Json& j) { emit(j); };
+  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
+  DatasetWriter w = open_package_writer(a.get("--package"));
+  SubjectWriter sub = SubjectWriter::open(w, rec.name);
+  Json out = nxr::convert::import_gifti(w, sub, file, opt);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
+
+// import cifti: the cortical brain models of a dense CIFTI map on named surfaces of the package
+int cifti_command(const std::vector<std::string>& rest) {
+  const Args a = parse("nxr-neuro import cifti", rest, {"--from", "--package", "--name", "--left", "--right", "--parcellation", "--field-kind", "--unit", "--source-root", "--licence", "--attribution"},
+                       {"--anonymize"}, {"--from", "--package"});
+  const std::string file = a.get("--from");
+  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
+  nxr::convert::CiftiImport opt;
+  opt.name = a.maybe("--name").value_or("");
+  opt.left = a.maybe("--left").value_or("");
+  opt.right = a.maybe("--right").value_or("");
+  opt.parcellation = a.maybe("--parcellation").value_or("");
+  opt.field_kind = a.maybe("--field-kind").value_or("overlay");
+  opt.unit = a.maybe("--unit").value_or("");
+  opt.licence = a.maybe("--licence").value_or("unknown");
+  opt.attribution = a.maybe("--attribution").value_or("unknown");
+  opt.anonymize = a.flag.count("--anonymize") > 0;
+  const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
+  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
+  opt.source_file = file;
+  opt.progress = [](const Json& j) { emit(j); };
+  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
+  DatasetWriter w = open_package_writer(a.get("--package"));
+  SubjectWriter sub = SubjectWriter::open(w, rec.name);
+  Json out = nxr::convert::import_cifti(w, sub, file, opt);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
+
 // create recording --synthetic: sine waves plus noise from a seed, written into a subject package through the recording importer
 int synthetic_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro create recording", rest, {"--package", "--name", "--acquisition", "--channels", "--sfreq", "--duration", "--seed", "--amplitude", "--noise"}, {"--synthetic"},
@@ -193,6 +290,9 @@ int import_main(const std::vector<std::string>& argv) {
   if (what == "fif") return fif_command("nxr-neuro import fif", rest, "");
   if (what == "transform") return fif_command("nxr-neuro import transform", rest, "trans");
   if (what == "nifti") return nifti_command(rest);
+  if (what == "freesurfer") return freesurfer_command(rest);
+  if (what == "gifti") return gifti_command(rest);
+  if (what == "cifti") return cifti_command(rest);
   if (what == "synthetic") return synthetic_command(rest);
-  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids', 'fif', 'transform', 'nifti', 'synthetic')");
+  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids', 'fif', 'transform', 'nifti', 'freesurfer', 'gifti', 'cifti', 'synthetic')");
 }

@@ -10,6 +10,7 @@
 #include <sstream>
 
 #include "nxr/convert/import_origin.h"
+#include "nxr/convert/world_frames.h"
 #include "nxr/formats/nifti.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/layout.h"
@@ -32,19 +33,6 @@ std::string base_name(const std::string& path) {
     if (n.size() > s.size() && n.compare(n.size() - s.size(), s.size(), s) == 0) { n.resize(n.size() - s.size()); break; }
   }
   return nxr::io::sanitize_node_name(n.empty() ? "volume" : n);
-}
-
-// the system a NIfTI transform code names
-struct World { const char* key; const char* unit; const char* description; };
-std::optional<World> world_of(int code) {
-  switch (code) {
-    case 1: return World{"scanner-ras", "m", "the scanner's RAS frame (NIfTI code 1): x right, y anterior, z superior, from the scanner's own coordinates"};
-    case 2: return World{"nifti-aligned", "mm", "the frame of another image this one is aligned to (NIfTI code 2)"};
-    case 3: return World{"talairach", "mm", "Talairach space (NIfTI code 3)"};
-    case 4: return World{"mni", "mm", "MNI template space"};
-    case 5: return World{"template-other", "mm", "another template's space (NIfTI code 5)"};
-    default: return std::nullopt;
-  }
 }
 
 std::map<std::int64_t, std::string> read_label_names(const std::string& file) {
@@ -89,7 +77,7 @@ Json import_nifti(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, const 
 
   const auto aff = h.affine();   // voxel index -> world, in the file's spatial unit
   const int world_code = h.affine_source() == nifti::Header::AffineSource::sform ? h.sform_code : h.affine_source() == nifti::Header::AffineSource::qform ? h.qform_code : 0;
-  const auto world = world_of(world_code);
+  const auto world = world_of_nifti_code(world_code);
   const auto form = h.affine_source() == nifti::Header::AffineSource::sform ? "sform" : h.affine_source() == nifti::Header::AffineSource::qform ? "qform" : "pixdim";
 
   // the intensities, in C order (the lattice's), from the file's x-fastest order
@@ -144,7 +132,7 @@ Json import_nifti(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, const 
     out["manifold"] = vname;
 
     if (world) {
-      sub.frame({"head", world->key, std::string(world->unit), world->description, ""});
+      ensure_world(sub, *world);
       std::array<double, 12> mm{};
       for (int i = 0; i < 12; ++i) mm[i] = mm_per_unit * aff[i];
       nxr::io::OperatorSpec op;
