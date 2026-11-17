@@ -155,6 +155,10 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
     if (!from || !to) return;
     t.domain = *from; t.target = *to;
     t.quantity = nxr::io::opt_text(r, "kind").value_or("");
+    if (v.facts.contains("transition") && v.facts["transition"].contains("from") && v.facts["transition"].contains("to")) {   // T5: a transition's two systems
+      auto cs_of = [](const Json& c) { return ng::CoordinateSystem{c.value("space", std::string()), c.value("name", std::string()), c.value("unit", std::string())}; };
+      t.transition = std::make_pair(cs_of(v.facts["transition"]["from"]), cs_of(v.facts["transition"]["to"]));
+    }
     const std::string fv = nxr::io::opt_text(r, "from_value_type").value_or("scalar");
     t.from_value = fv == "vector3" ? ng::ValueType::vector3 : fv == "complex" ? ng::ValueType::complex : ng::ValueType::real;
   } else {

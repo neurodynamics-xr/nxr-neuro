@@ -138,6 +138,14 @@ Value value_of(const Database& db, const std::string& cls, const Row& row) {
     }
   } else if (cls == "operator") {
     v.manifolds = {text(row, "from_manifold_id"), opt_text(row, "to_manifold_id").value_or("")};
+    // a TRANSITION operator (T5): the two coordinate systems of one space it maps between, as its type carries them (the checker names `positions.transition`)
+    if (opt_text(row, "kind") == std::optional<std::string>("transition"))
+      for (const char* end : {"from", "to"}) {
+        const auto cid = opt_text(row, std::string(end) + "_coordinate_system_id");
+        if (!cid) continue;
+        if (const auto c = db.one("SELECT cs.name AS name, cs.unit AS unit, sp.name AS space FROM coordinate_system cs JOIN space sp ON sp.id = cs.space_id WHERE cs.id = ?", {V(*cid)}))
+          v.facts["transition"][end] = Json{{"space", opt_text(*c, "space").value_or("")}, {"name", text(*c, "name")}, {"unit", opt_text(*c, "unit").value_or("")}};
+      }
     v.value_type = opt_text(row, "to_value_type").value_or("scalar");
     v.complex = v.value_type == "complex";
     if (v.complex) v.value_type = "scalar";

@@ -245,7 +245,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     } else if (t == "surface") {
       task::SurfaceOut s;
       s.name = name; s.output = o;
-      s.cs_key = spec.value("cs", d.value("cs", std::string("scs")));
+      s.cs_key = spec.contains("cs") ? fill(P, spec["cs"].get<std::string>()) : d.value("cs", std::string("scs"));   // the definition's, else what the node made (a transition's target)
+      if (s.cs_key.empty()) s.cs_key = "scs";
       if (spec.contains("derived_from")) s.derived_from_id = link_of(P, spec, "derived_from", &made, o);
       s.vertices = values_of(a, {a.rows, a.cols}, false, o);
       if (a.cols != 3) bad(o, "a surface's vertices are [n x 3]");
