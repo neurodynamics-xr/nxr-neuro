@@ -8,7 +8,9 @@
 //   nxr::convert::RecordingImport opt;  opt.source = "sub-01/meg/sub-01_task-rest_meg.fif";  opt.source_file = path;
 //   nxr::convert::import_recording(w, sub, *reader, opt);
 //
-// The recording is COPIED, block by block (2^17 samples, all channels; one block in memory), never loaded whole. Identifying header fields are kept as the file has them
+// The recording is COPIED by default, block by block (2^17 samples, all channels; one block in memory), never loaded whole. With `in_place` it is LINKED instead: the package holds the
+// recording's shape, envelope, events and channels, and its producer record a `link` (the file's absolute path, size and SHA-256); the chunk service streams the samples from the original
+// file (`open_linked`), the same ones a copy holds, and REFUSES (hash_mismatch) when the file's bytes are no longer the ones recorded. The package then no longer travels alone. Identifying header fields are kept as the file has them
 // unless `anonymize` is set, which drops them (the file's start time, its subject, experimenter and description, the patient and recording identification of EDF, ...).
 // Units are SI; the file's own units stay in the producer record. Epoched and evoked sources are refused (the format readers refuse them).
 #pragma once
@@ -17,6 +19,7 @@
 
 #include "nxr/bst/session.h"
 #include "nxr/formats/recording.h"
+#include "nxr/io/chunk_loop.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/writer.h"
 
@@ -31,6 +34,7 @@ struct RecordingImport {
   std::string licence = "unknown", attribution = "unknown";
   bool redistributable = false;
   bool anonymize = false;               // drop the identifying header fields
+  bool in_place = false;                // link the file instead of copying its samples (needs `source_file`, one file)
   nxr::io::Json extra = nullptr;        // what the format adds to the producer record (transforms, digitisation, projectors), an object or null
   nxr::bst::Emit progress;
 };
@@ -41,7 +45,14 @@ std::unique_ptr<nxr::formats::RecordingReader> open_recording(const std::string&
 // What the reader knows beyond the common header and the importer keeps: FIF's transforms and digitisation, CTF's compensation grade, KIT's system.
 nxr::io::Json format_record(const std::string& format, const nxr::formats::RecordingReader& reader, bool anonymize);
 
-// Copy the recording into the subject `sub` of the package `w` writes; returns {name, id, n_channels, n_samples, sfreq, events, bad_segments, channels, origin}.
+// The link record of a file: {schema "nxr-link/1", format, path (absolute), size_bytes, sha256}. A directory (CTF) cannot be linked.
+nxr::io::Json link_record(const std::string& format, const std::string& file, const std::string& sha256 = "");   // `sha256` of the file when known (else hashed)
+// The link of a recording's producer record (a JSON object or its text), or null when the recording is stored (copied).
+nxr::io::Json link_of(const nxr::io::Json& producer);
+// The samples of a linked recording, read from its file: checks the file is the one recorded (size and SHA-256; hash_mismatch or not_found otherwise) and opens its reader.
+std::shared_ptr<const nxr::io::LinkedBlocks> open_linked(const nxr::io::Json& link);
+
+// Copy (or, with `in_place`, link) the recording into the subject `sub` of the package `w` writes; returns {name, id, n_channels, n_samples, sfreq, events, bad_segments, channels, origin}.
 nxr::io::Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, const nxr::formats::RecordingReader& reader, const RecordingImport& opt);
 
 }  // namespace nxr::convert

@@ -1,8 +1,8 @@
 // nxr-neuro import recording: a recording file (FIF, EDF/BDF, BrainVision, EEGLAB, CTF, KIT) copied into a subject package (docs/specs/2026-11-17-interoperability.md, 3.2).
 //
-//   nxr-neuro import recording --from FILE --package PATH [--name REC] [--acquisition NAME] [--format F] [--source-root DIR] [--licence T --attribution T] [--anonymize]
+//   nxr-neuro import recording --from FILE --package PATH [--name REC] [--acquisition NAME] [--format F] [--source-root DIR] [--licence T --attribution T] [--anonymize] [--in-place]
 //
-// The package is made first (`create package`). The recording is COPIED, block by block, never loaded whole; the file's header fields are kept as the file has them unless
+// The package is made first (`create package`). The recording is COPIED, block by block, never loaded whole (or, with --in-place, LINKED: the chunk service streams from the original file, whose path and SHA-256 the package records; a changed file is refused); the file's header fields are kept as the file has them unless
 // --anonymize drops the identifying ones. The command parses and prints; io's importer (nxr/convert/recording.h) does the work. Progress and results are JSON lines.
 #include <filesystem>
 
@@ -16,7 +16,7 @@ namespace fs = std::filesystem;
 
 namespace {
 int recording_command(const std::vector<std::string>& rest) {
-  const Args a = parse("nxr-neuro import recording", rest, {"--from", "--package", "--name", "--acquisition", "--format", "--source-root", "--licence", "--attribution"}, {"--anonymize"},
+  const Args a = parse("nxr-neuro import recording", rest, {"--from", "--package", "--name", "--acquisition", "--format", "--source-root", "--licence", "--attribution"}, {"--anonymize", "--in-place"},
                        {"--from", "--package"});
   const std::string file = a.get("--from");
   if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
@@ -25,6 +25,7 @@ int recording_command(const std::vector<std::string>& rest) {
   opt.name = a.maybe("--name").value_or(fs::path(file).stem().string());
   opt.acquisition = a.maybe("--acquisition").value_or("rest");
   opt.anonymize = a.flag.count("--anonymize") > 0;
+  opt.in_place = a.flag.count("--in-place") > 0;
   opt.licence = a.maybe("--licence").value_or("unknown");
   opt.attribution = a.maybe("--attribution").value_or("unknown");
   opt.redistributable = false;

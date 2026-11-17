@@ -449,6 +449,12 @@ elseif(CASE STREQUAL "import")
   expect_rc(1 import recording --from ${DATA}/edf_plain.edf --package nope.nxr.zarr)
   expect_rc(2 import recording --package a.nxr.zarr)
   expect_rc(1 import recording --from ${DATA}/bids/README --package a.nxr.zarr)
+  # --in-place: the package links the file (its absolute path and SHA-256 are in the package, never in the printed result); verifies; a folder is refused
+  file(COPY ${DATA}/edf_plain.edf DESTINATION "${WORK}/src")
+  expect_rc(0 create package --package c.nxr.zarr --name S --home-dataset demo)
+  expect_rc(0 import recording --from ${WORK}/src/edf_plain.edf --package c.nxr.zarr --in-place)
+  expect_rc(0 verify package --package c.nxr.zarr)
+  expect_rc(1 import recording --from ${DATA}/ctf/ctf_cont.ds --package c.nxr.zarr --in-place)
 
 else()
   message(FATAL_ERROR "unknown CASE '${CASE}'")
