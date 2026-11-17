@@ -47,6 +47,7 @@ struct Placement {
   std::optional<std::int64_t> n_members;          // a set given by a rule with nothing stored (the joint cells of a product): how many members it has
   Json params;                                    // params_json (object; null: none); a tiling and the levels' windows are added by save
   std::vector<Json> level_params;                 // a ladder: what the design settled about each level, by position (stride, rate_hz, ...): merged into the level's record
+  std::vector<Cols> measurements;                 // its OWN measurement rows (array-backed or valued), written with the row (a joint set's per-field arrays)
   Cols cols;                                      // any further columns of the row
 };
 
@@ -71,12 +72,6 @@ struct Loaded {
  *  its code its power of two); a set per element with levels keeps them in params_json `levels`.
  *  A ladder's line (its manifold) must be a closed-form line: its sample rate and length give each level's window in samples. */
 Saved save(SubjectWriter& sub, const Description& description, const Placement& at);
-
-/** SAVE a LABEL per element as an array (-1: none) with its lookup (each label its entry; empty: the labels are their own names), under the dictionary of the
- *  labels, WITHOUT member numbers: the form the pipelines that read an array's values as tile or region codes (a ladder's leaf code, a labelling's code) still
- *  read, and the form an imported atlas has. `load` maps such an array to member numbers (ascending labels). The task API's partitions use it until those readers
- *  take member numbers and per-member labels; new code saves a set per element with `save`. */
-Saved save_element_labels(SubjectWriter& sub, const std::vector<std::int32_t>& labels, const Lookup& lookup, const Placement& at);
 
 // ── read ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** a stored selection (any status) as its description; Error(no_such_row) when there is none; a kernel is not a selection (Error(invalid_argument)). */
@@ -124,6 +119,8 @@ void update_lookup(SubjectWriter& sub, const std::string& dictionary_id, const L
 // ── lookups of other layers (a member by name, a lookup's size, the names a channel set carries) ──────────────────
 /** how many entries the dictionary has */
 std::int64_t lookup_size(const Database& db, const std::string& dictionary_id);
+/** the id of the dictionary of that scope (app, dataset, user) and name (the lowest id when several), or nothing */
+std::optional<std::string> find_lookup(const Database& db, const std::string& scope, const std::string& name);
 /** the entries of a dictionary as stored rows (all columns: measurement, attributes, ...), by ordinal then code */
 std::vector<records::DictionaryEntryRow> lookup_entries(const Database& db, const std::string& dictionary_id);
 /** is any selection reading with this dictionary? (a dictionary in use is kept) */

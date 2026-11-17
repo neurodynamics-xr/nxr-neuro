@@ -1,3 +1,4 @@
+#include "nxr/io/selection_store.h"
 #include "nxr/pipelines/tiles.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/measures.h"
@@ -221,11 +222,13 @@ TilesComputeResult group_tree_compute(DatasetWriter& ds, SubjectWriter& sub, con
     std::vector<std::int32_t> centres(cen.begin(), cen.end());
     int rows = 0;
     sub.compose([&] {
-      SelectionSpec cs;
-      cs.name = sname + "_lc_centres_L" + std::to_string(l); cs.path = cs.name; cs.type = "indices"; cs.manifold_id = mid; cs.picked = true;
-      cs.data = view(centres, {static_cast<std::int64_t>(centres.size())});
-      cs.cols.set("description", "the centre vertex of each tile of level " + std::to_string(l) + " (\xe2\x88\x92" "1: empty tile)");
-      sub.selection(std::move(cs));
+      nxr::io::selection::Description picks;
+      picks.type = nxr::io::selection::Type::indices;
+      picks.indices = centres;
+      nxr::io::selection::Placement cs;
+      cs.name = sname + "_lc_centres_L" + std::to_string(l); cs.path = cs.name; cs.manifold_id = mid;
+      cs.description = "the centre vertex of each tile of level " + std::to_string(l) + " (\xe2\x88\x92" "1: empty tile)";
+      nxr::io::selection::save(sub, picks, cs);
     });
     const std::string sid = text(lrow, "id");
     const Eigen::MatrixXd anti = lad::antisymmetric(lc.omega);

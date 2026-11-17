@@ -328,16 +328,20 @@ std::string segments_path(SubjectWriter& sub, const RecordingInput& rec, const s
 std::string welch_segments(SubjectWriter& sub, const RecordingInput& rec, const std::string& stem, const std::string& acq, std::int64_t s0, std::int64_t s1,
                            const nxr::welch::WelchOptions& wo, std::int64_t segments, std::int64_t skipped) {
   const std::int64_t n_seg = static_cast<std::int64_t>(wo.segmentSamples), hop = welch_hop(wo);
-  SelectionSpec ss;
-  ss.name = stem + "_segments"; ss.path = segments_path(sub, rec, stem); ss.type = "spans"; ss.manifold_id = rec.time_id;
-  if (!acq.empty()) ss.acquisition = acq;
-  ss.cols.set("cell", "1").set("unit", "s").set("of_field_id", rec.id).set("n_elements", rec.n_samples).set("n_members", segments + skipped)
-      .set("description", "the " + std::to_string(segments + skipped) + " Welch segments of " + rec.name + " behind " + stem + " (" + std::to_string(n_seg) + " samples, a new one every " +
-                          std::to_string(hop) + "; " + std::to_string(skipped) + " left out for a bad sample)");
-  ss.cols.json("params_json", Json{{"tiling", Json{{"origin", rec.t0 + static_cast<double>(s0) / rec.sfreq}, {"width", static_cast<double>(n_seg) / rec.sfreq},
-                                                   {"hop", static_cast<double>(hop) / rec.sfreq}, {"count", segments + skipped}}},
-                                   {"end", rec.t0 + static_cast<double>(s1) / rec.sfreq}, {"segments_skipped", skipped}});
-  return sub.selection(std::move(ss));
+  // the segments are a closed-form tiling of the recording's time line, stored by the selection store (it writes the tiling into the parameters)
+  nxr::io::selection::Description tiles;
+  tiles.type = nxr::io::selection::Type::set;
+  tiles.unit = "s";
+  tiles.tiling = nxr::io::selection::Tiling{rec.t0 + static_cast<double>(s0) / rec.sfreq, static_cast<double>(n_seg) / rec.sfreq, static_cast<double>(hop) / rec.sfreq, segments + skipped};
+  nxr::io::selection::Placement at;
+  at.name = stem + "_segments"; at.path = segments_path(sub, rec, stem); at.manifold_id = rec.time_id;
+  if (!acq.empty()) at.acquisition = acq;
+  at.cell = "1"; at.of_field_id = rec.id;
+  at.cols.set("n_elements", rec.n_samples);
+  at.description = "the " + std::to_string(segments + skipped) + " Welch segments of " + rec.name + " behind " + stem + " (" + std::to_string(n_seg) + " samples, a new one every " +
+                   std::to_string(hop) + "; " + std::to_string(skipped) + " left out for a bad sample)";
+  at.params = Json{{"end", rec.t0 + static_cast<double>(s1) / rec.sfreq}, {"segments_skipped", skipped}};
+  return nxr::io::selection::save(sub, tiles, at).id;
 }
 // every Welch option, as a statistic's options record them
 Json welch_options(const nxr::welch::WelchOptions& wo, const std::string& option_set, bool exclude_bad) {

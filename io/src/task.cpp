@@ -620,14 +620,14 @@ std::string Unit::selection(const SelectionOut& s) {
   // the result as the selection module's description, and where it goes; the module maps it onto the rows (selection_store.h)
   selection::Description d;
   selection::Placement at;
-  std::vector<std::int32_t> element_labels;           // a partition's label per element (stored as such: selection_store.h `save_element_labels`)
   at.name = s.name; at.path = path_of(s); at.manifold_id = s.manifold_id;
   if (s.acquisition) at.acquisition = *s.acquisition;
   Json params = s.params.is_null() ? Json::object() : s.params;
-  if (s.type == "partition" || s.type == "set") {     // a partition is a set per element: a label per element
-    if (s.codes.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a " + s.type + " has a code per element");
+  if (s.type == "partition" || s.type == "set") {     // a partition is a set per element: a member number per element, a label per member
+    if (s.member_of.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a " + s.type + " has a member number per element (member_of)");
     d.type = selection::Type::set;
-    element_labels.assign(s.codes.begin(), s.codes.end());
+    d.member_of = s.member_of;
+    d.member_codes = s.member_codes;
   } else if (s.type == "indices") {                  // a pick of elements, in order (the channels a covariance covers)
     d.type = selection::Type::indices;
     d.indices.assign(s.codes.begin(), s.codes.end());
@@ -665,7 +665,6 @@ std::string Unit::selection(const SelectionOut& s) {
   if (pj.contains("cache")) params["cache"] = pj["cache"];
   params["producer"] = pj;
   at.params = params;
-  if (!element_labels.empty()) return selection::save_element_labels(sub, element_labels, d.lookup, at).id;
   return selection::save(sub, d, at).id;
 }
 

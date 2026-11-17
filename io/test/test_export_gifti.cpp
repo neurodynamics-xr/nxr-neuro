@@ -106,7 +106,7 @@ int main() {
     fo.producer = Json{{"method", "synthetic"}};
     u.field(fo);
     SelectionOut part;
-    part.name = "uses_zero"; part.output = "uses_zero"; part.type = "partition"; part.manifold_id = cortex_id; part.codes = {-1, 0, 0, 0, 1, 1, 1, 1}; part.entries = {"a", "b"};
+    part.name = "uses_zero"; part.output = "uses_zero"; part.type = "partition"; part.manifold_id = cortex_id; part.member_of = {-1, 0, 0, 0, 1, 1, 1, 1}; part.member_codes = {0, 1}; part.entries = {"a", "b"};
     u.selection(part);
     u.commit();
     // a labelling whose dictionary leaves code 0 free: -1 (no label) can be key 0

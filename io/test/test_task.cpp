@@ -132,7 +132,7 @@ int main() {
       SelectionOut tiles;
       tiles.name = "toy_segments"; tiles.output = "psd"; tiles.type = "tiling"; tiles.tiling = Tiling{0.0, 2.0, 1.0, 10.0, 8, 1};
       SelectionOut part;
-      part.name = "toy_parts"; part.output = "parts"; part.type = "partition"; part.manifold_id = mid; part.codes = {0, 0, 1, -1}; part.entries = {"left", "right"};
+      part.name = "toy_parts"; part.output = "parts"; part.type = "partition"; part.manifold_id = mid; part.member_of = {0, 0, 1, -1}; part.member_codes = {0, 1}; part.entries = {"left", "right"};
       OperatorOut op;
       op.name = "toy_op"; op.output = "op"; op.kind = "toy operator"; op.from_manifold_id = mid; op.to_manifold_id = mid; op.data.shape = {4, 4}; op.data.f64.assign(16, 0.25);
       op.params = Json{{"k", 1}};
@@ -174,7 +174,7 @@ int main() {
       CHECK_EQ(u.path_of(st), std::string("source/a_statistics/toy_psd"));   // beside the field it is of
       const std::string st_id = u.statistic(st);
       SelectionOut bad = part;
-      bad.name = "bad"; bad.codes.clear();
+      bad.name = "bad"; bad.member_of.clear();
       CHECK_EQ(code_of([&] { u.selection(bad); }), std::string(code::invalid_argument));
       FieldOut wrong = fo;
       wrong.name = "wrong"; wrong.path = "source/wrong"; wrong.data.shape = {5};

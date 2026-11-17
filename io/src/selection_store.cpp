@@ -47,6 +47,7 @@ SelectionSpec base(const Description& d, const Placement& at, const char* type, 
   SelectionSpec s;
   s.name = at.name; s.path = at.path; s.type = type; s.manifold_id = at.manifold_id; s.id = at.id; s.created_utc = at.created_utc; s.acquisition = at.acquisition;
   s.cols = at.cols;
+  s.measurements = at.measurements;
   if (at.acquisition_id) s.cols.set("acquisition_id", *at.acquisition_id);
   s.cols.set("cell", at.cell.value_or(default_cell));
   if (at.of_field_id) s.cols.set("of_field_id", *at.of_field_id);
@@ -401,26 +402,6 @@ Saved save(SubjectWriter& sub, const Description& d, const Placement& at) {
   return out;
 }
 
-Saved save_element_labels(SubjectWriter& sub, const std::vector<std::int32_t>& labels, const Lookup& lookup, const Placement& at) {
-  if (!at.path) refuse("selection " + at.name + ": a label per element is stored as an array: give its path");
-  std::vector<std::int32_t> array = labels;   // kept alive until the node is written
-  Description d;
-  d.type = Type::set;
-  d.lookup = lookup;
-  if (d.lookup.empty()) {   // the labels are their own names
-    std::set<std::int32_t> seen;
-    for (const auto c : array) if (c >= 0) seen.insert(c);
-    for (const auto c : seen) d.lookup.push_back(Entry{c, std::to_string(c), std::nullopt});
-  }
-  Saved out;
-  SelectionSpec s = base(d, at, "set", "0");
-  s.data = view(array, {static_cast<std::int64_t>(array.size())});
-  dictionary_of(sub, d, at, s, out);
-  params_of(s, at.params);
-  out.id = sub.selection(std::move(s));
-  return out;
-}
-
 // ── read ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 namespace {
 
@@ -650,6 +631,11 @@ void remove(SubjectWriter& sub, const std::string& id) { sub.remove("selection",
 // ── lookups of other layers ──────────────────────────────────────────────────────────────────────────────────────
 std::int64_t lookup_size(const Database& db, const std::string& dictionary_id) {
   return integer(*db.one("SELECT COUNT(*) AS n FROM dictionary_entry WHERE dictionary_id = ?", {V(dictionary_id)}), "n");
+}
+
+std::optional<std::string> find_lookup(const Database& db, const std::string& scope, const std::string& name) {
+  const auto r = db.one("SELECT id FROM dictionary WHERE scope = ? AND name = ? ORDER BY id LIMIT 1", {V(scope), V(name)});
+  return r ? std::optional<std::string>(text(*r, "id")) : std::nullopt;
 }
 
 std::vector<records::DictionaryEntryRow> lookup_entries(const Database& db, const std::string& dictionary_id) {

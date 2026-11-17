@@ -9,6 +9,7 @@
 
 #include "nxr/tower.h"
 #include "nxr/io/finder.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/pipelines/meeg_internal.h"
 
 namespace nxr::pipelines {
@@ -77,14 +78,17 @@ FrameTilingResult frame_tiling_compute(DatasetWriter& ds, SubjectWriter& sub, co
   if (opt.band) ft["band"] = Json::array({opt.band->first, opt.band->second});
   std::string id;
   sub.compose([&] {
-    SelectionSpec ss;
-    ss.name = name; ss.type = "spans"; ss.manifold_id = tid;
-    ss.cols.set("cell", "1").set("of_field_id", rec->id).set("n_elements", samples).set("n_members", count)
-        .set("description", "the measurement pyramid's time tiles: " + std::to_string(count) + " cycles of tower level " + std::to_string(level) + " (" + g(width) + " s), frame k is code " + std::to_string(t.code0) + " + k, a level-m tile code >> m");
-    ss.cols.json("params_json", Json{{"tiling", Json{{"origin", origin}, {"width", width}, {"hop", width}, {"count", count}}}, {"end", origin + static_cast<double>(count) * width},
+    nxr::io::selection::Description tiles;
+    tiles.type = nxr::io::selection::Type::set;
+    tiles.tiling = nxr::io::selection::Tiling{origin, width, width, count};
+    nxr::io::selection::Placement ss;
+    ss.name = name; ss.manifold_id = tid; ss.cell = "1"; ss.of_field_id = rec->id;
+    ss.cols.set("n_elements", samples);
+    ss.description = ("the measurement pyramid's time tiles: " + std::to_string(count) + " cycles of tower level " + std::to_string(level) + " (" + g(width) + " s), frame k is code " + std::to_string(t.code0) + " + k, a level-m tile code >> m");
+    ss.params = Json{{"end", origin + static_cast<double>(count) * width},
                                      {"atlas", Json{{"frame_s", width}, {"frame_level", level}, {"frame_code0", t.code0}, {"anchor", t.day_anchored ? "day" : "recording"}, {"start_s", opt.start_s ? Json(*opt.start_s) : Json(nullptr)}, {"made", true}}},
-                                     {"frame_tiling", ft}, {"by", "nxr-neuro frametiling compute"}, {"producer", internal::producer_string("frametiling compute")}});
-    id = sub.selection(std::move(ss));
+                                     {"frame_tiling", ft}, {"by", "nxr-neuro frametiling compute"}, {"producer", internal::producer_string("frametiling compute")}};
+    id = nxr::io::selection::save(sub, tiles, ss).id;
   });
   res.info = Json{{"selection", name}, {"id", id}, {"frames", count}, {"fps", t.fps()}, {"frame_level", level}, {"frame_s", width}, {"frame_code0", t.code0}, {"kept", false}};
   if (from_band) { res.info["centre_hz"] = centre; res.info["frames_per_cycle"] = opt.frames_per_cycle; }

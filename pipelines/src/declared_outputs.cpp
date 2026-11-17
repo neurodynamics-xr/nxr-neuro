@@ -4,6 +4,7 @@
 #include <cmath>
 
 #include "nxr/io/errors.h"
+#include "nxr/selection/selection.h"
 #include "nxr/io/finder.h"
 #include "nxr/io/layout.h"
 
@@ -405,7 +406,18 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (d.contains("params")) s.params = d["params"];
     if (d.contains("description")) s.description = d["description"].get<std::string>();
     for (const auto& e : d.value("entries", Json::array())) s.entries.push_back(e.get<std::string>());
-    if (t == "partition" || t == "set" || t == "indices") for (const double c : a.data) s.codes.push_back(static_cast<std::int64_t>(c));
+    if (t == "indices") for (const double c : a.data) s.codes.push_back(static_cast<std::int64_t>(c));
+    else if (t == "partition" || t == "set") {      // a label per element: compute maps the labels to member numbers ONCE (one member per distinct label); io stores the numbers
+      std::vector<std::int32_t> labels;
+      for (const double c : a.data) labels.push_back(static_cast<std::int32_t>(c));
+      nxr::selection::Lookup names;
+      for (std::size_t k = 0; k < s.entries.size(); ++k) names.push_back(nxr::selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});
+      try {
+        const nxr::selection::Selection set = nxr::selection::from_labels(labels, names);
+        s.member_of = set.member_of;
+        s.member_codes = set.member_codes;
+      } catch (const std::invalid_argument& e) { bad(o, e.what()); }
+    }
     else if (t == "cells") { s.n_members = d.at("n_members").get<std::int64_t>(); if (d.contains("label")) s.label = d["label"].get<std::string>(); }
     else if (t == "spans") for (const auto& x : d.value("spans", Json::array())) { task::Span sp; sp.start = x["start"].get<double>(); sp.stop = x["stop"].get<double>(); if (x.contains("code")) sp.code = x["code"].get<std::int64_t>(); sp.ordinal = static_cast<std::int64_t>(s.spans.size()); s.spans.push_back(sp); }
     else if (!d.contains("tiling")) bad(o, "its node gives no tiling (describe.tiling)");
