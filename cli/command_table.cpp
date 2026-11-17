@@ -872,6 +872,28 @@ R"TBL(--tolerance@compute patches	X	Chebyshev: the largest difference between th
 --package@release redistributable	PATH	The folder of the released full edition to make the redistributable edition from.	required	-
 --into@release redistributable	DIR	The templates folder the redistributable edition is made in.	required	-
 --released-by@release redistributable	WHO	Who releases: recorded in the release.	required	-
+--from-sphere	NAME	The surface of the first template that carries its registered sphere (e.g. cortex_pial_sphere).	none (required)	-
+--to-sphere	NAME	The surface of the second template that carries its registered sphere (e.g. cortex_pial_sphere).	none (required)	-
+--neighbours	K	Modified Shepard weights: the number of nearest source vertices looked at.	8	vertices
+--one-direction		Make only the operator from the first template to the second.	off (both directions are made)	-
+--licence	TEXT	The licence recorded in the origin of every item.	derived from the two spheres' origin records	-
+--attribution	TEXT	The attribution recorded in the origin of every item.	derived from the two spheres' origin records	-
+--redistributable	yes|no	Whether the registration may be redistributed.	yes only when both spheres' origin records say so	-
+--package@create registration	PATH	The folder of the registration package to make (a working copy; `release template` freezes it); it must not exist yet.	required	-
+--name@create registration	NAME	Name of the registration, the subject the package holds.	required	-
+--from@create registration	NAME@VERSION	The template the operators carry fields FROM, as released (NAME@VERSION or NAME@VERSION:redistributable); found on the template search path.	required	-
+--to@create registration	NAME@VERSION	The template the operators carry fields TO, as released; it must differ from --from.	required	-
+--from-sphere@create registration	NAME	The surface of the --from template that carries its registered sphere (e.g. cortex_pial_sphere).	required	-
+--to-sphere@create registration	NAME	The surface of the --to template that carries its registered sphere (e.g. cortex_pial_sphere).	required	-
+--method@create registration	shepard|nearest|barycentric	How a destination vertex takes its value from the source vertices: modified Shepard weights over the nearest ones (the reference's), the nearest vertex, or barycentric coordinates in the source triangle that holds it.	shepard	-
+--neighbours@create registration	K	With shepard: the number of nearest source vertices looked at; the K-th sets the radius and takes no weight.	8	vertices
+--one-direction@create registration		Make only the operator from --from to --to; by default the operator back is made too.	off (both directions are made)	-
+--templates@create registration	DIR	A folder of released templates to look in (repeatable), before NXR_TEMPLATE_PATH and the user setting template_path.	none (the environment variable and the user setting only)	-
+--home-dataset@create registration	NAME	The dataset the package is made for, by its name: provenance, not membership.	registrations	-
+--source@create registration	TEXT	The source recorded in the origin of every item.	derived: computed from the two templates' spheres	-
+--licence@create registration	TEXT	The licence recorded in the origin of every item.	derived from the two spheres' origin records	-
+--attribution@create registration	TEXT	The attribution recorded in the origin of every item.	derived from the two spheres' origin records	-
+--redistributable@create registration	yes|no	Whether the registration may be redistributed (decides what the redistributable edition keeps).	yes only when both spheres' origin records say so	-
 --tree	subject|group	The tree the leaves belong to: the surface's own ladder, or the dataset's group tree through the registered sphere (the same leaves in every subject).	subject	-
 --tree@compute pyramid	subject|group	Tree the leaf tiles belong to: the surface's own ladder, or the dataset's group tree (the same leaves in every subject).	subject	-
 --trk	FILE	A fibre-tract file (.trk) to import with the templates.	none	-
@@ -1016,6 +1038,13 @@ old: package release-redistributable
 alias: no
 summary: Make the redistributable edition of a released template, keeping only the items whose origin allows it.
 opts: --into* --package* --released-by*
+)TBL",
+R"TBL(@ create registration
+old: package registration-create
+alias: no
+summary: Make a registration between two released templates through their registered spheres: the operators that carry a field from one to the other.
+opts: --attribution --from* --from-sphere* --home-dataset --licence --method --name* --neighbours --one-direction --package* --redistributable --source --templates+ --to* --to-sphere*
+example: nxr-neuro create registration --package A-to-B.nxr.zarr --name A-to-B --from A@1.0 --to B@1.0 --from-sphere cortex_pial_sphere --to-sphere cortex_pial_sphere --method shepard
 )TBL",
 R"TBL(@ list templates
 old: package templates
