@@ -28,7 +28,9 @@ void add_measurement_nodes(std::vector<StepSpec>& r);
  *  held beside its name. The parts are the same kind; the ports are the union (a port is optional unless every part requires it); the parameters the union, `param` first. `adapt`
  *  (optional) changes the parameters a part sees (a rule that sets another part's parameter). Used by the makers (select_nodes.cpp) and `field.form`. */
 StepSpec combine_by_param(const std::string& name, const std::string& param, std::vector<std::pair<std::string, StepSpec>> parts, const std::string& description,
-                          std::function<Json(const Json&, const std::string&)> adapt = {});
+                          std::function<Json(const Json&, const std::string&)> adapt = {},
+                          std::function<std::string(const Values&, const Json&)> choose = {});
+/** `choose` (optional): the part is chosen from the inputs and the parameters together instead of by `param`'s value alone (`estimate`: a power baseline or a distribution of curl or of relative power is told by what x is) */
 
 /** the step named `name` taken out of `r` (moved); refuses when it is not there */
 StepSpec take_step(std::vector<StepSpec>& r, const std::string& name);

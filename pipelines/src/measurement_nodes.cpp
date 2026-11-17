@@ -57,7 +57,7 @@ StepSpec take_step(std::vector<StepSpec>& r, const std::string& name) {
 }
 
 StepSpec combine_by_param(const std::string& name, const std::string& param, std::vector<std::pair<std::string, StepSpec>> parts, const std::string& description,
-                          std::function<Json(const Json&, const std::string&)> adapt) {
+                          std::function<Json(const Json&, const std::string&)> adapt, std::function<std::string(const Values&, const Json&)> choose) {
   need(!parts.empty(), name + ": no parts");
   auto shared = std::make_shared<std::vector<std::pair<std::string, StepSpec>>>(std::move(parts));
   StepSpec s;
@@ -91,21 +91,25 @@ StepSpec combine_by_param(const std::string& name, const std::string& param, std
   s.matches = matches;
   const std::string param_name = param;
   auto sees = [adapt](const Json& p, const std::string& which) { return adapt ? adapt(p, which) : p; };
-  s.plan = [shared, name, param_name, sees](const Values& ins, const Json& p, const PlanContext& c) {
-    const std::string which = p.contains(param_name) && p[param_name].is_string() ? p[param_name].get<std::string>() : std::string();
+  auto pick = [param_name, choose](const Values& ins, const Json& p) -> std::string {
+    if (choose) return choose(ins, p);
+    return p.contains(param_name) && p[param_name].is_string() ? p[param_name].get<std::string>() : std::string();
+  };
+  s.plan = [shared, name, param_name, sees, pick](const Values& ins, const Json& p, const PlanContext& c) {
+    const std::string which = pick(ins, p);
     const StepSpec& part = part_of(*shared, which, name, param_name);
     return part.plan(ins, sees(p, which), c);
   };
-  s.prepare = [shared, name, param_name, sees](const Values& ins, const Json& p, ExecContext& c) {
-    const std::string which = p[param_name].get<std::string>();
+  s.prepare = [shared, name, param_name, sees, pick](const Values& ins, const Json& p, ExecContext& c) {
+    const std::string which = pick(ins, p);
     const StepSpec& part = part_of(*shared, which, name, param_name);
     return std::any(Wrapped{which, part.prepare ? part.prepare(ins, sees(p, which), c) : std::any()});
   };
-  s.resolve = [shared, name, param_name, sees](const Values& ins, const Json& p, const Bound& b) {
-    const std::string which = p[param_name].get<std::string>();
+  s.resolve = [shared, name, param_name, sees, pick](const Values& ins, const Json& p, const Bound& b) {
+    const std::string which = pick(ins, p);
     const StepSpec& part = part_of(*shared, which, name, param_name);
     Json j = part.resolve ? part.resolve(ins, sees(p, which), b) : Json::object();
-    if (j.is_object()) j[param_name] = which;
+    if (j.is_object()) j[param_name] = which;   // the chosen part is in the cache key
     return j;
   };
   auto inner = [shared, name, param_name](const std::any& st) -> std::pair<const StepSpec&, const std::any&> {
@@ -114,8 +118,8 @@ StepSpec combine_by_param(const std::string& name, const std::string& param, std
   };
   s.record = [inner](const std::any& st) { auto [p, in] = inner(st); return p.record ? p.record(in) : Json::object(); };
   s.halo = [inner](const std::any& st) { auto [p, in] = inner(st); return p.halo ? p.halo(in) : std::int64_t(0); };
-  s.halo_at_plan = [shared, name, param_name, sees](const Values& ins, const Json& p) {
-    const std::string which = p[param_name].get<std::string>();
+  s.halo_at_plan = [shared, name, param_name, sees, pick](const Values& ins, const Json& p) {
+    const std::string which = pick(ins, p);
     const StepSpec& part = part_of(*shared, which, name, param_name);
     return part.halo_at_plan ? part.halo_at_plan(ins, sees(p, which)) : std::int64_t(0);
   };
@@ -236,31 +240,58 @@ Form form_of(const Json& d, std::int64_t line_samples, ExecContext& c, const std
 
 int components_of(const std::string& measure) { return measure == "phase_current" ? 3 : 1; }
 
-// ── the ingredients as an Array (what crosses a node's edge and what the store writes): the seven additive vectors of nm::Ingredients, one after the other, their lengths in meta ─────
-// ASSUMES (compute/include/nxr/measurement/measures.h, spec 2.1): Ingredients has public `rows`, `members` and the vectors `count`, `weight`, `sum` (per component, consecutive), `sum_sq`,
-// `max`, `min`, `abs_max`, each laid out [row][member] (sum: [row][member][component]). One place, so a different layout is one edit here.
-Array pack_ingredients(const nm::Ingredients& g, std::int64_t rows, std::int64_t members) {
+// ── the ingredients as an Array (what crosses a node's edge and what the store writes): the vectors of nm::Ingredients (measures.h), one after the other, their names and lengths in meta ─────
+// Layout of each vector: [row][member] (sum: [row][member][component]); the integers (count, nonfinite) are held as doubles (exact to 2^53). `held` (the values a median keeps) is never stored or rolled up.
+struct IngredientColumns {
+  std::vector<std::pair<std::string, std::vector<double>*>> d;
+  std::vector<std::pair<std::string, std::vector<std::int64_t>*>> i;
+};
+IngredientColumns columns_of(nm::Ingredients& g) {
+  IngredientColumns c;
+  c.i = {{"count", &g.count}, {"nonfinite", &g.nonfinite}};
+  c.d = {{"weight", &g.weight}, {"sum_sq", &g.sum_sq}, {"sum_cube", &g.sum_cube}, {"sum_fourth", &g.sum_fourth}, {"sum_abs", &g.sum_abs}, {"sum_sqrt_abs", &g.sum_sqrt_abs},
+         {"max", &g.max}, {"min", &g.min}, {"abs_max", &g.abs_max}, {"sum", &g.sum}};
+  return c;
+}
+Array pack_ingredients(const nm::Ingredients& g_in, std::int64_t rows, std::int64_t members) {
+  nm::Ingredients g = g_in;
+  IngredientColumns c = columns_of(g);
   Array a;
   a.rows = rows; a.cols = members;
-  Json lens = Json::array();
-  for (const std::vector<double>* v : {&g.count, &g.weight, &g.sum, &g.sum_sq, &g.max, &g.min, &g.abs_max}) { a.data.insert(a.data.end(), v->begin(), v->end()); lens.push_back(v->size()); }
+  Json lens = Json::array(), order = Json::array();
+  for (auto& [name, v] : c.i) { for (const std::int64_t x : *v) a.data.push_back(static_cast<double>(x)); lens.push_back(v->size()); order.push_back(name); }
+  for (auto& [name, v] : c.d) { a.data.insert(a.data.end(), v->begin(), v->end()); lens.push_back(v->size()); order.push_back(name); }
   a.meta["ingredient_lengths"] = lens;
-  a.meta["ingredient_order"] = Json::array({"count", "weight", "sum", "sum_sq", "max", "min", "abs_max"});
+  a.meta["ingredient_order"] = order;
+  a.meta["ingredient_components"] = g.components;
+  a.meta["ingredient_unassigned"] = g.unassigned;
   return a;
 }
 nm::Ingredients unpack_ingredients(const Array& a) {
   nm::Ingredients g;
   g.rows = a.rows; g.members = a.cols;
+  g.components = a.meta.value("ingredient_components", std::int64_t(1));
+  g.unassigned = a.meta.value("ingredient_unassigned", std::int64_t(0));
   const Json& lens = a.meta.value("ingredient_lengths", Json::array());
-  need(lens.is_array() && lens.size() == 7, "the ingredients carry no layout (an array `reduce` made)");
+  const Json& order = a.meta.value("ingredient_order", Json::array());
+  IngredientColumns c = columns_of(g);
+  need(lens.is_array() && order.is_array() && lens.size() == order.size() && lens.size() == c.i.size() + c.d.size(), "the ingredients carry no layout (an array `reduce` made)");
   std::size_t off = 0;
-  int k = 0;
-  for (std::vector<double>* v : {&g.count, &g.weight, &g.sum, &g.sum_sq, &g.max, &g.min, &g.abs_max}) {
-    const std::size_t n = lens[static_cast<std::size_t>(k++)].get<std::size_t>();
-    v->assign(a.data.begin() + static_cast<std::ptrdiff_t>(off), a.data.begin() + static_cast<std::ptrdiff_t>(off + n));
+  for (std::size_t k = 0; k < order.size(); ++k) {
+    const std::string name = order[k].get<std::string>();
+    const std::size_t n = lens[k].get<std::size_t>();
+    need(off + n <= a.data.size(), "the ingredients' layout is longer than their array");
+    bool found = false;
+    for (auto& [nm_, v] : c.i) if (nm_ == name) { v->assign(n, 0); for (std::size_t j = 0; j < n; ++j) (*v)[j] = static_cast<std::int64_t>(std::llround(a.data[off + j])); found = true; }
+    for (auto& [nm_, v] : c.d) if (nm_ == name) { v->assign(a.data.begin() + static_cast<std::ptrdiff_t>(off), a.data.begin() + static_cast<std::ptrdiff_t>(off + n)); found = true; }
+    need(found, "the ingredients name an unknown column '" + name + "'");
     off += n;
   }
   return g;
+}
+// the value of a measure for (row, member): a vector measure's component c is read with `component`, never by a spelled name
+double read_value(const nm::Ingredients& g, std::int64_t r, std::int64_t m, const std::string& measure, int component) {
+  return nm::value(g, r, m, measure, nm::Registry::standard(), component);
 }
 // the requested measures read from the ingredients: [rows x members x components]
 Array values_of(const nm::Ingredients& g, const nm::Request& req, std::int64_t rows, std::int64_t members) {
@@ -274,8 +305,7 @@ Array values_of(const nm::Ingredients& g, const nm::Request& req, std::int64_t r
       std::int64_t off = 0;
       for (const auto& name : req.measures) {
         const int k = components_of(name);
-        if (k == 1) y.data[static_cast<std::size_t>((r * members + m) * C + off)] = nm::value(g, r, m, name);
-        else for (int c = 0; c < k; ++c) y.data[static_cast<std::size_t>((r * members + m) * C + off + c)] = nm::value(g, r, m, name + "." + "xyz"[c]);
+        for (int c = 0; c < k; ++c) y.data[static_cast<std::size_t>((r * members + m) * C + off + c)] = read_value(g, r, m, name, c);
         off += k;
       }
     }
@@ -417,7 +447,20 @@ StepSpec reduce_node() {
     const ReduceState& st = std::any_cast<const ReduceState&>(st_);
     ReduceAcc& acc = std::any_cast<ReduceAcc&>(acc_);
     const Block& b = ins.at("x");
-    acc.rows = st.product || st.factors[0].kind != "time" ? 1 : b.rows;
+    const bool pooled_rows = st.product || st.factors[0].kind != "time";       // a product or a space grid pools the rows (the elements); a time grid keeps them (channels, frames)
+    // a vector field's rows are its elements' components, consecutive (element x components + component): one component per call (Request::component), the rows of one component the elements
+    int ncomp = 1;
+    for (const int k : st.components) ncomp = std::max(ncomp, k);
+    need(b.rows % ncomp == 0, "reduce: x has " + std::to_string(b.rows) + " rows, not a whole number of " + std::to_string(ncomp) + "-component elements");
+    const std::int64_t elements = b.rows / ncomp;
+    acc.rows = pooled_rows ? 1 : elements;
+    if (acc.ing.members == 0) {
+      bool hold = false;                                                       // a median keeps the values (exact, unweighted, never rolled up)
+      for (const auto& m : st.measures) hold = hold || m == "median" || m == "mad";
+      acc.ing = nm::Ingredients(acc.rows, st.members, ncomp, hold);
+    }
+    nm::Request req = st.req;
+    req.per_row = !pooled_rows;
     const std::int64_t n = b.own();
     auto good = [&](std::int64_t j) { return !(place.good && !place.good->empty() && !(*place.good)[static_cast<std::size_t>(j)]); };
     std::vector<float> run;                                               // [rows x samples] of one run of good samples, contiguous
@@ -426,10 +469,13 @@ StepSpec reduce_node() {
       std::int64_t e = a;
       while (e < n && good(e)) ++e;
       const std::int64_t len = e - a;
-      run.resize(static_cast<std::size_t>(b.rows * len));
-      for (std::int64_t r = 0; r < b.rows; ++r) std::copy_n(b.re.begin() + r * b.width + b.left + a, len, run.begin() + r * len);
-      if (st.product) nm::reduce(acc.ing, run.data(), b.rows, len, place.first + a, st.product_form, st.weights.empty() ? nullptr : st.weights.data(), st.req);
-      else nm::reduce(acc.ing, run.data(), b.rows, len, place.first + a, st.factors[0].rule, st.req);
+      run.resize(static_cast<std::size_t>(elements * len));
+      for (int comp = 0; comp < ncomp; ++comp) {
+        req.component = comp;
+        for (std::int64_t r = 0; r < elements; ++r) std::copy_n(b.re.begin() + (r * ncomp + comp) * b.width + b.left + a, len, run.begin() + r * len);
+        if (st.product) nm::reduce(acc.ing, run.data(), elements, len, place.first + a, st.product_form, st.weights.empty() ? nullptr : st.weights.data(), req);
+        else nm::reduce(acc.ing, run.data(), elements, len, place.first + a, st.factors[0].rule, req);
+      }
       a = e;
     }
   };
@@ -455,8 +501,7 @@ StepSpec reduce_node() {
         ++whole;
         std::int64_t off = 0;
         for (std::size_t k = 0; k < st.measures.size(); ++k) {
-          if (st.components[k] == 1) y.data[static_cast<std::size_t>((r * T + m) * C + off)] = nm::value(acc.ing, r, m, st.measures[k]);
-          else for (int c = 0; c < st.components[k]; ++c) y.data[static_cast<std::size_t>((r * T + m) * C + off + c)] = nm::value(acc.ing, r, m, st.measures[k] + "." + "xyz"[c]);
+          for (int c = 0; c < st.components[k]; ++c) y.data[static_cast<std::size_t>((r * T + m) * C + off + c)] = read_value(acc.ing, r, m, st.measures[k], c);
           off += st.components[k];
         }
       }
@@ -734,7 +779,35 @@ void add_measurement_nodes(std::vector<StepSpec>& r) {
   r.push_back(reduce_node());
   r.push_back(reduce_members_node());
   r.push_back(roll_up_node());
-  r.push_back(estimate_node());
+  // estimate: ONE node, the statistic of a partition of the stream (spec 2.5; core_histogram, relative_histogram and baseline are folded in). `method`: `sample` (the mean over the good columns: a band's
+  // power per vertex and level is the BASELINE, any other real field the generic mean) or `histogram` (counts: fixed bins when `edges` are given, else the log bins of nxr's threshold over a
+  // curl (cores) or over the relative power outside the bursts). What x IS tells the part; the choice is in the cache key.
+  {
+    std::vector<std::pair<std::string, StepSpec>> parts;
+    parts.emplace_back("baseline", take_step(r, "baseline"));
+    parts.emplace_back("core_histogram", take_step(r, "core_histogram"));
+    parts.emplace_back("relative_histogram", take_step(r, "relative_histogram"));
+    parts.emplace_back("mean", estimate_node());
+    parts.emplace_back("fixed", estimate_node());
+    r.push_back(combine_by_param(
+        "estimate", "method", std::move(parts),
+        "a statistic from the stream, by `method`: `sample` = the mean over the good columns of x (the BASELINE of a band's power per vertex and level, left out: `exclude` the bad segments and `outside` the bursts; "
+        "any other real field: its mean, samples cut by an excluded span counted); `histogram` = counts of the good frames' values: fixed bins when `edges` are given, else nxr's 4096 log bins (range from the first "
+        "`range_frames` good frames) over |curl| of the current (the cores' threshold) or over the relative power outside the bursts (the patches' threshold). Welch's segments are `welch.*` nodes on SegmentMean.",
+        [](const Json& p, const std::string& which) {
+          Json q = p;
+          if (which == "mean") q["method"] = "sample";
+          if (which == "fixed") q["method"] = "histogram";
+          return q;
+        },
+        [](const Values& ins, const Json& p) -> std::string {
+          const std::string m = p.contains("method") && p["method"].is_string() ? p["method"].get<std::string>() : std::string();
+          const std::string made = ins.count("x") ? ins.at("x").facts.value("made_by", std::string()) : std::string();
+          if (m == "sample") return made == "power" ? "baseline" : "mean";
+          if (m == "histogram") return p.contains("edges") && p["edges"].is_array() ? "fixed" : (made == "relative" ? "relative_histogram" : "core_histogram");
+          return m;
+        }));
+  }
 }
 
 }  // namespace nxr::pipelines::graph

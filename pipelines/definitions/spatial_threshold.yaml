@@ -3,7 +3,7 @@
 # set instead by its FALSE-ALARM RATE, measured, as the time burst detector's threshold comes from the envelope's own distribution.
 #
 # THE CHAIN, the same as spatial_events' up to the relative power at the reference level (one linear map before any non-linear step, D106): analytic (Morlet) → frames (the frame tiling; NO `within`: the run's frames) → apply_kernel
-# (no form; the hat at each of `levels` on the GLUED surface) → power → relative (÷ the stored baseline of `run spatial_baseline`, read by name) → at_level (the reference level) → relative_histogram. The good frames are the run
+# (no form; the hat at each of `levels` on the GLUED surface) → power → relative (÷ the stored baseline of `run spatial_baseline`, read by name) → at_level (the reference level) → estimate (method histogram). The good frames are the run
 # LEAVING OUT the bursts (`outside`) and the bad segments (`exclude`). The histogram's range is fixed from the run's first 3000 good frames, counted from its first, so it does not depend on the chunk size. A cut of the run
 # (`--from`/`--to`) cuts the distribution. `levels`, `reference_level`, `band`, `shape`, `tiling` and the baseline must be those `run spatial_events` is run with: it refuses a distribution of another chain.
 #
@@ -57,7 +57,7 @@ steps:
       - {node: field.form, in: {x: j}, with: {form: power}, out: p}
       - {node: relative, in: {x: p, baseline: baseline}, out: r}
       - {node: at_level, in: {x: r}, with: {scale: $reference_scale}, out: r_ref}
-      - {node: relative_histogram, in: {x: r_ref, exclude: bad, outside: bursts}, with: {bins: $bins, range_frames: $range_frames, block_frames: $block_frames, bad_segments: $bad_segments}, out: histogram}
+      - {node: estimate, in: {x: r_ref, exclude: bad, outside: bursts}, with: {method: histogram, bins: $bins, range_frames: $range_frames, block_frames: $block_frames, bad_segments: $bad_segments}, out: histogram}
 
 outputs:
   histogram: {kind: statistic}

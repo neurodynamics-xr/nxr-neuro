@@ -15,6 +15,7 @@
 
 #include "nxr/cores.h"
 #include "nxr/histogram.h"
+#include "nxr/measurement/estimate.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/point_events.h"
@@ -65,11 +66,12 @@ struct HistAcc {
   std::vector<std::int64_t> counts;
   std::int64_t negative = 0, nonfinite = 0;
 };
-void count_into(HistAcc& a, const float* values, std::size_t rows, std::size_t samples) {   // values [rows × samples] row-major
-  const nxr::histogram::Counts c = nxr::histogram::histogramTiles(values, rows, samples, samples, 1, a.bins);
-  for (int k = 0; k < c.bins; ++k) a.counts[static_cast<std::size_t>(k)] += c.counts[static_cast<std::size_t>(k)];
-  a.negative += c.negative[0];
-  a.nonfinite += c.nonfinite[0];
+void count_into(HistAcc& a, const float* values, std::size_t rows, std::size_t samples) {   // values [rows × samples] row-major: the whole pool, one distribution (nxr::measurement::Histogram, the reference's log bins)
+  nxr::measurement::Histogram h = nxr::measurement::Histogram::log_bins(a.bins);
+  h.add(values, static_cast<std::int64_t>(rows * samples));
+  for (std::size_t k = 0; k < h.counts.size() && k < a.counts.size(); ++k) a.counts[k] += h.counts[k];
+  a.negative += h.negative;
+  a.nonfinite += h.nonfinite;
 }
 void fix_bins(HistAcc& a, std::int64_t V, int bins) {
   double mx = 0;

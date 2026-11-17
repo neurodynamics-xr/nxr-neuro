@@ -19,18 +19,20 @@ scope: subject
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
   bands:     {selection: spans, where: {name: $bands}, hint: "the band set (`nxr-neuro run select_bands` first)"}
+  channels_of: {statistic: welch, where: {name: $channels}, required: false, hint: "the channels kept: those of this stored cross-spectrum (a surrogate's band power); none: every channel"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  channels: {default: null, meaning: "a stored cross-spectrum's name: the analytic signal is made on ITS channels only; null: every channel of the recording", unit: "-"}
   bands: {default: "frequency bands", meaning: "the band set by name (spans on the Frequency line, in Hz)", unit: "-"}
-  shape: {default: morlet, meaning: "the band filter: morlet (a Gaussian centred on the band, FWHM its width) | meyer (compact edges, bands that add up) | power_partition (nxr's bank: band powers add to broadband)", unit: "-", choices: [morlet, meyer, power_partition]}
+  shape: {default: morlet, meaning: "the band filter: morlet (a Gaussian centred on the band, FWHM its width) | power_partition (nxr's bank: band powers add to broadband)", unit: "-", choices: [morlet, power_partition]}
   halo: {default: 8.0, meaning: "the context read on each side of a chunk for the filter (its circular edge effect lies inside it)", unit: s, chart: clock}
 
 steps:
   chunks:
     over: recording
     do:
-      - {node: analytic, in: {x: recording, bands: bands}, with: {shape: $shape, halo_seconds: $halo}, out: z}
+      - {node: analytic, in: {x: recording, bands: bands, channels_of: channels_of}, with: {shape: $shape, halo_seconds: $halo}, out: z}
 
 outputs:
   z: {kind: field, kind_name: analytic signal, name: "{recording}_analytic", on: recording.manifold.0, derived_from: recording}

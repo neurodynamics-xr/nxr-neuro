@@ -6,6 +6,8 @@
 //   meeg.spherical_head_model  array   channels (sensor geometry) + sources + meg/eeg surfaces  ->  gain (an operator), grid (the source positions)
 //   meeg.minimum_norm      array       forward (a head model) + covariance (a statistic on a pick)  ->  kernel, channels, covariance, whitener
 #include "nxr/pipelines/meeg_steps.h"
+#include "nxr/pipelines/select_nodes.h"
+#include "nxr/selection/selection.h"
 
 #include <algorithm>
 #include <optional>
@@ -759,7 +761,7 @@ void reorder(StatBand& c, const std::vector<std::int32_t>& want, const char* who
   for (Eigen::Index i = 0; i < m; ++i) for (Eigen::Index j = 0; j < m; ++j) { S(i, j) = c.S(at[i], at[j]); Q(i, j) = c.Sq(at[i], at[j]); }
   c.S = std::move(S); c.Sq = std::move(Q); c.channels = want;
 }
-struct PhasePrepared { ng::Arrays c; Json band; std::string signal; };
+struct PhasePrepared { ng::Arrays c; Json band; std::string signal; Json finest; };
 ng::NodeSpec phase_gradient() {
   ng::NodeSpec n;
   n.name = "meeg.phase_gradient";
@@ -772,13 +774,15 @@ ng::NodeSpec phase_gradient() {
   n.outputs = {{"field", "the field the leaves' measurements are of (no array: its values are the measurements)", false},
                {"measurements", "per leaf: phase_power, phase_gradient_power, phase_current_1, phase_current_2, phase_current_magnitude", false}};
   n.parameters = {{"band", Json(), "the band of the cross-spectrum (its name); null: its one band", "-", {}, true},
-                  {"signal", Json("normal"), "normal = the current along the surface's normal | ambient = each of its x y z components", "-", {"normal", "ambient"}, false}};
+                  {"signal", Json(), "normal = the current along the surface's normal | ambient = each of its x y z components. NO DEFAULT (PI: an orientation prior is never a default): the caller states it", "-", {"normal", "ambient"}, false},
+                  {"finest", Json(), "the leaves measured, as a quantity (a tile diameter, an area, parts per hemisphere), resolved on the grid's measured level diameters; null: the grid's own depth", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "in double from a stored cross-spectrum (no time axis)");
   n.matches = "nxr.detect.core_phase PhaseReader.read_out (grad phi = Im(conj z grad z) / |z|^2), power-weighted; meeg nxr::meeg::phaseSums";
   n.description = "a band's phase gradient from its cross-spectrum through a free kernel, as the additive ingredients of the surface's leaves";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"cross_spectrum", "kernel", "surface", "frames", "leaves"}) if (!in.count(k)) ng::refuse(std::string("meeg.phase_gradient: ") + k + " is not given");
-    if (p.value("signal", std::string("normal")) != "normal" && p.value("signal", std::string("normal")) != "ambient") ng::refuse("meeg.phase_gradient: signal is normal or ambient");
+    if (!p.contains("signal") || !p["signal"].is_string() || (p["signal"] != "normal" && p["signal"] != "ambient"))
+      ng::refuse("meeg.phase_gradient: signal is normal (the current along the surface's normal) or ambient (its x y z components): it has no default, the caller states it (an orientation prior is never a default)");
     ng::Planned out;
     out.out["field"] = constant_port("field");
     ng::PortType m = constant_port("measurement");
@@ -795,7 +799,10 @@ ng::NodeSpec phase_gradient() {
       pr.c[k] = it->second;
     }
     pr.band = p.contains("band") ? p["band"] : Json();
-    pr.signal = p.value("signal", std::string("normal"));
+    if (!p.contains("signal") || !p["signal"].is_string() || (p["signal"] != "normal" && p["signal"] != "ambient"))
+      ng::refuse("meeg.phase_gradient: signal is normal or ambient (no default: the caller states it)");
+    pr.signal = p["signal"].get<std::string>();
+    pr.finest = p.contains("finest") ? p["finest"] : Json();
     return std::any(std::move(pr));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
@@ -863,7 +870,28 @@ ng::NodeSpec phase_gradient() {
     std::vector<std::int32_t> codes;
     for (const double c : LA.data) codes.push_back(static_cast<std::int32_t>(c));
     if (static_cast<std::int64_t>(codes.size()) != N) ng::refuse("meeg.phase_gradient: the leaves are not a partition of the surface's vertices");
-    const int L = LA.meta.contains("n_members") ? LA.meta["n_members"].get<int>() : (codes.empty() ? 0 : *std::max_element(codes.begin(), codes.end()) + 1);
+    Json finest_snapped = nullptr;
+    int L = LA.meta.contains("n_members") ? LA.meta["n_members"].get<int>() : (codes.empty() ? 0 : *std::max_element(codes.begin(), codes.end()) + 1);
+    if (pr.finest.is_string()) {
+      // `finest` is a QUANTITY resolved on the grid's measured level dictionary (compute's level_of_*, via the one resolver); the leaves are that level's tiles: the finest codes shifted (closed form)
+      const Json levels = LA.meta.value("levels", Json::array());
+      const int depth = LA.meta.value("depth", -1);
+      if (!levels.is_array() || levels.empty() || depth < 0 || static_cast<int>(levels.size()) != depth + 1)
+        ng::refuse("meeg.phase_gradient: finest " + pr.finest.dump() + " needs the grid's level dictionary (depth and each level's measured diameter); the leaves handed over record none");
+      nxr::selection::Selection grid;
+      grid.type = nxr::selection::Type::set;
+      for (const auto& lj : levels) {
+        nxr::selection::Selection lv;
+        if (lj.contains("diameter")) lv.diameter = lj["diameter"].get<double>();
+        if (lj.contains("lambda_min")) lv.band = std::make_pair(lj["lambda_min"].get<double>(), lj["lambda_max"].get<double>());
+        grid.members.push_back(std::move(lv));
+      }
+      const int level = nxr::pipelines::graph::level_of_quantity(grid, pr.finest, unit, "meeg.phase_gradient", finest_snapped);
+      if (level < 0 || level > depth) ng::refuse("meeg.phase_gradient: finest " + pr.finest.dump() + " is level " + std::to_string(level) + "; the grid has levels 0 .. " + std::to_string(depth));
+      for (auto& c : codes) if (c >= 0) c >>= (depth - level);
+      const std::int64_t slots = LA.meta.value("slots", std::int64_t(1));
+      L = static_cast<int>(slots << level);
+    }
     const std::vector<std::vector<double>> cols = {vp, vq, v1, v2, vm};
     ng::Array Mz;
     Mz.rows = L; Mz.cols = static_cast<std::int64_t>(cols.size());
@@ -894,7 +922,7 @@ ng::NodeSpec phase_gradient() {
                                {"description", "the phase gradient of the " + pr.signal + " current by " + KA.meta.value("name", std::string()) + " \xe2\x80\x94 " + C.name +
                                                ", stored as its additive ingredients per leaf of " + LA.meta.value("name", std::string())},
                                {"producer", Json{{"band", Json{{"name", C.name}, {"lo_hz", C.lo}, {"hi_hz", C.hi}}}, {"omega_rad_s", omega}, {"signal", pr.signal}, {"surface_unit", unit},
-                                                 {"leaves", Json{{"selection", LA.meta.value("name", std::string())}, {"count", L}, {"vertices_without_frame", singular}, {"weights", "the vertex's lumped area"}}},
+                                                 {"leaves", Json{{"selection", LA.meta.value("name", std::string())}, {"count", L}, {"finest", pr.finest}, {"snapped", finest_snapped}, {"vertices_without_frame", singular}, {"weights", "the vertex's lumped area"}}},
                                                  {"derived_at_read", "phase_gradient_1/2 = j / P, phase_gradient_magnitude = |sum j| / P, travelling_index = |sum j| / sqrt(P Q), phase_coherence = |sum j| / sum |j|; the speed is omega over the gradient's magnitude"},
                                                  {"studio", Json{{"type", "complex"}}}}}};
     return ng::Arrays{{"field", std::move(Fd)}, {"measurements", std::move(Mz)}};

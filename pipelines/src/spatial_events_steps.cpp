@@ -18,6 +18,7 @@
 #include "nxr/histogram.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/point_events.h"
+#include "nxr/pipelines/select_nodes.h"
 #include "nxr/scaling.h"
 #include "nxr/scalespace.h"
 #include "nxr/pipelines/input.h"
@@ -38,6 +39,11 @@ std::vector<int> levels_of(const Value& x, const std::string& who) {
   std::vector<int> l;
   for (const auto& e : x.facts["levels"]) l.push_back(e.get<int>());
   return l;
+}
+// a stated scale (a quantity) as one of the multi-level field's ladder levels: resolved on the level dictionary `apply_kernel` recorded (compute's level_of_*, the snapped quantity into `snapped`)
+int level_of_scale(const Value& x, const Json& scale, const std::string& who, Json& snapped) {
+  need(x.facts.contains("spatial_band") && x.facts["spatial_band"].contains("ladder_levels"), who + ": x records no scale space (it is not a field of `apply_kernel` with spatial_scales)");
+  return level_among(x.facts["spatial_band"]["ladder_levels"], x.facts["spatial_band"].value("ladder_unit", std::string("m")), scale, levels_of(x, who), who, snapped);
 }
 // what the baseline and the fields divided by it must share: the band, the spatial band (levels, shape), the form, the glue and the frame tiling (NOT the bursts the frames are inside: the baseline's frames are outside them)
 Json power_chain(const Value& x) {
@@ -101,26 +107,29 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
     s.name = "at_level"; s.kind = "chunk";
     s.traits = node_traits(TimeBehaviour::pointwise, Precision::float32, OutputPrecision::follows_input, "copies the rows of one level, per sample: no arithmetic", {});
     s.inputs = {"x"}; s.outputs = {"y"};
-    s.parameters = Json{{"level", nullptr}};
+    s.parameters = Json{{"scale", nullptr}};
     s.matches = "a row selection of apply_kernel's [vertex × level] output (the hat level's rows of every vertex)";
     s.description = "ONE HAT LEVEL of a multi-level field (`apply_kernel` with `levels`: row = (element · levels + level) · components + component): the rows of that level, [elements × components], pointwise in time. The "
                     "level is the ladder's, one of the field's `levels`. What is left is a field of one level, as `apply_kernel` with `level` makes it";
     s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
       const Value& x = ins.at("x");
       in_loop(x, "at_level");
-      const std::vector<int> lv = levels_of(x, "at_level");
-      need(p["level"].is_number_integer(), "at_level: level is the ladder's level to read, one of " + x.facts["levels"].dump());
-      need(std::find(lv.begin(), lv.end(), p["level"].get<int>()) != lv.end(), "at_level: level " + p["level"].dump() + " is not one of the field's levels " + x.facts["levels"].dump());
+      levels_of(x, "at_level");
+      need(p["scale"].is_string(), "at_level: scale is a quantity (a tile diameter \"20 mm\", \"parts 64\", a wavelength) naming one of the field's scales " + x.facts["spatial_band"].value("scales", Json::array()).dump() + "; a bare level index is never a parameter");
+      Json snapped;
+      const int level = level_of_scale(x, p["scale"], "at_level", snapped);
       Value y = made(x);
       y.facts["from_levels"] = x.facts["levels"];   // the scale space the level was read from (the stored threshold and the baseline must be of it)
       y.facts.erase("levels");
-      if (y.facts.contains("spatial_band")) { y.facts["spatial_band"]["level"] = p["level"]; y.facts["spatial_band"].erase("levels"); }
+      if (y.facts.contains("spatial_band")) { y.facts["spatial_band"]["level"] = level; y.facts["spatial_band"]["scale_read"] = Json{{"stated", p["scale"]}, {"snapped", snapped}}; y.facts["spatial_band"].erase("levels"); }
       return Values{{"y", y}};
     };
     s.prepare = [](const Values& ins, const Json& p, ExecContext&) {
       const Value& x = ins.at("x");
       const std::vector<int> lv = levels_of(x, "at_level");
-      const std::int64_t li = std::find(lv.begin(), lv.end(), p["level"].get<int>()) - lv.begin();
+      Json snapped;
+      const int level = level_of_scale(x, p["scale"], "at_level", snapped);
+      const std::int64_t li = std::find(lv.begin(), lv.end(), level) - lv.begin();
       return std::any(std::array<std::int64_t, 3>{li, static_cast<std::int64_t>(lv.size()), per_element(x)});
     };
     s.chunk = [](const std::any& st, const Blocks& ins, std::int64_t) {

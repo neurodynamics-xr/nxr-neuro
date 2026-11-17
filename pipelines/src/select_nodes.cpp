@@ -55,6 +55,7 @@ struct TimeGridState {
   std::string rule, recording, line_name;
   double rate = 0, line_origin = 0;
   std::int64_t size = 0, origin = 0, width = 0, hop = 0, count = 0;
+  double hop_exact = 0, width_exact = 0;       // in samples: equal to hop and width on a dyadic grid; a frame grid of frames per cycle is NOT whole samples (PI rule 34/36: exactly, never snapped)
   int level = -1;
   Json stated = Json::object(), snapped = Json::object(), band = nullptr, levels = nullptr, design = nullptr;
 };
@@ -91,6 +92,7 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     need(k >= 0 && k <= 62, who + ": level " + std::to_string(k) + " is outside 0..62");
     s.level = k;
     s.width = s.hop = std::int64_t(1) << k;
+    s.hop_exact = s.width_exact = static_cast<double>(s.hop);
     s.count = (room + s.hop - 1) / s.hop;
   };
   auto band_level = [&](double lo, double hi) {
@@ -118,22 +120,35 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     } else {
       // FRAME DENSITY is an option of the node (PI, 2026-11-17: frames per tile or per cycle, the pipeline's default written in its YAML): never a constant here
       const bool per_tile = p["frames_per_tile"].is_number(), per_cycle = p["frames_per_cycle"].is_number();
-      need(per_tile != per_cycle, who + ": give frames_per_tile (a power of two) or frames_per_cycle, one of them (no default here: the definition's)");
-      int k;
+      need(per_tile || per_cycle, who + ": give frames_per_tile (a power of two; it wins when both are given) or frames_per_cycle (no default here: the definition's)");
+      s.stated = Json{{"band", p["band"]}, {"frames_per_tile", p["frames_per_tile"]}, {"frames_per_cycle", p["frames_per_cycle"]}};
       if (per_tile) {
         const std::int64_t fpt = p["frames_per_tile"].get<std::int64_t>();
         need(is_power_of_two(fpt), who + ": frames_per_tile " + std::to_string(fpt) + " is a power of two (2^s frames to the band's tile)");
-        k = kb - log2_exact(fpt);
+        const int k = kb - log2_exact(fpt);
         need(k >= 0, who + ": " + std::to_string(fpt) + " frames to a tile of 2^" + std::to_string(kb) + " samples is finer than one sample");
+        level_grid(k);
+        s.snapped = Json{{"frame_s", static_cast<double>(s.width) / s.rate}, {"frames_per_tile", static_cast<double>(fpt)}, {"frames_per_cycle", 1.0 / (centre * (static_cast<double>(s.width) / s.rate))}};
       } else {
+        // FRAMES PER CYCLE, EXACTLY (PI rule 34/36: 36 to a cycle, the 10 degree step of phase work, is not a power of two and is never snapped to one): the frame is 1 / (centre x frames_per_cycle) seconds,
+        // by compute's time rule; the hop is generally not whole samples, a frame's start is origin + j hop (the frames node interpolates there, rule 36)
         const double fpc = p["frames_per_cycle"].get<double>();
         need(fpc >= 1, who + ": frames_per_cycle is at least 1");
-        k = static_cast<int>(std::floor(std::log2(s.rate / (centre * fpc))));   // the coarsest level whose frame is at or under 1/(centre x frames_per_cycle) s
-        need(k >= 0, who + ": " + g(fpc) + " frames to a cycle of " + g(centre) + " Hz is finer than one sample");
+        ns::TimeRule tr;
+        tr.kind = ns::TimeRule::Kind::frames;
+        tr.band_hz = std::make_pair(lo, hi);
+        tr.frames_per_cycle = fpc;
+        const ns::Line ln{"s", room, s.line_origin + static_cast<double>(s.origin) / s.rate, 1.0 / s.rate};
+        ns::TimeGrid made;
+        try { made = ns::time_rule_resolved(ln, tr); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
+        need(made.hop_s * s.rate >= 1.0 - 1e-9, who + ": " + g(fpc) + " frames to a cycle of " + g(centre) + " Hz is finer than one sample");
+        s.hop_exact = s.width_exact = made.hop_s * s.rate;
+        s.width = made.width_samples > 0 ? made.width_samples : static_cast<std::int64_t>(std::llround(s.width_exact));
+        s.hop = made.hop_samples > 0 ? made.hop_samples : static_cast<std::int64_t>(std::llround(s.hop_exact));
+        s.level = made.level;
+        s.count = made.grid.tiling->count;
+        s.snapped = Json{{"frame_s", made.hop_s}, {"frames_per_cycle", fpc}, {"frame_samples", s.hop_exact}};
       }
-      level_grid(k);
-      s.stated = Json{{"band", p["band"]}, {"frames_per_tile", p["frames_per_tile"]}, {"frames_per_cycle", p["frames_per_cycle"]}};
-      s.snapped = Json{{"frame_s", static_cast<double>(s.width) / s.rate}, {"frames_per_tile", static_cast<double>(std::int64_t(1) << (kb - k))}, {"frames_per_cycle", 1.0 / (centre * (static_cast<double>(s.width) / s.rate))}};
     }
   } else if (s.rule == "chunks") {
     level_grid(15);                                                        // the chunk grid (io's chunk service: 2^15 samples)
@@ -145,6 +160,7 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     s.level = rw.level;
     s.width = std::int64_t(1) << rw.level;
     s.hop = std::int64_t(1) << rh.level;
+    s.hop_exact = static_cast<double>(s.hop); s.width_exact = static_cast<double>(s.width);
     s.count = room < s.width ? 0 : (room - s.width) / s.hop + 1;
     s.stated = Json{{"window", p["window"]}, {"step", p["step"]}};
     s.snapped = Json{{"window_s", rw.snapped}, {"step_s", rh.snapped}};
@@ -154,18 +170,19 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     need(d.unit == "s", who + ": segment is a duration in seconds");
     need(p["overlap"].is_number() && p["overlap"].get<double>() >= 0 && p["overlap"].get<double>() < 1, who + ": overlap is a fraction in [0, 1)");
     ns::TimeRule tr;
-    tr.kind = "segments";
-    tr.width_s = d.hi;
+    tr.kind = ns::TimeRule::Kind::segments;
+    tr.duration_s = d.hi;
     tr.overlap = p["overlap"].get<double>();
-    tr.preset = p["preset"].is_string() ? p["preset"].get<std::string>() : std::string("tile");   // tile | round | even
+    tr.segment_rule = p["preset"].is_string() ? p["preset"].get<std::string>() : std::string("tile");   // tile | round | even (welch::segmentFor)
     const ns::Line ln{"s", s.size, s.line_origin, 1.0 / s.rate};
-    ns::Selection made;
-    try { made = ns::time_rule(ln, tr); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
-    need(made.tiling.has_value(), who + ": the segments rule made no tiling");
-    s.width = static_cast<std::int64_t>(std::llround(made.tiling->width * s.rate));
-    s.hop = static_cast<std::int64_t>(std::llround(made.tiling->hop * s.rate));
-    s.count = made.tiling->count;
-    s.stated = Json{{"segment", p["segment"]}, {"overlap", p["overlap"]}, {"preset", tr.preset}};
+    ns::TimeGrid made;
+    try { made = ns::time_rule_resolved(ln, tr); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
+    need(made.grid.tiling.has_value(), who + ": the segments rule made no tiling");
+    s.width = made.width_samples;
+    s.hop = made.hop_samples;
+    s.hop_exact = static_cast<double>(s.hop);
+    s.count = made.grid.tiling->count;
+    s.stated = Json{{"segment", p["segment"]}, {"overlap", p["overlap"]}, {"preset", tr.segment_rule}};
     s.snapped = Json{{"segment_s", static_cast<double>(s.width) / s.rate}, {"hop_s", static_cast<double>(s.hop) / s.rate}};
   } else if (s.rule == "constant_q") {
     // the ladder's levels: one per distinct window, each carrying the Studio's ConstantQLevelInfo attributes (rule 24: low_hz, high_hz, centre, window, ...)
@@ -218,10 +235,10 @@ StepSpec time_grid_step() {
     v.cls = "selection";
     v.manifolds = {*ins.at("line").time};
     v.facts = Json{{"node", "select.time_grid"}, {"port", "grid"}, {"rule", t.rule}, {"names", Json::object()}, {"family", t.rule == "segments" ? "irregular" : "grid"}};
-    if (t.width > 0) v.facts["names"]["tile_s"] = g(static_cast<double>(t.width) / t.rate);
-    v.facts["window_samples"] = t.width; v.facts["tiles"] = t.count; v.facts["width_s"] = static_cast<double>(t.width) / t.rate; v.facts["origin"] = t.line_origin + static_cast<double>(t.origin) / t.rate;
+    if (t.width > 0) v.facts["names"]["tile_s"] = g(t.width_exact / t.rate);
+    v.facts["window_samples"] = t.width; v.facts["tiles"] = t.count; v.facts["width_s"] = t.width_exact / t.rate; v.facts["origin"] = t.line_origin + static_cast<double>(t.origin) / t.rate;
     if (!t.band.is_null()) v.facts["resolves_hz"] = Json{{"lo", t.band[0]}, {"hi", t.band[1]}};          // the level IS the band (D84): what detection and the events' units read
-    v.facts["hop_s"] = static_cast<double>(t.hop) / t.rate;                      // what a node after it reads of the grid without a stored row (the frame rate, the first member's time)
+    v.facts["hop_s"] = t.hop_exact / t.rate;                      // what a node after it reads of the grid without a stored row (the frame rate, the first member's time)
     v.facts["origin_s"] = t.line_origin + static_cast<double>(t.origin) / t.rate;
     v.facts["level"] = t.level;
     v.facts["snapped"] = t.snapped;
@@ -231,14 +248,14 @@ StepSpec time_grid_step() {
   s.run = [](const std::any& st, const Arrays&, ExecContext&) {
     const auto& t = std::any_cast<const TimeGridState&>(st);
     const double origin_s = t.line_origin + static_cast<double>(t.origin) / t.rate;
-    Json grid = Json{{"kind", "time"}, {"origin", t.origin}, {"width", t.width}, {"hop", t.hop}, {"count", t.count}, {"size", t.size}, {"level", t.level}, {"rate", t.rate}, {"rule", t.rule}};
+    Json grid = Json{{"kind", "time"}, {"origin", t.origin}, {"width", t.width}, {"hop", t.hop}, {"hop_exact", t.hop_exact}, {"width_exact", t.width_exact}, {"count", t.count}, {"size", t.size}, {"level", t.level}, {"rate", t.rate}, {"rule", t.rule}};
     Json params = Json{{"grid", grid}, {"quantity", Json{{"stated", t.stated}, {"snapped", t.snapped}}}, {"rule", t.rule}};
     if (!t.band.is_null()) params["band"] = t.band;
     if (!t.levels.is_null()) { params["levels"] = t.levels; params["design"] = t.design; }
     Json desc = Json{{"params", params},
                      {"family", t.rule == "segments" ? "irregular" : "grid"},
-                     {"tiling", Json{{"origin", origin_s}, {"width", static_cast<double>(t.width) / t.rate}, {"hop", static_cast<double>(t.hop) / t.rate},
-                                     {"end", origin_s + static_cast<double>(t.count * t.hop) / t.rate}, {"count", t.count}}},
+                     {"tiling", Json{{"origin", origin_s}, {"width", t.width_exact / t.rate}, {"hop", t.hop_exact / t.rate},
+                                     {"end", origin_s + static_cast<double>(t.count) * t.hop_exact / t.rate}, {"count", t.count}}},
                      {"description", "the " + t.rule + " grid of " + t.line_name + ": " + std::to_string(t.count) + " members of " + std::to_string(t.width) + " samples, hop " + std::to_string(t.hop) + ", from sample " +
                                          std::to_string(t.origin) + (t.level >= 0 ? " (level " + std::to_string(t.level) + ")" : std::string())}};
     Array out;
@@ -311,7 +328,7 @@ BandsPrepared bands_of(const ng::Types& in, const ng::Arrays* constants, const J
       for (const auto& e : list) {
         const nxr::quantity::Quantity q = parse_q(e, who, "scale");
         need(q.chart == "parts", who + ": " + e.dump() + " is not a number of parts per hemisphere (\"parts 16\")");
-        levels.push_back(ns::level_of_parts(static_cast<int>(std::llround(q.hi))).level);
+        levels.push_back(ns::level_of_parts(q.hi, gp["depth"].get<int>()).level);
       }
     }
     for (std::size_t k = 0; k < levels.size(); ++k) {
@@ -498,20 +515,124 @@ ng::NodeSpec select_product() {
 
 }  // namespace
 
+// The depth of a grid read from its level dictionary (members: level l at position l) and a piece's area: from the level 0 tile area when it is recorded, else from a coarser level's Weyl band
+// (its lower edge is 4 pi 2^(l-1) / A, spec 3.3), else refused: the Weyl levels need it.
+static double piece_area_of(const nxr::selection::Selection& grid) {
+  if (!grid.members.empty() && grid.members.front().tile_area) return *grid.members.front().tile_area;
+  for (std::size_t l = 1; l < grid.members.size(); ++l)
+    if (grid.members[l].band && grid.members[l].band->first > 0) return 4.0 * std::acos(-1.0) * std::ldexp(1.0, static_cast<int>(l) - 1) / grid.members[l].band->first;
+  return 0.0;
+}
+
 int level_of_quantity(const nxr::selection::Selection& grid, const Json& finest, const std::string& unit, const std::string& who, Json& snapped) {
-  need(finest.is_string(), who + ": a scale is a quantity with a unit (a tile diameter \"20 mm\", an area \"400 mm2\", a wavelength \"wavelength 40 mm\", \"parts 16\", or \"index:5\" for diagnostics), not " + finest.dump());
+  need(finest.is_string(), who + ": a scale is a quantity with a unit (a tile diameter \"20 mm\", an area \"400 mm^2\", a wavelength \"wavelength 40 mm\", \"parts 16\", an eigenvalue \"eigenvalue 1/m^2\", or \"index:5\" for diagnostics), not " + finest.dump());
   nxr::quantity::Quantity q = parse_q(finest, who, "scale");
-  const double mm = unit == "m" ? 1e-3 : unit == "mm" ? 1.0 : unit == "cm" ? 1e-1 : 0.0;
-  need(mm > 0 || q.chart == "parts" || q.chart == "index", who + ": the surface's unit is '" + unit + "'; a length in mm is converted from m, cm or mm only");
+  const int depth = static_cast<int>(grid.members.size()) - 1;                   // the level dictionary: levels 0 .. depth
   try {
-    if (q.chart == "parts") { const auto r = ns::level_of_parts(static_cast<int>(std::llround(q.hi))); snapped = Json{{"parts_per_hemisphere", r.snapped}}; return r.level; }
-    if (q.chart == "area") { const auto r = ns::level_of_area(grid, q.hi * mm * mm); snapped = Json{{"area", r.snapped}, {"unit", unit + "2"}}; return r.level; }
-    if (q.chart == "wavelength") { const auto r = ns::level_of_wavelength(grid, q.hi * mm); snapped = Json{{"wavelength", r.snapped}, {"unit", unit}}; return r.level; }
-    if (q.chart == "index") { snapped = Json{{"index", q.hi}}; return static_cast<int>(q.hi); }
-    const auto r = ns::level_of_diameter(grid, q.hi * mm);                  // the coarsest level whose MEASURED mean tile diameter is at most it
-    snapped = Json{{"diameter", r.snapped}, {"unit", unit}};
+    if (q.chart == "index") { snapped = Json{{"index", nxr::quantity::as_index(q)}}; return static_cast<int>(nxr::quantity::as_index(q)); }
+    need(depth >= 0, who + ": the grid has no levels");
+    if (q.chart == "parts") { const auto r = ns::level_of_parts(q.hi, depth); snapped = Json{{"parts_per_hemisphere", r.snapped}}; return r.level; }
+    const double A = piece_area_of(grid);
+    if (q.chart == "area") {
+      std::vector<double> areas;
+      for (int l = 0; l <= depth; ++l) areas.push_back(grid.members[static_cast<std::size_t>(l)].tile_area ? *grid.members[static_cast<std::size_t>(l)].tile_area : (A > 0 ? A / std::ldexp(1.0, l) : std::nan("")));
+      need(!areas.empty() && std::isfinite(areas.front()), who + ": the grid's level areas are not recorded");
+      const double a = q.hi * nxr::quantity::unit_factor(q.unit, unit + "^2");
+      const auto r = ns::level_of_area(areas, a, unit + "^2");
+      snapped = Json{{"area", r.snapped}, {"unit", unit + "^2"}};
+      return r.level;
+    }
+    if (q.chart == "wavelength" || q.chart == "eigenvalue") {
+      need(A > 0, who + ": a wavelength or an eigenvalue needs the piece area (the grid's level dictionary records neither)");
+      const double v = q.hi * nxr::quantity::unit_factor(q.unit, q.chart == "wavelength" ? unit : "1/" + unit + "^2");
+      const auto r = q.chart == "wavelength" ? ns::level_of_wavelength(v, A, depth, unit) : ns::level_of_eigenvalue(v, A, depth, unit);
+      snapped = Json{{"wavelength", r.snapped}, {"unit", unit}};
+      return r.level;
+    }
+    std::vector<double> diam;
+    for (int l = 0; l <= depth; ++l) {
+      need(grid.members[static_cast<std::size_t>(l)].diameter.has_value(), who + ": the grid's level " + std::to_string(l) + " records no measured tile diameter");
+      diam.push_back(*grid.members[static_cast<std::size_t>(l)].diameter);
+    }
+    const double d = q.hi * nxr::quantity::unit_factor(q.unit, unit);          // the coarsest level whose MEASURED mean tile diameter is at most it
+    const auto r = ns::level_of_diameter(diam, d, unit);
+    snapped = Json{{"diameter", r.snapped}, {"unit", r.unit.empty() ? unit : r.unit}};
     return r.level;
   } catch (const std::invalid_argument& e) { refuse(who + ": " + finest.get<std::string>() + ": " + e.what()); }
+}
+
+Json ladder_dictionary(const nxr::selection::Selection& grid) {
+  Json d = Json::array();
+  for (std::size_t l = 0; l < grid.members.size(); ++l) {
+    Json e = Json{{"level", static_cast<int>(l)}};
+    if (grid.members[l].diameter) e["diameter"] = *grid.members[l].diameter;
+    if (grid.members[l].tile_area) e["tile_area"] = *grid.members[l].tile_area;
+    if (grid.members[l].band) { e["lambda_min"] = grid.members[l].band->first; e["lambda_max"] = grid.members[l].band->second; }
+    d.push_back(e);
+  }
+  return d;
+}
+nxr::selection::Selection grid_of_dictionary(const Json& dictionary) {
+  nxr::selection::Selection grid;
+  grid.type = nxr::selection::Type::set;
+  if (!dictionary.is_array()) return grid;
+  for (const auto& e : dictionary) {
+    nxr::selection::Selection level;
+    if (e.contains("diameter")) level.diameter = e["diameter"].get<double>();
+    if (e.contains("tile_area")) level.tile_area = e["tile_area"].get<double>();
+    if (e.contains("lambda_min")) level.band = std::make_pair(e["lambda_min"].get<double>(), e["lambda_max"].get<double>());
+    grid.members.push_back(std::move(level));
+  }
+  return grid;
+}
+namespace {
+nxr::selection::Selection grid_of_ladder_id(const Bound& bound, const std::string& ladder_id) {
+  nxr::selection::Selection grid;                                           // the grid's levels with their measured diameters and bands, from the ladder's level records (no codes needed)
+  grid.type = nxr::selection::Type::set;
+  for (const auto& m : bound.level_members(ladder_id)) {
+    const Json lj = Json::parse(nxr::io::opt_text(m, "params_json").value_or("{}"), nullptr, false);
+    nxr::selection::Selection level;
+    if (lj.is_object() && lj.contains("diameter")) level.diameter = lj["diameter"].get<double>();
+    if (lj.is_object() && lj.contains("lambda_min")) level.band = std::make_pair(lj["lambda_min"].get<double>(), lj["lambda_max"].get<double>());
+    grid.members.push_back(std::move(level));
+  }
+  return grid;
+}
+}  // namespace
+
+nxr::selection::Selection ladder_grid(const Bound& bound, const Value& tiles, std::string* unit) {
+  need(tiles.row.has_value(), "the tile ladder is not stored (`select_dyadic_surface` first)");
+  if (unit) *unit = nxr::io::opt_text(*tiles.row, "unit").value_or(std::string()).empty() ? std::string("m") : nxr::io::text(*tiles.row, "unit");
+  return grid_of_ladder_id(bound, nxr::io::text(*tiles.row, "id"));
+}
+int level_of_surface(const Bound& bound, const SurfaceInput& surface, const Json& quantity, const std::string& who, Json* snapped) {
+  const SurfaceLevel L0 = bound.surface_level(surface, 0);                  // the surface's tile ladder (refused by name when there is none)
+  const std::string unit = L0.ladder.params.is_object() ? L0.ladder.params.value("length_unit", std::string("m")) : std::string("m");
+  const nxr::selection::Selection grid = grid_of_ladder_id(bound, L0.ladder.id);
+  Json sn = Json::object();
+  const int l = level_of_quantity(grid, quantity, unit, who, sn);
+  need(l >= 0 && l < static_cast<int>(grid.members.size()), who + ": " + quantity.dump() + " is level " + std::to_string(l) + "; the tile ladder of " + surface.name + " has levels 0 .. " + std::to_string(static_cast<int>(grid.members.size()) - 1));
+  if (snapped) *snapped = sn;
+  return l;
+}
+int level_of_ladder(const Bound& bound, const Value& tiles, const Json& quantity, const std::string& who, Json* snapped) {
+  std::string unit;
+  const nxr::selection::Selection grid = ladder_grid(bound, tiles, &unit);
+  Json sn = Json::object();
+  const int l = level_of_quantity(grid, quantity, unit, who, sn);
+  need(l >= 0 && l < static_cast<int>(grid.members.size()), who + ": " + quantity.dump() + " is level " + std::to_string(l) + "; the tile ladder has levels 0 .. " + std::to_string(static_cast<int>(grid.members.size()) - 1));
+  if (snapped) *snapped = sn;
+  return l;
+}
+int level_among(const Json& dictionary, const std::string& unit, const Json& quantity, const std::vector<int>& held, const std::string& who, Json& snapped) {
+  need(dictionary.is_array() && !dictionary.empty(), who + ": the field records no level dictionary of its ladder (it is not a field of `apply_kernel` with a spatial scale)");
+  const int l = level_of_quantity(grid_of_dictionary(dictionary), quantity, unit, who, snapped);
+  if (std::find(held.begin(), held.end(), l) == held.end()) {
+    std::string have;
+    for (const int h : held) have += (have.empty() ? "" : ", ") + std::to_string(h);
+    refuse(who + ": " + quantity.dump() + " is level " + std::to_string(l) + " of the ladder; the field holds levels " + have + " (the scales it was made with)");
+  }
+  return l;
 }
 
 void register_select_nodes() {

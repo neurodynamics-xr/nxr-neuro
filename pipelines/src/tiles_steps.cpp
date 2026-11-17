@@ -26,7 +26,6 @@
 #include "nxr/ladder.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/pipelines/select_nodes.h"
-#include "nxr/pipelines/tiles.h"
 #include "nxr/quantity.h"
 #include "nxr/selection/grid.h"
 #include "nxr/selection/partition.h"
@@ -66,8 +65,29 @@ std::string tiles_name(const std::string& surface, int l) { return surface + " t
 struct TileGridState {
   std::string surface, tree;
   Json finest;                                  // the finest tile as a quantity (null: the finest every piece reaches; the group grid names it)
-  GroupTreeOptions group;
+  std::string resolution = "fsaverage5";        // rule group: recorded in the atlas definitions
+  Json atlas_finest;                            // rule group: the finest tile of the dataset's atlases as a quantity (null: the grid's finest)
+  double frames_per_cycle = 0;                  // rule group: the default frame density recorded in the atlas definitions (PI rule 34: an option, written by the definition)
 };
+// THE ATLAS DEFINITIONS of the group tree (D131): what the dataset's atlases and group analyses default to. Every scale is a quantity resolved in closed form (the atlas's leaf level is `atlas_depth`, the SNAPPED level of
+// `atlas_finest`); the frame density is frames per cycle of a band's centre (36: the 10 degree step of phase work), no tower and no day-anchored frame level.
+Json group_tree_definitions(const std::string& resolution, int atlas_depth, const Json& atlas_snapped, double frames_per_cycle) {
+  Json bands = Json::array();
+  for (int b = 0; b < 6; ++b) bands.push_back(Json::array({1.0 * (1 << b), 2.0 * (1 << b)}));   // nxr's DEFAULT_BANDS: octaves 1-2 ... 32-64 Hz
+  return Json{{"default", true}, {"tree", "group"}, {"depth", atlas_depth}, {"atlas_finest", atlas_snapped}, {"resolution", resolution}, {"frames_per_cycle", frames_per_cycle}, {"bands_hz", bands}};
+}
+// "36 frames/cycle" (or a bare 36) as the number of frames to a cycle
+double frames_per_cycle_of(const Json& j) {
+  need(j.is_string() || j.is_number(), "tiles: frame_rate is a frame density (\"36 frames/cycle\")");
+  if (j.is_number()) return j.get<double>();
+  const std::string t = j.get<std::string>();
+  std::size_t used = 0;
+  double v = 0;
+  try { v = std::stod(t, &used); } catch (const std::exception&) { refuse("tiles: frame_rate " + j.dump() + ": a number of frames to a cycle (\"36 frames/cycle\")"); }
+  const std::string rest = t.substr(used);
+  need(rest.find("frames/cycle") != std::string::npos && v >= 1, "tiles: frame_rate " + j.dump() + ": a number of frames to a cycle, at least 1 (\"36 frames/cycle\")");
+  return v;
+}
 
 StepSpec tile_grid_step() {
   StepSpec s;
@@ -75,13 +95,13 @@ StepSpec tile_grid_step() {
   s.kind = "setup";
   s.inputs = {"surface"};
   s.outputs = {"tiles"};
-  s.parameters = Json{{"finest", nullptr}, {"tree", "subject"}, {"resolution", "fsaverage5"}, {"frame_level", -18}};
+  s.parameters = Json{{"finest", nullptr}, {"tree", "subject"}, {"resolution", "fsaverage5"}, {"atlas_finest", nullptr}, {"frame_rate", nullptr}};
   s.matches = "the Cortical Flow Studio engine/ladder.ts (surfaceLadder, Weyl pairing); nxr geom.ladder / geom.trees.subject_tree; Rheome +geom/surfaceladder.m";
   s.description =
       "The dyadic equal-area tiles of a surface as ONE grid with levels: each tile is halved by equal mass across its geodesic diameter, every tile one piece; level l has 2^l tiles a piece, paired with the "
       "band it adds by Weyl's law. The member number is the finest tile code h 2^D + t (h the connected piece), level l's member that code >> (D - l): the hierarchy is a rule, nothing per level is held. "
       "finest: the finest tile as a QUANTITY (a tile diameter in mm, an area in mm2, a wavelength, or parts per hemisphere), resolved to the depth through the grid's measured level diameters "
-      "(default for the subject's own grid: the finest every piece reaches). tree group (the default subject's only): the grid also carries the dataset's atlas definitions (resolution, frame_level; "
+      "(default for the subject's own grid: the finest every piece reaches). tree group (the default subject's only): the grid also carries the dataset's atlas definitions (resolution, atlas_finest, frame_rate; "
       "its leaf depth is the finest, which the group grid must name).";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the surface: positions as stored, double");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
@@ -102,9 +122,10 @@ StepSpec tile_grid_step() {
     st.finest = p["finest"];
     if (st.tree == "group") {
       need(ctx.bound.subject_kind() == "template", "the group tree is the default subject's (a template), not a " + ctx.bound.subject_kind() + "'s");
-      st.group.resolution = p.value("resolution", std::string("fsaverage5"));
-      st.group.frame_level = p.value("frame_level", -18);
-      st.group.lc_levels.clear();                                          // the connection is a measurement over a level x level product, not part of the grid
+      st.resolution = p.value("resolution", std::string("fsaverage5"));
+      st.atlas_finest = p["atlas_finest"].is_null() ? p["finest"] : p["atlas_finest"];
+      need(p["frame_rate"].is_string() || p["frame_rate"].is_number(), "tiles: the group tree states its default frame density (frame_rate: \"36 frames/cycle\"); the definition writes it, the node has none");
+      st.frames_per_cycle = frames_per_cycle_of(p["frame_rate"]);
     }
     return std::any(std::move(st));
   };
@@ -135,8 +156,6 @@ StepSpec tile_grid_step() {
     const std::vector<double> area = lad::vertexAreas(whole);
     double total = 0;
     for (const double a : area) total += a;
-    GroupTreeOptions group = st.group;
-    if (st.tree == "group") group.atlas_depth = D;                          // the group tree's leaf depth IS the stated finest tile
     if (ctx.say) ctx.say(Json{{"stage", "ladder"}, {"surface", st.surface}, {"pieces", pieces}, {"slots", slots}, {"depth", D}});
 
     // the dictionary of the levels: one entry per level, code = the level, measurement = the level's wavelength
@@ -147,7 +166,12 @@ StepSpec tile_grid_step() {
       ladder_entries.push_back(Json{{"code", l}, {"name", l == 0 ? std::string("the whole surface") : std::to_string(tiles) + " tiles"}, {"measurement", lj["wavelength_m"]}, {"measurement_unit", "m"}, {"attributes", lj}});
     }
     Json atlas;
-    if (st.tree == "group") atlas = group_tree_definitions(group);
+    if (st.tree == "group") {
+      Json atlas_snapped = Json::object();
+      const int atlas_depth = st.atlas_finest.is_string() ? level_of_quantity(grid, st.atlas_finest, unit, "tiles", atlas_snapped) : D;   // the atlas's leaf level IS the stated finest tile, resolved
+      need(atlas_depth >= 0 && atlas_depth <= D, "tiles: atlas_finest is level " + std::to_string(atlas_depth) + "; the grid reaches level " + std::to_string(D));
+      atlas = group_tree_definitions(st.resolution, atlas_depth, atlas_snapped, st.frames_per_cycle);
+    }
 
     Json levels = Json::array();
     std::vector<std::vector<std::int32_t>> per_level;

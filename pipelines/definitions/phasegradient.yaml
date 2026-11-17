@@ -22,7 +22,7 @@ parameters:
   band: {default: null, meaning: "the band of the cross-spectrum (its name); null: its one band", unit: "-"}
   kernel: {default: none, meaning: "the free-orientation inverse kernel's name, or none: the subject's one inverse kernel", unit: "-"}
   finest: {default: "parts 16", meaning: "the leaves measured, as a quantity: a tile diameter (mm), a tile area (mm2) or parts per hemisphere (the level is resolved in closed form and recorded with the snapped quantity)", unit: mm, chart: diameter}
-  signal: {default: normal, meaning: "normal = the current along the surface's normal | ambient = each of its x y z components", unit: "-", choices: [normal, ambient]}
+  signal: {default: null, meaning: "NO DEFAULT (an orientation prior is never a default): the caller states it. normal = the current along the surface's normal | ambient = each of its x y z components", unit: "-", choices: [normal, ambient]}
   name: {default: "{cross_spectrum}_{kernel}_phasegradient_{band}", meaning: "the name of the field the measurements are of", unit: "-"}
 
 steps:

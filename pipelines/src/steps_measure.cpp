@@ -18,6 +18,9 @@
 #include "nxr/io/finder.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/registry.h"
+#include "nxr/pipelines/select_nodes.h"
+#include "nxr/quantity.h"
+#include "nxr/selection/grid.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/scale.h"
 
@@ -69,21 +72,18 @@ StepSpec scale_selection_step() {
   s.kind = "setup";
   s.inputs = {"recording"};
   s.outputs = {"events", "scale", "links"};
-  s.parameters = Json{{"space_levels", nullptr}, {"time_levels", nullptr}, {"source", "cortical_event_pairs"}, {"response", "peak"}, {"min_link", 1}, {"surface", nullptr}};
+  s.parameters = Json{{"spatial_scales", nullptr}, {"bands", nullptr}, {"source", "cortical_event_pairs"}, {"response", "peak"}, {"min_link", 1}, {"surface", nullptr}};
   s.matches = "Rheome detect.blobscale (the scale of the largest normalised response); compute nxr::scale::selectScale, nxr::extent::standardize";
   s.description = "each event's own size and rhythm across the product of two lists of levels, from the stored cells, baselines and labellings of the pairs: the cross-pair events, each one's footprint and best pair";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored cells");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     const Value& rec = ins.at("recording");
     need(rec.cls == "field" && rec.row && rec.time && rec.rate > 0, "scaleselection: the recording has no time line");
-    need(p["space_levels"].is_array() && !p["space_levels"].empty(), "scaleselection: space_levels lists the surface ladder's levels (e.g. [4, 5])");
-    need(p["time_levels"].is_array() && !p["time_levels"].empty(), "scaleselection: time_levels lists the recording's constant-Q levels (the pair set is the product of the two lists)");
-    for (const char* key : {"space_levels", "time_levels"}) {
-      std::set<int> seen;
-      for (const auto& x : p[key]) {
-        need(x.is_number_integer() && x.get<int>() >= 0, "scaleselection: levels are 0, 1, 2, \xe2\x80\xa6");
-        need(seen.insert(x.get<int>()).second, "scaleselection: level " + std::to_string(x.get<int>()) + " is listed twice");
-      }
+    for (const char* key : {"spatial_scales", "bands"}) {
+      need(p[key].is_array() && !p[key].empty() && std::all_of(p[key].begin(), p[key].end(), [](const Json& e) { return e.is_string(); }),
+           std::string("scaleselection: ") + key + " is a list of quantities (" + (std::string(key) == "bands" ? "bands \"8-12 Hz\"" : "tile diameters \"20 mm\", \"parts 16\", wavelengths") + "); the pair set is the product of the two lists; a bare level index is never a parameter");
+      std::set<std::string> seen;
+      for (const auto& x : p[key]) need(seen.insert(x.get<std::string>()).second, "scaleselection: " + x.dump() + " is listed twice");
     }
     try { (void)nxr::scale::parseResponse(p["response"].get<std::string>()); } catch (const std::invalid_argument& e) { refuse(std::string("scaleselection: ") + e.what()); }
     need(p["min_link"].is_number_integer() && p["min_link"].get<int>() >= 1, "scaleselection: min_link is at least 1");
@@ -98,9 +98,17 @@ StepSpec scale_selection_step() {
     auto st = std::make_shared<ScaleState>();
     st->recording = ins.at("recording");
     st->p = p;
+    // the levels are RESOLVED from the quantities (compute's level_of_*, time_level_of_band): the space levels on the surface's tile ladder, the time levels from the bands' centres on the recording's rate
     std::vector<int> sl, tl;
-    for (const auto& x : p["space_levels"]) sl.push_back(x.get<int>());
-    for (const auto& x : p["time_levels"]) tl.push_back(x.get<int>());
+    {
+      const SurfaceInput S0 = ctx.bound.surface(p["surface"].is_string() ? std::optional<std::string>(p["surface"].get<std::string>()) : std::nullopt, true);
+      for (const auto& q : p["spatial_scales"]) sl.push_back(level_of_surface(ctx.bound, S0, q, "scaleselection"));
+      for (const auto& q : p["bands"]) {
+        const nxr::quantity::Quantity bq = nxr::quantity::parse(q.get<std::string>());
+        need(bq.unit == "Hz", "scaleselection: band " + q.dump() + " is in Hz");
+        tl.push_back(nxr::selection::time_level_of_band(bq.lo, bq.hi, st->recording.rate, nxr::selection::kJointCycles));
+      }
+    }
     st->in = ctx.bound.scale_inputs(text(*st->recording.row, "id"), text(*st->recording.row, "name"), sl, tl, p["source"].get<std::string>(),
                                     p["surface"].is_string() ? std::optional<std::string>(p["surface"].get<std::string>()) : std::nullopt);
     return std::any(st);

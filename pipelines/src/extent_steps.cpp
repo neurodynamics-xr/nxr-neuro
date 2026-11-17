@@ -1,6 +1,5 @@
-// nxr-pipelines — the registered steps of the WHERE of a global burst (spec docs/specs/2026-11-13-cortical-events.md, phase 2b): `cell_extent` (the events of each burst on the joint cells) and `extent_measure`
-// (each event's measures by the exact roll-up of its cells). Both are `after` steps on arrays; the maths is nxr::extent (compute/), the runner binds and stores.
-#include <algorithm>
+// nxr-pipelines — the registered step of the WHERE of a global burst (spec docs/specs/2026-11-13-cortical-events.md, phase 2b): `cell_extent` (the events of each burst on the joint cells), an `after` step on arrays;
+// the events' measures are `reduce.members`, a merge of their cells' ingredients. The maths is nxr::extent (compute/), the runner binds and stores.
 #include <cmath>
 #include <limits>
 #include <memory>
@@ -52,11 +51,6 @@ nxr::extent::Labels labels_of(const Array& a) {
   for (std::int64_t r = 0; r < a.rows; ++r) for (std::int64_t c = 0; c < a.cols; ++c) L(r, c) = static_cast<std::int32_t>(a.data[static_cast<std::size_t>(r * a.cols + c)]);
   return L;
 }
-Eigen::VectorXd samples_of(const Json& counts, std::int64_t T) {
-  Eigen::VectorXd s = Eigen::VectorXd::Zero(T);
-  for (const auto& c : counts) { const auto t = c[0].get<std::int64_t>(); if (t >= 0 && t < T) s(t) = c[1].get<double>(); }
-  return s;
-}
 int summary_index(const Json& summaries, const char* name) {
   for (std::size_t k = 0; k < summaries.size(); ++k) if (summaries[k]["name"] == name) return static_cast<int>(k);
   return -1;
@@ -101,54 +95,6 @@ void add_extent_steps(std::vector<StepSpec>& r) {
                  y.unit.reset();
                  y.facts = Json{{"cells", x.facts["over"]}, {"extent", p}, {"groups", ev.facts["reduced"]["groups"]}};
                  return Values{{"labels", y}};
-               }});
-  r.push_back({"extent_measure", "after", {"labels", "x"}, {"x"}, {"y"}, Json{{"measure", nullptr}, {"per", "event"}},
-               "docs/specs/2026-11-13-cortical-events.md, Phase 2b; compute nxr::extent (rollup, areaByFrame, centres, pathLength): the registry's reductions over the labelling's members (sum, mean, max), the centre a place",
-               "a measure of each event of a labelling of the joint cells, by the exact roll-up of its cells. per event: n_cells, n_tiles (distinct spatial tiles), area (their union, m2), amplitude (the area- and sample-weighted mean "
-               "of the cells' amplitude), envelope_max (the largest cell peak), first_tile, last_tile, duration (s), burst_ordinal, path_length (the chord of the centres' path, m). per time_tile (rows = the events, members = "
-               "the time level's tiles; NaN where the event has no cell): area (m2) and centre_vertex",
-               [](const Values& ins, const Json& p, const PlanContext& c) {
-                 const Value& lb = ins.at("labels");
-                 need(lb.cls == "labelling" && lb.facts.contains("cells"), "extent_measure: labels must be the labelling `cell_extent` made");
-                 need(p["measure"].is_string(), "extent_measure: measure is one of the event measures (n_cells, n_tiles, area, amplitude, envelope_max, first_tile, last_tile, duration, burst_ordinal, path_length) or, per time_tile, area or centre_vertex");
-                 const std::string m = p["measure"].get<std::string>(), per = p["per"].is_string() ? p["per"].get<std::string>() : std::string();
-                 need(per == "event" || per == "time_tile", "extent_measure: per " + p["per"].dump() + ": event or time_tile");
-                 static const char* ev_measures[] = {"n_cells", "n_tiles", "area", "amplitude", "envelope_max", "first_tile", "last_tile", "duration", "burst_ordinal", "path_length"};
-                 bool known = false;
-                 if (per == "event") for (const char* k : ev_measures) known = known || m == k;
-                 else known = m == "area" || m == "centre_vertex";
-                 need(known, "extent_measure: measure " + p["measure"].dump() + " per " + per + (per == "event" ? ": n_cells, n_tiles, area, amplitude, envelope_max, first_tile, last_tile, duration, burst_ordinal or path_length" : ": area or centre_vertex"));
-                 if (per == "event" && (m == "amplitude" || m == "envelope_max")) {
-                   need(ins.count("x") != 0, "extent_measure: " + m + " rolls up the cells' " + (m == "amplitude" ? "amplitude" : "envelope_max") + ": give x (the measurement over the same joint partition)");
-                   const Value& x = ins.at("x");
-                   need(x.cls == "measurement" && x.facts.contains("over") && x.facts["over"].value("joint", false) && x.facts["over"].value("selection_id", std::string("a")) == lb.facts["cells"].value("selection_id", std::string("b")) &&
-                        x.facts.value("measure", std::string()) == (m == "amplitude" ? "amplitude" : "envelope_max"),
-                        "extent_measure: x must be the `" + std::string(m == "amplitude" ? "amplitude" : "envelope_max") + "` over the labelling's joint partition");
-                 }
-                 Value y = made(lb);
-                 y.cls = "measurement";
-                 y.chunked = false;
-                 y.facts = Json::object();
-                 y.facts["measure"] = m;
-                 y.unit.reset();
-                 if (m == "area") y.unit = "m\xc2\xb2";
-                 if (m == "path_length") y.unit = "m";
-                 if (m == "duration") y.unit = "s";
-                 if (per == "event") {
-                   y.facts["over"] = Json{{"events", true}, {"events_of", "labelling"}, {"selection", "the events of this run"}, {"tile_level", lb.facts["cells"]}};
-                 } else {
-                   const auto jrow = c.bound.selection(lb.facts["cells"]["selection_id"].get<std::string>());
-                   const Json j = Json::parse(nxr::io::text(*jrow, "params_json"))["joint"];
-                   const auto tl = c.bound.selection(j["time"].get<std::string>());
-                   need(tl.has_value(), "extent_measure: the joint partition's time level is not among the subject's rows");
-                   Json over = lb.facts["cells"];
-                   for (const char* k : {"joint", "space_level", "space_tiles"}) over.erase(k);
-                   over["selection_id"] = nxr::io::text(*tl, "id"); over["selection"] = nxr::io::text(*tl, "name");
-                   over["rows"] = "the events of the labelling"; over["rows_events_of"] = "labelling";
-                   y.facts["over"] = over;
-                 }
-                 y.facts["per"] = per;
-                 return Values{{"y", y}};
                }});
 
   // ── execution ──
@@ -203,10 +149,19 @@ void add_extent_steps(std::vector<StepSpec>& r) {
       bursts.push_back(Json{{"burst", b}, {"row", row}, {"first_tile", first}, {"stop_tile", stop}, {"events", evs}});
     }
     for (int s = 0; s < S; ++s) for (int f = 0; f < T; ++f) out.data[static_cast<std::size_t>(s) * static_cast<std::size_t>(T) + static_cast<std::size_t>(f)] = lab(s, f);
-    const auto ru = nxr::extent::rollup(lab, next, g.tile_area, samples_of(x.meta["counts"], T), nullptr, nullptr);
+    // each event's extent in time tiles and its number of cells, counted from the labelling (the measures over its cells are `reduce.members`, a merge of the cells' ingredients: never a bespoke roll-up here)
+    std::vector<std::int64_t> first_tile(static_cast<std::size_t>(next), T), last_tile(static_cast<std::size_t>(next), -1), n_cells(static_cast<std::size_t>(next), 0);
+    for (int s = 0; s < S; ++s)
+      for (int f = 0; f < T; ++f) {
+        const std::int32_t k = lab(s, f);
+        if (k < 0) continue;
+        first_tile[static_cast<std::size_t>(k)] = std::min<std::int64_t>(first_tile[static_cast<std::size_t>(k)], f);
+        last_tile[static_cast<std::size_t>(k)] = std::max<std::int64_t>(last_tile[static_cast<std::size_t>(k)], f);
+        ++n_cells[static_cast<std::size_t>(k)];
+      }
     Json list = Json::array();
     for (std::int32_t k = 0; k < next; ++k)
-      list.push_back(Json{{"ordinal", k}, {"burst", burst_of[static_cast<std::size_t>(k)]}, {"row", row_of[static_cast<std::size_t>(k)]}, {"first_tile", ru.first(k)}, {"last_tile", ru.last(k)}, {"n_cells", ru.cells(k)}});
+      list.push_back(Json{{"ordinal", k}, {"burst", burst_of[static_cast<std::size_t>(k)]}, {"row", row_of[static_cast<std::size_t>(k)]}, {"first_tile", first_tile[static_cast<std::size_t>(k)]}, {"last_tile", last_tile[static_cast<std::size_t>(k)]}, {"n_cells", n_cells[static_cast<std::size_t>(k)]}});
     const int bits = nxr::extent::bitsFor(T);
     out.meta = Json{{"events", static_cast<std::int64_t>(next)}, {"bursts", bursts}, {"event_list", list}, {"cells", x.meta}, {"bursts_tiles_of", ev.meta["tiles_of"]}, {"groups", st.groups},
                     {"space_level", l}, {"tiles", S}, {"frames", T}, {"bits", bits}, {"layout", "[spatial tile x time tile]; code = (tile << bits) | time tile"},
@@ -219,76 +174,6 @@ void add_extent_steps(std::vector<StepSpec>& r) {
     return Arrays{{"labels", std::move(out)}};
   };
 
-  StepSpec& em = at("extent_measure");
-  em.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64,
-                          "rolls the cells of each labelled event up exactly; the unit is the event", "the event's own cells, from its first to its last time tile (variable length)");
-  em.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
-    ExtentState st;
-    st.p = p;
-    st.g = std::make_shared<Geometry>(load_geometry(c, ins.at("labels").facts["cells"]["selection_id"].get<std::string>()));
-    return std::any(std::move(st));
-  };
-  em.run = [](const std::any& st_, const Arrays& ins, ExecContext&) {
-    const ExtentState& st = std::any_cast<const ExtentState&>(st_);
-    const Geometry& g = *st.g;
-    const Array& lb = ins.at("labels");
-    const std::string m = st.p["measure"].get<std::string>(), per = st.p["per"].get<std::string>();
-    const int S = static_cast<int>(lb.rows), T = static_cast<int>(lb.cols), E = lb.meta["events"].get<int>();
-    const nxr::extent::Labels lab = labels_of(lb);
-    const Json& cells = lb.meta["cells"];
-    const Eigen::VectorXd samples = samples_of(cells["counts"], T);
-    const double width_s = cells.value("width_s", 0.0), origin = cells.value("origin", 0.0);
-    const std::int64_t W = cells.value("window_samples", std::int64_t(0));
-    if (per == "time_tile") {
-      Array y{E, E == 0 ? 0 : T, std::vector<double>(static_cast<std::size_t>(E) * static_cast<std::size_t>(T), kNaN)};
-      if (E > 0) {
-        if (m == "area") { const Eigen::MatrixXd a = nxr::extent::areaByFrame(lab, E, g.tile_area); for (int e = 0; e < E; ++e) for (int f = 0; f < T; ++f) y.data[static_cast<std::size_t>(e) * static_cast<std::size_t>(T) + static_cast<std::size_t>(f)] = a(e, f); }
-        else {
-          const auto C = nxr::extent::centres(lab, E, g.level.tile, g.surface.vertices, g.vertex_area);
-          for (int e = 0; e < E; ++e) for (int f = 0; f < T; ++f) if (C(e, f) >= 0) y.data[static_cast<std::size_t>(e) * static_cast<std::size_t>(T) + static_cast<std::size_t>(f)] = C(e, f);
-        }
-      }
-      Json meta = cells;
-      meta["measure"] = m; meta["rows_are"] = "the events of the labelling (ordinal order)"; meta["time_tile_of"] = "the events' labelling";
-      for (const char* k : {"joint", "space_tiles"}) meta.erase(k);
-      y.meta = meta;
-      return Arrays{{"y", std::move(y)}};
-    }
-    Array y{1, E, std::vector<double>(static_cast<std::size_t>(E), kNaN)};
-    const nxr::extent::Rollup* ru = nullptr;
-    nxr::extent::Rollup rollup;
-    Eigen::MatrixXd amp, peak;
-    if (m == "amplitude") amp = matrix_of(ins.at("x"));
-    if (m == "envelope_max") peak = matrix_of(ins.at("x"));
-    rollup = nxr::extent::rollup(lab, E, g.tile_area, samples, m == "amplitude" ? &amp : nullptr, m == "envelope_max" ? &peak : nullptr);
-    ru = &rollup;
-    Eigen::VectorXd path;
-    if (m == "path_length") path = nxr::extent::pathLength(nxr::extent::centres(lab, E, g.level.tile, g.surface.vertices, g.vertex_area), g.surface.vertices);
-    const Eigen::MatrixXd byframe = nxr::extent::areaByFrame(lab, E, g.tile_area);
-    Json counts = Json::array();
-    for (int e = 0; e < E; ++e) {
-      double n = 0;
-      for (int f = 0; f < T; ++f) if (!std::isnan(byframe(e, f))) n += samples(f);
-      counts.push_back(Json::array({e, n}));
-      double v = kNaN;
-      if (m == "n_cells") v = ru->cells(e);
-      else if (m == "n_tiles") v = ru->tiles(e);
-      else if (m == "area") v = ru->area(e);
-      else if (m == "amplitude") v = ru->amplitude(e);
-      else if (m == "envelope_max") v = ru->peak(e);
-      else if (m == "first_tile") v = ru->first(e);
-      else if (m == "last_tile") v = ru->last(e);
-      else if (m == "duration") v = (ru->last(e) - ru->first(e) + 1) * width_s;
-      else if (m == "burst_ordinal") v = lb.meta["event_list"][static_cast<std::size_t>(e)]["burst"].get<double>();
-      else if (m == "path_length") v = path(e);
-      y.data[static_cast<std::size_t>(e)] = v;
-    }
-    (void)S;
-    y.meta = Json{{"measure", m}, {"events", true}, {"events_of", "labelling"}, {"tiles", E}, {"counts", counts}, {"whole_tiles", E}, {"tiles_measured", nullptr}, {"selection", "the events of this run"},
-                  {"window_samples", W}, {"width_s", width_s}, {"origin", origin}, {"tile_level", Json{{"selection_id", cells.value("selection_id", std::string())}, {"selection", cells.value("selection", std::string())}}}};
-    if (m == "path_length") y.meta["path"] = Json{{"between", "the centre vertices of consecutive time tiles"}, {"distance", "straight (chord), the surface's units"}};
-    return Arrays{{"y", std::move(y)}};
-  };
 }
 
 }  // namespace nxr::pipelines::graph
