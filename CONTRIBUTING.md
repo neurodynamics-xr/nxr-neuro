@@ -45,6 +45,8 @@ pipeline, and do not extend an existing one: it is being converted into a defini
 1. **The maths** goes in `compute/` (or `meeg/`) as pure functions (matrices in, matrices out), with a unit test in `compute/test/test_<topic>.cpp`.
 2. **The node:** register each function as a node with its typed ports, its parameters (one comment each: meaning, default, unit) and its traits
    (time behaviour, precision). It takes arrays and parameters only: no database, no file, no lookup of its own inputs (those are bound by the runner).
+   A constant it needs beyond its inputs (a surface, a stored statistic, a manifold's type) is asked of `Bound` (`pipelines/include/nxr/pipelines/bound.h`), which the
+   runner implements: a node file includes no io header and holds no subject (the test `layering_nodes_without_io` fails otherwise).
    A node made of other nodes is a composite (a graph wrapped as a node).
 3. **The pipeline:** a definition in `pipelines/definitions/<name>.yaml`: inputs (found by kind and relation, never by path), parameters (meaning,
    default, unit), steps wired port to port, outputs. Stored names and kinds follow the way the importer or nxr stores the same thing.

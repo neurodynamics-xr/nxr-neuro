@@ -6,7 +6,6 @@
 #include <memory>
 
 #include "nxr/extent.h"
-#include "nxr/io/errors.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/registry.h"
@@ -30,11 +29,11 @@ struct Geometry {
 };
 Geometry load_geometry(ExecContext& c, const std::string& joint_selection_id) {
   Geometry g;
-  const auto row = c.sub.db().read("selection", joint_selection_id);
+  const auto row = c.bound.selection(joint_selection_id);
   need(row.has_value(), "the joint partition is not among the subject's rows");
   g.joint = Json::parse(nxr::io::text(*row, "params_json"))["joint"];
-  g.surface = nxr::pipelines::read_surface(c.sub, g.joint["surface"].get<std::string>(), true);
-  g.level = nxr::pipelines::read_surface_level(c.sub, g.surface, g.joint["space_level"].get<int>());
+  g.surface = c.bound.surface(g.joint["surface"].get<std::string>(), true);
+  g.level = c.bound.surface_level(g.surface, g.joint["space_level"].get<int>());
   if (g.level.nodes != g.joint["tiles"].get<std::int64_t>()) refuse("the joint partition records " + g.joint["tiles"].dump() + " tiles, level " + std::to_string(g.level.l) + " of " + g.surface.name + " has " + std::to_string(g.level.nodes));
   nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(g.surface.n_vertices()); mesh.positions = g.surface.vertices; mesh.faces = g.surface.faces;
   g.vertex_area = nxr::ladder::vertexAreas(mesh);
@@ -82,7 +81,7 @@ void add_extent_steps(std::vector<StepSpec>& r) {
                  bool med = false, mad = false;
                  for (const auto& n : b.facts["summaries"]) { med = med || n == "median"; mad = mad || n == "mad"; }
                  need(med && mad, "cell_extent: the baseline must hold median and mad");
-                 const auto jrow = c.db.read("selection", jid);
+                 const auto jrow = c.bound.selection(jid);
                  need(jrow.has_value(), "cell_extent: the joint partition is not among the subject's rows");
                  const Json pj = Json::parse(nxr::io::opt_text(*jrow, "params_json").value_or("{}"), nullptr, false);
                  need(pj.is_object() && pj.contains("joint"), "cell_extent: " + nxr::io::text(*jrow, "name") + " records no joint partition");
@@ -138,9 +137,9 @@ void add_extent_steps(std::vector<StepSpec>& r) {
                  if (per == "event") {
                    y.facts["over"] = Json{{"events", true}, {"events_of", "labelling"}, {"selection", "the events of this run"}, {"tile_level", lb.facts["cells"]}};
                  } else {
-                   const auto jrow = c.db.read("selection", lb.facts["cells"]["selection_id"].get<std::string>());
+                   const auto jrow = c.bound.selection(lb.facts["cells"]["selection_id"].get<std::string>());
                    const Json j = Json::parse(nxr::io::text(*jrow, "params_json"))["joint"];
-                   const auto tl = c.db.read("selection", j["time"].get<std::string>());
+                   const auto tl = c.bound.selection(j["time"].get<std::string>());
                    need(tl.has_value(), "extent_measure: the joint partition's time level is not among the subject's rows");
                    Json over = lb.facts["cells"];
                    for (const char* k : {"joint", "space_level", "space_tiles"}) over.erase(k);

@@ -38,7 +38,6 @@
 #include "nxr/forms.h"
 #include "nxr/frame_tiling.h"
 #include "nxr/tower.h"
-#include "nxr/io/array_reader.h"
 #include "nxr/intervals.h"
 #include "nxr/stats.h"
 #include "nxr/partition.h"
@@ -50,7 +49,6 @@
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/taps.h"
-#include "nxr/io/errors.h"
 
 namespace nxr::pipelines::graph {
 
@@ -69,17 +67,17 @@ void need(bool ok, const std::string& msg) { if (!ok) refuse(msg); }
 // THE STORED EVENTS OF A ROLL-UP (maintainers spec docs/specs/2026-11-13-burst-phase-current.md): a spans Selection of this recording's time line (the global bursts `global_bursts` stored), read as the tile events
 // [first, stop) of the tiles x was measured on. A span holds on EVERY row (a global event: it names no channel); one that names a channel is refused (a joint measurement's rows are spatial tiles).
 // The run is refused, naming the span, when the set is of another recording or time line, or a span does not begin and end on a tile edge of x's time level.
-std::vector<nxr::intervals::TileEvent> stored_event_tiles(const nxr::io::Database& db, const Value& ev, const Value& x, const std::string& who) {
+std::vector<nxr::intervals::TileEvent> stored_event_tiles(const Bound& db, const Value& ev, const Value& x, const std::string& who) {
   const nxr::io::Row& sr = *ev.row;
   const std::string sname = nxr::io::text(sr, "name");
   need(ev.manifolds.size() == 1 && x.time && ev.manifolds[0] == *x.time, who + ": the spans " + sname + " are on another time line than x's (" + (x.time ? *x.time : std::string("none")) + "): the events must be of x's own recording");
   const Json& over = x.facts["over"];
   if (over.value("joint", false)) {
-    const auto js = db.read("selection", over["selection_id"].get<std::string>());
+    const auto js = db.selection(over["selection_id"].get<std::string>());
     const Json jp = js ? Json::parse(nxr::io::opt_text(*js, "params_json").value_or("{}"), nullptr, false) : Json();
     const std::string rec = jp.is_object() && jp.contains("joint") ? jp["joint"].value("recording", std::string()) : std::string();
     if (const auto fid = nxr::io::opt_text(sr, "of_field_id")) {
-      const auto f = db.read("field", *fid);
+      const auto f = db.field(*fid);
       need(!f || rec.empty() || nxr::io::text(*f, "name") == rec, who + ": the spans " + sname + " are of recording " + (f ? nxr::io::text(*f, "name") : *fid) + ", x's joint partition is of recording " + rec);
     }
   }
@@ -90,7 +88,7 @@ std::vector<nxr::intervals::TileEvent> stored_event_tiles(const nxr::io::Databas
   const bool channels = params.is_object() && params.contains("channels") && params["channels"].is_object() && !params["channels"].empty();
   need(!channels, who + ": the spans " + sname + " name the channel that found each event (per_hemisphere); a measurement over tiles takes global events only");
   std::vector<nxr::intervals::TileEvent> out;
-  for (const auto& r : db.all("SELECT ordinal, start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {nxr::io::V(nxr::io::text(sr, "id"))})) {
+  for (const auto& r : db.spans(nxr::io::text(sr, "id"))) {
     const double a = (std::stod(nxr::io::text(r, "start")) - origin) / w, b = (std::stod(nxr::io::text(r, "stop")) - origin) / w;
     const std::string which = "span " + nxr::io::text(r, "ordinal") + " [" + nxr::io::text(r, "start") + ", " + nxr::io::text(r, "stop") + ") s of " + sname;
     need(std::abs(a - std::round(a)) <= 1e-3 && std::abs(b - std::round(b)) <= 1e-3, who + ": " + which + " does not snap to the tiles of " + over.value("selection", std::string("x's time level")) + " (tile " + std::to_string(w) + " s from " + std::to_string(origin) + " s)");
@@ -103,8 +101,7 @@ std::vector<nxr::intervals::TileEvent> stored_event_tiles(const nxr::io::Databas
 Value made(const Value& x) { Value v = x; v.row.reset(); return v; }
 bool nonlinear(const Value& x) { return x.facts.value("nonlinear", false); }
 std::string manifold_type(const PlanContext& c, const std::string& id) {
-  const auto m = c.db.one("SELECT type FROM manifold WHERE id = ?", {nxr::io::V(id)});
-  return m ? nxr::io::text(*m, "type") : std::string();
+  return c.bound.manifold_type(id);
 }
 // `frames_ok`: a step that is pointwise in time (a linear map, a form, |x|², a series kept) may read a field on the FRAME TILING (the `frames` step's output); the steps that read the samples' time (a band's taps, a time
 // partition's tiles) refuse it
@@ -131,11 +128,11 @@ void phase_input(const Value& z, const PlanContext& c, const std::string& who) {
 // THE LEVEL OF A BAND (D84, the Studio's measurements.ts: "the level IS the band"): the member of a constant-Q ladder whose `resolves_hz` is the band, its
 // tiling in samples (contiguous from the line's start). A band that is no level's is refused, naming the levels' bands.
 struct TimeLevel { std::string id, name; int level = 0; std::int64_t width = 0, count = 0; Json resolves; };
-TimeLevel level_of_band(const nxr::io::Database& db, const std::string& ladder_id, const Json& band, double rate, double origin) {
+TimeLevel level_of_band(const Bound& db, const std::string& ladder_id, const Json& band, double rate, double origin) {
   need(band.is_array() && band.size() == 2, "measure: the band " + band.dump() + " is [lo, hi]");
   const double lo = band[0].get<double>(), hi = band[1].get<double>();
   std::string have;
-  for (const auto& m : db.all("SELECT id, name, member_ordinal, params_json FROM selection WHERE member_of_id = ? AND status = 'complete' ORDER BY member_ordinal", {nxr::io::V(ladder_id)})) {
+  for (const auto& m : db.level_members(ladder_id)) {
     const Json pj = Json::parse(nxr::io::opt_text(m, "params_json").value_or("{}"), nullptr, false);
     if (!pj.is_object() || !pj.contains("resolves_hz") || !pj.contains("tiling")) continue;
     const double rl = pj["resolves_hz"]["lo"].get<double>(), rh = pj["resolves_hz"]["hi"].get<double>();
@@ -274,11 +271,7 @@ std::vector<StepSpec> build() {
                    if (ins.count("tiles")) {
                      // (one cortex): with the spatial band the form is on EVERY vertex of the GLUED surface (the bridge, the corpus callosum, filled by the band), so the output's surface is the glued one:
                      // the stored `<surface>_glued` of a cortex of two hemispheres; the surface itself for one closed piece. Preparation checks it is the package's.
-                     const auto tm = c.db.one("SELECT name, subject_id FROM manifold WHERE id = ?", {nxr::io::V(k.manifolds[1])});
-                     if (tm) {
-                       const auto gm = c.db.one("SELECT id FROM manifold WHERE subject_id = ? AND name = ? AND type = 'surface'", {nxr::io::V(nxr::io::text(*tm, "subject_id")), nxr::io::V(nxr::io::text(*tm, "name") + "_glued")});
-                       if (gm) y.manifolds[0] = nxr::io::text(*gm, "id");
-                     }
+                     if (const auto gid = c.bound.glued_surface_id(k.manifolds[1])) y.manifolds[0] = *gid;
                      y.facts["glued"] = true;
                    }
                  }
@@ -311,11 +304,7 @@ std::vector<StepSpec> build() {
                    if (!p["levels"].is_null()) { y.facts["spatial_band"]["levels"] = p["levels"]; y.facts["levels"] = p["levels"]; }
                    if (p["glued"].get<bool>() && p["form"] == "none") {
                      //: a free current (no form) evaluated on EVERY vertex of the glued surface too (each component through the band; the bridge carries 0 before it)
-                     const auto tm = c.db.one("SELECT name, subject_id FROM manifold WHERE id = ?", {nxr::io::V(k.manifolds[1])});
-                     if (tm) {
-                       const auto gm = c.db.one("SELECT id FROM manifold WHERE subject_id = ? AND name = ? AND type = 'surface'", {nxr::io::V(nxr::io::text(*tm, "subject_id")), nxr::io::V(nxr::io::text(*tm, "name") + "_glued")});
-                       if (gm) y.manifolds[0] = nxr::io::text(*gm, "id");
-                     }
+                     if (const auto gid = c.bound.glued_surface_id(k.manifolds[1])) y.manifolds[0] = *gid;
                      y.facts["glued"] = true;
                    }
                  }
@@ -381,10 +370,10 @@ std::vector<StepSpec> build() {
                  const std::int64_t S = x.facts["over"]["space_tiles"].get<std::int64_t>(), l = x.facts["over"]["space_level"].get<std::int64_t>();
                  need(S % (std::int64_t(1) << l) == 0, "reduce_cells: " + std::to_string(S) + " tiles are not a whole number of pieces of 2^" + std::to_string(l));
                  if (p["groups"] == "per_hemisphere") need(S >> l == 2, "reduce_cells: per_hemisphere needs a surface of two pieces (the ladder's level has " + std::to_string(S >> l) + ")");
-                 const auto tsel = c.db.read("selection", x.facts["over"]["selection_id"].get<std::string>());
+                 const auto tsel = c.bound.selection(x.facts["over"]["selection_id"].get<std::string>());
                  need(tsel.has_value(), "reduce_cells: the joint partition is not among the subject's rows");
                  const Json j = Json::parse(nxr::io::text(*tsel, "params_json"))["joint"];
-                 const auto tl = c.db.read("selection", j["time"].get<std::string>());
+                 const auto tl = c.bound.selection(j["time"].get<std::string>());
                  need(tl.has_value(), "reduce_cells: the joint partition's time level is not among the subject's rows");
                  Value y = made(x);
                  Json over = x.facts["over"];
@@ -515,8 +504,8 @@ std::vector<StepSpec> build() {
                    else need(mk == "magnitude", "measure: " + jm + " over a joint cell is taken of |z| per vertex (`magnitude`); x was made by " + mk);
                    need(manifold_type(c, x.manifolds[0]) == "surface", "measure: over a joint cell x's first factor must be a surface");
                    need(x.facts.contains("band") && x.facts.contains("spatial_band"), "measure: x carries a time band and a spatial band (`analytic` with a band, `apply_kernel` with `tiles` and `level`): the pair of levels the joint partition names");
-                   const auto tl = c.db.read("selection", j["time"].get<std::string>());
-                   const auto sl = c.db.read("selection", j["space"].get<std::string>());
+                   const auto tl = c.bound.selection(j["time"].get<std::string>());
+                   const auto sl = c.bound.selection(j["space"].get<std::string>());
                    need(tl && sl, "measure: the joint partition's levels are not among the subject's rows");
                    need(nxr::io::text(*sl, "manifold_id") == x.manifolds[0], "measure: the joint partition is over another surface than x's");
                    need(j["space_level"].get<int>() == x.facts["spatial_band"]["level"].get<int>(),
@@ -548,7 +537,7 @@ std::vector<StepSpec> build() {
                      need(x.facts.value("made_by", std::string()) == "power" && x.facts.value("of_complex", false),
                           "measure: power is the mean |z|² of a band's analytic signal (`analytic` then `power`)");
                    need(x.facts.contains("band"), "measure: x carries no band (its band_filter, analytic or envelope named none)");
-                   const TimeLevel lv = level_of_band(c.db, nxr::io::text(*ov.row, "id"), x.facts["band"], x.rate, x.origin);
+                   const TimeLevel lv = level_of_band(c.bound, nxr::io::text(*ov.row, "id"), x.facts["band"], x.rate, x.origin);
                    Value y = made(x);
                    y.cls = "measurement";
                    y.manifolds = {*x.time};
@@ -675,7 +664,7 @@ std::vector<StepSpec> build() {
                  const bool stored = ev.cls == "selection";
                  if (stored) {
                    need(ev.row && nxr::io::text(*ev.row, "type") == "spans", "rollup_events: events must be the spans `detect_spans` made or a stored spans Selection (an input `selection: spans`)");
-                   (void)stored_event_tiles(c.db, ev, x, "rollup_events");   // refused here, naming the span, when another recording's or not on the tiles
+                   (void)stored_event_tiles(c.bound, ev, x, "rollup_events");   // refused here, naming the span, when another recording's or not on the tiles
                  } else {
                    need(ev.cls == "spans" && ev.facts.contains("detect") && ev.facts.contains("over"), "rollup_events: events must be the spans `detect_spans` made or a stored spans Selection (an input `selection: spans`)");
                    need(ev.facts["over"].value("selection_id", std::string("a")) == x.facts["over"].value("selection_id", std::string("b")),
@@ -703,29 +692,6 @@ std::vector<StepSpec> build() {
   add_spatial_events_steps(r);
   add_surrogate_steps(r);
   return r;
-}
-
-// a stored node's array (a kernel, a selection's indices) as T: read by name, never a recording (the chunk service's)
-template <class T>
-std::vector<T> read_array(const nxr::io::Store& store, const std::string& key, std::vector<std::int64_t>* shape = nullptr) {
-  nxr::io::ArrayReader a = nxr::io::ArrayReader::open(store, key);
-  if (shape) *shape = a.shape();
-  const auto raw = a.read();
-  const auto t = a.dtype();
-  const std::size_t n = raw.size() / nxr::io::dtype_size(t);
-  std::vector<T> out(n);
-  auto conv = [&](auto tag) {
-    using S = decltype(tag);
-    for (std::size_t i = 0; i < n; ++i) { S v; std::memcpy(&v, raw.data() + i * sizeof(S), sizeof(S)); out[i] = static_cast<T>(v); }
-  };
-  switch (t) {
-    case nxr::io::DType::Float32: conv(float{}); break;
-    case nxr::io::DType::Float64: conv(double{}); break;
-    case nxr::io::DType::Int32: conv(std::int32_t{}); break;
-    case nxr::io::DType::Int64: conv(std::int64_t{}); break;
-    default: refuse("an array of type " + std::string(nxr::io::dtype_to_string(t)) + " is not read here");
-  }
-  return out;
 }
 
 // ─────────────────────────────────────────── execution: each step's state and its kind's methods ───────────────────────────────────────────
@@ -762,8 +728,8 @@ struct KernelState { std::shared_ptr<const Eigen::MatrixXd> K; Json resolved; };
 int per_vertex(const Value& v) { return v.value_type == "scalar" ? 1 : v.value_type == "quaternion" ? 4 : v.value_type == "monogenic" ? 4 * v.facts["monogenic"]["components"].get<int>() : 3; }
 // the surface a field lies on (its first factor), as the Studio's face-gradient operator (positions float32, as the GPU receives them)
 std::shared_ptr<nxr::forms::FaceGradientOperator> surface_operator(ExecContext& c, const std::string& manifold_id) {
-  const auto m = c.sub.db().one("SELECT name FROM manifold WHERE id = ?", {nxr::io::V(manifold_id)});
-  const auto S = nxr::pipelines::read_surface(c.sub, m ? std::optional<std::string>(nxr::io::text(*m, "name")) : std::nullopt);
+  const auto m = c.bound.manifold(manifold_id);
+  const auto S = c.bound.surface(m ? std::optional<std::string>(nxr::io::text(*m, "name")) : std::nullopt);
   std::vector<float> P(S.vertices.begin(), S.vertices.end());
   return std::make_shared<nxr::forms::FaceGradientOperator>(nxr::forms::assembleFaceGradient(P.data(), S.faces.data(), static_cast<int>(S.n_vertices()), static_cast<int>(S.n_faces())));
 }
@@ -884,7 +850,7 @@ void bind_execution(std::vector<StepSpec>& r) {
   fr.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     const Value& x = ins.at("x");
     const Json tp = Json::parse(nxr::io::opt_text(*ins.at("tiling").row, "params_json").value_or("{}"), nullptr, false);
-    const auto line = c.sub.db().read("manifold", *x.time);
+    const auto line = c.bound.manifold(*x.time);
     FramesState s;
     try { s.t = nxr::tower::makeFrameTiling(x.rate, nxr::io::integer(*line, "n_vertices"), tp["atlas"]["frame_level"].get<int>(), tp["atlas"]["start_s"].is_null() ? std::optional<double>() : std::optional<double>(tp["atlas"]["start_s"].get<double>())); } catch (const std::invalid_argument& e) { refuse(std::string("frames: ") + e.what()); }
     if (s.t.count != tp["tiling"]["count"].get<std::int64_t>() || s.t.code0 != tp["atlas"]["frame_code0"].get<std::int64_t>()) refuse("frames: the stored tiling's " + tp["tiling"]["count"].dump() + " frames from code " + tp["atlas"]["frame_code0"].dump() + " are not the " + std::to_string(s.t.count) + " from code " + std::to_string(s.t.code0) + " of its recording (a stored tiling of another run): `frames compute --replace`");
@@ -892,7 +858,7 @@ void bind_execution(std::vector<StepSpec>& r) {
     s.H = p["half_width"].get<int>();
     if (ins.count("within")) {
       s.has_within = true;
-      for (const auto& r : c.sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {nxr::io::V(nxr::io::text(*ins.at("within").row, "id"))})) s.within.push_back({std::stod(nxr::io::text(r, "start")), std::stod(nxr::io::text(r, "stop"))});
+      for (const auto& r : c.bound.spans(nxr::io::text(*ins.at("within").row, "id"))) s.within.push_back({std::stod(nxr::io::text(r, "start")), std::stod(nxr::io::text(r, "stop"))});
     }
     return std::any(std::make_shared<FramesState>(std::move(s)));
   };
@@ -942,18 +908,18 @@ void bind_execution(std::vector<StepSpec>& r) {
     const std::string shared_key = "apply_kernel|" + nxr::io::text(k, "id") + "|" + ins.at("x").manifolds[0] + "|" + (ins.count("tiles") ? p.dump() : std::string("none")) + "|" + p["form"].get<std::string>();
     if (const auto it = c.shared.find(shared_key); it != c.shared.end()) return it->second;
     const std::string kname = nxr::io::text(k, "name");
-    const auto m = c.sub.db().one("SELECT n_vertices FROM manifold WHERE id = ?", {nxr::io::V(ins.at("x").manifolds[0])});
+    const auto m = c.bound.manifold(ins.at("x").manifolds[0]);
     const std::int64_t C = m ? nxr::io::integer(*m, "n_vertices") : 0;
     std::vector<std::int32_t> chans;
     if (!nxr::io::is_null(k, "from_selection_id")) {
-      const auto sel = c.sub.db().read("selection", nxr::io::text(k, "from_selection_id"));
+      const auto sel = c.bound.selection(nxr::io::text(k, "from_selection_id"));
       if (!sel || nxr::io::is_null(*sel, "array_path")) refuse("apply_kernel: " + kname + ": its channels (from_selection) are not stored");
-      chans = read_array<std::int32_t>(c.sub.store(), nxr::io::text(*sel, "array_path"));
+      chans = c.bound.array_int32(nxr::io::text(*sel, "array_path"));
     } else {
       for (std::int64_t i = 0; i < C; ++i) chans.push_back(static_cast<std::int32_t>(i));
     }
     std::vector<std::int64_t> shape;
-    const auto kf = read_array<float>(c.sub.store(), nxr::io::text(k, "path"), &shape);
+    const auto kf = c.bound.array_float(nxr::io::text(k, "path"), &shape);
     if (shape.size() != 2 || shape[1] != static_cast<std::int64_t>(chans.size())) refuse("apply_kernel: " + kname + ": its array is not [rows x " + std::to_string(chans.size()) + " channels]");
     auto K = std::make_shared<Eigen::MatrixXd>(Eigen::MatrixXd::Zero(shape[0], C));
     for (std::int64_t i = 0; i < shape[0]; ++i)
@@ -974,8 +940,8 @@ void bind_execution(std::vector<StepSpec>& r) {
     if (ins.count("tiles")) {
       // M = (F_l ⊗ I) K: the level's band applied ONCE to every component of the kernel's rows, on the channels the kernel uses (the rest of K is zero); with `levels`, one such operator a level, stacked
       // (row = (vertex · levels + level) · components + component). MEMORY: the bound K [vertices · levels · components rows × channels] in double, held for the run; one level's [vertices × used channels] block at a time while it is built
-      const auto man = c.sub.db().read("manifold", ins.at("kernel").manifolds[1]);
-      const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(c.sub, nxr::io::text(*man, "name"), true);
+      const auto man = c.bound.manifold(ins.at("kernel").manifolds[1]);
+      const nxr::pipelines::SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);
       const std::int64_t nV = S.n_vertices();
       if (shape[0] % nV != 0) refuse("apply_kernel: " + kname + ": its " + std::to_string(shape[0]) + " rows are not a whole number of components for the " + std::to_string(nV) + " vertices of " + nxr::io::text(*man, "name"));
       const std::int64_t comps = shape[0] / nV;
@@ -986,7 +952,6 @@ void bind_execution(std::vector<StepSpec>& r) {
       const bool form = p["form"] != "none";
       const bool glued = form || p["glued"].get<bool>();         //: a form is evaluated on every glued vertex (the bridge too); a free current may be, by request
       const bool mono = p["envelope"] == "spatiotemporal";
-      if (!c.ds) refuse("apply_kernel: a spatial band is prepared with the dataset (it may store the eigenmodes it computes)");
       const std::shared_ptr<Eigen::MatrixXd> Kraw_p = K;
       const Eigen::MatrixXd& Kraw = *Kraw_p;
       if (form && comps != 1) refuse("apply_kernel: form: the form of " + kname + " has " + std::to_string(comps) + " numbers a vertex; one");
@@ -994,17 +959,17 @@ void bind_execution(std::vector<StepSpec>& r) {
       std::shared_ptr<Eigen::MatrixXd> Kout;
       Json bands = Json::array();
       for (std::int64_t li = 0; li < NL; ++li) {
-        const nxr::pipelines::SurfaceLevel L = nxr::pipelines::read_surface_level(c.sub, S, lvs[static_cast<std::size_t>(li)]);
+        const nxr::pipelines::SurfaceLevel L = c.bound.surface_level(S, lvs[static_cast<std::size_t>(li)]);
         nxr::pipelines::SpatialBandOptions bo;
         bo.transform = p["transform"].get<std::string>(); bo.modes = p["modes"].get<int>(); bo.order = p["order"].get<int>(); bo.tolerance = p["tolerance"].get<double>();
         bo.spatial_shape = p["spatial_shape"].get<std::string>();
         bo.glued = glued;
         bo.riesz = mono;
-        const nxr::pipelines::SpatialBand band = nxr::pipelines::make_spatial_band(*c.ds, c.sub, S, L, bo, c.say);
+        const nxr::pipelines::SpatialBand band = c.bound.make_spatial_band(S, L, bo);
         bands.push_back(band.info);
         std::int64_t rows_v = nV, out_comps = comps;                // the rows a vertex's level holds: its components
         if (glued) {
-          const auto gm = c.sub.db().one("SELECT id, n_vertices FROM manifold WHERE subject_id = ? AND name = ?", {nxr::io::V(c.sub.id()), nxr::io::V(band.glued_surface)});
+          const auto gm = c.bound.manifold_named(band.glued_surface);
           if (!gm) refuse("apply_kernel: glued: the glued surface " + band.glued_surface + " is not stored (`nxr-neuro eigen solve` stores it)");
           if (nxr::io::integer(*gm, "n_vertices") != band.glued_vertices) refuse("apply_kernel: glued: the glued surface " + band.glued_surface + " holds " + std::to_string(nxr::io::integer(*gm, "n_vertices")) + " vertices, the band " + std::to_string(band.glued_vertices));
           rows_v = band.glued_vertices;
@@ -1044,17 +1009,17 @@ void bind_execution(std::vector<StepSpec>& r) {
   };
   ak.record = [](const std::any& st) { return std::any_cast<const KernelState&>(st).resolved; };
   // the spatial band's choice (eigenmodes stored or computable, else the series) enters the run's cache key, read before anything is computed or stored
-  ak.resolve = [](const Values& ins, const Json& p, nxr::io::SubjectWriter& sub) -> Json {
+  ak.resolve = [](const Values& ins, const Json& p, const Bound& bound) -> Json {
     if (!ins.count("tiles")) return nullptr;
-    const auto man = sub.db().read("manifold", ins.at("kernel").manifolds[1]);
-    const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(sub, nxr::io::text(*man, "name"), true);
+    const auto man = bound.manifold(ins.at("kernel").manifolds[1]);
+    const nxr::pipelines::SurfaceInput S = bound.surface(nxr::io::text(*man, "name"), true);
     nxr::pipelines::SpatialBandOptions bo;
     bo.transform = p["transform"].get<std::string>(); bo.modes = p["modes"].get<int>(); bo.order = p["order"].get<int>(); bo.tolerance = p["tolerance"].get<double>();
     bo.spatial_shape = p["spatial_shape"].get<std::string>();
     bo.glued = p["form"] != "none" || p["glued"].get<bool>();
-    if (p["levels"].is_null()) return nxr::pipelines::plan_spatial_band(sub, S, nxr::pipelines::read_surface_level(sub, S, p["level"].get<int>()), bo).key;
+    if (p["levels"].is_null()) return bound.plan_spatial_band(S, bound.surface_level(S, p["level"].get<int>()), bo).key;
     Json keys = Json::array();                                                                  // one choice a level: each level's transform is in the run's key
-    for (const auto& e : p["levels"]) keys.push_back(nxr::pipelines::plan_spatial_band(sub, S, nxr::pipelines::read_surface_level(sub, S, e.get<int>()), bo).key);
+    for (const auto& e : p["levels"]) keys.push_back(bound.plan_spatial_band(S, bound.surface_level(S, e.get<int>()), bo).key);
     return keys;
   };
   ak.chunk = [](const std::any& st, const Blocks& ins, std::int64_t keep) {
@@ -1116,10 +1081,10 @@ void bind_execution(std::vector<StepSpec>& r) {
   StepSpec& tm = at("tile_max");
   tm.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     const Value& x = ins.at("x");
-    const auto man = c.sub.db().read("manifold", x.manifolds[0]);
-    const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(c.sub, nxr::io::text(*man, "name"), true);
+    const auto man = c.bound.manifold(x.manifolds[0]);
+    const nxr::pipelines::SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);
     const int l = p["level"].get<int>();
-    const nxr::pipelines::SurfaceLevel L = nxr::pipelines::read_surface_level(c.sub, S, l);
+    const nxr::pipelines::SurfaceLevel L = c.bound.surface_level(S, l);
     nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
     TileMaxState st;
     st.tile = L.tile; st.area = nxr::ladder::vertexAreas(mesh); st.S = L.nodes;
@@ -1244,9 +1209,9 @@ void bind_execution(std::vector<StepSpec>& r) {
     if (ins.count("over") && nxr::io::text(*ins.at("over").row, "type") == "set") {
       const Value& x = ins.at("x");
       const Json j = Json::parse(nxr::io::text(*ins.at("over").row, "params_json"))["joint"];
-      const auto man = ctx.sub.db().read("manifold", x.manifolds[0]);
-      const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(ctx.sub, nxr::io::text(*man, "name"), true);
-      const nxr::pipelines::SurfaceLevel L = nxr::pipelines::read_surface_level(ctx.sub, S, j["space_level"].get<int>());
+      const auto man = ctx.bound.manifold(x.manifolds[0]);
+      const nxr::pipelines::SurfaceInput S = ctx.bound.surface(nxr::io::text(*man, "name"), true);
+      const nxr::pipelines::SurfaceLevel L = ctx.bound.surface_level(S, j["space_level"].get<int>());
       if (L.nodes != j["tiles"].get<std::int64_t>()) refuse("measure: the joint partition records " + j["tiles"].dump() + " tiles, level " + std::to_string(L.l) + " of " + S.name + " has " + std::to_string(L.nodes));
       nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
       auto js = std::make_shared<JointState>();
@@ -1257,14 +1222,14 @@ void bind_execution(std::vector<StepSpec>& r) {
       TimeLevel tl;
       tl.id = nxr::io::text(*ins.at("over").row, "id"); tl.name = nxr::io::text(*ins.at("over").row, "name"); tl.level = j["time_level"].get<int>();
       tl.width = j["window_samples"].get<std::int64_t>(); tl.count = j["frames"].get<std::int64_t>();
-      const auto tsel = ctx.sub.db().read("selection", j["time"].get<std::string>());
+      const auto tsel = ctx.bound.selection(j["time"].get<std::string>());
       tl.resolves = Json::parse(nxr::io::text(*tsel, "params_json"))["resolves_hz"];
       st.level = tl;
       return std::any(st);
     }
     if (ins.count("over")) {
       const Value& x = ins.at("x");
-      st.level = level_of_band(ctx.sub.db(), nxr::io::text(*ins.at("over").row, "id"), x.facts["band"], x.rate, x.origin);
+      st.level = level_of_band(ctx.bound, nxr::io::text(*ins.at("over").row, "id"), x.facts["band"], x.rate, x.origin);
     }
     if (st.measure == "median" && st.level && st.level->width > kMedianCap)
       refuse("measure: median: a tile of " + st.level->name + " holds " + std::to_string(st.level->width) + " samples a row, over the " + std::to_string(kMedianCap) + " that may be held (the median is exact: it holds a member's samples)");
@@ -1440,7 +1405,7 @@ void bind_execution(std::vector<StepSpec>& r) {
     RollupState st{p["measure"].get<std::string>(), std::nullopt, nullptr};
     const Value& ev = ins.at("events");
     if (ev.cls == "selection") {
-      st.stored = stored_event_tiles(ctx.sub.db(), ev, ins.at("x"), "rollup_events");
+      st.stored = stored_event_tiles(ctx.bound, ev, ins.at("x"), "rollup_events");
       st.selection = Json{{"id", nxr::io::text(*ev.row, "id")}, {"name", nxr::io::text(*ev.row, "name")}};
     }
     return std::any(st);
@@ -1495,8 +1460,8 @@ void bind_execution(std::vector<StepSpec>& r) {
   StepSpec& rc = at("reduce_cells");
   rc.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     const Json& over = ins.at("x").facts["over"];
-    const Json j = Json::parse(nxr::io::text(*c.sub.db().read("selection", over["selection_id"].get<std::string>()), "params_json"))["joint"];
-    const auto tl = c.sub.db().read("selection", j["time"].get<std::string>());
+    const Json j = Json::parse(nxr::io::text(*c.bound.selection(over["selection_id"].get<std::string>()), "params_json"))["joint"];
+    const auto tl = c.bound.selection(j["time"].get<std::string>());
     return std::any(Json{{"groups", p["groups"]}, {"space_level", over["space_level"]}, {"time_id", nxr::io::text(*tl, "id")}, {"time_name", nxr::io::text(*tl, "name")}});
   };
   rc.run = [](const std::any& st, const Arrays& ins, ExecContext&) {

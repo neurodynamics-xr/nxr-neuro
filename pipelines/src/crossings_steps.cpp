@@ -19,7 +19,6 @@
 #include "nxr/chart.h"
 #include "nxr/crossings.h"
 #include "nxr/frames.h"
-#include "nxr/io/errors.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
@@ -86,7 +85,9 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
         need(sp.cls == "selection" && sp.row && nxr::io::text(*sp.row, "type") == "spans" && sp.manifolds[0] == *ev.time, "tile_crossings: the input " + st.get<std::string>() + " must be a spans Selection on the recording's time line");
       }
     }
-    const auto lv = c.db.one("SELECT id, name FROM selection WHERE member_of_id = ? AND member_ordinal = ? AND status = 'complete'", {nxr::io::V(nxr::io::text(*t.row, "id")), nxr::io::V(static_cast<std::int64_t>(p["level"].get<int>()))});
+    std::optional<nxr::io::Row> lv;
+    for (const auto& m : c.bound.level_members(nxr::io::text(*t.row, "id")))
+      if (nxr::io::integer(m, "member_ordinal") == static_cast<std::int64_t>(p["level"].get<int>())) { lv = m; break; }
     need(lv.has_value(), "tile_crossings: the ladder " + nxr::io::text(*t.row, "name") + " has no level " + std::to_string(p["level"].get<int>()));
     need(p["as"] == "measurement" || p["as"] == "statistic", "tile_crossings: as is measurement (the run's own crossings, over the level's tiles) or statistic (a null draw's: a node of its own, never the data's rows)");
     if (p["as"] == "statistic") {                      // a lag-free null's draw: the same array as a statistic beside the recording, so the data's measurement is never touched
@@ -108,15 +109,15 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     const Value &ev = ins.at("events"), &t = ins.at("tiles");
     st.fps = ev.rate; st.origin = ev.origin;     // the frame tiling's rate and origin are the events' (tiles_of); re-read at run from the cores' own meta
     const int level = p["level"].get<int>();
-    const auto man = c.sub.db().read("manifold", t.manifolds[0]);
-    const SurfaceInput S = read_surface(c.sub, nxr::io::text(*man, "name"), true);
+    const auto man = c.bound.manifold(t.manifolds[0]);
+    const SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);
     const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
-    const SurfaceLevel SL = read_surface_level(c.sub, S, level);
+    const SurfaceLevel SL = c.bound.surface_level(S, level);
     st.tiles = static_cast<int>(SL.nodes);
     st.as_statistic = p["as"] == "statistic"; st.level = level;
     // the frames: the canonical ones when stored, else the signpost basis (said); the transport of each tile centre's frame to every vertex of its tile
     nxr::chart::ChartKit kit(S.vertices.data(), nV, S.faces.data(), nF);
-    const StoredFrames sf = read_stored_frames(c.sub, S.name, nV);
+    const StoredFrames sf = c.bound.stored_frames(S.name, nV);
     std::string gauge = "canonical frames";
     if (sf.canonical) { st.e1 = sf.e1; st.e2 = sf.e2; }
     else {
@@ -135,7 +136,7 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     const nxr::ladder::LeviCivita lc = nxr::ladder::leviCivita(kit, st.e1, st.e2, gaugeAngle, SL.tile, st.tiles, st.centres);
     const nxr::frames::Mat3 nrm = nxr::frames::vertexNormals(S.vertices.data(), nV, S.faces.data(), nF);
     // the GLUED vertices (the cores live there): the kept ones in `support` order, then the bridge's
-    const internal::GluedDomain dom = internal::glued_domain(c.sub, S);
+    const internal::GluedDomain dom = c.bound.glued_domain(S);
     if (!dom.found) refuse("tile_crossings: " + dom.why);
     const std::int64_t Vg = dom.surface.n_vertices(), kept = static_cast<std::int64_t>(dom.support.size());
     nxr::crossings::Surface& G = st.surface;
@@ -155,7 +156,7 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
       st.stages.push_back(name.get<std::string>());
       std::vector<std::pair<double, double>> sp;
       if (name != "burst")
-        for (const auto& r : c.sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {nxr::io::V(nxr::io::text(*ins.at(name.get<std::string>()).row, "id"))}))
+        for (const auto& r : c.bound.spans(nxr::io::text(*ins.at(name.get<std::string>()).row, "id")))
           sp.emplace_back(std::stod(nxr::io::text(r, "start")), std::stod(nxr::io::text(r, "stop")));
       st.spans.push_back(std::move(sp));
     }
