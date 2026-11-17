@@ -434,7 +434,7 @@ with the `run` spelling.
 | `nxr-neuro import templates TEMPLATES_DIR` | Import the fsaverage reference templates (and optional fibre tracts) into a dataset. | `convert templates` |
 | `nxr-neuro import surface` | Import Brainstorm tessellation files as surfaces of a subject. | `convert surface` |
 | `nxr-neuro import mri` | Import an anatomical MRI of a subject. | `convert mri` |
-| `nxr-neuro import recording` | Copy a recording file (FIF, EDF, BDF, BrainVision, EEGLAB, CTF, KIT) into a subject package, with its channels, events, bad channels and an origin record. | - |
+| `nxr-neuro import recording` | Copy a recording file (FIF, EDF, BDF, BrainVision, EEGLAB, CTF, KIT) into a subject package, with its channels, events, bad channels and an origin record. `--in-place` links the file instead of copying its samples: the chunk service streams from the original, the package records its path and SHA-256, and a changed file is refused. `--anonymize` drops the identifying header fields. | - |
 | `nxr-neuro import condition PROTOCOL` | Import a Brainstorm condition (its recordings, channels and head models) into a dataset. | `convert convert` |
 | `nxr-neuro import inverse` | Import a Brainstorm inverse kernel as an operator of a subject. | `convert inverse` |
 | `nxr-neuro import map` | Import Brainstorm source or matrix maps as fields of a subject. | `convert map` |

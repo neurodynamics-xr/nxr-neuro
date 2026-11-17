@@ -1012,10 +1012,12 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
 --anonymize@import recording		Drop the identifying header fields (the file's start time, subject, experimenter, patient and recording identification) instead of keeping them as the file has them.	off (the header is kept as the file has it)	-
 --format@import recording	FORMAT	The file's format: fif, edf, bdf, brainvision, eeglab, ctf or kit.	from the file's extension	-
+--in-place@import recording		Link the recording's file instead of copying its samples: the package records the file's path and SHA-256, a run streams the samples from the original file, and a changed file is refused. One file only (a CTF folder is copied).	off (the samples are copied)	-
 --licence@import recording	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
 --attribution@import recording	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
 --anonymize		Drop the identifying fields of a file's header (import recording).	off	-
 --format	FORMAT	A file's format (import recording).	from the file's extension	-
+--in-place		Link a recording's file instead of copying its samples (import recording).	off	-
 --source-root	DIR	The folder a file's recorded path is relative to (import recording).	the file's own folder	-
 --acquisition	NAME	The session of the subject the result is stored under (import recording).	rest	-
 --from@import recording	FILE	The recording file to copy into the package (a CTF recording is its .ds folder).	required	-
@@ -1317,7 +1319,7 @@ R"TBL(@ import recording
 old: __import recording
 alias: no
 summary: Copy a recording file (FIF, EDF, BDF, BrainVision, EEGLAB, CTF, KIT) into a subject package, with its channels, events, bad channels and an origin record.
-opts: --acquisition --anonymize --attribution --format --from* --licence --name --package* --source-root
+opts: --acquisition --anonymize --attribution --format --from* --in-place --licence --name --package* --source-root
 )TBL",
 R"TBL(@ export gifti
 old: __export gifti
