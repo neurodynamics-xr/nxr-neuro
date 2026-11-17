@@ -10,6 +10,27 @@ else()
 endif()
 
 if(NOT NXR_IO_WASM)
+# NXR_NEURO_PORTABLE (release builds): SQLite from its amalgamation and zstd from the copy c-blosc carries, both linked into the binary, so the
+# command needs no Homebrew or distribution libraries (zlib stays the system's: libz.a on Linux, the system libz on macOS).
+if(NXR_NEURO_PORTABLE)
+  include(FetchContent)
+  enable_language(C)
+  FetchContent_Declare(sqlite_amalgamation
+    URL https://www.sqlite.org/2025/sqlite-amalgamation-3510000.zip
+    URL_HASH SHA256=1caf7116f2910600d04473ad69d37ec538fa62fa36adccd37b5e0e43647c98be
+    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+  FetchContent_MakeAvailable(sqlite_amalgamation)
+  add_library(nxr_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
+  target_include_directories(nxr_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
+  target_compile_definitions(nxr_sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_ENABLE_MATH_FUNCTIONS=1 SQLITE_DEFAULT_FOREIGN_KEYS=0)
+  target_compile_options(nxr_sqlite3 PRIVATE -w)
+  set_target_properties(nxr_sqlite3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+  find_package(Threads REQUIRED)
+  target_link_libraries(nxr_sqlite3 PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+  add_library(SQLite3::SQLite3 ALIAS nxr_sqlite3)
+  find_package(ZLIB REQUIRED)
+  # zstd: set after c-blosc is fetched (below)
+else()
 # --- libzstd (system; the Zarr v3 `zstd` codec body) ---
 find_path(ZSTD_INCLUDE_DIR zstd.h HINTS /opt/homebrew/include /usr/local/include /usr/include)
 find_library(ZSTD_LIBRARY NAMES zstd HINTS /opt/homebrew/lib /usr/local/lib /usr/lib)
@@ -24,6 +45,7 @@ if(NOT TARGET SQLite3::SQLite3 AND TARGET SQLite::SQLite3)
   add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
 endif()
 find_package(ZLIB REQUIRED)
+endif()
 endif()
 
 # --- c-blosc 1.x (fetched and built inside the build directory; the `blosc` codec, nxr writes zstd · level 3 · shuffle) ---
@@ -40,7 +62,11 @@ if(NXR_IO_WASM)
   set(DEACTIVATE_SSE2 ON CACHE BOOL "" FORCE)         # no x86 SIMD in WebAssembly
   set(DEACTIVATE_AVX2 ON CACHE BOOL "" FORCE)
 else()
-  set(PREFER_EXTERNAL_ZSTD ON CACHE BOOL "" FORCE)
+  if(NXR_NEURO_PORTABLE)
+    set(PREFER_EXTERNAL_ZSTD OFF CACHE BOOL "" FORCE)   # c-blosc builds its own zstd into blosc_static; nxr_io uses that one
+  else()
+    set(PREFER_EXTERNAL_ZSTD ON CACHE BOOL "" FORCE)
+  endif()
   set(PREFER_EXTERNAL_ZLIB ON CACHE BOOL "" FORCE)
 endif()
 FetchContent_Declare(c-blosc
@@ -50,6 +76,10 @@ FetchContent_Declare(c-blosc
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)  # c-blosc 1.x declares an old minimum
 FetchContent_MakeAvailable(c-blosc)
 target_compile_options(blosc_static PRIVATE -w)  # third-party code: its warnings are not ours
+if(NXR_NEURO_PORTABLE AND NOT NXR_IO_WASM)
+  set(ZSTD_INCLUDE_DIR ${c-blosc_SOURCE_DIR}/internal-complibs/zstd-1.5.6)
+  set(ZSTD_LIBRARY "")
+endif()
 
 if(NXR_IO_WASM)
   set(ZSTD_INCLUDE_DIR ${c-blosc_SOURCE_DIR}/internal-complibs/zstd-1.5.6)
