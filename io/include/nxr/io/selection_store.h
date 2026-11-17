@@ -120,7 +120,7 @@ struct GridLevelSize { int level = 0; std::int64_t code = 0; double size = 0; st
 std::vector<GridLevelSize> grid_level_sizes(const Database& db, const std::string& ladder_id);
 /** the level of the grid whose size is nearest `size` in `unit` (ties to the coarser), refusing a grid with no size in that unit */
 GridLevelSize level_of_size(const Database& db, const std::string& ladder_id, double size, const std::string& unit);
-/** a product's factor levels, one per factor (-1: the factor as it is); a stored level is the level's CODE (its label: k for a time grid's 2^k samples, l for a dyadic level); Error(invalid_argument) for a selection that is not a product */
+/** a product's factor levels, one per factor (-1: the factor as it is); a stored level is the level's IDENTITY (its ordinal in the level dictionary; a level's code is its label, a power of two for a constant-Q level, never what a factor stores); Error(invalid_argument) for a selection that is not a product */
 std::vector<int> product_factor_levels(const Database& db, const std::string& id);
 
 /** a set per element's members' labels, one per member (the sibling array, or 0 .. n_members - 1 when it has none): what turns a label an importer knows into the member number */

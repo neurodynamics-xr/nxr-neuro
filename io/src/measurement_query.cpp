@@ -171,7 +171,7 @@ std::optional<LevelSize> level_size(const Database& db, const std::string& selec
     const std::vector<int> levels = selection::product_factor_levels(db, selection_id);
     const std::string fid = text(factors[*factor], "factor_selection_id");
     if (levels[*factor] >= 0) {
-      for (const auto& g : selection::grid_level_sizes(db, fid)) if (g.code == levels[*factor]) return LevelSize{g.size, g.unit};   // a factor's stored level is the level's code (its label: k for a time grid's 2^k, l for a dyadic level)
+      for (const auto& g : selection::grid_level_sizes(db, fid)) if (g.level == levels[*factor]) return LevelSize{g.size, g.unit};   // a factor's stored level is the level's IDENTITY (its ordinal in the grid's level dictionary), never its label (the power of two of a constant-Q level))
       return std::nullopt;
     }
     return level_size(db, fid);

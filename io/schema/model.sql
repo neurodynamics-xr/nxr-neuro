@@ -1254,7 +1254,7 @@ CREATE TABLE selection_factor (
   selection_id        TEXT NOT NULL REFERENCES selection (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
   ordinal             INTEGER NOT NULL,
   factor_selection_id TEXT NOT NULL REFERENCES selection (id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
-  level               INTEGER,                -- schema 53: the LEVEL of the factor's grid (a `ladder`: a line's time grid, a surface's dyadic grid); null: the factor as it is, as a whole
+  level               INTEGER,                -- schema 53: the LEVEL of the factor's grid (a `ladder`: a line's time grid, a surface's dyadic grid), by its IDENTITY (the ordinal of its level-dictionary entry; the code is its label); null: the factor as it is, as a whole
   PRIMARY KEY (selection_id, ordinal),
   CHECK (factor_selection_id <> selection_id)
 ) STRICT;

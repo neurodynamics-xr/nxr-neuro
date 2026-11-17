@@ -130,20 +130,20 @@ void convert_statistic(SubjectWriter& sub, const Row& stat, std::size_t member_a
   });
 }
 
-// step 2: a product's factor that is a level row of a ladder names the ladder and the level (codes unchanged)
+// step 2: a product's factor that is a level row of a ladder names the ladder and the level (the level's IDENTITY, its ordinal; codes unchanged)
 void rewrite_products(SubjectWriter& sub, bool dry, Counts& c) {
   Database& db = sub.db();
   if (!has_column(db, "selection_factor", "level")) return;      // a database not yet at 53 (opened read-only): nothing to rewrite
   for (const Row& prod : db.all("SELECT s.* FROM selection s WHERE s.subject_id = ? AND EXISTS (SELECT 1 FROM selection_factor f JOIN selection l ON l.id = f.factor_selection_id JOIN selection g ON g.id = l.member_of_id "
-                                "WHERE f.selection_id = s.id AND g.type = 'ladder' AND f.level IS NULL AND l.code IS NOT NULL)", {V(sub.id())})) {
+                                "WHERE f.selection_id = s.id AND g.type = 'ladder' AND f.level IS NULL AND l.member_ordinal IS NOT NULL)", {V(sub.id())})) {
     ++c.products;
     if (dry) continue;
     sub.update([&] {
       Json p = parsed(prod, "params_json");
       if (!p.is_object()) p = Json::object();
       Json entries = p.contains("product") && p["product"].is_array() ? p["product"] : Json::array();
-      for (const Row& f : db.all("SELECT f.ordinal AS ordinal, l.member_of_id AS ladder_id, l.code AS level FROM selection_factor f JOIN selection l ON l.id = f.factor_selection_id JOIN selection g ON g.id = l.member_of_id "
-                                 "WHERE f.selection_id = ? AND g.type = 'ladder' AND f.level IS NULL AND l.code IS NOT NULL", {V(text(prod, "id"))})) {
+      for (const Row& f : db.all("SELECT f.ordinal AS ordinal, l.member_of_id AS ladder_id, l.member_ordinal AS level FROM selection_factor f JOIN selection l ON l.id = f.factor_selection_id JOIN selection g ON g.id = l.member_of_id "
+                                 "WHERE f.selection_id = ? AND g.type = 'ladder' AND f.level IS NULL AND l.member_ordinal IS NOT NULL", {V(text(prod, "id"))})) {
         const std::int64_t k = integer(f, "ordinal");
         db.execute("UPDATE selection_factor SET factor_selection_id = ?, level = ? WHERE selection_id = ? AND ordinal = ?", {V(text(f, "ladder_id")), V(integer(f, "level")), V(text(prod, "id")), V(k)});
         if (k < static_cast<std::int64_t>(entries.size()) && entries[static_cast<std::size_t>(k)].is_object()) {
