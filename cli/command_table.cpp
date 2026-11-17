@@ -105,7 +105,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --cross-spectrum	NAME	Name of the stored sensor cross-spectrum (from crossspectrum compute) to read.	none (required)	-
 --cross-spectrum@run cellquadrature	NAME	Stored analytic cross-spectrum windows (<stem>_<band>_windows from crossspectrum compute --estimator analytic) to read; its tile level must match the joint's time level.	required	-
 --cross-spectrum@run cyclepattern	NAME	Name of the stored per-window sensor cross-spectrum series (<stem>_<band>_windows, from crossspectrum compute --estimator analytic) to read.	required	-
---cross-spectrum@run phasegradient	NAME	Name of the band's stored cross-spectrum whose phase is read.	required	-
 --cycles	C	Cycles of the band's lowest frequency in each window (constantq) or wavelet width as centre frequency / C (speedspectrum, opticalflow)	constantq: set by --method (about 6.8 at 1200 Hz); speedspectrum, opticalflow: 6	cycles
 --cycles@run constantq	C	Cycles of a band's lowest frequency held by its window (window rounded up to a power of two of samples).	set by --method (hertz: about 6.83 at 1200 Hz; cycles: 8)	cycles
 --cycles@run opticalflow	C	Morlet family only: the wavelet's width is its centre frequency divided by this number of cycles.	6	cycles
@@ -123,7 +122,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --default	NAME	The template resolution used for the dataset's default subject (needs --templates).	fsaverage5	-
 --default@create dataset	NAME	The subject of the --templates folder (the template resolution) that becomes the dataset's default subject; needs --templates.	fsaverage5	-
 --defects	keep|exclude	keep: use every edge of the mesh in the weighted fit; exclude: give zero weight to folded or very short edges (needs --spatial-band)	keep	-
---defects@run phasegradient	keep|exclude	With --spatial-band: exclude gives weight 0 to edges at a fold-over of the mesh or shorter than 0.1 of the median edge; keep leaves them in.	keep	-
 --depth	LEVEL	Level of the surface's tile ladder that gives the leaf tiles on which sums are stored (2^LEVEL tiles per piece); for tiles compute, the finest level written.	the finest level every piece of the surface reaches (pyramid reduce: the stored depth)	level
 --depth-channels	all|one-type	Which channels the depth-weighting norm is computed on: all channels, or one channel type (gradiometers if present, else magnetometers, else EEG).	all	-
 --depth-exponent	P	Exponent of the depth weighting that counteracts the bias of the minimum-norm solution towards superficial sources	0.5	-
@@ -131,7 +129,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --depth-limit-on	weight|norm	Where the depth limit is applied: on the weights (Brainstorm's way) or on the inverse norms (MNE-Python's way).	weight	-
 --depth-norm	frobenius|spectral	Matrix norm used for each source's gain when depth weighting	frobenius	-
 --depth@run opticalflow	LEVEL	Level of the surface's tile ladder whose leaf tiles hold the stored sums of divergence, curl, speed and velocity; the ladder is made if absent.	the finest level every piece of the surface reaches	level
---depth@run phasegradient	LEVEL	Level of the surface's tile ladder that gives the leaf tiles on which the sums are stored (plain route only, not with --spatial-band).	the finest level every piece of the surface reaches	level
 --depth@run pyramid	LEVEL	Level of the leaf tiles (2^LEVEL tiles per surface piece) on which the sums are stored.	the finest level every piece reaches (group tree: the dataset's atlas depth)	level
 --depth@run tiles	LEVEL	Finest level of the tile ladder written; level l has 2^l tiles per connected piece of the surface.	the finest level every piece of the surface reaches	level
 --depth@reduce pyramid	LEVEL	Level of the group tree at which the members' pyramids are summed, cell for cell.	the atlas depth of the group tree definitions	level
@@ -146,7 +143,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --dry-run@compact dataset		Report the files and folders before and after compacting, without changing anything.	off	-
 --dry-run@run		Print the plan (inputs found, every connection checked, every output's place) without reading data or writing anything.	off	-
 --edge-lag	frame|frame-normal|frame-tangent|axial|ambient	How each edge's phase lag is read: in the surface's own frame (frame), its normal or tangent part alone, modulo pi (axial), or from the x y z components as they are (ambient).	frame	-
---edge-lag@run phasegradient	frame|frame-normal|frame-tangent|axial|ambient	How the phase lag along each mesh edge is compared (with --spatial-band): in the surface frame, its normal or tangent part alone, modulo pi, or as raw x y z components.	frame	-
 --eeg-conductivities	S1,S2,S3	Conductivities of the EEG sphere shells, innermost to outermost (brain, skull, scalp)	0.33,0.0042,0.33	S/m
 --eeg-radii	R1,R2,R3	Relative radii of the EEG head model's shells, innermost to outermost (brain, skull, scalp).	0.88,0.93,1.0	relative
 --eeg-series		Use the multi-shell series itself for the EEG sphere instead of the Berg-Scherg equivalent dipoles (slower, exact up to truncation).	off	-
@@ -171,7 +167,6 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --family@run opticalflow	itersine|meyer|morlet|morse|amor|bump	Family of the time filter bank that band-passes the recording to the analysed band.	required	-
 --family@run speedspectrum	itersine|meyer|morlet|morse|amor|bump	Family of the time (frequency) filter bank	required	-
 --field	NAME	Name of a stored field to read (measure query: restrict the query to this field; phasegradient: the phase 1-form to build, only gradient exists).	measure query: none; phasegradient: gradient	-
---field@run phasegradient	gradient	The phase 1-form that is built: the lag along each edge (gradient is the only one).	gradient	-
 --field@query measurements	NAME	The stored field the measurement was made of, by name or id.	the only field measured	-
 --fields	PATTERN	Regular expression matched against the whole name of each stored field to measure (export: the first capture group names the condition)	none (required)	-
 --fields@run measure	PATTERN	Regular expression matched against the whole name of each stored field to measure (a scalar per vertex for a surface partition; a time-resolved field with --over).	required	-
@@ -181,7 +176,6 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --file@import map	FILE	A map file to import: a source map (results_*.mat, one value per vertex) or a region map (matrix_*.mat, one value per atlas region); repeatable.	required	-
 --file@import surface	FILE	A Brainstorm cortex surface file (tess_*.mat) to convert and store; repeat or give several.	required	-
 --fit	inner|mesh|modes	How the timing map is fitted to the edge lags: by inner products with the modes, by a weighted fit on the whole surface complex, or by a weighted fit within the exact modes.	inner	-
---fit@run phasegradient	inner|mesh|modes	How the timing map is fitted (with --spatial-band): inner products with the modes' 1-forms, a weighted fit on the whole mesh, or a weighted fit within the exact modes.	inner	-
 --flip-eps	E	Tolerance of the intrinsic Delaunay edge flips: flip while the cotangent weight is below -E	1e-6	-
 --flip-eps@run eigenmodes	E	Edge-flip tolerance of the intrinsic Delaunay construction: an edge is flipped while its cotan weight is below -E.	1e-6	-
 --flow-tolerance	X	Relative residual at which the conjugate-gradient flow solve stops (pcg and per-scale methods).	1e-8	-
@@ -193,7 +187,6 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --fmin@run constantq	HZ	Lowest frequency of the ladder.	hertz: 0.5; cycles: 0	Hz
 --fmin@run speedspectrum	HZ	Lowest frequency bin used; the time bank should cover it	1	Hz
 --fold-edges	keep|axial|all	How edges across a fold of the surface are read: keep all as they are, axial (lag read modulo pi where the ends' normals are opposed), or all (every edge modulo pi).	keep	-
---fold-edges@run phasegradient	keep|axial|all	With --spatial-band: read the lag modulo pi on edges whose end normals are opposed (axial) or on every edge (all), so a fold is not read as phase.	keep	-
 --forward	NAME	Name of the stored head model (forward operator) to use.	the subject's only one	-
 --forward-id	ID	The id of the head model the kernel was made with.	found from the kernel file	-
 --forward-id@import inverse	ID	Id of the stored head model the kernel was made with.	found from the kernel's HeadModelFile link	-
@@ -269,7 +262,6 @@ R"TBL(--harmonics@run notch	N	With --line, remove the first N multiples of the l
 --kernel@run cyclepattern	NAME	Name of the stored free-orientation inverse kernel that maps the cross-spectrum to sources.	the subject's only kernel	-
 --kernel@run hodgepower	NAME	The free-orientation inverse kernel the recording is read through.	the subject's only kernel	-
 --kernel@run opticalflow	NAME	Name of the stored inverse kernel that maps the channels to sources on the cortex.	the subject's only kernel	-
---kernel@run phasegradient	NAME	Name of the free-orientation inverse kernel whose sources carry the phase.	the subject's only kernel	-
 --kernel@run pointspread	NAME	The inverse kernel the planted currents are read back through	the subject's only kernel of the forward model's sources	-
 --kernel@run pyramid	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
 --kernel@run quadrature	NAME	Name of the stored inverse kernel that maps the sensors to the sources.	the subject's only kernel	-
@@ -367,7 +359,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run lowpass	NAME	Name the filtered recording is stored under.	<recording>_lowpass	-
 --name@run notch	NAME	The name of the filtered recording.	<recording>_notch	-
 --name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
---name@run phasegradient	NAME	Stem of the names of the stored results.	<recording>_<kernel>_phasegradient	-
 --name@run pointspread	NAME	Name of the stored point-spread statistic	pointspread.<kernel>	-
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
 --name@run repeat	NAME	Name the repeat result is stored under.	derived from the two recording names (plus the stage when not the first)	-
@@ -448,7 +439,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --package@run cyclepattern	STEM	Stem of the stored Hodge-Dirac eigenmode package (with full forms) on the kernel's surface to use.	the one of the kernel's surface	-
 --package@run hodgepower	NAME	The Hodge-Dirac package's name stem (hodgeDirac or hodgeDirac__<surface>).	the package of the kernel's surface	-
 --package@run opticalflow	STEM	Stem of the stored Hodge-Dirac eigenmode package used for the flow.	the one of the kernel's surface	-
---package@run phasegradient	NAME	The stored Hodge-Dirac mode package that defines the spatial band (needs --spatial-band).	the kernel surface's own package	-
 --package@run speedspectrum	STEM	Stem of the stored Hodge-Dirac mode package to use	the package of the kernel's surface	-
 --padding	mean|zeros	How the filter's edge transient is padded: with the mean of the signal's transient or with zeros.	mean	-
 --padding@run bandpass	mean|zeros	How the two ends of the recording are padded before filtering: with the mean of the first and last samples, or with zeros.	mean	-
@@ -467,7 +457,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --periodic@run quadrature		Use the periodic (DFT-even) form of the window; an alternative to --symmetric.	set-dependent (symmetric in tiles and brainstorm; periodic in scipy, nxr-chain)	-
 --periodic@run speedspectrum		Use the periodic (DFT-even) form of the window	off (the default set uses the symmetric form)	-
 --phase-of	current|stream	Signal whose phase is taken: the band's current vector field, or its scalar stream function	current	-
---phase-of@run phasegradient	current|stream	Which signal's phase is taken (with --spatial-band): the band's current vector, or its stream function.	current	-
 --preconditioner	ldlt|ic	Preconditioner of the flow's conjugate-gradient solve: ldlt (exact factor, built once) or ic (incomplete Cholesky).	ldlt	-
 --preconditioner@run opticalflow	ldlt|ic	Preconditioner of the iterative solver (pcg, perscale): the exact factorisation ldlt, or incomplete Cholesky ic.	ldlt	-
 --prefer	protocol.mat|walk	Which reader to prefer for the Brainstorm protocol: its protocol.mat file or a walk of the folders.	automatic	-
@@ -587,7 +576,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --sign	positive|negative|magnitude	Which tile means form patches: high values, low values, or absolute value	positive	-
 --sign@run patches	positive|negative|magnitude	Which tile means the thresholds apply to: high values (bumps), low values (dips) or absolute values.	positive	-
 --signal	normal|ambient	Signal whose phase gradient is taken: ambient (the full current, its x y z components) or normal (the component along the surface normal).	ambient	-
---signal@run phasegradient	normal|ambient	The current whose phase is measured: ambient (its x y z components) or normal (the component normal to the cortex).	ambient	-
 --slice	N	Use spectrum slicing with windows of N modes; 0 means one solve.	0 (none)	modes
 --slice@run eigenmodes	N	Spectrum slicing: solve in windows of N modes, each with its own shift; 0 means one solve per ladder.	0 (no slicing)	modes
 --snr	S	Assumed amplitude signal-to-noise ratio of the minimum-norm kernel	3	-
@@ -609,7 +597,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --space-levels@run scaleselection	LEVELS	Comma-separated surface tile levels; the pairs are all space levels times time levels	required	level
 --spatial-band	BAND	Spatial band: modes, weyl:J or weyl:all for the phase and cycle patterns (all modes, one Weyl octave J, each member of the Weyl bank); for measure query the whole-number index of a stored spatial band	phasegradient: none (the kernel as it is); cyclepattern: weyl:all; measure query: none	-
 --spatial-band@run cyclepattern	BAND	Spatial band: modes (all modes), weyl:J (one Weyl octave J) or weyl:all (every member of the Weyl bank).	weyl:all	-
---spatial-band@run phasegradient	modes|weyl:J|weyl:all	Measure at a spatial scale: every mode, one Meyer octave J of the Laplacian spectrum, or each octave; unset uses the kernel as it is.	none (the kernel as it is)	-
 --spatial-band@query measurements	N	The spatial band (eigenmode level) of the cells to read.	none	-
 --spatial-shape	NAME	Shape of the spatial scale-space filter at each level (mexhat is the Mexican hat).	mexhat	-
 --spatial-shape@run pointspread	NAME	Gain of each spatial level: mexhat (Mexican hat) or meyer (the level is its own Weyl band)	mexhat	-
@@ -765,7 +752,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run hodgepower	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run speedspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run phasegradient	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cellquadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -872,7 +858,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --voices@run speedspectrum	V	Itersine time bank: members per octave	4	-
 --weight	none|barycentric|voronoi	How the vertices of each member are weighted (measure compute: none is the plain vertex mean, barycentric or voronoi weight by area); phasegradient: power|coherence, the edge weight of a weighted fit.	measure compute: none, must be given; phasegradient: power	-
 --weight@run measure	none|barycentric|voronoi	How the vertices of each member are weighted: none is the plain vertex mean, barycentric or voronoi weight by area; not used with --over.	required unless --over is given	-
---weight@run phasegradient	power|coherence	Edge weight of a weighted fit (with --spatial-band): the edge's cross-power or its coherence.	power	-
 --weights	area|none	cellquadrature: weight vertices by their area or equally; crossspectrum read: weight the delay and phase-slope fits by coherence or not	cellquadrature: area; crossspectrum read: coherence	-
 --weights@run cellquadrature	area|none	Weight each vertex of a tile by the area it stands for, or count all vertices equally.	area	-
 --weights@read crossspectrum	coherence|none	For --reading delay: weight each frequency bin of the phase-slope fit by its squared coherency, or count every bin equally.	coherence	-
@@ -1473,13 +1458,6 @@ group: Spectra
 summary: The speed spectrum: mode energy per phase speed from the joint eigenvalue and frequency bank.
 span: yes
 opts: --anchor --centres --chunks --cycles --dataset* --detrend --family --fmax --fmin --gain --gamma --graph-family --graph-filters --graph-voices --half-width --kernel --limits --modes --name --no-bad-segments --overlap --package --periodic --recording* --replace --scaling --segment-level --segment-samples --segment-seconds --set --sides --speed-bins --speed-max --speed-min --start --stop --subject* --symmetric --time-bandwidth --voices --window --templates+
-)TBL",
-R"TBL(@ run phasegradient
-old: phasegradient compute
-alias: refused
-group: Cortical flow and patterns
-summary: The phase gradient of a band from a stored cross-spectrum: phase current, power, speed and travelling index.
-opts: --cross-spectrum* --dataset* --defects --depth --edge-lag --field --fit --fold-edges --kernel --name --package --phase-of --replace --signal --spatial-band --subject* --weight --templates+
 )TBL",
 R"TBL(@ run cyclepattern
 old: cyclepattern compute

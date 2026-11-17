@@ -44,6 +44,8 @@ struct SensorGeometry {
 SensorGeometry sensor_geometry(nxr::io::SubjectWriter& sub, const std::string& channels_id);
 // The coordinate system a manifold's geometry is in ("" when it records none).
 std::string coordinate_system_of(nxr::io::SubjectWriter& sub, const std::string& manifold_id);
+// The length unit of a manifold's coordinate system ("m", "mm"; "" when it records none).
+std::string coordinate_unit_of(nxr::io::SubjectWriter& sub, const std::string& manifold_id);
 // The type of each channel of a channels manifold (its 'type' labelling); empty when there is none.
 std::vector<std::string> channel_types_of(nxr::io::SubjectWriter& sub, const std::string& channels_id);
 

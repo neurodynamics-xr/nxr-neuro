@@ -865,7 +865,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (!constants.count(name) || !P.values.count(name) || !P.found.count(name) || !P.found.at(name).row) continue;
       const Value& v = P.values.at(name);
       const nxr::io::Row& row = *P.found.at(name).row;
-      if (v.cls == "statistic") {                                        // its values, its axes; a first axis over a pick of channels: those channels and their types
+      if (v.cls == "selection" && !nxr::io::is_null(row, "array_path")) {   // a partition or a pick: its codes, its member count and parameters
+        nxr::graph::Array a;
+        for (const std::int32_t c : bound.array_int32(text(row, "array_path"))) a.data.push_back(c);
+        a.rows = static_cast<std::int64_t>(a.data.size()); a.cols = 1;
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["type"] = text(row, "type");
+        if (!nxr::io::is_null(row, "n_members")) a.meta["n_members"] = nxr::io::integer(row, "n_members");
+        a.meta["params"] = Json::parse(nxr::io::opt_text(row, "params_json").value_or("{}"), nullptr, false);
+        constants[name] = std::move(a);
+      } else if (v.cls == "statistic") {                                 // its values, its axes; a first axis over a pick of channels: those channels and their types
         std::vector<std::int64_t> shape;
         const std::vector<double> f = bound.array_double(text(row, "path"), &shape);
         nxr::graph::Array a;
@@ -875,8 +883,13 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
         const Json axes = Json::parse(nxr::io::opt_text(row, "axes_json").value_or("[]"), nullptr, false);
         a.meta["axes"] = axes;
-        if (axes.is_array() && !axes.empty() && axes[0].contains("selection_id"))
-          if (const auto sel = sub.db().read("selection", axes[0]["selection_id"].get<std::string>()); sel && !nxr::io::is_null(*sel, "array_path")) {
+        Json chax;                                                         // the first channel axis over a pick (after a band axis, when there is one)
+        if (axes.is_array()) for (const auto& ax : axes) if (ax.contains("selection_id") && ax.value("name", std::string()) == "channel") { chax = ax; break; }
+        a.meta["producer"] = Json::parse(nxr::io::opt_text(row, "producer_json").value_or("{}"), nullptr, false);
+        a.meta["measure"] = nxr::io::opt_text(row, "measure").value_or("");
+        a.meta["of_field_id"] = nxr::io::opt_text(row, "of_field_id").value_or("");
+        if (!chax.is_null())
+          if (const auto sel = sub.db().read("selection", chax["selection_id"].get<std::string>()); sel && !nxr::io::is_null(*sel, "array_path")) {
             const std::vector<std::int32_t> ch = bound.array_int32(text(*sel, "array_path"));
             a.meta["channels"] = ch;
             a.meta["channels_selection_id"] = text(*sel, "id");
@@ -913,6 +926,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.data = S.vertices;
         a.meta["faces"] = S.faces;
         a.meta["name"] = S.name; a.meta["id"] = S.id; a.meta["cs_id"] = nxr::pipelines::coordinate_system_of(sub, S.id);
+        a.meta["unit"] = nxr::pipelines::coordinate_unit_of(sub, S.id);
         constants[name] = std::move(a);
       }
     }
@@ -1013,9 +1027,10 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (!is_declared(P, o)) return pass(v);
       if (ospec_kind(spec) == "operator") return 4;
       if (ospec_kind(spec) == "field" && spec.contains("of_operator")) return 5;
+      if (ospec_kind(spec) == "measurement") return 6;                    // over a partition, of a field stored before them
       return pass(v);
     };
-    for (int ps = 0; ps < 6; ++ps)
+    for (int ps = 0; ps < 7; ++ps)
     for (const auto& [o, spec] : d.outputs.items()) {
       const Value& v = P.values.at(o);
       if (declared_pass(o, spec, v) != ps) continue;

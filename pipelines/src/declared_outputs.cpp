@@ -123,7 +123,8 @@ std::string acquisition_of(const Plan& P, const std::string& input) {
 
 bool is_declared(const Json& spec) {
   const std::string k = kind_of(spec);
-  return k == "operator" || k == "manifold" || k == "selection" || k == "field" || (k == "statistic" && (spec.contains("axes") || spec.contains("of")));
+  return k == "operator" || k == "manifold" || k == "selection" || k == "field" || (k == "statistic" && (spec.contains("axes") || spec.contains("of"))) ||
+         (k == "measurement" && spec.contains("over"));
 }
 
 bool is_declared(const Plan& P, const std::string& o) {
@@ -150,7 +151,7 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
   const Json& spec = P.definition.outputs[o];
   const std::string k = kind_of(spec);
   const Value& v = P.values.at(o);
-  const std::string want = k == "operator" ? "operator" : k == "manifold" ? "manifold" : k == "selection" ? "selection" : k == "field" ? "field" : "statistic";
+  const std::string want = k == "operator" ? "operator" : k == "manifold" ? "manifold" : k == "selection" ? "selection" : k == "field" ? "field" : k == "measurement" ? "measurement" : "statistic";
   if (v.cls != want) bad(o, "declared " + k + " but its steps make a " + v.cls);
   if (v.chunked) bad(o, "a value inside the chunk loop is not stored: only what leaves it");
   if (declared_name(P, o).empty()) bad(o, "its name is empty");
@@ -170,6 +171,8 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
       if (!p.is_object() || !p.contains("tiling") || !p.contains("on")) bad(o, "partition: {tiling: NAME, on: LINK}");
       link_of(P, p, "on", nullptr, o);
     }
+  } else if (k == "measurement") {
+    if (!spec.contains("of")) bad(o, "a measurement output names the field it is of (of: OUTPUT)");
   } else if (k == "operator") {
     link_of(P, spec, "from", nullptr, o);
     link_of(P, spec, "to", nullptr, o);
@@ -271,10 +274,40 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       if (!made.count(r)) bad(o, "of_operator: '" + r + "' is not an operator output stored before it");
       f.of_operator_id = made.at(r);
     }
-    f.data = values_of(a, shape_of(a, d), single_of(d), o);
+    if (!d.value("no_array", false)) f.data = values_of(a, shape_of(a, d), single_of(d), o);   // no_array: a field whose values are its measurements
     const std::string path = unit.path_of(f);
     clear(task::Cls::field, path);
     report["id"] = unit.field(f); report["path"] = path;
+    made[o] = report["id"].get<std::string>();
+    made["path:" + o] = path;
+    return report;
+  }
+
+  if (k == "measurement") {
+    // MEASUREMENTS OF A FIELD OVER A PARTITION (declared: over, of): the node's array is [members x measures], `describe.measures` names each column ({measure, unit})
+    task::MeasurementOut m;
+    m.output = o;
+    const std::string over = spec["over"].get<std::string>(), of = spec["of"].get<std::string>();
+    if (made.count(over)) m.selection_id = made.at(over);
+    else if (P.found.count(over) && P.found.at(over).row) m.selection_id = text(*P.found.at(over).row, "id");
+    else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
+    if (!made.count(of)) bad(o, "of: '" + of + "' is not a field output stored before it");
+    m.of_field_id = made.at(of);
+    m.path = made.count("path:" + of) ? made.at("path:" + of) : name;
+    const Json measures = d.value("measures", Json::array());
+    if (!measures.is_array() || static_cast<std::int64_t>(measures.size()) != a.cols) bad(o, "its node names " + std::to_string(measures.size()) + " measures for " + std::to_string(a.cols) + " columns");
+    for (std::size_t c = 0; c < measures.size(); ++c) {
+      task::MeasurementOut::Measure x;
+      x.measure = measures[c]["measure"].get<std::string>();
+      x.unit = measures[c].value("unit", std::string());
+      x.values.shape = {a.rows};
+      for (std::int64_t r = 0; r < a.rows; ++r) x.values.f64.push_back(a.data[static_cast<std::size_t>(r * a.cols) + c]);
+      m.measures.push_back(std::move(x));
+    }
+    if (d.contains("band")) m.band = d["band"];
+    if (d.contains("partition_params") && d["partition_params"].is_object()) unit.set_params(m.selection_id, d["partition_params"]);
+    report["rows"] = unit.measurements(m);
+    report["over"] = m.selection_id;
     return report;
   }
 

@@ -2,6 +2,7 @@
 #include "nxr/io/finder.h"
 
 #include <regex>
+#include <set>
 
 #include "nxr/io/bundle.h"
 #include "nxr/io/errors.h"
@@ -23,6 +24,14 @@ Json param(const Json& v, const Json& params, const std::map<std::string, Value>
       if (!params.contains(k)) refuse("where: " + s + " is not a parameter");
       if (!(found && params[k].is_string())) return params[k];
       s = params[k].get<std::string>();                    // a parameter that is a name may hold `{X}` too: the name of input X (`bursts: "global_bursts.bursts_kept.{recording}"`)
+    }
+    for (std::size_t p0; (p0 = s.find("${")) != std::string::npos;) {      // `${parameter}` inside a name: the parameter's value (`{surface} tiles L${depth}`)
+      const std::size_t e = s.find('}', p0);
+      if (e == std::string::npos) refuse("where: '" + s + "': an unclosed ${");
+      const std::string k = s.substr(p0 + 2, e - p0 - 2);
+      if (!params.contains(k)) refuse("where: ${" + k + "} is not a parameter");
+      const Json& x = params[k];
+      s.replace(p0, e - p0 + 1, x.is_string() ? x.get<std::string>() : x.is_number_integer() ? std::to_string(x.get<std::int64_t>()) : x.dump());
     }
     if (found && s.find('{') != std::string::npos) {
       for (const auto& [k, x] : *found) {
@@ -176,6 +185,42 @@ std::vector<std::map<std::string, Value>> resolve(const Database& db, const std:
     for (const Row& r : hits) starts.push_back({{*anchor, value_of(db, class_of(inputs[*anchor]), r)}});
   } else {
     starts.emplace_back();
+  }
+  // inputs are found in the order their relations need: one that names another (`from: kernel.to`, `{surface}` in a name) after it
+  {
+    std::set<std::string> all(names.begin(), names.end());
+    auto deps = [&](const std::string& n) {
+      std::set<std::string> d;
+      const Json& spec = inputs[n];
+      for (const char* k : {"from", "to", "manifold", "is"})
+        if (spec.contains(k) && spec[k].is_string()) { const std::string r = spec[k].get<std::string>(); const auto dot = r.find('.'); if (dot != std::string::npos && all.count(r.substr(0, dot))) d.insert(r.substr(0, dot)); }
+      if (spec.contains("where"))
+        for (const auto& [k, v] : spec["where"].items()) {
+          (void)k;
+          if (!v.is_string()) continue;
+          const std::string t = v.get<std::string>();
+          for (std::size_t a = 0; (a = t.find('{', a)) != std::string::npos; ++a) {
+            if (a > 0 && t[a - 1] == '$') continue;
+            const auto e = t.find('}', a);
+            if (e != std::string::npos && all.count(t.substr(a + 1, e - a - 1))) d.insert(t.substr(a + 1, e - a - 1));
+          }
+        }
+      d.erase(n);
+      return d;
+    };
+    std::vector<std::string> ordered;
+    std::set<std::string> placed;
+    while (ordered.size() < names.size()) {
+      bool moved = false;
+      for (const auto& n : names) {
+        if (placed.count(n)) continue;
+        bool ready = true;
+        for (const auto& x : deps(n)) if (!placed.count(x)) ready = false;
+        if (ready) { ordered.push_back(n); placed.insert(n); moved = true; }
+      }
+      if (!moved) refuse("inputs: their relations name each other in a cycle");
+    }
+    names = std::move(ordered);
   }
   std::vector<std::map<std::string, Value>> out;
   for (auto found : starts) {

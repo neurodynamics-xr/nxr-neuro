@@ -558,7 +558,7 @@ std::string Unit::field(const FieldOut& f) {
   need_open(open_);
   FieldSpec fs;
   fs.name = f.name; fs.path = path_of(f); fs.kind = f.kind; fs.manifold_id = f.manifold_id; fs.value_type = f.value_type;
-  fs.data = view_of(f.data, "field " + f.name);
+  if (!f.data.shape.empty()) fs.data = view_of(f.data, "field " + f.name);   // no data: a field with no array (its measurements carry the values)
   fs.array.compress = false;
   if (f.acquisition) fs.acquisition = *f.acquisition;
   if (f.unit) fs.cols.set("unit", *f.unit);
@@ -603,6 +603,24 @@ std::string Unit::operator_(const OperatorOut& o) {
   if (!o.params.is_null()) op.cols.json("params_json", o.params);
   op.cols.json("producer_json", producer_of(by_, o.output, o.producer));
   return impl_->writer->operator_(std::move(op));
+}
+
+std::int64_t Unit::measurements(const MeasurementOut& m) {
+  need_open(open_);
+  SubjectWriter& sub = *impl_->writer;
+  std::optional<Json> band;
+  if (m.band.is_object()) band = nxr::bst::band_ref(*impl_->db, m.band.value("name", std::string()), m.band.value("lo_hz", 0.0), m.band.value("hi_hz", 0.0));
+  std::int64_t n = 0;
+  for (const auto& x : m.measures) {
+    const std::string path = m.path + "/" + x.measure;
+    sub.write_array(path, view_of(x.values, "measurement " + x.measure));
+    Cols c;
+    c.set("measure", x.measure).set("of_field_id", m.of_field_id).set("array_path", path).set("unit", x.unit).set("computed_by", by_.tool);
+    if (band && !(*band)["selection_id"].is_null()) c.set("within_selection_id", (*band)["selection_id"].get<std::string>()).set("within_code", (*band)["code"].get<std::int64_t>());
+    sub.measurement(m.selection_id, c);
+    ++n;
+  }
+  return n;
 }
 
 std::string Unit::selection(const SelectionOut& s) {

@@ -21,7 +21,11 @@
 #include "nxr/graph/node.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/meeg/covariance.h"
+#include "nxr/hodge_weights.h"
+#include "nxr/ladder.h"
+#include "nxr/meeg/wave.h"
 #include "nxr/partition.h"
+#include "nxr/pipelines/spectral_record.h"
 #include "nxr/timebank.h"
 #include "nxr/meeg/inverse.h"
 #include "nxr/meeg/forward.h"
@@ -761,7 +765,15 @@ ng::NodeSpec tile_cross_spectrum() {
       if (t.stride[b] > t.tile) ng::refuse("analytic.tile_cross_spectrum: band " + t.bands[b]["name"].get<std::string>() + "'s stride is longer than a level-" + std::to_string(level) + " tile");
       t.bands[b]["window_samples"] = t.tile / t.stride[b];
     }
-    if (constants) t.channels = channels_picked(x, *constants, p, "analytic.tile_cross_spectrum");
+    if (constants) {
+      t.channels = channels_picked(x, *constants, p, "analytic.tile_cross_spectrum");
+      // each band's scaling record (its noise bandwidth): a reader converts the per-window sums to density or power from it
+      nxr::timebank::Design d(nxr::timebank::Family::Meyer, 2.0, nxr::timebank::Sides::Analytic);
+      for (const auto& b : t.bands) d.bands.push_back({b["lo_hz"].get<double>(), b["hi_hz"].get<double>()});
+      const nxr::timebank::TimeBank bank = nxr::timebank::design(d, std::size_t(1) << 15, t.sfreq);
+      for (std::size_t b = 0; b < t.bands.size(); ++b)
+        t.bands[b]["spectral_scaling"] = nxr::pipelines::analytic_scaling_record(nxr::timebank::noiseBandwidth(bank, static_cast<int>(b)), t.unit + "\xc2\xb2");
+    }
     return t;
   };
   n.plan = [prep](const ng::Types& in, const Json& p) {
@@ -858,11 +870,200 @@ ng::NodeSpec tile_cross_spectrum() {
   return n;
 }
 
+
+// ── meeg.phase_gradient ─────────────────────────────────────────────────────────────────────────────────────────
+// THE BAND'S PHASE GRADIENT AS THE PYRAMID'S LEAF INGREDIENTS (the hand-wired `phasegradient` it replaces; spec docs/specs/2026-11-14-measurement-pyramid.md, step 5): from a
+// stored band cross-spectrum C and a free kernel K, the signal's rows A (the normal current, or each ambient component) and their tangent P1 gradients give per vertex P (power),
+// H (the phase current, x y z) and Q (the gradient power) (nxr::meeg::phaseSums); H is read in the canonical frames; per leaf, the sums weighted by the vertex's lumped area:
+// phase_power, phase_gradient_power, phase_current_1/2, phase_current_magnitude. Ratios (the gradient, the travelling index, the speed) are derived at read.
+struct StatBand { Eigen::MatrixXd S, Sq; std::vector<std::int32_t> channels; std::string name; double lo = 0, hi = 0; bool density = true; };
+// one band of a stored cross-spectrum statistic (band x channel x channel, or channel x channel for a statistic of one band), its channels in order
+StatBand band_of(const ng::Array& C, const Json& band, const char* who) {
+  StatBand out;
+  const Json axes = C.meta.value("axes", Json::array());
+  const std::vector<std::int64_t> shape = C.meta.value("shape", std::vector<std::int64_t>());
+  out.channels = C.meta.value("channels", std::vector<std::int32_t>());
+  const std::int64_t M = static_cast<std::int64_t>(out.channels.size());
+  out.density = C.meta.value("measure", std::string()) == "cross_spectral_density";
+  std::size_t b = 0;
+  if (!axes.empty() && axes[0].value("name", std::string()) == "band") {
+    const Json& entries = axes[0]["values"];
+    if (band.is_null()) { if (entries.size() != 1) ng::refuse(std::string(who) + ": the cross-spectrum holds " + std::to_string(entries.size()) + " bands; name one (band)"); }
+    else {
+      b = entries.size();
+      for (std::size_t k = 0; k < entries.size(); ++k) if (entries[k].value("name", std::string()) == band.get<std::string>()) b = k;
+      if (b == entries.size()) ng::refuse(std::string(who) + ": the cross-spectrum has no band '" + band.get<std::string>() + "'");
+    }
+    out.name = entries[b].value("name", std::string()); out.lo = entries[b].value("lo_hz", 0.0); out.hi = entries[b].value("hi_hz", 0.0);
+  } else {
+    const Json pj = C.meta.value("producer", Json::object());
+    out.name = pj.value("band_name", std::string()); out.lo = pj.value("band_lo_hz", 0.0); out.hi = pj.value("band_hi_hz", 0.0);
+    if (!(out.hi > 0)) ng::refuse(std::string(who) + ": the cross-spectrum does not name its band's edges");
+  }
+  if (static_cast<std::int64_t>(C.data.size()) % (M * M * 2) != 0 || M == 0) ng::refuse(std::string(who) + ": the cross-spectrum's array does not fit its channels");
+  (void)shape;
+  out.S.resize(M, M); out.Sq.resize(M, M);
+  const std::size_t base = b * static_cast<std::size_t>(M * M * 2);
+  for (std::int64_t i = 0; i < M; ++i)
+    for (std::int64_t j = 0; j < M; ++j) {
+      out.S(i, j) = C.data[base + static_cast<std::size_t>((i * M + j) * 2)];
+      out.Sq(i, j) = C.data[base + static_cast<std::size_t>((i * M + j) * 2 + 1)];
+    }
+  return out;
+}
+// C reordered to `want` (the kernel's channels)
+void reorder(StatBand& c, const std::vector<std::int32_t>& want, const char* who) {
+  std::map<std::int32_t, Eigen::Index> where;
+  for (std::size_t i = 0; i < c.channels.size(); ++i) where[c.channels[i]] = static_cast<Eigen::Index>(i);
+  std::vector<Eigen::Index> at;
+  for (const auto ch : want) {
+    const auto it = where.find(ch);
+    if (it == where.end()) ng::refuse(std::string(who) + ": the cross-spectrum does not cover channel " + std::to_string(ch) + " of the kernel (compute it with channels_of the kernel)");
+    at.push_back(it->second);
+  }
+  const Eigen::Index m = static_cast<Eigen::Index>(at.size());
+  Eigen::MatrixXd S(m, m), Q(m, m);
+  for (Eigen::Index i = 0; i < m; ++i) for (Eigen::Index j = 0; j < m; ++j) { S(i, j) = c.S(at[i], at[j]); Q(i, j) = c.Sq(at[i], at[j]); }
+  c.S = std::move(S); c.Sq = std::move(Q); c.channels = want;
+}
+struct PhasePrepared { ng::Arrays c; Json band; std::string signal; };
+ng::NodeSpec phase_gradient() {
+  ng::NodeSpec n;
+  n.name = "meeg.phase_gradient";
+  n.kind = ng::Kind::array;
+  n.inputs = {{"cross_spectrum", "the band cross-spectrum: a stored statistic (band x channel x channel, or one band's channel x channel)", false},
+              {"kernel", "a free-orientation inverse kernel on the cross-spectrum's channels", false},
+              {"surface", "the kernel's surface", false},
+              {"frames", "its canonical frames: a field, vertices x 9 (e1, e2, n)", false},
+              {"leaves", "the leaves: a partition of the surface's vertices (a level of its ladder)", false}};
+  n.outputs = {{"field", "the field the leaves' measurements are of (no array: its values are the measurements)", false},
+               {"measurements", "per leaf: phase_power, phase_gradient_power, phase_current_1, phase_current_2, phase_current_magnitude", false}};
+  n.parameters = {{"band", Json(), "the band of the cross-spectrum (its name); null: its one band", "-", {}, true},
+                  {"signal", Json("normal"), "normal = the current along the surface's normal | ambient = each of its x y z components", "-", {"normal", "ambient"}, false}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "in double from a stored cross-spectrum (no time axis)");
+  n.matches = "nxr.detect.core_phase PhaseReader.read_out (grad phi = Im(conj z grad z) / |z|^2), power-weighted; meeg nxr::meeg::phaseSums";
+  n.description = "a band's phase gradient from its cross-spectrum through a free kernel, as the additive ingredients of the surface's leaves";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    for (const char* k : {"cross_spectrum", "kernel", "surface", "frames", "leaves"}) if (!in.count(k)) ng::refuse(std::string("meeg.phase_gradient: ") + k + " is not given");
+    if (p.value("signal", std::string("normal")) != "normal" && p.value("signal", std::string("normal")) != "ambient") ng::refuse("meeg.phase_gradient: signal is normal or ambient");
+    ng::Planned out;
+    out.out["field"] = constant_port("field");
+    ng::PortType m = constant_port("measurement");
+    m.facts["measure"] = "phase_power";
+    m.facts["over"] = Json{{"selection", "leaves"}};
+    out.out["measurements"] = m;
+    return out;
+  };
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
+    PhasePrepared pr;
+    for (const char* k : {"cross_spectrum", "kernel", "surface", "frames", "leaves"}) {
+      const auto it = c.find(k);
+      if (it == c.end() || it->second.meta.value("placeholder", false)) ng::refuse(std::string("meeg.phase_gradient: ") + k + " was not handed over");
+      pr.c[k] = it->second;
+    }
+    pr.band = p.contains("band") ? p["band"] : Json();
+    pr.signal = p.value("signal", std::string("normal"));
+    return std::any(std::move(pr));
+  };
+  n.run = [](const std::any& prepared, const ng::Arrays&) {
+    const PhasePrepared& pr = std::any_cast<const PhasePrepared&>(prepared);
+    const ng::Array& KA = pr.c.at("kernel");
+    const ng::Array& SA = pr.c.at("surface");
+    const ng::Array& FA = pr.c.at("frames");
+    const ng::Array& LA = pr.c.at("leaves");
+    if (KA.meta.value("to_value_type", std::string("vector3")) == "scalar") ng::refuse("meeg.phase_gradient: a fixed-orientation kernel: the phase gradient reads the current's components");
+    const std::vector<std::int32_t> chans = KA.meta.value("channels", std::vector<std::int32_t>());
+    const std::int64_t M = static_cast<std::int64_t>(chans.size()), N = KA.rows / 3;
+    if (KA.cols != M || KA.rows % 3 != 0) ng::refuse("meeg.phase_gradient: the kernel is not 3 sources x its channels");
+    if (SA.rows != N) ng::refuse("meeg.phase_gradient: the surface has " + std::to_string(SA.rows) + " vertices, the kernel " + std::to_string(N) + " sources");
+    const std::string unit = SA.meta.value("unit", std::string());
+    if (unit != "m" && unit != "mm") ng::refuse("meeg.phase_gradient: the surface's coordinates are in '" + unit + "', not m or mm: the speed needs a length unit");
+    const double metres = unit == "mm" ? 1e-3 : 1.0;
+    StatBand C = band_of(pr.c.at("cross_spectrum"), pr.band, "meeg.phase_gradient");
+    reorder(C, chans, "meeg.phase_gradient");
+    const std::vector<std::int32_t> faces = SA.meta.value("faces", std::vector<std::int32_t>());
+    const nxr::hodge::RowMat3 P = Eigen::Map<const nxr::hodge::RowMat3>(SA.data.data(), N, 3);
+    const nxr::hodge::FaceMat F = Eigen::Map<const nxr::hodge::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
+    const nxr::hodge::FaceOperators ops(P, F, false);
+    const Eigen::MatrixXd K = Eigen::Map<const MatRM>(KA.data.data(), KA.rows, M);
+    nxr::meeg::PhaseSums sums;
+    auto add_signal = [&](const Eigen::MatrixXd& A) {
+      Eigen::MatrixXd G[3];
+      ops.vertexGradient(A, G);
+      for (std::int64_t v = 0; v < N; ++v) {
+        const Eigen::RowVectorXd dot = G[0].row(v) * ops.normals(v, 0) + G[1].row(v) * ops.normals(v, 1) + G[2].row(v) * ops.normals(v, 2);
+        for (int d = 0; d < 3; ++d) G[d].row(v) -= dot * ops.normals(v, d);
+      }
+      const nxr::meeg::PhaseSums one = nxr::meeg::phaseSums(A, G, C.S, C.Sq);
+      if (sums.power.size() == 0) sums = one; else nxr::meeg::addPhaseSums(sums, one);
+    };
+    if (pr.signal == "normal") {
+      Eigen::MatrixXd A(N, M);
+      for (std::int64_t v = 0; v < N; ++v) A.row(v) = ops.normals(v, 0) * K.row(3 * v) + ops.normals(v, 1) * K.row(3 * v + 1) + ops.normals(v, 2) * K.row(3 * v + 2);
+      add_signal(A);
+    } else {
+      for (int c = 0; c < 3; ++c) {
+        Eigen::MatrixXd A(N, M);
+        for (std::int64_t v = 0; v < N; ++v) A.row(v) = K.row(3 * v + c);
+        add_signal(A);
+      }
+    }
+    if (static_cast<std::int64_t>(FA.data.size()) != N * 9) ng::refuse("meeg.phase_gradient: the frames hold " + std::to_string(FA.data.size()) + " values for " + std::to_string(N) + " vertices");
+    Eigen::MatrixXd e1(N, 3), e2(N, 3);
+    for (std::int64_t i = 0; i < N; ++i) for (int k = 0; k < 3; ++k) { e1(i, k) = FA.data[static_cast<std::size_t>(i * 9 + k)]; e2(i, k) = FA.data[static_cast<std::size_t>(i * 9 + 3 + k)]; }
+    const nxr::meeg::PhaseCurrentFrames jf = nxr::meeg::phaseCurrentInFrames(sums.phase, e1, e2);
+    nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(N); mesh.positions = SA.data; mesh.faces = faces;
+    const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
+    std::vector<double> wv(static_cast<std::size_t>(N)), vp(wv.size()), vq(wv.size()), v1(wv.size()), v2(wv.size()), vm(wv.size());
+    std::int64_t singular = 0;
+    for (std::int64_t v = 0; v < N; ++v) {
+      const std::size_t i = static_cast<std::size_t>(v);
+      const bool ok = std::isfinite(jf.j1(v)) && std::isfinite(jf.j2(v)) && std::isfinite(sums.power(v)) && std::isfinite(sums.gradientPower(v));
+      if (!ok) ++singular;
+      wv[i] = ok ? area[i] : 0.0;
+      vp[i] = ok ? sums.power(v) : 0.0;
+      vq[i] = ok ? sums.gradientPower(v) / (metres * metres) : 0.0;
+      v1[i] = ok ? jf.j1(v) / metres : 0.0;
+      v2[i] = ok ? jf.j2(v) / metres : 0.0;
+      vm[i] = ok ? jf.magnitude(v) / metres : 0.0;
+    }
+    std::vector<std::int32_t> codes;
+    for (const double c : LA.data) codes.push_back(static_cast<std::int32_t>(c));
+    if (static_cast<std::int64_t>(codes.size()) != N) ng::refuse("meeg.phase_gradient: the leaves are not a partition of the surface's vertices");
+    const int L = LA.meta.contains("n_members") ? LA.meta["n_members"].get<int>() : (codes.empty() ? 0 : *std::max_element(codes.begin(), codes.end()) + 1);
+    const std::vector<std::vector<double>> cols = {vp, vq, v1, v2, vm};
+    ng::Array Mz;
+    Mz.rows = L; Mz.cols = static_cast<std::int64_t>(cols.size());
+    Mz.data.assign(static_cast<std::size_t>(L) * cols.size(), 0.0);
+    for (std::size_t c = 0; c < cols.size(); ++c) {
+      const auto sum = nxr::partition::accumulate(codes.data(), codes.size(), L, cols[c].data(), wv.data()).sum;
+      for (int l = 0; l < L; ++l) Mz.data[static_cast<std::size_t>(l) * cols.size() + c] = sum[static_cast<std::size_t>(l)];
+    }
+    const std::string per_hz = C.density ? "/Hz" : "";
+    const double omega = M_PI * (C.lo + C.hi);
+    Mz.meta["describe"] = Json{{"measures", Json::array({Json{{"measure", "phase_power"}, {"unit", std::string("A\xc2\xb2\xc2\xb7m\xc2\xb2") + per_hz}},
+                                                         Json{{"measure", "phase_gradient_power"}, {"unit", std::string("A\xc2\xb2") + per_hz}},
+                                                         Json{{"measure", "phase_current_1"}, {"unit", "rad/m x power"}}, Json{{"measure", "phase_current_2"}, {"unit", "rad/m x power"}},
+                                                         Json{{"measure", "phase_current_magnitude"}, {"unit", "rad/m x power"}}})},
+                               {"band", Json{{"name", C.name}, {"lo_hz", C.lo}, {"hi_hz", C.hi}}}};
+    ng::Array Fd;
+    Fd.meta["describe"] = Json{{"no_array", true}, {"value_type", "vector3"},
+                               {"description", "the phase gradient of the " + pr.signal + " current by " + KA.meta.value("name", std::string()) + " \xe2\x80\x94 " + C.name +
+                                               ", stored as its additive ingredients per leaf of " + LA.meta.value("name", std::string())},
+                               {"producer", Json{{"band", Json{{"name", C.name}, {"lo_hz", C.lo}, {"hi_hz", C.hi}}}, {"omega_rad_s", omega}, {"signal", pr.signal}, {"surface_unit", unit},
+                                                 {"leaves", Json{{"selection", LA.meta.value("name", std::string())}, {"count", L}, {"vertices_without_frame", singular}, {"weights", "the vertex's lumped area"}}},
+                                                 {"derived_at_read", "phase_gradient_1/2 = j / P, phase_gradient_magnitude = |sum j| / P, travelling_index = |sum j| / sqrt(P Q), phase_coherence = |sum j| / sum |j|; the speed is omega over the gradient's magnitude"},
+                                                 {"studio", Json{{"type", "complex"}}}}}};
+    return ng::Arrays{{"field", std::move(Fd)}, {"measurements", std::move(Mz)}};
+  };
+  return n;
+}
+
 }  // namespace
 
 void register_meeg_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum()})
+  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum(), phase_gradient()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

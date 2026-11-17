@@ -121,20 +121,7 @@ struct RecordingInput {
 
 // The unit of a power the recording's channels give: the recording's own unit, else the montage's per-channel unit when every channel has the same one;
 // else empty (channels of several types, each in its own unit: the caller stores "channel unit^2" and the per-type units in the provenance, as the sensor cross-spectrum does).
-std::string recording_unit(const RecordingInput& rec) {
-  if (const auto u = opt_text(rec.field, "unit"); u && !u->empty()) return *u;
-  if (rec.units.empty()) return "";
-  for (const auto& u : rec.units) if (u != rec.units.front()) return "";
-  return rec.units.front();
-}
 // the power unit of each channel type present (type -> unit^2 [/Hz]), for a recording whose channels do not share one unit
-Json power_units_by_type(const RecordingInput& rec, bool density) {
-  Json out = Json::object();
-  for (std::size_t c = 0; c < rec.units.size() && c < rec.types.size(); ++c)
-    if (!rec.units[c].empty() && !out.contains(rec.types[c])) out[rec.types[c]] = rec.units[c] + "\xc2\xb2" + (density ? "/Hz" : "");
-  return out;
-}
-
 RecordingInput read_recording(SubjectWriter& sub, const std::string& name) {
   const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND kind = 'recording' AND name = ? AND status = 'complete'", {V(sub.id()), V(name)});
   if (!f) missing(sub.name() + ": no recording named '" + name + "'");
@@ -206,6 +193,12 @@ SensorGeometry sensor_geometry(SubjectWriter& sub, const std::string& channels_i
       g.coils = true;
     }
   return g;
+}
+
+// the length unit of a manifold's coordinate system ("" when it records none)
+std::string coordinate_unit_of(SubjectWriter& sub, const std::string& manifold_id) {
+  const auto r = sub.db().one("SELECT cs.unit AS unit FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE m.id = ?", {V(manifold_id)});
+  return r ? opt_text(*r, "unit").value_or("") : std::string();
 }
 
 // the coordinate system a manifold's geometry is in ("" when it records none)
@@ -408,6 +401,7 @@ std::optional<CrossSpectrumNode> band_slice(SubjectWriter& sub, const std::strin
       n.producer["band_lo_hz"] = bands[b].value("lo_hz", 0.0);
       n.producer["band_hi_hz"] = bands[b].value("hi_hz", 0.0);
       if (bands[b].contains("window_samples")) n.producer["window_samples"] = bands[b]["window_samples"];
+      if (bands[b].contains("spectral_scaling")) n.producer["spectral_scaling"] = bands[b]["spectral_scaling"];   // the band's own scaling record (its bandwidth)
       if (!is_null(r, "of_field_id"))
         if (const auto f = sub.db().read("field", text(r, "of_field_id"))) n.producer["recording"] = text(*f, "name");
       return n;
@@ -422,7 +416,7 @@ std::optional<CrossSpectrumNode> find_cross_spectrum(SubjectWriter& sub, const s
     const auto sel = sub.db().read("selection", axes[0].value("selection_id", std::string()));
     if (!sel || is_null(*sel, "array_path")) invalid(name + ": its channels (the channel axis's Selection) are not stored");
     return CrossSpectrumNode{r, read_all<std::int32_t>(sub.store(), text(*sel, "array_path")), text(*sel, "manifold_id"), text(r, "path"),
-                             Json::parse(opt_text(r, "producer_json").value_or("{}"), nullptr, false)};
+                             Json::parse(opt_text(r, "producer_json").value_or("{}"), nullptr, false), std::nullopt, {}};
   }
   if (auto n = band_slice(sub, name, "welch", "cross_spectr", "", 1)) return n;
   const auto op = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND kind = 'cross-spectral density' AND status = 'complete'", {V(sub.id()), V(name)});
@@ -430,7 +424,7 @@ std::optional<CrossSpectrumNode> find_cross_spectrum(SubjectWriter& sub, const s
   const auto sel = is_null(*op, "from_selection_id") ? std::nullopt : sub.db().read("selection", text(*op, "from_selection_id"));
   if (!sel || is_null(*sel, "array_path")) invalid(name + ": its channels (from_selection) are not stored");
   return CrossSpectrumNode{*op, read_all<std::int32_t>(sub.store(), text(*sel, "array_path")), text(*op, "from_manifold_id"), text(*op, "path"),
-                           Json::parse(opt_text(*op, "producer_json").value_or("{}"), nullptr, false)};
+                           Json::parse(opt_text(*op, "producer_json").value_or("{}"), nullptr, false), std::nullopt, {}};
 }
 }  // namespace
 
@@ -567,7 +561,7 @@ std::optional<CrossSpectrumNode> find_cross_spectrum_series(SubjectWriter& sub, 
     const auto sel = sub.db().read("selection", axes[1].value("selection_id", std::string()));
     if (!sel || is_null(*sel, "array_path")) invalid(name + ": its channels (the channel axis's Selection) are not stored");
     return CrossSpectrumNode{r, read_all<std::int32_t>(sub.store(), text(*sel, "array_path")), text(*sel, "manifold_id"), text(r, "path"),
-                             Json::parse(opt_text(r, "producer_json").value_or("{}"), nullptr, false)};
+                             Json::parse(opt_text(r, "producer_json").value_or("{}"), nullptr, false), std::nullopt, {}};
   }
   if (auto n = band_slice(sub, name, "analytic", "cross_spectrum_sum", "_windows", 2)) return n;
   const auto op = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND kind = 'cross-spectrum series' AND status = 'complete'", {V(sub.id()), V(name)});
@@ -575,7 +569,7 @@ std::optional<CrossSpectrumNode> find_cross_spectrum_series(SubjectWriter& sub, 
   const auto sel = is_null(*op, "from_selection_id") ? std::nullopt : sub.db().read("selection", text(*op, "from_selection_id"));
   if (!sel || is_null(*sel, "array_path")) invalid(name + ": its channels (from_selection) are not stored");
   return CrossSpectrumNode{*op, read_all<std::int32_t>(sub.store(), text(*sel, "array_path")), text(*op, "from_manifold_id"), text(*op, "path"),
-                           Json::parse(opt_text(*op, "producer_json").value_or("{}"), nullptr, false)};
+                           Json::parse(opt_text(*op, "producer_json").value_or("{}"), nullptr, false), std::nullopt, {}};
 }
 }  // namespace
 
@@ -715,146 +709,15 @@ PhaseGradientResult phasegradient_compute(DatasetWriter& ds, SubjectWriter& sub,
   const std::string unit = urow ? opt_text(*urow, "unit").value_or("") : "";
   if (unit != "m" && unit != "mm") invalid(surface + ": its coordinates are in '" + unit + "', not m or mm: the speed needs a length unit");
   const double metres = unit == "mm" ? 1e-3 : 1.0;
-  if (opt.spatial_band) {
+  {
+    if (!opt.spatial_band) invalid("phasegradient: without --spatial-band it is the definition `nxr-neuro run phasegradient` (measurements of the leaves)");
     PhaseInputs pin;
     pin.crow = *crow; pin.kern = kern; pin.smf = *smf; pin.cpj = cpj; pin.band = band; pin.recording = recording; pin.kname = kname; pin.surface = surface;
     pin.surface_id = surface_id; pin.unit = unit; pin.lo = lo; pin.hi = hi; pin.omega = omega; pin.metres = metres; pin.chans = chans; pin.kf = kf; pin.kshape = kshape;
     pin.M = M; pin.N = N;
     return phasegradient_band(ds, sub, opt, pin, say);
   }
-  // THE PYRAMID'S LEAVES (spec docs/specs/2026-11-14-measurement-pyramid.md, step 5): the band's phase gradient is stored as its additive INGREDIENTS per leaf, never as per-vertex ratios
-  const std::string stem = opt.name ? *opt.name : recording + "_" + kname + "_phasegradient";
-  const std::string fname = nxr::bst::band_field_name(stem, band);                  // the byte-less Field the rows are of
-  const SurfaceInput S = read_surface(sub, surface, true);                          // as stored (float64): the ladder's input
-  if (S.n_vertices() != N) invalid(surface + ": another vertex count than " + kname);
-  PyramidLeaves PL = pyramid_leaves(ds, sub, S, opt.depth, "phasegradient", say);
-  const StoredFrames sf = read_stored_frames(sub, surface, N);
-  if (!sf.canonical) invalid(surface + " has no canonical frames: the phase current is stored in them (`nxr-neuro frames compute` first)");
-  const auto gauge_row = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(surface + "_canonical_frames")});
-  const Json gauge = gauge_row ? Json(text(*gauge_row, "id")) : Json(nullptr);
-  CacheKey key;
-  key.pipeline = "phasegradient";
-  key.params = Json{{"name", stem}, {"signal", opt.signal}, {"gradient", "P1, area-weighted face mean, tangent"}, {"depth", PL.depth}, {"store", "leaf sums"}};
-  key.input = Json{{"cross_spectrum", text(*crow, "id")}, {"cross_spectrum_modified", opt_text(*crow, "modified_utc").value_or("")}, {"kernel", text(kern, "id")},
-                   {"kernel_modified", opt_text(kern, "modified_utc").value_or("")}, {"surface", surface_id}, {"leaves", text(*PL.part, "id")}, {"gauge", gauge}};
-  key.compute = NXR_COMPUTE_VERSION;
-  PhaseGradientResult res;
-  const auto old_field = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND kind = 'phase gradient' AND status = 'complete'", {V(sub.id()), V(fname)});
-  auto info_of = [&](const char* cache) {
-    return Json{{"name", stem}, {"field", fname}, {"selection", PL.name}, {"leaves", PL.leaves}, {"depth", PL.depth}, {"cross_spectrum", opt.cross_spectrum}, {"band", band}, {"kernel", kname}, {"signal", opt.signal},
-                {"sources", N}, {"measures", Json::array({"phase_power", "phase_gradient_power", "phase_current_1", "phase_current_2", "phase_current_magnitude"})},
-                {"derived_at_read", Json::array({"phase_gradient_1", "phase_gradient_2", "phase_gradient_magnitude", "phase_gradient_direction_deg", "travelling_index", "phase_coherence"})}, {"cache", cache}};
-  };
-  if (old_field) {
-    if (const auto hit = find_cached(sub.db(), sub.id(), "field", key, std::nullopt); hit && text(*hit, "id") == text(*old_field, "id")) {
-      say(Json{{"stage", "cache"}, {"hit", true}, {"cross_spectrum", opt.cross_spectrum}});
-      res.hit = true;
-      res.info = info_of("hit");
-      return res;
-    }
-    if (!opt.replace) invalid(sub.name() + ": '" + fname + "' already exists, made with other choices; pass --replace to rewrite it");
-  }
-  const auto t0 = std::chrono::steady_clock::now();
-  say(Json{{"stage", "cache"}, {"hit", false}, {"cross_spectrum", opt.cross_spectrum}, {"kernel", kname}, {"channels", M}, {"sources", N}, {"signal", opt.signal}, {"leaves", PL.leaves}});
-  // ── the chain: the cross-spectrum → per-vertex sums P, H, Q (matrices) → H in the canonical frames; the leaves' sums are measurements over the partition ──
-  const StoredCrossSpectrum C = crossspectrum_read(sub, opt.cross_spectrum, chans);
-  const nxr::hodge::RowMat3 P = Eigen::Map<const nxr::hodge::RowMat3>(S.vertices.data(), N, 3);
-  const nxr::hodge::FaceMat F = Eigen::Map<const nxr::hodge::FaceMat>(S.faces.data(), S.n_faces(), 3);
-  const nxr::hodge::FaceOperators ops(P, F, false);
-  const Eigen::MatrixXd K = Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(kf.data(), kshape[0], M).cast<double>();
-  nxr::meeg::PhaseSums sums;
-  auto add_signal = [&](const Eigen::MatrixXd& A) {
-    Eigen::MatrixXd G[3];
-    ops.vertexGradient(A, G);
-    for (std::int64_t v = 0; v < N; ++v) {                       // on the tangent plane
-      const Eigen::RowVectorXd dot = G[0].row(v) * ops.normals(v, 0) + G[1].row(v) * ops.normals(v, 1) + G[2].row(v) * ops.normals(v, 2);
-      for (int d = 0; d < 3; ++d) G[d].row(v) -= dot * ops.normals(v, d);
-    }
-    nxr::meeg::addPhaseSums(sums, nxr::meeg::phaseSums(A, G, C.S, C.Sq));
-  };
-  if (opt.signal == "normal") {
-    Eigen::MatrixXd A(N, M);
-    for (std::int64_t v = 0; v < N; ++v) A.row(v) = ops.normals(v, 0) * K.row(3 * v) + ops.normals(v, 1) * K.row(3 * v + 1) + ops.normals(v, 2) * K.row(3 * v + 2);
-    add_signal(A);
-  } else {
-    for (int c = 0; c < 3; ++c) {
-      Eigen::MatrixXd A(N, M);
-      for (std::int64_t v = 0; v < N; ++v) A.row(v) = K.row(3 * v + c);
-      add_signal(A);
-    }
-  }
-  const nxr::meeg::PhaseCurrentFrames jf = nxr::meeg::phaseCurrentInFrames(sums.phase, sf.e1, sf.e2);
-  // per-vertex ingredients in the surface's length unit converted to metres (H: rad/m x power; Q: per m^2), the vertex's lumped area as the weight; a vertex with no frame (singular) is out of every sum
-  nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(N); mesh.positions = S.vertices; mesh.faces = S.faces;
-  const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
-  std::vector<double> wv(static_cast<std::size_t>(N)), vp(static_cast<std::size_t>(N)), vq(static_cast<std::size_t>(N)), v1(static_cast<std::size_t>(N)), v2(static_cast<std::size_t>(N)), vm(static_cast<std::size_t>(N));
-  std::int64_t singular = 0;
-  for (std::int64_t v = 0; v < N; ++v) {
-    const std::size_t i = static_cast<std::size_t>(v);
-    const bool ok = std::isfinite(jf.j1(v)) && std::isfinite(jf.j2(v)) && std::isfinite(sums.power(v)) && std::isfinite(sums.gradientPower(v));
-    if (!ok) ++singular;
-    wv[i] = ok ? area[i] : 0.0;
-    vp[i] = ok ? sums.power(v) : 0.0;
-    vq[i] = ok ? sums.gradientPower(v) / (metres * metres) : 0.0;
-    v1[i] = ok ? jf.j1(v) / metres : 0.0;
-    v2[i] = ok ? jf.j2(v) / metres : 0.0;
-    vm[i] = ok ? jf.magnitude(v) / metres : 0.0;
-  }
-  const int L = static_cast<int>(PL.leaves);
-  auto leaf_sum = [&](const std::vector<double>& x) { return nxr::partition::accumulate(PL.codes.data(), PL.codes.size(), L, x.data(), wv.data()).sum; };
-  struct Out { const char* rel; const char* measure; std::vector<double> v; std::string unit; };
-  const std::string density = cpj.value("scaling", std::string("density")) == "density" ? "/Hz" : "";
-  std::vector<Out> outs = {{"power", "phase_power", leaf_sum(vp), std::string("A\xc2\xb2\xc2\xb7m\xc2\xb2") + density},
-                           {"gradientpower", "phase_gradient_power", leaf_sum(vq), std::string("A\xc2\xb2") + density},
-                           {"current_1", "phase_current_1", leaf_sum(v1), "rad/m x power"},
-                           {"current_2", "phase_current_2", leaf_sum(v2), "rad/m x power"},
-                           {"current_magnitude", "phase_current_magnitude", leaf_sum(vm), "rad/m x power"}};
-  // ── store ──
-  const nxr::io::Json band_ref = nxr::bst::band_ref(sub.db(), band, lo, hi);
-  const std::string key_name = nxr::io::safe_name(fname);
-  const std::string group = PL.node + "/phase/" + key_name;
-  Json pj = stamp(key);
-  pj["stage"] = "phasegradient"; pj["by"] = "nxr-neuro phasegradient compute"; pj["producer"] = producer_name("phasegradient compute");
-  pj["cross_spectrum"] = opt.cross_spectrum; pj["cross_spectrum_id"] = text(*crow, "id"); pj["recording"] = recording; pj["kernel"] = kname; pj["kernel_id"] = text(kern, "id");
-  pj["band"] = band_ref; pj["omega_rad_s"] = omega; pj["signal"] = opt.signal; pj["surface_unit"] = unit;
-  pj["time"] = Json{{"axis", "none"}, {"span", "the cross-spectrum's own: every sample it averaged (one value a leaf, no frame axis)"},
-                    {"window", cpj.contains("window") ? cpj["window"] : Json(nullptr)}, {"segments", cpj.contains("segments") ? cpj["segments"] : Json(nullptr)}, {"segment_samples", cpj.contains("segment_samples") ? cpj["segment_samples"] : Json(nullptr)},
-                    {"bad_segments_excluded", cpj.contains("exclude_bad_segments") ? cpj["exclude_bad_segments"] : Json(nullptr)}};
-  pj["leaves"] = Json{{"selection", PL.name}, {"depth", PL.depth}, {"count", PL.leaves}, {"tree", PL.tree}, {"vertices_without_frame", singular}, {"weights", "the vertex's lumped area"}, {"node", group}};
-  pj["reference"] = "nxr.detect.core_phase PhaseReader.read_out (grad phi = Im(conj z grad z) / |z|^2), averaged with power weights over the band's segments and bins; the leaf's sums are nxr's vector_stats of the phase current";
-  pj["stored"] = "per leaf, sums of the vertex ingredients weighted by vertex area: phase_power = sum a P, phase_gradient_power = sum a Q, phase_current_1/2 = sum a (H . e1/e2) in the canonical frames (e1 north, e2 west), phase_current_magnitude = sum a |j|";
-  pj["derived_at_read"] = "phase_gradient_1/2 = j / P, phase_gradient_magnitude = |sum j| / P, travelling_index = |sum j| / sqrt(P Q), phase_coherence = |sum j| / sum |j|; the speed is omega over the magnitude (rad/s over rad/m); the direction is Sum j's angle from north towards west (the phase gradient points against the travel)";
-  pj["warnings"] = Json::array({"the speed takes omega at the band's centre frequency: a phase gradient averaged over the band's bins",
-                                "the kernel spreads each source over its neighbours with no lag: that shrinks the phase gradient, so the speed is overestimated where the spread is wide",
-                                "power-weighted over the whole span: waves going opposite ways, or turning, cancel (a low travelling index), and the field is not resolved in time",
-                                "the P1 gradient resolves a wavelength of a few edges at best; shorter waves alias",
-                                "a leaf's gradient is the power-weighted mean of its vertices' phase currents in the leaf's canonical frames (a leaf larger than the wavelength averages a turning wave out); the per-vertex gradient is not stored",
-                                "a vertex with no canonical frame (the registered sphere's poles) is out of every sum"});
-  const std::string old_id = old_field ? text(*old_field, "id") : std::string();
-  std::string field_id;
-  sub.compose([&] {
-    if (old_field) sub.remove("field", old_id);
-    pyramid_leaves_record(sub, PL, gauge);
-    FieldSpec fs;
-    fs.name = fname; fs.kind = "phase gradient"; fs.manifold_id = surface_id; fs.value_type = "vector3";
-    fs.cols.set("function", "phase gradient").set("by_operator_id", text(kern, "id"))
-        .set("description", "the phase gradient of the " + opt.signal + " current of " + recording + " by " + kname + " \xe2\x80\x94 " + band + ", stored as its additive ingredients per leaf of " + PL.name + " only, never as per-vertex ratios");
-    pj["studio"] = Json{{"type", "complex"}};                      // a tangent vector a vertex (ambient x y z): the Studio's complex (backend valueType.ts algebraOf), not a free-orientation current (quaternion)
-    fs.cols.json("producer_json", pj);
-    field_id = sub.field(std::move(fs));
-    for (const Out& o : outs) {
-      const std::string path = group + "/" + o.rel;
-      sub.write_array(path, view(o.v, {static_cast<std::int64_t>(PL.leaves)}));
-      Cols c;
-      c.set("measure", o.measure).set("of_field_id", field_id).set("array_path", path).set("unit", o.unit).set("computed_by", "nxr-neuro phasegradient compute");
-      if (!band_ref["selection_id"].is_null()) c.set("within_selection_id", band_ref["selection_id"].get<std::string>()).set("within_code", band_ref["code"].get<std::int64_t>());
-      sub.measurement(text(*PL.part, "id"), c);
-    }
-  });
-  res.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-  res.info = info_of("miss");
-  res.info["vertices_without_frame"] = singular;
-  return res;
+  invalid("phasegradient: without --spatial-band it is the definition `nxr-neuro run phasegradient` (measurements of the leaves); this command keeps the spatial-band route");
 }
 
 // ── the quadrature spectrum of sources ───────────────────────────────────────────────────────────────────────────

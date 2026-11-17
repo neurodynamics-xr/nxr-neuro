@@ -120,7 +120,7 @@ struct FieldOut {
   std::optional<std::string> unit, description, derived_from_id, acquisition;
   std::optional<std::string> of_operator_id;       // a field of an operator (a head model's source positions)
   Json producer;                                   // added to the unit's producer record (null: nothing added)
-  Values data;                                     // [n_vertices] or [n_vertices x components]
+  Values data;                                     // [n_vertices] or [n_vertices x components]; empty: a field with no array (what measurements are of)
 };
 // a Statistic: what it is (measure, method), of what, from which partition, along which axes
 struct StatisticOut {
@@ -146,6 +146,14 @@ struct OperatorOut {
   Json params;                                     // the operator's parameters (null: none)
   Json producer;
   Values data;                                     // dense [rows x cols]
+};
+// MEASUREMENTS OF A FIELD OVER A PARTITION, array-backed: one value per member for each measure (the pyramid's leaves: additive ingredients, ratios derived at read).
+// Each measure's values are stored at `<path>/<measure>` and recorded as a measurement row of `selection_id`; `band` (name, lo_hz, hi_hz) records the band it is within.
+struct MeasurementOut {
+  std::string output, selection_id, of_field_id, path;
+  struct Measure { std::string measure, unit; Values values; };
+  std::vector<Measure> measures;
+  Json band;                                       // {name, lo_hz, hi_hz} or null
 };
 // a closed-form tiling of a time line: `count` tiles of `width` a new one every `hop` from `origin` (in `unit`), `skipped` of them left out
 struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };
@@ -307,6 +315,7 @@ class Unit {
   std::string statistic(const StatisticOut&);
   std::string operator_(const OperatorOut&);
   std::string selection(const SelectionOut&);
+  std::int64_t measurements(const MeasurementOut&);   // the rows written (one a measure); a measure already there for the field is replaced
   // MANIFOLDS (the sixth kind): made first, so the other results of the unit can lie on them; each found and reused when identical, never replaced
   std::string line(const LineOut&);
   std::string surface(const SurfaceOut&);
