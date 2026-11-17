@@ -101,7 +101,11 @@ void over_members(Ingredients& acc, const T* values, std::int64_t rows, std::int
   if (mem.size() != elements) refuse("the members cover " + std::to_string(mem.size()) + " elements, the values " + std::to_string(elements));
   Folder f = prepare(acc, req, rows, mem.members, weights, values != nullptr);
   std::int64_t unassigned = 0;
-  const Memberships ms = memberships_of(mem, unassigned);
+  for (std::size_t i = 0; i < mem.member_of.size(); ++i) {                       // a member number past the count is refused; a negative one is in no member, counted once
+    const std::int32_t c = mem.member_of[i];
+    if (c >= mem.members) refuse("element " + std::to_string(i) + " is in member " + std::to_string(c) + ", outside [0, " + std::to_string(mem.members) + ")");
+    if (c < 0) ++unassigned;
+  }
   if (f.first) acc.unassigned += unassigned;
   const std::size_t M = static_cast<std::size_t>(mem.members);
   for (std::int64_t r = 0; r < rows; ++r)
