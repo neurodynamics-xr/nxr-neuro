@@ -62,6 +62,15 @@ Tractogram read_trk(const std::filesystem::path& path);
 // float32 and the indices (into the tractogram) of the streamlines kept.
 std::vector<float> resample_streamlines(const Tractogram& t, int n_points, std::vector<std::int64_t>* kept = nullptr);
 
+// ── the scalp and the landmarks ─────────────────────────────────────────────────────────────────────────────────
+// The landmarks of a template's head, in metres in the template's coordinate system: from Brainstorm's subjectimage_T1.mat (SCS.NAS, LPA, RPA through its SCS frame), or from MNE's
+// fiducials file of fsaverage (`bem/fsaverage-fiducials.fif`, in FreeSurfer's surface RAS). The inion is not here: no template carries one (nxr::montage::inionFromLandmarks is the default).
+struct HeadLandmarks {
+  std::array<double, 3> nasion{}, lpa{}, rpa{};
+};
+HeadLandmarks landmarks_from_subjectimage(const std::filesystem::path& subjectimage_mat);
+HeadLandmarks landmarks_from_fif(const std::filesystem::path& fiducials_fif);
+
 // ── what to write, and the origin of what is written ───────────────────────────────────────────────────────────
 struct FreeSurferSource {
   std::filesystem::path folder;              // the subject folder holding surf/ and label/
@@ -107,6 +116,7 @@ struct BuildRequest {
   std::string hcp_end_surface;               // required with hcp_trk
   double hcp_max_end_distance_mm = 5;
   int hcp_points = 64;
+  bool scalp = false;                        // also write the scalp (a closed head surface, `head`) and the landmarks NAS, LPA, RPA (`head_landmarks`), for the standard electrode montages
   std::optional<std::array<double, 12>> hcp_affine;   // replaces the transform read from subjectimage_T1.mat (a reference's fitted affine)
 };
 // Make the package: the importer, its origin on every item, the record's description. Returns {package, name, content_hash, items, sources, ...}. A failed build leaves nothing.

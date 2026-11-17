@@ -160,6 +160,14 @@ struct DigPoint {
   std::int32_t coord_frame = 0;        // the isotrak block's frame (head by default)
 };
 
+// A fiducials file (MNE's `<subject>-fiducials.fif`, `read_fiducials`): the digitisation points of its one isotrak block and their coordinate frame (FIFFV_COORD_MRI 5: the MRI's surface RAS in
+// metres). Refused: no isotrak block, or more than one.
+struct Fiducials {
+  std::vector<DigPoint> points;
+  std::int32_t coord_frame = 0;
+};
+Fiducials read_fiducials(const File& f);
+
 struct CoordTrans {   // FIFFT_COORD_TRANS_STRUCT
   std::int32_t from = 0, to = 0;       // FIFFV_COORD_*
   std::array<double, 16> trans{};      // 4 x 4, row-major, translation in metres (rotation and move as the file stores them)
