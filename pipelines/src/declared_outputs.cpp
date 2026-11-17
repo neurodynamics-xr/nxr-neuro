@@ -313,7 +313,14 @@ void check_declared(const Plan& P, const std::string& o) {
       if (!ax.is_object() || !ax.contains("name")) bad(o, "axes: each {name, on | line}");
       // ONE TABLE FOR VALUES OVER MEMBERS (consolidation spec 6.1): a value per member of a selection is a MEASUREMENT (`selection_measurement`), never a statistic. A statistic's axes are not a selection's members
       // (its `partition:` is provenance, the members it was computed from, never an axis); a statistic with such an axis is refused, naming what to declare instead.
-      const bool member_axis = ax.contains("members") || ax.contains("selection") ||
+      // a PICK (a selection of type indices: the channels a matrix covers, the elements an array is over) names elements of a manifold in an order, it does not partition anything: an axis over it is
+      // the elements', so a statistic (a covariance on the picked channels) may have it. Only a partition's members make a measurement.
+      auto is_pick = [&](const std::string& name) {
+        if (P.definition.outputs.contains(name)) return kind_of(P.definition.outputs[name]) == "selection" && P.definition.outputs[name].value("type", std::string()) == "indices";
+        return P.found.count(name) && P.found.at(name).cls == "selection" && P.found.at(name).row && nxr::io::opt_text(*P.found.at(name).row, "type") == std::optional<std::string>("indices");
+      };
+      const bool pick_axis = ax.contains("selection") && ax["selection"].is_string() && is_pick(ax["selection"].get<std::string>());
+      const bool member_axis = (!pick_axis && (ax.contains("members") || ax.contains("selection"))) ||
                                (ax.contains("on") && ax["on"].is_string() && ((P.found.count(ax["on"].get<std::string>()) && P.found.at(ax["on"].get<std::string>()).cls == "selection") ||
                                                                               (P.definition.outputs.contains(ax["on"].get<std::string>()) && kind_of(P.definition.outputs[ax["on"].get<std::string>()]) == "selection")));
       if (member_axis) bad(o, "axis '" + ax["name"].get<std::string>() + "' runs over the members of a selection, so these values are a measurement: declare `kind: measurement` (over: the selection) instead of a statistic");

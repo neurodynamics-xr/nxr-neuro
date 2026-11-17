@@ -9,6 +9,7 @@
 #include <random>
 
 #include "check.h"
+#include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "golden_io.h"
 #include "nxr/bst/entities.h"
@@ -162,34 +163,40 @@ int main() {
       });
     }
     SubjectWriter sub = SubjectWriter::open(ds, "S1");
-    SourcePsdOptions o;
-    o.recording = "rest";
-    o.chunks = "all";                                           // every chunk (stored 700 wide), against the whole-record reference
-    o.option_set = "brainstorm";                                // the direct reference below is Brainstorm's exact 4 s
-    o.segment_seconds = 4.0;
-    o.bands = {{"alpha", 8, 12}, {"beta", 15, 29}};
-    const SourcePsdResult a = sourcepsd_compute(ds, sub, o);
-    CHECK(!a.hit);
-    CHECK_EQ(a.info["maps"].size(), std::size_t(2));
+    // the definition `sourcepsd` through the runner (what `nxr-neuro run sourcepsd` does): every chunk (stored 700 wide), against the whole-record reference; Brainstorm's exact 4 s segments
+    const Json bands = Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}, Json{{"name", "beta"}, {"lo", 15}, {"hi", 29}}});
+    const std::vector<nxr::meeg::Band> bl = {{"alpha", 8, 12}, {"beta", 15, 29}};
+    const Json set = Json{{"recording", "rest"}, {"kernel", "kern"}, {"bands", bands}, {"segment_seconds", 4.0}};
+    auto run = [&](const Json& st, bool replace) { return nxrtest::run_definition(ds, sub, "sourcepsd", st, replace); };
+    auto stat_maps = [&](const std::string& name) {   // the statistic's values [N x bands]
+      const StoredStatistic st = read_statistic(sub, name);
+      MatrixXd m(N, 2);
+      for (int i = 0; i < N; ++i) for (int k = 0; k < 2; ++k) m(i, k) = st.values[static_cast<std::size_t>(i * 2 + k)];
+      return m;
+    };
+    Json bset = set; bset["segment_rule"] = "round";             // the direct reference below is Brainstorm's exact 4 s
+    const auto ra = run(bset, false);
+    CHECK(!ra.empty() && !ra[0].value("hit", false));
+    const MatrixXd amaps = stat_maps("rest_kern_psd");
     auto wo = nxr::welch::brainstormPsdOptions(sfreq, 4.0);
     const auto direct = nxr::welch::welch(K * X, wo);
     const double df = sfreq / wo.segmentSamples;
-    const auto gr = groups_of(o.bands, df, wo.segmentSamples / 2 + 1, false);
+    const auto gr = groups_of(bl, df, wo.segmentSamples / 2 + 1, false);
     MatrixXd want(N, 2);
     for (int b = 0; b < 2; ++b) {
       Eigen::VectorXd m = direct.psd.middleCols(gr[b].first, gr[b].last - gr[b].first + 1).rowwise().mean();
       for (int s = 0; s < N; ++s) want(s, b) = m[3 * s] + m[3 * s + 1] + m[3 * s + 2];
     }
-    std::printf("  pipeline maps vs Welch on K x: %.2e\n", rel(a.maps, want));
-    CHECK(rel(a.maps, want) < 1e-10);
+    std::printf("  pipeline maps vs Welch on K x: %.2e\n", rel(amaps, want));
+    CHECK(rel(amaps, want) < 1e-6);                               // float32 storage
     // A STATISTIC read as MAPS (docs/specs/2026-11-13-statistics.md): power_density by welch, axes vertex (the cortex) x band; band k's map is `<stem>_<band>`
     {
-      const StoredStatistic st = read_statistic(sub, a.info["statistic"].get<std::string>());
+      const StoredStatistic st = read_statistic(sub, "rest_kern_psd");
       CHECK(text(st.row, "measure") == "power_density" && text(st.row, "method") == "welch" && st.shape == (std::vector<std::int64_t>{N, 2}));
       CHECK(st.axes[0]["manifold_id"] == surf && st.axes[1]["values"][0]["name"] == "alpha" && st.axes[1]["values"][1]["lo_hz"] == 15.0);
       CHECK(integer(st.row, "n_members") > 0 && !is_null(st.row, "partition_selection_id"));
       const auto slices = nxr::io::task::Subject::of(sub).map_slices(surf);
-      CHECK(slices.size() == 2 && slices[0].name == a.info["maps"][0].get<std::string>() && slices[1].index == 1);
+      CHECK(slices.size() == 2 && slices[0].name == "rest_kern_psd_alpha" && slices[1].index == 1);
       const auto beta = [&] {   // the band's map: the statistic's values [N x entries] at the slice's entry
         const std::int64_t K = st.shape.at(1);
         std::vector<double> v(static_cast<std::size_t>(N));
@@ -200,17 +207,16 @@ int main() {
       for (int i = 0; i < N; ++i) worst = std::max(worst, std::abs(beta[static_cast<std::size_t>(i)] / want(i, 1) - 1));
       CHECK(worst < 1e-6);                                       // float32 storage
     }
-    const SourcePsdResult b = sourcepsd_compute(ds, sub, o);
-    CHECK(b.hit);
+    const auto rb = run(bset, false);
+    CHECK(!rb.empty() && rb[0].value("hit", false));
     bool refused = false;
-    SourcePsdOptions o2 = o;
-    o2.normalisation = "relative";
-    try { sourcepsd_compute(ds, sub, o2); } catch (const Error& e) { refused = true; }   // same names, other options: refused until --replace
+    Json set2 = bset; set2["normalisation"] = "relative";
+    try { run(set2, false); } catch (const Error& e) { refused = true; }   // same names, other options: refused until --replace
     CHECK(refused);
-    o2.replace = true;
-    const SourcePsdResult c = sourcepsd_compute(ds, sub, o2);
-    CHECK(!c.hit && c.info["replaced"].get<bool>());
-    CHECK(c.maps.maxCoeff() < 1.0 && c.maps.minCoeff() > 0);
+    const auto rc = run(set2, true);
+    CHECK(!rc.empty() && !rc[0].value("hit", false));
+    const MatrixXd cmaps = stat_maps("rest_kern_psd");
+    CHECK(cmaps.maxCoeff() < 1.0 && cmaps.minCoeff() > 0);
     ds.close();
     fs::remove_all(root);
   }

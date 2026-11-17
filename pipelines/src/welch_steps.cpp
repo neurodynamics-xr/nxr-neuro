@@ -980,6 +980,9 @@ ng::NodeSpec welch_cross_spectrum() {
                                  {"tiling", tiling}, {"n_members", cw.segments}, {"members_skipped", cw.segmentsSkipped}, {"producer", producer}, {"options", ob},
                                  {"description", "the sensor cross-spectral density bin by bin within each band, on " + std::to_string(M) + " channels"}};
       out["bins"] = std::move(Bn);
+    } else {
+      ng::Array none; none.meta["absent"] = true;                        // an optional output this run does not make (resolve band)
+      out["bins"] = std::move(none);
     }
     return out;
   };

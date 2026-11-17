@@ -28,7 +28,7 @@ steps:
 outputs:
   canonical:   {kind: field, kind_name: canonical frames, name: "{surface}_canonical_frames", on: surface.manifold.0, optional: true}
   singular:    {kind: selection, type: indices, name: "{surface}_frame_singularities", on: surface.manifold.0, optional: true}
-  gauge_angle: {kind: field, kind_name: canonical frames, name: "{surface}_canonical_gauge_angle", on: surface.manifold.0, optional: true}
+  gauge_angle: {kind: field, kind_name: gauge angle, name: "{surface}_canonical_gauge_angle", on: surface.manifold.0, optional: true}
   angle:       {kind: field, kind_name: anatomical frames, name: "{surface}_anatomical_angle", on: surface.manifold.0}
   second:      {kind: field, kind_name: anatomical frames, name: "{surface}_anatomical_second", on: surface.manifold.0}
   handed:      {kind: field, kind_name: anatomical frames, name: "{surface}_anatomical_handed", on: surface.manifold.0}

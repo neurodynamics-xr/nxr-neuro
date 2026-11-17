@@ -246,16 +246,21 @@ std::vector<std::map<std::string, Value>> resolve(const Database& db, const std:
     std::string missing;
     for (const auto& name : names) {
       const Json& spec = inputs[name];
+      bool named_by_caller = false;                                        // an optional input the caller NAMED (a parameter given): it must exist, never silently absent
       if (!spec.value("required", true) && spec.contains("where")) {      // an optional input named by a parameter left null is not looked for (absent)
         bool unset = false;
         for (const auto& [k, v] : spec["where"].items())
-          if (v.is_string() && v.get<std::string>().rfind('$', 0) == 0) { const std::string pk = v.get<std::string>().substr(1); if (params.contains(pk) && params[pk].is_null()) unset = true; }
+          if (v.is_string() && v.get<std::string>().rfind('$', 0) == 0) {
+            const std::string pk = v.get<std::string>().substr(1);
+            if (params.contains(pk) && params[pk].is_null()) unset = true;
+            else if (params.contains(pk) && params[pk].is_string() && params[pk].get<std::string>() != "none") named_by_caller = true;
+          }
         if (unset) continue;
       }
       const auto hits = matches(db, subject_id, name, spec, found, params);
       const std::string label = anchor ? " (for " + *anchor + " '" + text(*found.at(*anchor).row, "name") + "')" : "";
       if (hits.empty()) {
-        if (spec.value("required", true)) {
+        if (spec.value("required", true) || named_by_caller) {
           // EVERY missing input is named (a run over many pairs names all its missing joint partitions at once), each with its `hint` (what makes it), `{X}` being input X's name
           Json shown = spec;
           shown.erase("hint");

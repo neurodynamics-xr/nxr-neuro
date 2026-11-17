@@ -641,9 +641,14 @@ std::string Unit::statistic(const StatisticOut& s) {
   need_open(open_);
   // a value per MEMBER of a selection is a MEASUREMENT (one table for values over members, spec 6.1): a statistic holds values on axes that are not a selection's members (a PSD on channels x frequency,
   // a covariance, a histogram's bins, the summaries across members). Its partition is PROVENANCE, never an axis.
+  // a PICK (a selection of type indices: the channels a matrix covers) names elements in an order and partitions nothing: an axis over it holds the elements' values, a statistic's
+  auto is_pick = [&](const std::string& id) {
+    const auto r = impl_->writer->db().read("selection", id);
+    return r && opt_text(*r, "type") == std::optional<std::string>("indices");
+  };
   if (s.axes.is_array())
     for (const auto& ax : s.axes)
-      if (ax.is_object() && ax.contains("selection_id") && !ax["selection_id"].is_null())
+      if (ax.is_object() && ax.contains("selection_id") && !ax["selection_id"].is_null() && !is_pick(ax["selection_id"].get<std::string>()))
         throw Error(code::invalid_argument, "statistic " + s.name + ": an axis lies on the members of a selection (" + ax["selection_id"].dump() + "): values over a selection's members are a measurement (Unit::measurements), not a statistic");
   StatisticSpec st;
   st.name = s.name; st.path = path_of(s); st.measure = s.measure; st.method = s.method; st.value_type = s.value_type;

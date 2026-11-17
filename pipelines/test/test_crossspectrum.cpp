@@ -14,6 +14,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
 #include "nxr/meeg/crossspectrum.h"
@@ -147,22 +148,27 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  CrossSpectrumOptions o;
-  o.recording = "rest"; o.chunks = "all"; o.channels_of = "free"; o.segment_seconds = 4.0; o.bands = {{"alpha", 8, 12}, {"beta", 15, 29}};
-  const CrossSpectrumResult c = crossspectrum_compute(ds, sub, o);
-  CHECK(!c.hit && c.S.size() == 2);
+  const Json bands2 = Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}, Json{{"name", "beta"}, {"lo", 15}, {"hi", 29}}});
+  // the definition through the runner, every chunk; `set` over the common parameters
+  auto cs = [&](const std::string& recording, const std::string& name, Json more = Json::object(), bool replace = false) {
+    Json set = Json{{"recording", recording}, {"channels_of", "free"}, {"segment_seconds", 4.0}, {"bands", bands2}, {"name", name}};
+    for (auto it = more.begin(); it != more.end(); ++it) { if (it.value().is_null()) set.erase(it.key()); else set[it.key()] = it.value(); }
+    return nxrtest::run_definition(ds, sub, "crossspectrum", set, replace);
+  };
+  const auto c = cs("rest", "rest_crossspectrum");
+  CHECK(!c.empty() && !c[0].value("hit", false));
   // a STATISTIC per band (docs/specs/2026-11-13-statistics.md): cross_spectral_density by welch, from the segment partition, axes channel x channel x (re, im)
   {
-    const StoredStatistic st = read_statistic(sub, "rest_crossspectrum_alpha");
-    CHECK(text(st.row, "measure") == "cross_spectral_density" && text(st.row, "method") == "welch" && st.shape == (std::vector<std::int64_t>{M, M, 2}));
-    CHECK(st.axes.size() == 2 && st.axes[0]["name"] == "channel" && st.axes[1]["selection_id"] == st.axes[0]["selection_id"] && text(st.row, "value_type") == "complex" && integer(st.row, "n_components") == 2);
-    CHECK(st.options["band"]["name"] == "alpha" && integer(st.row, "n_members") > 0);
+    const StoredStatistic st = read_statistic(sub, "rest_crossspectrum");   // ONE statistic, band x channel x channel (a band is read by its old name `<name>_<band>`)
+    CHECK(text(st.row, "measure") == "cross_spectral_density" && text(st.row, "method") == "welch" && st.shape == (std::vector<std::int64_t>{2, M, M, 2}));
+    CHECK(st.axes.size() == 3 && st.axes[0]["name"] == "band" && st.axes[1]["name"] == "channel" && st.axes[2]["selection_id"] == st.axes[1]["selection_id"] && text(st.row, "value_type") == "complex" && integer(st.row, "n_components") == 2);
+    CHECK(st.axes[0]["values"][0]["name"] == "alpha" && integer(st.row, "n_members") > 0);
     const auto seg = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, text(st.row, "partition_selection_id"));
     CHECK(seg && seg->name == "rest_crossspectrum_segments" && seg->n_members == integer(st.row, "n_members") + integer(st.row, "members_skipped"));
-    CHECK(read_statistic(sub, "rest_crossspectrum_beta").options["band"]["name"] == "beta");
+    CHECK(st.axes[0]["values"][1]["name"] == "beta");
     // ONE MADE BEFORE (an Operator of kind `cross-spectral density`, as stored until 2026-11-13) is still read: no migration
     const auto chsel = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_crossspectrum_channels", .any_status = true});
-    std::vector<double> vals(st.values);
+    std::vector<double> vals(st.values.begin(), st.values.begin() + static_cast<std::ptrdiff_t>(M * M * 2));   // the first band (alpha)
     sub.compose([&] {
       OperatorSpec op;
       op.name = "old_csd"; op.path = "old_csd"; op.kind = "cross-spectral density"; op.from_manifold_id = *chsel->manifold_id; op.layout = "dense";
@@ -178,17 +184,13 @@ int main() {
   const StoredCrossSpectrum C = crossspectrum_read(sub, "rest_crossspectrum_alpha");
   CHECK_EQ(static_cast<int>(C.channels.size()), M);
   const double herm = std::max((C.S - C.S.transpose()).cwiseAbs().maxCoeff(), (C.Sq + C.Sq.transpose()).cwiseAbs().maxCoeff());
-  const double stored = std::max((C.S - c.S[0]).cwiseAbs().maxCoeff(), (C.Sq - c.Sq[0]).cwiseAbs().maxCoeff());
   // the turn (cos on channel 0, sin on channel 1): a quadrature part between them, about as large as their power
-  std::printf("  Hermitian to %.2e; stored vs computed %.2e; |Sq01| / S00 = %.3f\n", herm, stored, std::abs(C.Sq(0, 1)) / C.S(0, 0));
-  CHECK(herm < 1e-12 * C.S.cwiseAbs().maxCoeff() && stored == 0);
+  std::printf("  Hermitian to %.2e; |Sq01| / S00 = %.3f\n", herm, std::abs(C.Sq(0, 1)) / C.S(0, 0));
+  CHECK(herm < 1e-12 * C.S.cwiseAbs().maxCoeff());
   CHECK(std::abs(C.Sq(0, 1)) > 0.5 * C.S(0, 0));
   // K C K^T's diagonal blocks are sourcetensor's tensors (stored float32)
-  FramesComputeOptions fo;
-  frames_compute(ds, sub, fo);
-  SourcePsdOptions so;
-  so.recording = "rest"; so.chunks = "all"; so.kernel = "free"; so.segment_seconds = 4.0; so.bands = {{"alpha", 8, 12}};
-  sourcetensor_compute(ds, sub, so);
+  nxrtest::run_definition(ds, sub, "surface_frames", Json{{"surface", "cortex"}}, false);
+  nxrtest::run_definition(ds, sub, "sourcetensor", Json{{"recording", "rest"}, {"kernel", "free"}, {"segment_seconds", 4.0}, {"bands", Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}})}}, false);
   const auto herm3 = map_named(sub, "rest_free_tensor", "rest_free_tensor_alpha");
   Eigen::MatrixXd K(3 * N, M);
   for (int r = 0; r < 3 * N; ++r) for (int ch = 0; ch < M; ++ch) K(r, ch) = kf[static_cast<size_t>(r * M + ch)];
@@ -204,15 +206,15 @@ int main() {
   std::printf("  K C K^T diagonal blocks vs sourcetensor: %.2e (of %.2e)\n", worst, scale);
   CHECK(worst < 1e-6 * scale);
   // the same samples stored in another chunk width: the same result
-  CrossSpectrumOptions o2 = o; o2.recording = "rest_b"; o2.name = "rest_b_crossspectrum";
-  const CrossSpectrumResult c2 = crossspectrum_compute(ds, sub, o2);
-  const double chunks = std::max((c2.S[0] - c.S[0]).cwiseAbs().maxCoeff(), (c2.Sq[0] - c.Sq[0]).cwiseAbs().maxCoeff()) / c.S[0].cwiseAbs().maxCoeff();
+  cs("rest_b", "rest_b_crossspectrum");
+  const StoredCrossSpectrum C2 = crossspectrum_read(sub, "rest_b_crossspectrum_alpha");
+  const double chunks = std::max((C2.S - C.S).cwiseAbs().maxCoeff(), (C2.Sq - C.Sq).cwiseAbs().maxCoeff()) / C.S.cwiseAbs().maxCoeff();
   std::printf("  chunk width 700 vs 1777: %.2e\n", chunks);
   CHECK(chunks < 1e-12);
   // a re-run is a cache hit; the default channels (good imaging ones) are the same three here
-  CHECK(crossspectrum_compute(ds, sub, o).hit);
-  CrossSpectrumOptions od = o; od.channels_of.reset(); od.name = "rest_crossspectrum_default";
-  CHECK_EQ(static_cast<int>(crossspectrum_compute(ds, sub, od).channels.size()), M);
+  { const auto again = cs("rest", "rest_crossspectrum"); CHECK(!again.empty() && again[0].value("hit", false)); }
+  cs("rest", "rest_crossspectrum_default", Json{{"channels_of", nullptr}});
+  CHECK_EQ(static_cast<int>(crossspectrum_read(sub, "rest_crossspectrum_default_alpha").channels.size()), M);
   // read on a subset, in another order: the matching sub-matrix; a channel not covered is refused
   const StoredCrossSpectrum sub2 = crossspectrum_read(sub, "rest_crossspectrum_alpha", std::vector<std::int32_t>{2, 0});
   CHECK(sub2.S(0, 1) == C.S(2, 0) && sub2.Sq(1, 0) == C.Sq(0, 2) && sub2.S(1, 1) == C.S(0, 0));
@@ -220,18 +222,18 @@ int main() {
   try { crossspectrum_read(sub, "rest_crossspectrum_alpha", std::vector<std::int32_t>{0, 5}); } catch (const Error&) { uncovered = true; }
   CHECK(uncovered);
   bool absent = false;
-  CrossSpectrumOptions ob = o; ob.channels_of = "nothing"; ob.name = "rest_crossspectrum_bad";
-  try { crossspectrum_compute(ds, sub, ob); } catch (const Error&) { absent = true; }
+  try { cs("rest", "rest_crossspectrum_bad", Json{{"channels_of", "nothing"}}); } catch (const std::exception&) { absent = true; }
   CHECK(absent);
   // ── --resolve bins (spec 2026-11-15-band-resolved-cross-spectrum.md): the band's cross-spectrum bin by bin, from the same pass ──
   {
-    CrossSpectrumOptions ox = o; ox.name = "rb"; ox.resolve = "bins";
-    const CrossSpectrumResult r = crossspectrum_compute(ds, sub, ox);
-    CHECK(!r.hit && r.bins_S.size() == 2 && r.bins_S[0].size() == 17 && r.bins_S[1].size() == 57);   // alpha 8-12 Hz at 0.25 Hz: 17 bins; beta 15-29: 57
-    const StoredStatistic sb = read_statistic(sub, "rb_alpha_bins");
-    CHECK(text(sb.row, "measure") == "cross_spectral_density" && text(sb.row, "method") == "welch" && text(sb.row, "value_type") == "complex" && sb.shape == (std::vector<std::int64_t>{M, M, 17, 2}));
-    CHECK(sb.axes.size() == 3 && sb.axes[2]["name"] == "frequency" && sb.axes[2]["values"].size() == 17 && std::abs(sb.axes[2]["values"][0].get<double>() - 33 * 250.0 / 1024) < 1e-12 && sb.axes[2]["bins"] == Json::array({33, 49}));
-    CHECK(sb.options["resolve"] == "bins" && sb.producer["resolve"] == "bins" && sb.producer.contains("key") == sb.producer.contains("key"));
+    const Json bins = Json{{"resolve", "bins"}};
+    const auto r = cs("rest", "rb", bins);
+    CHECK(!r.empty() && !r[0].value("hit", false));
+    CHECK(crossspectrum_bins_read(sub, "rb_alpha_bins").C.size() == 17 && crossspectrum_bins_read(sub, "rb_beta_bins").C.size() == 57);   // alpha 8-12 Hz at 0.25 Hz: 17 bins; beta 15-29: 57
+    const StoredStatistic sb = read_statistic(sub, "rb_bins");   // frequency x channel x channel, the frequency axis naming each band's bins
+    CHECK(text(sb.row, "measure") == "cross_spectral_density" && text(sb.row, "method") == "welch" && text(sb.row, "value_type") == "complex" && sb.shape == (std::vector<std::int64_t>{17 + 57, M, M, 2}));
+    CHECK(sb.axes.size() == 3 && sb.axes[0]["name"] == "frequency" && sb.axes[0]["values"].size() == 17 + 57 && std::abs(sb.axes[0]["values"][0].get<double>() - 33 * 250.0 / 1024) < 1e-12 && sb.axes[0]["bands"][0]["count"] == 17);
+    CHECK(sb.options["resolve"] == "bins");
     // the band statistic of this run is the mean of the bins, and the same as a band-resolution run's
     const StoredCrossSpectrumBins B = crossspectrum_bins_read(sub, "rb_alpha_bins");
     const StoredCrossSpectrum Cb = crossspectrum_read(sub, "rb_alpha");
@@ -245,18 +247,11 @@ int main() {
     std::printf("  bins: mean over the bins vs the band statistic %.2e; band statistic vs a band-resolution run %.2e; Hermitian %.2e\n", mean_err, vs_band, herm_b);
     CHECK(mean_err < 1e-13 && vs_band < 1e-13 && herm_b < 1e-12 && B.frequencies.size() == 17 && std::abs(B.frequencies[16] - 49 * 250.0 / 1024) < 1e-12);
     // a re-run is a hit; a band-resolution run under the same name is another key (refused without --replace, so the stored result is never silently swapped)
-    CHECK(crossspectrum_compute(ds, sub, ox).hit);
-    {   // the band run's cache key is the one from before the option: exactly these params (no `resolve`), so stored band statistics stay hits; bins adds it
-      const Json kb = read_statistic(sub, "rest_crossspectrum_alpha").producer["cache"]["params"], kx = sb.producer["cache"]["params"];
-      std::vector<std::string> names;
-      for (auto it = kb.begin(); it != kb.end(); ++it) names.push_back(it.key());
-      std::sort(names.begin(), names.end());
-      CHECK((names == std::vector<std::string>{"bad_segments", "bands", "detrend", "name", "option_set", "overlap", "periodic", "scaling", "segment_samples", "window", "window_samples"}));
-      CHECK(!kb.contains("resolve") && kx.contains("resolve") && kx["resolve"] == "bins");
-    }
+    { const auto again = cs("rest", "rb", bins); CHECK(!again.empty() && again[0].value("hit", false)); }
+    { const Json kb = read_statistic(sub, "rest_crossspectrum").producer["cache"]["params"]["parameters"], kx = sb.producer["cache"]["params"]["parameters"];   // bins is part of the key; the band run's has the band resolution
+      CHECK(kb.contains("resolve") && kb["resolve"] == "band" && kx["resolve"] == "bins"); }
     // independent of the chunk size
-    CrossSpectrumOptions oy = ox; oy.recording = "rest_b"; oy.name = "rb_b";
-    crossspectrum_compute(ds, sub, oy);
+    cs("rest_b", "rb_b", bins);
     const StoredCrossSpectrumBins B2 = crossspectrum_bins_read(sub, "rb_b_alpha_bins");
     double cw = 0;
     for (std::size_t k = 0; k < B.C.size(); ++k) cw = std::max(cw, (B.C[k] - B2.C[k]).cwiseAbs().maxCoeff() / B.C[k].cwiseAbs().maxCoeff());
@@ -266,14 +261,12 @@ int main() {
     const StoredCrossSpectrumBins B3 = crossspectrum_bins_read(sub, "rb_alpha_bins", std::vector<std::int32_t>{2, 0});
     CHECK(B3.C[5](0, 1) == B.C[5](2, 0) && B3.C[5](1, 1) == B.C[5](0, 0));
     // refusals: the analytic estimator has no bins; a bad value names the valid ones; a band statistic is not a bins statistic
-    CrossSpectrumOptions oz = ox; oz.estimator = "analytic"; oz.name = "rb_an";
-    CHECK(code_of([&] { crossspectrum_compute(ds, sub, oz); }) != "");
-    CrossSpectrumOptions ow = ox; ow.resolve = "fine"; ow.name = "rb_bad";
-    CHECK(code_of([&] { crossspectrum_compute(ds, sub, ow); }) != "");
+    auto refused = [&](const Json& more, const std::string& name) { try { cs("rest", name, more); } catch (const std::exception&) { return true; } return false; };
+    CHECK(refused(Json{{"resolve", "bins"}, {"estimator", "analytic"}}, "rb_an"));   // the analytic estimator is not a parameter of the verb (band_analytic is its definition)
+    CHECK(refused(Json{{"resolve", "fine"}}, "rb_bad"));
     CHECK(code_of([&] { crossspectrum_bins_read(sub, "rb_alpha"); }) != "");
     // THE PHASE SLOPE recovers a known delay: channel 0 leads its copy in channel 1 by 12 ms (the broadband source, plus independent noise); channel 2 is independent
-    CrossSpectrumOptions od2 = ox; od2.recording = "rest_delay"; od2.name = "dl"; od2.bands = {{"wide", 5, 30}, {"alpha", 8, 12}};
-    crossspectrum_compute(ds, sub, od2);
+    cs("rest_delay", "dl", Json{{"resolve", "bins"}, {"bands", Json::array({Json{{"name", "wide"}, {"lo", 5}, {"hi", 30}}, Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}})}});
     for (const char* nm : {"dl_wide_bins", "dl_alpha_bins"}) {
       const StoredCrossSpectrumBins D = crossspectrum_bins_read(sub, nm);
       Eigen::VectorXd fv = Eigen::Map<const Eigen::VectorXd>(D.frequencies.data(), static_cast<Eigen::Index>(D.frequencies.size()));
@@ -285,119 +278,18 @@ int main() {
       if (std::string(nm) == "dl_wide_bins") CHECK(std::abs(ps.delayMs(0, 1) - 12.0) < 1.5);
     }
   }
-  // ── THE ANALYTIC ESTIMATOR (spec 2026-11-13-cycle-pattern.md, stage 1, as amended 2026-11-13: the time tiles) ──
-  // At 250 Hz the bands' constant-Q windows are alpha 8-12 Hz: 256 samples (level 8), 5-14 Hz: 512 (level 9), so the series is stored at level 8; the ladder's
-  // strides are alpha 1 and 5-14 Hz 2 (125 Hz). 6000 samples hold 23 whole tiles of 256 (the 24th is partial).
+  // THE SCALING CHOSEN AT READ (nxr::spectral): the Welch density read as power is x the band's width (bins x resolution); on this 10 Hz turn the band power of channel 0 is the cosine's (0.5, within 5 %);
+  // a non-linear scaling of a cross-spectrum is refused
   {
-    // THE REFERENCE: each band's analytic signal over the whole recording at the full rate, Σ z zᴴ per level-8 tile of the line
-    nxr::timebank::Design dz(nxr::timebank::Family::Meyer, 2.0, nxr::timebank::Sides::Analytic);
-    dz.bands = {{8, 12}, {5, 14}};
-    Eigen::MatrixXd X(M, T);
-    for (int ch = 0; ch < M; ++ch) for (int t = 0; t < T; ++t) X(ch, t) = xf[static_cast<std::size_t>(ch * T + t)];
-    const auto z = nxr::timebank::analysisOfBlock(dz, X, sfreq, 0, static_cast<std::size_t>(T));
-    auto ref = [&](int band, std::int64_t m) { const Eigen::MatrixXcd Z = z.own[static_cast<std::size_t>(band)].middleCols(m * 256, 256); return Eigen::MatrixXcd(Z * Z.adjoint()); };
-    CrossSpectrumOptions oa;
-    oa.recording = "rest"; oa.chunks = "all"; oa.channels_of = "free"; oa.estimator = "analytic"; oa.bands = {{"alpha", 8, 12}, {"wide", 5, 14}};
-    oa.name = "rest_an";
-    const CrossSpectrumResult a = crossspectrum_compute(ds, sub, oa);
-    CHECK(!a.hit && a.windows.size() == 2 && a.windows[0].sum.size() == 23 && a.windows[0].level == 8);
-    const CrossSpectrumWindows st = crossspectrum_windows_read(sub, "rest_an_alpha_windows");
-    const CrossSpectrumWindows sw = crossspectrum_windows_read(sub, "rest_an_wide_windows");
-    {   // a STATISTIC (2026-11-13): cross_spectrum_sum by analytic, complex, axes window (the kept tiles of the level, by ordinal) x channel x channel; its partition the level's tiling
-      const StoredStatistic ss = read_statistic(sub, "rest_an_alpha_windows");
-      CHECK(text(ss.row, "measure") == "cross_spectrum_sum" && text(ss.row, "method") == "analytic" && text(ss.row, "value_type") == "complex");
-      CHECK(ss.axes.size() == 3 && ss.axes[0]["name"] == "window" && ss.axes[0]["members"].size() == 23 && ss.shape == (std::vector<std::int64_t>{23, M, M, 2}));
-      const auto ws = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, text(ss.row, "partition_selection_id"));
-      CHECK(ws && ws->name == "rest_an_windows" && integer(ss.row, "n_members") == 23);
-    }
-    CHECK(st.level == 8 && st.count[0] == 256 && sw.count[0] == 128 && st.index.front() == 0 && st.index.back() == 22);
-    CHECK(st.producer["decimation"] == 1 && sw.producer["decimation"] == 2 && st.producer["window_level"] == 8 && sw.producer["rate_hz"] == 125.0);
-    double herm = 0, same = 0, ra = 0, rw = 0;
-    for (std::size_t w = 0; w < st.sum.size(); ++w) {
-      herm = std::max(herm, (st.sum[w] - st.sum[w].adjoint()).cwiseAbs().maxCoeff() / st.sum[w].cwiseAbs().maxCoeff());
-      same = std::max(same, (st.sum[w] - a.windows[0].sum[w]).cwiseAbs().maxCoeff());
-      const Eigen::MatrixXcd r0 = ref(0, st.index[w]), r1 = ref(1, sw.index[w]);
-      ra = std::max(ra, (st.sum[w] - r0).cwiseAbs().maxCoeff() / r0.cwiseAbs().maxCoeff());
-      rw = std::max(rw, (2.0 * sw.sum[w] - r1).norm() / r1.norm());
-    }
-    // alpha (stride 1) is the reference to the halo's truncation; 5-14 Hz kept every 2nd sample on the line's grid: x 2 is the full-rate sum (band-limited)
-    std::printf("  analytic tiles vs the full-recording reference: alpha %.2e, 5-14 Hz decimated x 2 %.2e\n", ra, rw);
-    CHECK(herm < 1e-12 && same == 0 && ra < 1e-4 && rw < 1e-2);
-    // the windows Selection: the level's closed-form tiling of the whole line (the envelope's form)
-    const auto wsel = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_an_windows", .type = "spans", .any_status = true});
-    CHECK(wsel.has_value());
-    if (wsel) {
-      const Json wp = wsel->params;
-      CHECK(wp["tiling"]["count"] == 24 && std::abs(wp["tiling"]["width"].get<double>() - 256 / sfreq) < 1e-12 && wp["level"] == 8 && wsel->n_members == 24);
-    }
-    // the turn: channel 1 lags channel 0 by a quarter cycle, so Im C01 is about as large as C00 in every tile
-    CHECK(std::abs(st.sum[8](0, 1).imag()) > 0.8 * st.sum[8](0, 0).real());
-    // other chunk widths: 1777 (no power of two), 128 (finer than the tile: tiles summed across chunks) and 512 (coarser): the same tiles
-    for (const char* r : {"rest_b", "rest_d", "rest_e"}) {
-      CrossSpectrumOptions ob2 = oa; ob2.recording = r; ob2.name = std::string(r) + "_an";
-      const CrossSpectrumResult b2 = crossspectrum_compute(ds, sub, ob2);
-      double chunks = 0;
-      CHECK(b2.windows[0].index == a.windows[0].index);
-      for (std::size_t w = 0; w < a.windows[0].sum.size(); ++w)
-        chunks = std::max(chunks, (b2.windows[0].sum[w] - a.windows[0].sum[w]).cwiseAbs().maxCoeff() / a.windows[0].sum[w].cwiseAbs().maxCoeff());
-      // not to rounding: the band's response is cut at its halo (timebank::haloOf, where the tail holds under the Studio's TAIL_ENERGY = 1e-6), so a sample
-      // near a chunk edge differs by that tail
-      std::printf("  analytic tiles, chunk width 700 vs %s: %.2e (the halo's truncation)\n", r, chunks);
-      CHECK(chunks < 1e-4);
-    }
-    // COARSER WINDOWS ARE SUMS AT READ: level 10 is the level-8 tiles summed by fours; window 5 (tiles 20-23) lacks tile 23 (partial): dropped
-    const CrossSpectrumWindows up = crossspectrum_windows_read(sub, "rest_an_alpha_windows", std::nullopt, "stored", 10);
-    CHECK(up.level == 10 && up.sum.size() == 5 && up.index.back() == 4 && up.count[0] == 1024);
-    CHECK((up.sum[1] - (st.sum[4] + st.sum[5] + st.sum[6] + st.sum[7])).cwiseAbs().maxCoeff() < 1e-12 * up.sum[1].cwiseAbs().maxCoeff());
-    CHECK_EQ(code_of([&] { crossspectrum_windows_read(sub, "rest_an_alpha_windows", std::nullopt, "stored", 7); }), std::string(code::invalid_argument));   // finer than stored
-    // stored at level 10 directly (--level): the same windows as the roll-up
-    CrossSpectrumOptions ol = oa; ol.level = 10; ol.name = "rest_l10";
-    const CrossSpectrumResult l10 = crossspectrum_compute(ds, sub, ol);
-    CHECK(l10.windows[0].level == 10 && l10.windows[0].index == up.index);
-    double roll = 0;
-    for (std::size_t w = 0; w < up.sum.size(); ++w) roll = std::max(roll, (l10.windows[0].sum[w] - up.sum[w]).cwiseAbs().maxCoeff() / up.sum[w].cwiseAbs().maxCoeff());
-    CHECK(roll < 1e-12);
-    // --window-seconds snaps to the nearest level: 4 s at 250 Hz is 1000 samples, level 10
-    CrossSpectrumOptions ow = oa; ow.window_seconds = 4.0; ow.name = "rest_w4";
-    CHECK(crossspectrum_compute(ds, sub, ow).windows[0].level == 10);
-    // a bad span at 9.1-9.3 s (samples 2275-2325): tiles 8 and 9 dropped, the others the same; at level 10, window 2 (tiles 8-11) dropped
-    CrossSpectrumOptions oc = oa; oc.recording = "rest_c"; oc.name = "rest_c_an";
-    const CrossSpectrumResult c3 = crossspectrum_compute(ds, sub, oc);
-    CHECK(c3.windows[0].sum.size() == 21 && c3.windows[0].index[7] == 7 && c3.windows[0].index[8] == 10);
-    CHECK((c3.windows[0].sum[8] - a.windows[0].sum[10]).cwiseAbs().maxCoeff() < 1e-12 * a.windows[0].sum[10].cwiseAbs().maxCoeff());
-    CHECK(crossspectrum_windows_read(sub, "rest_c_an_alpha_windows", std::nullopt, "stored", 10).index == (std::vector<std::int64_t>{0, 1, 3, 4}));
-    // a span in seconds snaps to the tiles: [3, 9) s = samples [750, 2250) -> [768, 2304), tiles 3 to 8
-    CrossSpectrumOptions oss = oa; oss.chunks.reset(); oss.start = 3.0; oss.stop = 9.0; oss.name = "rest_span";
-    const CrossSpectrumResult sp = crossspectrum_compute(ds, sub, oss);
-    CHECK(sp.windows[0].index == (std::vector<std::int64_t>{3, 4, 5, 6, 7, 8}));
-    CHECK(sp.info["window"] == Json::array({768, 2304}));
-    // THE SCALING CHOSEN AT READ (nxr::spectral): the Welch density read as power is × the band's width (bins × resolution); the analytic windows read as
-    // a density are sum / (2 count) / the band-pass's noise bandwidth; and on this 10 Hz turn the two estimators' band powers of channel 0 agree (0.5,
-    // the cosine's power, within 5 %); a non-linear scaling of a cross-spectrum is refused
-    {
-      const StoredCrossSpectrum dens = crossspectrum_read(sub, "rest_crossspectrum_alpha", std::nullopt, "density");
-      const StoredCrossSpectrum pow = crossspectrum_read(sub, "rest_crossspectrum_alpha", std::nullopt, "power");
-      const double width = C.producer["spectral_scaling"]["band_width_hz"].get<double>();
-      CHECK(dens.S == C.S && (pow.S - width * C.S).cwiseAbs().maxCoeff() < 1e-12 * C.S.cwiseAbs().maxCoeff() && pow.unit == "channel unit\xc2\xb2" && dens.unit == "channel unit\xc2\xb2/Hz");
-      const CrossSpectrumWindows ad = crossspectrum_windows_read(sub, "rest_an_alpha_windows", std::nullopt, "density");
-      const CrossSpectrumWindows ap = crossspectrum_windows_read(sub, "rest_an_alpha_windows", std::nullopt, "power");
-      const double bn = ad.producer["spectral_scaling"]["band_width_hz"].get<double>();
-      CHECK(ad.value.size() == 23 && (ad.value[2] - st.sum[2] / (2.0 * 256 * bn)).cwiseAbs().maxCoeff() < 1e-12 * ad.value[2].cwiseAbs().maxCoeff());
-      double mean_ap = 0; for (const auto& v : ap.value) mean_ap += v(0, 0).real() / static_cast<double>(ap.value.size());
-      std::printf("  band power of channel 0: Welch (density x width) %.4f, analytic %.4f (the cos at 10 Hz carries 0.5; noise bandwidth %.2f Hz)\n", pow.S(0, 0), mean_ap, bn);
-      CHECK(std::abs(pow.S(0, 0) / 0.5 - 1) < 0.05 && std::abs(mean_ap / 0.5 - 1) < 0.05);
-      bool nl = false;
-      try { crossspectrum_read(sub, "rest_crossspectrum_alpha", std::nullopt, "db"); } catch (const Error&) { nl = true; }
-      CHECK(nl);
-    }
-    // a re-run is a cache hit; refusals: an unknown estimator, --level with Welch, a level above a chunk, Welch segments with analytic, a band too wide for
-    // its stride (2-40 Hz: stride 4 from the 2 Hz edge, a 31 Hz Nyquist rate)
-    CHECK(crossspectrum_compute(ds, sub, oa).hit);
-    CHECK_EQ(code_of([&] { CrossSpectrumOptions e = oa; e.estimator = "multitaper"; e.name = "x1"; crossspectrum_compute(ds, sub, e); }), std::string(code::invalid_argument));
-    CHECK_EQ(code_of([&] { CrossSpectrumOptions e = o; e.level = 10; e.name = "x2"; crossspectrum_compute(ds, sub, e); }), std::string(code::invalid_argument));
-    CHECK_EQ(code_of([&] { CrossSpectrumOptions e = oa; e.level = 16; e.name = "x3"; crossspectrum_compute(ds, sub, e); }), std::string(code::invalid_argument));
-    CHECK_EQ(code_of([&] { CrossSpectrumOptions e = oa; e.segment_samples = 1000; e.name = "x4"; crossspectrum_compute(ds, sub, e); }), std::string(code::invalid_argument));
-    CHECK_EQ(code_of([&] { CrossSpectrumOptions e = oa; e.bands = {{"broad", 2, 40}}; e.name = "x5"; crossspectrum_compute(ds, sub, e); }), std::string(code::invalid_argument));
+    const StoredCrossSpectrum dens = crossspectrum_read(sub, "rest_crossspectrum_alpha", std::nullopt, "density");
+    const StoredCrossSpectrum pow = crossspectrum_read(sub, "rest_crossspectrum_alpha", std::nullopt, "power");
+    const double width = C.producer["spectral_scaling"]["band_width_hz"].get<double>();
+    CHECK(dens.S == C.S && (pow.S - width * C.S).cwiseAbs().maxCoeff() < 1e-12 * C.S.cwiseAbs().maxCoeff() && pow.unit == "T\xc2\xb2" && dens.unit == "T\xc2\xb2/Hz");
+    std::printf("  band power of channel 0 (density x width) %.4f (the cos at 10 Hz carries 0.5)\n", pow.S(0, 0));
+    CHECK(std::abs(pow.S(0, 0) / 0.5 - 1) < 0.05);
+    bool nl = false;
+    try { crossspectrum_read(sub, "rest_crossspectrum_alpha", std::nullopt, "db"); } catch (const Error&) { nl = true; }
+    CHECK(nl);
   }
   fs::remove_all(root);
   return nxrtest::finish("test_crossspectrum");

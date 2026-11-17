@@ -57,6 +57,7 @@ outputs:
     partition: {tiling: "$name_segments", on: recording.time}
   bins:
     kind: statistic
+    optional: true
     name: "$name_bins"
     of: recording
     axes: [{name: frequency}, {name: channel, selection: channels}, {name: channel, selection: channels}]
