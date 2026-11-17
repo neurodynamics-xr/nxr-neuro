@@ -18,14 +18,14 @@ namespace {
 int ix(std::int64_t v) { return static_cast<int>(v); }
 }  // namespace
 
-template <class S>
-std::vector<S> fiberEnds(const std::vector<S>& points, std::int64_t nP) {
+template <class Scalar>
+std::vector<Scalar> fiberEnds(const std::vector<Scalar>& points, std::int64_t nP) {
   if (nP < 2) refuse("a fiber has at least 2 points");
   if (points.size() % 3 != 0) refuse("points are [n x 3]");
   const std::int64_t n = static_cast<std::int64_t>(points.size() / 3);
   if (n % nP != 0) refuse("the number of points (" + std::to_string(n) + ") is not a multiple of the points per fiber (" + std::to_string(nP) + ")");
   const std::int64_t nF = n / nP;
-  std::vector<S> out(static_cast<std::size_t>(6 * nF));
+  std::vector<Scalar> out(static_cast<std::size_t>(6 * nF));
   for (std::int64_t f = 0; f < nF; ++f)
     for (int k = 0; k < 3; ++k) {
       out[static_cast<std::size_t>(3 * f + k)] = points[static_cast<std::size_t>(3 * (f * nP) + k)];
@@ -34,26 +34,26 @@ std::vector<S> fiberEnds(const std::vector<S>& points, std::int64_t nP) {
   return out;
 }
 
-template <class T>
-std::vector<T> interleaveEnds(const std::vector<T>& block) {
+template <class Item>
+std::vector<Item> interleaveEnds(const std::vector<Item>& block) {
   if (block.size() % 2 != 0) refuse("the ends of a bundle are two a fiber");
   const std::size_t nF = block.size() / 2;
-  std::vector<T> out(block.size());
+  std::vector<Item> out(block.size());
   for (std::size_t f = 0; f < nF; ++f) { out[2 * f] = block[f]; out[2 * f + 1] = block[nF + f]; }
   return out;
 }
-template <class T>
-std::vector<T> blockEnds(const std::vector<T>& inter) {
+template <class Item>
+std::vector<Item> blockEnds(const std::vector<Item>& inter) {
   if (inter.size() % 2 != 0) refuse("the ends of a bundle are two a fiber");
   const std::size_t nF = inter.size() / 2;
-  std::vector<T> out(inter.size());
+  std::vector<Item> out(inter.size());
   for (std::size_t f = 0; f < nF; ++f) { out[f] = inter[2 * f]; out[nF + f] = inter[2 * f + 1]; }
   return out;
 }
 
-template <class S>
-std::vector<std::uint8_t> withinGate(const std::vector<S>& d, S maxDistance) {
-  if (!(maxDistance >= S(0))) refuse("the gate is a distance >= 0 (no gate: keepAll)");
+template <class Scalar>
+std::vector<std::uint8_t> withinGate(const std::vector<Scalar>& d, Scalar maxDistance) {
+  if (!(maxDistance >= Scalar(0))) refuse("the gate is a distance >= 0 (no gate: keepAll)");
   if (d.size() % 2 != 0) refuse("the ends of a bundle are two a fiber");
   const std::size_t nF = d.size() / 2;
   std::vector<std::uint8_t> keep(nF);
@@ -61,10 +61,10 @@ std::vector<std::uint8_t> withinGate(const std::vector<S>& d, S maxDistance) {
   return keep;
 }
 
-template <class S>
-std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<S>& w) {
+template <class Scalar>
+std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<Scalar>& w) {
   std::vector<std::int32_t> dest(static_cast<std::size_t>(w.cols), -1);
-  std::vector<S> best(static_cast<std::size_t>(w.cols), -std::numeric_limits<S>::infinity());
+  std::vector<Scalar> best(static_cast<std::size_t>(w.cols), -std::numeric_limits<Scalar>::infinity());
   for (std::int64_t i = 0; i < w.rows; ++i)   // rows ascend: a tie keeps the lowest
     for (std::int32_t k = w.indptr[static_cast<std::size_t>(i)]; k < w.indptr[static_cast<std::size_t>(i) + 1]; ++k) {
       const std::size_t j = static_cast<std::size_t>(w.indices[static_cast<std::size_t>(k)]);
@@ -73,19 +73,19 @@ std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<S>& 
   return dest;
 }
 
-template <class S>
-std::vector<std::int32_t> registrationMatch(const std::vector<S>& tSphere, const std::vector<nxr::registration::Piece>& tPieces, const std::vector<S>& sSphere,
+template <class Scalar>
+std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>& tSphere, const std::vector<nxr::registration::Piece>& tPieces, const std::vector<Scalar>& sSphere,
                                             const std::vector<nxr::registration::Piece>& sPieces, int neighbours, MatchReport* report) {
   nxr::registration::Options opt;
   opt.method = nxr::registration::Method::Shepard;
   opt.neighbours = neighbours;
-  const auto w = nxr::registration::resample_operator<S>(tSphere, {}, tPieces, sSphere, sPieces, opt);
+  const auto w = nxr::registration::resample_operator<Scalar>(tSphere, {}, tPieces, sSphere, sPieces, opt);
   std::vector<std::int32_t> match = strongestDestination(w);
   // a template vertex no subject vertex takes weight from: its nearest subject vertex on the (unit-normalised) sphere, within its piece
   std::int64_t empty = 0;
-  auto unit = [](const S* p, std::vector<S>& out) {
-    const S n = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
-    for (int k = 0; k < 3; ++k) out.push_back(n > S(0) ? p[k] / n : p[k]);
+  auto unit = [](const Scalar* p, std::vector<Scalar>& out) {
+    const Scalar n = std::sqrt(p[0] * p[0] + p[1] * p[1] + p[2] * p[2]);
+    for (int k = 0; k < 3; ++k) out.push_back(n > Scalar(0) ? p[k] / n : p[k]);
   };
   for (std::size_t k = 0; k < tPieces.size(); ++k) {
     std::vector<std::int64_t> todo;
@@ -93,10 +93,10 @@ std::vector<std::int32_t> registrationMatch(const std::vector<S>& tSphere, const
       if (match[static_cast<std::size_t>(v)] < 0) todo.push_back(v);
     if (todo.empty()) continue;
     empty += static_cast<std::int64_t>(todo.size());
-    std::vector<S> dst, q;
+    std::vector<Scalar> dst, q;
     for (std::int64_t v = sPieces[k].first; v < sPieces[k].first + sPieces[k].count; ++v) unit(&sSphere[static_cast<std::size_t>(3 * v)], dst);
     for (const std::int64_t v : todo) unit(&tSphere[static_cast<std::size_t>(3 * v)], q);
-    const auto near = nxr::nearest::nearestVertices<S>(dst, q);
+    const auto near = nxr::nearest::nearestVertices<Scalar>(dst, q);
     for (std::size_t i = 0; i < todo.size(); ++i) match[static_cast<std::size_t>(todo[i])] = static_cast<std::int32_t>(sPieces[k].first) + near.vertex[i];
   }
   if (report) report->empty_columns = empty;
@@ -112,152 +112,152 @@ std::vector<std::int32_t> carryEnds(const std::vector<std::int32_t>& endVertex, 
   return out;
 }
 
-template <class S>
-Sparse<S> smoothingStep(const std::vector<std::int32_t>& faces, std::int64_t V) {
+template <class Scalar>
+Sparse<Scalar> smoothingStep(const std::vector<std::int32_t>& faces, std::int64_t nVertices) {
   if (faces.size() % 3 != 0) refuse("faces are [m x 3]");
-  std::vector<std::vector<std::int32_t>> nb(static_cast<std::size_t>(V));
+  std::vector<std::vector<std::int32_t>> nb(static_cast<std::size_t>(nVertices));
   for (std::size_t i = 0; i < faces.size(); i += 3)
     for (int a = 0; a < 3; ++a) {
       const std::int32_t u = faces[i + static_cast<std::size_t>(a)], v = faces[i + static_cast<std::size_t>((a + 1) % 3)];
-      if (u < 0 || v < 0 || u >= V || v >= V) refuse("a face names a vertex outside 0 ... " + std::to_string(V - 1));
+      if (u < 0 || v < 0 || u >= nVertices || v >= nVertices) refuse("a face names a vertex outside 0 ... " + std::to_string(nVertices - 1));
       nb[static_cast<std::size_t>(u)].push_back(v);
       nb[static_cast<std::size_t>(v)].push_back(u);
     }
-  std::vector<Eigen::Triplet<S>> t;
-  for (std::int64_t u = 0; u < V; ++u) {
+  std::vector<Eigen::Triplet<Scalar>> t;
+  for (std::int64_t u = 0; u < nVertices; ++u) {
     auto& n = nb[static_cast<std::size_t>(u)];
     n.push_back(static_cast<std::int32_t>(u));
     std::sort(n.begin(), n.end());
     n.erase(std::unique(n.begin(), n.end()), n.end());
-    const S wgt = S(1) / static_cast<S>(n.size());
+    const Scalar wgt = Scalar(1) / static_cast<Scalar>(n.size());
     for (const auto v : n) t.emplace_back(ix(u), v, wgt);
   }
-  Sparse<S> m(ix(V), ix(V));
+  Sparse<Scalar> m(ix(nVertices), ix(nVertices));
   m.setFromTriplets(t.begin(), t.end());
   return m;
 }
 
-template <class S>
-Sparse<S> smoothingOperator(const std::vector<std::int32_t>& faces, std::int64_t V, int hops) {
+template <class Scalar>
+Sparse<Scalar> smoothingOperator(const std::vector<std::int32_t>& faces, std::int64_t nVertices, int hops) {
   if (hops < 0) refuse("hops >= 0");
-  Sparse<S> p(ix(V), ix(V));
+  Sparse<Scalar> p(ix(nVertices), ix(nVertices));
   p.setIdentity();
   if (hops == 0) return p;
-  const Sparse<S> step = smoothingStep<S>(faces, V);
+  const Sparse<Scalar> step = smoothingStep<Scalar>(faces, nVertices);
   for (int h = 0; h < hops; ++h) p = (p * step).eval();
   return p;
 }
 
-template <class S>
-Sparse<S> memberships(const std::vector<std::int32_t>& label, std::int64_t R) {
-  std::vector<Eigen::Triplet<S>> t;
+template <class Scalar>
+Sparse<Scalar> memberships(const std::vector<std::int32_t>& label, std::int64_t nRegions) {
+  std::vector<Eigen::Triplet<Scalar>> t;
   for (std::size_t v = 0; v < label.size(); ++v) {
     if (label[v] < 0) continue;
-    if (label[v] >= R) refuse("a label " + std::to_string(label[v]) + " is outside the " + std::to_string(R) + " regions");
-    t.emplace_back(static_cast<int>(v), label[v], S(1));
+    if (label[v] >= nRegions) refuse("a label " + std::to_string(label[v]) + " is outside the " + std::to_string(nRegions) + " regions");
+    t.emplace_back(static_cast<int>(v), label[v], Scalar(1));
   }
-  Sparse<S> m(static_cast<int>(label.size()), ix(R));
+  Sparse<Scalar> m(static_cast<int>(label.size()), ix(nRegions));
   m.setFromTriplets(t.begin(), t.end());
   return m;
 }
 
-template <class S>
-Sparse<S> smoothMemberships(const Sparse<S>& step, const Sparse<S>& m, int hops) {
+template <class Scalar>
+Sparse<Scalar> smoothMemberships(const Sparse<Scalar>& step, const Sparse<Scalar>& m, int hops) {
   if (hops < 0) refuse("hops >= 0");
   if (step.rows() != step.cols() || step.cols() != m.rows()) refuse("the smoothing step and the memberships are for different numbers of vertices");
-  const Sparse<S> adjoint = step.transpose();   // the adjoint of the smoothing: counting with these equals summing the smoothed vertex matrix over the partition
-  Sparse<S> out = m;
+  const Sparse<Scalar> adjoint = step.transpose();   // the adjoint of the smoothing: counting with these equals summing the smoothed vertex matrix over the partition
+  Sparse<Scalar> out = m;
   for (int h = 0; h < hops; ++h) out = (adjoint * out).eval();
   return out;
 }
 
-template <class S>
-Sparse<S> partitionCounts(const std::vector<std::int32_t>& endVertex, const std::vector<std::uint8_t>& keep, const Sparse<S>& M) {
+template <class Scalar>
+Sparse<Scalar> partitionCounts(const std::vector<std::int32_t>& endVertex, const std::vector<std::uint8_t>& keep, const Sparse<Scalar>& membershipOfVertex) {
   if (endVertex.size() % 2 != 0) refuse("the ends of a bundle are two a fiber");
   const std::size_t nF = endVertex.size() / 2;
   if (!keep.empty() && keep.size() != nF) refuse("the gate is for " + std::to_string(keep.size()) + " fibers, the ends for " + std::to_string(nF));
-  std::vector<Eigen::Triplet<S>> a, b;
+  std::vector<Eigen::Triplet<Scalar>> a, b;
   int row = 0;
   for (std::size_t f = 0; f < nF; ++f) {
     if (!keep.empty() && !keep[f]) continue;
     const std::int32_t u = endVertex[f], v = endVertex[nF + f];
-    if (u < 0 || v < 0 || u >= M.rows() || v >= M.rows()) refuse("an end's vertex is outside the memberships' " + std::to_string(M.rows()) + " vertices");
-    a.emplace_back(row, u, S(1));
-    b.emplace_back(row, v, S(1));
+    if (u < 0 || v < 0 || u >= membershipOfVertex.rows() || v >= membershipOfVertex.rows()) refuse("an end's vertex is outside the memberships' " + std::to_string(membershipOfVertex.rows()) + " vertices");
+    a.emplace_back(row, u, Scalar(1));
+    b.emplace_back(row, v, Scalar(1));
     ++row;
   }
-  Sparse<S> first(row, static_cast<int>(M.rows())), second(row, static_cast<int>(M.rows()));
+  Sparse<Scalar> first(row, static_cast<int>(membershipOfVertex.rows())), second(row, static_cast<int>(membershipOfVertex.rows()));
   first.setFromTriplets(a.begin(), a.end());
   second.setFromTriplets(b.begin(), b.end());
-  const Sparse<S> m1 = first * M, m2 = second * M;
-  const Sparse<S> c = m1.transpose() * m2;
-  Sparse<S> out = c + Sparse<S>(c.transpose());
-  out.prune(S(0), S(0));
+  const Sparse<Scalar> m1 = first * membershipOfVertex, m2 = second * membershipOfVertex;
+  const Sparse<Scalar> c = m1.transpose() * m2;
+  Sparse<Scalar> out = c + Sparse<Scalar>(c.transpose());
+  out.prune(Scalar(0), Scalar(0));
   return out;
 }
 
-template <class S>
-Sparse<S> endConnectome(const std::vector<std::int32_t>& endVertex, const std::vector<std::uint8_t>& keep, std::int64_t V) {
+template <class Scalar>
+Sparse<Scalar> endConnectome(const std::vector<std::int32_t>& endVertex, const std::vector<std::uint8_t>& keep, std::int64_t nVertices) {
   if (endVertex.size() % 2 != 0) refuse("the ends of a bundle are two a fiber");
   const std::size_t nF = endVertex.size() / 2;
   if (!keep.empty() && keep.size() != nF) refuse("the gate is for " + std::to_string(keep.size()) + " fibers, the ends for " + std::to_string(nF));
-  std::vector<Eigen::Triplet<S>> t;
+  std::vector<Eigen::Triplet<Scalar>> t;
   for (std::size_t f = 0; f < nF; ++f) {
     if (!keep.empty() && !keep[f]) continue;
     const std::int32_t u = endVertex[f], v = endVertex[nF + f];
-    if (u < 0 || v < 0 || u >= V || v >= V) refuse("an end's vertex is outside 0 ... " + std::to_string(V - 1));
+    if (u < 0 || v < 0 || u >= nVertices || v >= nVertices) refuse("an end's vertex is outside 0 ... " + std::to_string(nVertices - 1));
     if (u == v) continue;
-    t.emplace_back(u, v, S(1));
-    t.emplace_back(v, u, S(1));
+    t.emplace_back(u, v, Scalar(1));
+    t.emplace_back(v, u, Scalar(1));
   }
-  Sparse<S> m(ix(V), ix(V));
+  Sparse<Scalar> m(ix(nVertices), ix(nVertices));
   m.setFromTriplets(t.begin(), t.end());   // duplicates are summed
   return m;
 }
 
 namespace {
-template <class S>
-Sparse<S> withoutDiagonal(const Sparse<S>& m) {
-  std::vector<Eigen::Triplet<S>> t;
+template <class Scalar>
+Sparse<Scalar> withoutDiagonal(const Sparse<Scalar>& m) {
+  std::vector<Eigen::Triplet<Scalar>> t;
   for (int k = 0; k < m.outerSize(); ++k)
-    for (typename Sparse<S>::InnerIterator it(m, k); it; ++it)
-      if (it.row() != it.col() && it.value() != S(0)) t.emplace_back(static_cast<int>(it.row()), static_cast<int>(it.col()), it.value());
-  Sparse<S> out(m.rows(), m.cols());
+    for (typename Sparse<Scalar>::InnerIterator it(m, k); it; ++it)
+      if (it.row() != it.col() && it.value() != Scalar(0)) t.emplace_back(static_cast<int>(it.row()), static_cast<int>(it.col()), it.value());
+  Sparse<Scalar> out(m.rows(), m.cols());
   out.setFromTriplets(t.begin(), t.end());
   return out;
 }
 }  // namespace
 
-template <class S>
-Sparse<S> connectionWeights(const Sparse<S>& counts, const std::vector<std::int32_t>& faces, int hops) {
+template <class Scalar>
+Sparse<Scalar> connectionWeights(const Sparse<Scalar>& counts, const std::vector<std::int32_t>& faces, int hops) {
   if (counts.rows() != counts.cols()) refuse("the fiber counts are square");
-  const Sparse<S> p = smoothingOperator<S>(faces, counts.rows(), hops);
-  return withoutDiagonal<S>(nxr::algebra::sparseCongruence<S>(p, counts));
+  const Sparse<Scalar> p = smoothingOperator<Scalar>(faces, counts.rows(), hops);
+  return withoutDiagonal<Scalar>(nxr::algebra::sparseCongruence<Scalar>(p, counts));
 }
 
-template <class S>
-S strongest(const Sparse<S>& m) {
-  S best = S(0);
+template <class Scalar>
+Scalar strongest(const Sparse<Scalar>& m) {
+  Scalar best = Scalar(0);
   for (int k = 0; k < m.outerSize(); ++k)
-    for (typename Sparse<S>::InnerIterator it(m, k); it; ++it) best = std::max(best, it.value());
+    for (typename Sparse<Scalar>::InnerIterator it(m, k); it; ++it) best = std::max(best, it.value());
   return best;
 }
 
-template <class S>
-Sparse<S> pruneBelow(const Sparse<S>& m, S fraction) {
-  if (!(fraction >= S(0))) refuse("the pruning fraction is >= 0");
-  const S t = fraction * strongest(m);
-  std::vector<Eigen::Triplet<S>> keep;
+template <class Scalar>
+Sparse<Scalar> pruneBelow(const Sparse<Scalar>& m, Scalar fraction) {
+  if (!(fraction >= Scalar(0))) refuse("the pruning fraction is >= 0");
+  const Scalar t = fraction * strongest(m);
+  std::vector<Eigen::Triplet<Scalar>> keep;
   for (int k = 0; k < m.outerSize(); ++k)
-    for (typename Sparse<S>::InnerIterator it(m, k); it; ++it)
-      if (it.value() != S(0) && !(it.value() < t)) keep.emplace_back(static_cast<int>(it.row()), static_cast<int>(it.col()), it.value());
-  Sparse<S> out(m.rows(), m.cols());
+    for (typename Sparse<Scalar>::InnerIterator it(m, k); it; ++it)
+      if (it.value() != Scalar(0) && !(it.value() < t)) keep.emplace_back(static_cast<int>(it.row()), static_cast<int>(it.col()), it.value());
+  Sparse<Scalar> out(m.rows(), m.cols());
   out.setFromTriplets(keep.begin(), keep.end());
   return out;
 }
 
-template <class S>
-std::vector<std::int32_t> componentsOf(const Sparse<S>& m) {
+template <class Scalar>
+std::vector<std::int32_t> componentsOf(const Sparse<Scalar>& m) {
   if (m.rows() != m.cols()) refuse("the connection weights are square");
   const std::int32_t n = static_cast<std::int32_t>(m.rows());
   std::vector<std::int32_t> parent(static_cast<std::size_t>(n));
@@ -267,8 +267,8 @@ std::vector<std::int32_t> componentsOf(const Sparse<S>& m) {
     return x;
   };
   for (int k = 0; k < m.outerSize(); ++k)
-    for (typename Sparse<S>::InnerIterator it(m, k); it; ++it) {
-      if (it.value() == S(0)) continue;
+    for (typename Sparse<Scalar>::InnerIterator it(m, k); it; ++it) {
+      if (it.value() == Scalar(0)) continue;
       const std::int32_t a = find(static_cast<std::int32_t>(it.row())), b = find(static_cast<std::int32_t>(it.col()));
       if (a != b) parent[static_cast<std::size_t>(std::max(a, b))] = std::min(a, b);   // the root is the component's lowest vertex
     }
@@ -295,22 +295,22 @@ std::vector<std::int32_t> largestComponent(const std::vector<std::int32_t>& labe
   return out;
 }
 
-#define NXR_CONNECTOME_INSTANTIATE(S)                                                                                                                                      \
-  template std::vector<S> fiberEnds(const std::vector<S>&, std::int64_t);                                                                                                  \
-  template std::vector<std::uint8_t> withinGate(const std::vector<S>&, S);                                                                                                 \
-  template std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<S>&);                                                                               \
-  template std::vector<std::int32_t> registrationMatch(const std::vector<S>&, const std::vector<nxr::registration::Piece>&, const std::vector<S>&,                         \
+#define NXR_CONNECTOME_INSTANTIATE(Scalar)                                                                                                                                      \
+  template std::vector<Scalar> fiberEnds(const std::vector<Scalar>&, std::int64_t);                                                                                                  \
+  template std::vector<std::uint8_t> withinGate(const std::vector<Scalar>&, Scalar);                                                                                                 \
+  template std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<Scalar>&);                                                                               \
+  template std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>&, const std::vector<nxr::registration::Piece>&, const std::vector<Scalar>&,                         \
                                                        const std::vector<nxr::registration::Piece>&, int, MatchReport*);                                                   \
-  template Sparse<S> smoothingStep(const std::vector<std::int32_t>&, std::int64_t);                                                                                        \
-  template Sparse<S> smoothingOperator(const std::vector<std::int32_t>&, std::int64_t, int);                                                                               \
-  template Sparse<S> memberships(const std::vector<std::int32_t>&, std::int64_t);                                                                                          \
-  template Sparse<S> smoothMemberships(const Sparse<S>&, const Sparse<S>&, int);                                                                                           \
-  template Sparse<S> partitionCounts(const std::vector<std::int32_t>&, const std::vector<std::uint8_t>&, const Sparse<S>&);                                                \
-  template Sparse<S> endConnectome(const std::vector<std::int32_t>&, const std::vector<std::uint8_t>&, std::int64_t);                                                      \
-  template Sparse<S> connectionWeights(const Sparse<S>&, const std::vector<std::int32_t>&, int);                                                                           \
-  template S strongest(const Sparse<S>&);                                                                                                                                  \
-  template Sparse<S> pruneBelow(const Sparse<S>&, S);                                                                                                                      \
-  template std::vector<std::int32_t> componentsOf(const Sparse<S>&);
+  template Sparse<Scalar> smoothingStep(const std::vector<std::int32_t>&, std::int64_t);                                                                                        \
+  template Sparse<Scalar> smoothingOperator(const std::vector<std::int32_t>&, std::int64_t, int);                                                                               \
+  template Sparse<Scalar> memberships(const std::vector<std::int32_t>&, std::int64_t);                                                                                          \
+  template Sparse<Scalar> smoothMemberships(const Sparse<Scalar>&, const Sparse<Scalar>&, int);                                                                                           \
+  template Sparse<Scalar> partitionCounts(const std::vector<std::int32_t>&, const std::vector<std::uint8_t>&, const Sparse<Scalar>&);                                                \
+  template Sparse<Scalar> endConnectome(const std::vector<std::int32_t>&, const std::vector<std::uint8_t>&, std::int64_t);                                                      \
+  template Sparse<Scalar> connectionWeights(const Sparse<Scalar>&, const std::vector<std::int32_t>&, int);                                                                           \
+  template Scalar strongest(const Sparse<Scalar>&);                                                                                                                                  \
+  template Sparse<Scalar> pruneBelow(const Sparse<Scalar>&, Scalar);                                                                                                                      \
+  template std::vector<std::int32_t> componentsOf(const Sparse<Scalar>&);
 NXR_CONNECTOME_INSTANTIATE(float)
 NXR_CONNECTOME_INSTANTIATE(double)
 template std::vector<std::int32_t> interleaveEnds(const std::vector<std::int32_t>&);

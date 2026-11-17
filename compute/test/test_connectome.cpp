@@ -14,20 +14,20 @@ using namespace nxr::connectome;
 using Dense = Eigen::MatrixXd;
 
 static bool refused(const std::function<void()>& f) { try { f(); } catch (const std::invalid_argument&) { return true; } return false; }
-template <class S>
-static Sparse<S> fromDense(const Eigen::MatrixXd& d) {
-  std::vector<Eigen::Triplet<S>> t;
-  for (int i = 0; i < d.rows(); ++i) for (int j = 0; j < d.cols(); ++j) if (d(i, j) != 0) t.emplace_back(i, j, static_cast<S>(d(i, j)));
-  Sparse<S> m(static_cast<int>(d.rows()), static_cast<int>(d.cols()));
+template <class Scalar>
+static Sparse<Scalar> fromDense(const Eigen::MatrixXd& d) {
+  std::vector<Eigen::Triplet<Scalar>> t;
+  for (int i = 0; i < d.rows(); ++i) for (int j = 0; j < d.cols(); ++j) if (d(i, j) != 0) t.emplace_back(i, j, static_cast<Scalar>(d(i, j)));
+  Sparse<Scalar> m(static_cast<int>(d.rows()), static_cast<int>(d.cols()));
   m.setFromTriplets(t.begin(), t.end());
   return m;
 }
 static double maxAbs(const Dense& d) { return d.size() ? d.cwiseAbs().maxCoeff() : 0; }
 
 int main() {
-  std::vector<double> V; std::vector<int32_t> F;
-  icosphere(2, V, F, 0.08);   // 162 vertices, a sphere of 8 cm (metres)
-  const int nV = static_cast<int>(V.size() / 3);
+  std::vector<double> vertexPositions; std::vector<int32_t> triangles;
+  icosphere(2, vertexPositions, triangles, 0.08);   // 162 vertices, a sphere of 8 cm (metres)
+  const int nV = static_cast<int>(vertexPositions.size() / 3);
 
   std::cout << "=== fiberEnds: the first and last rows, order f then nF + f; interleaving ===\n";
   {
@@ -87,14 +87,14 @@ int main() {
 
   std::cout << "=== smoothingOperator: rows sum to 1; 0 hops is the identity; on a regular lattice the support after p hops is the p-ring ===\n";
   {
-    const auto p3 = smoothingOperator<double>(F, nV, 3);
+    const auto p3 = smoothingOperator<double>(triangles, nV, 3);
     bool sums = true;
     for (int i = 0; i < nV; ++i) { double s = 0; for (Sparse<double>::InnerIterator it(Sparse<double>(p3.transpose()), i); it; ++it) s += it.value(); (void)s; }
     const Dense dp = Dense(p3);
     for (int i = 0; i < nV; ++i) sums = sums && std::abs(dp.row(i).sum() - 1) < 1e-14;
     EXPECT(sums, "rows sum to 1 (3 hops)");
-    EXPECT(Dense(smoothingOperator<double>(F, nV, 0)) == Dense::Identity(nV, nV), "0 hops is the identity");
-    EXPECT((Dense(smoothingOperator<double>(F, nV, 3)) - ctest::referenceSmoother(F, nV, 3)).cwiseAbs().maxCoeff() < 1e-14, "equals the dense reference smoother");
+    EXPECT(Dense(smoothingOperator<double>(triangles, nV, 0)) == Dense::Identity(nV, nV), "0 hops is the identity");
+    EXPECT((Dense(smoothingOperator<double>(triangles, nV, 3)) - ctest::referenceSmoother(triangles, nV, 3)).cwiseAbs().maxCoeff() < 1e-14, "equals the dense reference smoother");
     // a triangulated square lattice, six neighbours inside: the support of the centre after p hops is the hexagon of 1 + 3p(p+1) vertices
     const int n = 11;
     std::vector<std::int32_t> lat;
@@ -110,10 +110,10 @@ int main() {
       ring = ring && support == 1 + 3 * p * (p + 1);
     }
     EXPECT(ring, "support after p hops is the p-ring (1, 7, 19, 37)");
-    EXPECT(refused([&] { smoothingOperator<double>(F, nV, -1); }), "hops >= 0");
+    EXPECT(refused([&] { smoothingOperator<double>(triangles, nV, -1); }), "hops >= 0");
   }
 
-  std::cout << "=== sparseCongruence: equals the dense P A P' (and the blocked form, pruned) ===\n";
+  std::cout << "=== sparseCongruence: equals the dense projection · connections · projectionᵀ (and the blocked form, pruned) ===\n";
   {
     ctest::Lcg g(3);
     auto randomSparse = [&](int r, int c, double density, bool sym) {
@@ -123,13 +123,13 @@ int main() {
       return d;
     };
     for (int t = 0; t < 4; ++t) {
-      const Dense P = randomSparse(9 + t, 13, 0.3, false), A = randomSparse(13, 13, 0.25, true);
-      const Dense want = P * A * P.transpose();
-      EXPECT((Dense(nxr::algebra::sparseCongruence<double>(fromDense<double>(P), fromDense<double>(A))) - want).cwiseAbs().maxCoeff() < 1e-12, "random sparse " << t << ": equals the dense product");
+      const Dense projection = randomSparse(9 + t, 13, 0.3, false), connections = randomSparse(13, 13, 0.25, true);
+      const Dense want = projection * connections * projection.transpose();
+      EXPECT((Dense(nxr::algebra::sparseCongruence<double>(fromDense<double>(projection), fromDense<double>(connections))) - want).cwiseAbs().maxCoeff() < 1e-12, "random sparse " << t << ": equals the dense product");
       const double drop = 1.5;
       Dense pr = want;
       for (int i = 0; i < pr.rows(); ++i) for (int j = 0; j < pr.cols(); ++j) if (std::abs(pr(i, j)) < drop) pr(i, j) = 0;
-      EXPECT((Dense(nxr::algebra::sparseCongruenceBlocked<double>(fromDense<double>(P), fromDense<double>(A), 4, drop)) - pr).cwiseAbs().maxCoeff() < 1e-12, "random sparse " << t << ": blocked and pruned equals the pruned dense product");
+      EXPECT((Dense(nxr::algebra::sparseCongruenceBlocked<double>(fromDense<double>(projection), fromDense<double>(connections), 4, drop)) - pr).cwiseAbs().maxCoeff() < 1e-12, "random sparse " << t << ": blocked and pruned equals the pruned dense product");
     }
     EXPECT(refused([&] { nxr::algebra::sparseCongruence<double>(fromDense<double>(Dense::Ones(2, 3)), fromDense<double>(Dense::Ones(2, 2))); }), "a shape mismatch is refused");
   }
@@ -159,21 +159,21 @@ int main() {
     for (double prune : {0.0, 1e-4, 0.05}) {
       ctest::Lcg g(100 + static_cast<std::uint64_t>(hops));
       const auto b = ctest::makeBundle(g, 240, 6, 0.08, 6, 8);   // 6 fibers with both ends on one vertex, 8 repeated fibers
-      const auto ref = ctest::referenceEnds(V, b);
+      const auto ref = ctest::referenceEnds(vertexPositions, b);
       // the code under test, through the same chain
       const auto ends = fiberEnds<double>(b.points, b.nP);
-      const auto near = nxr::nearest::nearestVertices<double>(V, ends);
+      const auto near = nxr::nearest::nearestVertices<double>(vertexPositions, ends);
       const auto counts = endConnectome<double>(near.vertex, keepAll(b.nF), nV);
       const Dense refCounts = ctest::withoutDiag(ctest::referenceCounts(ref, nV));
       EXPECT(Dense(counts) == refCounts, "hops " << hops << " prune " << prune << ": fiber counts identical to the reference's (pattern and value)");
       if (prune == 0.0 || hops == 0) {
         // (the weights and the rest are checked once per hops/prune pair)
       }
-      const auto weights = pruneBelow<double>(connectionWeights<double>(counts, F, hops), prune);
-      const Dense P = ctest::referenceSmoother(F, nV, hops);
-      Dense refW = ctest::withoutDiag(P * ctest::referenceCounts(ref, nV) * P.transpose());
+      const auto weights = pruneBelow<double>(connectionWeights<double>(counts, triangles, hops), prune);
+      const Dense smoothing = ctest::referenceSmoother(triangles, nV, hops);
+      Dense refW = ctest::withoutDiag(smoothing * ctest::referenceCounts(ref, nV) * smoothing.transpose());
       // note: the reference smooths the matrix with its diagonal already removed
-      refW = ctest::withoutDiag(P * refCounts * P.transpose());
+      refW = ctest::withoutDiag(smoothing * refCounts * smoothing.transpose());
       const double t = prune * refW.maxCoeff();
       for (int i = 0; i < nV; ++i) for (int j = 0; j < nV; ++j) if (refW(i, j) < t) refW(i, j) = 0;
       const Dense got(weights);
@@ -199,10 +199,10 @@ int main() {
   {
     ctest::Lcg g(7);
     const auto b = ctest::makeBundle(g, 50, 4, 0.08, 0, 0);
-    const std::vector<float> posf(V.begin(), V.end()), ptsf(b.points.begin(), b.points.end());
+    const std::vector<float> posf(vertexPositions.begin(), vertexPositions.end()), ptsf(b.points.begin(), b.points.end());
     const auto ends = fiberEnds<float>(ptsf, 4);
     const auto near = nxr::nearest::nearestVertices<float>(posf, ends);
-    const auto w = connectionWeights<float>(endConnectome<float>(near.vertex, {}, nV), F, 2);
+    const auto w = connectionWeights<float>(endConnectome<float>(near.vertex, {}, nV), triangles, 2);
     static_assert(std::is_same<decltype(w)::Scalar, float>::value, "float32 weights");
     EXPECT(w.nonZeros() > 0, "float32 chain ran");
   }

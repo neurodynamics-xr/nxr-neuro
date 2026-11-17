@@ -11,9 +11,9 @@
 using namespace nxr::connectome;
 using nxr::registration::Piece;
 
-static void glue(const std::vector<double>& V, const std::vector<int32_t>& F, std::vector<double>& GV, std::vector<int32_t>& GF) {
-  GV = V; GV.insert(GV.end(), V.begin(), V.end());
-  GF = F; for (auto f : F) GF.push_back(f + static_cast<int32_t>(V.size() / 3));
+static void glue(const std::vector<double>& positions, const std::vector<int32_t>& triangles, std::vector<double>& GV, std::vector<int32_t>& GF) {
+  GV = positions; GV.insert(GV.end(), positions.begin(), positions.end());
+  GF = triangles; for (auto f : triangles) GF.push_back(f + static_cast<int32_t>(positions.size() / 3));
 }
 
 int main() {
@@ -24,13 +24,13 @@ int main() {
   icosphere(3, sv, sf);   // 642
   // ---- a subject DENSER than the template: every template vertex is taken by some subject vertex (no empty column): the plain strongest-weight match
   {
-    std::vector<double> T, S; std::vector<int32_t> tf, sff;
-    glue(cv, cf, T, tf); glue(sv, sf, S, sff);
+    std::vector<double> templateSphere, subjectSphere; std::vector<int32_t> tf, sff;
+    glue(cv, cf, templateSphere, tf); glue(sv, sf, subjectSphere, sff);
     const std::vector<Piece> tp = {{0, 162}, {162, 162}}, sp = {{0, 642}, {642, 642}};
     MatchReport rep;
-    const auto match = registrationMatch<double>(T, tp, S, sp, 8, &rep);
+    const auto match = registrationMatch<double>(templateSphere, tp, subjectSphere, sp, 8, &rep);
     nxr::registration::Options o;
-    const auto w = nxr::registration::resample_operator<double>(T, {}, tp, S, sp, o);
+    const auto w = nxr::registration::resample_operator<double>(templateSphere, {}, tp, subjectSphere, sp, o);
     EXPECT(rep.empty_columns == 0 && strongestDestination(w) == match, "a template not denser than the subject: no empty column; the match is the strongest destination");
     bool pieces = true;
     for (int v = 0; v < 324; ++v) pieces = pieces && (v < 162 ? match[static_cast<std::size_t>(v)] < 642 : match[static_cast<std::size_t>(v)] >= 642);
@@ -42,16 +42,16 @@ int main() {
   }
   // ---- the quirk: a template DENSER than the subject: empty columns
   for (int pass = 0; pass < 2; ++pass) {
-    std::vector<double> T, S; std::vector<int32_t> tf, sff;
-    glue(sv, sf, T, tf); if (pass == 0) glue(cv, cf, S, sff); else glue(ov, of, S, sff);   // template 642 x 2; subject 162 x 2, then 42 x 2 (turned)
+    std::vector<double> templateSphere, subjectSphere; std::vector<int32_t> tf, sff;
+    glue(sv, sf, templateSphere, tf); if (pass == 0) glue(cv, cf, subjectSphere, sff); else glue(ov, of, subjectSphere, sff);   // template 642 x 2; subject 162 x 2, then 42 x 2 (turned)
     // pass 1: the subject sphere turned a little and of another radius: the radius is irrelevant
-    if (pass == 1) for (std::size_t i = 0; i < S.size(); i += 3) { const double x = S[i], y = S[i + 1]; S[i] = 5 * (0.99 * x - 0.14 * y); S[i + 1] = 5 * (0.14 * x + 0.99 * y); S[i + 2] *= 5; }
+    if (pass == 1) for (std::size_t i = 0; i < subjectSphere.size(); i += 3) { const double x = subjectSphere[i], y = subjectSphere[i + 1]; subjectSphere[i] = 5 * (0.99 * x - 0.14 * y); subjectSphere[i + 1] = 5 * (0.14 * x + 0.99 * y); subjectSphere[i + 2] *= 5; }
     const int ns = pass == 0 ? 162 : 42;
     const std::vector<Piece> tp = {{0, 642}, {642, 642}}, sp = {{0, ns}, {ns, ns}};
     MatchReport rep;
-    const auto match = registrationMatch<double>(T, tp, S, sp, 8, &rep);
+    const auto match = registrationMatch<double>(templateSphere, tp, subjectSphere, sp, 8, &rep);
     nxr::registration::Options o;
-    const auto w = nxr::registration::resample_operator<double>(T, {}, tp, S, sp, o);
+    const auto w = nxr::registration::resample_operator<double>(templateSphere, {}, tp, subjectSphere, sp, o);
     const auto strongest = strongestDestination(w);
     EXPECT(rep.empty_columns > 0, "pass " << pass << ": a template denser than the subject has empty columns (" << rep.empty_columns << ")");
     std::int64_t empties = 0, to_zero_wrong = 0;
@@ -63,21 +63,21 @@ int main() {
       if (strongest[static_cast<std::size_t>(v)] >= 0) { kept = kept && match[static_cast<std::size_t>(v)] == strongest[static_cast<std::size_t>(v)]; continue; }
       ++empties;
       // brute force on the unit-normalised spheres: the subject vertex of the piece nearest by chord
-      double q[3], n = std::sqrt(T[3 * v] * T[3 * v] + T[3 * v + 1] * T[3 * v + 1] + T[3 * v + 2] * T[3 * v + 2]);
-      for (int k = 0; k < 3; ++k) q[k] = T[static_cast<std::size_t>(3 * v + k)] / n;
+      double q[3], n = std::sqrt(templateSphere[3 * v] * templateSphere[3 * v] + templateSphere[3 * v + 1] * templateSphere[3 * v + 1] + templateSphere[3 * v + 2] * templateSphere[3 * v + 2]);
+      for (int k = 0; k < 3; ++k) q[k] = templateSphere[static_cast<std::size_t>(3 * v + k)] / n;
       int best = lo; double bd = 1e300;
       for (int s = lo; s < hi; ++s) {
-        const double m = std::sqrt(S[3 * s] * S[3 * s] + S[3 * s + 1] * S[3 * s + 1] + S[3 * s + 2] * S[3 * s + 2]);
+        const double m = std::sqrt(subjectSphere[3 * s] * subjectSphere[3 * s] + subjectSphere[3 * s + 1] * subjectSphere[3 * s + 1] + subjectSphere[3 * s + 2] * subjectSphere[3 * s + 2]);
         double d = 0;
-        for (int k = 0; k < 3; ++k) { const double t = S[static_cast<std::size_t>(3 * s + k)] / m - q[k]; d += t * t; }
+        for (int k = 0; k < 3; ++k) { const double t = subjectSphere[static_cast<std::size_t>(3 * s + k)] / m - q[k]; d += t * t; }
         if (d < bd) { bd = d; best = s; }
       }
       // the chosen vertex is a nearest one: its chord distance equals the minimum (an edge midpoint of the coarse sphere is a tie of two vertices to the last bit, and which one
       // rounding favours is not the point)
       auto chord = [&](int s) {
-        const double m = std::sqrt(S[3 * s] * S[3 * s] + S[3 * s + 1] * S[3 * s + 1] + S[3 * s + 2] * S[3 * s + 2]);
+        const double m = std::sqrt(subjectSphere[3 * s] * subjectSphere[3 * s] + subjectSphere[3 * s + 1] * subjectSphere[3 * s + 1] + subjectSphere[3 * s + 2] * subjectSphere[3 * s + 2]);
         double d = 0;
-        for (int k = 0; k < 3; ++k) { const double t = S[static_cast<std::size_t>(3 * s + k)] / m - q[k]; d += t * t; }
+        for (int k = 0; k < 3; ++k) { const double t = subjectSphere[static_cast<std::size_t>(3 * s + k)] / m - q[k]; d += t * t; }
         return d;
       };
       brute = brute && std::abs(chord(match[static_cast<std::size_t>(v)]) - bd) < 1e-12;

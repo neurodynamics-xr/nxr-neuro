@@ -21,24 +21,24 @@
 
 namespace nxr::connectome {
 
-template <class S>
-using Sparse = Eigen::SparseMatrix<S>;
+template <class Scalar>
+using Sparse = Eigen::SparseMatrix<Scalar>;
 
 // ── the ends ──────────────────────────────────────────────────────────────────────────────────────────────────
 /** The first and the last point of each fiber, [2nF x 3] (row f: first end; row nF + f: last end). `points` is [nF·nP x 3], fiber-major; nP >= 2. */
-template <class S>
-std::vector<S> fiberEnds(const std::vector<S>& points, std::int64_t pointsPerFiber);
+template <class Scalar>
+std::vector<Scalar> fiberEnds(const std::vector<Scalar>& points, std::int64_t pointsPerFiber);
 
 /** Block order [first ends…, last ends…] to the stored order (fiber f at 2f and 2f + 1), and back. */
-template <class T>
-std::vector<T> interleaveEnds(const std::vector<T>& block);
-template <class T>
-std::vector<T> blockEnds(const std::vector<T>& interleaved);
+template <class Item>
+std::vector<Item> interleaveEnds(const std::vector<Item>& block);
+template <class Item>
+std::vector<Item> blockEnds(const std::vector<Item>& interleaved);
 
 /** THE GATE: per fiber, 1 when both ends are within `maxDistance` of the end surface (<=), 0 when either is farther. `endDistance` is [2nF] in block order, in the unit of
  *  `maxDistance`. A negative or NaN `maxDistance` is refused; use `keepAll` for no gate. */
-template <class S>
-std::vector<std::uint8_t> withinGate(const std::vector<S>& endDistance, S maxDistance);
+template <class Scalar>
+std::vector<std::uint8_t> withinGate(const std::vector<Scalar>& endDistance, Scalar maxDistance);
 inline std::vector<std::uint8_t> keepAll(std::int64_t nFibers) { return std::vector<std::uint8_t>(static_cast<std::size_t>(nFibers), 1); }
 
 // ── template ends on the subject (registration of the spheres) ───────────────────────────────────────────────────
@@ -47,14 +47,14 @@ struct MatchReport {
 };
 /** For each TEMPLATE vertex, the subject vertex that takes the most weight from it in `w` [subject x template] (the largest weight in the vertex's column; the lowest
  *  subject index on a tie); -1 for an empty column. */
-template <class S>
-std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<S>& w);
+template <class Scalar>
+std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<Scalar>& w);
 
 /** The match template vertex -> subject vertex: the Shepard resampling operator between the registered spheres (K nearest template vertices of each subject vertex,
  *  Franke & Nielson weights), `strongestDestination`, and, FOR A TEMPLATE VERTEX WITH NO SUBJECT NEIGHBOUR (an empty column), its NEAREST SUBJECT VERTEX ON THE SPHERE (the
  *  unit-normalised sphere positions, within the vertex's own piece), never subject vertex 0 (the reference's defect, fixed: decided 2026-11-16). Positions are [n x 3]. */
-template <class S>
-std::vector<std::int32_t> registrationMatch(const std::vector<S>& templateSphere, const std::vector<nxr::registration::Piece>& templatePieces, const std::vector<S>& subjectSphere,
+template <class Scalar>
+std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>& templateSphere, const std::vector<nxr::registration::Piece>& templatePieces, const std::vector<Scalar>& subjectSphere,
                                             const std::vector<nxr::registration::Piece>& subjectPieces, int neighbours = 8, MatchReport* report = nullptr);
 
 /** The subject vertex of each end: match[endVertex]. std::invalid_argument for a vertex outside the match. */
@@ -62,46 +62,46 @@ std::vector<std::int32_t> carryEnds(const std::vector<std::int32_t>& endVertex, 
 
 // ── counting over a partition ─────────────────────────────────────────────────────────────────────────────────
 /** The mesh's smoothing step: row u holds u and its neighbours with equal weights summing to 1 (the random-walk normalisation of the adjacency with self-loops). */
-template <class S>
-Sparse<S> smoothingStep(const std::vector<std::int32_t>& faces, std::int64_t nVertices);
+template <class Scalar>
+Sparse<Scalar> smoothingStep(const std::vector<std::int32_t>& faces, std::int64_t nVertices);
 /** The step raised to `hops` by sparse products (0: the identity). */
-template <class S>
-Sparse<S> smoothingOperator(const std::vector<std::int32_t>& faces, std::int64_t nVertices, int hops);
+template <class Scalar>
+Sparse<Scalar> smoothingOperator(const std::vector<std::int32_t>& faces, std::int64_t nVertices, int hops);
 
-/** One-hot memberships [V x R] from a label per vertex (a region's ordinal 0 … R-1; -1 in no region). std::invalid_argument for a label >= R. */
-template <class S>
-Sparse<S> memberships(const std::vector<std::int32_t>& label, std::int64_t nRegions);
+/** One-hot memberships [vertices x regions] from a label per vertex (a region's ordinal 0 … regions-1; -1 in no region). std::invalid_argument for a label >= regions. */
+template <class Scalar>
+Sparse<Scalar> memberships(const std::vector<std::int32_t>& label, std::int64_t nRegions);
 
-/** The memberships pushed through the smoothing: (stepᵀ)^hops · memberships [V x R], the ADJOINT of the smoothing applied to the one-hot memberships, hop by hop: the
+/** The memberships pushed through the smoothing: (stepᵀ)^hops · memberships [vertices x regions], the ADJOINT of the smoothing applied to the one-hot memberships, hop by hop: the
  *  smoothed membership of a vertex in a region is the weight with which the region's smoothing receives it (a vertex's end is spread over its neighbours, so the part of it
  *  that lands in the region is what counts). This is the exact linear push of the smoothing onto the partition: counting with it equals summing the smoothed vertex matrix
- *  P · counts · Pᵀ over the region pairs (the rows of P sum to 1, its columns do not on an irregular mesh). No vertex matrix is formed. */
-template <class S>
-Sparse<S> smoothMemberships(const Sparse<S>& step, const Sparse<S>& memberships, int hops);
+ *  smoothing · counts · smoothingᵀ over the region pairs (the smoothing operator is the mesh's step raised to `hops`; its rows sum to 1, its columns do not on an irregular mesh). No vertex matrix is formed. */
+template <class Scalar>
+Sparse<Scalar> smoothMemberships(const Sparse<Scalar>& step, const Sparse<Scalar>& memberships, int hops);
 
-/** THE FIBER COUNTS OVER A PARTITION [R x R]: for each region pair, the sum over the kept fibers of (membership of the first end in a)(membership of the second end in b)
- *  plus the same with the ends swapped, with `membershipOfVertex` the (smoothed) memberships [V x R]. Symmetric. A fiber with both ends in one region adds 2 at that
+/** THE FIBER COUNTS OVER A PARTITION [regions x regions]: for each region pair, the sum over the kept fibers of (membership of the first end in a)(membership of the second end in b)
+ *  plus the same with the ends swapped, with `membershipOfVertex` the (smoothed) memberships [vertices x regions]. Symmetric. A fiber with both ends in one region adds 2 at that
  *  region's diagonal (both orders, as the vertex matrix has them): the within-region count. `endVertex` is [2nF] in block order, `keep` is [nF] (empty: every fiber). */
-template <class S>
-Sparse<S> partitionCounts(const std::vector<std::int32_t>& endVertex, const std::vector<std::uint8_t>& keep, const Sparse<S>& membershipOfVertex);
+template <class Scalar>
+Sparse<Scalar> partitionCounts(const std::vector<std::int32_t>& endVertex, const std::vector<std::uint8_t>& keep, const Sparse<Scalar>& membershipOfVertex);
 
 // ── the materialised vertex connectome ───────────────────────────────────────────────────────────────────────────
-/** The sparse symmetric matrix of fiber counts [V x V]: each kept fiber adds 1 at its two end vertices, both orders; a fiber with both ends on one vertex leaves no entry. */
-template <class S>
-Sparse<S> endConnectome(const std::vector<std::int32_t>& endVertex, const std::vector<std::uint8_t>& keep, std::int64_t nVertices);
-/** The connection weights: P · counts · Pᵀ with P = smoothingOperator(hops), the diagonal removed. */
-template <class S>
-Sparse<S> connectionWeights(const Sparse<S>& counts, const std::vector<std::int32_t>& faces, int hops);
+/** The sparse symmetric matrix of fiber counts [vertices x vertices]: each kept fiber adds 1 at its two end vertices, both orders; a fiber with both ends on one vertex leaves no entry. */
+template <class Scalar>
+Sparse<Scalar> endConnectome(const std::vector<std::int32_t>& endVertex, const std::vector<std::uint8_t>& keep, std::int64_t nVertices);
+/** The connection weights: smoothing · counts · smoothingᵀ with the smoothing = smoothingOperator(hops), the diagonal removed. */
+template <class Scalar>
+Sparse<Scalar> connectionWeights(const Sparse<Scalar>& counts, const std::vector<std::int32_t>& faces, int hops);
 /** The largest entry (0 for none). */
-template <class S>
-S strongest(const Sparse<S>& weights);
+template <class Scalar>
+Scalar strongest(const Sparse<Scalar>& weights);
 /** Entries below `fraction` x the strongest entry are removed from the pattern (nothing is removed from a matrix with no entry; fraction 0 removes nothing). */
-template <class S>
-Sparse<S> pruneBelow(const Sparse<S>& weights, S fraction);
-/** The connected components of the graph whose edges are the non-zero entries, over all V vertices (an isolated vertex is its own component). Components are numbered by
+template <class Scalar>
+Sparse<Scalar> pruneBelow(const Sparse<Scalar>& weights, Scalar fraction);
+/** The connected components of the graph whose edges are the non-zero entries, over all the vertices (an isolated vertex is its own component). Components are numbered by
  *  their lowest vertex in order of first appearance: label[v] is the ordinal of v's component. */
-template <class S>
-std::vector<std::int32_t> componentsOf(const Sparse<S>& weights);
+template <class Scalar>
+std::vector<std::int32_t> componentsOf(const Sparse<Scalar>& weights);
 /** The vertices (ascending) of the biggest component (the lowest-numbered on a tie). `sizes` (optional) receives each component's size. */
 std::vector<std::int32_t> largestComponent(const std::vector<std::int32_t>& label, std::vector<std::int64_t>* sizes = nullptr);
 

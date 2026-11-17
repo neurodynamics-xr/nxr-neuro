@@ -10,7 +10,7 @@
 //   smooth_memberships  label, faces → memberships               one-hot memberships smoothed over the mesh (the smoothing pushed onto the memberships)
 //   partition_counts    end_vertex, keep, memberships → counts   the fiber counts over a partition (a measurement over the partition: fibers are the elements)
 //   end_connectome      end_vertex, keep → fiber_counts          the materialised vertex matrix (on request)
-//   connection_weights  fiber_counts, faces → connection_weights   the smoothed matrix P · counts · Pᵀ, diagonal removed (sparse congruence)
+//   connection_weights  fiber_counts, faces → connection_weights   the smoothed matrix smoothing · counts · smoothingᵀ, diagonal removed (sparse congruence)
 //   prune_below         connection_weights → connection_weights  entries below a fraction of the strongest removed
 //   largest_component   connection_weights → vertices, label     the biggest connected component's vertices
 //
@@ -41,13 +41,13 @@ void same_precision(const std::string& node, const Array& a, const Array& b) {
   need(is_f32(a) == is_f32(b), node + ": the inputs are in different precision (" + precision_name(is_f32(a)) + " and " + precision_name(is_f32(b)) + "): convert one explicitly");
 }
 
-template <class S> std::vector<S> values(const Array& a) { return std::vector<S>(a.data.begin(), a.data.end()); }
+template <class Scalar> std::vector<Scalar> values(const Array& a) { return std::vector<Scalar>(a.data.begin(), a.data.end()); }
 std::vector<std::int32_t> indices(const Array& a) {
   std::vector<std::int32_t> v(a.data.size());
   for (std::size_t i = 0; i < v.size(); ++i) v[i] = static_cast<std::int32_t>(std::llround(a.data[i]));
   return v;
 }
-template <class S> Array dense(const std::vector<S>& v, std::int64_t rows, std::int64_t cols, bool f32) {
+template <class Scalar> Array dense(const std::vector<Scalar>& v, std::int64_t rows, std::int64_t cols, bool f32) {
   Array a;
   a.rows = rows; a.cols = cols;
   a.data.assign(v.begin(), v.end());
@@ -60,20 +60,20 @@ Array whole(const std::vector<std::int32_t>& v) {
   a.data.assign(v.begin(), v.end());
   return a;
 }
-template <class S> connectome::Sparse<S> from_coo(const Array& a, const std::string& node) {
+template <class Scalar> connectome::Sparse<Scalar> from_coo(const Array& a, const std::string& node) {
   need(a.meta.is_object() && a.meta.value("form", std::string()) == "coo" && a.meta.contains("shape") && a.cols == 3, node + ": a sparse input is COO: [nnz x 3] (row, column, value) with meta {form: coo, shape}");
-  std::vector<Eigen::Triplet<S>> t;
+  std::vector<Eigen::Triplet<Scalar>> t;
   for (std::int64_t i = 0; i < a.rows; ++i)
-    t.emplace_back(static_cast<int>(std::llround(a.data[static_cast<std::size_t>(3 * i)])), static_cast<int>(std::llround(a.data[static_cast<std::size_t>(3 * i + 1)])), static_cast<S>(a.data[static_cast<std::size_t>(3 * i + 2)]));
-  connectome::Sparse<S> m(a.meta["shape"][0].get<int>(), a.meta["shape"][1].get<int>());
+    t.emplace_back(static_cast<int>(std::llround(a.data[static_cast<std::size_t>(3 * i)])), static_cast<int>(std::llround(a.data[static_cast<std::size_t>(3 * i + 1)])), static_cast<Scalar>(a.data[static_cast<std::size_t>(3 * i + 2)]));
+  connectome::Sparse<Scalar> m(a.meta["shape"][0].get<int>(), a.meta["shape"][1].get<int>());
   m.setFromTriplets(t.begin(), t.end());
   return m;
 }
-template <class S> Array to_coo(const connectome::Sparse<S>& m, bool f32) {
+template <class Scalar> Array to_coo(const connectome::Sparse<Scalar>& m, bool f32) {
   Array a;
   a.cols = 3;
   for (int k = 0; k < m.outerSize(); ++k)
-    for (typename connectome::Sparse<S>::InnerIterator it(m, k); it; ++it) { a.data.push_back(static_cast<double>(it.row())); a.data.push_back(static_cast<double>(it.col())); a.data.push_back(static_cast<double>(it.value())); }
+    for (typename connectome::Sparse<Scalar>::InnerIterator it(m, k); it; ++it) { a.data.push_back(static_cast<double>(it.row())); a.data.push_back(static_cast<double>(it.col())); a.data.push_back(static_cast<double>(it.value())); }
   a.rows = static_cast<std::int64_t>(a.data.size() / 3);
   a.meta = Json{{"form", "coo"}, {"shape", Json::array({m.rows(), m.cols()})}, {"precision", precision_name(f32)}};
   return a;
@@ -141,7 +141,7 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   // ── nearest_vertex ──
   {
     StepSpec s = simple("nearest_vertex", {"points", "positions"}, {}, {"vertex", "distance"}, Json::object(), "nxr::nearest::nearestVertices (k-d tree, Bentley 1975)",
-                        "The vertex of `positions` [V x 3] nearest each of `points` [n x 3] (Euclidean; the lowest index on a tie) → vertex [n] and distance [n] in the points' unit (metres for SCS). The distance is "
+                        "The vertex of `positions` [vertices x 3] nearest each of `points` [n x 3] (Euclidean; the lowest index on a tie) → vertex [n] and distance [n] in the points' unit (metres for SCS). The distance is "
                         "kept whatever gate follows: it does not depend on one.", "each point is looked up on its own");
     s.plan = plan_arrays("nearest_vertex", {"points", "positions"}, {"vertex", "distance"});
     s.prepare = [](const Values&, const Json&, ExecContext&) { return std::any(); };
@@ -230,8 +230,8 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   // ── smooth_memberships ──
   {
     StepSpec s = simple("smooth_memberships", {"label", "faces"}, {}, {"memberships"}, Json{{"regions", nullptr}, {"hops", 3}}, "nxr::connectome::memberships, smoothingStep, smoothMemberships",
-                        "The smoothing pushed onto a partition's memberships: label [V] (the region ordinal of each vertex, -1 in none) and faces [F x 3] → memberships [V x R] (COO), the one-hot memberships "
-                        "averaged over the mesh `hops` times (default 3, the reference's; 0: one-hot). `regions` (R, count) defaults to the largest label + 1. A smoothed membership is a fractional "
+                        "The smoothing pushed onto a partition's memberships: label [vertices] (the region ordinal of each vertex, -1 in none) and faces [triangles x 3] → memberships [vertices x regions] (COO), the one-hot memberships "
+                        "averaged over the mesh `hops` times (default 3, the reference's; 0: one-hot). `regions` (the number of regions, count) defaults to the largest label + 1. A smoothed membership is a fractional "
                         "membership: how much of the region a vertex's neighbourhood reaches. The vertex matrix is never formed.", "a vertex's membership depends on its neighbourhood only");
     s.plan = plan_arrays("smooth_memberships", {"label", "faces"}, {"memberships"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
@@ -243,13 +243,13 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
       const Json p = std::any_cast<Json>(st);
       const Array& lab = ins.at("label");
       auto label = indices(lab);
-      std::int64_t R = p["regions"].is_null() ? 0 : p["regions"].get<std::int64_t>();
-      if (p["regions"].is_null()) for (auto l : label) R = std::max<std::int64_t>(R, l + 1);
+      std::int64_t nRegions = p["regions"].is_null() ? 0 : p["regions"].get<std::int64_t>();
+      if (p["regions"].is_null()) for (auto l : label) nRegions = std::max<std::int64_t>(nRegions, l + 1);
       const auto faces = indices(ins.at("faces"));
       Arrays out;
       const bool f32 = is_f32(lab);
-      if (f32) out["memberships"] = to_coo<float>(connectome::smoothMemberships<float>(connectome::smoothingStep<float>(faces, static_cast<std::int64_t>(label.size())), connectome::memberships<float>(label, R), p["hops"].get<int>()), true);
-      else out["memberships"] = to_coo<double>(connectome::smoothMemberships<double>(connectome::smoothingStep<double>(faces, static_cast<std::int64_t>(label.size())), connectome::memberships<double>(label, R), p["hops"].get<int>()), false);
+      if (f32) out["memberships"] = to_coo<float>(connectome::smoothMemberships<float>(connectome::smoothingStep<float>(faces, static_cast<std::int64_t>(label.size())), connectome::memberships<float>(label, nRegions), p["hops"].get<int>()), true);
+      else out["memberships"] = to_coo<double>(connectome::smoothMemberships<double>(connectome::smoothingStep<double>(faces, static_cast<std::int64_t>(label.size())), connectome::memberships<double>(label, nRegions), p["hops"].get<int>()), false);
       return out;
     };
     r.push_back(std::move(s));
@@ -257,7 +257,7 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   // ── partition_counts ──
   {
     StepSpec s = simple("partition_counts", {"end_vertex", "keep", "memberships"}, {"keep"}, {"counts"}, Json::object(), "nxr::connectome::partitionCounts (the Studio's connectome.ts tileConnectome / frameConnectome)",
-                        "The fiber counts over a partition: end_vertex [2nF] (block order), keep [nF] (the gate; optional: every fiber) and the (smoothed) memberships [V x R] → counts [R x R] (COO, symmetric): for each "
+                        "The fiber counts over a partition: end_vertex [2nF] (block order), keep [nF] (the gate; optional: every fiber) and the (smoothed) memberships [vertices x regions] → counts [regions x regions] (COO, symmetric): for each "
                         "region pair the sum over the kept fibers of (membership of the first end in a)(membership of the second end in b) + the same with the ends swapped. A fiber with both ends in one region "
                         "adds 2 at that region's diagonal (both orders, as the vertex matrix has them): the within-region count. Units: fibers (fractional when smoothed). A measurement over the partition: the "
                         "fibers are its elements, the region pairs its members.", "the fibers are summed in any order");
@@ -278,29 +278,29 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   // ── end_connectome ──
   {
     StepSpec s = simple("end_connectome", {"end_vertex", "keep"}, {"keep"}, {"fiber_counts"}, Json{{"n_vertices", nullptr}}, "nxr::connectome::endConnectome",
-                        "The materialised vertex matrix of fiber counts [V x V] (COO, symmetric): each kept fiber adds 1 at its two end vertices in both orders; a fiber with both ends on one vertex leaves no entry. "
-                        "Only on request (--over vertices --store): a partition result never forms it. Parameter n_vertices (V, count, no default).", "the fibers are summed in any order");
+                        "The materialised vertex matrix of fiber counts [vertices x vertices] (COO, symmetric): each kept fiber adds 1 at its two end vertices in both orders; a fiber with both ends on one vertex leaves no entry. "
+                        "Only on request (--over vertices --store): a partition result never forms it. Parameter n_vertices (the vertex count, no default).", "the fibers are summed in any order");
     s.plan = plan_arrays("end_connectome", {"end_vertex", "keep"}, {"fiber_counts"}, {"keep"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
       need(p["n_vertices"].is_number_integer() && p["n_vertices"].get<int>() >= 1, "end_connectome: n_vertices is the end surface's vertex count, a whole number >= 1");
       return std::any(p["n_vertices"].get<std::int64_t>());
     };
     s.run = [](const std::any& st, const Arrays& ins, ExecContext&) {
-      const std::int64_t V = std::any_cast<std::int64_t>(st);
+      const std::int64_t nVertices = std::any_cast<std::int64_t>(st);
       std::vector<std::uint8_t> keep;
       if (ins.count("keep")) for (double k : ins.at("keep").data) keep.push_back(k != 0 ? 1 : 0);
       const bool f32 = is_f32(ins.at("end_vertex"));
       Arrays out;
-      if (f32) out["fiber_counts"] = to_coo<float>(connectome::endConnectome<float>(indices(ins.at("end_vertex")), keep, V), true);
-      else out["fiber_counts"] = to_coo<double>(connectome::endConnectome<double>(indices(ins.at("end_vertex")), keep, V), false);
+      if (f32) out["fiber_counts"] = to_coo<float>(connectome::endConnectome<float>(indices(ins.at("end_vertex")), keep, nVertices), true);
+      else out["fiber_counts"] = to_coo<double>(connectome::endConnectome<double>(indices(ins.at("end_vertex")), keep, nVertices), false);
       return out;
     };
     r.push_back(std::move(s));
   }
   // ── connection_weights ──
   {
-    StepSpec s = simple("connection_weights", {"fiber_counts", "faces"}, {}, {"connection_weights"}, Json{{"smooth_hops", 3}}, "nxr::connectome::connectionWeights (sparse congruence P A Pᵀ, nxr::algebra::sparseCongruence)",
-                        "The connection weights: the fiber counts smoothed over the mesh, P · counts · Pᵀ with P the mesh's smoothing step raised to smooth_hops (hops, default 3, the reference's; 0: none), the "
+    StepSpec s = simple("connection_weights", {"fiber_counts", "faces"}, {}, {"connection_weights"}, Json{{"smooth_hops", 3}}, "nxr::connectome::connectionWeights (sparse congruence: smoothing · counts · smoothingᵀ, nxr::algebra::sparseCongruence)",
+                        "The connection weights: the fiber counts smoothed over the mesh, smoothing · counts · smoothingᵀ, the smoothing being the mesh's smoothing step raised to smooth_hops (hops, default 3, the reference's; 0: none), the "
                         "diagonal removed. Materialised vertex connectome only. Memory: about 37 non-zeros a row at 3 hops on a regular mesh; the smoothed matrix up to nF times the square of that.",
                         "a matrix product on the whole connectome");
     s.plan = plan_arrays("connection_weights", {"fiber_counts", "faces"}, {"connection_weights"});
@@ -342,8 +342,8 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   // ── largest_component ──
   {
     StepSpec s = simple("largest_component", {"connection_weights"}, {}, {"vertices", "label"}, Json::object(), "nxr::connectome::componentsOf, largestComponent",
-                        "The connected components of the graph whose edges are the non-zero connection weights, over all V vertices (an isolated vertex is its own component), numbered by their lowest vertex: "
-                        "label [V], and the vertices of the biggest (the lowest-numbered on a tie) → vertices. The connection weights themselves are not restricted to it. Materialised vertex connectome only.",
+                        "The connected components of the graph whose edges are the non-zero connection weights, over all the vertices (an isolated vertex is its own component), numbered by their lowest vertex: "
+                        "label [vertices], and the vertices of the biggest (the lowest-numbered on a tie) → vertices. The connection weights themselves are not restricted to it. Materialised vertex connectome only.",
                         "a graph property of the whole connectome");
     s.plan = plan_arrays("largest_component", {"connection_weights"}, {"vertices", "label"});
     s.prepare = [](const Values&, const Json&, ExecContext&) { return std::any(); };

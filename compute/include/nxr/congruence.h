@@ -27,15 +27,15 @@ Eigen::MatrixXcd congruence(const Eigen::MatrixXd& A, const Eigen::MatrixXcd& M)
  *  Throws std::invalid_argument on a shape mismatch or a pair outside [0, n). */
 std::vector<Eigen::MatrixXcd> blockCongruence(const Eigen::MatrixXd& A, const Eigen::MatrixXcd& M, const Pairs& pairs, int b);
 
-/** SPARSE CONGRUENCE: P A Pᵀ for sparse P [m x n] and sparse A [n x n] (a connection matrix smoothed over a mesh, a coarse-graining of a graph): the result is [m x m] and
- *  sparse, formed in the precision of the inputs. General algebra: it knows nothing of what P and A are. Throws std::invalid_argument on a shape mismatch. */
-template <class S>
-Eigen::SparseMatrix<S> sparseCongruence(const Eigen::SparseMatrix<S>& P, const Eigen::SparseMatrix<S>& A);
+/** SPARSE CONGRUENCE: projection · connections · projectionᵀ for a sparse projection [m x n] and sparse connections [n x n] (a connection matrix smoothed over a mesh, a coarse-graining of a graph): the result is [m x m] and
+ *  sparse, formed in the precision of the inputs. General algebra: it knows nothing of what the projection and the connections are. Throws std::invalid_argument on a shape mismatch. */
+template <class Scalar>
+Eigen::SparseMatrix<Scalar> sparseCongruence(const Eigen::SparseMatrix<Scalar>& projection, const Eigen::SparseMatrix<Scalar>& connections);
 
 /** The same product formed in blocks of `block` columns of the result, each block pruned before the next is formed: entries with |value| < `drop_below` are not kept
  *  (0 keeps every entry that is not exactly zero). The result equals sparseCongruence followed by the pruning of entries below `drop_below`; the memory is one block of
  *  the product, not the whole. Throws std::invalid_argument on a shape mismatch or block < 1. */
-template <class S>
-Eigen::SparseMatrix<S> sparseCongruenceBlocked(const Eigen::SparseMatrix<S>& P, const Eigen::SparseMatrix<S>& A, std::int64_t block, S drop_below);
+template <class Scalar>
+Eigen::SparseMatrix<Scalar> sparseCongruenceBlocked(const Eigen::SparseMatrix<Scalar>& projection, const Eigen::SparseMatrix<Scalar>& connections, std::int64_t block, Scalar drop_below);
 
 }  // namespace nxr::algebra

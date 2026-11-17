@@ -10,20 +10,20 @@
 using namespace nxr::connectome;
 
 int main() {
-  std::vector<double> V; std::vector<int32_t> F;
-  icosphere(2, V, F, 0.08);
+  std::vector<double> vertexPositions; std::vector<int32_t> triangles;
+  icosphere(2, vertexPositions, triangles, 0.08);
   // fiber f has its first end `d(f)` above vertex f along the outward normal, its last end 0.3 mm above vertex 100 + f: the nearest vertex is that vertex and the distance is d
   const std::vector<double> offsets_mm = {0.5, 2, 4.9, 5.1, 7, 12};   // first ends
   const int nF = static_cast<int>(offsets_mm.size());
   std::vector<double> ends(static_cast<std::size_t>(6 * nF));
   auto above = [&](int v, double mm, double* out) {
     double n = 0;
-    for (int k = 0; k < 3; ++k) n += V[static_cast<std::size_t>(3 * v + k)] * V[static_cast<std::size_t>(3 * v + k)];
+    for (int k = 0; k < 3; ++k) n += vertexPositions[static_cast<std::size_t>(3 * v + k)] * vertexPositions[static_cast<std::size_t>(3 * v + k)];
     n = std::sqrt(n);
-    for (int k = 0; k < 3; ++k) out[k] = V[static_cast<std::size_t>(3 * v + k)] * (1 + mm * 1e-3 / n);
+    for (int k = 0; k < 3; ++k) out[k] = vertexPositions[static_cast<std::size_t>(3 * v + k)] * (1 + mm * 1e-3 / n);
   };
   for (int f = 0; f < nF; ++f) { above(f, offsets_mm[static_cast<std::size_t>(f)], &ends[static_cast<std::size_t>(3 * f)]); above(100 + f, 0.3, &ends[static_cast<std::size_t>(3 * (nF + f))]); }
-  const auto near = nxr::nearest::nearestVertices<double>(V, ends);
+  const auto near = nxr::nearest::nearestVertices<double>(vertexPositions, ends);
   bool right = true;
   for (int f = 0; f < nF; ++f) right = right && near.vertex[static_cast<std::size_t>(f)] == f && near.vertex[static_cast<std::size_t>(nF + f)] == 100 + f && std::abs(near.distance[static_cast<std::size_t>(f)] - offsets_mm[static_cast<std::size_t>(f)] * 1e-3) < 1e-12;
   EXPECT(right, "each end is above its vertex at the distance made: the distances are stored whatever the gate");

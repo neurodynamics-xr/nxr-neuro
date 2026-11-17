@@ -45,31 +45,31 @@ Eigen::MatrixXcd congruence(const Eigen::MatrixXd& A, const Eigen::MatrixXcd& M)
 }
 
 
-template <class S>
-Eigen::SparseMatrix<S> sparseCongruence(const Eigen::SparseMatrix<S>& P, const Eigen::SparseMatrix<S>& A) {
-  if (A.rows() != A.cols() || P.cols() != A.rows()) throw std::invalid_argument("sparseCongruence: P is [m x n] and A is [n x n]");
-  Eigen::SparseMatrix<S> pa = P * A;
-  Eigen::SparseMatrix<S> out = pa * P.transpose();
-  out.prune(S(0), S(0));   // entries that are exactly zero are not entries
+template <class Scalar>
+Eigen::SparseMatrix<Scalar> sparseCongruence(const Eigen::SparseMatrix<Scalar>& projection, const Eigen::SparseMatrix<Scalar>& connections) {
+  if (connections.rows() != connections.cols() || projection.cols() != connections.rows()) throw std::invalid_argument("sparseCongruence: projection is [m x n] and connections is [n x n]");
+  Eigen::SparseMatrix<Scalar> projected = projection * connections;
+  Eigen::SparseMatrix<Scalar> out = projected * projection.transpose();
+  out.prune(Scalar(0), Scalar(0));   // entries that are exactly zero are not entries
   return out;
 }
 
-template <class S>
-Eigen::SparseMatrix<S> sparseCongruenceBlocked(const Eigen::SparseMatrix<S>& P, const Eigen::SparseMatrix<S>& A, std::int64_t block, S drop_below) {
-  if (A.rows() != A.cols() || P.cols() != A.rows()) throw std::invalid_argument("sparseCongruenceBlocked: P is [m x n] and A is [n x n]");
+template <class Scalar>
+Eigen::SparseMatrix<Scalar> sparseCongruenceBlocked(const Eigen::SparseMatrix<Scalar>& projection, const Eigen::SparseMatrix<Scalar>& connections, std::int64_t block, Scalar drop_below) {
+  if (connections.rows() != connections.cols() || projection.cols() != connections.rows()) throw std::invalid_argument("sparseCongruenceBlocked: projection is [m x n] and connections is [n x n]");
   if (block < 1) throw std::invalid_argument("sparseCongruenceBlocked: block >= 1");
-  const Eigen::SparseMatrix<S> pa = P * A;
-  const Eigen::SparseMatrix<S> pt = P.transpose();
-  const std::int64_t m = P.rows();
-  std::vector<Eigen::Triplet<S>> kept;
+  const Eigen::SparseMatrix<Scalar> projected = projection * connections;
+  const Eigen::SparseMatrix<Scalar> projectionTransposed = projection.transpose();
+  const std::int64_t m = projection.rows();
+  std::vector<Eigen::Triplet<Scalar>> kept;
   for (std::int64_t c0 = 0; c0 < m; c0 += block) {
     const std::int64_t w = std::min(block, m - c0);
-    const Eigen::SparseMatrix<S> part = pa * pt.middleCols(c0, w);
+    const Eigen::SparseMatrix<Scalar> part = projected * projectionTransposed.middleCols(c0, w);
     for (int k = 0; k < part.outerSize(); ++k)
-      for (typename Eigen::SparseMatrix<S>::InnerIterator it(part, k); it; ++it)
-        if (it.value() != S(0) && !(std::abs(it.value()) < drop_below)) kept.emplace_back(static_cast<int>(it.row()), static_cast<int>(c0 + k), it.value());
+      for (typename Eigen::SparseMatrix<Scalar>::InnerIterator it(part, k); it; ++it)
+        if (it.value() != Scalar(0) && !(std::abs(it.value()) < drop_below)) kept.emplace_back(static_cast<int>(it.row()), static_cast<int>(c0 + k), it.value());
   }
-  Eigen::SparseMatrix<S> out(static_cast<int>(m), static_cast<int>(m));
+  Eigen::SparseMatrix<Scalar> out(static_cast<int>(m), static_cast<int>(m));
   out.setFromTriplets(kept.begin(), kept.end());
   return out;
 }

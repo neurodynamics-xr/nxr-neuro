@@ -12,17 +12,17 @@
 
 namespace nxr::nearest {
 
-template <class S>
+template <class Scalar>
 struct Result {
   std::vector<std::int32_t> vertex;   // [q] the nearest vertex of each query point
-  std::vector<S> distance;            // [q] its Euclidean distance, in the points' unit
+  std::vector<Scalar> distance;            // [q] its Euclidean distance, in the points' unit
 };
 
 /** Points are row-major [n x 3]. std::invalid_argument for a size that is not a multiple of 3, or for no vertex. */
-template <class S>
-Result<S> nearestVertices(const std::vector<S>& positions, const std::vector<S>& query);
+template <class Scalar>
+Result<Scalar> nearestVertices(const std::vector<Scalar>& positions, const std::vector<Scalar>& query);
 
-template <class S>
-Result<S> nearestVerticesBrute(const std::vector<S>& positions, const std::vector<S>& query);
+template <class Scalar>
+Result<Scalar> nearestVerticesBrute(const std::vector<Scalar>& positions, const std::vector<Scalar>& query);
 
 }  // namespace nxr::nearest

@@ -62,13 +62,13 @@ int main() {
   nxr::io::SubjectWriter sub = nxr::io::SubjectWriter::open(pkg, "S");
   g::Bound db(sub, &pkg);
 
-  std::vector<double> V; std::vector<int32_t> F;
-  icosphere(2, V, F, 0.08);
-  const int nV = static_cast<int>(V.size() / 3);
+  std::vector<double> vertexPositions; std::vector<int32_t> triangles;
+  icosphere(2, vertexPositions, triangles, 0.08);
+  const int nV = static_cast<int>(vertexPositions.size() / 3);
   ctest::Lcg gen(5);
   const auto b = ctest::makeBundle(gen, 200, 5, 0.08, 5, 5);
-  std::vector<double> facesd(F.begin(), F.end());
-  const g::Array positions = dense(V, nV, 3), faces = dense(facesd, static_cast<std::int64_t>(F.size() / 3), 3);
+  std::vector<double> facesd(triangles.begin(), triangles.end());
+  const g::Array positions = dense(vertexPositions, nV, 3), faces = dense(facesd, static_cast<std::int64_t>(triangles.size() / 3), 3);
 
   // every connectome node is registered with traits, parameters and ports
   for (const char* n : {"fiber_ends", "nearest_vertex", "end_gate", "registration_match", "carry_ends", "smooth_memberships", "partition_counts", "end_connectome", "connection_weights", "prune_below", "largest_component"}) {
@@ -83,7 +83,7 @@ int main() {
   const auto ends = run(db, "fiber_ends", Json{{"points_per_fiber", 5}}, {{"fibers", dense(b.points, 200 * 5, 3)}});
   CHECK_EQ(ends.at("end_points").rows, std::int64_t(400));
   const auto near = run(db, "nearest_vertex", Json::object(), {{"points", ends.at("end_points")}, {"positions", positions}});
-  const auto want = nxr::nearest::nearestVertices<double>(V, ends.at("end_points").data);
+  const auto want = nxr::nearest::nearestVertices<double>(vertexPositions, ends.at("end_points").data);
   CHECK(std::vector<std::int32_t>(near.at("vertex").data.begin(), near.at("vertex").data.end()) == want.vertex);
   CHECK(near.at("distance").data == want.distance);
   const auto none = run(db, "end_gate", Json{{"max_end_distance_mm", "none"}}, {{"end_distance", near.at("distance")}});
@@ -95,34 +95,34 @@ int main() {
 
   // counts over a partition: the chain equals a direct sum over the partition of the smoothed vertex matrix
   std::vector<std::int32_t> label(static_cast<std::size_t>(nV));
-  for (int v = 0; v < nV; ++v) label[static_cast<std::size_t>(v)] = (V[static_cast<std::size_t>(3 * v)] < 0 ? 0 : 1) + 2 * (V[static_cast<std::size_t>(3 * v + 2)] < 0 ? 0 : 1);
-  const auto ref = ctest::referenceEnds(V, b);
+  for (int v = 0; v < nV; ++v) label[static_cast<std::size_t>(v)] = (vertexPositions[static_cast<std::size_t>(3 * v)] < 0 ? 0 : 1) + 2 * (vertexPositions[static_cast<std::size_t>(3 * v + 2)] < 0 ? 0 : 1);
+  const auto ref = ctest::referenceEnds(vertexPositions, b);
   for (int hops : {0, 3}) {
-    const auto M = run(db, "smooth_memberships", Json{{"hops", hops}}, {{"label", whole(label)}, {"faces", faces}});
-    const auto C = run(db, "partition_counts", Json::object(), {{"end_vertex", near.at("vertex")}, {"keep", none.at("keep")}, {"memberships", M.at("memberships")}});
-    const Dense P = ctest::referenceSmoother(F, nV, hops);
-    const Dense W = P * ctest::referenceCounts(ref, nV) * P.transpose();
+    const auto smoothedMemberships = run(db, "smooth_memberships", Json{{"hops", hops}}, {{"label", whole(label)}, {"faces", faces}});
+    const auto countsOut = run(db, "partition_counts", Json::object(), {{"end_vertex", near.at("vertex")}, {"keep", none.at("keep")}, {"memberships", smoothedMemberships.at("memberships")}});
+    const Dense smoothing = ctest::referenceSmoother(triangles, nV, hops);
+    const Dense smoothedWeights = smoothing * ctest::referenceCounts(ref, nV) * smoothing.transpose();
     Dense sum = Dense::Zero(4, 4);
-    for (int u = 0; u < nV; ++u) for (int v = 0; v < nV; ++v) sum(label[static_cast<std::size_t>(u)], label[static_cast<std::size_t>(v)]) += W(u, v);
-    CHECK((from_coo(C.at("counts")) - sum).cwiseAbs().maxCoeff() < 1e-10);
+    for (int u = 0; u < nV; ++u) for (int v = 0; v < nV; ++v) sum(label[static_cast<std::size_t>(u)], label[static_cast<std::size_t>(v)]) += smoothedWeights(u, v);
+    CHECK((from_coo(countsOut.at("counts")) - sum).cwiseAbs().maxCoeff() < 1e-10);
   }
   // the gate leaves fibers out of the counts
   {
-    const auto M = run(db, "smooth_memberships", Json{{"hops", 0}}, {{"label", whole(label)}, {"faces", faces}});
-    const auto all = run(db, "partition_counts", Json::object(), {{"end_vertex", near.at("vertex")}, {"memberships", M.at("memberships")}});   // keep is optional
-    const auto gated = run(db, "partition_counts", Json::object(), {{"end_vertex", near.at("vertex")}, {"keep", tight.at("keep")}, {"memberships", M.at("memberships")}});
+    const auto smoothedMemberships = run(db, "smooth_memberships", Json{{"hops", 0}}, {{"label", whole(label)}, {"faces", faces}});
+    const auto all = run(db, "partition_counts", Json::object(), {{"end_vertex", near.at("vertex")}, {"memberships", smoothedMemberships.at("memberships")}});   // keep is optional
+    const auto gated = run(db, "partition_counts", Json::object(), {{"end_vertex", near.at("vertex")}, {"keep", tight.at("keep")}, {"memberships", smoothedMemberships.at("memberships")}});
     CHECK(from_coo(gated.at("counts")).sum() < from_coo(all.at("counts")).sum());
   }
 
   // the materialised vertex connectome: counts → weights → pruning → largest component equals the compute functions
   {
-    const auto C = run(db, "end_connectome", Json{{"n_vertices", nV}}, {{"end_vertex", near.at("vertex")}, {"keep", none.at("keep")}});
-    CHECK((from_coo(C.at("fiber_counts")) - ctest::withoutDiag(ctest::referenceCounts(ref, nV))).cwiseAbs().maxCoeff() == 0);
-    const auto W = run(db, "connection_weights", Json{{"smooth_hops", 3}}, {{"fiber_counts", C.at("fiber_counts")}, {"faces", faces}});
-    const auto Pr = run(db, "prune_below", Json{{"prune_below", 0.01}}, {{"connection_weights", W.at("connection_weights")}});
-    const Dense P = ctest::referenceSmoother(F, nV, 3);
-    Dense refW = ctest::withoutDiag(P * ctest::withoutDiag(ctest::referenceCounts(ref, nV)) * P.transpose());
-    CHECK((from_coo(W.at("connection_weights")) - refW).cwiseAbs().maxCoeff() < 1e-12);
+    const auto countsOut = run(db, "end_connectome", Json{{"n_vertices", nV}}, {{"end_vertex", near.at("vertex")}, {"keep", none.at("keep")}});
+    CHECK((from_coo(countsOut.at("fiber_counts")) - ctest::withoutDiag(ctest::referenceCounts(ref, nV))).cwiseAbs().maxCoeff() == 0);
+    const auto smoothedWeights = run(db, "connection_weights", Json{{"smooth_hops", 3}}, {{"fiber_counts", countsOut.at("fiber_counts")}, {"faces", faces}});
+    const auto Pr = run(db, "prune_below", Json{{"prune_below", 0.01}}, {{"connection_weights", smoothedWeights.at("connection_weights")}});
+    const Dense smoothing = ctest::referenceSmoother(triangles, nV, 3);
+    Dense refW = ctest::withoutDiag(smoothing * ctest::withoutDiag(ctest::referenceCounts(ref, nV)) * smoothing.transpose());
+    CHECK((from_coo(smoothedWeights.at("connection_weights")) - refW).cwiseAbs().maxCoeff() < 1e-12);
     const double t = 0.01 * refW.maxCoeff();
     for (int i = 0; i < nV; ++i) for (int j = 0; j < nV; ++j) if (refW(i, j) < t) refW(i, j) = 0;
     CHECK((from_coo(Pr.at("connection_weights")) - refW).cwiseAbs().maxCoeff() < 1e-12);
@@ -137,7 +137,7 @@ int main() {
     std::vector<double> cv; std::vector<int32_t> cf;
     icosphere(1, cv, cf);
     g::Array tp = dense({0, 42}, 1, 2), sp = dense({0, static_cast<double>(nV)}, 1, 2);
-    const auto m = run(db, "registration_match", Json::object(), {{"template_sphere", dense(cv, 42, 3)}, {"template_pieces", tp}, {"subject_sphere", dense(V, nV, 3)}, {"subject_pieces", sp}});
+    const auto m = run(db, "registration_match", Json::object(), {{"template_sphere", dense(cv, 42, 3)}, {"template_pieces", tp}, {"subject_sphere", dense(vertexPositions, nV, 3)}, {"subject_pieces", sp}});
     CHECK_EQ(m.at("match").rows, std::int64_t(42));
     const auto carried = run(db, "carry_ends", Json::object(), {{"end_vertex", whole({0, 5, 41})}, {"match", m.at("match")}});
     CHECK(carried.at("end_vertex").data[1] == m.at("match").data[5]);
@@ -145,10 +145,10 @@ int main() {
 
   // precision follows the input; mixed precision is refused
   {
-    std::vector<double> pf(V);
+    std::vector<double> pf(vertexPositions);
     const auto e32 = run(db, "fiber_ends", Json{{"points_per_fiber", 5}}, {{"fibers", dense(b.points, 1000, 3, true)}});
     CHECK_EQ(e32.at("end_points").meta["precision"].get<std::string>(), std::string("float32"));
-    const auto n32 = run(db, "nearest_vertex", Json::object(), {{"points", e32.at("end_points")}, {"positions", dense(V, nV, 3, true)}});
+    const auto n32 = run(db, "nearest_vertex", Json::object(), {{"points", e32.at("end_points")}, {"positions", dense(vertexPositions, nV, 3, true)}});
     CHECK_EQ(n32.at("distance").meta["precision"].get<std::string>(), std::string("float32"));
     CHECK(has(refusal([&] { run(db, "nearest_vertex", Json::object(), {{"points", e32.at("end_points")}, {"positions", positions}}); }), "different precision"));
   }

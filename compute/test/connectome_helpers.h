@@ -1,5 +1,5 @@
 // Synthetic data for the connectome tests: a sphere as a surface, fibers whose ends are drawn clear of ties, an independent DENSE implementation of the
-// reference's behaviour (tess_connectome: nearest vertex, fiber counts as E1' E2 + E2' E1 with the diagonal removed, mesh smoothing P W P', pruning by a fraction of the
+// reference's behaviour (tess_connectome: nearest vertex, fiber counts as the first ends' memberships transposed times the second ends' plus the same with the ends swapped, with the diagonal removed, mesh smoothing of the counts from both sides, pruning by a fraction of the
 // strongest weight, connected components). Nothing here is shared with the code under test beyond the mesh helper.
 #pragma once
 #include <Eigen/Dense>
@@ -69,21 +69,21 @@ inline std::vector<std::array<int, 2>> referenceEnds(const std::vector<double>& 
     e.push_back({bruteNearest(pos, &b.points[static_cast<std::size_t>(3 * f * b.nP)]), bruteNearest(pos, &b.points[static_cast<std::size_t>(3 * (f * b.nP + b.nP - 1))])});
   return e;
 }
-// W = E1' E2 + E2' E1 (the diagonal kept: a fiber with both ends on one vertex adds 2 there)
-inline Eigen::MatrixXd referenceCounts(const std::vector<std::array<int, 2>>& e, int V, const std::vector<std::uint8_t>& keep = {}) {
-  Eigen::MatrixXd w = Eigen::MatrixXd::Zero(V, V);
+// the fiber counts: one more at (first end, last end) and at (last end, first end) for each fiber (the diagonal kept: a fiber with both ends on one vertex adds 2 there)
+inline Eigen::MatrixXd referenceCounts(const std::vector<std::array<int, 2>>& e, int nVertices, const std::vector<std::uint8_t>& keep = {}) {
+  Eigen::MatrixXd w = Eigen::MatrixXd::Zero(nVertices, nVertices);
   for (std::size_t f = 0; f < e.size(); ++f) {
     if (!keep.empty() && !keep[f]) continue;
     w(e[f][0], e[f][1]) += 1; w(e[f][1], e[f][0]) += 1;
   }
   return w;
 }
-inline Eigen::MatrixXd referenceSmoother(const std::vector<std::int32_t>& F, int V, int hops) {
-  Eigen::MatrixXd a = Eigen::MatrixXd::Identity(V, V);
-  for (std::size_t i = 0; i < F.size(); i += 3)
-    for (int x = 0; x < 3; ++x) { const int u = F[i + static_cast<std::size_t>(x)], v = F[i + static_cast<std::size_t>((x + 1) % 3)]; a(u, v) = 1; a(v, u) = 1; }
-  for (int r = 0; r < V; ++r) a.row(r) /= a.row(r).sum();
-  Eigen::MatrixXd p = Eigen::MatrixXd::Identity(V, V);
+inline Eigen::MatrixXd referenceSmoother(const std::vector<std::int32_t>& triangles, int nVertices, int hops) {
+  Eigen::MatrixXd a = Eigen::MatrixXd::Identity(nVertices, nVertices);
+  for (std::size_t i = 0; i < triangles.size(); i += 3)
+    for (int x = 0; x < 3; ++x) { const int u = triangles[i + static_cast<std::size_t>(x)], v = triangles[i + static_cast<std::size_t>((x + 1) % 3)]; a(u, v) = 1; a(v, u) = 1; }
+  for (int r = 0; r < nVertices; ++r) a.row(r) /= a.row(r).sum();
+  Eigen::MatrixXd p = Eigen::MatrixXd::Identity(nVertices, nVertices);
   for (int h = 0; h < hops; ++h) p = p * a;
   return p;
 }
