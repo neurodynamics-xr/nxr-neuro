@@ -98,9 +98,17 @@ its shards. The node procedure (`pending` → keys → `complete`, recovery by k
 `meta` holds the package's record, one JSON value (`package_json`): the subject's id, name and kind, the schema version and store format, the
 template reference (section 4.3), and the **content hash**:
 
-- **content hash** = SHA-256 over the sorted lines `<key> <size_bytes> <sha256>` of `key_digest`, followed by a canonical dump of the package's rows
-  (every table, rows ordered by primary key, columns in the schema's order, values in the canonical text the drain uses for `zarr.json`). Rows that
-  record time of writing (`modified_utc`, `job` rows) are included: a package rewritten is a different state.
+- **content hash** = SHA-256 over **content only**, so the same content is the same hash however and whenever it was built (amended 2026-11-17: the first
+  definition covered row ids, timestamps and the nodes' own texts, so rebuilding the same template from the same sources gave another hash). It covers:
+  - the sorted lines `<key> <size_bytes> <sha256>` of `key_digest`, for every key that is **array data**: the nodes' `zarr.json` texts are left out (the drain writes
+    them from the rows, with their ids and times, so they say nothing the rows do not);
+  - then the sorted **digests of the rows**. A row's digest is the SHA-256 of its table and its columns' values in the schema's order, **without** its own `id`, without the
+    columns that record the time of writing (`*_utc`) or the program that wrote (`created_by`, `modified_by`), and without such keys inside a `*_json` value; and with every
+    **reference to another row** (a declared foreign key, or a UUID inside a text or a `*_json` value) replaced by the digest of the row it names. References run in cycles
+    (a field, its operator, a selection), so the digests are refined round by round (round 0 names a reference by its table; each later round by the digest the row had in the
+    round before) until no two rows are told apart that were not before; nothing depends on an id or on the order rows were written in. Not rows of the content:
+    `job` (the log of the jobs that wrote it), `datastore` (the folder it was made in) and the package's bookkeeping tables;
+  - a package rewritten with other values, other arrays or other references is another hash; a rebuilt one, with fresh ids and times, is the same.
 - It is recomputed when a writer closes the package (from `key_digest`, so no shard is re-read) and stored with the time it was computed.
 - `subject verify --package PATH` recomputes every key's digest from the bytes and the hash from them, and reports a mismatch by key.
 - A group result, a catalogue entry and a template reference name a package by **id + content hash**, so a later change to the package is seen.
@@ -457,15 +465,31 @@ place, under the dataset's writer lock, **subject by subject, verified byte for 
 5. **The commit**: the subject's catalogue entry. A crash before it leaves the old dataset whole (the package's new tables are rebuilt on the next
    run); after it, the subject is done and is skipped (a second run changes no byte).
 6. **The end**: `meta.store_format` 53 in every package and the catalogue; the original database is kept, renamed `dataset.sqlite.format52`, and is
-   removed only with the maintainers' OK (never delete data without it). Groups: group fields that `pyramid reduce` wrote into the default subject are
-   moved into a group package (decided 2026-11-16), verified as above.
+   removed only with the maintainers' OK (never delete data without it). Group results: the group fields that `pyramid reduce` wrote into the default
+   subject are moved into a group package (decided 2026-11-16), in the same split, under the mapping below, verified as above.
+
+   | what | old owner | new owner | what changes |
+   |---|---|---|---|
+   | `field` rows of the group results (no `path`; the producer record's `atlas` is `spatial` or `time`) | the default subject | the group package (a subject of kind `group`, named `group`, made by the split; its template is the default subject) | the row's `subject_id` column; every other column is kept |
+   | `field_contribution` rows of those fields | the default subject | the group package | nothing (they follow their field); their `subject_id` and `source_field_id` name the members' rows, held as anchor rows |
+   | `selection_measurement` rows of those fields | the default subject | the group package | nothing; their `selection_id` names the default subject's partition, held by the group package as an anchor row, as a subject holds its template's |
+   | the keys under `<node>/maps` and `<node>/time` (arrays and their small keys) | the default subject's folder | the group package's folder | copied, every file compared, the originals moved aside to `<dataset>/_moved-aside/<default subject folder>/`, never deleted |
+   | the group subject's own row | (none: made by the split) | the group package | a new row, the only one the original lacks |
+   | every other row (the default subject's partitions, the band bank the group measurements name, every subject's rows) | unchanged | unchanged | nothing |
+
+   The verification is "every row present exactly once, in the owner above": the index built from the packages equals the original database row for row, the
+   moved fields compared with their `subject_id` changed back, the row counts equal table by table, and the group subject the one row more. The default subject's
+   own bundle is not compared with the original's (it has fewer rows by design); its rows are compared one by one instead. The mapping is written into the split's
+   report (`group_results`) and the catalogue's `meta` (`split_groups`), from which `join` reverses it: the group fields' `subject_id` back to the default subject, the
+   group subject row dropped, the arrays returned (the originals from `_moved-aside` when they match the group package's copy, else the copy), the group package
+   folder kept renamed `*.format53`. A crash after the arrays were copied is resumed by running the same command again.
 7. **All at once, not on first use** (decided 2026-11-16): a dataset is split by one explicit command, never silently when a newer build
    opens it, so no reader meets a dataset half in one layout without being told. A build that knows format 53 still reads 50–52 as today.
 8. **Reverse**: `dataset join --dataset PATH` writes a format-52 `dataset.sqlite` from the packages (the index build, written as the
    dataset database) and removes the packages' row tables, leaving `small_files` as format 52 had it. `split` then `join` gives back the original
    database, compared table by table (`test_split`: synthetic datasets at 50, 51 and 52, a crash at each stage, idempotence, the round trip).
 
-**The version step**: store format **53** (packages and catalogue) and the model's schema version **51** (the new tables: `subject_entry`,
+**The version step** (built 2026-11-17: `model.sql` is at 51, with the subject kind `registration` and the tables `key_digest`, `subject_entry` and `template_reference`; `anchor_row`, `origin` and `vocabulary` stay package and catalogue tables; a database at 50 is migrated in place when it is opened to write, and read as it is when opened to read; the attribute views name schema 51; nxr and the Studio adopt the same `model.sql` next): store format **53** (packages and catalogue) and the model's schema version **51** (the new tables: `subject_entry`,
 `template_reference`, `key_digest`, the package record in `meta`, the subject kind `registration`), added to `model.sql` in all three implementations at once. Every reader refuses a
 version above the newest it knows (`schema_version` error), so a build from before this change refuses a format-53 package instead of misreading it,
 and a format-53 build still opens 50–52 datasets as today.

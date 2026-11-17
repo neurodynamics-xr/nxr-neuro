@@ -29,7 +29,7 @@ option(NXR_NEURO_BUILD_CLI       "Build the nxr-neuro command (cli/); needs io (
 option(NXR_NEURO_BUILD_BINDINGS  "Build the nxr_compute bindings (bindings/: MEX when MATLAB is found, Node via cmake-js, wasm under Emscripten, CLI smoke)" ON)
 option(NXR_NEURO_BUILD_PYTHON    "Build the Python module (bindings/python; the wheel: pip install, scikit-build-core); needs compute and io" OFF)
 option(NXR_NEURO_PYTHON_ONLY      "With NXR_NEURO_BUILD_PYTHON: build the Python module as the only binding (the wheel build: no MATLAB, Node or smoke shells)" OFF)
-option(NXR_NEURO_PORTABLE      "Release build: SQLite (amalgamation) and zstd (c-blosc's copy) linked into the binary instead of the system's" OFF)
+option(NXR_NEURO_PORTABLE      "Release build: zstd (c-blosc copy) linked into the binary instead of the system one (SQLite is always the pinned amalgamation)" OFF)
 option(NXR_NEURO_BUILD_TESTS     "Build the C++ tests of every library built, and register them with ctest" ON)
 
 if(EMSCRIPTEN)   # WebAssembly: every library (compute, io, meeg, pipelines) into one module (bindings/wasm-io); the command line is compiled INTO it, not as a program

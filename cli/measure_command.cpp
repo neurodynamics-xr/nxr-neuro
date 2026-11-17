@@ -106,7 +106,7 @@ int measure_query_main(const std::vector<std::string>& argv) {
   const cli::Args a = cli::parse(prog, argv, {"--dataset", "--subject", "--selection", "--field", "--measure", "--band", "--spatial-band", "--space-level", "--time-level", "--min-value", "--max-value", "--limit", "--order"}, {},
                                  {"--dataset", "--subject", "--selection", "--measure"});
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -159,7 +159,7 @@ int measure_main(const std::vector<std::string>& argv) {
     if (const auto v = a.maybe("--stop")) t.stop = std::stod(*v);
     t.replace = a.flag.count("--replace") > 0;
     try {
-      DatasetWriter ds = open_writer(a.get("--dataset"));
+      DatasetWriter ds = open_dataset(a);
       OpenSubjectOptions oo;
       oo.created_by = cli::stamp();
       SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -182,7 +182,7 @@ int measure_main(const std::vector<std::string>& argv) {
   o.replace = a.flag.count("--replace") > 0;
   o.gradient = a.flag.count("--gradient") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -205,7 +205,7 @@ int joint_main(const std::vector<std::string>& argv) {
   o.surface = a.maybe("--surface");
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -239,7 +239,7 @@ int frametiling_main(const std::vector<std::string>& argv) {
   } catch (...) { usage(prog, "--frame-level is a whole number (tower level, e.g. -25), --centre a number (Hz), --band LO,HI two numbers (Hz), --frames-per-cycle a whole number, --start-s a number (s)"); }
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -260,7 +260,7 @@ int pyramid_main(const std::vector<std::string>& argv) {
     const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--surface"}, {}, {"--dataset", "--subject"});
     nxr::pipelines::SpatialBandsOptions o;
     o.surface = a.maybe("--surface");
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -274,12 +274,21 @@ int pyramid_main(const std::vector<std::string>& argv) {
     // `pyramid reduce --dataset D/N --subjects A,B,C [--kernels SPEC] [--depth D]`: the group sums of the NAMED subjects' group-tree pyramids, cell for cell, in the default subject's store
     const std::string prog = "nxr-neuro pyramid reduce";
     const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-    const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subjects", "--kernels", "--depth"}, {}, {"--dataset", "--subjects"});
+    const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subjects", "--kernels", "--depth", "--into"}, {}, {"--dataset", "--subjects"}, 0, {"--templates"});
     nxr::pipelines::PyramidReduceOptions o;
     { std::stringstream ss(a.get("--subjects")); std::string item; while (std::getline(ss, item, ',')) if (!item.empty()) o.subjects.push_back(item); }
     if (const auto v = a.maybe("--kernels")) o.kernels = *v;
     try { if (const auto v = a.maybe("--depth")) o.depth = std::stoi(*v); } catch (...) { usage(prog, "--depth is a whole number"); }
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    if (is_catalogue_dataset(a.get("--dataset"))) {   // a catalogue: the members' packages are read, the result is a group package (one per analysis, named by --into)
+      if (!a.maybe("--into")) throw cli::Usage(prog + ": error: " + a.get("--dataset") + " is a catalogue of subject packages: name the group package the result goes to with --into NAME");
+      const auto g = nxr::pipelines::pyramid_reduce_group(a.get("--dataset"), o, *a.maybe("--into"), cli::template_search_of(a), [](const Json& j) { Json m = j; if (!m.contains("stage")) m["stage"] = "progress"; cli::emit(m); });
+      Json out = Json{{"stage", "result"}};
+      for (auto it = g.info.begin(); it != g.info.end(); ++it) out[it.key()] = it.value();
+      cli::emit(out);
+      return 0;
+    }
+    if (a.maybe("--into")) throw cli::Usage(prog + ": error: --into names a group package, which only a catalogue dataset has (`split dataset` makes one)");
+    DatasetWriter ds = open_dataset(a);
     const auto r = nxr::pipelines::pyramid_reduce(ds, o, [](const Json& j) { Json m = j; if (!m.contains("stage")) m["stage"] = "progress"; cli::emit(m); });
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
@@ -319,7 +328,7 @@ int pyramid_main(const std::vector<std::string>& argv) {
   o.exclude_bad_segments = a.flag.count("--keep-bad-segments") == 0;
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -355,7 +364,7 @@ int patches_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--summaries")) o.summaries = split(*v, ',');
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -389,7 +398,7 @@ int cellquadrature_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--tolerance")) { try { o.tolerance = std::stod(*v); } catch (...) { usage(prog, "--tolerance is a number"); } }
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -418,7 +427,7 @@ int wishart_main(const std::vector<std::string>& argv) {
   } catch (...) { usage(prog, "--draws and --seed are whole numbers"); }
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -455,7 +464,7 @@ int pointspread_main(const std::vector<std::string>& argv) {
   } catch (const std::invalid_argument&) { usage(prog, "a number was expected"); }
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -490,7 +499,7 @@ int spatialnull_main(const std::vector<std::string>& argv) {
   num("--batch", o.batch); num("--min-draws", o.min_draws); num("--max-draws", o.max_draws); num("--h", o.h);
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -530,7 +539,7 @@ int null_main(const std::vector<std::string>& argv) {
   num("--batch", o.batch); num("--min-draws", o.min_draws); num("--max-draws", o.max_draws); num("--h", o.h); num("--min-crossings", o.min_crossings);
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -562,7 +571,7 @@ int repeat_main(const std::vector<std::string>& argv) {
   o.name = a.maybe("--name");
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -598,7 +607,7 @@ int scaleselection_main(const std::vector<std::string>& argv) {
   o.surface = a.maybe("--surface");
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -629,7 +638,7 @@ int statistic_main(const std::vector<std::string>& argv) {
   o.replace = a.flag.count("--replace") > 0;
   o.own = a.flag.count("--members-own") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);

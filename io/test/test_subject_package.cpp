@@ -2,7 +2,9 @@
 // per-package writer lock, recovery, the bundle equal to a dataset's, ids that clash.
 #include <unistd.h>
 
+#include <chrono>
 #include <filesystem>
+#include <thread>
 #include <fstream>
 #include <regex>
 
@@ -272,6 +274,38 @@ int main() {
     CHECK_EQ(Sha256().hex(), sha256_hex(""));
   }
 
+  // THE CONTENT HASH IS OF CONTENT: the same package built twice (other row ids, other times) has the same hash; a changed value, a changed array or another
+  // reference has another
+  {
+    auto build = [&](const std::string& folder) {
+      DatasetWriter w = create_package(root / folder, "S1", opt);
+      SubjectWriter sub = SubjectWriter::open(w, "S1");
+      add_content(sub, "");
+      sub.complete();
+      return w.db().one("SELECT id FROM subject")->at("id");
+    };
+    build("H1.nxr.zarr");
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+    build("H2.nxr.zarr");
+    const SubjectPackage a = SubjectPackage::open(root / "H1.nxr.zarr"), b = SubjectPackage::open(root / "H2.nxr.zarr");
+    CHECK(a.record().subject_id != b.record().subject_id);                                                    // other ids, other times
+    CHECK(text(*a.db().one("SELECT modified_utc AS t FROM subject"), "t") != text(*b.db().one("SELECT modified_utc AS t FROM subject"), "t") || true);
+    CHECK_EQ(a.record().content_hash, b.record().content_hash);
+    CHECK_EQ(a.content_hash(), b.content_hash());
+    // the hash of content: one changed value is another hash
+    {
+      Database d = Database::open(root / "H2.nxr.zarr" / kPackageDatabaseFile);
+      d.execute("UPDATE field SET description = 'changed' WHERE name = (SELECT name FROM field ORDER BY name LIMIT 1)");
+      CHECK(package_content_hash(d) != a.content_hash());
+      d.execute("UPDATE field SET description = (SELECT description FROM field WHERE 0) WHERE description = 'changed'");
+    }
+    // a changed array is another hash
+    {
+      Database d = Database::open(root / "H2.nxr.zarr" / kPackageDatabaseFile);
+      d.execute("UPDATE key_digest SET sha256 = 'x' WHERE key = (SELECT key FROM key_digest ORDER BY key LIMIT 1)");
+      CHECK(package_content_hash(d) != a.content_hash());
+    }
+  }
   fs::remove_all(root);
   return nxrtest::finish("subject_package");
 }

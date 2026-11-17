@@ -172,6 +172,38 @@ void Database::close() {
   db_ = nullptr;
 }
 
+namespace {
+// SCHEMA 50 -> 51, in place (spec section 8: "the version step"): the subject kind `registration` allowed, the tables key_digest, subject_entry and template_reference
+// added, the two attribute views that name the schema version made again, `user_version` 51. Additive: every row valid before stays valid; the arrays are untouched.
+// What the migration is, is what model.sql says: the block between its "schema 51" markers and the two views are read from it.
+void migrate_50_to_51(Database& d) {
+  const std::string model = model_sql();
+  const auto cut = [&](const std::string& from, const std::string& to) {
+    const auto a = model.find(from);
+    const auto b = a == std::string::npos ? a : model.find(to, a);
+    if (b == std::string::npos) throw Error(code::not_a_database, "model.sql: no `" + from + "` in the schema, so a database at 50 cannot be migrated");
+    return model.substr(a, b - a);
+  };
+  std::string tables = cut("CREATE TABLE key_digest", "-- ── schema 51 (end)");
+  for (std::string::size_type at = 0; (at = tables.find("CREATE TABLE ", at)) != std::string::npos; at += 28) tables.replace(at, 13, "CREATE TABLE IF NOT EXISTS ");
+  const std::string subject_view = cut("CREATE VIEW subject_attributes AS", ";\n") + ";\n";
+  const std::string dataset_view = cut("CREATE VIEW dataset_attributes AS", ";\n") + ";\n";
+  static const std::string kBefore = "kind IN ('subject', 'template', 'group')", kAfter = "kind IN ('subject', 'template', 'group', 'registration')";
+  const auto sub = d.one("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'subject'");
+  if (!sub || (text(*sub, "sql").find(kBefore) == std::string::npos && text(*sub, "sql").find("'registration'") == std::string::npos))
+    throw Error(code::schema_version, "table subject: its kind list is not the schema 50's; the database cannot be migrated to 51 in place");
+  const std::int64_t sv = integer(*d.one("PRAGMA schema_version"), "schema_version");
+  d.with_writable_schema([&] {
+    d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'table' AND name = 'subject' AND instr(sql, ?) = 0", {V(kBefore), V(kAfter), V("'registration'")});
+    d.execute("PRAGMA schema_version = " + std::to_string(sv + 1));
+  });
+  d.exec_script("BEGIN;\n" + tables + "DROP VIEW IF EXISTS subject_attributes;\n" + subject_view + "DROP VIEW IF EXISTS dataset_attributes;\n" + dataset_view +
+                "INSERT OR REPLACE INTO meta (key, value) VALUES ('schema_migrated:50->51', '" + now_utc() + "');\nPRAGMA user_version = 51;\nCOMMIT;");
+  const auto ok = d.one("PRAGMA quick_check");
+  if (!ok || text(*ok, "quick_check") != "ok") throw Error(code::schema_version, "the database failed its check after it was migrated from schema 50 to 51");
+}
+}  // namespace
+
 Database Database::open(const fs::path& file, bool create, const std::string& built_by, bool read_only) {
   const std::string p = file.string();
   if (!create && !fs::is_regular_file(file)) {
@@ -206,9 +238,12 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
     }
     const std::int64_t v = integer(*d.one("PRAGMA user_version"), "user_version");
     const int want = schema_version();
-    if (v != want) {
+    if (v == 50 && want == 51) {
+      // a database at 50 is a database at 51 without the additions: opened to write, it is migrated in place (additive); opened to read, it is read as it is
+      if (!read_only) migrate_50_to_51(d);
+    } else if (v != want) {
       const std::string how =
-          v == want - 1 ? "run `nxr migrate --dataset <dataset folder>` (it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
+          v == want - 2 ? "run `nxr migrate --dataset <dataset folder>` (49 to 50; this build then migrates 50 to 51 when it opens the dataset to write; it keeps the old database and the arrays; add `--dry-run` to see what it will do first)"
                         : "re-convert it from its source (D139/D144)";
       throw Error(code::schema_version, p + ": user_version " + std::to_string(v) + ", this build reads " + std::to_string(want) + " — " + how);
     }

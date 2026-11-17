@@ -1,4 +1,5 @@
 #include "nxr/pipelines/eigen.h"
+#include "nxr/pipelines/cache.h"
 
 #include <algorithm>
 #include <cmath>
@@ -293,9 +294,9 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
       replaced = true;
       const std::string loc = std::string(t.table) == "selection" ? text(*r, "array_path") : text(*r, "path");
       if (!loc.empty() && sub.store().exists_prefix(loc)) {
-        const std::string aside = "_replaced-" + stamp_utc.substr(0, 10) + "/" + text(sub.row(), "path");
-        sub.datastore().rename_prefix(nxr::io::join_key(sub.prefix(), loc), nxr::io::join_key(aside, loc));
-        moved_aside = (ds.root() / aside).string();
+        const AsideFolder aside = replaced_aside(ds, sub, stamp_utc.substr(0, 10), 1);
+        sub.datastore().rename_prefix(nxr::io::join_key(sub.prefix(), loc), nxr::io::join_key(aside.base, loc));
+        moved_aside = aside.on_disk;
       }
       sub.remove(t.table, text(*r, "id"));
     }
