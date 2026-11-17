@@ -38,6 +38,24 @@ def test_sphere_spectrum_is_l_times_l_plus_one():
     assert np.all(np.diff(r.eigenvalues) >= -1e-9)
 
 
+def _residual(h, u):
+    """The share of h outside the span of the columns of u (0: inside; 1: orthogonal)."""
+    q, _ = np.linalg.qr(u)
+    return np.linalg.norm(h - q @ (q.T @ h)) / np.linalg.norm(h)
+
+
+def test_sphere_modes_span_the_spherical_harmonics():
+    # the vectors of a multiple eigenvalue are not unique; the subspace of each shell is
+    v, f = icosphere(3)
+    r = nn.compute.manifold.eigenmodes(v, f, 25, normalize=True)
+    x, y, z = v.T
+    lin = np.stack([x, y, z], axis=1)
+    quad = np.stack([x * y, y * z, z * x, x ** 2 - y ** 2, 2 * z ** 2 - x ** 2 - y ** 2], axis=1)
+    shell1, shell2 = r.eigenvectors[:, 1:4], r.eigenvectors[:, 4:9]
+    assert _residual(lin, shell1) < 0.03 and _residual(quad, shell2) < 0.05
+    assert _residual(lin, shell2) > 0.9
+
+
 def test_remove_dc_drops_the_constant_mode():
     v, f = icosphere(2)
     r = nn.compute.manifold.eigenmodes(v, f, 10, remove_dc=True, normalize=True)

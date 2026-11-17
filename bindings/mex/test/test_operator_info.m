@@ -22,9 +22,9 @@ assert(strcmp(rd.holonomy,   'graded'),     'relativeDirac holonomy');
 assert(strcmp(rd.field_type, 'quaternion'), 'relativeDirac field_type');
 assert(rd.graded == 1,                      'relativeDirac graded flag');
 
-% ── extrinsicWeitzenbockLaplacian (planned) ────────────────────────────────────
+% ── extrinsicWeitzenbockLaplacian (built) ────────────────────────────────────
 ew = nxr_compute('operatorInfo', 'extrinsicWeitzenbockLaplacian');
-assert(strcmp(ew.status, 'planned'), 'extrinsicWeitzenbockLaplacian status');
+assert(strcmp(ew.status, 'built'), 'extrinsicWeitzenbockLaplacian status');
 
 % ── unknown id must error ─────────────────────────────────────────────────────
 try

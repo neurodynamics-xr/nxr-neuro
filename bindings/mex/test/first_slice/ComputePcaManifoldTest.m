@@ -83,13 +83,25 @@ classdef ComputePcaManifoldTest < SliceTestBase
             tc.verifyEqual(r.n_converged, 25);
             tc.verifyEqual(size(r.eigenvectors), [642 25]);
             tc.verifyEqual(size(r.eigenvalues), [25 1]);
-            tc.verifyEqual(r.eigenvalues(2:16), want(2:16), 'RelTol', 0.03);   % l = 1..3
-            % the last two shells (l = 4, 5): the eigensolver's random start can leave a mode of a degenerate shell out (seen on Linux: an l = 5 value
-            % in place of the last l = 4 one), so each value must lie on a shell, not on a given one
-            shells = [12 20 30];
-            tc.verifyLessThan(max(min(abs(r.eigenvalues(17:end) ./ shells - 1), [], 2)), 0.03);
+            tc.verifyEqual(r.eigenvalues(2:end), want(2:end), 'RelTol', 0.03);
             tc.verifyLessThan(abs(r.eigenvalues(1)), 1e-6);
             tc.verifyGreaterThanOrEqual(min(diff(r.eigenvalues)), -1e-9);
+        end
+
+        function sphereModesSpanTheSphericalHarmonics(tc)
+            % individual vectors of a multiple eigenvalue are not unique; the SUBSPACE of each shell is: the linear (l = 1) and quadratic (l = 2)
+            % harmonics restricted to the vertices lie in the span of the modes of their shell
+            [v, f] = icosphere(3);
+            r = nxr.compute.manifold.eigenmodes(v, f, 25, normalize=true);
+            x = v(:, 1); y = v(:, 2); z = v(:, 3);
+            shell1 = r.eigenvectors(:, 2:4);
+            shell2 = r.eigenvectors(:, 5:9);
+            lin = [x y z];
+            quad = [x.*y y.*z z.*x x.^2 - y.^2 2*z.^2 - x.^2 - y.^2];
+            tc.verifyLessThan(subspaceResidual(lin, shell1), 0.03);
+            tc.verifyLessThan(subspaceResidual(quad, shell2), 0.05);
+            % and the shell holds nothing else: the modes are orthogonal to the other shell's harmonics
+            tc.verifyGreaterThan(subspaceResidual(lin, shell2), 0.9);
         end
 
         function removeDcDropsTheConstantMode(tc)
@@ -124,6 +136,12 @@ classdef ComputePcaManifoldTest < SliceTestBase
             tc.verifyTrue(threw);
         end
     end
+end
+
+function e = subspaceResidual(H, U)
+    % the relative size of what the columns of H keep outside the span of the columns of U (0: inside; 1: orthogonal)
+    [Q, ~] = qr(U, 0);
+    e = norm(H - Q * (Q' * H), 'fro') / norm(H, 'fro');
 end
 
 function v = ifelse(c, a, b)

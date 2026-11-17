@@ -23,7 +23,8 @@ assert(~isempty(hits), 'nxr_compute.%s not found under %s/build', mexext, repoRo
 mexDir = hits(1).folder;
 addpath(mexDir);
 
-assert(exist(fullfile(mexDir, ['nxr_compute.' mexext]), 'file') == 3, ...
+% (a full path to a MEX file reports 2 or 3 by release; what matters is that the name resolves to a MEX-file)
+assert(any(exist(fullfile(mexDir, ['nxr_compute.' mexext]), 'file') == [2 3]) && exist('nxr_compute') == 3, ...
     'nxr_compute.%s not found in %s', mexext, mexDir);
 
 % ── Sanity: version string ───────────────────────────────────

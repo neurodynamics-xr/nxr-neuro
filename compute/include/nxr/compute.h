@@ -846,7 +846,7 @@ inline constexpr double kShiftLadder = std::numeric_limits<double>::quiet_NaN();
 struct EigenControls {
     int ncv = 0;               // Krylov dimension; 0 = min(max(2k+1, 20), N) (SciPy's eigsh default)
     int maxit = 1000;          // restarts
-    double tol = 1e-10;        // Spectra's relative tolerance on the Ritz estimates (ARPACK's tol = 0 means machine precision)
+    double tol = 1e-12;        // Spectra's relative tolerance on the Ritz estimates (ARPACK's tol = 0 means machine precision)
     bool requireAll = false;   // throw EigensolveNotConverged unless all k pairs converged (ARPACK raises as well)
 };
 
