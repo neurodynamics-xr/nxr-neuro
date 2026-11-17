@@ -1,4 +1,5 @@
 #include "nxr/compute.h"
+#include "geometrycentral/surface/intrinsic_geometry_interface.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
@@ -55,9 +56,13 @@ Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF,
         faces_(i, 2) = faces[3 * i + 2];
     }
 
-    // THE operator mesh: the one Delaunay construction (mollify, signposts, the input's mixed-Voronoi mass, flips) — or the input as it is.
-    operatorMesh_ = std::make_unique<delaunay::Mesh>(
-        delaunay::prepare(vertices, nV, faces, nF, options_.delaunay, options_.mesh == MeshKind::Intrinsic));
+    // THE intrinsic surface: geometry-central's signpost intrinsic Delaunay triangulation of the mollified input (or the input as it is).
+    IntrinsicOptions io;
+    io.intrinsic = options_.mesh == MeshKind::Intrinsic;
+    io.mollify   = options_.delaunay.mollify;
+    io.flipEps   = options_.delaunay.flipEps;
+    io.mass      = MassKind::InputMixedVoronoi;
+    surface_ = std::make_unique<IntrinsicSurface>(vertices, nV, faces, nF, io);
 }
 
 // Singularity-aware constructor (pattern 2): delegates to primary ctor,
@@ -81,33 +86,23 @@ ManifoldSurfaceMesh& Manifold::mesh() { return *mesh_; }
 VertexPositionGeometry& Manifold::geometry() { return *geometry_; }
 
 bool Manifold::isIntrinsicDelaunay() const { return options_.mesh == MeshKind::Intrinsic; }
-const delaunay::Mesh& Manifold::operatorMesh() const { return *operatorMesh_; }
+IntrinsicSurface& Manifold::intrinsicSurface() { return *surface_; }
 const ManifoldOptions& Manifold::options() const { return options_; }
 const Eigen::SparseMatrix<double>& Manifold::operatorCotan() {
-    if (!operatorCotan_) operatorCotan_ = std::make_unique<Eigen::SparseMatrix<double>>(delaunay::cotanLaplacian(*operatorMesh_));
+    if (!operatorCotan_) operatorCotan_ = std::make_unique<Eigen::SparseMatrix<double>>(surface_->cotanLaplacian());
     return *operatorCotan_;
 }
 
 const ops::DecMatrices& Manifold::operatorDecMatrices() {
     if (!operatorDec_) {
-        const delaunay::Mesh& om = *operatorMesh_;
-        const delaunay::Dec d = delaunay::dec(om);
-        auto diag = [](const Eigen::VectorXd& v) {
-            const int n = static_cast<int>(v.size());
-            std::vector<Eigen::Triplet<double>> t;
-            t.reserve(static_cast<size_t>(n));
-            for (int i = 0; i < n; ++i) t.emplace_back(i, i, v(i));
-            Eigen::SparseMatrix<double> M(n, n);
-            M.setFromTriplets(t.begin(), t.end());
-            M.makeCompressed();
-            return M;
-        };
+        // geometry-central's DEC of the intrinsic triangulation: d0, d1, ⋆1 (the cotan weights), ⋆2 (1/area) and ⋆0 = vertexDualAreas, which the
+        // IntrinsicSurface serves as the input's mixed-Voronoi mass. Edge e is `e.halfedge()` (tail → tip); the vertices are the input's.
+        auto& g = surface_->geometry();
+        g.requireDECOperators();
         auto dm = std::make_unique<ops::DecMatrices>();
-        dm->d0 = d.d0; dm->d1 = d.d1;
-        dm->hodge0 = diag(Eigen::Map<const Eigen::VectorXd>(om.mass.data(), static_cast<Eigen::Index>(om.mass.size())));
-        dm->hodge1 = diag(d.star1);
-        dm->hodge2 = diag(d.star2);
-        dm->hodge1Inverse = diag(d.star1.cwiseInverse());
+        dm->d0 = g.d0; dm->d1 = g.d1;
+        dm->hodge0 = g.hodge0; dm->hodge1 = g.hodge1; dm->hodge2 = g.hodge2; dm->hodge1Inverse = g.hodge1Inverse;
+        g.unrequireDECOperators();
         operatorDec_ = std::move(dm);
     }
     return *operatorDec_;
@@ -115,7 +110,7 @@ const ops::DecMatrices& Manifold::operatorDecMatrices() {
 
 const Eigen::VectorXd& Manifold::operatorDualAreas() {
     if (!operatorDualAreas_) {
-        const std::vector<double> b = delaunay::barycentricMass(*operatorMesh_);
+        const std::vector<double> b = surface_->barycentricMass();
         operatorDualAreas_ = std::make_unique<Eigen::VectorXd>(Eigen::Map<const Eigen::VectorXd>(b.data(), static_cast<Eigen::Index>(b.size())));
     }
     return *operatorDualAreas_;
@@ -133,7 +128,7 @@ using namespace geometrycentral::surface;
 //   MixedVoronoi — diagonal; the recorded mixed Voronoi mass of the mollified INPUT (default).
 //   Galerkin     — sparse; the L² integrals of P1 hat functions on the operator mesh as it is.
 //   Barycentric  — diagonal; A/3 per vertex on the operator mesh as it is (formerly "Lumped").
-// All conserve total area and are symmetric. All are built from the operator mesh (nxr/delaunay.h).
+// All conserve total area and are symmetric. All are built from the intrinsic surface (nxr/intrinsic_surface.h).
 
 static Eigen::SparseMatrix<double> diagonalMatrix(const std::vector<double>& d) {
     const int n = static_cast<int>(d.size());
@@ -147,11 +142,11 @@ static Eigen::SparseMatrix<double> diagonalMatrix(const std::vector<double>& d) 
 }
 
 Eigen::SparseMatrix<double> vertexMass(Manifold& m, MassMatrixVariant variant) {
-    const delaunay::Mesh& mesh = m.operatorMesh();
+    IntrinsicSurface& surf = m.intrinsicSurface();
     switch (variant) {
-        case MassMatrixVariant::MixedVoronoi: return diagonalMatrix(mesh.mass);
-        case MassMatrixVariant::Barycentric:  return diagonalMatrix(delaunay::barycentricMass(mesh));
-        case MassMatrixVariant::Galerkin:     return delaunay::galerkinMass(mesh);
+        case MassMatrixVariant::MixedVoronoi: return diagonalMatrix(surf.massDiagonal());
+        case MassMatrixVariant::Barycentric:  return diagonalMatrix(surf.barycentricMass());
+        case MassMatrixVariant::Galerkin:     return surf.galerkinMassMatrix();
     }
     throw Error(ErrorCode::InvalidInput, "vertexMass: unknown MassMatrixVariant");
 }
@@ -161,8 +156,6 @@ Eigen::SparseMatrix<double> vertexMass(Manifold& m, MassMatrixVariant variant) {
 ManifoldOperators assembleManifoldOperators(Manifold& m,
                                     MassMatrixVariant variant) {
     auto& mesh = m.mesh();
-    // The operator mesh: the one Delaunay construction (intrinsic mollified Delaunay by default, the input with MeshKind::Embedded).
-    const delaunay::Mesh& opMesh = m.operatorMesh();
     // embGeom — always the embedded VertexPositionGeometry. Used for vertex normals (extrinsic quantity).
     auto& embGeom = m.geometry();
 
@@ -177,7 +170,7 @@ ManifoldOperators assembleManifoldOperators(Manifold& m,
 
     // vertexDualAreas reports the per-vertex A/3 dual area regardless of the chosen mass variant — downstream consumers (curvature,
     // gradients, diffusion) want a per-vertex weight even when the L² inner product uses another M.
-    const std::vector<double> bary = delaunay::barycentricMass(opMesh);
+    const std::vector<double> bary = m.intrinsicSurface().barycentricMass();
     Eigen::VectorXd vertexDualAreas(nV);
     for (int i = 0; i < nV; ++i) vertexDualAreas(i) = bary[static_cast<size_t>(i)];
 

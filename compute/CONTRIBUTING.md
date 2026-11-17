@@ -231,14 +231,14 @@ to (extrinsic) Delaunay (`nxr::manifold::fixDelaunay` → GC `fixDelaunay`); sam
 vertices, new faces, best-effort PSD (not certified — extrinsic flips perturb the
 surface and needn't fully converge). The *certified*-PSD path is
 `nxr_compute('create', V, F)` — the intrinsic mollified Delaunay mesh (**the default since 2026-11-10**;
-`struct('intrinsicDelaunay', false)` is the named option "embedded"). ONE construction, `include/nxr/delaunay.h`
-(a line port of the Studio's `intrinsicDelaunay.ts`: mollify; signposts; the mixed-Voronoi mass of the mollified input recorded before the first
-flip; FIFO flips while the cotan weight < −`flipEps`; the reference's flip refusals and self-edges), builds the `Manifold`'s operator mesh
-(`Manifold::operatorMesh()`), and EVERY intrinsic operator is built on it: cotan Laplacian, the three masses, the stand-alone DEC (so
-`d0ᵀ★₁d0 == cotanL` and `hodge0 == mass`), the vertex connection Laplacian (transport from the signposts' gauge: each vertex's first outgoing
-halfedge in face order, the twinless one at a boundary; `geometry::vertexFrames` are that gauge's frames) and the Hodge–Dirac pencil. The numerical
-constants are the named, recorded options `mollify` (relative δ, 1e-6) and `flipEps` (1e-6). Parity with the Studio and with nxr's
-`prepare` on stretched/cocircular/sliver meshes: `test/parity/test_delaunay_parity.py`. Still on the INPUT mesh (geometry-central, indexed by the input's
+`struct('intrinsicDelaunay', false)` is the named option "embedded"). ONE construction, `include/nxr/intrinsic_surface.h` (`IntrinsicSurface` on geometry-central: mollify; the signpost intrinsic triangulation of the mollified
+input; the mixed-Voronoi mass of the mollified input recorded before the first flip and served through the `computeVertexDualAreas` override; flips while the
+cotan weight < −`flipEps`), builds the `Manifold`'s intrinsic surface (`Manifold::intrinsicSurface()`), and EVERY intrinsic operator is built on it: cotan
+Laplacian, the three masses, the stand-alone DEC (so `d0ᵀ★₁d0 == cotanL` and `hodge0 == mass`), the vertex connection Laplacian (geometry-central's transport;
+n > 1 from its n-th power) and the Hodge–Dirac pencil. ONE gauge: geometry-central's vertex gauge of the (mollified) input (angle 0 along the input's
+`v.halfedge()`, corner angles rescaled to 2π, π at a boundary vertex); `geometry::vertexFrames` is its 3D realisation (`vertexFramesEmbedded` is a deprecated
+alias). The numerical constants are the named, recorded options `mollify` (relative δ, 1e-6) and `flipEps` (1e-6). The line port (`delaunay.h`) stays until its
+retirement (spec `docs/specs/2026-11-17-geometry-central-switch.md`, G7); `test/parity/test_delaunay_parity.py` compares against it. Still on the INPUT mesh (geometry-central, indexed by the input's
 edges and faces): `Manifold::decEmbedded()` (Hodge decomposition of a 1-form, the trivial connection and its gauge/combing, the face Diracs), the
 Face/Edge connection domains, the extrinsic Dirac E, and the light `Topology`/`Geometry` bundle (`vertexFramesEmbedded`, `vertexGridEmbedded`).
 (Note `normalize` is the unrelated eigenvector M-orthonormalization, not a mesh op.)
