@@ -243,7 +243,7 @@ int main() {
     // THE LAG-FREE NULL (piece 10, spatial events): the ingredients, then draws in batches against the data's home map and size distribution
     {
       nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});
-      CrossSpectrumOptions co; co.recording = "rest"; co.channels_of = "ident"; co.chunks = "all"; co.segment_level = 8; co.bands = {{"alpha", 8.0, 12.0}}; crossspectrum_compute(ds, sub, co);
+      nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", "rest"}, {"channels_of", "ident"}, {"segment_samples", 256}, {"bands", Json::array({Json{{"name", "alpha"}, {"lo", 8.0}, {"hi", 12.0}}})}});
       g::run(ds, sub, g::load("lagfree_envelope"), Json{{"recording", "rest"}, {"cross_spectrum", "rest_crossspectrum_alpha"}, {"level", 5}}, all);
       Json nset = d; nset["cross_spectrum"] = "rest_crossspectrum_alpha";
       // one draw: stored as small statistics, a function of its seed

@@ -53,6 +53,7 @@
 #include "nxr/io/measures.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/pipelines/run_repeat.h"
+#include "measurement_helpers.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/surrogate_compare.h"
 #include "nxr/nulltest.h"
@@ -68,6 +69,9 @@ namespace tk = nxr::io::task;
 namespace fs = std::filesystem;
 
 namespace {
+// the run-to-run repeat is the definition `run_repeat`: a thin local caller keeps the checks' vocabulary (a run pair, a stage by index or by name, the tiles needed)
+struct RunRepeatOptions { std::string recording_a, recording_b, name; int min_crossings = 10, stage = 0; std::optional<std::string> stage_name; };
+struct RunRepeatResult { bool hit = false; Json info; };
 template <class F> std::string what_of(F f) { try { f(); } catch (const Error& e) { return e.what(); } return ""; }
 std::vector<float> read_floats(const fs::path& p, std::vector<std::int64_t>* shape = nullptr) {
   ArrayReader r = nxrtest::open_array(p);
@@ -242,6 +246,19 @@ int main() {
 
   // ── PASS ONE: the distribution, stored as a statistic ──
   g::RunOptions all; all.chunks = "all"; all.replace = true;
+  auto run_repeat_compute = [&](nxr::io::DatasetWriter& d, SubjectWriter& sb, const RunRepeatOptions& o) {
+    Json set = Json{{"recording_a", o.recording_a}, {"recording_b", o.recording_b}, {"over", "cortex tiles"}, {"spatial_scale", "parts " + std::to_string(1 << level)}, {"min_crossings", o.min_crossings}, {"stage", o.stage}};
+    if (o.stage_name) set["stage_name"] = *o.stage_name;
+    if (!o.name.empty()) set["name"] = o.name;
+    const auto rep = nxrtest::run_definition(d, sb, "run_repeat", set);
+    RunRepeatResult r;
+    r.hit = !rep.empty() && rep[0].value("hit", false);
+    const std::string stem = o.name.empty() ? "vortex_cores.run_repeat." + o.recording_a + "." + o.recording_b : o.name;
+    std::int64_t used = 0;
+    for (const double v : read_statistic(sb, stem + ".tiles").values) used += std::isfinite(v);
+    r.info = Json{{"tiles_used", used}};
+    return r;
+  };
   const Json base = set_of({{"space_level", level}, {"transform", "exact"}, {"bursts", "window"}});
   const g::Definition dthr = g::load("vortex_core_threshold"), dcor = g::load("vortex_cores");
   const auto rt = g::run(ds, sub, dthr, base, all);
@@ -256,7 +273,7 @@ int main() {
   const nxr::histogram::LogBins lb = nxr::histogram::logBinsFor(mx);
   std::vector<float> A(static_cast<std::size_t>(Vg) * good.size());
   for (std::int64_t v = 0; v < Vg; ++v) for (std::size_t i = 0; i < good.size(); ++i) A[static_cast<std::size_t>(v) * good.size() + i] = std::abs(Cf[static_cast<std::size_t>(v * count + good[i])]);
-  const nxr::histogram::Counts direct = nxr::histogram::histogramTiles(A.data(), static_cast<std::size_t>(Vg), good.size(), good.size(), 1, lb);
+  const nxr::histogram::Counts direct = histogramTiles(A.data(), static_cast<std::size_t>(Vg), good.size(), good.size(), 1, lb);
   double l1 = 0, total = 0;
   for (int k = 0; k < 4096; ++k) { l1 += std::abs(H.values[static_cast<std::size_t>(k)] - static_cast<double>(direct.counts[static_cast<std::size_t>(k)])); total += H.values[static_cast<std::size_t>(k)]; }
   std::printf("  the stored histogram vs the direct one: hi %.9g vs %.9g, counts differ by %.0f of %.0f\n", H.options["hi"].get<double>(), lb.hi, l1, total);
@@ -599,8 +616,7 @@ int main() {
   // ── THE LAG-FREE NULL (piece 10): the ingredients, one draw, its node ──
   {
     nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});
-    CrossSpectrumOptions co; co.recording = "rest"; co.channels_of = "free"; co.chunks = "all"; co.segment_level = 8; co.bands = {{"alpha", 8.0, 12.0}};
-    crossspectrum_compute(ds, sub, co);
+    nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", "rest"}, {"channels_of", "free"}, {"segment_samples", 256}, {"bands", Json::array({Json{{"name", "alpha"}, {"lo", 8.0}, {"hi", 12.0}}})}});
     const Json env = set_of({{"recording", "rest"}, {"cross_spectrum", "rest_crossspectrum_alpha"}, {"level", 5}});
     const g::Definition denv = g::load("lagfree_envelope"), dnull = g::load("surrogate_lagfree_vortex");
     g::run(ds, sub, denv, env, all);
@@ -646,7 +662,7 @@ int main() {
     // THE TESTS: the draws in batches, the per-tile p of the crossing consistency and of the repeat, against the same numbers made directly from the stored draws
     {
       nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_level", 8}});
-      CrossSpectrumOptions cb; cb.recording = "rest_b"; cb.channels_of = "free"; cb.chunks = "all"; cb.segment_level = 8; cb.bands = {{"alpha", 8.0, 12.0}}; crossspectrum_compute(ds, sub, cb);
+      nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", "rest_b"}, {"channels_of", "free"}, {"segment_samples", 256}, {"bands", Json::array({Json{{"name", "alpha"}, {"lo", 8.0}, {"hi", 12.0}}})}});
       g::run(ds, sub, denv, set_of({{"recording", "rest_b"}, {"cross_spectrum", "rest_b_crossspectrum_alpha"}, {"level", 5}}), all);
       SurrogateVortexCompareOptions no;
       no.chunks = "all";                 // the whole recording, stated
