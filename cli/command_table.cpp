@@ -19,7 +19,7 @@ verb list	List datasets, subjects, recordings, kernels, results or pipelines
 verb show	Show a dataset or a subject
 verb read	Read stored arrays and derived readings
 verb query	Query stored measurements
-verb export	Export stored measurements as a table
+verb export	Export stored results: measurements as a table, cortical maps as GIFTI
 verb import	Import data from Brainstorm into a dataset
 verb create	Create a dataset or a subject
 verb delete	Delete a dataset or a subject
@@ -1012,16 +1012,91 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
 --anonymize@import recording		Drop the identifying header fields (the file's start time, subject, experimenter, patient and recording identification) instead of keeping them as the file has them.	off (the header is kept as the file has it)	-
 --format@import recording	FORMAT	The file's format: fif, edf, bdf, brainvision, eeglab, ctf or kit.	from the file's extension	-
+--anonymize@import bids		Drop the identifying header fields of every recording and the sidecar's institution and device-serial keys.	off (kept as the files have them)	-
+--dataset@import bids	PATH	The folder of the new dataset (made by the import; refused if it holds a catalogue): one subject package per BIDS subject, registered in its catalogue.	required	-
+--from@import bids	DIR	The BIDS dataset's folder (MEG, EEG or iEEG recordings).	required	-
+--amplitude	VOLTS	The amplitude of the first sine of a synthetic recording (the second has half of it, the third a third, ...).	2e-05	V
+--amplitude@create recording	VOLTS	The amplitude of the first sine of the synthetic recording (the second has half of it, the third a third, ...).	2e-05	V
+--channels@create recording	N	The number of channels of the synthetic recording (1 to 4096).	8	-
+--duration	SECONDS	The duration of a synthetic recording.	60	s
+--duration@create recording	SECONDS	The duration of the synthetic recording.	60	s
+--frequency	HZ	The frequency of a sine of a synthetic recording (repeatable); each is below half the sampling rate.	10	Hz
+--frequency@create recording	HZ	The frequency of a sine of the synthetic recording (repeatable); each is below half the sampling rate.	10	Hz
+--noise	VOLTS	The standard deviation of the white noise of a synthetic recording (0 for none).	5e-06	V
+--noise@create recording	VOLTS	The standard deviation of the white noise of the synthetic recording (0 for none).	5e-06	V
+--seed@create recording	N	The seed of the synthetic recording: the same seed and options give the same samples.	1	-
+--sfreq	HZ	The sampling rate of a synthetic recording.	250	Hz
+--sfreq@create recording	HZ	The sampling rate of the synthetic recording.	250	Hz
+--package@create recording	PATH	The subject package (made by `create package`) the recording is written into.	required	-
+--name@create recording	NAME	Name the recording is stored under.	synthetic	-
+--acquisition@create recording	NAME	The session of the subject the recording is stored under.	rest	-
+--synthetic		Make a synthetic recording: sine waves plus noise from a seed (create recording).	off	-
+--synthetic@create recording		Make a synthetic recording: sine waves plus noise from a seed.	off	-
+--in-place@import bids		Link every recording's file instead of copying its samples (the packages record each file's path and SHA-256).	off (the samples are copied)	-
+--no-participants		Do not import participants.tsv (import bids).	off	-
+--no-participants@import bids		Do not import participants.tsv as the dataset's participant variables.	off (participants are imported)	-
+--registered-by@import bids	WHO	Who imports: recorded with each catalogue entry.	nxr-neuro and its version	-
+--subject@import bids	LABEL	Import only this BIDS subject (its label, with or without `sub-`); repeat the option for several.	all subjects	-
+--in-place@import recording		Link the recording's file instead of copying its samples: the package records the file's path and SHA-256, a run streams the samples from the original file, and a changed file is refused. One file only (a CTF folder is copied).	off (the samples are copied)	-
 --licence@import recording	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
 --attribution@import recording	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
 --anonymize		Drop the identifying fields of a file's header (import recording).	off	-
 --format	FORMAT	A file's format (import recording).	from the file's extension	-
+--in-place		Link a recording's file instead of copying its samples (import recording).	off	-
 --source-root	DIR	The folder a file's recorded path is relative to (import recording).	the file's own folder	-
 --acquisition	NAME	The session of the subject the result is stored under (import recording).	rest	-
 --from@import recording	FILE	The recording file to copy into the package (a CTF recording is its .ds folder).	required	-
 --name@import recording	NAME	Name the recording is stored under.	the file's name without its extension	-
 --package@import recording	PATH	The subject package (made by `create package`) the recording is copied into.	required	-
 --source-root@import recording	DIR	The folder the file's recorded path is relative to (an absolute path is never recorded).	the file's own folder	-
+--package@export gifti	PATH	The folder of the subject package (<subject>.nxr.zarr, or a member of a catalogue) whose field or labelling is exported; it is only read.	required	-
+--field@export gifti	NAME	The Field to export, by name: a map on a surface (one data array) or a series on a surface and a time line (one data array per frame of the time range). Not with --labelling.	none (give this or --labelling)	-
+--labelling@export gifti	NAME	The partition or set Selection on a surface to export as a label file, with the names and colours of its dictionary. Not with --field.	none (give this or --field)	-
+--out@export gifti	STEM	The path stem the files are written under (its folder must exist): <STEM>.func.gii or .shape.gii or .label.gii, <STEM>.surf.gii with --with-surface, and the provenance sidecar <first file>.json; with --hemispheres, <STEM>_hemi-L and <STEM>_hemi-R.	required	-
+--kind@export gifti	func|shape	The file type of a Field: func (.func.gii, functional data; a series is always func) or shape (.shape.gii, static data on the surface such as curvature).	func	-
+--with-surface@export gifti		Also write the surface itself (.surf.gii): the pointset and the triangles, as stored.	off	-
+--hemispheres@export gifti		Write one file of each kind per hemisphere (the glued cortex split into the hemispheres it stores as components, left and right), each marked CortexLeft or CortexRight.	off (one file for the whole surface)	-
+--surface-unit@export gifti	m|mm	Write the surface's coordinates in this unit (a scale by a power of ten; the stored unit must be stated); GIFTI readers such as Workbench expect mm.	as stored	-
+--from@export gifti	SEC	Start of the time range of a series, in seconds on the recording's clock (or m:ss); give together with --to. Required for a series, refused for a map.	required for a series	s
+--to@export gifti	SEC	End of the time range of a series, in seconds (or m:ss), exclusive; give together with --from.	required for a series	s
+--all@export gifti		The whole series, every frame (the recording is still read one chunk at a time).	off	-
+--with-surface		Also write the surface itself (export gifti).	off	-
+--hemispheres		Write one file per hemisphere (export gifti).	off	-
+--package@export tsv	PATH	The folder of the subject package whose measurements or statistic are exported; it is only read.	required	-
+--out@export tsv	STEM	The path stem the table and its sidecar are written under (its folder must exist): <STEM>.tsv and the BIDS sidecar <STEM>.json, whose GeneratedBy holds the provenance.	required	-
+--statistic@export tsv	NAME	The stored statistic to write as a long-form table (one row per value, a column per axis, `component` when it has components). Not with --partition.	none (give this or --partition)	-
+--partition@export tsv	NAME	The labelling (partition) whose members are the rows of a measurements table; needs --field and --measures.	none (give this or --statistic)	-
+--field@export tsv	NAME	The Field the measurements are of, by name (with --partition).	none (required with --partition)	-
+--measures@export tsv	NAME,...	The measures to write, one column each: stored ones as stored, derived ones (variance, sd, ...) from their ingredients and named derived in the sidecar (with --partition).	none (required with --partition)	-
+--partition	NAME	The labelling whose members are the rows of an exported measurements table (export tsv).	none	-
+--statistic	NAME	A stored statistic to export (export tsv).	none	-
+--surface-unit	m|mm	The unit the surface's coordinates are written in (export gifti).	as stored	-
+--package@export fif	PATH	The folder of the subject package whose field is exported; it is only read.	required	-
+--field@export fif	NAME	The Field to write as a source estimate, by name: a map on a glued cortex (one time point) or a series on the cortex and a time line (one time point per sample of the time range). The cortex must store its left and right hemispheres as components.	required	-
+--out@export fif	STEM	The path stem the files are written under (its folder must exist): <STEM>-lh.stc and <STEM>-rh.stc, read by MNE-Python's read_source_estimate, and the provenance sidecar <STEM>-lh.stc.json.	required	-
+--from@export fif	SEC	Start of the time range of a series, in seconds on the recording's clock (or m:ss); give together with --to. Required for a series, refused for a map.	required for a series	s
+--to@export fif	SEC	End of the time range of a series, in seconds (or m:ss), exclusive; give together with --from.	required for a series	s
+--all@export fif		The whole series, every time point (the recording is still read one chunk at a time and written one time point at a time).	off	-
+--package@export bids-derivatives	PATH	The folder of the subject package whose results are exported; it is only read.	required	-
+--out@export bids-derivatives	FOLDER	The derivatives folder (made if absent, e.g. derivatives/nxr-neuro): dataset_description.json and sub-<label>/[ses-<label>/] with the files named by BIDS entities. A second run into it merges the description.	required	-
+--results@export bids-derivatives	REGEX	A regular expression matched against the WHOLE name of each field on a cortical surface (a map or a series), labelling and statistic to export; the name becomes the desc- label (letters and digits only).	required	-
+--space@export bids-derivatives	NAME	The space- entity (the template the maps lie on).	the template the subject is registered to (refused when there is none)	-
+--session@export bids-derivatives	LABEL	The ses- entity (and folder).	none (no session)	-
+--task@export bids-derivatives	LABEL	The task- entity.	none	-
+--run@export bids-derivatives	INDEX	The run- entity.	none	-
+--from@export bids-derivatives	SEC	Start of the time range of every series matched, in seconds (or m:ss); give together with --to. Required when a series matches.	required for a series	s
+--to@export bids-derivatives	SEC	End of the time range of every series matched, in seconds (or m:ss), exclusive; give together with --from.	required for a series	s
+--all@export bids-derivatives		The whole of every series matched.	off	-
+--with-surface@export bids-derivatives		Also write the cortical surface (.surf.gii) beside each map and series.	off	-
+--stc@export bids-derivatives		Also write each map and series as MNE source estimates (-lh.stc and -rh.stc); the cortex must store its two hemispheres.	off	-
+--measurements@export bids-derivatives	PARTITION:FIELD:MEASURES	Also write the measurements table of a partition's members for a field: the partition, the field and comma-separated measures, joined by colons.	none	-
+--results	REGEX	The names of the results to export (export bids-derivatives).	none	-
+--space	NAME	The space- entity of an exported file (export bids-derivatives).	none	-
+--session	LABEL	The ses- entity of an exported file (export bids-derivatives).	none	-
+--task	LABEL	The task- entity of an exported file (export bids-derivatives).	none	-
+--run	INDEX	The run- entity of an exported file (export bids-derivatives).	none	-
+--stc		Also write source estimates (export bids-derivatives).	off	-
+--measurements	PARTITION:FIELD:MEASURES	A measurements table to write (export bids-derivatives).	none	-
 )TBL",
 R"TBL(@ create dataset
 old: dataset create
@@ -1058,6 +1133,13 @@ old: dataset compact
 alias: refused
 summary: Pack a dataset's small files and shards to save space (a dry run shows what would change).
 opts: --dataset* --dry-run --no-shard --no-small-files --subject
+)TBL",
+R"TBL(@ create recording
+old: __import synthetic
+alias: no
+summary: Make a small synthetic recording (sine waves plus noise from a seed; channels, sampling rate and duration as options) in a subject package, as an imported recording is stored.
+opts: --acquisition --amplitude --channels --duration --frequency+ --name --noise --package* --seed --sfreq --synthetic
+example: nxr-neuro create recording --synthetic --package work/s1.nxr.zarr --name rest --channels 8 --sfreq 250 --duration 60 --seed 1
 )TBL",
 R"TBL(@ create package
 old: package create
@@ -1265,11 +1347,41 @@ alias: refused
 summary: Import an anatomical MRI of a subject.
 opts: --anat* --dataset* --only+ --subject* --templates+
 )TBL",
+R"TBL(@ import bids
+old: __import bids
+alias: no
+summary: Import a BIDS dataset (MEG, EEG, iEEG) as a dataset of subject packages, with its participant variables, channel status, events and electrode positions.
+opts: --anonymize --dataset* --from* --in-place --no-participants --registered-by --subject+
+)TBL",
 R"TBL(@ import recording
 old: __import recording
 alias: no
 summary: Copy a recording file (FIF, EDF, BDF, BrainVision, EEGLAB, CTF, KIT) into a subject package, with its channels, events, bad channels and an origin record.
-opts: --acquisition --anonymize --attribution --format --from* --licence --name --package* --source-root
+opts: --acquisition --anonymize --attribution --format --from* --in-place --licence --name --package* --source-root
+)TBL",
+R"TBL(@ export gifti
+old: __export gifti
+alias: no
+summary: Write a cortical Field (a map, or a series over a stated time range) or a labelling as GIFTI (.func.gii, .shape.gii, .label.gii), with the surface on request and a provenance sidecar.
+opts: --all --field --from --hemispheres --kind --labelling --out* --package* --surface-unit --to --with-surface
+)TBL",
+R"TBL(@ export tsv
+old: __export tsv
+alias: no
+summary: Write stored measurements (a row per member of a partition, a column per measure) or a statistic (long form) as a BIDS-style TSV with a JSON sidecar of units, levels and provenance.
+opts: --field --measures --out* --package* --partition --statistic
+)TBL",
+R"TBL(@ export fif
+old: __export fif
+alias: no
+summary: Write a source map or a source series on the two hemispheres of a cortex as MNE source estimates (-lh.stc and -rh.stc), with a provenance sidecar.
+opts: --all --field* --from --out* --package* --to
+)TBL",
+R"TBL(@ export bids-derivatives
+old: __export bids-derivatives
+alias: no
+summary: Write results (maps, series, labellings, statistics, measurements, source estimates) as a BIDS derivatives folder: files named with BIDS entities, sidecars with Sources and provenance, and a dataset_description.json listing nxr-neuro's suffixes.
+opts: --all --from --measurements --out* --package* --results* --run --session --space --stc --task --to --with-surface
 )TBL",
 R"TBL(@ import condition
 old: convert convert

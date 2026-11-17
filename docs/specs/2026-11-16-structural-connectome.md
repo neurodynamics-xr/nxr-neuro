@@ -308,7 +308,7 @@ Synthetic data only (spheres, lattices, generated fibers); nothing from a real d
 it). The generator is run ONCE by a developer in MATLAB with the reference's Brainstorm environment, never at run time and never by a test. It builds a
 throwaway protocol of SYNTHETIC data: two icospheres (left and right pieces), their spheres, and bundles of straight fibers with a random bend, some
 within a hemisphere, some across, a few with both ends on one vertex and a few duplicated, with ends drawn clear of ties between two vertices. It writes
-its inputs and outputs as text (sorted triplets to 17 significant digits).
+its inputs and outputs as text (sorted triplets to 17 significant digits). **Made 2026-11-17** (`test_connectome_golden`): the generator answers the reference's three database calls (`bst_get`, `in_tess_bst`, `file_fullpath`) from files of its own in a throwaway folder, so no protocol is made and no Brainstorm setting changes; the data are the sphere and the bundles of `test_connectome.cpp`, regenerated in MATLAB with the same portable generator and checked equal to the test's before any comparison. The vertex level only (own fibers, gate none); the registration map and the template-fiber cases are not in it yet.
 - **The vertex-level fiber counts, with the gate `none`, on quirk-free cases** (own fibers; template fibers where no template vertex has an empty column,
   i.e. the template is not denser than the subject) are compared with the reference's: identical in pattern and value. The reference's smoothed
   connection weights, pruning and largest component are compared at the same cases (0, 1 and 3 hops; pruning 0 and 1e-4): pattern identical, values to

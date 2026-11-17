@@ -19,6 +19,7 @@ add_library(nxr_io_formats
   src/kit.cpp
   src/fif_write.cpp
   src/fif_objects.cpp
+  src/stc.cpp
   src/zip.cpp
   src/trx.cpp
 )
@@ -53,7 +54,7 @@ else()
 endif()
 
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_FORMATS_TESTS byte_source recording nifti gifti tsv edf brainvision eeglab fif fif_objects bids ctf kit cifti zip trx)
+  set(NXR_FORMATS_TESTS byte_source recording nifti gifti tsv edf brainvision eeglab fif fif_objects bids ctf kit cifti stc zip trx)
   foreach(t ${NXR_FORMATS_TESTS})
     add_executable(test_formats_${t} test/test_${t}.cpp)
     target_link_libraries(test_formats_${t} PRIVATE nxr_io_formats)   # the formats alone: a test that needs the store does not belong here
@@ -65,3 +66,6 @@ if(NXR_IO_BUILD_TESTS)
   add_test(NAME formats_layering COMMAND ${CMAKE_COMMAND} -DFORMATS_DIR=${CMAKE_CURRENT_SOURCE_DIR} -P ${CMAKE_SOURCE_DIR}/cmake/check_formats_layering.cmake)
   add_test(NAME formats_layering_check_catches COMMAND ${CMAKE_COMMAND} -DCHECK=${CMAKE_SOURCE_DIR}/cmake/check_formats_layering.cmake -DWORK=${CMAKE_CURRENT_BINARY_DIR}/layering_work -P ${CMAKE_CURRENT_SOURCE_DIR}/test/layering_catches.cmake)
 endif()
+
+# CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
+set_property(DIRECTORY APPEND PROPERTY LABELS io_formats)

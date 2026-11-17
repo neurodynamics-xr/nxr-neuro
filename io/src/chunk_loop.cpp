@@ -128,12 +128,19 @@ Json span_record(const Span& span, double sfreq, double t0) {
 }
 
 ChunkSource::ChunkSource(const Store& store, std::string array, std::int64_t width, double sfreq, double t0, std::vector<std::int32_t> rows,
-                         std::optional<std::vector<std::pair<double, double>>> bad)
-    : store_(&store), array_(std::move(array)), width_(std::max<std::int64_t>(1, std::min(kChunk, width))), sfreq_(sfreq), t0_(t0), rows_(std::move(rows)), bad_(std::move(bad)) {
-  const ArrayReader ar = ArrayReader::open(*store_, array_);
-  if (ar.shape().size() != 2) throw Error(code::invalid_argument, "a recording is [channels x samples]: " + array_);
-  n_channels_ = ar.shape()[0];
-  n_samples_ = ar.shape()[1];
+                         std::optional<std::vector<std::pair<double, double>>> bad, std::shared_ptr<const LinkedBlocks> linked)
+    : store_(&store), linked_(std::move(linked)), array_(std::move(array)), width_(std::max<std::int64_t>(1, std::min(kChunk, width))), sfreq_(sfreq), t0_(t0), rows_(std::move(rows)),
+      bad_(std::move(bad)) {
+  if (linked_) {
+    if (!linked_->read) throw Error(code::invalid_argument, "a linked recording has no reader");
+    n_channels_ = linked_->n_channels;
+    n_samples_ = linked_->n_samples;
+  } else {
+    const ArrayReader ar = ArrayReader::open(*store_, array_);
+    if (ar.shape().size() != 2) throw Error(code::invalid_argument, "a recording is [channels x samples]: " + array_);
+    n_channels_ = ar.shape()[0];
+    n_samples_ = ar.shape()[1];
+  }
   if (rows_.empty()) for (std::int64_t c = 0; c < n_channels_; ++c) rows_.push_back(static_cast<std::int32_t>(c));
   for (std::int32_t c : rows_) if (c < 0 || c >= n_channels_) throw Error(code::invalid_argument, "a channel index is outside the recording's channels");
 }
@@ -147,8 +154,16 @@ template <class S> void widen(const std::uint8_t* src, std::int64_t row, std::in
 void ChunkSource::read(std::int64_t k, Chunk& out) const {
   const auto [first, last] = chunk_span(k, n_samples_, width_);              // the WHOLE chunk (the Studio's residency: never a part)
   const std::int64_t n = last - first, R = rows();
-  const ArrayReader ar = ArrayReader::open(*store_, array_);
-  const std::vector<std::uint8_t> raw = ar.read({0, first}, {n_channels_, last});    // [channels x n], row after row
+  std::vector<std::uint8_t> raw;
+  DType dtype = DType::Float32;
+  if (linked_) {
+    raw.resize(static_cast<std::size_t>(n_channels_ * n) * sizeof(float));
+    linked_->read(first, n, reinterpret_cast<float*>(raw.data()));
+  } else {
+    const ArrayReader ar = ArrayReader::open(*store_, array_);
+    raw = ar.read({0, first}, {n_channels_, last});    // [channels x n], row after row
+    dtype = ar.dtype();
+  }
   out.k = k;
   out.first = first;
   out.n = n;
@@ -156,12 +171,12 @@ void ChunkSource::read(std::int64_t k, Chunk& out) const {
   for (std::int64_t i = 0; i < R; ++i) {
     double* dst = out.data.data() + static_cast<std::size_t>(i * n);
     const std::int64_t row = rows_[static_cast<std::size_t>(i)];
-    switch (ar.dtype()) {
+    switch (dtype) {
       case DType::Float32: widen<float>(raw.data(), row, n, dst); break;
       case DType::Float64: widen<double>(raw.data(), row, n, dst); break;
       case DType::Int16: widen<std::int16_t>(raw.data(), row, n, dst); break;
       case DType::Int32: widen<std::int32_t>(raw.data(), row, n, dst); break;
-      default: throw Error(code::unsupported, std::string("a recording of type ") + dtype_to_string(ar.dtype()) + " is not read here");
+      default: throw Error(code::unsupported, std::string("a recording of type ") + dtype_to_string(dtype) + " is not read here");
     }
   }
   out.good.clear();

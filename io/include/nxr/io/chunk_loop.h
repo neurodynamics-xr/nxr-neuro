@@ -78,12 +78,19 @@ struct Chunk {
   std::vector<std::uint8_t> good;             // [n] 1 = a good sample; empty when no bad spans were given
 };
 
+/** a recording that is NOT in the store: read in place from the file it was imported from (`import recording --in-place`). `read` fills `out` with samples [s0, s0 + n) of ALL channels,
+ *  float32, row after row ([channels x n]); the same samples a copy would hold. The chunk service reads it exactly as it reads a stored array. */
+struct LinkedBlocks {
+  std::int64_t n_channels = 0, n_samples = 0;
+  std::function<void(std::int64_t s0, std::int64_t n, float* out)> read;
+};
+
 class ChunkSource {
  public:
-  /** `array`: the recording's key in `store` ([channels x samples]); `rows`: the channels handed over, in order (empty: all); `bad`: spans [a, b) in seconds on
+  /** `array`: the recording's key in `store` ([channels x samples]; unused when `linked` is given: a recording read in place from its file); `rows`: the channels handed over, in order (empty: all); `bad`: spans [a, b) in seconds on
    *  the recording's clock (a sample at t0 + i / sfreq is bad when a <= t < b, nxr.pipelines.parameters.bad_mask). */
   ChunkSource(const Store& store, std::string array, std::int64_t width, double sfreq, double t0, std::vector<std::int32_t> rows = {},
-              std::optional<std::vector<std::pair<double, double>>> bad = std::nullopt);
+              std::optional<std::vector<std::pair<double, double>>> bad = std::nullopt, std::shared_ptr<const LinkedBlocks> linked = nullptr);
   std::int64_t width() const { return width_; }
   std::int64_t n_channels() const { return n_channels_; }
   std::int64_t n_samples() const { return n_samples_; }
@@ -95,7 +102,8 @@ class ChunkSource {
   std::int64_t reads() const;
 
  private:
-  const Store* store_;   // the store must outlive the source
+  const Store* store_ = nullptr;   // the store must outlive the source (null: a linked recording)
+  std::shared_ptr<const LinkedBlocks> linked_;
   std::string array_;    // the recording's key in it
   std::int64_t width_ = kChunk, n_channels_ = 0, n_samples_ = 0;
   double sfreq_ = 0, t0_ = 0;
