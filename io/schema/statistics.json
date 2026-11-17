@@ -2,7 +2,8 @@
  "description": "The statistics registry (docs/specs/2026-11-13-statistics.md): what a statistic node's values ARE (measures) and how they were estimated (methods). A statistic is computed FROM a partition's members over a span of a field (field -> selection/measurement -> statistic). A name here is what a producer writes and a reader asks for; a new kind of statistic adds an entry.",
  "measures": [
   {"name": "power_density", "unit_rule": "(the field's unit)^2/Hz", "description": "power per hertz: a power spectral density (Welch's density; Brainstorm's PSD, Measure 'power')"},
-  {"name": "power", "unit_rule": "(the field's unit)^2", "description": "power: the mean square of the field or of a band of it"},
+  {"name": "covariance", "unit_rule": "(the field's unit)^2", "description": "the zero-lag second moment of the rows over a span, [rows x rows] real (the zero-lag case of the cross-spectrum): a noise or data covariance. Its inverse square root, the whitener, is an operator derived from it"},
+ {"name": "power", "unit_rule": "(the field's unit)^2", "description": "power: the mean square of the field or of a band of it"},
   {"name": "relative_power", "unit_rule": null, "description": "a band's power over the total power (0 to Nyquist): unitless"},
   {"name": "cross_spectral_density", "unit_rule": "(the field's unit)^2/Hz", "description": "the cross-spectrum of the rows, Hermitian [rows x rows] per frequency or band (components re, im)"},
   {"name": "cross_spectrum", "unit_rule": "(the field's unit)^2", "description": "the cross-spectrum of the rows per bin (Welch's spectrum or chain scaling), Hermitian [rows x rows] (components re, im)"},
@@ -34,7 +35,9 @@
   {"name": "point_spread", "unit_rule": null, "description": "the instrument's blur for a unit current at a sample of vertices (x, y and z separately) through a stored head model and inverse kernel, read by the spatial events' chain: per source and orientation the peak's distance from the source (cm), the patch's equal-area diameter (cm) and area (cm2), the characteristic level and its size (cm) and the peak power"}
  ],
  "methods": [
-  {"name": "welch", "description": "the mean over a segment partition of each segment's tapered periodogram (Welch 1967; scipy.signal.welch, Brainstorm bst_psd)"},
+  {"name": "sample", "description": "the sample covariance: the products of the samples (the mean of each block removed unless the options say otherwise), summed over the span's blocks and divided by dof (Brainstorm bst_noisecov, MNE compute_raw_covariance)"},
+ {"name": "empirical", "description": "computed elsewhere and imported (an MNE -cov.fif, a Brainstorm noise covariance): its values as the producer gave them, its provenance in the options"},
+ {"name": "welch", "description": "the mean over a segment partition of each segment's tapered periodogram (Welch 1967; scipy.signal.welch, Brainstorm bst_psd)"},
   {"name": "analytic", "description": "sums over a tile partition of products of a band's analytic signal (the cycle-pattern spec, stage 1)"},
   {"name": "histogram", "description": "counts over a tile partition in fixed bins (nxr::histogram: nxr's _core_threshold, 4096 log bins)"},
   {"name": "percentile", "description": "read off a parent distribution (the upper edge of the bin where the cumulative share reaches p)"},

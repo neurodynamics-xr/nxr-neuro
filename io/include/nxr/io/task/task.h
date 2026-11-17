@@ -128,6 +128,8 @@ struct StatisticOut {
   std::optional<std::string> of_field_id, of_statistic_id, partition_selection_id;
   Json axes = Json::array(), components, span, scaling, options;
   std::optional<std::int64_t> n_members, members_skipped;
+  std::optional<double> dof;                       // degrees of freedom, where the method defines them (a covariance's divisor)
+  bool detached = false;                           // computed elsewhere (an imported covariance): of no field in the package, its provenance in `options`
   std::optional<std::string> unit, description, label, acquisition;
   Json producer;
   Values data;
@@ -137,7 +139,7 @@ struct OperatorOut {
   std::string name, output, kind, from_manifold_id, to_manifold_id;
   std::optional<std::string> path;                 // default: the name
   std::string from_value_type = "scalar", to_value_type = "scalar";
-  std::optional<std::string> from_selection_id, to_selection_id, derived_from_id, description, acquisition;
+  std::optional<std::string> from_selection_id, to_selection_id, derived_from_id, of_statistic_id, description, acquisition;   // of_statistic_id: the statistic it is derived from
   Json params;                                     // the operator's parameters (null: none)
   Json producer;
   Values data;                                     // dense [rows x cols]

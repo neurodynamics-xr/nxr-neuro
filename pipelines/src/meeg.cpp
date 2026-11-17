@@ -37,6 +37,7 @@
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/io/constant_q.h"
+#include "nxr/io/statistic.h"
 #include "nxr/meeg/tensor.h"
 #include "nxr/meeg/wave.h"
 #include "nxr/hodge_weights.h"
@@ -235,6 +236,7 @@ Eigen::MatrixXd matrix_of(const nxr::io::Chunk& c, std::int64_t rows) {
 
 NoiseCovResult noisecov_compute(DatasetWriter& ds, SubjectWriter& sub, const NoiseCovOptions& opt, const std::function<void(const Json&)>& progress) {
   auto say = [&](const Json& j) { if (progress) progress(j); };
+  nxr::io::ensure_statistics(sub.db());       // the covariance is a statistic; a dataset made before them gets the table in place
   const RecordingInput rec = read_recording(sub, opt.recording);
   const nxr::io::Span span = span_of(rec, opt.chunks, opt.start, opt.stop);   // what is loaded: one chunk by default (the chunk service)
   const std::int64_t s0 = span.s0, s1 = span.s1;
@@ -251,6 +253,7 @@ NoiseCovResult noisecov_compute(DatasetWriter& ds, SubjectWriter& sub, const Noi
   const std::int64_t M = static_cast<std::int64_t>(chans.size());
   const std::string name = opt.name ? *opt.name : opt.recording + "_noise_cov";
   const std::string sel_name = name + "_channels";
+  const std::string cov_path = nxr::io::text(rec.field, "path") + "_statistics/" + nxr::io::safe_name(name);   // beside the recording it is of, as the cross-spectra are
 
   CacheKey key;
   key.pipeline = "noisecov";
@@ -305,7 +308,7 @@ NoiseCovResult noisecov_compute(DatasetWriter& ds, SubjectWriter& sub, const Noi
     return r;
   };
   auto store = [&](const NoiseCovResult& r) {
-    moved_aside = clear_stored(ds, sub, {{"operator", name}, {"selection", sel_name}}, opt.replace, name, replaced);
+    moved_aside = clear_stored(ds, sub, {{"statistic", cov_path}, {"selection", sel_name}}, opt.replace, name, replaced);
     const std::string acq = acquisition_label(sub, rec.acquisition_id);
     SelectionSpec ss;
     ss.name = sel_name;
@@ -317,22 +320,31 @@ NoiseCovResult noisecov_compute(DatasetWriter& ds, SubjectWriter& sub, const Noi
     if (!acq.empty()) ss.acquisition = acq;
     ss.cols.set("description", name + " \xe2\x80\x94 the " + std::to_string(M) + " channels it covers, in order");
     const std::string sel_id = sub.selection(std::move(ss));
-    OperatorSpec o;
+    // THE NOISE COVARIANCE IS A STATISTIC: the zero-lag second moment of the channels over the span, [M x M] on the channels' Selection; the blocks are its members,
+    // the divisor its degrees of freedom (the whitener derived from it is an operator, made by `inverse compute`)
+    StatisticSpec o;
     o.name = name;
-    o.path = name;
-    o.kind = "noise covariance";
-    o.from_manifold_id = rec.channels_id;
-    o.layout = "dense";
-    o.n_rows = M;
-    o.n_cols = M;
+    o.path = cov_path;
+    o.measure = "covariance";
+    o.method = "sample";
+    o.of_field_id = rec.id;
+    o.value_type = "scalar";
+    o.axes = Json::array({Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}}, Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}}});
+    o.span = nxr::io::span_record(span, rec.sfreq, rec.t0);
+    o.n_members = blocks;
     std::vector<double> rm(static_cast<std::size_t>(M * M));
     for (std::int64_t i = 0; i < M; ++i) for (std::int64_t j = 0; j < M; ++j) rm[static_cast<std::size_t>(i * M + j)] = r.covariance(i, j);
     o.data = view(rm, {M, M});
     o.array.compress = false;
     if (!acq.empty()) o.acquisition = acq;
     o.created_utc = now_utc(false);
-    o.cols.set("to_manifold_id", rec.channels_id).set("from_selection_id", sel_id).set("to_selection_id", sel_id).set("from_value_type", "scalar").set("to_value_type", "scalar")
-        .set("description", "the noise covariance of " + rec.name + " over [" + std::to_string(start_s) + ", " + std::to_string(stop_s) + ") s, on its " + std::to_string(M) + " channels");
+    o.unit = "channel unit\xc2\xb2";
+    o.description = "the noise covariance of " + rec.name + " over [" + std::to_string(start_s) + ", " + std::to_string(stop_s) + ") s, on its " + std::to_string(M) + " channels";
+    const std::int64_t dof = !opt.covariance.removeMean || opt.covariance.divisor != nxr::meeg::CovarianceDivisor::SamplesMinusBlocks
+                                 ? (opt.covariance.divisor == nxr::meeg::CovarianceDivisor::Samples ? samples : samples - 1) : samples - blocks;
+    o.dof = static_cast<double>(dof);
+    o.options = Json{{"remove_mean", opt.covariance.removeMean}, {"divisor", key.params["divisor"]}, {"block_seconds", opt.block_seconds ? Json(*opt.block_seconds) : Json()},
+                     {"n_samples", samples}, {"n_blocks", blocks}, {"channel_types", opt.channel_types}, {"n_channels", M}};
     Json pj = stamp(key);
     pj["producer"] = producer_name("noisecov compute");
     pj["recording"] = rec.name;
@@ -340,18 +352,11 @@ NoiseCovResult noisecov_compute(DatasetWriter& ds, SubjectWriter& sub, const Noi
     pj["window"] = Json{{"start_s", static_cast<double>(s0) / rec.sfreq + rec.t0}, {"stop_s", static_cast<double>(s1) / rec.sfreq + rec.t0}, {"start_sample", s0}, {"stop_sample", s1}, {"chunks", span.what}, {"chunks_read", Json::array({span.first_chunk, span.last_chunk})}};
     pj["n_samples"] = samples;
     pj["n_blocks"] = blocks;
-    pj["block_seconds"] = opt.block_seconds ? Json(*opt.block_seconds) : Json();
-    pj["remove_mean"] = opt.covariance.removeMean;
-    pj["divisor"] = key.params["divisor"];
-    pj["divisor_value"] = !opt.covariance.removeMean || opt.covariance.divisor != nxr::meeg::CovarianceDivisor::SamplesMinusBlocks
-                              ? (opt.covariance.divisor == nxr::meeg::CovarianceDivisor::Samples ? samples : samples - 1) : samples - blocks;
-    pj["channel_types"] = opt.channel_types;
-    pj["n_channels"] = M;
     pj["units"] = "channel unit squared";
-    o.cols.json("producer_json", pj);
-    node_id = sub.operator_(std::move(o));
+    o.producer = pj;
+    node_id = sub.statistic(std::move(o));
   };
-  const Outcome<NoiseCovResult> o = cached<NoiseCovResult>(sub, "operator", name, key, load, compute, store);
+  const Outcome<NoiseCovResult> o = cached<NoiseCovResult>(sub, "statistic", cov_path, key, load, compute, store);
   NoiseCovResult r = o.value;
   r.hit = o.hit;
   r.seconds = o.seconds;
@@ -367,6 +372,7 @@ InverseComputeResult inverse_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   auto say = [&](const Json& j) { if (progress) progress(j); };
   const auto t0 = std::chrono::steady_clock::now();
   if (!opt.noise_cov && !opt.from_recording) invalid("inverse compute: name a noise covariance (--noise-cov) or a recording to compute it from (--recording)");
+  nxr::io::ensure_statistics(sub.db());       // the covariance is a statistic and the whitener's link to it a column: a dataset made before them gets both in place
   // the head model
   Row fwd;
   if (opt.forward) {
@@ -387,15 +393,30 @@ InverseComputeResult inverse_compute(DatasetWriter& ds, SubjectWriter& sub, cons
     const NoiseCovResult nr = noisecov_compute(ds, sub, nc, progress);
     cov_name = nr.info["name"].get<std::string>();
   }
-  const auto cov = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'noise covariance' AND name = ? AND status = 'complete'", {V(sub.id()), V(cov_name)});
-  if (!cov) missing(sub.name() + ": no noise covariance named '" + cov_name + "'");
-  if (text(*cov, "from_manifold_id") != channels_id) invalid(cov_name + " is on other channels than " + fwd_name);
-  const auto csel = sub.db().read("selection", text(*cov, "from_selection_id"));
-  if (!csel || is_null(*csel, "array_path")) invalid(cov_name + ": its channels (from_selection) are not stored");
+  // the covariance is a statistic (measure covariance); one made before that is an operator of kind `noise covariance`, still read
+  Row cov;
+  std::string cov_selection;
+  bool cov_is_statistic = false;
+  if (const auto st = sub.db().one("SELECT * FROM statistic WHERE subject_id = ? AND measure = 'covariance' AND name = ? AND status = 'complete'", {V(sub.id()), V(cov_name)})) {
+    cov = *st;
+    cov_is_statistic = true;
+    const Json axes = Json::parse(text(cov, "axes_json"), nullptr, false);
+    if (!axes.is_array() || axes.empty() || !axes[0].contains("selection_id")) invalid(cov_name + ": its first axis does not name the channels it covers");
+    cov_selection = axes[0]["selection_id"].get<std::string>();
+  } else if (const auto op = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND kind = 'noise covariance' AND name = ? AND status = 'complete'", {V(sub.id()), V(cov_name)})) {
+    cov = *op;
+    cov_selection = text(cov, "from_selection_id");
+    if (text(cov, "from_manifold_id") != channels_id) invalid(cov_name + " is on other channels than " + fwd_name);
+  } else {
+    missing(sub.name() + ": no noise covariance named '" + cov_name + "'");
+  }
+  const auto csel = sub.db().read("selection", cov_selection);
+  if (!csel || is_null(*csel, "array_path")) invalid(cov_name + ": its channels are not stored");
+  if (cov_is_statistic && opt_text(*csel, "manifold_id") != std::optional<std::string>(channels_id)) invalid(cov_name + " is on other channels than " + fwd_name);
   const std::vector<std::int32_t> chans = read_all<std::int32_t>(sub.store(), text(*csel, "array_path"));
   const std::int64_t M = static_cast<std::int64_t>(chans.size());
   std::vector<std::int64_t> cshape;
-  const std::vector<double> cd = read_all<double>(sub.store(), text(*cov, "path"), &cshape);
+  const std::vector<double> cd = read_all<double>(sub.store(), text(cov, "path"), &cshape);
   if (cshape.size() != 2 || cshape[0] != M || cshape[1] != M) invalid(cov_name + ": its array does not fit its channels");
   Eigen::MatrixXd C = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(cd.data(), M, M);
   // the gain, restricted to those channels
@@ -427,12 +448,13 @@ InverseComputeResult inverse_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   }
   const nxr::meeg::KernelOptions kopt = opt.mne_conventions ? nxr::meeg::mneKernelOptions() : opt.kernel;
   const std::string name = opt.name ? *opt.name : fwd_name + "_minnorm";
+  const std::string kernel_cov_path = "statistics/" + nxr::io::safe_name(name + "_noise_cov");
 
   CacheKey key;
   key.pipeline = "inverse_compute";
   key.params = Json{{"options", kernel_options_json(kopt)}, {"average_reference", averaged}};
-  key.input = Json{{"forward", text(fwd, "id")}, {"forward_modified", opt_text(fwd, "modified_utc").value_or("")}, {"noise_cov", text(*cov, "id")},
-                   {"noise_cov_modified", opt_text(*cov, "modified_utc").value_or("")}, {"channels", chans}};
+  key.input = Json{{"forward", text(fwd, "id")}, {"forward_modified", opt_text(fwd, "modified_utc").value_or("")}, {"noise_cov", text(cov, "id")},
+                   {"noise_cov_modified", opt_text(cov, "modified_utc").value_or("")}, {"channels", chans}};
   key.compute = NXR_COMPUTE_VERSION;
 
   InverseComputeResult res;
@@ -454,7 +476,7 @@ InverseComputeResult inverse_compute(DatasetWriter& ds, SubjectWriter& sub, cons
     return 0;
   };
   auto store = [&](const int&) {
-    moved_aside = clear_stored(ds, sub, {{"operator", name}, {"selection", name + "_channels"}, {"operator", name + "_noise_cov"}, {"operator", name + "_whitener"},
+    moved_aside = clear_stored(ds, sub, {{"operator", name}, {"selection", name + "_channels"}, {"operator", name + "_noise_cov"}, {"statistic", kernel_cov_path}, {"operator", name + "_whitener"},
                                          {"field", name + "_source_rr"}, {"field", name + "_source_nn"}}, opt.replace, name, replaced);
     const std::string acq = acquisition_label(sub, opt_text(fwd, "acquisition_id"));
     const std::string stampt = now_utc(false);
@@ -542,13 +564,29 @@ InverseComputeResult inverse_compute(DatasetWriter& ds, SubjectWriter& sub, cons
       o.cols.json("producer_json", prod);
     };
     std::vector<double> cm, wm;
-    OperatorSpec oc;
-    on_channels(oc, name + "_noise_cov", "noise covariance", C, "the noise covariance " + name + " was computed with, on its " + std::to_string(M) + " channels", std::nullopt,
-                Json{{"kernel", name}, {"noise_cov", cov_name}, {"noise_cov_id", text(*cov, "id")}, {"average_reference", averaged}}, cm);
-    const std::string cov_id = sub.operator_(std::move(oc));
+    // the covariance the kernel was computed with, as a statistic on the kernel's channels (the stored one, re-referenced when the EEG average reference was applied)
+    StatisticSpec oc;
+    oc.name = name + "_noise_cov";
+    oc.path = kernel_cov_path;
+    oc.measure = "covariance";
+    oc.method = "empirical";
+    oc.value_type = "scalar";
+    if (cov_is_statistic) oc.of_statistic_id = text(cov, "id"); else oc.detached = true;
+    oc.axes = Json::array({Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}}, Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", M}}});
+    cm.assign(static_cast<std::size_t>(M * M), 0.0);
+    for (Eigen::Index i = 0; i < C.rows(); ++i) for (Eigen::Index j = 0; j < C.cols(); ++j) cm[static_cast<std::size_t>(i * C.cols() + j)] = C(i, j);
+    oc.data = view(cm, {M, M});
+    oc.array.compress = false;
+    if (!acq.empty()) oc.acquisition = acq;
+    oc.created_utc = stampt;
+    oc.description = "the noise covariance " + name + " was computed with, on its " + std::to_string(M) + " channels";
+    oc.options = Json{{"kernel", name}, {"noise_cov", cov_name}, {"noise_cov_id", text(cov, "id")}, {"average_reference", averaged}};
+    oc.producer = Json{{"kernel", name}};
+    const std::string cov_id = sub.statistic(std::move(oc));
     if (ker.W.rows() == ker.W.cols()) {     // the symmetric whitener is [M x M]; a PCA whitener (MNE) has fewer rows and is not stored as the channels' operator
       OperatorSpec ow;
-      on_channels(ow, name + "_whitener", "whitener", ker.W, "the whitener of " + name + "'s noise covariance, on its " + std::to_string(M) + " channels", cov_id, Json{{"kernel", name}, {"rank", ker.whitenerRank}}, wm);
+      on_channels(ow, name + "_whitener", "whitener", ker.W, "the whitener of " + name + "'s noise covariance, on its " + std::to_string(M) + " channels", std::nullopt, Json{{"kernel", name}, {"rank", ker.whitenerRank}}, wm);
+      ow.cols.set("of_statistic_id", cov_id);          // derived from the covariance STATISTIC
       sub.operator_(std::move(ow));
     }
 

@@ -600,7 +600,7 @@ std::string SubjectWriter::statistic(StatisticSpec spec) {
   if (!statistic_measure_known(spec.measure) && !measure_spec(spec.measure))
     throw value_error(who + ": measure '" + spec.measure + "' is in neither the statistics registry (" + names("measures") + ") nor the measure registry");
   if (!statistic_method_known(spec.method)) throw value_error(who + ": method '" + spec.method + "' is not in the statistics registry (" + names("methods") + ")");
-  if (!spec.of_field_id && !spec.of_statistic_id) throw value_error(who + ": a statistic is OF a field or of a statistic (of_field_id · of_statistic_id)");
+  if (!spec.of_field_id && !spec.of_statistic_id && !spec.detached) throw value_error(who + ": a statistic is OF a field or of a statistic (of_field_id · of_statistic_id)");
   if (!spec.axes.is_array() || spec.axes.empty()) throw value_error(who + ": axes is a list of {name, size, …}, one per dimension of the values");
   if (spec.data.dtype != DType::Float32 && spec.data.dtype != DType::Float64) throw value_error(who + ": the values are float32 or float64");
   // each value's shape (as a field's), trailing the axes

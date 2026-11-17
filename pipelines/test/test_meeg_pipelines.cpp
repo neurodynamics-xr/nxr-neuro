@@ -216,21 +216,23 @@ int main() {
   CHECK(b.hit);
   CHECK(rel(b.covariance, a.covariance) < 1e-15);
   CHECK_EQ(b.info["samples"].get<std::int64_t>(), 2300);
-  // stored as the importer stores a noise covariance: an Operator "noise covariance" on the channels, float64 [M x M], its channels a Selection of indices
+  // stored as a STATISTIC: measure covariance, float64 [M x M] on the channels' Selection of indices, its blocks the members and its divisor the degrees of freedom
   {
-    const auto row = sub.find("operator", "rest_noise_cov");
+    const auto row = sub.db().one("SELECT * FROM statistic WHERE subject_id = ? AND name = ?", {V(sub.id()), V("rest_noise_cov")});
     CHECK(row.has_value());
-    CHECK_EQ(text(*row, "kind"), std::string("noise covariance"));
-    CHECK_EQ(text(*row, "to_manifold_id"), text(*row, "from_manifold_id"));
+    CHECK_EQ(text(*row, "measure"), std::string("covariance"));
+    CHECK_EQ(text(*row, "method"), std::string("sample"));
+    CHECK(!is_null(*row, "of_field_id"));
     std::vector<std::int64_t> sh;
-    const auto d = read_typed<double>((sub.folder() / ("rest_noise_cov")), &sh);
+    const auto d = read_typed<double>(sub.folder() / text(*row, "path"), &sh);
     CHECK(sh.size() == 2 && sh[0] == M - 1 && sh[1] == M - 1);
     const Json pj = Json::parse(text(*row, "producer_json"));
     CHECK_EQ(pj["n_samples"].get<std::int64_t>(), 2300);
     CHECK_EQ(pj["window"]["start_sample"].get<std::int64_t>(), 200);
     const auto sel = sub.find("selection", "rest_noise_cov_channels");
     CHECK(sel.has_value());
-    CHECK_EQ(text(*sel, "id"), text(*row, "from_selection_id"));
+    CHECK_EQ(Json::parse(text(*row, "axes_json"))[0]["selection_id"].get<std::string>(), text(*sel, "id"));
+    CHECK(!is_null(*row, "dof"));
   }
   // blocks of 10 s: two blocks and a third of 3 s; each its own mean; N - B
   NoiseCovOptions nb = no;
@@ -308,10 +310,15 @@ int main() {
     const Json prod = Json::parse(text(*row, "producer_json"));
     CHECK(prod["producer"].get<std::string>().rfind("nxr-neuro", 0) == 0);
     CHECK_EQ(prod["units"].get<std::string>(), std::string("A.m"));
-    for (const char* n : {"MN_channels", "MN_noise_cov", "MN_whitener", "MN_source_rr", "MN_source_nn"})
+    for (const char* n : {"MN_channels", "MN_whitener", "MN_source_rr", "MN_source_nn"})
       CHECK(sub.find(std::string(n).find("_channels") != std::string::npos ? "selection" : std::string(n).find("source") != std::string::npos ? "field" : "operator", n).has_value());
-    CHECK_EQ(text(*sub.find("operator", "MN_noise_cov"), "kind"), std::string("noise covariance"));
-    CHECK_EQ(text(*sub.find("operator", "MN_whitener"), "kind"), std::string("whitener"));
+    const auto kc = sub.db().one("SELECT * FROM statistic WHERE subject_id = ? AND name = ?", {V(sub.id()), V("MN_noise_cov")});
+    CHECK(kc.has_value());
+    CHECK_EQ(text(*kc, "measure"), std::string("covariance"));
+    const auto wh = sub.find("operator", "MN_whitener");
+    CHECK(wh.has_value());
+    CHECK_EQ(text(*wh, "kind"), std::string("whitener"));
+    CHECK_EQ(text(*wh, "of_statistic_id"), text(*kc, "id"));       // the whitener is an operator derived from the covariance statistic
   }
   CHECK(inverse_compute(ds, sub, io).hit);
   io.kernel.depth.enabled = false;
@@ -326,7 +333,7 @@ int main() {
   ir.mne_conventions = true;
   const InverseComputeResult k2 = inverse_compute(ds, sub, ir);
   CHECK(!k2.hit);
-  CHECK(sub.find("operator", "rest_cov2").has_value());
+  CHECK(sub.db().one("SELECT 1 FROM statistic WHERE subject_id = ? AND name = ?", {V(sub.id()), V("rest_cov2")}).has_value());
   CHECK(sub.find("operator", "MN_mne").has_value());
   CHECK_EQ(code_of([&] { InverseComputeOptions bad_opt; bad_opt.name = "z"; inverse_compute(ds, sub, bad_opt); }), std::string(code::invalid_argument));
 

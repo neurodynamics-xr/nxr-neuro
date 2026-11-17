@@ -257,16 +257,32 @@ InverseInfo export_inverse(SubjectWriter& sub, const std::map<std::string, Value
   std::optional<std::string> cov_id;
   const std::string ms = std::to_string(m);
   if (ncov && ncov->is_numeric() && ncov->numel()) {
+    // a COVARIANCE IS A STATISTIC (the zero-lag cross-spectrum), imported as computed elsewhere: of no field in this package, its provenance in the options
     const Mat c = as_mat(ncov);
-    nxr::io::OperatorSpec o;
-    on_channels(o, name + "_noise_cov", "noise covariance", c, "the noise covariance " + name + " was computed with, on its " + ms + " channels", std::nullopt);
-    o.data = view(c.d, {static_cast<std::int64_t>(c.rows), static_cast<std::int64_t>(c.cols)});
-    cov_id = sub.operator_(std::move(o));
+    nxr::io::StatisticSpec st;
+    st.name = name + "_noise_cov";
+    st.measure = "covariance";
+    st.method = "empirical";
+    st.detached = true;
+    st.axes = Json::array({Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", static_cast<std::int64_t>(c.rows)}},
+                           Json{{"name", "channel"}, {"selection_id", sel_id}, {"size", static_cast<std::int64_t>(c.cols)}}});
+    st.data = view(c.d, {static_cast<std::int64_t>(c.rows), static_cast<std::int64_t>(c.cols)});
+    st.array.compress = false;
+    st.acquisition = opt.acquisition;
+    Json sopt = Json{{"source", "Brainstorm NoiseCovMat.NoiseCov"}, {"kernel", name}};
+    if (const Value* na = sfield(ncm, "nAvg"); na && na->is_numeric() && na->numel() == 1) {
+      st.n_members = static_cast<std::int64_t>(na->scalar());
+      sopt["nAvg"] = *st.n_members;
+    }
+    st.options = sopt;
+    st.description = "the noise covariance " + name + " was computed with, on its " + ms + " channels";
+    cov_id = sub.statistic(std::move(st));
   }
   if (const Value* whit = get(kernel, "Whitener"); whit && whit->is_numeric() && whit->numel()) {
     const Mat w = as_mat(whit);
     nxr::io::OperatorSpec o;
-    on_channels(o, name + "_whitener", "whitener", w, "the whitener of " + name + "'s noise covariance, on its " + ms + " channels", cov_id);
+    on_channels(o, name + "_whitener", "whitener", w, "the whitener of " + name + "'s noise covariance, on its " + ms + " channels", std::nullopt);
+    if (cov_id) o.cols.set("of_statistic_id", *cov_id);     // derived from the covariance STATISTIC
     o.data = view(w.d, {static_cast<std::int64_t>(w.rows), static_cast<std::int64_t>(w.cols)});
     sub.operator_(std::move(o));
   }

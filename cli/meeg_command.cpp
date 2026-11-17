@@ -3,7 +3,7 @@
 //   nxr-neuro noisecov compute --dataset D/N --subject S --recording R [--name N] [--chunks K|A-B|all | --start SEC --stop SEC] [--block-seconds SEC]
 //                              [--types "MEG MAG,MEG GRAD,EEG"] [--no-remove-mean] [--divisor samples-minus-blocks|samples|samples-minus-one] [--replace]
 //     The sample covariance of the recording's good channels over [start, stop), read chunk by chunk; the mean (DC offset) removed per block (the whole window is
-//     one block unless --block-seconds). Stored as the Operator "noise covariance" `<R>_noise_cov`.
+//     one block unless --block-seconds). Stored as a Statistic (measure covariance) `<R>_noise_cov`.
 //
 //   nxr-neuro inverse compute --dataset D/N --subject S (--noise-cov NAME | --recording R [noise covariance options]) [--forward NAME] [--name NAME] [--replace]
 //                             [--no-depth] [--depth-exponent P] [--depth-limit L] [--depth-norm frobenius|spectral] [--depth-limit-on weight|norm] [--depth-channels all|one-type]

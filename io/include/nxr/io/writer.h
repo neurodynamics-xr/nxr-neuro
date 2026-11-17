@@ -221,6 +221,7 @@ struct StatisticSpec {
   Json span, axes = Json::array(), components, scaling, options, producer;
   std::optional<std::int64_t> n_members, members_skipped;
   std::optional<double> dof;
+  bool detached = false;                    // computed elsewhere (an imported covariance): no field in the package; its provenance is in `options`
   std::optional<std::string> unit, description, label, acquisition, id, created_utc;
   ArrayView data;
   ArrayOptions array;
