@@ -431,7 +431,7 @@ r = nxrneuro.compute('psd', sub, 'rest', 'all', true);
 | 10 | GIFTI exporter of cortical maps and surfaces; `export gifti` | 3, the package pipelines | **built** (`io/export/gifti.cpp`, `io/include/nxr/exporters/`; maps, series over a stated range, labellings, the surface, hemispheres; provenance sidecar and terms in `common.h`; CIFTI-2 `dscalar`/`dlabel` to follow) |
 | 11 | MNE exports: `.stc`, `-cov.fif`, `-fwd.fif`, raw FIF chunk by chunk; `export mne` | 8, the package pipelines | **`.stc` built as `export fif`** (`io/formats/src/stc.cpp`, `io/export/fif.cpp`); `-cov.fif`, `-fwd.fif` and raw FIF after the format-mapping review |
 | 12 | `import bids` (a package per subject, the importer rules, participants through `participants import`) | 7, 9 | after 9 |
-| 13 | BIDS-derivatives exporter | 4, 10, 11 | after 11 |
+| 13 | BIDS-derivatives exporter | 4, 10, 11 | **built** (`io/export/bids.cpp`; `export bids-derivatives`; the folder is `--out` because `--to` is a time range's end; `participants.tsv` and `-cov.fif`/`-fwd.fif` entries to follow) |
 | 14 | CIFTI-2 read and write (`dscalar`, `dlabel`, `dtseries`) | 2, 3 | **reader built** (`io/formats/include/nxr/formats/cifti.h`); the writer with the exporters |
 | 15 | CTF, then KIT readers and importers | 5 (coil definitions), 9 | **pure readers built** (`ctf.h`, `kit.h`); imported by `import recording` (channels and events; CTF coils and compensation operators to follow) |
 | 16 | Python wheel, first slice (6.1), with the dependency-rule amendment; cibuildwheel in CI | the amendment (D3) | **now** (in parallel with 1–8) |

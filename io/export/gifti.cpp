@@ -122,7 +122,7 @@ Json export_gifti(const std::filesystem::path& package, const GiftiExport& o) {
       const Json f = parts[k].node.fact("from_index");
       first_row[k] = f.is_number() ? f.get<std::int64_t>() : 0;
     }
-  auto stem = [&](const Surface& s) { return o.out + (o.hemispheres ? "_hemi-" + s.hemi : std::string()); };
+  auto stem = [&](const Surface& s) { return !o.hemispheres ? o.out : o.hemisphere_stem ? o.hemisphere_stem(s.hemi) : o.out + "_hemi-" + s.hemi; };
 
   // ---- provenance inputs and terms
   std::vector<task::Node> inputs = {input, surface_node};

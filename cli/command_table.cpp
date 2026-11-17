@@ -1050,6 +1050,26 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --from@export fif	SEC	Start of the time range of a series, in seconds on the recording's clock (or m:ss); give together with --to. Required for a series, refused for a map.	required for a series	s
 --to@export fif	SEC	End of the time range of a series, in seconds (or m:ss), exclusive; give together with --from.	required for a series	s
 --all@export fif		The whole series, every time point (the recording is still read one chunk at a time and written one time point at a time).	off	-
+--package@export bids-derivatives	PATH	The folder of the subject package whose results are exported; it is only read.	required	-
+--out@export bids-derivatives	FOLDER	The derivatives folder (made if absent, e.g. derivatives/nxr-neuro): dataset_description.json and sub-<label>/[ses-<label>/] with the files named by BIDS entities. A second run into it merges the description.	required	-
+--results@export bids-derivatives	REGEX	A regular expression matched against the WHOLE name of each field on a cortical surface (a map or a series), labelling and statistic to export; the name becomes the desc- label (letters and digits only).	required	-
+--space@export bids-derivatives	NAME	The space- entity (the template the maps lie on).	the template the subject is registered to (refused when there is none)	-
+--session@export bids-derivatives	LABEL	The ses- entity (and folder).	none (no session)	-
+--task@export bids-derivatives	LABEL	The task- entity.	none	-
+--run@export bids-derivatives	INDEX	The run- entity.	none	-
+--from@export bids-derivatives	SEC	Start of the time range of every series matched, in seconds (or m:ss); give together with --to. Required when a series matches.	required for a series	s
+--to@export bids-derivatives	SEC	End of the time range of every series matched, in seconds (or m:ss), exclusive; give together with --from.	required for a series	s
+--all@export bids-derivatives		The whole of every series matched.	off	-
+--with-surface@export bids-derivatives		Also write the cortical surface (.surf.gii) beside each map and series.	off	-
+--stc@export bids-derivatives		Also write each map and series as MNE source estimates (-lh.stc and -rh.stc); the cortex must store its two hemispheres.	off	-
+--measurements@export bids-derivatives	PARTITION:FIELD:MEASURES	Also write the measurements table of a partition's members for a field: the partition, the field and comma-separated measures, joined by colons.	none	-
+--results	REGEX	The names of the results to export (export bids-derivatives).	none	-
+--space	NAME	The space- entity of an exported file (export bids-derivatives).	none	-
+--session	LABEL	The ses- entity of an exported file (export bids-derivatives).	none	-
+--task	LABEL	The task- entity of an exported file (export bids-derivatives).	none	-
+--run	INDEX	The run- entity of an exported file (export bids-derivatives).	none	-
+--stc		Also write source estimates (export bids-derivatives).	off	-
+--measurements	PARTITION:FIELD:MEASURES	A measurements table to write (export bids-derivatives).	none	-
 )TBL",
 R"TBL(@ create dataset
 old: dataset create
@@ -1316,6 +1336,12 @@ old: __export fif
 alias: no
 summary: Write a source map or a source series on the two hemispheres of a cortex as MNE source estimates (-lh.stc and -rh.stc), with a provenance sidecar.
 opts: --all --field* --from --out* --package* --to
+)TBL",
+R"TBL(@ export bids-derivatives
+old: __export bids-derivatives
+alias: no
+summary: Write results (maps, series, labellings, statistics, measurements, source estimates) as a BIDS derivatives folder: files named with BIDS entities, sidecars with Sources and provenance, and a dataset_description.json listing nxr-neuro's suffixes.
+opts: --all --from --measurements --out* --package* --results* --run --session --space --stc --task --to --with-surface
 )TBL",
 R"TBL(@ import condition
 old: convert convert

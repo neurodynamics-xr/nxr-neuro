@@ -16,6 +16,7 @@
 // XML document, so the frames of the range are held (as float32) to be written: the range bounds the memory.
 #pragma once
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 
@@ -32,6 +33,8 @@ struct GiftiExport {
   bool hemispheres = false;                // one file of each kind per hemisphere (the surface must have its hemispheres as components)
   std::optional<std::string> surface_unit; // "m" or "mm": the surface's coordinates scaled to it; unset: as stored
   std::optional<SeriesRange> range;        // a series: the time range read (REQUIRED); a map: must be unset
+  // names the files of one hemisphere ("L" or "R") when set: the path stem to write under (the BIDS-derivatives exporter puts `hemi-` among the entities); default `<out>_hemi-<L|R>`
+  std::function<std::string(const std::string& hemisphere)> hemisphere_stem;
   Context ctx;
 };
 
