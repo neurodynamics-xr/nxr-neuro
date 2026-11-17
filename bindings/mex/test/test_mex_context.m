@@ -44,7 +44,7 @@ assert(eig.k == 6, 'handle solve returns k modes');
 assert(isequal(size(eig.eigenvectors), [nV 6]), 'eigvec V×k');
 assert(issorted(eig.eigenvalues), 'eigvals ascending');
 assert(abs(eig.eigenvalues(2) - 2.0) < 1e-6, 'icosa λ₁≈2 (got %g)', eig.eigenvalues(2));
-eigS = nxr_compute('solve', h1, 6, -1e-8);   % optional sigma accepted in handle mode
+eigS = nxr_compute('solve', h1, 6, -1e-3);   % optional sigma accepted in handle mode (a shift clear of the null space; a fixed -1e-8 sits on it, see kShiftLadder in compute.h)
 assert(eigS.k == 6 && max(abs(eigS.eigenvalues - eig.eigenvalues)) < 1e-10, ...
     'handle solve honors optional sigma');
 fprintf('  solve handle path ✓ (λ=[%s])\n', ...

@@ -36,8 +36,8 @@ fprintf('  solve.{poisson,hodge,heat} ✓\n');
 ev = nxr.manifold.solve.eigen(mctx, 6);
 assert(ev.k == 6 && isequal(size(ev.eigenvectors), [nV 6]), 'solve.eigen → k modes, V×k');
 assert(issorted(ev.eigenvalues) && abs(ev.eigenvalues(2) - 2.0) < 1e-6, 'solve.eigen λ₁≈2');
-ev2 = nxr.manifold.solve.eigen(mctx, 6, -1e-8);   % explicit sigma must be honored
-assert(max(abs(ev2.eigenvalues - ev.eigenvalues)) < 1e-10, 'solve.eigen custom sigma matches default');
+ev2 = nxr.manifold.solve.eigen(mctx, 6, -1e-3);   % explicit sigma must be honored (clear of the null space, see kShiftLadder in compute.h)
+assert(max(abs(ev2.eigenvalues - ev.eigenvalues)) < 1e-10, 'solve.eigen custom sigma matches default (max diff %g)', max(abs(ev2.eigenvalues - ev.eigenvalues)));
 fprintf('  solve.eigen ✓ (λ₁=%.4f)\n', ev.eigenvalues(2));
 
 % ── operator.* (DEC) ──────────────────────────────────────────
