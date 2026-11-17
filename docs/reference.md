@@ -14,7 +14,7 @@ provenance stored with the result.
 - **not the Python analysis code:** `nxr` stays the reference that the C++ is tested against.
 - **no Brainstorm code:** Brainstorm is GPLv3; the maths here is written from the papers, and Brainstorm's outputs are only goldens.
 
-**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; bindings for `io` and `pipelines`.
+**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; bindings for `io` (beyond its pure formats, in the Python face) and `pipelines`.
 
 ## Layout
 
@@ -25,7 +25,7 @@ nxr-neuro/
   pipelines/   nxr_pipelines the glue: read with io, compute with compute, write with io, cached; every verb of the command below (the surface: eigen, frames, tiles; the sensors:
                filters, psd, noisecov; the sources: headmodel, inverse, sourcepsd, quadrature, hodgepower; the patterns: opticalflow, speedspectrum)
   meeg/        nxr_meeg      MEG/EEG source imaging: whitener, depth weights, unconstrained minimum-norm kernel, chunk-wise noise covariance; Eigen only; no file I/O
-  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (exposing io/pipelines comes later)
+  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (exposing io/pipelines comes later); python/: the wheel (nxr_compute and io/formats)
   cli/         the one command `nxr-neuro`
   cmake/       shared CMake (Eigen 3.4)
   CMakeLists.txt   the one top-level build
@@ -42,6 +42,7 @@ Each library keeps its include paths and namespaces (`nxr/compute.h`, `nxr::comp
 | `io` | SQLite, the Zarr codecs (zstd, blosc, zlib), matio, HDF5, nlohmann/json, rapidyaml (single header, vendored in `io/extern/ryml`, v0.15.2, MIT; amended 2026-11-12, the maintainers' decision 1 of the chain-graph spec: pipeline definitions are nxr's YAML). Never includes `compute`. |
 | `pipelines` | `compute`, `io` and `meeg`; the only place they meet. |
 | `meeg` | Eigen only. Never includes `compute` or `io`; reads no file (the pipelines hand it arrays). |
+| `bindings` | every library (`compute`, `meeg`, `io`, `pipelines`), as the command line does (amended 2026-11-17; the earlier "`compute` only" rule came from the old nxr-compute repository). Bindings are faces: they convert arguments and results and call the library, with no maths, no SQL and no logic of their own. |
 
 ## The store: where a subject's keys live (`io/include/nxr/io/store.h`; spec `docs/specs/2026-11-14-dataset-wide-runs.md` section 1, phase A)
 
@@ -181,6 +182,43 @@ In the verb-first grammar, each with its own `--help`; they parse, call the func
 **Computing on packages (`cli/cli.h` `open_dataset`; `io::open_subject_package`).** Every command that names `--dataset` and `--subject` opens the subject through the dataset: on a catalogue it finds the subject's package in the catalogue and opens it as the writer (the package's own writer lock; a read opens it without one), so everything a `compute` verb stores goes into that package and no other file is written; on a one-database dataset (`dataset.sqlite`, store formats 50 to 52) it opens as it always did, with a note on stderr that `split dataset` makes it a catalogue. The pipelines are unchanged: they take the writer and the subject, and a package writer is a `DatasetWriter` in package mode (`node_store()`). The result of a chain on a package equals the same chain on the one-database form byte for byte (`test_package_pipelines`). A subject registered to a template reads the template's arrays from the template's package, read-only, found when the first one is read: the catalogue's own members first (a dataset-local template, as `split` makes), then the template search path (`--templates DIR ...`, repeatable, on every such command; then `NXR_TEMPLATE_PATH`, then the user setting `template_path`). The commands that make or change a one-database dataset itself (`import subject`, `import template`, `import group`, `compact dataset`, `recover dataset`, `delete subject`) refuse a catalogue and say so. A replaced result is moved aside inside the package (`_replaced-<date>/`), never deleted. **Group results** (`reduce pyramid --dataset D --subjects A,B,C --into NAME`, `pyramid_reduce_group`; spec section 5): on a catalogue the members are read each from its own package (read only, no lock) and the sums are written into the **group package** `NAME` of the dataset, made if absent, else its group fields are replaced (one package per analysis the caller names, never a default one; `--into` is required). The group package holds the default subject's rows the results are on (its manifolds, selections, canonical frames) and the members' subject and source-field rows the contributions name as anchor rows; no array is copied, the default subject's arrays are read from its own package. Members registered to different template versions are refused (never pooled), as are the sums' own refusals (`pyramid reduce` above). The result equals the one-database reduce's byte for byte (`test_pyramid_reduce`). Limit of this step: the default subject must be one of the dataset's own members, which is what `split dataset` makes; a released template that has its own home dataset needs `SubjectWriter::open` by id, a later step.
 
 The shared `--dataset` help now says what it is: the path of the dataset's folder. The word "datastore" is gone from the help; `--datastore` stays as the name of the option of `create dataset`, `list datasets` and `delete dataset`, which name the folder that holds dataset folders.
+
+## The Python face (`nxr_neuro`, `bindings/python`; spec `docs/specs/2026-11-17-interoperability.md` section 6.1)
+
+The first slice of the Python face: **one wheel per platform** (Linux x86_64 manylinux_2_28, macOS arm64 13.3+; nanobind, stable ABI, so one wheel serves
+Python 3.12 and newer), built by `.github/workflows/wheels.yml` with cibuildwheel, which runs `bindings/python/tests` on each built wheel. Pinned build
+tools (`bindings/python/pyproject.toml`): nanobind 3.1.0, scikit-build-core 1.1.2, cibuildwheel 4.3.5. The version is the project's (`project(nxr_neuro VERSION ...)` in
+`CMakeLists.txt`); the wheel carries `LICENSE`, `AUTHORS` and `THIRD_PARTY_NOTICES.md` in its `.dist-info/licenses`. Build it by hand:
+
+    cd bindings/python && python -m build --wheel      # or: pip wheel .   (CMake, a C++17 compiler and the fetched dependencies, as the main build)
+
+A binding only binds: each Python function is one call into the library (`nxr_compute` for the maths, `nxr_io_formats` for the formats); the options
+carry the library's names and defaults, and their docstrings are the options structs' comments. This slice does **not** read the dataset format: `open`,
+`subject`, `nn.compute.<verb>` (the command's `compute` verbs), the importers and the exporters come with it.
+
+**Arrays.** A signal is `[channels, samples]`, C-ordered. float32 and float64 are accepted (anything else is converted to float64); the library computes
+in float64 and the result comes back in the input's precision. float64 results are handed over without a copy and may be Fortran-ordered. The C++ releases
+the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subclasses `FormatError`, `UnsupportedError` (also `NotImplementedError`),
+`InvalidArgumentError` (also `ValueError`), `IOError_` (also `OSError`), `NotConvergedError`, `CancelledError`; an option name that is not one of the library's is a `ValueError`.
+
+**`nn.ops`** (the pure functions: no file, no dataset, no recording):
+
+| function | the library's | what |
+|---|---|---|
+| `ops.welch.psd(x, sfreq, segment_samples=256, overlap=0.5, window="hann", periodic=True, detrend="constant", scaling="density", good=None)` | `nxr::welch::Welch` | Welch's PSD; with those defaults equal to `scipy.signal.welch(nperseg=256)`; `good` leaves out segments touching a bad sample |
+| `ops.welch.cross_spectrum(x, sfreq, bins, ..., mean=True, quadrature=False)` | `nxr::welch::CrossWelch` | the cross-spectral density between channels, per group of bins; optionally its imaginary part |
+| `ops.filter.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch` | `nxr::filter` | Brainstorm's zero-phase FIR and IIR filters, options as `FilterOptions` |
+| `ops.pca.pca(x, scale="none")`, `ops.pca.reconstruct(...)` | `nxr::pca` | principal components of observations x features (scikit-learn's `svd_solver="full"`, sign convention fixed) and the rank-k reconstruction |
+| `ops.manifold.eigenmodes(vertices, faces, k, ...)` | `nxr::manifold::solve::eigen` | the Laplace-Beltrami eigenpairs of a triangle mesh (cotangent Laplacian, mixed-Voronoi mass; the shift ladder by default) |
+
+**`nn.io`** (the pure formats, `io/formats`; native, no MATLAB and no Python library at run time): `open_edf` / `read_edf` (EDF, EDF+, BDF, BDF+; `open_bdf` and
+`read_bdf` are the same), `open_brainvision` / `read_brainvision`, `open_eeglab` / `read_eeglab` return a recording: `rec.header` (a dictionary holding every field of
+the file's header, channels with their units and locations, annotations, gaps) and `rec.read(start, stop, first_channel, last_channel)`, a block `[channels, samples]` in SI units, float32
+or float64 as the file holds them. **The span is always stated** (`start` and `stop` in samples, or `all=True` for `read_*`); a block's values never depend on the block. `read_nifti(path)` gives
+`(data, header)` (the file's axes, x first, with the 4 x 4 affine), `read_gifti(path)` a dictionary of arrays with their intents, metadata, labels and transforms, `read_tsv(path)` a dictionary of columns.
+
+**Tests** (`bindings/python/tests`, pytest; synthetic data only): Welch against `scipy.signal.welch` and a NumPy cross-spectrum; the filters against their passbands, stopbands and zero phase; PCA against the NumPy SVD with
+the sign convention; the sphere's eigenvalues l(l+1); the readers against the MNE-Python, nibabel and pandas goldens of `io/formats/test` and their refusals.
 
 ## Build
 
