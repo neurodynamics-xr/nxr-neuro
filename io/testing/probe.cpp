@@ -7,6 +7,7 @@ namespace nxr::io::testing {
 
 Probe::Probe(const SubjectPackage& package) : db_(&package.db()) {}
 Probe::Probe(const DatasetWriter& writer) : db_(&writer.db()) {}
+Probe::Probe(SubjectWriter& subject) : db_(&subject.db()) {}
 
 static void where_clause(const Row& where, std::string& sql, std::vector<Value>& args) {
   bool first = true;
@@ -25,11 +26,11 @@ std::int64_t Probe::count(const std::string& table, const Row& where) const {
   return integer(*db_->one(sql, args), "n");
 }
 
-std::vector<Row> Probe::rows(const std::string& table, const Row& where) const {
+std::vector<Row> Probe::rows(const std::string& table, const Row& where, const std::string& order_by) const {
   std::string sql = "SELECT * FROM " + table;
   std::vector<Value> args;
   where_clause(where, sql, args);
-  return db_->all(sql + " ORDER BY rowid", args);
+  return db_->all(sql + " ORDER BY " + (order_by.empty() ? "" : order_by + ", ") + "rowid", args);
 }
 
 std::vector<std::string> Probe::integrity() const {
