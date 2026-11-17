@@ -1692,8 +1692,29 @@ void bind_execution(std::vector<StepSpec>& r) {
 }
 }  // namespace
 
+namespace {
+// a node of nxr::graph::registry() as the definition reader sees it: its ports, parameters and traits (the executor runs the node itself, `native`)
+StepSpec describe_native(const nxr::graph::NodeSpec& n) {
+  StepSpec s;
+  s.name = n.name;
+  s.native = true;
+  s.kind = n.kind == nxr::graph::Kind::chunk ? "chunk" : n.kind == nxr::graph::Kind::accumulate ? "accumulate" : "array";
+  for (const auto& p : n.inputs) { s.inputs.push_back(p.name); if (p.optional) s.optional.push_back(p.name); }
+  for (const auto& p : n.outputs) s.outputs.push_back(p.name);
+  for (const auto& p : n.parameters) s.parameters[p.name] = p.def;
+  s.matches = n.matches;
+  s.description = n.description;
+  s.traits = n.traits;
+  return s;
+}
+}  // namespace
+
 const std::vector<StepSpec>& registry() {
-  static const std::vector<StepSpec> r = build();
+  static const std::vector<StepSpec> r = [] {
+    std::vector<StepSpec> all = build();
+    for (const auto& name : nxr::graph::registry().names()) all.push_back(describe_native(nxr::graph::registry().at(name)));   // the nodes registered before the first use
+    return all;
+  }();
   return r;
 }
 

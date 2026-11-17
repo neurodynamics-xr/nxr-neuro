@@ -62,6 +62,7 @@ struct ParamSpec { std::string name; Json def; std::string meaning, unit; std::v
 struct Planned {
   Types out;
   std::int64_t halo = 0;
+  std::int64_t align = 0;   // samples: the grid the run's span must snap to (a power of two on the line's tiles; 0: none). `check` takes the largest over the graph (Checked::align)
 };
 /** node-held constants shared between nodes that ask for the same key (a bound operator built once: the Studio's "uploaded once") */
 using Shared = std::map<std::string, std::any>;

@@ -18,6 +18,7 @@
 #include "nxr/io/hash.h"
 #include "nxr/io/layout.h"
 #include "nxr/pipelines/cache.h"
+#include "nxr/pipelines/declared_outputs.h"
 #include "nxr/graph/execution.h"
 #include "nxr/pipelines/step_nodes.h"
 #include "nxr/pipelines/spatial_band.h"
@@ -135,6 +136,7 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     refuse(std::string("steps: ") + e.what());
   }
   for (const auto& [name, t] : checked.values) P.values[name] = value_of(t);
+  P.align = checked.align;
   std::size_t at = 0;
   for (const auto& use : d.uses()) {
     const StepSpec& st = step(use.step);
@@ -147,8 +149,10 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     const Value& v = P.values.at(o);
     // THREE KINDS OF OUTPUT: a Field (materialized), a measurement over a time partition (reduced: selection_measurement rows), a span set (a spans Selection)
     const std::string kind = spec.value("kind", std::string());
+    if (is_declared(P, o)) { check_declared(P, o, db); continue; }            // a declared output (declared_outputs.h): its kind, links and node checked here, its values at the store
+    const std::string kind_short = kind == "selection" ? v.cls : kind;      // {kind: selection, type: spans | set} are the short forms spans | labelling
     if (v.cls == "measurement" || v.cls == "spans" || v.cls == "statistic" || v.cls == "labelling") {
-      if (kind != v.cls) refuse("outputs." + o + ": its steps make a " + v.cls + "; declare it {kind: " + v.cls + "}");
+      if (kind_short != v.cls) refuse("outputs." + o + ": its steps make a " + v.cls + "; declare it {kind: " + v.cls + "}");
       if (!d.over) refuse("outputs." + o + ": a " + v.cls + " is of the recording the chunk loop reads; this definition has no chunk loop");
       if (v.cls == "spans" && spec.contains("types") && !(spec["types"].is_array() && spec["types"].size() == 1 && spec["types"][0].is_string()))
         refuse("outputs." + o + ": types is one event type's name, e.g. [burst]");
@@ -162,8 +166,16 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
   return P;
 }
 
-Json parameters_of(const Definition& d, const Json& set) {
+Json parameters_of(const Definition& d, const Json& set, const std::string& preset) {
   Json p = d.parameters;
+  if (!preset.empty()) {                                                    // defaults < the preset < the caller's own
+    if (!d.presets.contains(preset)) {
+      std::string have;
+      for (const auto& [k, _] : d.presets.items()) have += (have.empty() ? "" : ", ") + k;
+      refuse("--set " + preset + ": not a preset of " + d.name + " (" + (have.empty() ? std::string("it names none") : have) + ")");
+    }
+    for (const auto& [k, v] : d.presets[preset].items()) p[k] = v;
+  }
   std::string unknown;
   for (const auto& [k, v] : set.items()) {
     if (!d.parameters.contains(k)) { unknown += (unknown.empty() ? "" : ", ") + k; continue; }
@@ -177,8 +189,8 @@ Json parameters_of(const Definition& d, const Json& set) {
   return p;
 }
 
-std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set) {
-  const Json params = parameters_of(d, set);
+std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset) {
+  const Json params = parameters_of(d, set, preset);
   Definition e = expand(d, params);                                         // a definition that repeats over list parameters, written out for this run (flat: unchanged)
   if (!e.draw.empty()) {                                                    // `draw: seed`: every draw is a node of its own (the stored nodes' names, the cache key's pipeline), the parameter's value in the name
     if (!params.contains(e.draw) || !params[e.draw].is_number_integer() || params[e.draw].get<std::int64_t>() < 0) refuse(d.name + ": the parameter `" + e.draw + "` (draw) is a whole number >= 0");
@@ -186,12 +198,14 @@ std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, co
   }
   std::vector<Plan> out;
   for (const auto& found : nxr::io::finder::resolve(db, subject_id, e.inputs, params)) out.push_back(plan(e, found, params, db, subject_id));   // every run planned before any is executed
+  for (auto& P : out) P.preset = preset;
   return out;
 }
 
 namespace {
 using nxr::io::text;
 using nxr::io::V;
+std::string ospec_kind(const Json& spec) { return spec.value("kind", std::string()); }
 
 // an exclude input's spans [start, stop) in seconds (a recording's bad segments)
 std::vector<std::pair<double, double>> spans_of(const nxr::io::Database& db, const nxr::io::Row& selection) {
@@ -665,7 +679,12 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   if (d.over) {
     const Value& over = P.found.at(*d.over);
     const auto line = sub.db().one("SELECT n_vertices FROM manifold WHERE id = ?", {V(*over.time)});
-    span = nxr::pipelines::span_of(*over.row, line ? nxr::io::integer(*line, "n_vertices") : 0, over.rate, over.origin, opt.chunks, opt.start, opt.stop);
+    int level = 0;                                                          // the grid a node asks of the span (Planned::align): a segment of 2^k samples starts on the line's grid
+    if (P.align > 1) {
+      while ((std::int64_t(1) << (level + 1)) <= P.align) ++level;
+      if ((std::int64_t(1) << level) != P.align) refuse("steps: a node asks the span to snap to " + std::to_string(P.align) + " samples, which is not a power of two");
+    }
+    span = nxr::pipelines::span_of(*over.row, line ? nxr::io::integer(*line, "n_vertices") : 0, over.rate, over.origin, opt.chunks, opt.start, opt.stop, level);
     span_json = nxr::io::span_record(*span, over.rate, over.origin);
     std::optional<std::string> exclude_id;
     std::optional<std::vector<std::pair<double, double>>> bad;
@@ -692,6 +711,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   nxr::pipelines::CacheKey key;
   key.pipeline = d.name + "@" + std::to_string(d.version);
   key.params = Json{{"parameters", P.parameters}, {"definition_sha256", nxr::io::sha256_hex(d.text)}};
+  if (!P.preset.empty()) key.params["preset"] = P.preset;                    // the named parameter set asked for, beside the parameters it resolved to
   key.params["block_samples"] = opt.block_samples;   // the pointwise tail's sub-block width: the same values up to the rounding of the folds' sums, so in the key (method rule 3)
   for (const Planned* p : loop) if (p->step->frame_place) key.params["block_frames"] = opt.block_frames;   // likewise the frames' (only a run with a frame tiling has one)
   {
@@ -713,8 +733,19 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   Json stored = Json::array();
   bool hit = true;
   const std::string measured_id = d.over ? text(*P.found.at(*d.over).row, "id") : std::string();
-  for (const auto& [o, _] : d.outputs.items()) {
+  for (const auto& [o, ospec] : d.outputs.items()) {
     const Value& v = P.values.at(o);
+    if (is_declared(P, o)) {                                                // a declared output: each place it takes holds the same key (a manifold is found or made, never a miss)
+      Json one = Json{{"output", o}, {"kind", ospec["kind"]}, {"name", declared_name(P, o)}};
+      for (const auto& [cls, path] : declared_places(P, o, sub)) {
+        const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), task::to_string(cls), key, path);
+        if (!row) { hit = false; break; }
+        if (cls != task::Cls::selection) { one["id"] = text(*row, "id"); one["path"] = path; }
+      }
+      if (!hit) break;
+      stored.push_back(one);
+      continue;
+    }
     if (v.cls == "measurement") {
       if (no_events(sub, P, v)) { stored.push_back(Json{{"output", o}, {"measurement", v.facts["measure"]}, {"events", 0}}); continue; }
       const auto by = measured_by(sub.db(), over_selection(sub, P, v), v, measured_id);
@@ -752,6 +783,12 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   if (!opt.replace)
     for (const auto& [o, _] : d.outputs.items()) {
       const Value& v = P.values.at(o);
+      if (is_declared(P, o)) {
+        for (const auto& [cls, path] : declared_places(P, o, sub))
+          if (sub.find(task::to_string(cls), path))
+            throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + o + " (" + path + ") already exists, made with other parameters, inputs or span; pass --replace");
+        continue;
+      }
       if (v.cls == "measurement") {
         if (over_events(v)) continue;                           // over the run's own spans Selection: refused with it
         if (!measured_by(sub.db(), over_selection(sub, P, v), v, measured_id).empty())
@@ -850,6 +887,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   // STORE: each output a Field on the manifold its steps made, its provenance and the cache key with it; another job's node refused unless replace (moved aside)
   Json producer = Json{{"pipeline", Json{{"name", d.name}, {"version", d.version}, {"definition", d.source}, {"sha256", nxr::io::sha256_hex(d.text)}}},
                        {"parameters", P.parameters}, {"inputs", nxr::io::finder::describe(P.found)}, {"run", facts}, {"prepared", prepared}, {"warnings", warnings}, {"messages", messages}, {"made_first", made_first}, {"nxr_neuro", NXR_NEURO_VERSION}};
+  if (!P.preset.empty()) producer["preset"] = P.preset;
   const Json stamped = nxr::pipelines::stamp(key);                         // held: iterating a temporary's items() would dangle
   for (const auto& [k, v] : stamped.items()) producer[k] = v;
   stored = Json::array();
@@ -873,12 +911,17 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
     // FOUR PASSES: what is stored on its own (Fields, tile measurements, spans), then the labellings (named against the spans just stored), then what is over the events just stored (the events'
     // measurements), then the statistics (whose members may be those events)
+    // DECLARED OUTPUTS (declared_outputs.h): the manifolds the definition makes FIRST, so that any other output can lie on them; then each of the others as the declaration and the node's description say
+    MadeIds made;
+    for (const auto& [o, ospec] : d.outputs.items())
+      if (is_declared(P, o) && ospec["kind"] == "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced));
     std::set<std::string> packed;                                          // the measurement outputs already stored with an earlier one's array
     auto pass = [](const Value& v) { return v.cls == "labelling" ? 1 : over_events(v) ? 2 : v.cls == "statistic" ? 3 : 0; };
     for (int ps = 0; ps < 4; ++ps)
     for (const auto& [o, spec] : d.outputs.items()) {
       const Value& v = P.values.at(o);
       if (pass(v) != ps) continue;
+      if (is_declared(P, o)) { if (ospec_kind(spec) != "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced)); continue; }
       if (v.cls == "measurement" && v.facts.value("measure", std::string()) == "tile_crossings") { stored.push_back(store_crossings(sub, unit, P, o, v, data.at(o), made_by(key), opt.replace, replaced)); continue; }
       if (v.cls == "measurement") {
         if (packed.count(o)) continue;                                      // stored with the first of its group
@@ -942,7 +985,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
 
 std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                       const std::function<void(const Json&)>& progress) {
-  const auto plans = plan_runs(d, sub.db(), sub.id(), set);                 // every run planned before any is executed
+  const auto plans = plan_runs(d, sub.db(), sub.id(), set, opt.preset);     // every run planned before any is executed
   std::vector<Json> out;
   for (const auto& P : plans) {
     if (dry_run) {

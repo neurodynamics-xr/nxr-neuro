@@ -579,6 +579,27 @@ high-pass part, both ends padded with the mean of the first/last K samples); not
 (MATLAB filtfilt's ends). `nxr-neuro <verb> --dataset D/N --subject S --recording R --fpass HZ[,HZ] | --fstop LO,HI | --frequencies F,.. | --line F [--harmonics N]` writes a new recording
 `<R>_<verb>` on the same channels and time line, with flags, events, bad segments, projectors and CTF compensation carried over. MNE-Python's option set: not done.
 
+## Declared outputs and presets of a definition (`pipelines/include/nxr/pipelines/declared_outputs.h`; spec `docs/specs/2026-11-17-definition-outputs.md`, sections 2, 3 and 6)
+
+A definition's `outputs:` entry may DECLARE what it stores: the kind, the found inputs it lies on or is of, the stored name. The node that made the values DESCRIBES them (`Array::meta["describe"]`: measure, method,
+axes with their sizes and a closed-form line, the segment tiling, the scaling record, the unit); the runner binds the two, checks them, and io writes every output of the run through ONE `task::Unit`
+(provenance and cache key with each, all or nothing). A manifold an output lies on, made by the same run, is written first.
+
+| kind | declaration | stores |
+|---|---|---|
+| `field` | `kind_name`, `on: LINK` | a Field on that manifold |
+| `statistic` | `of: INPUT`, `axes: [{name, on: LINK} \| {name, line: NAME} \| {name}]`, `partition: {tiling: NAME, on: LINK}` | the statistic, its frequency (or other) line, the segment partition |
+| `operator` | `operator_kind`, `from: LINK`, `to: LINK` | a dense Operator between two found manifolds |
+| `selection` | `type: partition \| set \| spans \| tiling`, `on: LINK` | a Selection on that manifold, with its dictionary |
+| `manifold` | `type: line \| surface \| product` | the manifold, found by name and reused when identical |
+
+A name is a template: `{input}` the found input's name, `$parameter` a parameter's value. The short forms (`kind: spans`, `kind: labelling`, `kind: measurement`, a statistic without `axes:`, a Field's own kind
+name such as `band power`) are stored as before. A `node:` use (grouped names such as `welch.psd`) and a `step:` use are the same.
+
+`presets:` names parameter sets (each a named alternative); `run NAME --set PRESET` starts from one. Precedence: the parameters' defaults, then the preset's values, then the caller's own `--NAME VALUE` or
+`--set NAME=VALUE`. A preset names only declared parameters (refused when the definition is read); its name is in the provenance and the cache key (`preset`), beside the resolved parameters.
+`run NAME --help` lists every preset with the values it sets.
+
 ## The Welch PSD (`compute/include/nxr/welch.h`, `run psd`)
 
 `nxr::welch::Welch` is a streaming estimator: fed [channels x samples] chunks of any size, it carries the samples left at a chunk's end into the next, so segments cross chunk edges and **the result is identical to the last bit

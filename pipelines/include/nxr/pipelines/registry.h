@@ -66,7 +66,7 @@ struct ExecContext {
   std::map<std::string, std::any> shared;
 };
 struct StepSpec {
-  std::string name, kind;
+  std::string name, kind;                      // kind: setup · chunk · accumulate · after, or `array` (a native node that runs once on arrays: in `before` or in `after`)
   std::vector<std::string> inputs, optional, outputs;
   Json parameters = Json::object();            // name → default (null: the definition must set it)
   std::string matches, description;
@@ -99,6 +99,7 @@ struct StepSpec {
   std::function<Arrays(const std::any& state, const Arrays& ins, ExecContext& ctx)> run;
   /** the node's declared time behaviour and precision (see NodeTraits); set where the node is registered */
   NodeTraits traits;
+  bool native = false;                         // a node of `nxr::graph::registry()` (grouped names, pure functions of compute/): this entry only describes it to the definition reader; the executor runs the node itself
   /** true when the node computes in double on float32 input: the maintainers' rule (stored precision follows the input) makes such a node flagged. Blocks inside the loop are float32; arrays outside are double. */
   bool computes_double_on_float_input() const { return traits.computes_in == Precision::float64 && (kind == "chunk" || kind == "accumulate"); }
 };

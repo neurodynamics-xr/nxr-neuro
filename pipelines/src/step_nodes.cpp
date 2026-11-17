@@ -147,6 +147,18 @@ ng::PortType port_of(const Value& v) {
 }
 
 Value value_of(const ng::PortType& t) {
+  if (!t.facts.contains("value")) {                                       // what a native node (grouped names) made: described by its port type alone; `facts.cls` names a statistic, a manifold, ...
+    Value v;
+    v.cls = t.facts.contains("cls") && t.facts["cls"].is_string() ? t.facts["cls"].get<std::string>()
+            : t.cls == ng::PortClass::field ? "field" : t.cls == ng::PortClass::operator_ ? "operator" : t.cls == ng::PortClass::constant ? "statistic" : "selection";
+    v.complex = t.value == ng::ValueType::complex;
+    v.value_type = t.value == ng::ValueType::vector3 ? "vector3" : t.value == ng::ValueType::quaternion ? "quaternion" : t.value == ng::ValueType::hermitian3 ? "hermitian3" : "scalar";
+    v.chunked = t.streamed();
+    v.rate = t.sfreq.value_or(0.0);
+    if (!t.unit.empty()) v.unit = t.unit;
+    v.facts = t.facts;
+    return v;
+  }
   const Json& d = t.facts.at("value");
   Value v;
   v.cls = d["cls"].get<std::string>();
@@ -165,7 +177,8 @@ Value value_of(const ng::PortType& t) {
 
 ng::Registry node_registry(const std::shared_ptr<Binding>& binding) {
   ng::Registry r;
-  for (const auto& st : registry()) r.add(node_of(st, binding));
+  for (const auto& st : registry()) if (!st.native) r.add(node_of(st, binding));
+  for (const auto& name : nxr::graph::registry().names()) r.add(nxr::graph::registry().at(name));   // the native nodes (grouped names): pure, run as they are
   return r;
 }
 
