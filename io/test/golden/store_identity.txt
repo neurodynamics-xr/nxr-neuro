@@ -4,7 +4,7 @@
 305934327024c010fd9d3a2d4fb76f9491c77490a4c851f6b3c551b2fd69407b  ./ds/demo/S1.nxr.zarr/source/big/zarr.json
 31fa54cf89531c41413bccf49573461af76de9ca30d6b95b8579d1c5ca8ead58  ./ds/demo/S1.nxr.zarr/source/big_sharded/zarr.json
 3b1eada6bb87cba36905d0225cf1d108d0b3915e291bc5e0fb211c8427280207  ./ds/demo/S1.nxr.zarr/source/small_sharded/c.0.0
-3f5d39d017e6d22814b3f83665133c1bde42780934ba632f194b0e921a925852  ./ds/demo/S1.nxr.zarr/affine/zarr.json
+479463fd44e74c1853306bf19ba7247728d84b8d3ac780fe9987a694d73c0596  ./ds/demo/S1.nxr.zarr/affine/zarr.json
 43f3bc903341dc80dabd8bf5a0ef15405de5e8541b894892f9da6174708a5b23  ./ds/demo/S1.nxr.zarr/source/sparse/indices/zarr.json
 471daf00a8e255d60491113f84740964b8aa1cf8868cc0b7991161f2546acbb8  ./ds/demo/S1.nxr.zarr/source/big/c.0.0
 4afc29ed25b4a9c0f8697a305208cf13ab3d2c90b8f03ec5641a1e1adfaa3dba  ./ds/demo/S1.nxr.zarr/affine/c.0.0
