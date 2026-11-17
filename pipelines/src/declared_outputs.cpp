@@ -376,6 +376,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   if (d.contains("unit") && d["unit"].is_string()) st.unit = d["unit"].get<std::string>();
   if (d.contains("description")) st.description = d["description"].get<std::string>();
   st.label = d.value("label", st.method);
+  if (d.contains("producer") && d["producer"].is_object()) st.producer = d["producer"];   // what the node records beside the provenance (a spectrum's resolution and rate: its readers ask for them)
   if (!acq.empty()) st.acquisition = acq;
   if (!span.is_null()) st.span = span;
   st.value_type = d.value("value_type", std::string("scalar"));

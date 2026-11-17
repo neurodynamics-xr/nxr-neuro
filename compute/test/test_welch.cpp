@@ -6,6 +6,7 @@
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include <random>
+#include <optional>
 using namespace nxr::welch;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -194,6 +195,25 @@ static void rotary() {
     EXPECT(throws([&] { ComplexWelch(1, [] { WelchOptions b = scipyWelchOptions(100.0, 100); b.overlap = 1.0; return b; }()); }), "overlap 1");
 }
 
+// THE SEGMENT GRID as a pure rule: tiles (2^k samples, the nearest level; a power-of-two width; an explicit level), Brainstorm's and scipy's round, nxr's even; and its refusals
+static void segments() {
+    std::cout << "=== segmentFor: the segment rules ===\n";
+    using O = std::optional<double>; using S = std::optional<std::int64_t>; using L = std::optional<int>;
+    auto at = [](const char* rule, O sec, S n, L k, double fs = 1200.0, double ov = 0.5) { return segmentFor(rule, sec, n, k, fs, ov); };
+    EXPECT(at("tile", O{}, S{}, L{}).samples == 4096 && at("tile", O{}, S{}, L{}).level == 12, "4 s at 1200 Hz is level 12 (4096 samples, 3.41 s)");
+    EXPECT(at("tile", O{2.0}, S{}, L{}, 100.0).samples == 256 && at("tile", O{2.0}, S{}, L{}, 100.0).level == 8, "2 s at 100 Hz is level 8");
+    EXPECT(at("tile", O{}, S{128}, L{}).level == 7 && at("tile", O{}, S{}, L{9}).samples == 512, "a power-of-two width, an explicit level");
+    EXPECT(at("round", O{2.0}, S{}, L{}, 100.0).samples == 200 && at("round", O{2.0}, S{}, L{}, 100.0).level == 0, "round: round(seconds fs) samples, no grid");
+    EXPECT(at("round", O{}, S{301}, L{}).samples == 301 && at("even", O{2.0}, S{}, L{}, 100.5).samples == 202 && at("even", O{2.0}, S{}, L{}, 100.0).samples == 200, "samples win; even makes the count even");
+    EXPECT(throws([&] { at("tile", O{}, S{200}, L{}); }), "a width that is no tile");
+    EXPECT(throws([&] { at("tile", O{}, S{128}, L{7}); }), "level and samples are alternatives");
+    EXPECT(throws([&] { at("tile", O{}, S{}, L{0}); }) && throws([&] { at("tile", O{}, S{}, L{25}); }), "a level is 1 to 24");
+    EXPECT(throws([&] { at("tile", O{2.0}, S{}, L{}, 100.0, 0.3); }), "a hop that is no tile");
+    EXPECT(at("tile", O{2.0}, S{}, L{}, 100.0, 0.75).samples == 256, "overlap 3/4 keeps the hop a tile");
+    EXPECT(throws([&] { at("round", O{2.0}, S{}, L{8}); }), "a level with another rule");
+    EXPECT(throws([&] { at("nope", O{2.0}, S{}, L{}); }) && throws([&] { at("tile", O{-1.0}, S{}, L{}); }), "an unknown rule, a negative duration");
+}
+
 static void refusals() {
     std::cout << "=== refusals ===\n";
     WelchOptions o = scipyWelchOptions(100.0, 100);
@@ -268,6 +288,7 @@ int main() {
     levels();
     rotary();
     linearMap();
+    segments();
     refusals();
     std::cout << "\n" << (g_failures ? "FAILED" : "all passed") << " (" << g_failures << " failures)\n";
     return g_failures ? 1 : 0;

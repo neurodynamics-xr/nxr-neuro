@@ -18,6 +18,45 @@ std::size_t segmentSamplesFor(double seconds, double sfreq, bool makeEven) {
     return n;
 }
 
+namespace {
+int tileLevelOfWidth(std::int64_t n) {
+    if (n < 1 || (n & (n - 1)) != 0) return -1;
+    int k = 0;
+    while ((std::int64_t(1) << k) < n) ++k;
+    return k;
+}
+}  // namespace
+
+Segment segmentFor(const std::string& rule, const std::optional<double>& seconds, const std::optional<std::int64_t>& samples, const std::optional<int>& level, double sfreq, double overlap) {
+    if (rule != "tile" && rule != "round" && rule != "even") throw std::invalid_argument("welch: segment_rule is tile, round or even (got '" + rule + "')");
+    if (!(sfreq > 0)) throw std::invalid_argument("welch: the sampling frequency must be positive");
+    Segment out;
+    if (rule != "tile") {
+        if (level) throw std::invalid_argument("welch: segment_level applies to segment_rule tile (the " + rule + " rule states its segment in seconds or samples)");
+        if (samples) out.samples = static_cast<std::size_t>(*samples);
+        else out.samples = segmentSamplesFor(seconds.value_or(4.0), sfreq, rule == "even");
+        return out;
+    }
+    if (level && samples) throw std::invalid_argument("welch: segment_level and segment_samples are alternatives");
+    int k = 0;
+    if (level) k = *level;
+    else if (samples) {
+        k = tileLevelOfWidth(*samples);
+        if (k < 0) throw std::invalid_argument("welch: under segment_rule tile a segment is a tile of 2^k samples (got " + std::to_string(*samples) + "): give segment_level k, or segment_rule round|even");
+    } else {
+        const double sec = seconds.value_or(4.0);
+        if (!(sec > 0)) throw std::invalid_argument("welch: segment_seconds is a positive duration");
+        k = std::max(0, static_cast<int>(std::lround(std::log2(sec * sfreq))));
+    }
+    if (k < 1 || k > 24) throw std::invalid_argument("welch: a segment's tile level is 1 to 24 (got " + std::to_string(k) + ")");
+    const std::int64_t n = std::int64_t(1) << k, hop = n - static_cast<std::int64_t>(std::floor(static_cast<double>(n) * overlap));
+    if (tileLevelOfWidth(hop) < 0)
+        throw std::invalid_argument("welch: under segment_rule tile the hop must be a tile too (" + std::to_string(hop) + " samples at overlap " + std::to_string(overlap) + "): overlap 0, 0.5, 0.75, 0.875, ...");
+    out.samples = static_cast<std::size_t>(n);
+    out.level = k;
+    return out;
+}
+
 WelchOptions brainstormPsdOptions(double sfreq, double segmentSeconds) {
     WelchOptions o;
     o.sfreq = sfreq;

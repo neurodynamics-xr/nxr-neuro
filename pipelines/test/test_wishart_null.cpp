@@ -12,6 +12,7 @@
 #include <iostream>
 #include <random>
 
+#include "psd_run.h"
 #include "check.h"
 #include "mesh_helpers.h"
 #include "store_at.h"
@@ -98,7 +99,7 @@ int main() {
     sub.compose([&] { nxr::io::constantq::write(sub, tid); });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  { PsdOptions po; po.recording = "rest"; po.chunks = "all"; po.segment_level = 8; psd_compute(ds, sub, po); }
+  nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});
   { CrossSpectrumOptions co; co.recording = "rest"; co.chunks = "all"; co.bands = {{"alpha", 8.0, 12.0}}; co.estimator = "analytic"; co.level = 8; crossspectrum_compute(ds, sub, co); }
   WishartNullOptions wo;
   wo.recording = "rest"; wo.windows = "rest_crossspectrum_alpha_windows"; wo.bursts = "bursts"; wo.psd = "rest_psd_welch"; wo.band = {8.0, 12.0}; wo.draws = 400; wo.seed = 3;

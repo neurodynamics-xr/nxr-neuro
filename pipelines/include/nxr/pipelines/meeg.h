@@ -11,9 +11,7 @@
 //                      orientations, the coils and the coil weights) and the head surfaces the spheres are fitted to -> Operator "forward" `<name>`, the gain float32
 //                      [M x 3N] (channels <- cortex, vector3 -> scalar), with `<name>_GridLoc`: what `export_forward` stores for an imported head model, the producer saying it
 //                      was computed, `params_json.forward` the model, every option and the fitted spheres. MEG: Sarvas (one sphere) or overlapping spheres; EEG: three shells.
-//   psd_compute       the Welch power spectral density of a recording (nxr::welch), read CHUNK BY CHUNK with the segments carried across chunk edges, the recording's bad
-//                     segments (the Selection `<recording>_bad_segments`) left out: STATISTIC `<recording>_psd_welch` (docs/specs/2026-11-13-statistics.md: measure power_density, method welch, OF the recording, from its segment
-//                     partition; float32 [channels x frequencies], power per Hz) on the axes channels x the frequency line, every option and the projectors in its producer record.
+//   (the sensor PSD and the rotary spectrum are the definitions `psd` and `rotary_psd` (pipelines/definitions/), run by the runner on the nodes welch.psd, rotary.pair and welch.complex_psd)
 //   filter_compute    a temporal filter (lowpass · highpass · bandpass · bandstop · notch; nxr/filter.h) of a recording, read CHUNK BY CHUNK, written as a NEW recording on the same
 //                     channels and the same time line, exactly as recordings are stored (the grid of chunks and shards, the envelope; rows and arrays together): `<recording>_<kind>`,
 //                     its Field derived from the source, the source's channel flags, events and bad segments (Selections) copied unchanged, its projectors and CTF compensation carried
@@ -115,34 +113,6 @@ struct HeadModelResult {
 // A missing surface, sensor geometry or orientation is an nxr::io::Error that names what the subject has.
 HeadModelResult headmodel_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const HeadModelOptions& opt,
                                   const std::function<void(const nxr::io::Json&)>& progress = {});
-
-struct PsdOptions {
-  std::string recording;                                  // the recording Field by name
-  std::optional<std::string> name;                        // default `<recording>_psd_welch`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
-  std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
-  std::optional<double> segment_seconds = 4.0;            // the segment length in seconds ...
-  std::optional<std::int64_t> segment_samples;            // ... or in samples (wins when given)
-  std::optional<int> segment_level;                       // under the set `tiles`: the segment is 2^segment_level samples (wins over seconds)
-  nxr::welch::WelchOptions welch = nxr::welch::brainstormPsdOptions(1.0);   // window, overlap, detrend, scaling: Brainstorm's PSD (sfreq and segment_samples are set from the recording)
-  std::string option_set = "tiles";                       // which named set `welch` started from (recorded): tiles (the default, 2026-11-13: Brainstorm's taper, detrend and density on
-                                                          // segments of 2^k samples on the line's grid, k = round(log2(segment_seconds · fs))) · brainstorm (Brainstorm's 4 s, exact) · scipy · nxr-chain
-  bool exclude_bad_segments = true;                       // a segment touching one of the recording's bad segments is left out
-  bool replace = false;                                   // on a miss with a field of this name already stored: replace it (its array moved aside, never deleted)
-  // THE ROTARY SPECTRUM: the name of a stored Operator [2 x C] over the recording's channels (the subject's `<kernel>_rotationPlane`, rows fx, fy). z = fx.X + i fy.X, and the stored statistic is the
-  // TWO-SIDED Welch PSD of z over the same segments: axes [pair (1), frequency on a signed line -fs/2 ... fs/2], default name `<recording>_<operator>_psd_welch`; +f is x turning towards y (the
-  // operator carries the sense). The Welch options above apply as they do to the sensor PSD. Memory: one chunk + the carried samples, one complex series.
-  std::optional<std::string> through;
-};
-struct PsdResult {
-  bool hit = false;
-  double seconds = 0;
-  nxr::io::Json info;                                     // name, id, path, channels, frequencies, segments, skipped ...
-  nxr::welch::WelchResult psd;                            // [channels x frequencies] in the recording's unit^2/Hz (empty on a cache hit)
-  nxr::welch::ComplexWelchResult rotary;                  // --through: [1 x signed frequencies] (empty on a cache hit)
-};
-// The recording's channels are all kept (the bad ones too: their PSD is what QC reads). A record without one whole good segment is an nxr::io::Error.
-PsdResult psd_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const PsdOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 struct SourcePsdOptions {
   std::string recording;                                  // the recording Field by name

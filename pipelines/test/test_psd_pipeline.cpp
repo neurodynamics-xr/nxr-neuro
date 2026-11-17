@@ -1,4 +1,4 @@
-// psd_compute on a small synthetic dataset built in a temp directory (no real data): 3 channels (one bad), a recording of known signals stored in 700-sample chunks with
+// the `psd` and `rotary_psd` definitions, run by the runner on a small synthetic dataset built in a temp directory (no real data): 3 channels (one bad), a recording of known signals stored in 700-sample chunks with
 // projectors recorded in its provenance, and a bad span as the importer stores it (`<recording>_bad_segments`). Checks: the stored PSD equals nxr::welch on the same
 // samples with the same mask (float32), the segments across the bad span are left out, the result is identical for another chunk size, a cache hit, the refusal of a name
 // already stored and --replace, the PSD as a STATISTIC (power_density by welch, from the segment partition, axes channel x the frequency line), its provenance, and the command.
@@ -14,7 +14,8 @@
 #include "nxr/io/task/task.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/pipelines/meeg.h"
+#include "nxr/io/statistic.h"
+#include "psd_run.h"
 #include "nxr/rotary.h"
 
 using namespace nxr::io;
@@ -23,7 +24,8 @@ namespace fs = std::filesystem;
 using Eigen::MatrixXd;
 
 namespace {
-std::string code_of(const std::function<void()>& f) { try { f(); } catch (const Error& e) { return e.code(); } return ""; }
+std::string refusal(const std::function<void()>& f) { try { f(); } catch (const std::exception& e) { return e.what(); } return ""; }
+bool has(const std::string& s, const std::string& what) { return s.find(what) != std::string::npos; }
 std::vector<float> read_floats(const fs::path& p, std::vector<std::int64_t>* shape = nullptr) {
   ArrayReader r = nxrtest::open_array(p);
   if (shape) *shape = r.shape();
@@ -139,32 +141,26 @@ int main() {
   const nxr::welch::WelchResult want = nxr::welch::welch(X, expect, &good);
   const nxr::welch::WelchResult unmasked = nxr::welch::welch(X, expect);
 
-  PsdOptions o;
-  o.recording = "rest";
-  o.option_set = "brainstorm";                                  // the named set that reproduces Brainstorm (2 s = round(2 fs) samples, from the span's start), to the bit
-  o.segment_seconds = 2.0;
-  o.chunks = "all";                                             // every chunk (stored 700 wide): the whole recording, read chunk by chunk
-  const PsdResult a = psd_compute(ds, sub, o);
+  const auto stat = [&](const std::string& n) { return read_statistic(sub, n); };
+  const double tol = 1e-6;                                                                      // float32 storage
+  const Json two_s = Json{{"segment_seconds", 2.0}};
+
+  // THE PRESET `brainstorm` (2 s = round(2 fs) samples from the span's start, a symmetric Hamming window): nxr::welch on the stored samples with the bad span's mask, to float32
+  const nxrtest::PsdRun a = nxrtest::run_psd(ds, sub, "rest", two_s, "brainstorm");              // every chunk (stored 700 wide): the whole recording, read chunk by chunk
   CHECK(!a.hit);
-  CHECK_EQ(a.info["segments"].get<std::int64_t>(), want.segments);
-  CHECK(a.info["segments"].get<std::int64_t>() < unmasked.segments);
-  CHECK_EQ(a.info["segments_skipped"].get<std::int64_t>(), want.segmentsSkipped);
-  CHECK_EQ(a.info["channels"].get<std::int64_t>(), M);                                        // all channels, the bad one too
-  CHECK_EQ(a.info["frequencies"].get<std::int64_t>(), 101);
-  const std::string path = a.info["path"].get<std::string>();
-  CHECK_EQ(path, std::string("sensor-time/rest_statistics/rest_psd_welch"));   // a statistic beside its recording (docs/specs/2026-11-13-statistics.md)
+  CHECK(want.segments < unmasked.segments && want.segmentsSkipped > 0);
+  CHECK_EQ(a.path, std::string("sensor-time/rest_statistics/rest_psd_welch"));                    // a statistic beside its recording (docs/specs/2026-11-13-statistics.md)
   {
     std::vector<std::int64_t> shape;
-    const std::vector<float> got = read_floats((sub.folder() / (path)), &shape);
-    CHECK(shape.size() == 2 && shape[0] == M && shape[1] == 101);
+    const std::vector<float> got = nxrtest::psd_values(sub, a, &shape);
+    CHECK(shape.size() == 2 && shape[0] == M && shape[1] == 101);                                // all channels, the bad one too
     double worst = 0;
     for (int c = 0; c < M; ++c) for (int k = 0; k < 101; ++k) worst = std::max(worst, std::abs(got[static_cast<std::size_t>(c * 101 + k)] / want.psd(c, k) - 1));
-    CHECK(worst < 1e-6);                                                                      // float32 storage
+    CHECK(worst < tol);
   }
-  // THE STATISTIC (docs/specs/2026-11-13-statistics.md): power_density by welch, OF the recording, from its segment partition (the segments its members),
-  // axes channel x the frequency line, its options and provenance
+  // THE STATISTIC: power_density by welch, OF the recording, from its segment partition (the segments its members), axes channel x the frequency line, its options and provenance
   {
-    const StoredStatistic st = read_statistic(sub, "rest_psd_welch");
+    const StoredStatistic st = stat("rest_psd_welch");
     CHECK_EQ(text(st.row, "measure"), std::string("power_density"));
     CHECK_EQ(text(st.row, "method"), std::string("welch"));
     CHECK_EQ(text(st.row, "unit"), std::string("T\xc2\xb2/Hz"));
@@ -172,6 +168,7 @@ int main() {
     CHECK_EQ(integer(st.row, "n_members"), want.segments);
     CHECK_EQ(integer(st.row, "members_skipped"), want.segmentsSkipped);
     CHECK(st.axes.size() == 2 && st.axes[0]["name"] == "channel" && st.axes[1]["name"] == "frequency" && st.shape == (std::vector<std::int64_t>{M, 101}));
+    CHECK_EQ(st.axes[0]["manifold_id"].get<std::string>(), text(*sub.by_name("manifold", "sensors"), "id"));   // the channel axis lies on the recording's channels
     const auto line = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::manifold, st.axes[1]["manifold_id"].get<std::string>());
     CHECK(line.has_value());
     const auto line_axis = nxr::io::task::Subject::of(sub).geometry(line->id).axes.at(0);
@@ -183,82 +180,76 @@ int main() {
     CHECK(seg && seg->type == "spans" && seg->name == "rest_psd_welch_segments");
     const Json tp = seg->params;
     CHECK(std::abs(tp["tiling"]["width"].get<double>() - 2.0) < 1e-12 && std::abs(tp["tiling"]["hop"].get<double>() - 1.0) < 1e-12 && tp["tiling"]["count"] == want.segments + want.segmentsSkipped);
+    CHECK(std::abs(tp["tiling"]["origin"].get<double>()) < 1e-12 && tp["segments_skipped"] == want.segmentsSkipped);
     CHECK(st.options["window"] == "hamming" && st.options["window_form"] == "symmetric" && st.options["detrend"] == "constant" && st.options["scaling"] == "density");
+    CHECK(st.options["segment_rule"] == "round" && st.options["exclude_bad_segments"] == true);
     CHECK(st.span["start_sample"] == 0 && st.span["stop_sample"] == 4000);
-    const Json& pj = st.producer;
-    CHECK_EQ(pj["bad_segments"]["n_spans"].get<std::int64_t>(), 1);
-    CHECK_EQ(pj["projectors"].size(), static_cast<std::size_t>(2));
-    CHECK_EQ(pj["projectors_applied_in_samples"][0].get<std::string>(), std::string("ch_projector_1"));
-    CHECK_EQ(pj["projectors_not_applied"][0].get<std::string>(), std::string("ch_projector_2"));
-    CHECK(std::abs(pj["excluded_fraction"].get<double>() - 300.0 / 4000.0) < 1e-12);
+    CHECK(st.scaling.is_object() && st.scaling["stored"] == "density");                         // the scaling record a reader converts with
+    CHECK(st.producer["pipeline"]["name"] == "psd" && st.producer["output"] == "psd" && st.producer.contains("cache"));
+    CHECK(std::abs(st.producer["frequency_resolution_hz"].get<double>() - 0.5) < 1e-12 && st.producer["sfreq"] == sfreq && st.producer["segments"] == want.segments);   // what the readers ask of it
+    CHECK(std::abs(st.producer["excluded_fraction"].get<double>() - 300.0 / 4000.0) < 1e-12 && st.producer["spectral_scaling"] == st.scaling);
     double worst = 0;
     for (int c = 0; c < M; ++c) for (int k = 0; k < 101; ++k) worst = std::max(worst, std::abs(st.values[static_cast<std::size_t>(c * 101 + k)] / want.psd(c, k) - 1));
-    CHECK(worst < 1e-6);                                                                      // float32 storage, read back through read_statistic
+    CHECK(worst < tol);
   }
-  // the same samples stored in another chunk width (1777, read chunk by chunk): the same numbers to the last bit
+  // the same samples stored in another chunk width (1777): the same numbers to the last bit; a recording with no unit of its own (channels in T and V): "channel unit^2/Hz"
   {
-    PsdOptions o2 = o;
-    o2.recording = "rest_b";
-    const PsdResult b = psd_compute(ds, sub, o2);
+    const nxrtest::PsdRun b = nxrtest::run_psd(ds, sub, "rest_b", two_s, "brainstorm");
     CHECK(!b.hit);
-    CHECK(read_floats((sub.folder() / (a.info["path"].get<std::string>()))) == read_floats((sub.folder() / (b.info["path"].get<std::string>()))));
+    CHECK(nxrtest::psd_values(sub, a) == nxrtest::psd_values(sub, b));
+    CHECK_EQ(text(stat("rest_b_psd_welch").row, "unit"), std::string("channel unit\xc2\xb2/Hz"));
   }
-  // a recording with no unit of its own, channels in T and V: "channel unit^2/Hz" on the row, each type's unit in the provenance
-  {
-    const StoredStatistic sb = read_statistic(sub, "rest_b_psd_welch");
-    CHECK_EQ(text(sb.row, "unit"), std::string("channel unit\xc2\xb2/Hz"));
-    CHECK_EQ(sb.producer["channel_units"]["MEG MAG"].get<std::string>(), std::string("T\xc2\xb2/Hz"));
-    CHECK_EQ(sb.producer["channel_units"]["EEG"].get<std::string>(), std::string("V\xc2\xb2/Hz"));
-  }
-  // a hit; a name already stored with other settings is refused, then replaced on request
-  CHECK(psd_compute(ds, sub, o).hit);
-  {
-    PsdOptions o3 = o;
-    o3.welch.window = nxr::welch::Window::Hann;
-    CHECK_EQ(code_of([&] { psd_compute(ds, sub, o3); }), std::string(code::already_exists));
-    o3.replace = true;
-    const PsdResult r = psd_compute(ds, sub, o3);
-    CHECK(!r.hit && r.info["replaced"].get<bool>());
-  }
+  // a rerun is a hit; the same name with other settings is refused, then replaced on request; the preset's name is in the key
+  CHECK(nxrtest::run_psd(ds, sub, "rest", two_s, "brainstorm").hit);
+  CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"window", "hann"}}, "brainstorm"); }), "already exists"));
+  CHECK(!nxrtest::run_psd(ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"window", "hann"}}, "brainstorm", true).hit);
   // without the bad segments the whole grid counts
   {
-    PsdOptions o4 = o;
-    o4.name = "rest_psd_all";
-    o4.exclude_bad_segments = false;
-    CHECK_EQ(psd_compute(ds, sub, o4).info["segments"].get<std::int64_t>(), unmasked.segments);
+    const nxrtest::PsdRun r = nxrtest::run_psd(ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"name", "rest_psd_all"}, {"bad_segments", "ignore"}}, "brainstorm");
+    CHECK_EQ(integer(stat("rest_psd_all").row, "n_members"), unmasked.segments);
+    CHECK_EQ(integer(stat("rest_psd_all").row, "members_skipped"), static_cast<std::int64_t>(0));
+    (void)r;
   }
-  // refusals: a window shorter than one segment, a segment longer than the window
-  CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "x"; e.chunks.reset(); e.start = 0.0; e.stop = 1.0; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-  // the span is always stated: none is refused; "0" is the first chunk's samples (0..699: six 2-s segments at 50 % overlap); a chunk the recording lacks (it has 0..5),
-  // a malformed one, half an explicit span, or both forms are refused
-  CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "c0n"; e.chunks.reset(); psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-  { PsdOptions e = o; e.name = "c0"; e.chunks = "0"; const PsdResult r = psd_compute(ds, sub, e); CHECK(!r.hit); CHECK_EQ(r.info["segments"].get<std::int64_t>(), 6); }
-  CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "c1"; e.chunks = "6"; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-  CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "c2"; e.chunks = "x"; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-  CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "c3"; e.chunks.reset(); e.stop = 2.0; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-  CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "c4"; e.start = 0.0; e.stop = 2.0; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-  CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "y"; e.welch.overlap = 1.0; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-  CHECK_EQ(code_of([&] { PsdOptions e = o; e.recording = "nope"; psd_compute(ds, sub, e); }), std::string(code::no_such_row));
-  // THE ROTARY SPECTRUM (`--through`): the stored Operator [2 x 3] applied as z = fx.X + i fy.X, its TWO-SIDED Welch PSD over the same segments and mask, stored as a
+  // the span is always stated: none is refused; "0" is the first chunk's samples (0..699: six 2-s segments at 50 % overlap); a chunk the recording lacks (it has 0..5), a malformed one,
+  // half an explicit span, or both forms are refused; a span shorter than one segment is refused
+  auto with_span = [&](const std::string& name, const Json& set, const std::function<void(nxr::pipelines::graph::RunOptions&)>& tweak, const std::string& preset = "brainstorm") {
+    Json s2 = set;
+    s2["recording"] = "rest"; s2["name"] = name;
+    nxr::pipelines::graph::RunOptions ro;
+    ro.preset = preset;
+    tweak(ro);
+    return nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("psd"), s2, ro);
+  };
+  CHECK(!refusal([&] { with_span("c0n", two_s, [](auto&) {}); }).empty());
+  { const auto r = with_span("c0", two_s, [](auto& ro) { ro.chunks = "0"; }); CHECK(!r[0]["hit"].get<bool>()); CHECK_EQ(integer(stat("c0").row, "n_members"), static_cast<std::int64_t>(6)); }
+  CHECK(!refusal([&] { with_span("c1", two_s, [](auto& ro) { ro.chunks = "6"; }); }).empty());
+  CHECK(!refusal([&] { with_span("c2", two_s, [](auto& ro) { ro.chunks = "x"; }); }).empty());
+  CHECK(!refusal([&] { with_span("c3", two_s, [](auto& ro) { ro.stop = 2.0; }); }).empty());
+  CHECK(!refusal([&] { with_span("c4", two_s, [](auto& ro) { ro.chunks = "0"; ro.start = 0.0; ro.stop = 2.0; }); }).empty());
+  CHECK(has(refusal([&] { with_span("short", two_s, [](auto& ro) { ro.start = 0.0; ro.stop = 1.0; }); }), "fewer than one segment"));
+  CHECK(!refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"name", "y"}, {"overlap", 1.0}}, "brainstorm"); }).empty());
+  CHECK(!refusal([&] { nxrtest::run_psd(ds, sub, "nope", two_s, "brainstorm"); }).empty());
+  CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", two_s, "no-such-preset"); }), "no-such-preset"));
+
+  // THE ROTARY SPECTRUM (the definition `rotary_psd`): the stored Operator [2 x 3] applied as z = fx.X + i fy.X, its TWO-SIDED Welch PSD over the same segments and mask, stored as a
   // statistic on axes [pair (1), signed frequency]; the chunk width does not matter; the mirrored operator (fy negated) mirrors the spectrum
   {
     Eigen::MatrixXd A(2, 3);
     A << 0.5f, -0.2f, 0.1f, 0.3f, 0.8f, -0.05f;                                              // as stored (float32)
     const Eigen::MatrixXcd z = nxr::rotary::pairSeries(A, X);
     const nxr::welch::ComplexWelchResult rw = nxr::welch::complexWelch(z, expect, &good);
-    PsdOptions r; r.recording = "rest"; r.through = "plane"; r.option_set = "brainstorm"; r.segment_seconds = 2.0; r.chunks = "all";
-    const PsdResult ra = psd_compute(ds, sub, r);
+    const Json rset = Json{{"segment_seconds", 2.0}, {"operator", "plane"}};
+    const nxrtest::PsdRun ra = nxrtest::run_definition("rotary_psd", ds, sub, "rest", rset, "brainstorm");
     CHECK(!ra.hit);
-    CHECK_EQ(ra.info["path"].get<std::string>(), std::string("sensor-time/rest_statistics/rest_plane_psd_welch"));
-    CHECK_EQ(ra.info["frequencies"].get<std::int64_t>(), 200);
-    CHECK_EQ(ra.info["segments"].get<std::int64_t>(), rw.segments);
-    CHECK_EQ(ra.info["segments"].get<std::int64_t>(), want.segments);                      // the same segment partition as the sensor PSD
-    const StoredStatistic st = read_statistic(sub, "rest_plane_psd_welch");
+    CHECK_EQ(ra.path, std::string("sensor-time/rest_statistics/rest_plane_psd_welch"));
+    const StoredStatistic st = stat("rest_plane_psd_welch");
     CHECK_EQ(text(st.row, "measure"), std::string("power_density"));
     CHECK_EQ(text(st.row, "method"), std::string("welch"));
     CHECK_EQ(text(st.row, "of_field_id"), text(*sub.by_name("field", "rest"), "id"));
-    CHECK_EQ(integer(st.row, "n_members"), want.segments);
+    CHECK_EQ(integer(st.row, "n_members"), rw.segments);
+    CHECK_EQ(integer(st.row, "n_members"), want.segments);                                   // the same segment partition as the sensor PSD
     CHECK(st.axes.size() == 2 && st.axes[0]["name"] == "pair" && st.axes[0]["size"] == 1 && st.axes[1]["name"] == "frequency" && st.shape == (std::vector<std::int64_t>{1, 200}));
+    CHECK(st.axes[0]["values"][0]["name"] == "plane");
     CHECK(st.options["input"]["operator"] == "plane" && st.options["input"]["band"] == Json::array({8.0, 12.0}) && st.options["sides"] == "two");
     const auto line = nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::manifold, st.axes[1]["manifold_id"].get<std::string>());
     CHECK(line.has_value());
@@ -267,58 +258,64 @@ int main() {
     CHECK(std::abs(*line_axis.origin + 50.0) < 1e-9 && std::abs(*line_axis.spacing - 0.5) < 1e-12);   // -fs/2, 0.5 Hz
     double worst = 0;
     for (int k = 0; k < 200; ++k) worst = std::max(worst, std::abs(st.values[static_cast<std::size_t>(k)] / rw.psd(0, k) - 1));
-    CHECK(worst < 1e-6);
+    CHECK(worst < 1e-5);                                                                      // z passes through float32 blocks: a little above storage precision
     // chunk width (stored 1777 wide): the same numbers to the last bit
-    PsdOptions rb = r; rb.recording = "rest_b";
-    CHECK(!psd_compute(ds, sub, rb).hit);
-    CHECK(read_floats(sub.folder() / ra.info["path"].get<std::string>()) == read_floats(sub.folder() / psd_compute(ds, sub, rb).info["path"].get<std::string>()));
+    const nxrtest::PsdRun rb = nxrtest::run_definition("rotary_psd", ds, sub, "rest_b", rset, "brainstorm");
+    CHECK(!rb.hit);
+    CHECK(nxrtest::psd_values(sub, ra) == nxrtest::psd_values(sub, rb));
     // the sense: fy negated is the mirror spectrum (P'(f) = P(-f)); +f is the operator's x -> y
     Eigen::MatrixXd Am = A; Am.row(1) *= -1;
     const nxr::welch::ComplexWelchResult mw = nxr::welch::complexWelch(nxr::rotary::pairSeries(Am, X), expect, &good);
     for (int k = 1; k < 200; ++k) CHECK(std::abs(mw.psd(0, k) / rw.psd(0, 200 - k) - 1) < 1e-9);
-    CHECK(psd_compute(ds, sub, r).hit);
-    CHECK_EQ(code_of([&] { PsdOptions e = r; e.through = "nope"; psd_compute(ds, sub, e); }), std::string(code::no_such_row));
-    CHECK_EQ(code_of([&] { PsdOptions e = r; e.name = "x"; e.through = "not_a_pair"; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
+    CHECK(nxrtest::run_definition("rotary_psd", ds, sub, "rest", rset, "brainstorm").hit);
+    CHECK(!refusal([&] { nxrtest::run_definition("rotary_psd", ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"operator", "nope"}}, "brainstorm"); }).empty());
+    CHECK(has(refusal([&] { nxrtest::run_definition("rotary_psd", ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"operator", "not_a_pair"}, {"name", "x"}}, "brainstorm"); }), "two rows"));
   }
-  // THE TILE SET (the default since 2026-11-13, the time-tile amendment): a segment of 2^k samples, k = round(log2(2 s x 100 Hz)) = 8 (256 samples), half
-  // overlapping, Brainstorm's taper, detrend and density: nxr::welch on 256-sample segments of the same samples and mask; a span in seconds snaps to level 8
-  // ([3, 33) s = samples [300, 3300) -> [256, 3328)); --segment-level states the level; an overlap that leaves the hop no tile is refused, as is
-  // --segment-samples that is no power of two, and --segment-level with another set
+  // THE PRESET `tiles` (the default since 2026-11-13, the time-tile amendment): a segment of 2^k samples, k = round(log2(2 s x 100 Hz)) = 8 (256 samples), half overlapping, Brainstorm's taper,
+  // detrend and density: nxr::welch on 256-sample segments of the same samples and mask; a span in seconds snaps to level 8 ([3, 33) s = samples [300, 3300) -> [256, 3328)); segment_level states the
+  // level; an overlap that leaves the hop no tile is refused, as is segment_samples that is no power of two, and segment_level with another rule
   {
-    PsdOptions t; t.recording = "rest"; t.name = "tiles"; t.segment_seconds = 2.0; t.chunks = "all";
-    CHECK_EQ(t.option_set, std::string("tiles"));
-    const PsdResult r = psd_compute(ds, sub, t);
+    const Json t = Json{{"segment_seconds", 2.0}, {"name", "tiles"}};
+    const nxrtest::PsdRun r = nxrtest::run_psd(ds, sub, "rest", t);
     auto eo = nxr::welch::brainstormPsdOptions(sfreq, 2.0);
     eo.segmentSamples = 256;
     const nxr::welch::WelchResult tw = nxr::welch::welch(X, eo, &good);
-    CHECK(r.info["segment_samples"] == 256 && r.info["segments"] == tw.segments && r.info["frequencies"] == 129);
-    CHECK((r.psd.psd - tw.psd).cwiseAbs().maxCoeff() < 1e-12 * tw.psd.cwiseAbs().maxCoeff());
-    PsdOptions sp = t; sp.name = "tiles_span"; sp.chunks.reset(); sp.start = 3.0; sp.stop = 33.0;
-    CHECK(psd_compute(ds, sub, sp).info["window"] == Json::array({256, 3328}));
-    PsdOptions lv = t; lv.name = "tiles_l7"; lv.segment_seconds.reset(); lv.segment_level = 7;
-    CHECK(psd_compute(ds, sub, lv).info["segment_samples"] == 128);
-    CHECK_EQ(code_of([&] { PsdOptions e = t; e.name = "t1"; e.welch.overlap = 0.3; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-    CHECK_EQ(code_of([&] { PsdOptions e = t; e.name = "t2"; e.segment_samples = 200; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
-    CHECK_EQ(code_of([&] { PsdOptions e = o; e.name = "t3"; e.segment_level = 8; psd_compute(ds, sub, e); }), std::string(code::invalid_argument));
+    const StoredStatistic st = stat("tiles");
+    CHECK(st.options["segment_samples"] == 256 && st.options["segment_rule"] == "tile" && integer(st.row, "n_members") == tw.segments && st.shape == (std::vector<std::int64_t>{M, 129}));
+    {
+      const std::vector<float> got = nxrtest::psd_values(sub, r);
+      double worst = 0;
+      for (int c = 0; c < M; ++c) for (int k = 0; k < 129; ++k) worst = std::max(worst, std::abs(got[static_cast<std::size_t>(c * 129 + k)] / tw.psd(c, k) - 1));
+      CHECK(worst < tol);
+    }
+    with_span("tiles_span", Json{{"segment_seconds", 2.0}}, [](auto& ro) { ro.start = 3.0; ro.stop = 33.0; }, "tiles");
+    CHECK(stat("tiles_span").span["start_sample"] == 256 && stat("tiles_span").span["stop_sample"] == 3328);
+    nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_level", 7}, {"name", "tiles_l7"}});   // (the line `rest_b_freq` of 101 bins is taken: this is the second resolution)
+    CHECK(stat("tiles_l7").options["segment_samples"] == 128);
+    CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"name", "t1"}, {"overlap", 0.3}}); }), "hop"));
+    CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_samples", 200}, {"name", "t2"}}); }), "tile"));
+    CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}, {"name", "t3"}}, "brainstorm"); }), "segment_level"));
   }
 
   ds.close();
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
-    CHECK_EQ(std::system((cli + " run psd --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear --chunks 0 > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " run psd --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear --chunks 0 >> " + log).c_str()), 0);   // a hit
+    const std::string run = cli + " run psd --dataset " + d + " --subject S1 --recording rest --name cli_psd --set scipy --segment-seconds 2 --window hann --detrend linear --chunks 0";
+    CHECK_EQ(std::system((run + " > " + log).c_str()), 0);
+    CHECK_EQ(std::system((run + " >> " + log).c_str()), 0);                                  // a hit
     CHECK(std::system((cli + " run psd --dataset " + d + " --subject S1 --recording rest --set bogus --chunks 0 > /dev/null 2>&1").c_str()) != 0);
+    CHECK(std::system((cli + " psd compute --dataset " + d + " --subject S1 --recording rest --chunks 0 > /dev/null 2>&1").c_str()) == 2 * 256);   // the old spelling is refused (exit 2)
     std::ifstream in(log);
     std::string line, all;
     while (std::getline(in, line)) all += line + "\n";
-    CHECK(all.find("\"cache\": \"miss\"") != std::string::npos && all.find("\"cache\": \"hit\"") != std::string::npos);
+    CHECK(has(all, "\"hit\": false") && has(all, "\"hit\": true"));
     DatasetWriter d2 = open_writer(root / "demo");
     SubjectWriter s2 = SubjectWriter::open(d2, "S1");
     const StoredStatistic st = read_statistic(s2, "cli_psd");
-    CHECK_EQ(st.options["option_set"].get<std::string>(), std::string("scipy"));
     CHECK_EQ(st.options["window_form"].get<std::string>(), std::string("periodic"));
     CHECK_EQ(st.options["detrend"].get<std::string>(), std::string("linear"));
+    CHECK_EQ(st.options["segment_rule"].get<std::string>(), std::string("round"));
   }
 #endif
   fs::remove_all(root);

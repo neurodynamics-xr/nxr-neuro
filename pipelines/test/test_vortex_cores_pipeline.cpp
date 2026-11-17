@@ -26,6 +26,7 @@
 #include <set>
 
 #include "brain_helpers.h"
+#include "psd_run.h"
 #include "check.h"
 #include "portable_random.h"
 #include "store_at.h"
@@ -595,8 +596,7 @@ int main() {
 
   // ── THE LAG-FREE NULL (piece 10): the ingredients, one draw, its node ──
   {
-    PsdOptions po; po.recording = "rest"; po.chunks = "all"; po.segment_level = 8;
-    psd_compute(ds, sub, po);
+    nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});
     CrossSpectrumOptions co; co.recording = "rest"; co.channels_of = "free"; co.chunks = "all"; co.segment_level = 8; co.bands = {{"alpha", 8.0, 12.0}};
     crossspectrum_compute(ds, sub, co);
     const Json env = set_of({{"recording", "rest"}, {"cross_spectrum", "rest_crossspectrum_alpha"}, {"level", 5}});
@@ -643,7 +643,7 @@ int main() {
     CHECK(measurement_values(sub, sel_of_level, tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = "rest"})->id, std::nullopt, std::nullopt, "crossings").rows == 2);
     // THE TESTS: the draws in batches, the per-tile p of the crossing consistency and of the repeat, against the same numbers made directly from the stored draws
     {
-      PsdOptions pb; pb.recording = "rest_b"; pb.chunks = "all"; pb.segment_level = 8; psd_compute(ds, sub, pb);
+      nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_level", 8}});
       CrossSpectrumOptions cb; cb.recording = "rest_b"; cb.channels_of = "free"; cb.chunks = "all"; cb.segment_level = 8; cb.bands = {{"alpha", 8.0, 12.0}}; crossspectrum_compute(ds, sub, cb);
       g::run(ds, sub, denv, set_of({{"recording", "rest_b"}, {"cross_spectrum", "rest_b_crossspectrum_alpha"}, {"level", 5}}), all);
       NullOptions no;

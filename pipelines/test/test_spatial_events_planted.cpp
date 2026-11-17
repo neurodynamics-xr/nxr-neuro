@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 
+#include "psd_run.h"
 #include "check.h"
 #include "store_at.h"
 #include "mesh_helpers.h"
@@ -241,7 +242,7 @@ int main() {
           && !nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "spatial_events_outside.events.rest", .any_status = true}) && So.options["events_stored"] == false && So.options["threshold"] == Si.options["threshold"]);
     // THE LAG-FREE NULL (piece 10, spatial events): the ingredients, then draws in batches against the data's home map and size distribution
     {
-      PsdOptions po; po.recording = "rest"; po.chunks = "all"; po.segment_level = 8; psd_compute(ds, sub, po);
+      nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});
       CrossSpectrumOptions co; co.recording = "rest"; co.channels_of = "ident"; co.chunks = "all"; co.segment_level = 8; co.bands = {{"alpha", 8.0, 12.0}}; crossspectrum_compute(ds, sub, co);
       g::run(ds, sub, g::load("lagfree_envelope"), Json{{"recording", "rest"}, {"cross_spectrum", "rest_crossspectrum_alpha"}, {"level", 5}}, all);
       Json nset = d; nset["cross_spectrum"] = "rest_crossspectrum_alpha";

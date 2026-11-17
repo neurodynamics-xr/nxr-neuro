@@ -60,6 +60,31 @@ pipeline, and do not extend an existing one: it is being converted into a defini
 8. Larger designs first get a spec in `docs/specs/YYYY-MM-DD-<topic>.md`. A read-only comparison against the references goes in
    `docs/audits/YYYY-MM-DD-<topic>.md`.
 
+## Converting a hand-wired verb into a definition (the recipe)
+
+`<x>_compute` verbs are being converted one at a time; `psd` (`pipelines/definitions/psd.yaml`, `rotary_psd.yaml`; nodes in `pipelines/src/welch_steps.cpp`; `test_psd_golden`, `test_psd_pipeline`) is the worked example. A conversion
+is a PR of its own, on the latest main, with these parts in this order. Nothing in it needs a new mechanism: if it does, stop and ask.
+
+1. **Read the verb for what it stores, not how.** List every thing `<x>_compute` writes (Field, statistic, Operator, Selection, line or other manifold, measurement rows) and, for each, what a later reader asks of it: the stored
+   names and paths, the axes, the lines and partitions it names, and every `producer_json` key a reader reads (grep the readers: `grep -rn 'producer\.value\|producer\[' pipelines/src`). These stay as they are.
+2. **Outputs.** Declare each one in the definition's `outputs:` with its kind (`field`, `statistic`, `operator`, `selection`, `manifold`: `docs/reference.md`, "Declared outputs and presets"): the found input it is of or lies on
+   (a link: `recording.manifold.0`, `recording.time`), its name as a template (the verb's default name, `$name`), the names of its line and partition. What the values ARE (measure, method, axes with sizes and a closed-form
+   line, the segment tiling, the scaling record, the unit, the options it resolved, the `producer` keys readers ask for) goes in the node's `describe`, never in the definition.
+3. **Nodes.** Move each piece of maths the verb holds into `compute/` as a pure function (matrices and parameters in, matrices out) with a unit test and a golden against its reference, then register it as a node
+   (grouped name, e.g. `welch.psd`; a file `pipelines/src/<topic>_steps.cpp`, which the layering test `layering_nodes_without_io` scans): ports (streamed input, optional `exclude` for the bad segments), parameters (each with
+   meaning, default and unit), traits (time behaviour: an accumulate node over segments carried across blocks is `stateful`; precision), `plan` on types only (its refusals say the port and the reason; `Planned::align` when
+   the span must snap to a grid), `prepare`, `start`/`step`/`finish` (accumulate) or `chunk` (pointwise). A node reads no database, file or id: what it needs of a stored operator comes as an array from the runner. A node
+   chooses nothing by itself: a mode that changes the graph is another definition, not a switch.
+4. **Parameters and presets.** The verb's options become the definition's `parameters:` (long form: meaning, default, unit, choices) and the node's `with:`; each named option set the verb offered (`--set NAME`) becomes a
+   preset that names only declared parameters (defaults, then the preset, then the caller's own value). Old flags map to parameters (`--no-x` to `--x ignore`, a pair of flags to a boolean), recorded in the PR.
+5. **Delete the hand-wired code**: the `<x>_compute` function and its options and result types, its CLI parser and its entry in `cli/command_table.cpp` (the definition's command `run <x>` is made from the definition), its
+   private helpers that nothing else uses. Keep the old spelling refused, naming the new one (`converted_spellings()` in `cli/registry.cpp`). Tests that only used `<x>_compute` to make a fixture call the runner through a helper
+   (`pipelines/test/psd_run.h`).
+6. **Tests.** Compare with the REFERENCES (the method's goldens: scipy, Brainstorm, nxr, Rheome), not with the old output: one run per preset and parameter set against the golden, to the stored precision; the result the same to
+   the last bit for another storage chunk width; the stored record (axes, lines, partition, scaling, unit, provenance, a cache hit on a rerun, a refused name and `--replace`); the refusals (each names the parameter or port).
+   Build only the targets you touch and run only their tests (`tools/tests.py`), never the full suite.
+7. **Docs.** `docs/reference.md`: the method's section says it is a definition, lists its parameters and presets, and what is stored; the command table loses the hand-wired row.
+
 ## Adding a file format
 
 Pure readers and writers go in `io/formats/` (bytes in, objects out; no store, no database; the layering check enforces it). Recordings are read in

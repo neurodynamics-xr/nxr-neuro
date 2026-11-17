@@ -1,0 +1,49 @@
+# THE SENSOR PSD of a recording (a statistic): the Welch power spectral density of every channel, streamed chunk by chunk with the segments carried across chunk edges, the recording's bad segments left out.
+# A segment is a TILE of the recording's line (2^k samples, the default `tiles`, k = round(log2(segment_seconds x fs)), the span snapping to level k so that segments start on the line's grid); the presets
+# `brainstorm` (Brainstorm's bst_psd), `scipy` (scipy.signal.welch) and `nxr-chain` (nxr's spectral chain) keep their reference's segment, window, detrend and scaling, to the bit.
+# Stored: the statistic `<recording>_psd_welch` (measure power_density by method welch, OF the recording; axes channel x frequency), its frequency line `<recording>_freq` (shared by every spectrum of this
+# resolution) and its segment partition `<name>_segments` (a closed-form spans Selection on the time line; its members the segments), with the scaling record a reader converts with.
+#
+#   nxr-neuro run psd --dataset <folder> --subject sub-01 --recording rest --all [--set brainstorm] [--segment-seconds 2]
+pipeline: psd
+version: 1
+description: the Welch power spectral density of a recording's channels, the bad segments left out
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  name: {default: "{recording}_psd_welch", meaning: "the stored statistic's name; its segment partition is <name>_segments", unit: "-"}
+  segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
+  segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds; under tile a power of two); null: from segment_seconds", unit: "samples"}
+  segment_level: {default: null, meaning: "under segment_rule tile: the segment is 2^segment_level samples (wins over segment_seconds); null: from segment_seconds", unit: "level"}
+  segment_rule: {default: tile, meaning: "how the segment's length becomes samples: tile = a tile of the recording's line (2^k samples, the span snaps to its grid) | round = round(seconds x fs) from the span's start (Brainstorm, scipy) | even = as round, made even (nxr's chain)", unit: "-", choices: [tile, round, even]}
+  overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next, in [0, 1): the hop is n - floor(n x overlap); under tile the hop must be a tile too (0, 0.5, 0.75, ...)", unit: "fraction"}
+  window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
+  periodic: {default: false, meaning: "the DFT-even form of the window (scipy, nxr) rather than the symmetric one (MATLAB's hamming(n), Brainstorm)", unit: "-"}
+  detrend: {default: constant, meaning: "what is removed from each segment before windowing", unit: "-", choices: [none, constant, linear]}
+  scaling: {default: density, meaning: "density = power per Hz | spectrum = power | chain = per sample, per bin (nxr's spectral chain)", unit: "-", choices: [density, spectrum, chain]}
+  bad_segments: {default: exclude, meaning: "exclude = a segment touching one of the recording's bad segments is left out | ignore = every segment is kept", unit: "-", choices: [exclude, ignore]}
+
+presets:
+  tiles:      {segment_rule: tile}                                                                                      # the default, named so that it can be asked for: segments of 2^k samples on the line's grid
+  brainstorm: {segment_rule: round, window: hamming, periodic: false, detrend: constant, scaling: density}              # Brainstorm's bst_psd: round(seconds x fs) samples from the span's start, a symmetric Hamming window
+  scipy:      {segment_rule: round, window: hann,    periodic: true,  detrend: constant, scaling: density}              # scipy.signal.welch's defaults but for the segment length
+  nxr-chain:  {segment_rule: even,  window: hann,    periodic: true,  detrend: none,     scaling: chain}                # nxr.spectral.chain._welch: n even, no detrend, per sample and bin
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: welch.psd, in: {x: recording, exclude: bad}, with: {segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_level: $segment_level, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: psd}
+
+outputs:
+  psd:
+    kind: statistic
+    name: $name
+    of: recording
+    axes: [{name: channel, on: recording.manifold.0}, {name: frequency, line: "{recording}_freq"}]
+    partition: {tiling: "$name_segments", on: recording.time}

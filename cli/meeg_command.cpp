@@ -225,41 +225,6 @@ void welch_args(const std::string& prog, const cli::Args& a, Options& o) {
   }
 }
 
-int psd_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro psd: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro psd compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const std::set<std::string> valued = {"--dataset", "--subject", "--recording", "--name", "--chunks", "--start", "--stop", "--set", "--segment-seconds", "--segment-samples", "--segment-level",
-                                        "--overlap", "--window", "--detrend", "--scaling", "--through"};
-  const std::set<std::string> flags = {"--periodic", "--symmetric", "--no-bad-segments", "--replace"};
-  const cli::Args a = cli::parse(prog, rest, valued, flags, {"--dataset", "--subject", "--recording"});
-  using namespace nxr::welch;
-  nxr::pipelines::PsdOptions o;
-  o.through = a.maybe("--through");
-  o.recording = a.get("--recording");
-  o.name = a.maybe("--name");
-  if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
-  if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
-  o.chunks = a.maybe("--chunks");
-  welch_args(prog, a, o);
-  o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::psd_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    out["seconds"] = std::round(r.seconds * 1000) / 1000;
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
 // --bands name:lo-hi,name:lo-hi (Hz) into a list of bands
 std::vector<nxr::meeg::Band> bands_arg(const std::string& prog, const std::string& v) {
   std::vector<nxr::meeg::Band> out;

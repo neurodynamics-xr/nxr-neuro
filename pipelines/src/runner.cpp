@@ -667,6 +667,26 @@ Json store_home(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const P
 }
 }  // namespace
 
+// the dense matrix of a stored operator [rows x cols] and, in `meta.channels`, the elements of its `from` manifold its columns lie over (its from_selection), for a node that applies it
+nxr::graph::Array operator_constant(const Bound& bound, nxr::io::SubjectWriter& sub, const nxr::io::Row& op, const std::string& input) {
+  const std::string name = text(op, "name");
+  if (nxr::io::opt_text(op, "layout").value_or("dense") != "dense") refuse("steps: " + input + " (" + name + "): a node applies a dense operator (layout " + nxr::io::opt_text(op, "layout").value_or("") + ")");
+  std::vector<std::int64_t> shape;
+  const std::vector<float> m = bound.array_float(text(op, "path"), &shape);
+  if (shape.size() != 2) refuse("steps: " + input + " (" + name + "): its array is not [rows x cols]");
+  nxr::graph::Array a;
+  a.rows = shape[0]; a.cols = shape[1];
+  a.data.assign(m.begin(), m.end());
+  Json channels = Json::array();
+  const auto sel = nxr::io::is_null(op, "from_selection_id") ? std::nullopt : sub.db().read("selection", text(op, "from_selection_id"));
+  if (sel && !nxr::io::is_null(*sel, "array_path")) for (const std::int32_t c : bound.array_int32(text(*sel, "array_path"))) channels.push_back(c);
+  else for (std::int64_t c = 0; c < a.cols; ++c) channels.push_back(c);
+  a.meta["channels"] = channels;
+  a.meta["name"] = name;
+  a.meta["id"] = text(op, "id");
+  return a;
+}
+
 Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan& P, const RunOptions& opt, const std::function<void(const Json&)>& progress) {
   auto say = [&](const Json& j) { if (progress) progress(j); };
   const Definition& d = P.definition;
@@ -828,6 +848,12 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   nxr::graph::Arrays constants;                                            // a found input that is not streamed is a description the steps read through the binding: no array
   for (const auto& name : checked.inputs)
     if (!checked.values.at(name).streamed()) { nxr::graph::Array a; a.rows = 0; a.cols = 0; a.meta["placeholder"] = true; constants[name] = std::move(a); }
+  // an OPERATOR a native node (a grouped name: a pure function of arrays) reads is handed to it as its matrix and the channels it lies over (the node reads no store)
+  for (const auto& n : checked.nodes) {
+    if (n.spec->name.find('.') == std::string::npos) continue;
+    for (const auto& [port, name] : n.in)
+      if (constants.count(name) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row) constants[name] = operator_constant(bound, sub, *P.found.at(name).row, name);
+  }
   // EIGENMODES FIRST (the spec, question 6): when a step needs a surface's eigenmodes and none are stored, the runner runs the `eigenmodes` pipeline as its OWN run (its own provenance and
   // cache key), says what it made and why, and starts again: nothing is ever stored hidden inside this run. The Chebyshev series stays the announced fallback (`transform: chebyshev`).
   std::optional<nxr::graph::Execution> ex;

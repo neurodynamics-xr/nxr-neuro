@@ -16,6 +16,7 @@
 #include <random>
 
 #include "brain_helpers.h"
+#include "psd_run.h"
 #include "check.h"
 #include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
@@ -104,9 +105,7 @@ void make_old(const fs::path& datastore) {
 
 // every pipeline family, on whatever writer it is given
 void run_chains(DatasetWriter& ds, SubjectWriter& sub) {
-  PsdOptions po;
-  po.recording = "rest"; po.chunks = "all";
-  CHECK(!psd_compute(ds, sub, po).hit);
+  CHECK(!nxrtest::run_psd(ds, sub, "rest").hit);
   SourcePsdOptions so;
   so.recording = "rest"; so.chunks = "all"; so.bands = {{"alpha", 8, 12}};
   CHECK(!sourcepsd_compute(ds, sub, so).hit);
@@ -118,9 +117,7 @@ void run_chains(DatasetWriter& ds, SubjectWriter& sub) {
   fo.filter.kind = nxr::filter::Kind::Bandpass;
   fo.filter.lowerEdge = 8; fo.filter.upperEdge = 12;
   filter_compute(ds, sub, fo);
-  PsdOptions pf;
-  pf.recording = "rest_bandpass"; pf.chunks = "all";
-  CHECK(!psd_compute(ds, sub, pf).hit);
+  CHECK(!nxrtest::run_psd(ds, sub, "rest_bandpass").hit);
   MeasureComputeOptions mo;                                              // a measurement over a partition
   mo.labelling = "parcels"; mo.fields = "rest_kern_psd_alpha"; mo.weight = "none"; mo.measures = {"mean", "max"};
   measure_compute(ds, sub, mo);
@@ -197,9 +194,7 @@ int main() {
     // a second run is a cache hit, in the package as in the old form
     DatasetWriter ds = open_subject_package(root / "new", "S1");
     SubjectWriter sub = SubjectWriter::open(ds, "S1");
-    PsdOptions po;
-    po.recording = "rest"; po.chunks = "all";
-    CHECK(psd_compute(ds, sub, po).hit);
+    CHECK(nxrtest::run_psd(ds, sub, "rest").hit);
     ds.close();
   }
   refresh_member_status(root / "new");                                   // the catalogue sees the changed package (stale) until it is registered again

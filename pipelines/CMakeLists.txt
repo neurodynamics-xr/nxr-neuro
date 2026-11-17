@@ -35,6 +35,7 @@ add_library(nxr_pipelines
   src/dispatch.cpp
   src/bound.cpp
   src/step_nodes.cpp
+  src/welch_steps.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
@@ -124,6 +125,11 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_face PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_face COMMAND test_face)
+  add_executable(test_psd_golden test/test_psd_golden.cpp)
+  target_link_libraries(test_psd_golden PRIVATE nxr_pipelines)
+  target_include_directories(test_psd_golden PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test ${CMAKE_SOURCE_DIR}/compute/test)
+  target_compile_definitions(test_psd_golden PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_SOURCE_DIR}/compute/test/golden")
+  add_test(NAME test_psd_golden COMMAND test_psd_golden)
   add_executable(test_source_psd test/test_source_psd.cpp)
   target_link_libraries(test_source_psd PRIVATE nxr_pipelines)
   target_include_directories(test_source_psd PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/meeg/test ${CMAKE_SOURCE_DIR}/compute/test)
