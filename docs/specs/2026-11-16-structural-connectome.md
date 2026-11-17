@@ -155,6 +155,11 @@ nF times the square of that before pruning (10⁵ fibers: about 10⁸ non-zeros,
 pruned before the next is formed; the pruning threshold needs the strongest weight first, so there are two passes (the same result as one product).
 This cost belongs to `--store` only: a partition result never forms the matrix.
 
+**Implementation notes (2026-11-17; accepted by the maintainers).** (1) Pushing the smoothing onto the memberships uses the ADJOINT of the smoothing: the one-hot memberships are
+multiplied by the transpose of the mesh's smoothing step, `hops` times. Multiplying by the step itself (the average over a vertex's neighbourhood) is not equal to summing the smoothed
+vertex matrix over the region pairs; the adjoint is, exactly. (2) A fiber with both ends in one region adds 2 at that region's diagonal, in both orders, as the vertex matrix has its
+entries in both orders; the within-region count is stored that way (open question 1).
+
 ## 5. Template fibers, the gate, and precision
 
 ### 5.1 Placing template ends on the subject

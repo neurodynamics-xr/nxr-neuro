@@ -47,6 +47,8 @@ add_library(nxr_compute STATIC
   src/delaunay.cpp
   src/eigensolver.cpp
   src/congruence.cpp
+  src/nearest.cpp
+  src/connectome.cpp
   src/magnetic.cpp
   src/lag.cpp
   src/region.cpp
@@ -372,6 +374,18 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     target_link_libraries(test_tracks PRIVATE nxr_compute)
     target_compile_definitions(test_tracks PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
     add_test(NAME test_tracks COMMAND test_tracks)
+    add_executable(test_connectome test/test_connectome.cpp)
+    target_link_libraries(test_connectome PRIVATE nxr_compute)
+    add_test(NAME test_connectome COMMAND test_connectome)
+    add_executable(test_connectome_partition test/test_connectome_partition.cpp)
+    target_link_libraries(test_connectome_partition PRIVATE nxr_compute)
+    add_test(NAME test_connectome_partition COMMAND test_connectome_partition)
+    add_executable(test_connectome_gate test/test_connectome_gate.cpp)
+    target_link_libraries(test_connectome_gate PRIVATE nxr_compute)
+    add_test(NAME test_connectome_gate COMMAND test_connectome_gate)
+    add_executable(test_connectome_registration test/test_connectome_registration.cpp)
+    target_link_libraries(test_connectome_registration PRIVATE nxr_compute)
+    add_test(NAME test_connectome_registration COMMAND test_connectome_registration)
     add_executable(test_crossings test/test_crossings.cpp)
     target_link_libraries(test_crossings PRIVATE nxr_compute)
     target_compile_definitions(test_crossings PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
