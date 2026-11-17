@@ -150,3 +150,71 @@ nn.measure("power", of="rest_kernel_current", over=nn.select.product("tiles:L4",
 3. Is a ladder a type, or a hierarchical partition whose coarser levels are views (`coarser(shift)`).
 4. Spatiotemporal selections: products, and events that move.
 5. `select` a top-level verb or a family of definitions; `at` a YAML key on any input; the measurement phrase's keyword.
+
+## 7. Inventory: every compute takes a selection (2026-11-17)
+
+An inventory of compute's public functions (`compute/include/nxr/`, from the headers' signatures and doc comments) found that every compute works over a
+selection. What differs is the selection's shape and what the compute returns:
+
+| the selection | its members | the compute returns |
+|---|---|---|
+| single elements | each element alone | a value per element (pointwise) |
+| a neighbourhood per element | the span ±h around a sample, a vertex's one-ring, a disc (overlapping, one per element) | a value per element |
+| a partition | disjoint windows or regions | a value per member |
+| labelled spans or regions | events, bursts, discs (may overlap) | a value per member |
+| the whole manifold | the whole recording or connected piece | a value for the whole |
+
+Today the selection is passed in disguise, as a plain parameter under a name of its own. This list is the refactoring work: each becomes a selection
+resolved into one fixed array form, and the diverging words (tiles, windows, segments, frames, pyramid, groups, nodes, cells) dissolve into the selection
+vocabulary.
+
+### 7.1 Reductions within members (a selection required)
+
+| how the selection is passed today | functions | what it is |
+|---|---|---|
+| a code per element and a count, under five names (`codes`, `node`, `rowGroup`, `members`, `Surface.node`) | `partition::accumulate`, `medians`, `meanOverMembers`; `ladder::scalarSummary`, `frameSummary`, `vectorSummary`, `leviCivita`, `lcResultant`, `tileAreas`, `tileCentres`; `integrals::flux`, `circulation`; `tileFlux`, `tileCirculation`; `region::collapse`; `quadrature::groupedCongruenceNorms`, `pairCongruenceNorms`; `crossings::crossings` | a partition by codes |
+| a tile width and a tile count | `partition::reduceTiles`, `crossSpectrum`; `histogram::histogramTiles` | a time partition at one level |
+| a segment length and an overlap | `welch`, `Welch`, `ComplexWelch`, `LinearWelch`, `CrossWelch` | a regular family of time spans (overlapping segments) |
+| a tile index per sample (`tile[samples]`) with codes per row | `partition::analyticSums`, `tensorSums`; `pyramid::bandSums`, `tensorBandSums`, `frameOfSamples`, `addSampleCounts`; `tower::sampleCounts` | a product partition (space × time) |
+| bin groups `{first, last}` | `CrossWelch` | a frequency partition |
+| span and event lists (`TileEvent`, `Span`), an event-label matrix (`Labels`), a span as two numbers | `intervals::rollupEvents`, `eventDurations`, `eventIntervalNext`; `extent::rollup`, `areaByFrame`, `centres`, `pathLength`, `windowRegions`; `risefall::fit` | labelled spans; events on a product manifold |
+| a baseline per member as numbers (`median`, `sd`) | `extent::standardize` | a measurement over a selection, handed in |
+
+### 7.2 Reductions across members
+
+`stats.h` (mean, sd, median, mad, percentile, peak, skewness, kurtosis, … of a vector of member values); `histogram::sumTiles`, `percentile`, `median`,
+`mad` (a run of tiles as `first, last`); `partition::sumOverMembers`; `tower::rollTime` (a coarser level as a merge); `pca::pca` (members as rows);
+`scale::selectScale`, `eventFacts`; `scalespace::selectLevel` (across levels); `surrogate::besagCliffordP`, `benjaminiHochberg`; `crossings::repeat`,
+`poolSenses`. They take the members' values already assembled by the caller.
+
+### 7.3 Neighbourhoods
+
+| how the neighbourhood is given today | functions |
+|---|---|
+| derived from a design, never stated (the streaming state handles chunk edges) | FIR filters (length from ripple and transition width); IIR notch and bandstop (unbounded, forward and back); `Filter::window`, `RunningMean` |
+| an explicit margin or halo, computed and reported | `wt` margin (the longest member's response tail); `timebank::haloOf`; `frame_tiling::sincInterpolate` (`half_width`); `taps` (half-width); `surrogate::shapingTaps`, `filterValid` |
+| the mesh's one-ring, implicit in the operator (k-rings for a Chebyshev series of order k) | the Laplacians, DEC, Hodge–Dirac and connection operators; curvatures, normals, face frames; `phase::vertexGradient`, `phaseGradient`, `phaseVelocity`, `travellingIndex`; `hodge_weights`, `intrinsic_forms`, `magnetic`, `transport`, `lag::holonomy`; the graph filterbank's Chebyshev route |
+| a radius or a distance | `ChartKit::disc`; `quadrature::weightedPhaseGradient` (a disc); `tracks::link` (`linkDistance`); `lag::pairsAtDistance` |
+| the whole connected piece, or the whole block passed in | eigensolvers, Poisson, heat distance, vector heat, Hodge decomposition, the filterbank's exact route, `jointbank`, `spacetime_kernels::scatter`, `monogenic`, optical flow; the FFT Hilbert transforms of `opticalflow::hilbertRows`, `activation` and `pyramid::spectrumOf`, `analyticBand` |
+
+Where the neighbourhood is "the whole block passed in", the result depends on where the pipeline cuts its chunks: the chunking decides the neighbourhood,
+not the method. An explicit neighbourhood selection makes this visible, and tells the planner the margin or the whole member to read.
+
+### 7.4 Pointwise (the selection is each element)
+
+`analytic::abs`, `angle`; `rotary`; `scaling`; `phase::power`, `phaseCurrent`, `gradientPower`; `spectral_scaling::convert`, `linearFactor`, `unitOf`;
+`congruence` (A M Aᴴ per sample or pair); `quadrature::coSpectrum`, `quadratureSpectrum`, `phaseLag`, `timeLag`, `meanResultantLength`;
+`pyramid::bandGains`; `lag::lagStatistics`, `circularShift`; `surrogate::normalAt`, `whiteBlock`, `wishartDraw`.
+
+### 7.5 Selections already made in compute, not recognised as such
+
+They create selections and belong with the selection makers: `tower::makeFrameTiling`, `frameSpan`, `parent`, `levelForSeconds` (time frames);
+`regions::detectRegions`, `cores::corePatches`, `extent::windowRegions` (spatial regions and events); `intervals` event detection (spans);
+`lag::pairsAtDistance` (pairs of vertices). The `good` sample mask passed to Welch, the pyramid and several reductions is itself a selection (the
+complement of the bad segments).
+
+### 7.6 Not classified with confidence
+
+`speedspectrum::compute`, `pyramid::frameKernel`, `quadrature::rotarySpectrum` (a window per frequency), `connectome::partitionCounts`,
+`smoothMemberships`, and compute.h's generators, loci and isolines; the covariant operators and vector-field operations' neighbourhoods were not read at
+line level.
