@@ -15,6 +15,7 @@
 #include "check.h"
 #include "nxr/io.h"
 #include "nxr/io/measurement_query.h"
+#include "nxr/io/task/task.h"
 #include "nxr/measurement/measures.h"
 #include "nxr/measurement/roll_up.h"
 
@@ -106,9 +107,10 @@ int main() {
   const std::vector<std::string> measures = {"sum", "max", "min", "mean", "mean_square", "abs_max"};
   auto put = [&](const std::string& subject, const std::string& sel, const std::vector<double>& v, const std::vector<double>& w, const std::string& measure) {
     SubjectWriter sub = SubjectWriter::open(ds, subject);
+    const task::Subject ts = task::Subject::of(sub);
     Json rows = Json::array();
     for (std::size_t i = 0; i < v.size(); ++i) rows.push_back(Json{{"selection_id", sel}, {"code", static_cast<std::int64_t>(i)}, {"measure", measure}, {"value", v[i]}, {"weight", w[i]}});
-    write_measurements(sub.db(), rows, std::string("test"));
+    ts.write_member_rows(rows, "test");
   };
   for (const std::string& m : measures) { put("S1", s1, a, wa, m); put("S2", s2, b, wb, m); }
   put("S1", s1, a, wa, "median");
@@ -120,7 +122,7 @@ int main() {
         std::string(nm::merge_name(registry.at("sum").merge)) == "sum" && std::string(nm::merge_name(registry.at("min").merge)) == "min");
 
   SubjectWriter sub1 = SubjectWriter::open(ds, "S1");
-  const Database& db = sub1.db();
+  const task::Subject db = task::Subject::of(sub1);
   auto sql_rows = [&](const std::string& measure, int shift, bool whole) {
     query::Query q;
     q.measure = measure;
@@ -128,7 +130,7 @@ int main() {
     q.roll.shift = shift;
     q.roll.whole = whole;
     std::map<std::int64_t, double> out;
-    for (const auto& r : query::members(db, q)) out[r["code"].get<std::int64_t>()] = r["value"].get<double>();
+    for (const auto& r : db.query_members(q)) out[r["code"].get<std::int64_t>()] = r["value"].get<double>();
     return out;
   };
   const Eigen::MatrixXd va = row(a), wva = row(wa);
@@ -150,7 +152,7 @@ int main() {
   for (const std::string& m : measures) {
     query::Query q;
     q.measure = m; q.filter.selections = {"tiles"}; q.roll.across_subjects = true;
-    const Json sql = query::members(db, q);
+    const Json sql = db.query_members(q);
     std::vector<double> both = a, wboth = wa;
     both.insert(both.end(), b.begin(), b.end());
     wboth.insert(wboth.end(), wb.begin(), wb.end());
@@ -163,7 +165,7 @@ int main() {
   {
     query::Query q;
     q.measure = "median"; q.filter.subjects = {"S1"}; q.roll.shift = 1;
-    CHECK(refused([&] { query::members(db, q); }));
+    CHECK(refused([&] { db.query_members(q); }));
     CHECK(refused([&] { nm::roll_values(registry, "median", va, nullptr, groups_of(8, 1, false)); }));
   }
   std::printf("  io SQL roll-up and compute roll_values agree on %d values (sum, max, min, weighted mean; levels, the whole, across subjects)\n", compared);

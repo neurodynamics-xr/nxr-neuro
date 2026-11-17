@@ -121,6 +121,17 @@ struct Subject::Impl {
   rec::Records records() const { return rec::Records::of(*db); }
 };
 
+selection::ElementMembers Subject::element_members(const std::string& selection_id) const {
+  if (!impl_->writer) throw Error(code::unsupported, "reading a set's elements needs the subject's store (a writer's subject)");
+  return selection::read_element_members(*impl_->db, impl_->writer->store(), selection_id);
+}
+
+Json Subject::query_members(const query::Query& q) const { return query::members(*impl_->db, q, impl_->writer ? &impl_->writer->store() : nullptr); }
+std::int64_t Subject::write_member_rows(const Json& rows, const std::string& computed_by) const {
+  if (!impl_->writer) throw Error(code::unsupported, "writing measurement rows needs a writer's subject");
+  return write_measurements(*impl_->db, rows, computed_by);
+}
+
 Subject Subject::of(SubjectWriter& sub) {
   Subject s;
   s.impl_ = std::make_shared<Impl>();

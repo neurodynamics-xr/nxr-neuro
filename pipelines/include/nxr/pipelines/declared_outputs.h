@@ -25,7 +25,7 @@ namespace nxr::pipelines::graph {
 /** whether an `outputs:` entry is one of the declared kinds above */
 bool is_declared(const Json& spec);
 /** a declared output checked against what its node's port type says and its links resolved, before any data is read: refuses (invalid_argument) naming the output */
-void check_declared(const Plan& P, const std::string& output, const nxr::io::Database& db);
+void check_declared(const Plan& P, const std::string& output);
 /** whether the plan's output is declared: the entry says so and its steps do not make a span set or a labelling (`{kind: selection, type: spans}` is the short form `{kind: spans}`, stored as before) */
 bool is_declared(const Plan& P, const std::string& output);
 /** the stored name an output takes (its template filled) */

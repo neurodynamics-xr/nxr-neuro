@@ -158,7 +158,7 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     const Value& v = P.values.at(o);
     // THREE KINDS OF OUTPUT: a Field (materialized), a measurement over a time partition (reduced: selection_measurement rows), a span set (a spans Selection)
     const std::string kind = spec.value("kind", std::string());
-    if (is_declared(P, o)) { check_declared(P, o, db); continue; }            // a declared output (declared_outputs.h): its kind, links and node checked here, its values at the store
+    if (is_declared(P, o)) { check_declared(P, o); continue; }            // a declared output (declared_outputs.h): its kind, links and node checked here, its values at the store
     if (kind == "recording") {                                             // a streamed value written as a new recording, block by block, as the loop runs (a filter's output)
       if (!v.chunked || !d.over) refuse("outputs." + o + ": a recording output is a value inside the chunk loop (what a chunk node makes of the recording)");
       if (!spec.contains("name")) refuse("outputs." + o + ": a recording output names the new recording (name: …)");

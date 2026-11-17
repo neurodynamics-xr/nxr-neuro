@@ -40,31 +40,33 @@ std::int64_t original_vertices(nxr::io::SubjectWriter& sub, const GlueMap& g, co
 // the selection a measurement is over, ON THE ORIGINAL: itself when it does not lie on a glued surface (or is not per element); else its twin on the original (get-or-create by name,
 // `<name> on <original>`), the member of each original vertex carried over, the dictionary shared
 std::string selection_on_original(nxr::io::SubjectWriter& sub, const std::string& selection_id, const std::string& output) {
-  const auto row = sub.db().read("selection", selection_id);
-  if (!row || nxr::io::is_null(*row, "manifold_id")) return selection_id;
-  const auto g = Bound(sub, nullptr).glue_of(text(*row, "manifold_id"));
+  const task::Subject ts = task::Subject::of(sub);
+  const auto node = ts.by_id(task::Cls::selection, selection_id);
+  if (!node || !node->manifold_id) return selection_id;
+  const auto g = Bound(sub, nullptr).glue_of(*node->manifold_id);
   if (!g) return selection_id;
   const std::int64_t n_original = original_vertices(sub, *g, output);
-  const auto orig = task::Subject::of(sub).by_id(task::Cls::manifold, g->original_id);
-  const std::string name = text(*row, "name") + " on " + orig->name;
-  if (const auto have = nxr::io::selection::find_on_manifold(sub.db(), g->original_id, name)) return have->id;
-  if (text(*row, "type") != "set" || nxr::io::is_null(*row, "array_path"))
-    bad(output, "the selection " + text(*row, "name") + " lies on the glued surface and is not a set per element: it cannot be restricted back to the original (make it on the original, or as a set per element)");
-  const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub.db(), sub.store(), selection_id);
+  const auto orig = ts.by_id(task::Cls::manifold, g->original_id);
+  const std::string name = node->name + " on " + orig->name;
+  task::Want w{.cls = task::Cls::selection};
+  w.name = name; w.manifold_id = g->original_id;
+  if (const auto have = ts.find(w)) return have->id;
+  if (!node->type || *node->type != "set" || !node->array_path)
+    bad(output, "the selection " + node->name + " lies on the glued surface and is not a set per element: it cannot be restricted back to the original (make it on the original, or as a set per element)");
+  const nxr::io::selection::ElementMembers em = ts.element_members(selection_id);
   nxr::io::selection::Description d;
   d.type = nxr::io::selection::Type::set;
   d.member_of = restrict_members(em.member_of, *g, n_original);
   d.member_codes = em.member_codes;
   nxr::io::selection::Placement at;
   at.name = name;
-  at.path = nxr::io::node_path(sub.db(), g->original_id, name);
+  at.path = ts.node_path(g->original_id, name);
   at.manifold_id = g->original_id;
   at.cell = "0";
-  if (!nxr::io::is_null(*row, "dictionary_id")) at.dictionary_id = text(*row, "dictionary_id");
+  if (node->dictionary_id) at.dictionary_id = *node->dictionary_id;
   at.params = Json{{"restricted_from", restricted_record(*g)}, {"of_selection", selection_id}};
   return nxr::io::selection::save(sub, d, at).id;
 }
-
 std::string kind_of(const Json& spec) { return spec.value("kind", std::string()); }
 
 // `{input}` -> the found input's name (or a parameter's value), `$parameter` -> its value (the longest parameter name that fits); twice, so that a parameter whose value holds `{input}` is filled
@@ -288,7 +290,7 @@ std::string declared_name(const Plan& P, const std::string& o) {
   return nxr::io::safe_name(P.definition.name + "." + o + (a && P.found.at(*a).row ? "." + text(*P.found.at(*a).row, "name") : std::string()));
 }
 
-void check_declared(const Plan& P, const std::string& o, const nxr::io::Database& db) {
+void check_declared(const Plan& P, const std::string& o) {
   const Json& spec = P.definition.outputs[o];
   const std::string k = kind_of(spec);
   const Value& v = P.values.at(o);
@@ -350,7 +352,6 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
     }
     if ((t == "surface" || t == "points" || t == "complex") && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
   }
-  (void)db;
 }
 
 std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, const std::string& o, nxr::io::SubjectWriter& sub) {
