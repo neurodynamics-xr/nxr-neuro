@@ -6,7 +6,9 @@
 
 #include "nxr/bst/entities.h"
 #include "nxr/io/array_reader.h"
+#include "nxr/io/selection_reads.h"
 #include "nxr/io/subject_package.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/io/writer.h"
 #include "nxr/montage.h"
 #include "nxr/pipelines/input.h"
@@ -23,25 +25,25 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
   DatasetWriter w = open_package_writer(opt.package);
   std::string subject = opt.subject;
   if (subject.empty()) {
-    const auto rows = w.db().all("SELECT name FROM subject");
+    const auto rows = nxr::io::complete_subjects(w.db());
     if (rows.size() != 1) invalid("montage create: the package holds " + std::to_string(rows.size()) + " subjects: name one (--subject)");
     subject = text(rows[0], "name");
   }
   SubjectWriter sub = SubjectWriter::open(w, subject);
   // the scalp and the landmarks
   const SurfaceInput scalp = read_surface(sub, opt.scalp);
-  const auto lm_row = sub.db().one("SELECT m.id AS id, m.n_vertices AS n_vertices, g.positions_path AS positions_path, g.coordinate_system_id AS cs_id FROM manifold m JOIN geometry g ON g.id = m.geometry_id "
-                                   "WHERE m.subject_id = ? AND m.type = 'points' AND m.name = ? AND m.status = 'complete'", {V(sub.id()), V(opt.landmarks)});
-  if (!lm_row) invalid("montage create: " + subject + " has no points manifold '" + opt.landmarks + "' (the nasion, LPA and RPA of the template)");
+  const auto lm_found = nxr::io::find_manifold(sub.db(), sub.id(), opt.landmarks, std::string("points"));
+  if (!lm_found) invalid("montage create: " + subject + " has no points manifold '" + opt.landmarks + "' (the nasion, LPA and RPA of the template)");
+  const auto lm_row = nxr::io::manifold_with_geometry(sub.db(), text(*lm_found, "id"));
+  if (!lm_row) invalid("montage create: '" + opt.landmarks + "' has no geometry");
   if (integer(*lm_row, "n_vertices") != 3) invalid("montage create: '" + opt.landmarks + "' holds " + std::to_string(integer(*lm_row, "n_vertices")) + " points, not the nasion, LPA and RPA");
-  if (sub.db().one("SELECT id FROM manifold WHERE subject_id = ? AND name = ?", {V(sub.id()), V(opt.name)})) invalid("montage create: " + opt.name + " exists already");
+  if (nxr::io::find_manifold(sub.db(), sub.id(), opt.name)) invalid("montage create: " + opt.name + " exists already");
   // the same coordinate system: the scalp's and the landmarks' (a landmark in another system is not the scalp's landmark)
-  const auto scalp_cs = sub.db().one("SELECT g.coordinate_system_id AS cs_id, cs.name AS cs_name, cs.unit AS unit FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE m.id = ?", {V(scalp.id)});
-  const auto lm_cs = sub.db().one("SELECT cs.name AS cs_name FROM coordinate_system cs WHERE cs.id = ?", {V(text(*lm_row, "cs_id"))});
-  if (!scalp_cs || !lm_cs) invalid("montage create: the scalp or the landmarks have no coordinate system");
-  if (text(*scalp_cs, "cs_name") != text(*lm_cs, "cs_name")) invalid("montage create: the scalp is in '" + text(*scalp_cs, "cs_name") + "' and the landmarks in '" + text(*lm_cs, "cs_name") + "': place them in one system first");
-  const std::string cs_key = text(*scalp_cs, "cs_name");
-  // landmark names: the names labelling's levels, in order NAS, LPA, RPA
+  const std::string scalp_cs = nxr::io::manifold_coordinate_system(sub.db(), scalp.id), lm_cs = nxr::io::manifold_coordinate_system(sub.db(), text(*lm_row, "id"));
+  if (scalp_cs.empty() || lm_cs.empty()) invalid("montage create: the scalp or the landmarks have no coordinate system");
+  if (scalp_cs != lm_cs) invalid("montage create: the scalp is in '" + scalp_cs + "' and the landmarks in '" + lm_cs + "': place them in one system first");
+  const std::string cs_key = scalp_cs;
+  // landmark names: the landmarks' names labelling's lookup, in order NAS, LPA, RPA (by code)
   const std::vector<double> lp = [&] {
     ArrayReader r = ArrayReader::open(sub.store(), text(*lm_row, "positions_path"));
     const std::vector<std::uint8_t> raw = r.read();
@@ -54,9 +56,9 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
     return out;
   }();
   if (lp.size() != 9) invalid("montage create: '" + opt.landmarks + "' positions are not [3 x 3]");
-  const auto level_names = sub.db().all("SELECT DISTINCT de.name AS name, de.code AS code FROM selection s JOIN dictionary_entry de ON de.dictionary_id = s.dictionary_id WHERE s.manifold_id = ? ORDER BY de.code", {V(text(*lm_row, "id"))});
   std::vector<std::string> names;
-  for (const auto& r : level_names) names.push_back(text(r, "name"));
+  if (const auto lab = nxr::io::selection::labelling_row(sub.db(), sub.id(), opt.landmarks + "_names", text(*lm_row, "id")); lab && !opt_text(*lab, "dictionary_id").value_or("").empty())
+    for (const auto& [code_, name] : nxr::io::selection::lookup_names(sub.db(), text(*lab, "dictionary_id"))) names.push_back(name);
   if (names != std::vector<std::string>({"NAS", "LPA", "RPA"})) invalid("montage create: '" + opt.landmarks + "' names its points " + (names.empty() ? std::string("not at all") : names[0] + ",...") + ", not NAS, LPA, RPA in that order");
 
   nxr::montage::Landmarks L;
