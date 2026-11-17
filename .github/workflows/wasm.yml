@@ -1,17 +1,14 @@
 name: wasm
 
-# Build the WebAssembly module (bindings/wasm-io: the data client other applications load) and run its smoke test against the native command
-# (the module writes and the command reads, then the reverse, on synthetic data). On pushes to main, nightly and on demand; on pull requests
-# only when they touch the module or this workflow.
+# Build the WebAssembly data client and run its smoke test against the native command. ONLY when the binding itself changes
+# (bindings/wasm-io/**, this workflow), on version tags and on demand: C++ changes never run it.
 on:
   push:
-    branches: [main]
+    tags: ["v*"]
   pull_request:
     paths:
       - "bindings/wasm-io/**"
       - ".github/workflows/wasm.yml"
-  schedule:
-    - cron: "30 6 * * *"
   workflow_dispatch:
 
 concurrency:
