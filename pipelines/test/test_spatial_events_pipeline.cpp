@@ -24,7 +24,7 @@
 #include "nxr/tower.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
-#include "nxr/io/constant_q.h"
+#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
 #include "run_definition.h"
@@ -114,7 +114,7 @@ int main() {
       op.cols.json("params_json", Json{{"inverse", Json{{"measure", "MNE"}}}});
       sub.operator_(std::move(op));
     });
-    sub.compose([&] { nxr::io::constantq::write(sub, tid); });
+    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   tiles_compute(ds, sub, TilesComputeOptions{});

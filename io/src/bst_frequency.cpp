@@ -2,6 +2,7 @@
 #include "nxr/bst/frequency.h"
 
 #include "nxr/io/layout.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/surface.h"
 
 namespace nxr::bst {
@@ -37,9 +38,9 @@ std::optional<FrequencyRows> find_frequency(nxr::io::Database& db) {
   const auto m = db.one("SELECT m.* FROM manifold m JOIN subject s ON s.id = m.subject_id WHERE s.kind = 'template' AND m.name = ? AND m.type = 'line' "
                         "ORDER BY m.created_utc LIMIT 1", {std::string(kFrequencyName)});
   if (!m) return std::nullopt;
-  const auto b = db.one("SELECT * FROM selection WHERE manifold_id = ? AND name = ? AND type = 'spans'", {nxr::io::text(*m, "id"), std::string(kBandsName)});
+  const auto b = nxr::io::selection::find_on_manifold(db, nxr::io::text(*m, "id"), std::string(kBandsName), std::string("spans"));
   if (!b) return std::nullopt;
-  return FrequencyRows{*m, *b};
+  return FrequencyRows{*m, *db.read("selection", b->id)};
 }
 
 FrequencyIds ensure_frequency(SubjectWriter& sub) {
@@ -75,8 +76,8 @@ FrequencyIds ensure_frequency(SubjectWriter& sub) {
   } else {
     mid = nxr::io::text(*have, "id");
   }
-  if (const auto sel = sub.db().one("SELECT id FROM selection WHERE manifold_id = ? AND name = ?", {mid, std::string(kBandsName)}))
-    return {mid, nxr::io::text(*sel, "id")};
+  if (const auto sel = nxr::io::selection::find_on_manifold(sub.db(), mid, std::string(kBandsName)))
+    return {mid, sel->id};
   const std::string did = band_dictionary_id(sub.db());
   nxr::io::SelectionSpec s;
   s.name = kBandsName;

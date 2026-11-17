@@ -76,6 +76,8 @@ add_library(nxr_pipelines
   src/group.cpp
   src/tiles.cpp
   src/face.cpp
+  src/selection_bridge.cpp
+  src/constant_q.cpp
 )
 target_include_directories(nxr_pipelines PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include PRIVATE ${CMAKE_CURRENT_BINARY_DIR})
 target_link_libraries(nxr_pipelines PUBLIC nxr_io nxr_compute nxr_meeg nxr_graph)

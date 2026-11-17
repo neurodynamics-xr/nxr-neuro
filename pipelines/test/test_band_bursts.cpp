@@ -20,7 +20,7 @@
 #include "nxr/bst/entities.h"
 #include "nxr/filterbank.h"
 #include "nxr/io.h"
-#include "nxr/io/constant_q.h"
+#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
@@ -102,7 +102,7 @@ int main() {
         }
       }
     });
-    sub.compose([&] { nxr::io::constantq::write(sub, tid); });
+    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   const g::Definition d = g::load("band_bursts");

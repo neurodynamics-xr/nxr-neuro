@@ -7,6 +7,7 @@
 
 #include "bst_pyvalue.h"
 #include "nxr/io/layout.h"
+#include "nxr/io/selection_measurement.h"
 #include "nxr/io/surface.h"
 
 namespace nxr::bst {
@@ -302,16 +303,10 @@ std::optional<std::tuple<std::vector<std::string>, std::vector<std::int64_t>, st
 
 int region_measurements(SubjectWriter& sub, const std::string& selection_id, const std::vector<RegionValue>& rows, const std::string& measure, const std::optional<std::string>& unit,
                         const std::string& computed_by) {
-  const std::string stamp = nxr::io::now_utc();
-  sub.db().tx([&] {
-    for (const RegionValue& r : rows) {
-      Row row = {{"selection_id", selection_id}, {"code", nxr::io::V(r.code)}, {"of_field_id", nxr::io::V(nullptr)}, {"measure", measure}, {"value", r.value},
-                 {"unit", nxr::io::V(unit)}, {"within_selection_id", r.within_code ? nxr::io::Value(selection_id) : nxr::io::Value(std::monostate{})},
-                 {"within_code", r.within_code ? nxr::io::V(*r.within_code) : nxr::io::Value(std::monostate{})}, {"computed_utc", stamp}, {"computed_by", computed_by}};
-      sub.db().insert("selection_measurement", row);
-    }
-  });
-  return static_cast<int>(rows.size());
+  std::vector<nxr::io::selection::MemberValue> values;
+  for (const RegionValue& r : rows) values.push_back({r.code, r.value, r.within_code});
+  // a region's value within a region's code: the band key is the atlas itself (within_selection_id = the selection)
+  return static_cast<int>(nxr::io::selection::save_member_values(sub, selection_id, measure, values, unit, computed_by, selection_id));
 }
 
 bool is_region_map(const fs::path& path) {

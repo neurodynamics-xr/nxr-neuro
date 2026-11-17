@@ -21,7 +21,7 @@
 #include "nxr/tower.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
-#include "nxr/io/constant_q.h"
+#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "run_definition.h"
 #include "nxr/pipelines/runner.h"
@@ -98,7 +98,7 @@ int main() {
       nxr::bst::TimeSpansOptions wo; wo.line_id = tid; wo.of_field_id = first_rid; wo.description = "the window";
       nxr::bst::time_spans(sub, "time/window", {{w0, w1, 0}}, {"burst"}, wo);
     });
-    sub.compose([&] { nxr::io::constantq::write(sub, tid); });
+    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   // ── THE STORED TILING ──

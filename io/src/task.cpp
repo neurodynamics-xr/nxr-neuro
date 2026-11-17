@@ -7,6 +7,8 @@
 #include "nxr/io/layout.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/records/records.h"
+#include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/writer.h"
@@ -464,37 +466,29 @@ std::int64_t Unit::write_measurements(const Json& rows) {
   // a row that names how it was made keeps that (a result's rows may carry more than the unit's tool); the others are recorded as computed by the unit's tool
   Json named = rows;
   if (named.is_array()) for (auto& r : named) if (r.is_object() && (!r.contains("computed_by") || r["computed_by"].is_null())) r["computed_by"] = by_.tool;
-  return nxr::io::write_measurements(*impl_->db, named, std::nullopt);
+  return selection::save_measurements(*impl_->db, named, std::nullopt);
 }
 std::int64_t Unit::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) {
   if (!open_) throw Error(code::not_writable, "unit: closed");
-  Json where{{"selectionId", selection_id}};
-  if (of_field_id) where["ofFieldId"] = *of_field_id;
-  if (measure) where["measure"] = *measure;
-  return nxr::io::delete_measurements(*impl_->db, where);
+  return selection::remove_measurements(*impl_->db, selection_id, of_field_id, measure);
 }
 void Unit::set_params(const std::string& selection_id, const Json& params) {
   if (!open_) throw Error(code::not_writable, "unit: closed");
-  impl_->db->execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(params)), V(selection_id)});
+  selection::set_params(*impl_->db, selection_id, params);
 }
 
 
 std::int64_t Subject::write_measurements(const Json& rows, const std::optional<std::string>& by) const {
   std::int64_t n = 0;
-  impl_->db->tx([&] { n = nxr::io::write_measurements(*impl_->db, rows, by); });
+  impl_->db->tx([&] { n = selection::save_measurements(*impl_->db, rows, by); });
   return n;
 }
 
 std::int64_t Subject::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) const {
-  Json where{{"selectionId", selection_id}};
-  if (of_field_id) where["ofFieldId"] = *of_field_id;
-  if (measure) where["measure"] = *measure;
-  return nxr::io::delete_measurements(*impl_->db, where);
+  return selection::remove_measurements(*impl_->db, selection_id, of_field_id, measure);
 }
 
-void Subject::set_params(const std::string& selection_id, const Json& params) const {
-  impl_->db->execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(params)), V(selection_id)});
-}
+void Subject::set_params(const std::string& selection_id, const Json& params) const { selection::set_params(*impl_->db, selection_id, params); }
 
 
 // ── THE TYPED WRITES (spec docs/specs/2026-11-17-definition-outputs.md, section 4): each result kind written through the subject's writer inside the unit's
@@ -618,7 +612,7 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
     c.set("measure", x.measure).set("array_path", path).set("unit", x.unit).set("computed_by", by_.tool);
     if (!m.of_field_id.empty()) c.set("of_field_id", m.of_field_id);        // none: the members' own (a size)
     if (band && !(*band)["selection_id"].is_null()) c.set("within_selection_id", (*band)["selection_id"].get<std::string>()).set("within_code", (*band)["code"].get<std::int64_t>());
-    sub.measurement(m.selection_id, c);
+    selection::save_measurement(sub, m.selection_id, c);
     ++n;
   }
   return n;
@@ -627,59 +621,54 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
 std::string Unit::selection(const SelectionOut& s) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
-  SelectionSpec ss;
-  ss.name = s.name; ss.path = path_of(s); ss.manifold_id = s.manifold_id;
-  if (s.acquisition) ss.acquisition = *s.acquisition;
+  // the result as the selection module's description, and where it goes; the module maps it onto the rows (selection_store.h)
+  selection::Description d;
+  selection::Placement at;
+  at.name = s.name; at.path = path_of(s); at.manifold_id = s.manifold_id;
+  if (s.acquisition) at.acquisition = *s.acquisition;
   Json params = s.params.is_null() ? Json::object() : s.params;
-  std::vector<std::int32_t> codes;
-  if (s.type == "partition" || s.type == "set") {
+  if (s.type == "partition" || s.type == "set") {     // a partition is a set by codes: a code per element
     if (s.codes.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a " + s.type + " has a code per element");
-    codes.assign(s.codes.begin(), s.codes.end());
-    ss.type = "set";                                 // a partition is a set Selection: a code per element
-    ss.data = view(codes, {static_cast<std::int64_t>(codes.size())});
+    d.type = selection::Type::set;
+    d.codes.assign(s.codes.begin(), s.codes.end());
   } else if (s.type == "indices") {                  // a pick of elements, in order (the channels a covariance covers)
-    codes.assign(s.codes.begin(), s.codes.end());
-    ss.type = "indices";
-    ss.data = view(codes, {static_cast<std::int64_t>(codes.size())});
-    ss.picked = true;
+    d.type = selection::Type::indices;
+    d.indices.assign(s.codes.begin(), s.codes.end());
   } else if (s.type == "cells") {                    // a closed-form set (the joint cells of space x time): its rule in params, no element stored
     if (!s.n_members) throw Error(code::invalid_argument, "selection " + s.name + ": cells name their number (n_members)");
-    ss.type = "set";
-    ss.no_elements = true;
-    ss.cols.set("cell", "0,1").set("n_members", *s.n_members);
-    if (s.label) ss.cols.set("label", *s.label);
+    d.type = selection::Type::set;
+    at.n_members = *s.n_members;
+    at.cell = "0,1";
   } else if (s.type == "spans") {
-    ss.type = "spans";
-    std::vector<SpanSpec> sp;
-    for (const auto& x : s.spans) sp.push_back(SpanSpec{x.start, x.stop, x.code});
-    ss.spans = sp;
-    ss.cols.set("cell", "1");
+    d.type = selection::Type::set;
+    for (const auto& x : s.spans) {
+      selection::Description m;
+      m.type = selection::Type::span;
+      m.code = x.code;
+      m.extents.push_back(selection::Extent{0, x.start, x.stop});
+      d.members.push_back(std::move(m));
+    }
   } else if (s.type == "tiling") {
     if (!s.tiling) throw Error(code::invalid_argument, "selection " + s.name + ": a tiling needs its origin, width, hop and count");
     const Tiling& t = *s.tiling;
-    ss.type = "spans";
-    ss.cols.set("cell", "1").set("unit", t.unit).set("n_members", t.count + t.skipped);
-    params["tiling"] = Json{{"origin", t.origin}, {"width", t.width}, {"hop", t.hop}, {"count", t.count + t.skipped}};
+    d.type = selection::Type::set;
+    d.unit = t.unit;
+    d.tiling = selection::Tiling{t.origin, t.width, t.hop, t.count + t.skipped};
     params["end"] = t.end;
     params["segments_skipped"] = t.skipped;
   } else {
     throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans, tiling or cells)");
   }
-  if (!s.entries.empty()) {
-    DictionarySpec d;
-    d.name = s.name;
-    d.names = s.entries;
-    ss.cols.set("dictionary_id", sub.dictionary(d).id);
-  }
-  if (s.of_field_id) ss.cols.set("of_field_id", *s.of_field_id);
-  if (s.description) ss.cols.set("description", *s.description);
-  if (s.label) ss.cols.set("label", *s.label);
+  for (std::size_t k = 0; k < s.entries.size(); ++k) d.lookup.push_back(selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});   // the codes' names
+  if (s.of_field_id) at.of_field_id = *s.of_field_id;
+  if (s.description) at.description = *s.description;
+  if (s.label) at.label = *s.label;
   // a Selection has no producer column: its producer record is in its parameters, the cache key under "cache" (the Studio's searchAtlas: params_json.search)
   const Json pj = producer_of(by_, s.output, s.producer);
   if (pj.contains("cache")) params["cache"] = pj["cache"];
   params["producer"] = pj;
-  ss.cols.json("params_json", params);
-  return sub.selection(std::move(ss));
+  at.params = params;
+  return selection::save(sub, d, at).id;
 }
 
 std::string Unit::line(const LineOut& l) {

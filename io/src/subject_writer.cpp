@@ -9,6 +9,8 @@
 #include "nxr/io/writer.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/measures.h"
+#include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_store.h"
 
 namespace fs = std::filesystem;
 
@@ -699,66 +701,26 @@ std::string SubjectWriter::selection(SelectionSpec spec) {
     if (spec.data && spec.path) r["array_path"] = *spec.path;
     merge(r, prov(spec.created_utc));
     merge(r, cols);
-    db_->insert("selection", r);
+    // THE CODES ARE THE ARRAY'S: no per-element rows: the row carries the counts only, a subset its picked elements, a partition its elements and its distinct
+    // codes (D48). The rows themselves are the selection module's (selection_store.h).
+    std::optional<std::int64_t> n_elements, n_members;
     if (el) {
-      // THE CODES ARE THE ARRAY'S: no per-element rows — the row carries the counts only, a subset its picked elements, a partition its
-      // elements and its distinct codes (D48)
-      if (spec.picked) db_->execute("UPDATE selection SET n_elements = ? WHERE id = ?", {vint(el->size()), sid});
-      else db_->execute("UPDATE selection SET n_elements = ?, n_members = ? WHERE id = ?", {vint(el->size()), vint(distinct_count(*el)), sid});
+      n_elements = el->size();
+      if (!spec.picked) n_members = distinct_count(*el);
     }
-    if (spec.spans) {
-      int k = 0;
-      for (const auto& s : *spec.spans)
-        db_->execute("INSERT INTO selection_span (selection_id, ordinal, start, stop, code) VALUES (?, ?, ?, ?, ?)",
-                     {sid, V(k++), s.start, s.stop, s.code ? Value(*s.code) : Value(std::monostate{})});
-      db_->execute("UPDATE selection SET n_members = ? WHERE id = ?", {vint(static_cast<std::int64_t>(spec.spans->size())), sid});
-    }
-    for (const auto& e : spec.extents) db_->insert("selection_extent", {{"selection_id", sid}, {"axis", vint(e.axis)}, {"start", e.start}, {"stop", e.stop}});
-    for (const auto& m : spec.measurements) {
-      Row mr = {{"selection_id", sid}};
-      merge(mr, m);
-      db_->insert("selection_measurement", mr);
-    }
+    nxr::io::selection::insert_row(*db_, r, n_elements, n_members, spec.spans, spec.extents, spec.measurements);
   };
   const bool has_array = spec.path && (meta || spec.populate);
   return node("selection", sid, rows, has_array ? array_populate("selection", sid, meta, spec.data, spec.populate, spec.dense) : Populate());
 }
 
-void SubjectWriter::set_spans(const std::string& selection_id, const std::vector<SpanSpec>& spans) {
-  auto go = [&] {
-    db_->execute("DELETE FROM selection_span WHERE selection_id = ?", {V(selection_id)});
-    for (std::size_t k = 0; k < spans.size(); ++k)
-      db_->execute("INSERT INTO selection_span (selection_id, ordinal, start, stop, code) VALUES (?, ?, ?, ?, ?)",
-                   {V(selection_id), V(static_cast<std::int64_t>(k)), V(spans[k].start), V(spans[k].stop), spans[k].code ? V(*spans[k].code) : V(nullptr)});
-    db_->execute("UPDATE selection SET n_members = ? WHERE id = ?", {V(static_cast<std::int64_t>(spans.size())), V(selection_id)});
-  };
-  if (immediate_) update_node(*db_, ds_->node_store(), go); else db_->tx(go);
+void SubjectWriter::update(const std::function<void()>& body) {
+  if (immediate_) update_node(*db_, ds_->node_store(), body); else db_->tx(body);
 }
-void SubjectWriter::set_extents(const std::string& selection_id, const std::vector<ExtentSpec>& extents) {
-  auto go = [&] {
-    db_->execute("DELETE FROM selection_extent WHERE selection_id = ?", {V(selection_id)});
-    for (const auto& e : extents)
-      db_->execute("INSERT INTO selection_extent (selection_id, axis, start, stop) VALUES (?, ?, ?, ?)", {V(selection_id), V(e.axis), V(e.start), V(e.stop)});
-  };
-  if (immediate_) update_node(*db_, ds_->node_store(), go); else db_->tx(go);
-}
-void SubjectWriter::set_own_measurements(const std::string& selection_id, const std::vector<Cols>& rows) {
-  auto go = [&] {
-    db_->execute("DELETE FROM selection_measurement WHERE selection_id = ? AND code IS NULL", {V(selection_id)});
-    for (const auto& c : rows) { Row mr = {{"selection_id", selection_id}}; merge(mr, c); db_->insert("selection_measurement", mr); }
-  };
-  if (immediate_) update_node(*db_, ds_->node_store(), go); else db_->tx(go);
-}
-
-void SubjectWriter::measurement(const std::string& selection_id, const Cols& row) {
-  auto go = [&] {
-    Row mr = {{"selection_id", selection_id}};
-    merge(mr, row);
-    db_->insert("selection_measurement", mr);
-  };
-  if (immediate_) update_node(*db_, ds_->node_store(), go);
-  else db_->tx(go);
-}
+void SubjectWriter::set_spans(const std::string& selection_id, const std::vector<SpanSpec>& spans) { update([&] { nxr::io::selection::replace_spans(*db_, selection_id, spans); }); }
+void SubjectWriter::set_extents(const std::string& selection_id, const std::vector<ExtentSpec>& extents) { update([&] { nxr::io::selection::replace_extents(*db_, selection_id, extents); }); }
+void SubjectWriter::set_own_measurements(const std::string& selection_id, const std::vector<Cols>& rows) { nxr::io::selection::update_own_measurements(*this, selection_id, rows); }
+void SubjectWriter::measurement(const std::string& selection_id, const Cols& row) { nxr::io::selection::save_measurement(*this, selection_id, row); }
 
 DictionaryResult SubjectWriter::dictionary(const DictionarySpec& spec) {
   Cols scope_cols;

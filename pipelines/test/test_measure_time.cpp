@@ -13,7 +13,7 @@
 
 #include "check.h"
 #include "store_at.h"
-#include "nxr/io/constant_q.h"
+#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/pipelines/measure.h"
@@ -51,6 +51,7 @@ int main() {
   }
   DatasetWriter ds = create_dataset(root, "demo");
   std::string tid;
+  ConstantQWritten cqw;
   {
     SubjectWriter sub = SubjectWriter::create(ds, "S1");
     sub.compose([&] {
@@ -89,13 +90,12 @@ int main() {
         s.cols.json("params_json", Json{{"tiling", Json{{"origin", origin}, {"width", 1000.0 / sfreq}, {"hop", 1000.0 / sfreq}, {"count", 40}}}, {"end", static_cast<double>(T) / sfreq}});
         sub.selection(std::move(s));
       }
-      constantq::write(sub, tid, {}, std::string("test"));
+      cqw = constant_q_write(sub, tid, {}, std::string("test"));
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  const constantq::Tiling ct = constantq::constantQTiling(sfreq, T, 0.0);
-  int lev = -1;
-  for (std::size_t i = 0; i < ct.levels.size(); ++i) if (ct.levels[i].window_samples == 256) lev = static_cast<int>(i);
+  int lev = -1;   // the ordinal of the ladder level whose windows are 256 samples
+  for (std::size_t i = 0; i < cqw.levels.size(); ++i) if (cqw.levels[i].window_samples == 256) lev = static_cast<int>(i);
   CHECK(lev >= 0);
   if (lev < 0) return 1;
 

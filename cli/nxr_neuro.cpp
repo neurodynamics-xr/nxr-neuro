@@ -27,9 +27,9 @@
 #include <set>
 #include <sstream>
 
-#include "nxr/io/constant_q.h"
 #include "nxr/io/default_subject.h"
 #ifdef NXR_NEURO_WITH_PIPELINES
+#include "nxr/pipelines/constant_q.h"
 #include "nxr/pipelines/dataset.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/listing.h"
@@ -77,9 +77,10 @@ DatasetWriter dataset_of(const Args& a, bool lock = true) {
 
 // ── nxr-neuro dataset ──
 // nxr-neuro constantq compute --dataset D/N --subject S (--recording R | --line NAME | --all) [--method hertz|cycles] [--voices N] [--cycles C] [--fmax HZ] [--fmin HZ]
-//   THE CONSTANT-Q TILING of a time line (the Studio's time-tile policy; io/include/nxr/io/constant_q.h): a ladder Selection whose members are the levels,
+//   THE CONSTANT-Q TILING of a time line (the Studio's time-tile policy; designed by compute, stored by io, joined in pipelines/constant_q.h): a ladder Selection whose members are the levels,
 //   each a closed-form tessellation. The Studio's `backend/scripts/constant-q.mjs`: idempotent (a line that has one keeps it). --recording names a recording
 //   (its time line), --line a time Line by name, --all every recording's time line.
+#ifdef NXR_NEURO_WITH_PIPELINES
 int constantq_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "compute") throw Usage("nxr-neuro constantq: error: the following arguments are required: action (compute)");
   const std::string prog = "nxr-neuro constantq compute";
@@ -87,16 +88,15 @@ int constantq_main(const std::vector<std::string>& argv) {
   const Args a = parse(prog, rest, {"--dataset", "--subject", "--recording", "--line", "--method", "--voices", "--cycles", "--fmax", "--fmin"}, {"--all"}, {"--dataset", "--subject"});
   const int given = (a.maybe("--recording") ? 1 : 0) + (a.maybe("--line") ? 1 : 0) + (a.flag.count("--all") ? 1 : 0);
   if (given != 1) throw Usage(prog + ": error: name one of --recording R, --line NAME or --all");
-  nxr::io::constantq::Params p;
+  nxr::pipelines::ConstantQOptions p;
   if (const auto v = a.maybe("--method")) {
-    if (*v == "hertz") p.method = nxr::io::constantq::Method::Hertz;
-    else if (*v == "cycles") p.method = nxr::io::constantq::Method::Cycles;
-    else throw Usage(prog + ": error: --method must be hertz or cycles");
+    if (*v != "hertz" && *v != "cycles") throw Usage(prog + ": error: --method must be hertz or cycles");
+    p.method = *v;
   }
   if (const auto v = a.maybe("--voices")) p.voices = std::stoi(*v);
   if (const auto v = a.maybe("--cycles")) p.cycles = std::stod(*v);
-  if (const auto v = a.maybe("--fmax")) p.fMax = std::stod(*v);
-  if (const auto v = a.maybe("--fmin")) p.fMin = std::stod(*v);
+  if (const auto v = a.maybe("--fmax")) p.f_max = std::stod(*v);
+  if (const auto v = a.maybe("--fmin")) p.f_min = std::stod(*v);
   DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = stamp();
@@ -117,16 +117,17 @@ int constantq_main(const std::vector<std::string>& argv) {
   }
   Json made = Json::array();
   for (const std::string& line : lines) {
-    nxr::io::constantq::Written w;
-    sub.compose([&] { w = nxr::io::constantq::write(sub, line, p, stamp()); });
+    nxr::pipelines::ConstantQWritten w;
+    sub.compose([&] { w = nxr::pipelines::constant_q_write(sub, line, p, stamp()); });
     Json levels = Json::array();
-    for (const auto& lv : w.tiling.levels) levels.push_back(Json{{"level", lv.level}, {"window_samples", lv.window_samples}, {"window_s", lv.window_s}, {"tiles", lv.count},
+    for (const auto& lv : w.levels) levels.push_back(Json{{"level", lv.level}, {"window_samples", lv.window_samples}, {"window_s", lv.window_s}, {"tiles", lv.tiles},
                                                                {"resolves_hz", Json::array({lv.resolves_lo, lv.resolves_hi})}});
     made.push_back(Json{{"ladder", w.name}, {"existed", w.existed}, {"levels", levels}});
   }
   emit(Json{{"stage", "result"}, {"ladders", made}});
   return 0;
 }
+#endif
 
 int dataset_main(const std::vector<std::string>& argv) {
   if (argv.empty()) throw Usage("nxr-neuro dataset: error: the following arguments are required: action");
@@ -460,7 +461,13 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
     if (cmd == "package") return package_main(rest);
     if (cmd == "__import") return import_main(rest);
     if (cmd == "__export") return export_main(rest);
-    if (cmd == "constantq") return constantq_main(rest);
+    if (cmd == "constantq") {
+#ifdef NXR_NEURO_WITH_PIPELINES
+      return constantq_main(rest);
+#else
+      throw Error(code::unsupported, "nxr-neuro constantq needs the pipelines (nxr_compute + nxr_io): build with -DNXR_NEURO_BUILD_PIPELINES=ON (README: Pipelines)");
+#endif
+    }
     if (cmd == "subject") return subject_main(rest);
     if (cmd == "surface") return surface_main(rest);
     if (cmd == "convert") return convert_main(rest);
