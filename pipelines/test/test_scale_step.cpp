@@ -24,6 +24,7 @@
 #include "nxr/pipelines/frame_tiling.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
+#include "nxr/io/task/task.h"
 #include "nxr/pipelines/tiles.h"
 
 using namespace nxr::io;
@@ -94,7 +95,7 @@ int main() {
       for (std::size_t k = 0; k < sigmas.size(); ++k) {
         const std::vector<float> x = blob(sigmas[k]);
         FieldSpec rec;
-        rec.name = "blob" + std::to_string(k); rec.path = node_path(sub.db(), prod, rec.name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = "blob" + std::to_string(k); rec.path = task::Subject::of(sub).node_path(prod, rec.name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(x, {M, T}); rec.array.chunks = Shape{M, T}; rec.array.compress = false; rec.cols.set("unit", "A");
         sub.field(std::move(rec));
       }
@@ -117,8 +118,8 @@ int main() {
 
   // the levels: those of the ladder the hats are made for (several, so the planted widths can spread over them)
   const SurfaceInput S = read_surface(sub, std::nullopt, true);
-  const auto ladder = sub.db().one("SELECT n_members FROM selection WHERE subject_id = ? AND type = 'ladder'", {V(sub.id())});
-  const int top = static_cast<int>(integer(*ladder, "n_members")) - 1;
+  const auto ladder = task::Subject::of(sub).require({.cls = task::Cls::selection, .name = "rest_time_constantQ", .type = "ladder"}, "the time ladder");
+  const int top = static_cast<int>(ladder.n_members.value_or(0)) - 1;
   std::vector<int> lvs;
   for (int l = std::max(1, top - 4); l <= top; ++l) lvs.push_back(l);
   std::printf("  %d vertices on a %.0f cm sphere; ladder levels 0 … %d; hats at levels", N, R * 100, top);

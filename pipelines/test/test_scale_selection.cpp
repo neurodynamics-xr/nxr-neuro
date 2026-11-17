@@ -22,6 +22,8 @@
 #include "store_at.h"
 #include "nxr/io.h"
 #include "nxr/io/constant_q.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/joint.h"
 #include "nxr/pipelines/runner.h"
@@ -102,10 +104,12 @@ int main() {
   // the time levels of the two bands: the constant-Q levels that resolve 4-8 Hz and 8-16 Hz
   int tl_slow = -1, tl_fast = -1;
   std::int64_t w_slow = 0, w_fast = 0;
-  for (const Row& m : sub.db().all("SELECT member_ordinal, params_json FROM selection WHERE subject_id = ? AND member_of_id IS NOT NULL AND params_json LIKE '%resolves_hz%'", {V(sub.id())})) {
-    const Json pj = Json::parse(text(m, "params_json"));
-    if (pj["resolves_hz"]["lo"] == 4.0 && pj["resolves_hz"]["hi"] == 8.0) { tl_slow = static_cast<int>(integer(m, "member_ordinal")); w_slow = pj["window_samples"].get<std::int64_t>(); }
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0) { tl_fast = static_cast<int>(integer(m, "member_ordinal")); w_fast = pj["window_samples"].get<std::int64_t>(); }
+  const task::Subject tsub = task::Subject::of(sub);
+  for (const task::Node& m : tsub.find_all({.cls = task::Cls::selection, .params_present = {"resolves_hz"}})) {
+    if (!m.member_of_id) continue;
+    const Json& pj = m.params;
+    if (pj["resolves_hz"]["lo"] == 4.0 && pj["resolves_hz"]["hi"] == 8.0) { tl_slow = static_cast<int>(m.member_ordinal.value_or(0)); w_slow = pj["window_samples"].get<std::int64_t>(); }
+    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0) { tl_fast = static_cast<int>(m.member_ordinal.value_or(0)); w_fast = pj["window_samples"].get<std::int64_t>(); }
   }
   CHECK(tl_slow >= 0 && tl_fast >= 0);
   if (tl_slow < 0 || tl_fast < 0) return 1;
@@ -150,7 +154,7 @@ int main() {
     w.compose([&] {
       FieldSpec rec;
       const std::string prod = w.product({cid_s, tid});
-      rec.name = "rest"; rec.path = node_path(w.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = task::Subject::of(w).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, std::int64_t(4096)}; rec.array.compress = false; rec.cols.set("unit", "A");
       w.field(std::move(rec));
     });
@@ -199,8 +203,7 @@ int main() {
     }
   // each labelling names the bursts of ITS pair
   for (const auto& p : pd) {
-    const auto row = sub.db().one("SELECT params_json FROM selection WHERE id = ?", {V(p.lab_out["id"].get<std::string>())});
-    const Json pj = Json::parse(text(*row, "params_json"));
+    const Json pj = tsub.require_id(task::Cls::selection, p.lab_out["id"].get<std::string>()).params;
     CHECK(pj["bursts"].is_object() && pj["bursts"]["output"].get<std::string>() == "bursts_l" + std::to_string(p.l) + "_b" + band_name[static_cast<std::size_t>(p.bi)]);
   }
 
@@ -215,7 +218,9 @@ int main() {
   const int P = SP * TP;
   CHECK_EQ(E, 2);
   auto measure = [&](const std::string& selection, const std::string& name, std::vector<std::int64_t>& shape, int& comp) {
-    const auto row = sub.db().one("SELECT array_path, component, computed_by FROM selection_measurement WHERE selection_id = ? AND of_field_id = (SELECT id FROM field WHERE subject_id = ? AND name = 'rest') AND measure = ?", {V(selection), V(sub.id()), V(name)});
+    const std::string rest_id = tsub.require({.cls = task::Cls::field, .name = "rest"}, "the recording").id;
+    const auto found = testing::Probe(sub).rows("selection_measurement", {{"selection_id", selection}, {"of_field_id", rest_id}, {"measure", name}});
+    const auto row = found.empty() ? std::optional<Row>() : std::optional<Row>(found.front());
     CHECK(row.has_value());
     if (!row) return std::vector<double>();
     comp = static_cast<int>(integer(*row, "component"));
@@ -294,16 +299,16 @@ int main() {
   CHECK_EQ(static_cast<int>(at(spaceLevel, 7, 0)), 2 | 8);                                    // A: the coarsest level (2) and the longest window (8) of the set: on the set's edge
   CHECK_EQ(static_cast<int>(at(spaceLevel, 7, 1)), 1 | 4);                                    // B: the finest level (1) and the shortest window (4)
   {   // the spans Selection: the union of the members' time tiles, in seconds
-    const auto rows = sub.db().all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(sid)});
+    const auto rows = tsub.spans(tsub.require_id(task::Cls::selection, sid));
     CHECK_EQ(static_cast<int>(rows.size()), 2);
     for (int k = 0; k < 2; ++k) {
       std::int64_t first = 1 << 30, stop = -1;
       for (int a = 0; a < P; ++a) if (facts[static_cast<std::size_t>(a)][0].episode == k) { first = std::min(first, facts[static_cast<std::size_t>(a)][0].first); stop = std::max(stop, facts[static_cast<std::size_t>(a)][0].stop); }
-      CHECK(std::abs(std::stod(text(rows[static_cast<std::size_t>(k)], "start")) - first / sfreq) < 1e-6 && std::abs(std::stod(text(rows[static_cast<std::size_t>(k)], "stop")) - stop / sfreq) < 1e-6);
+      CHECK(std::abs(rows[static_cast<std::size_t>(k)].start - first / sfreq) < 1e-6 && std::abs(rows[static_cast<std::size_t>(k)].stop - stop / sfreq) < 1e-6);
     }
-    const auto sel = sub.db().one("SELECT params_json, type FROM selection WHERE id = ?", {V(sid)});
-    const Json pj = Json::parse(text(*sel, "params_json"));
-    CHECK(text(*sel, "type") == "spans" && pj["scale"]["pairs"].size() == 4 && pj["scale"]["response"] == "peak" && pj["scale"]["pairs"][1]["space_level"] == 3 && pj["scale"]["pairs"][1]["time_level"] == tl_slow && pj["scale"]["warnings"].size() == 3);
+    const auto sel = tsub.require_id(task::Cls::selection, sid);
+    const Json& pj = sel.params;
+    CHECK(sel.type == "spans" && pj["scale"]["pairs"].size() == 4 && pj["scale"]["response"] == "peak" && pj["scale"]["pairs"][1]["space_level"] == 3 && pj["scale"]["pairs"][1]["time_level"] == tl_slow && pj["scale"]["warnings"].size() == 3);
   }
   // a rerun is a hit; another option is refused without --replace
   { const auto r = run_verb(so); CHECK(r.hit && r.info["events"].get<int>() == 2); }

@@ -18,6 +18,7 @@
 #include "nxr/io.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/io/array_reader.h"
+#include "nxr/io/task/task.h"
 #include "nxr/io/measures.h"
 #include "nxr/ladder.h"
 #include "nxr/partition.h"
@@ -93,7 +94,7 @@ int main() {
       tid = sub.manifold(std::move(tm));
       const std::string prod = sub.product({cid, tid});
       FieldSpec rec;
-      rec.name = "rest"; rec.path = node_path(sub.db(), prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = task::Subject::of(sub).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, 4096}; rec.array.compress = false; rec.cols.set("unit", "A");
       rid = sub.field(std::move(rec));
       nxr::bst::TimeSpansOptions bo; bo.line_id = tid; bo.of_field_id = rid; bo.description = "bad segments";
@@ -120,9 +121,10 @@ int main() {
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   tiles_compute(ds, sub, TilesComputeOptions{});
   int timeLevel = -1;
-  for (const Row& m : sub.db().all("SELECT member_ordinal, params_json FROM selection WHERE subject_id = ? AND member_of_id IS NOT NULL AND params_json LIKE '%resolves_hz%'", {V(sub.id())})) {
-    const Json pj = Json::parse(text(m, "params_json"));
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(integer(m, "member_ordinal"));
+  for (const task::Node& m : task::Subject::of(sub).find_all({.cls = task::Cls::selection, .params_present = {"resolves_hz"}})) {
+    if (!m.member_of_id) continue;
+    const Json& pj = m.params;
+    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(m.member_ordinal.value_or(0));
   }
   CHECK(timeLevel >= 0);
   if (timeLevel < 0) return 1;
@@ -244,9 +246,9 @@ int main() {
   CellQuadratureOptions cb = cf; cb.replace = false; cb.bursts = "test_bursts";
   const auto rb = cellquadrature_compute(ds, sub, cb);
   CHECK(rb.cells_hit && !rb.bursts_hit);
-  const auto bsel = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = 'test_bursts'", {V(sub.id())});
+  const auto bsel = task::Subject::of(sub).find({.cls = task::Cls::selection, .name = "test_bursts"});
   CHECK(bsel.has_value());
-  const std::string bid = text(*bsel, "id");
+  const std::string bid = bsel->id;
   const MeasurementValues totb = read(bid, "cross_spectrum_norm2"), qdb = read(bid, "cross_spectrum_quadrature_norm2");
   CHECK(totb.rows == tiles && totb.members == 4);
   auto sum_tiles = [&](std::int64_t a, std::int64_t z) {

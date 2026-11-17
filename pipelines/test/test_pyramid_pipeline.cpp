@@ -9,6 +9,7 @@
 //   - refusals: a free-orientation kernel without canonical frames, a rebuild without --replace, an unknown shape, a depth beyond the ladder
 #include <unistd.h>
 
+#include <algorithm>
 #include <cmath>
 #include <cstring>
 #include <filesystem>
@@ -22,6 +23,8 @@
 #include "nxr/bst/entities.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/rollup.h"
+#include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
 #include "nxr/bst/frequency.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/frame_tiling.h"
@@ -96,7 +99,7 @@ int main() {
       const std::string prod = sub.product({cid, tid});
       for (const auto& [name, width] : {std::make_pair(std::string("rest"), std::int64_t(2048)), std::make_pair(std::string("rest_b"), std::int64_t(1000))}) {
         FieldSpec rec;
-        rec.name = name; rec.path = node_path(sub.db(), prod, name); rec.kind = "recording"; rec.manifold_id = prod;
+        rec.name = name; rec.path = task::Subject::of(sub).node_path(prod, name); rec.kind = "recording"; rec.manifold_id = prod;
         rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, width}; rec.array.compress = false; rec.cols.set("unit", "T");
         const std::string rid = sub.field(std::move(rec));
         nxr::bst::TimeSpansOptions so2; so2.line_id = tid; so2.of_field_id = rid; so2.description = "bad segments";
@@ -121,15 +124,15 @@ int main() {
   // refusals first (nothing is stored by them)
   // a dataset with no default subject to hold the Frequency manifold is refused BEFORE any chunk is computed (the run never starts), and nothing is stored
   {
-    ds.db().execute("UPDATE subject SET kind = 'group' WHERE kind = 'template'");
+    testing::Probe(ds).tamper("UPDATE subject SET kind = 'group' WHERE kind = 'template'");
     bool ran = false;
     PyramidBuildOptions o; o.recording = "rest"; o.kernel = "fixed"; o.chunks = "0";
     CHECK(code_of([&] { pyramid_build(ds, sub, o, [&](const Json& j) { if (j.value("stage", "") == "run") ran = true; }); }) == "no_such_row");
     CHECK(!ran);
-    CHECK(!sub.db().one("SELECT 1 FROM selection WHERE name = 'atlas bands'"));
-    ds.db().execute("UPDATE subject SET kind = 'template' WHERE name = 'default_template'");
+    CHECK(testing::Probe(sub).count("selection", {{"name", "atlas bands"}}) == 0);
+    testing::Probe(ds).tamper("UPDATE subject SET kind = 'template' WHERE name = 'default_template'");
   }
-  CHECK(!nxr::bst::find_frequency(ds.db()));
+  CHECK(testing::Probe(ds).count("manifold", {{"name", "Frequency"}}) == 0);
   { PyramidBuildOptions o; o.recording = "rest"; o.kernel = "free"; CHECK(code_of([&] { pyramid_build(ds, sub, o); }) == "invalid_argument"); }
   { PyramidBuildOptions o; o.recording = "rest"; o.kernel = "fixed"; o.shape = "meyer"; CHECK(code_of([&] { pyramid_build(ds, sub, o); }) == "invalid_argument"); }
   { PyramidBuildOptions o; o.recording = "rest"; o.kernel = "fixed"; o.depth = 40; CHECK(code_of([&] { pyramid_build(ds, sub, o); }) == "invalid_argument"); }
@@ -140,35 +143,37 @@ int main() {
   po.recording = "rest"; po.kernel = "fixed"; po.shape = "power_partition"; po.chunks = "all"; po.halo_seconds = 4.0;
   const PyramidBuildResult r = pyramid_build(ds, sub, po);
   // the first build made the default subject's Frequency manifold and bands; a second run reuses them (no new manifold)
-  const auto fq = nxr::bst::find_frequency(ds.db());
-  CHECK(fq && integer(*ds.db().one("SELECT COUNT(*) AS n FROM manifold WHERE name = 'Frequency'", {}), "n") == 1);
+  CHECK(testing::Probe(ds).count("manifold", {{"name", "Frequency"}}) == 1 && testing::Probe(ds).count("selection", {{"name", nxr::bst::kBandsName}}) >= 1);
   const int L = r.info["leaves"].get<int>(), NB = r.info["bands"].get<int>(), F = r.info["frames"].get<int>(), depth = r.info["depth"].get<int>();
   std::printf("  %d leaves (depth %d), %d bands, %d frames\n", L, depth, NB, F);
   CHECK(NB == 6);
   // the rows
-  const auto est = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND kind = 'source estimate'", {V(sub.id())});
-  CHECK(est && is_null(*est, "path") && text(*est, "by_operator_id") == text(*sub.db().one("SELECT id FROM operator WHERE name = 'fixed'", {}), "id"));
-  CHECK(text(*est, "derived_from_id") == text(*sub.db().one("SELECT id FROM field WHERE name = 'rest' AND kind = 'recording'", {}), "id"));
-  const auto part = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name LIKE 'cortex tiles L%' AND json_extract(params_json, '$.atlas.node') IS NOT NULL", {V(sub.id())});
+  const task::Subject tsub = task::Subject::of(sub);
+  const auto est = tsub.find({.cls = task::Cls::field, .kind = "source estimate"});
+  CHECK(est && !est->path && est->fact("by_operator_id") == tsub.require({.cls = task::Cls::operator_, .name = "fixed"}, "the fixed operator").id);
+  CHECK(est->fact("derived_from_id") == tsub.require({.cls = task::Cls::field, .name = "rest", .kind = "recording"}, "the recording").id);
+  const auto part = tsub.find({.cls = task::Cls::selection, .name_like = "cortex tiles L%", .params_present = {"atlas.node"}});
   CHECK(part);
-  const Json pp = Json::parse(text(*part, "params_json"));
+  const Json pp = part->params;
   CHECK(pp["atlas"]["level"] == depth && pp["atlas"]["tree"] == "subject" && pp["atlas"]["node"] == pp["node"] && pp["atlas"]["areas"] == pp["areas"] && pp["atlas"].contains("finest") && pp["atlas"].contains("gauge"));
-  const auto bands = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = 'atlas bands' AND type = 'spans'", {V(sub.id())});
-  CHECK(bands && integer(*bands, "n_members") == 6);
-  const auto spans = sub.db().all("SELECT start, stop, code FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(*bands, "id"))});
-  CHECK(spans.size() == 6 && std::stod(text(spans[3], "start")) == 8.0 && std::stod(text(spans[3], "stop")) == 16.0 && integer(spans[3], "code") == 3);
-  const auto frames = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ?", {V(sub.id()), V(frame_tiling_name("rest", -18))});
-  CHECK(frames && text(*frames, "type") == "spans" && integer(*frames, "n_members") == F);
-  const auto cnt = sub.db().one("SELECT * FROM selection_measurement WHERE selection_id = ? AND measure = 'count'", {V(text(*frames, "id"))});
-  CHECK(cnt && text(*cnt, "of_field_id") == text(*est, "id"));
-  const auto joint = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND json_extract(params_json, '$.joint') IS NOT NULL", {V(sub.id())});
-  CHECK(joint && text(*joint, "of_field_id") == text(*est, "id") && text(*joint, "type") == "set");
-  const Json jp = Json::parse(text(*joint, "params_json"));
-  CHECK(jp["joint"]["layout"] == Json::array({"band", "tile", "frame"}) && jp["joint"]["tiles"] == L && jp["joint"]["frames"] == F && jp["joint"]["space"] == text(*part, "id") && jp["joint"]["time"] == text(*frames, "id"));
-  CHECK(integer(*joint, "n_members") == static_cast<std::int64_t>(L) * F && (1 << jp["joint"]["bits"].get<int>()) >= F);
-  const auto rows = sub.db().all("SELECT * FROM selection_measurement WHERE selection_id = ? ORDER BY measure, within_code", {V(text(*joint, "id"))});
+  const auto bands = tsub.find({.cls = task::Cls::selection, .name = "atlas bands", .type = "spans"});
+  CHECK(bands && bands->n_members == 6);
+  const auto spans = tsub.spans(*bands);
+  CHECK(spans.size() == 6 && spans[3].start == 8.0 && spans[3].stop == 16.0 && spans[3].code == 3);
+  const auto frames = tsub.find({.cls = task::Cls::selection, .name = frame_tiling_name("rest", -18)});
+  CHECK(frames && frames->type == "spans" && frames->n_members == F);
+  const auto cnt_rows = testing::Probe(sub).rows("selection_measurement", {{"selection_id", frames->id}, {"measure", "count"}});
+  const auto cnt = cnt_rows.empty() ? std::optional<Row>() : std::optional<Row>(cnt_rows.front());
+  CHECK(cnt && text(*cnt, "of_field_id") == est->id);
+  const auto joint = tsub.find({.cls = task::Cls::selection, .params_present = {"joint"}});
+  CHECK(joint && joint->fact("of_field_id") == est->id && joint->type == "set");
+  const Json jp = joint->params;
+  CHECK(jp["joint"]["layout"] == Json::array({"band", "tile", "frame"}) && jp["joint"]["tiles"] == L && jp["joint"]["frames"] == F && jp["joint"]["space"] == part->id && jp["joint"]["time"] == frames->id);
+  CHECK(joint->n_members == static_cast<std::int64_t>(L) * F && (1 << jp["joint"]["bits"].get<int>()) >= F);
+  auto rows = testing::Probe(sub).rows("selection_measurement", {{"selection_id", joint->id}}, "within_code");
+  std::stable_sort(rows.begin(), rows.end(), [](const Row& x, const Row& y) { return text(x, "measure") < text(y, "measure"); });
   CHECK(rows.size() == 18);
-  for (const Row& m : rows) CHECK(text(m, "within_selection_id") == text(*bands, "id") && text(m, "of_field_id") == text(*est, "id") && !is_null(m, "array_path"));
+  for (const Row& m : rows) CHECK(text(m, "within_selection_id") == bands->id && text(m, "of_field_id") == est->id && !is_null(m, "array_path"));
   CHECK(text(rows[0], "measure") == "envelope_max" && text(rows[6], "measure") == "envelope_sum" && text(rows[12], "measure") == "power_sum");
   // the arrays
   std::vector<std::int64_t> shp;
@@ -181,7 +186,7 @@ int main() {
   for (auto s : samples) good_total += s;
   CHECK(good_total == T - static_cast<std::int64_t>((bad1 - bad0) * sfreq));            // the bad span carries no count
   // the reference: the chain over the whole record in one block, the leaves and areas as stored
-  const std::vector<std::int32_t> codes = read_at<std::int32_t>(sub, text(*part, "array_path"));
+  const std::vector<std::int32_t> codes = read_at<std::int32_t>(sub, part->array_path.value());
   nxr::ladder::Mesh mesh; mesh.n = N; mesh.positions = b.P; mesh.faces = b.F;
   const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
   Eigen::MatrixXd K(N, M), X(T, M);
@@ -208,17 +213,17 @@ int main() {
   CHECK(!std::isfinite(envmax[0]) || envmax[0] >= 0);
   // THE CACHE (method rule 3): the same options again is a HIT (nothing computed, nothing rewritten); another option is another result, refused unless --replace (the stored name collides)
   CHECK(r.info["cache"] == "miss");
-  const std::string est_id0 = text(*est, "id"), joint_id0 = text(*joint, "id");
-  const auto ck = Json::parse(text(*est, "producer_json"))["cache"];
+  const std::string est_id0 = est->id, joint_id0 = joint->id;
+  const auto ck = est->producer["cache"];
   CHECK(ck["pipeline"] == "pyramid_build" && ck["params"]["shape"] == "power_partition" && ck["params"]["halo_seconds"] == 4.0 && ck["params"]["depth"] == depth && ck["params"].contains("span") && ck["params"].contains("block_samples")
         && ck["params"].contains("bands_hz") && ck["params"].contains("frame_level") && ck["input"].contains("kernel_data") && ck["input"].contains("bad_segments"));
-  CHECK(Json::parse(text(*est, "producer_json")).contains("halo_seconds"));        // every option is in the producer record too
+  CHECK(est->producer.contains("halo_seconds"));        // every option is in the producer record too
   const std::vector<double> power_before = power;
   {
     PyramidBuildResult again = pyramid_build(ds, sub, po);
     CHECK(again.info["cache"] == "hit" && again.info["estimate_id"] == est_id0 && again.info["joint_id"] == joint_id0);
-    const auto est2 = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND kind = 'source estimate'", {V(sub.id())});
-    CHECK(text(*est2, "id") == est_id0 && sub.db().all("SELECT id FROM field WHERE subject_id = ? AND kind = 'source estimate'", {V(sub.id())}).size() == 1);
+    const auto ests2 = tsub.find_all({.cls = task::Cls::field, .kind = "source estimate"});
+    CHECK(ests2.size() == 1 && ests2[0].id == est_id0);
     CHECK(read_at<double>(sub, tg + "/power") == power_before);                        // byte for byte
   }
   for (int which = 0; which < 5; ++which) {                                           // each option changes the key: refused without --replace
@@ -232,9 +237,9 @@ int main() {
   }
   po.replace = true;
   pyramid_build(ds, sub, po);
-  CHECK(integer(*ds.db().one("SELECT COUNT(*) AS n FROM manifold WHERE name = 'Frequency'", {}), "n") == 1 && integer(*ds.db().one("SELECT COUNT(*) AS n FROM selection WHERE name = 'atlas bands'", {}), "n") == 1);   // the later runs reuse them
-  CHECK(sub.db().all("SELECT id FROM field WHERE subject_id = ? AND kind = 'source estimate'", {V(sub.id())}).size() == 1);
-  CHECK(sub.db().all("SELECT id FROM selection WHERE subject_id = ? AND json_extract(params_json, '$.joint') IS NOT NULL", {V(sub.id())}).size() == 1);
+  CHECK(testing::Probe(ds).count("manifold", {{"name", "Frequency"}}) == 1 && testing::Probe(ds).count("selection", {{"name", "atlas bands"}}) == 1);   // the later runs reuse them
+  CHECK(tsub.find_all({.cls = task::Cls::field, .kind = "source estimate"}).size() == 1);
+  CHECK(tsub.find_all({.cls = task::Cls::selection, .params_present = {"joint"}}).size() == 1);
 
   // the chunk width does not matter (Morlet, interior frames): the same samples in chunks of 2048 and 1000
   PyramidBuildOptions a, c2;
@@ -243,9 +248,10 @@ int main() {
   pyramid_build(ds, sub, a);
   pyramid_build(ds, sub, c2);
   auto arrays_of = [&](const std::string& rec) {
-    const auto e = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND kind = 'source estimate' AND name LIKE ?", {V(sub.id()), V(rec + " %")});
-    const auto j = sub.db().one("SELECT params_json FROM selection WHERE subject_id = ? AND of_field_id = ? AND json_extract(params_json, '$.joint') IS NOT NULL", {V(sub.id()), V(text(*e, "id"))});
-    return read_at<double>(sub, Json::parse(text(*j, "params_json"))["atlas"]["node"].get<std::string>() + "/power");
+    std::optional<task::Node> e;
+    for (const task::Node& n : tsub.find_all({.cls = task::Cls::field, .kind = "source estimate"})) if (n.name.rfind(rec + " ", 0) == 0) e = n;
+    const auto j = tsub.find({.cls = task::Cls::selection, .of_field_id = e->id, .params_present = {"joint"}});
+    return read_at<double>(sub, j->params["atlas"]["node"].get<std::string>() + "/power");
   };
   const std::vector<double> pa = arrays_of("rest"), pb = arrays_of("rest_b");
   double dw = 0, sc2 = 0;
@@ -271,15 +277,16 @@ int main() {
     PyramidBuildOptions k;
     k.recording = "rest"; k.chunks = "0"; k.kernel = "MN_MEG_KERNEL_261005_2149"; k.halo_seconds = 2.0;
     pyramid_build(ds, sub, k);
-    const auto e = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = 'rest \xc3\x97 MN_MEG_KERNEL_261005_2149'", {V(sub.id())});
-    CHECK(e && text(*e, "data_type") == "float32" && text(*e, "label") == "MN_MEG (constrained)");
-    const Json pj = Json::parse(text(*e, "producer_json"));
+    const auto e = tsub.find({.cls = task::Cls::field, .name = "rest \xc3\x97 MN_MEG_KERNEL_261005_2149"});
+    CHECK(e && e->fact("data_type") == "float32" && e->fact("label") == "MN_MEG (constrained)");
+    const Json pj = e->producer;
     CHECK(pj["method"] == "MN_MEG" && pj["stamp"] == "261005_2149");
-    const auto j = sub.db().one("SELECT params_json FROM selection WHERE subject_id = ? AND of_field_id = ? AND json_extract(params_json, '$.joint') IS NOT NULL", {V(sub.id()), V(text(*e, "id"))});
-    const std::string node = Json::parse(text(*j, "params_json"))["atlas"]["node"].get<std::string>();
+    const auto j = tsub.find({.cls = task::Cls::selection, .of_field_id = e->id, .params_present = {"joint"}});
+    const std::string node = j->params["atlas"]["node"].get<std::string>();
     CHECK(node.find("rest__MN_MEG_261005_2149_atlas/subject") != std::string::npos);
     CHECK(ArrayReader::open(sub.store(), node + "/power").dtype() == DType::Float64 && ArrayReader::open(sub.store(), node + "/envmax").dtype() == DType::Float64);
-    const auto cnt2 = sub.db().one("SELECT array_path FROM selection_measurement WHERE of_field_id = ? AND measure = 'count'", {V(text(*e, "id"))});
+    const auto cnt2_rows = testing::Probe(sub).rows("selection_measurement", {{"of_field_id", e->id}, {"measure", "count"}});
+    const auto cnt2 = cnt2_rows.empty() ? std::optional<Row>() : std::optional<Row>(cnt2_rows.front());
     CHECK(cnt2 && text(*cnt2, "array_path").find("rest__MN_MEG_261005_2149_samples") != std::string::npos && ArrayReader::open(sub.store(), text(*cnt2, "array_path")).dtype() == DType::Int64);
   }
   // THE FREE-ORIENTATION TENSOR: refused without the surface's canonical frames; with them, nxr's tensor per band x leaf x frame in the node's tensor/ arrays
@@ -290,12 +297,12 @@ int main() {
     f.recording = "rest"; f.kernel = "free"; f.shape = "power_partition"; f.chunks = "all"; f.halo_seconds = 4.0;
     const PyramidBuildResult fr = pyramid_build(ds, sub, f);
     CHECK(fr.info["orientation"] == "free" && fr.info["arrays"].size() == 10 && fr.info["cache"] == "miss");
-    const auto e = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = 'rest \xc3\x97 free'", {V(sub.id())});
-    CHECK(e && text(*e, "value_type") == "vector3" && is_null(*e, "path") && text(*e, "label") == "free (free)");
-    const auto j = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND of_field_id = ? AND json_extract(params_json, '$.joint') IS NOT NULL", {V(sub.id()), V(text(*e, "id"))});
+    const auto e = tsub.find({.cls = task::Cls::field, .name = "rest \xc3\x97 free"});
+    CHECK(e && e->value_type == "vector3" && !e->path && e->fact("label") == "free (free)");
+    const auto j = tsub.find({.cls = task::Cls::selection, .of_field_id = e->id, .params_present = {"joint"}});
     CHECK(j);
-    const std::string node = Json::parse(text(*j, "params_json"))["atlas"]["node"].get<std::string>();
-    const auto rows2 = sub.db().all("SELECT measure, within_code, array_path FROM selection_measurement WHERE selection_id = ? ORDER BY measure, within_code", {V(text(*j, "id"))});
+    const std::string node = j->params["atlas"]["node"].get<std::string>();
+    const auto rows2 = testing::Probe(sub).rows("selection_measurement", {{"selection_id", j->id}}, "within_code");
     CHECK(rows2.size() == 60);
     std::set<std::string> measures;
     for (const Row& m : rows2) measures.insert(text(m, "measure"));
@@ -334,19 +341,19 @@ int main() {
   }
   // THE READ-TIME ROLL-UP in the lookup (step 3): `query_measurements` with the store rolls the array-backed rows up in space (reshape) and time (the tower), by the measure's merge; densities from rolled-up sums
   {
-    const auto e = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = 'rest \xc3\x97 fixed'", {V(sub.id())});
-    const auto j = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND of_field_id = ? AND json_extract(params_json, '$.joint') IS NOT NULL", {V(sub.id()), V(text(*e, "id"))});
-    const Json jp2 = Json::parse(text(*j, "params_json"));
-    const std::string node = jp2["atlas"]["node"].get<std::string>(), jid = text(*j, "id"), eid = text(*e, "id");
-    const auto part2 = sub.db().one("SELECT * FROM selection WHERE id = ?", {V(jp2["joint"]["space"].get<std::string>())});
-    const auto fr2 = sub.db().one("SELECT * FROM selection WHERE id = ?", {V(jp2["joint"]["time"].get<std::string>())});
-    const int D = Json::parse(text(*part2, "params_json"))["atlas"]["level"].get<int>(), Lq = static_cast<int>(integer(*part2, "n_members"));
+    const auto e = tsub.find({.cls = task::Cls::field, .name = "rest \xc3\x97 fixed"});
+    const auto j = tsub.find({.cls = task::Cls::selection, .of_field_id = e->id, .params_present = {"joint"}});
+    const Json jp2 = j->params;
+    const std::string node = jp2["atlas"]["node"].get<std::string>(), jid = j->id, eid = e->id;
+    const auto part2 = tsub.by_id(task::Cls::selection, jp2["joint"]["space"].get<std::string>());
+    const auto fr2 = tsub.by_id(task::Cls::selection, jp2["joint"]["time"].get<std::string>());
+    const int D = part2->params["atlas"]["level"].get<int>(), Lq = static_cast<int>(part2->n_members.value_or(0));
     const int Fq = static_cast<int>(jp2["joint"]["frames"].get<std::int64_t>());
-    const std::int64_t code0 = Json::parse(text(*fr2, "params_json"))["atlas"]["frame_code0"].get<std::int64_t>();
+    const std::int64_t code0 = fr2->params["atlas"]["frame_code0"].get<std::int64_t>();
     const std::vector<double> pw = read_at<double>(sub, node + "/power"), em = read_at<double>(sub, node + "/envmax");
-    const std::vector<double> area_leaf = read_at<double>(sub, Json::parse(text(*part2, "params_json"))["areas"].get<std::string>());
-    const auto cnt3 = sub.db().one("SELECT array_path FROM selection_measurement WHERE selection_id = ? AND measure = 'count'", {V(text(*fr2, "id"))});
-    const std::vector<std::int64_t> smp = read_at<std::int64_t>(sub, text(*cnt3, "array_path"));
+    const std::vector<double> area_leaf = read_at<double>(sub, part2->params["areas"].get<std::string>());
+    const auto cnt3 = testing::Probe(sub).rows("selection_measurement", {{"selection_id", fr2->id}, {"measure", "count"}});
+    const std::vector<std::int64_t> smp = read_at<std::int64_t>(sub, text(cnt3.front(), "array_path"));
     auto ask = [&](const char* measure, int band, int sl, int tl) {
       std::map<std::pair<std::int64_t, std::int64_t>, double> out;
       for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", jid}, {"measure", measure}, {"ofFieldId", eid}, {"band", band}, {"spaceLevel", sl}, {"timeLevel", tl}}))
@@ -421,14 +428,23 @@ int main() {
     };
     CHECK(count_named("tensor") > 0 || count_named("_samples") > 0);
     std::vector<std::pair<std::string, std::string>> doomed;   // table, name
-    for (const auto& r : s2.db().all("SELECT name FROM selection WHERE subject_id = ? AND (path IS NULL OR path = '') AND n_members > 0 AND name LIKE '% \xc3\x97 %'", {V(s2.id())})) doomed.push_back({"selection", text(r, "name")});
-    for (const auto& r : s2.db().all("SELECT name FROM field WHERE subject_id = ? AND kind = 'source estimate'", {V(s2.id())})) doomed.push_back({"field", text(r, "name")});
+    const task::Subject ts2 = task::Subject::of(s2);
+    for (const task::Node& n : ts2.find_all({.cls = task::Cls::selection, .name_like = "% \xc3\x97 %", .any_status = true}))
+      if ((!n.path || n.path->empty()) && n.n_members.value_or(0) > 0) doomed.push_back({"selection", n.name});
+    for (const task::Node& n : ts2.find_all({.cls = task::Cls::field, .kind = "source estimate", .any_status = true})) doomed.push_back({"field", n.name});
     CHECK(!doomed.empty());
     for (const auto& [t, name] : doomed) {
       if (const auto r = s2.by_name(t, name)) s2.remove(t, text(*r, "id"));
     }
-    CHECK(!s2.db().one("SELECT 1 FROM field WHERE subject_id = ? AND kind = 'source estimate'", {V(s2.id())}));
-    CHECK(!s2.db().one("SELECT 1 FROM selection_measurement m JOIN selection s ON s.id = m.selection_id WHERE s.subject_id = ? AND m.array_path LIKE '%tensor%'", {V(s2.id())}));
+    CHECK(ts2.find_all({.cls = task::Cls::field, .kind = "source estimate", .any_status = true}).empty());
+    {
+      bool tensor_rows = false;
+      for (const Row& m : testing::Probe(s2).rows("selection_measurement")) {
+        const auto owner = ts2.by_id(task::Cls::selection, text(m, "selection_id"));
+        if (owner && owner->subject_id == s2.id() && opt_text(m, "array_path").value_or("").find("tensor") != std::string::npos) tensor_rows = true;
+      }
+      CHECK(!tensor_rows);
+    }
     CHECK(count_named("tensor") == 0);
     CHECK(count_named("_samples") == 0);
   }
