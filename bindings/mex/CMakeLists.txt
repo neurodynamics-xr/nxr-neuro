@@ -166,6 +166,17 @@ else()
     message(STATUS "nxr-compute-mex: io/formats not built (NXR_NEURO_BUILD_IO=OFF): the MEX has no nxr.io readers.")
 endif()
 
+# ── The pipeline level (nxr.run, nxr.list, nxr.read): nxr_pipelines, through pipelines/face.h, as the command line makes the same calls. The whole of nxr_io is linked (SQLite, the Zarr
+# codecs) beside the formats: all static, none exported (nxr_io_hide_static_symbols above; the symbol check). Only when the pipelines are built.
+if(TARGET nxr_pipelines AND TARGET nxr_io_formats)
+    target_sources(nxr_compute_mex PRIVATE src/pipeline_slice.cpp)
+    target_compile_definitions(nxr_compute_mex PRIVATE NXR_MEX_WITH_PIPELINES=1)
+    set_target_properties(nxr_pipelines PROPERTIES POSITION_INDEPENDENT_CODE ON)
+    target_link_libraries(nxr_compute_mex nxr_pipelines)
+else()
+    message(STATUS "nxr-compute-mex: pipelines not built (NXR_NEURO_BUILD_PIPELINES=OFF): the MEX has no nxr.run, nxr.list or nxr.read.")
+endif()
+
 # Linux: the C++ runtime is linked statically too. MATLAB ships its own libstdc++ (older than a current compiler's): a MEX that wants a newer one fails to load
 # with "GLIBCXX_3.4.xx not found". Only mexFunction is exported (FindMatlab's version script), so none of it is visible to MATLAB.
 if(UNIX AND NOT APPLE)

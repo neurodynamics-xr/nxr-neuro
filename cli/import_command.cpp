@@ -7,6 +7,10 @@
 //   nxr-neuro import fif --from FILE --package PATH [--kind K] [--name N] [--acquisition A] [--channels SENSORS] [--recording REC] [--surface S] [--licence T --attribution T] [--anonymize]
 //   nxr-neuro import transform --from FILE-trans.fif --package PATH [--name N] [--channels SENSORS]
 //
+// nxr-neuro import nifti: a NIfTI volume into a subject package (nxr/convert/nifti_import.h).
+//
+//   nxr-neuro import nifti --from FILE --package PATH [--name N] [--parcellation NAME [--label-names FILE]] [--unit U] [--licence T --attribution T] [--anonymize]
+//
 // nxr-neuro import recording: a recording file (FIF, EDF/BDF, BrainVision, EEGLAB, CTF, KIT) copied into a subject package (docs/specs/2026-11-17-interoperability.md, 3.2).
 //
 //   nxr-neuro import recording --from FILE --package PATH [--name REC] [--acquisition NAME] [--format F] [--source-root DIR] [--licence T --attribution T] [--anonymize] [--in-place]
@@ -18,6 +22,7 @@
 #include "cli.h"
 #include "nxr/convert/bids.h"
 #include "nxr/convert/fif_objects.h"
+#include "nxr/convert/nifti_import.h"
 #include "nxr/convert/recording.h"
 #include "nxr/convert/synthetic.h"
 #include "nxr/io/subject_package.h"
@@ -92,6 +97,36 @@ int fif_command(const std::string& prog, const std::vector<std::string>& rest, c
   return 0;
 }
 
+// import nifti: a NIfTI volume (a lattice in its voxel chart, its intensities or a named parcellation, the voxel-to-world transition)
+int nifti_command(const std::vector<std::string>& rest) {
+  const Args a = parse("nxr-neuro import nifti", rest, {"--from", "--package", "--name", "--kind", "--parcellation", "--label-names", "--field-kind", "--unit", "--source-root", "--licence", "--attribution"},
+                       {"--anonymize"}, {"--from", "--package"});
+  const std::string file = a.get("--from");
+  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
+  nxr::convert::NiftiImport opt;
+  opt.name = a.maybe("--name").value_or("");
+  opt.kind = a.maybe("--kind").value_or("");
+  opt.parcellation = a.maybe("--parcellation").value_or("");
+  opt.label_names = a.maybe("--label-names").value_or("");
+  opt.field_kind = a.maybe("--field-kind").value_or("intensity");
+  opt.unit = a.maybe("--unit").value_or("");
+  opt.licence = a.maybe("--licence").value_or("unknown");
+  opt.attribution = a.maybe("--attribution").value_or("unknown");
+  opt.anonymize = a.flag.count("--anonymize") > 0;
+  const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
+  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
+  opt.source_file = file;
+  opt.progress = [](const Json& j) { emit(j); };
+  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
+  DatasetWriter w = open_package_writer(a.get("--package"));
+  SubjectWriter sub = SubjectWriter::open(w, rec.name);
+  Json out = nxr::convert::import_nifti(w, sub, file, opt);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
+
 // create recording --synthetic: sine waves plus noise from a seed, written into a subject package through the recording importer
 int synthetic_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro create recording", rest, {"--package", "--name", "--acquisition", "--channels", "--sfreq", "--duration", "--seed", "--amplitude", "--noise"}, {"--synthetic"},
@@ -158,6 +193,7 @@ int import_main(const std::vector<std::string>& argv) {
   if (what == "bids") return bids_command(rest);
   if (what == "fif") return fif_command("nxr-neuro import fif", rest, "");
   if (what == "transform") return fif_command("nxr-neuro import transform", rest, "trans");
+  if (what == "nifti") return nifti_command(rest);
   if (what == "synthetic") return synthetic_command(rest);
-  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids', 'fif', 'transform', 'synthetic')");
+  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids', 'fif', 'transform', 'nifti', 'synthetic')");
 }
