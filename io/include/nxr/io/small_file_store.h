@@ -24,6 +24,7 @@
 #include <mutex>
 #include <string>
 
+#include "nxr/io/database.h"
 #include "nxr/io/store.h"
 
 namespace nxr::io {
@@ -40,6 +41,9 @@ class SmallFileStore : public Store {
  public:
   // `files`: the subject's folder tree (keys relative to the subject's folder; must outlive this store). `db_file`: the database's path (made on the first write).
   SmallFileStore(Store& files, std::filesystem::path db_file, SmallFileOptions opt = {});
+  // The table in a database that is already open (a subject package's `subject.sqlite`, whose rows are in the same file): the SAME connection, so a node's rows and its
+  // small keys are one transaction, and the file stays one file at rest. The store never opens, closes or switches the journal of this connection; read-only follows it.
+  SmallFileStore(Store& files, Database& shared, SmallFileOptions opt = {});
   ~SmallFileStore() override;
   SmallFileStore(const SmallFileStore&) = delete;
   SmallFileStore& operator=(const SmallFileStore&) = delete;
@@ -80,6 +84,7 @@ class SmallFileStore : public Store {
   Store* files_;
   std::filesystem::path db_file_;
   SmallFileOptions opt_;
+  void* shared_ = nullptr;   // the sqlite3 connection of a database that is not this store's (see the constructor); the handle survives a move of the Database
   mutable std::unique_ptr<Db> db_;
   mutable std::recursive_mutex mu_;
 };

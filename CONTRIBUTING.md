@@ -83,6 +83,26 @@ CMake 3.20+, Ninja, C++17. Clone with `--recurse-submodules` (geometry-central).
   environment variables are in the *Tests* section of `docs/reference.md`.
 - **MATLAB golden generators and anything heavy** run one at a time and are optional: the committed goldens are what the tests read. A generator finds its reference tools through environment variables (`BRAINSTORM3_HOME`, `RHEOME_HOME`, `NXR_CORTICAL_FLOW`) and says which it needs. Runs on real datasets are by hand, never in a test.
 
+## Cutting a release
+
+A release is a version tag; nothing is built by hand.
+
+1. Set the version in `CMakeLists.txt` (`project(nxr_neuro VERSION X.Y.Z ...)`) and merge that through a pull request.
+2. Tag the merge commit and push the tag: `git tag vX.Y.Z && git push origin vX.Y.Z`. The tag must match the version in `CMakeLists.txt`, or the build stops.
+3. `.github/workflows/release.yml` then builds the `nxr-neuro` command twice and checks each build:
+   - **Linux x86_64**, in the `manylinux_2_28` container (glibc 2.28 baseline), with SQLite (amalgamation), zstd (c-blosc's copy), zlib and libstdc++/libgcc linked
+     statically (`-DNXR_NEURO_PORTABLE=ON`). The job fails if `ldd` shows anything but libc, libm, libpthread, libdl and the loader, or if the binary needs a glibc
+     newer than 2.28; a second job runs `--version` and the smoke test in a plain `ubuntu:20.04` container.
+   - **macOS arm64** on `macos-15`, with no library outside `/usr/lib` and `/System` in `otool -L`.
+   - The smoke test (`.github/smoke/smoke.sh`) uses synthetic data only: it creates a dataset, a subject and an icosphere surface with the binary itself and
+     computes the surface's eigenmodes. There is no command that makes a synthetic recording, so no `--from/--to` computation is part of it.
+4. The `publish` job creates the GitHub release with `nxr-neuro-<version>-linux-x86_64.tar.gz`, `nxr-neuro-<version>-macos-arm64.tar.gz` and `SHA256SUMS`. Each
+   tarball holds the binary, `LICENSE`, `THIRD_PARTY_NOTICES.md` and a short `README` (`.github/release/README.txt`).
+
+To try the builds without a tag, run the workflow by hand (Actions, release, Run workflow, or `gh workflow run release.yml --ref <branch>`): it builds, checks and
+uploads the tarballs as workflow artefacts and makes no release. Users install from a release as described in the README (*Install a release*). The macOS binary is
+not signed or notarised yet; that needs an Apple developer account and is not done.
+
 ## Code style
 
 - **Match the code around you:**

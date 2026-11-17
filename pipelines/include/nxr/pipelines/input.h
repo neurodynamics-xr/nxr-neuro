@@ -6,6 +6,7 @@
 #include <vector>
 
 #include "nxr/io.h"
+#include "nxr/io/subject_package.h"
 
 namespace nxr::pipelines {
 
@@ -23,6 +24,9 @@ struct SurfaceInput {
 // `as_stored`: the positions at the precision they are stored in (float64), as the Studio's backend (entities/manifold.ts loadPositions) and nxr read
 // them for the dyadic ladder; otherwise (the default) rounded to float32 first, as the Studio's GPU-side pipelines receive them (eigen, flow, …).
 SurfaceInput read_surface(nxr::io::SubjectWriter& sub, const std::optional<std::string>& name = std::nullopt, bool as_stored = false);
+
+// The same, from a package opened alone (a released template is never opened by a writer): the surface called `name`; `no_such_row` when there is none.
+SurfaceInput read_surface(const nxr::io::SubjectPackage& package, const std::string& name);
 
 // How many connected pieces the faces make (a cortex: its two hemispheres; a mesh or a sphere: one).
 int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n_vertices);

@@ -233,15 +233,15 @@ SubjectWriter::SubjectWriter(DatasetWriter& ds, Row row, bool immediate, bool ow
   id_ = text(row_, "id");
   name_ = text(row_, "name");
   rel_ = text(ds.row(), "path") + "/" + text(row_, "path");
-  store_ = root_ / rel_;
-  kv_ = std::make_unique<PrefixStore>(ds.store(), rel_);
+  store_ = ds.is_package() ? root_ : root_ / rel_;   // a package writer's root is the package folder itself
+  kv_ = std::make_unique<PrefixStore>(ds.node_store(), rel_);
 }
 
 SubjectWriter SubjectWriter::create(DatasetWriter& ds, const std::string& name, const SubjectOptions& opt) {
   const std::string folder = opt.folder.value_or(name + ".nxr.zarr");
   if (ds.db().one("SELECT 1 FROM subject WHERE dataset_id = ? AND (path = ? OR name = ?)", {ds.id(), folder, name}))
     throw file_exists(name + ": already a subject of " + text(ds.row(), "name") + " — delete it first (a subject is converted whole)");
-  ds.store().erase_prefix(join_key(text(ds.row(), "path"), folder));  // debris of a crash
+  ds.node_store().erase_prefix(join_key(text(ds.row(), "path"), folder));  // debris of a crash
   std::optional<std::string> template_id = opt.template_id;
   if (!template_id && opt.default_template) {
     const auto t = opt.kind == "subject" ? ds.template_() : std::nullopt;
@@ -253,7 +253,7 @@ SubjectWriter SubjectWriter::create(DatasetWriter& ds, const std::string& name, 
              {"source_format", V(opt.source_format)}, {"source_path", V(opt.source_path)}, {"created_utc", now}, {"created_by", V(opt.created_by)},
              {"modified_utc", now}, {"modified_by", V(opt.created_by)}};
   if (opt.immediate) {
-    create_node(ds.db(), ds.store(), "subject", sid, [&] { ds.db().insert("subject", row); });
+    create_node(ds.db(), ds.node_store(), "subject", sid, [&] { ds.db().insert("subject", row); });
     return SubjectWriter(ds, *ds.db().read("subject", sid), true, true, opt.created_by);
   }
   ds.db().tx([&] {
@@ -262,7 +262,7 @@ SubjectWriter SubjectWriter::create(DatasetWriter& ds, const std::string& name, 
     ds.db().insert("subject", r);
   });
   SubjectWriter sub(ds, *ds.db().read("subject", sid), false, true, opt.created_by);
-  ensure_groups(ds.store(), sub.rel_);
+  ensure_groups(ds.node_store(), sub.rel_);
   sub.created_.push_back({"subject", sid});
   return sub;
 }
@@ -277,9 +277,9 @@ Drained SubjectWriter::complete() {
   db_->tx([&] {
     for (const auto& [table, id] : created_) if (in_status_tables(table)) set_status(*db_, table, id, "complete");
   });
-  Drained out = drain(*db_, ds_->store());
+  Drained out = drain(*db_, ds_->node_store());
   created_.clear();
-  if (owns_subject_) write_catalog(root_);
+  if (owns_subject_ && !ds_->is_package()) write_catalog(root_);
   return out;
 }
 
@@ -287,14 +287,14 @@ void SubjectWriter::abort() {
   std::vector<std::string> dicts, acqs;
   for (const auto& [t, id] : created_) { if (t == "dictionary") dicts.push_back(id); if (t == "acquisition") acqs.push_back(id); }
   if (owns_subject_) {
-    remove_node(*db_, ds_->store(), "subject", id_);
+    remove_node(*db_, ds_->node_store(), "subject", id_);
   } else {
     for (auto it = created_.rbegin(); it != created_.rend(); ++it)
-      if (in_status_tables(it->first)) remove_node(*db_, ds_->store(), it->first, it->second);
+      if (in_status_tables(it->first)) remove_node(*db_, ds_->node_store(), it->first, it->second);
   }
   drop_unused(dicts, acqs);
   created_.clear();
-  if (owns_subject_) write_catalog(root_);
+  if (owns_subject_ && !ds_->is_package()) write_catalog(root_);
 }
 
 void SubjectWriter::compose(const std::function<void()>& body) {
@@ -323,7 +323,7 @@ void SubjectWriter::drop_unused(const std::vector<std::string>& dictionary_ids, 
 std::size_t SubjectWriter::rollback_to(std::size_t m) {
   std::vector<std::pair<std::string, std::string>> undone(created_.begin() + static_cast<std::ptrdiff_t>(m), created_.end());
   for (auto it = undone.rbegin(); it != undone.rend(); ++it)
-    if (in_status_tables(it->first) && !(it->first == "subject" && it->second == id_)) remove_node(*db_, ds_->store(), it->first, it->second);
+    if (in_status_tables(it->first) && !(it->first == "subject" && it->second == id_)) remove_node(*db_, ds_->node_store(), it->first, it->second);
   std::vector<std::string> dicts, acqs;
   for (const auto& [t, id] : undone) { if (t == "dictionary") dicts.push_back(id); if (t == "acquisition") acqs.push_back(id); }
   drop_unused(dicts, acqs);
@@ -333,7 +333,7 @@ std::size_t SubjectWriter::rollback_to(std::size_t m) {
 
 std::string SubjectWriter::node(const std::string& table, const std::string& id, const std::function<void()>& rows, const Populate& populate) {
   if (immediate_) {
-    create_node(*db_, ds_->store(), table, id, rows, populate);
+    create_node(*db_, ds_->node_store(), table, id, rows, populate);
     return id;
   }
   db_->tx([&] {
@@ -344,9 +344,9 @@ std::string SubjectWriter::node(const std::string& table, const std::string& id,
   if (populate) {
     const auto at = location_of(*db_, table, id);
     try {
-      populate(ds_->store(), at ? *at : std::string());
+      populate(ds_->node_store(), at ? *at : std::string());
     } catch (...) {
-      remove_node(*db_, ds_->store(), table, id);
+      remove_node(*db_, ds_->node_store(), table, id);
       created_.erase(std::find(created_.begin(), created_.end(), std::make_pair(table, id)));
       throw;
     }
@@ -362,7 +362,7 @@ std::optional<Row> SubjectWriter::by_name(const std::string& table, const std::s
   if (table == "statistic" && !has_table(*db_, table)) return std::nullopt;
   return db_->one("SELECT * FROM " + table + " WHERE subject_id = ? AND name = ?", {id_, name});
 }
-void SubjectWriter::remove(const std::string& table, const std::string& id) { remove_node(*db_, ds_->store(), table, id); }
+void SubjectWriter::remove(const std::string& table, const std::string& id) { remove_node(*db_, ds_->node_store(), table, id); }
 
 ArrayMeta SubjectWriter::write_array(const std::string& path, const ArrayView& data, const ArrayOptions& opt, const std::optional<ArrayMeta>& meta_in,
                                      const std::string& table, const std::string& id) {
@@ -696,7 +696,7 @@ void SubjectWriter::measurement(const std::string& selection_id, const Cols& row
     merge(mr, row);
     db_->insert("selection_measurement", mr);
   };
-  if (immediate_) update_node(*db_, ds_->store(), go);
+  if (immediate_) update_node(*db_, ds_->node_store(), go);
   else db_->tx(go);
 }
 

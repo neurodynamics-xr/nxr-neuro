@@ -1,0 +1,155 @@
+{
+  "schema": "nxr-template-sources/1",
+  "about": "The source files the template builders read: where each comes from, its licence and its SHA-256. The files themselves are not in this repository. A file whose checksum differs, or that is not listed, is refused unless the caller accepts it (`--accept-unlisted-sources`), and the checksum actually read is recorded in the package's origin.",
+  "recipes": {
+    "fsaverage": {
+      "template": "fsaverage",
+      "description": "FreeSurfer's fsaverage (ico7, 163842 vertices per hemisphere): the pial, white and inflated surfaces, the registered sphere (sphere.reg), and the parcellations and cortex masks named explicitly.",
+      "download": "the `fsaverage` subject of a FreeSurfer installation (https://surfer.nmr.mgh.harvard.edu/)",
+      "licence": "FreeSurfer Software License Agreement, Part B v1.0 (https://surfer.nmr.mgh.harvard.edu/fswiki/FreeSurferSoftwareLicense): redistribute only with the licence text and notice, keep the attributions, mark modified versions",
+      "citations": [
+        "Fischl B, Sereno MI, Dale AM (1999) Cortical surface-based analysis II. NeuroImage 9:195-207",
+        "Fischl B, Sereno MI, Tootell RBH, Dale AM (1999) High-resolution intersubject averaging and a coordinate system for the cortical surface. Hum Brain Mapp 8:272-284",
+        "Desikan RS et al. (2006) An automated labeling system for subdividing the human cerebral cortex on MRI scans into gyral based regions of interest. NeuroImage 31:968-980",
+        "Destrieux C et al. (2010) Automatic parcellation of human cortical gyri and sulci using standard anatomical nomenclature. NeuroImage 53:1-15"
+      ],
+      "files": [
+        {
+          "path": "surf/lh.pial",
+          "sha256": "0eec4a51769cf81b6dba9d79658d3bb35561c80a359965e312f5bb3624c38950"
+        },
+        {
+          "path": "surf/rh.pial",
+          "sha256": "70df07692469ee97b7e48d3b346383fb0495d65bb3c39df09dd54f4ea9e7fe3b"
+        },
+        {
+          "path": "surf/lh.white",
+          "sha256": "11b39bd38090b504142d3fd23be422046fac4f44d6e73eb7097af58ba3e2f0cc"
+        },
+        {
+          "path": "surf/rh.white",
+          "sha256": "108a3bcfb74a3b63f5e461266e489d58333a200378d82beca7ea8487272df011"
+        },
+        {
+          "path": "surf/lh.inflated",
+          "sha256": "ce534434e04bf5cc7de314cad411ea723a34a92c748d0397b08ffa2385d111b2"
+        },
+        {
+          "path": "surf/rh.inflated",
+          "sha256": "63572d5f4ce9dec4466b38aa4ca40d0be1457a14584efdb76adcfb370fb24240"
+        },
+        {
+          "path": "surf/lh.sphere.reg",
+          "sha256": "fddcf0eeecc6e0f62142164f7c0ac24fda1f0be8cb653d3f037970184c5ba98f"
+        },
+        {
+          "path": "surf/rh.sphere.reg",
+          "sha256": "fddcf0eeecc6e0f62142164f7c0ac24fda1f0be8cb653d3f037970184c5ba98f"
+        },
+        {
+          "path": "label/lh.aparc.annot",
+          "sha256": "39b1acde9a32b4227631eb51cbcd8dff84e2138c57bf9f96d74026f2c17f1480"
+        },
+        {
+          "path": "label/rh.aparc.annot",
+          "sha256": "6a326aed325d313e6e0d10f67630efcd8d3b8343c50d3e108e005f626614badb"
+        },
+        {
+          "path": "label/lh.aparc.a2009s.annot",
+          "sha256": "8ce931d3c87d9dfd369ac739fa32c04ab9b8335afab0e6d77f569b43d8c0b70e"
+        },
+        {
+          "path": "label/rh.aparc.a2009s.annot",
+          "sha256": "f0de8093fc336ddea7fdefde91449f552accdb198dd51a559718262adf317aac"
+        },
+        {
+          "path": "label/lh.cortex.label",
+          "sha256": "e08216c1a840f0c192ac63c212fbbe12efc7e9731faa64a45083a098746b928a"
+        },
+        {
+          "path": "label/rh.cortex.label",
+          "sha256": "432e9ce95e095c066dae2ed2fb3e6c0c67af6e77d8f52ba2d3b560b4fc50b87f"
+        }
+      ]
+    },
+    "icbm152": {
+      "template": "icbm152",
+      "description": "Brainstorm's default anatomy ICBM152_2026 (labelled \"ICBM152 2026\") (ICBM 2009c nonlinear asymmetric; FreeSurfer-derived cortex surfaces with their registered spheres): the cortex surfaces and, named explicitly, their parcellations; the MNI and SCS transforms come from subjectimage_T1.mat.",
+      "download": "the default anatomy `ICBM152` of Brainstorm (https://neuroimage.usc.edu/brainstorm/Tutorials/DefaultAnatomy); the build reads the folder it unpacks to",
+      "licence": "the MNI/ICBM152 permissive notice (license.txt in the folder: use, copy, modify and distribute for any purpose, notice kept) for the template; FreeSurfer Software License Agreement Part B v1.0 for its cortex surfaces; each parcellation under its own terms (the importer records them; a parcellation whose terms are not confirmed is not redistributable)",
+      "citations": [
+        "Fonov VS, Evans AC, Botteron K, Almli CR, McKinstry RC, Collins DL (2011) Unbiased average age-appropriate atlases for pediatric studies. NeuroImage 54:313-327",
+        "Fonov VS, Evans AC, McKinstry RC, Almli CR, Collins DL (2009) Unbiased nonlinear average age-appropriate brain templates from birth to adulthood. NeuroImage 47(Suppl 1):S102",
+        "Tadel F, Baillet S, Mosher JC, Pantazis D, Leahy RM (2011) Brainstorm: a user-friendly application for MEG/EEG analysis. Comput Intell Neurosci 2011:879716"
+      ],
+      "files": [
+        {
+          "path": "tess_cortex_pial_high.mat",
+          "sha256": "c1f7b8236603a44d2f883270f889bd10757393c2a45a1ba9aca8c04cc64ebae0"
+        },
+        {
+          "path": "tess_cortex_pial_low.mat",
+          "sha256": "ab427f61e328d61c6018d6a704fdec49393514d078bd53336870acd6ca2dde5f"
+        },
+        {
+          "path": "subjectimage_T1.mat",
+          "sha256": "8bb75e682ea8da179a933eddaa6c018a7d1e88cc11491d987016bfdfb7840dc5"
+        },
+        {
+          "path": "license.txt",
+          "sha256": "33ce91f5a1ab3be91955d7be2669053b8801ad771c7feda7ed8fcf8b8a7b2d91"
+        }
+      ]
+    },
+    "icbm152_2023b": {
+      "template": "icbm152",
+      "description": "Brainstorm's default anatomy ICBM152_2023b (ICBM 2009c nonlinear asymmetric; FreeSurfer-derived cortex surfaces, pial and white, with their registered spheres): the surfaces and, named explicitly, their parcellations; the MNI and SCS transforms come from subjectimage_T1.mat.",
+      "download": "Brainstorm's default anatomy ICBM152_2023b (https://neuroimage.usc.edu/brainstorm/Tutorials/DefaultAnatomy); the build reads the folder its zip unpacks to",
+      "licence": "the MNI/ICBM152 permissive notice (license.txt in the folder: use, copy, modify and distribute for any purpose, notice kept) for the template; FreeSurfer Software License Agreement Part B v1.0 for its cortex surfaces; each parcellation under its own terms (the importer records them; a parcellation whose terms are not confirmed is not redistributable)",
+      "citations": [
+        "Fonov VS, Evans AC, Botteron K, Almli CR, McKinstry RC, Collins DL (2011) Unbiased average age-appropriate atlases for pediatric studies. NeuroImage 54:313-327",
+        "Fonov VS, Evans AC, McKinstry RC, Almli CR, Collins DL (2009) Unbiased nonlinear average age-appropriate brain templates from birth to adulthood. NeuroImage 47(Suppl 1):S102",
+        "Tadel F, Baillet S, Mosher JC, Pantazis D, Leahy RM (2011) Brainstorm: a user-friendly application for MEG/EEG analysis. Comput Intell Neurosci 2011:879716"
+      ],
+      "files": [
+        {
+          "path": "tess_cortex_pial_high.mat",
+          "sha256": "59365b6bbc349164e7228f1dece84a003383c110404c32d0a0e4cf559abb95e1"
+        },
+        {
+          "path": "tess_cortex_white_high.mat",
+          "sha256": "8fb968597e7657ea281d2db2a132336aa47f78d44a20db358b23b910a3c5711d"
+        },
+        {
+          "path": "tess_cortex_pial_low.mat",
+          "sha256": "db07bf5c33e02d0f3f204f3f7ff64ac1fbda344b9f29c2a6dce53aa30c484126"
+        },
+        {
+          "path": "subjectimage_T1.mat",
+          "sha256": "43e90de15bcbf913e3852123d3f6f1526b02218822a3332788adbec19df08674"
+        },
+        {
+          "path": "license.txt",
+          "sha256": "33ce91f5a1ab3be91955d7be2669053b8801ad771c7feda7ed8fcf8b8a7b2d91"
+        }
+      ]
+    },
+    "hcp1065": {
+      "template": "icbm152",
+      "description": "Whole-brain tractography on the HCP-1065 population-average diffusion template (DSI Studio), as a TrackVis .trk exported from DSI Studio; imported into the ICBM152 template package by its MNI coordinates.",
+      "download": "DSI Studio's HCP-1065 template and tract atlas (https://brain.labsolver.org/hcp_template.html, https://brain.labsolver.org/hcp_trk_atlas.html); tracking is random, so a re-run gives other streamlines: the checksum names the realisation used",
+      "licence": "CC BY-SA 4.0 (the tract-atlas page) together with the WU-Minn HCP Open Access Data Use Terms (https://www.humanconnectome.org/study/hcp-young-adult/document/wu-minn-hcp-consortium-open-access-data-use-terms): ShareAlike, and redistribution only under the same terms",
+      "citations": [
+        "Yeh F-C (2022) Population-based tract-to-region connectome of the human brain and its hierarchical topology. Nat Commun 13:4933, doi:10.1038/s41467-022-32595-4",
+        "Yeh F-C et al. (2018) Population-averaged atlas of the macroscale human structural connectome and its network topology. NeuroImage 178:57-68, doi:10.1016/j.neuroimage.2018.05.027",
+        "Van Essen DC et al. (2013) The WU-Minn Human Connectome Project: an overview. NeuroImage 80:62-79"
+      ],
+      "files": [
+        {
+          "path": "hcp1065.trk",
+          "sha256": "e84632fda506bf4ac766dfd940c59dc06142910125c2c81da04298dcbf859384"
+        }
+      ]
+    }
+  }
+}

@@ -20,7 +20,7 @@ the instrument cannot resolve; it does not claim more than it measures.
 | Folder | Library | What it does |
 |---|---|---|
 | `compute/` | `nxr_compute` | the maths on a cortical surface: operators, eigenmodes, filterbanks, flow, events (Eigen, Spectra, geometry-central, pocketfft; no file I/O) |
-| `io/` | `nxr_io` | the nxr dataset format (SQLite rows plus Zarr v3 arrays), a chunked recording reader, and a Brainstorm protocol importer |
+| `io/` | `nxr_io` | the nxr dataset format (SQLite rows plus Zarr v3 arrays; a subject is a self-contained package, store format 53, a dataset a catalogue of packages, and a template a released, versioned package found on a search path), a chunked recording reader, and a Brainstorm protocol importer |
 | `meeg/` | `nxr_meeg` | MEG/EEG source imaging: head models, noise covariance, minimum-norm kernels |
 | `pipelines/` | `nxr_pipelines` | the glue: read with `io`, compute with `compute` and `meeg`, write with `io`, cached |
 | `cli/` | `nxr-neuro` | the command |
@@ -43,6 +43,20 @@ c-blosc, HDF5 and matio are fetched into the build directory; geometry-central i
 
 The tests use synthetic data only. Tests that need data of your own (a real recording, a Brainstorm protocol, reference checkouts) read it from environment
 variables and are skipped, with a reason, when the variables are not set; see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Install a release
+
+Each release (https://github.com/neurodynamics-xr/nxr-neuro/releases) has a tarball for Linux (`nxr-neuro-<version>-linux-x86_64.tar.gz`, x86_64, glibc 2.28
+or newer; no other library is needed) and for macOS (`nxr-neuro-<version>-macos-arm64.tar.gz`, Apple silicon, macOS 13.3 or newer), and a `SHA256SUMS` file.
+
+    sha256sum -c --ignore-missing SHA256SUMS        # macOS: shasum -a 256 -c --ignore-missing SHA256SUMS
+    tar -xzf nxr-neuro-<version>-<platform>.tar.gz
+    mkdir -p ~/.local/bin && cp nxr-neuro-<version>-<platform>/nxr-neuro ~/.local/bin/     # and have ~/.local/bin on your PATH
+    nxr-neuro --version
+
+The macOS binary is **not signed or notarised yet**, so Gatekeeper may refuse a downloaded copy ("cannot be opened because the developer cannot be
+verified"). After checking the SHA-256 sum, remove the quarantine mark once with `xattr -d com.apple.quarantine nxr-neuro`, or allow it in System Settings,
+Privacy & Security.
 
 ## The command
 
