@@ -41,6 +41,8 @@ add_library(nxr_pipelines
   src/verb_steps.cpp
   src/steps_measure.cpp
   src/scale_inputs.cpp
+  src/steps_geometry.cpp
+  src/steps_patches.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
@@ -67,14 +69,11 @@ add_library(nxr_pipelines
   src/meeg.cpp
   src/spectral_record.cpp
   src/reading.cpp
-  src/statistics.cpp
-  src/patches.cpp
   src/spatial_band.cpp
   src/joint.cpp
   src/frame_tiling.cpp
   src/pyramid.cpp
   src/group.cpp
-  src/cellquadrature.cpp
   src/tiles.cpp
   src/face.cpp
 )

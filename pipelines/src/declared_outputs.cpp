@@ -280,6 +280,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       if (!made.count(r)) bad(o, "of_operator: '" + r + "' is not an operator output stored before it");
       f.of_operator_id = made.at(r);
     }
+    if (d.contains("producer") && d["producer"].is_object()) f.producer = d["producer"];
     if (!d.value("no_array", false)) f.data = values_of(a, shape_of(a, d), single_of(d), o);   // no_array: a field whose values are its measurements
     const std::string path = unit.path_of(f);
     clear(task::Cls::field, path);
@@ -318,13 +319,17 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       m.path = "measurements/" + nxr::io::safe_name(over_name) + "_members";
     }
     const Json measures = d.value("measures", Json::array());
-    if (!measures.is_array() || static_cast<std::int64_t>(measures.size()) != a.cols) bad(o, "its node names " + std::to_string(measures.size()) + " measures for " + std::to_string(a.cols) + " columns");
-    std::vector<std::int64_t> vshape = {a.rows};
+    // a node may also give [rows x members x measures] (`describe.shape`): each measure's values are [rows x members]
+    const bool cube = d.contains("shape") && d["shape"].is_array() && d["shape"].size() == 3;
+    const std::int64_t crow = cube ? d["shape"][0].get<std::int64_t>() * d["shape"][1].get<std::int64_t>() : a.rows, ccol = cube ? d["shape"][2].get<std::int64_t>() : a.cols;
+    if (!measures.is_array() || static_cast<std::int64_t>(measures.size()) != ccol) bad(o, "its node names " + std::to_string(measures.size()) + " measures for " + std::to_string(ccol) + " columns");
+    if (static_cast<std::int64_t>(a.data.size()) != crow * ccol) bad(o, "its node gives " + std::to_string(a.data.size()) + " values for " + std::to_string(crow) + " rows x " + std::to_string(ccol) + " measures");
+    std::vector<std::int64_t> vshape = cube ? std::vector<std::int64_t>{d["shape"][0].get<std::int64_t>(), d["shape"][1].get<std::int64_t>()} : std::vector<std::int64_t>{a.rows};
     if (d.contains("values_shape")) {
       vshape = ints(d["values_shape"]);
       std::int64_t n = 1;
       for (const auto x : vshape) n *= x;
-      if (n != a.rows) bad(o, "its node's values_shape holds " + std::to_string(n) + " values a measure, its array " + std::to_string(a.rows) + " rows");
+      if (n != crow) bad(o, "its node's values_shape holds " + std::to_string(n) + " values a measure, its array " + std::to_string(crow) + " rows");
     }
     const bool f32 = d.value("values_f32", false);
     if (own) {                                                              // another job's rows of the same measures: refused, or replaced with --replace (a member's own sizes depend on the weights alone: rewritten)
@@ -343,8 +348,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       x.measure = measures[c]["measure"].get<std::string>();
       x.unit = measures[c].value("unit", std::string());
       x.values.shape = vshape;
-      for (std::int64_t r = 0; r < a.rows; ++r) {
-        const double v = a.data[static_cast<std::size_t>(r * a.cols) + c];
+      for (std::int64_t r = 0; r < crow; ++r) {
+        const double v = a.data[static_cast<std::size_t>(r * ccol) + c];
         if (f32) x.values.f32.push_back(static_cast<float>(v)); else x.values.f64.push_back(v);
       }
       m.measures.push_back(std::move(x));
@@ -432,8 +437,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     Json out = Json{{"name", decl["name"]}, {"size", size}};
     if (decl.contains("selection")) {                                     // an axis over a pick another output of the run made (a covariance over its channels)
       const std::string so = decl["selection"].get<std::string>();
-      if (!made.count(so)) bad(o, "axis " + decl["name"].get<std::string>() + ": selection " + so + " is not an output stored before it (list it first)");
-      out["selection_id"] = made.at(so);
+      if (made.count(so)) out["selection_id"] = made.at(so);
+      else if (P.found.count(so) && P.found.at(so).row) out["selection_id"] = text(*P.found.at(so).row, "id");     // or a selection found as an input (the tiles a repeat is per)
+      else bad(o, "axis " + decl["name"].get<std::string>() + ": selection " + so + " is neither an output stored before it (list it first) nor an input found");
       for (const char* key : {"members", "values"}) if (ax.contains(key)) out[key] = ax[key];
     } else if (decl.contains("on")) {
       out["manifold_id"] = link(P, decl["on"].get<std::string>(), &made, o);

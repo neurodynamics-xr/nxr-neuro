@@ -487,35 +487,6 @@ int opticalflow_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-int frames_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro frames: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro frames compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--surface", "--template", "--template-surface", "--convention", "--side", "--min-projection", "--max-condition"}, {"--replace"}, {"--dataset", "--subject"});
-  nxr::pipelines::FramesComputeOptions o;
-  o.surface = a.maybe("--surface");
-  o.templ = a.maybe("--template");
-  o.template_surface = a.maybe("--template-surface");
-  if (const auto v = a.maybe("--convention")) { if (*v != "scs" && *v != "ras") usage(prog, "--convention is scs or ras"); o.convention = *v; }
-  if (const auto v = a.maybe("--side")) { if (*v != "auto" && *v != "left" && *v != "right") usage(prog, "--side is auto, left or right"); o.side = *v; }
-  if (const auto v = a.maybe("--min-projection")) o.min_projection = std::stod(*v);
-  if (const auto v = a.maybe("--max-condition")) o.max_condition = std::stod(*v);
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::frames_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
 int tiles_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro tiles: error: the following arguments are required: action (compute)");
   const std::string prog = "nxr-neuro tiles compute";

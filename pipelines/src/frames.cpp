@@ -111,7 +111,7 @@ StoredFrames read_stored_frames(SubjectWriter& sub, const std::string& surface, 
   return s;
 }
 
-FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const FramesComputeOptions& opt, const std::function<void(const Json&)>& progress) {
+FramesMade make_frames(DatasetWriter* dsp, SubjectWriter& sub, const FramesComputeOptions& opt, const std::function<void(const Json&)>& progress) {
   auto say = [&](const Json& j) { if (progress) progress(j); };
   if (!(opt.min_projection > 0 && opt.min_projection < 1)) invalid("frames: min_projection is in (0, 1)");
   if (opt.side != "auto" && opt.side != "left" && opt.side != "right") invalid("frames: side is auto, left or right");
@@ -120,7 +120,7 @@ FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const 
   const std::string sname = S.name;
   const Mat3 normals = nxr::frames::vertexNormals(S.vertices.data(), nV, S.faces.data(), nF);
   const auto sphere = sphere_of(sub, sname);
-  FramesComputeResult res;
+  FramesMade res;
   StoredFrames have = read_stored_frames(sub, sname, nV);
   Json record = Json::object();
   std::vector<float> gauge_angle;
@@ -141,7 +141,6 @@ FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const 
     canon = nxr::frames::canonicalFrames(S.vertices.data(), nV, S.faces.data(), nF, nn.data(), sphere->vertices.data(), Eigen::Vector3d(0, 0, 1), opt.max_condition);
     e1 = canon.e1; e2 = canon.e2;
     stored_canon = true;
-    res.canonical_computed = true;
     int ns = 0;
     for (char c : canon.singular) ns += c != 0;
     canonical_info = Json{{"source", "computed from " + sname + "_sphere"}, {"singular", ns}, {"max_condition", opt.max_condition}, {"poles", canon.poles}};
@@ -177,7 +176,8 @@ FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const 
   if (opt.templ) {
     if (!sphere) invalid(sname + ": no registered sphere (" + sname + "_sphere) to carry a template's frame through");
     if (!have.canonical && !stored_canon) invalid(sname + ": no canonical frames");
-    SubjectWriter tsub = SubjectWriter::open(ds, *opt.templ);
+    if (!dsp) invalid("frames: a template's frame is carried with the dataset open");
+    SubjectWriter tsub = SubjectWriter::open(*dsp, *opt.templ);
     const SurfaceInput T = read_surface(tsub, opt.template_surface, true);
     const auto tsphere = sphere_of(tsub, T.name);
     if (!tsphere) invalid(*opt.templ + ": no registered sphere (" + T.name + "_sphere)");
@@ -198,64 +198,37 @@ FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const 
   for (char c : A.reliable) nrel += c != 0;
   say(Json{{"stage", "anatomical"}, {"surface", sname}, {"definition", A.definition}, {"reference", A.reference}, {"reliable", nrel}, {"vertices", nV}});
 
-  // store
-  bool replaced = false;
-  std::string moved;
-  const std::string mid = S.id;
-  std::vector<std::pair<const char*, std::string>> nodes;
-  for (const char* w : {"angle", "second", "handed"}) nodes.push_back({"field", task::Subject::of(sub).node_path(mid, sname + "_anatomical_" + w)});
-  nodes.push_back({"selection", sname + "_anatomical_reliable"});
-  moved = internal::clear_stored_nodes(ds, sub, nodes, opt.replace, sname + " anatomical frame", replaced);
-  Json pj = Json{{"by", "nxr-neuro frames compute"}, {"producer", internal::producer_string("frames compute")}, {"definition", A.definition}, {"reference", A.reference}, {"min_projection", opt.min_projection},
-                 {"side", opt.side}, {"axes", axes}, {"canonical", canonical_info}, {"storage", "SCS (x anterior, y left, z up); the angle is from north (e1) towards west (e2) to anterior; the second axis is handed * (n x anterior)"},
-                 {"warnings", Json::array({"the anterior direction is undefined where the surface faces forward or back (the poles): `reliable` is 0 there",
-                                           "the second axis is superior where superior lies in the surface (lateral, medial cortex) and medial where medial does (dorsal, ventral), per `second`"})}};
-  sub.compose([&] {
-    auto put = [&](const std::string& name, const std::string& kind, const std::string& vt, const std::string& unit, const std::string& desc, ArrayView data, const Json& j) {
-      FieldSpec f;
-      f.name = name;
-      f.path = task::Subject::of(sub).node_path(mid, name);
-      f.kind = kind;
-      f.manifold_id = mid;
-      f.value_type = vt;
-      f.data = data;
-      f.cols.set("function", "frames").set("description", desc);
-      if (!unit.empty()) f.cols.set("unit", unit);
-      f.cols.json("producer_json", j);
-      sub.field(std::move(f));
-    };
-    if (stored_canon) {
-      std::vector<float> fr(static_cast<std::size_t>(nV) * 9);
-      for (int i = 0; i < nV; ++i) for (int k = 0; k < 3; ++k) { fr[static_cast<std::size_t>(i * 9 + k)] = static_cast<float>(e1(i, k)); fr[static_cast<std::size_t>(i * 9 + 3 + k)] = static_cast<float>(e2(i, k)); fr[static_cast<std::size_t>(i * 9 + 6 + k)] = static_cast<float>(normals(i, k)); }
-      Json cj = Json{{"by", "nxr-neuro frames compute"}, {"producer", internal::producer_string("frames compute")}, {"method", "Rheome sphereframe: the registered sphere's meridian towards +z pushed forward by a 2x2 Jacobian per vertex (nxr hemisphere_frames, domain sphere)"},
-                     {"domain", "sphere"}, {"north_word", "north"}, {"e2_word", "west (n x north; nxr coords.py says east)"}, {"detail", canonical_info}};
-      put(sname + "_canonical_frames", "canonical frames", "matrix3", "", "per vertex rows e1 (north), e2 = n x e1 (west), n (outward); NaN at singular vertices", view(fr, {static_cast<std::int64_t>(nV), 3, 3}), cj);
-      std::vector<std::int32_t> sing;
-      for (int i = 0; i < nV; ++i) if (canon.singular[static_cast<std::size_t>(i)]) sing.push_back(i);
-      SelectionSpec ss;
-      ss.name = sname + "_frame_singularities"; ss.path = ss.name; ss.type = "indices"; ss.manifold_id = mid; ss.data = view(sing, {static_cast<std::int64_t>(sing.size())}); ss.picked = true;
-      ss.cols.set("description", "the vertices with no canonical frame: the poles, and ill-conditioned push-forwards");
-      sub.selection(std::move(ss));
-      put(sname + "_canonical_gauge_angle", "canonical frames", "scalar", "rad", "the angle of north (e1) in each vertex's signpost basis (gaugeHeading); a heading from north = heading in the gauge minus this", view(gauge_angle, {static_cast<std::int64_t>(nV)}), [&] { Json x = cj; x["spin"] = 0; x["gauge_dependent"] = true; if (angle_gauge.is_object()) for (auto it = angle_gauge.begin(); it != angle_gauge.end(); ++it) x[it.key()] = it.value(); return x; }());
-    }
-    std::vector<float> ang(static_cast<std::size_t>(nV));
-    std::vector<std::int32_t> sec(static_cast<std::size_t>(nV)), han(static_cast<std::size_t>(nV)), rel;
+  // WHAT WAS MADE (stored by the definition `frames`): the canonical frames when computed here, their singular vertices and the gauge angle; the anatomical frame
+  int nrel2 = 0;
+  for (char c : A.reliable) nrel2 += c != 0;
+  (void)nrel2;
+  res.surface_id = S.id; res.surface = sname; res.n = nV;
+  res.producer = Json{{"definition", A.definition}, {"reference", A.reference}, {"min_projection", opt.min_projection}, {"side", opt.side}, {"axes", axes}, {"canonical", canonical_info},
+                      {"storage", "SCS (x anterior, y left, z up); the angle is from north (e1) towards west (e2) to anterior; the second axis superior or medial per `second`"},
+                      {"warnings", Json::array({"the anterior direction is undefined where the surface faces forward or back (the poles): `reliable` is 0 there",
+                                                "the second axis is superior where superior lies in the surface (lateral, medial cortex) and medial where medial does (dorsal, ventral), per `second`"})}};
+  if (stored_canon) {
+    res.canonical.resize(static_cast<std::size_t>(nV) * 9);
     for (int i = 0; i < nV; ++i) {
-      const std::size_t k = static_cast<std::size_t>(i);
-      ang[k] = static_cast<float>(A.angle[i]); sec[k] = A.second[k]; han[k] = A.handed[k]; if (A.reliable[k]) rel.push_back(i);
+      const Eigen::Vector3d a(e1(i, 0), e1(i, 1), e1(i, 2)), c(e2(i, 0), e2(i, 1), e2(i, 2)), nn = a.cross(c);   // n = e1 x e2 (outward)
+      for (int k = 0; k < 3; ++k) {
+        res.canonical[static_cast<std::size_t>(i * 9 + k)] = e1(i, k);
+        res.canonical[static_cast<std::size_t>(i * 9 + 3 + k)] = e2(i, k);
+        res.canonical[static_cast<std::size_t>(i * 9 + 6 + k)] = nn[k];
+      }
     }
-    const std::int64_t n = nV;
-    put(sname + "_anatomical_angle", "anatomical frames", "scalar", "rad", "the angle from north (towards west) to ANTERIOR at each vertex; anatomical components are a fixed rotation of the canonical frame by it", view(ang, {n}), pj);
-    put(sname + "_anatomical_second", "anatomical frames", "integer", "", "which way the second axis points: 0 superior, 1 medial", view(sec, {n}), pj);
-    put(sname + "_anatomical_handed", "anatomical frames", "integer", "", "the sign of n x anterior the second axis takes (+1 / -1)", view(han, {n}), pj);
-    SelectionSpec rs;
-    rs.name = sname + "_anatomical_reliable"; rs.path = rs.name; rs.type = "indices"; rs.manifold_id = mid; rs.data = view(rel, {static_cast<std::int64_t>(rel.size())}); rs.picked = true;
-    rs.cols.set("description", "the vertices where the anatomical frame is reliable: the anterior axis projects on the tangent plane with at least min_projection (not the frontal and occipital poles)");
-    sub.selection(std::move(rs));
-  });
-  res.info = Json{{"surface", sname}, {"vertices", nV}, {"canonical", canonical_info}, {"definition", A.definition}, {"reference", A.reference}, {"reliable", nrel}, {"min_projection", opt.min_projection},
-                  {"fields", Json::array({sname + "_anatomical_angle", sname + "_anatomical_second", sname + "_anatomical_handed"})}, {"selections", Json::array({sname + "_anatomical_reliable"})}, {"replaced", replaced},
-                  {"moved_aside", moved.empty() ? Json() : Json(moved)}};
+    for (int i = 0; i < nV; ++i) if (canon.singular[static_cast<std::size_t>(i)]) res.singular.push_back(i);
+    res.gauge_angle.assign(gauge_angle.begin(), gauge_angle.end());
+    res.gauge = angle_gauge;
+    res.canonical_producer = Json{{"method", "Rheome sphereframe: the registered sphere's meridian towards +z pushed forward to the surface"}, {"domain", "sphere"}, {"north_word", "north"},
+                                  {"e2_word", "west (n x north)"}, {"detail", canonical_info}};
+  }
+  res.angle.resize(static_cast<std::size_t>(nV)); res.second.resize(static_cast<std::size_t>(nV)); res.handed.resize(static_cast<std::size_t>(nV));
+  for (int i = 0; i < nV; ++i) {
+    const std::size_t k = static_cast<std::size_t>(i);
+    res.angle[k] = A.angle[i]; res.second[k] = A.second[k]; res.handed[k] = A.handed[k];
+    if (A.reliable[k]) res.reliable.push_back(i);
+  }
   return res;
 }
 

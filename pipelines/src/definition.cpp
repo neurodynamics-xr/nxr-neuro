@@ -78,7 +78,11 @@ std::vector<std::string> names(const Json& x, const std::string& where) {
 void params_used(const Json& v, const std::string& where, const Json& declared) {
   if (v.is_string()) {
     const std::string s = v.get<std::string>();
-    if (!s.empty() && s[0] == '$' && !declared.contains(s.substr(1))) err(where, s + " is not a parameter (declared: " + (declared.empty() ? std::string("none") : join(keys(declared))) + ")");
+    if (!s.empty() && s[0] == '$' && s.rfind("${", 0) != 0 && !declared.contains(s.substr(1))) err(where, s + " is not a parameter (declared: " + (declared.empty() ? std::string("none") : join(keys(declared))) + ")");
+    for (std::size_t a = 0; (a = s.find("${", a)) != std::string::npos; ++a) {        // `${name}` inside a name: a declared parameter too
+      const std::size_t e = s.find('}', a);
+      if (e == std::string::npos || !declared.contains(s.substr(a + 2, e - a - 2))) err(where, s + ": ${...} names no declared parameter");
+    }
   } else if (v.is_object() || v.is_array()) {
     for (const auto& x : v) params_used(x, where, declared);
   }
@@ -273,14 +277,16 @@ Definition parse(const Json& written, const std::string& source, const std::stri
     if (!spec.is_object()) err(w, "a mapping");
     int n = 0;
     for (const auto& c : kInputClasses) n += spec.contains(c) ? 1 : 0;
+    if (n > 1 && spec.contains("manifold")) --n;                           // `manifold:` beside another class is that class's relation (a selection ON a manifold), not a class
     if (n != 1) err(w, "name exactly one class: " + join(kInputClasses, " · ") + " (with its kind)");
     std::vector<std::string> bad;
     for (const auto& kk : keys(spec))
       if (!kInputKeys.count(kk) && std::find(kInputClasses.begin(), kInputClasses.end(), kk) == kInputClasses.end()) bad.push_back(kk);
     std::sort(bad.begin(), bad.end());
     if (!bad.empty()) err(w, "unknown key(s) " + join(bad));
-    for (const char* rel : {"from", "to", "manifold"})
-      if (spec.contains(rel)) {
+    const bool manifold_class = !spec.contains("field") && !spec.contains("operator") && !spec.contains("selection") && !spec.contains("statistic");
+    for (const char* rel : {"from", "to", "manifold", "is"})
+      if (spec.contains(rel) && !(manifold_class && std::string(rel) == "manifold")) {   // a manifold input's `manifold:` is its class (surface, points), not a relation
         const std::string r = spec[rel].is_string() ? spec[rel].get<std::string>() : spec[rel].dump();
         const std::string base = r.substr(0, r.find('.'));
         if (std::find(defined.begin(), defined.end(), base) == defined.end())
@@ -351,7 +357,10 @@ Definition parse(const Json& written, const std::string& source, const std::stri
       out.push_back(StepUse{st.name, ins, with, outs, sec});
     }
   }
-  if (d.over && !accumulates) err(where, "steps.chunks: nothing leaves the loop without an accumulate step");
+  bool writes_recording = false;                                           // a recording output (a filter's) leaves the loop block by block, written as it runs
+  if (doc.contains("outputs") && doc["outputs"].is_object())
+    for (const auto& [o, spec] : doc["outputs"].items()) { (void)o; if (spec.is_object() && spec.value("kind", std::string()) == "recording") writes_recording = true; }
+  if (d.over && !accumulates && !writes_recording) err(where, "steps.chunks: nothing leaves the loop without an accumulate step or a recording output");
 
   const Json outputs = doc.contains("outputs") && !doc["outputs"].is_null() ? doc["outputs"] : Json::object();
   if (!outputs.is_object() || outputs.empty()) err(where, "outputs: at least one (what the pipeline stores)");
