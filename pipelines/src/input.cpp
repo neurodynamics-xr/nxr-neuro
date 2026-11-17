@@ -61,6 +61,23 @@ SurfaceInput read_surface(SubjectWriter& sub, const std::optional<std::string>& 
   return s;
 }
 
+SurfaceInput read_surface(const SubjectPackage& pk, const std::string& name) {
+  const std::string sid = text(pk.subject_row(), "id");
+  const auto row = pk.db().one("SELECT m.*, g.positions_path AS positions_path FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.status = 'complete' AND m.type = 'surface' AND m.name = ?",
+                               {V(sid), V(name)});
+  if (!row) throw Error(code::no_such_row, pk.record().name + ": no surface named '" + name + "'");
+  const auto faces = pk.db().one("SELECT path FROM topology_cell WHERE topology_id = ? AND rank = 2", {V(text(*row, "topology_id"))});
+  if (!faces) throw Error(code::no_such_row, name + ": no faces (a surface's topology has a rank-2 cell array)");
+  SurfaceInput s;
+  s.manifold = *row;
+  s.id = text(*row, "id");
+  s.name = name;
+  s.primary = integer(*row, "is_primary") != 0;
+  s.vertices = read_as<double>(pk.store(), text(*row, "positions_path"));
+  s.faces = read_as<std::int32_t>(pk.store(), text(*faces, "path"));
+  return s;
+}
+
 int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n) {
   std::vector<std::int64_t> parent(static_cast<std::size_t>(n));
   std::iota(parent.begin(), parent.end(), 0);
