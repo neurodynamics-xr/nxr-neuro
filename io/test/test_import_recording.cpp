@@ -167,6 +167,20 @@ int main() {
     CHECK(std::fabs(hpos[0] + 0.08f) < 1e-6f && std::fabs(hpos[4] - 0.1f) < 1e-6f);
     CHECK(p.verify().ok);
   }
+  // a FIF file's ctf_head_t is a transition operator CTF head -> head (the file's device -> head tag restated, in place, as the CTF head's: its from-code 1 -> 1004)
+  {
+    std::ifstream in(data + "fif_basic_raw.fif", std::ios::binary);
+    std::string bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::string head("\0\0\0\xDE\0\0\0\x23\0\0\0\x68", 12);           // a coordinate-transform tag: kind 222, type 35, 104 bytes
+    std::size_t at = 0;
+    for (bool done = false; !done && (at = bytes.find(head, at)) != std::string::npos; at += 12)
+      if (bytes.compare(at + 16, 8, std::string("\0\0\0\x01\0\0\0\x04", 8)) == 0) { bytes[at + 18] = '\x03'; bytes[at + 19] = '\xEC'; done = true; }   // from 1 -> 1004
+    CHECK(at != std::string::npos);
+    std::ofstream(root / "ctf_t.fif", std::ios::binary) << bytes;
+    import_into(root / "ctf_t.nxr.zarr", fs::relative(root / "ctf_t.fif", data).string(), false);
+    SubjectPackage p = SubjectPackage::open(root / "ctf_t.nxr.zarr");
+    CHECK(p.db().one("SELECT id FROM operator WHERE name = 'rec_channels_ctf_head_to_head' AND kind = 'transition'").has_value());
+  }
   // an ACTIVE SSP projector is an operator and is applied to the samples as they are copied; an inactive one is only an operator
   {
     const fs::path pkg = root / "proj.nxr.zarr";
