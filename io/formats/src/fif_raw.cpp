@@ -412,6 +412,7 @@ std::unique_ptr<RawReader> open(std::shared_ptr<const ByteSource> first, const P
     ch.coil_type = coil_type_name(c.coil_type & 0xFFFF);
     const bool has_pos = std::isfinite(c.loc[0]) && std::isfinite(c.loc[1]) && std::isfinite(c.loc[2]) && (c.loc[0] != 0 || c.loc[1] != 0 || c.loc[2] != 0);
     if (has_pos) ch.location = std::array<double, 3>{c.loc[0], c.loc[1], c.loc[2]};
+    if (has_pos) ch.position_frame = c.coord_frame == 1 ? "device" : (c.coord_frame == 4 ? "head" : "");
     if ((c.kind == 1 || c.kind == 301) && has_pos) ch.orientation = std::array<double, 3>{c.loc[9], c.loc[10], c.loc[11]};   // the coil's normal (z axis of its frame)
     ch.bad = bad_set.count(c.name) > 0;
     h.channels.push_back(std::move(ch));

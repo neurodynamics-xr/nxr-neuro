@@ -348,6 +348,14 @@ class SubjectWriter {
   std::string topology(const TopologySpec& spec);
   std::string geometry(const GeometrySpec& spec);
   std::string cs(const std::string& key);   // coordinate_system for this subject
+  // A coordinate system on a space of the subject (`head`, the subject's head space, or a space of its own), found by name or made. A system that is not
+  // its space's first is defined by a transition OPERATOR (kind `transition`), which the caller writes in the same compose: never an `affine` with no parameters.
+  struct FrameSpec {
+    std::string space, name;                 // the space (made when new) and the system on it
+    std::optional<std::string> unit, description;
+    std::string space_description;
+  };
+  std::string frame(const FrameSpec& f);
   // An array at a store-relative path, laid out (canonical zarr.json) and populated; the groups above it plain groups. With `table`/`id` the
   // node's attributes ride in its document from the start.
   ArrayMeta write_array(const std::string& path, const ArrayView& data, const ArrayOptions& opt = {}, const std::optional<ArrayMeta>& meta = std::nullopt,

@@ -3,10 +3,16 @@
 #include <unistd.h>
 
 #include <cmath>
+#include <cstring>
+#include <set>
 #include <filesystem>
+#include <fstream>
 
 #include "check.h"
 #include "nxr/convert/recording.h"
+#include "nxr/convert/sensor_frames.h"
+#include "nxr/formats/byte_source.h"
+#include "nxr/formats/fif_objects.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/task/task.h"
@@ -97,6 +103,85 @@ int main() {
     CHECK(any_k);
     CHECK(rec_k.producer["header"].size() > rec_a.producer["header"].size());                 // something identifying was dropped
     check_copy(root / "a.nxr.zarr", "edf_plain.edf");                              // the samples are the same
+  }
+
+  // positions are in a TRUE coordinate system: a FIF file's MEG device positions and EEG head positions are carried into SCS by the file's dev_head_t and the
+  // head -> SCS transform the digitised landmarks define, checked against MNE's own values (the golden: its dev_head_t and channel locations)
+  {
+    const fs::path pkg = root / "frames.nxr.zarr";
+    import_into(pkg, "fif_basic_raw.fif", false);
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node man = s.require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
+    CHECK_EQ(man.fact("coordinate_system")["name"].get<std::string>(), std::string("scs"));
+    const task::Geometry g = s.geometry(man.id);
+    CHECK(g.coordinate_unit.has_value() && *g.coordinate_unit == "m");
+    const ArrayReader ar = ArrayReader::open(p.store(), *g.positions_path);
+    const std::int64_t N = ar.shape()[0];
+    const std::vector<std::uint8_t> raw = ar.read({0, 0}, {N, 3});
+    std::vector<float> pos(static_cast<std::size_t>(N * 3));
+    std::memcpy(pos.data(), raw.data(), raw.size());
+    std::ifstream gf(std::string(NXR_IO_DATA_DIR) + "/../../formats/test/golden/fif_golden.json");
+    const Json gold = Json::parse(gf)["cases"]["basic"]["info"];
+    const Json& T = gold["dev_head_t"]["trans"];
+    CHECK_EQ(static_cast<std::size_t>(N), gold["chs"].size());
+    for (std::int64_t i = 0; i < N; ++i) {
+      const Json& c = gold["chs"][static_cast<std::size_t>(i)];
+      double v[3] = {c["loc"][0].get<double>(), c["loc"][1].get<double>(), c["loc"][2].get<double>()}, h[3];
+      if (c["coord_frame"].get<int>() == 1)
+        for (int r = 0; r < 3; ++r) h[r] = T[r][0].get<double>() * v[0] + T[r][1].get<double>() * v[1] + T[r][2].get<double>() * v[2] + T[r][3].get<double>();
+      else
+        for (int r = 0; r < 3; ++r) h[r] = v[r];
+      // the golden's landmarks are LPA (-0.08, 0, 0), nasion (0, 0.1, 0), RPA (0.08, 0, 0): SCS = (head y, -head x, head z)
+      const double want[3] = {h[1], -h[0], h[2]};
+      for (int r = 0; r < 3; ++r) CHECK(std::fabs(pos[static_cast<std::size_t>(i * 3 + r)] - want[r]) < 1e-6);
+    }
+    // the systems and their transitions: device -> head -> SCS, each a transition operator
+    std::set<std::string> names;
+    for (const auto& o : s.find_all({.cls = task::Cls::operator_, .kind = "transition"})) names.insert(o.name);
+    CHECK(names.count("rec_channels_device_to_head") == 1);
+    CHECK(names.count("rec_channels_head_to_scs") == 1);
+    // the digitisation: a points manifold in the head frame it was digitised in (LPA first, then the nasion, RPA, an HPI coil, an EEG point, an extra point)
+    const task::Node hp = s.require({.cls = task::Cls::manifold, .name = "rec_channels_headpoints"}, "the head points");
+    CHECK_EQ(*hp.n_vertices, std::int64_t(6));
+    CHECK_EQ(hp.fact("coordinate_system")["name"].get<std::string>(), std::string("head"));
+    const ArrayReader hr = ArrayReader::open(p.store(), *s.geometry(hp.id).positions_path);
+    const std::vector<std::uint8_t> hraw = hr.read({0, 0}, {6, 3});
+    std::vector<float> hpos(18);
+    std::memcpy(hpos.data(), hraw.data(), hraw.size());
+    CHECK(std::fabs(hpos[0] + 0.08f) < 1e-6f && std::fabs(hpos[4] - 0.1f) < 1e-6f);
+    CHECK(p.verify().ok);
+  }
+  // an MNE head -> MRI transform becomes a transition operator from the head frame to freesurfer-tkr
+  {
+    const fs::path pkg = root / "trans.nxr.zarr";
+    import_into(pkg, "fif_basic_raw.fif", false);
+    {
+      DatasetWriter w = open_package_writer(pkg);
+      SubjectWriter sub = SubjectWriter::open(w, "S");
+      const task::Node man = task::Subject::of(sub).require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
+      nxr::formats::fif::File f(std::make_shared<nxr::formats::FileSource>(data + "fif_obj-trans.fif"));
+      cv::import_head_mri_transition(sub, nxr::formats::fif::read_transform(f), "rec_head_to_mri", man.id);
+    }
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node t = s.require({.cls = task::Cls::operator_, .name = "rec_head_to_mri"}, "the head to MRI transition");
+    CHECK_EQ(t.fact("from_coordinate_system")["name"].get<std::string>(), std::string("head"));
+    CHECK_EQ(t.fact("to_coordinate_system")["name"].get<std::string>(), std::string("freesurfer-tkr"));
+    CHECK(p.verify().ok);
+  }
+  // EEGLAB's and BrainVision's frames are their own, with no transition; an unstated unit is not metres
+  for (const auto& [file, key] : {std::pair<const char*, const char*>{"eeglab_fdt.set", "eeglab"}, {"bv_mux_i16.vhdr", "brainvision-sphere"}}) {
+    const fs::path pkg = root / (std::string("own_") + key + ".nxr.zarr");
+    import_into(pkg, file, false);
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node man = s.require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
+    if (man.fact("coordinate_system").is_object()) {
+      CHECK_EQ(man.fact("coordinate_system")["name"].get<std::string>(), std::string(key));
+      CHECK(man.fact("coordinate_system")["unit"].is_null());
+    }
+    CHECK(s.find_all({.cls = task::Cls::operator_, .kind = "transition"}).empty());
   }
 
   // refusals

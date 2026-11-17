@@ -188,22 +188,25 @@ SensorInfo export_sensors(SubjectWriter& sub, const std::map<std::string, Value>
   const std::int64_t N = static_cast<std::int64_t>(n);
 
   auto manifold_points = [&](const std::string& mid, const std::string& nm, const std::string& p, const std::vector<float>& pos, std::int64_t count, const Json& producer,
-                             const std::string& acq) {
+                             const std::string& acq, bool placed = true, const std::string* cs = nullptr) {
     nxr::io::ManifoldSpec m;
     m.id = mid;
     m.name = nm;
     m.path = p;
     m.type = "points";
+    if (!placed) m.path.reset();
     m.n_vertices = count;
     m.acquisition = acq;
     m.topology = {"none", 0, 1, std::nullopt, {}};
-    nxr::io::GeometrySpec g;
-    g.form = "stored";
-    g.cs_key = opt.cs_key;
-    g.positions_path = p;
-    m.geometry = g;
+    if (placed) {
+      nxr::io::GeometrySpec g;
+      g.form = "stored";
+      g.cs_key = cs ? *cs : opt.cs_key;
+      g.positions_path = p;
+      m.geometry = g;
+      m.populate = [&sub, p, &pos, count, mid](nxr::io::Store&, const std::string&) { sub.write_array(p, view(pos, {count, 3}), {}, std::nullopt, "manifold", mid); };
+    }
     m.cols.json("producer_json", producer);
-    m.populate = [&sub, p, &pos, count, mid](nxr::io::Store&, const std::string&) { sub.write_array(p, view(pos, {count, 3}), {}, std::nullopt, "manifold", mid); };
     sub.manifold(std::move(m));
   };
 
@@ -220,7 +223,7 @@ SensorInfo export_sensors(SubjectWriter& sub, const std::map<std::string, Value>
   if (Json tf = transforms(channel_mat); !tf.empty()) producer["transforms"] = tf;
   if (opt.source_sha1) producer["source_sha1"] = *opt.source_sha1;
   if (opt.producer) for (auto it = opt.producer->begin(); it != opt.producer->end(); ++it) producer[it.key()] = it.value();
-  manifold_points(mid, name, path, pos, N, producer, opt.acquisition);
+  manifold_points(mid, name, path, pos, N, producer, opt.acquisition, opt.placed);
 
   auto vec3_field = [&](const std::string& fname, const std::string& fpath, const std::string& kind, const std::string& manifold, const std::vector<float>& data,
                         std::int64_t rows, const std::string& description, const std::optional<std::string>& unit) {
@@ -289,7 +292,8 @@ SensorInfo export_sensors(SubjectWriter& sub, const std::map<std::string, Value>
       const std::string hpath = path + "_headpoints";
       std::vector<float> hpos;
       for (const auto& p : *hloc) for (int c = 0; c < 3; ++c) hpos.push_back(static_cast<float>(p[c]));
-      manifold_points(hid, name + "_headpoints", hpath, hpos, H, Json{{"description", "the digitised head points (HeadPoints.Loc)"}, {"of", name}}, opt.acquisition);
+      const std::string hcs = opt.headpoints_cs_key.value_or(opt.cs_key);
+      manifold_points(hid, name + "_headpoints", hpath, hpos, H, Json{{"description", "the digitised head points (HeadPoints.Loc), in " + hcs}, {"of", name}}, opt.acquisition, true, &hcs);
       std::vector<LabelMember> fams;
       for (const auto& [fam, key] : {std::pair<const char*, const char*>{"label", "Label"}, {"type", "Type"}}) {
         const auto vals = strings(hp->field(key, 0), hloc->size());

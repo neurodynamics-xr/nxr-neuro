@@ -9,6 +9,7 @@
 #include <limits>
 
 #include "nxr/bst/sensors.h"
+#include "nxr/convert/sensor_frames.h"
 #include "nxr/formats/brainvision.h"
 #include "nxr/formats/ctf.h"
 #include "nxr/formats/edf.h"
@@ -70,21 +71,38 @@ nxr::bst::Value doubles_value(const std::array<double, 3>& a) {
   return v;
 }
 
-double metres_per(const std::string& unit) {
-  if (unit == "mm") return 1e-3;
-  if (unit == "cm") return 1e-2;
-  if (unit == "m" || unit.empty()) return 1.0;
-  refuse("a channel position unit '" + unit + "' is not one of m, cm, mm");
+// the digitised points as the channel file's `HeadPoints` struct: Loc [3 x H] (column-major), Label and Type (cells of text)
+nxr::bst::Value headpoints_value(const std::vector<SensorPlacement::DigitisedPoint>& pts) {
+  const std::size_t H = pts.size();
+  nxr::bst::Value loc;
+  loc.cls = nxr::bst::Class::Double;
+  loc.dims = {3, H};
+  loc.re.resize(3 * H * sizeof(double));
+  nxr::bst::Value labels, types;
+  labels.cls = types.cls = nxr::bst::Class::Cell;
+  labels.dims = types.dims = {1, H};
+  for (std::size_t j = 0; j < H; ++j) {
+    std::memcpy(loc.re.data() + 3 * j * sizeof(double), pts[j].r.data(), 3 * sizeof(double));
+    labels.elems.push_back(text_value(pts[j].label));
+    types.elems.push_back(text_value(pts[j].type));
+  }
+  nxr::bst::Value hp;
+  hp.cls = nxr::bst::Class::Struct;
+  hp.dims = {1, 1};
+  hp.fields = {"Loc", "Label", "Type"};
+  hp.elems = {std::move(loc), std::move(labels), std::move(types)};
+  return hp;
 }
 
 // the channel file as the sensor writer reads it: Channel(Name, Type, Loc, Orient)
-std::map<std::string, nxr::bst::Value> channel_mat(const nxr::formats::RecordingHeader& h, std::map<std::string, std::string>& units) {
+std::map<std::string, nxr::bst::Value> channel_mat(const nxr::formats::RecordingHeader& h, const SensorPlacement& place, std::map<std::string, std::string>& units) {
   nxr::bst::Value ch;
   ch.cls = nxr::bst::Class::Struct;
   ch.dims = {1, h.channels.size()};
   ch.fields = {"Name", "Type", "Loc", "Orient"};
-  const double to_m = metres_per(h.position_unit);
+  std::size_t ci = 0;
   for (const auto& c : h.channels) {
+    const std::size_t i = ci++;
     const std::string type = bst_type(c);
     if (!c.unit.empty()) {
       const auto it = units.find(type);
@@ -93,9 +111,10 @@ std::map<std::string, nxr::bst::Value> channel_mat(const nxr::formats::Recording
     }
     ch.elems.push_back(text_value(c.name));
     ch.elems.push_back(text_value(type));
-    if (c.location) ch.elems.push_back(doubles_value({(*c.location)[0] * to_m, (*c.location)[1] * to_m, (*c.location)[2] * to_m}));
+    // positions and orientations as `place_sensors` placed them: in one named coordinate system, in metres
+    if (place.location[i]) ch.elems.push_back(doubles_value(*place.location[i]));
     else ch.elems.emplace_back();
-    if (c.orientation) ch.elems.push_back(doubles_value(*c.orientation));
+    if (place.orientation[i]) ch.elems.push_back(doubles_value(*place.orientation[i]));
     else ch.elems.emplace_back();
   }
   return {{"Channel", std::move(ch)}};
@@ -247,7 +266,10 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
   Json out;
   sub.compose([&] {
     std::map<std::string, std::string> units_by_type;
-    const auto mat = channel_mat(h, units_by_type);
+    const SensorPlacement place = place_sensors(reader, opt.name + "_channels", opt.acquisition);
+    make_frames(sub, place);
+    auto mat = channel_mat(h, place, units_by_type);
+    if (!place.digitisation.empty() && !place.headpoints_cs_key.empty()) mat["HeadPoints"] = headpoints_value(place.digitisation);
     std::vector<std::int64_t> flags;
     bool any_bad = false;
     for (const auto& c : h.channels) {
@@ -259,8 +281,12 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     so.name = opt.name + "_channels";
     so.acquisition = opt.acquisition;
     so.units = units_by_type;
-    so.producer = Json{{"format", opt.format}, {"origin", origin}};
+    so.cs_key = place.cs_key.empty() ? "scs" : place.cs_key;
+    so.placed = !place.cs_key.empty();
+    if (!place.headpoints_cs_key.empty()) so.headpoints_cs_key = place.headpoints_cs_key;
+    so.producer = Json{{"format", opt.format}, {"origin", origin}, {"frames", place.record}};
     const nxr::bst::SensorInfo si = nxr::bst::export_sensors(sub, mat, flags, so);
+    write_links(sub, place, si.id, opt.acquisition.empty() ? std::nullopt : std::optional<std::string>(opt.acquisition));
 
     nxr::bst::BlockRecording b;
     b.name = opt.name;

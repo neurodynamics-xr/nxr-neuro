@@ -15,6 +15,7 @@ add_library(nxr_io_formats
   src/fif_tag.cpp
   src/fif_info.cpp
   src/fif_raw.cpp
+  src/geometry.cpp
   src/ctf.cpp
   src/kit.cpp
   src/fif_write.cpp

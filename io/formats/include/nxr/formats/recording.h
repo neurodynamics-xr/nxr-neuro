@@ -43,6 +43,9 @@ struct Channel {
   std::optional<std::array<double, 3>> location;      // as the file gives them, in the file's unit (see RecordingHeader::position_unit)
   std::optional<std::array<double, 3>> orientation;
   std::string coil_type;
+  // the coordinate frame `location` and `orientation` are in, as the reader names it: "device" (the sensor array's own frame), "head" (Neuromag head),
+  // "ctf-head", "sphere" (BrainVision: the unit sphere) or "eeglab"; "" when the file does not say
+  std::string position_frame;
   bool bad = false;
 };
 

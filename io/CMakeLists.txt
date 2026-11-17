@@ -302,6 +302,7 @@ add_library(nxr_io
   convert/fibers_import.cpp
   convert/templates.cpp
   convert/recording.cpp
+  convert/sensor_frames.cpp
 )
 target_include_directories(nxr_io PRIVATE ${CMAKE_CURRENT_BINARY_DIR} ${CMAKE_CURRENT_BINARY_DIR}/gen src ${CMAKE_CURRENT_SOURCE_DIR}/extern)
 set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # rapidyaml (vendored: extern/ryml, v0.15.2) compiled here, its warnings not ours

@@ -186,7 +186,7 @@ class Reader final : public RecordingReader {
         const auto& p = cmap[i];
         if (p.size() >= 3) {
           const double r = to_double(p[0], "a radius"), th = to_double(p[1], "a theta") * 3.14159265358979323846 / 180.0, ph = to_double(p[2], "a phi") * 3.14159265358979323846 / 180.0;
-          if (r != 0.0 || th != 0.0 || ph != 0.0) c.location = std::array<double, 3>{r * std::sin(th) * std::cos(ph), r * std::sin(th) * std::sin(ph), r * std::cos(th)};
+          if (r != 0.0 || th != 0.0 || ph != 0.0) { c.location = std::array<double, 3>{r * std::sin(th) * std::cos(ph), r * std::sin(th) * std::sin(ph), r * std::cos(th)}; c.position_frame = "sphere"; }
         }
       }
       h_.channels.push_back(c);
