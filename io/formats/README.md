@@ -20,7 +20,11 @@ Calibration and unit scaling are decoding and belong here; any other maths does 
 | `nifti.h` | NIfTI-1/2: header (every field, extensions), volume (whole, `.nii`, `.nii.gz`, `.hdr`+`.img`), the best affine (sform, else qform, else pixdims), writer |
 | `gifti.h` | GIFTI: surfaces, shape and functional maps, labels; ASCII, Base64Binary and GZipBase64Binary in either byte order; column-major made row-major; reader and writer (pugixml) |
 | `tsv.h` | BIDS-style TSV tables (`n/a`, no empty cells, LF) and JSON sidecars: read and write |
-| `recording.h` | `RecordingHeader` (channels, units, sampling rate, sample count, annotations, bad channels, gaps) and `RecordingReader::read(s0, n, c0, c1, out)`: block reads by sample range, in SI units, row after row, precision following the file |
+| `edf.h` | EDF, EDF+, BDF, BDF+ (continuous and discontinuous: gaps as spans, read as zeros); annotations; several sampling rates refused unless one is named |
+| `brainvision.h` | BrainVision `.vhdr`/`.vmrk`/`.eeg`: INT_16, INT_32, IEEE_FLOAT_32, multiplexed or vectorized; ASCII refused; markers as annotations; coordinates |
+| `eeglab.h` | EEGLAB `.set` (+ `.fdt`) through matio: events, channel locations, the `.fdt` by seek, data in an uncompressed `.set` by block; compressed variables and epoched datasets refused |
+| `units.h` | file unit strings to SI (`uV`, `µV`, `mV`, `fT`, ...) |
+| `recording.h` | `RecordingHeader` (channels, units, sampling rate, sample count, annotations, bad channels, gaps) and `RecordingReader::read(s0, n, c0, c1, out)`: block reads by sample range, in SI units, row after row, precision following the file (a `double*` overload for 64-bit recordings) |
 
 ## Rules every format follows
 
