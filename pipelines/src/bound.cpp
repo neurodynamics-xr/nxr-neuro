@@ -6,6 +6,7 @@
 #include <cstring>
 
 #include "nxr/io/errors.h"
+#include "nxr/io/subject_reads.h"
 
 namespace nxr::pipelines::graph {
 
@@ -100,6 +101,12 @@ SurfaceLevel Bound::surface_level(const SurfaceInput& s, int level) const { retu
 StoredFrames Bound::stored_frames(const std::string& surface_name, std::int64_t n_vertices) const { return read_stored_frames(writer(), surface_name, n_vertices); }
 std::string Bound::subject_kind() const { return io::text(writer().row(), "kind"); }
 std::string Bound::coordinate_unit(const std::string& manifold_id) const { return coordinate_unit_of(writer(), manifold_id); }
+std::string Bound::coordinate_system_key(const std::string& manifold_id) const {
+  const auto m = manifold(manifold_id);
+  if (!m || io::is_null(*m, "geometry_id")) return {};
+  return io::coordinate_system_name_of_geometry(writer().db(), io::text(*m, "geometry_id")).value_or(std::string());
+}
+std::vector<std::uint8_t> Bound::medial_wall(const SurfaceInput& surface) const { return nxr::pipelines::medial_wall(writer(), surface); }
 GroupTemplate Bound::group_template(const std::string& surface_name) const {
   if (!ds_) throw io::Error(io::code::invalid_argument, "the group tree is carried from the dataset's default subject: the binding holds no dataset");
   return read_group_template(*ds_, writer(), surface_name);

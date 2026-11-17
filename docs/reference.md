@@ -343,7 +343,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run inverse` | The depth-weighted minimum-norm inverse kernel, from a noise covariance and a head model. | `inverse compute` |
 | `nxr-neuro run headmodel` | The sphere head model (gain matrix) for a subject's cortex, MEG and EEG. | `headmodel compute` |
 | `nxr-neuro run pointspread` | The instrument's blur: unit currents at sample vertices through the head model and inverse kernel. | `pointspread compute` |
-| `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface (cached). | `eigen solve` |
+| `nxr-neuro run eigenmodes` | The Hodge-Dirac eigenmodes of a stored surface, with the intrinsic complex and the modes' full forms (cached); `--glued` for a cortex of two hemispheres. | `eigen solve` |
 | `nxr-neuro run frames` | The canonical (north, west) and anatomical frames of a surface. | `frames compute` |
 | `nxr-neuro run tiles` | The dyadic equal-area tile grid of a surface, with closed-form levels. | `tiles compute` |
 | `nxr-neuro run group_tree` | The default subject's tile grid as the dataset's group tree: atlas definitions and the Levi-Civita connection. | (made by `dataset create`) |
@@ -611,11 +611,14 @@ axes with their sizes and a closed-form line, the segment tiling, the scaling re
 |---|---|---|
 | `field` | `kind_name`, `on: LINK` | a Field on that manifold |
 | `statistic` | `of: INPUT`, `axes: [{name, on: LINK} \| {name, line: NAME} \| {name}]`, `partition: {tiling: NAME, on: LINK}` | the statistic, its frequency (or other) line, the segment partition |
-| `operator` | `operator_kind`, `from: LINK`, `to: LINK` | a dense Operator between two found manifolds |
+| `operator` | `operator_kind`, `from: LINK`, `to: LINK` | an Operator between two manifolds: dense, or SPARSE (csr or csc) when the node describes `sparse` (indptr, indices; its array the nnz values), with the cell keys `from_cell`, `to_cell` (d0: '0' to '1') and a stored `chunks`/`shards` layout |
 | `selection` | `type: partition \| set \| spans \| tiling`, `on: LINK` | a Selection on that manifold, with its dictionary |
-| `manifold` | `type: line \| surface \| product` | the manifold, found by name and reused when identical |
+| `manifold` | `type: line \| surface \| product \| points \| complex` | the manifold, found by name and reused when identical. `points`: one coordinate each (an operator's mode axis, the eigenvalues); `complex`: a CELL COMPLEX, a surface whose vertices, edges ([nE x 2]) and faces are stored |
 
-A name is a template: `{input}` the found input's name, `$parameter` a parameter's value. The short forms (`kind: spans`, `kind: labelling`, `kind: measurement`, a statistic without `axes:`, a Field's own kind
+A field's description may name the cells it lies on (`cell`: '0' vertices, '1' edges, '2' faces) and store integers (`dtype`: `i32` or `u8`). A link may name ALTERNATIVES (`glued|surface.manifold.0`: the first one made by the run or found); an output may be
+`optional: true` (a node that makes none hands an array marked `absent`: a glued surface of a cortex of two pieces), and a field may lie on a manifold the run itself makes. Replacing a manifold (`--replace`) moves what lies on it aside with it.
+
+A name is a template: `{input}` the found input's name, `$parameter` a parameter's value, `{name}` what the step's plan fixes (`facts.names`). The short forms (`kind: spans`, `kind: labelling`, `kind: measurement`, a statistic without `axes:`, a Field's own kind
 name such as `band power`) are stored as before. A `node:` use (grouped names such as `welch.psd`) and a `step:` use are the same.
 
 `presets:` names parameter sets (each a named alternative); `run NAME --set PRESET` starts from one. Precedence: the parameters' defaults, then the preset's values, then the caller's own `--NAME VALUE` or
@@ -623,6 +626,18 @@ name such as `band power`) are stored as before. A `node:` use (grouped names su
 `run NAME --help` lists every preset with the values it sets.
 A statistic's `describe` may carry `producer`, what its readers ask of the provenance beside the run's own record (a spectrum's `frequency_resolution_hz` and `sfreq`, its segments, the share of samples left out, the scaling
 record). A native node that applies a stored dense Operator (`rotary.pair`) is handed its matrix and the channels it lies over by the runner (`meta.channels`); it reads no store.
+
+## The Hodge-Dirac eigenmodes (`run eigenmodes`, the step `hodge_dirac`; spec `docs/specs/2026-11-17-eigenmodes-as-definition.md`)
+
+`run eigenmodes --surface NAME [--modes K] [--glued]` solves the Hodge-Dirac modes of a stored surface on its intrinsic Delaunay complex (the split solve: the Laplace-Beltrami ladder gives the exact modes, the 2-form
+ladder the coexact modes; one lambda cut, the constants out) and stores them with their full forms. Default: the reference method of nxr and Rheome; the other methods are named options (`--shift`, `--sigma`, `--slice`,
+`--normalize`, `--star1-floor`, `--mollify`, `--flip-eps`), all in the provenance and the cache key. `--glued` is for a cortex of TWO pieces (its hemispheres): each medial wall cut, a bridge grown, solved on the glued
+surface; a surface of two pieces without it, or of one piece with it, is refused with the reason; three or more pieces are refused. Eigenmodes come first: a spatial band that needs modes that are not stored has the runner
+make them with this run, said in a message. What it cannot resolve: a mode above the mesh's resolution is not a property of the cortex, and the bridge is not cortex.
+Stored (stem `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one; the layout is unchanged from `eigen solve`): the mode axis `<stem>` (points, coordinate mu = sqrt(lambda), ascending), the field
+`<stem>_kind` (0 exact, 2 coexact; of the eigenvectors operator), the operators `<stem>_eigenvectors` (axis to surface, [V x K] float32) and `<stem>_forms2` (axis to the complex's faces, cell 2), the selection `<stem>_support`; the
+glued surface `<surface>_glued` with its bridge `<surface>_glued_bridge`; and the cell complex `<solved>_intrinsic` (vertices, edges, faces) with the sparse operators `_d0` (cell 0 to 1) and `_d1` (cell 1 to 2) and the fields
+`_length`, `_star0`, `_star1`, `_star2`, `_angle_tail`, `_angle_tip`, `_angle_sum`, `_reference` on its cells. The library's `eigen_solve` (`pipelines/eigen.h`) is a thin caller of this definition.
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 

@@ -104,7 +104,7 @@
 //     events, bad segments, projectors and CTF compensation carried over, and the verb, every option and the design in its producer_json.
 //     One command per verb (not `filter <kind>`): the verbs are MATLAB's own names and each takes its own edges, as `psd`, `noisecov` and `inverse` take theirs.
 //
-// JSON lines out, as `nxr-neuro eigen solve`; the result line adds "cache": "hit" | "miss".
+// JSON lines out, as `nxr-neuro run eigenmodes`; the result line adds "cache": "hit" | "miss".
 #include <iostream>
 #include <map>
 #include <sstream>

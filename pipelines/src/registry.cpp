@@ -65,6 +65,7 @@ void add_surrogate_steps(std::vector<StepSpec>& r);   // surrogate_steps.cpp: po
 void add_connectome_steps(std::vector<StepSpec>& r);   // connectome_steps.cpp: fiber_ends, nearest_vertex, end_gate, registration_match, carry_ends, smooth_memberships, partition_counts, end_connectome, connection_weights, prune_below, largest_component
 void add_tiling_steps(std::vector<StepSpec>& r);        // tiling_steps.cpp: frame_tiling
 void add_tile_steps(std::vector<StepSpec>& r);          // tiles_steps.cpp: tile_grid, group_tile_grid
+void add_eigen_steps(std::vector<StepSpec>& r);         // eigen_steps.cpp: hodge_dirac
 void add_montage_steps(std::vector<StepSpec>& r);       // montage_steps.cpp: eeg_montage_1005
 void add_spatial_events_steps(std::vector<StepSpec>& r);   // spatial_events_steps.cpp: at_level, relative, …
 
@@ -706,6 +707,7 @@ std::vector<StepSpec> build() {
   add_montage_steps(r);
   add_tiling_steps(r);
   add_tile_steps(r);
+  add_eigen_steps(r);
   return r;
 }
 

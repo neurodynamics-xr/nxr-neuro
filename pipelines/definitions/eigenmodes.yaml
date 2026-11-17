@@ -1,0 +1,74 @@
+# THE HODGE-DIRAC EIGENMODES OF A SURFACE: the patterns the cortex's own geometry allows, the basis every spatial band, flow and cycle pattern is read in (the instrument's spatial resolution: a
+# mode is resolved only as far as the mesh and the solve go). Solved on the surface's intrinsic Delaunay complex by the split solve (the Laplace-Beltrami ladder d0^T *1 d0 with *0: exact modes; the
+# 2-form ladder *2 d1 *1^-1 d1^T *2 with *2: coexact modes), cut at ONE lambda, the constants out. By default the REFERENCE method of nxr (`nxr.eigen.hodge_dirac.solve_hodge`) and Rheome
+# (`rheome.eigen.hodge_dirac`); the methods used before are named options (shift, slice, normalize, the *1 floor), every option is in the provenance and the cache key.
+#
+# THE GRAPH (docs/specs/2026-11-17-eigenmodes-as-definition.md; the Studio's chain glueMesh -> intrinsicDelaunay -> the two ladders -> the package):
+#   surface --[hodge_dirac: glue by anatomy when `glued`, intrinsic Delaunay, split solve]--> glued surface + bridge, the mode axis (the eigenvalues mu: points), each mode's kind, the eigenvectors
+#   (the 0-form parts, axis -> the solved surface), the 2-form parts (axis -> the complex's faces), the intrinsic complex (a cell complex) with d0 and d1 (sparse operators between its cells) and the
+#   stars and signposts as fields on its cells ('0' vertices, '1' edges, '2' faces).
+# Stored (stem = `hodgeDirac`, or `hodgeDirac__<surface>` for a surface that is not the primary one):
+#   <stem>                      the mode axis: points, one per mode, coordinate mu = sqrt(lambda) > 0 ascending (the operator's eigenvalues)
+#   <stem>_kind                 field on the axis: 0 exact, 2 coexact
+#   <stem>_eigenvectors         operator, axis -> the solved surface [V x K]: per mode ONE vertex potential (psi/sqrt2, or <chi/sqrt2, w_v>)
+#   <stem>_forms2               operator, axis -> the complex's faces (cell 2) [nF x K]: each mode's 2-form part chi/sqrt2 (0 on an exact mode)
+#   <stem>_support              the surface's vertices the solve covers (all of them for one piece)
+#   <surface>_glued, <surface>_glued_bridge   (glued only) the cortex glued by anatomy: the kept vertices in support order, then the bridge's; the bridge (not cortex)
+#   <solved>_intrinsic          the intrinsic complex (the same vertices; its own edges and faces), <solved> = the surface, or <surface>_glued
+#   <solved>_intrinsic_d0, _d1  sparse operators: d0 vertices -> edges (cell 0 -> 1), d1 edges -> faces (cell 1 -> 2)
+#   <solved>_intrinsic_length, _star0, _star1, _star2, _angle_tail, _angle_tip, _angle_sum, _reference   fields on the complex's cells
+#
+# EIGENMODE FIRST (the maintainers' rule): the spatial bands read these modes; when a band needs eigenmodes that are not stored, the runner makes them first, as this run, with a message.
+# A surface of TWO pieces (a cortex's hemispheres) is solved glued by anatomy only: `--glued`, which cuts each medial wall (the Desikan-Killiany `unassigned`) and grows a bridge; it is refused
+# when the pieces do not match. Three or more pieces are refused.
+#
+# What it cannot resolve: the modes are the discrete operator's on the mollified, Delaunay-flipped intrinsic triangulation; a mode above the mesh's resolution is not a property of the cortex, and
+# the bridge of a glued surface is not cortex.
+#
+#   nxr-neuro run eigenmodes --dataset <folder> --subject sub-01 --surface cortex_pial [--modes 3000] [--glued] [--replace]
+pipeline: eigenmodes
+version: 1
+description: the Hodge-Dirac eigenmodes of a stored surface, with the intrinsic complex and the modes' full forms
+scope: subject
+
+inputs:
+  surface: {manifold: surface, where: {name: $surface}, hint: "name the surface (--surface)"}
+
+parameters:
+  surface: {default: null, meaning: "the subject's stored surface to solve on, by name", unit: "-"}
+  modes: {default: 3000, meaning: "about this many positive modes are kept, half exact and half coexact", unit: modes}
+  glued: {default: false, meaning: "the surface is a cortex of TWO pieces (its hemispheres): glue them by anatomy first (the medial walls cut, a bridge grown) and solve on the glued surface; refused when the pieces do not match", unit: "-"}
+  shift: {default: absolute, meaning: "how the shift-invert solve is shifted: absolute (one solve per ladder at sigma, the reference method) or relative (a ladder scaled to the spectrum)", unit: "-", choices: [absolute, relative]}
+  sigma: {default: null, meaning: "the absolute shift (only with shift absolute); null: the reference method's -1e-3", unit: "1/m^2"}
+  slice: {default: 0, meaning: "spectrum slicing: solve in windows of this many modes, each with its own shift; 0: one solve per ladder", unit: modes}
+  normalize: {default: false, meaning: "make the modes orthonormal under the mass matrix after the solve (Cholesky whitening); the reference method does not", unit: "-"}
+  star1_floor: {default: null, meaning: "raise the edge cotan weights (the 1-form Hodge star) that fall below this up to it; null: no floor (nxr's; Rheome used 1e-6)", unit: "-"}
+  mollify: {default: 1e-6, meaning: "the intrinsic Delaunay construction's mollification margin, as a fraction of the mean edge length (0: none)", unit: fraction}
+  flip_eps: {default: 1e-6, meaning: "an edge is flipped to Delaunay while its cotan weight is below minus this", unit: "-"}
+
+steps:
+  before:
+    - step: hodge_dirac
+      in: {surface: surface}
+      with: {modes: $modes, glued: $glued, shift: $shift, sigma: $sigma, slice: $slice, normalize: $normalize, star1_floor: $star1_floor, mollify: $mollify, flip_eps: $flip_eps}
+      out: [glued, bridge, modes, kind, support, eigenvectors, forms2, complex, d0, d1, length, star0, star1, star2, angle_tail, angle_tip, angle_sum, reference]
+
+outputs:
+  glued:        {kind: manifold, type: surface, name: "{surface}_glued", derived_from: surface.manifold.0, optional: true}
+  bridge:       {kind: selection, type: indices, name: "{surface}_glued_bridge", on: glued, optional: true}
+  modes:        {kind: manifold, type: points, name: "{stem}", derived_from: surface.manifold.0}
+  kind:         {kind: field, kind_name: form degree, name: "{stem}_kind", on: modes, of_operator: eigenvectors}
+  support:      {kind: selection, type: indices, name: "{stem}_support", on: surface.manifold.0}
+  complex:      {kind: manifold, type: complex, name: "{solved}_intrinsic", derived_from: "glued|surface.manifold.0"}
+  eigenvectors: {kind: operator, operator_kind: eigenvectors, name: "{stem}_eigenvectors", from: modes, to: "glued|surface.manifold.0"}
+  forms2:       {kind: operator, operator_kind: eigenvectors, name: "{stem}_forms2", from: modes, to: complex}
+  d0:           {kind: operator, operator_kind: exterior derivative, name: "{solved}_intrinsic_d0", from: complex, to: complex}
+  d1:           {kind: operator, operator_kind: exterior derivative, name: "{solved}_intrinsic_d1", from: complex, to: complex}
+  length:       {kind: field, kind_name: intrinsic complex, name: "{solved}_intrinsic_length", on: complex}
+  star0:        {kind: field, kind_name: intrinsic complex, name: "{solved}_intrinsic_star0", on: complex}
+  star1:        {kind: field, kind_name: intrinsic complex, name: "{solved}_intrinsic_star1", on: complex}
+  star2:        {kind: field, kind_name: intrinsic complex, name: "{solved}_intrinsic_star2", on: complex}
+  angle_tail:   {kind: field, kind_name: intrinsic complex, name: "{solved}_intrinsic_angle_tail", on: complex}
+  angle_tip:    {kind: field, kind_name: intrinsic complex, name: "{solved}_intrinsic_angle_tip", on: complex}
+  angle_sum:    {kind: field, kind_name: intrinsic complex, name: "{solved}_intrinsic_angle_sum", on: complex}
+  reference:    {kind: field, kind_name: intrinsic complex, name: "{solved}_intrinsic_reference", on: complex}

@@ -799,9 +799,10 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       Json one = Json{{"output", o}, {"kind", ospec["kind"]}, {"name", declared_name(P, o)}};
       const auto places = declared_places(P, o, sub);
       // an output with no place to look up (a selection on a manifold this run makes, a measurement over it) cannot be shown stored: a miss, never a hit
-      if (places.empty() && ospec["kind"] != "manifold") { hit = false; break; }
+      if (places.empty() && ospec["kind"] != "manifold" && !ospec.value("optional", false)) { hit = false; break; }
       for (const auto& [cls, path] : places) {
         const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), task::to_string(cls), key, path);
+        if (!row && ospec.value("optional", false) && !sub.find(task::to_string(cls), path)) continue;   // an optional output this very run did not make (nothing stored there): not a miss
         if (!row) { hit = false; break; }
         if (cls != task::Cls::selection) { one["id"] = text(*row, "id"); one["path"] = path; }
       }
@@ -1162,8 +1163,13 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     // measurements), then the statistics (whose members may be those events)
     // DECLARED OUTPUTS (declared_outputs.h): the manifolds the definition makes FIRST, so that any other output can lie on them; then each of the others as the declaration and the node's description say
     MadeIds made;
+    // an output the node made none of: not in its arrays, or an array it marks `absent` (a step must hand every port; an optional output it does not make is such a placeholder)
+    auto made_none = [&](const std::string& o) { const auto it = data.find(o); return it == data.end() || it->second.meta.value("absent", false); };
     for (const auto& [o, ospec] : d.outputs.items())
-      if (is_declared(P, o) && ospec["kind"] == "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced));
+      if (is_declared(P, o) && ospec["kind"] == "manifold") {
+        if (made_none(o)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", "its node made none (an optional output)"}}); continue; }
+        stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced));
+      }
     std::set<std::string> packed;                                          // the measurement outputs already stored with an earlier one's array
     auto pass = [](const Value& v) { return v.cls == "labelling" ? 1 : over_events(v) ? 2 : v.cls == "statistic" ? 3 : 0; };
     // two more passes: the declared operators (they name the picks and statistics stored before them), then the fields of an operator (`of_operator`)
@@ -1179,7 +1185,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       const Value& v = P.values.at(o);
       if (declared_pass(o, spec, v) != ps) continue;
       if (spec.value("kind", std::string()) == "recording") continue;     // written as the loop ran
-      if (is_declared(P, o) && !data.count(o)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", "its node made none (an optional output)"}}); continue; }
+      if (is_declared(P, o) && made_none(o)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", "its node made none (an optional output)"}}); continue; }
       if (is_declared(P, o)) { if (ospec_kind(spec) != "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced)); continue; }
       if (v.cls == "measurement" && v.facts.value("measure", std::string()) == "tile_crossings") { stored.push_back(store_crossings(sub, unit, P, o, v, data.at(o), made_by(key), opt.replace, replaced)); continue; }
       if (v.cls == "measurement") {

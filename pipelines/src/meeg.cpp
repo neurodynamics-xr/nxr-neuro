@@ -751,7 +751,7 @@ HodgePackage resolve_hodge_package(SubjectWriter& sub, const Row& smf, const std
   const SurfaceInput in = read_surface(sub, text(smf, "name"));
   const std::string stem_pkg = package ? *package : (in.primary ? std::string("hodgeDirac") : "hodgeDirac__" + in.name);
   const auto opr = find_operator(sub.db(), sub.id(), "eigenvectors", stem_pkg + "_eigenvectors");
-  if (!opr) missing(sub.name() + ": no stored Hodge-Dirac package '" + stem_pkg + "' (nxr-neuro eigen solve, or nxr eigen solve)");
+  if (!opr) missing(sub.name() + ": no stored Hodge-Dirac package '" + stem_pkg + "' (nxr-neuro run eigenmodes, or nxr eigen solve)");
   const auto axis = sub.db().read("manifold", text(*opr, "from_manifold_id"));
   // by NAME, never by path: a migrated dataset keeps the support in its manifold's folder (source/<stem>_support), a fresh solve at the root
   const auto kindf = find_field(sub.db(), sub.id(), FieldQuery{stem_pkg + "_kind"});
@@ -889,7 +889,7 @@ std::vector<SpatialBand> spatial_bands(const HodgePackage& pk, const std::string
   return bands;
 }
 
-// THE KERNEL IN THE FULL FORMS: the intrinsic complex the package's modes are solved on (stored by `eigen solve`), the modes' full forms, and a free kernel
+// THE KERNEL IN THE FULL FORMS: the intrinsic complex the package's modes are solved on (stored by `run eigenmodes`), the modes' full forms, and a free kernel
 // on the glued surface read into them once: its normal part n·J as a 2-form (A2 [K x M], coexact modes) and its tangent part as a 1-form (A1 [K x M]).
 struct KernelForms {
   nxr::intrinsic::Complex c;
@@ -903,7 +903,7 @@ KernelForms kernel_forms(SubjectWriter& sub, const HodgePackage& pk, const std::
   const std::string iname = pk.glued.name + "_intrinsic";
   const auto im = sub.find("manifold", "source/" + iname);
   const auto f2 = sub.find("operator", pk.stem + "_forms2");
-  if (!im || !f2) missing(sub.name() + ": the package '" + pk.stem + "' has no full forms (the intrinsic complex " + iname + ", " + pk.stem + "_forms2): `eigen solve --replace` stores them");
+  if (!im || !f2) missing(sub.name() + ": the package '" + pk.stem + "' has no full forms (the intrinsic complex " + iname + ", " + pk.stem + "_forms2): `run eigenmodes --replace` stores them");
   const std::string iid = text(*im, "id");
   KernelForms out;
   nxr::intrinsic::Complex& c = out.c;
@@ -973,7 +973,7 @@ PhaseGradientResult phasegradient_band(DatasetWriter& ds, SubjectWriter& sub, co
   const std::string spec = *opt.spatial_band, iname = pk.glued.name + "_intrinsic";
   const SpatialBank bank = spec == "modes" ? SpatialBank{} : spatial_bank_of(ds, sub, in.surface);   // THE ONE bank: stored by `pyramid spatial-bands` (made, with the ladder, when absent)
   const std::vector<SpatialBand> bands = spatial_bands(pk, spec, "phasegradient", bank);
-  // ── built once, on the first miss: THE INTRINSIC COMPLEX the modes are solved on and their FULL FORMS (stored by `eigen solve`), the kernel's analysis ──
+  // ── built once, on the first miss: THE INTRINSIC COMPLEX the modes are solved on and their FULL FORMS (stored by `run eigenmodes`), the kernel's analysis ──
   // Everything below is on that one complex: the band filter reads the current into the modes by inner products with their forms (the
   // tangent part as a 1-form on the intrinsic edges, the normal part as a 2-form on its faces), the phase field is a 1-form on its edges (each edge's
   // lag from the cross-spectrum between its ends), and its split is inner products with the modes' 1-forms.
@@ -1624,7 +1624,7 @@ GluedDomain glued_domain(SubjectWriter& sub, const SurfaceInput& S) {
     for (std::int64_t i = 0; i < S.n_vertices(); ++i) d.support[static_cast<std::size_t>(i)] = static_cast<std::int32_t>(i);
     return d;
   }
-  d.why = S.name + " is a cortex of several pieces and no glued surface is stored: run `nxr-neuro eigen solve` (it glues the hemispheres by anatomy and stores the glued surface)";
+  d.why = S.name + " is a cortex of several pieces and no glued surface is stored: run `nxr-neuro run eigenmodes --glued` (it glues the hemispheres by anatomy and stores the glued surface)";
   return d;
 }
 

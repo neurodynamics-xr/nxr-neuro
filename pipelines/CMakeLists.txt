@@ -64,6 +64,7 @@ add_library(nxr_pipelines
   src/declared_outputs.cpp
   src/input.cpp
   src/eigen.cpp
+  src/eigen_steps.cpp
   src/frames.cpp
   src/registration.cpp
   src/montage_create.cpp

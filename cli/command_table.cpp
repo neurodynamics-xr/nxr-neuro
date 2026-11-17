@@ -150,8 +150,6 @@ R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (r
 --file@import map	FILE	A map file to import: a source map (results_*.mat, one value per vertex) or a region map (matrix_*.mat, one value per atlas region); repeatable.	required	-
 --file@import surface	FILE	A Brainstorm cortex surface file (tess_*.mat) to convert and store; repeat or give several.	required	-
 --fit	inner|mesh|modes	How the timing map is fitted to the edge lags: by inner products with the modes, by a weighted fit on the whole surface complex, or by a weighted fit within the exact modes.	inner	-
---flip-eps	E	Tolerance of the intrinsic Delaunay edge flips: flip while the cotangent weight is below -E	1e-6	-
---flip-eps@run eigenmodes	E	Edge-flip tolerance of the intrinsic Delaunay construction: an edge is flipped while its cotan weight is below -E.	1e-6	-
 --flow-tolerance	X	Relative residual at which the conjugate-gradient flow solve stops (pcg and per-scale methods).	1e-8	-
 --flow-tolerance@run opticalflow	X	Relative residual at which the iterative solver (pcg, perscale) stops.	1e-8	-
 --fmax	HZ	Upper frequency limit (constantq: ceiling of the time ladder, at most Nyquist; speedspectrum: the highest frequency bin used).	constantq: 64 Hz cap (method default); speedspectrum: 40	Hz
@@ -255,11 +253,8 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --min-value@query measurements	X	Keep only rows whose rolled-up value is at least this.	none	measure's unit
 --mne		Use MNE-Python's conventions for the kernel: joint types, ridge over the rank, PCA whitener, depth exponent 0.8 by the spectral norm.	off	-
 --mne-eeg-layers		Use MNE-Python's EEG sphere layers and conductivities instead of the default three-shell layers.	off	-
---modes	K	Number of Hodge-Dirac eigenmodes (eigen solve, dataset create: how many to solve; pointspread, cellquadrature, patches: size of the package when it must be computed, 0 = standard; speedspectrum, hodgepower: use the first K of the stored package)	eigen solve: 3000; dataset create: none; speedspectrum, hodgepower: all; pointspread, cellquadrature, patches: 0	modes
---modes@run eigenmodes	K	About this many positive Hodge-Dirac modes are kept, half exact and half coexact.	3000	modes
+--modes	K	Number of Hodge-Dirac eigenmodes (run eigenmodes, dataset create: how many to solve; pointspread, cellquadrature, patches: size of the package when it must be computed, 0 = standard; speedspectrum, hodgepower: use the first K of the stored package)	eigen solve: 3000; dataset create: none; speedspectrum, hodgepower: all; pointspread, cellquadrature, patches: 0	modes
 --modes@create dataset	K	Solve the default subject's pial Hodge-Dirac eigenmode basis with about this many modes and store it; needs --templates.	none (no basis is solved)	modes
---mollify	X	Mollification margin of the intrinsic Delaunay construction (Sharp and Crane), relative to the mean edge length; 0 means no margin.	1e-6	relative
---mollify@run eigenmodes	D	Mollification margin of the intrinsic Delaunay construction, as a fraction of the mean edge length (0 = no margin).	1e-6	fraction
 --name	NAME	Name of what is stored: the dataset, subject or surface, or the stem of the stored result (filters: <recording>_<verb>).	derived from the inputs	-
 --name@add surface	NAME	Name the surface is stored under for the subject.	the mesh file's name without its extension, made safe as a node name	-
 --name@run cyclepattern	NAME	Stem of the stored cycle-pattern results.	<cross-spectrum without _windows>_cycle	-
@@ -294,8 +289,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --node@delete subject	NAME	Delete only this node (manifold, field, operator or selection) of the subject instead of the whole subject	none (the whole subject is deleted)	-
 --noise-cov	NAME	Name of a stored noise covariance to use (alternative to --recording)	none	-
 --normalisation	none|relative	Normalisation of the band power maps: none, or relative (each map divided by the source's total power over all bins up to Nyquist).	none	-
---normalize		Re-orthonormalise the eigenmodes afterwards (orthonormal in the mass matrix).	off	-
---normalize@run eigenmodes		Make the modes orthonormal under the mass matrix after the solve (Cholesky whitening); the reference method does not.	off	-
 --of	NAME	The stored field, or band of a map statistic, that was measured	none (required)	-
 --only	NAME	Import only this named anatomical image (repeatable).	all images	-
 --only@import mri	NAME	Import only this named anatomical image; repeat the option for several.	all images	-
@@ -389,16 +382,10 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --set@run	NAME=VALUE	Override a parameter of the pipeline definition; the value is read as YAML (8, [15, 29], dSPM). Repeatable.	none (the definition's own values)	-
 --shape	morlet|meyer|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or meyer (wishart); pyramid build also accepts power_partition (band powers add to broadband).	morlet	-
 --shape@run pyramid	morlet|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or power_partition (band powers add up to broadband).	morlet	-
---shift	absolute|relative	How the eigenvalue solve is shifted: at one absolute shift (reference method) or by a scale-aware relative ladder.	absolute	-
---shift@run eigenmodes	absolute|relative	Shift of the shift-invert solve: absolute (one solve per ladder at --sigma, the reference method) or relative (a ladder scaled to the spectrum).	absolute	-
 --side	auto|left|right	Hemisphere of a single-piece surface	auto	-
 --sides	analytic|two-sided	Whether the time bank is one-sided (analytic, positive frequencies) or two-sided.	none (required)	-
---sigma	S	Absolute shift of the eigenvalue solve (with --shift absolute).	-0.001	1/m^2
---sigma@run eigenmodes	S	The absolute shift of the shift-invert solve (only with --shift absolute).	-1e-3	-
 --sign	positive|negative|magnitude	Which tile means form patches: high values, low values, or absolute value	positive	-
 --signal	normal|ambient	Signal whose phase gradient is taken: ambient (the full current, its x y z components) or normal (the component along the surface normal).	ambient	-
---slice	N	Use spectrum slicing with windows of N modes; 0 means one solve.	0 (none)	modes
---slice@run eigenmodes	N	Spectrum slicing: solve in windows of N modes, each with its own shift; 0 means one solve per ladder.	0 (no slicing)	modes
 --snr	S	Assumed amplitude signal-to-noise ratio of the minimum-norm kernel	3	-
 --snr-normalisation	all-channels|whitener-rank	Whether the signal-to-noise ratio is normalised over all channels or over the rank of the whitener.	all-channels	-
 --source	NAME	The pipeline whose stored cells and events are read.	cortical_event_pairs	-
@@ -423,8 +410,6 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 )TBL",
 R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, onset, within, offset) or by index	0 (the first stage, burst)	-
 --stage@run null	NAME|INDEX	The stage of the stored crossings to test, by name (burst, onset, within, offset) or index	0	-
---star1-floor	X	Floor on the cotangent weights of the Hodge star; values at or below 0 mean no floor.	none	-
---star1-floor@run eigenmodes	F	Raise the edge cotan weights (the 1-form Hodge star) that fall below F up to F; unset means no floor.	none	-
 --start	SEC	Start of the span read, in seconds on the recording's clock; give together with --stop. Exclusive with --chunks.	none (one chunk)	s
 --start-s	SECONDS	Time of the recording's first sample as seconds from local midnight, anchoring the time-tile levels	the anchor is the recording	s
 --start-s@run opticalflow	SECONDS	Time of the recording's first sample as seconds from local midnight, anchoring the frame tiling.	none (the anchor is the recording)	s
@@ -444,7 +429,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --surface	NAME	Surface to work on, by name.	the primary (cortex) surface (joint, scaleselection: the one the joint partitions use)	-
 --surface-id	ID	The id of the surface the kernel was made on.	found from the kernel file	-
 --surface-id@import inverse	ID	Id of the stored cortex surface the kernel was made on.	found from the kernel's SurfaceFile link	-
---surface@run eigenmodes	NAME	Name of the subject's stored surface to solve on.	the subject's primary surface	-
 --surface@import condition	FILE	The subject's cortex surface file (tess_*.mat) the condition is imported on, instead of the one its head model names.	none (the condition's own surface)	-
 --surface@import template	NAME	Convert only this surface (a tess_*.mat file of the template anatomy); repeat for several.	every surface of the template's default anatomy	-
 --surface@import templates	NAME	The surface the template maps are placed on	the subject's surface with each map's vertex count	-
@@ -511,7 +495,6 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --templates@import events	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run eigenmodes	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1167,13 +1150,6 @@ old: pyramid reduce
 alias: refused
 summary: Reduce several subjects' group-tree pyramids into the group's pyramid; on a catalogue dataset the result is a group package (--into).
 opts: --dataset* --depth --into --kernels --subjects* --templates+
-)TBL",
-R"TBL(@ run eigenmodes
-old: eigen solve
-alias: refused
-group: Geometry
-summary: The Hodge-Dirac eigenmodes of a stored surface (cached).
-opts: --dataset* --flip-eps --modes --mollify --normalize --replace --shift --sigma --slice --star1-floor --subject* --surface --templates+
 )TBL",
 R"TBL(@ run constantq
 old: constantq compute
