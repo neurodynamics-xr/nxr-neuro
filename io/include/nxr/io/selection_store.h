@@ -17,6 +17,7 @@
 #include <array>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -71,10 +72,10 @@ struct Loaded {
  *  A set stores as (selection_description.h): a tiling -> `spans` (closed form, nothing per member); members all spans -> `spans` rows (an empty set too, unless `n_members`
  *  is given: then a `set` with nothing stored); a set per element -> `set` with its array of member numbers, the sibling array of the members' labels (when they have any)
  *  and a dictionary of one row per LABEL; a grid's levels are a rule in `params` ("grid"), never rows or arrays (a dyadic grid at one level: its tile codes and
- *  `params.grid`; with all its levels: save_grid); an elements grid -> `set` with nothing stored and `params.grid`; a product of GRIDS (`factors`, `radices`,
- *  Placement::factor_ids; an irregular factor is refused) -> `set` with `selection_factor` rows and `params.product` [{selection, members}], codes first factor fastest; other members -> `set` with member rows; members all tilings with levels -> `ladder` (a
+ *  `params.grid`; with all its levels: save_grid); an elements grid -> `set` with nothing stored and `params.grid`; a product of sets (`factors`, `radices`,
+ *  Placement::factor_ids; an irregular factor is allowed, a ladder must name a level) -> `set` with `selection_factor` rows and `params.product` [{selection, members}], codes first factor fastest; other members -> `set` with member rows; members all tilings with levels -> `ladder` (a
  *  dictionary of the levels, an empty tile dictionary per level, each level a `spans` member holding its tiling: its member_ordinal the level's identity, its code its
- *  power of two). The arrays are written before the row, in the caller's composition.
+ *  power of two). A set also records its FAMILY, grid or irregular (`params.family`; Description::family, else what its structure says). The arrays are written before the row, in the caller's composition.
  *  A ladder's line (its manifold) must be a closed-form line: its sample rate and length give each level's window in samples. */
 Saved save(SubjectWriter& sub, const Description& description, const Placement& at);
 
@@ -103,9 +104,32 @@ Saved save_grid(SubjectWriter& sub, const Placement& ladder, const std::vector<G
 /** a set per element's members' labels, one per member (the sibling array, or 0 .. n_members - 1 when it has none): what turns a label an importer knows into the member number */
 std::vector<std::int64_t> member_labels(const Database& db, const Store& store, const std::string& selection_id);
 
+/** a set per element as it is READ: the member NUMBER of every element (-1: none), each member's LABEL (member i labelled i when the set has no labels array) and what
+ *  the labels mean (the set's dictionary: label -> name). Pipelines read a set's elements through this, never the raw array: the array holds member numbers, not labels. */
+struct ElementMembers {
+  std::vector<std::int32_t> member_of;                  // per element
+  std::vector<std::int64_t> member_codes;               // per member
+  std::map<std::int64_t, std::string> names;            // label -> name (empty: the labels are their own names)
+  /** the label of every element's member (-1: in none) */
+  std::vector<std::int64_t> element_labels() const;
+  /** the name of a label, or its number as text when the dictionary has none */
+  std::string name_of(std::int64_t label) const;
+};
+/** the elements of a stored set per element (an irregular set, a dyadic grid at its depth): Error(no_such_row) when there is none, Error(invalid_argument) for a selection with no
+ *  array */
+ElementMembers read_element_members(const Database& db, const Store& store, const std::string& selection_id);
+
 // ── read ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 /** a stored selection (any status) as its description; Error(no_such_row) when there is none; a kernel is not a selection (Error(invalid_argument)). */
 Loaded load(const Database& db, const Store& store, std::string_view id);
+/** is the stored selection a GRID (params.family; a row from before the mark: what its type and params say)? Error(no_such_row) when there is none */
+bool is_grid(const Database& db, const std::string& id);
+/** a product's radices, one per factor, in factor order (params.product; else the factors' member counts); Error(invalid_argument) for a selection that is not a product */
+std::vector<std::int64_t> product_radices(const Database& db, const std::string& id);
+/** the product code that holds `code` once factor `factor` is rolled up by `shift` (mixed radix, FIRST factor fastest: unpack, that factor's member >> shift, repack with
+ *  its radix rolled to ceil(radix / 2^shift)): the roll-up of one factor's member at read, the same arithmetic as compute's `coarser_code`. Error(invalid_argument) for a
+ *  factor outside the radices or a code outside the product. */
+std::int64_t coarser_product_code(const std::vector<std::int64_t>& radices, std::int64_t code, int factor, int shift);
 /** the complete selection of that name in the subject (optionally of a stored type), or nothing */
 std::optional<records::SelectionRow> find_by_name(const Database& db, const std::string& subject_id, const std::string& name, const std::optional<std::string>& stored_type = std::nullopt);
 /** the complete selection of that name on the manifold (optionally of a stored type), or nothing */

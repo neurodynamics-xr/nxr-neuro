@@ -88,6 +88,8 @@ struct Manifold {
   std::string unit;                                   // made line: the unit of its coordinate ("Hz")
   ManifoldRef of;                                     // restricted, derived: the manifold it is of
   std::string by;                                     // restricted, members: the selection's identity (a stored id, or "<use>.<output>"; a signature's "$port")
+  bool irregular = false;                             // members of an IRREGULAR selection (events, scouts, an atlas: no levels): a statistic across them is a summary, never a level roll-up
+  bool irregular = false;                             // members of an IRREGULAR selection (events, scouts, an atlas: no levels): a statistic across them is a summary, never a level roll-up
   bool rest = false;                                  // variable: stands for all the other factors of a domain (R)
   bool subsume = false;                               // variable at an operator's source: also accepts a restriction of what it is bound to (`apply`'s one implicit move)
 };
@@ -110,7 +112,7 @@ ManifoldRef restricted(const ManifoldRef& of, const std::string& by);
 ManifoldRef members(const std::string& partition);
 /** the member set of `partition`, with the line it partitions (`of`: a time tile's line; the time line of a joint partition), the role it has (frames for a frame tiling,
  *  time_tiles for a time ladder's level) and a label (`joint` for the cells of a joint partition of space x time). Equality ignores all three: it is the partition's. */
-ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role = Role::time_tiles, const std::string& label = "");
+ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role = Role::time_tiles, const std::string& label = "", bool irregular = false);
 ManifoldRef members_of_port(const std::string& port);      // in a signature: the member set of the selection read at `port` (instantiated to members(<its identity>))
 ManifoldRef derived(const std::string& relation, const ManifoldRef& of);
 bool same(const ManifoldRef& a, const ManifoldRef& b);                 // structural equality; the coordinate system is part of it when both manifolds record one (T5)

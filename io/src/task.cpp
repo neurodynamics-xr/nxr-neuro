@@ -4,6 +4,7 @@
 #include <algorithm>
 
 #include "nxr/io/database.h"
+#include "nxr/io/json_text.h"
 #include "nxr/io/layout.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/records/records.h"
@@ -603,7 +604,12 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
   std::int64_t n = 0;
   for (const auto& x : m.measures) {
     const std::string path = m.path + "/" + x.measure;
-    sub.write_array(path, view_of(x.values, "measurement " + x.measure));
+    const ArrayView v = view_of(x.values, "measurement " + x.measure);
+    const ArrayMeta laid = sub.write_array(path, v);
+    if (m.attributes.is_object() && !m.attributes.empty()) {   // the array describes its own axes: laid out again with them, then filled (the same bytes)
+      layout_array(sub.store(), path, laid, jdump(m.attributes));
+      populate_array(sub.store(), path, v);
+    }
     Cols c;
     c.set("measure", x.measure).set("array_path", path).set("unit", x.unit).set("computed_by", by_.tool);
     if (!m.of_field_id.empty()) c.set("of_field_id", m.of_field_id);        // none: the members' own (a size)

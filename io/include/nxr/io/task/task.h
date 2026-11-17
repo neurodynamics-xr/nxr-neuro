@@ -154,6 +154,7 @@ struct MeasurementOut {
   struct Measure { std::string measure, unit; Values values; };
   std::vector<Measure> measures;
   Json band;                                       // {name, lo_hz, hi_hz} or null
+  Json attributes;                                 // what each measure's array says of its own axes (the zarr attributes: rows = ..., columns = ...); null: none
 };
 // a closed-form tiling of a time line: `count` tiles of `width` a new one every `hop` from `origin` (in `unit`), `skipped` of them left out
 struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };

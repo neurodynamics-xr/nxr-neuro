@@ -28,6 +28,8 @@ void check(const Lookup& lookup) {
 }
 
 // ── making ───────────────────────────────────────────────────────────────────────────────
+const char* family_name(Family f) { return f == Family::grid ? "grid" : "irregular"; }
+
 const char* type_name(Type t) {
   switch (t) {
     case Type::point: return "point";
@@ -98,6 +100,8 @@ Selection set(std::vector<Selection> members, Lookup lookup) {
   if (!lookup.empty())
     for (const Selection& m : members) if (m.code) entry(lookup, *m.code);
   Selection s; s.type = Type::set; s.members = std::move(members); s.lookup = std::move(lookup);
+  // a ladder (members that are levels of tilings) is a grid with levels; any other set of listed members is irregular
+  if (!s.members.empty() && std::all_of(s.members.begin(), s.members.end(), [](const Selection& m) { return m.type == Type::set && m.level >= 0 && m.tiling; })) s.family = Family::grid;
   return s;
 }
 
@@ -114,12 +118,14 @@ Selection set_of_spans(std::vector<SpanRow> rows, std::string unit, Lookup looku
 Selection tiled(Tiling t, std::string unit) {
   if (!(t.width > 0) || !(t.hop > 0) || t.count < 0 || !std::isfinite(t.origin)) throw std::invalid_argument("tiled: width > 0, hop > 0 and count >= 0");
   Selection s; s.type = Type::set; s.tiling = t; s.unit = std::move(unit);
+  s.family = t.hop >= t.width ? Family::grid : Family::irregular;     // an overlapping tiling is a family of segments, not a partition of its line
   return s;
 }
 
 Selection elements_grid(std::int64_t size) {
   if (size < 0) throw std::invalid_argument("elements_grid: a manifold of size >= 0");
   Selection s; s.type = Type::set; s.grid = Grid{Grid::Kind::elements, size, 0, 0};
+  s.family = Family::grid;
   return s;
 }
 
@@ -161,11 +167,13 @@ Selection dyadic_grid(std::vector<std::int32_t> codes, int depth, std::int64_t s
       if (x.level < 0) x.level = static_cast<int>(l);
       if (x.level != static_cast<int>(l)) throw std::invalid_argument("dyadic_grid: the level at position " + std::to_string(l) + " is labelled " + std::to_string(x.level));
       x.type = Type::set;
+      x.family = Family::grid;
       x.code = x.level;
       x.members.clear(); x.member_of.clear(); x.member_codes.clear(); x.factors.clear(); x.tiling.reset(); x.grid.reset();
     }
   }
   Selection s; s.type = Type::set; s.member_of = std::move(codes); s.grid = Grid{Grid::Kind::dyadic, 0, depth, slots}; s.members = std::move(levels);
+  s.family = Family::grid;
   return s;
 }
 
@@ -205,24 +213,54 @@ bool has_levels(const Selection& s) {
   return std::all_of(s.members.begin(), s.members.end(), [](const Selection& m) { return m.type == Type::set && m.level >= 0; });
 }
 
-std::optional<std::string> grid_refusal(const Selection& s) {
+std::optional<std::string> factor_refusal(const Selection& s) {
   if (s.type != Type::set)
-    return std::string("a ") + type_name(s.type) + " is one selection, not a grid: a box on the product manifold is a span with one extent per factor, and a single band "
+    return std::string("a ") + type_name(s.type) + " is one selection, not a set: a box on the product manifold is a span with one extent per factor, and a single band "
            "or range restricts the input (`at`) rather than being a factor";
-  if (is_product(s)) return std::nullopt;
+  if (!s.factors.empty()) return std::nullopt;
   if (has_levels(s)) return std::string("a grid with levels: name one level (level(set, k)), or take the level a band sets (grid.h: time_level_of_band, space_level_of_band)");
-  if (s.tiling) {
-    if (s.tiling->hop < s.tiling->width) return std::string("a tiling whose members overlap (hop < width) is a family of segments, not a partition of its line");
-    return std::nullopt;
-  }
-  if (s.grid) return std::nullopt;
-  if (!s.member_of.empty())
-    return std::string("an irregular set per element (an atlas, a detection): it partitions the field, not the manifold; measure it member by member, or take a grid");
-  return std::string("a set of listed members (bursts, events, named bands) is irregular: measure it member by member; a product's factors are grids (a tiling, "
-                     "a dyadic level, an elements grid)");
+  return std::nullopt;                                                 // Studio D100: any set, a grid or an irregular measurement layout (an atlas x time windows)
 }
 
-bool is_grid(const Selection& s) { return s.type == Type::set && !grid_refusal(s) && (!is_product(s) || std::all_of(s.factors.begin(), s.factors.end(), is_grid)); }
+bool is_grid(const Selection& s) { return s.type == Type::set && s.family == Family::grid; }
+
+namespace {
+// does a grid's member number roll up by a shift (code >> shift)? a dyadic grid, or a disjoint tiling of a line
+bool shifts(const Selection& g) { return g.type == Type::set && g.family == Family::grid && (is_dyadic(g) || (g.tiling && g.tiling->hop >= g.tiling->width)); }
+}  // namespace
+
+std::optional<std::string> rollup_refusal(const Selection& s, int factor) {
+  if (s.type != Type::set) return std::string("a ") + type_name(s.type) + " is not a set: nothing to roll up";
+  if (is_product(s)) {
+    if (factor >= static_cast<int>(s.factors.size())) return "factor " + std::to_string(factor) + " is outside the product's " + std::to_string(s.factors.size());
+    for (std::size_t f = 0; f < s.factors.size(); ++f) {
+      if (factor >= 0 && static_cast<int>(f) != factor) continue;
+      if (s.factors[f].family != Family::grid)
+        return "factor " + std::to_string(f) + " is an irregular set: it has no levels and does not roll up (a roll-up runs along a grid factor; measure an irregular factor member by member, or summarise it)";
+      if (!shifts(s.factors[f])) return "factor " + std::to_string(f) + " is a grid whose members do not roll up by a shift (a dyadic grid or a disjoint tiling does)";
+    }
+    return std::nullopt;
+  }
+  if (s.family != Family::grid)
+    return std::string("an irregular set (bursts, events, scouts, an atlas) has no levels and does not roll up: its members are measured one by one and summarised across; roll up a grid");
+  return std::nullopt;
+}
+
+std::vector<std::int64_t> rolled_radices(const Selection& p, int factor, int shift) {
+  need_product(p, "rolled_radices");
+  if (factor < 0 || factor >= static_cast<int>(p.factors.size()) || shift < 0 || shift > 62) throw std::invalid_argument("rolled_radices: a factor of the product and a shift 0..62");
+  std::vector<std::int64_t> r = p.radices;
+  r[static_cast<std::size_t>(factor)] = (r[static_cast<std::size_t>(factor)] + (std::int64_t(1) << shift) - 1) >> shift;
+  return r;
+}
+
+std::int64_t coarser_code(const Selection& p, std::int64_t code, int factor, int shift) {
+  need_product(p, "coarser_code");
+  if (const auto why = rollup_refusal(p, factor)) throw std::invalid_argument("coarser_code: " + *why);
+  std::vector<std::int64_t> at = product_codes(p.radices, code);     // unpack (the first factor fastest), shift the one factor, repack with the coarser radices
+  at[static_cast<std::size_t>(factor)] >>= shift;
+  return product_code(rolled_radices(p, factor, shift), at);
+}
 
 Selection member(const Selection& s, std::int64_t k) {
   need_set(s, "member");
@@ -389,12 +427,13 @@ Selection product(std::vector<Selection> factors) {
       for (std::size_t g = 0; g < f.factors.size(); ++g) { radices.push_back(f.radices[g]); flat.push_back(std::move(f.factors[g])); }
       continue;
     }
-    if (const auto why = grid_refusal(f)) throw std::invalid_argument("product: factor " + std::to_string(flat.size()) + " is not a grid: " + *why);
+    if (const auto why = factor_refusal(f)) throw std::invalid_argument("product: factor " + std::to_string(flat.size()) + " cannot be a factor: " + *why);
     radices.push_back(count(f));
     flat.push_back(std::move(f));
   }
   if (flat.size() < 2) throw std::invalid_argument("product: two factors or more");
   Selection s; s.type = Type::set; s.factors = std::move(flat); s.radices = std::move(radices);
+  s.family = std::all_of(s.factors.begin(), s.factors.end(), [](const Selection& f) { return f.family == Family::grid; }) ? Family::grid : Family::irregular;
   count(s);                                                            // refuses a code space too large
   return s;
 }

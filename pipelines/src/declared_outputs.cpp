@@ -359,6 +359,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       m.measures.push_back(std::move(x));
     }
     if (d.contains("band")) m.band = d["band"];
+    if (d.contains("attributes") && d["attributes"].is_object()) m.attributes = d["attributes"];   // the array describes its own axes
     if (d.contains("partition_params") && d["partition_params"].is_object()) unit.set_params(m.selection_id, d["partition_params"]);
     report["rows"] = unit.measurements(m);
     report["over"] = m.selection_id;

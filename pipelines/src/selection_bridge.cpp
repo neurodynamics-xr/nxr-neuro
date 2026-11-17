@@ -32,6 +32,7 @@ cs::Type to_compute(is::Type t) {
 is::Description describe(const cs::Selection& m) {
   is::Description d;
   d.type = to_io(m.type);
+  if (m.type == cs::Type::set) d.family = m.family == cs::Family::grid ? is::Family::grid : is::Family::irregular;
   d.code = m.code;
   d.unit = m.unit;
   d.center = m.center;
@@ -55,6 +56,7 @@ is::Description describe(const cs::Selection& m) {
 cs::Selection made(const is::Description& d) {
   cs::Selection m;
   m.type = to_compute(d.type);
+  m.family = d.family == is::Family::grid ? cs::Family::grid : cs::Family::irregular;   // a load always says (unmarked only from a caller that did not)
   m.code = d.code;
   m.unit = d.unit;
   m.center = d.center;

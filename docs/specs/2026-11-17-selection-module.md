@@ -47,12 +47,12 @@ a named part of a manifold. Its type says how it is described:
 7. **Product selections** on product manifolds:
    - a BOX is a `span` with one extent per factor (multi-axis), resolved axis by axis (`resolve_box`);
    - a GRID is the product of GRIDS, one per factor (the Studio's D100 `productSelection`): its member code is mixed radix with the FIRST factor fastest,
-     `code = c₀ + n₀·(c₁ + n₁·(c₂ + …))` (`product_code`, `product_codes`), the radices fixed when it is made; an irregular factor is refused;
+     `code = c₀ + n₀·(c₁ + n₁·(c₂ + …))` (`product_code`, `product_codes`), the radices fixed when it is made; a factor may be an irregular set (D100's own example:
+     the regions of an atlas × the windows of a time level: a measurement layout), and level roll-ups run only along GRID factors (`rollup_refusal`, `coarser_code`);
    - the JOINT partition (the Studio's D129) is such a product with the time factor first and its radix rounded up to a power of two, so
      `code = (tile << bits) | frame` and arrays are laid out `[band × tile × frame]`;
-   - levels are chosen per axis, or COUPLED: a frequency band sets the time level (its natural level: the first dyadic tile at least its constant-Q window,
-     Rheome's `natural_level`, the Studio's `fitLevelOf`), an eigenvalue band sets the dyadic spatial level (Weyl: the level whose band 4π·2^(l−1)/A to
-     4π·2^l/A holds its low edge).
+   - levels are chosen per axis, or COUPLED: a frequency band sets the time level as the Studio's `fitLevelOf` does (the dyadic tile that holds 4 cycles of the band's
+     CENTRE, `time_level_of_band(lo, hi, sfreq)`), an eigenvalue band sets the dyadic spatial level (Weyl: the level whose band 4π·2^(l−1)/A to 4π·2^l/A holds its centre).
    A single band SELECTS: it is not a frequency axis. Resolving frequency within a band is a transform (item 6), whose made line is then a factor.
 8. **Halos are planner facts**: the margin a node reads round a block (a filter's tail, an interpolation's half-width) is declared by the node to the planner.
    It is never a selection.
@@ -356,24 +356,27 @@ Selections on a product manifold stay within the five types:
 - **A box** is a `span` with one extent per factor it constrains (an axis left out is all of it): `resolve_box(span, lines)` gives one interval per axis,
   each rounded outward (a points axis such as the channels is a `Line` of its elements, spacing 1 from 0). A burst on channels 3 to 7 ([3, 8): centre 5.5, extent 5)
   for 200 ms around t is `span_about({{0, 5.5, 5}, {1, t, 0.2}})` on channels × time: one member, not a product.
-- **A grid** is `product(factors)` (`selection.h`; the Studio's D100 `productSelection`): a `set` whose factors are GRIDS, one per factor manifold (a tiling, a
-  level of a dyadic grid or of a constant-Q ladder, an elements grid). An irregular factor (an atlas, a set of listed spans, a single span) is refused with
-  the reason and what to use instead (`grid_refusal`); a grid with levels must name one (or take the level a band sets). A product of products is flattened.
+- **A grid** is `product(factors)` (`selection.h`; the Studio's D100 `productSelection`): a `set` whose factors are sets, one per factor manifold (a tiling, a
+  level of a dyadic grid or of a constant-Q ladder, an elements grid, and as D100 has it an irregular set, e.g. an atlas: a measurement layout). A single span or point
+  is refused with the reason and what to use instead (`factor_refusal`); the product records its FAMILY (grid when every factor is, else irregular); a grid with levels must name one (or take the level a band sets). A product of products is flattened.
 - **Code: mixed radix, the FIRST factor fastest**, `code = c₀ + n₀·(c₁ + n₁·(c₂ + …))` (`product_code(radices, codes)`, `product_codes(radices, code)`; −1
   when a factor's member is none). The radices are fixed when the product is made (each factor's count). So the members of one window are contiguous, and a
   factor's member is recovered by division. An array laid out [factor n−1 × … × factor 0] (row-major, the first factor innermost) is in code order.
 - **The joint partition** (the Studio's D129) is `joint(factors)`: a product with the time factor (frames) first and its radix rounded up to 2^bits, so a code
   is `(tile << bits) | frame` and the arrays are [band × tile × frame]. The codes between the frame count and 2^bits are empty members.
 - **Coupled levels** (`grid.h`). A single band selects; it sets the level of the other factors' grids:
-  - time: `time_level_of_band(lo, sfreq, cycles)` is the natural level of the band's constant-Q window (`natural_level(support)`: the first dyadic tile at
-    least the support; Rheome's `natural_level`, the Studio's `fitLevelOf`), so the time grid is `time_grid(line, k)`;
-  - space: `space_level_of_band(λ_lo, A, D)` is the dyadic level whose Weyl band [4π·2^(l−1)/A, 4π·2^l/A) holds the band's low edge (`weyl_level`), so the
+  - time: `time_level_of_band(lo, hi, sfreq)` replicates the Studio's `fitLevelOf` (jointTime.ts): the support is 4 cycles of the band's centre sqrt(lo·hi), the level
+    the first dyadic tile (2^k samples) at least that (`natural_level`), held inside the line, so the time grid is `time_grid(line, k)`; `support_of` is the Studio's
+    `supportOf` (the tile holding a time, at the fitted or a coarser level);
+  - space: `space_level_of_band(λ_lo, λ_hi, A, D)` is the dyadic level whose Weyl band [4π·2^(l−1)/A, 4π·2^l/A) holds the band's centre (`weyl_level`), so the
     spatial grid is `level(tiles, l)`.
   Resolving frequency (or eigenvalue) within the band is a transform whose made line is then a factor.
 - **Label**: the tuple of the factors' labels, each read with its own factor's lookup (`factor_labels`): a grid's member has none (its number names it). A
   product carries no lookup of its own.
-- **Partition**: a product of grids is disjoint and covers the product manifold; roll-ups apply to one factor's member (unpack with `product_codes`, shift that
-  factor by its closed form, repack with the coarser radices).
+- **Partition**: a product of grids is disjoint and covers the product manifold; roll-ups apply to one GRID factor's member (unpack with `product_codes`, shift that
+  factor by its closed form, repack with the coarser radices: `coarser_code`, `rolled_radices`; io's `coarser_product_code` reads `params.product` for it). A roll-up along an
+  irregular factor, or over an irregular set, is refused (`rollup_refusal`; the graph checker's `summarize` and `reduce_cells` with a `level`).
+- **Family**: every set records GRID or IRREGULAR (compute `Selection::family`; stored `params_json.family`; a row from before the mark says what its type and params say).
 - **Resolved form: `ProductForm`** (`resolve_product(p, spaces)`, one `Space` per factor saying where it lies and which form to take): the factors' forms (a
   `Rule` for the chunks, `MemberOfElement` for the channels or tiles) with `counts`, `radices`, `codes(k)` and `code(…)`. A compute loops over the factors'
   forms and writes value k at the product code; the product is never materialized.
@@ -381,14 +384,14 @@ Selections on a product manifold stay within the five types:
   irregular set per element) on the product manifold's cells, numbered as the field's array is; `Elements` when they overlap. Their grid address, on request,
   is the cell holding the centre at the level the extent sets (`address_on_line`, `dyadic_address`).
 - **Irregular members** (centre + extent) are found from the grid: a time member's level is `natural_level(extent)` and its cell the tile holding its centre
-  sample (the Studio's `supportOf`); a cortical member's level is `dyadic_level_of_extent(radius, A, D)` (the finest whose equal-area tiles are at least its
-  disc) and its cell the tile holding its centre vertex.
+  sample (the Studio's `supportOf`); a cortical member's level is Rheome's `jointcell` rule, `cortical_level_of_extent(sigma, A, D)` (the COARSEST level whose tile, a disc of the
+  tile's area, is at most `tile_sigma` × sigma; a refusal with the reason when none is fine enough) and its cell the tile holding its centre vertex.
 
 Examples (compute):
 
 ```cpp
-Selection frames = time_grid(time_line, time_level_of_band(8, sfreq));                 // the time grid alpha sets
-Selection tiles  = level(dyadic(surface, {}), space_level_of_band(lambda_lo, piece_area, depth));
+Selection frames = time_grid(time_line, time_level_of_band(8, 16, sfreq));                 // the time grid alpha sets
+Selection tiles  = level(dyadic(surface, {}), space_level_of_band(lambda_lo, lambda_hi, piece_area, depth));
 Selection cells  = joint({frames, tiles});                                              // code = (tile << bits) | frame
 Selection sens   = product({time_grid(time_line, 15), elements_grid(n_channels)});      // chunks x channels: code = chunk + n_chunks * channel
 ProductForm f = resolve_product(sens, {{FormKind::rule, time_line}, {FormKind::member_of, std::nullopt, n_channels}});

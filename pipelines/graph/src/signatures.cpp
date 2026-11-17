@@ -213,12 +213,22 @@ Signature s_collect() {
       });
 }
 
+// A LEVEL ROLL-UP (a coarser level: `level`, `coarser` or `rollup_level` in the node's `with`) runs only along a GRID's closed-form hierarchy. Across the members of an irregular
+// selection (events, scouts, an atlas) there are no levels: a statistic across them is a `summary`, so a roll-up over them is refused with that reason.
+void refuse_rollup_over_irregular(Unified& u, const Json& p) {
+  if (!(p.contains("level") || p.contains("coarser") || p.contains("rollup_level"))) return;
+  for (const ManifoldRef& f : u.type("x").domain.factors)
+    if (is_members(f) && f->irregular)
+      u.fail("x", "a level roll-up needs a grid: " + print(f) + " is the member set of an irregular selection, which has no levels. Summarise across its members (a `summary` statistic), or measure over a grid and roll that up.");
+}
+
 Signature s_reduce_cells() {
   return sig(Move::summarize)
       .in("x", measurement_any().value(VT::real).because("The maximum over the spatial tiles of each time tile is of a scalar."))
       .out("y", make_of(PortClass::measurement))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
+        refuse_rollup_over_irregular(u, p);
         if (x.domain.factors.size() != 1 || !is_joint_members(x.domain.factors[0]))
           u.fail("x", "must be a measurement over a joint partition's cells (one member set of space x time)");
         const ManifoldRef& c = x.domain.factors[0];
@@ -236,6 +246,7 @@ Signature s_summarize() {
       .out("y", make_of(PortClass::statistic).with_quantity("summaries"))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
+        refuse_rollup_over_irregular(u, p);
         PortType& y = u.out.at("y");
         y.domain = dom_of({});
         for (std::size_t i = 0; i < x.domain.factors.size(); ++i) {
@@ -290,7 +301,7 @@ Signature s_measure_events() {
         if (m != "duration" && m != "interval_next" && m != x.quantity) u.fail("x", "the measure " + m + " is not x's quantity (" + x.quantity + ")");
         PortType& y = u.out.at("y");
         y.domain = x.domain;
-        y.domain.factors.back() = members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back());
+        y.domain.factors.back() = members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), Role::time_tiles, "", true);
         y.quantity = m;
         y.value = x.value;
         y.complex_parts = x.complex_parts;
@@ -307,7 +318,7 @@ Signature s_risefall() {
     const PortType& ev = u.type("events");
     if (!(x.cls == PortClass::measurement || (x.cls == PortClass::field && !x.streamed()))) u.fail("x", "must be the sample series of the run (`collect`)");
     if (!ev.sel || ev.sel->type != "spans" || ev.sel->detected_over.empty()) u.fail("events", "must be the spans `detect_spans` made");
-    for (const auto& o : outs) u.out.at(o).domain = dom_of({members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back())});
+    for (const auto& o : outs) u.out.at(o).domain = dom_of({members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), Role::time_tiles, "", true)});
   });
 }
 
@@ -373,7 +384,7 @@ Signature s_extent_measure() {
         if (!l.sel || l.sel->type != "set" || l.domain.factors.empty() || !is_joint_members(l.domain.factors[0])) u.fail("labels", "must be the labelling `cell_extent` made");
         if (u.has("x") && !same(u.in.at("x").domain, l.domain)) u.fail("x", "its cells are not the labelling's");
         PortType& y = u.out.at("y");
-        y.domain = dom_of({members(id_of(u, "labels"), l.domain.factors[0]->of)});
+        y.domain = dom_of({members(id_of(u, "labels"), l.domain.factors[0]->of, Role::time_tiles, "", true)});
         y.quantity = p.value("measure", std::string());
       });
 }
