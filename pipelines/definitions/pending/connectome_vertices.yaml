@@ -1,0 +1,49 @@
+# THE MATERIALISED VERTEX CONNECTOME (spec section 4.3), on request only: the vertex matrix of fiber counts smoothed over the mesh (smoothing . counts . smoothing^T, the diagonal
+# removed), weak connections pruned, and the largest connected component. DRAFT, NOT YET SHIPPED (see connectome.yaml, "Needs"). Pruning and the largest component belong to a
+# materialised connectome only, so they are not options of the partition definitions. The matrix is large (10^5 fibers: about 1.6 GB in float64 before pruning): this is the only place
+# it is formed. Needs also: an output of kind `field` made of an array, SPARSE (CSC) on the product surface x surface at `source-source/<name>`, and a selection of the component's vertices.
+#
+#   nxr-neuro run connectome_vertices --fibers tracts --end-surface pial --dataset d --subject s [--prune-below 1e-4]
+pipeline: connectome_vertices
+version: 1
+description: the connection weights between the vertices of the end surface, from a fiber bundle's ends, with the largest connected component
+scope: subject
+
+inputs:
+  fibers:  {manifold: curve, where: {name: $fibers}}
+  surface: {manifold: surface, where: {name: $end_surface}}
+
+parameters:
+  fibers:       {default: required, meaning: "the fiber bundle's name", unit: "-"}
+  end_surface:  {default: required, meaning: "the surface the fibers' ends are placed on", unit: "-"}
+  smooth_hops:  {default: 3, meaning: "hops of the mesh smoothing of the vertex matrix (the reference's; 0: the plain fiber counts)", unit: "hops"}
+  max_end_distance: {default: 5, meaning: "a fiber with an end farther than this from the end surface is left out; none: no gate (the reference)", unit: "mm"}
+  prune_below:  {default: 0.0001, meaning: "connection weights below this fraction of the strongest are removed (0: none)", unit: "fraction"}
+  n_vertices:   {default: 0, meaning: "the end surface's vertex count (read from the surface when 0)", unit: "vertices"}
+  points_per_fiber: {default: 0, meaning: "the points of each fiber (read from the bundle when 0)", unit: "points"}
+  name: {default: "{fibers}_{end_surface}_connection_weights_h{smooth_hops}", meaning: "the stored name of the connection weights", unit: "-"}
+
+steps:
+  before:
+    - {node: fiber_ends,         in: {fibers: fibers},                                  with: {points_per_fiber: $points_per_fiber},  out: end_points}
+    - {node: nearest_vertex,     in: {points: end_points, positions: surface},                                                         out: [end_vertex, end_distance]}
+    - {node: end_gate,           in: {end_distance: end_distance},                      with: {max_end_distance_mm: $max_end_distance}, out: keep}
+    - {node: end_connectome,     in: {end_vertex: end_vertex, keep: keep},              with: {n_vertices: $n_vertices},              out: fiber_counts}
+    - {node: connection_weights, in: {fiber_counts: fiber_counts, faces: surface},      with: {smooth_hops: $smooth_hops},            out: weights}
+    - {node: prune_below,        in: {connection_weights: weights},                     with: {prune_below: $prune_below},            out: pruned}
+    - {node: largest_component,  in: {connection_weights: pruned},                                                                    out: [component_vertices, component_label]}
+
+outputs:
+  pruned:
+    kind: field
+    name: $name
+    kind_name: connectome
+    on: surface x surface
+    unit: fibers
+    description: "the connection weights, SPARSE (CSC), on the product manifold surface x surface"
+  component_vertices:
+    kind: selection
+    type: set
+    name: "{name}_component"
+    on: surface
+    description: "the vertices of the largest connected component of the connection weights"

@@ -69,6 +69,14 @@
         {
           "path": "label/rh.cortex.label",
           "sha256": "432e9ce95e095c066dae2ed2fb3e6c0c67af6e77d8f52ba2d3b560b4fc50b87f"
+        },
+        {
+          "path": "bem/outer_skin.surf",
+          "sha256": "a66fcfdf3fb4bef0c5cbf546ca9161459474fb37a25af7129e285fdb7707d736"
+        },
+        {
+          "path": "bem/fsaverage-fiducials.fif",
+          "sha256": "0043895fd3167871a947a43019228ee30060c0335967df63f571c0e71bf344a3"
         }
       ]
     },

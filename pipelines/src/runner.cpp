@@ -1,4 +1,5 @@
 #include "nxr/io/selection_store.h"
+#include "nxr/io/fibers.h"
 #include "nxr/io/selection_reads.h"
 #include "nxr/io/subject_reads.h"
 // nxr-pipelines — the runner (runner.h): nxr's nxr/pipelines/runner.py `plan` and the planning half of `run`. The execution (before · the chunk loop · after
@@ -190,6 +191,13 @@ Json parameters_of(const Definition& d, const Json& set, const std::string& pres
   for (const auto& [k, v] : set.items()) {
     if (!d.parameters.contains(k)) { unknown += (unknown.empty() ? "" : ", ") + k; continue; }
     p[k] = v;
+  }
+  // A REQUIRED PARAMETER (default `required`): a choice of data the definition never defaults. Refused when the run does not give it, naming it, what it means and its valid values.
+  for (const auto& [k, v] : p.items()) {
+    if (!(v.is_string() && v.get<std::string>() == "required")) continue;
+    const Json doc = d.parameter_docs.contains(k) ? d.parameter_docs[k] : Json::object();
+    std::string valid = doc.contains("choices") ? " (valid: " + doc["choices"].dump() + ")" : std::string();
+    refuse(d.name + ": the parameter `" + k + "` is required" + (doc.contains("meaning") ? " (" + doc["meaning"].get<std::string>() + ")" : std::string()) + valid + "; give it with --" + k);
   }
   if (!unknown.empty()) {
     std::string have;
@@ -890,7 +898,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   // what a native node (a grouped name: a pure function of arrays) reads is handed to it as arrays (the node reads no store): an OPERATOR as its matrix and the channels it
   // lies over; a stored FIELD that is not streamed as its values (rows x components); a MANIFOLD (a surface) as its vertices [n x 3], its faces in meta["faces"]
   for (const auto& n : checked.nodes) {
-    if (n.spec->name.find('.') == std::string::npos) continue;
+    if (n.spec->name.find('.') == std::string::npos && !step(n.spec->name).reads_arrays) continue;   // a grouped (native) node, or one that declares it reads its found inputs as arrays
     for (const auto& [port, name] : n.in) {
       if (!constants.count(name) || !P.values.count(name) || !P.found.count(name) || !P.found.at(name).row) continue;
       const Value& v = P.values.at(name);
@@ -919,6 +927,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
         a.data.assign(f.begin(), f.end());
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
+        a.meta["value_type"] = nxr::io::opt_text(row, "value_type").value_or("scalar");
+        if (const auto u = nxr::io::opt_text(row, "unit"); u && !u->empty()) a.meta["unit"] = *u;
+        if (!nxr::io::is_null(row, "path")) a.meta["stored_precision"] = nxr::io::ArrayReader::open(sub.store(), text(row, "path")).dtype() == nxr::io::DType::Float64 ? "float64" : "float32";
         const Json axes = Json::parse(nxr::io::opt_text(row, "axes_json").value_or("[]"), nullptr, false);
         a.meta["axes"] = axes;
         Json chax;                                                         // the first channel axis over a pick (after a band axis, when there is one)
@@ -947,6 +958,16 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
         a.data.assign(f.begin(), f.end());
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
+        constants[name] = std::move(a);
+      } else if (v.cls == "manifold" && text(row, "type") == "curve") {     // a fiber bundle: its points [nF*nP x 3], fiber-major, widened to float64 as a surface's are (its stored precision in meta)
+        const nxr::io::task::Subject subject = nxr::io::task::Subject::of(sub);
+        const std::string bundle = text(row, "name"), stored = nxr::io::fibers::bundle_precision(subject, sub.store(), bundle);
+        nxr::graph::Array a;
+        std::int64_t nP = 0;
+        if (stored == "float32") { const auto b = nxr::io::fibers::read_bundle<float>(subject, sub.store(), bundle); a.data.assign(b.points.begin(), b.points.end()); nP = b.points_per_fiber; a.meta["origin"] = b.origin; }
+        else { const auto b = nxr::io::fibers::read_bundle<double>(subject, sub.store(), bundle); a.data.assign(b.points.begin(), b.points.end()); nP = b.points_per_fiber; a.meta["origin"] = b.origin; }
+        a.rows = static_cast<std::int64_t>(a.data.size() / 3); a.cols = 3;
+        a.meta["name"] = bundle; a.meta["id"] = text(row, "id"); a.meta["points_per_fiber"] = nP; a.meta["stored_precision"] = stored;
         constants[name] = std::move(a);
       } else if (v.cls == "manifold" && text(row, "type") == "points") {    // a channels manifold: its sensor geometry (positions; types, orientations, coils in meta)
         const nxr::pipelines::SensorGeometry g = nxr::pipelines::sensor_geometry(sub, text(row, "id"));

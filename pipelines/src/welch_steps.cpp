@@ -23,6 +23,7 @@
 #include "nxr/pipelines/spectral_record.h"
 #include <algorithm>
 #include <array>
+#include <cstdio>
 #include <limits>
 #include "nxr/meeg/sources.h"
 #include "nxr/meeg/tensor.h"
@@ -542,6 +543,128 @@ ng::NodeSpec welch_source_band_power() {
         {"description", std::string("the ") + (pr.relative ? "relative " : "") + "band power of the rows of " + pr.kernel + " (" + pr.row_axis + "), per band"},
         {"bad_samples", s.bad}};
     return ng::Arrays{{"power", std::move(a)}};
+  };
+  return n;
+}
+
+// ── welch.source_bins ───────────────────────────────────────────────────────────────────────────────────────────
+// THE FREQUENCY PARTITION OF A BAND RESOLVED (spec docs/specs/2026-11-16-meg-fingerprinting.md, 3.1; the `--resolve bins` of the hand-wired sourcepsd): every Welch bin of ONE band
+// (lo to hi Hz inclusive) per source, nothing reduced over frequency, a statistic with axes [vertex x frequency]; the band's own statistic (`welch.source_band_power`) is the mean of
+// these bins. Accumulated on the SOURCE side (nxr::welch::LinearWelch: the kernel applied to each segment's Fourier coefficients, |K X|^2 summed per source per bin, the orientations'
+// power summed), because the sensor side would hold channels^2 x bins. Memory held: sources x bins x 8 bytes, plus a block of at most 4096 mapped rows x the bins kept. The same numbers
+// as the cross-spectrum route, to rounding. A band is one member of the frequency partition and one run names it (a band is a selection that selects, resolving frequency within it is
+// this transform): the several bands of sourcepsd are several runs.
+struct SourceBinsPrepared {
+  Resolved r;
+  Eigen::MatrixXd K;
+  std::vector<std::int32_t> channels;
+  int orientations = 3;
+  std::size_t first = 0, last = 0;
+  Json band;
+  std::string kernel, row_axis = "vertex", unit = std::string("A\xc2\xb2\xc2\xb7m\xc2\xb2");
+};
+struct SourceBinsState {
+  std::optional<nw::LinearWelch> w;
+  std::int64_t first = -1, samples = 0, bad = 0;
+};
+
+ng::NodeSpec welch_source_bins() {
+  ng::NodeSpec n = welch_source_band_power();
+  n.name = "welch.source_bins";
+  n.outputs = {{"bins", "the power of every source at every bin of the band, sources x bins, a statistic over the segment partition", false}};
+  n.parameters.erase(std::remove_if(n.parameters.begin(), n.parameters.end(), [](const auto& q) { return q.name == "bands" || q.name == "normalisation"; }), n.parameters.end());
+  n.parameters.push_back({"band", Json(), "the band: {name, lo, hi} in Hz (every bin from lo to hi inclusive is kept); no default: a band is the caller's choice", "Hz", {}, false});
+  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
+                             "segments are carried across blocks; the kernel is applied to each segment's Fourier coefficients and |K X|^2 accumulated per source and bin, in double");
+  n.matches = "nxr::welch::LinearWelch: Welch of the kernel applied to the recording, kept for the band's bins";
+  n.description = "the power of the sources through an inverse kernel at every Welch bin of a band (nothing reduced over frequency), orientations summed";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    const ng::PortType& x = streamed_real(in, "x", "welch.source_bins");
+    const auto k = in.find("kernel");
+    if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("welch.source_bins: kernel is a stored operator (an inverse kernel)");
+    if (!p.contains("band") || !p["band"].is_object()) ng::refuse("welch.source_bins: name the band: {name, lo, hi} in Hz");
+    const Resolved r = resolve(p, *x.sfreq);
+    ng::Planned out;
+    out.out["bins"] = statistic_port();
+    out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    return out;
+  };
+  n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) {
+    SourceBinsPrepared pr;
+    pr.r = resolve(p, *in.at("x").sfreq);
+    const auto it = constants.find("kernel");
+    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("welch.source_bins: the kernel's matrix was not handed over");
+    const ng::Array& a = it->second;
+    pr.K = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(a.data.data(), a.rows, a.cols);
+    for (const auto& c : a.meta.value("channels", Json::array())) pr.channels.push_back(c.get<std::int32_t>());
+    pr.orientations = a.meta.value("to_value_type", std::string("vector3")) == "scalar" ? 1 : 3;
+    pr.kernel = a.meta.value("name", std::string());
+    pr.row_axis = p.value("row_axis", std::string("vertex"));
+    if (a.meta.contains("unit") && a.meta["unit"].is_string()) pr.unit = a.meta["unit"].get<std::string>() + kSq;
+    if (pr.K.rows() % pr.orientations != 0) ng::refuse("welch.source_bins: the kernel's rows are not a multiple of " + std::to_string(pr.orientations));
+    const Json& b = p["band"];
+    const std::string name = b.value("name", std::string());
+    const double lo = b.value("lo", b.value("lo_hz", 0.0)), hi = b.value("hi", b.value("hi_hz", 0.0));
+    if (name.empty()) ng::refuse("welch.source_bins: the band has a name");
+    if (!(hi >= lo)) ng::refuse("welch.source_bins: band " + name + " has hi < lo");
+    const std::size_t nbins = pr.r.wo.segmentSamples / 2 + 1;
+    const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
+    const double first = std::ceil(lo / df - 1e-9), last = std::floor(hi / df + 1e-9);
+    if (first > last || last < 0 || first >= static_cast<double>(nbins)) ng::refuse("welch.source_bins: band " + name + " holds no frequency bin at " + std::to_string(df) + " Hz resolution");
+    pr.first = static_cast<std::size_t>(first);
+    pr.last = static_cast<std::size_t>(std::min(last, static_cast<double>(nbins - 1)));
+    pr.band = Json{{"name", name}, {"lo_hz", lo}, {"hi_hz", hi}, {"bins", Json::array({pr.first, pr.last})}, {"function", "none"}};
+    try { nw::LinearWelch probe(pr.K, static_cast<std::size_t>(pr.orientations), pr.r.wo, pr.first, pr.last); } catch (const std::invalid_argument& e) { ng::refuse(e.what()); }
+    return std::any(std::move(pr));
+  };
+  n.start = [](const std::any&) { return std::any(SourceBinsState{}); };
+  n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
+    const SourceBinsPrepared& pr = std::any_cast<const SourceBinsPrepared&>(prepared);
+    SourceBinsState& s = std::any_cast<SourceBinsState&>(state);
+    const ng::Block& b = in.at("x");
+    const Eigen::MatrixXd all = own_real(b);
+    Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
+    for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
+    if (s.first < 0) s.first = at.first;
+    if (!s.w) s.w.emplace(pr.K, static_cast<std::size_t>(pr.orientations), pr.r.wo, pr.first, pr.last);
+    if (!pr.r.exclude || all_good(at)) s.w->add(chunk); else s.w->add(chunk, *at.good);
+    s.samples += b.own();
+    if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
+    return std::make_pair(ng::Blocks{}, std::move(state));
+  };
+  n.finish = [](const std::any& prepared, std::any state) {
+    const SourceBinsPrepared& pr = std::any_cast<const SourceBinsPrepared&>(prepared);
+    const SourceBinsState& s = std::any_cast<const SourceBinsState&>(state);
+    if (!s.w) ng::refuse("welch.source_bins: no sample was read");
+    const nw::LinearWelchResult lw = s.w->result();
+    if (lw.segments == 0) no_segment(pr.r, s.samples, lw.segmentsSkipped);
+    const std::int64_t N = lw.psd.rows(), F = lw.psd.cols();
+    const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples), f0 = lw.frequencies[0];
+    const bool density = pr.r.wo.scaling == nw::Scaling::Density;
+    ng::Array a;
+    a.rows = N; a.cols = F;
+    a.data.resize(static_cast<std::size_t>(N * F));
+    for (std::int64_t i = 0; i < N; ++i) for (std::int64_t k = 0; k < F; ++k) a.data[static_cast<std::size_t>(i * F + k)] = lw.psd(i, k);
+    Json o = options_of(pr.r);
+    o["resolve"] = "bins";
+    o["band"] = pr.band;
+    o["orientation_combination"] = pr.orientations == 3 ? "sum of the three orientations' power" : "fixed orientation";
+    o["kernel"] = pr.kernel;
+    char range[80];
+    std::snprintf(range, sizeof range, "(%g-%g Hz)", pr.band["lo_hz"].get<double>(), pr.band["hi_hz"].get<double>());
+    a.meta["describe"] = Json{
+        {"measure", density ? "power_density" : "power"}, {"method", "welch"}, {"label", "welch"}, {"precision", "float32"},
+        {"unit", density ? pr.unit + "/Hz" : pr.unit},
+        {"axes", Json::array({Json{{"name", pr.row_axis}, {"size", N}},
+                              Json{{"name", "frequency"}, {"size", F}, {"bins", pr.band["bins"]}, {"line", Json{{"spacing", df}, {"origin", f0}, {"unit", "Hz"}, {"dimension", "frequency"}}}}})},
+        {"tiling", tiling_of(pr.r.wo, s.first, s.samples, lw.segments, lw.segmentsSkipped)},
+        {"n_members", lw.segments}, {"members_skipped", lw.segmentsSkipped},
+        {"scaling", welch_scaling_record(pr.r.wo, df, pr.unit)},
+        {"producer", producer_of(pr.r, lw.segments, lw.segmentsSkipped, s.samples, s.bad, df, welch_scaling_record(pr.r.wo, df, pr.unit))},
+        {"options", o},
+        {"description", "the power of the rows of " + pr.kernel + " (" + pr.row_axis + "), bin by bin \xe2\x80\x94 " + pr.band["name"].get<std::string>() + " " + range},
+        {"bad_samples", s.bad}};
+    return ng::Arrays{{"bins", std::move(a)}};
   };
   return n;
 }
@@ -1095,7 +1218,7 @@ ng::NodeSpec measure_band_amplitude() {
 
 void register_welch_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_tensor(), welch_cross_spectrum(), welch_mode_cross_spectra(), fft_spectrum(), measure_band_amplitude()})
+  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_bins(), welch_source_tensor(), welch_cross_spectrum(), welch_mode_cross_spectra(), fft_spectrum(), measure_band_amplitude()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

@@ -1,0 +1,49 @@
+# THE PRINCIPAL COMPONENTS ACROSS THE MEMBERS OF A TABLE (spec docs/specs/2026-11-16-meg-fingerprinting.md, 4.4): a stored statistic of real values with two axes, the MEMBERS (the
+# observations: the members of a partition, the people) and the FEATURES, decomposed by the thin SVD of the centred table (`nxr::pca`, scikit-learn's PCA; never the features x features
+# covariance). Every component up to the table's rank is stored, so any k is available; the reconstruction at k is derived at read, never stored.
+# Stored, as statistics of method `pca`, of the input statistic: `<name>` (principal_components, [component x feature], unit-length loadings, each with its largest loading positive),
+# `<name>_scores` (principal_scores, [member x component]), `<name>_variance` (explained_variance, [component x 3]: singular value, explained variance S^2/(n-1), its ratio) and
+# `<name>_centring` (pca_centring, [2 x feature]: the mean removed and the divisor). Precision follows the input's stored precision; the variance table is float64.
+# It cannot show: a component is a direction of variance in THIS sample; with n members at most n - 1 exist, and the leading ones of a small sample are not stable estimates of a
+# population's; components are not sources or networks of anything until a separate argument says so.
+#
+#   nxr-neuro run pca --dataset <folder> --subject sub-01 --of tile_spectra --members tile [--scale unit-variance]
+pipeline: pca
+version: 1
+description: the principal components across the members of a stored statistic (members x features), their scores, explained variance and centring
+scope: subject
+
+inputs:
+  x: {statistic: any, where: {name: $of}}
+
+parameters:
+  of: {default: required, meaning: "the stored statistic decomposed (two axes: the members and the features)", unit: "-"}
+  members: {default: required, meaning: "the axis whose entries are the members (the observations): its name when unique, or its position from 0", unit: "-"}
+  scale: {default: none, meaning: "none = the features keep their units (the covariance's components) | unit-variance = each divided by its standard deviation (the correlation's)", unit: "-", choices: [none, unit-variance]}
+  name: {default: "{x}_pca", meaning: "the stem of the stored statistics: <name>, <name>_scores, <name>_variance, <name>_centring", unit: "-"}
+
+steps:
+  before:
+    - {node: statistic.pca, in: {x: x}, with: {members: $members, scale: $scale}, out: [components, scores, variance, centring]}
+
+outputs:
+  components:
+    kind: statistic
+    name: $name
+    of: x
+    axes: [{name: component}, {name: feature}]
+  scores:
+    kind: statistic
+    name: $name_scores
+    of: x
+    axes: [{name: member}, {name: component}]
+  variance:
+    kind: statistic
+    name: $name_variance
+    of: x
+    axes: [{name: component}, {name: quantity}]
+  centring:
+    kind: statistic
+    name: $name_centring
+    of: x
+    axes: [{name: quantity}, {name: feature}]

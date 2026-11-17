@@ -107,6 +107,7 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
     s.parameters = std::move(params);
     s.matches = matches;
     s.description = description;
+    s.reads_arrays = true;                  // its found inputs (a fiber bundle, a surface, a partition) are handed to it as arrays
     return s;
   };
   auto plan_arrays = [](const std::string& node, std::vector<std::string> ports, std::vector<std::string> outs, const std::vector<std::string>& optional = {}) {
@@ -124,12 +125,16 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
                         "points, no default; >= 2).", "indexing only");
     s.plan = plan_arrays("fiber_ends", {"fibers"}, {"end_points"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
-      need(p["points_per_fiber"].is_number_integer() && p["points_per_fiber"].get<int>() >= 2, "fiber_ends: points_per_fiber is the points of each fiber, a whole number >= 2");
-      return std::any(p["points_per_fiber"].get<std::int64_t>());
+      // 0 or none: the bundle's own count, read from the stored fibers (their meta) when the node runs
+      const Json& n = p["points_per_fiber"];
+      need(n.is_null() || (n.is_number_integer() && (n.get<int>() == 0 || n.get<int>() >= 2)), "fiber_ends: points_per_fiber is the points of each fiber, a whole number >= 2 (0 or none: read from the bundle)");
+      return std::any(n.is_null() ? std::int64_t(0) : n.get<std::int64_t>());
     };
     s.run = [](const std::any& st, const Arrays& ins, ExecContext&) {
-      const std::int64_t nP = std::any_cast<std::int64_t>(st);
       const Array& f = ins.at("fibers");
+      std::int64_t nP = std::any_cast<std::int64_t>(st);
+      if (nP == 0) nP = f.meta.is_object() ? f.meta.value("points_per_fiber", std::int64_t(0)) : 0;
+      need(nP >= 2, "fiber_ends: the points of each fiber are not known (name points_per_fiber: the bundle's array records none)");
       need(f.cols == 3 && f.rows % nP == 0, "fiber_ends: fibers are [nF·" + std::to_string(nP) + " x 3]");
       Arrays out;
       if (is_f32(f)) out["end_points"] = dense<float>(connectome::fiberEnds<float>(values<float>(f), nP), 2 * f.rows / nP, 3, true);

@@ -39,6 +39,7 @@ add_library(nxr_pipelines
   src/meeg_steps.cpp
   src/quadrature_steps.cpp
   src/partition_steps.cpp
+  src/pca_steps.cpp
   src/verb_steps.cpp
   src/steps_measure.cpp
   src/scale_inputs.cpp
@@ -64,6 +65,7 @@ add_library(nxr_pipelines
   src/eigen.cpp
   src/frames.cpp
   src/registration.cpp
+  src/montage_create.cpp
   src/dataset.cpp
   src/listing.cpp
   src/measure.cpp
@@ -99,6 +101,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_dataset_with_template PRIVATE nxr_pipelines)
   target_include_directories(test_dataset_with_template PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_dataset_with_template COMMAND test_dataset_with_template)
+  add_executable(test_montage_create test/test_montage_create.cpp)
+  target_link_libraries(test_montage_create PRIVATE nxr_pipelines)
+  target_include_directories(test_montage_create PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_montage_create COMMAND test_montage_create)
   add_executable(test_registration test/test_registration.cpp)
   target_link_libraries(test_registration PRIVATE nxr_pipelines)
   target_include_directories(test_registration PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
@@ -351,6 +357,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_connectome_nodes COMMAND test_connectome_nodes)
+  add_executable(test_connectome_definition test/test_connectome_definition.cpp)
+  target_link_libraries(test_connectome_definition PRIVATE nxr_pipelines)
+  target_compile_definitions(test_connectome_definition PRIVATE NXR_PENDING_DEFINITIONS="${CMAKE_CURRENT_SOURCE_DIR}/definitions/pending")
+  add_test(NAME test_connectome_definition COMMAND test_connectome_definition)
 
   add_executable(test_runner_outputs test/test_runner_outputs.cpp)
   target_link_libraries(test_runner_outputs PRIVATE nxr_pipelines)

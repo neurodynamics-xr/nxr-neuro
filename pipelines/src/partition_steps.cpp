@@ -9,6 +9,7 @@
 #include <string>
 
 #include "nxr/graph/node.h"
+#include "nxr/pipelines/pca_steps.h"
 
 namespace nxr::pipelines::graph {
 
@@ -135,6 +136,7 @@ void register_partition_nodes() {
   ng::Registry& r = ng::registry();
   for (ng::NodeSpec n : {joint_cells(), positions_transition()})
     if (!r.find(n.name)) r.add(std::move(n));
+  register_pca_nodes();
 }
 
 }  // namespace nxr::pipelines::graph
