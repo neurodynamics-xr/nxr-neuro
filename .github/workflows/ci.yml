@@ -2,7 +2,7 @@ name: ci
 
 # Build and test nxr-neuro.
 # - Linux: every pull request (the fast tests), every push to main and every night (all tests, the slow ones included).
-# - macOS: pushes to main, tags and every night (all tests).
+# - macOS (macos-15, deployment target 13.3): pushes to main, tags and every night (all tests).
 # Compiled objects are cached with ccache (keyed by branch, falling back to main), so a pull request recompiles only what it changed,
 # the bundled dependencies (HDF5, matio, c-blosc, geometry-central) included.
 on:
@@ -16,7 +16,8 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  cancel-in-progress: true
+  # a newer push cancels an older run only on pull requests: every run on main finishes (it fills the cache and runs the slow tests)
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
@@ -60,7 +61,9 @@ jobs:
 
   macos:
     if: github.event_name != 'pull_request'
-    runs-on: macos-14
+    runs-on: macos-15            # macos-14 jobs are cancelled before they start for this organisation
+    env:
+      MACOSX_DEPLOYMENT_TARGET: "13.3"   # std::to_chars for floating point
     steps:
       - uses: actions/checkout@v4
         with:
