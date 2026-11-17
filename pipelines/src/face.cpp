@@ -179,8 +179,30 @@ nxr::measurement::Ingredients ingredients_of(const Json& fine) {
   ing.members = fine.at("members").get<std::int64_t>();
   const Json& v = fine.at("ingredients");
   auto take = [&](const char* name, std::vector<double>& into) { if (v.contains(name)) into = v[name].get<std::vector<double>>(); };
-  take("count", ing.count); take("weight", ing.weight); take("sum", ing.sum); take("sum_sq", ing.sum_sq); take("max", ing.max); take("min", ing.min); take("abs_max", ing.abs_max);
+  if (v.contains("count")) ing.count = v["count"].get<std::vector<std::int64_t>>();
+  take("weight", ing.weight); take("sum", ing.sum); take("sum_sq", ing.sum_sq); take("max", ing.max); take("min", ing.min); take("abs_max", ing.abs_max);
   return ing;
+}
+// The finest stored ingredients of a measure over a selection, in the shape `ingredients_of` reads: each ingredient (count, weight, sum, sum_square, max, min, abs_max) as io's `measurement_values`
+// gives it, [rows x members]; an ingredient the selection does not hold is left out. `grid` carries the selection's own description only: io's level dictionary of a grid (tile diameters, durations,
+// Weyl bands) is not offered by io yet, so a roll-up `to` a physical size refuses (see level_for) until it is.
+Json measurement_ingredients_of(SubjectWriter& sub, const std::string& selection_id, const std::optional<std::string>& field_id, const std::string& measure) {
+  Json out = Json{{"rows", 0}, {"members", 0}, {"ingredients", Json::object()}, {"unit", Json()}};
+  std::vector<std::string> names{"count", "weight", "sum", "sum_square", "max", "min", "abs_max"};
+  (void)measure;
+  for (const auto& n : names) {
+    try {
+      const MeasurementValues mv = measurement_values(sub, selection_id, field_id, std::nullopt, std::nullopt, n);
+      out["rows"] = mv.rows; out["members"] = mv.members;
+      if (!out["unit"].is_string() && mv.unit && n != "count" && n != "weight") out["unit"] = *mv.unit;
+      const std::string key = n == "sum_square" ? "sum_sq" : n;
+      if (n == "count") { std::vector<std::int64_t> c(mv.values.begin(), mv.values.end()); out["ingredients"][key] = c; }
+      else out["ingredients"][key] = mv.values;
+    } catch (const Error&) {}
+  }
+  if (out["rows"].get<std::int64_t>() == 0) throw Error(code::no_such_row, "the selection holds none of the ingredients of '" + measure + "' (count, weight, sum, sum_square, max, min, abs_max)");
+  out["grid"] = Json{{"kind", "dyadic"}, {"levels", Json::array()}};
+  return out;
 }
 // the level a stated quantity means on a grid, from the level attributes io returned (consolidation spec 3.3): a tile diameter = the coarsest level whose mean diameter is at most it; a duration = the
 // first level whose tile lasts at least it; a wavelength = the Weyl level holding it; `whole` = -1. The snapped quantity (what the level really is) is returned with it.
@@ -224,7 +246,7 @@ Json measurement_query(const fs::path& dataset, const std::string& subject, cons
     return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "io"}, {"rows", ts.read_measurements(jq)}};
   }
   // compute: the finest ingredients (of each subject asked), summed code for code across subjects, rolled up through the grid's closed form, the measure derived from them
-  std::vector<Json> fines{ts.measurement_ingredients(jq)};
+  std::vector<Json> fines{measurement_ingredients_of(sub, sel->id, field_id.empty() ? std::nullopt : std::optional<std::string>(field_id), q.measure)};
   for (const auto& other : q.subjects) {
     if (other == subject) continue;
     DatasetWriter ods = open_for(dataset, other, false);
@@ -235,7 +257,7 @@ Json measurement_query(const fs::path& dataset, const std::string& subject, cons
     Json oq = jq;
     oq["selectionId"] = osel->id;
     if (q.of_field) { const auto f = ots.by_id_or_name(task::Cls::field, *q.of_field); if (!f) throw Error(code::no_such_row, "no field named '" + *q.of_field + "' in subject " + other); oq["ofFieldId"] = f->id; }
-    fines.push_back(ots.measurement_ingredients(oq));
+    fines.push_back(measurement_ingredients_of(osub, osel->id, oq.contains("ofFieldId") ? std::optional<std::string>(oq["ofFieldId"].get<std::string>()) : std::nullopt, q.measure));
   }
   nxr::measurement::Request request;
   request.measures = {q.measure};

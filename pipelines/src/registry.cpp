@@ -857,6 +857,7 @@ void bind_execution(std::vector<StepSpec>& r) {
   };
   // the frame tiling: the chunk's analytic field sampled at the frames inside its own samples
   // THE FRAME GRID is the time grid the maker `select.time_grid` (rule frames) made: frame j starts at sample origin + j hop (a closed-form Rule on the line, no tower, no day anchor); its time is the frame's START
+  StepSpec& fr = at("frames");
   struct FramesState { std::int64_t origin = 0, count = 0; double hop = 1, rate = 0, origin_s = 0; int H = 32; std::vector<std::pair<double, double>> within; bool has_within = false;
     double position(std::int64_t j) const { return static_cast<double>(origin) + static_cast<double>(j) * hop; }          // the frame's start, in samples from the line's first
     std::pair<std::int64_t, std::int64_t> span(std::int64_t first, std::int64_t n) const {            // the frames whose start lies in [first, first + n): a frame belongs to the chunk holding it, so the result does not depend on the chunk size

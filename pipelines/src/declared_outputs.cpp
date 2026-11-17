@@ -741,12 +741,14 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       // level of a grid (the line's time grid, the surface's dyadic grid), the LEVEL it is at with the quantity it was snapped to (consolidation spec 6.2: coupled levels are never selections of their own).
       // The node's description gives the layout (`describe.layout`: product | joint) and the radices.
       for (const auto& f : spec["factors"]) {
-        task::SelectionOut::Factor fac;
-        fac.selection_id = link(P, f.is_object() ? f.value("selection", std::string()) : f.get<std::string>(), &made, o);
-        if (f.is_object() && f.contains("level")) fac.level = static_cast<int>(f["level"].is_string() && !f["level"].get<std::string>().empty() && f["level"].get<std::string>()[0] == '$'
+        int fac_level = -1;
+        Json fac_snapped;
+        s.factor_ids.push_back(link(P, f.is_object() ? f.value("selection", std::string()) : f.get<std::string>(), &made, o));
+        if (f.is_object() && f.contains("level")) fac_level = static_cast<int>(f["level"].is_string() && !f["level"].get<std::string>().empty() && f["level"].get<std::string>()[0] == '$'
                                                                                  ? P.parameters.at(f["level"].get<std::string>().substr(1)).get<std::int64_t>() : f["level"].get<std::int64_t>());
-        if (f.is_object() && f.contains("snapped")) fac.snapped = f["snapped"];
-        s.factors.push_back(std::move(fac));
+        if (f.is_object() && f.contains("snapped")) fac_snapped = f["snapped"];
+        s.factor_levels.push_back(fac_level);
+        s.params["factors_snapped"].push_back(fac_snapped);
       }
       if (d.contains("layout")) s.params["layout"] = d["layout"];
       if (d.contains("radices")) s.params["radices"] = d["radices"];

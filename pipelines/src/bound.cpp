@@ -114,7 +114,15 @@ void Bound::offer_operator(MadeOperator op) const {
   for (const MadeOperator& have : *offered_) if (have.key == op.key) return;
   offered_->push_back(std::move(op));
 }
-io::Json Bound::charts(const std::string& manifold_id) const { return subject_.charts(manifold_id); }
+io::Json Bound::charts(const std::string& manifold_id) const {
+  io::Json out = io::Json::array();
+  for (const auto& c : subject_.charts(manifold_id)) {
+    io::Json j = {{"name", c.name}, {"transition", c.transition ? io::Json(*c.transition) : io::Json(nullptr)}, {"params", c.transition_json}, {"reference", c.is_reference}};
+    j["unit"] = c.unit ? io::Json(*c.unit) : io::Json(nullptr);
+    out.push_back(std::move(j));
+  }
+  return out;
+}
 std::optional<io::Row> Bound::default_subject_manifold(const std::string& name) const {
   if (ds_)
     if (const auto tpl = ds_->template_()) {

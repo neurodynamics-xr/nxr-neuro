@@ -246,18 +246,19 @@ Json resolve_origins(const Definition& d, const Json& params, const nxr::io::Dat
       const Json& ev = v["event"];
       const task::Subject subj = task::Subject::of(db, subject_id);
       task::Want want{.cls = task::Cls::selection};
-      want.name = ev["selection"].get<std::string>();
+      const std::string event_name = ev["selection"].get<std::string>();
+      want.name = event_name;
       const auto sel = subj.find(want);
-      if (!sel) refuse(w + ": no selection named '" + want.name + "' (the events the origin is at)");
+      if (!sel) refuse(w + ": no selection named '" + event_name + "' (the events the origin is at)");
       const auto spans = subj.spans(*sel);
       const std::int64_t member = ev.value("member", std::int64_t(0));
       if (member < 0 || member >= static_cast<std::int64_t>(spans.size()))
-        refuse(w + ": member " + std::to_string(member) + " of '" + want.name + "' does not exist (it has " + std::to_string(spans.size()) + " members; a selection of spans is needed)");
+        refuse(w + ": member " + std::to_string(member) + " of '" + event_name + "' does not exist (it has " + std::to_string(spans.size()) + " members; a selection of spans is needed)");
       const std::string at = ev.value("at", std::string("start"));
       if (at != "start" && at != "centre" && at != "stop") refuse(w + ": at is start, centre or stop");
       const auto& m = spans[static_cast<std::size_t>(member)];
       const double t = at == "start" ? m.start : at == "stop" ? m.stop : 0.5 * (m.start + m.stop);
-      out[k] = Json{{"kind", "event"}, {"seconds", t}, {"selection", sel->id}, {"selection_name", want.name}, {"member", member}, {"at", at}};
+      out[k] = Json{{"kind", "event"}, {"seconds", t}, {"selection", sel->id}, {"selection_name", event_name}, {"member", member}, {"at", at}};
       continue;
     }
     refuse(w + ": start, a number of seconds, {clock: seconds} or {event: {selection: NAME, member: N, at: start|centre|stop}}");
@@ -993,7 +994,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       } else if (v.cls == "selection" && !nxr::io::is_null(row, "array_path")) {   // a partition or a pick: its codes, its member count and parameters
         nxr::graph::Array a;
         if (text(row, "type") == "set") {                                // a set per element: its member NUMBERS, and each member's label beside them (never the raw array as labels)
-          const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub.db(), sub.writer().store(), text(row, "id"));
+          const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub.db(), sub.store(), text(row, "id"));
           for (const std::int32_t c : em.member_of) a.data.push_back(c);
           a.meta["member_codes"] = em.member_codes;
         } else {                                                           // a pick (indices): the element list as stored

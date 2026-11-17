@@ -685,6 +685,7 @@ Signature s_frame_project() {
         PortType& y = u.out.at("y");
         y.spin = 1; y.gauge = g.gauge; y.components = 1; y.complex_parts = false; y.rows = x.rows / 3;
       });
+}
 
 // ── the structural connectome's nodes (spec docs/specs/2026-11-16-structural-connectome.md, section 4): arrays in, arrays out, run once before any loop. They take no field and
 // make no field, so each is a `make` node over `constant` values (the arrays a definition's setup section passes between them); the node's own `plan` and `run` check shapes

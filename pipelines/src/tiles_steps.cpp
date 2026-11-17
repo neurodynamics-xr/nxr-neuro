@@ -24,6 +24,7 @@
 #include "nxr/chart.h"
 #include "nxr/frames.h"
 #include "nxr/ladder.h"
+#include "nxr/measurement/reduce.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/pipelines/select_nodes.h"
 #include "nxr/quantity.h"
@@ -87,6 +88,26 @@ double frames_per_cycle_of(const Json& j) {
   const std::string rest = t.substr(used);
   need(rest.find("frames/cycle") != std::string::npos && v >= 1, "tiles: frame_rate " + j.dump() + ": a number of frames to a cycle, at least 1 (\"36 frames/cycle\")");
   return v;
+}
+
+// A tile's area, per node: the `sum` of the vertex areas over the partition's members, by compute's one reduction (the weights of a member with no values).
+std::vector<double> tile_areas(const std::vector<std::int32_t>& node, int nodes, const std::vector<double>& area) {
+  nxr::selection::MemberOfElement members;
+  members.member_of = node;
+  members.members = nodes;
+  nxr::measurement::Ingredients acc(1, nodes);
+  nxr::measurement::Request request;
+  request.weighting = nxr::measurement::Weighting::given;
+  nxr::measurement::reduce(acc, static_cast<const double*>(nullptr), 1, static_cast<std::int64_t>(node.size()), members, area.data(), request);
+  return std::vector<double>(acc.weight.begin(), acc.weight.begin() + nodes);
+}
+
+Json level_facts(const nxr::selection::Selection& grid, int l, std::int64_t tiles) {
+  const auto& level = grid.members.at(static_cast<std::size_t>(l));
+  const auto& band = *level.band;
+  Json j{{"level", l}, {"tiles", tiles}, {"lambda_min", band.first}, {"lambda_max", band.second}, {"wavelength_m", lad::wavelengthOf(band.second)}, {"tau", 1 / band.second}, {"modes_per_piece", 1 << l}};
+  if (level.diameter) j["diameter"] = *level.diameter;                      // the MEASURED mean tile diameter (the surface's unit): the level dictionary of jointcell's rule
+  return j;
 }
 
 StepSpec tile_grid_step() {
@@ -178,7 +199,7 @@ StepSpec tile_grid_step() {
     for (int l = 0; l <= D; ++l) {
       const std::vector<std::int32_t> node = level_of(grid.member_of, D, l);
       const int nodes = slots << l;
-      const std::vector<double> w = lad::tileAreas(node, nodes, area);
+      const std::vector<double> w = tile_areas(node, nodes, area);
       const std::vector<int> cen = lad::tileCentres(S.vertices.data(), node, nodes, area);       // the vertex nearest each tile's area-weighted centroid (-1 empty)
       const std::vector<std::int32_t> cen32(cen.begin(), cen.end());
       const auto adj = lad::tileAdjacency(S.faces.data(), nF, node);
@@ -288,7 +309,7 @@ StepSpec group_tile_grid_step() {
     for (int l = 0; l <= finest; ++l) {
       const std::vector<std::int32_t> node = level_of(tree.codes, finest, l);
       const std::int64_t nodes = static_cast<std::int64_t>(T.slots) << l;
-      const std::vector<double> w = lad::tileAreas(node, static_cast<int>(nodes), area);
+      const std::vector<double> w = tile_areas(node, static_cast<int>(nodes), area);
       levels.push_back(Json{{"name", st.surface + " group tiles L" + std::to_string(l)}, {"tiles", nodes}, {"dictionary_id", T.level_dictionary_ids.at(static_cast<std::size_t>(l))},
                             {"params", Json{{"tree", "group"}, {"level", l}, {"tiles", nodes}, {"finest", finest}}},
                             {"description", "level " + std::to_string(l) + " of the GROUP tree: the default subject's tile of the nearest vertex on the registered sphere, tile code h 2^" + std::to_string(l) + " + t"},
