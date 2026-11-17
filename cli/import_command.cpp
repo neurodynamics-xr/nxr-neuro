@@ -26,6 +26,7 @@
 
 #include "cli.h"
 #include "nxr/convert/bids.h"
+#include "nxr/convert/cifti_import.h"
 #include "nxr/convert/fif_objects.h"
 #include "nxr/convert/freesurfer_import.h"
 #include "nxr/convert/gifti_import.h"
@@ -192,6 +193,36 @@ int gifti_command(const std::vector<std::string>& rest) {
   return 0;
 }
 
+// import cifti: the cortical brain models of a dense CIFTI map on named surfaces of the package
+int cifti_command(const std::vector<std::string>& rest) {
+  const Args a = parse("nxr-neuro import cifti", rest, {"--from", "--package", "--name", "--left", "--right", "--parcellation", "--field-kind", "--unit", "--source-root", "--licence", "--attribution"},
+                       {"--anonymize"}, {"--from", "--package"});
+  const std::string file = a.get("--from");
+  if (!fs::exists(file)) throw Error(code::not_found, "no such file: " + file);
+  nxr::convert::CiftiImport opt;
+  opt.name = a.maybe("--name").value_or("");
+  opt.left = a.maybe("--left").value_or("");
+  opt.right = a.maybe("--right").value_or("");
+  opt.parcellation = a.maybe("--parcellation").value_or("");
+  opt.field_kind = a.maybe("--field-kind").value_or("overlay");
+  opt.unit = a.maybe("--unit").value_or("");
+  opt.licence = a.maybe("--licence").value_or("unknown");
+  opt.attribution = a.maybe("--attribution").value_or("unknown");
+  opt.anonymize = a.flag.count("--anonymize") > 0;
+  const fs::path root = a.maybe("--source-root").value_or(fs::path(file).parent_path().string());
+  opt.source = fs::relative(fs::absolute(file), fs::absolute(root.empty() ? fs::path(".") : root)).generic_string();
+  opt.source_file = file;
+  opt.progress = [](const Json& j) { emit(j); };
+  const PackageRecord rec = SubjectPackage::open(a.get("--package")).record();
+  DatasetWriter w = open_package_writer(a.get("--package"));
+  SubjectWriter sub = SubjectWriter::open(w, rec.name);
+  Json out = nxr::convert::import_cifti(w, sub, file, opt);
+  Json line = Json{{"stage", "result"}};
+  for (auto it = out.begin(); it != out.end(); ++it) line[it.key()] = it.value();
+  emit(line);
+  return 0;
+}
+
 // create recording --synthetic: sine waves plus noise from a seed, written into a subject package through the recording importer
 int synthetic_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro create recording", rest, {"--package", "--name", "--acquisition", "--channels", "--sfreq", "--duration", "--seed", "--amplitude", "--noise"}, {"--synthetic"},
@@ -261,6 +292,7 @@ int import_main(const std::vector<std::string>& argv) {
   if (what == "nifti") return nifti_command(rest);
   if (what == "freesurfer") return freesurfer_command(rest);
   if (what == "gifti") return gifti_command(rest);
+  if (what == "cifti") return cifti_command(rest);
   if (what == "synthetic") return synthetic_command(rest);
-  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids', 'fif', 'transform', 'nifti', 'freesurfer', 'gifti', 'synthetic')");
+  throw Usage("nxr-neuro import: error: argument what: invalid choice: '" + what + "' (choose from 'recording', 'bids', 'fif', 'transform', 'nifti', 'freesurfer', 'gifti', 'cifti', 'synthetic')");
 }
