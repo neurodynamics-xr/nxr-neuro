@@ -1,5 +1,4 @@
 #include "nxr/compute.h"
-#include "nxr/chart.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
@@ -23,12 +22,14 @@ using namespace geometrycentral::surface;
 class HeatGeodesicSolverImpl {
 public:
     HeatGeodesicSolverImpl(Manifold& c, double tCoef, HeatMesh mesh) : m(c) {
-        if (mesh == HeatMesh::Intrinsic) intrinsic = std::make_unique<chart::HeatMethod>(c.operatorMesh(), tCoef);
+        // geometry-central's heat method on the intrinsic Delaunay triangulation (default; it reads the surface's mass, the input's mixed Voronoi) or on
+        // the input mesh (HeatMesh::Input). Vertex indices are the input's in both.
+        if (mesh == HeatMesh::Intrinsic) intrinsic = std::make_unique<HeatMethodDistanceSolver>(c.intrinsicSurface().geometry(), tCoef);
         else input = std::make_unique<HeatMethodDistanceSolver>(c.geometry(), tCoef);
     }
     Manifold& m;
-    std::unique_ptr<chart::HeatMethod> intrinsic;        // the Studio's heat method on the intrinsic Delaunay mesh (default)
-    std::unique_ptr<HeatMethodDistanceSolver> input;     // geometry-central on the input mesh (HeatMesh::Input)
+    std::unique_ptr<HeatMethodDistanceSolver> intrinsic;   // on the intrinsic Delaunay triangulation (default)
+    std::unique_ptr<HeatMethodDistanceSolver> input;       // on the input mesh (HeatMesh::Input)
 };
 
 HeatGeodesicSolver::HeatGeodesicSolver(Manifold& m, double tCoef, HeatMesh mesh)
@@ -45,26 +46,24 @@ Eigen::VectorXd heat(
     const std::vector<int>& sourceVertices
 ) {
     auto& s = solver.impl();
-    if (s.intrinsic) return s.intrinsic->distance(sourceVertices);
     auto& mesh = s.m.mesh();
     int nV = s.m.nV();
 
-    // Build source vertex list for geometry-central
+    // Source vertices on the mesh the solver lives on (the intrinsic triangulation's vertices carry the input's indices)
+    auto& solverMesh = s.intrinsic ? s.m.intrinsicSurface().mesh() : mesh;
     std::vector<Vertex> sources;
     sources.reserve(sourceVertices.size());
     for (int idx : sourceVertices) {
-        sources.push_back(mesh.vertex(static_cast<size_t>(idx)));
+        sources.push_back(solverMesh.vertex(static_cast<size_t>(idx)));
     }
 
     // Solve via the cached heat-method solver — back-substitution only
     // on subsequent calls; no per-call factorization.
-    VertexData<double> distances = s.input->computeDistance(sources);
+    VertexData<double> distances = (s.intrinsic ? s.intrinsic : s.input)->computeDistance(sources);
 
     // Convert to Eigen::VectorXd indexed by vertex index
     Eigen::VectorXd result(nV);
-    for (Vertex v : mesh.vertices()) {
-        result(static_cast<int>(v.getIndex())) = distances[v];
-    }
+    for (size_t i = 0; i < static_cast<size_t>(nV); ++i) result(static_cast<int>(i)) = distances[i];
 
     std::cout << "[geodesic] Computed distances from " << sourceVertices.size()
               << " sources. Max distance: " << result.maxCoeff() << std::endl;

@@ -1,4 +1,6 @@
 #include "nxr/compute.h"
+#include "geometrycentral/surface/intrinsic_geometry_interface.h"
+#include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "nxr/facets.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
@@ -91,7 +93,9 @@ static void testCovariantGradient() {
 
     // CONSISTENCY: G^T W G == the existing Ambient covariant Laplacian (default LC gauge).
     // W is the edge cotan weight, replicated across the 3 component blocks.
-    Eigen::VectorXd wEdge = delaunay::edgeCotanWeights(m.operatorMesh());   // (regular icosphere: no flips, so edge e is the input's edge e)
+    Eigen::VectorXd wEdge(E);   // (regular icosphere: no flips, so edge e is the input's edge e)
+    { auto& g = m.intrinsicSurface().geometry(); g.requireEdgeCotanWeights();
+      for (geometrycentral::surface::Edge e : g.mesh.edges()) wEdge(static_cast<Eigen::Index>(e.getIndex())) = g.edgeCotanWeights[e]; }
     Eigen::VectorXd wDiag(3*E);
     for (int p = 0; p < 3; ++p) wDiag.segment(p*E, E) = wEdge;
     Eigen::SparseMatrix<double> W(3*E, 3*E);
