@@ -98,7 +98,7 @@ std::vector<AtlasMember> atlas_members(const std::vector<Rec>& entries, std::int
   std::vector<std::string> names_all;
   for (const auto& a : entries) names_all.push_back(raw_string(a.get("Name")));
   std::vector<std::size_t> idx;
-  if (wanted && !wanted->empty()) {
+  if (wanted) {   // an explicit list, an empty one included (none but Structures); nullopt: every atlas with two or more scouts
     std::vector<std::string> missing;
     for (const auto& w : *wanted) if (std::find(names_all.begin(), names_all.end(), w) == names_all.end()) missing.push_back(w);
     if (!missing.empty()) {
