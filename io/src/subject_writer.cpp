@@ -102,6 +102,10 @@ int space_rank(const std::string& g) {
 }  // namespace
 
 std::string coordinate_system(Database& db, const std::string& subject_id, const std::string& key) {
+  // a system `SubjectWriter::frame` made (a device or head frame, a sphere or an EEG montage's own): found by its name
+  if (const auto f = db.one("SELECT cs.id FROM coordinate_system cs JOIN space sp ON sp.id = cs.space_id WHERE sp.subject_id = ? AND cs.name = ? "
+                            "AND (cs.transition = 'operator' OR cs.is_reference = 1) LIMIT 1", {subject_id, key}))
+    return text(*f, "id");
   const SpaceSpec sp_spec = space_spec(key);
   const Sys* want = nullptr;
   for (const auto& s : sp_spec.systems) if (s.key == key) { want = &s; break; }
@@ -380,6 +384,31 @@ void SubjectWriter::write_sparse(const std::string& path, const SparseArrays& pa
 
 std::string SubjectWriter::cs(const std::string& key) { return coordinate_system(*db_, id_, key); }
 
+std::string SubjectWriter::frame(const FrameSpec& f) {
+  std::string cid;
+  db_->tx([&] {
+    if (f.space == "head") coordinate_system(*db_, id_, "scs");   // the head space and its reference
+    std::string sid;
+    if (const auto sp = db_->one("SELECT id FROM space WHERE subject_id = ? AND name = ?", {id_, f.space})) {
+      sid = text(*sp, "id");
+    } else {
+      sid = uuid7();
+      db_->insert("space", {{"id", sid}, {"subject_id", id_}, {"name", f.space}, {"geometry", std::string("volume")}, {"rank", V(3)}, {"parameters_json", std::monostate{}},
+                            {"description", f.space_description.empty() ? Value(std::monostate{}) : Value(f.space_description)}});
+    }
+    if (const auto c = db_->one("SELECT id FROM coordinate_system WHERE space_id = ? AND name = ?", {sid, f.name})) {
+      cid = text(*c, "id");
+      return;
+    }
+    const bool reference = !db_->one("SELECT id FROM coordinate_system WHERE space_id = ? AND is_reference = 1", {sid});
+    cid = uuid7();
+    db_->insert("coordinate_system", {{"id", cid}, {"space_id", sid}, {"name", f.name}, {"unit", vopt(f.unit)}, {"is_reference", V(reference ? 1 : 0)},
+                                      {"transition", reference ? std::string("identity") : std::string("operator")}, {"transition_json", std::monostate{}},
+                                      {"description", vopt(f.description)}});
+  });
+  return cid;
+}
+
 std::optional<std::string> SubjectWriter::acquisition(const std::optional<std::string>& label) {
   if (!label) return std::nullopt;
   if (const auto row = db_->one("SELECT id FROM acquisition WHERE subject_id = ? AND label = ?", {id_, *label})) return text(*row, "id");
@@ -571,7 +600,7 @@ std::string SubjectWriter::statistic(StatisticSpec spec) {
   if (!statistic_measure_known(spec.measure) && !measure_spec(spec.measure))
     throw value_error(who + ": measure '" + spec.measure + "' is in neither the statistics registry (" + names("measures") + ") nor the measure registry");
   if (!statistic_method_known(spec.method)) throw value_error(who + ": method '" + spec.method + "' is not in the statistics registry (" + names("methods") + ")");
-  if (!spec.of_field_id && !spec.of_statistic_id) throw value_error(who + ": a statistic is OF a field or of a statistic (of_field_id · of_statistic_id)");
+  if (!spec.of_field_id && !spec.of_statistic_id && !spec.detached) throw value_error(who + ": a statistic is OF a field or of a statistic (of_field_id · of_statistic_id)");
   if (!spec.axes.is_array() || spec.axes.empty()) throw value_error(who + ": axes is a list of {name, size, …}, one per dimension of the values");
   if (spec.data.dtype != DType::Float32 && spec.data.dtype != DType::Float64) throw value_error(who + ": the values are float32 or float64");
   // each value's shape (as a field's), trailing the axes

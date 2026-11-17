@@ -25,6 +25,8 @@ struct SensorOptions {
   std::string acquisition;
   std::optional<std::string> source_sha1;
   std::string cs_key = "scs";                       // the coordinate system the positions are in (metres)
+  std::optional<std::string> headpoints_cs_key;     // the system the digitised head points are in, when it is not the channels' (a head frame; default: `cs_key`)
+  bool placed = true;                               // false: the channels have no positions, so the manifold has no geometry and stores none
   std::optional<nxr::io::Json> producer;            // rides in the manifold's provenance
   std::map<std::string, std::string> units;         // a unit for a channel type other than the default one (Neuromag planar gradiometers: T/m)
 };

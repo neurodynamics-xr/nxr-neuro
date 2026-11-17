@@ -4,8 +4,8 @@
 //     <kernel>                Operator  float32 [nsrc, M]  channels -> cortex (vector3 when free); its METHOD recorded (`params_json.inverse`), PAIRED with the
 //                                       leadfield it was computed from (`inverts_id`, regularized) when the ends swap
 //     <kernel>_channels       Selection indices: the M channels it maps, in column order
-//     <kernel>_noise_cov      Operator  the noise covariance C [M, M], channels -> channels on those channels
-//     <kernel>_whitener       Operator  W = C^(-1/2) [M, M], derived from the covariance
+//     <kernel>_noise_cov      Statistic measure covariance, method empirical (computed elsewhere), [M, M] on the kernel's channels; n_members = nAvg
+//     <kernel>_whitener       Operator  W = C^(-1/2) [M, M], derived from the covariance statistic (`of_statistic_id`)
 //     <kernel>_source_rr/_nn  Field     of the kernel (`of_operator`): kernel-row-ordered geometry on the cortex
 //     <headmodel>             Operator  float32 [M, 3V]    cortex (vector3) -> channels (declared without bytes when no gain)
 //     <headmodel>_GridLoc/_GridOrient   Fields of the head model, on the cortex

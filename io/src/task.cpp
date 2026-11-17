@@ -238,6 +238,36 @@ std::int64_t Subject::entry_count(const std::string& dictionary_id) const {
   return integer(*impl_->db->one("SELECT COUNT(*) AS n FROM dictionary_entry WHERE dictionary_id = ?", {V(dictionary_id)}), "n");
 }
 
+std::vector<DictionaryLevel> Subject::dictionary_entries(const std::string& dictionary_id) const {
+  std::vector<DictionaryLevel> out;
+  for (const auto& r : impl_->db->all("SELECT code, name, color_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(dictionary_id)})) {
+    DictionaryLevel e;
+    e.code = integer(r, "code");
+    e.name = text(r, "name");
+    if (const auto c = opt_text(r, "color_json")) {
+      const Json j = Json::parse(*c, nullptr, false);
+      if (j.is_array() && j.size() >= 3 && j[0].is_number() && j[1].is_number() && j[2].is_number()) e.color = std::array<int, 3>{j[0].get<int>(), j[1].get<int>(), j[2].get<int>()};
+    }
+    out.push_back(std::move(e));
+  }
+  return out;
+}
+
+std::optional<Origin> Subject::origin(const Node& n) const {
+  if (!has_table(*impl_->db, "origin")) return std::nullopt;
+  const auto o = origin_of(*impl_->db, to_string(n.cls), n.id);
+  if (!o) return std::nullopt;
+  return Origin{o->source, o->licence, o->attribution, o->redistributable};
+}
+
+std::vector<KeyDigest> Subject::key_digests(const std::string& prefix) const {
+  std::vector<KeyDigest> out;
+  if (!has_table(*impl_->db, "key_digest")) return out;
+  for (const auto& r : impl_->db->all("SELECT key, size_bytes, sha256 FROM key_digest WHERE key = ? OR (key >= ? AND key < ?) ORDER BY key", {V(prefix), V(prefix + "/"), V(prefix + "0")}))
+    out.push_back({text(r, "key"), integer(r, "size_bytes"), text(r, "sha256")});
+  return out;
+}
+
 std::vector<Span> Subject::spans(const Node& selection) const {
   std::vector<Span> out;
   for (const auto& r : impl_->records().selections().spans(selection.id)) out.push_back({r.ordinal, r.start, r.stop, r.code});
@@ -545,7 +575,7 @@ std::string Unit::statistic(const StatisticOut& s) {
   st.name = s.name; st.path = path_of(s); st.measure = s.measure; st.method = s.method; st.value_type = s.value_type;
   st.of_field_id = s.of_field_id; st.of_statistic_id = s.of_statistic_id; st.partition_selection_id = s.partition_selection_id;
   st.axes = s.axes; st.components = s.components; st.span = s.span; st.scaling = s.scaling; st.options = s.options;
-  st.n_members = s.n_members; st.members_skipped = s.members_skipped;
+  st.n_members = s.n_members; st.members_skipped = s.members_skipped; st.dof = s.dof; st.detached = s.detached;
   st.unit = s.unit; st.description = s.description; st.label = s.label; st.acquisition = s.acquisition;
   st.data = view_of(s.data, "statistic " + s.name);
   st.producer = producer_of(by_, s.output, s.producer);
@@ -566,6 +596,7 @@ std::string Unit::operator_(const OperatorOut& o) {
   if (o.from_selection_id) op.cols.set("from_selection_id", *o.from_selection_id);
   if (o.to_selection_id) op.cols.set("to_selection_id", *o.to_selection_id);
   if (o.derived_from_id) op.cols.set("derived_from_id", *o.derived_from_id);
+  if (o.of_statistic_id) op.cols.set("of_statistic_id", *o.of_statistic_id);
   if (o.description) op.cols.set("description", *o.description);
   if (!o.params.is_null()) op.cols.json("params_json", o.params);
   op.cols.json("producer_json", producer_of(by_, o.output, o.producer));

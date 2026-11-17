@@ -91,6 +91,7 @@ struct BlockRecording {
   std::string comment;
   Json producer = Json::object();
   Emit progress;
+  bool linked = false;   // the samples stay in the file they are read from (an in-place import): the array is laid out, the envelope made, no samples stored
   std::function<void(std::int64_t s0, std::int64_t n, std::vector<float>& out)> read;
 };
 Json write_recording_blocks(nxr::io::SubjectWriter& sub, const BlockRecording& rec);

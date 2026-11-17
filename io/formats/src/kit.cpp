@@ -287,6 +287,7 @@ std::unique_ptr<Reader> open(std::shared_ptr<const ByteSource> file) {
       ch.kind = is_reference(kc.type) ? "meg_ref" : "meg";
       ch.unit = ch.file_unit = "T";
       ch.location = std::array<double, 3>{kc.loc[0], kc.loc[1], kc.loc[2]};
+      ch.position_frame = "device";
       const double th = kc.loc[3] * 3.14159265358979323846 / 180.0, ph = kc.loc[4] * 3.14159265358979323846 / 180.0;
       std::array<double, 3> z{std::sin(th) * std::cos(ph), std::sin(th) * std::sin(ph), std::cos(th)};
       const double n = std::sqrt(z[0] * z[0] + z[1] * z[1] + z[2] * z[2]);

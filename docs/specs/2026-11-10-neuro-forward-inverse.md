@@ -200,8 +200,10 @@ offsets); the block's sum about its mean is S − s sᵀ/n. A chunk is seen once
 - **Brainstorm** (`bst_noisecov`): it is driven by the Brainstorm database (studies, data files), and `brainstorm nogui` did not start headless on this machine, so no Brainstorm golden was made. Its
   divisor is therefore **not verified**: the default `SamplesMinusBlocks` is the standard unbiased choice and is named as an option, to be checked against a Brainstorm-computed covariance (open point).
 
-**Stored** as an Operator of kind "noise covariance" on the channels, `<recording>_noise_cov`, float64 [M × M], from and to the Selection `<name>_channels` (indices of the channels it covers); its
-`producer_json` records the window (seconds and samples), N, B, the options, the divisor value, the channel types and the cache key.
+**Stored** (amended 2026-11-17) as a Statistic, measure `covariance` and method `sample`, `<recording>_noise_cov`, float64 [M × M] on the Selection `<name>_channels` (indices of the
+channels it covers) for both axes; it is OF the recording's Field, the blocks are its members (`n_members` = B), the divisor value its `dof`, the span its `span_json`, and `options_json` records the
+options, N, B, the channel types. The covariance is the zero-lag cross-spectrum, so it is a statistic, not an operator. The whitener is an operator derived from it, linked by `operator.of_statistic_id`;
+the covariance a kernel was computed with is stored beside the kernel as a statistic `<kernel>_noise_cov` (of the stored one). A covariance stored as an Operator of kind "noise covariance" before this is still read.
 
 ## 8. The forward model (sphere head models)
 

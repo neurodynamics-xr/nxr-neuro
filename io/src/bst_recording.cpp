@@ -5,6 +5,7 @@
 // window 2^5 < raw chunk 2^15 < block 2^17: every boundary shared. The envelope is reduced from each block AS IT IS WRITTEN (one pass over the raw).
 #include <algorithm>
 #include <cmath>
+#include <optional>
 #include <cstring>
 #include <fstream>
 #include <map>
@@ -53,8 +54,11 @@ const std::string& laid(nxr::io::Store& store, const std::string& at, const Arra
 // The recording's array and its ENVELOPE (at `dest`), the envelope reduced from each block as it is written.
 class EnvelopeTee {
  public:
-  EnvelopeTee(nxr::io::Store& store, const std::string& arr_at, const std::string& dest, std::int64_t n_chan, std::int64_t n_samples)
-      : arr_(store, arr_at), env_(store, laid(store, dest, env_meta(n_chan, n_samples))), n_chan_(n_chan), n_samples_(n_samples) {}
+  // `linked`: the samples stay in their file (an in-place import): the envelope is reduced as they are read and nothing of them is written
+  EnvelopeTee(nxr::io::Store& store, const std::string& arr_at, const std::string& dest, std::int64_t n_chan, std::int64_t n_samples, bool linked = false)
+      : env_(store, laid(store, dest, env_meta(n_chan, n_samples))), n_chan_(n_chan), n_samples_(n_samples) {
+    if (!linked) arr_.emplace(store, arr_at);
+  }
 
   static ArrayMeta env_meta(std::int64_t n_chan, std::int64_t n_samples) {
     const std::int64_t n_win = (n_samples + kWindow - 1) / kWindow;
@@ -70,7 +74,7 @@ class EnvelopeTee {
   void write(std::int64_t s0, const std::vector<float>& x, std::int64_t n) {
     if (s0 % kWindow || (n % kWindow && s0 + n != n_samples_))
       value_error("envelope: a write at (slice(None, None, None), slice(" + i2s(s0) + ", " + i2s(s0 + n) + ", None)) is not a whole-channel block on window boundaries");
-    arr_.write(s0, view(x.data(), {n_chan_, n}));
+    if (arr_) arr_->write(s0, view(x.data(), {n_chan_, n}));
     const std::int64_t nw = (n + kWindow - 1) / kWindow;
     std::vector<float> e(static_cast<std::size_t>(n_chan_ * nw * 2));
     for (std::int64_t c = 0; c < n_chan_; ++c)
@@ -89,7 +93,8 @@ class EnvelopeTee {
   }
 
  private:
-  SlabWriter arr_, env_;
+  std::optional<SlabWriter> arr_;
+  SlabWriter env_;
   std::int64_t n_chan_, n_samples_;
 };
 
@@ -132,6 +137,7 @@ struct Recording {
   std::string field_kind = "recording";
   std::optional<std::string> description, unit, time_id;
   std::optional<std::string> derived_from_id;   // the recording this one was made from (a filtered or resampled copy)
+  bool linked = false;   // the samples stay in the file they came from: the array is laid out (shape, type) but holds none
 };
 
 // nxr.convert.timeseries._time_line: the Time Line, three numbers, exactly as a Volume's voxel positions are - a closed form, no array
@@ -185,7 +191,7 @@ Json write_recording(SubjectWriter& sub, const Recording& r) {
   f.meta = meta;
   f.populate = [&](nxr::io::Store& store, const std::string& at) {
     nxr::io::ensure_groups(sub.store(), env, false);
-    EnvelopeTee tee(store, at, nxr::io::join_key(sub.prefix(), env), r.n_chan, r.n_samples);
+    EnvelopeTee tee(store, at, nxr::io::join_key(sub.prefix(), env), r.n_chan, r.n_samples, r.linked);
     r.write(tee);
     if (r.progress) r.progress(Json{{"stage", "envelope"}, {"name", r.name}});
   };
@@ -664,6 +670,7 @@ Json write_recording_blocks(SubjectWriter& sub, const BlockRecording& b) {
   r.source = b.source;
   r.producer = b.producer;
   r.progress = b.progress;
+  r.linked = b.linked;
   r.write = [&b](EnvelopeTee& tee) {
     std::vector<float> blk;
     for (std::int64_t s0 = 0; s0 < b.n_samples; s0 += kBlock) {

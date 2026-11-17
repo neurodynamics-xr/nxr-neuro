@@ -5,6 +5,7 @@
 # layout of format 50 (c.0.1 -> c/0/1, "separator":"/" in every zarr.json) and compared with golden/store_identity_v50.txt, the golden made before the
 # change: the old layout stays what a reader must read, byte for byte.
 # Run as a test: cmake -DSCENARIO=<nxr-neuro-scenario> -DOBJ=<mesh.obj> -DGOLDEN=<golden file> -DWORK=<scratch folder> -P store_identity.cmake
+cmake_policy(SET CMP0057 NEW)  # IN_LIST in the mismatch report (script mode)
 file(REMOVE_RECURSE ${WORK})
 file(MAKE_DIRECTORY ${WORK})
 foreach(step "scenario;${WORK}/ds;${OBJ}" "interrupt;${WORK}/ds/demo;S1" "remove;${WORK}/ds/demo;S1;field;source/small")

@@ -3,11 +3,19 @@
 #include <unistd.h>
 
 #include <cmath>
+#include <algorithm>
+#include <cstring>
+#include <set>
 #include <filesystem>
+#include <fstream>
 
 #include "check.h"
 #include "nxr/convert/recording.h"
+#include "nxr/convert/sensor_frames.h"
+#include "nxr/formats/byte_source.h"
+#include "nxr/formats/fif_objects.h"
 #include "nxr/io/array_reader.h"
+#include "nxr/io/chunk_loop.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/task/task.h"
 
@@ -16,6 +24,17 @@ namespace fs = std::filesystem;
 namespace cv = nxr::convert;
 
 template <class F> static std::string code_of(F f) { try { f(); } catch (const Error& e) { return e.code(); } catch (const std::exception&) { return "other"; } return ""; }
+
+
+// the coordinate system a manifold's positions are in (name, unit), or none when it has no geometry; the ends of a transition operator
+static std::optional<Row> cs_of_manifold(const Database& db, const std::string& manifold_id) {
+  return db.one("SELECT cs.name AS name, cs.unit AS unit FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE m.id = ?", {V(manifold_id)});
+}
+static std::string transition_end(const Database& db, const std::string& operator_id, const char* end) {
+  const std::string col = std::string(end) + "_coordinate_system_id";
+  const auto r = db.one("SELECT cs.name AS name FROM operator o JOIN coordinate_system cs ON cs.id = o." + col + " WHERE o.id = ?", {V(operator_id)});
+  return r ? text(*r, "name") : std::string();
+}
 
 static const std::string data = std::string(NXR_IO_DATA_DIR) + "/../../formats/test/data/";
 
@@ -97,6 +116,173 @@ int main() {
     CHECK(any_k);
     CHECK(rec_k.producer["header"].size() > rec_a.producer["header"].size());                 // something identifying was dropped
     check_copy(root / "a.nxr.zarr", "edf_plain.edf");                              // the samples are the same
+  }
+
+  // positions are in a TRUE coordinate system: a FIF file's MEG device positions and EEG head positions are carried into SCS by the file's dev_head_t and the
+  // head -> SCS transform the digitised landmarks define, checked against MNE's own values (the golden: its dev_head_t and channel locations)
+  {
+    const fs::path pkg = root / "frames.nxr.zarr";
+    import_into(pkg, "fif_basic_raw.fif", false);
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node man = s.require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
+    CHECK_EQ(text(*cs_of_manifold(p.db(), man.id), "name"), std::string("scs"));
+    const task::Geometry g = s.geometry(man.id);
+    CHECK(g.coordinate_unit.has_value() && *g.coordinate_unit == "m");
+    const ArrayReader ar = ArrayReader::open(p.store(), *g.positions_path);
+    const std::int64_t N = ar.shape()[0];
+    const std::vector<std::uint8_t> raw = ar.read({0, 0}, {N, 3});
+    std::vector<float> pos(static_cast<std::size_t>(N * 3));
+    std::memcpy(pos.data(), raw.data(), raw.size());
+    std::ifstream gf(std::string(NXR_IO_DATA_DIR) + "/../../formats/test/golden/fif_golden.json");
+    const Json gold = Json::parse(gf)["cases"]["basic"]["info"];
+    const Json& T = gold["dev_head_t"]["trans"];
+    CHECK_EQ(static_cast<std::size_t>(N), gold["chs"].size());
+    for (std::int64_t i = 0; i < N; ++i) {
+      const Json& c = gold["chs"][static_cast<std::size_t>(i)];
+      const Json& L = c["loc"];
+      if (!L[0].is_number() || !L[1].is_number() || !L[2].is_number() || (L[0].get<double>() == 0 && L[1].get<double>() == 0 && L[2].get<double>() == 0)) continue;   // no position (the reader gives none)
+      double v[3] = {c["loc"][0].get<double>(), c["loc"][1].get<double>(), c["loc"][2].get<double>()}, h[3];
+      if (c["coord_frame"].get<int>() == 1)
+        for (int r = 0; r < 3; ++r) h[r] = T[r][0].get<double>() * v[0] + T[r][1].get<double>() * v[1] + T[r][2].get<double>() * v[2] + T[r][3].get<double>();
+      else
+        for (int r = 0; r < 3; ++r) h[r] = v[r];
+      // the golden's landmarks are LPA (-0.08, 0, 0), nasion (0, 0.1, 0), RPA (0.08, 0, 0): SCS = (head y, -head x, head z)
+      const double want[3] = {h[1], -h[0], h[2]};
+      for (int r = 0; r < 3; ++r) CHECK(std::fabs(pos[static_cast<std::size_t>(i * 3 + r)] - want[r]) < 1e-6);
+    }
+    // the systems and their transitions: device -> head -> SCS, each a transition operator
+    std::set<std::string> names;
+    for (const auto& o : s.find_all({.cls = task::Cls::operator_, .kind = "transition"})) names.insert(o.name);
+    CHECK(names.count("rec_channels_device_to_head") == 1);
+    CHECK(names.count("rec_channels_head_to_scs") == 1);
+    // the digitisation: a points manifold in the head frame it was digitised in (LPA first, then the nasion, RPA, an HPI coil, an EEG point, an extra point)
+    const task::Node hp = s.require({.cls = task::Cls::manifold, .name = "rec_channels_headpoints"}, "the head points");
+    CHECK_EQ(*hp.n_vertices, std::int64_t(6));
+    CHECK_EQ(text(*cs_of_manifold(p.db(), hp.id), "name"), std::string("head"));
+    const ArrayReader hr = ArrayReader::open(p.store(), *s.geometry(hp.id).positions_path);
+    const std::vector<std::uint8_t> hraw = hr.read({0, 0}, {6, 3});
+    std::vector<float> hpos(18);
+    std::memcpy(hpos.data(), hraw.data(), hraw.size());
+    CHECK(std::fabs(hpos[0] + 0.08f) < 1e-6f && std::fabs(hpos[4] - 0.1f) < 1e-6f);
+    CHECK(p.verify().ok);
+  }
+  // an ACTIVE SSP projector is an operator and is applied to the samples as they are copied; an inactive one is only an operator
+  {
+    const fs::path pkg = root / "proj.nxr.zarr";
+    import_into(pkg, "fif_nodate_activeproj_raw.fif", false);
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node op = s.require({.cls = task::Cls::operator_, .name = "rec_channels_projector_1"}, "the projector");
+    CHECK_EQ(*op.kind, std::string("projector"));
+    const task::Node rec = s.require({.cls = task::Cls::field, .name = "rec"}, "the recording");
+    CHECK(rec.producer["projectors"][0]["active"].get<bool>());
+    const ArrayReader ar = ArrayReader::open(p.store(), *rec.path);
+    const std::int64_t C = ar.shape()[0], T = ar.shape()[1];
+    std::vector<float> got(static_cast<std::size_t>(C * T)), raw(static_cast<std::size_t>(C * T));
+    const std::vector<std::uint8_t> bytes = ar.read({0, 0}, {C, T});
+    std::memcpy(got.data(), bytes.data(), bytes.size());
+    auto reader = cv::open_recording("fif", data + "fif_nodate_activeproj_raw.fif");
+    reader->read(0, static_cast<std::uint64_t>(T), 0, static_cast<std::size_t>(C), raw.data());
+    const double v[3] = {0.618984043598175, -0.7750996947288513, 0.1268039047718048};   // MNE's projector vector over EEG000..2 (the golden)
+    double worst = 0, scale = 0;
+    for (std::int64_t t = 0; t < T; ++t) {
+      double d = 0;
+      for (int c = 0; c < 3; ++c) d += v[c] * raw[static_cast<std::size_t>(c * T + t)];
+      for (int c = 0; c < 3; ++c) {
+        const double want = raw[static_cast<std::size_t>(c * T + t)] - v[c] * d;
+        worst = std::max(worst, std::fabs(got[static_cast<std::size_t>(c * T + t)] - want));
+        scale = std::max(scale, std::fabs(want));
+      }
+      CHECK(got[static_cast<std::size_t>(3 * T + t)] == raw[static_cast<std::size_t>(3 * T + t)]);   // the other channel is untouched
+    }
+    CHECK(worst < 1e-5 * scale);
+  }
+  // the CTF compensation of a FIF file: an operator on the channels (MEG rows, reference columns), at the grade the data are at
+  {
+    const fs::path pkg = root / "comp.nxr.zarr";
+    import_into(pkg, "fif_comp_raw.fif", false);
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node op = s.require({.cls = task::Cls::operator_, .name = "rec_channels_ctf_compensation"}, "the compensation");
+    CHECK_EQ(*op.kind, std::string("ctf compensation"));
+    CHECK_EQ(op.fact("nnz").get<std::int64_t>(), std::int64_t(4));
+    const task::Node rec = s.require({.cls = task::Cls::field, .name = "rec"}, "the recording");
+    CHECK_EQ(rec.producer["ctf_compensation"]["grade"]["current"].get<int>(), 3);
+    // the coil definitions the channels refer to (the forward model's integration points are looked up by these names)
+    const task::Node man = s.require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
+    CHECK(man.producer["coil_definitions"]["coil_types"].size() == 2);
+    CHECK(man.producer["coil_definitions"]["source"].get<std::string>().find("coil_def.dat") != std::string::npos);
+    CHECK(p.verify().ok);
+  }
+  // an MNE head -> MRI transform becomes a transition operator from the head frame to freesurfer-tkr
+  {
+    const fs::path pkg = root / "trans.nxr.zarr";
+    import_into(pkg, "fif_basic_raw.fif", false);
+    {
+      DatasetWriter w = open_package_writer(pkg);
+      SubjectWriter sub = SubjectWriter::open(w, "S");
+      const task::Node man = task::Subject::of(sub).require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
+      nxr::formats::fif::File f(std::make_shared<nxr::formats::FileSource>(data + "fif_obj-trans.fif"));
+      cv::import_head_mri_transition(sub, nxr::formats::fif::read_transform(f), "rec_head_to_mri", man.id);
+    }
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node t = s.require({.cls = task::Cls::operator_, .name = "rec_head_to_mri"}, "the head to MRI transition");
+    CHECK_EQ(transition_end(p.db(), t.id, "from"), std::string("head"));
+    CHECK_EQ(transition_end(p.db(), t.id, "to"), std::string("freesurfer-tkr"));
+    CHECK(p.verify().ok);
+  }
+  // EEGLAB's and BrainVision's frames are their own, with no transition; an unstated unit is not metres
+  for (const auto& [file, key] : {std::pair<const char*, const char*>{"eeglab_fdt.set", "eeglab"}, {"bv_mux_i16.vhdr", "brainvision-sphere"}}) {
+    const fs::path pkg = root / (std::string("own_") + key + ".nxr.zarr");
+    import_into(pkg, file, false);
+    SubjectPackage p = SubjectPackage::open(pkg);
+    const task::Subject s = task::Subject::of(p);
+    const task::Node man = s.require({.cls = task::Cls::manifold, .name = "rec_channels"}, "the sensors");
+    if (const auto cs = cs_of_manifold(p.db(), man.id)) {                       // a file with positions: its own system, of no known unit
+      CHECK_EQ(text(*cs, "name"), std::string(key));
+      CHECK(is_null(*cs, "unit"));
+    }
+    CHECK(s.find_all({.cls = task::Cls::operator_, .kind = "transition"}).empty());
+  }
+  // in place: the package links the file, holds no samples, and the chunk service reads the file's chunks equal to a copy's
+  {
+    const std::string f = "fif_basic_raw.fif";
+    const fs::path pc = root / "ipc.nxr.zarr", pl = root / "ipl.nxr.zarr";
+    for (const bool in_place : {false, true}) {
+      CreatePackageOptions po;
+      po.home_dataset = "demo";
+      DatasetWriter w = create_package(in_place ? pl : pc, "S", po);
+      SubjectWriter sub = SubjectWriter::open(w, "S");
+      auto reader = cv::open_recording("fif", data + f);
+      cv::RecordingImport opt;
+      opt.name = "rec";
+      opt.format = "fif";
+      opt.source = f;
+      opt.source_file = data + f;
+      opt.in_place = in_place;
+      cv::import_recording(w, sub, *reader, opt);
+    }
+    SubjectPackage a = SubjectPackage::open(pc), b = SubjectPackage::open(pl);
+    CHECK(b.verify().ok);
+    const task::Node ra = task::Subject::of(a).require({.cls = task::Cls::field, .name = "rec"}, "rec");
+    const task::Node rb = task::Subject::of(b).require({.cls = task::Cls::field, .name = "rec"}, "rec");
+    const Json link = cv::link_of(rb.producer);
+    CHECK(link.is_object());
+    CHECK_EQ(link["sha256"].get<std::string>().size(), static_cast<std::size_t>(64));
+    CHECK(cv::link_of(ra.producer).is_null());
+    const std::int64_t width = chunk_width(ra.fact("chunk_shape_json"));
+    const ArrayReader arr = ArrayReader::open(b.store(), *rb.path);                // laid out (shape, type), holding no samples
+    CHECK(arr.shape() == ArrayReader::open(a.store(), *ra.path).shape());
+    const ChunkSource sa(a.store(), *ra.path, width, 1.0, 0.0), sl(b.store(), *rb.path, width, 1.0, 0.0, {}, std::nullopt, cv::open_linked(link));
+    CHECK_EQ(sa.count(), sl.count());
+    for (std::int64_t k = 0; k < sa.count(); ++k) {
+      Chunk ca, cl;
+      sa.read(k, ca);
+      sl.read(k, cl);
+      CHECK(ca.data == cl.data);
+    }
   }
 
   // refusals

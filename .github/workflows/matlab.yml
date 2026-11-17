@@ -3,7 +3,7 @@ name: matlab
 # The MATLAB face (bindings/mex): the nxr_compute MEX and the +nxr package, built on Linux x86_64 and macOS arm64 (macos-15) and tested with MathWorks' actions
 # (matlab-actions/setup-matlab and run-tests; free for public repositories).
 # - On a version tag (`v*`) and by hand (`workflow_dispatch`): build, test, upload the MEX and the package as workflow artefacts.
-# - On pull requests: only when bindings/mex/**, the pipeline level's face (pipelines/face) or this workflow changes.
+# - On pull requests: only when bindings/mex/**, compute/** (the MEX is built from it), the pipeline level's face (pipelines/face) or this workflow changes.
 # What runs: the first slice's tests (bindings/mex/test/first_slice: the same functions, inputs and expected values as the Python wheel's tests and the C++
 # goldens; the pipeline level's: nxr.run on a synthetic dataset against the pure function), the symbol check (nothing of HDF5, matio, zlib, zstd or SQLite is exported or shared),
 # and the nxr_compute command tests.
@@ -13,6 +13,7 @@ on:
   pull_request:
     paths:
       - "bindings/mex/**"
+      - "compute/**"
       - "pipelines/include/nxr/pipelines/face.h"
       - "pipelines/src/face.cpp"
       - ".github/workflows/matlab.yml"

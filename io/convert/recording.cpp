@@ -7,8 +7,11 @@
 #include <filesystem>
 #include <fstream>
 #include <limits>
+#include <mutex>
 
 #include "nxr/bst/sensors.h"
+#include "nxr/convert/recording_operators.h"
+#include "nxr/convert/sensor_frames.h"
 #include "nxr/formats/brainvision.h"
 #include "nxr/formats/ctf.h"
 #include "nxr/formats/edf.h"
@@ -40,7 +43,14 @@ std::string ends_with_any(const std::string& path, std::initializer_list<const c
 // Brainstorm's channel type of a reader channel (the vocabulary the Brainstorm importer writes)
 std::string bst_type(const nxr::formats::Channel& c) {
   const std::string k = lower(c.kind);
-  if (k == "meg") return c.unit == "T/m" ? "MEG GRAD" : "MEG";
+  // Brainstorm's vocabulary: Neuromag's magnetometers and planar gradiometers are told apart by their coils, the reference sensors are `MEG REF`, and the
+  // axial gradiometers of CTF and KIT are plain `MEG`
+  if (k == "meg_ref") return "MEG REF";
+  if (k == "meg") {
+    if (c.coil_type.find("PLANAR") != std::string::npos || c.unit == "T/m") return "MEG GRAD";
+    if (c.coil_type.find("MAG") != std::string::npos) return "MEG MAG";
+    return "MEG";
+  }
   if (k == "eeg" || k == "eog" || k == "ecg" || k == "emg" || k == "seeg" || k == "ecog") {
     std::string u = k;
     for (auto& ch : u) ch = static_cast<char>(std::toupper(static_cast<unsigned char>(ch)));
@@ -70,21 +80,38 @@ nxr::bst::Value doubles_value(const std::array<double, 3>& a) {
   return v;
 }
 
-double metres_per(const std::string& unit) {
-  if (unit == "mm") return 1e-3;
-  if (unit == "cm") return 1e-2;
-  if (unit == "m" || unit.empty()) return 1.0;
-  refuse("a channel position unit '" + unit + "' is not one of m, cm, mm");
+// the digitised points as the channel file's `HeadPoints` struct: Loc [3 x H] (column-major), Label and Type (cells of text)
+nxr::bst::Value headpoints_value(const std::vector<SensorPlacement::DigitisedPoint>& pts) {
+  const std::size_t H = pts.size();
+  nxr::bst::Value loc;
+  loc.cls = nxr::bst::Class::Double;
+  loc.dims = {3, H};
+  loc.re.resize(3 * H * sizeof(double));
+  nxr::bst::Value labels, types;
+  labels.cls = types.cls = nxr::bst::Class::Cell;
+  labels.dims = types.dims = {1, H};
+  for (std::size_t j = 0; j < H; ++j) {
+    std::memcpy(loc.re.data() + 3 * j * sizeof(double), pts[j].r.data(), 3 * sizeof(double));
+    labels.elems.push_back(text_value(pts[j].label));
+    types.elems.push_back(text_value(pts[j].type));
+  }
+  nxr::bst::Value hp;
+  hp.cls = nxr::bst::Class::Struct;
+  hp.dims = {1, 1};
+  hp.fields = {"Loc", "Label", "Type"};
+  hp.elems = {std::move(loc), std::move(labels), std::move(types)};
+  return hp;
 }
 
 // the channel file as the sensor writer reads it: Channel(Name, Type, Loc, Orient)
-std::map<std::string, nxr::bst::Value> channel_mat(const nxr::formats::RecordingHeader& h, std::map<std::string, std::string>& units) {
+std::map<std::string, nxr::bst::Value> channel_mat(const nxr::formats::RecordingHeader& h, const SensorPlacement& place, std::map<std::string, std::string>& units) {
   nxr::bst::Value ch;
   ch.cls = nxr::bst::Class::Struct;
   ch.dims = {1, h.channels.size()};
-  ch.fields = {"Name", "Type", "Loc", "Orient"};
-  const double to_m = metres_per(h.position_unit);
+  ch.fields = {"Name", "Type", "Loc", "Orient", "CoilType"};
+  std::size_t ci = 0;
   for (const auto& c : h.channels) {
+    const std::size_t i = ci++;
     const std::string type = bst_type(c);
     if (!c.unit.empty()) {
       const auto it = units.find(type);
@@ -93,10 +120,12 @@ std::map<std::string, nxr::bst::Value> channel_mat(const nxr::formats::Recording
     }
     ch.elems.push_back(text_value(c.name));
     ch.elems.push_back(text_value(type));
-    if (c.location) ch.elems.push_back(doubles_value({(*c.location)[0] * to_m, (*c.location)[1] * to_m, (*c.location)[2] * to_m}));
+    // positions and orientations as `place_sensors` placed them: in one named coordinate system, in metres
+    if (place.location[i]) ch.elems.push_back(doubles_value(*place.location[i]));
     else ch.elems.emplace_back();
-    if (c.orientation) ch.elems.push_back(doubles_value(*c.orientation));
+    if (place.orientation[i]) ch.elems.push_back(doubles_value(*place.orientation[i]));
     else ch.elems.emplace_back();
+    ch.elems.push_back(text_value(c.coil_type));
   }
   return {{"Channel", std::move(ch)}};
 }
@@ -111,6 +140,13 @@ std::string file_sha256(const std::string& path) {
     h.update(reinterpret_cast<const std::uint8_t*>(buf.data()), static_cast<std::size_t>(f.gcount()));
   }
   return h.hex();
+}
+
+std::uint64_t file_size(const std::string& path) {
+  std::error_code ec;
+  const auto n = fs::file_size(path, ec);
+  if (ec) throw nxr::io::Error(code::not_found, "cannot read " + path);
+  return static_cast<std::uint64_t>(n);
 }
 
 // the recording's time of its first sample, seconds: a FIF file counts samples from the acquisition's start
@@ -194,9 +230,7 @@ Json format_record(const std::string& format, const nxr::formats::RecordingReade
       for (const auto& d : in.dig) dig.push_back(Json{{"kind", d.kind}, {"ident", d.ident}, {"r", std::vector<double>(d.r.begin(), d.r.end())}, {"coord_frame", d.coord_frame}});
       rec["digitisation"] = dig;
     }
-    Json proj = Json::array();
-    for (const auto& p : in.projectors) proj.push_back(Json{{"description", p.desc}, {"active", p.active}, {"n_vectors", p.nvec}});
-    if (!proj.empty()) rec["projectors"] = proj;   // recorded; the samples are copied as the file stores them (no projector is applied)
+    // the projectors and the CTF compensation are operators (recording_operators.h); their record is added by import_recording
     if (!anonymize) {
       if (in.meas_date) rec["meas_date"] = Json::array({(*in.meas_date)[0], (*in.meas_date)[1]});
       if (in.experimenter) rec["experimenter"] = *in.experimenter;
@@ -214,9 +248,44 @@ Json format_record(const std::string& format, const nxr::formats::RecordingReade
   return rec;
 }
 
+Json link_record(const std::string& format, const std::string& file, const std::string& sha256) {
+  if (fs::is_directory(file)) refuse("--in-place links one file; '" + file + "' is a folder (copy it instead)");
+  const fs::path abs = fs::weakly_canonical(fs::absolute(file));
+  return Json{{"schema", "nxr-link/1"}, {"format", format}, {"path", abs.string()}, {"size_bytes", file_size(abs.string())}, {"sha256", sha256.empty() ? file_sha256(abs.string()) : sha256}};
+}
+
+Json link_of(const Json& producer) {
+  Json p = producer;
+  if (p.is_string()) p = Json::parse(p.get<std::string>(), nullptr, false);
+  if (p.is_object() && p.contains("link") && p["link"].is_object()) return p["link"];
+  return Json();
+}
+
+std::shared_ptr<const nxr::io::LinkedBlocks> open_linked(const Json& link) {
+  if (!link.is_object() || !link.contains("path") || !link.contains("sha256") || !link.contains("format")) refuse("a linked recording's record names no file, format or SHA-256");
+  const std::string path = link["path"].get<std::string>();
+  if (!fs::exists(path)) throw nxr::io::Error(code::not_found, "the linked recording's file is gone: " + path);
+  if (link.contains("size_bytes") && file_size(path) != link["size_bytes"].get<std::uint64_t>())
+    throw nxr::io::Error(code::hash_mismatch, "the linked recording's file changed (its size differs from the recorded one): " + path);
+  if (file_sha256(path) != link["sha256"].get<std::string>())
+    throw nxr::io::Error(code::hash_mismatch, "the linked recording's file changed (its SHA-256 differs from the recorded one): " + path);
+  std::shared_ptr<nxr::formats::RecordingReader> reader = open_recording(link["format"].get<std::string>(), path);
+  auto blocks = std::make_shared<nxr::io::LinkedBlocks>();
+  const std::size_t n_chan = reader->header().channels.size();
+  blocks->n_channels = static_cast<std::int64_t>(n_chan);
+  blocks->n_samples = static_cast<std::int64_t>(reader->header().n_samples);
+  auto guard = std::make_shared<std::mutex>();   // one reader, read one chunk at a time (a read-ahead is another thread)
+  blocks->read = [reader, guard, n_chan](std::int64_t s0, std::int64_t n, float* out) {
+    std::lock_guard<std::mutex> lock(*guard);
+    reader->read(static_cast<std::uint64_t>(s0), static_cast<std::uint64_t>(n), 0, n_chan, out);
+  };
+  return blocks;
+}
+
 Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, const nxr::formats::RecordingReader& reader, const RecordingImport& opt) {
-  const nxr::formats::RecordingHeader& h = reader.header();
+  const nxr::formats::RecordingHeader& h = opt.header ? *opt.header : reader.header();
   if (h.channels.empty() || h.n_samples == 0 || h.sampling_rate <= 0) refuse("the recording has no channels, no samples or no sampling rate");
+  if (opt.in_place && (opt.source_file.empty() || fs::is_directory(opt.source_file))) refuse("--in-place links one file; give the recording's file (a folder, as CTF's, is copied)");
   const std::int64_t n_chan = static_cast<std::int64_t>(h.channels.size()), n_samp = static_cast<std::int64_t>(h.n_samples);
   const double t0 = first_time(reader);
 
@@ -242,12 +311,18 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     sha = file_sha256(opt.source_file);
     origin["source"] = opt.format + ":" + opt.source + "#sha256=" + sha;
   }
+  if (opt.in_place) producer["link"] = link_record(opt.format, opt.source_file, sha);
   producer["origin"] = origin;
 
+  RecordingOperators ops = operators_of(reader);
+  const std::vector<double> projection = applied_projection(ops);     // the active projectors, applied as the samples are copied
   Json out;
   sub.compose([&] {
     std::map<std::string, std::string> units_by_type;
-    const auto mat = channel_mat(h, units_by_type);
+    const SensorPlacement place = place_sensors(reader, opt.name + "_channels", opt.acquisition);
+    make_frames(sub, place);
+    auto mat = channel_mat(h, place, units_by_type);
+    if (!place.digitisation.empty() && !place.headpoints_cs_key.empty()) mat["HeadPoints"] = headpoints_value(place.digitisation);
     std::vector<std::int64_t> flags;
     bool any_bad = false;
     for (const auto& c : h.channels) {
@@ -259,8 +334,18 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     so.name = opt.name + "_channels";
     so.acquisition = opt.acquisition;
     so.units = units_by_type;
-    so.producer = Json{{"format", opt.format}, {"origin", origin}};
+    so.cs_key = place.cs_key.empty() ? "scs" : place.cs_key;
+    so.placed = !place.cs_key.empty();
+    if (!place.headpoints_cs_key.empty()) so.headpoints_cs_key = place.headpoints_cs_key;
+    Json coils = Json::array();
+    for (const auto& c : h.channels) if (!c.coil_type.empty() && std::find(coils.begin(), coils.end(), Json(c.coil_type)) == coils.end()) coils.push_back(c.coil_type);
+    so.producer = Json{{"format", opt.format}, {"origin", origin}, {"frames", place.record}};
+    if (!coils.empty())
+      (*so.producer)["coil_definitions"] = Json{{"coil_types", coils}, {"source", "coil_def.dat (MNE-Python, MaxFilter): each coil type's integration points and weights, by the coil type's name"}};
     const nxr::bst::SensorInfo si = nxr::bst::export_sensors(sub, mat, flags, so);
+    write_operators(sub, ops, so.name, si.id, opt.acquisition);
+    for (auto it = ops.record.begin(); it != ops.record.end(); ++it) producer[it.key()] = it.value();
+    write_links(sub, place, si.id, opt.acquisition.empty() ? std::nullopt : std::optional<std::string>(opt.acquisition));
 
     nxr::bst::BlockRecording b;
     b.name = opt.name;
@@ -276,9 +361,15 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     b.channel_names = si.names;
     b.producer = producer;
     b.progress = opt.progress;
+    b.linked = opt.in_place;
     b.read = [&](std::int64_t s0, std::int64_t n, std::vector<float>& blk) {
       blk.resize(static_cast<std::size_t>(n_chan * n));
       reader.read(static_cast<std::uint64_t>(s0), static_cast<std::uint64_t>(n), 0, static_cast<std::size_t>(n_chan), blk.data());
+      if (!projection.empty()) {
+        std::vector<float> y;
+        nxr::bst::project(projection, static_cast<std::size_t>(n_chan), blk, static_cast<std::size_t>(n), y);
+        blk.swap(y);
+      }
     };
     out = nxr::bst::write_recording_blocks(sub, b);
     out["channels"] = si.name;

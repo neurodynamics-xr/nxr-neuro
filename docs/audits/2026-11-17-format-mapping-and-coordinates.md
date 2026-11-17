@@ -400,11 +400,9 @@ class changes; then new importers.
   - **Recommendation:** O17 as written. Transition operators are the one home. `transition_json` is derived from them (or dropped), and a
     system is created only with its transition, never `affine` with no parameters.
 - **Q5. Units of the voxel chart and its transition.**
-  - The T1's dimension rows give spacing in `mm` in a system whose unit is `voxel`. The transition outputs SCS millimetres, while `scs`'s
-    unit is `m`.
-  - **Recommendation:** spacing 1 with unit `voxel` (the voxel size lives in the affine), and transitions that output the target system's
-    unit (m for `scs`).
-  - This changes all three repos and needs a migration of stored T1 rows. Decide together, or record "transitions output mm" as the rule.
+  - **Decided 2026-11-17: the Studio's convention, as it stands.** A volume's dimension rows carry the voxel size as spacing in `mm`; its
+    transition operators (`T1_scs`, `T1_ncs`) map the voxel index to SCS / NCS millimetres (`scs_mm = R * (voxel * voxsize) + T`). No
+    migration. Readers convert through the transition, never by assuming.
 - **Q6. Imported covariances with no recording in the package** (`-cov.fif`, Brainstorm `NoiseCovMat`).
   - **Recommendation:** a statistic with `of_field_id` null and its provenance in `options_json` (`nfree` or `nAvg` as `n_members`, method,
     bads, projectors).

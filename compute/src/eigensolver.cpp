@@ -352,7 +352,12 @@ EigenResult eigenSmallest(
         const double sigmas[2] = { -1e-7 * lmax, -1e-4 * lmax };
         for (double sigma : sigmas) {
             try {
-                return completeLowest(A, B, eigen(A, B, k, sigma, normalize, /*removeDC=*/false, cancel, progress), sigma, cancel);
+                // The window is solved, completed and polished on the solver's own vectors; `normalize` is applied once, to the final result.
+                // (Normalising before the polish changed which basis of a multiple eigenvalue the polish started from, and an eigenvalue of the
+                // cut multiplet came back 6.5e-8 off: the result must not depend on the flag.)
+                EigenResult r = completeLowest(A, B, eigen(A, B, k, sigma, /*normalize=*/false, /*removeDC=*/false, cancel, progress), sigma, cancel);
+                if (normalize) r.eigenvectors = ::nxr::manifold::solve::normalize(r.eigenvectors, B);
+                return r;
             } catch (const Error& e) {
                 if (e.code() != ErrorCode::EigensolveNotConverged) throw;  // k-range etc: don't retry
             }
@@ -504,6 +509,18 @@ static EigenResult completeCore(const Eigen::SparseMatrix<double>& A, const Eige
 }
 
 
+// Rayleigh quotients of the members of a multiple eigenvalue agree to rounding and can come in any order: the result is returned ascending.
+static EigenResult sortAscending(EigenResult r) {
+    std::vector<int> ord(r.k);
+    std::iota(ord.begin(), ord.end(), 0);
+    std::stable_sort(ord.begin(), ord.end(), [&](int a, int b) { return r.eigenvalues(a) < r.eigenvalues(b); });
+    Eigen::VectorXd l(r.k);
+    Eigen::MatrixXd V(r.eigenvectors.rows(), r.k);
+    for (int c = 0; c < r.k; ++c) { l(c) = r.eigenvalues(ord[c]); V.col(c) = r.eigenvectors.col(ord[c]); }
+    r.eigenvalues = std::move(l); r.eigenvectors = std::move(V);
+    return r;
+}
+
 // POLISH. A member of a multiple eigenvalue converges through rounding, so its Ritz estimate is not the residual that Spectra tests: its eigenvalue can be
 // off by 1e-9 where the others are exact. A few steps of subspace iteration with Rayleigh–Ritz (one factorisation at the shift, the held vectors and their
 // shift-inverted images as the trial space) bring every pair to the tolerance. The pairs' order and the eigenvectors' scale are kept (M-normalised
@@ -519,6 +536,14 @@ static EigenResult polishPairs(const Eigen::SparseMatrix<double>& A, const Eigen
     Eigen::MatrixXd bestX = X;
     double bestResid = std::numeric_limits<double>::infinity();
     int worse = 0;
+    {   // the pairs as held are a candidate too: a step that only adds rounding must not replace them
+        Eigen::VectorXd l0(k);
+        for (int j = 0; j < k; ++j) l0(j) = X.col(j).dot(A * X.col(j));
+        const Eigen::MatrixXd R0 = A * X - B * X * l0.asDiagonal();
+        bestResid = R0.colwise().norm().maxCoeff() / std::max(1.0, l0.cwiseAbs().maxCoeff());
+        bestLam = l0;
+        if (bestResid < 1e-12) { r.eigenvalues = bestLam; r.eigenvectors = bestX; return sortAscending(std::move(r)); }
+    }
     for (int step = 0; step < 40; ++step) {
         Eigen::MatrixXd Y(n, k);
         const Eigen::MatrixXd BX = B * X;
@@ -527,13 +552,21 @@ static EigenResult polishPairs(const Eigen::SparseMatrix<double>& A, const Eigen
             inner.perform_op(BX.col(j).data(), y.data());
             Y.col(j) = y;
         }
+        std::vector<double> before(k);
+        for (int j = 0; j < k; ++j) before[j] = std::sqrt(std::max(0.0, Y.col(j).dot(B * Y.col(j))));
         Y -= X * (X.transpose() * (B * Y));                      // what the step adds beyond the held vectors
+        // A column that is only rounding (nothing left once the held vectors are projected out: the pair is already converged) is dropped:
+        // normalised, it would be noise of unit size in the trial space, and the Rayleigh–Ritz step would degrade the pair it was meant to polish.
+        std::vector<int> useful;
         for (int j = 0; j < k; ++j) {
             const double nj = std::sqrt(std::max(0.0, Y.col(j).dot(B * Y.col(j))));
-            if (nj > 0) Y.col(j) /= nj;
+            if (nj > 1e-12 * before[j]) { Y.col(j) /= nj; useful.push_back(j); }
         }
-        Eigen::MatrixXd W(n, 2 * k);
-        W << X, Y;
+        if (useful.empty()) break;
+        const int nw = k + static_cast<int>(useful.size());
+        Eigen::MatrixXd W(n, nw);
+        W.leftCols(k) = X;
+        for (size_t c = 0; c < useful.size(); ++c) W.col(k + static_cast<int>(c)) = Y.col(useful[c]);
         const Eigen::MatrixXd BW = B * W;
         Eigen::MatrixXd Ma = W.transpose() * BW;
         Eigen::MatrixXd Ka = W.transpose() * (A * W);
@@ -543,7 +576,7 @@ static EigenResult polishPairs(const Eigen::SparseMatrix<double>& A, const Eigen
         std::vector<int> keep;
         for (int i = 0; i < em.eigenvalues().size(); ++i) if (em.eigenvalues()(i) > 1e-13 * smax) keep.push_back(i);
         if (static_cast<int>(keep.size()) < k) return r;
-        Eigen::MatrixXd T(2 * k, keep.size());
+        Eigen::MatrixXd T(nw, keep.size());
         for (size_t c = 0; c < keep.size(); ++c) T.col(c) = em.eigenvectors().col(keep[c]) / std::sqrt(em.eigenvalues()(keep[c]));
         Eigen::MatrixXd Kr = T.transpose() * Ka * T;
         Kr = 0.5 * (Kr + Kr.transpose());
@@ -564,7 +597,7 @@ static EigenResult polishPairs(const Eigen::SparseMatrix<double>& A, const Eigen
         if (resid < 1e-12) break;
     }
     if (bestResid < std::numeric_limits<double>::infinity()) { r.eigenvalues = bestLam; r.eigenvectors = bestX; }     // M-orthonormal
-    return r;
+    return sortAscending(std::move(r));
 }
 
 static EigenResult completeLowest(const Eigen::SparseMatrix<double>& A, const Eigen::SparseMatrix<double>& B, EigenResult r, double sigma,
