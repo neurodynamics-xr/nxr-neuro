@@ -42,14 +42,16 @@ namespace ms = nxr::measurement;
 static ms::Ingredients overTiles(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const double* x) {
     nxr::selection::MemberOfElement m; m.member_of = node; m.members = nodes;
     ms::Ingredients g(1, nodes);
-    ms::Request r; r.measures = {"sum"}; r.weighting = ms::Weighting::given;
+    ms::Request r; r.measures = {"sum", "max", "min"}; r.weighting = ms::Weighting::given;   // the ingredients a measure needs are folded: sum, and the extremes the summary reads
     ms::reduce(g, x, 1, static_cast<std::int64_t>(node.size()), m, area.data(), r);
     return g;
 }
 static VectorXd sums(const ms::Ingredients& g) { VectorXd v(g.members); for (int k = 0; k < g.members; ++k) v[k] = g.sum[static_cast<size_t>(k)]; return v; }
 struct ScalarSummary { VectorXd w, s1, s2, n, min, max; };
 static ScalarSummary scalarSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const double* x) {
-    const ms::Ingredients g = overTiles(node, nodes, area, x);
+    std::vector<int32_t> nd = node;                                      // a vertex whose value is not finite is left out of its tile (member -1), as the caller of the reduction does
+    for (size_t i = 0; i < nd.size(); ++i) if (!std::isfinite(x[i])) nd[i] = -1;
+    const ms::Ingredients g = overTiles(nd, nodes, area, x);
     ScalarSummary s;
     s.w.resize(nodes); s.s1.resize(nodes); s.s2.resize(nodes); s.n.resize(nodes); s.min.resize(nodes); s.max.resize(nodes);
     for (int k = 0; k < nodes; ++k) { const size_t i = static_cast<size_t>(k); s.w[k] = g.weight[i]; s.s1[k] = g.sum[i]; s.s2[k] = g.sum_sq[i]; s.n[k] = static_cast<double>(g.count[i]); s.min[k] = g.min[i]; s.max[k] = g.max[i]; }
@@ -149,7 +151,9 @@ static void meshParity(Golden& g) {
         const ScalarSummary s = scalarSummary(L.labels[static_cast<size_t>(k)], 1 << k, L.mass, x.data());
         const char* keys[6] = {"w", "s1", "s2", "n", "min", "max"};
         const VectorXd* v[6] = {&s.w, &s.s1, &s.s2, &s.n, &s.min, &s.max};
-        for (int c = 0; c < 6; ++c) errS = std::max(errS, maxDiff(row(*v[c]), g.mat("M" + std::to_string(k) + "_" + keys[c])));
+        for (int c = 0; c < 6; ++c) {
+            errS = std::max(errS, maxDiff(row(*v[c]), g.mat("M" + std::to_string(k) + "_" + keys[c])));
+        }
     }
     EXPECT(errS < 1e-13, name + ": scalar tile statistics (w, s1, s2, n, min, max) equal nxr map_stats (max |diff| " + sci(errS) + ")");
     // the vector field, its frame, and the Levi-Civita connection (the golden's meshes both carry them)
