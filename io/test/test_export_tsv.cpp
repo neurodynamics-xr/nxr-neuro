@@ -97,13 +97,13 @@ int main() {
     for (int v = 0; v < 8; ++v) for (int f = 0; f < 5; ++f) st.data.f32.push_back(static_cast<float>(v * 10 + f));
     u.statistic(st);
     StatisticOut hist;
-    hist.name = "hist"; hist.output = "hist"; hist.measure = "power"; hist.method = "histogram";
+    hist.name = "hist"; hist.output = "hist"; hist.measure = "power"; hist.method = "histogram"; hist.of_field_id = field_id;
     hist.axes = Json::array({Json{{"name", "bin"}, {"edges", Json::array({0.0, 1.0, 2.0, 4.0})}, {"size", 3}}});
     hist.data.shape = {3};
     hist.data.f32 = {5.0f, 7.0f, 1.0f};
     u.statistic(hist);
     StatisticOut bym;
-    bym.name = "bymember"; bym.output = "bymember"; bym.measure = "power"; bym.method = "welch";
+    bym.name = "bymember"; bym.output = "bymember"; bym.measure = "power"; bym.method = "welch"; bym.of_field_id = field_id;
     bym.axes = Json::array({Json{{"name", "member"}, {"selection_id", atlas_id}, {"size", 3}}});
     bym.data.shape = {3};
     bym.data.f32 = {0.5f, 1.5f, 2.5f};
