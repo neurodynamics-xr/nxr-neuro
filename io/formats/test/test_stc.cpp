@@ -5,6 +5,7 @@
 #include <iterator>
 
 #include "check.h"
+#include "nlohmann/json.hpp"
 #include "nxr/formats/errors.h"
 #include "nxr/formats/stc.h"
 
