@@ -25,7 +25,7 @@
 #include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/runner.h"
-#include "nxr/pipelines/statistics.h"
+#include "nxr/pipelines/run_shipped.h"
 #include "nxr/stats.h"
 #include "nxr/taps.h"
 #include "make_grids.h"
@@ -179,11 +179,9 @@ int main() {
       for (std::int64_t t = 0; t < TT; ++t) { const float v = arr[static_cast<std::size_t>((2 * TT + t) * 2)]; if (std::isfinite(v)) c2.push_back(v); }
       CHECK(std::abs(st.values[2 * 2] - nxr::stats::median(c2)) < 1e-12 && std::abs(st.values[2 * 2 + 1] - nxr::stats::mad(c2)) < 1e-12);
       // the same from the STORED amplitude by the verb (statistic compute, array-backed rows): the run's baseline
-      nxr::pipelines::StatisticComputeOptions so;
-      so.over = lvl->name; so.of = "rest"; so.measure = "amplitude"; so.summaries = {"median", "mad"}; so.name = "rest_alpha_baseline";
-      const auto vr = nxr::pipelines::statistic_compute(ds, sub, so);
+      const auto vr = nxr::pipelines::run_shipped(ds, sub, "summarize", Json{{"over", lvl->name}, {"of", "rest"}, {"measure", "amplitude"}, {"summaries", Json::array({"median", "mad"})}, {"name", "rest_alpha_baseline"}}, false);
       const StoredStatistic vs = read_statistic(sub, "rest_alpha_baseline");
-      CHECK(vr.info["rows"] == M && vs.values == st.values && vs.axes[0].contains("manifold_id"));
+      CHECK(!vr.empty() && vs.values == st.values && vs.axes[0].contains("manifold_id"));
     }
   }
   const auto sel_rows = probe.rows("selection", {{"id", V(bs["id"].get<std::string>())}});

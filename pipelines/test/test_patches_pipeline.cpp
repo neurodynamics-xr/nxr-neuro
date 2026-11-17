@@ -252,8 +252,7 @@ int main() {
   // THE SEPARATE ROWS: a plain `measure compute` of the map over the same tiling is its own (of the map, not of its band), and neither overwrites the other
   {
     const auto before = rows_of(tiling, field_id("pet_band_L5"), "mean");
-    MeasureComputeOptions mo; mo.labelling = tiling; mo.fields = "^pet$"; mo.weight = "barycentric"; mo.measures = {"mean"};
-    measure_compute(ds, sub, mo);
+    nxr::pipelines::run_shipped(ds, sub, "measure", Json{{"field", "pet"}, {"over", tiling}, {"weight", "barycentric"}, {"measures", Json::array({"mean"})}}, false);
     const auto plain = rows_of(tiling, field_id("pet"), "mean"), after = rows_of(tiling, field_id("pet_band_L5"), "mean");
     CHECK(before == after && plain.size() == after.size());
     double diff = 0; for (std::size_t t = 0; t < plain.size(); ++t) diff = std::max(diff, std::abs(plain[t] - after[t]));
