@@ -7,29 +7,10 @@
 // nxr-neuro null compute --dataset D/N --subject S --recording-a A [--recording-b B] [--over TILES] [--stage NAME|INDEX] [--set NAME=VALUE ...] [--chunks K|A-B|all | --start S --stop S] [--batch 20] [--min-draws 20] [--max-draws 100] [--h 10] [--min-crossings 10] [--replace]
 //   THE LAG-FREE NULL'S TESTS (nxr/pipelines/null_compute.h; spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10): the draws of `vortex_null` (the vortex chain on a lag-free surrogate; each a cached node, `--set` its parameters, `{recording}` the recording's name) in batches
 //   with early stopping (Besag-Clifford), and the per-tile p and Benjamini-Hochberg q of the crossing consistency (and, with --recording-b, of the run repeat), the data-to-null crossing ratio and the null's mean resultants, as statistics.
-// nxr-neuro repeat compute --dataset D/N --subject S --recording-a A --recording-b B [--over TILES] [--stage NAME|INDEX] [--min-crossings 10] [--name NAME] [--replace]
-//   THE RUN-TO-RUN REPEAT of the vortex cores' crossings (nxr/pipelines/run_repeat.h; spec docs/specs/2026-11-14-vortex-cores-port.md, piece 8): a statistic over the two recordings' stored `tile_crossings` (`run vortex_cores` first, on both):
-//   per tile the dot product of the two runs' mean resultant vectors (senses pooled; tiles with >= --min-crossings crossings in both), and for the whole recording the count-weighted mean cosine. Its p-value needs the null (piece 10).
-// nxr-neuro cellquadrature compute --dataset D/N --subject S --cross-spectrum NAME --space-level L [--kernel NAME] [--joint NAME] [--bursts NAME]
-//     [--weights area|none] [--tile-pairs on|off]
-//     [--transform auto|eigen|chebyshev|exact] [--modes N] [--order N] [--tolerance 0.01] [--replace]
-//   QUADRATURE PER CELL AND PER BURST (nxr/pipelines/cellquadrature.h; spec docs/specs/2026-11-13-cortical-events.md, phase 2d): travelling or standing, at the joint cells of spatial level L and, with --bursts,
-//   at each burst. From STORED nodes only (no recording pass): the analytic cross-spectrum's Sum z z^H per time tile (`crossspectrum compute --estimator analytic`; its tile level must equal the time level of
-//   the joint pair, refused otherwise), the kernel with the level's spatial band folded in (eigenmodes first), the joint Selection (`joint compute`) and the bursts (a spans Selection on the recording's line).
-//   Stored as the ingredients, sums of products: cross_spectrum_norm2 = sum |T|^2 and cross_spectrum_quadrature_norm2 = sum |Im T|^2 of T = B C B^T per spatial tile; the quadrature fraction
-//   ||Im T|| / ||T|| is derived at read. A burst's C is the sum of its time tiles' C FIRST (exact), never the cells' ingredients summed. A rerun is a hit; other rows are refused unless --replace.
 // nxr-neuro joint compute --dataset D/N --subject S --recording R --space-level L --time-level M [--surface NAME] [--replace]
 //   THE JOINT PARTITION of space x time (nxr/pipelines/joint.h; spec docs/specs/2026-11-13-cortical-events.md, phase 2a): a closed-form `set` Selection on (surface x the recording's time line), the cells
 //   (a spatial tile of level L of the surface's tile ladder) x (a time tile of level M of the recording's constant-Q ladder), code = (tile << B) | time tile (the Studio atlas's layout). One per pair of
 //   levels; `run cortical_cells` measures the source estimate over it. `tiles compute` and `constantq compute` first. A rerun keeps it; --replace rewrites it (and drops the measurements over it).
-// nxr-neuro patches compute --dataset D/N --subject S --map FIELD --level L [--sign positive|negative|magnitude] [--enter-sd 1.5] [--exit-sd 1.0] [--min-area M2] [--max-area M2]
-//     [--transform auto|eigen|chebyshev|exact] [--modes N] [--order N] [--tolerance 0.01] [--summaries count,sum,median,mean,sd,percentile:25,..] [--replace]
-//   PATCHES on a static cortical map (nxr/pipelines/patches.h; spec docs/specs/2026-11-13-cortical-events.md, phase 1): where a scalar Field on a surface (a PET map) stands
-//   out from its surroundings at the size of level L of the surface's tile ladder (`tiles compute` first). The map is filtered to the level's Weyl band (stored as the Field
-//   `<map>_band_L<L>`); its mean, max, min per tile are measured over the level's tiling; the baseline (median, robust SD across the tiles) is a statistic; tiles >= median +
-//   exit-sd SD form connected regions over the tiles' mesh adjacency, kept when a tile reaches median + enter-sd SD and the area is within --min-area .. --max-area (m2);
-//   the patches are a `set` Selection (a code per vertex, -1 in none), measured per patch (mean, peak, area, n_tiles, centre_vertex) with statistics across the patches.
-//   --sign: positive (bumps), negative (dips), magnitude (|x|). No merging across gaps. A rerun with the same options is a cache hit; another choice is refused unless --replace.
 // nxr-neuro measure compute --dataset D/N --subject S --over TILING [--level K] --fields PATTERN [--measures mean,mean_square,max,min,abs_max] [--chunks K|A-B|all | --start S --stop S] [--replace]
 //   OVER TIME: a time-resolved Field over a time partition (a constant-Q ladder's level, or <recording>_chunks): one array [rows x windows x components]
 //   beside the Field, one row a measure (D96), `count` the last component; the span one chunk by default.
@@ -52,8 +33,6 @@
 #include "cli.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
-#include "nxr/pipelines/cellquadrature.h"
-#include "nxr/pipelines/run_repeat.h"
 #include "nxr/pipelines/null_compute.h"
 #include "nxr/pipelines/spatial_null.h"
 #include "nxr/io/yaml.h"
@@ -62,8 +41,6 @@
 #include "nxr/pipelines/joint.h"
 #include "nxr/pipelines/group.h"
 #include "nxr/pipelines/pyramid.h"
-#include "nxr/pipelines/patches.h"
-#include "nxr/pipelines/statistics.h"
 
 using namespace nxr::io;
 
@@ -282,75 +259,7 @@ int pyramid_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-int patches_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro patches: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro patches compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--map", "--level", "--sign", "--enter-sd", "--exit-sd", "--min-area", "--max-area", "--transform", "--modes", "--order", "--tolerance", "--summaries"}, {"--replace"},
-                                 {"--dataset", "--subject", "--map", "--level"});
-  nxr::pipelines::PatchesComputeOptions o;
-  o.map = a.get("--map");
-  auto num = [&](const char* name, const std::string& v) { try { return std::stod(v); } catch (...) { usage(prog, std::string(name) + " is a number"); } };
-  try { o.level = std::stoi(a.get("--level")); } catch (...) { usage(prog, "--level is a whole number (the ladder's level)"); }
-  if (const auto v = a.maybe("--sign")) o.sign = *v;
-  if (const auto v = a.maybe("--enter-sd")) o.enter_sd = num("--enter-sd", *v);
-  if (const auto v = a.maybe("--exit-sd")) o.exit_sd = num("--exit-sd", *v);
-  if (const auto v = a.maybe("--min-area")) o.min_area = num("--min-area", *v);
-  if (const auto v = a.maybe("--max-area")) o.max_area = num("--max-area", *v);
-  if (const auto v = a.maybe("--transform")) o.transform = *v;
-  if (const auto v = a.maybe("--modes")) { try { o.modes = std::stoi(*v); } catch (...) { usage(prog, "--modes is a whole number"); } }
-  if (const auto v = a.maybe("--order")) { try { o.order = std::stoi(*v); } catch (...) { usage(prog, "--order is a whole number"); } }
-  if (const auto v = a.maybe("--tolerance")) o.tolerance = num("--tolerance", *v);
-  if (const auto v = a.maybe("--summaries")) o.summaries = split(*v, ',');
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::patches_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
 
-int cellquadrature_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro cellquadrature: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro cellquadrature compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--cross-spectrum", "--space-level", "--kernel", "--joint", "--bursts", "--transform", "--modes", "--order", "--tolerance", "--weights", "--tile-pairs"}, {"--replace"},
-                                 {"--dataset", "--subject", "--cross-spectrum", "--space-level"});
-  nxr::pipelines::CellQuadratureOptions o;
-  o.cross_spectrum = a.get("--cross-spectrum");
-  try { o.space_level = std::stoi(a.get("--space-level")); } catch (...) { usage(prog, "--space-level is a whole number (the ladder's level)"); }
-  o.kernel = a.maybe("--kernel");
-  o.joint = a.maybe("--joint");
-  o.bursts = a.maybe("--bursts");
-  if (const auto v = a.maybe("--transform")) o.transform = *v;
-  if (const auto v = a.maybe("--weights")) o.weights = *v;
-  if (const auto v = a.maybe("--tile-pairs")) { if (*v != "on" && *v != "off") usage(prog, "--tile-pairs is on (the default) or off"); o.tile_pairs = *v == "on"; }
-  if (const auto v = a.maybe("--modes")) { try { o.modes = std::stoi(*v); } catch (...) { usage(prog, "--modes is a whole number"); } }
-  if (const auto v = a.maybe("--order")) { try { o.order = std::stoi(*v); } catch (...) { usage(prog, "--order is a whole number"); } }
-  if (const auto v = a.maybe("--tolerance")) { try { o.tolerance = std::stod(*v); } catch (...) { usage(prog, "--tolerance is a number"); } }
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::cellquadrature_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
 
 int spatialnull_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro spatialnull: error: the following arguments are required: action (compute)");
@@ -427,37 +336,6 @@ int null_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-int repeat_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro repeat: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro repeat compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording-a", "--recording-b", "--over", "--stage", "--min-crossings", "--name"}, {"--replace"}, {"--dataset", "--subject", "--recording-a", "--recording-b"});
-  nxr::pipelines::RunRepeatOptions o;
-  o.recording_a = a.get("--recording-a");
-  o.recording_b = a.get("--recording-b");
-  o.over = a.maybe("--over");
-  if (const auto v = a.maybe("--stage")) {       // a name (burst, onset, within, offset) or an index
-    const bool digits = !v->empty() && std::all_of(v->begin(), v->end(), [](unsigned char c) { return std::isdigit(c); });
-    if (digits) { try { o.stage = std::stoi(*v); } catch (...) { usage(prog, "--stage is a stage's name or a whole number >= 0"); } }
-    else o.stage_name = *v;
-  }
-  if (const auto v = a.maybe("--min-crossings")) { try { o.min_crossings = std::stoi(*v); } catch (...) { usage(prog, "--min-crossings is a whole number >= 1"); } }
-  o.name = a.maybe("--name");
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::run_repeat_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
 
 int scaleselection_main(const std::vector<std::string>& argv) {
   if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro scaleselection: error: the following arguments are required: action (compute)");

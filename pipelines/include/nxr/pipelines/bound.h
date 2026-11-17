@@ -61,6 +61,7 @@ class Bound {
   internal::GluedDomain glued_domain(const SurfaceInput& surface) const;
   StoredCrossSpectrum cross_spectrum(const std::string& name) const;
   CrossSpectrumWindows cross_spectrum_windows(const std::string& name) const;       // an analytic series on time tiles, by its band's name (as stored)
+  CrossSpectrumWindows cross_spectrum_windows(const std::string& name, const std::vector<std::int32_t>& channels) const;   // the same, on these recording channels in this order (refused for a channel it does not cover)
   nxr::io::StoredStatistic statistic(const std::string& name) const;
   /** a surface's frames as `frames` makes them (pipelines/frames.h make_frames): read through this binding (and a template subject of the dataset) */
   FramesMade make_frames(const FramesComputeOptions& opt) const;

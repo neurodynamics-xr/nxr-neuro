@@ -101,6 +101,7 @@ StoredFrames Bound::stored_frames(const std::string& surface_name, std::int64_t 
 internal::GluedDomain Bound::glued_domain(const SurfaceInput& s) const { return internal::glued_domain(writer(), s); }
 StoredCrossSpectrum Bound::cross_spectrum(const std::string& name) const { return crossspectrum_read(writer(), name); }
 CrossSpectrumWindows Bound::cross_spectrum_windows(const std::string& name) const { return crossspectrum_windows_read(writer(), name, std::nullopt, "stored", std::nullopt); }
+CrossSpectrumWindows Bound::cross_spectrum_windows(const std::string& name, const std::vector<std::int32_t>& channels) const { return crossspectrum_windows_read(writer(), name, channels, "stored", std::nullopt); }
 io::StoredStatistic Bound::statistic(const std::string& name) const { return io::read_statistic(writer(), name); }
 FramesMade Bound::make_frames(const FramesComputeOptions& opt) const { return nxr::pipelines::make_frames(ds_, writer(), opt); }
 io::MeasurementValues Bound::measurement_values(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_slice,

@@ -172,7 +172,7 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
       link_of(P, p, "on", nullptr, o);
     }
   } else if (k == "measurement") {
-    if (!spec.contains("of")) bad(o, "a measurement output names the field it is of (of: OUTPUT)");
+    // `of` names the field the measurements are of (an output of the run, or an input found); no `of`: the selection's OWN measurements (a patch's area, its tile count)
   } else if (k == "operator") {
     link_of(P, spec, "from", nullptr, o);
     link_of(P, spec, "to", nullptr, o);
@@ -289,21 +289,33 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     // MEASUREMENTS OF A FIELD OVER A PARTITION (declared: over, of): the node's array is [members x measures], `describe.measures` names each column ({measure, unit})
     task::MeasurementOut m;
     m.output = o;
-    const std::string over = spec["over"].get<std::string>(), of = spec["of"].get<std::string>();
+    const std::string over = spec["over"].get<std::string>(), of = spec.value("of", std::string());
     if (made.count(over)) m.selection_id = made.at(over);
     else if (P.found.count(over) && P.found.at(over).row) m.selection_id = text(*P.found.at(over).row, "id");
     else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
-    if (!made.count(of)) bad(o, "of: '" + of + "' is not a field output stored before it");
-    m.of_field_id = made.at(of);
-    m.path = made.count("path:" + of) ? made.at("path:" + of) : name;
+    if (spec.contains("of")) {
+      if (made.count(of)) { m.of_field_id = made.at(of); m.path = made.count("path:" + of) ? made.at("path:" + of) : name; }
+      else if (P.found.count(of) && P.found.at(of).row && P.found.at(of).cls == "field") { m.of_field_id = text(*P.found.at(of).row, "id"); m.path = text(*P.found.at(of).row, "path") + "_" + nxr::io::safe_name(name); }   // of a field found (a recording)
+      else bad(o, "of: '" + of + "' is neither a field output stored before it nor a field found");
+    } else {
+      m.path = "measurements/" + nxr::io::safe_name(name);
+    }
     const Json measures = d.value("measures", Json::array());
-    if (!measures.is_array() || static_cast<std::int64_t>(measures.size()) != a.cols) bad(o, "its node names " + std::to_string(measures.size()) + " measures for " + std::to_string(a.cols) + " columns");
+    const bool cube = d.contains("shape") && d["shape"].is_array() && d["shape"].size() == 3;            // [rows x members x measures]: each measure's values are [rows x members] (a cell's value a time tile)
+    const std::int64_t members = cube ? d["shape"][1].get<std::int64_t>() : 0, ncol = cube ? d["shape"][2].get<std::int64_t>() : a.cols, nrow = cube ? d["shape"][0].get<std::int64_t>() : a.rows;
+    if (!measures.is_array() || static_cast<std::int64_t>(measures.size()) != ncol) bad(o, "its node names " + std::to_string(measures.size()) + " measures for " + std::to_string(ncol) + " columns");
+    if (static_cast<std::int64_t>(a.data.size()) != nrow * (cube ? members : 1) * ncol) bad(o, "its node gives " + std::to_string(a.data.size()) + " values for " + std::to_string(nrow) + " rows x " + std::to_string(ncol) + " measures");
     for (std::size_t c = 0; c < measures.size(); ++c) {
       task::MeasurementOut::Measure x;
       x.measure = measures[c]["measure"].get<std::string>();
       x.unit = measures[c].value("unit", std::string());
-      x.values.shape = {a.rows};
-      for (std::int64_t r = 0; r < a.rows; ++r) x.values.f64.push_back(a.data[static_cast<std::size_t>(r * a.cols) + c]);
+      if (cube) {
+        x.values.shape = {nrow, members};
+        for (std::int64_t r = 0; r < nrow * members; ++r) x.values.f64.push_back(a.data[static_cast<std::size_t>(r * ncol) + c]);
+      } else {
+        x.values.shape = {a.rows};
+        for (std::int64_t r = 0; r < a.rows; ++r) x.values.f64.push_back(a.data[static_cast<std::size_t>(r * a.cols) + c]);
+      }
       m.measures.push_back(std::move(x));
     }
     if (d.contains("band")) m.band = d["band"];
@@ -389,8 +401,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     Json out = Json{{"name", decl["name"]}, {"size", size}};
     if (decl.contains("selection")) {                                     // an axis over a pick another output of the run made (a covariance over its channels)
       const std::string so = decl["selection"].get<std::string>();
-      if (!made.count(so)) bad(o, "axis " + decl["name"].get<std::string>() + ": selection " + so + " is not an output stored before it (list it first)");
-      out["selection_id"] = made.at(so);
+      if (made.count(so)) out["selection_id"] = made.at(so);
+      else if (P.found.count(so) && P.found.at(so).row) out["selection_id"] = text(*P.found.at(so).row, "id");     // or a selection found as an input (the tiles a repeat is per)
+      else bad(o, "axis " + decl["name"].get<std::string>() + ": selection " + so + " is neither an output stored before it (list it first) nor an input found");
       for (const char* key : {"members", "values"}) if (ax.contains(key)) out[key] = ax[key];
     } else if (decl.contains("on")) {
       out["manifold_id"] = link(P, decl["on"].get<std::string>(), &made, o);
