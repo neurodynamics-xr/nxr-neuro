@@ -131,7 +131,7 @@ int main() {
     /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  nxrtest::make_time_grids(ds, sub);
+  // the line's one time grid is the frames of the band below (a definition finds `<recording> time grid`): no constant-Q grid beside it
   nxrtest::make_tiles(ds, sub);
   for (const char* rec : {"rest", "rest_b"}) { nxrtest::make_frames(ds, sub, rec, "8-12 Hz"); }
   std::printf("  %d vertices on a 10 cm sphere; blobs 2 cm at vertex %d and 5 cm at vertex %d (%.1f cm apart)\n", N, vA, vB, 100 * ang(vA, vB));

@@ -206,7 +206,7 @@ int main() {
     /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  nxrtest::make_time_grids(ds, sub);
+  // the line's one time grid is the frames of the band below (a definition finds `<recording> time grid`): no constant-Q grid beside it
   nxrtest::make_tiles(ds, sub);
   { EigenSolveOptions eo; eo.modes = 100; eo.surface = "cortex"; eigen_solve(ds, sub, eo, {}); }          // stores the glued surface the curl lives on
   for (const char* rec : {"rest", "rest_b"}) { nxrtest::make_frames(ds, sub, rec, "8-12 Hz"); }
@@ -223,7 +223,7 @@ int main() {
   const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false);
   Eigen::MatrixXd Re(M, T);
   for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) Re(c, t) = re[static_cast<std::size_t>(c) * T + t];
-  const SurfaceInput S32 = read_surface(sub);
+  const SurfaceInput S32 = read_surface(sub, std::string("cortex"));
   std::vector<float> P32(S32.vertices.begin(), S32.vertices.end());
   const auto fop = nxr::forms::assembleFaceGradient(P32.data(), S32.faces.data(), static_cast<int>(S32.n_vertices()), static_cast<int>(S32.n_faces()));
   Eigen::MatrixXd Kfree(3 * N, M);

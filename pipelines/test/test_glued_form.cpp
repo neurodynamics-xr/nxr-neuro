@@ -86,7 +86,7 @@ int main() {
   }
   SubjectWriter s1 = SubjectWriter::open(ds, "G1");
   nxrtest::make_tiles(ds, s1);
-  const SurfaceInput S = read_surface(s1, std::nullopt, true);
+  const SurfaceInput S = read_surface(s1, std::string("cortex"), true);
   // the free currents' curl on the native mesh (tested against nxr in test_form_columns), zero on the wall's vertices of the glued domain by construction (the support excludes them)
   std::vector<float> P32(pos.begin(), pos.end());
   const auto op = nxr::forms::assembleFaceGradient(P32.data(), faces.data(), nv, nf);
@@ -161,7 +161,7 @@ int main() {
   {
     SubjectWriter s2 = SubjectWriter::open(ds, "G2");
     nxrtest::make_tiles(ds, s2);
-    const SurfaceInput S2 = read_surface(s2, std::nullopt, true);
+    const SurfaceInput S2 = read_surface(s2, std::string("cortex"), true);
     const SurfaceLevel L2 = read_surface_level(s2, S2, 3);
     const internal::GluedDomain d = internal::glued_domain(s2, S2);
     CHECK(d.found && d.surface.n_vertices() == S2.n_vertices() && d.support.size() == static_cast<std::size_t>(S2.n_vertices()));

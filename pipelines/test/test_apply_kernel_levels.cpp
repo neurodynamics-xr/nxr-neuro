@@ -139,7 +139,7 @@ int main() {
   const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
   Eigen::MatrixXd Re(M, T), Im(M, T);
   for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) { Re(c, t) = re[static_cast<std::size_t>(c) * T + t]; Im(c, t) = im[static_cast<std::size_t>(c) * T + t]; }
-  const SurfaceInput S32 = read_surface(sub);
+  const SurfaceInput S32 = read_surface(sub, std::string("cortex"));
   std::vector<float> P32(S32.vertices.begin(), S32.vertices.end());
   const auto op = nxr::forms::assembleFaceGradient(P32.data(), S32.faces.data(), static_cast<int>(S32.n_vertices()), static_cast<int>(S32.n_faces()));
   Eigen::MatrixXd Kfree(3 * N, M);

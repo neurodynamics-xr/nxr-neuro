@@ -38,7 +38,7 @@ parameters:
   frames_per_cycle: {default: 36, meaning: "the frame density: frames to one cycle of the band's centre (the 10 degree step of phase work); the frame is the dyadic tile nearest it", unit: frames/cycle}
   frames_per_tile: {default: null, meaning: "the frame density per tile of the band instead (a power of two); wins over frames_per_cycle when given", unit: frames/tile}
   origin: {default: start, meaning: "the frames' origin as a point: start (the recording's first sample) | clock | event (a stored selection's first member)", unit: "-", choices: [start, clock, event]}
-  bursts: {default: "global_bursts.bursts_kept.{recording}", meaning: "the spans Selection the run uses, by name", unit: "-"}
+  bursts: {default: "global_bursts.bursts.{recording}", meaning: "the spans Selection the run uses, by name", unit: "-"}
   baseline_statistic: {default: "spatial_baseline.baseline.{recording}", meaning: "the stored baseline (`run spatial_baseline`), by name", unit: "-"}
   threshold_statistic: {default: "spatial_threshold.histogram.{recording}", meaning: "the stored distribution of the relative power outside the bursts (`run spatial_threshold`), by name", unit: "-"}
   threshold: {default: percentile, meaning: "percentile (the default: the false-alarm rate, measured) | ratio (a multiple of the vertex's baseline)", unit: "-"}

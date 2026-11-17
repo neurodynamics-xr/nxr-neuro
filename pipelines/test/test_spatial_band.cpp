@@ -63,7 +63,7 @@ int main() {
   }
   SubjectWriter s1 = SubjectWriter::open(ds, "S1");
   nxrtest::make_tiles(ds, s1);
-  const SurfaceInput S = read_surface(s1, std::nullopt, true);
+  const SurfaceInput S = read_surface(s1, std::string("cortex"), true);
   const int L = 3;
   const SurfaceLevel SL = read_surface_level(s1, S, L);
   const Eigen::MatrixXd X = field(S, 3);
@@ -164,7 +164,7 @@ int main() {
   }
   SubjectWriter s2 = SubjectWriter::open(ds, "S2");
   nxrtest::make_tiles(ds, s2);
-  const SurfaceInput S2 = read_surface(s2, std::nullopt, true);
+  const SurfaceInput S2 = read_surface(s2, std::string("cortex"), true);
   const SurfaceLevel SL2 = read_surface_level(s2, S2, L);
   {
     SpatialBandOptions few; few.modes = 8;      // about 4 exact modes: the level needs about 30 (Weyl)
@@ -202,7 +202,7 @@ int main() {
     // no atlas: not computable; auto falls back (announced), eigen refuses naming the atlas
     SubjectWriter s3 = SubjectWriter::open(ds, "S3");
     nxrtest::make_tiles(ds, s3);
-    const SurfaceInput S3 = read_surface(s3, std::nullopt, true);
+    const SurfaceInput S3 = read_surface(s3, std::string("cortex"), true);
     const SurfaceLevel SL3 = read_surface_level(s3, S3, L);
     const SpatialBandPlan p3 = plan_spatial_band(s3, S3, SL3, o);
     CHECK(p3.transform == "chebyshev" && p3.warnings.size() == 1 && has(p3.warnings[0], "Desikan-Killiany"));
@@ -212,7 +212,7 @@ int main() {
     // THE GLUE: the atlas gives the medial wall; the modes are computed on the glued surface and stored; the band read back on the hemispheres
     SubjectWriter s4 = SubjectWriter::open(ds, "S4");
     nxrtest::make_tiles(ds, s4);
-    const SurfaceInput S4 = read_surface(s4, std::nullopt, true);
+    const SurfaceInput S4 = read_surface(s4, std::string("cortex"), true);
     const SurfaceLevel SL4 = read_surface_level(s4, S4, L);
     SpatialBandOptions o4 = o; o4.modes = 160;
     const SpatialBand b4 = make_spatial_band(ds, s4, S4, SL4, o4);

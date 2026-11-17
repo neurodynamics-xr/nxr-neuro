@@ -60,7 +60,7 @@ int main() {
   }
   SubjectWriter s1 = SubjectWriter::open(ds, "S1");
   nxrtest::make_tiles(ds, s1);
-  const SurfaceInput S = read_surface(s1, std::nullopt, true);
+  const SurfaceInput S = read_surface(s1, std::string("cortex"), true);
   const int L = 3;
   const SurfaceLevel SL = read_surface_level(s1, S, L);
   const Eigen::MatrixXd X = field(S, 3);
@@ -118,7 +118,7 @@ int main() {
     s2.compose([&] { SurfaceOptions so; so.name = "cortex"; so.sphere = U; add_surface(s2, so, V, F); });
     SubjectWriter t2 = SubjectWriter::open(ds, "S2");
     nxrtest::make_tiles(ds, t2);
-    const SurfaceInput S2 = read_surface(t2, std::nullopt, true);
+    const SurfaceInput S2 = read_surface(t2, std::string("cortex"), true);
     const SurfaceLevel SL2 = read_surface_level(t2, S2, L);
     SpatialBandOptions few; few.modes = 100;      // about 50 exact modes: enough for the Meyer band of level 3 (the existing test), not for the hat
     const SpatialBand bm = make_spatial_band(ds, t2, S2, SL2, few);          // Meyer: computed and stored

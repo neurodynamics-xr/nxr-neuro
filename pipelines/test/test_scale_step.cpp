@@ -112,12 +112,12 @@ int main() {
     /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  nxrtest::make_time_grids(ds, sub);
+  // the line's one time grid is the frames of the band below (a definition finds `<recording> time grid`): no constant-Q grid beside it
   nxrtest::make_tiles(ds, sub);
   for (std::size_t k = 0; k < sigmas.size(); ++k) { nxrtest::make_frames(ds, sub, "blob" + std::to_string(k), "8-12 Hz"); }
 
   // the levels: those of the ladder the hats are made for (several, so the planted widths can spread over them)
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   const auto ladder = task::Subject::of(sub).require({.cls = task::Cls::selection, .name = "rest_time_constantQ", .type = "ladder"}, "the time ladder");
   const int top = static_cast<int>(ladder.n_members.value_or(0)) - 1;
   std::vector<int> lvs;

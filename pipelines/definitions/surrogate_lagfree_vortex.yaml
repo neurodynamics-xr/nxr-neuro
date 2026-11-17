@@ -56,7 +56,7 @@ parameters:
   frames_per_tile: {default: null, meaning: "the frame density per tile of the band instead (a power of two); wins over frames_per_cycle when given", unit: frames/tile}
   origin: {default: start, meaning: "the frames' origin as a point: start | clock | event", unit: "-", choices: [start, clock, event]}
   glued_surface: {default: null, meaning: "the glued cortex made by `run glue`, by name", unit: "-"}
-  bursts: {default: "global_bursts.bursts_kept.{recording}", meaning: "the spans Selection the run uses, by name", unit: "-"}
+  bursts: {default: "global_bursts.bursts.{recording}", meaning: "the spans Selection the run uses, by name", unit: "-"}
   threshold_statistic: {default: "vortex_core_threshold.histogram.{recording}", meaning: "the DATA's threshold", unit: "-"}
   percentile: {default: 98.0, meaning: "the percentile of the distribution used as the threshold", unit: "percentile"}
   bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
