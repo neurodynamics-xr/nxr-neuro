@@ -47,8 +47,8 @@ static void testEmbeddedFacet() {
     // raw-input identity: position row 0 equals the input
     EXPECT(std::abs(e.vertex().position()(0,0) - (-1.0)) < 1e-12, "vertex.position is raw input");
     EXPECT(e.vertex().grid().rows() == 12 && e.vertex().grid().cols() == 3, "vertex.grid [12,3] complex");
-    // facet-identity: embedded.vertex.grid == geometry::vertexGridEmbedded(m)
-    EXPECT((e.vertex().grid() - geometry::vertexGridEmbedded(m)).cwiseAbs().maxCoeff() < 1e-12, "vertex.grid == vertexGridEmbedded(m)");
+    // facet-identity: embedded.vertex.grid == geometry::vertexGrid(m)
+    EXPECT((e.vertex().grid() - geometry::vertexGrid(m)).cwiseAbs().maxCoeff() < 1e-12, "vertex.grid == vertexGrid(m)");
     EXPECT(e.face().grid().rows() == 20, "face.grid [20,3]");
     EXPECT(e.face().centroid().rows() == 20 && e.face().centroid().cols() == 3, "face.centroid [20,3]");
     EXPECT(e.vertex().normal().rows() == 12, "vertex.normal [12,3]");

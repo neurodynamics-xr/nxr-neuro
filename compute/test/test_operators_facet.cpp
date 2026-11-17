@@ -107,7 +107,7 @@ static void testConnectionCovariant() {
     // setGauge invalidates the cached connection/covariant: a single instance
     // rebuilds in the new gauge rather than returning the stale LC matrix.
     Eigen::SparseMatrix<std::complex<double>> Klc = m.operators().laplacian().connection(); // LC, cached
-    m.setGauge(GaugeType::Trivial, sing);
+    m.setConnection(ConnectionType::Trivial, sing);
     EXPECT(!m.isOperatorCached(OperatorId::LaplacianConnection), "setGauge drops stale connection cache");
     Eigen::SparseMatrix<std::complex<double>> Ktri = m.operators().laplacian().connection(); // rebuilt
     EXPECT((Ktri - Klc).norm() > 1e-6, "connection rebuilt for new gauge after setGauge (not stale)");

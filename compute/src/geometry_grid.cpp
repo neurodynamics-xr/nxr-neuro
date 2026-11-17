@@ -12,7 +12,6 @@ namespace nxr::manifold::geometry {
 // tangent basis matches everything else (connection Laplacian, transport).
 static Eigen::MatrixXcd gridOf(const VertexFrames& vf, int nV);
 Eigen::MatrixXcd vertexGrid(Manifold& m) { return gridOf(vertexFrames(m), m.nV()); }
-Eigen::MatrixXcd vertexGridEmbedded(Manifold& m) { return gridOf(vertexFramesEmbedded(m), m.nV()); }
 
 static Eigen::MatrixXcd gridOf(const VertexFrames& vf, int nV) {
     Eigen::MatrixXcd c(nV, 3);
@@ -39,7 +38,7 @@ Eigen::MatrixXcd faceGrid(Manifold& m) {
 // geometry-central's internal 2-RoSy power convention.
 VertexCurvature2RoSy vertexCurvature(Manifold& m) {
     CurvatureResult cr = curvatures(m);
-    VertexFrames    vf = vertexFramesEmbedded(m);
+    VertexFrames    vf = vertexFrames(m);
     int nV = m.nV();
 
     VertexCurvature2RoSy out;

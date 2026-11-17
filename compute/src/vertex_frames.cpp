@@ -27,6 +27,5 @@ VertexFrames vertexFrames(Manifold& m) {
 }
 
 // DEPRECATED alias of vertexFrames (G7 removes it): there is one gauge now.
-VertexFrames vertexFramesEmbedded(Manifold& m) { return vertexFrames(m); }
 
 } // namespace nxr::manifold::geometry

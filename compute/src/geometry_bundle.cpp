@@ -48,7 +48,7 @@ MeshGeometry meshGeometry(Manifold& m) {
     auto cv = vertexCurvature(m);
     g.vertexCurvatureDeviatoric = cv.deviatoric;
     g.vertexMeanCurvature       = cv.mean;
-    g.vertexGrid                = vertexGridEmbedded(m);   // the frame the trivial gauge combs (geometry-central's); the LC connection Laplacian's gauge is Gauge.grid / vertexFrames
+    g.vertexGrid                = vertexGrid(m);   // the frame the trivial gauge combs (geometry-central's); the LC connection Laplacian's gauge is Gauge.grid / vertexFrames
 
     // ── edge ──────────────────────────────────────────────────
     g.edgeLengths.resize(nE);

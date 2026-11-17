@@ -21,37 +21,37 @@ static void testDefaultsAndValidation() {
     std::cout << "\n=== gauge: defaults + Gauss-Bonnet ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
-    EXPECT(m.activeGaugeType() == GaugeType::LeviCivita, "pattern 1 default = Levi-Civita");
+    EXPECT(m.activeConnectionType() == ConnectionType::LeviCivita, "pattern 1 default = Levi-Civita");
     EXPECT(m.eulerCharacteristic() == 2, "chi = 2");
 
     // valid singularities (sum == chi == 2)
     bool ok = true;
-    try { m.setGauge(GaugeType::Trivial, {{0,1.0},{3,1.0}}); }
+    try { m.setConnection(ConnectionType::Trivial, {{0,1.0},{3,1.0}}); }
     catch (...) { ok = false; }
-    EXPECT(ok && m.activeGaugeType() == GaugeType::Trivial, "setGauge(trivial, sum=2) ok");
+    EXPECT(ok && m.activeConnectionType() == ConnectionType::Trivial, "setConnection(trivial, sum=2) ok");
 
     // invalid sum throws
     bool threw = false;
-    try { m.setGauge(GaugeType::Trivial, {{0,1.0}}); } catch (const Error&) { threw = true; }
+    try { m.setConnection(ConnectionType::Trivial, {{0,1.0}}); } catch (const Error&) { threw = true; }
     EXPECT(threw, "Gauss-Bonnet violation (sum=1 != chi=2) throws");
 
     // empty singularities throws
     threw = false;
-    try { m.setGauge(GaugeType::Trivial, {}); } catch (const Error&) { threw = true; }
+    try { m.setConnection(ConnectionType::Trivial, {}); } catch (const Error&) { threw = true; }
     EXPECT(threw, "trivial with empty singularities throws");
 
     // non-trivial gauge with singularities throws (fail loud, not silent discard)
     threw = false;
-    try { m.setGauge(GaugeType::LeviCivita, {{0,1.0}}); } catch (const Error&) { threw = true; }
+    try { m.setConnection(ConnectionType::LeviCivita, {{0,1.0}}); } catch (const Error&) { threw = true; }
     EXPECT(threw, "non-trivial setGauge with singularities throws");
     // reset to a clean LC state for any later assertions
-    m.setGauge(GaugeType::LeviCivita);
-    EXPECT(m.activeGaugeType() == GaugeType::LeviCivita && m.activeSingularities().empty(),
-           "setGauge(LeviCivita) clears to empty");
+    m.setConnection(ConnectionType::LeviCivita);
+    EXPECT(m.activeConnectionType() == ConnectionType::LeviCivita && m.activeSingularities().empty(),
+           "setConnection(LeviCivita) clears to empty");
 
     // pattern 2: singularity ctor -> default trivial
     Manifold m2(V.data(), 12, F.data(), 20, std::map<int,double>{{0,1.0},{3,1.0}});
-    EXPECT(m2.activeGaugeType() == GaugeType::Trivial, "pattern 2 ctor default = Trivial");
+    EXPECT(m2.activeConnectionType() == ConnectionType::Trivial, "pattern 2 ctor default = Trivial");
     // pattern 2 with bad sum throws at construction
     threw = false;
     try { Manifold mb(V.data(), 12, F.data(), 20, std::map<int,double>{{0,1.0}}); }
@@ -65,14 +65,14 @@ static void testGridRealization() {
     Manifold m(V.data(), 12, F.data(), 20);
 
     // pattern 1: gauge() is LC; grid == raw vertexGrid
-    auto gLC = m.gauge();
-    EXPECT(gLC.type() == GaugeType::LeviCivita, "active gauge LC");
+    auto gLC = m.connection();
+    EXPECT(gLC.type() == ConnectionType::LeviCivita, "active gauge LC");
     EXPECT((gLC.grid() - geometry::vertexGrid(m)).cwiseAbs().maxCoeff() < 1e-12, "LC grid == vertexGrid");
 
     // pattern 3: ad-hoc trivial request returns a value; default unchanged
     std::map<int,double> sing{{0,1.0},{3,1.0}};
-    auto gTriReq = m.gauge(GaugeType::Trivial, sing);
-    EXPECT(m.activeGaugeType() == GaugeType::LeviCivita, "ad-hoc gauge() does not mutate default");
+    auto gTriReq = m.connection(ConnectionType::Trivial, sing);
+    EXPECT(m.activeConnectionType() == ConnectionType::LeviCivita, "ad-hoc gauge() does not mutate default");
     Eigen::MatrixXcd triGrid = gTriReq.grid();
     EXPECT(triGrid.rows() == 12 && triGrid.cols() == 3, "trivial grid [12,3]");
     // realized trivial frame stays unit-tangent (|c row| preserved vs LC up to rotation)
@@ -81,12 +81,12 @@ static void testGridRealization() {
 
     // pattern 2 default trivial equals the pattern-3 value for same singularities
     Manifold m2(V.data(), 12, F.data(), 20, sing);
-    EXPECT((m2.gauge().grid() - triGrid).cwiseAbs().maxCoeff() < 1e-9,
+    EXPECT((m2.connection().grid() - triGrid).cwiseAbs().maxCoeff() < 1e-9,
            "pattern 2 default == pattern 3 request (same singularities)");
 
     // setGauge re-points default
-    m.setGauge(GaugeType::Trivial, sing);
-    EXPECT(m.gauge().type() == GaugeType::Trivial, "setGauge re-points active gauge");
+    m.setConnection(ConnectionType::Trivial, sing);
+    EXPECT(m.connection().type() == ConnectionType::Trivial, "setGauge re-points active gauge");
 }
 
 int main() {

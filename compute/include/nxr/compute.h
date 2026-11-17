@@ -75,13 +75,14 @@ using core::ProgressObserver;
 // Forward declarations for facets and geometry bundles.
 namespace facet {
     class TopologyFacet;  class EmbeddedFacet;  class IntrinsicFacet;
-    class ExtrinsicFacet; class GaugeFacet;     class OperatorsFacet;
+    class ExtrinsicFacet; class ConnectionFacet;     class OperatorsFacet;
 }
 namespace geometry { struct MeshGeometry; struct MeshTopology; }
 namespace ops { struct DECOperators; struct DecMatrices; class CholeskyCache; }
 namespace ops::laplacian::connection { enum class CovariantCoupling; }
 
-enum class GaugeType { Euclidean, LeviCivita, Trivial };
+enum class ConnectionType { Euclidean, LeviCivita, Trivial };   // the choice of connection (G7: formerly GaugeType; "gauge" names only the tangent-space convention)
+using GaugeType [[deprecated("nxr::manifold::ConnectionType")]] = ConnectionType;   // one release
 
 enum class OperatorId {
     LaplacianCotan, LaplacianGraph, LaplacianConnection, LaplacianCovariant,
@@ -170,14 +171,16 @@ public:
              const DelaunayOptions& delaunayOptions = {});
 
     int eulerCharacteristic() const;                 // nV - nE + nF
-    GaugeType activeGaugeType() const;
+    ConnectionType activeConnectionType() const;
     const std::map<int,double>& activeSingularities() const;
     // Re-point the active/default gauge. Trivial validates Gauss-Bonnet.
-    void setGauge(GaugeType type, const std::map<int,double>& singularities = {});
+    void setConnection(ConnectionType type, const std::map<int,double>& singularities = {});
+    [[deprecated("setConnection")]] void setGauge(ConnectionType type, const std::map<int,double>& singularities = {}) { setConnection(type, singularities); }
 
-    // Declared only; bodies implemented in B2 (require GaugeFacet complete type).
-    facet::GaugeFacet gauge();
-    facet::GaugeFacet gauge(GaugeType type,
+    // Declared only; bodies implemented in B2 (require ConnectionFacet complete type).
+    facet::ConnectionFacet connection();
+    [[deprecated("connection()")]] facet::ConnectionFacet gauge();   // one release
+    facet::ConnectionFacet connection(ConnectionType type,
                             const std::map<int,double>& singularities = {});
 
     // Lazy operator-assembly helpers shared by gauge + operators facets.
@@ -236,7 +239,7 @@ private:
 
     // Private cache-fill helpers for OperatorsFacet::LaplacianView::connection/covariant.
     // connection: builds in the ACTIVE gauge (LC or trivial); stores K_complex.
-    // covariant: delegates to connection() + gauge().grid() + cotan() then assembles.
+    // covariant: delegates to connection() + connection().grid() + cotan() then assembles.
     const Eigen::SparseMatrix<std::complex<double>>& connectionLaplacianCached_();
     const Eigen::SparseMatrix<double>& covariantLaplacianCached_(
         ops::laplacian::connection::CovariantCoupling coupling);
@@ -291,7 +294,7 @@ private:
     std::unique_ptr<geometry::MeshGeometry>  lightGeometryCache_;
     std::unique_ptr<geometry::MeshTopology>  topologyDataCache_;
 
-    GaugeType            activeGaugeType_    = GaugeType::LeviCivita;
+    ConnectionType            activeConnectionType_    = ConnectionType::LeviCivita;
     std::map<int,double> activeSingularities_;
     // Validates Σ singularities == eulerCharacteristic(); throws on mismatch.
     void validateSingularities_(const std::map<int,double>& s) const;
@@ -1776,8 +1779,6 @@ struct VertexFrames {
 };
 
 VertexFrames vertexFrames(Manifold& m);
-// DEPRECATED alias of vertexFrames (there is one gauge now; removed with the port, spec G7).
-VertexFrames vertexFramesEmbedded(Manifold& m);
 
 // ── Complex frame ("grid") ───────────────────────────────────
 //
@@ -1787,7 +1788,6 @@ VertexFrames vertexFramesEmbedded(Manifold& m);
 // separately. This is the representation Brainstorm's Geometry.*.grid
 // fields use; see the bundle design spec §5.1.
 Eigen::MatrixXcd vertexGrid(Manifold& m);   // [nV, 3] complex, from vertexFrames (geometry-central's gauge: what the Levi-Civita connection Laplacian's coordinates decode against)
-Eigen::MatrixXcd vertexGridEmbedded(Manifold& m);   // [nV, 3] complex, from vertexFramesEmbedded: geometry-central's frame, the base frame of the trivial gauge and of the light Geometry bundle's `vertexGrid`
 Eigen::MatrixXcd faceGrid(Manifold& m);     // [nF, 3] complex
 
 // ── Curvature as a 2-RoSy complex + mean ─────────────────────

@@ -82,11 +82,11 @@ private:
     Manifold& m_;
 };
 
-class GaugeFacet {
+class ConnectionFacet {
 public:
-    GaugeFacet(Manifold& m, GaugeType type, std::map<int,double> singularities)
+    ConnectionFacet(Manifold& m, ConnectionType type, std::map<int,double> singularities)
         : m_(m), type_(type), sing_(std::move(singularities)) {}
-    GaugeType type() const { return type_; }
+    ConnectionType type() const { return type_; }
     const std::map<int,double>& singularities() const { return sing_; }
     // Realized per-vertex frame in this gauge: [nV,3] complex c = e1 + i e2.
     // Levi-Civita/Euclidean: the raw vertex grid. Trivial: rotation .* grid —
@@ -98,7 +98,7 @@ public:
     Eigen::MatrixXcd faceGrid() const;
 private:
     Manifold& m_;
-    GaugeType type_;
+    ConnectionType type_;
     std::map<int,double> sing_;
 };
 

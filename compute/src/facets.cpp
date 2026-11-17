@@ -31,7 +31,7 @@ facet::ExtrinsicFacet Manifold::extrinsic() { return facet::ExtrinsicFacet(*this
 // ── Gauge workflow ────────────────────────────────────────────
 
 int Manifold::eulerCharacteristic() const { return nV() - nE() + nF(); }
-GaugeType Manifold::activeGaugeType() const { return activeGaugeType_; }
+ConnectionType Manifold::activeConnectionType() const { return activeConnectionType_; }
 const std::map<int,double>& Manifold::activeSingularities() const { return activeSingularities_; }
 
 void Manifold::validateSingularities_(const std::map<int,double>& s) const {
@@ -50,8 +50,8 @@ void Manifold::validateSingularities_(const std::map<int,double>& s) const {
             "A closed genus-0 surface has chi=2 (e.g. two +1 singularities); a disk chi=1.");
 }
 
-void Manifold::setGauge(GaugeType type, const std::map<int,double>& singularities) {
-    if (type == GaugeType::Trivial) {
+void Manifold::setConnection(ConnectionType type, const std::map<int,double>& singularities) {
+    if (type == ConnectionType::Trivial) {
         validateSingularities_(singularities);
     } else if (!singularities.empty()) {
         // Fail loud rather than silently discard a caller's singularities.
@@ -59,8 +59,8 @@ void Manifold::setGauge(GaugeType type, const std::map<int,double>& singularitie
             "setGauge: singularities are only meaningful for the trivial gauge.",
             "Levi-Civita / Euclidean gauges take no singularities — pass an empty map.");
     }
-    activeGaugeType_ = type;
-    activeSingularities_ = (type == GaugeType::Trivial) ? singularities : std::map<int,double>{};
+    activeConnectionType_ = type;
+    activeSingularities_ = (type == ConnectionType::Trivial) ? singularities : std::map<int,double>{};
     // Gauge-dependent operators (spec §5b: connection/covariant source from
     // intrinsic + active gauge) are now stale — drop them so the next request
     // rebuilds in the new gauge.
@@ -95,14 +95,15 @@ ops::CholeskyCache& Manifold::choleskyCache() {
     return *choleskyCachePtr_;
 }
 
-facet::GaugeFacet Manifold::gauge() {
-    return facet::GaugeFacet(*this, activeGaugeType_, activeSingularities_);
+facet::ConnectionFacet Manifold::gauge() { return connection(); }
+facet::ConnectionFacet Manifold::connection() {
+    return facet::ConnectionFacet(*this, activeConnectionType_, activeSingularities_);
 }
 
-facet::GaugeFacet Manifold::gauge(GaugeType type, const std::map<int,double>& singularities) {
-    if (type == GaugeType::Trivial) validateSingularities_(singularities);
-    return facet::GaugeFacet(*this, type,
-                             type == GaugeType::Trivial ? singularities : std::map<int,double>{});
+facet::ConnectionFacet Manifold::connection(ConnectionType type, const std::map<int,double>& singularities) {
+    if (type == ConnectionType::Trivial) validateSingularities_(singularities);
+    return facet::ConnectionFacet(*this, type,
+                             type == ConnectionType::Trivial ? singularities : std::map<int,double>{});
 }
 
 // ── C1: Operators facet + independent-cache management ───────────────────────
@@ -366,7 +367,7 @@ Eigen::SparseMatrix<double> Manifold::diracFaceFamily_(double tau) {
 
 // ── C3: Connection / Covariant Laplacian cache-fill helpers ──────────────────
 // connection: builds in the ACTIVE gauge (LC or trivial). Stores K_complex.
-// covariant: calls connection() + gauge().grid() + cotanLaplacianCached_() and
+// covariant: calls connection() + connection().grid() + cotanLaplacianCached_() and
 // assembles the 3N×3N real symmetric matrix.
 
 const Eigen::SparseMatrix<std::complex<double>>& Manifold::connectionLaplacianCached_() {
@@ -377,7 +378,7 @@ const Eigen::SparseMatrix<std::complex<double>>& Manifold::connectionLaplacianCa
         o.nSym   = 1;
         o.format = cl::ConnectionLaplacianFormat::Complex;
         cl::ConnectionLaplacian r =
-            (activeGaugeType_ == GaugeType::Trivial)
+            (activeConnectionType_ == ConnectionType::Trivial)
               ? cl::assembleTrivialConnectionLaplacian(*this, activeSingularities_,
                                                        decEmbedded(), choleskyCache(), o)
               : cl::assembleConnectionLaplacian(*this, o);
@@ -395,7 +396,7 @@ const Eigen::SparseMatrix<double>& Manifold::covariantLaplacianCached_(
     if (!cacheLaplacianCovariant_ ||
         cachedCovariantCoupling_ != static_cast<int>(coupling)) {
         namespace cl = ops::laplacian::connection;
-        Eigen::MatrixXcd g  = gauge().grid();                     // realized active-gauge frame
+        Eigen::MatrixXcd g  = connection().grid();                     // realized active-gauge frame
         const auto& cotanL = cotanLaplacianCached_();             // real cotan Laplacian
         // The Ambient covariant (the default 3D-frame view) is built purely from
         // the frames + scalar weights and does NOT use the connection Laplacian K
@@ -430,7 +431,7 @@ int TopologyFacet::eulerCharacteristic() const { return m_.nV() - m_.nE() + m_.n
 const geometry::MeshTopology& TopologyFacet::all() const { return m_.topologyData(); }
 
 Eigen::MatrixXd  EmbeddedFacet::VertexView::position() const { return m.vertexPositions(); }
-Eigen::MatrixXd  EmbeddedFacet::VertexView::normal()   const { return geometry::vertexFramesEmbedded(m).normals; }
+Eigen::MatrixXd  EmbeddedFacet::VertexView::normal()   const { return geometry::vertexFrames(m).normals; }
 Eigen::MatrixXcd EmbeddedFacet::VertexView::grid()     const { return m.lightGeometry().vertexGrid; }
 Eigen::MatrixXd  EmbeddedFacet::FaceView::normal()     const { return geometry::frames(m).normals; }
 Eigen::MatrixXcd EmbeddedFacet::FaceView::grid()       const { return m.lightGeometry().faceGrid; }
@@ -450,20 +451,20 @@ Eigen::VectorXd  ExtrinsicFacet::VertexView::meanCurvature()  const { return m.l
 Eigen::MatrixXd  ExtrinsicFacet::VertexView::principalDir()   const { return geometry::curvatures(m).principalDirMax; }
 Eigen::VectorXd  ExtrinsicFacet::EdgeView::dihedralAngle()    const { return m.lightGeometry().edgeDihedralAngles; }
 
-// ── B2: GaugeFacet::grid() ────────────────────────────────────────────────────
+// ── B2: ConnectionFacet::grid() ────────────────────────────────────────────────────
 
-Eigen::MatrixXcd GaugeFacet::grid() const {
-    if (type_ != GaugeType::Trivial) return geometry::vertexGrid(m_);   // LC / euclidean base frame: the signposts' gauge
-    Eigen::MatrixXcd g = geometry::vertexGridEmbedded(m_);    // the trivial gauge combs geometry-central's frame (its transport is embedded)
+Eigen::MatrixXcd ConnectionFacet::grid() const {
+    if (type_ != ConnectionType::Trivial) return geometry::vertexGrid(m_);   // LC / euclidean base frame: the signposts' gauge
+    Eigen::MatrixXcd g = geometry::vertexGrid(m_);    // the trivial gauge combs geometry-central's frame (its transport is embedded)
     connection::GaugeRotations gr = connection::integrateTrivialGaugeRotations(
         m_, m_.decEmbedded(), m_.choleskyCache(), sing_);
     for (int v = 0; v < g.rows(); ++v) g.row(v) *= gr.vertex(v);  // combing rotation .* grid
     return g;
 }
 
-Eigen::MatrixXcd GaugeFacet::faceGrid() const {
+Eigen::MatrixXcd ConnectionFacet::faceGrid() const {
     Eigen::MatrixXcd g = geometry::faceGrid(m_);              // LC / euclidean base frame
-    if (type_ != GaugeType::Trivial) return g;
+    if (type_ != ConnectionType::Trivial) return g;
     connection::GaugeRotations gr = connection::integrateTrivialGaugeRotations(
         m_, m_.decEmbedded(), m_.choleskyCache(), sing_);
     for (int f = 0; f < g.rows(); ++f) g.row(f) *= gr.face(f);    // combing rotation .* grid

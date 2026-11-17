@@ -14,7 +14,7 @@ Comments are blanked before matching, so a symbol named only in a comment is not
 string literals).
 
 Usage:  tools/geometry_inventory.py [--repo .] [--section summary|symbols|files|goldens|stored|all]
-Rerun after each PR of the switch: the PORT counts must fall to zero; GC-FRAME files become the only users of a tangent frame.
+Rerun after each PR of the switch: the PORT counts are zero since G7 (the port is deleted); GC marks what runs on geometry-central (G3, G4, G7).
 """
 import argparse, collections, os, re, subprocess, sys
 
@@ -23,19 +23,19 @@ SYMBOLS = [
     # ── the port itself (nxr/delaunay.h) ──
     ("delaunay.h include",        "PORT", r'#\s*include\s*"nxr/delaunay\.h"',        "geometrycentral/surface/signpost_intrinsic_triangulation.h (+ intrinsic_mollification.h)"),
     ("delaunay::Mesh",            "PORT", r'\bdelaunay::Mesh\b',                       "SignpostIntrinsicTriangulation (intrinsicMesh, edgeLengths, signpostAngle) over the input ManifoldSurfaceMesh"),
-    ("delaunay::DelaunayOptions", "PORT", r'\bDelaunayOptions\b',                      "nxr option struct kept (mollify -> mollifyIntrinsic relativeFactor; flipEps -> IntrinsicTriangulation::triangleTestEPS)"),
+    ("delaunay::DelaunayOptions", "GC", r'\bDelaunayOptions\b',                      "nxr option struct kept (mollify -> mollifyIntrinsic relativeFactor; flipEps -> IntrinsicTriangulation::triangleTestEPS)"),
     ("delaunay::makeMesh",        "PORT", r'\bmakeMesh\s*\(',                          "makeManifoldSurfaceMeshAndGeometry / EdgeLengthGeometry"),
     ("delaunay::mollify",         "PORT", r'\bdelaunay::mollify\s*\(|\bmollify\s*\(\s*m\b', "mollifyIntrinsic(mesh, edgeLengths, relativeFactor) on the INPUT lengths, before the triangulation is built"),
     ("delaunay::addSignposts",    "PORT", r'\baddSignposts\s*\(',                      "SignpostIntrinsicTriangulation constructor (signpostAngle)"),
-    ("delaunay::flipToDelaunay",  "PORT", r'\bflipToDelaunay\s*\(',                    "IntrinsicTriangulation::flipToDelaunay() (flips counted through edgeFlipCallbackList)"),
+    ("delaunay::flipToDelaunay",  "PORT", r'\bdelaunay::flipToDelaunay\s*\(',                    "IntrinsicTriangulation::flipToDelaunay() (flips counted through edgeFlipCallbackList)"),
     ("delaunay::flip",            "PORT", r'\bdelaunay::flip\s*\(',                    "SignpostIntrinsicTriangulation::flipEdgeIfNotDelaunay / flipEdgeIfPossible"),
     ("delaunay::prepare",         "PORT", r'\bdelaunay::prepare\s*\(|\bprepare\s*\(\s*(positions|vertices|P\.data|V\.data)', "nxr IntrinsicSurface (new, thin): mollifyIntrinsic -> SignpostIntrinsicTriangulation -> mass recorded -> flipToDelaunay"),
     ("delaunay::cotanLaplacian",  "PORT", r'\bdelaunay::cotanLaplacian\s*\(',          "IntrinsicGeometryInterface::cotanLaplacian (requireCotanLaplacian)"),
     ("delaunay::edgeCotanWeights","PORT", r'\bdelaunay::edgeCotanWeights\s*\(',        "edgeCotanWeights (requireEdgeCotanWeights)"),
     ("delaunay::faceAreas",       "PORT", r'\bdelaunay::faceAreas\s*\(',               "faceAreas (requireFaceAreas)"),
-    ("delaunay::galerkinMass",    "PORT", r'\bgalerkinMass\s*\(',                      "vertexGalerkinMassMatrix (requireVertexGalerkinMassMatrix)"),
-    ("delaunay::barycentricMass", "PORT", r'\bbarycentricMass\s*\(',                   "vertexLumpedMassMatrix / vertexDualAreas (geometry-central's lumped mass IS barycentric)"),
-    ("delaunay::mixedVoronoiMass","PORT", r'\bmixedVoronoiMass\s*\(',                  "NONE: rebuilt on geometry-central (cornerAngles, edgeLengths, faceAreas of the mollified input), served through an overridden computeVertexDualAreas"),
+    ("delaunay::galerkinMass",    "PORT", r'\bdelaunay::galerkinMass\s*\(',                      "vertexGalerkinMassMatrix (requireVertexGalerkinMassMatrix)"),
+    ("delaunay::barycentricMass", "PORT", r'\bdelaunay::barycentricMass\s*\(',                   "vertexLumpedMassMatrix / vertexDualAreas (geometry-central's lumped mass IS barycentric)"),
+    ("delaunay::mixedVoronoiMass","PORT", r'\bdelaunay::mixedVoronoiMass\s*\(',                  "NONE: rebuilt on geometry-central (cornerAngles, edgeLengths, faceAreas of the mollified input), served through an overridden computeVertexDualAreas"),
     ("Mesh::mass (recorded)",     "PORT", r'\b(om|mesh|m|opMesh|M)\s*\.\s*mass\b',     "NONE: the recorded input mass, served by the IntrinsicSurface's computeVertexDualAreas override"),
     ("delaunay::rescaledAngle",   "PORT", r'\brescaledAngle\s*\(',                     "halfedgeVectorsInVertex[he].arg() (signpost: signpostAngle / vertexAngleScaling)"),
     ("delaunay::reverseAngle",    "PORT", r'\breverseAngle\s*\(',                      "halfedgeVectorsInVertex[he.twin()].arg()"),
@@ -44,22 +44,22 @@ SYMBOLS = [
     ("delaunay::nonDelaunayEdges","PORT", r'\bnonDelaunayEdges\s*\(',                  "IntrinsicTriangulation::isDelaunay(e) counted"),
     ("delaunay immediates",       "PORT", r'\bdelaunay::(triangleArea|cornerAngle|halfCot|edgeWeight)\s*\(', "EdgeLengthGeometry::faceArea / cornerAngle / halfedgeCotanWeight / edgeCotanWeight"),
     ("Manifold::operatorMesh",    "PORT", r'\boperatorMesh\s*\(\s*\)',                 "Manifold::intrinsic() -> the IntrinsicSurface (its IntrinsicGeometryInterface)"),
-    ("Manifold::operator* caches","PORT", r'\boperator(Cotan|DecMatrices|DualAreas)\s*\(', "the IntrinsicSurface's require* quantities"),
+    ("Manifold::operator* caches","GC", r'\boperator(Cotan|DecMatrices|DualAreas)\s*\(', "the IntrinsicSurface's require* quantities"),
     # ── charts on the port (nxr/chart.h) ──
-    ("chart::HeatMethod",         "PORT", r'\b(chart::)?HeatMethod\b(?!Distance)',     "HeatMethodDistanceSolver on the IntrinsicSurface (mass through computeVertexDualAreas)"),
-    ("chart::ChartKit",           "PORT", r'\bChartKit\b',                             "VectorHeatMethodSolver + HeatMethodDistanceSolver on the IntrinsicSurface, per connected piece"),
-    ("ChartKit::transported",     "PORT", r'\btransported\s*\(',                       "VectorHeatMethodSolver::transportTangentVector"),
-    ("ChartKit::logMap",          "PORT", r'\.\s*logMap\s*\(|\bLogMap\b',              "VectorHeatMethodSolver::computeLogMap (LogMapStrategy::VectorHeat)"),
-    ("chart::tangentBasis / Basis","PORT", r'\btangentBasis\s*\(|\bchart::Basis\b|\.\s*basis\s*\(\s*\)', "vertexTangentBasis (+ vertexNormals) of the input VertexPositionGeometry"),
-    ("gaugeHeading / headingVector","PORT", r'\bgaugeHeading\s*\(|\bheadingVector\s*\(', "atan2 on vertexTangentBasis (nxr, one line each)"),
+    ("chart::HeatMethod",         "GC", r'\b(chart::)?HeatMethod\b(?!Distance)',     "HeatMethodDistanceSolver on the IntrinsicSurface (mass through computeVertexDualAreas)"),
+    ("chart::ChartKit",           "GC", r'\bChartKit\b',                             "VectorHeatMethodSolver + HeatMethodDistanceSolver on the IntrinsicSurface, per connected piece"),
+    ("ChartKit::transported",     "GC", r'\btransported\s*\(',                       "VectorHeatMethodSolver::transportTangentVector"),
+    ("ChartKit::logMap",          "GC", r'\.\s*logMap\s*\(|\bLogMap\b',              "VectorHeatMethodSolver::computeLogMap (LogMapStrategy::VectorHeat)"),
+    ("chart::tangentBasis / Basis","GC", r'\btangentBasis\s*\(|\bchart::Basis\b|\.\s*basis\s*\(\s*\)', "vertexTangentBasis (+ vertexNormals) of the input VertexPositionGeometry"),
+    ("gaugeHeading / headingVector","GC", r'\bgaugeHeading\s*\(|\bheadingVector\s*\(', "atan2 on vertexTangentBasis (nxr, one line each)"),
     # ── frames that read the port's gauge ──
-    ("frames::gaugeAngle",        "PORT", r'\bgaugeAngle\s*\(',                        "canonical frame as angle array in geometry-central's gauge (vertexTangentBasis)"),
-    ("frames::angleFromNorth",    "PORT", r'\bangleFromNorth\s*\(',                    "frame.rotate(field, to=canonical, spin=1) node"),
-    ("frames::vertexNormals",     "PORT", r'\bframes::vertexNormals\s*\(|\bvertexNormals\s*\(\s*(positions|S\.vertices|dom\.)', "vertexNormals (angle-weighted) of the input VertexPositionGeometry"),
-    ("ladder::leviCivita",        "PORT", r'\bleviCivita\s*\(',                        "VectorHeatMethodSolver::transportTangentVector (unchanged maths, new gauge)"),
-    ("geometry::vertexFrames",    "PORT", r'\bvertexFrames\s*\(',                      "vertexTangentBasis (one frame; vertexFramesEmbedded becomes vertexFrames)"),
-    ("geometry::vertexGrid",      "PORT", r'\bvertexGrid\s*\((?!Embedded)',            "vertexTangentBasis packed e1 + i e2 (one grid; vertexGridEmbedded becomes vertexGrid)"),
-    ("flow::connection::Corners", "PORT", r'\bCorners\b|\bcomponentPencil\b',          "cornerScaledAngles + halfedgeVectorsInVertex of the mollified input geometry (rebuilt; same gauge as the triangulation)"),
+    ("frames::gaugeAngle",        "GC", r'\bgaugeAngle\s*\(',                        "canonical frame as angle array in geometry-central's gauge (vertexTangentBasis)"),
+    ("frames::angleFromNorth",    "GC", r'\bangleFromNorth\s*\(',                    "frame.rotate(field, to=canonical, spin=1) node"),
+    ("frames::vertexNormals",     "GC", r'\bframes::vertexNormals\s*\(|\bvertexNormals\s*\(\s*(positions|S\.vertices|dom\.)', "vertexNormals (angle-weighted) of the input VertexPositionGeometry"),
+    ("ladder::leviCivita",        "GC", r'\bleviCivita\s*\(',                        "VectorHeatMethodSolver::transportTangentVector (unchanged maths, new gauge)"),
+    ("geometry::vertexFrames",    "GC", r'\bvertexFrames\s*\(',                      "vertexTangentBasis (one frame; vertexFramesEmbedded becomes vertexFrames)"),
+    ("geometry::vertexGrid",      "GC", r'\bvertexGrid\s*\((?!Embedded)',            "vertexTangentBasis packed e1 + i e2 (one grid; vertexGridEmbedded becomes vertexGrid)"),
+    ("flow::connection::Corners", "GC", r'\bCorners\b|\bcomponentPencil\b',          "cornerScaledAngles + halfedgeVectorsInVertex of the mollified input geometry (rebuilt; same gauge as the triangulation)"),
     # ── geometry-central's gauge, used today ──
     ("vertexFramesEmbedded",      "GC-FRAME", r'\bvertexFramesEmbedded\s*\(',          "kept, renamed vertexFrames"),
     ("vertexGridEmbedded",        "GC-FRAME", r'\bvertexGridEmbedded\s*\(',            "kept, renamed vertexGrid"),
@@ -117,7 +117,7 @@ def kind(path):
 
 def tracked(repo):
     out = subprocess.run(["git", "-C", repo, "ls-files"], capture_output=True, text=True, check=True).stdout.split("\n")
-    return [p for p in out if p and p.endswith(EXT) and not p.startswith("compute/deps/") and "/extern/" not in p and not p.startswith("docs/")]
+    return [p for p in out if p and p.endswith(EXT) and not p.startswith("compute/deps/") and "/extern/" not in p and not p.startswith("docs/") and p != "tools/geometry_inventory.py"]
 
 
 def scan(repo):

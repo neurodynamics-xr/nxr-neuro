@@ -30,7 +30,7 @@ Eigen::SparseMatrix<double> matrix(Manifold& m) {
     // Gauss map: per-vertex unit normals from the embedded geometry. The Dirac
     // operator is genuinely extrinsic, so it always uses the TRUE embedding
     // (geometry()), independent of intrinsicDelaunay normalization.
-    geometry::VertexFrames vf = geometry::vertexFramesEmbedded(m);   // vf.normals = N [nV,3]
+    geometry::VertexFrames vf = geometry::vertexFrames(m);   // vf.normals = N [nV,3]
     auto& mesh = m.mesh();
     auto& geom = m.geometry();
     geom.requireFaceAreas();

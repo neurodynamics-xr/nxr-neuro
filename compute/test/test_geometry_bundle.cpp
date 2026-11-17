@@ -151,7 +151,7 @@ static void testTrivialGaugeRotations() {
     // accumulated transport), so real(rotation .* grid) must equal the
     // direction field that propagateAngles{,Vertex} integrate from the same φ.
     auto df = nxr::manifold::connection::trivial(m, dec, cache, sing);
-    Eigen::MatrixXcd vg = nxr::manifold::geometry::vertexGridEmbedded(m);   // the trivial gauge combs geometry-central's frame
+    Eigen::MatrixXcd vg = nxr::manifold::geometry::vertexGrid(m);   // the trivial gauge combs geometry-central's frame
     double maxVErr = 0;
     for (int v = 0; v < 12; ++v) {
         Eigen::RowVector3d realized = (g.vertex(v) * vg.row(v)).real();

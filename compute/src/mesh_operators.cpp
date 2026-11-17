@@ -72,7 +72,7 @@ Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF,
                    const DelaunayOptions& delaunayOptions)
     : Manifold(vertices, nV, faces, nF, intrinsicDelaunay, delaunayOptions) {
     validateSingularities_(singularities);
-    activeGaugeType_     = GaugeType::Trivial;
+    activeConnectionType_     = ConnectionType::Trivial;
     activeSingularities_ = singularities;
 }
 
