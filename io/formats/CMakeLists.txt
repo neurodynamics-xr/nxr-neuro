@@ -19,6 +19,7 @@ add_library(nxr_io_formats
   src/kit.cpp
   src/fif_write.cpp
   src/fif_objects.cpp
+  src/stc.cpp
 )
 
 # pugixml (MIT; one new dependency, the XML of GIFTI): its single source file compiled into the library, its warnings not ours
@@ -51,7 +52,7 @@ else()
 endif()
 
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_FORMATS_TESTS byte_source recording nifti gifti tsv edf brainvision eeglab fif fif_objects bids ctf kit cifti)
+  set(NXR_FORMATS_TESTS byte_source recording nifti gifti tsv edf brainvision eeglab fif fif_objects bids ctf kit cifti stc)
   foreach(t ${NXR_FORMATS_TESTS})
     add_executable(test_formats_${t} test/test_${t}.cpp)
     target_link_libraries(test_formats_${t} PRIVATE nxr_io_formats)   # the formats alone: a test that needs the store does not belong here
