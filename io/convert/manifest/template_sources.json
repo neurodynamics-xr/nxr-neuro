@@ -96,6 +96,10 @@
           "sha256": "8bb75e682ea8da179a933eddaa6c018a7d1e88cc11491d987016bfdfb7840dc5"
         },
         {
+          "path": "tess_head.mat",
+          "sha256": "70024b85f52603c08458721a35ea4604ffc5011d9ad9fbebe973435eb3c73194"
+        },
+        {
           "path": "license.txt",
           "sha256": "33ce91f5a1ab3be91955d7be2669053b8801ad771c7feda7ed8fcf8b8a7b2d91"
         }

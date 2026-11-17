@@ -603,4 +603,13 @@ std::optional<AnnotationSet> read_annotations(const File& f, const Block& root) 
   return set;
 }
 
+Fiducials read_fiducials(const File& f) {
+  const auto iso = find_blocks(f.tree(), block::kIsotrak);
+  if (iso.size() != 1) throw format_error("FIF: a fiducials file holds one isotrak block, this one holds " + std::to_string(iso.size()));
+  Fiducials out;
+  std::vector<std::string> names;
+  out.points = Reader(f).dig_in(*iso[0], &names, &out.coord_frame);
+  return out;
+}
+
 }  // namespace nxr::formats::fif

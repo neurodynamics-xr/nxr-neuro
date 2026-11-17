@@ -41,6 +41,8 @@ struct Plan {
   std::vector<Planned> steps;
   nxr::graph::Graph graph;                     // the executor's form of the definition (its steps as uses of nodes, `with` written out); `execute` checks it again against the run's binding
   nxr::graph::Types types;                     // its inputs' types, from what was found
+  std::string preset;                          // the named parameter set the run was asked for (`--set NAME`): in the provenance and the cache key; empty: none
+  std::int64_t align = 0;                      // the grid (samples) the span snaps to: the largest a node of the graph asks (Planned::align); 0: none
 
   std::vector<const Planned*> section(const std::string& sec) const;
   /** the plan as a person reads it (`--dry-run`) */
@@ -49,13 +51,15 @@ struct Plan {
 
 /** every step's arrows checked on the inputs, in order; what each makes; the outputs' places: before any data is read */
 Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id);
-/** the definition's parameters with `--set` overrides (an unknown name refused) */
-Json parameters_of(const Definition& d, const Json& set);
+/** the definition's parameters: its defaults, then the preset's values (`preset`, a name of the definition's `presets:`; an unknown one refused), then the caller's `--set NAME=VALUE`
+ *  overrides (an unknown name refused). The caller's own value wins over the preset's. */
+Json parameters_of(const Definition& d, const Json& set, const std::string& preset = std::string());
 /** what a run reads and how it stores: the span (the chunk service's request; neither is an error: the caller states it) and whether another job's outputs are replaced */
 struct RunOptions {
   std::optional<std::string> chunks;
   std::optional<double> start, stop;
   bool replace = false;
+  std::string preset;                          // the definition's named parameter set to start from (`--set NAME`); empty: the defaults
   /** the width (samples) of the time SUB-BLOCKS a chunk's pointwise tail runs on: after the last chunk step that needs a halo (a band's taps), every step is pointwise in
    *  time, so it runs on the chunk's own columns a sub-block at a time and folds in time order. The result does not depend on it (as on the chunk size); only memory does.
    *  MEMORY held by the tail: about (the tail's rows, e.g. 3 x vertices of a free kernel) x block_samples x 8 bytes per complex value alive at once. 0: the whole chunk. */
@@ -72,6 +76,6 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
                       const std::function<void(const Json&)>& progress = {});
 
 /** every run of `d` on the subject planned (one per anchor match), none executed */
-std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set);
+std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset = std::string());
 
 }  // namespace nxr::pipelines::graph

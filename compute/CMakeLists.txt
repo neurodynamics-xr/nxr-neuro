@@ -48,6 +48,7 @@ add_library(nxr_compute STATIC
   src/eigensolver.cpp
   src/congruence.cpp
   src/nearest.cpp
+  src/montage.cpp
   src/connectome.cpp
   src/magnetic.cpp
   src/lag.cpp
@@ -200,6 +201,9 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     add_executable(test_eigen test/test_eigen.cpp)
     target_link_libraries(test_eigen PRIVATE nxr_compute)
     add_test(NAME test_eigen COMMAND test_eigen)
+    add_executable(test_eigen_consistency test/test_eigen_consistency.cpp)
+    target_link_libraries(test_eigen_consistency PRIVATE nxr_compute)
+    add_test(NAME test_eigen_consistency COMMAND test_eigen_consistency)
 
     add_executable(test_cholesky_cache test/test_cholesky_cache.cpp)
     target_link_libraries(test_cholesky_cache PRIVATE nxr_compute)
@@ -378,6 +382,10 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     target_link_libraries(test_tracks PRIVATE nxr_compute)
     target_compile_definitions(test_tracks PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
     add_test(NAME test_tracks COMMAND test_tracks)
+    add_executable(test_montage test/test_montage.cpp)   # the 10-05 rule: names, a sphere against MNE (golden/montage_golden.txt, golden/gen_montage_golden.py), an ellipsoid
+    target_link_libraries(test_montage PRIVATE nxr_compute)
+    target_compile_definitions(test_montage PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+    add_test(NAME test_montage COMMAND test_montage)
     add_executable(test_connectome test/test_connectome.cpp)
     target_link_libraries(test_connectome PRIVATE nxr_compute)
     add_test(NAME test_connectome COMMAND test_connectome)

@@ -41,6 +41,7 @@ struct Definition {
   std::string draw;                            // a header key `draw: <parameter>`: the run's stored nodes carry that parameter's value in their names (a null's draw: `seed`), so every draw is a node of its own
   int version = 1;
   Json inputs = Json::object(), parameters = Json::object(), outputs = Json::object();
+  Json presets = Json::object();               // name -> {parameter: value}: the named parameter sets `run NAME --set PRESET` chooses (spec definition-outputs, section 6)
   Json parameter_docs = Json::object();        // name -> {meaning, unit, choices}: what a parameter declares about itself in the long form (empty: the short form, undocumented); `run <pipeline> --help` is made from it
   std::vector<StepUse> before, do_, after;
   std::optional<std::string> over;             // the input the chunk loop walks

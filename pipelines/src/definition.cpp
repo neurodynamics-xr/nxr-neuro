@@ -24,10 +24,13 @@ const Shipped kShipped[] = {
 #include "gen/definitions.inc"
 };
 
-const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw"}, kSections = {"inputs", "parameters", "steps", "outputs"};
+const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
 const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "statistic"};
-const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "required", "description", "hint"}, kStepKeys = {"step", "in", "with", "out", "description"},
-                            kOutputKeys = {"kind", "unit", "description", "types"};   // types: a span set's event type (outputs of kind spans)
+const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "required", "description", "hint"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
+                            kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
+                                           // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
+                                           "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors"};
+const std::regex kPresetName("^[a-z][a-z0-9_-]*$");
 const std::regex kName("^[a-z][a-z0-9_]*$");
 
 std::string join(const std::vector<std::string>& v, const char* sep = ", ") { std::string s; for (const auto& x : v) s += (s.empty() ? "" : sep) + x; return s; }
@@ -81,11 +84,11 @@ void params_used(const Json& v, const std::string& where, const Json& declared) 
 }
 std::string section_label(const std::string& sec) { return sec == "do" ? "chunks" : sec; }
 bool allowed(const std::string& sec, const std::string& kind) {
-  if (sec == "before") return kind == "setup";
+  if (sec == "before") return kind == "setup" || kind == "array";
   if (sec == "do") return kind == "chunk" || kind == "accumulate";
-  return kind == "after";
+  return kind == "after" || kind == "array";
 }
-std::string home_of(const std::string& kind) { return kind == "setup" ? "before" : kind == "after" ? "after" : "chunks"; }
+std::string home_of(const std::string& kind) { return kind == "setup" ? "before" : kind == "after" ? "after" : kind == "array" ? "before or after" : "chunks"; }
 
 // ── REPETITION (a definition repeated over the elements of list parameters; spec docs/specs/2026-11-13-cortical-events.md, phase 2c) ──
 // An input or output entry with `for: {var: $list, …}`, and a step block `{for: {var: $list, …}, do: [steps]}` (nested blocks allowed), are written out once per combination of the lists'
@@ -245,6 +248,20 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   names(Json(keys(params)), where + ": parameters");
   d.parameters = params;
   d.parameter_docs = parameter_docs;
+  // PRESETS: named parameter sets, each a named alternative (`run NAME --set PRESET`); a preset names only declared parameters
+  if (doc.contains("presets") && !doc["presets"].is_null()) {
+    if (!doc["presets"].is_object()) err(where, "presets: a mapping of name → {parameter: value}");
+    for (const auto& [pn, pv] : doc["presets"].items()) {
+      const std::string w = where + ": presets." + pn;
+      if (!std::regex_match(pn, kPresetName)) err(w, "a preset's name is lower case, digits, '_' and '-'");
+      if (!pv.is_object()) err(w, "a mapping of parameter → value");
+      for (const auto& [k, v] : pv.items()) {
+        if (!params.contains(k)) err(w, "'" + k + "' is not a parameter (declared: " + (params.empty() ? std::string("none") : join(keys(params))) + ")");
+        params_used(v, w, params);
+      }
+    }
+    d.presets = doc["presets"];
+  }
 
   const Json inputs = doc.contains("inputs") && !doc["inputs"].is_null() ? doc["inputs"] : Json::object();
   if (!inputs.is_object() || inputs.empty()) err(where, "inputs: at least one");
@@ -298,12 +315,13 @@ Definition parse(const Json& written, const std::string& source, const std::stri
     for (std::size_t i = 0; raw.is_array() && i < raw.size(); ++i) {
       const Json& s = raw[i];
       std::string w = where + ": steps." + (sec == "do" ? "chunks.do" : sec) + "[" + std::to_string(i) + "]";
-      if (!s.is_object() || !s.contains("step") || !s["step"].is_string()) err(w, "{step: <name>, in: {…}, with: {…}, out: …}");
+      const char* use_key = s.is_object() && s.contains("node") ? "node" : "step";           // `node:` (the grouped names) and `step:` are one
+      if (!s.is_object() || !s.contains(use_key) || !s[use_key].is_string() || (s.contains("node") && s.contains("step"))) err(w, "{node: <name>, in: {…}, with: {…}, out: …}");
       std::vector<std::string> bad;
       for (const auto& k : keys(s)) if (!kStepKeys.count(k)) bad.push_back(k);
       std::sort(bad.begin(), bad.end());
       if (!bad.empty()) err(w, "unknown key(s) " + join(bad));
-      const StepSpec& st = step(s["step"].get<std::string>());
+      const StepSpec& st = step(s[use_key].get<std::string>());
       w += " (" + st.name + ")";
       if (!allowed(sec, st.kind)) err(w, "a " + st.kind + " step cannot be in '" + section_label(sec) + "' (it belongs in " + home_of(st.kind) + ")");
       if (sec == "do" && st.kind == "accumulate") accumulates = true;
@@ -341,7 +359,17 @@ Definition parse(const Json& written, const std::string& source, const std::stri
     if (!known.count(k) || inputs.contains(k)) err(w, "not made by any step");
     bool ok = spec.is_object() && spec.contains("kind");
     if (ok) for (const auto& kk : keys(spec)) if (!kOutputKeys.count(kk)) ok = false;
-    if (!ok) err(w, "{kind: …, unit: …, description: …} (and types: [name] for a span set)");
+    if (!ok) err(w, "{kind: …, unit: …, description: …} (and types: [name] for a span set; the declared kinds also name where and of what: on, of, axes, partition, …)");
+    const std::string kind = spec["kind"].is_string() ? spec["kind"].get<std::string>() : std::string();
+    if (kind.empty()) err(w, "kind: a name");
+    const bool declared_kind = kind == "operator" || kind == "manifold" || (kind == "selection") || (kind == "statistic" && (spec.contains("axes") || spec.contains("of")));
+    for (const auto& kk : keys(spec))                // the declaration's keys belong to the declared kinds only
+      if (!declared_kind && kind != "field" && kind != "measurement" && std::set<std::string>{"name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors"}.count(kk))
+        err(w, kk + ": belongs to the declared kinds (statistic with axes, operator, selection, manifold, field)");
+    if (kind == "operator" && (!spec.contains("operator_kind") || !spec.contains("from") || !spec.contains("to"))) err(w, "an operator output names operator_kind, from and to (links to found manifolds)");
+    if (kind == "selection" && !spec.contains("type")) err(w, "a selection output names its type: partition, spans, set, tiling or ladder");
+    if (kind == "manifold" && !spec.contains("type")) err(w, "a manifold output names its type: line, surface or product");
+    if (spec.contains("axes") && !spec["axes"].is_array()) err(w, "axes: a list of {name, on | line}");
   }
   d.outputs = outputs;
   return d;

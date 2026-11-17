@@ -41,6 +41,7 @@ add_library(nxr_pipelines
   src/tracks_steps.cpp
   src/crossings_steps.cpp
   src/connectome_steps.cpp
+  src/montage_steps.cpp
   src/surrogate_steps.cpp
   src/run_repeat.cpp
   src/null_compute.cpp
@@ -50,6 +51,7 @@ add_library(nxr_pipelines
   src/spatial_events_steps.cpp
   src/point_events.cpp
   src/runner.cpp
+  src/declared_outputs.cpp
   src/input.cpp
   src/eigen.cpp
   src/frames.cpp
@@ -332,11 +334,19 @@ if(NXR_NEURO_BUILD_TESTS)
   target_include_directories(test_node_traits PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_node_traits COMMAND test_node_traits)
   
+  add_executable(test_montage_nodes test/test_montage_nodes.cpp)
+  target_link_libraries(test_montage_nodes PRIVATE nxr_pipelines)
+  target_include_directories(test_montage_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_montage_nodes COMMAND test_montage_nodes)
   add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
   target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
   target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
   add_test(NAME test_connectome_nodes COMMAND test_connectome_nodes)
 
+  add_executable(test_runner_outputs test/test_runner_outputs.cpp)
+  target_link_libraries(test_runner_outputs PRIVATE nxr_pipelines)
+  target_include_directories(test_runner_outputs PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_runner_outputs COMMAND test_runner_outputs)
   add_executable(test_runner_execute test/test_runner_execute.cpp)
   target_link_libraries(test_runner_execute PRIVATE nxr_pipelines)
   target_include_directories(test_runner_execute PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)

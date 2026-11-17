@@ -256,6 +256,8 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
     }
     if (spec.kind != Kind::chunk && n.planned.halo != 0) fail("only a chunk node has a halo");
     if (n.planned.halo < 0) fail("a negative halo");
+    if (n.planned.align < 0) fail("a negative span grid");
+    c.align = std::max(c.align, n.planned.align);
     c.nodes.push_back(std::move(n));
   }
 

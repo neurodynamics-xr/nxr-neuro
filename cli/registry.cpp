@@ -90,6 +90,25 @@ void add_definition(Table& t, const std::string& noun, const std::string& defini
     generic(name);
     c.options.push_back(u);
   }
+  if (!d.presets.empty()) {                       // `--set NAME` chooses a preset: every one listed with the values it sets
+    std::string list;
+    for (const auto& [pn, pv] : d.presets.items()) {
+      std::string vals;
+      for (const auto& [k, x] : pv.items()) vals += (vals.empty() ? "" : ", ") + k + "=" + default_text(x);
+      list += std::string(list.empty() ? "" : "; ") + pn + " (" + vals + ")";
+    }
+    OptionDoc so;
+    so.name = "--set";
+    so.value = "PRESET|NAME=VALUE";
+    so.meaning = "A preset, one of: " + list + ". A parameter given as --NAME VALUE or --set NAME=VALUE wins over the preset.";
+    so.def = "none (the parameters' defaults)";
+    so.unit = "-";
+    so.show_default = true;
+    t.options["--set@" + path] = so;
+    OptionUse u;
+    u.name = "--set";
+    c.options.push_back(u);
+  }
   for (const auto& [k, v] : d.parameters.items()) {
     const nxr::io::Json doc = d.parameter_docs.contains(k) ? d.parameter_docs[k] : nxr::io::Json::object();
     OptionDoc o;
