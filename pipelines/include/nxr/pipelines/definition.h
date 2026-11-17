@@ -14,6 +14,19 @@
 // `parse` checks the STRUCTURE (sections, keys, every name defined before it is used, every `$name` a parameter, each step in the section its kind
 // allows); the arrows are checked against the subject's rows by the plan (runner.h).
 //
+// DEFINITION LANGUAGE ADDITIONS (docs/specs/2026-11-17-consolidation.md, sections 4 and 5):
+//   kind: chain            header: a FIELD CHAIN, a definition that makes one kind of pointwise field (no reduction, no detection); `run` alone it stores the field, composed into another it only
+//                          contributes its steps
+//   scope: group           header: the inputs marked `per_subject: true` are found in EACH member subject of a group; the others, and every output, are the group's default subject's
+//   plans: {band: $bands, spatial_scale: $spatial_scales}   header: one PLAN per combination of the lists' elements (the first outermost): each plan has `band` and `spatial_scale` as the element and the
+//                          lists neutralised (null), so each plan is its own cache key and its own stored result (pairs of a band and a spatial scale are several plans of one run)
+//   inputs: x: {field: any, where: {name: $field}, chain: $chain}   a stored field by name, OR the field chain `$chain` composed in (its steps inlined before the consumer's, nothing stored, its name,
+//                          parameters (`chain_parameters`) and sha256 in the provenance and the cache key); exactly one of the two is given
+//   inputs: o: {selection: any, where: {name: $over}, make: $make}  a stored selection by name, OR made in the run by a maker `$make: {node: select.*, in: {port: thing}, with: {...}, store: {type, on, name}}`
+//                          (get-or-create when `store:` is given: found by its maker key, never a refusal)
+//   `when: $name` (or `when: "!$name"`, or `when: {name: value}`) on a step or an output: it is part of the run only when the parameter is given (not null, false, empty or 0)
+//   parameter long form `{default, meaning, unit, chart, choices}`: a QUANTITY's unit and the chart it is in (consolidation spec, section 3); a bare level index is refused (only `chart: index` names one)
+//
 // REPETITION (phase 2c): an input or output entry with `for: {band: $bands, level: $space_levels}` and a block `- {for: {band: $bands}, do: [steps]}` are written out once per combination of the
 // lists' elements (the first variable outermost), `{band}` in a name and `$band` as a value standing for the element: the flat definition is what the runner plans (`expand`).
 #pragma once
@@ -34,10 +47,16 @@ struct StepUse {
   Json with = Json::object();                  // parameter → value (or "$name")
   std::vector<std::string> outs;
   std::string section;                         // before · do · after
+  Json when;                                   // `when:` as written (null: always); resolved by `expand`, never seen by the plan
 };
 
 struct Definition {
   std::string name, scope, description;
+  std::string kind = "pipeline";               // "pipeline" or "chain" (a field chain: `chain:` inputs of other definitions compose it)
+  std::vector<std::string> per_subject;        // scope group: the inputs found in each member subject
+  Json plans = Json::object();                 // header `plans:` (variable → `$list`): one plan per combination (see above); empty: one plan
+  Json chains = Json::array();                 // the chains composed in by `expand`: [{input, chain, parameters, sha256}] (provenance; the cache key holds it)
+  Json made = Json::array();                   // the makers composed in by `expand`: [{input, node, with, stored}] (provenance; the cache key holds it)
   std::string draw;                            // a header key `draw: <parameter>`: the run's stored nodes carry that parameter's value in their names (a null's draw: `seed`), so every draw is a node of its own
   int version = 1;
   Json inputs = Json::object(), parameters = Json::object(), outputs = Json::object();
@@ -56,7 +75,13 @@ struct Definition {
 
 /** a definition from its parsed YAML (`doc`); every structural fault is refused (invalid_argument) naming where */
 Definition parse(const Json& doc, const std::string& source = "", const std::string& text = "");
-/** the definition written out for a run's parameters: every `for:` (an input, an output, a block of steps) repeated over its lists' elements, the loop variables substituted ({band} in a name, $band as a value);
+/** the quantity replacing a retired level-index parameter name (docs/specs/2026-11-17-consolidation.md 3.5), or "" when the name is not one */
+std::string quantity_for_index_parameter(const std::string& name);
+/** whether a `when:` is true for the run's parameters */
+bool when_holds(const Json& when, const Json& params);
+/** the definition written out for a run's parameters: every `for:` (an input, an output, a block of steps) repeated over its lists' elements, the loop variables substituted ({band} in a name, $band as a value); every `when:` evaluated (a step or an
+ *  output whose condition fails is left out); every `chain:` input composed (the chain's inputs prefixed `<input>_`, its steps inlined before the consumer's, its output named as the input) and every
+ *  `make:` input made by a before-step (exactly one of the stored name and the chain/maker is given: both, or neither, are refused with the reason);
  *  a flat definition is returned as it is. Checked as any definition (structure, names defined before use). */
 Definition expand(const Definition& d, const Json& params);
 /** a definition by path (`*.yaml`) or by name among nxr-neuro's own (pipelines/definitions/, compiled in) */

@@ -41,7 +41,7 @@ struct Plan {
   std::vector<Planned> steps;
   nxr::graph::Graph graph;                     // the executor's form of the definition (its steps as uses of nodes, `with` written out); `execute` checks it again against the run's binding
   nxr::graph::Types types;                     // its inputs' types, from what was found
-  std::string preset;                          // the named parameter set the run was asked for (`--set NAME`): in the provenance and the cache key; empty: none
+  std::string preset;                          // the named parameter set the run was asked for (`--set NAME`): in the provenance only, never the cache key (a preset is only a named parameter set); empty: none
   std::int64_t align = 0;                      // the grid (samples) the span snaps to: the largest a node of the graph asks (Planned::align); 0: none
 
   std::vector<const Planned*> section(const std::string& sec) const;
@@ -51,6 +51,10 @@ struct Plan {
 
 /** every step's arrows checked on the inputs, in order; what each makes; the outputs' places: before any data is read */
 Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id);
+/** the parameter sets of a definition's `plans:` header: one when no list is given, else one per combination of the lists' elements (each plan's element set, its list neutralised) */
+std::vector<Json> plan_parameter_sets(const Definition& d, const Json& base);
+/** the parameters with every origin (a parameter declared `chart: origin`) resolved to a point {kind: start | clock | event, seconds, ...}: an event from the stored selection's member */
+Json resolve_origins(const Definition& d, const Json& params, const nxr::io::Database& db, const std::string& subject_id);
 /** the definition's parameters: its defaults, then the preset's values (`preset`, a name of the definition's `presets:`; an unknown one refused), then the caller's `--set NAME=VALUE`
  *  overrides (an unknown name refused). The caller's own value wins over the preset's. */
 Json parameters_of(const Definition& d, const Json& set, const std::string& preset = std::string());
@@ -69,8 +73,29 @@ struct RunOptions {
    *  vertex) x block_frames x 8 bytes per complex value alive at once, a few times over (the operator's product in double, the float copy). The steps BEFORE the tiling see the sensors only. 0: the whole chunk's frames. */
   std::int64_t block_frames = 256;
 };
-/** one planned run executed and its outputs stored (or found in the cache): {pipeline, anchor, stored: [{output, path, id, on}], run, hit} */
-Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan& P, const RunOptions& opt, const std::function<void(const Json&)>& progress = {});
+/** The per-subject inputs of a GROUP run (a definition of `scope: group`), stacked over the member subjects: for each `per_subject` selection input, the members' measurements (the measures the run's `measures`
+ *  parameter names, of the field the member's `per_subject` field input found, when there is one) as ONE array [subjects x measures x rows x members]; the ids of what each member's input found, in the caller's order. */
+struct GroupInputs {
+  std::vector<std::string> subjects;                              // the members' names, in the caller's order (the stack's first axis)
+  std::map<std::string, nxr::graph::Array> stacked;               // per_subject input → its values stacked over the subjects (meta: subjects, measures, rows, members, shape)
+  std::map<std::string, std::vector<std::string>> ids;            // per_subject input → each member's found id
+};
+/** one planned run executed and its outputs stored (or found in the cache): {pipeline, anchor, stored: [{output, path, id, on}], run, hit}. `group`: the stacked inputs of a group run (run_group), whose
+ *  outputs `sub` (the group's default subject) holds; null: a run of one subject. */
+Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan& P, const RunOptions& opt, const std::function<void(const Json&)>& progress = {}, const GroupInputs* group = nullptr);
+
+/** A member subject of a group run: its name and its open writers (a catalogue dataset: its package). */
+struct GroupMember {
+  std::string name;
+  nxr::io::DatasetWriter* ds = nullptr;
+  nxr::io::SubjectWriter* sub = nullptr;
+};
+/** A GROUP RUN (consolidation spec 5; replaces `pyramid reduce` and group.cpp's subject merge): `d` (scope group) with its `per_subject` inputs found in EACH member (exactly one match each, else refused naming
+ *  the subject), its other inputs and every output in the group's default subject (`group_ds`, `group_sub`). The members are stated by the caller (no default: none is refused). The members' inputs must lie on the
+ *  group tree's codes: the runner compares the grid each member's selection records (`template` or `grid_key` in its parameters) and refuses a mismatch before any data is read. The cache key lists every member's
+ *  input id; the provenance lists each subject's measurement id. `dry_run` plans only. One result per plan (`plans:` lists give several). */
+std::vector<Json> run_group(nxr::io::DatasetWriter& group_ds, nxr::io::SubjectWriter& group_sub, const std::vector<GroupMember>& members, const Definition& d, const Json& set, const RunOptions& opt,
+                            bool dry_run = false, const std::function<void(const Json&)>& progress = {});
 /** `d` on the subject: every run planned first (a refusal stops all before any data is read), then each executed; `dry_run` plans only */
 std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run = false,
                       const std::function<void(const Json&)>& progress = {});

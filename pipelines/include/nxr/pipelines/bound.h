@@ -55,6 +55,18 @@ class Bound {
   std::optional<std::string> glued_surface_id(const std::string& manifold_id) const;   // the id of `<name>_glued`, the surface of the same subject (one cortex, the bridge filled)
   std::vector<std::pair<double, double>> spans(const std::string& selection_id) const;   // a spans selection's members in order: start, stop (seconds)
   std::vector<nxr::io::Row> level_members(const std::string& ladder_id) const;  // a ladder's complete members in order: id, name, member_ordinal, params_json
+  // ── stored operators, charts and lines (consolidation spec 3, 7; rules 32, 25) ──
+  /** a stored operator found by its provenance key (the fused operator a node would otherwise cache statically, rule 32): the operator's row, its array read through `array_float`; nothing when it is not stored.
+   *  The key is the one an operator output's producer record carries (`producer.cache`, stamped by the runner like every stored node's): a node that needs a fused operator asks for it here, and a pipeline that makes it declares it as an `operator` output. */
+  std::optional<nxr::io::Row> stored_operator(const nxr::io::Json& key) const;
+  /** the charts (coordinate maps) of a manifold's space, as io records them: an array of {name, unit, transition, params, reference}; the node hands them to compute's `quantity` as data. Empty when none. */
+  nxr::io::Json charts(const std::string& manifold_id) const;
+  /** the dataset's Frequency line (Hz, charts linear and log10): the manifold of the default subject every band set is spans on; nothing when the dataset has none (a plan without a dataset: the subject's own) */
+  std::optional<nxr::io::Row> frequency_line() const;
+  /** the dataset's Eigenvalue line (1/m2, charts eigenvalue and wavelength): the default subject's, on which spatial band sets are spans; nothing when the dataset has none */
+  std::optional<nxr::io::Row> eigenvalue_line() const;
+  /** the glue map of a manifold that is a derived glued surface (made by `glue`): glued vertex → original vertex (-1: the bridge); nothing for any other manifold. Results on it are restricted back to the original (PI rule 33) */
+  std::optional<GlueMap> glue_of(const std::string& manifold_id) const;
   // ── the subject's stored constants (a run) ──
   std::optional<nxr::io::Row> manifold_named(const std::string& name) const;    // the run's subject's manifold by name
   SurfaceInput surface(const std::optional<std::string>& name = std::nullopt, bool as_stored = false) const;
@@ -87,6 +99,7 @@ class Bound {
 
  private:
   nxr::io::SubjectWriter& writer() const;
+  std::optional<nxr::io::Row> default_subject_manifold(const std::string& name) const;
   nxr::pipelines::task::Subject subject_;                       // the records, through io's task API (no SQL, no handle)
   nxr::io::SubjectWriter* sub_ = nullptr;
   nxr::io::DatasetWriter* ds_ = nullptr;

@@ -12,6 +12,7 @@
 #include <sstream>
 
 #include "nxr/io/errors.h"
+#include "nxr/io/hash.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/registry.h"
 
@@ -24,14 +25,14 @@ const Shipped kShipped[] = {
 #include "gen/definitions.inc"
 };
 
-const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
+const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw", "kind", "plans"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
 const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "statistic", "manifold"};
-const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
+const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
                                            // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
                                            "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors",
                                            "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator", "within", "by_operator",
-                                           "codes", "carry_origin", "optional"};   // codes: 2 = two codes a row (a sparse matrix over a selection's members) · carry_origin: the input whose origin and licence the result carries  // optional: the node makes it only when the data asks for it; a link may name alternatives `a|b`
+                                           "codes", "carry_origin", "optional", "get_or_create", "value_type", "components", "level"};   // get_or_create: a maker's selection stored by its maker key (found when there)  // codes: 2 = two codes a row (a sparse matrix over a selection's members) · carry_origin: the input whose origin and licence the result carries  // optional: the node makes it only when the data asks for it; a link may name alternatives `a|b`
 const std::regex kPresetName("^[a-z][a-z0-9_-]*$");
 const std::regex kName("^[a-z][a-z0-9_]*$");
 
@@ -43,8 +44,27 @@ std::vector<std::string> keys(const Json& o) { std::vector<std::string> k; for (
 // (docs/specs/2026-11-17-compute-and-run.md, 6.2). The long form is a table with a `default` key and no key but meaning, unit and choices; anything else is a default as written.
 bool long_form(const Json& v) {
   if (!v.is_object() || !v.contains("default")) return false;
-  for (const auto& [k, _] : v.items()) if (k != "default" && k != "meaning" && k != "unit" && k != "choices") return false;
+  for (const auto& [k, _] : v.items()) if (k != "default" && k != "meaning" && k != "unit" && k != "chart" && k != "choices") return false;
   return true;
+}
+// A BARE LEVEL INDEX is never a parameter (consolidation spec 3.1 rule 2): a selection parameter is a QUANTITY (a number with a unit in a named chart). The names the spec's table 3.5 retires, and a
+// parameter whose unit is "level" or "index", are refused unless the parameter says `chart: index` (the explicit diagnostics form), with what replaces them.
+const std::map<std::string, std::string> kIndexNames = {
+    {"depth", "finest: <tile diameter mm | tile area mm2 | parts per hemisphere>"}, {"atlas_depth", "finest: <tile diameter mm | tile area mm2 | parts per hemisphere>"},
+    {"lc_levels", "the Levi-Civita levels as tile diameters (mm)"}, {"level", "tile: <duration s>, band: <Hz>, or spatial_scale: <tile diameter mm | wavelength mm | eigenvalue 1/m2 | named scale>"},
+    {"space_level", "spatial_scale: <tile diameter mm | wavelength mm | eigenvalue 1/m2 | named scale>"}, {"space_levels", "spatial_scales: a list of quantities (tile diameter mm | wavelength mm | eigenvalue 1/m2 | named scale)"},
+    {"levels", "spatial_scales: a list of quantities"}, {"reference_level", "reference_scale: a quantity"}, {"time_level", "band: <Hz> that couples it, or tile: <duration s>"},
+    {"frame_level", "frames: band <Hz> with 2^s frames per tile, or frame: <duration s>"}, {"min_cells", "area: >= <mm2>"}};
+void refuse_bare_index(const std::string& name, const Json& doc, const std::string& where) {
+  const std::string chart = doc.contains("chart") && doc["chart"].is_string() ? doc["chart"].get<std::string>() : std::string();
+  if (doc.contains("chart") && (!doc["chart"].is_string() || chart.empty())) err(where, "parameters: " + name + ": chart is the name of a coordinate map of the space the quantity lies in (linear, log10, clock, eigenvalue, wavelength, area, diameter, parts, origin, index)");
+  if (chart == "index") return;
+  const auto it = kIndexNames.find(name);
+  const std::string unit = doc.contains("unit") && doc["unit"].is_string() ? doc["unit"].get<std::string>() : std::string();
+  if (it != kIndexNames.end() && chart.empty())
+    err(where, "parameters: '" + name + "' is a bare level index, which is never a parameter; state a quantity instead: " + it->second + " (`chart: index` names an index for diagnostics only)");
+  if ((unit == "level" || unit == "levels" || unit == "index") && chart.empty())
+    err(where, "parameters: " + name + ": a unit of 'level' or 'index' is a bare index; state the quantity (a duration, a band, a tile size, a wavelength), or `chart: index` for diagnostics");
 }
 // a parameter named as a command-line option the verb reserves cannot be one (the option would be ambiguous): refused when the definition is read
 const std::set<std::string> kReserved = {"dataset", "subject", "from", "to", "all", "replace", "dry_run", "json", "help", "quiet", "no_color", "human", "version", "chunks", "start", "stop"};
@@ -56,13 +76,14 @@ Json split_parameters(const Json& raw, Json& docs, const std::string& where) {
     Json doc = Json::object();
     if (long_form(v)) {
       defaults[k] = v["default"];
-      for (const char* key : {"meaning", "unit", "choices"}) if (v.contains(key)) doc[key] = v[key];
+      for (const char* key : {"meaning", "unit", "chart", "choices"}) if (v.contains(key)) doc[key] = v[key];
       if (doc.contains("meaning") && !doc["meaning"].is_string()) err(where, "parameters: " + k + ": meaning is a sentence");
       if (doc.contains("unit") && !doc["unit"].is_string()) err(where, "parameters: " + k + ": unit is text ('-' for none)");
       if (doc.contains("choices") && !doc["choices"].is_array()) err(where, "parameters: " + k + ": choices is a list");
     } else {
       defaults[k] = v;
     }
+    refuse_bare_index(k, doc, where);
     docs[k] = doc;
   }
   return defaults;
@@ -95,6 +116,61 @@ bool allowed(const std::string& sec, const std::string& kind) {
   return kind == "after" || kind == "array";
 }
 std::string home_of(const std::string& kind) { return kind == "setup" ? "before" : kind == "after" ? "after" : kind == "array" ? "before or after" : "chunks"; }
+
+bool has_for(const Json& v);
+// ── `when:` (a step or an output that is part of the run only when a parameter is given) ──
+bool truthy(const Json& v) {
+  if (v.is_null()) return false;
+  if (v.is_boolean()) return v.get<bool>();
+  if (v.is_number()) return v.get<double>() != 0;
+  if (v.is_string()) return !v.get<std::string>().empty() && v.get<std::string>() != "false";
+  return !v.empty();
+}
+bool has_key_deep(const Json& v, const char* key) {
+  if (v.is_object()) { if (v.contains(key)) return true; for (const auto& [k, x] : v.items()) { (void)k; if (has_key_deep(x, key)) return true; } }
+  else if (v.is_array()) for (const auto& x : v) if (has_key_deep(x, key)) return true;
+  return false;
+}
+// a definition is a TEMPLATE (written out for each run by `expand`) when it repeats (`for:`), has conditions (`when:`) or composes (`chain:` and `make:` inputs)
+bool needs_expansion(const Json& doc) {
+  if (has_for(doc)) return true;
+  if (doc.contains("steps") && has_key_deep(doc["steps"], "when")) return true;
+  if (doc.contains("outputs") && has_key_deep(doc["outputs"], "when")) return true;
+  if (doc.contains("inputs") && doc["inputs"].is_object())
+    for (const auto& [k, v] : doc["inputs"].items()) { (void)k; if (v.is_object() && (v.contains("chain") || v.contains("make"))) return true; }
+  return false;
+}
+// a value with its `$name`s replaced by the run's parameters (a name not declared is refused by the caller)
+Json with_params(const Json& v, const Json& params) {
+  if (v.is_string()) {
+    const std::string s = v.get<std::string>();
+    if (s.size() > 1 && s[0] == '$' && params.contains(s.substr(1))) return params[s.substr(1)];
+    return v;
+  }
+  if (v.is_array()) { Json a = Json::array(); for (const auto& x : v) a.push_back(with_params(x, params)); return a; }
+  if (v.is_object()) { Json o = Json::object(); for (const auto& [k, x] : v.items()) o[k] = with_params(x, params); return o; }
+  return v;
+}
+bool holds(const Json& when, const Json& params, const std::string& where) {
+  if (when.is_null()) return true;
+  if (when.is_string()) {
+    std::string s = when.get<std::string>();
+    const bool neg = !s.empty() && s[0] == '!';
+    if (neg) s = s.substr(1);
+    if (s.empty() || s[0] != '$') return truthy(when) != neg;           // a loop variable already replaced by its value (a string)
+    s = s.substr(1);
+    if (!params.contains(s)) err(where, "when: $" + s + " is not a parameter (declared: " + (params.empty() ? std::string("none") : join(keys(params))) + ")");
+    return truthy(params[s]) != neg;
+  }
+  if (when.is_object()) {
+    for (const auto& [k, v] : when.items()) {
+      if (!params.contains(k)) err(where, "when: " + k + " is not a parameter (declared: " + (params.empty() ? std::string("none") : join(keys(params))) + ")");
+      if (params[k] != v) return false;
+    }
+    return true;
+  }
+  return truthy(when);                                                    // a loop variable's value
+}
 
 // ── REPETITION (a definition repeated over the elements of list parameters; spec docs/specs/2026-11-13-cortical-events.md, phase 2c) ──
 // An input or output entry with `for: {var: $list, …}`, and a step block `{for: {var: $list, …}, do: [steps]}` (nested blocks allowed), are written out once per combination of the lists'
@@ -163,7 +239,13 @@ Json expand_steps(const Json& list, const Json& params, const VarMap& vars, cons
       if (el.size() != 2 || !el.contains("do") || !el["do"].is_array()) err(where, "a repeated block is {for: {…}, do: [steps]}");
       for (const VarMap& m : combinations(el["for"], params, vars, where)) for (const auto& x : expand_steps(el["do"], params, m, where)) out.push_back(x);
     } else {
-      out.push_back(substitute(el, vars));
+      Json one = substitute(el, vars);
+      if (one.is_object() && one.contains("when")) {                      // a step left out when its condition fails; the key never reaches the flat definition
+        const bool on = holds(one["when"], params, where);
+        one.erase("when");
+        if (!on) continue;
+      }
+      out.push_back(std::move(one));
     }
   }
   return out;
@@ -180,15 +262,30 @@ Json expand_entries(const Json& entries, const Json& params, const std::string& 
         if (out.contains(name)) err(where, "'" + name + "' is made twice by `for` (name it with the loop variables: {band}, {level})");
         out[name] = substitute(body, m);
       }
+    } else if (v.is_object() && v.contains("when")) {                      // an output left out when its condition fails
+      Json body = v;
+      const bool on = holds(v["when"], params, where + "." + k);
+      body.erase("when");
+      if (on) out[k] = body;
     } else {
       out[k] = v;
     }
   }
   return out;
 }
-Json expand_doc(const Json& doc, const Json& params, const std::string& where) {
+Json expand_doc(const Json& doc, const Json& params, const std::string& where, Json* compositions = nullptr) {
   Json d = doc;
   if (d.contains("inputs")) d["inputs"] = expand_entries(d["inputs"], params, where + ": inputs");
+  if (d.contains("inputs") && d["inputs"].is_object())                    // `chain:` and `make:` are composed by `expand` (on the parsed definition): taken out of the flat text, with their resolved values
+    for (auto it = d["inputs"].begin(); it != d["inputs"].end(); ++it) {
+      Json& v = it.value();
+      if (!v.is_object()) continue;
+      for (const char* key : {"chain", "make", "chain_parameters"})
+        if (v.contains(key)) {
+          if (compositions) { if (!compositions->contains(it.key())) (*compositions)[it.key()] = Json::object(); (*compositions)[it.key()][key] = with_params(v[key], params); }
+          v.erase(key);
+        }
+    }
   if (d.contains("outputs")) d["outputs"] = expand_entries(d["outputs"], params, where + ": outputs");
   if (d.contains("steps") && d["steps"].is_object()) {
     for (const char* sec : {"before", "after"}) if (d["steps"].contains(sec)) d["steps"][sec] = expand_steps(d["steps"][sec], params, {}, where + ": steps." + sec);
@@ -217,7 +314,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   Json parameter_docs = Json::object();
   Json doc = written;
   if (written.contains("parameters") && written["parameters"].is_object()) doc["parameters"] = split_parameters(written["parameters"], parameter_docs, where);
-  if (has_for(doc)) {                      // written out with the parameters' defaults to check it; `expand` writes it out again with a run's own
+  if (needs_expansion(doc)) {              // written out with the parameters' defaults to check it (`for:` repeated, `when:` decided; `chain:` and `make:` composed only at a run); `expand` writes it out again with a run's own
     const Json defaults = doc.contains("parameters") && doc["parameters"].is_object() ? doc["parameters"] : Json::object();
     Definition d = parse(expand_doc(doc, defaults, where), source, text);
     d.templ = doc;
@@ -243,10 +340,28 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   if (!version.is_number_integer() || version.get<std::int64_t>() < 1) err(where, "version " + version.dump() + ": a whole number from 1");
   d.version = version.get<int>();
   d.scope = doc.value("scope", Json("subject")).is_string() ? doc.value("scope", std::string("subject")) : std::string("?");
-  if (d.scope != "subject") err(where, "scope '" + d.scope + "': only 'subject' runs today (group pipelines are not built yet)");
+  if (d.scope != "subject" && d.scope != "group") err(where, "scope '" + d.scope + "': subject (one subject's rows) or group (inputs marked per_subject are found in each member subject; the outputs are the group's default subject's)");
+  {
+    const Json kind = doc.value("kind", Json("pipeline"));
+    if (!kind.is_string() || (kind != "pipeline" && kind != "chain")) err(where, "kind " + kind.dump() + ": pipeline (the default) or chain (a field chain: one kind of pointwise field, composed into other definitions by a `chain:` input)");
+    d.kind = kind.get<std::string>();
+    if (d.kind == "chain" && d.scope != "subject") err(where, "a chain is of one subject (scope subject)");
+  }
   if (doc.contains("draw")) {
     if (!doc["draw"].is_string()) err(where, "draw: the name of a parameter");
     d.draw = doc["draw"].get<std::string>();
+  }
+  if (doc.contains("plans")) {                                             // one plan per combination of the lists' elements: {parameter: $list}
+    const Json pl = doc["plans"];
+    const Json declared = doc.contains("parameters") && doc["parameters"].is_object() ? doc["parameters"] : Json::object();
+    if (!pl.is_object() || pl.empty()) err(where, "plans: a mapping of parameter → $list parameter, e.g. {band: $bands, spatial_scale: $spatial_scales}");
+    for (const auto& [var, src] : pl.items()) {
+      if (!declared.contains(var)) err(where, "plans: '" + var + "' is not a parameter (declared: " + (declared.empty() ? std::string("none") : join(keys(declared))) + ")");
+      if (!src.is_string() || src.get<std::string>().size() < 2 || src.get<std::string>()[0] != '$' || !declared.contains(src.get<std::string>().substr(1)))
+        err(where, "plans." + var + ": " + src.dump() + " must name a declared list parameter as $name");
+      if (src.get<std::string>().substr(1) == var) err(where, "plans." + var + ": the list parameter is another one than the element's (e.g. band and bands)");
+    }
+    d.plans = pl;
   }
   d.description = doc.contains("description") && doc["description"].is_string() ? doc["description"].get<std::string>() : "";
   const Json params = doc.contains("parameters") && !doc["parameters"].is_null() ? doc["parameters"] : Json::object();
@@ -293,6 +408,13 @@ Definition parse(const Json& written, const std::string& source, const std::stri
         if (std::find(defined.begin(), defined.end(), base) == defined.end())
           err(w, std::string(rel) + ": '" + r + "': relations start from an input declared BEFORE this one (" + (defined.empty() ? std::string("none") : join(defined)) + ")");
       }
+    if (spec.contains("per_subject")) {
+      if (!spec["per_subject"].is_boolean()) err(w, "per_subject: true or false");
+      if (spec["per_subject"].get<bool>()) {
+        if (d.scope != "group") err(w, "per_subject belongs to a definition of scope group (its inputs are found in each member subject)");
+        d.per_subject.push_back(k);
+      }
+    }
     if (spec.contains("where")) params_used(spec["where"], w, params);
     // `read: shape` (spec docs/specs/2026-11-17-surrogates.md, section 6): a streamed recording whose SHAPE only the run reads (its channels, rate, span, chunk grid), never a sample
     if (spec.contains("read") && !(spec["read"] == "samples" || (spec["read"] == "shape" && spec.contains("field"))))
@@ -302,6 +424,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   std::vector<std::string> anchors;
   for (const auto& [k, v] : inputs.items()) if (v.value("each", false)) anchors.push_back(k);
   if (anchors.size() > 1) err(where, "inputs: one input runs the pipeline per match (each: true), not " + join(anchors));
+  if (d.scope == "group" && d.per_subject.empty()) err(where, "scope group: at least one input is `per_subject: true` (found in each member subject)");
   d.inputs = inputs;
 
   const Json steps = doc.contains("steps") && !doc["steps"].is_null() ? doc["steps"] : Json::object();
@@ -358,7 +481,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
         if (known.count(o)) err(w, "out: '" + o + "' is already defined");
         known.insert(o);
       }
-      out.push_back(StepUse{st.name, ins, with, outs, sec});
+      out.push_back(StepUse{st.name, ins, with, outs, sec, Json()});
     }
   }
   bool writes_recording = false;                                           // a recording output (a filter's) leaves the loop block by block, written as it runs
@@ -385,15 +508,146 @@ Definition parse(const Json& written, const std::string& source, const std::stri
     if (kind == "manifold" && !spec.contains("type")) err(w, "a manifold output names its type: line, surface, product, points or complex");
     if (spec.contains("axes") && !spec["axes"].is_array()) err(w, "axes: a list of {name, on | line}");
   }
+  if (d.kind == "chain")                                                   // a chain makes ONE kind of pointwise field: no reduction, no detection, no selection or statistic
+    for (const auto& [k, spec] : outputs.items())
+      if (std::set<std::string>{"measurement", "spans", "statistic", "labelling", "selection", "operator", "manifold", "recording"}.count(spec.value("kind", std::string())))
+        err(where + ": outputs." + k, "a chain's output is a field (a field kind): it makes one kind of pointwise field; reductions (measurements), detections (spans, selections) and statistics belong to the definition that composes it");
   d.outputs = outputs;
   return d;
 }
 
+namespace {
+// ── COMPOSITION (consolidation spec 4.1 and 4.2): a `chain:` input inlines a field chain's steps; a `make:` input is made by a maker's before-step ──
+bool manifold_class_of(const Json& spec) { return !spec.contains("field") && !spec.contains("operator") && !spec.contains("selection") && !spec.contains("statistic"); }
+std::string renamed(const std::string& thing, const std::map<std::string, std::string>& to) {
+  const std::string base = thing.substr(0, thing.find('.'));
+  const auto it = to.find(base);
+  return it == to.end() ? thing : it->second + thing.substr(base.size());
+}
+Json rename_things(const Json& ins, const std::map<std::string, std::string>& to) {
+  Json o = Json::object();
+  for (const auto& [port, t] : ins.items()) o[port] = t.is_string() ? Json(renamed(t.get<std::string>(), to)) : t;
+  return o;
+}
+void compose_chain(Definition& e, const std::string& input, const Json& chain_name, const Json& chain_params, const std::string& where) {
+  if (!chain_name.is_string()) err(where, "chain: the name (or path) of a field chain");
+  const std::string w = where + ": inputs." + input + " (chain " + chain_name.get<std::string>() + ")";
+  const Definition C = load(chain_name.get<std::string>());
+  if (C.kind != "chain") err(w, "'" + C.name + "' is not a chain (its header has no `kind: chain`)");
+  Json cp = C.parameters;
+  if (!chain_params.is_null()) {
+    if (!chain_params.is_object()) err(w, "chain_parameters: a mapping of the chain's parameter → value");
+    for (const auto& [k, v] : chain_params.items()) {
+      if (!C.parameters.contains(k)) err(w, "chain_parameters: '" + k + "' is not a parameter of " + C.name + " (" + (C.parameters.empty() ? std::string("none") : join(keys(C.parameters))) + ")");
+      cp[k] = v;
+    }
+  }
+  for (const auto& [k, v] : cp.items())
+    if (v.is_string() && v.get<std::string>() == "required") err(w, "the chain's parameter `" + k + "` is required: give it in chain_parameters");
+  const Definition CE = expand(C, cp);
+  if (CE.outputs.empty()) err(w, "the chain makes no output");
+  const std::string out_name = CE.outputs.begin().key();
+  const std::string prefix = input + "_";
+  const bool each = e.inputs[input].value("each", false);
+  std::map<std::string, std::string> to;                                   // the chain's names → the consumer's
+  for (const auto& [k, v] : CE.inputs.items()) { (void)v; to[k] = prefix + k; }
+  for (const StepUse& u : CE.uses()) for (const auto& o : u.outs) to[o] = o == out_name ? input : prefix + o;
+  Json inputs = e.inputs;
+  inputs.erase(input);
+  bool chain_each = false;
+  for (const auto& [k, spec] : CE.inputs.items()) {
+    Json sp = spec;
+    for (const char* rel : {"from", "to", "is"}) if (sp.contains(rel) && sp[rel].is_string()) sp[rel] = renamed(sp[rel].get<std::string>(), to);
+    if (sp.contains("manifold") && !manifold_class_of(sp) && sp["manifold"].is_string()) sp["manifold"] = renamed(sp["manifold"].get<std::string>(), to);
+    if (sp.contains("where")) sp["where"] = with_params(sp["where"], cp);
+    if (sp.value("each", false)) { chain_each = true; if (!each) sp.erase("each"); }
+    if (inputs.contains(prefix + k)) err(w, "the chain's input " + prefix + k + " collides with an input of this definition");
+    inputs[prefix + k] = sp;
+  }
+  if (each && !chain_each) err(w, "this input is the one the definition runs once per match (each: true), and the chain has no such input");
+  auto convert = [&](const std::vector<StepUse>& from, std::vector<StepUse>& into) {
+    std::vector<StepUse> made;
+    for (const StepUse& u : from) {
+      StepUse n = u;
+      n.ins = rename_things(u.ins, to);
+      n.with = with_params(u.with, cp);
+      n.outs.clear();
+      for (const auto& o : u.outs) n.outs.push_back(to.at(o));
+      made.push_back(std::move(n));
+    }
+    into.insert(into.begin(), made.begin(), made.end());
+  };
+  convert(CE.before, e.before);
+  convert(CE.do_, e.do_);
+  convert(CE.after, e.after);
+  e.inputs = inputs;
+  if (e.over && *e.over == input) {
+    if (!CE.over) err(w, "the definition's chunk loop walks this input, and the chain streams no recording");
+    e.over = prefix + *CE.over;
+  }
+  e.chains.push_back(Json{{"input", input}, {"chain", C.name}, {"version", C.version}, {"parameters", cp}, {"sha256", nxr::io::sha256_hex(C.text)}});
+}
+void compose_make(Definition& e, const std::string& input, const Json& make, const std::string& where) {
+  const std::string w = where + ": inputs." + input + " (make)";
+  if (!make.is_object() || !make.contains("node") || !make["node"].is_string()) err(w, "make: {node: select.*, in: {port: thing}, with: {parameter: value}, store: {type, on, name}}");
+  for (const auto& [k, v] : make.items()) { (void)v; if (k != "node" && k != "in" && k != "with" && k != "store") err(w, "make: unknown key '" + k + "' (node, in, with, store)"); }
+  const StepSpec& st = step(make["node"].get<std::string>());
+  const Json ins = make.contains("in") ? make["in"] : Json::object(), with = make.contains("with") ? make["with"] : Json::object();
+  if (!ins.is_object() || !with.is_object()) err(w, "make: in and with are mappings");
+  for (const auto& [port, thing] : ins.items()) {
+    if (std::find(st.inputs.begin(), st.inputs.end(), port) == st.inputs.end()) err(w, "make.in: '" + port + "' is not one of " + st.name + "'s ports (" + join(st.inputs) + ")");
+    if (!thing.is_string() || !e.inputs.contains(thing.get<std::string>())) err(w, "make.in." + port + ": " + thing.dump() + " is not an input of this definition (a maker reads manifolds and stored selections the definition names)");
+  }
+  for (const auto& p : st.inputs)
+    if (!ins.contains(p) && std::find(st.optional.begin(), st.optional.end(), p) == st.optional.end()) err(w, "make.in: its port " + p + " is not given");
+  for (const auto& [p, v] : with.items()) { (void)v; if (!st.parameters.contains(p)) err(w, "make.with: '" + p + "' is not one of " + st.name + "'s parameters"); }
+  if (st.outputs.size() != 1) err(w, "a maker makes one selection (" + st.name + " makes " + std::to_string(st.outputs.size()) + ")");
+  e.inputs.erase(input);
+  e.before.push_back(StepUse{st.name, ins, with, {input}, "before", Json()});
+  Json stored = Json();
+  if (make.contains("store")) {                                            // the maker's selection stored once: found by its maker key, never refused (get-or-create)
+    stored = make["store"];
+    if (!stored.is_object() || !stored.contains("type") || !stored.contains("on")) err(w, "make.store: {type: <selection type>, on: <link>, name: <template>}");
+    Json o = Json{{"kind", "selection"}, {"type", stored["type"]}, {"on", stored["on"]}, {"get_or_create", true}};
+    if (stored.contains("name")) o["name"] = stored["name"];
+    if (e.outputs.contains(input)) err(w, "an output named '" + input + "' exists already; the stored selection takes its name");
+    e.outputs[input] = o;
+  }
+  e.made.push_back(Json{{"input", input}, {"node", st.name}, {"in", ins}, {"with", with}, {"stored", !stored.is_null()}});
+}
+void compose(Definition& e, const Json& comps, const Json& params, const std::string& where) {
+  for (const auto& [input, c] : comps.items()) {
+    if (!e.inputs.contains(input)) err(where, "inputs." + input + ": composed, but not an input");
+    const Json spec = e.inputs[input];
+    const Json w = spec.contains("where") ? with_params(spec["where"], params) : Json::object();
+    const bool named = w.is_object() && w.contains("name") && truthy(w["name"]);
+    const char* what = c.contains("chain") ? "chain" : "make";
+    const bool composed = truthy(c[what]);
+    if (named && composed) err(where + ": inputs." + input, std::string("give exactly one of the stored name and the ") + what + ", not both");
+    if (!named && !composed) err(where + ": inputs." + input, std::string("give exactly one of the stored name (where.name) and the ") + what + "; neither was given");
+    if (!composed) continue;
+    if (c.contains("chain")) compose_chain(e, input, c["chain"], c.contains("chain_parameters") ? c["chain_parameters"] : Json(), where);
+    else compose_make(e, input, c["make"], where);
+  }
+}
+}  // namespace
+
+bool when_holds(const Json& when, const Json& params) { return holds(when, params, "when"); }
+
+std::string quantity_for_index_parameter(const std::string& name) {
+  const auto it = kIndexNames.find(name);
+  return it == kIndexNames.end() ? std::string() : it->second;
+}
+
 Definition expand(const Definition& d, const Json& params) {
   if (d.templ.is_null()) return d;
-  Definition e = parse(expand_doc(d.templ, params, d.source.empty() ? "pipeline" : d.source), d.source, d.text);
+  const std::string where = d.source.empty() ? "pipeline" : d.source;
+  Json comps = Json::object();
+  Definition e = parse(expand_doc(d.templ, params, where, &comps), d.source, d.text);
   e.templ = d.templ;
   e.draw = d.draw;
+  e.parameter_docs = d.parameter_docs;
+  compose(e, comps, params, where);
   return e;
 }
 
