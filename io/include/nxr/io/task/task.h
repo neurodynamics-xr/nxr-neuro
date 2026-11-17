@@ -19,6 +19,8 @@
 
 #include "nxr/io/finder.h"
 #include "nxr/io/json_text.h"
+#include "nxr/io/measurement_query.h"
+#include "nxr/io/selection_store.h"
 
 namespace nxr::io {
 class SubjectWriter;
@@ -345,6 +347,12 @@ class Subject {
   // the recorded digests of the keys under `prefix` (a package records them; a database that does not gives none), by key
   std::vector<KeyDigest> key_digests(const std::string& prefix) const;
   std::vector<Span> spans(const Node& selection) const;
+  // a stored set per element as it is read: each element's member number, each member's label and the lookup (a writer's subject only; Error otherwise)
+  selection::ElementMembers element_members(const std::string& selection_id) const;
+  // the measurement QUERY (measurement_query.h: filters, roll-ups through a grid's hierarchy, to the whole, across subjects; each measure merged by its registry rule, in SQL): the rows, one a member
+  Json query_members(const query::Query& q) const;
+  // scalar measurement rows written as they are ({selection_id, code, measure, value, weight?}: io's write_measurements), for a caller that holds values already (a writer's subject only)
+  std::int64_t write_member_rows(const Json& rows, const std::string& computed_by) const;
   Geometry geometry(const std::string& manifold_id) const;
   // The model's description of a found node (its manifolds, value type, time line and rate, unit): io's finder::Value.
   finder::Value describe(const Node& n) const;

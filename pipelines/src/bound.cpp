@@ -96,7 +96,24 @@ std::optional<io::Row> Bound::manifold_named(const std::string& name) const {
   w.name = name;
   return row_or_none(subject_.find(w));
 }
-std::optional<io::Row> Bound::stored_operator(const io::Json& key) const { return row_or_none(subject_.cached(task::Cls::operator_, key, std::nullopt)); }
+std::optional<StoredOperator> Bound::stored_operator(const io::Json& key) const {
+  if (!sub_) return std::nullopt;                                          // a plan reads no stored array
+  const auto node = subject_.stored_operator(key);
+  if (!node || !node->path) return std::nullopt;
+  std::vector<std::int64_t> shape;
+  const std::vector<double> v = array_double(*node->path, &shape);
+  if (shape.size() != 2 || static_cast<std::int64_t>(v.size()) != shape[0] * shape[1])
+    throw io::Error(io::code::invalid_argument, "the stored operator " + node->name + " is not a matrix [rows x cols]");
+  StoredOperator out;
+  out.matrix = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(v.data(), shape[0], shape[1]);
+  out.provenance = node->producer;
+  return out;
+}
+void Bound::offer_operator(MadeOperator op) const {
+  if (!op.matrix) return;
+  for (const MadeOperator& have : *offered_) if (have.key == op.key) return;
+  offered_->push_back(std::move(op));
+}
 io::Json Bound::charts(const std::string& manifold_id) const { return subject_.charts(manifold_id); }
 std::optional<io::Row> Bound::default_subject_manifold(const std::string& name) const {
   if (ds_)

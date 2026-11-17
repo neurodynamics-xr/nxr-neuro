@@ -1,5 +1,5 @@
 // nxr-pipelines — MEASUREMENTS of stored Fields over a PARTITION: each member of a labelling (a `set` Selection with one code per vertex and a
-// dictionary, D48: Desikan-Killiany, a level of a tile ladder, D85) gets the Field's measures (nxr/partition.h, the Studio's measureOverPartition), written
+// dictionary, D48: Desikan-Killiany, a level of a tile ladder, D85) gets the Field's measures (nxr/measurement/reduce.h, the Studio's measureOverPartition), written
 // as the Studio writes them (`selection_measurement`, D68: selection = the labelling, code = the member, of_field_id = the Field, `weight` = the member's
 // weight so a mean rolls up exactly). How they were made is a RECIPE (the Studio's recipes, docs/recipes.md): an entry of the dataset's `recipes`
 // dictionary, kind `reduction`, carrying every choice; every row names it in `computed_by` (`recipe <name>@<version> · nxr-neuro <version>`).
@@ -22,17 +22,8 @@
 
 namespace nxr::pipelines {
 
-struct MeasureComputeOptions {
-  std::string labelling;                     // the partition, by name: a `set` Selection with per-vertex codes and a dictionary (a ladder's level is one)
-  std::string fields;                        // an ECMAScript regex matched against the whole name of each Field on the labelling's surface (a scalar per vertex)
-  std::string weight;                        // REQUIRED: none · barycentric · voronoi (no default: it changes the numbers)
-  std::vector<std::string> measures;         // default: mean, max, min, mean_square, abs_max (the Studio's); also sum
-  std::optional<std::string> recipe;         // the recipe's name (default `partition-<weight>`); a new version when its choices change
-  bool replace = false;                      // another recipe's rows for the same (labelling, Field, measure) are replaced
-  bool gradient = false;                     // also the GRADIENT of each scalar Field (nxr measure.vectors.vertex_gradient: the area-weighted face gradients projected
-                                             // on the vertex's tangent plane), measured as the registry's gradient_* sums in the canonical frames (needs `frames compute`)
-};
-struct MeasureComputeResult { nxr::io::Json info; };
+// MEASURING a Field over a labelling is the definition `measure` (pipelines/definitions/measure.yaml; run_shipped.h): the registry measures reduced over the members, the weight stated.
+
 
 
 // MEASUREMENT OVER TIME is the definition `measure_over_time` (pipelines/definitions/, the step `window_measures` of steps_measure.cpp): a time-resolved field measured over the windows of a time partition.

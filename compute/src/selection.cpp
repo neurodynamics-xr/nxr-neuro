@@ -203,7 +203,7 @@ std::int64_t count(const Selection& s) {
   if (s.type != Type::set) return 1;
   if (!s.factors.empty()) return checked_product(s.radices);
   if (s.tiling) return s.tiling->count;
-  if (s.grid) return s.grid->kind == Grid::Kind::elements ? s.grid->size : (s.grid->slots << s.grid->depth);
+  if (s.grid) return s.grid->kind == Grid::Kind::dyadic ? (s.grid->slots << s.grid->depth) : s.grid->size;   // elements, and a time grid's samples (its finest level)
   if (!s.member_codes.empty() || !s.member_of.empty()) return static_cast<std::int64_t>(s.member_codes.size());
   return static_cast<std::int64_t>(s.members.size());
 }

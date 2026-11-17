@@ -12,8 +12,10 @@
 #pragma once
 
 #include "nxr/io/measures.h"
+#include <Eigen/Dense>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <stdexcept>
 #include <string>
@@ -40,6 +42,20 @@ struct MissingEigenmodes : std::runtime_error {
   MissingEigenmodes(std::string s, SpatialBandPlan p) : std::runtime_error("the eigenmodes of " + s + " are not stored"), surface(std::move(s)), plan(std::move(p)) {}
 };
 
+/** a stored operator read back: its matrix [rows x cols] (float64) and the provenance it was stored with */
+struct StoredOperator {
+  Eigen::MatrixXd matrix;
+  nxr::io::Json provenance;
+};
+/** an operator a node BUILT and offers to be stored (rule 32): found next time by `key` (the operator's own provenance: the rows of its inputs, the request, the band's resolved choice), never rebuilt and
+ *  never held in a process-wide cache. The runner stores each offered operator through io with the key and the provenance, in the run's one unit. `from_manifold_id`/`to_manifold_id`: the operator's ends. */
+struct MadeOperator {
+  nxr::io::Json key;
+  std::shared_ptr<const Eigen::MatrixXd> matrix;
+  nxr::io::Json provenance;
+  std::string name, kind = "fused kernel", from_manifold_id, to_manifold_id, description;
+};
+
 class Bound {
  public:
   /** a binding that knows the subject's records only (a plan: before any run, nothing stored is read) */
@@ -58,7 +74,11 @@ class Bound {
   // ── stored operators, charts and lines (consolidation spec 3, 7; rules 32, 25) ──
   /** a stored operator found by its provenance key (the fused operator a node would otherwise cache statically, rule 32): the operator's row, its array read through `array_float`; nothing when it is not stored.
    *  The key is the one an operator output's producer record carries (`producer.cache`, stamped by the runner like every stored node's): a node that needs a fused operator asks for it here, and a pipeline that makes it declares it as an `operator` output. */
-  std::optional<nxr::io::Row> stored_operator(const nxr::io::Json& key) const;
+  std::optional<StoredOperator> stored_operator(const nxr::io::Json& key) const;
+  /** a node offers an operator it built (rule 32); the runner stores it. Offered twice under one key is kept once. */
+  void offer_operator(MadeOperator op) const;
+  /** what nodes offered in this run, in order (the runner drains it into the unit) */
+  const std::vector<MadeOperator>& offered_operators() const { return *offered_; }
   /** the charts (coordinate maps) of a manifold's space, as io records them: an array of {name, unit, transition, params, reference}; the node hands them to compute's `quantity` as data. Empty when none. */
   nxr::io::Json charts(const std::string& manifold_id) const;
   /** the dataset's Frequency line (Hz, charts linear and log10): the manifold of the default subject every band set is spans on; nothing when the dataset has none (a plan without a dataset: the subject's own) */
@@ -104,6 +124,7 @@ class Bound {
   nxr::io::SubjectWriter* sub_ = nullptr;
   nxr::io::DatasetWriter* ds_ = nullptr;
   std::function<void(const nxr::io::Json&)> say_;
+  std::shared_ptr<std::vector<MadeOperator>> offered_ = std::make_shared<std::vector<MadeOperator>>();   // shared by the copies of this binding, so what a node offers reaches the runner
 };
 
 }  // namespace nxr::pipelines::graph

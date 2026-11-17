@@ -26,7 +26,7 @@
 #include "nxr/io/surface.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/measure.h"
-#include "nxr/pipelines/statistics.h"
+#include "nxr/pipelines/run_shipped.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -118,12 +118,8 @@ void run_chains(DatasetWriter& ds, SubjectWriter& sub) {
   fo.filter.lowerEdge = 8; fo.filter.upperEdge = 12;
   filter_compute(ds, sub, fo);
   CHECK(!nxrtest::run_psd(ds, sub, "rest_bandpass").hit);
-  MeasureComputeOptions mo;                                              // a measurement over a partition
-  mo.labelling = "parcels"; mo.fields = "rest_kern_psd_alpha"; mo.weight = "none"; mo.measures = {"mean", "max"};
-  measure_compute(ds, sub, mo);
-  StatisticComputeOptions st;                                            // its statistic across the members
-  st.over = "parcels"; st.of = "rest_kern_psd_alpha"; st.measure = "mean"; st.summaries = {"median", "mean"}; st.combine = "pool";
-  statistic_compute(ds, sub, st);
+  nxr::pipelines::run_shipped(ds, sub, "measure", Json{{"field", "rest_kern_psd_alpha"}, {"over", "parcels"}, {"weight", "none"}, {"measures", Json::array({"mean", "max"})}}, false);   // a measurement over a partition
+  nxr::pipelines::run_shipped(ds, sub, "summarize", Json{{"over", "parcels"}, {"of", "rest_kern_psd_alpha"}, {"measure", "mean"}, {"summaries", Json::array({"median", "mean"})}, {"combine", "pool"}}, false);   // its statistic across the members
 }
 
 // every key the subject's store holds, with the bytes of its chunks (zarr.json texts carry ids: only their presence is compared)

@@ -93,6 +93,7 @@ One command, verb first: `nxr-neuro <verb> <what> [options]`.
 | `list datasets\|subjects\|recordings\|kernels\|results\|pipelines` | what exists |
 | `show dataset\|subject`, `read`, `query`, `export` | one thing in detail, stored arrays, measurements, a table for statistics |
 | `import <what>` | from a Brainstorm protocol |
+| `migrate measurements` | bring a dataset made before schema 53 to one measurement table (in place, resumable, `--dry-run`; the old statistics are kept) |
 | `create`, `delete`, `compact`, `recover`, `add` | a dataset's and a subject's housekeeping (a group's reduce is `run roll_up`) |
 
 A dataset is a folder, named by its path with `--dataset <folder>`, and subjects `--subject <id>`. Results are written into the dataset with their provenance and a cache key, so a repeated

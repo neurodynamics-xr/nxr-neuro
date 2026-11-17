@@ -62,7 +62,7 @@ pipeline, and do not extend an existing one: it is being converted into a defini
 
 ## Quantities, never level indices (inside the paramount architecture)
 
-Every selection parameter of a definition, preset or command is a QUANTITY: a number (or range) with a unit in a named chart of the space it lies in (`8-12 Hz`,
+Every selection parameter of a definition, preset or command is a QUANTITY: a number (or range, open-ended as `>=0.4 s`) with a unit in a named chart of the space it lies in (`8-12 Hz`,
 `2-5 s`, `20 mm`, `wavelength 40 mm`, `parts 16`, `area 100-400 mm2`). A definition declares `unit` and `chart` for such a parameter; a bare level index is refused outside
 the explicit `index` chart (`level index:5`), which is for diagnostics and tests. Grid levels are resolved from the quantity in closed form (`level_of_duration`,
 `level_of_diameter`, `level_of_area`, `level_of_wavelength`, `level_of_parts`, `time_level_of_band`), and the run records the stated quantity, its chart, the resolved level
@@ -173,7 +173,7 @@ not signed or notarised yet; that needs an Apple developer account and is not do
   ask the maintainers first.
 
 - **Branch and PR:** work on a branch in this checkout (`feat/…`, `fix/…`, `docs/…`) and merge through a pull request on `neurodynamics-xr/nxr-neuro`.
-- **Commit messages:** one sentence on what changed and why, prefixed by the area when it helps (`opticalflow: …`).
+- **Commit messages:** one sentence on what changed and why, prefixed by the area when it helps (`flow: …`).
 - **Never** force-push, leave work uncommitted at the end of a run, or commit data, build outputs or `Testing/`.
 - **`compute/` and `io/` came in by `git subtree`** with their history (`git log -- compute/src` reaches the old repos). The old `nxr-compute` and `nxr-io`
   repos are frozen: make changes here. Bringing in nxr-compute's open branch is described in `docs/reference.md` (*The old repositories*).

@@ -8,6 +8,8 @@
 #include "nxr/io/fibers.h"
 #include "nxr/io/finder.h"
 #include "nxr/io/layout.h"
+#include "nxr/io/selection_store.h"
+#include "nxr/pipelines/input.h"
 #include "nxr/io/hash.h"
 #include "nxr/pipelines/bound.h"
 
@@ -19,6 +21,52 @@ namespace ng = nxr::graph;
 
 [[noreturn]] void bad(const std::string& output, const std::string& what) { refuse("outputs." + output + ": " + what); }
 
+// THE GLUED CORTEX (PI rule 33): the glued surface is the computational manifold, the imported two-hemisphere mesh the manifold of record. A SELECTION made on the glued surface, and a MEASUREMENT over one, are
+// restricted back to the original like a Field: the member of each original vertex is its glued counterpart's, the bridge's elements are dropped (the member of an original vertex the glue left out stays -1).
+std::vector<std::int32_t> restrict_members(const std::vector<std::int32_t>& on_glued, const GlueMap& g, std::int64_t n_original) {
+  std::vector<std::int32_t> out(static_cast<std::size_t>(n_original), -1);
+  for (std::int64_t i = 0; i < g.n_glued() && i < static_cast<std::int64_t>(on_glued.size()); ++i) {
+    const std::int32_t o = g.original_of[static_cast<std::size_t>(i)];
+    if (o >= 0 && o < n_original) out[static_cast<std::size_t>(o)] = on_glued[static_cast<std::size_t>(i)];
+  }
+  return out;
+}
+Json restricted_record(const GlueMap& g) { return Json{{"glued", g.glued_id}, {"original", g.original_id}, {"dropped", "the bridge"}}; }
+std::int64_t original_vertices(nxr::io::SubjectWriter& sub, const GlueMap& g, const std::string& o) {
+  const auto orig = task::Subject::of(sub).by_id(task::Cls::manifold, g.original_id);
+  if (!orig || !orig->n_vertices) bad(o, "the original surface of the glued one it lies on (" + g.original_id + ") has no vertex count");
+  return *orig->n_vertices;
+}
+// the selection a measurement is over, ON THE ORIGINAL: itself when it does not lie on a glued surface (or is not per element); else its twin on the original (get-or-create by name,
+// `<name> on <original>`), the member of each original vertex carried over, the dictionary shared
+std::string selection_on_original(nxr::io::SubjectWriter& sub, const std::string& selection_id, const std::string& output) {
+  const task::Subject ts = task::Subject::of(sub);
+  const auto node = ts.by_id(task::Cls::selection, selection_id);
+  if (!node || !node->manifold_id) return selection_id;
+  const auto g = Bound(sub, nullptr).glue_of(*node->manifold_id);
+  if (!g) return selection_id;
+  const std::int64_t n_original = original_vertices(sub, *g, output);
+  const auto orig = ts.by_id(task::Cls::manifold, g->original_id);
+  const std::string name = node->name + " on " + orig->name;
+  task::Want w{.cls = task::Cls::selection};
+  w.name = name; w.manifold_id = g->original_id;
+  if (const auto have = ts.find(w)) return have->id;
+  if (!node->type || *node->type != "set" || !node->array_path)
+    bad(output, "the selection " + node->name + " lies on the glued surface and is not a set per element: it cannot be restricted back to the original (make it on the original, or as a set per element)");
+  const nxr::io::selection::ElementMembers em = ts.element_members(selection_id);
+  nxr::io::selection::Description d;
+  d.type = nxr::io::selection::Type::set;
+  d.member_of = restrict_members(em.member_of, *g, n_original);
+  d.member_codes = em.member_codes;
+  nxr::io::selection::Placement at;
+  at.name = name;
+  at.path = ts.node_path(g->original_id, name);
+  at.manifold_id = g->original_id;
+  at.cell = "0";
+  if (node->dictionary_id) at.dictionary_id = *node->dictionary_id;
+  at.params = Json{{"restricted_from", restricted_record(*g)}, {"of_selection", selection_id}};
+  return nxr::io::selection::save(sub, d, at).id;
+}
 std::string kind_of(const Json& spec) { return spec.value("kind", std::string()); }
 
 // `{input}` -> the found input's name (or a parameter's value), `$parameter` -> its value (the longest parameter name that fits); twice, so that a parameter whose value holds `{input}` is filled
@@ -242,7 +290,7 @@ std::string declared_name(const Plan& P, const std::string& o) {
   return nxr::io::safe_name(P.definition.name + "." + o + (a && P.found.at(*a).row ? "." + text(*P.found.at(*a).row, "name") : std::string()));
 }
 
-void check_declared(const Plan& P, const std::string& o, const nxr::io::Database& db) {
+void check_declared(const Plan& P, const std::string& o) {
   const Json& spec = P.definition.outputs[o];
   const std::string k = kind_of(spec);
   const Value& v = P.values.at(o);
@@ -304,7 +352,6 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
     }
     if ((t == "surface" || t == "points" || t == "complex") && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
   }
-  (void)db;
 }
 
 std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, const std::string& o, nxr::io::SubjectWriter& sub) {
@@ -504,6 +551,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (made.count(over)) { m.selection_id = made.at(over); over_name = declared_name(P, over); }
     else if (P.found.count(over) && P.found.at(over).row) { m.selection_id = text(*P.found.at(over).row, "id"); over_name = text(*P.found.at(over).row, "name"); }
     else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
+    m.selection_id = selection_on_original(sub, m.selection_id, o);          // the glued cortex (PI rule 33): a selection on it is read on the original
     const task::Subject ts = task::Subject::of(sub);
     m.pair_measure = name;
     m.pair_unit = spec.value("unit", std::string());
@@ -530,6 +578,12 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (made.count(over)) { m.selection_id = made.at(over); over_name = declared_name(P, over); }
     else if (P.found.count(over) && P.found.at(over).row) { m.selection_id = text(*P.found.at(over).row, "id"); over_name = text(*P.found.at(over).row, "name"); }
     else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
+    // THE GLUED CORTEX (PI rule 33): a measurement over a selection that lies on the glued surface is over its twin on the original (the selection restricted back), its provenance saying so
+    if (const std::string back = selection_on_original(sub, m.selection_id, o); back != m.selection_id) {
+      if (!m.attributes.is_object()) m.attributes = Json::object();
+      m.attributes["restricted_from"] = Json{{"selection", m.selection_id}};
+      m.selection_id = back;
+    }
     bool own = false;                                                       // the rows are not of a field stored in this run: a found field's, or the members' own
     if (spec.contains("of")) {
       const std::string of = spec["of"].get<std::string>();
@@ -702,6 +756,28 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     else if (t == "spans") for (const auto& x : d.value("spans", Json::array())) { task::Span sp; sp.start = x["start"].get<double>(); sp.stop = x["stop"].get<double>(); if (x.contains("code")) sp.code = x["code"].get<std::int64_t>(); sp.ordinal = static_cast<std::int64_t>(s.spans.size()); s.spans.push_back(sp); }
     else if (!d.contains("tiling")) bad(o, "its node gives no tiling (describe.tiling)");
     else s.tiling = tiling_of(P, d["tiling"], spec["on"].get<std::string>(), o);
+    // THE GLUED CORTEX (PI rule 33): a selection made on the derived glued surface is stored on the ORIGINAL (the manifold of record), its elements restricted back through the glue map (the bridge dropped)
+    if (const auto g = Bound(sub, nullptr).glue_of(s.manifold_id)) {
+      const std::int64_t n_original = original_vertices(sub, *g, o);
+      bool restricted = false;
+      if ((t == "partition" || t == "set") && static_cast<std::int64_t>(s.member_of.size()) == g->n_glued()) { s.member_of = restrict_members(s.member_of, *g, n_original); restricted = true; }
+      else if (t == "indices") {
+        std::vector<std::int64_t> kept;
+        for (const std::int64_t c : s.codes) if (c >= 0 && c < g->n_glued() && g->original_of[static_cast<std::size_t>(c)] >= 0) kept.push_back(g->original_of[static_cast<std::size_t>(c)]);
+        s.codes = std::move(kept); restricted = true;
+      } else if (t == "grid" && s.grid) {
+        for (task::GridLevelOut& L : s.grid->levels) if (static_cast<std::int64_t>(L.codes.size()) == g->n_glued()) { L.codes = restrict_members(L.codes, *g, n_original); restricted = true; }
+      } else if (t == "product" || t == "spans" || t == "tiling" || t == "ladder" || t == "cells") {
+        // not per vertex: nothing to restrict (a product of grids names its factors; spans lie on a line)
+      } else {
+        bad(o, "a " + t + " selection on the glued surface cannot be restricted back to the original (the bridge has no counterpart); make it on the original");
+      }
+      if (restricted) {
+        s.manifold_id = g->original_id;
+        if (!s.params.is_object()) s.params = Json::object();
+        s.params["restricted_from"] = restricted_record(*g);
+      }
+    }
     const std::string path = unit.path_of(s);
     // A MAKER'S SELECTION, GET-OR-CREATE (`get_or_create: true`: a `make:` input stored): found by its maker key (the maker's name, its resolved parameters and its inputs' ids) it is reused; another one at the
     // same path is another job's, refused (or replaced with --replace). The key is in the selection's parameters.

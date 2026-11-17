@@ -27,7 +27,7 @@ void replace_all(std::string& s, const std::string& from, const std::string& to)
 }
 
 bool known_chart(const std::string& w) {
-  static const char* names[] = {"linear", "log10", "clock", "eigenvalue", "wavelength", "area", "diameter", "parts", "index"};
+  static const char* names[] = {"linear", "log10", "clock", "eigenvalue", "wavelength", "area", "diameter", "parts", "index", "cycles"};
   for (const char* n : names) if (w == n) return true;
   return false;
 }
@@ -40,6 +40,7 @@ const std::map<std::string, UnitInfo>& units() {
       {"s", {"time", 1}}, {"ms", {"time", 1e-3}}, {"us", {"time", 1e-6}},
       {"Hz", {"frequency", 1}}, {"kHz", {"frequency", 1e3}},
       {"m^2", {"area", 1}}, {"cm^2", {"area", 1e-4}}, {"mm^2", {"area", 1e-6}},
+      {"cycles", {"cycles", 1}},   // cycles of a band's centre: a duration in the band's own chart, resolved against the band by the node that reads it
       {"1/m^2", {"eigenvalue", 1}}, {"1/cm^2", {"eigenvalue", 1e4}}, {"1/mm^2", {"eigenvalue", 1e6}},
   };
   return u;
@@ -54,6 +55,7 @@ std::string chart_of_unit(const std::string& unit) {
   if (d == "time") return "clock";
   if (d == "length") return "diameter";
   if (d == "area") return "area";
+  if (d == "cycles") return "cycles";
   return "eigenvalue";
 }
 
