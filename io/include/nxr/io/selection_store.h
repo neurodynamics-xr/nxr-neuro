@@ -70,8 +70,9 @@ struct Loaded {
 /** SAVE a selection: its row, its detail rows (extents, span members, member selections), its array (indices, member numbers) and its dictionary. Inside the caller's composition.
  *  A set stores as (selection_description.h): a tiling -> `spans` (closed form, nothing per member); members all spans -> `spans` rows (an empty set too, unless `n_members`
  *  is given: then a `set` with nothing stored); a set per element -> `set` with its array of member numbers, the sibling array of the members' labels (when they have any)
- *  and a dictionary of one row per LABEL; a grid's levels are a rule in `params` ("grid"), never rows or arrays; a product
- *  (`factors`, Placement::factor_ids) -> `set` with `selection_factor` rows; other members -> `set` with member rows; members all tilings with levels -> `ladder` (a
+ *  and a dictionary of one row per LABEL; a grid's levels are a rule in `params` ("grid"), never rows or arrays (a dyadic grid at one level: its tile codes and
+ *  `params.grid`; with all its levels: save_grid); an elements grid -> `set` with nothing stored and `params.grid`; a product of GRIDS (`factors`, `radices`,
+ *  Placement::factor_ids; an irregular factor is refused) -> `set` with `selection_factor` rows and `params.product` [{selection, members}], codes first factor fastest; other members -> `set` with member rows; members all tilings with levels -> `ladder` (a
  *  dictionary of the levels, an empty tile dictionary per level, each level a `spans` member holding its tiling: its member_ordinal the level's identity, its code its
  *  power of two). The arrays are written before the row, in the caller's composition.
  *  A ladder's line (its manifold) must be a closed-form line: its sample rate and length give each level's window in samples. */

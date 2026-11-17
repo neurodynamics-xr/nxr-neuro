@@ -137,6 +137,7 @@ add_library(nxr_compute STATIC
   src/selection_scales.cpp
   src/selection_constant_q.cpp
   src/selection_resolved.cpp
+  src/selection_grid.cpp
   src/partition.cpp
   src/glue.cpp
   src/forms.cpp

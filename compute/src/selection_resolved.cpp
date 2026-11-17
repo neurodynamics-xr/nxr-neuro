@@ -18,6 +18,8 @@ std::string describe(const Selection& s) {
   if (s.type != Type::set) return std::string("a ") + type_name(s.type);
   if (!s.factors.empty()) return "a product";
   if (s.tiling) return "a set by a rule (a tiling)";
+  if (s.grid && s.grid->kind == Grid::Kind::elements) return "an elements grid";
+  if (s.grid) return "a dyadic grid";
   if (!s.member_of.empty()) return "a set per element (a member number per element)";
   return "a set of listed members";
 }
@@ -40,6 +42,18 @@ void need_unit(const Selection& s, const Line& line, const char* what) {
 
 double position(double x, const Line& line) { return (x - line.origin) / line.spacing; }          // a coordinate, in points from the line's first
 std::int64_t first_point_from(double p) { return static_cast<std::int64_t>(std::ceil(p - kTolerance)); }   // the first point at or after p
+
+// a GRID's cell [a, b) in coordinates: the points whose coordinate lies in it (each point in one cell of a disjoint tiling)
+std::pair<std::int64_t, std::int64_t> cell_points(double a, double b, const Line& line) {
+  return {first_point_from(position(a, line)), first_point_from(position(b, line))};
+}
+// a CALLER-STATED extent [a, b) in coordinates: the point nearest its centre always held, the extent rounded OUTWARD, never empty by rounding
+std::pair<std::int64_t, std::int64_t> stated_points(double a, double b, const Line& line) {
+  const double pa = position(a, line), pb = position(b, line);
+  std::int64_t lo = static_cast<std::int64_t>(std::floor(pa + kTolerance)), hi = static_cast<std::int64_t>(std::ceil(pb - kTolerance));
+  const std::int64_t c = std::llround((pa + pb) / 2);
+  return {std::min(lo, c), std::max(hi, c + 1)};
+}
 
 std::int64_t floor_div(std::int64_t a, std::int64_t b) {                // b > 0
   std::int64_t q = a / b;
@@ -82,21 +96,17 @@ void add_member(IntervalBuilder& b, const Selection& m, const Line& line) {
       return;
     case Type::span: {
       if (m.extents.size() != 1 || m.extents[0].axis != 0)
-        refuse("resolve_intervals: a span on several axes is a box on a product manifold; write it as product(spans on each line) and use resolve_product");
+        refuse("resolve_intervals: a span on several axes (or off axis 0) is a box on a product manifold; resolve_box(span, the product's lines)");
       need_unit(m, line, "resolve_intervals");
       const Extent& e = m.extents[0];
-      if (e.start == e.stop) {                                         // an instant: the point nearest it
-        const auto i = static_cast<std::int64_t>(std::llround(position(e.start, line)));
-        b.add(i, i + 1);
-      } else {
-        b.add(first_point_from(position(e.start, line)), first_point_from(position(e.stop, line)));
-      }
+      const auto [lo, hi] = stated_points(e.start, e.stop, line);      // outward; an instant: the point nearest it
+      b.add(lo, hi);
       return;
     }
-    case Type::distance: {                                             // on a line, the span [c - r, c + r)
+    case Type::distance: {                                             // on a line, the points within the radius, rounded outward: [c - h, c + h]
       need_unit(m, line, "resolve_intervals");
-      const double c = line.origin + static_cast<double>(*m.center) * line.spacing;
-      b.add(first_point_from(position(c - m.radius, line)), first_point_from(position(c + m.radius, line)));
+      const auto h = static_cast<std::int64_t>(std::ceil(m.radius / line.spacing - kTolerance));
+      b.add(*m.center - std::max<std::int64_t>(h, 0), *m.center + std::max<std::int64_t>(h, 0) + 1);
       return;
     }
     case Type::indices: {
@@ -172,14 +182,19 @@ Intervals resolve_intervals(const Selection& s, const Line& line) {
     b.close();
     return std::move(b.out);
   }
-  if (s.tiling) {                                                      // member k by the span rule, so a tiling and its listed spans resolve alike
+  if (s.tiling) {                                                      // member k by the grid rule: the points whose coordinate lies in it
     need_unit(s, line, "resolve_intervals");
     const Tiling& t = *s.tiling;
     for (std::int64_t k = 0; k < t.count; ++k) {
       const double start = t.origin + static_cast<double>(k) * t.hop;
-      b.add(first_point_from(position(start, line)), first_point_from(position(start + t.width, line)));
+      const auto [lo, hi] = cell_points(start, start + t.width, line);
+      b.add(lo, hi);
       b.close();
     }
+    return std::move(b.out);
+  }
+  if (s.grid && s.grid->kind == Grid::Kind::elements) {                // member k: point k
+    for (std::int64_t k = 0; k < s.grid->size; ++k) { b.add(k, k + 1); b.close(); }
     return std::move(b.out);
   }
   if (!s.member_of.empty()) {
@@ -217,6 +232,11 @@ Elements resolve_elements(const Selection& s, std::int64_t size) {
   };
   if (s.type != Type::set) { add_one(s); return out; }
   if (s.tiling) refuse("resolve_elements: a tiling lies on a line; resolve_rule or resolve_intervals(selection, line), then elements_of");
+  if (s.grid && s.grid->kind == Grid::Kind::elements) {                // member k: element k
+    if (s.grid->size != size) refuse("resolve_elements: an elements grid of " + std::to_string(s.grid->size) + ", on a manifold of " + std::to_string(size));
+    for (std::int64_t k = 0; k < size; ++k) { out.elements.push_back(k); out.offsets.push_back(k + 1); }
+    return out;
+  }
   if (!s.member_of.empty()) {
     if (static_cast<std::int64_t>(s.member_of.size()) != size)
       refuse("resolve_elements: a set per element over " + std::to_string(s.member_of.size()) + " elements, on a manifold of " + std::to_string(size));
@@ -231,6 +251,15 @@ Elements resolve_elements(const Selection& s, std::int64_t size) {
 
 MemberOfElement resolve_member_of(const Selection& s, std::int64_t size) {
   need_plain(s, "resolve_member_of");
+  if (s.type == Type::set && s.grid && s.grid->kind == Grid::Kind::elements) {   // the identity
+    if (s.grid->size != size) refuse("resolve_member_of: an elements grid of " + std::to_string(s.grid->size) + ", on a manifold of " + std::to_string(size));
+    as_member_number(size, "resolve_member_of");
+    MemberOfElement c;
+    c.members = size;
+    c.member_of.resize(static_cast<std::size_t>(size));
+    for (std::int64_t v = 0; v < size; ++v) c.member_of[static_cast<std::size_t>(v)] = static_cast<std::int32_t>(v);
+    return c;
+  }
   if (s.type == Type::set && !s.member_of.empty()) {                     // already in this form
     if (static_cast<std::int64_t>(s.member_of.size()) != size)
       refuse("resolve_member_of: a set per element over " + std::to_string(s.member_of.size()) + " elements, on a manifold of " + std::to_string(size));
@@ -245,7 +274,7 @@ MemberOfElement resolve_member_of(const Selection& s, std::int64_t size) {
 MemberOfElement resolve_member_of(const Selection& s, const Line& line) {
   need_line(line, "resolve_member_of");
   need_plain(s, "resolve_member_of");
-  if (s.type == Type::set && !s.member_of.empty()) return resolve_member_of(s, line.count);
+  if (s.type == Type::set && (!s.member_of.empty() || s.grid)) return resolve_member_of(s, line.count);
   return member_of_from(resolve_intervals(s, line));
 }
 
@@ -389,43 +418,58 @@ std::vector<std::int32_t> rule_member_of(const Rule& r, std::int64_t first, std:
   return out;
 }
 
-// ── products ─────────────────────────────────────────────────────────────────────────────
+// ── products and boxes ───────────────────────────────────────────────────────────────────
 std::int64_t ProductForm::members() const {
   std::int64_t n = 1;
-  for (std::int64_t c : counts) n *= c;                               // resolve_product refused an overflow (count)
+  for (std::int64_t r : radices) n *= r;                              // resolve_product refused an overflow (count)
   return n;
 }
 
-std::vector<std::int64_t> ProductForm::ordinals(std::int64_t k) const {
-  if (k < 0 || k >= members()) refuse("ProductForm::ordinals: member " + std::to_string(k) + " outside the product");
-  std::vector<std::int64_t> out(counts.size());
-  for (std::size_t f = counts.size(); f-- > 0;) { out[f] = k % counts[f]; k /= counts[f]; }
-  return out;
-}
+std::vector<std::int64_t> ProductForm::codes(std::int64_t k) const { return product_codes(radices, k); }
 
-std::int64_t ProductForm::ordinal(const std::vector<std::int64_t>& at) const {
-  if (at.size() != counts.size()) refuse("ProductForm::ordinal: " + std::to_string(counts.size()) + " ordinals, one per factor");
-  std::int64_t k = 0;
-  for (std::size_t f = 0; f < at.size(); ++f) {
-    if (at[f] < 0 || at[f] >= counts[f]) refuse("ProductForm::ordinal: ordinal " + std::to_string(at[f]) + " outside factor " + std::to_string(f));
-    k = k * counts[f] + at[f];
-  }
-  return k;
+std::int64_t ProductForm::code(const std::vector<std::int64_t>& at) const {
+  if (at.size() != counts.size()) refuse("ProductForm::code: " + std::to_string(counts.size()) + " members, one per factor");
+  for (std::size_t f = 0; f < at.size(); ++f)
+    if (at[f] >= counts[f]) refuse("ProductForm::code: member " + std::to_string(at[f]) + " outside factor " + std::to_string(f));
+  return product_code(radices, at);
 }
 
 ProductForm resolve_product(const Selection& p, const std::vector<Space>& spaces) {
   if (p.type != Type::set || p.factors.empty()) refuse("resolve_product: a product, not " + describe(p));
   if (spaces.size() != p.factors.size())
     refuse("resolve_product: " + std::to_string(p.factors.size()) + " factors, " + std::to_string(spaces.size()) + " spaces (one per factor)");
-  count(p);                                                    // refuses a product too large to number
+  count(p);                                                    // refuses a code space too large
   ProductForm out;
+  out.radices = p.radices;
   for (std::size_t f = 0; f < spaces.size(); ++f) {
     Form form = resolve(p.factors[f], spaces[f]);
     const std::int64_t c = member_count(form);
-    if (c != count(p.factors[f]))                              // every form keeps every ordinal; a mismatch is a bug, never a silent renumbering
+    if (c != count(p.factors[f]))                              // every form keeps every member; a mismatch is a bug, never a silent renumbering
       refuse("resolve_product: factor " + std::to_string(f) + " resolved to " + std::to_string(c) + " members, not its " + std::to_string(count(p.factors[f])));
+    if (c > out.radices[f]) refuse("resolve_product: factor " + std::to_string(f) + " has more members than its radix");
     out.counts.push_back(c);
     out.factors.push_back(std::move(form));
+  }
+  return out;
+}
+
+ProductForm resolve_box(const Selection& s, const std::vector<Line>& axes) {
+  if (s.type != Type::span) refuse("resolve_box: a span (a box), not " + describe(s));
+  if (axes.empty()) refuse("resolve_box: the product manifold's lines, one per factor");
+  ProductForm out;
+  std::vector<std::pair<std::int64_t, std::int64_t>> at;
+  for (const Line& l : axes) { need_line(l, "resolve_box"); at.emplace_back(0, l.count); }
+  for (const Extent& e : s.extents) {
+    if (e.axis < 0 || e.axis >= static_cast<int>(axes.size())) refuse("resolve_box: the span bounds axis " + std::to_string(e.axis) + "; the product has " + std::to_string(axes.size()));
+    at[static_cast<std::size_t>(e.axis)] = stated_points(e.start, e.stop, axes[static_cast<std::size_t>(e.axis)]);
+  }
+  for (std::size_t a = 0; a < axes.size(); ++a) {
+    IntervalBuilder b(axes[a].count);
+    b.add(at[a].first, at[a].second);
+    b.close();
+    out.factors.push_back(std::move(b.out));
+    out.counts.push_back(1);
+    out.radices.push_back(1);
   }
   return out;
 }

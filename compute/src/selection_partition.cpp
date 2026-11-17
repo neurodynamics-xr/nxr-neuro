@@ -96,9 +96,7 @@ ConstantQDesign constant_q_design(const Line& line, const ConstantQ& o) {
   std::vector<Selection> levels;
   for (const auto& [k, band] : by_k) {                                 // ascending k: finest first; a level's identity is its position, its label k
     const std::int64_t width = std::int64_t(1) << k;
-    Selection level = tiled(Tiling{line.origin, static_cast<double>(width) * line.spacing, static_cast<double>(width) * line.spacing, (line.count + width - 1) / width}, line.unit);
-    level.level = k;
-    level.code = k;
+    Selection level = time_grid(line, k);                              // a level is a tiling rule: nothing per member
     level.band = band;
     level.band_unit = "Hz";
     levels.push_back(std::move(level));
@@ -128,48 +126,37 @@ Selection constant_q_bands(const Line& line, const ConstantQ& o) {
   return band_spans(std::move(b), "Hz");
 }
 
-// A set per element with LEVELS from the tile code of every element at the finest level (h 2^depth + t; -1: none). Level l's labels are the codes >> (depth - l);
-// each level numbers its distinct labels 0 .. n_l - 1 in ascending order (a label that holds no vertex has no member), and a member's parent is the member of the
-// level above whose label is its own >> 1. The set's own member numbers and labels are the finest level's.
-static Selection levelled(const std::vector<std::int32_t>& finest_codes, int depth) {
-  std::vector<std::map<std::int32_t, std::int32_t>> number(static_cast<std::size_t>(depth) + 1);     // per level: label -> member number
-  std::vector<std::vector<std::int64_t>> labels(static_cast<std::size_t>(depth) + 1);
-  for (int l = 0; l <= depth; ++l) {
-    std::set<std::int32_t> distinct;
-    for (std::int32_t c : finest_codes) if (c >= 0) distinct.insert(c >> (depth - l));
-    for (std::int32_t c : distinct) { number[static_cast<std::size_t>(l)][c] = static_cast<std::int32_t>(labels[static_cast<std::size_t>(l)].size()); labels[static_cast<std::size_t>(l)].push_back(c); }
-  }
-  std::vector<std::int32_t> member_of(finest_codes.size(), -1);
-  for (std::size_t v = 0; v < finest_codes.size(); ++v) if (finest_codes[v] >= 0) member_of[v] = number[static_cast<std::size_t>(depth)][finest_codes[v]];
-  Selection p = set_of_members(std::move(member_of), labels[static_cast<std::size_t>(depth)]);
-  for (int l = 0; l <= depth; ++l) {
-    Selection level;
-    level.type = Type::set;
-    level.level = l;
-    level.code = l;
-    level.member_codes = labels[static_cast<std::size_t>(l)];
-    if (l > 0)
-      for (std::int64_t label : level.member_codes) level.parent.push_back(number[static_cast<std::size_t>(l) - 1].at(static_cast<std::int32_t>(label) >> 1));
-    p.members.push_back(std::move(level));
-  }
-  return p;
+// ── a time line, by a dyadic tiling: tiles of 2^k samples from the first sample ─────────────
+Selection time_grid(const Line& line, int k) {
+  if (k < 0 || k > 62) throw std::invalid_argument("time_grid: k (tiles of 2^k samples) is 0..62");
+  if (line.count < 0 || !(line.spacing > 0)) throw std::invalid_argument("time_grid: a line of count >= 0 points, spacing > 0 apart");
+  const std::int64_t width = std::int64_t(1) << k;
+  Selection g = tiled(Tiling{line.origin, static_cast<double>(width) * line.spacing, static_cast<double>(width) * line.spacing, (line.count + width - 1) / width}, line.unit);
+  g.level = k;
+  g.code = k;
+  return g;
 }
 
 // ── a surface, dyadic: the Studio's ladder per connected piece; level l pairs with lambda = 4 pi m / A (m = the level's tiles, A = the surface's area) ──
+// A GRID: its member numbers are the finest tile codes (h 2^D + t), level l's the code >> (D - l) (closed form); a level holds only its label and band.
 Selection dyadic(const Surface& s, const Dyadic& o) {
   need_surface(s, "dyadic");
   const bisection::Tree t = bisection::subjectTree(s.positions, s.vertices, s.faces, s.face_count, o.depth.value_or(-1));
-  Selection p = levelled(t.codes, t.depth);
-  p.unit = s.unit;
   double area = 0;
   for (double a : t.pieceArea) area += a;
   const auto pieces = static_cast<std::int64_t>(t.runs.size());
+  std::vector<Selection> levels;
   for (int l = 0; l <= t.depth; ++l) {
     const std::int64_t tiles = pieces << l;
-    Selection& level = p.members[static_cast<std::size_t>(l)];
+    Selection level;
+    level.type = Type::set;
+    level.level = l;
     level.band = std::make_pair(l == 0 ? 0.0 : kFourPi * static_cast<double>(tiles / 2) / area, kFourPi * static_cast<double>(tiles) / area);
     level.band_unit = "1/" + s.unit + "^2";                            // area in unit^2, so lambda = 4 pi m / A in 1/unit^2
+    levels.push_back(std::move(level));
   }
+  Selection p = dyadic_grid(t.codes, t.depth, t.slots, std::move(levels));
+  p.unit = s.unit;
   return p;
 }
 
@@ -185,23 +172,17 @@ Selection eigenvalue_bands(const Selection& levels) {
 Selection transfer(const Surface& s, const Transfer& o) {
   need_surface(s, "transfer");
   if (!o.from || !o.from_sphere || !o.from_faces || !o.sphere || o.from_vertices < 1)
-    throw std::invalid_argument("transfer: the source selection, both spheres and the source's faces are needed");
-  if (o.from->type != Type::set || o.from->member_of.empty() || !has_levels(*o.from) ||
-      static_cast<std::int64_t>(o.from_vertices) != static_cast<std::int64_t>(o.from->member_of.size()))
-    throw std::invalid_argument("transfer: the source is a set per element with levels on a surface of " + std::to_string(o.from_vertices) + " vertices");
-  const int finest = static_cast<int>(o.from->members.size()) - 1;      // its levels 0 .. finest
-  std::vector<std::int32_t> tile_codes(o.from->member_of.size(), -1);   // the tile code (the label) of every source vertex at its finest level
-  for (std::size_t v = 0; v < tile_codes.size(); ++v)
-    if (const auto label = label_at(*o.from, static_cast<std::int64_t>(v))) tile_codes[v] = static_cast<std::int32_t>(*label);
+    throw std::invalid_argument("transfer: the source grid, both spheres and the source's faces are needed");
+  const Selection& from = *o.from;
+  if (from.type != Type::set || !from.grid || from.grid->kind != Grid::Kind::dyadic ||
+      static_cast<std::int64_t>(o.from_vertices) != static_cast<std::int64_t>(from.member_of.size()))
+    throw std::invalid_argument("transfer: the source is a dyadic grid on a surface of " + std::to_string(o.from_vertices) + " vertices");
+  const int depth = from.grid->depth;
   const auto from_runs = bisection::pieceRuns(o.from_faces, o.from_face_count, o.from_vertices);
   const auto runs = bisection::pieceRuns(s.faces, s.face_count, s.vertices);
-  const bisection::Tree t = bisection::groupTreeFor(o.from_sphere, tile_codes.data(), from_runs, finest, o.sphere, s.vertices, runs, finest);
-  Selection p = levelled(t.codes, finest);                              // the members renumbered over this surface; the levels' bands and the lookup come with it
-  for (int l = 0; l <= finest; ++l) {
-    p.members[static_cast<std::size_t>(l)].band = o.from->members[static_cast<std::size_t>(l)].band;
-    p.members[static_cast<std::size_t>(l)].band_unit = o.from->members[static_cast<std::size_t>(l)].band_unit;
-  }
-  p.lookup = o.from->lookup;
+  const bisection::Tree t = bisection::groupTreeFor(o.from_sphere, from.member_of.data(), from_runs, depth, o.sphere, s.vertices, runs, depth);
+  Selection p = dyadic_grid(t.codes, depth, from.grid->slots, from.members);   // the same codes: a tile no vertex reaches is an empty member
+  p.lookup = from.lookup;
   p.unit = s.unit;
   return p;
 }

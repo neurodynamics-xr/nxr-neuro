@@ -7,9 +7,11 @@
 //   span       bounds per axis, [start, stop)              extents
 //   distance   a centre and a radius under the metric      center, radius, unit
 //   indices    an explicit list of elements                indices
-//   set        members, given as selections, as a member NUMBER per element, or by a rule (a tiling); possibly with LEVELS
+//   set        members, given as selections, as a member NUMBER per element, by a rule (a tiling, a grid), or as a PRODUCT of grids; a grid possibly with LEVELS
 //
-// A member's identity is its number (dense, 0 .. n - 1); its label is its code (`member_codes`, read with the lookup). The two are never the same field.
+// A member's identity is its number (0 .. n - 1); its label is its code (`member_codes`, read with the lookup). The two are never the same field.
+// A GRID partitions the manifold before any data (tilings, dyadic tiles, an elements grid, constant-Q levels; its hierarchy closed form); an IRREGULAR set
+// partitions the field (bursts, events, atlases: no levels). A product's factors are grids.
 //
 // How a description is STORED (selection_store.h maps it onto the schema's rows and arrays; docs/specs/2026-11-17-selection-module.md, section 9, and model.sql):
 //   point, span, distance, indices        the rows of that type (a span's corners are `selection_extent` rows; indices are the array at `array_path`)
@@ -22,14 +24,19 @@
 //                                         and none at all when the lookup is empty (the labels are their own names). The sibling arrays are a convention of the store, named
 //                                         by suffix from P (member_labels_path)
 //   grid (a partition: chunk grid, tiling, dyadic tiles, constant-Q ladder)   its hierarchy is CLOSED FORM, never stored as rows or parent arrays: a tiling is a rule
-//                                         (above); a dyadic grid is the finest member array above (member number = tile code h 2^D + t, so a member's number at level l is that
-//                                         number >> (D - l)) with its rule in `params_json.grid` {kind, depth, pieces} (count at level l = pieces << l); a constant-Q ladder
-//                                         is the `ladder` row below. IRREGULAR selections (bursts, events, scouts, atlases: DK, DKT, Destrieux) have NO levels
+//                                         (above); a dyadic grid's member array holds the tile code h 2^D + t (= the member number, so a member's number at level l is
+//                                         that number >> (D - l)), with its rule in `params_json.grid` {kind "dyadic", depth, pieces}; a whole dyadic grid with its levels is
+//                                         saved by `save_grid` (a `ladder` row) and loaded as one description (`grid`, the finest codes, the levels as descriptions); an
+//                                         elements grid (every element its own member: the channels) is a `set` row with nothing stored, `params_json.grid` {kind
+//                                         "elements", size}; a constant-Q ladder is the `ladder` row below. IRREGULAR selections (bursts, events, scouts, atlases: DK,
+//                                         DKT, Destrieux) have NO levels
 //   set of other members                  a `set` row with member rows (`member_of_id`, `member_ordinal`)
 //   set with levels (tilings)             a `ladder` row, its members the levels (each a stored selection: member_ordinal = the level's identity, code = its power of
 //                                         two, its label), the level dictionary (code = the power, ordinal = the level's identity)
-//   product (`factors`)                   a `set` row, nothing per member: `selection_factor` rows name its factors (stored selections) in order, `n_members` is the
-//                                         product of theirs; its measurements are keyed by the product's member ordinal, row-major, the last factor fastest
+//   product (`factors`)                   a `set` row, nothing per member: `selection_factor` rows name its factors (stored GRIDS) in order and `params_json.product`
+//                                         [{selection, members}] their radices (the Studio's D100); `n_members` is the product of the radices; its measurements are keyed by
+//                                         the product CODE, mixed radix with the FIRST factor fastest: code = c0 + n0 (c1 + n1 (..)) (a joint's first radix is a power of
+//                                         two, D129: code = (tile << bits) | frame)
 #pragma once
 #include <array>
 #include <cstdint>
@@ -55,6 +62,14 @@ struct Entry {
 };
 /** the entries of a lookup, one per code; empty: the codes are their own names (stored as the selection's dictionary) */
 using Lookup = std::vector<Entry>;
+/** a grid's closed form, for the grids that are not tilings (compute's `nxr::selection::Grid`) */
+struct Grid {
+  enum class Kind { elements, dyadic };
+  Kind kind = Kind::elements;
+  std::int64_t size = 0;                    // elements: the manifold's elements, each its own member
+  int depth = 0;                            // dyadic: the level the member array's codes are at
+  std::int64_t slots = 0;                   // dyadic: the piece slots the codes reserve; level l has slots << l members
+};
 
 struct Description {
   Type type = Type::set;
@@ -67,13 +82,14 @@ struct Description {
   std::vector<Extent> extents;              // span
   std::vector<std::int32_t> indices;        // indices (in the order given: picked channels keep their order)
 
-  // set: its members, one of three ways
-  std::vector<Description> members;         // as selections (a member's number is its position); with levels, the levels in order
-  std::vector<std::int32_t> member_of;      // as a member NUMBER per element (0 .. n - 1, -1: none); with levels, the finest level's
-  std::vector<std::int64_t> member_codes;   // a set per element, or a level of one: each member's LABEL (one per member), read with the lookup
-  std::vector<std::int32_t> parent;         // not stored (a grid's hierarchy is a rule); kept so compute's field copies across
+  // set: its members, one of four ways
+  std::vector<Description> members;         // as selections (a member's number is its position); a grid with levels: the levels in order
+  std::vector<std::int32_t> member_of;      // as a member NUMBER per element (-1: none); a dyadic grid: the tile codes at its depth
+  std::vector<std::int64_t> member_codes;   // an irregular set per element: each member's LABEL (one per member), read with the lookup
   std::optional<Tiling> tiling;             // as spans by a rule
-  std::vector<Description> factors;         // as a PRODUCT of these (each a stored selection of its own: the factors are given to save by id, Placement::factor_ids; a load fills them)
+  std::vector<Description> factors;         // as a PRODUCT of these GRIDS (each a stored selection of its own: the factors are given to save by id, Placement::factor_ids; a load fills them)
+  std::vector<std::int64_t> radices;        // a product: each factor's radix (empty on save: the factors' member counts)
+  std::optional<Grid> grid;                 // a grid that is not a tiling: its closed form
   int level = -1;                           // a level: its label, a power of two (tiles of 2^level samples; 2^level tiles a piece)
   std::optional<std::pair<double, double>> band;   // a level: the band of the spectrum it resolves, in `band_unit`
   std::string band_unit;
