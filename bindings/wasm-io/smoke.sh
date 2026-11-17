@@ -10,13 +10,19 @@ cmake --build "$W" --target nxr_io_wasm_smoke >/dev/null
 SMOKE="node $W/bindings/wasm-io/nxr_io_wasm_smoke.js"
 S="$(mktemp -d "$W/smoke-store.XXXX")"
 trap 'rm -rf "$S"' EXIT
+# a check that fails says why: what the command printed, and what it was expected to contain
+check() {   # check <what> <expected text> <command ...>
+  local what="$1" want="$2" out; shift 2
+  if ! out="$("$@" 2>&1)"; then echo "wasm-io smoke: FAIL: $what: the command failed: $*" >&2; echo "$out" >&2; exit 1; fi
+  if ! grep -qF -- "$want" <<<"$out"; then echo "wasm-io smoke: FAIL: $what: expected ${want}" >&2; echo "output was: $out" >&2; exit 1; fi
+}
 # 1. WASM writes, the native CLI reads
-$SMOKE write "$S" wasm | grep -q '"surfaces":\[{"name":"octahedron","values":18}\]'
-"$CLI" subject list --dataset "$S/wasm" | grep -q '"name": "sub-wasm"'
+check "WASM writes a dataset" '"surfaces":[{"name":"octahedron","values":18}]' $SMOKE write "$S" wasm
+check "the CLI lists the subject the WASM wrote" '"name": "sub-wasm"' "$CLI" list subjects --dataset "$S/wasm"
 # 2. the native CLI writes, WASM reads
 printf 'v 0.01 0 0\nv -0.01 0 0\nv 0 0.01 0\nv 0 -0.01 0\nv 0 0 0.01\nv 0 0 -0.01\nf 1 3 5\nf 3 2 5\nf 2 4 5\nf 4 1 5\nf 3 1 6\nf 2 3 6\nf 4 2 6\nf 1 4 6\n' > "$S/oct.obj"
-"$CLI" dataset create --datastore "$S" --name native >/dev/null
-"$CLI" subject create --dataset "$S/native" --name sub-native >/dev/null
-"$CLI" surface add --dataset "$S/native" --subject sub-native "$S/oct.obj" >/dev/null
-$SMOKE read "$S/native" | grep -q '"surfaces":\[{"name":"oct","values":18}\]'
+"$CLI" create dataset --datastore "$S" --name native >/dev/null
+"$CLI" create subject --dataset "$S/native" --name sub-native >/dev/null
+"$CLI" add surface --dataset "$S/native" --subject sub-native "$S/oct.obj" >/dev/null
+check "WASM reads what the CLI wrote" '"surfaces":[{"name":"oct","values":18}]' $SMOKE read "$S/native"
 echo "wasm-io smoke: PASS"
