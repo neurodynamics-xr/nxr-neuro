@@ -11,7 +11,7 @@
 #include "nxr/io/task/task.h"
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/hodge_weights.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/input.h"

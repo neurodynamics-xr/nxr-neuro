@@ -11,7 +11,7 @@
 #include <Eigen/Eigenvalues>
 
 #include "mesh_helpers.h"
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/intrinsic_forms.h"
 
 static int failures = 0;

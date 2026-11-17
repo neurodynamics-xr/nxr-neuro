@@ -24,11 +24,11 @@
 #include <memory>
 #include <vector>
 
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/intrinsic_surface.h"
 
 namespace nxr::chart {
-namespace delaunay = nxr::manifold::delaunay;
+using DelaunayOptions = nxr::manifold::DelaunayOptions;
 
 /** At each vertex the unit normal (corner-angle weighted, geometry-central's `vertexNormals`), e1 (the gauge's angle 0) and e2 = n x e1. [3 n] each, double. */
 struct Basis { std::vector<double> e1, e2, n; };
@@ -40,7 +40,7 @@ class ChartKit {
 public:
     /** `positions` [3 nV] row-major, `faces` [3 nF]. Each connected piece (a hemisphere) is solved by itself; a vertex in no face is on no piece. `o` the mollification and flip tolerance
      *  (the named options of the construction). */
-    ChartKit(const double* positions, int nV, const int32_t* faces, int nF, const delaunay::DelaunayOptions& o = {});
+    ChartKit(const double* positions, int nV, const int32_t* faces, int nF, const DelaunayOptions& o = {});
     /** The same with the full options of the intrinsic surface (`mass`, ...); `o.intrinsic = false` is the named option `mesh = embedded`. */
     ChartKit(const double* positions, int nV, const int32_t* faces, int nF, const manifold::IntrinsicOptions& o);
     ~ChartKit();

@@ -6,7 +6,7 @@
 #include <limits>
 #include <stdexcept>
 
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/errors.h"
 #include "nxr/fft.h"
 #include "nxr/opticalflow_connection.h"
@@ -44,15 +44,16 @@ RowMat3 vertexNormals(const RowMat3& positions, const FaceMat& faces) { return n
 
 // The embedded cotan Laplacian and the lumped Galerkin mass (row sums = a third of each incident face's area).
 void embeddedLaplacian(const RowMat3& positions, const FaceMat& faces, Eigen::SparseMatrix<double>& K, VectorXd& mass) {
-    using namespace nxr::manifold::delaunay;
     std::vector<double> P(static_cast<std::size_t>(positions.size()));
     for (Eigen::Index i = 0; i < positions.rows(); ++i) for (int d = 0; d < 3; ++d) P[static_cast<std::size_t>(3 * i + d)] = positions(i, d);
     std::vector<int32_t> F(static_cast<std::size_t>(faces.size()));
     for (Eigen::Index f = 0; f < faces.rows(); ++f) for (int d = 0; d < 3; ++d) F[static_cast<std::size_t>(3 * f + d)] = faces(f, d);
-    const Mesh m = prepare(P.data(), static_cast<int>(positions.rows()), F.data(), static_cast<int>(faces.rows()), {}, false);
-    K = cotanLaplacian(m);
+    nxr::manifold::IntrinsicOptions io;
+    io.intrinsic = false;                                                 // the embedded mesh: no mollification, no flips
+    nxr::manifold::IntrinsicSurface s(P.data(), static_cast<int>(positions.rows()), F.data(), static_cast<int>(faces.rows()), io);
+    K = s.cotanLaplacian();
     K = (0.5 * (K + Eigen::SparseMatrix<double>(K.transpose()))).eval();
-    const Eigen::SparseMatrix<double> M = galerkinMass(m);
+    const Eigen::SparseMatrix<double> M = s.galerkinMassMatrix();
     mass = M * VectorXd::Ones(M.cols());
 }
 

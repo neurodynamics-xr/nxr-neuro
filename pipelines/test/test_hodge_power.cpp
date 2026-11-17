@@ -11,7 +11,7 @@
 #include "nxr/io/task/task.h"
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/hodge_weights.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/input.h"
@@ -120,8 +120,9 @@ int main() {
   b.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(surf.vertices.data(), N, 3);
   b.faces = Eigen::Map<const Eigen::Matrix<std::int32_t, Eigen::Dynamic, 3, Eigen::RowMajor>>(surf.faces.data(), surf.n_faces(), 3);
   for (std::int64_t i = 0; i < N; ++i) b.keep.push_back(i);
-  const auto dm = nxr::manifold::delaunay::prepare(surf.vertices.data(), static_cast<int>(N), surf.faces.data(), static_cast<int>(surf.n_faces()));
-  b.mass = Eigen::Map<const Eigen::VectorXd>(dm.mass.data(), static_cast<Eigen::Index>(dm.mass.size()));
+  nxr::manifold::IntrinsicSurface isurf(surf.vertices.data(), static_cast<int>(N), surf.faces.data(), static_cast<int>(surf.n_faces()));
+  const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
+  b.mass = Eigen::Map<const Eigen::VectorXd>(dm_mass.data(), static_cast<Eigen::Index>(dm_mass.size()));
   const MatrixXd B = nxr::hodge::hodgeWeights(b, K);
   auto wo = nxr::welch::brainstormPsdOptions(sfreq, 4.0);
   const auto direct = nxr::welch::welch(B * X, wo);

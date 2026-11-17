@@ -312,6 +312,27 @@ Eigen::SparseMatrix<double> IntrinsicSurface::galerkinMassMatrix() {
     return M;
 }
 
+IntrinsicSurface::InputCorners IntrinsicSurface::inputCorners() {
+    InputCorners c;
+    const std::vector<double> sp = inputSignpostAngles();
+    auto& g = inputGeometry();
+    g.requireCornerAngles();
+    const size_t nF = p_->mesh->nFaces(), nV = p_->mesh->nVertices();
+    c.signpost.assign(3 * nF, 0.0); c.angle.assign(3 * nF, 0.0); c.angleSum.assign(nV, 0.0); c.boundary.assign(nV, 0);
+    for (gcs::Face f : p_->mesh->faces()) {
+        gcs::Halfedge he = f.halfedge();
+        for (int k = 0; k < 3; ++k, he = he.next()) {
+            const size_t h = 3 * f.getIndex() + static_cast<size_t>(k);
+            c.signpost[h] = sp[he.getIndex()];
+            c.angle[h] = g.cornerAngles[he.corner()];
+            c.angleSum[he.vertex().getIndex()] += c.angle[h];
+        }
+    }
+    for (gcs::Vertex v : p_->mesh->vertices()) c.boundary[v.getIndex()] = v.isBoundary() ? 1 : 0;
+    g.unrequireCornerAngles();
+    return c;
+}
+
 std::vector<double> IntrinsicSurface::inputSignpostAngles() {
     auto& g = inputGeometry();
     g.requireCornerAngles();

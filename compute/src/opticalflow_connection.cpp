@@ -11,25 +11,23 @@
 #include "nxr/errors.h"
 
 namespace nxr::flow::connection {
-namespace delaunay = nxr::manifold::delaunay;
-
 using Eigen::VectorXd;
-using Mesh = delaunay::Mesh;
+using Corners0 = nxr::manifold::IntrinsicSurface::InputCorners;
 constexpr double kTwoPi = 6.283185307179586476925286766559;
 constexpr double kAreaEps = 1e-12;   // faceGradient.ts AREA_EPS
 
 namespace {
-double coneTarget(const Mesh& m, int v) { return m.boundary[static_cast<size_t>(v)] ? m.angleSum[static_cast<size_t>(v)] : kTwoPi; }   // connectionLaplacian.ts
+double coneTarget(const Corners0& m, int v) { return m.boundary[static_cast<size_t>(v)] ? m.angleSum[static_cast<size_t>(v)] : kTwoPi; }   // connectionLaplacian.ts
 }
 
-Corners cornersOf(const Mesh& m, const double* P, const int32_t* F) {
-    const int nH = 3 * m.nF, n = m.nV;
+Corners cornersOf(const Corners0& m, const double* P, const int32_t* F) {
+    const int nH = static_cast<int>(m.signpost.size()), n = static_cast<int>(m.angleSum.size()), nF = nH / 3;
     Corners c;
     c.psi0.assign(static_cast<size_t>(nH), 0); c.width.assign(static_cast<size_t>(nH), 0);
     c.edge.assign(3 * static_cast<size_t>(nH), 0); c.perp.assign(3 * static_cast<size_t>(nH), 0);
-    c.scale.assign(static_cast<size_t>(n), 1); c.area.assign(static_cast<size_t>(m.nF), 0);
+    c.scale.assign(static_cast<size_t>(n), 1); c.area.assign(static_cast<size_t>(nF), 0);
     for (int v = 0; v < n; ++v) c.scale[static_cast<size_t>(v)] = m.angleSum[static_cast<size_t>(v)] > 0 ? coneTarget(m, v) / m.angleSum[static_cast<size_t>(v)] : 1.0;
-    for (int f = 0; f < m.nF; ++f) {
+    for (int f = 0; f < nF; ++f) {
         const int a = F[3 * f], b = F[3 * f + 1], cc = F[3 * f + 2];
         const double ux = P[3 * b] - P[3 * a], uy = P[3 * b + 1] - P[3 * a + 1], uz = P[3 * b + 2] - P[3 * a + 2];
         const double wx = P[3 * cc] - P[3 * a], wy = P[3 * cc + 1] - P[3 * a + 1], wz = P[3 * cc + 2] - P[3 * a + 2];
@@ -47,19 +45,19 @@ Corners cornersOf(const Mesh& m, const double* P, const int32_t* F) {
             const size_t H = static_cast<size_t>(h);
             c.edge[3 * H] = ex; c.edge[3 * H + 1] = ey; c.edge[3 * H + 2] = ez;
             c.perp[3 * H] = ny * ez - nz * ey; c.perp[3 * H + 1] = nz * ex - nx * ez; c.perp[3 * H + 2] = nx * ey - ny * ex;   // N x e
-            c.psi0[H] = delaunay::rescaledAngle(m, h);
-            c.width[H] = delaunay::cornerAngle(m, h) * c.scale[static_cast<size_t>(v)];
+            c.psi0[H] = m.signpost[H] * c.scale[static_cast<size_t>(v)];       // the rescaled signpost (psi = theta x cone / angle sum)
+            c.width[H] = m.angle[H] * c.scale[static_cast<size_t>(v)];
         }
     }
     c.ptr.assign(static_cast<size_t>(n) + 1, 0);
-    for (int h = 0; h < nH; ++h) ++c.ptr[static_cast<size_t>(m.F[static_cast<size_t>(h)]) + 1];
+    for (int h = 0; h < nH; ++h) ++c.ptr[static_cast<size_t>(F[h]) + 1];
     for (int v = 0; v < n; ++v) c.ptr[static_cast<size_t>(v) + 1] += c.ptr[static_cast<size_t>(v)];
     std::vector<int32_t> fill(c.ptr.begin(), c.ptr.end() - 1);
     c.order.assign(static_cast<size_t>(nH), 0);
-    for (int h = 0; h < nH; ++h) c.order[static_cast<size_t>(fill[static_cast<size_t>(m.F[static_cast<size_t>(h)])]++)] = h;
+    for (int h = 0; h < nH; ++h) c.order[static_cast<size_t>(fill[static_cast<size_t>(F[h])]++)] = h;
     for (int v = 0; v < n; ++v)
         std::stable_sort(c.order.begin() + c.ptr[static_cast<size_t>(v)], c.order.begin() + c.ptr[static_cast<size_t>(v) + 1], [&](int32_t x, int32_t y) { return c.psi0[static_cast<size_t>(x)] < c.psi0[static_cast<size_t>(y)]; });
-    c.faces.assign(F, F + 3 * m.nF);
+    c.faces.assign(F, F + 3 * nF);
     return c;
 }
 
@@ -148,8 +146,9 @@ void embedAt(const Corners& c, const double* nrm, int v, double a, double b, dou
     out[0] = zl * x; out[1] = zl * y; out[2] = zl * z;
 }
 
-Eigen::SparseMatrix<double> realConnectionLaplacian(const Mesh& m) {
-    const Eigen::SparseMatrix<std::complex<double>> K = delaunay::connectionLaplacian(m, 1);
+Eigen::SparseMatrix<double> realConnectionLaplacian(nxr::manifold::IntrinsicSurface& s) {
+    const Eigen::SparseMatrix<std::complex<double>> K = s.connectionLaplacian(1);
+    const int nV = s.nV();
     std::vector<Eigen::Triplet<double>> t;
     t.reserve(4 * static_cast<size_t>(K.nonZeros()));
     for (int k = 0; k < K.outerSize(); ++k)
@@ -158,17 +157,17 @@ Eigen::SparseMatrix<double> realConnectionLaplacian(const Mesh& m) {
             const double a = it.value().real(), b = it.value().imag();
             t.emplace_back(2 * i, 2 * j, a); t.emplace_back(2 * i, 2 * j + 1, -b); t.emplace_back(2 * i + 1, 2 * j, b); t.emplace_back(2 * i + 1, 2 * j + 1, a);
         }
-    Eigen::SparseMatrix<double> C(2 * m.nV, 2 * m.nV);
+    Eigen::SparseMatrix<double> C(2 * nV, 2 * nV);
     C.setFromTriplets(t.begin(), t.end());
     C.makeCompressed();
     return C;
 }
 
-Pencil componentPencil(const double* P, int n, const std::vector<int32_t>& F, const delaunay::DelaunayOptions& o) {
+Pencil componentPencil(const double* P, int n, const std::vector<int32_t>& F, const DelaunayOptions& o) {
     const int nF = static_cast<int>(F.size() / 3);
-    Mesh m = delaunay::makeMesh(P, n, F.data(), nF);
-    delaunay::mollify(m, o);
-    delaunay::addSignposts(m);
+    nxr::manifold::IntrinsicOptions io;
+    io.mollify = o.mollify; io.flipEps = o.flipEps; io.mass = nxr::manifold::MassKind::InputMixedVoronoi;
+    nxr::manifold::IntrinsicSurface surf(P, n, F.data(), nF, io);   // geometry-central's signpost triangulation: the corners read its input, the operators its flipped mesh
     Pencil p;
     // the corners and normals of the INPUT faces, before the flips rewrite the halfedges
     std::vector<double> N(3 * static_cast<size_t>(n), 0.0);
@@ -185,14 +184,13 @@ Pencil componentPencil(const double* P, int n, const std::vector<int32_t>& F, co
         if (l == 0) l = 1;
         for (int k = 0; k < 3; ++k) p.normals[3 * static_cast<size_t>(v) + static_cast<size_t>(k)] = static_cast<double>(static_cast<float>(N[3 * static_cast<size_t>(v) + static_cast<size_t>(k)] / l));   // Float32Array
     }
-    p.corners = cornersOf(m, P, F.data());
+    p.corners = cornersOf(surf.inputCorners(), P, F.data());
     std::vector<float> Pf(3 * static_cast<size_t>(n));
     for (size_t k = 0; k < Pf.size(); ++k) Pf[k] = static_cast<float>(P[k]);                  // Float32Array.from(P)
     p.grad = assembleFaceGradient(Pf.data(), F.data(), n, nF);
-    delaunay::flipToDelaunay(m, o);
-    p.C = realConnectionLaplacian(m);
-    p.M = Eigen::Map<const VectorXd>(m.mass.data(), static_cast<Eigen::Index>(m.mass.size()));   // lumpedMass: the input's mixed Voronoi mass recorded before the flips
-    p.mesh = std::move(m);
+    p.C = realConnectionLaplacian(surf);
+    const std::vector<double> mass = surf.inputMixedVoronoiMass();                              // lumpedMass: the input's mixed Voronoi mass, recorded before the flips
+    p.M = Eigen::Map<const VectorXd>(mass.data(), static_cast<Eigen::Index>(mass.size()));
     return p;
 }
 
@@ -264,7 +262,7 @@ struct ConnectionFlow::Impl {
     }
 };
 
-ConnectionFlow::ConnectionFlow(const RowMat3& positions, const FaceMat& faces, double alpha, double maxAbs, const delaunay::DelaunayOptions& o) : p_(std::make_unique<Impl>()) {
+ConnectionFlow::ConnectionFlow(const RowMat3& positions, const FaceMat& faces, double alpha, double maxAbs, const DelaunayOptions& o) : p_(std::make_unique<Impl>()) {
     Impl& s = *p_;
     s.V = positions.rows(); s.alpha = alpha; s.scale = maxAbs;
     if (!(alpha > 0) || !std::isfinite(alpha)) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "opticalFlow: alpha = " + std::to_string(alpha) + ", the smoothness weight must be positive and finite");

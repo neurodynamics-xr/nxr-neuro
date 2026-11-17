@@ -275,12 +275,12 @@ Napi::Value CreateContext(const Napi::CallbackInfo& info) {
         return env.Null();
     }
     /* options.intrinsicDelaunay (parity with MEX 'create' opts), DEFAULT true: the operators (cotan, mass, DEC, the vertex connection
-       Laplacian) assemble on the intrinsic mollified Delaunay mesh (nxr/delaunay.h, the Studio's intrinsicDelaunay.ts) with the mixed-Voronoi
+       Laplacian) assemble on the intrinsic mollified Delaunay mesh (geometry-central's signpost triangulation, nxr/intrinsic_surface.h) with the mixed-Voronoi
        mass of the mollified input; false = the named option "embedded" (the input as it is). options.mollify (relative delta, default 1e-6)
        and options.flipEps (default 1e-6) are the construction's recorded numerical options. Extrinsic quantities (normals) stay on the
        embedded geometry. */
     bool intrinsicDelaunay = true;
-    nxr::manifold::delaunay::DelaunayOptions dopt;
+    nxr::manifold::DelaunayOptions dopt;
     if (info.Length() > 2 && info[2].IsObject()) {
         Napi::Object o = info[2].As<Napi::Object>();
         if (o.Has("intrinsicDelaunay")) intrinsicDelaunay = o.Get("intrinsicDelaunay").ToBoolean().Value();

@@ -12,7 +12,7 @@
 
 #include <Eigen/Eigenvalues>
 
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/filterbank.h"
 #include "nxr/intervals.h"
 #include "nxr/io/array_reader.h"

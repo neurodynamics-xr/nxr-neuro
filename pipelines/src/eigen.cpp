@@ -49,7 +49,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   const int nV = static_cast<int>(vertices.size() / 3), nF = static_cast<int>(faces.size() / 3);
   // the Hodge–Dirac's triangulation: THE one Delaunay construction (mollify, the mixed-Voronoi mass of the mollified input recorded, flip to Delaunay) —
   // exactly as nxr and the Studio prepare a surface; `mollify` and `flip_eps` are the named options
-  nxr::manifold::delaunay::DelaunayOptions dopt;
+  nxr::manifold::DelaunayOptions dopt;
   dopt.mollify = method.mollify; dopt.flipEps = method.flip_eps;
   nxr::manifold::Manifold m(vertices.data(), nV, faces.data(), nF, /*intrinsicDelaunay=*/true, dopt);
   const nxr::manifold::ops::hodgedirac::HodgeDirac hd =

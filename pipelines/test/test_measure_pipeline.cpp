@@ -14,7 +14,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
@@ -82,9 +82,8 @@ int main() {
   };
   nxr::ladder::Mesh lm; lm.positions = b.P; lm.faces = b.F; lm.n = nV;
   const std::vector<double> bary = nxr::ladder::vertexAreas(lm);
-  namespace dl = nxr::manifold::delaunay;
-  dl::Mesh dm = dl::prepare(b.P.data(), nV, b.F.data(), b.nF);
-  const std::vector<double> voro = dm.mass.empty() ? dl::mixedVoronoiMass(dm) : dm.mass;
+  nxr::manifold::IntrinsicSurface isurf(b.P.data(), nV, b.F.data(), b.nF);
+  const std::vector<double> voro = isurf.inputMixedVoronoiMass();
 
   MeasureComputeOptions o;
   o.labelling = "parcels"; o.fields = "map_.*"; o.weight = "barycentric";

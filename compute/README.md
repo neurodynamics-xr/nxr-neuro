@@ -201,7 +201,7 @@ M   = nxr.manifold.operator.mass(mctx);
 ### Mesh and mass
 
 Every operator (cotan Laplacian, masses, DEC, vertex connection Laplacian, Hodge–Dirac) is built on **one** mesh, made by **one** construction
-(`include/nxr/delaunay.h`, a line port of the Studio's `intrinsicDelaunay.ts`; nxr's and Rheome's are ports of the same file): the intrinsic **mollified
+(`include/nxr/intrinsic_surface.h`: geometry-central's signpost intrinsic triangulation): the intrinsic **mollified
 Delaunay** mesh, with the **mixed-Voronoi** mass (Meyer et al. 2003) of the mollified input, recorded before the first flip. That is the DEFAULT
 (`create(V, F)`, `Manifold(V, nV, F, nF)`). The others are named options, never silent defaults:
 

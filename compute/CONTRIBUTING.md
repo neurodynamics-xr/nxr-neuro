@@ -56,7 +56,7 @@ all `DECOperators` fields):
   the §11 row-major binding output is a direct memcpy).
 
   Mass names: `MixedVoronoi` is Meyer et al.'s mixed Voronoi area of the mollified INPUT, recorded before the first flip
-  (`delaunay::Mesh::mass`) — the Studio's, nxr's and Rheome's "lumped" mass, and the default. `Barycentric` is A_T/3 per vertex on the operator
+  (`IntrinsicSurface::inputMixedVoronoiMass`) — the Studio's, nxr's and Rheome's "lumped" mass, and the default. `Barycentric` is A_T/3 per vertex on the operator
   mesh (geometry-central's `vertexLumpedMassMatrix`, formerly this library's `Lumped`; the name `lumped` is retired, no alias, and
   `parseMassMatrixVariant("lumped")` throws). `Galerkin` is the consistent P1 mass on the operator mesh.
 
@@ -237,8 +237,8 @@ cotan weight < −`flipEps`), builds the `Manifold`'s intrinsic surface (`Manifo
 Laplacian, the three masses, the stand-alone DEC (so `d0ᵀ★₁d0 == cotanL` and `hodge0 == mass`), the vertex connection Laplacian (geometry-central's transport;
 n > 1 from its n-th power) and the Hodge–Dirac pencil. ONE gauge: geometry-central's vertex gauge of the (mollified) input (angle 0 along the input's
 `v.halfedge()`, corner angles rescaled to 2π, π at a boundary vertex); `geometry::vertexFrames` is its 3D realisation (`vertexFramesEmbedded` is a deprecated
-alias). The numerical constants are the named, recorded options `mollify` (relative δ, 1e-6) and `flipEps` (1e-6). The line port (`delaunay.h`) stays until its
-retirement (spec `docs/specs/2026-11-17-geometry-central-switch.md`, G7); `test/parity/test_delaunay_parity.py` compares against it. Still on the INPUT mesh (geometry-central, indexed by the input's
+alias). The numerical constants are the named, recorded options `mollify` (relative δ, 1e-6) and `flipEps` (1e-6). The line port of the Studio's construction is retired
+(spec `docs/specs/2026-11-17-geometry-central-switch.md`, G7). Still on the INPUT mesh (geometry-central, indexed by the input's
 edges and faces): `Manifold::decEmbedded()` (Hodge decomposition of a 1-form, the trivial connection and its gauge/combing, the face Diracs), the
 Face/Edge connection domains, the extrinsic Dirac E, and the light `Topology`/`Geometry` bundle (`vertexFramesEmbedded`, `vertexGridEmbedded`).
 (Note `normalize` is the unrelated eigenvector M-orthonormalization, not a mesh op.)

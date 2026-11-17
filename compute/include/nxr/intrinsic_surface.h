@@ -1,7 +1,7 @@
 // THE ONE INTRINSIC SURFACE: the input mesh, its geometry and the intrinsic Delaunay triangulation, all on geometry-central.
 //
 // Specified in docs/specs/2026-11-17-geometry-central-switch.md (section 2). It replaces the line port of the Studio's construction
-// (nxr/delaunay.h) and the port of the charts built on it; until those are deleted (G7) both exist. `nxr/chart.h` (G4) is now a wrapper of this surface.
+// (the port, deleted in G7). `nxr/chart.h` (G4) is a wrapper of this surface.
 //
 // Construction, in this order (each step names the geometry-central call):
 //   1. ManifoldSurfaceMesh + VertexPositionGeometry of the input (positions [3 nV] row-major, triangle faces [3 nF])
@@ -41,6 +41,13 @@ enum class MassKind {
     Barycentric,         // geometry-central's own: a third of each intrinsic triangle's area
     Galerkin,            // the consistent P1 mass (a sparse matrix; `massDiagonal()` refuses it)
 };
+
+/** The two named options of the intrinsic Delaunay construction (mollification and flip tolerance), shared by every builder of an intrinsic surface. */
+struct DelaunayOptions {
+    double mollify = 1e-6;    // the mollification margin δ relative to the mean edge length (0 = no margin; ε is still added where a triangle is invalid)
+    double flipEps = 1e-6;    // an edge is flipped while its cotangent weight is below −flipEps
+};
+namespace delaunay { using DelaunayOptions [[deprecated("nxr::manifold::DelaunayOptions")]] = nxr::manifold::DelaunayOptions; }   // the port's name, one release
 
 /** The named, recorded choices of the construction. */
 struct IntrinsicOptions {
@@ -131,6 +138,14 @@ public:
         std::vector<int32_t> reference;   // [nV] the head of the input's `v.halfedge()`: angle 0
     };
     Complex complex();
+    /** THE INPUT'S CORNERS in the face-corner layout (corner 3f + k of input face f, k in the order of its vertices), before any flip: each corner's raw signpost angle at its
+     *  vertex and its angle (mollified input), and per vertex the angle sum and whether it is on the boundary. What the optical flow's gauge reads (Corners). */
+    struct InputCorners {
+        std::vector<double>  signpost, angle;   // [3 nF]
+        std::vector<double>  angleSum;          // [nV]
+        std::vector<uint8_t> boundary;          // [nV]
+    };
+    InputCorners inputCorners();
     /** The raw signpost angle of each of the INPUT mesh's halfedges (mollified input), indexed by halfedge index: the same coordinate as `Complex::angle`. */
     std::vector<double> inputSignpostAngles();
 

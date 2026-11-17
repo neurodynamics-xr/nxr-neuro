@@ -15,7 +15,7 @@
 #include <regex>
 #include <set>
 
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/io/measures.h"
 #include "nxr/ladder.h"
 #include "nxr/partition.h"
@@ -117,9 +117,8 @@ MeasureComputeResult measure_compute(DatasetWriter& ds, SubjectWriter& sub, cons
     nxr::ladder::Mesh m; m.positions = S.vertices; m.faces = S.faces; m.n = static_cast<int>(nV);
     w = nxr::ladder::vertexAreas(m);
   } else if (opt.weight == "voronoi") {
-    namespace dl = nxr::manifold::delaunay;
-    dl::Mesh m = dl::prepare(S.vertices.data(), static_cast<int>(nV), S.faces.data(), static_cast<int>(S.n_faces()));
-    w = m.mass.empty() ? dl::mixedVoronoiMass(m) : m.mass;
+    nxr::manifold::IntrinsicSurface isurf(S.vertices.data(), static_cast<int>(nV), S.faces.data(), static_cast<int>(S.n_faces()));
+    w = isurf.inputMixedVoronoiMass();                                     // the mollified input's mixed-Voronoi mass
   }
   const bool areas = !w.empty();
   const double* wp = areas ? w.data() : nullptr;

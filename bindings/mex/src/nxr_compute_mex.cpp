@@ -263,10 +263,10 @@ void cmdCreate(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     // Guard geometry-central against malformed meshes (segfault -> clean MATLAB error).
     validateMesh(nV, nF, faces);
 
-    // DEFAULT intrinsic (the intrinsic mollified Delaunay mesh, nxr/delaunay.h); intrinsicDelaunay=false is the named option "embedded".
+    // DEFAULT intrinsic (geometry-central's intrinsic mollified Delaunay triangulation, nxr/intrinsic_surface.h); intrinsicDelaunay=false is the named option "embedded".
     // opts.mollify (relative delta, 1e-6) and opts.flipEps (1e-6) are the construction's recorded options.
     bool intrinsicDelaunay = true;
-    nxr::manifold::delaunay::DelaunayOptions dopt;
+    nxr::manifold::DelaunayOptions dopt;
     if (nrhs >= 4) {
         if (!mxIsStruct(prhs[3]))
             throw std::invalid_argument("nxr_compute('create', V, F, opts): opts must be a struct");

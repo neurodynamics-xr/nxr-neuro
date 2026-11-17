@@ -24,11 +24,11 @@
 #include <memory>
 #include <vector>
 
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/opticalflow.h"
 
 namespace nxr::flow::connection {
-namespace delaunay = nxr::manifold::delaunay;
+using DelaunayOptions = nxr::manifold::DelaunayOptions;
 
 /** `Corners` (intrinsicGauge.ts): C's gauge, face by face. Per halfedge of the component's INPUT faces: its signpost psi0 (rescaled), its corner's width in psi, its edge's unit vector and the in-plane perpendicular. */
 struct Corners {
@@ -41,8 +41,8 @@ struct Corners {
 /** `assembleFaceGradient` (faceGradient.ts), the part the flow reads: per face the three hat functions' gradients, stored as float32 as the Studio stores them. */
 struct FaceGradient { int nF = 0; std::vector<float> grads; };   // [9 nF]
 
-/** `cornersOf`: the corners of an intrinsic mesh with signposts, BEFORE its Delaunay flips; P [3n] the input positions, F [3 nF] the input faces. */
-Corners cornersOf(const delaunay::Mesh& m, const double* P, const int32_t* F);
+/** `cornersOf`: the corners of the input faces (their signposts and angles, before any flip: `IntrinsicSurface::inputCorners`); P [3n] the input positions, F [3 nF] the input faces. */
+Corners cornersOf(const nxr::manifold::IntrinsicSurface::InputCorners& m, const double* P, const int32_t* F);
 /** `assembleFaceGradient` from float32 positions. */
 FaceGradient assembleFaceGradient(const float* position, const int32_t* index, int nV, int nF);
 /** `intrinsicGradient`: a scalar's gradient at every vertex in C's gauge (2n, a at 2v, b at 2v+1): each face's gradient at its corners' intrinsic angles, averaged by area. */
@@ -59,17 +59,16 @@ struct Pencil {
     std::vector<double> normals;     // [3n] the area-weighted unit vertex normals, float32 values
     Corners corners;
     FaceGradient grad;
-    delaunay::Mesh mesh;             // the INTRINSIC Delaunay mesh (flipped, with signposts and the recorded mass): the charts' heat method and tangent basis read it
 };
-Pencil componentPencil(const double* positions, int n, const std::vector<int32_t>& faces, const delaunay::DelaunayOptions& o = {});
-/** The connection Laplacian as the real symmetric 2n x 2n matrix (complex entry a+ib -> [[a, −b], [b, a]]). */
-Eigen::SparseMatrix<double> realConnectionLaplacian(const delaunay::Mesh& m);
+Pencil componentPencil(const double* positions, int n, const std::vector<int32_t>& faces, const DelaunayOptions& o = {});
+/** The connection Laplacian of the intrinsic surface as the real symmetric 2n x 2n matrix (complex entry a+ib -> [[a, −b], [b, a]]). */
+Eigen::SparseMatrix<double> realConnectionLaplacian(nxr::manifold::IntrinsicSurface& s);
 
 /** The flow itself: built once per mesh (components found, pencils, the system's pattern and its symbolic factorisation). */
 class ConnectionFlow {
 public:
     /** `maxAbs` the window's peak (the unit amplitude); `positions` [V x 3], `faces` [F x 3] (any number of connected pieces, solved independently). */
-    ConnectionFlow(const RowMat3& positions, const FaceMat& faces, double alpha, double maxAbs, const delaunay::DelaunayOptions& o = {});
+    ConnectionFlow(const RowMat3& positions, const FaceMat& faces, double alpha, double maxAbs, const DelaunayOptions& o = {});
     ~ConnectionFlow();
     ConnectionFlow(const ConnectionFlow&) = delete;
     ConnectionFlow& operator=(const ConnectionFlow&) = delete;

@@ -12,7 +12,7 @@
 #include <set>
 
 #include "nxr/bst/frequency.h"
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/filterbank.h"
 #include "nxr/intrinsic_forms.h"
 #include <sstream>
@@ -1047,14 +1047,17 @@ nxr::hodge::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& pk) {
   basis.keep.assign(static_cast<std::size_t>(Vg), -1);
   for (std::int64_t i = 0; i < kept; ++i) basis.keep[static_cast<std::size_t>(i)] = support[static_cast<std::size_t>(i)];
   {
-    nxr::manifold::delaunay::DelaunayOptions dopt;
+    nxr::manifold::DelaunayOptions dopt;
     const Json prov = Json::parse(opt_text(*opr, "producer_json").value_or("{}"), nullptr, false);
     if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {
       dopt.mollify = prov["solve"]["options"].value("mollify", dopt.mollify);
       dopt.flipEps = prov["solve"]["options"].value("flip_eps", dopt.flipEps);
     }
-    const nxr::manifold::delaunay::Mesh dm = nxr::manifold::delaunay::prepare(glued.vertices.data(), static_cast<int>(Vg), glued.faces.data(), static_cast<int>(glued.n_faces()), dopt);
-    basis.mass = Eigen::Map<const Eigen::VectorXd>(dm.mass.data(), static_cast<Eigen::Index>(dm.mass.size()));
+    nxr::manifold::IntrinsicOptions io;                                   // the mollified input's mixed-Voronoi mass, as the solve took it
+    io.mollify = dopt.mollify; io.flipEps = dopt.flipEps;
+    nxr::manifold::IntrinsicSurface isurf(glued.vertices.data(), static_cast<int>(Vg), glued.faces.data(), static_cast<int>(glued.n_faces()), io);
+    const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
+    basis.mass = Eigen::Map<const Eigen::VectorXd>(dm_mass.data(), static_cast<Eigen::Index>(dm_mass.size()));
   }
   return basis;
 }
@@ -2023,14 +2026,17 @@ LaplaceModes read_laplace_modes(SubjectWriter& sub, const SurfaceInput& S, const
     if (want(mu * mu)) cols.push_back(k);
   }
   // the glued surface's vertex mass as the solve took it (the package's provenance gives its Delaunay options), as load_hodge_basis
-  nxr::manifold::delaunay::DelaunayOptions dopt;
+  nxr::manifold::DelaunayOptions dopt;
   const Json prov = Json::parse(opt_text(pk.opr, "producer_json").value_or("{}"), nullptr, false);
   if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {
     dopt.mollify = prov["solve"]["options"].value("mollify", dopt.mollify);
     dopt.flipEps = prov["solve"]["options"].value("flip_eps", dopt.flipEps);
   }
-  const nxr::manifold::delaunay::Mesh dm = nxr::manifold::delaunay::prepare(pk.glued.vertices.data(), static_cast<int>(Vg), pk.glued.faces.data(), static_cast<int>(pk.glued.n_faces()), dopt);
-  out.mass = Eigen::Map<const Eigen::VectorXd>(dm.mass.data(), static_cast<Eigen::Index>(dm.mass.size()));
+  nxr::manifold::IntrinsicOptions io;                                   // the mollified input's mixed-Voronoi mass, as the solve took it
+    io.mollify = dopt.mollify; io.flipEps = dopt.flipEps;
+    nxr::manifold::IntrinsicSurface isurf(pk.glued.vertices.data(), static_cast<int>(Vg), pk.glued.faces.data(), static_cast<int>(pk.glued.n_faces()), io);
+    const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
+  out.mass = Eigen::Map<const Eigen::VectorXd>(dm_mass.data(), static_cast<Eigen::Index>(dm_mass.size()));
   out.support = pk.support;
   // the constant mode (lambda = 0) is never stored; the glued surface is one connected piece, so it is 1/sqrt(area) on every vertex
   const bool constant = want(0.0);

@@ -7,7 +7,7 @@
 #include <filesystem>
 #include <memory>
 
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/task.h"
@@ -130,10 +130,9 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
   const std::int64_t nV = S.n_vertices();
   const int l = L.l;
   const fb::Member& member = L.bank.members[static_cast<std::size_t>(l)];
-  namespace dl = nxr::manifold::delaunay;
-  dl::Mesh dm = dl::prepare(S.vertices.data(), static_cast<int>(nV), S.faces.data(), static_cast<int>(S.n_faces()));
-  const Eigen::SparseMatrix<double> Lap = dl::cotanLaplacian(dm);
-  const std::vector<double> mass = dm.mass.empty() ? dl::mixedVoronoiMass(dm) : dm.mass;
+  nxr::manifold::IntrinsicSurface isurf(S.vertices.data(), static_cast<int>(nV), S.faces.data(), static_cast<int>(S.n_faces()));
+  const Eigen::SparseMatrix<double> Lap = isurf.cotanLaplacian();          // on geometry-central's intrinsic Delaunay triangulation
+  const std::vector<double> mass = isurf.inputMixedVoronoiMass();
   Eigen::SparseMatrix<double> M(static_cast<Eigen::Index>(nV), static_cast<Eigen::Index>(nV));
   {
     std::vector<Eigen::Triplet<double>> t;

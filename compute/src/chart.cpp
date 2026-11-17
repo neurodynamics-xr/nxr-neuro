@@ -45,7 +45,7 @@ struct ChartKit::Impl {
     }
 };
 
-ChartKit::ChartKit(const double* positions, int nV, const int32_t* faces, int nF, const delaunay::DelaunayOptions& d)
+ChartKit::ChartKit(const double* positions, int nV, const int32_t* faces, int nF, const DelaunayOptions& d)
     : ChartKit(positions, nV, faces, nF, [&d] { manifold::IntrinsicOptions o; o.mollify = d.mollify; o.flipEps = d.flipEps; return o; }()) {}
 
 ChartKit::ChartKit(const double* positions, int nV, const int32_t* faces, int nF, const manifold::IntrinsicOptions& o) : p_(std::make_unique<Impl>()) {

@@ -15,7 +15,7 @@ using namespace geometrycentral::surface;
 // ── Manifold implementation ────────────────────────────
 
 Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF, bool intrinsicDelaunay,
-                   const delaunay::DelaunayOptions& delaunayOptions)
+                   const DelaunayOptions& delaunayOptions)
     : Manifold(vertices, nV, faces, nF,
                ManifoldOptions{intrinsicDelaunay ? MeshKind::Intrinsic : MeshKind::Embedded, delaunayOptions}) {}
 
@@ -69,7 +69,7 @@ Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF,
 // then validates Gauss-Bonnet and sets the active gauge to Trivial.
 Manifold::Manifold(const double* vertices, int nV, const int32_t* faces, int nF,
                    const std::map<int,double>& singularities, bool intrinsicDelaunay,
-                   const delaunay::DelaunayOptions& delaunayOptions)
+                   const DelaunayOptions& delaunayOptions)
     : Manifold(vertices, nV, faces, nF, intrinsicDelaunay, delaunayOptions) {
     validateSingularities_(singularities);
     activeGaugeType_     = GaugeType::Trivial;

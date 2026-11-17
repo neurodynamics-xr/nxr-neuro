@@ -23,7 +23,6 @@
 #include <cstdint>
 #include <vector>
 
-#include "nxr/delaunay.h"          // kept for includers that reach the port through this header (removed with the port, G7)
 #include "nxr/intrinsic_surface.h"
 
 namespace nxr::intrinsic {

@@ -14,7 +14,7 @@
 
 #include "check.h"
 #include "mesh_helpers.h"
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/glue.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/eigen.h"
@@ -223,10 +223,10 @@ int main() {
     for (std::size_t i = 0; i < W.size(); ++i) W32[i] = static_cast<double>(static_cast<float>(W[i]));
     const nxr::glue::Glued gm = nxr::glue::glueMesh(W32, G, wall);
     const int Vg = static_cast<int>(gm.keep.size());
-    namespace dl = nxr::manifold::delaunay;
-    dl::Mesh dm = dl::prepare(gm.positions.data(), Vg, gm.faces.data(), static_cast<int>(gm.faces.size() / 3));
-    Eigen::MatrixXd Ld(dl::cotanLaplacian(dm)), Md = Eigen::MatrixXd::Zero(Vg, Vg);
-    for (int i = 0; i < Vg; ++i) Md(i, i) = dm.mass[static_cast<std::size_t>(i)];
+    nxr::manifold::IntrinsicSurface isurf(gm.positions.data(), Vg, gm.faces.data(), static_cast<int>(gm.faces.size() / 3));
+    const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
+    Eigen::MatrixXd Ld(isurf.cotanLaplacian()), Md = Eigen::MatrixXd::Zero(Vg, Vg);
+    for (int i = 0; i < Vg; ++i) Md(i, i) = dm_mass[static_cast<std::size_t>(i)];
     Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Ld, Md);
     const Eigen::VectorXd lam = es.eigenvalues().cwiseMax(0.0);
     const Eigen::MatrixXd X4 = field(S4, 2);

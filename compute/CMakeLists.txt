@@ -38,13 +38,10 @@ FetchContent_Populate(spectra)
 # Headers:      include/nxr/{compute,errors,cancellation,progress}.h
 # Namespace:    nxr::compute
 
-# delaunay.cpp is a line port of the Studio's intrinsicDelaunay.ts: strict IEEE arithmetic (no fused multiply-add) so that its last bits agree with the reference's
-set_source_files_properties(src/delaunay.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 
 add_library(nxr_compute STATIC
   src/mesh_operators.cpp
   src/normalize_delaunay.cpp
-  src/delaunay.cpp
   src/eigensolver.cpp
   src/congruence.cpp
   src/nearest.cpp
@@ -270,20 +267,6 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     target_link_libraries(test_intrinsic_surface PRIVATE nxr_compute)
     target_compile_definitions(test_intrinsic_surface PRIVATE NXR_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
     add_test(NAME test_intrinsic_surface COMMAND test_intrinsic_surface)
-
-    # the one-time comparison with the port (kept until the port is deleted) and the poor-mesh study
-    add_executable(test_gc_port_comparison test/test_gc_port_comparison.cpp test/chart_port.cpp)
-    set_source_files_properties(test/chart_port.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
-    target_link_libraries(test_gc_port_comparison PRIVATE nxr_compute)
-    add_test(NAME test_gc_port_comparison COMMAND test_gc_port_comparison)
-
-    add_executable(test_delaunay test/test_delaunay.cpp)
-    target_link_libraries(test_delaunay PRIVATE nxr_compute)
-    add_test(NAME test_delaunay COMMAND test_delaunay)
-
-    # parity helper (not a ctest): prints THE construction's result as JSON for test/parity/test_delaunay_parity.py
-    add_executable(delaunay_dump test/delaunay_dump.cpp)
-    target_link_libraries(delaunay_dump PRIVATE nxr_compute)
 
     add_executable(test_intrinsic_delaunay test/test_intrinsic_delaunay.cpp)
     target_link_libraries(test_intrinsic_delaunay PRIVATE nxr_compute)

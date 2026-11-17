@@ -15,7 +15,7 @@
 
 #include "check.h"
 #include "mesh_helpers.h"
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/glue.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/eigen.h"

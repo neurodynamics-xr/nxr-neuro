@@ -38,7 +38,7 @@
 #include <vector>
 #include <map>
 
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/intrinsic_surface.h"
 
 #include "nxr/errors.h"
@@ -96,13 +96,13 @@ enum class OperatorId {
 // once and reused across multiple calls.
 
 // Which mesh the operators (cotan Laplacian, masses, DEC, connection Laplacian, Hodge–Dirac) are built on.
-//   Intrinsic (DEFAULT): the intrinsic mollified Delaunay mesh of nxr/delaunay.h, with the mixed-Voronoi mass of the mollified input.
+//   Intrinsic (DEFAULT): geometry-central's intrinsic mollified Delaunay (signpost) triangulation (nxr/intrinsic_surface.h), with the mixed-Voronoi mass of the mollified input.
 //   Embedded: the input triangulation as it is (no mollification, no flips) — a NAMED OPTION, never a silent default.
 enum class MeshKind { Intrinsic, Embedded };
 
 struct ManifoldOptions {
     MeshKind                    mesh     = MeshKind::Intrinsic;
-    delaunay::DelaunayOptions   delaunay = {};     // `mollify` and `flipEps`: named, recorded options (shared names with the Studio and nxr)
+    DelaunayOptions             delaunay = {};     // `mollify` and `flipEps`: named, recorded options (shared names with the Studio and nxr)
 };
 
 class Manifold {
@@ -113,7 +113,7 @@ public:
     Manifold(const double* vertices, int nV,
                    const int32_t* faces, int nF,
                    bool intrinsicDelaunay = true,
-                   const delaunay::DelaunayOptions& delaunay = {});
+                   const DelaunayOptions& delaunay = {});
     ~Manifold();
 
     // Non-copyable
@@ -167,7 +167,7 @@ public:
     // Throws Error(InvalidInput) if Σ singularities != eulerCharacteristic().
     Manifold(const double* vertices, int nV, const int32_t* faces, int nF,
              const std::map<int,double>& singularities, bool intrinsicDelaunay = true,
-             const delaunay::DelaunayOptions& delaunayOptions = {});
+             const DelaunayOptions& delaunayOptions = {});
 
     int eulerCharacteristic() const;                 // nV - nE + nF
     GaugeType activeGaugeType() const;
@@ -323,7 +323,7 @@ namespace nxr::manifold::ops {
  * Mass-matrix variant for the FEM L² inner product ⟨u, v⟩ = uᵀ M v.
  *
  * - MixedVoronoi (DEFAULT): diagonal; each vertex's mixed Voronoi area (Meyer, Desbrun, Schröder & Barr 2003) of the
- *   mollified INPUT triangulation, recorded before the first flip (`delaunay::Mesh::mass`) — the mass of the Studio, nxr and Rheome. With
+ *   mollified INPUT triangulation, recorded before the first flip (`IntrinsicSurface::inputMixedVoronoiMass`) — the mass of the Studio, nxr and Rheome. With
  *   MeshKind::Embedded: of the input as it is.
  * - Galerkin: full sparse, the L² integrals of piecewise-linear hat functions on the triangulation as it is (per-triangle element
  *   matrix (A_T / 12) · [[2 1 1][1 2 1][1 1 2]]). A named option.
@@ -401,7 +401,7 @@ struct ManifoldOperators {
     // mesh metadata that's already canonical on the context.
 };
 
-/** Assemble operators from a context, on the Manifold's operator mesh (nxr/delaunay.h). Default mass variant is MixedVoronoi. */
+/** Assemble operators from a context, on the Manifold's operator mesh (nxr/intrinsic_surface.h). Default mass variant is MixedVoronoi. */
 ManifoldOperators assembleManifoldOperators(
     Manifold& m,
     MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);
@@ -509,7 +509,7 @@ Eigen::SparseMatrix<double> extrinsicBlockFace(Manifold& m);
 //     K = [0 d0ᵀ⋆1 0; ⋆1 d0 0 d1ᵀ⋆2; 0 ⋆2 d1 0],   M = diag(⋆0, ⋆1, ⋆2).
 // ⋆0 mixed-Voronoi mass of the mollified input (obtuse corner: A/2 and A/4), ⋆1 = ½(cot α + cot β), ⋆2 = 1/area. M⁻¹K = d + δ is
 // M-self-adjoint with spectrum ±μ; D² is block-diagonal in the Hodge Laplacians. The triangulation is built from the
-// input's edge lengths by THE one construction (nxr/delaunay.h, the Studio's intrinsicDelaunay.ts): mollify (Sharp & Crane 2020, relative factor `mollify`),
+// input's edge lengths by THE one construction (geometry-central's signpost triangulation, nxr/intrinsic_surface.h): mollify (Sharp & Crane 2020, relative factor `mollify`),
 // then flipToDelaunay (tolerance `flipEps`). Both are named, recorded options (`record`).
 // Vertex indices are the input's; edges and faces are the intrinsic mesh's (edge orientation = its halfedge).
 // ⋆1 is the raw intrinsic cotan weight (nxr, the reference;). A named option `star1Floor` > 0 raises it to that floor so that M > 0 on

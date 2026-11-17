@@ -13,11 +13,10 @@
 #include <iostream>
 
 #include "mesh_helpers.h"
-#include "nxr/delaunay.h"
+#include "nxr/intrinsic_surface.h"
 #include "nxr/filterbank.h"
 #include "nxr/phase.h"
 
-namespace dl = nxr::manifold::delaunay;
 using namespace nxr::monogenic;
 
 static double P5(double x) { return (63 * std::pow(x, 5) - 70 * std::pow(x, 3) + 15 * x) / 8; }
@@ -36,9 +35,9 @@ int main() {
   for (int f = 0; f < nF; ++f) for (int s = 0; s < 3; ++s) F(f, s) = Fv[3 * f + s];
   const nxr::phase::Gradient G = nxr::phase::vertexGradient(P, F);
 
-  dl::Mesh dm = dl::prepare(V.data(), n, Fv.data(), nF);
-  const Eigen::SparseMatrix<double> Lap = dl::cotanLaplacian(dm);
-  const std::vector<double> mass = dm.mass.empty() ? dl::mixedVoronoiMass(dm) : dm.mass;
+  nxr::manifold::IntrinsicSurface isurf(V.data(), n, Fv.data(), nF);
+  const Eigen::SparseMatrix<double> Lap = isurf.cotanLaplacian();
+  const std::vector<double> mass = isurf.inputMixedVoronoiMass();
   Eigen::MatrixXd Ld(Lap), Md = Eigen::MatrixXd::Zero(n, n);
   Eigen::VectorXd m(n);
   for (int i = 0; i < n; ++i) { Md(i, i) = mass[i]; m(i) = mass[i]; }
