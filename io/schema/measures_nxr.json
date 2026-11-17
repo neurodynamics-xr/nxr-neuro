@@ -8,8 +8,8 @@
   {
    "code": 1000,
    "name": "phase_current_1",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "phase_current",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -19,8 +19,8 @@
   {
    "code": 1001,
    "name": "phase_current_2",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "phase_current",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -30,8 +30,8 @@
   {
    "code": 1002,
    "name": "phase_current_magnitude",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "phase_current",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -41,8 +41,8 @@
   {
    "code": 1003,
    "name": "phase_power",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "power",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -52,8 +52,8 @@
   {
    "code": 1004,
    "name": "phase_gradient_power",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "power",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -63,8 +63,8 @@
   {
    "code": 1100,
    "name": "phase_gradient_1",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -77,8 +77,8 @@
   {
    "code": 1101,
    "name": "phase_gradient_2",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -91,8 +91,8 @@
   {
    "code": 1102,
    "name": "phase_gradient_magnitude",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -106,8 +106,8 @@
   {
    "code": 1103,
    "name": "phase_gradient_direction_deg",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -120,8 +120,8 @@
   {
    "code": 1104,
    "name": "travelling_index",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -136,8 +136,8 @@
   {
    "code": 1105,
    "name": "phase_coherence",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -151,8 +151,8 @@
   {
    "code": 1005,
    "name": "mean_abs",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "none",
    "unit": null,
    "weight": "area",
    "span": "levels",
@@ -162,8 +162,8 @@
   {
    "code": 1006,
    "name": "mean_sqrt_abs",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "none",
    "unit": null,
    "weight": "area",
    "span": "levels",
@@ -173,8 +173,8 @@
   {
    "code": 1007,
    "name": "mean_cube",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -184,8 +184,8 @@
   {
    "code": 1008,
    "name": "mean_fourth",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -195,8 +195,8 @@
   {
    "code": 1009,
    "name": "median",
-   "reduction": "none",
    "merge": "none",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -206,8 +206,8 @@
   {
    "code": 1010,
    "name": "duration",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": "s",
    "weight": null,
    "span": "events",
@@ -217,8 +217,8 @@
   {
    "code": 1011,
    "name": "interval_next",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "s",
    "weight": null,
    "span": "events",
@@ -228,8 +228,8 @@
   {
    "code": 1012,
    "name": "n_tiles",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -239,8 +239,8 @@
   {
    "code": 1013,
    "name": "centre_vertex",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -250,8 +250,8 @@
   {
    "code": 1014,
    "name": "t_on",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "s",
    "weight": null,
    "span": "events",
@@ -261,8 +261,8 @@
   {
    "code": 1015,
    "name": "t_off",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "s",
    "weight": null,
    "span": "events",
@@ -272,8 +272,8 @@
   {
    "code": 1016,
    "name": "tau_rise",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "s",
    "weight": null,
    "span": "events",
@@ -283,8 +283,8 @@
   {
    "code": 1017,
    "name": "tau_fall",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "s",
    "weight": null,
    "span": "events",
@@ -294,8 +294,8 @@
   {
    "code": 1018,
    "name": "fit_baseline",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -305,8 +305,8 @@
   {
    "code": 1019,
    "name": "fit_height",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -316,8 +316,8 @@
   {
    "code": 1020,
    "name": "fit_r2",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -327,8 +327,8 @@
   {
    "code": 1021,
    "name": "plateau_duration",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "s",
    "weight": null,
    "span": "events",
@@ -338,8 +338,8 @@
   {
    "code": 1022,
    "name": "cross_spectrum_norm2",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "outer",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -349,8 +349,8 @@
   {
    "code": 1023,
    "name": "cross_spectrum_quadrature_norm2",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "outer",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -360,8 +360,8 @@
   {
    "code": 1024,
    "name": "n_cells",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -371,8 +371,8 @@
   {
    "code": 1025,
    "name": "first_tile",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -382,8 +382,8 @@
   {
    "code": 1026,
    "name": "last_tile",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -393,8 +393,8 @@
   {
    "code": 1027,
    "name": "burst_ordinal",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -404,8 +404,8 @@
   {
    "code": 1028,
    "name": "path_length",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "m",
    "weight": null,
    "span": "events",
@@ -415,8 +415,8 @@
   {
    "code": 1029,
    "name": "tile_pair_cross_spectrum_norm2",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "outer",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -426,8 +426,8 @@
   {
    "code": 1030,
    "name": "tile_pair_cross_spectrum_quadrature_norm2",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "outer",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -437,8 +437,8 @@
   {
    "code": 1031,
    "name": "scale_event",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -448,8 +448,8 @@
   {
    "code": 1032,
    "name": "scale_space_level",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -459,8 +459,8 @@
   {
    "code": 1033,
    "name": "scale_time_level",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -470,8 +470,8 @@
   {
    "code": 1034,
    "name": "scale_peak",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -481,8 +481,8 @@
   {
    "code": 1035,
    "name": "scale_response",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -492,8 +492,8 @@
   {
    "code": 1036,
    "name": "scale_tile_area",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "m²",
    "weight": null,
    "span": "events",
@@ -503,8 +503,8 @@
   {
    "code": 1037,
    "name": "scale_band_lo",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "Hz",
    "weight": null,
    "span": "events",
@@ -514,8 +514,8 @@
   {
    "code": 1038,
    "name": "scale_band_hi",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "Hz",
    "weight": null,
    "span": "events",
@@ -525,8 +525,8 @@
   {
    "code": 1039,
    "name": "scale_pairs",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -536,8 +536,8 @@
   {
    "code": 1040,
    "name": "scale_edge",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -547,8 +547,8 @@
   {
    "code": 1041,
    "name": "phase_current_x",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "phase_current",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -558,8 +558,8 @@
   {
    "code": 1042,
    "name": "phase_current_y",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "phase_current",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -569,8 +569,8 @@
   {
    "code": 1043,
    "name": "phase_current_z",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "phase_current",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -580,8 +580,8 @@
   {
    "code": 1044,
    "name": "frame",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -591,8 +591,8 @@
   {
    "code": 1045,
    "name": "sense",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -602,8 +602,8 @@
   {
    "code": 1046,
    "name": "centre_x",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "m",
    "weight": null,
    "span": "events",
@@ -613,8 +613,8 @@
   {
    "code": 1047,
    "name": "centre_y",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "m",
    "weight": null,
    "span": "events",
@@ -624,8 +624,8 @@
   {
    "code": 1048,
    "name": "centre_z",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "m",
    "weight": null,
    "span": "events",
@@ -635,8 +635,8 @@
   {
    "code": 1049,
    "name": "peak",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -646,8 +646,8 @@
   {
    "code": 1050,
    "name": "characteristic_level",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -657,8 +657,8 @@
   {
    "code": 1051,
    "name": "size_cm",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "cm",
    "weight": null,
    "span": "events",
@@ -668,8 +668,8 @@
   {
    "code": 1052,
    "name": "diameter_cm",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "cm",
    "weight": null,
    "span": "events",
@@ -679,8 +679,8 @@
   {
    "code": 1053,
    "name": "relative_peak",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -690,8 +690,8 @@
   {
    "code": 1106,
    "name": "shape_factor",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -704,8 +704,8 @@
   {
    "code": 1107,
    "name": "impulse_factor",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -718,8 +718,8 @@
   {
    "code": 1108,
    "name": "clearance_factor",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -732,8 +732,8 @@
   {
    "code": 1109,
    "name": "skewness",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -747,8 +747,8 @@
   {
    "code": 1110,
    "name": "kurtosis",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -763,8 +763,8 @@
   {
    "code": 1111,
    "name": "quadrature_fraction",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -777,8 +777,8 @@
   {
    "code": 1112,
    "name": "tile_pair_quadrature_fraction",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -791,8 +791,8 @@
   {
    "code": 1113,
    "name": "phase_gradient_x",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -805,8 +805,8 @@
   {
    "code": 1114,
    "name": "phase_gradient_y",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -819,8 +819,8 @@
   {
    "code": 1115,
    "name": "phase_gradient_z",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -833,8 +833,8 @@
   {
    "code": 1054,
    "name": "flow_divergence",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -844,8 +844,8 @@
   {
    "code": 1055,
    "name": "flow_curl",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -855,8 +855,8 @@
   {
    "code": 1056,
    "name": "flow_speed",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -866,8 +866,8 @@
   {
    "code": 1057,
    "name": "flow_velocity_1",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -877,8 +877,8 @@
   {
    "code": 1058,
    "name": "flow_velocity_2",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -888,8 +888,8 @@
   {
    "code": 1059,
    "name": "flow_velocity_anterior",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -899,8 +899,8 @@
   {
    "code": 1060,
    "name": "flow_velocity_second",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -910,8 +910,8 @@
   {
    "code": 1061,
    "name": "phase_flux",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -921,8 +921,8 @@
   {
    "code": 1062,
    "name": "phase_circulation",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -932,8 +932,8 @@
   {
    "code": 1116,
    "name": "displacement",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": "m",
    "weight": null,
    "span": "events",
@@ -943,8 +943,8 @@
   {
    "code": 1117,
    "name": "n_frames",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -954,8 +954,8 @@
   {
    "code": 1118,
    "name": "first_frame",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -965,8 +965,8 @@
   {
    "code": 1119,
    "name": "last_frame",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -976,8 +976,8 @@
   {
    "code": 1120,
    "name": "track",
-   "reduction": "none",
    "merge": "none",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "events",
@@ -987,8 +987,8 @@
   {
    "code": 1121,
    "name": "crossing_sum_x",
-   "reduction": "none",
    "merge": "none",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -998,8 +998,8 @@
   {
    "code": 1122,
    "name": "crossing_sum_y",
-   "reduction": "none",
    "merge": "none",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -1009,8 +1009,8 @@
   {
    "code": 1123,
    "name": "crossing_sum_z",
-   "reduction": "none",
    "merge": "none",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -1020,8 +1020,8 @@
   {
    "code": 1124,
    "name": "crossings",
-   "reduction": "none",
    "merge": "none",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -1031,8 +1031,8 @@
   {
    "code": 1125,
    "name": "crossing_consistency",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -1047,8 +1047,8 @@
   {
    "code": 1126,
    "name": "crossing_rho2",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,

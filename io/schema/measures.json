@@ -9,8 +9,8 @@
   {
    "code": 1,
    "name": "mean",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "none",
    "unit": null,
    "weight": "area",
    "span": "levels",
@@ -20,8 +20,8 @@
   {
    "code": 2,
    "name": "max",
-   "reduction": "max",
    "merge": "max",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -31,8 +31,8 @@
   {
    "code": 3,
    "name": "min",
-   "reduction": "min",
    "merge": "min",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -42,8 +42,8 @@
   {
    "code": 4,
    "name": "mean_square",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "none",
    "unit": null,
    "weight": "area",
    "span": "levels",
@@ -53,8 +53,8 @@
   {
    "code": 5,
    "name": "sum",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -64,8 +64,8 @@
   {
    "code": 6,
    "name": "abs_max",
-   "reduction": "max",
    "merge": "max",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -75,8 +75,8 @@
   {
    "code": 7,
    "name": "area",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": "m²",
    "weight": null,
    "span": "levels",
@@ -86,8 +86,8 @@
   {
    "code": 8,
    "name": "n_elements",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "member",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -97,8 +97,8 @@
   {
    "code": 10,
    "name": "amplitude",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "magnitude",
    "unit": null,
    "weight": "n_elements",
    "span": "time",
@@ -108,8 +108,8 @@
   {
    "code": 11,
    "name": "power",
-   "reduction": "mean",
    "merge": "mean",
+   "form": "power",
    "unit": null,
    "weight": "n_elements",
    "span": "time",
@@ -119,8 +119,8 @@
   {
    "code": 20,
    "name": "weight",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -130,8 +130,8 @@
   {
    "code": 21,
    "name": "sum_square",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -141,8 +141,8 @@
   {
    "code": 22,
    "name": "count",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -152,8 +152,8 @@
   {
    "code": 23,
    "name": "power_sum",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "power",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -163,8 +163,8 @@
   {
    "code": 24,
    "name": "envelope_sum",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "magnitude",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -174,8 +174,8 @@
   {
    "code": 25,
    "name": "envelope_max",
-   "reduction": "max",
    "merge": "max",
+   "form": "magnitude",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -185,8 +185,8 @@
   {
    "code": 30,
    "name": "gradient_1",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "gradient",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -196,8 +196,8 @@
   {
    "code": 31,
    "name": "gradient_2",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "gradient",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -207,8 +207,8 @@
   {
    "code": 32,
    "name": "gradient_n",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "gradient",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -218,8 +218,8 @@
   {
    "code": 33,
    "name": "gradient_11",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "gradient",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -229,8 +229,8 @@
   {
    "code": 34,
    "name": "gradient_22",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "gradient",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -240,8 +240,8 @@
   {
    "code": 35,
    "name": "gradient_12",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "gradient",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -251,8 +251,8 @@
   {
    "code": 36,
    "name": "gradient_magnitude",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "gradient",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -262,8 +262,8 @@
   {
    "code": 37,
    "name": "gradient_weight",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "gradient",
    "unit": null,
    "weight": null,
    "span": "levels",
@@ -273,8 +273,8 @@
   {
    "code": 40,
    "name": "tensor_11",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -284,8 +284,8 @@
   {
    "code": 41,
    "name": "tensor_22",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -295,8 +295,8 @@
   {
    "code": 42,
    "name": "tensor_nn",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -306,8 +306,8 @@
   {
    "code": 43,
    "name": "tensor_12_re",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -317,8 +317,8 @@
   {
    "code": 44,
    "name": "tensor_12_im",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -328,8 +328,8 @@
   {
    "code": 45,
    "name": "tensor_1n_re",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -339,8 +339,8 @@
   {
    "code": 46,
    "name": "tensor_1n_im",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -350,8 +350,8 @@
   {
    "code": 47,
    "name": "tensor_2n_re",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -361,8 +361,8 @@
   {
    "code": 48,
    "name": "tensor_2n_im",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -372,8 +372,8 @@
   {
    "code": 49,
    "name": "tensor_total",
-   "reduction": "sum",
    "merge": "sum",
+   "form": "hermitian3",
    "unit": null,
    "weight": null,
    "span": "time",
@@ -383,8 +383,8 @@
   {
    "code": 9,
    "name": "variance",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -397,8 +397,8 @@
   {
    "code": 16,
    "name": "sd",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -411,8 +411,8 @@
   {
    "code": 12,
    "name": "rms",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -424,8 +424,8 @@
   {
    "code": 13,
    "name": "peak_to_peak",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -438,8 +438,8 @@
   {
    "code": 14,
    "name": "crest_factor",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,
@@ -452,8 +452,8 @@
   {
    "code": 15,
    "name": "envelope_variance",
-   "reduction": null,
    "merge": "derived",
+   "form": "none",
    "unit": null,
    "weight": null,
    "span": null,

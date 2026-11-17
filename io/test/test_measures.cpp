@@ -87,7 +87,7 @@ int main() {
   // THE ROLL-UP: the sums rolled up first, then the ratio (members 4 and 5 into 2: the currents cancel)
   const auto ti1 = get("travelling_index", 1), coh1 = get("phase_coherence", 1), gm1 = get("phase_gradient_magnitude", 1);
   CHECK(near(ti1.at(2), 0.0) && near(coh1.at(2), 0.0) && near(gm1.at(2), 0.0) && near(ti1.at(0), 5.0 / std::sqrt(3.0 * 16.5)));   // 0 and 1 into 0: 0.711, not the mean of their indices (0.5)
-  // THE MEDIAN does not roll up (reduction "none"): shift 0 gives each member's own value, a shift that groups members is refused
+  // THE MEDIAN does not roll up (merge rule none): shift 0 gives each member's own value, a shift that groups members is refused
   {
     Json mw = Json::array();
     for (const auto& [code, val] : std::map<std::int64_t, double>{{0, 2.5}, {1, 7.0}, {4, -1.0}})
