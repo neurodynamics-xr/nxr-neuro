@@ -56,7 +56,6 @@
 #include "nxr/pipelines/run_repeat.h"
 #include "nxr/pipelines/null_compute.h"
 #include "nxr/pipelines/spatial_null.h"
-#include "nxr/pipelines/pointspread.h"
 #include "nxr/pipelines/wishart_null.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/scaleselection.h"
@@ -374,43 +373,6 @@ int wishart_main(const std::vector<std::string>& argv) {
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
     const auto r = nxr::pipelines::wishart_null_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
-int pointspread_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro pointspread: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro pointspread compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording", "--forward", "--kernel", "--levels", "--reference-level", "--spatial-shape", "--transform", "--modes", "--order", "--tolerance", "--fraction", "--vertices", "--list", "--name"}, {"--replace"}, {"--dataset", "--subject", "--recording"});
-  nxr::pipelines::PointSpreadOptions o;
-  o.recording = a.get("--recording");
-  o.forward = a.maybe("--forward"); o.kernel = a.maybe("--kernel"); o.name = a.maybe("--name");
-  auto ints = [&](const std::string& t) { std::vector<int> v; std::stringstream ss(t); std::string e; while (std::getline(ss, e, ',')) { try { v.push_back(std::stoi(e)); } catch (...) { usage(prog, "'" + t + "': whole numbers, comma-separated"); } } return v; };
-  try {
-    if (const auto v = a.maybe("--levels")) o.levels = ints(*v);
-    if (const auto v = a.maybe("--list")) o.list = ints(*v);
-    if (const auto v = a.maybe("--reference-level")) o.reference_level = std::stoi(*v);
-    if (const auto v = a.maybe("--spatial-shape")) o.spatial_shape = *v;
-    if (const auto v = a.maybe("--transform")) o.transform = *v;
-    if (const auto v = a.maybe("--modes")) o.modes = std::stoi(*v);
-    if (const auto v = a.maybe("--order")) o.order = std::stoi(*v);
-    if (const auto v = a.maybe("--tolerance")) o.tolerance = std::stod(*v);
-    if (const auto v = a.maybe("--fraction")) o.fraction = std::stod(*v);
-    if (const auto v = a.maybe("--vertices")) o.vertices = std::stoi(*v);
-  } catch (const std::invalid_argument&) { usage(prog, "a number was expected"); }
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::pointspread_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     cli::emit(out);

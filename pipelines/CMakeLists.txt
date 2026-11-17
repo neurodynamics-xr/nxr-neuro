@@ -38,6 +38,7 @@ add_library(nxr_pipelines
   src/welch_steps.cpp
   src/meeg_steps.cpp
   src/partition_steps.cpp
+  src/verb_steps.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
@@ -50,7 +51,6 @@ add_library(nxr_pipelines
   src/run_repeat.cpp
   src/null_compute.cpp
   src/spatial_null.cpp
-  src/pointspread.cpp
   src/wishart_null.cpp
   src/spatial_events_steps.cpp
   src/point_events.cpp

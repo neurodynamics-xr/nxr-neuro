@@ -63,7 +63,6 @@ int statistic_main(const std::vector<std::string>& argv);      // cli/measure_co
 int patches_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
 int cellquadrature_main(const std::vector<std::string>& argv); // cli/measure_command.cpp
 int wishart_main(const std::vector<std::string>& argv);          // cli/measure_command.cpp
-int pointspread_main(const std::vector<std::string>& argv);     // cli/measure_command.cpp
 int spatialnull_main(const std::vector<std::string>& argv);     // cli/measure_command.cpp
 int null_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
 int repeat_main(const std::vector<std::string>& argv);         // cli/measure_command.cpp
@@ -505,13 +504,6 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return wishart_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro wishart needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "pointspread") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return pointspread_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro pointspread needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "spatialnull") {

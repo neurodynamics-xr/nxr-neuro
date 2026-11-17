@@ -104,6 +104,9 @@ struct StepSpec {
   bool computes_double_on_float_input() const { return traits.computes_in == Precision::float64 && (kind == "chunk" || kind == "accumulate"); }
 };
 
+/** the verbs as registered steps (verb_steps.cpp), appended to the registry */
+void append_verb_steps(std::vector<StepSpec>& r);
+
 /** the names of the registered nodes whose traits are not fully declared (empty when every node declares them) */
 std::vector<std::string> undeclared_traits();
 /** the executor's check before it runs a node: refuses (invalid_argument) a node with undeclared traits, naming it */

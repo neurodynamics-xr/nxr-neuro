@@ -176,10 +176,8 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --forward	NAME	Name of the stored head model (forward operator) to use.	the subject's only one	-
 --forward-id	ID	The id of the head model the kernel was made with.	found from the kernel file	-
 --forward-id@import inverse	ID	Id of the stored head model the kernel was made with.	found from the kernel's HeadModelFile link	-
---forward@run pointspread	NAME	The head model (forward operator) the unit currents are planted through	the subject's only forward model	-
 --fpass	HZ|LO,HI	Passband edge: one frequency for lowpass or highpass, LO,HI for bandpass	none (required)	Hz
 --fraction	X	Fraction of the peak power at the reference level above which the connected region counts as the source's patch.	0.5	-
---fraction@run pointspread	FRACTION	The patch is the connected region at the reference level whose power is at least this fraction of its peak	0.5	fraction
 --frame-level	L	Tower level of a time frame, a whole number: a frame lasts 86400 x 2^L seconds (-18 = 0.33 s, -25 = 2.57 ms). (frametiling: alternative to --centre or --band)	-18 (frametiling: none, give a level, centre or band)	-
 --frame-level@run opticalflow	L	Tower level of a stored time frame, a whole number: a frame lasts 86400 x 2^L seconds (-18 is 0.33 s).	-18	-
 --frame-level@run pyramid	L	Tower level of a time frame, a whole number: a frame lasts 86400 x 2^L seconds.	-18 (0.33 s)	level
@@ -221,7 +219,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --kernel@run cellquadrature	NAME	Name of the stored inverse kernel (free or fixed orientation) with the spatial band folded in.	the subject's only kernel	-
 --kernel@run cyclepattern	NAME	Name of the stored free-orientation inverse kernel that maps the cross-spectrum to sources.	the subject's only kernel	-
 --kernel@run opticalflow	NAME	Name of the stored inverse kernel that maps the channels to sources on the cortex.	the subject's only kernel	-
---kernel@run pointspread	NAME	The inverse kernel the planted currents are read back through	the subject's only kernel of the forward model's sources	-
 --kernel@run pyramid	NAME	Name of the stored inverse kernel that maps the recording's channels to sources.	the subject's only kernel	-
 --kernel@run quadrature	NAME	Name of the stored inverse kernel that maps the sensors to the sources.	the subject's only kernel	-
 --kernels	SPEC,...	Which kernels' pyramids are summed: all, constrained, free, latest, a method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
@@ -240,7 +237,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --level@run measure	L	Level of the constant-Q time ladder named by --over; used only with --over.	none (required for a ladder)	level
 --level@run patches	LEVEL	The ladder level (tiles of 2^LEVEL per piece) whose Weyl band is the map's filter; the ladder must exist.	required	level
 --levels	L,...	Spatial tile levels of the scale space the blur is measured over.	2,3,4,5,6,7,8	levels
---levels@run pointspread	LEVELS	Comma-separated spatial scale levels searched for each patch's characteristic size	2,3,4,5,6,7,8	level
 --limit	N	Maximum number of rows returned	none	rows
 --limit@query measurements	N	The most rows to return.	none (all rows)	rows
 --limits	LO-HI	Frequency limits of the filter bank for the itersine and meyer families.	see the command's description	Hz
@@ -248,7 +244,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --line	NAME or F	Time line to work on (constantq: a time line by name, alternative to --recording or --all); for lowpass/notch: the mains frequency F, removed with its harmonics.	none	constantq: -; notch: Hz
 --line@run constantq	NAME	A time line of the subject, by name, to make the ladder for (alternative to --recording and --all).	none	-
 --list	V,V,...	run: list the available pipeline definitions and their steps (flag); pointspread: native vertex indices to use as the source sample instead of --vertices	run: off; pointspread: none	-
---list@run pointspread	VERTICES	Comma-separated native vertices to plant the currents at; wins over --vertices	none	-
 --map	NAME	The stored cortical map (a scalar per vertex of a surface) in which patches are sought.	none (required)	-
 --map@run patches	NAME	The stored field to find patches in: one scalar per vertex of a surface, all finite.	required	-
 --max-area	M2	Largest patch area kept; larger patches are dropped.	none	m^2
@@ -295,7 +290,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --modes@run cellquadrature	K	Size of the Hodge-Dirac eigenmode package when it must be computed for the spatial band (0 = standard size).	0	modes
 --modes@run eigenmodes	K	About this many positive Hodge-Dirac modes are kept, half exact and half coexact.	3000	modes
 --modes@run patches	N	When the eigenmodes are computed, how many (more if the band needs it); 0 is the standard 3000.	0	-
---modes@run pointspread	N	Number of eigenmodes to compute when the spatial filter package is built; 0 uses the standard size, or more when the band needs it	0	-
 --modes@create dataset	K	Solve the default subject's pial Hodge-Dirac eigenmode basis with about this many modes and store it; needs --templates.	none (no basis is solved)	modes
 --mollify	X	Mollification margin of the intrinsic Delaunay construction (Sharp and Crane), relative to the mean edge length; 0 means no margin.	1e-6	relative
 --mollify@run eigenmodes	D	Mollification margin of the intrinsic Delaunay construction, as a fraction of the mean edge length (0 = no margin).	1e-6	fraction
@@ -303,7 +297,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@add surface	NAME	Name the surface is stored under for the subject.	the mesh file's name without its extension, made safe as a node name	-
 --name@run cyclepattern	NAME	Stem of the stored cycle-pattern results.	<cross-spectrum without _windows>_cycle	-
 --name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
---name@run pointspread	NAME	Name of the stored point-spread statistic	pointspread.<kernel>	-
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
 --name@run repeat	NAME	Name the repeat result is stored under.	derived from the two recording names (plus the stage when not the first)	-
 --name@run scaleselection	NAME	Name of the cross-pair events' Selection	<recording>_scale_selection	-
@@ -349,7 +342,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --order	N	Filters: Butterworth prototype order (the filter has 2N poles). Spatial band commands: degree of the Chebyshev series (0 chooses the smallest of 40, 80, ... 5120 within tolerance). measure query: sort order asc or desc of the rows.	filters 4; spatial 0 (automatic); measure query see the command's description	-
 --order@run cellquadrature	N	Degree of the Chebyshev series for the spatial band (0 picks the smallest of 40, 80, ... 5120 within --tolerance).	0	-
 --order@run patches	N	Chebyshev: the series degree; 0 is the smallest of 40, 80, ... 5120 that follows the band's gain within --tolerance.	0	-
---order@run pointspread	N	Degree of the Chebyshev series when that transform is used; 0 picks the smallest of 40, 80, ... 5120 that meets --tolerance	0	-
 --order@query measurements	asc|desc	Order the rows by value, ascending or descending.	by code	-
 --out	PATH	Output file (convert scan: the scan result written as a file) or output folder (measure export: where the table is written, made if absent).	none (measure export: required)	-
 --out@export measurements	PATH	Folder the tables, the provenance file and the dictionary are written to (created if absent)	required	-
@@ -403,7 +395,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording-b@run repeat	NAME	Second recording, whose crossings are compared with the first; the order does not change the result.	required	-
 --recording@run constantq	NAME	Recording whose time line gets the ladder (alternative to --line and --all).	none	-
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
---recording@run pointspread	NAME	The recording whose band chain the statistic is of	required	-
 --recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
 --recording@run quadrature	NAME	Name of the stored recording to analyse.	required	-
 --recording@run scaleselection	NAME	The recording whose scale pairs are selected over	required	-
@@ -412,7 +403,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording@import condition	FILE	Import only this data file of the condition (e.g. data_0raw_x.mat) instead of every data file the condition has.	none (all the condition's recordings)	-
 --recording@import resample	NAME	The recording to resample	required	-
 --reference-level	L	Spatial tile level whose power the blur patch is cut from.	6	level
---reference-level@run pointspread	LEVEL	The scale level whose power the patch is cut from	6	level
 --region	a:b,c:d	Read only this region of the array: a start:stop range per dimension.	the whole array	samples
 --region@read dataset	a:b,c:d	Read only this region of the array: one start:stop index range per dimension, stop excluded; used with --array.	the whole array	samples
 --regularisation	ridge|diagonal|none	Regularisation of the noise covariance when whitening	ridge	-
@@ -494,7 +484,6 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --spatial-band@run cyclepattern	BAND	Spatial band: modes (all modes), weyl:J (one Weyl octave J) or weyl:all (every member of the Weyl bank).	weyl:all	-
 --spatial-band@query measurements	N	The spatial band (eigenmode level) of the cells to read.	none	-
 --spatial-shape	NAME	Shape of the spatial scale-space filter at each level (mexhat is the Mexican hat).	mexhat	-
---spatial-shape@run pointspread	NAME	Gain of each spatial level: mexhat (Mexican hat) or meyer (the level is its own Weyl band)	mexhat	-
 --speed-bins	N	Number of log-spaced phase-speed bins of the speed spectrum.	40	bins
 --speed-max	C	Largest phase speed of the speed histogram bins	from the spectrum (the largest 2 pi f / mu over modes and bins)	length/s
 --speed-min	X	Smallest phase speed of the log-spaced speed bins.	0 (from the spectrum)	length/s
@@ -573,11 +562,9 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --tolerance@run opticalflow	X	Impulse-response tail the filter bank's margin may leave out, relative to its norm.	derived from the recording's stored precision (1e-7 float32, 1e-12 float64)	-
 )TBL",
 R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the band's gain and the series that is accepted; a worse fit is refused.	0.01	fraction
---tolerance@run pointspread	TOL	Largest gain error accepted for a Chebyshev series; a band the series cannot follow is refused	0.01	-
 --transform	auto|eigen|chebyshev|exact	How the spatial band is applied: auto (stored eigenmodes; else computed, else Chebyshev announced), eigen, chebyshev (series in the pencil) or exact (dense modes, at most 4096 vertices).	auto	-
 --transform@run cellquadrature	auto|eigen|chebyshev|exact	How the spatial band is applied: stored eigenmodes first (auto), eigen, a Chebyshev series, or exact dense modes.	auto	-
 --transform@run patches	auto|eigen|chebyshev|exact	The spatial transform: stored eigenmodes (computed if absent), eigenmodes, a Chebyshev series, or dense modes of the mesh (up to 4096 vertices).	auto	-
---transform@run pointspread	auto|eigen|chebyshev|exact	How the spatial filter is applied: auto uses stored eigenmodes, else computes them, else an announced Chebyshev series; exact uses dense modes (at most 4096 vertices)	auto	-
 --transient-samples	K	Number of samples at each edge treated as the filter transient (instead of the shortest span holding 99 percent of the impulse response's energy).	from the energy rule	samples
 --transition	HZ	Width of each transition band of the FIR filter	the reference's rule (Brainstorm)	Hz
 --home-dataset	NAME	The name of the dataset a package is made for (provenance, not membership).	none (required)	-
@@ -610,7 +597,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@import events	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run pointspread	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run eigenmodes	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run frames	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run tiles	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -721,7 +707,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --trk@import templates	FILE	A tractography streamline file (.trk) whose streamlines and their end points are added to the templates	none	-
 --types	TYPE,...	Channel types to use, e.g. "MEG MAG,MEG GRAD,EEG" (only good channels of these types).	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
 --vertices	N	Number of vertices, spread evenly over the surface, where unit currents are placed	20	vertices
---vertices@run pointspread	N	Number of native vertices planted with a unit current, spread evenly over the surface (lowest index first)	20	-
 --voices	N	Filter-bank members per octave (constantq: time-ladder voices; opticalflow, speedspectrum: itersine voices).	4 for filter banks; constantq see the command's description	voices/octave
 --voices@run constantq	N	Number of bands per octave, counted from the top down.	6	-
 --voices@run opticalflow	N	Itersine family only: filter-bank members per octave.	4	voices/octave
@@ -1278,13 +1263,6 @@ old: pyramid reduce
 alias: refused
 summary: Reduce several subjects' group-tree pyramids into the group's pyramid; on a catalogue dataset the result is a group package (--into).
 opts: --dataset* --depth --into --kernels --subjects* --templates+
-)TBL",
-R"TBL(@ run pointspread
-old: pointspread compute
-alias: refused
-group: Source imaging
-summary: The instrument's blur: unit currents at sample vertices through the head model and inverse kernel.
-opts: --dataset* --forward --fraction --kernel --levels --list --modes --name --order --recording* --reference-level --replace --spatial-shape --subject* --tolerance --transform --vertices --templates+
 )TBL",
 R"TBL(@ run eigenmodes
 old: eigen solve
