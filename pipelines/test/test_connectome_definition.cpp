@@ -19,7 +19,8 @@ static int failures = 0;
 #define CHECK(c) do { if (!(c)) { std::printf("  CHECK failed: %s @ %d\n", #c, __LINE__); ++failures; } } while (0)
 
 static Json read(const std::string& name) {
-  const std::string p = std::string(NXR_PENDING_DEFINITIONS) + "/" + name + ".yaml";
+  std::string p = std::string(NXR_DEFINITIONS) + "/" + name + ".yaml";       // the shipped definitions first, then the drafts still pending
+  if (!std::ifstream(p)) p = std::string(NXR_PENDING_DEFINITIONS) + "/" + name + ".yaml";
   std::ifstream f(p);
   std::stringstream ss;
   ss << f.rdbuf();

@@ -66,25 +66,24 @@ Address address_on_line(double center_sample, double extent_samples, std::int64_
   return a;
 }
 
-CorticalLevel cortical_level_of_extent(double sigma, double piece_area, int depth, double tile_sigma) {
-  if (!(piece_area > 0) || !(sigma > 0) || !std::isfinite(sigma) || depth < 0 || !(tile_sigma > 0))
-    throw std::invalid_argument("cortical_level_of_extent: a feature width > 0, a piece area > 0, depth >= 0 and tile_sigma > 0");
+CorticalLevel cortical_level_of_extent(double sigma, const std::vector<double>& d, double tile_sigma) {
+  if (!(sigma > 0) || !std::isfinite(sigma) || d.empty() || !(tile_sigma > 0))
+    throw std::invalid_argument("cortical_level_of_extent: a feature width > 0, the measured tile diameters of levels 0 .. depth and tile_sigma > 0");
   CorticalLevel out;
-  const auto diameter = [&](int l) { return 2 * std::sqrt(piece_area / (M_PI * static_cast<double>(std::int64_t(1) << l))); };   // a tile as a disc of its area
   const double limit = tile_sigma * sigma;
-  for (int l = 1; l <= depth; ++l) {                                     // coarsest first: a coarser tile pools more samples (jointcell)
-    if (diameter(l) <= limit + 1e-9) {
-      out.level = l;
-      out.why = "level " + std::to_string(l) + ": tiles of diameter " + std::to_string(diameter(l)) + ", the coarsest <= " + std::to_string(tile_sigma) + " sigma = " + std::to_string(limit);
+  for (std::size_t l = 1; l < d.size(); ++l) {                           // coarsest first: a coarser tile pools more samples (jointcell)
+    if (d[l] <= limit + 1e-9) {
+      out.level = static_cast<int>(l);
+      out.why = "level " + std::to_string(l) + ": tiles of diameter " + std::to_string(d[l]) + ", the coarsest <= " + std::to_string(tile_sigma) + " sigma = " + std::to_string(limit);
       return out;
     }
   }
   out.why = "no level is fine enough: a feature of width " + std::to_string(sigma) + " needs tiles <= " + std::to_string(limit) + " (tile_sigma " + std::to_string(tile_sigma) +
-            "); the finest here are " + std::to_string(depth >= 1 ? diameter(depth) : diameter(0));
+            "); the finest here are " + std::to_string(d.back());
   return out;
 }
 
-Address dyadic_address(const Selection& g, std::int64_t center_vertex, double radius, double piece_area, double tile_sigma) {
+Address dyadic_address(const Selection& g, std::int64_t center_vertex, double radius, double tile_sigma) {
   if (g.type != Type::set || !g.grid || g.grid->kind != Grid::Kind::dyadic) throw std::invalid_argument("dyadic_address: a dyadic grid (partition.h `dyadic`)");
   if (center_vertex < 0 || center_vertex >= static_cast<std::int64_t>(g.member_of.size()))
     throw std::invalid_argument("dyadic_address: centre vertex " + std::to_string(center_vertex) + " outside the grid");
@@ -94,7 +93,13 @@ Address dyadic_address(const Selection& g, std::int64_t center_vertex, double ra
   if (radius == 0) {                                                    // a point-like member (a distance holding its centre): the finest tile
     a.level = g.grid->depth;
   } else {
-    const CorticalLevel c = cortical_level_of_extent(radius, piece_area, g.grid->depth, tile_sigma);
+    std::vector<double> diameters;                                      // the measured tile diameter per level, from the grid's level dictionary
+    for (const Selection& level : g.members) {
+      if (!level.diameter) throw std::invalid_argument("dyadic_address: the grid's levels carry no measured tile diameter (make it with partition.h `dyadic`)");
+      diameters.push_back(*level.diameter);
+    }
+    if (static_cast<int>(diameters.size()) != g.grid->depth + 1) throw std::invalid_argument("dyadic_address: the grid has no level dictionary (levels 0 .. depth) to read tile diameters from");
+    const CorticalLevel c = cortical_level_of_extent(radius, diameters, tile_sigma);
     if (!c.level) throw std::invalid_argument("dyadic_address: " + c.why);
     a.level = *c.level;
   }

@@ -89,7 +89,6 @@ struct Manifold {
   ManifoldRef of;                                     // restricted, derived: the manifold it is of
   std::string by;                                     // restricted, members: the selection's identity (a stored id, or "<use>.<output>"; a signature's "$port")
   bool irregular = false;                             // members of an IRREGULAR selection (events, scouts, an atlas: no levels): a statistic across them is a summary, never a level roll-up
-  bool irregular = false;                             // members of an IRREGULAR selection (events, scouts, an atlas: no levels): a statistic across them is a summary, never a level roll-up
   bool rest = false;                                  // variable: stands for all the other factors of a domain (R)
   bool subsume = false;                               // variable at an operator's source: also accepts a restriction of what it is bound to (`apply`'s one implicit move)
 };

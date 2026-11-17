@@ -213,22 +213,15 @@ Signature s_collect() {
       });
 }
 
-// A LEVEL ROLL-UP (a coarser level: `level`, `coarser` or `rollup_level` in the node's `with`) runs only along a GRID's closed-form hierarchy. Across the members of an irregular
-// selection (events, scouts, an atlas) there are no levels: a statistic across them is a `summary`, so a roll-up over them is refused with that reason.
-void refuse_rollup_over_irregular(Unified& u, const Json& p) {
-  if (!(p.contains("level") || p.contains("coarser") || p.contains("rollup_level"))) return;
-  for (const ManifoldRef& f : u.type("x").domain.factors)
-    if (is_members(f) && f->irregular)
-      u.fail("x", "a level roll-up needs a grid: " + print(f) + " is the member set of an irregular selection, which has no levels. Summarise across its members (a `summary` statistic), or measure over a grid and roll that up.");
-}
+// A LEVEL ROLL-UP (a node whose signature says `rolling_up`: its move carries values up a grid's closed-form hierarchy) reads a GRID's members. The members of an irregular selection (events,
+// scouts, an atlas) have no levels: the checker refuses it from the selection's family mark and the node's move (checker.cpp), and a statistic across them is a `summary`, which `summarize` makes.
 
 Signature s_reduce_cells() {
-  return sig(Move::summarize)
+  return sig(Move::summarize).rolling_up()
       .in("x", measurement_any().value(VT::real).because("The maximum over the spatial tiles of each time tile is of a scalar."))
       .out("y", make_of(PortClass::measurement))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
-        refuse_rollup_over_irregular(u, p);
         if (x.domain.factors.size() != 1 || !is_joint_members(x.domain.factors[0]))
           u.fail("x", "must be a measurement over a joint partition's cells (one member set of space x time)");
         const ManifoldRef& c = x.domain.factors[0];
@@ -246,7 +239,6 @@ Signature s_summarize() {
       .out("y", make_of(PortClass::statistic).with_quantity("summaries"))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
-        refuse_rollup_over_irregular(u, p);
         PortType& y = u.out.at("y");
         y.domain = dom_of({});
         for (std::size_t i = 0; i < x.domain.factors.size(); ++i) {

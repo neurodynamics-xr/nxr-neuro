@@ -104,7 +104,13 @@ Execution::Execution(const Checked& checked, const Arrays& constants, const Disp
     if (n.section == Section::before) { run_arrays(i); continue; }
     if (n.section == Section::after) continue;                       // prepared when its inputs exist (finish)
     Arrays consts;
-    for (const auto& [port, name] : n.in) if (!n.in_types.at(port).streamed() && !n.in_types.at(port).per_block()) consts[port] = data_.at(name);   // a per-block value comes with each block
+    for (const auto& [port, name] : n.in) {
+      if (n.in_types.at(port).streamed() || n.in_types.at(port).per_block()) continue;   // a per-block value comes with each block
+      const auto d = data_.find(name);
+      if (d != data_.end()) consts[port] = d->second;
+      // a value no node has made yet (a set a selection node makes while the blocks flow, from its parameters alone) is read from its TYPE: an edge of the graph that carries the type's facts
+      else if (n.in_types.at(port).cls != PortClass::constant) refuse(n.label + ": port '" + port + "' reads '" + name + "', which holds no array");
+    }
     NodeCall p = NodeCall::prepare(n.in_types, consts, n.params, shared_);
     dispatch(*n.spec, p, ctx_);
     prepared_[i] = std::move(p.made);

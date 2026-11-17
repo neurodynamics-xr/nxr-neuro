@@ -26,7 +26,7 @@ steps:
       - {node: select.bands, in: {x: recording}, with: {bands: $bands, band_names: $band_names}, out: [freq, bands]}
       - for: {band: $bands}
         do:
-          - {node: measure.band_amplitude, in: {x: recording}, with: {band: $band, bands: $bands, band_names: $band_names}, out: ["grid_b{band}", "amplitude_b{band}"]}
+          - {node: measure.band_amplitude, in: {x: recording, bands: bands}, with: {band: $band}, out: ["grid_b{band}", "amplitude_b{band}"]}
 
 outputs:
   freq:

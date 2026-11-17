@@ -24,7 +24,7 @@ group_tiles  surface (+ the default subject's group tree, bound by the runner) â
 |---|---|---|
 | the grid | `tile_grid` calls `nxr::selection::dyadic(surface, {depth})`; `group_tile_grid` calls `nxr::ladder::groupTreeFor` (the transfer through the registered spheres) | compute: arrays in, a grid out |
 | the levels' facts | area, tile centres, adjacency, the Weyl band per level (`lad::tileAreas / tileCentres / tileAdjacency`, `wavelengthOf`) | pure functions of the arrays; no loop over data |
-| the Levi-Civita connection | `lad::leviCivita`, `antisymmetric` on the stored canonical frames (the optional input `frames`) | a value over a PAIR of tiles: rows of the level's selection (code a, within_code b), not a reduction |
+| the Levi-Civita connection | `lad::leviCivita`, `antisymmetric` on the stored canonical frames (the optional input `frames`) | a value over a PAIR of tiles: a measurement over a selection of pairs (an `indices` selection, pair number a * tiles + b), not rows on the grid and not a reduction |
 | the store | output type `grid`: io's `save_grid` (a `ladder` row, one `set` row per level, the tile codes as the member numbers, the level node's `w`, centres, adjacency); dictionaries as the Studio's | io: load and store only |
 
 The runner reads the surface, the stored frames and (group tiles) the default subject through `Bound` (`coordinate_unit`, `subject_kind`, `group_template`); the steps hold no handle.
@@ -45,6 +45,5 @@ connection between distant tiles depends on the path (recorded).
 
 - `finest` (the deepest level every piece reaches) is recorded as the depth written: compute's `dyadic` does not return it. With the default depth they are equal; with `--depth` smaller than the finest, `finest`
   is the depth. Exposing `finest` from `dyadic` (compute) would restore it.
-- `groupTreeFor` is called directly for the group tiles because `transfer` does not return the match's median and maximum chord.
 - The default surface (the primary one) is not selectable from the definition: `--surface` names the surface (the library's own callers pass it).
-- `--replace` of a grid removes the old rows and the level nodes (as the hand-wired code did), it does not move them aside.
+- `--replace` of a grid moves the old rows' arrays and the level nodes aside (`_replaced-<date>/`, as every other output), it never deletes them.

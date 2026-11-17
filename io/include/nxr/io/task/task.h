@@ -159,6 +159,11 @@ struct MeasurementOut {
   Json band;                                       // {name, lo_hz, hi_hz} or null: the band of the dataset's standard bank
   std::optional<std::string> within_selection_id;  // the Selection a measure is WITHIN (a bank of bands whose code is the band's index: the pyramid's `atlas bands`) and the member of it: wins over `band`
   std::optional<std::int64_t> within_code;
+  // TWO CODES A ROW (a measurement of a non-chunk array: the fiber counts between the regions of a partition): one value per ordered pair of the selection's members, a row (code, within_code, value)
+  // on `selection_id` (the member and the other); the rows are of the members themselves (no field)
+  struct Pair { std::int64_t code = 0, within_code = 0; double value = 0; };
+  std::string pair_measure, pair_unit;
+  std::vector<Pair> pairs;
 };
 // a closed-form tiling of a time line: `count` tiles of `width` a new one every `hop` from `origin` (in `unit`), `skipped` of them left out
 struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };
@@ -179,7 +184,7 @@ struct GridLevelOut {
   std::optional<std::string> dictionary_id;        // or the id of a dictionary already stored (the group tree's levels reuse the template's)
   std::vector<GridArrayOut> arrays;
   Json centres;                                    // {name, description, indices}: a pick of the tiles' centre vertices made beside the level (null: none)
-  Json member_values;                              // {measure, unit, values: [[code, value, within_code], ...]}: a value over pairs of the level's members, rows on the level's selection (null: none)
+  Json pairs;                                      // {name, description, measure, unit, tiles, indices, values}: a value over PAIRS of the level's members, as a measurement over a selection of pairs (an `indices` selection made beside the level, pair number a * tiles + b; null: none)
 };
 // a dyadic GRID with its levels: a `ladder` row (its levels' dictionary) and one `set` row per level; the hierarchy is the closed form, no parent arrays (io's save_grid)
 struct GridOut {

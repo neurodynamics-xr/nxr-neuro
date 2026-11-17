@@ -153,9 +153,11 @@ Selection dyadic(const Surface& s, const Dyadic& o) {
     level.level = l;
     level.band = std::make_pair(l == 0 ? 0.0 : kFourPi * static_cast<double>(tiles / 2) / area, kFourPi * static_cast<double>(tiles) / area);
     level.band_unit = "1/" + s.unit + "^2";                            // area in unit^2, so lambda = 4 pi m / A in 1/unit^2
+    level.diameter = t.diameter[static_cast<std::size_t>(l)];          // measured, as the ladder's
     levels.push_back(std::move(level));
   }
   Selection p = dyadic_grid(t.codes, t.depth, t.slots, std::move(levels));
+  p.grid->finest = t.finest;                                           // the deepest level every piece reaches
   p.unit = s.unit;
   return p;
 }
@@ -180,8 +182,12 @@ Selection transfer(const Surface& s, const Transfer& o) {
   const int depth = from.grid->depth;
   const auto from_runs = bisection::pieceRuns(o.from_faces, o.from_face_count, o.from_vertices);
   const auto runs = bisection::pieceRuns(s.faces, s.face_count, s.vertices);
-  const bisection::Tree t = bisection::groupTreeFor(o.from_sphere, from.member_of.data(), from_runs, depth, o.sphere, s.vertices, runs, depth);
+  double median = 0, max_chord = 0;
+  const bisection::Tree t = bisection::groupTreeFor(o.from_sphere, from.member_of.data(), from_runs, depth, o.sphere, s.vertices, runs, depth, &median, &max_chord);
   Selection p = dyadic_grid(t.codes, depth, from.grid->slots, from.members);   // the same codes: a tile no vertex reaches is an empty member
+  p.grid->finest = from.grid->finest >= 0 ? from.grid->finest : depth;
+  p.grid->match_median = median;
+  p.grid->match_max = max_chord;
   p.lookup = from.lookup;
   p.unit = s.unit;
   return p;

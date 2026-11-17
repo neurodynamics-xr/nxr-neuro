@@ -18,6 +18,7 @@
 #include "nxr/io/store.h"
 
 #include <cmath>
+#include <limits>
 #include <set>
 
 namespace nxr::io::task {
@@ -526,9 +527,9 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
   if (!r) return {};
   if (!replace) throw Error(code::already_exists, sub.name() + ": " + what + " (" + path + ") already exists (made by another job); pass --replace");
   std::string moved;
-  const std::string loc = cls == Cls::selection ? opt_text(*r, "array_path").value_or("") : opt_text(*r, "path").value_or("");
-  if (!loc.empty() && sub.store().exists_prefix(loc)) {
-    // a folder of its own for each replacement of the same node the same day (`_replaced-<date>`, then `-2`, `-3`, …): never over what an earlier one moved
+  // a node's folder moved aside, never deleted: a folder of its own for each replacement of the same node the same day (`_replaced-<date>`, then `-2`, `-3`, …): never over what an earlier one moved
+  const auto move_aside = [&](const std::string& loc) {
+    if (loc.empty() || !sub.store().exists_prefix(loc)) return;
     DatasetWriter& ds = sub.dataset();
     const std::string date = now_utc(false).substr(0, 10);
     auto aside = [&](int n) -> std::pair<std::string, std::string> {
@@ -542,16 +543,19 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
     while (ds.node_store().exists_prefix(join_key(a.first, loc))) a = aside(++n);
     sub.datastore().rename_prefix(join_key(sub.prefix(), loc), join_key(a.first, loc));
     moved = a.second;
-  }
+  };
+  move_aside(cls == Cls::selection ? opt_text(*r, "array_path").value_or("") : opt_text(*r, "path").value_or(""));
   if (cls == Cls::selection && text(*r, "type") == "ladder") {
-    // a grid's ladder: its level rows and their nodes (areas, centres, adjacency) go with it, as they were written together (a constant-Q ladder's levels hold no node)
+    // a grid's ladder: its level rows go with it, and their arrays and nodes (tile codes, areas, centres, adjacency), as they were written together, are MOVED ASIDE with it (--replace
+    // never deletes; a constant-Q ladder's levels hold no node)
     std::set<std::string> nodes;
     for (const Row& m : selection::member_rows(sub.db(), text(*r, "id"), false)) {
       const Json p = Json::parse(opt_text(m, "params_json").value_or("{}"), nullptr, false);
       if (p.is_object() && p.contains("node") && p["node"].is_string()) nodes.insert(p["node"].get<std::string>());
+      move_aside(opt_text(m, "array_path").value_or(""));
       sub.remove("selection", text(m, "id"));
     }
-    for (const std::string& n : nodes) sub.store().erase_prefix(n);
+    for (const std::string& n : nodes) move_aside(n);
   }
   sub.remove(to_string(cls), text(*r, "id"));
   return moved;
@@ -630,6 +634,12 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
     else if (band && !(*band)["selection_id"].is_null()) c.set("within_selection_id", (*band)["selection_id"].get<std::string>()).set("within_code", (*band)["code"].get<std::int64_t>());
     selection::save_measurement(sub, m.selection_id, c);
     ++n;
+  }
+  if (!m.pair_measure.empty()) {                    // two codes a row: the member and the other
+    std::vector<selection::MemberValue> rows;
+    rows.reserve(m.pairs.size());
+    for (const auto& p : m.pairs) rows.push_back({p.code, p.value, p.within_code});
+    n += selection::save_member_values(sub, m.selection_id, m.pair_measure, rows, m.pair_unit.empty() ? std::nullopt : std::optional<std::string>(m.pair_unit), by_.tool, m.selection_id);
   }
   return n;
 }
@@ -712,10 +722,25 @@ std::string Unit::selection(const SelectionOut& s) {
         cs.description = L.centres.value("description", std::string());
         selection::save(sub, picks, cs);
       }
-      if (L.member_values.is_object()) {            // a value over pairs of the level's tiles: rows on the level's selection (code a, within_code b)
-        std::vector<selection::MemberValue> rows;
-        for (const auto& v : L.member_values["values"]) rows.push_back({v[0].get<std::int64_t>(), v[1].get<double>(), v[2].get<std::int64_t>()});
-        selection::save_member_values(sub, sid, L.member_values.value("measure", std::string()), rows, L.member_values.value("unit", std::string()), by_.tool, sid);
+      if (L.pairs.is_object()) {                    // a value over pairs of the level's tiles: a MEASUREMENT over a selection of pairs (indices: pair number a * tiles + b), one value a pair
+        const std::int64_t tiles = L.pairs.value("tiles", std::int64_t(0));
+        if (tiles < 1 || tiles * tiles > std::numeric_limits<std::int32_t>::max()) throw Error(code::invalid_argument, "grid " + s.name + ": level " + L.name + " has too many tiles for a selection of pairs (" + std::to_string(tiles) + ")");
+        selection::Description pd;
+        pd.type = selection::Type::indices;
+        for (const auto& i : L.pairs["indices"]) pd.indices.push_back(i.get<std::int32_t>());
+        selection::Placement ps;
+        ps.name = L.pairs.value("name", std::string()); ps.path = ps.name; ps.manifold_id = s.manifold_id;
+        ps.description = L.pairs.value("description", std::string());
+        ps.params = Json{{"pairs_of", sid}, {"tiles", tiles}, {"pair_number", "a * tiles + b (a, b the level's member numbers)"}};
+        const selection::Saved pairs = selection::save(sub, pd, ps);
+        std::vector<double> values;
+        for (const auto& v : L.pairs["values"]) values.push_back(v.get<double>());
+        if (values.size() != pd.indices.size()) throw Error(code::invalid_argument, "grid " + s.name + ": " + std::to_string(values.size()) + " values for " + std::to_string(pd.indices.size()) + " pairs");
+        const std::string measure = L.pairs.value("measure", std::string());
+        const std::string vpath = "measurements/" + safe_name(ps.name) + "/" + safe_name(measure);
+        Cols mc;
+        mc.set("measure", measure).set("array_path", vpath).set("unit", L.pairs.value("unit", std::string())).set("computed_by", by_.tool);
+        selection::save_measurement_array(sub, pairs.id, vpath, view(values, {static_cast<std::int64_t>(values.size())}), mc);
       }
     }
     return saved.id;

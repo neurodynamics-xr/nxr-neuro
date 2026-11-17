@@ -14,12 +14,13 @@
 // ADDRESSES (on request only: an irregular family is not indexed by a grid; the grid it was detected over is its provenance). An irregular member's address on a
 // grid is (the level its EXTENT sets, the cell holding its CENTRE).
 //   time      the Studio's `supportOf`: the tile holding the centre at the level the extent sets (`support_of`, `address_on_line`).
-//   cortex    Rheome's `jointcell` depth rule (`cortical_level_of_extent`): the COARSEST depth whose tile still holds the feature (tile diameter <= TileSigma x the
+//   cortex    Rheome's `jointcell` depth rule (`cortical_level_of_extent`): the COARSEST depth whose tile still holds the feature (MEASURED tile diameter, the ladder's, <= TileSigma x the
 //             feature's sigma), or a refusal that says why (no depth is fine enough).
 #pragma once
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <vector>
 
 #include "nxr/selection/selection.h"
 
@@ -58,17 +59,17 @@ struct Address {
 /** the Studio's supportOf on a dyadic time grid: the level the EXTENT sets (natural_level(extent_samples), held inside [finest, coarsest]) and the tile holding the
  *  CENTRE sample (the sample nearest `center_sample`) at that level, clamped to the line's `samples` */
 Address address_on_line(double center_sample, double extent_samples, std::int64_t samples, int finest, int coarsest);
-/** Rheome's `jointcell` depth rule for a cortical feature: the COARSEST level l >= 1 whose tile (a piece of area `piece_area` cut in 2^l, taken as a disc of its
- *  area: diameter 2 sqrt(A / (pi 2^l))) is at most `tile_sigma` x `sigma` (the feature's width, in the surface's unit; a distance member's radius), at most `depth`.
- *  A REFUSAL IS AN ANSWER: when no level is fine enough, `level` is empty and `why` says so, as jointcell's does. */
+/** Rheome's `jointcell` depth rule for a cortical feature: the COARSEST level l >= 1 whose MEASURED tile diameter (`tile_diameters[l]`, the surface ladder's `diameter`,
+ *  in the surface's unit: the level dictionary of a dyadic grid, `Selection::diameter`) is at most `tile_sigma` x `sigma` (the feature's width, in the same unit; a distance
+ *  member's radius). `tile_diameters` holds levels 0 .. depth. A REFUSAL IS AN ANSWER: when no level is fine enough, `level` is empty and `why` says so, as jointcell's does. */
 struct CorticalLevel {
   std::optional<int> level;
   std::string why;                  // the decision in a sentence, or the refusal's reason
 };
-CorticalLevel cortical_level_of_extent(double sigma, double piece_area, int depth, double tile_sigma = 1.0);
-/** an irregular member on a surface (centre vertex + extent radius, as a `distance`) addressed on a dyadic grid: the level its extent sets (jointcell's rule) and the
- *  tile holding its centre (the closed form: the grid's code >> (depth - level)). std::invalid_argument for a grid that is not dyadic, a centre outside it or in no
- *  tile, or a feature no level is fine enough for (the message is jointcell's reason). */
-Address dyadic_address(const Selection& grid, std::int64_t center_vertex, double radius, double piece_area, double tile_sigma = 1.0);
+CorticalLevel cortical_level_of_extent(double sigma, const std::vector<double>& tile_diameters, double tile_sigma = 1.0);
+/** an irregular member on a surface (centre vertex + extent radius, as a `distance`) addressed on a dyadic grid: the level its extent sets (jointcell's rule on the grid's
+ *  measured level diameters) and the tile holding its centre (the closed form: the grid's code >> (depth - level)). std::invalid_argument for a grid that is not dyadic or whose
+ *  levels carry no measured diameter, a centre outside it or in no tile, or a feature no level is fine enough for (the message is jointcell's reason). */
+Address dyadic_address(const Selection& grid, std::int64_t center_vertex, double radius, double tile_sigma = 1.0);
 
 }  // namespace nxr::selection

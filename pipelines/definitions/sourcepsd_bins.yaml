@@ -1,11 +1,11 @@
 # THE POWER OF A RECORDING'S SOURCES, BIN BY BIN WITHIN ONE BAND (a statistic; sourcepsd's `--resolve bins`): the frequency partition's members are the Welch bins from lo to hi Hz
 # inclusive, nothing reduced over frequency, so each source keeps its spectrum within the band. The kernel is applied to each segment's Fourier coefficients and |K X|^2 summed per source
-# per bin (nxr::welch::LinearWelch): the source side holds sources x bins, never the channels^2 x bins of the cross-spectrum route; the same numbers to rounding. `kernel` and `band` are
-# the caller's choice (no default). The band statistic of `run sourcepsd` is the mean of these bins. One run a band; stored: the statistic `<recording>_<kernel>_psd_<band>_bins`
+# per bin (nxr::welch::LinearWelch): the source side holds sources x bins, never the channels^2 x bins of the cross-spectrum route; the same numbers to rounding. `kernel` and the band set are
+# the caller's choice (no default); the set is a selection made first (select.bands) and the node reads the band from it through an edge. The band statistic of `run sourcepsd` is the mean of these bins. One run a band; stored: the statistic `<recording>_<kernel>_psd_<band>_bins`
 # (measure power_density or power, by welch, OF the recording; axes vertex (the kernel's target) x frequency, the frequency line the band's bins), and its segment partition `<name>_segments`.
 # It cannot resolve: what the kernel cannot (a minimum-norm kernel spreads each source over its neighbours); a bin is one Welch bin, its width the segment's 1 / length.
 #
-#   nxr-neuro run sourcepsd_bins --dataset <folder> --subject sub-01 --recording rest --all --kernel NAME --band '{name: alpha, lo: 8, hi: 12}'
+#   nxr-neuro run sourcepsd_bins --dataset <folder> --subject sub-01 --recording rest --all --kernel NAME --bands '[[8,12],[13,30]]' --band_names '["alpha","beta"]' --band_name alpha
 pipeline: sourcepsd_bins
 version: 1
 description: the power of a recording's sources at every Welch bin of a band, through an inverse kernel
@@ -19,9 +19,9 @@ inputs:
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   kernel: {default: required, meaning: "the inverse kernel's name: which kernel the sources are read through is the caller's choice", unit: "-"}
-  band_name: {default: required, meaning: "the band's name (a member of the frequency partition)", unit: "-"}
-  lo: {default: required, meaning: "the band's lower edge; the bins from lo to hi inclusive are kept", unit: "Hz"}
-  hi: {default: required, meaning: "the band's upper edge", unit: "Hz"}
+  bands: {default: required, meaning: "the band set select.bands makes: a list of [lo, hi] in Hz, each the span [lo, hi) of the frequency line (the caller's choice, no default)", unit: "Hz"}
+  band_names: {default: null, meaning: "one name per band of the set; none: the range, e.g. 8-12", unit: "-"}
+  band_name: {default: required, meaning: "the member of the band set to read bin by bin: its name (the Welch bins from its lo to its hi inclusive are kept)", unit: "-"}
   segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
   segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds); null: from segment_seconds", unit: "samples"}
   segment_level: {default: null, meaning: "under segment_rule tile: the segment is 2^segment_level samples; null: from segment_seconds", unit: "level"}
@@ -42,7 +42,8 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.source_bins, in: {x: recording, kernel: kernel, exclude: bad}, with: {band: {name: $band_name, lo: $lo, hi: $hi}, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_level: $segment_level, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: bins}
+      - {node: select.bands, in: {x: recording}, with: {bands: $bands, band_names: $band_names}, out: [freq, bands]}
+      - {node: welch.source_bins, in: {x: recording, kernel: kernel, exclude: bad, bands: bands}, with: {band: $band_name, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_level: $segment_level, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: bins}
 
 outputs:
   bins:

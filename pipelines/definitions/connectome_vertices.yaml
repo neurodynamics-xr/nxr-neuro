@@ -1,7 +1,7 @@
 # THE MATERIALISED VERTEX CONNECTOME (spec section 4.3), on request only: the vertex matrix of fiber counts smoothed over the mesh (smoothing . counts . smoothing^T, the diagonal
-# removed), weak connections pruned, and the largest connected component. DRAFT, NOT YET SHIPPED (see connectome.yaml, "Needs"). Pruning and the largest component belong to a
-# materialised connectome only, so they are not options of the partition definitions. The matrix is large (10^5 fibers: about 1.6 GB in float64 before pruning): this is the only place
-# it is formed. Needs also: an output of kind `field` made of an array, SPARSE (CSC) on the product surface x surface at `source-source/<name>`, and a selection of the component's vertices.
+# removed), weak connections pruned, and the largest connected component. Pruning and the largest component belong to a materialised connectome only, so they are not options of the
+# partition definitions. The matrix is large (10^5 fibers: about 1.6 GB in float64 before pruning): this is the only place it is formed. Stored: a `field` on the product manifold
+# surface x surface, SPARSE (its entries: row, column, value; the matrix's shape in the producer record), and the selection of the largest component's vertices (`indices`).
 #
 #   nxr-neuro run connectome_vertices --fibers tracts --end-surface pial --dataset d --subject s [--prune-below 1e-4]
 pipeline: connectome_vertices
@@ -43,7 +43,7 @@ outputs:
     description: "the connection weights, SPARSE (CSC), on the product manifold surface x surface"
   component_vertices:
     kind: selection
-    type: set
+    type: indices
     name: "{name}_component"
     on: surface
     description: "the vertices of the largest connected component of the connection weights"

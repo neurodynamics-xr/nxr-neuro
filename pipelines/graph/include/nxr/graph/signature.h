@@ -117,10 +117,12 @@ struct Signature {
   std::vector<std::pair<std::string, std::string>> positions_named;   // (port, system name): the port's positions must be in that system ("scs")
   Signature& positions_share(std::vector<std::string> ports) { position_groups.push_back(std::move(ports)); return *this; }
   Signature& positions_in(const std::string& port, const std::string& system) { positions_named.emplace_back(port, system); return *this; }
+  bool rolls_up = false;                                // the node's move is a LEVEL ROLL-UP: values carried up a grid's closed-form hierarchy (coarser tiles). It reads grid members only: over the members of an IRREGULAR selection (no levels) it is refused
   std::string reduces;                                  // a fused statistic estimation (measure over a declared partition of the stream, then summarize): the partition it reduces over, in words
   Signature& in(const std::string& port, InPat p) { inputs.emplace_back(port, std::move(p)); return *this; }
   Signature& out(const std::string& port, OutPat p) { outputs.emplace_back(port, std::move(p)); return *this; }
   Signature& refine(std::function<void(Unified&, const Json&)> f) { refine_fn = std::move(f); return *this; }
+  Signature& rolling_up() { rolls_up = true; return *this; }
   Signature& accumulating() { accumulates = true; return *this; }
   Signature& reduces_over(std::string partition) { reduces = std::move(partition); return *this; }
   /** the quantities the signature names must be in the closed vocabulary; every pattern's port is read or made once. Refuses naming `node`. */

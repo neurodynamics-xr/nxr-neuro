@@ -965,7 +965,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.data.assign(f.begin(), f.end());
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
         constants[name] = std::move(a);
-      } else if (v.cls == "manifold" && text(row, "type") == "curve") {     // a fiber bundle: its points [nF*nP x 3], fiber-major, widened to float64 as a surface's are (its stored precision in meta)
+      } else if (v.cls == "manifold" && text(row, "type") == "curve") {     // a fiber bundle: its points [nF*nP x 3], fiber-major, held as double to carry them, `precision` in meta (its stored one: no node widens)
         const nxr::io::task::Subject subject = nxr::io::task::Subject::of(sub);
         const std::string bundle = text(row, "name"), stored = nxr::io::fibers::bundle_precision(subject, sub.store(), bundle);
         nxr::graph::Array a;
@@ -974,6 +974,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         else { const auto b = nxr::io::fibers::read_bundle<double>(subject, sub.store(), bundle); a.data.assign(b.points.begin(), b.points.end()); nP = b.points_per_fiber; a.meta["origin"] = b.origin; }
         a.rows = static_cast<std::int64_t>(a.data.size() / 3); a.cols = 3;
         a.meta["name"] = bundle; a.meta["id"] = text(row, "id"); a.meta["points_per_fiber"] = nP; a.meta["stored_precision"] = stored;
+        a.meta["precision"] = stored;                                      // the nodes compute in the points' own precision and refuse a mix (no widening: the values are held as double only to carry them)
         constants[name] = std::move(a);
       } else if (v.cls == "manifold" && text(row, "type") == "points") {    // a channels manifold: its sensor geometry (positions; types, orientations, coils in meta)
         const nxr::pipelines::SensorGeometry g = nxr::pipelines::sensor_geometry(sub, text(row, "id"));
@@ -992,6 +993,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.meta["faces"] = S.faces;
         a.meta["name"] = S.name; a.meta["id"] = S.id; a.meta["cs_id"] = nxr::pipelines::coordinate_system_of(sub, S.id);
         a.meta["unit"] = nxr::pipelines::coordinate_unit_of(sub, S.id);
+        if (!nxr::io::is_null(S.manifold, "positions_path"))               // the positions' own precision: a node that meets fibers of another precision refuses the pair, naming both
+          a.meta["precision"] = nxr::io::ArrayReader::open(sub.store(), text(S.manifold, "positions_path")).dtype() == nxr::io::DType::Float64 ? "float64" : "float32";
         constants[name] = std::move(a);
       }
     }

@@ -290,7 +290,8 @@ Saved save_per_element(SubjectWriter& sub, const Description& d, const Placement
   out.dictionary_id = dictionary_of_labels(sub, d, at, s);
   if (dyadic) {
     Json params = at.params.is_object() ? at.params : Json::object();
-    params["grid"] = Json{{"kind", "dyadic"}, {"depth", d.grid->depth}, {"pieces", d.grid->slots}};   // the closed form: number at level l = number >> (depth - l)
+    params["grid"] = Json{{"kind", "dyadic"}, {"depth", d.grid->depth}, {"slots", d.grid->slots}};   // the closed form: number at level l = number >> (depth - l)
+    if (d.grid->finest >= 0) params["grid"]["finest"] = d.grid->finest;
     params_of(s, params);
   } else {
     params_of(s, at.params);
@@ -695,6 +696,7 @@ Description describe(const Database& db, const Store& store, const records::Sele
       const int depth = grid.value("depth", static_cast<int>(levels.size()) - 1);
       d.member_of = Selection::read(db, store, finest.id).elements();
       d.grid = Grid{Grid::Kind::dyadic, 0, depth, finest.n_members.value_or(0) >> depth};   // the slots the codes reserve: the finest level's members >> depth
+      if (grid.contains("finest") && grid["finest"].is_number_integer()) d.grid->finest = grid["finest"].get<int>();
       // a level's BAND (the eigenvalues its tiles add, Weyl's law) lives in the level dictionary's entry (attributes lambda_min / lambda_max, 1/unit^2): reloaded here
       std::map<std::int64_t, Json> attributes;
       if (row.dictionary_id)
@@ -710,6 +712,7 @@ Description describe(const Database& db, const Store& store, const records::Sele
           level.band = std::make_pair(a->second["lambda_min"].get<double>(), a->second["lambda_max"].get<double>());
           level.band_unit = a->second.value("lambda_unit", std::string("1/m^2"));
         }
+        if (a != attributes.end() && a->second.is_object() && a->second.contains("diameter") && a->second["diameter"].is_number()) level.diameter = a->second["diameter"].get<double>();
         d.members.push_back(std::move(level));
       }
     } else if (row.array_path) {   // a set per element: member numbers; an irregular set's labels beside them, or a dyadic grid's rule
@@ -912,7 +915,7 @@ void update(SubjectWriter& sub, const std::string& id, const Description& d) {
       else sub.write_array(lp, view(labels, {n}));
       if (dyadic) {
         Json p = row->params_json.is_object() ? row->params_json : Json::object();
-        p["grid"] = Json{{"kind", "dyadic"}, {"depth", d.grid->depth}, {"pieces", d.grid->slots}};
+        p["grid"] = Json{{"kind", "dyadic"}, {"depth", d.grid->depth}, {"slots", d.grid->slots}};
         db.execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(p)), V(id)});
       }
       db.execute("UPDATE selection SET n_elements = ?, n_members = ? WHERE id = ?", {V(static_cast<std::int64_t>(array.size())), V(n), V(id)});

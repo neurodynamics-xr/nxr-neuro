@@ -64,7 +64,10 @@ struct TileGridState {
 
 Json level_facts(const nxr::selection::Selection& grid, int l, std::int64_t tiles) {
   const auto& band = *grid.members.at(static_cast<std::size_t>(l)).band;
-  return Json{{"level", l}, {"tiles", tiles}, {"lambda_min", band.first}, {"lambda_max", band.second}, {"wavelength_m", lad::wavelengthOf(band.second)}, {"tau", 1 / band.second}, {"modes_per_piece", 1 << l}};
+  const auto& level = grid.members.at(static_cast<std::size_t>(l));
+  Json j{{"level", l}, {"tiles", tiles}, {"lambda_min", band.first}, {"lambda_max", band.second}, {"wavelength_m", lad::wavelengthOf(band.second)}, {"tau", 1 / band.second}, {"modes_per_piece", 1 << l}};
+  if (level.diameter) j["diameter"] = *level.diameter;                      // the MEASURED mean tile diameter (the surface's unit): the level dictionary of jointcell's rule
+  return j;
 }
 
 StepSpec tile_grid_step() {
@@ -121,6 +124,7 @@ StepSpec tile_grid_step() {
     nxr::selection::Selection grid;
     try { grid = nxr::selection::dyadic(surf, method); } catch (const std::invalid_argument& e) { refuse(std::string("tiles: ") + e.what()); }
     const int D = grid.grid->depth;
+    const int finest = grid.grid->finest >= 0 ? grid.grid->finest : D;      // the deepest level every piece reaches (compute's `dyadic` returns it)
     const int slots = static_cast<int>(grid.grid->slots);
     const auto runs = lad::pieceRuns(S.faces.data(), nF, nV);
     const std::int64_t pieces = static_cast<std::int64_t>(runs.size());
@@ -175,7 +179,7 @@ StepSpec tile_grid_step() {
       std::vector<std::int32_t> adj32;
       for (const auto& e : adj) { adj32.push_back(e.first); adj32.push_back(e.second); }
       Json lj = level_facts(grid, l, nodes);
-      lj["tree"] = st.tree; lj["depth"] = D; lj["finest"] = D; lj["summaries"] = Json::array();
+      lj["tree"] = st.tree; lj["depth"] = D; lj["finest"] = finest; lj["summaries"] = Json::array();
       // the tiles' names, as the Studio writes them (entries up to 1024 tiles)
       Json entries = Json::array();
       if (nodes <= 1024) {
@@ -192,22 +196,25 @@ StepSpec tile_grid_step() {
       if (lc && std::find(st.group.lc_levels.begin(), st.group.lc_levels.end(), l) != st.group.lc_levels.end()) {
         // THE LEVI-CIVITA CONNECTION of the group tree at this level (nxr's default subject: `measure.vectors.levi_civita`): the centre vertex of each tile (the non-singular member nearest its
         // area-weighted centroid; -1 empty) and Omega[a, b], the angle at centre b, from b's north towards west, of centre a's north carried there by the vector heat transport, antisymmetrised
-        // (half the round-trip defect taken from each direction); a value over a PAIR of the level's tiles, so rows of the level's selection (code a, within_code b). Pairs in different hemispheres have none.
+        // (half the round-trip defect taken from each direction); a value over a PAIR of the level's tiles: a measurement over a selection of pairs (never rows riding on the grid). Pairs in different hemispheres have none.
         // The transport is the Studio's (ChartKit::transported, intrinsic Delaunay); nxr's is geometry-central's on the input mesh: they agree to a fraction of a degree, not bit for bit.
         const std::vector<int> lcen = lad::tileCentres(S.vertices.data(), node, nodes, area, singular);
         const lad::LeviCivita conn = lad::leviCivita(*kit, sf.e1, sf.e2, gauge, node, nodes, lcen);
         const Eigen::MatrixXd anti = lad::antisymmetric(conn.omega);
-        Json values = Json::array();
+        std::vector<std::int64_t> pair_index;                                 // the pairs (a, b) of the level's members, in order of a * tiles + b
+        std::vector<double> values;                                           // Omega[a, b] of each pair
         for (int a = 0; a < nodes; ++a)
           for (int b = 0; b < nodes; ++b) {
             const int ca = lcen[static_cast<std::size_t>(a)], cb = lcen[static_cast<std::size_t>(b)];
             if (ca < 0 || cb < 0 || piece[static_cast<std::size_t>(ca)] != piece[static_cast<std::size_t>(cb)]) continue;
             const double om = anti(a, b);
-            if (std::isfinite(om)) values.push_back(Json::array({a, om, b}));
+            if (std::isfinite(om)) { pair_index.push_back(static_cast<std::int64_t>(a) * nodes + b); values.push_back(om); }
           }
         const std::string cname = st.surface + "_lc_centres_L" + std::to_string(l);
         lv["centres"] = Json{{"name", cname}, {"description", "the centre vertex of each tile of level " + std::to_string(l) + " (\xe2\x88\x92" "1: empty tile)"}, {"indices", std::vector<std::int32_t>(lcen.begin(), lcen.end())}};
-        lv["member_values"] = Json{{"measure", "levi-civita connection"}, {"unit", "rad"}, {"values", values}};
+        // a value over PAIRS of members is a measurement over a selection of pairs (an `indices` selection, pair number a * tiles + b), never rows riding on the grid
+        lv["pairs"] = Json{{"name", st.surface + "_lc_pairs_L" + std::to_string(l)}, {"description", "the pairs (a, b) of tiles of level " + std::to_string(l) + " that have a Levi-Civita connection (a, b in one piece; pair number a * " + std::to_string(nodes) + " + b)"},
+                           {"measure", "levi-civita connection"}, {"unit", "rad"}, {"tiles", nodes}, {"indices", pair_index}, {"values", values}};
         levi_levels.push_back(Json{{"level", l}, {"tiles", nodes}, {"centres", cname}, {"pairs", values.size()}});
         if (ctx.say) ctx.say(Json{{"stage", "levi-civita"}, {"level", l}, {"pairs", values.size()}});
       }
@@ -218,12 +225,12 @@ StepSpec tile_grid_step() {
       for (const int l : st.group.lc_levels) need(l >= 0 && l <= D, "the Levi-Civita level " + std::to_string(l) + " is outside the ladder 0.." + std::to_string(D));
 
     // the ladder's record: the rule (`grid`: the hierarchy is the closed form, `slots` the piece slots the codes reserve, `pieces` the connected pieces), the area, the atlas definitions
-    Json params = Json{{"weyl", "4pi m/A"}, {"tree", st.tree}, {"area_m2", total}, {"length_unit", unit}, {"pieces", pieces}, {"depth", D}, {"finest", D},
-                       {"grid", Json{{"kind", "dyadic"}, {"depth", D}, {"slots", slots}, {"pieces", pieces}}}};
+    Json params = Json{{"weyl", "4pi m/A"}, {"tree", st.tree}, {"area_m2", total}, {"length_unit", unit}, {"pieces", pieces}, {"depth", D}, {"finest", finest},
+                       {"grid", Json{{"kind", "dyadic"}, {"depth", D}, {"slots", slots}, {"pieces", pieces}, {"finest", finest}}}};
     if (!atlas.is_null()) params["atlas"] = atlas;
     if (lc)
       params["levi_civita"] = Json{{"levels", levi_levels}, {"measure", "levi-civita connection"}, {"unit", "rad"}, {"frames", st.frames_id},
-          {"definition", "Omega[a, b]: the angle at centre b, from north towards west, of centre a's north carried to b; rows on level l's selection, code a, within_code b"},
+          {"definition", "Omega[a, b]: the angle at centre b, from north towards west, of centre a's north carried to b; a measurement over the selection of tile pairs `<surface>_lc_pairs_L<l>` (pair number a * tiles + b)"},
           {"transport", "the vector heat method (ChartKit::transported, the Studio's: intrinsic Delaunay mesh), calibrated to the identity at its source"},
           {"antisymmetrised", "Omega_ab - wrap(Omega_ab + Omega_ba) / 2 (nxr joint.antisymmetric since nxr #68; the earlier halving on the circle turned |Omega| > 90 degrees by 180)"},
           {"centres", "the non-singular member vertex nearest the tile's area-weighted centroid (nxr node_centres)"},
@@ -276,17 +283,23 @@ StepSpec group_tile_grid_step() {
     const SurfaceInput S = ctx.bound.surface(st.surface, true);
     const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
     const GroupTemplate T = ctx.bound.group_template(st.surface);
-    std::vector<std::pair<int, int>> truns, sruns;
-    try {
-      truns = lad::pieceRuns(T.faces.data(), static_cast<int>(T.faces.size() / 3), static_cast<int>(T.n_vertices));
-      sruns = lad::pieceRuns(S.faces.data(), nF, nV);
-    } catch (const std::exception& e) { refuse(std::string("group tree: ") + e.what()); }
+    std::string unit = ctx.bound.coordinate_unit(S.id);
+    if (unit.empty()) unit = "m";
     if (ctx.say) ctx.say(Json{{"stage", "group tiles"}, {"surface", st.surface}, {"template", T.subject}, {"finest", T.finest}});
-    double med = 0, mx = 0;
+    // the template's grid (its codes at its finest level) carried through the registered spheres: compute's `transfer`, which also gives the sphere match's median and maximum chord
+    const nxr::selection::Selection from = nxr::selection::dyadic_grid(T.codes, T.finest, T.slots);
+    nxr::selection::Surface surf;
+    surf.unit = unit; surf.positions = S.vertices.data(); surf.vertices = nV; surf.faces = S.faces.data(); surf.face_count = nF;
+    nxr::selection::Transfer method;
+    method.from = &from; method.from_sphere = T.sphere.data(); method.from_faces = T.faces.data();
+    method.from_vertices = static_cast<std::int32_t>(T.n_vertices); method.from_face_count = static_cast<std::int32_t>(T.faces.size() / 3);
+    method.sphere = T.subject_sphere.data();
+    nxr::selection::Selection grid;
+    try { grid = nxr::selection::transfer(surf, method); } catch (const std::invalid_argument& e) { refuse(st.surface + ": " + e.what()); }
+    const double med = *grid.grid->match_median, mx = *grid.grid->match_max;
+    const std::int64_t pieces = static_cast<std::int64_t>(lad::pieceRuns(S.faces.data(), nF, nV).size());
     lad::Tree tree;
-    try {
-      tree = lad::groupTreeFor(T.sphere.data(), T.codes.data(), truns, T.finest, T.subject_sphere.data(), nV, sruns, T.finest, &med, &mx);
-    } catch (const std::invalid_argument& e) { refuse(st.surface + ": " + e.what()); }
+    tree.codes = grid.member_of;
     lad::Mesh mesh;
     mesh.n = nV; mesh.positions = S.vertices; mesh.faces = S.faces;
     const std::vector<double> area = lad::vertexAreas(mesh);
@@ -306,7 +319,7 @@ StepSpec group_tile_grid_step() {
     Json describe = Json{{"description", "this subject's vertices on the dataset's GROUP tree (the default subject's tiles, through the registered sphere); member L<k> codes h 2^k + t"}, {"unit", "m"},
                          {"dictionary_id", T.ladder_dictionary_id},
                          {"params", Json{{"tree", "group"}, {"template", T.subject}, {"finest", finest}, {"sphere_match_median", med}, {"sphere_match_max", mx},
-                                         {"grid", Json{{"kind", "dyadic"}, {"depth", finest}, {"slots", T.slots}, {"pieces", truns.size()}}}}},   // the hierarchy is a rule (closed form), never parent arrays
+                                         {"grid", Json{{"kind", "dyadic"}, {"depth", finest}, {"slots", T.slots}, {"pieces", pieces}, {"finest", finest}}}}},   // the hierarchy is a rule (closed form), never parent arrays
                          {"levels", levels}};
     Arrays out;
     out["tiles"] = filled(per_level, nV, describe);

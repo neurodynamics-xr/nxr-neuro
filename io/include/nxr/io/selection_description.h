@@ -75,6 +75,8 @@ struct Grid {
   std::int64_t size = 0;                    // elements: the manifold's elements, each its own member
   int depth = 0;                            // dyadic: the level the member array's codes are at
   std::int64_t slots = 0;                   // dyadic: the piece slots the codes reserve; level l has slots << l members
+  int finest = -1;                          // dyadic: the deepest level every piece reaches (-1 unknown)
+  std::optional<double> match_median, match_max;   // dyadic made by transfer: the sphere match's median and maximum chord (unit sphere)
 };
 
 struct Description {
@@ -98,6 +100,7 @@ struct Description {
   std::vector<std::int64_t> radices;        // a product: each factor's radix (empty on save: the factors' member counts)
   std::optional<Grid> grid;                 // a grid that is not a tiling: its closed form
   int level = -1;                           // a level: its label, a power of two (tiles of 2^level samples; 2^level tiles a piece)
+  std::optional<double> diameter;           // a dyadic level: the measured mean tile diameter (the surface's unit), kept in the level dictionary's attributes
   std::optional<std::pair<double, double>> band;   // a level: the band of the spectrum it resolves, in `band_unit`
   std::string band_unit;
   Lookup lookup;                            // a set: what its members' labels mean

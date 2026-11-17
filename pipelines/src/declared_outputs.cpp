@@ -5,6 +5,7 @@
 
 #include "nxr/io/errors.h"
 #include "nxr/selection/selection.h"
+#include "nxr/io/fibers.h"
 #include "nxr/io/finder.h"
 #include "nxr/io/layout.h"
 
@@ -149,10 +150,29 @@ task::GridOut grid_of(const ng::Array& a, const Json& d, const std::string& o) {
       L.arrays.push_back(std::move(out));
     }
     if (x.contains("centres")) L.centres = x["centres"];
-    if (x.contains("member_values")) L.member_values = x["member_values"];
+    if (x.contains("pairs")) L.pairs = x["pairs"];
     g.levels.push_back(std::move(L));
   }
   return g;
+}
+
+// ORIGIN CARRY-OVER (`carry_origin: INPUT`): a result derived from an input that came from somewhere (a template's fiber bundle) carries that input's `origin` (source, licence, terms, attribution) and
+// `derived_from` (its name), as io's `derived_origin` says; null when the input has none. The input is a found manifold or node whose producer record holds the origin.
+Json origin_of(const Plan& P, const std::string& input, const std::string& o) {
+  if (!P.found.count(input) || !P.found.at(input).row) bad(o, "carry_origin: '" + input + "' is not an input found");
+  const nxr::io::Row& row = *P.found.at(input).row;
+  const Json producer = Json::parse(nxr::io::opt_text(row, "producer_json").value_or("{}"), nullptr, false);
+  return nxr::io::fibers::derived_origin(producer, text(row, "name"));
+}
+
+// a field's manifold: a link, or a PRODUCT of manifolds written `A x B` (the Studio's product manifold, D37: surface x surface for a matrix between the vertices of one surface); the product is found or made
+// by io from its factors, in order
+std::vector<std::string> product_factors(const std::string& on) {
+  std::vector<std::string> out;
+  std::size_t from = 0;
+  for (std::size_t at; (at = on.find(" x ", from)) != std::string::npos; from = at + 3) out.push_back(on.substr(from, at - from));
+  if (!out.empty()) out.push_back(on.substr(from));
+  return out;
 }
 
 std::string acquisition_of(const Plan& P, const std::string& input) {
@@ -192,11 +212,15 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
   const std::string k = kind_of(spec);
   const Value& v = P.values.at(o);
   const std::string want = k == "operator" ? "operator" : k == "manifold" ? "manifold" : k == "selection" ? "selection" : k == "field" ? "field" : k == "measurement" ? "measurement" : "statistic";
-  if (v.cls != want) bad(o, "declared " + k + " but its steps make a " + v.cls);
+  // an output the connectome's array nodes make (class `array`): a sparse matrix over a selection's members stored two codes a row, a sparse matrix stored as a field, an index list stored as a selection
+  const bool array_output = v.cls == "array" && ((k == "measurement" && spec.value("codes", 1) == 2) || k == "field" || (k == "selection" && spec.value("type", std::string()) == "indices"));
+  if (v.cls != want && !array_output) bad(o, "declared " + k + " but its steps make a " + v.cls);
   if (v.chunked) bad(o, "a value inside the chunk loop is not stored: only what leaves it");
   if (declared_name(P, o).empty()) bad(o, "its name is empty");
   if (k == "field") {
-    if (spec.contains("on")) link_of(P, spec, "on", nullptr, o);
+    if (spec.contains("on") && spec["on"].is_string() && !product_factors(spec["on"].get<std::string>()).empty()) {
+      for (const auto& f : product_factors(spec["on"].get<std::string>())) link(P, f, nullptr, o);
+    } else if (spec.contains("on")) link_of(P, spec, "on", nullptr, o);
     else if (v.manifolds.empty()) bad(o, "a field output names the manifold it lies on (on: INPUT.manifold.N)");
     if (!spec.contains("kind_name") || !spec["kind_name"].is_string()) bad(o, "a field output names its kind (kind_name: …)");
   } else if (k == "statistic") {
@@ -244,6 +268,10 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
   const task::Subject ts = task::Subject::of(sub);                          // io's naming rule for a node's store key
   std::vector<std::pair<task::Cls, std::string>> out;
   if (k == "field") {
+    if (spec.contains("on") && spec["on"].is_string() && !product_factors(spec["on"].get<std::string>()).empty()) {
+      // a product of manifolds: its id is known when io finds or makes it (the store); its node's place is checked there
+      return out;
+    }
     const std::string mid = spec.contains("on") ? link_of(P, spec, "on", nullptr, o) : P.values.at(o).manifolds.at(0);
     out.emplace_back(task::Cls::field, ts.node_path(mid, name));
   } else if (k == "statistic") {
@@ -266,7 +294,10 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
 Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P, const std::string& o, const ng::Array& a, const Json& span, MadeIds& made, bool replace, bool& replaced) {
   const Json& spec = P.definition.outputs[o];
   const std::string k = kind_of(spec), name = declared_name(P, o);
-  const Json& d = describe_of(a, o);
+  static const Json none = Json::object();
+  // a node whose array follows the connectome convention (a sparse matrix: meta.form coo; an index list) is stored from the definition alone; any other declared output is stored from the node's description
+  const bool by_convention = !a.meta.contains("describe") && (a.meta.contains("form") || (k == "measurement" && spec.value("codes", 1) == 2) || (k == "selection" && spec.value("type", std::string()) == "indices"));
+  const Json& d = by_convention ? none : describe_of(a, o);
   const std::string what = P.definition.name + " output " + o;
   auto clear = [&](task::Cls c, const std::string& path) {                    // another job's node there: refused, or moved aside with --replace
     const bool there = sub.find(task::to_string(c), path).has_value();
@@ -314,7 +345,13 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   if (k == "field") {
     task::FieldOut f;
     f.name = name; f.output = o; f.kind = spec["kind_name"].get<std::string>();
-    f.manifold_id = spec.contains("on") ? link_of(P, spec, "on", &made, o) : P.values.at(o).manifolds.at(0);
+    if (spec.contains("on") && spec["on"].is_string() && !product_factors(spec["on"].get<std::string>()).empty()) {
+      task::ProductOut pr;
+      for (const auto& fac : product_factors(spec["on"].get<std::string>())) pr.factors.push_back(link(P, fac, &made, o));
+      f.manifold_id = unit.product(pr);
+    } else {
+      f.manifold_id = spec.contains("on") ? link_of(P, spec, "on", &made, o) : P.values.at(o).manifolds.at(0);
+    }
     f.value_type = d.value("value_type", P.values.at(o).value_type);
     if (d.contains("unit") && d["unit"].is_string()) f.unit = d["unit"].get<std::string>();
     else if (spec.contains("unit")) f.unit = spec["unit"].get<std::string>();
@@ -328,12 +365,50 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       f.of_operator_id = made.at(r);
     }
     if (d.contains("producer") && d["producer"].is_object()) f.producer = d["producer"];
-    if (!d.value("no_array", false)) f.data = values_of(a, shape_of(a, d), single_of(d), o);   // no_array: a field whose values are its measurements
+    const bool sparse = a.meta.value("form", std::string()) == "coo";
+    if (sparse) {
+      // a SPARSE field (the node's COO [nnz x 3]: row, column, value; meta.shape the matrix's): stored as its entries, the matrix's layout in the producer record; the precision is the node's
+      if (a.cols != 3) bad(o, "a sparse field is COO [nnz x 3]");
+      f.data = values_of(a, {a.rows, a.cols}, a.meta.value("precision", std::string("float64")) == "float32", o);
+      f.producer = f.producer.is_object() ? f.producer : Json::object();
+      f.producer["layout"] = Json{{"form", "coo"}, {"shape", a.meta.value("shape", Json::array())}, {"columns", Json::array({"row", "column", "value"})}};
+    } else if (!d.value("no_array", false)) f.data = values_of(a, shape_of(a, d), single_of(d), o);   // no_array: a field whose values are its measurements
+    if (spec.contains("carry_origin")) {
+      f.producer = f.producer.is_object() ? f.producer : Json::object();
+      const Json og = origin_of(P, spec["carry_origin"].get<std::string>(), o);
+      if (!og.is_null()) f.producer["origin"] = og;
+    }
     const std::string path = unit.path_of(f);
     clear(task::Cls::field, path);
     report["id"] = unit.field(f); report["path"] = path;
     made[o] = report["id"].get<std::string>();
     made["path:" + o] = path;
+    return report;
+  }
+
+  if (k == "measurement" && spec.value("codes", 1) == 2) {
+    // TWO CODES A ROW (declared: over, codes: 2): the node's array is a sparse matrix over the selection's members, COO [nnz x 3] (row member, column member, value; meta.form coo): each entry a
+    // row (code, within_code, value) of the selection, the member and the other. It is not of a field (`of`, when given, names the input the values are counted over: provenance only).
+    if (a.cols != 3 || a.meta.value("form", std::string()) != "coo") bad(o, "codes: 2 takes a sparse matrix over the selection's members, COO [nnz x 3] (row, column, value)");
+    const std::string over = spec["over"].get<std::string>();
+    task::MeasurementOut m;
+    m.output = o;
+    std::string over_name;
+    if (made.count(over)) { m.selection_id = made.at(over); over_name = declared_name(P, over); }
+    else if (P.found.count(over) && P.found.at(over).row) { m.selection_id = text(*P.found.at(over).row, "id"); over_name = text(*P.found.at(over).row, "name"); }
+    else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
+    const task::Subject ts = task::Subject::of(sub);
+    m.pair_measure = name;
+    m.pair_unit = spec.value("unit", std::string());
+    if (ts.has_measure(m.selection_id, m.pair_measure, std::nullopt)) {
+      if (!replace) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + what + ": the measure '" + m.pair_measure + "' over " + over_name + " already exists; pass --replace");
+      unit.remove_measurements(m.selection_id, std::nullopt, m.pair_measure);
+      replaced = true;
+    }
+    for (std::int64_t r = 0; r < a.rows; ++r) m.pairs.push_back({static_cast<std::int64_t>(a.data[static_cast<std::size_t>(3 * r)]), static_cast<std::int64_t>(a.data[static_cast<std::size_t>(3 * r + 1)]), a.data[static_cast<std::size_t>(3 * r + 2)]});
+    report["rows"] = unit.measurements(m);
+    report["over"] = m.selection_id;
+    if (spec.contains("carry_origin")) report["origin"] = origin_of(P, spec["carry_origin"].get<std::string>(), o);
     return report;
   }
 
