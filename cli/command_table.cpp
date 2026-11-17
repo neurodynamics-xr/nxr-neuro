@@ -1444,7 +1444,7 @@ R"TBL(@ import freesurfer
 old: __import freesurfer
 alias: no
 summary: Import a FreeSurfer subject into a subject package: surfaces in freesurfer-tkr (metres) with the transition to scanner RAS from c_ras, named annotations as labelling Selections, overlays as Fields.
-opts: --annotations --anonymize --attribution --field-kind --from* --licence --name --orig --overlays --package* --source-root --surfaces
+opts: --annotations+ --anonymize --attribution --field-kind --from* --licence --name --orig --overlays+ --package* --source-root --surfaces+
 )TBL",
 R"TBL(@ import gifti
 old: __import gifti
