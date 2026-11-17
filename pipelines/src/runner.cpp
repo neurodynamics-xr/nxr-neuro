@@ -94,10 +94,10 @@ std::string Plan::text(const nxr::io::Database& db) const {
   return L.str();
 }
 
-Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db) {
+Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id) {
   Plan P{d, params, found, found, {}};
   if (d.over && P.values.count(*d.over)) P.values[*d.over].chunked = true;
-  const Bound bound{db};
+  const Bound bound{task::Subject::of(db, subject_id)};
   const PlanContext ctx{bound};
   for (const auto& use : d.uses()) {
     const StepSpec& st = step(use.step);
@@ -172,7 +172,7 @@ std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, co
     e.name += ".draw" + std::to_string(params[e.draw].get<std::int64_t>());
   }
   std::vector<Plan> out;
-  for (const auto& found : nxr::io::finder::resolve(db, subject_id, e.inputs, params)) out.push_back(plan(e, found, params, db));   // every run planned before any is executed
+  for (const auto& found : nxr::io::finder::resolve(db, subject_id, e.inputs, params)) out.push_back(plan(e, found, params, db, subject_id));   // every run planned before any is executed
   return out;
 }
 

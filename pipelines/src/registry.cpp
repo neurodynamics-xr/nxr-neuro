@@ -22,6 +22,8 @@
 //   burst_stages    after       each burst's stages from its stored fit: onset (t_on ± 2 τ_rise), within (the plateau), offset (t_off ± 2 τ_fall) → three spans Selections (nxr::risefall::stagesOf)
 //   detect_spans    after       a measurement's tiles labelled: per row (or the mean over rows) the median and robust SD over the good tiles, hysteresis
 //                               crossings, spans merged and kept by length (nxr::intervals; Rheome detect.spindle's rule) → a span set (a spans Selection)
+#include <sstream>
+
 #include "nxr/pipelines/registry.h"
 
 #include <algorithm>
@@ -88,9 +90,11 @@ std::vector<nxr::intervals::TileEvent> stored_event_tiles(const Bound& db, const
   const bool channels = params.is_object() && params.contains("channels") && params["channels"].is_object() && !params["channels"].empty();
   need(!channels, who + ": the spans " + sname + " name the channel that found each event (per_hemisphere); a measurement over tiles takes global events only");
   std::vector<nxr::intervals::TileEvent> out;
+  std::size_t ordinal = 0;
+  auto sec = [](double x) { std::ostringstream o; o << x; return o.str(); };   // seconds as written: 0.5, not 0.500000
   for (const auto& r : db.spans(nxr::io::text(sr, "id"))) {
-    const double a = (std::stod(nxr::io::text(r, "start")) - origin) / w, b = (std::stod(nxr::io::text(r, "stop")) - origin) / w;
-    const std::string which = "span " + nxr::io::text(r, "ordinal") + " [" + nxr::io::text(r, "start") + ", " + nxr::io::text(r, "stop") + ") s of " + sname;
+    const double a = (r.first - origin) / w, b = (r.second - origin) / w;
+    const std::string which = "span " + std::to_string(ordinal++) + " [" + sec(r.first) + ", " + sec(r.second) + ") s of " + sname;
     need(std::abs(a - std::round(a)) <= 1e-3 && std::abs(b - std::round(b)) <= 1e-3, who + ": " + which + " does not snap to the tiles of " + over.value("selection", std::string("x's time level")) + " (tile " + std::to_string(w) + " s from " + std::to_string(origin) + " s)");
     const std::int64_t f = static_cast<std::int64_t>(std::llround(a)), e = static_cast<std::int64_t>(std::llround(b));
     need(f >= 0 && e <= T && e > f, who + ": " + which + " lies outside the " + std::to_string(T) + " tiles of x or is empty");
@@ -858,7 +862,7 @@ void bind_execution(std::vector<StepSpec>& r) {
     s.H = p["half_width"].get<int>();
     if (ins.count("within")) {
       s.has_within = true;
-      for (const auto& r : c.bound.spans(nxr::io::text(*ins.at("within").row, "id"))) s.within.push_back({std::stod(nxr::io::text(r, "start")), std::stod(nxr::io::text(r, "stop"))});
+      for (const auto& r : c.bound.spans(nxr::io::text(*ins.at("within").row, "id"))) s.within.push_back({r.first, r.second});
     }
     return std::any(std::make_shared<FramesState>(std::move(s)));
   };
