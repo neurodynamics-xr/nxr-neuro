@@ -1,4 +1,4 @@
-# The bindings: shells around the nxr_compute library (nothing of io or pipelines is exposed through them yet).
+# The bindings: faces, as the command line is. All of them carry nxr_compute; Python and MATLAB also the pure file formats and the pipeline level (nxr_pipelines, pipelines/face.h).
 # Each is its own CMakeLists.txt. Native: Node (only through cmake-js), the CLI smoke, MATLAB MEX (only when MATLAB is found).
 # Under Emscripten: wasm. Python (the wheel's nanobind module, bindings/python) only when NXR_NEURO_BUILD_PYTHON is ON.
 if(EMSCRIPTEN)
