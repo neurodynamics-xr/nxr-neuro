@@ -150,8 +150,9 @@ void bind(sqlite3_stmt* st, const std::vector<Value>& params) {
 }  // namespace
 
 Database::Database(Database&& o) noexcept
-    : path_(std::move(o.path_)), read_only_(o.read_only_), db_(o.db_), depth_(o.depth_), cols_(std::move(o.cols_)), pk_(std::move(o.pk_)) {
+    : path_(std::move(o.path_)), read_only_(o.read_only_), db_(o.db_), depth_(o.depth_), stmts_(std::move(o.stmts_)), cols_(std::move(o.cols_)), pk_(std::move(o.pk_)) {
   o.db_ = nullptr;
+  o.stmts_.clear();
 }
 Database& Database::operator=(Database&& o) noexcept {
   if (this != &o) {
@@ -160,6 +161,8 @@ Database& Database::operator=(Database&& o) noexcept {
     read_only_ = o.read_only_;
     db_ = o.db_;
     depth_ = o.depth_;
+    stmts_ = std::move(o.stmts_);
+    o.stmts_.clear();
     cols_ = std::move(o.cols_);
     pk_ = std::move(o.pk_);
     o.db_ = nullptr;
@@ -167,7 +170,12 @@ Database& Database::operator=(Database&& o) noexcept {
   return *this;
 }
 Database::~Database() { close(); }
+void Database::finalize_prepared() noexcept {
+  for (auto& kv : stmts_) sqlite3_finalize(static_cast<sqlite3_stmt*>(kv.second));
+  stmts_.clear();
+}
 void Database::close() {
+  finalize_prepared();
   if (db_) sqlite3_close(H(db_));
   db_ = nullptr;
 }
@@ -273,27 +281,30 @@ Database Database::open_plain(const fs::path& file, bool create, bool read_only)
   return d;
 }
 
-void Database::tx(const std::function<void()>& body) {
+void Database::tx_begin() {
   sqlite3* db = H(db_);
   if (depth_ == 0) exec(db, "BEGIN");
   else exec(db, "SAVEPOINT sp" + std::to_string(depth_));
   ++depth_;
+}
+
+void Database::tx_rollback() noexcept {
+  sqlite3* db = H(db_);
+  --depth_;
   try {
-    body();
-  } catch (...) {
-    --depth_;
-    try {
-      if (depth_ == 0) exec(db, "ROLLBACK");
-      else { exec(db, "ROLLBACK TO sp" + std::to_string(depth_)); exec(db, "RELEASE sp" + std::to_string(depth_)); }
-    } catch (...) {}
-    throw;
-  }
+    if (depth_ == 0) exec(db, "ROLLBACK");
+    else { exec(db, "ROLLBACK TO sp" + std::to_string(depth_)); exec(db, "RELEASE sp" + std::to_string(depth_)); }
+  } catch (...) {}
+}
+
+void Database::tx_commit() {
+  sqlite3* db = H(db_);
   --depth_;
   if (depth_ == 0) {
     try {
       exec(db, "COMMIT");
     } catch (const Error& e) {
-      // a DEFERRED key fails at COMMIT with no row named — name it before rolling back
+      // a DEFERRED key fails at COMMIT with no row named: name it before rolling back
       std::string bad;
       try {
         int n = 0;
@@ -310,10 +321,44 @@ void Database::tx(const std::function<void()>& body) {
   }
 }
 
-std::vector<Row> Database::all(const std::string& sql, const std::vector<Value>& params) const {
+void Database::tx(const std::function<void()>& body) {
+  tx_begin();
+  try {
+    body();
+  } catch (...) {
+    tx_rollback();
+    throw;
+  }
+  tx_commit();
+}
+
+namespace {
+// A cached statement in use: reset (and its bindings cleared) when the call ends, however it ends, so it holds no read lock and the next use starts clean.
+struct Use {
+  sqlite3_stmt* st;
+  explicit Use(void* s) : st(static_cast<sqlite3_stmt*>(s)) {}
+  ~Use() { sqlite3_reset(st); sqlite3_clear_bindings(st); }
+};
+}  // namespace
+
+// The prepared statement for `sql`: prepared on first use and kept. SQLite re-prepares it itself when the schema changes. The cache is bounded (statements built with a
+// variable number of placeholders would otherwise grow it without end): past 512 entries it starts again.
+void* Database::prepared(const std::string& sql) const {
+  auto it = stmts_.find(sql);
+  if (it != stmts_.end()) return it->second;
   sqlite3* db = H(db_);
+  if (stmts_.size() >= 512) { for (auto& kv : stmts_) sqlite3_finalize(static_cast<sqlite3_stmt*>(kv.second)); stmts_.clear(); }
   sqlite3_stmt* st = nullptr;
   if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) fail(db, sql);
+  if (!st) throw Error(code::sqlite, "empty statement");
+  stmts_.emplace(sql, st);
+  return st;
+}
+
+std::vector<Row> Database::all(const std::string& sql, const std::vector<Value>& params) const {
+  sqlite3* db = H(db_);
+  Use use(prepared(sql));
+  sqlite3_stmt* st = use.st;
   bind(st, params);
   std::vector<Row> rows;
   int rc;
@@ -335,7 +380,6 @@ std::vector<Row> Database::all(const std::string& sql, const std::vector<Value>&
   }
   std::string err;
   if (rc != SQLITE_DONE) err = sqlite3_errmsg(db);
-  sqlite3_finalize(st);
   if (!err.empty()) throw Error(code::sqlite, err);
   return rows;
 }
@@ -348,8 +392,8 @@ std::optional<Row> Database::one(const std::string& sql, const std::vector<Value
 
 Value Database::value(const std::string& sql, const std::vector<Value>& params) const {
   sqlite3* db = H(db_);
-  sqlite3_stmt* st = nullptr;
-  if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) fail(db, sql);
+  Use use(prepared(sql));
+  sqlite3_stmt* st = use.st;
   bind(st, params);
   Value out;
   const int rc = sqlite3_step(st);
@@ -366,7 +410,6 @@ Value Database::value(const std::string& sql, const std::vector<Value>& params) 
   }
   std::string err;
   if (rc != SQLITE_ROW && rc != SQLITE_DONE) err = sqlite3_errmsg(db);
-  sqlite3_finalize(st);
   if (!err.empty()) throw Error(code::sqlite, err);
   return out;
 }
@@ -387,14 +430,13 @@ void Database::exec_script(const std::string& sql) const { exec(H(db_), sql); }
 
 void Database::execute(const std::string& sql, const std::vector<Value>& params) const {
   sqlite3* db = H(db_);
-  sqlite3_stmt* st = nullptr;
-  if (sqlite3_prepare_v2(db, sql.c_str(), -1, &st, nullptr) != SQLITE_OK) fail(db, sql);
+  Use use(prepared(sql));
+  sqlite3_stmt* st = use.st;
   bind(st, params);
   int rc;
   while ((rc = sqlite3_step(st)) == SQLITE_ROW) {}
   std::string err;
   if (rc != SQLITE_DONE) err = sqlite3_errmsg(db);
-  sqlite3_finalize(st);
   if (!err.empty()) throw Error(code::sqlite, err);
 }
 
