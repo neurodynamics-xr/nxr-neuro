@@ -100,6 +100,7 @@ Signature s_apply_kernel() {
       .in("x", field({A, R, TF}).streamed().linear())
       .in("kernel", operator_(from_or_restriction_of(A), B).because("The kernel reads the channels of x; make the cross-spectrum or the recording with `--channels-of <kernel>`."))
       .in("tiles", selection({B}).optional().because("The tile ladder must be the ladder of the kernel's target surface."))
+      .in("pre_operator", any_port().optional().because("A linear operator on x's rows made by an earlier node (a surrogate's zero-lag mixing), composed into the kernel's operator."))
       .out("y", like("x").on({B, R, TF}))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
@@ -553,8 +554,9 @@ Signature s_power_series() {
       });
 }
 
-Signature s_lagfree_surrogate() {
-  // a surrogate recording drawn on the cross-spectrum's channels: the first factor is replaced by theirs (one factor changes, the others are carried)
+Signature s_surrogate_lagfree() {
+  // a surrogate's unmixed draw on the cross-spectrum's channels (spec docs/specs/2026-11-17-surrogates.md): the first factor is replaced by theirs (one factor changes, the others are carried); it
+  // awaits the zero-lag mixing, composed into the first linear map (apply_kernel's `pre_operator`)
   return sig(Move::apply)
       .in("x", field({A, R, T}).streamed())
       .in("psd", statistic_any()).in("cross_spectrum", statistic_any()).in("power_series", statistic_any())
@@ -689,7 +691,7 @@ const std::map<std::string, Signature>& table() {
     m["tracks"] = s_tracks();
     m["tile_crossings"] = s_tile_crossings();
     m["power_series"] = s_power_series();
-    m["lagfree_surrogate"] = s_lagfree_surrogate();
+    m["surrogate.lagfree"] = s_surrogate_lagfree();
     m["frame.rotate"] = s_frame_rotate();
     m["frame.embed"] = s_frame_embed();
     m["frame.project"] = s_frame_project();

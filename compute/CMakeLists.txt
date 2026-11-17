@@ -99,7 +99,8 @@ add_library(nxr_compute STATIC
   src/tracks.cpp
   src/crossings.cpp
   src/sphere_registration.cpp
-  src/surrogate.cpp
+  src/synthesis_lagfree.cpp
+  src/nulltest.cpp
   src/scaling.cpp
   src/scalespace.cpp
   src/patterns.cpp

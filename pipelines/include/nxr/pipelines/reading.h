@@ -26,4 +26,9 @@ nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& 
 nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const task::Node& field, double sfreq, double t0, std::vector<std::int32_t> rows = {},
                                const std::optional<std::vector<std::pair<double, double>>>& bad = std::nullopt);
 
+/** the Field's SHAPE only (spec docs/specs/2026-11-17-surrogates.md, section 6): its channels, rate, span and chunk grid, and the bad spans' mask when given; no sample is ever read (a surrogate's draw,
+ *  declared `read: shape`). The chunks it hands carry no data. */
+nxr::io::ChunkSource shape_source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& field, double sfreq, double t0,
+                                     const std::optional<std::vector<std::pair<double, double>>>& bad = std::nullopt);
+
 }  // namespace nxr::pipelines

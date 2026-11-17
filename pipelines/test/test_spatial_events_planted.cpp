@@ -32,7 +32,7 @@
 #include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/pipelines/spatial_null.h"
+#include "nxr/pipelines/surrogate_compare.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/pipelines/tiles.h"
 
@@ -248,37 +248,37 @@ int main() {
       Json nset = d; nset["cross_spectrum"] = "rest_crossspectrum_alpha";
       // one draw: stored as small statistics, a function of its seed
       Json one = nset; one["seed"] = 0; one["recording"] = "rest";
-      g::run(ds, sub, g::load("spatial_events_null"), one, all);
-      const StoredStatistic D0 = read_statistic(sub, "spatial_events_null.draw0.home.rest"), D0s = read_statistic(sub, "spatial_events_null.draw0.summary.rest");
-      CHECK(D0.shape == H.shape && text(D0s.row, "measure") == "patch_summary" && !nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "spatial_events_null.draw0.events.rest", .any_status = true}));
-      SpatialNullOptions sn;
+      g::run(ds, sub, g::load("surrogate_lagfree_spatial_events"), one, all);
+      const StoredStatistic D0 = read_statistic(sub, "surrogate_lagfree_spatial_events.draw0.home.rest"), D0s = read_statistic(sub, "surrogate_lagfree_spatial_events.draw0.summary.rest");
+      CHECK(D0.shape == H.shape && text(D0s.row, "measure") == "patch_summary" && !nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "surrogate_lagfree_spatial_events.draw0.events.rest", .any_status = true}));
+      SurrogateSpatialEventsCompareOptions sn;
       sn.chunks = "all";                 // the whole recording, stated
       sn.recording = "rest"; sn.batch = 2; sn.min_draws = 2; sn.max_draws = 4; sn.h = 10; sn.replace = true;
       sn.set = nset;
-      const auto rn = spatial_null_compute(ds, sub, sn);
+      const auto rn = surrogate_lagfree_spatial_events_compare(ds, sub, sn);
       const std::int64_t nd2 = rn.info["draws"].get<std::int64_t>();
-      const StoredStatistic hp = read_statistic(sub, "spatial_events.null.rest.home_p"), hn = read_statistic(sub, "spatial_events.null.rest.home_null"), sz = read_statistic(sub, "spatial_events.null.rest.size_null");
+      const StoredStatistic hp = read_statistic(sub, "surrogate_lagfree_spatial_events_compare.rest.home_p"), hn = read_statistic(sub, "surrogate_lagfree_spatial_events_compare.rest.home_null"), sz = read_statistic(sub, "surrogate_lagfree_spatial_events_compare.rest.size_null");
       // direct: the draws read back, the data's fraction per vertex (the stored home map of the percentile run just made)
       const StoredStatistic Hn = read_statistic(sub, "spatial_events.home.rest");
       auto fracn = [&](int v) { return Hn.values[static_cast<std::size_t>(2 * v)] / Hn.values[static_cast<std::size_t>(2 * v + 1)]; };
       Eigen::VectorXd exd = Eigen::VectorXd::Zero(N);
       for (std::int64_t i = 0; i < nd2; ++i) {
-        const StoredStatistic Hd = read_statistic(sub, "spatial_events_null.draw" + std::to_string(i) + ".home.rest");
+        const StoredStatistic Hd = read_statistic(sub, "surrogate_lagfree_spatial_events.draw" + std::to_string(i) + ".home.rest");
         for (int v = 0; v < N; ++v) { const double fr = Hd.values[static_cast<std::size_t>(2 * v + 1)], dd = fr > 0 ? Hd.values[static_cast<std::size_t>(2 * v)] / fr : 0.0; if (Hn.values[static_cast<std::size_t>(2 * v)] > 0 && dd >= fracn(v)) exd[v] += 1; }
       }
       bool same = hp.shape == std::vector<std::int64_t>({N, 3});
       for (int v = 0; same && v < N; ++v) same = hp.values[static_cast<std::size_t>(3 * v + 2)] == exd[v];
       const double pA = hp.values[static_cast<std::size_t>(3 * vA)], pFar = hp.values[static_cast<std::size_t>(3 * anti)];
       const double nullA = hn.values[static_cast<std::size_t>(vA)];
-      std::printf("  spatialnull: %lld draws (%s); the exceedances equal the direct count: %s; the narrow blob's vertex: data %.2f in a patch, null %.3f, p %.3f; the farthest vertex p %.3f (data %.2f)\n", static_cast<long long>(nd2), rn.info["stopped"].get<std::string>().c_str(), same ? "yes" : "NO",
+      std::printf("  surrogate_lagfree_spatial_events_compare: %lld draws (%s); the exceedances equal the direct count: %s; the narrow blob's vertex: data %.2f in a patch, null %.3f, p %.3f; the farthest vertex p %.3f (data %.2f)\n", static_cast<long long>(nd2), rn.info["stopped"].get<std::string>().c_str(), same ? "yes" : "NO",
                   fracn(vA), nullA, pA, pFar, fracn(anti));
       CHECK(same && nd2 == 4 && text(hp.row, "measure") == "null_p" && text(hn.row, "measure") == "null_fraction" && text(sz.row, "measure") == "null_size");
       // WHAT THE NULL SAYS: it keeps the data's zero-lag covariance, and the planted blobs ARE zero-lag spatial structure (the band's covariance holds both of them), so the null occupies the narrow blob's vertex in nearly every burst frame (0.97), as the data does
       // (0.99): the covariance explains a STATIONARY home map. What the data has beyond it is the small excess over the null at that vertex (none of the 4 draws reaches it: p = 1 / 5, the smallest 4 draws can give).
       CHECK(nullA > 0.8 && pA <= 0.2 + 1e-9);
       CHECK(sz.shape[1] == 6 && sz.shape[0] >= 5);
-      { SpatialNullOptions again = sn; again.replace = false; CHECK(spatial_null_compute(ds, sub, again).hit); }
-      CHECK(what_of([&] { SpatialNullOptions bad = sn; bad.recording = "no_such"; spatial_null_compute(ds, sub, bad); }).find("no_such") != std::string::npos);
+      { SurrogateSpatialEventsCompareOptions again = sn; again.replace = false; CHECK(surrogate_lagfree_spatial_events_compare(ds, sub, again).hit); }
+      CHECK(what_of([&] { SurrogateSpatialEventsCompareOptions bad = sn; bad.recording = "no_such"; surrogate_lagfree_spatial_events_compare(ds, sub, bad); }).find("no_such") != std::string::npos);
     }
     g::run(ds, sub, dev, set, all); }
   // THE PLAN

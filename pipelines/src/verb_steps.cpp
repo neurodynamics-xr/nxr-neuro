@@ -3,7 +3,7 @@
 // compute/ and meeg/; the YAML definitions in pipelines/definitions/ are the verbs.
 //
 //   pointspread   setup  forward + kernel (+ the recording it is of)  ->  spread: the instrument's blur at sampled vertices (a statistic)
-//   wishart_null  setup  recording + bursts + psd (+ the analytic windows by name)  ->  per_burst, run: the lagged share against a Wishart null
+//   surrogate.lagfree_pairs  setup  recording + bursts + psd (+ the analytic windows by name)  ->  per_burst, run: the lagged share against lag-free Wishart draws
 #include <algorithm>
 #include <cmath>
 
@@ -11,7 +11,8 @@
 
 #include "nxr/cores.h"
 #include "nxr/filterbank.h"
-#include "nxr/surrogate.h"
+#include "nxr/synthesis/lagfree.h"
+#include "nxr/nulltest.h"
 #include <limits>
 #include <map>
 #include "nxr/io/finder.h"
@@ -200,60 +201,56 @@ StepSpec pointspread_step() {
 }
 
 
-// ── wishart_null ────────────────────────────────────────────────────────────────────────────────────────────────
-// THE WISHART NULL OF THE BURSTS' LAGGED SHARE (the hand-wired `wishart compute` it replaces): per burst, the analytic windows wholly inside it summed (Q, the burst's second moment
-// between the sensors), its lagged share |Im Q|^2 / |Q|^2, and the same share under a zero-lag Gaussian null with the burst's own covariance and dof = its duration x the band's
-// effective bandwidth (the PSD's, through the band's analytic gain): the p, the BH q; and the run's mean share against the null's.
-double lagged_share(const Eigen::MatrixXcd& Q) { const double t = Q.squaredNorm(); return t > 0 ? Q.imag().squaredNorm() / t : std::numeric_limits<double>::quiet_NaN(); }
-struct WishartState { Value recording, bursts, psd; Json p; };
-StepSpec wishart_step() {
+// ── surrogate.lagfree_pairs ─────────────────────────────────────────────────────────────────────────────────────
+// THE LAG-FREE PAIRS SURROGATE OF THE BURSTS' LAGGED SHARE (spec docs/specs/2026-11-17-surrogates.md; was `wishart_null`): per burst, the analytic windows wholly inside it summed (Q, the burst's
+// second moment between the sensors), its lagged share |Im Q|^2 / |Q|^2, and the same share under lag-free Wishart draws of the burst's own Re Q with dof = its duration x the band's effective bandwidth
+// (the PSD's, through the band's analytic gain): the p, the BH q; and the run's mean share over the bursts against the draws'. The maths are nxr::synthesis and nxr::nulltest; this step arranges arrays.
+struct PairsState { Value recording, bursts, psd; Json p; };
+StepSpec lagfree_pairs_step() {
   StepSpec s;
-  s.name = "wishart_null";
+  s.name = "surrogate.lagfree_pairs";
   s.kind = "setup";
   s.inputs = {"recording", "bursts", "psd"};
   s.outputs = {"per_burst", "run"};
   s.parameters = Json{{"windows", nullptr}, {"band", nullptr}, {"shape", "morlet"}, {"draws", 1000}, {"seed", 0}};
-  s.matches = "nxr vortex.wishart, dof_fraction; compute nxr::surrogate::wishartDraw, effectiveBandwidth, benjaminiHochberg";
-  s.description = "per burst, the lagged share of its sensors' second moment against a zero-lag Wishart null of its own covariance and degrees of freedom";
+  s.matches = "Rheome +rheome/+cores pairnull, pairshare, pairdof, bh, tilepq; compute nxr::synthesis::lagfreeSecondMomentDraw, laggedShare, effectiveBandwidth; nxr::nulltest::fixedDrawPs, benjaminiHochbergQ, compareMeanOverMembers";
+  s.description = "per burst, the lagged share of its sensors' second moment against lag-free Wishart draws of its own zero-lag second moment and degrees of freedom; and the run's mean share against the draws'";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored windows");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
-    for (const char* k : {"recording", "bursts", "psd"}) if (!ins.count(k)) refuse(std::string("wishart_null: ") + k + " is not given");
-    if (!p["windows"].is_string()) refuse("wishart_null: windows names the analytic cross-spectrum series of the band (<name>_<band>_windows)");
-    if (!p["band"].is_array() || p["band"].size() != 2 || !(p["band"][0].get<double>() >= 0 && p["band"][0].get<double>() < p["band"][1].get<double>())) refuse("wishart_null: band is [lo, hi] Hz, lo < hi");
-    if (p.value("draws", 1000) < 20) refuse("wishart_null: draws is at least 20");
+    for (const char* k : {"recording", "bursts", "psd"}) if (!ins.count(k)) refuse(std::string("surrogate.lagfree_pairs: ") + k + " is not given");
+    if (!p["windows"].is_string()) refuse("surrogate.lagfree_pairs: windows names the analytic cross-spectrum series of the band (<name>_<band>_windows)");
+    if (!p["band"].is_array() || p["band"].size() != 2 || !(p["band"][0].get<double>() >= 0 && p["band"][0].get<double>() < p["band"][1].get<double>())) refuse("surrogate.lagfree_pairs: band is [lo, hi] Hz, lo < hi");
+    if (p.value("draws", 1000) < 20) refuse("surrogate.lagfree_pairs: draws is at least 20");
     const std::string sh = p.value("shape", std::string("morlet"));
-    if (sh != "morlet" && sh != "meyer") refuse("wishart_null: shape is morlet or meyer");
+    if (sh != "morlet" && sh != "meyer") refuse("surrogate.lagfree_pairs: shape is morlet or meyer");
     return Values{{"per_burst", statistic_value()}, {"run", statistic_value()}};
   };
-  s.prepare = [](const Values& ins, const Json& p, ExecContext&) { return std::any(WishartState{ins.at("recording"), ins.at("bursts"), ins.at("psd"), p}); };
+  s.prepare = [](const Values& ins, const Json& p, ExecContext&) { return std::any(PairsState{ins.at("recording"), ins.at("bursts"), ins.at("psd"), p}); };
   s.run = [](const std::any& state, const Arrays&, ExecContext& ctx) {
-    const WishartState& st = std::any_cast<const WishartState&>(state);
+    const PairsState& st = std::any_cast<const PairsState&>(state);
     const Json& p = st.p;
     const Bound& b = ctx.bound;
     const std::string windows = p["windows"].get<std::string>();
     const CrossSpectrumWindows win = b.cross_spectrum_windows(windows);
-    if (win.level < 0 || win.sum.empty()) refuse("wishart_null: " + windows + " is not an analytic cross-spectrum series on time tiles");
+    if (win.level < 0 || win.sum.empty()) refuse("surrogate.lagfree_pairs: " + windows + " is not an analytic cross-spectrum series on time tiles");
     std::vector<std::pair<double, double>> spans = b.spans(text(*st.bursts.row, "id"));
-    if (spans.empty()) refuse("wishart_null: the bursts hold no burst");
-    if (!st.recording.time || nxr::io::opt_text(*st.bursts.row, "manifold_id") != st.recording.time) refuse("wishart_null: the bursts are on another time line than the recording's");
+    if (spans.empty()) refuse("surrogate.lagfree_pairs: the bursts hold no burst");
+    if (!st.recording.time || nxr::io::opt_text(*st.bursts.row, "manifold_id") != st.recording.time) refuse("surrogate.lagfree_pairs: the bursts are on another time line than the recording's");
     const double rate = st.recording.rate, dt = 1.0 / rate, t0 = st.recording.origin;
     const double width = static_cast<double>(std::int64_t(1) << win.level) * dt, eps = 0.5 * dt;
     const nxr::io::StoredStatistic P = b.statistic(text(*st.psd.row, "name"));
-    if (P.shape.size() != 2) refuse("wishart_null: the PSD is not [channels x frequencies]");
+    if (P.shape.size() != 2) refuse("surrogate.lagfree_pairs: the PSD is not [channels x frequencies]");
     const double df = P.producer.value("frequency_resolution_hz", 0.0);
-    if (!(df > 0)) refuse("wishart_null: the PSD records no frequency resolution");
+    if (!(df > 0)) refuse("surrogate.lagfree_pairs: the PSD records no frequency resolution");
     const std::int64_t nf = P.shape[1];
     const std::vector<double> band = p["band"].get<std::vector<double>>();
     const std::string shape = p.value("shape", std::string("morlet"));
-    Eigen::VectorXd freq(nf), psd = Eigen::VectorXd::Zero(nf), gain(nf);
+    Eigen::VectorXd freq(nf), gain(nf);
     for (std::int64_t k = 0; k < nf; ++k) freq[k] = static_cast<double>(k) * df;
-    for (const std::int32_t ch : win.channels) {
-      if (ch < 0 || ch >= P.shape[0]) refuse("wishart_null: the PSD has no channel " + std::to_string(ch));
-      for (std::int64_t k = 0; k < nf; ++k) psd[k] += P.values[static_cast<std::size_t>(ch * nf + k)] / static_cast<double>(win.channels.size());
-    }
     for (std::int64_t k = 0; k < nf; ++k) gain[k] = shape == "morlet" ? nxr::filterbank::morletBand(freq[k], band[0], band[1]) : nxr::filterbank::meyerBand(freq[k], band[0], band[1], 1.0 / 3.0);
     double Beff = 0;
-    try { Beff = nxr::surrogate::effectiveBandwidth(freq, psd, gain); } catch (const std::invalid_argument& e) { refuse(std::string("wishart_null: ") + e.what()); }
+    try { Beff = nxr::synthesis::effectiveBandwidth(freq, nxr::synthesis::channelMeanSpectrum(P.values, nf, win.channels), gain); } catch (const std::invalid_argument& e) { refuse(std::string("surrogate.lagfree_pairs: ") + e.what()); }
+    // each burst's second moment: the windows wholly inside it summed (a selection of the windows by the burst's span: the windows are read, never recomputed)
     std::map<std::int64_t, std::size_t> at;
     for (std::size_t w = 0; w < win.index.size(); ++w) at[win.index[w]] = w;
     const std::int64_t B = static_cast<std::int64_t>(spans.size());
@@ -272,34 +269,29 @@ StepSpec wishart_step() {
       dof[static_cast<std::size_t>(k)] = static_cast<double>(k1 - k0 + 1) * width * Beff;
       ++used;
     }
-    if (used == 0) refuse("wishart_null: no burst is whole in the stored windows (tile-aligned bursts inside the windows' span)");
+    if (used == 0) refuse("surrogate.lagfree_pairs: no burst is whole in the stored windows (tile-aligned bursts inside the windows' span)");
     const int draws = p.value("draws", 1000);
     const std::uint64_t seed = p.value("seed", std::uint64_t(0));
     const double nan = std::numeric_limits<double>::quiet_NaN();
-    Eigen::VectorXd share(B), nullmean = Eigen::VectorXd::Zero(B), exceed = Eigen::VectorXd::Zero(B), pv(B);
-    std::vector<double> run_null(static_cast<std::size_t>(draws), 0.0);
+    // THE DRAWS: draw j of burst k is seed + 7919 k, index j (a draw line per burst); the data's share and the draws' as arrays, then the comparison (nxr::nulltest)
+    Eigen::VectorXd share(B);
+    for (std::int64_t k = 0; k < B; ++k) share[k] = Q[static_cast<std::size_t>(k)].size() ? nxr::synthesis::laggedShare(Q[static_cast<std::size_t>(k)]) : nan;
+    Eigen::MatrixXd null_shares = Eigen::MatrixXd::Constant(draws, B, nan);                    // MEMORY: draws x bursts doubles
     for (std::int64_t k = 0; k < B; ++k) {
-      share[k] = Q[static_cast<std::size_t>(k)].size() ? lagged_share(Q[static_cast<std::size_t>(k)]) : nan;
-      if (!std::isfinite(share[k])) { pv[k] = nan; continue; }
+      if (!std::isfinite(share[k])) continue;
       const Eigen::MatrixXd R = Q[static_cast<std::size_t>(k)].real();
-      for (int j = 0; j < draws; ++j) {
-        const double sj = lagged_share(nxr::surrogate::wishartDraw(R, dof[static_cast<std::size_t>(k)], seed + static_cast<std::uint64_t>(k) * 7919u, static_cast<std::uint64_t>(j)));
-        nullmean[k] += sj / draws; run_null[static_cast<std::size_t>(j)] += sj;
-        if (sj >= share[k]) exceed[k] += 1;
-      }
-      pv[k] = static_cast<double>(exceed[k] + 1) / static_cast<double>(draws + 1);
+      for (int j = 0; j < draws; ++j)
+        null_shares(j, k) = nxr::synthesis::laggedShare(nxr::synthesis::lagfreeSecondMomentDraw(R, dof[static_cast<std::size_t>(k)], seed + static_cast<std::uint64_t>(k) * 7919u, static_cast<std::uint64_t>(j)));
     }
-    const Eigen::VectorXd q = nxr::surrogate::benjaminiHochberg(pv);
-    double mean_share = 0, nmean = 0, nsd = 0;
-    for (std::int64_t k = 0; k < B; ++k) if (std::isfinite(share[k])) mean_share += share[k] / static_cast<double>(used);
-    for (int j = 0; j < draws; ++j) { run_null[static_cast<std::size_t>(j)] /= static_cast<double>(used); nmean += run_null[static_cast<std::size_t>(j)] / draws; }
-    for (int j = 0; j < draws; ++j) nsd += std::pow(run_null[static_cast<std::size_t>(j)] - nmean, 2) / (draws - 1);
-    nsd = std::sqrt(nsd);
-    const double prun = static_cast<double>(1 + std::count_if(run_null.begin(), run_null.end(), [&](double x) { return x >= mean_share; })) / static_cast<double>(draws + 1);
-    const Json warnings = Json::array({"the null is a zero-lag Gaussian process with the burst's own covariance and `dof` independent samples: a burst beyond it has lags beyond sampling noise, not a wave",
+    nxr::nulltest::Tally tally = nxr::nulltest::emptyTally(B);
+    for (int j = 0; j < draws; ++j) tally = nxr::nulltest::tallyDraw(tally, share, null_shares.row(j).transpose());
+    const Eigen::VectorXd pv = nxr::nulltest::fixedDrawPs(share, tally.upper, draws), q = nxr::nulltest::benjaminiHochbergQ(pv), nullmean = nxr::nulltest::nullMean(tally);
+    const nxr::nulltest::MeanComparison run = nxr::nulltest::compareMeanOverMembers(share, null_shares);
+    const Json warnings = Json::array({"the surrogate is a zero-lag Gaussian process with the burst's own covariance and `dof` independent samples: a burst beyond it has lags beyond sampling noise, not a wave",
                                        "dof = the burst's duration x the band's effective bandwidth (the PSD's, through the analytic gain): a spectrum with structure inside the band changes it",
                                        "the lagged share is a SENSOR-level quantity (the share of the second moment in quadrature between the sensors)"});
-    const Json opts = Json{{"draws", draws}, {"seed", seed}, {"band", band}, {"shape", shape}, {"effective_bandwidth_hz", Beff}, {"windows", windows}, {"window_level", win.level}};
+    const Json opts = Json{{"generator", "surrogate.lagfree_pairs"}, {"draws", draws}, {"seed", seed}, {"seeds", "burst k: seed + 7919 k, draws 0 .. draws - 1"}, {"band", band}, {"shape", shape}, {"effective_bandwidth_hz", Beff}, {"windows", windows}, {"window_level", win.level},
+                           {"selection", text(*st.bursts.row, "name")}, {"selection_id", text(*st.bursts.row, "id")}};
     Json names = Json::array();
     for (std::int64_t k = 0; k < B; ++k) names.push_back(Json{{"name", "burst" + std::to_string(k)}, {"start", spans[static_cast<std::size_t>(k)].first}, {"stop", spans[static_cast<std::size_t>(k)].second}});
     Array pb;
@@ -309,16 +301,16 @@ StepSpec wishart_step() {
       double* r = &pb.data[static_cast<std::size_t>(5 * k)];
       r[0] = share[k]; r[1] = std::isfinite(share[k]) ? nullmean[k] : nan; r[2] = pv[k]; r[3] = q[k]; r[4] = dof[static_cast<std::size_t>(k)];
     }
-    pb.meta["describe"] = Json{{"measure", "null_p"}, {"method", "wishart_null"}, {"precision", "float64"}, {"n_members", used}, {"options", opts}, {"producer", Json{{"warnings", warnings}}},
-                               {"axes", Json::array({Json{{"name", "burst"}, {"values", names}, {"size", B}},
+    pb.meta["describe"] = Json{{"measure", "null_p"}, {"method", "lagfree_pairs"}, {"precision", "float64"}, {"n_members", used}, {"options", opts}, {"producer", Json{{"warnings", warnings}}},
+                               {"axes", Json::array({Json{{"name", "burst"}, {"selection_id", text(*st.bursts.row, "id")}, {"values", names}, {"size", B}},
                                                      Json{{"name", "test"}, {"size", 5}, {"values", Json::array({Json{{"name", "lagged_share"}}, Json{{"name", "null_mean"}}, Json{{"name", "p"}}, Json{{"name", "q"}}, Json{{"name", "dof"}}})}}})},
-                               {"description", "per burst: the share of the second moment in quadrature between the sensors, its mean under the Wishart null (" + std::to_string(draws) + " draws), the p, the BH q and the dof"}};
+                               {"description", "per burst: the share of the second moment in quadrature between the sensors, its mean under lag-free Wishart draws (" + std::to_string(draws) + " draws), the p, the BH q and the dof"}};
     Array pr;
     pr.rows = 4; pr.cols = 1;
-    pr.data = {mean_share, nmean, nsd, prun};
-    pr.meta["describe"] = Json{{"measure", "null_p"}, {"method", "wishart_null"}, {"precision", "float64"}, {"n_members", used}, {"options", opts}, {"producer", Json{{"warnings", warnings}}},
+    pr.data = {run.mean, run.nullMean, run.nullSd, run.p};
+    pr.meta["describe"] = Json{{"measure", "null_p"}, {"method", "lagfree_pairs"}, {"precision", "float64"}, {"n_members", used}, {"options", opts}, {"producer", Json{{"warnings", warnings}}},
                                {"axes", Json::array({Json{{"name", "test"}, {"size", 4}, {"values", Json::array({Json{{"name", "mean_share"}}, Json{{"name", "null_mean"}}, Json{{"name", "null_sd"}}, Json{{"name", "p"}}})}}})},
-                               {"description", "the run's mean lagged share over the bursts against the Wishart null's mean over the same bursts (" + std::to_string(draws) + " draws)"}};
+                               {"description", "the run's mean lagged share over the bursts against the lag-free Wishart draws' mean over the same bursts (" + std::to_string(draws) + " draws)"}};
     return Arrays{{"per_burst", std::move(pb)}, {"run", std::move(pr)}};
   };
   return s;
@@ -389,7 +381,7 @@ StepSpec summarize_step() {
 
 void append_verb_steps(std::vector<StepSpec>& r) {
   r.push_back(pointspread_step());
-  r.push_back(wishart_step());
+  r.push_back(lagfree_pairs_step());
   r.push_back(summarize_step());
 }
 

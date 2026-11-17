@@ -3,7 +3,7 @@
 # vectors (the senses pooled), for the tiles with at least `min_crossings` crossings in both runs, and, for the whole recording, the count-weighted mean cosine of the tiles' directions.
 #   <name>.tiles   measure repeat_dot, method run_repeat, [tiles] (NaN where a run has fewer crossings); the axis is the level's Selection
 #   <name>.whole   measure repeat_cosine, method run_repeat, [1]
-# WHAT IT CANNOT SAY: a p-value (a tile's dot against the lag-free null's, Benjamini-Hochberg over the tiles) needs the null (`vortex_null`): this is the statistic only. Two runs of one subject share
+# WHAT IT CANNOT SAY: a p-value (a tile's dot against the lag-free surrogate draws', Benjamini-Hochberg over the tiles) needs the lag-free surrogate (`run surrogate_lagfree_vortex_compare`): this is the statistic only. Two runs of one subject share
 # the cortex, the kernel and the instrument's leakage, so their agreement is evidence only against that null.
 #
 #   nxr-neuro run run_repeat --dataset <folder> --subject sub-01 --recording-a rest1 --recording-b rest2 --over "cortex tiles L4"

@@ -128,9 +128,9 @@ Json span_record(const Span& span, double sfreq, double t0) {
 }
 
 ChunkSource::ChunkSource(const Store& store, std::string array, std::int64_t width, double sfreq, double t0, std::vector<std::int32_t> rows,
-                         std::optional<std::vector<std::pair<double, double>>> bad, std::shared_ptr<const LinkedBlocks> linked)
+                         std::optional<std::vector<std::pair<double, double>>> bad, std::shared_ptr<const LinkedBlocks> linked, Reading reading)
     : store_(&store), linked_(std::move(linked)), array_(std::move(array)), width_(std::max<std::int64_t>(1, std::min(kChunk, width))), sfreq_(sfreq), t0_(t0), rows_(std::move(rows)),
-      bad_(std::move(bad)) {
+      bad_(std::move(bad)), reading_(reading) {
   if (linked_) {
     if (!linked_->read) throw Error(code::invalid_argument, "a linked recording has no reader");
     n_channels_ = linked_->n_channels;
@@ -153,10 +153,12 @@ template <class S> void widen(const std::uint8_t* src, std::int64_t row, std::in
 
 void ChunkSource::read(std::int64_t k, Chunk& out) const {
   const auto [first, last] = chunk_span(k, n_samples_, width_);              // the WHOLE chunk (the Studio's residency: never a part)
-  const std::int64_t n = last - first, R = rows();
+  const std::int64_t n = last - first, R = reading_ == Reading::shape ? 0 : rows();      // a shape-only source reads no sample: the chunk's place and its good samples only
   std::vector<std::uint8_t> raw;
   DType dtype = DType::Float32;
-  if (linked_) {
+  if (reading_ == Reading::shape) {
+    // nothing is read: the shape is the array's header's, read when the source was made
+  } else if (linked_) {
     raw.resize(static_cast<std::size_t>(n_channels_ * n) * sizeof(float));
     linked_->read(first, n, reinterpret_cast<float*>(raw.data()));
   } else {
@@ -191,7 +193,7 @@ void ChunkSource::read(std::int64_t k, Chunk& out) const {
       }
     }
   }
-  ++*reads_;
+  if (reading_ == Reading::samples) ++*reads_;
 }
 
 std::int64_t ChunkSource::reads() const { return reads_->load(); }
@@ -266,7 +268,7 @@ ChunkRun chunk_loop(const ChunkSource& src, const Span& span, const std::functio
     }
     Chunk c = next.get();
     if (k < k1) next = std::async(ahead, read, k + 1);              // chunk k + 1 is read while chunk k is folded
-    cut(c, std::max(c.first, r0), std::min(c.first + c.n, r1), src.rows());
+    cut(c, std::max(c.first, r0), std::min(c.first + c.n, r1), src.reads_samples() ? src.rows() : 0);
     try {
       visit(c);
     } catch (...) {
@@ -287,7 +289,7 @@ ChunkRun chunk_loop(const ChunkSource& src, const Span& span, const std::functio
 
 ChunkRun haloed_loop(const ChunkSource& src, const Span& span, std::int64_t halo, const std::function<void(const HaloedChunk&)>& visit, const ChunkLoopOptions* opt) {
   if (halo < 0) throw Error(code::invalid_argument, "haloed_loop: a negative halo");
-  const std::int64_t W = src.width(), N = src.n_samples(), R = src.rows();
+  const std::int64_t W = src.width(), N = src.n_samples(), R = src.reads_samples() ? src.rows() : 0;   // a shape-only source: no rows of data are buffered
   const Span hs = with_halo(span, halo, halo, N, W);
   const std::int64_t a = span.s0 - hs.before, b = span.s1 + hs.after;   // what the job reads: the span and its halo, clipped at the recording's ends
   // the buffer: the columns [lo, hi) read and not yet dropped, per row

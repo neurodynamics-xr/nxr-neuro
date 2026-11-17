@@ -55,8 +55,7 @@ add_library(nxr_pipelines
   src/tiling_steps.cpp
   src/surrogate_steps.cpp
   src/run_repeat.cpp
-  src/null_compute.cpp
-  src/spatial_null.cpp
+  src/surrogate_compare.cpp
   src/spatial_events_steps.cpp
   src/point_events.cpp
   src/runner.cpp

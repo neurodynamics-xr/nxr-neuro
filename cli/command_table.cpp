@@ -50,14 +50,14 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --array@read dataset	SUBJECT PATH	Read one array: the subject's name and the array's path inside the subject; prints its shape, data type and checksum. Without --array every array of the dataset is listed.	none (list all arrays)	-
 --atlas-depth	LEVEL	Leaf level of the group tree that serves as the dataset's default atlas (needs --templates)	8	level
 --atlas-depth@create dataset	LEVEL	Leaf level of the group tree that serves as the dataset's default atlas; written with the default subject, so it needs --templates.	8	level
---band	LO,HI	The frequency band in hertz (frametiling: its centre sets the frame length; wishart: the band of the stored windows; measure query: INDEX picks one band by its index, a whole number).	none	Hz
+--band	LO,HI	The frequency band in hertz (frametiling: its centre sets the frame length; surrogate_lagfree_pairs: the band of the stored windows; measure query: INDEX picks one band by its index, a whole number).	none	Hz
 --band@query measurements	N	The band (the row's within-code) to read when the pyramid's joint selection holds several.	none (all bands, or the only one)	-
 --bands	NAME:LO-HI,...	The frequency bands to compute, each a name and its low and high edge (the mean over the bins from LO to HI, inclusive); pyramid build takes LO-HI,... octave bands without names.	Brainstorm's bands (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90); pyramid build: octaves 1-2 to 32-64	Hz
 --bands@run pyramid	LO-HI,...	Frequency bands to build, as comma-separated LO-HI edges (half-open [LO, HI)).	octaves 1-2 to 32-64 Hz	Hz
 --bandwidth	HZ	Notch width: the 3 dB bandwidth of each notch	1	Hz
---batch	N	Number of null draws made at a time before the early-stopping test (Besag-Clifford).	20	draws
---batch@run null	N	Draws are made in batches of this size	20	draws
---batch@run spatialnull	N	Draws made between checks of the stopping rule.	20	draws
+--batch	N	Number of surrogate draws made at a time before the early-stopping test (Besag-Clifford).	20	draws
+--batch@run surrogate_lagfree_vortex_compare	N	Draws are made in batches of this size	20	draws
+--batch@run surrogate_lagfree_spatial_events_compare	N	Draws made between checks of the stopping rule.	20	draws
 --berg-dipoles	J	Number of equivalent dipoles in the Berg-Scherg approximation of the three-shell EEG sphere.	3	-
 --berg-starts	N	Number of simplex starts when fitting the three-dipole Berg-Scherg approximation of the EEG sphere model; the best fit is kept	12	-
 --berg-terms	N	Number of series terms fitted when approximating the multi-shell EEG model by the Berg-Scherg parameters.	200	terms
@@ -71,7 +71,7 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --bst-root@import inverse	PATH	Root folder of the Brainstorm protocol, used to resolve the kernel's channel, surface and head-model links.	required	-
 --bst-root@import map	DIR	The Brainstorm protocol folder the map files are read from, with the anatomy folders the maps' surfaces and atlases are found in.	required	-
 --bst-root@import surface	PATH	Root folder of the Brainstorm protocol, used to find the surface's registration and atlas files next to each --file.	none (empty)	-
---bursts	NAME	Name of a stored set of burst time spans (wishart: required, each burst is tested; cellquadrature: optional, also computed per burst)	none	-
+--bursts	NAME	Name of a stored set of burst time spans (surrogate_lagfree_pairs: required, each burst is tested; cellquadrature: optional, also computed per burst)	none	-
 --centre	HZ	Centre frequency of the band from which the frame length is derived (the coarsest tower level whose frame is no longer than 1/(centre x frames-per-cycle)).	none	Hz
 --centres	HZ,...	Centre frequencies of the filterbank members (Morlet, Morse, Amor and Bump families); for Morlet, empty means the single member at --freq (opticalflow).	none	Hz
 --centres@run opticalflow	HZ,...	Centre frequencies of the filter-bank members (Morlet, Morse, Amor and Bump); for Morlet, empty means the single member at --freq.	none	Hz
@@ -117,7 +117,7 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --depth@reduce pyramid	LEVEL	Level of the group tree at which the members' pyramids are summed, cell for cell.	the atlas depth of the group tree definitions	level
 --detrend	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (the Brainstorm option set)	-
 --divisor	samples-minus-blocks|samples|samples-minus-one	What the covariance sum is divided by: samples minus the number of blocks, the samples, or samples minus one.	samples-minus-blocks	-
---draws	N	Number of complex Wishart random draws used for the null distribution	1000	draws
+--draws	N	Number of lag-free Wishart draws a burst (surrogate_lagfree_pairs)	1000	draws
 --dry-run		Report what would change (compact: files and folders before and after; run: inputs found and arrows checked) without changing or computing anything.	off	-
 --dry-run@compact dataset		Report the files and folders before and after compacting, without changing anything.	off	-
 --dry-run@run		Print the plan (inputs found, every connection checked, every output's place) without reading data or writing anything.	off	-
@@ -129,11 +129,11 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --eeg-surface	NAME	Name of the surface the EEG sphere is fitted to.	the surface called scalp (or head)	-
 --enter-sd	SD	A patch is kept when a tile reaches the median plus this many robust standard deviations of the map's tile means.	1.5	SD
 --estimator	welch|analytic	How the sensor cross-spectrum is estimated: Welch segments, or the band's analytic signal summed per time tile (a series of windows)	welch	-
---events	NAME	Name of the spatial-events pipeline whose stored statistics are tested against the null.	spatial_events	-
---events@run spatialnull	NAME	The pipeline that named the data's stored events statistics (<NAME>.home.<recording>, <NAME>.summary.<recording>).	spatial_events	-
+--events	NAME	Name of the spatial-events pipeline whose stored statistics are compared with lag-free surrogate draws.	spatial_events	-
+--events@run surrogate_lagfree_spatial_events_compare	NAME	The pipeline that named the data's stored events statistics (<NAME>.home.<recording>, <NAME>.summary.<recording>).	spatial_events	-
 --exceedances	N	Besag-Clifford stopping count: a tile or vertex is decided once it has this many exceedances of the data.	10	exceedances
---exceedances@run null	H	A tile is decided once this many null draws reach or exceed its observed value (Besag-Clifford)	10	draws
---exceedances@run spatialnull	N	The number of exceedances (draws at least as extreme as the data) at which a vertex's p-value is settled; sets the sequential stopping rule.	10	draws
+--exceedances@run surrogate_lagfree_vortex_compare	H	A tile is decided once this many surrogate draws reach or exceed its observed value (Besag-Clifford)	10	draws
+--exceedances@run surrogate_lagfree_spatial_events_compare	N	The number of exceedances (draws at least as extreme as the data) at which a vertex's p-value is settled; sets the sequential stopping rule.	10	draws
 --exclude	NAMES	Comma-separated member names left out of the exported table.	unassigned	-
 --exclude@export measurements	NAMES	Comma-separated members (by dictionary name) left out of the table	unassigned	-
 --exit-sd	SD	A patch extends over tiles at or above the median plus this many robust standard deviations	1.0	robust SD
@@ -227,9 +227,9 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --map	NAME	The stored cortical map (a scalar per vertex of a surface) in which patches are sought.	none (required)	-
 --max-area	M2	Largest patch area kept; larger patches are dropped.	none	m^2
 --max-condition	C	Canonical frames: a vertex whose push-forward Jacobian has a condition number above C is treated as singular	50	-
---max-draws	N	Largest number of null draws.	100	draws
---max-draws@run null	N	Most null draws made; a rerun with a larger value continues where the last stopped	100	draws
---max-draws@run spatialnull	N	The most draws made.	100	draws
+--max-draws	N	Largest number of surrogate draws.	100	draws
+--max-draws@run surrogate_lagfree_vortex_compare	N	Most surrogate draws made; a rerun with a larger value continues where the last stopped	100	draws
+--max-draws@run surrogate_lagfree_spatial_events_compare	N	The most draws made.	100	draws
 --max-iterations	N	Iteration limit of the iterative flow solver (pcg and perscale methods).	500	iterations
 --max-iterations@run opticalflow	N	Most iterations the iterative solver (pcg, perscale) may take for one frame.	500	-
 --max-value	X	Keep only rows with a value at or below X	none	measure units
@@ -246,10 +246,10 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 )TBL",
 R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --min-crossings	N	Minimum number of crossings a tile needs (in both runs for repeat) to be tested.	10	crossings
---min-crossings@run null	N	A tile counts only with at least this many crossings	10	crossings
---min-draws	N	Smallest number of null draws made before early stopping may decide a tile or vertex	20	draws
---min-draws@run null	N	Fewest null draws made	20	draws
---min-draws@run spatialnull	N	The fewest draws made before stopping, even if every vertex has reached --exceedances.	20	draws
+--min-crossings@run surrogate_lagfree_vortex_compare	N	A tile counts only with at least this many crossings	10	crossings
+--min-draws	N	Smallest number of surrogate draws made before early stopping may decide a tile or vertex	20	draws
+--min-draws@run surrogate_lagfree_vortex_compare	N	Fewest surrogate draws made	20	draws
+--min-draws@run surrogate_lagfree_spatial_events_compare	N	The fewest draws made before stopping, even if every vertex has reached --exceedances.	20	draws
 --min-link	N	Two events of different scale pairs count as one event when at least this many pairs of their cells nest in space and overlap in time.	1	pairs
 --min-projection	P	Reliability limit of the anatomical frame: the anterior axis must project on the tangent plane with at least this length.	0.34	-
 --min-value	X	Keep only rows with a value at or above X	none	measure units
@@ -306,8 +306,8 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --out@export measurements	PATH	Folder the tables, the provenance file and the dictionary are written to (created if absent)	required	-
 --out@import scan	PATH	File to write the scanned protocol view to as JSON (writing it prints a one-line summary instead of the whole view).	none (the view is printed)	-
 --out@read dataset	FILE	Write the bytes of the array (or of its --region) read with --array to this file, as little-endian values of its data type.	none	-
---over	NAME	Name of the partition (stored selection) measured over: statistic: the partition whose members were measured; null, repeat: the tile-level selection of the stored crossings; measure compute: the time tiling	statistic, measure compute: none (required); null, repeat: the one the recordings share	-
---over@run null	NAME	The tile level Selection the crossings were measured over	the one the recordings have	-
+--over	NAME	Name of the partition (stored selection) measured over: statistic: the partition whose members were measured; surrogate_lagfree_vortex_compare, repeat: the tile-level selection of the stored crossings; measure compute: the time tiling	statistic, measure compute: none (required); null, repeat: the one the recordings share	-
+--over@run surrogate_lagfree_vortex_compare	NAME	The tile level Selection the crossings were measured over	the one the recordings have	-
 --overlap	FRACTION	Fraction by which successive Welch segments overlap.	0.5 (the Brainstorm option set)	fraction
 --oversample	X	Oversampling of each filterbank member's own sample rate.	2.0	-
 --oversample@run opticalflow	X	Factor by which the filter bank's own sampling rate exceeds the number of frequency bins it keeps.	2	-
@@ -339,13 +339,13 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recipe@export measurements	NAME	Use only measurements made by this recipe (name or name@version); a subject with rows from another recipe is refused	none (any recipe)	-
 --recording	NAME	Name of the stored recording to read.	none (required)	-
 --recording-a	NAME	First recording, whose stored tile crossings are used (repeat: one of the two compared)	none (required)	-
---recording-a@run null	NAME	A recording whose stored tile crossings are tested against the null	required	-
+--recording-a@run surrogate_lagfree_vortex_compare	NAME	A recording whose stored tile crossings are compared with lag-free surrogate draws	required	-
 --recording-b	NAME	Second recording whose crossings are compared with the first (run-to-run repeat).	none	-
---recording-b@run null	NAME	A second recording, to test the run-to-run repeat as well (draws made in step)	none	-
+--recording-b@run surrogate_lagfree_vortex_compare	NAME	A second recording, to test the run-to-run repeat as well (draws made in step)	none	-
 --recording@run constantq	NAME	Recording whose time line gets the ladder (alternative to --line and --all).	none	-
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
 --recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
---recording@run spatialnull	NAME	The recording whose stored spatial events are tested against the null.	required	-
+--recording@run surrogate_lagfree_spatial_events_compare	NAME	The recording whose stored spatial events are compared with lag-free surrogate draws.	required	-
 --recording@import condition	FILE	Import only this data file of the condition (e.g. data_0raw_x.mat) instead of every data file the condition has.	none (all the condition's recordings)	-
 --recording@import resample	NAME	The recording to resample	required	-
 --reference-level	L	Spatial tile level whose power the blur patch is cut from.	6	level
@@ -375,7 +375,7 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --scale@add surface	X	Factor multiplied into every vertex coordinate of the mesh file to bring it to metres.	1	-
 --scaling	density|spectrum|chain	How the spectrum is scaled: power per Hz, power per bin, or the chain scaling (measure export: stored|density|power|amplitude|amplitude-density|db|db-density, applied to the stored values).	density (measure export: stored)	-
 --scaling@export measurements	NAME	Scaling applied to the values at read: stored, density, power, amplitude, amplitude-density, db or db-density (needs the Field's recorded spectral scaling)	stored	-
---seed	N	crossspectrum read: the channel index to read against every channel (alternative to --pair); wishart: seed of the random draws	wishart: 1; crossspectrum read: none	-
+--seed	N	crossspectrum read: the channel index to read against every channel (alternative to --pair); surrogate_lagfree_pairs: seed of the random draws	surrogate_lagfree_pairs: 0; crossspectrum read: none	-
 --seed@read crossspectrum	A	Read channel A (a recording channel index) against every channel of the statistic; an alternative to --pair.	none (one of --pair or --seed)	-
 --segment-level	L	Welch segment of 2^L samples (an alternative to the segment length in seconds or samples).	none (the segment length option is used)	level
 )TBL",
@@ -385,10 +385,10 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --selection@query measurements	NAME	The pyramid's joint selection or spatial partition to read, by name or id; it must be complete.	required	-
 --sensor-weight-exponent	P	Exponent of the distance weighting used to fit each sensor's overlapping sphere.	4	-
 --set	NAME=VALUE	Set a pipeline parameter, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); repeatable.	none	-
---set@run null	NAME=VALUE	Parameter of every null draw (repeatable); {recording} stands for each recording's name	none	-
---set@run spatialnull	NAME=VALUE	A parameter of every null draw's spatial-events run (levels, threshold, band, ...); repeatable.	none (the data's parameters)	-
+--set@run surrogate_lagfree_vortex_compare	NAME=VALUE	Parameter of every null draw (repeatable); {recording} stands for each recording's name	none	-
+--set@run surrogate_lagfree_spatial_events_compare	NAME=VALUE	A parameter of every surrogate draw's spatial-events run (levels, threshold, band, ...); repeatable.	none (the data's parameters)	-
 --set@run	NAME=VALUE	Override a parameter of the pipeline definition; the value is read as YAML (8, [15, 29], dSPM). Repeatable.	none (the definition's own values)	-
---shape	morlet|meyer|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or meyer (wishart); pyramid build also accepts power_partition (band powers add to broadband).	morlet	-
+--shape	morlet|meyer|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or meyer (surrogate_lagfree_pairs); pyramid build also accepts power_partition (band powers add to broadband).	morlet	-
 --shape@run pyramid	morlet|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or power_partition (band powers add up to broadband).	morlet	-
 --shift	absolute|relative	How the eigenvalue solve is shifted: at one absolute shift (reference method) or by a scale-aware relative ladder.	absolute	-
 --shift@run eigenmodes	absolute|relative	Shift of the shift-invert solve: absolute (one solve per ladder at --sigma, the reference method) or relative (a ladder scaled to the spectrum).	absolute	-
@@ -423,7 +423,7 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --sphere-cost	geometric|algebraic	Cost the head sphere is fitted with: distance to the sphere (geometric) or the linear closed-form fit (algebraic).	geometric	-
 )TBL",
 R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, onset, within, offset) or by index	0 (the first stage, burst)	-
---stage@run null	NAME|INDEX	The stage of the stored crossings to test, by name (burst, onset, within, offset) or index	0	-
+--stage@run surrogate_lagfree_vortex_compare	NAME|INDEX	The stage of the stored crossings to test, by name (burst, onset, within, offset) or index	0	-
 --star1-floor	X	Floor on the cotangent weights of the Hodge star; values at or below 0 mean no floor.	none	-
 --star1-floor@run eigenmodes	F	Raise the edge cotan weights (the 1-form Hodge star) that fall below F up to F; unset means no floor.	none	-
 --start	SEC	Start of the span read, in seconds on the recording's clock; give together with --stop. Exclusive with --chunks.	none (one chunk)	s
@@ -519,8 +519,8 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run pyramid	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run spatialnull	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run null	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@run surrogate_lagfree_spatial_events_compare	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
+--templates@run surrogate_lagfree_vortex_compare	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@register package	DIR	A folder of released templates to look in (repeatable); when given, each package's template must be found there by name, version and hash and its anchor rows must equal the template's.	none (not checked)	-
 --templates@list templates	DIR	A folder to look in for released templates (repeatable), before NXR_TEMPLATE_PATH and the user setting template_path.	none (the environment variable and the user setting only)	-
 --package@create package	PATH	The folder of the subject package to make (<subject>.nxr.zarr); it must not exist yet.	required	-
@@ -1215,19 +1215,17 @@ summary: The measurement pyramid of a recording's cortical current, from space a
 span: yes
 opts: --bands --block-samples --chunks --dataset* --depth --frame-level --halo-seconds --keep-bad-segments --kernel --recording* --replace --shape --start --start-s --stop --subject* --threads --tree --templates+
 )TBL",
-R"TBL(@ run spatialnull
-old: spatialnull compute
-alias: refused
-group: Nulls
-summary: The lag-free null of the spatial events: draws with early stopping, per-vertex p and q.
+R"TBL(@ run surrogate_lagfree_spatial_events_compare
+old: __surrogate_lagfree_spatial_events_compare compute
+group: Surrogates
+summary: The spatial events against lag-free surrogate draws (draws with early stopping): per-vertex p and q, the patch sizes.
 span: yes
 opts: --batch --chunks --dataset* --events --exceedances=--h --max-draws --min-draws --recording* --replace --set+ --start --stop --subject* --templates+
 )TBL",
-R"TBL(@ run null
-old: null compute
-alias: refused
-group: Nulls
-summary: The lag-free null's tests of the vortex cores' crossings, per tile.
+R"TBL(@ run surrogate_lagfree_vortex_compare
+old: __surrogate_lagfree_vortex_compare compute
+group: Surrogates
+summary: The vortex cores' tile crossings against lag-free surrogate draws (draws with early stopping): per-tile p and q, the run repeat.
 span: yes
 opts: --batch --chunks --dataset* --exceedances=--h --max-draws --min-crossings --min-draws --over --recording-a* --recording-b --replace --set+ --stage --start --stop --subject* --templates+
 )TBL",

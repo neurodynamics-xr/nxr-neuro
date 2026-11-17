@@ -105,7 +105,10 @@ std::string Plan::text(const nxr::io::Database& db) const {
 
 Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id) {
   Plan P{d, params, found, found, {}, {}, {}};
-  if (d.over && P.values.count(*d.over)) P.values[*d.over].chunked = true;
+  if (d.over && P.values.count(*d.over)) {
+    P.values[*d.over].chunked = true;
+    if (d.inputs.at(*d.over).value("read", std::string("samples")) == "shape") P.values[*d.over].facts["read"] = "shape";   // the steps see it: only one that reads no sample may take it
+  }
   // THE GRAPH the executor checks: the definition's steps as uses of nodes, its found inputs as typed ports (the streamed one is the recording the loop walks), its outputs as the graph's.
   // `with` is written out here ($names and nested ones replaced), so the executor sees values only; the parameters are the run's (defaults, then the caller's).
   nxr::graph::Graph& g = P.graph;
@@ -615,6 +618,7 @@ Json store_generic(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, cons
   st.axes = g["axes"];
   if (g.contains("components")) st.components = g["components"];
   if (g.contains("n_members")) st.n_members = g["n_members"].get<std::int64_t>();
+  if (g.contains("partition_selection_id") && g["partition_selection_id"].is_string()) st.partition_selection_id = g["partition_selection_id"].get<std::string>();   // the selection its members are (a surrogate draw's tiles: the comparison checks it is the data's)
   if (g.contains("unit") && g["unit"].is_string()) st.unit = g["unit"].get<std::string>();
   st.data = nxr::io::view(a.data, shape);
   st.description = g.value("description", std::string("a statistic of ") + text(rec, "name")) + " \xe2\x80\x94 pipeline " + key.pipeline;
@@ -750,7 +754,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       std::sort(spans.begin(), spans.end());
       bad = spans;
     }
-    source.emplace(nxr::pipelines::source_of(sub, *over.row, over.rate, over.origin, {}, bad));
+    // `read: shape` (a surrogate's draw): the chunk service hands the recording's shape and good samples, never a sample (spec 2026-11-17-surrogates.md, section 6)
+    if (d.inputs.at(*d.over).value("read", std::string("samples")) == "shape") source.emplace(nxr::pipelines::shape_source_of(sub, *over.row, over.rate, over.origin, bad));
+    else source.emplace(nxr::pipelines::source_of(sub, *over.row, over.rate, over.origin, {}, bad));
   }
   // THE CACHE KEY: the definition, its parameters, the inputs, the span (a rerun with all four the same is a hit)
   nxr::pipelines::CacheKey key;
@@ -898,7 +904,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   // what a native node (a grouped name: a pure function of arrays) reads is handed to it as arrays (the node reads no store): an OPERATOR as its matrix and the channels it
   // lies over; a stored FIELD that is not streamed as its values (rows x components); a MANIFOLD (a surface) as its vertices [n x 3], its faces in meta["faces"]
   for (const auto& n : checked.nodes) {
-    if (n.spec->name.find('.') == std::string::npos && !step(n.spec->name).reads_arrays) continue;   // a grouped (native) node, or one that declares it reads its found inputs as arrays
+    if (const StepSpec& st = step(n.spec->name); !st.native && !st.reads_arrays) continue;   // a native node (a grouped name of nxr::graph::registry()), or a step that declares it reads its found inputs as arrays; a step with a grouped name of its own (surrogate.*) reads them through the binding
     for (const auto& [port, name] : n.in) {
       if (!constants.count(name) || !P.values.count(name) || !P.found.count(name) || !P.found.at(name).row) continue;
       const Value& v = P.values.at(name);
@@ -1052,7 +1058,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       cr = nxr::io::haloed_loop(*source, *span, H, [&](const nxr::io::HaloedChunk& h) {
         ++blocks_n;
         const std::int64_t w = h.left + h.n + h.right;
-        Block x{source->rows(), w, h.left, h.right, std::vector<float>(h.data.size()), {}};
+        Block x{source->reads_samples() ? source->rows() : 0, w, h.left, h.right, std::vector<float>(h.data.size()), {}};   // a shape-only source hands no rows (no samples)
         for (std::size_t i = 0; i < h.data.size(); ++i) x.re[i] = static_cast<float>(h.data[i]);   // the stored float32, widened by the service, narrowed back exactly
         Blocks blocks{{*d.over, std::move(x)}};
         std::vector<std::uint8_t> good;

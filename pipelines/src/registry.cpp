@@ -38,6 +38,7 @@
 #include <limits>
 #include <map>
 #include <optional>
+#include <mutex>
 
 #include "nxr/filterbank.h"
 #include "nxr/forms.h"
@@ -61,7 +62,7 @@ void add_extent_steps(std::vector<StepSpec>& r);   // extent_steps.cpp: cell_ext
 void add_cores_steps(std::vector<StepSpec>& r);    // cores_steps.cpp: core_histogram, cores
 void add_tracks_steps(std::vector<StepSpec>& r);   // tracks_steps.cpp: tracks
 void add_crossings_steps(std::vector<StepSpec>& r);   // crossings_steps.cpp: tile_crossings
-void add_surrogate_steps(std::vector<StepSpec>& r);   // surrogate_steps.cpp: power_series, lagfree_surrogate
+void add_surrogate_steps(std::vector<StepSpec>& r);   // surrogate_steps.cpp: power_series, surrogate.lagfree_mixing, surrogate.lagfree
 void add_connectome_steps(std::vector<StepSpec>& r);   // connectome_steps.cpp: fiber_ends, nearest_vertex, end_gate, registration_match, carry_ends, smooth_memberships, partition_counts, end_connectome, connection_weights, prune_below, largest_component
 void add_tiling_steps(std::vector<StepSpec>& r);        // tiling_steps.cpp: frame_tiling
 void add_montage_steps(std::vector<StepSpec>& r);       // montage_steps.cpp: eeg_montage_1005
@@ -246,11 +247,13 @@ std::vector<StepSpec> build() {
                  y.origin = tp["tiling"].value("origin", 0.0);
                  return Values{{"y", y}};
                }});
-  r.push_back({"apply_kernel", "chunk", {"x", "kernel", "tiles"}, {"tiles"}, {"y"}, Json{{"level", nullptr}, {"levels", nullptr}, {"glued", false}, {"transform", "auto"}, {"modes", 0}, {"order", 0}, {"tolerance", 0.01}, {"envelope", "temporal"}, {"spatial_shape", "mexhat"}, {"form", "none"}},
+  r.push_back({"apply_kernel", "chunk", {"x", "kernel", "tiles", "pre_operator"}, {"tiles", "pre_operator"}, {"y"}, Json{{"level", nullptr}, {"levels", nullptr}, {"glued", false}, {"transform", "auto"}, {"modes", 0}, {"order", 0}, {"tolerance", 0.01}, {"envelope", "temporal"}, {"spatial_shape", "mexhat"}, {"form", "none"}},
                "Studio adapters/nxr kernelOf (the kernel padded to every member, its from_selection's columns); nxr.io.adapter.kernel_from_rows; with `tiles`, the level's Weyl band folded into the kernel (nxr::filterbank, pipelines/spatial_band.h)",
                "a linear operator from the field's first factor applied to it: x [members × time] → K x [target × time] (an imaging kernel: sensors → sources). `levels` (; instead of `level`) is ONE operator a hat level, all bound in preparation: the output is [vertex × level] (the rows of a vertex's levels consecutive, then a vertex's components: row = (vertex · levels + level) · components + component; `facts.levels` names them), the scale-space the spatial events' scale selection reads. `glued` (default false; a `form` is always glued) evaluates the band on EVERY vertex of the glued surface for a field with no form too (a free current: each component through the band, the bridge filled). `form` folds a LINEAR form of the free current into the same operator, in preparation: kernel (x y z a vertex) → its tangent part → curl_tan (or div_tan; `normal`: n·x) → the spatial band, ONE linear map before any non-linear step (D106); the output is ONE scalar a vertex (complex when x is: the analytic signal's curl; nxr vortex.Cortex.readings: div_curl(tangent(q)), then the hat of vortex_cores.hat_operator). With `tiles` the output is on EVERY vertex of the GLUED surface. With `tiles` (the target surface's "
                "tile ladder) and `level`: M x with M = (F_l ⊗ I) K, F_l the level's Weyl band on each component of the kernel's rows, bound ONCE in preparation (a linear map reads the chain "
-               "before any non-linear step, D106; no graph filtering per sample). `envelope` temporal (the default: M x) | spatiotemporal. `spatial_shape` mexhat | meyer (the level IS its Weyl band: compact, the levels add up). `transform` auto, eigen, chebyshev (order 0: chosen from `tolerance`) or exact (dense modes of the mesh, ≤ 4096 vertices)",
+               "before any non-linear step, D106; no graph filtering per sample). `envelope` temporal (the default: M x) | spatiotemporal. `spatial_shape` mexhat | meyer (the level IS its Weyl band: compact, the levels add up). `transform` auto, eigen, chebyshev (order 0: chosen from `tolerance`) or exact (dense modes of the mesh, ≤ 4096 vertices). "
+               "`pre_operator` (optional): a linear operator on x's rows applied BEFORE the kernel (an array [M × M] over `meta.channels`, made by an earlier node: a surrogate's zero-lag mixing), COMPOSED once into the same operator (M · P, the type system's compose move; "
+               "spec docs/specs/2026-11-17-surrogates.md, section 5); x then awaits it (`awaits_operator` names what the operator is of) and the mark is cleared. The bound operator is cached across runs by its inputs' provenance",
                [](const Values& ins, const Json& p, const PlanContext& c) {
                  const Value &x = ins.at("x"), &k = ins.at("kernel");
                  need(k.cls == "operator", "apply_kernel: kernel must be an operator");
@@ -258,7 +261,18 @@ std::vector<StepSpec> build() {
                  need(!nonlinear(x), "apply_kernel: x was made by a non-linear step (" + x.facts.value("made_by", std::string("?")) + "); a linear map reads the chain before any non-linear transform (D106)");
                  need(x.manifolds[0] == k.manifolds[0], "apply_kernel: the kernel maps from manifold " + k.manifolds[0] + ", x's first factor is " + x.manifolds[0] + ": not the same manifold");
                  need(!k.manifolds[1].empty(), "apply_kernel: the kernel has no target manifold");
+                 // a PRE-OPERATOR (spec 2026-11-17-surrogates.md, section 5): x awaits it exactly when it is given, and both name what the operator is of
+                 const bool awaits = x.facts.contains("awaits_operator");
+                 if (ins.count("pre_operator")) {
+                   const Value& po = ins.at("pre_operator");
+                   need(po.cls == "operator" && po.facts.contains("operator_of"), "apply_kernel: pre_operator must be a linear operator made by an earlier node (an array over x's rows, e.g. surrogate.lagfree_mixing's)");
+                   need(awaits, "apply_kernel: pre_operator " + po.facts["operator_of"].dump() + " is given, but x awaits no operator: it would be applied twice (or to a value it is not made for)");
+                   need(x.facts["awaits_operator"].value("of", Json()) == po.facts["operator_of"], "apply_kernel: x awaits the operator of " + x.facts["awaits_operator"].value("of", Json()).dump() + "; pre_operator is of " + po.facts["operator_of"].dump());
+                 } else {
+                   need(!awaits, "apply_kernel: x awaits its linear operator (" + (awaits ? x.facts["awaits_operator"].dump() : std::string()) + ": an unmixed surrogate); give it as `pre_operator` (the mixing node's output)");
+                 }
                  Value y = made(x);
+                 if (ins.count("pre_operator")) { y.facts["pre_operator"] = ins.at("pre_operator").facts; y.facts.erase("awaits_operator"); }
                  y.manifolds[0] = k.manifolds[1];
                  y.value_type = k.value_type;
                  need(p["envelope"] == "temporal" || p["envelope"] == "spatiotemporal", "apply_kernel: envelope " + p["envelope"].dump() + ": temporal or spatiotemporal");
@@ -737,6 +751,57 @@ std::function<double(double)> band_gain(const Json& p) {
 }
 struct AnalyticTaps { std::vector<float> even, odd; };
 struct KernelState { std::shared_ptr<const Eigen::MatrixXd> K; Json resolved; };
+// the spatial band's choice for apply_kernel's request (eigenmodes stored or computable, else the series): null without `tiles`; one choice a level with `levels`
+Json spatial_band_choice(const Values& ins, const Json& p, const Bound& bound) {
+  if (!ins.count("tiles")) return nullptr;
+  const auto man = bound.manifold(ins.at("kernel").manifolds[1]);
+  const nxr::pipelines::SurfaceInput S = bound.surface(nxr::io::text(*man, "name"), true);
+  nxr::pipelines::SpatialBandOptions bo;
+  bo.transform = p["transform"].get<std::string>(); bo.modes = p["modes"].get<int>(); bo.order = p["order"].get<int>(); bo.tolerance = p["tolerance"].get<double>();
+  bo.spatial_shape = p["spatial_shape"].get<std::string>();
+  bo.glued = p["form"] != "none" || p["glued"].get<bool>();
+  if (p["levels"].is_null()) return bound.plan_spatial_band(S, bound.surface_level(S, p["level"].get<int>()), bo).key;
+  Json keys = Json::array();                                                                  // one choice a level: each level's transform is in the run's key
+  for (const auto& e : p["levels"]) keys.push_back(bound.plan_spatial_band(S, bound.surface_level(S, e.get<int>()), bo).key);
+  return keys;
+}
+// THE PROCESS'S OPERATOR CACHE (spec docs/specs/2026-11-17-surrogates.md, section 5): a bound operator (a kernel with its form and spatial band, and with a pre-operator composed) kept across runs under the
+// key of its inputs' provenance (the rows' ids, which are unique, the request and the band's resolved choice). A constant of its inputs, so a hit is the same matrix. MEMORY: the last kKeptOperators
+// operators, [targets x channels] doubles each.
+constexpr std::size_t kKeptOperators = 2;
+std::mutex& operator_cache_mutex() { static std::mutex m; return m; }
+std::vector<std::pair<std::string, std::any>>& operator_cache() { static std::vector<std::pair<std::string, std::any>> c; return c; }
+std::optional<std::any> cached_operator(const std::string& key) {
+  std::lock_guard<std::mutex> g(operator_cache_mutex());
+  for (const auto& [k, v] : operator_cache()) if (k == key) return v;
+  return std::nullopt;
+}
+void keep_operator(const std::string& key, const std::any& v) {
+  std::lock_guard<std::mutex> g(operator_cache_mutex());
+  auto& c = operator_cache();
+  c.erase(std::remove_if(c.begin(), c.end(), [&](const auto& e) { return e.first == key; }), c.end());
+  c.emplace_back(key, v);
+  while (c.size() > kKeptOperators) c.erase(c.begin());
+}
+// THE FUSED OPERATOR: M' = M . P, P a pre-operator [m x m] over the channels `meta.channels` (in order) of x's rows: column ch_j of M' = sum_i column ch_i of M times P(i, j); the other columns 0 (the rows of
+// x outside P's channels carry nothing). ONE linear operator, built once (spec section 5: the mixing commutes with the time steps before it, so M' x_unmixed = M x_mixed).
+std::any compose_pre_operator(const KernelState& base, const nxr::graph::Array& P, const Json& provenance) {
+  const std::vector<std::int32_t> ch = P.meta.value("channels", std::vector<std::int32_t>());
+  const Eigen::Index m = static_cast<Eigen::Index>(ch.size());
+  if (m == 0 || P.rows != m || P.cols != m || static_cast<Eigen::Index>(P.data.size()) != m * m) refuse("apply_kernel: pre_operator is not [m x m] over its " + std::to_string(m) + " channels");
+  const Eigen::MatrixXd& M = *base.K;
+  for (const std::int32_t c : ch) if (c < 0 || c >= M.cols()) refuse("apply_kernel: pre_operator acts on channel " + std::to_string(c) + ", outside x's " + std::to_string(M.cols()) + " rows");
+  const Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> Pm(P.data.data(), m, m);
+  Eigen::MatrixXd Msub(M.rows(), m);
+  for (Eigen::Index i = 0; i < m; ++i) Msub.col(i) = M.col(ch[static_cast<std::size_t>(i)]);
+  const Eigen::MatrixXd F = Msub * Pm;
+  auto out = std::make_shared<Eigen::MatrixXd>(Eigen::MatrixXd::Zero(M.rows(), M.cols()));
+  for (Eigen::Index j = 0; j < m; ++j) out->col(ch[static_cast<std::size_t>(j)]) = F.col(j);
+  Json resolved = base.resolved;
+  resolved["pre_operator"] = Json{{"provenance", provenance}, {"channels", static_cast<std::int64_t>(m)},
+                                  {"fused", "M . P: the pre-operator composed into the kernel, form and spatial band, one linear operator (spec docs/specs/2026-11-17-surrogates.md, section 4)"}};
+  return std::any(KernelState{std::shared_ptr<const Eigen::MatrixXd>(out), resolved});
+}
 // the Studio's field type and the number of rows a vertex holds
 int per_vertex(const Value& v) { return v.value_type == "scalar" ? 1 : v.value_type == "quaternion" ? 4 : v.value_type == "monogenic" ? 4 * v.facts["monogenic"]["components"].get<int>() : 3; }
 // the surface a field lies on (its first factor), as the Studio's face-gradient operator (positions float32, as the GPU receives them)
@@ -917,9 +982,29 @@ void bind_execution(std::vector<StepSpec>& r) {
   StepSpec& ak = at("apply_kernel");
   ak.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     const nxr::io::Row& k = *ins.at("kernel").row;
-    // the bound map is a constant of (kernel, the field's first factor, level, transform request): every step that asks for the same one (the same level read by several time bands) shares the first one's
-    const std::string shared_key = "apply_kernel|" + nxr::io::text(k, "id") + "|" + ins.at("x").manifolds[0] + "|" + (ins.count("tiles") ? p.dump() : std::string("none")) + "|" + p["form"].get<std::string>();
+    // the bound map is a constant of (kernel, the field's first factor, level, transform request): every step that asks for the same one (the same level read by several time bands) shares the first one's.
+    // ACROSS RUNS (spec 2026-11-17-surrogates.md, section 5) it is kept in the process's operator cache under the same key plus the spatial band's resolved choice: the draws of a surrogate comparison share
+    // every input of it, so it is built once.
+    const std::string base_key = "apply_kernel|" + nxr::io::text(k, "id") + "|" + ins.at("x").manifolds[0] + "|" + (ins.count("tiles") ? p.dump() : std::string("none")) + "|" + p["form"].get<std::string>();
+    const std::string band_choice = spatial_band_choice(ins, p, c.bound).dump();
+    std::optional<Json> pre_provenance;
+    const nxr::graph::Array* pre = nullptr;
+    if (ins.count("pre_operator")) {
+      if (!c.made || !c.made->count("pre_operator")) refuse("apply_kernel: pre_operator was not made before the loop (an earlier node's array)");
+      pre = &c.made->at("pre_operator");
+      pre_provenance = pre->meta.value("provenance", Json());
+      if (pre_provenance->is_null()) refuse("apply_kernel: pre_operator records no provenance (what it is made from): it cannot be cached or recorded");
+    }
+    const std::string shared_key = base_key + "|" + band_choice + (pre ? "|pre|" + pre_provenance->dump() : std::string());
     if (const auto it = c.shared.find(shared_key); it != c.shared.end()) return it->second;
+    if (auto hit = cached_operator(shared_key)) { c.shared[shared_key] = *hit; return *hit; }
+    if (pre)
+      if (auto base = cached_operator(base_key + "|" + band_choice)) {
+        std::any fused = compose_pre_operator(std::any_cast<const KernelState&>(*base), *pre, *pre_provenance);
+        keep_operator(shared_key, fused);
+        c.shared[shared_key] = fused;
+        return fused;
+      }
     const std::string kname = nxr::io::text(k, "name");
     const auto m = c.bound.manifold(ins.at("x").manifolds[0]);
     const std::int64_t C = m ? nxr::io::integer(*m, "n_vertices") : 0;
@@ -1017,24 +1102,17 @@ void bind_execution(std::vector<StepSpec>& r) {
       resolved["envelope"] = p["envelope"];
     }
     std::any bound = KernelState{std::shared_ptr<const Eigen::MatrixXd>(K), resolved};
+    keep_operator(base_key + "|" + band_choice, bound);
+    if (pre) {
+      bound = compose_pre_operator(std::any_cast<const KernelState&>(bound), *pre, *pre_provenance);
+      keep_operator(shared_key, bound);
+    }
     c.shared[shared_key] = bound;
     return bound;
   };
   ak.record = [](const std::any& st) { return std::any_cast<const KernelState&>(st).resolved; };
   // the spatial band's choice (eigenmodes stored or computable, else the series) enters the run's cache key, read before anything is computed or stored
-  ak.resolve = [](const Values& ins, const Json& p, const Bound& bound) -> Json {
-    if (!ins.count("tiles")) return nullptr;
-    const auto man = bound.manifold(ins.at("kernel").manifolds[1]);
-    const nxr::pipelines::SurfaceInput S = bound.surface(nxr::io::text(*man, "name"), true);
-    nxr::pipelines::SpatialBandOptions bo;
-    bo.transform = p["transform"].get<std::string>(); bo.modes = p["modes"].get<int>(); bo.order = p["order"].get<int>(); bo.tolerance = p["tolerance"].get<double>();
-    bo.spatial_shape = p["spatial_shape"].get<std::string>();
-    bo.glued = p["form"] != "none" || p["glued"].get<bool>();
-    if (p["levels"].is_null()) return bound.plan_spatial_band(S, bound.surface_level(S, p["level"].get<int>()), bo).key;
-    Json keys = Json::array();                                                                  // one choice a level: each level's transform is in the run's key
-    for (const auto& e : p["levels"]) keys.push_back(bound.plan_spatial_band(S, bound.surface_level(S, e.get<int>()), bo).key);
-    return keys;
-  };
+  ak.resolve = [](const Values& ins, const Json& p, const Bound& bound) -> Json { return spatial_band_choice(ins, p, bound); };
   ak.chunk = [](const std::any& st, const Blocks& ins, std::int64_t keep) {
     const Eigen::MatrixXd& K = *std::any_cast<const KernelState&>(st).K;
     const Block b = crop(ins.at("x"), keep);

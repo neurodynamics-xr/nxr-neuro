@@ -78,6 +78,21 @@ ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding
     } catch (const nxr::io::Error& e) {
       ng::refuse(e.what());
     }
+    // TWO GENERIC CHECKS (spec docs/specs/2026-11-17-surrogates.md, sections 5 and 6), on the descriptions alone:
+    //   a recording declared `read: shape` carries no sample: only a step that reads its shape only may take it;
+    //   a value that AWAITS a linear operator (an unmixed surrogate: `awaits_operator`) may reach only linear steps that stay in the loop, until a step consumes the operator (its
+    //   `pre_operator`, which clears the mark): a non-linear value or a reduction (a measurement, a statistic) made from it is refused.
+    bool awaits = false;
+    for (const auto& [port, v] : ins) {
+      if (v.facts.value("read", std::string("samples")) == "shape" && !s->reads_shape_only)
+        ng::refuse(s->name + ": its input `" + port + "` is the recording's SHAPE only (`read: shape` in the definition: no sample is read); this step reads samples. Only a step that reads no sample (a surrogate generator) takes it");
+      if (v.facts.contains("awaits_operator")) awaits = true;
+    }
+    if (awaits)
+      for (const auto& [port, v] : made)
+        if (v.facts.contains("awaits_operator") && (v.facts.value("nonlinear", false) || v.cls != "field" || !v.chunked))
+          ng::refuse(s->name + ": its output `" + port + "` is made from a value that awaits its linear operator (" + v.facts["awaits_operator"].dump() + ": an unmixed surrogate); a non-linear step or a reduction may read it only after the operator "
+                     "is applied (give it to the first linear map as `pre_operator`, e.g. apply_kernel's)");
     ng::Planned out;
     for (const auto& [port, v] : made) out.out[port] = port_of(v);
     // the halo a chunk step needs is known from its prepared state (the taps designed, the frame tiling read); prepared here on the records alone, as the plan reads nothing stored
@@ -90,9 +105,12 @@ ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding
     }
     return out;
   };
-  n.prepare = [s, binding](const ng::Types& in, const ng::Arrays&, const Json& params, ng::Shared& shared) {
+  n.prepare = [s, binding](const ng::Types& in, const ng::Arrays& constants, const Json& params, ng::Shared& shared) {
     const Values ins = values_of(in);
+    ng::Arrays made;                                                // what an earlier node made (a found input is a placeholder: the step reads it through the binding)
+    for (const auto& [port, a] : constants) if (!a.meta.value("placeholder", false)) made[port] = a;
     ExecContext ec{*binding->bound, binding->say, {}};
+    ec.made = &made;
     ec.shared.swap(shared);                                         // the run's shared constants (the Studio's "uploaded once"): the first step to ask builds them
     std::any state;
     try {

@@ -58,8 +58,8 @@ int eigen_main(const std::vector<std::string>& argv);   // pipelines/tools/eigen
 int phasegradient_main(const std::vector<std::string>& argv); // cli/meeg_command.cpp
 int cyclepattern_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
 int measure_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
-int spatialnull_main(const std::vector<std::string>& argv);     // cli/measure_command.cpp
-int null_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
+int surrogate_lagfree_spatial_events_compare_main(const std::vector<std::string>& argv);   // cli/measure_command.cpp
+int surrogate_lagfree_vortex_compare_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
 int pyramid_main(const std::vector<std::string>& argv);          // cli/measure_command.cpp     // cli/measure_command.cpp
 int run_main(const std::vector<std::string>& argv);            // cli/run_command.cpp
 int opticalflow_main(const std::vector<std::string>& argv);   // cli/meeg_command.cpp
@@ -491,18 +491,18 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       throw Error(code::unsupported, "nxr-neuro pyramid needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
-    if (cmd == "spatialnull") {
+    if (cmd == "__surrogate_lagfree_spatial_events_compare") {               // `run surrogate_lagfree_spatial_events_compare` (the command table's internal words)
 #ifdef NXR_NEURO_WITH_PIPELINES
-      return spatialnull_main(rest);
+      return surrogate_lagfree_spatial_events_compare_main(rest);
 #else
-      throw Error(code::unsupported, "nxr-neuro spatialnull needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+      throw Error(code::unsupported, "nxr-neuro run surrogate_lagfree_spatial_events_compare needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
-    if (cmd == "null") {
+    if (cmd == "__surrogate_lagfree_vortex_compare") {                       // `run surrogate_lagfree_vortex_compare`
 #ifdef NXR_NEURO_WITH_PIPELINES
-      return null_main(rest);
+      return surrogate_lagfree_vortex_compare_main(rest);
 #else
-      throw Error(code::unsupported, "nxr-neuro null needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+      throw Error(code::unsupported, "nxr-neuro run surrogate_lagfree_vortex_compare needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "measure") {
