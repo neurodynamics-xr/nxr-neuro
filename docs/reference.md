@@ -14,7 +14,7 @@ provenance stored with the result.
 - **not the Python analysis code:** `nxr` stays the reference that the C++ is tested against.
 - **no Brainstorm code:** Brainstorm is GPLv3; the maths here is written from the papers, and Brainstorm's outputs are only goldens.
 
-**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; bindings for `io` (beyond its pure formats, in the Python face) and `pipelines`.
+**Not done yet:** the default subject's option resolutions, HCP-1065 and Frequency manifold; BEM head models (sphere models only); MNE-Python's filter option set; modalities other than MEG/EEG; bindings for `io` beyond its pure formats and the pipeline level (`run`, `list`, `read`; the Python face and the MATLAB binding carry `run` for `psd` and the definitions: the other hand-wired pipelines follow).
 
 ## Layout
 
@@ -25,7 +25,7 @@ nxr-neuro/
   pipelines/   nxr_pipelines the glue: read with io, compute with compute, write with io, cached; every verb of the command below (the surface: eigen, frames, tiles; the sensors:
                filters, psd, noisecov; the sources: headmodel, inverse, sourcepsd, quadrature, hodgepower; the patterns: opticalflow, speedspectrum)
   meeg/        nxr_meeg      MEG/EEG source imaging: whitener, depth weights, unconstrained minimum-norm kernel, chunk-wise noise covariance; Eigen only; no file I/O
-  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (exposing io/pipelines comes later); python/: the wheel (nxr_compute and io/formats)
+  bindings/    MEX, Node (N-API), wasm and a CLI smoke around nxr_compute (Python and MATLAB also carry the pipeline level: `run`, `list`, `read` through `pipelines/face.h`); python/: the wheel (nxr_compute, io/formats and the pipeline level)
   cli/         the one command `nxr-neuro`
   cmake/       shared CMake (Eigen 3.4)
   CMakeLists.txt   the one top-level build

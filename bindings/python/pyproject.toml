@@ -5,7 +5,7 @@ build-backend = "scikit_build_core.build"
 [project]
 name = "nxr-neuro"
 dynamic = ["version"]
-description = "nxr-neuro: measuring the spatiotemporal patterns of cortical activity from MEG/EEG. The pure functions and the file-format readers, over NumPy arrays."
+description = "nxr-neuro: measuring the spatiotemporal patterns of cortical activity from MEG/EEG. The pure functions, the file-format readers and the pipeline level (run, list, read), over NumPy arrays."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = ["numpy>=1.26"]
@@ -44,8 +44,8 @@ regex = 'project\(nxr_neuro VERSION (?P<value>[0-9]+\.[0-9]+\.[0-9]+)'
 NXR_NEURO_BUILD_PYTHON = "ON"
 NXR_NEURO_PYTHON_ONLY = "ON"
 NXR_NEURO_BUILD_CLI = "OFF"
-NXR_NEURO_BUILD_PIPELINES = "OFF"
-NXR_NEURO_BUILD_MEEG = "OFF"
+NXR_NEURO_BUILD_PIPELINES = "ON"        # the pipeline level: run, list, read (nxr.run), through pipelines/face.h
+NXR_NEURO_BUILD_MEEG = "ON"
 NXR_NEURO_BUILD_TESTS = "OFF"
 NXR_NEURO_PORTABLE = "ON"             # SQLite and zstd linked into the module, not the system's
 CMAKE_POSITION_INDEPENDENT_CODE = "ON"
