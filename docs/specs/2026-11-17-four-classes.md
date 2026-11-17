@@ -547,8 +547,8 @@ Each step is one batch on one branch, a PR when the batch is done; synthetic tes
 7. **Definitions.** Typed ports in every definition in `pipelines/definitions/` (most inferred; 4.2); each node's chain place, linearity, halo and output
    shape registered; the JSON schema of definitions generated and published; `--dry-run` prints the classes' types.
 8. **Registries retired.** `field_registry.h` and `operator_registry.h` deleted once their content is in the classes and `docs/reference.md`.
-9. **Faces.** The Python and MATLAB bindings expose each class as its row (a dict / struct with the column names) plus its arrays; `compute` accepts a bare
-   array and builds the class (4.3).
+9. **Faces.** The Python and MATLAB bindings expose each class as its row (a dict / struct with the column names) plus its arrays; the `compute` verb accepts a
+   bare array, which the pipeline wraps in the port's class (4.3).
 10. **Docs.** `ARCHITECTURE.md` ("Decided structure") and `CONTRIBUTING.md` state the four classes as the typing of every port; the earlier specs this
     supersedes (`2026-11-17-type-system.md` §14, `2026-11-17-selection-module.md` §0 items 1, 3, 12) carry a pointer to this spec.
 
@@ -609,8 +609,8 @@ Sources: nxr-neuro `docs/specs/2026-11-17-selection-module.md` (§0, §8, §9), 
 
 ## Checklist (the architecture policy)
 
-- Can each new compute function be called with a matrix from anywhere? Yes: a Field is built from any matrix (4.3); the maths inside stays matrix in,
-  matrix out.
+- Can each new compute function be called with a matrix from anywhere? Yes: compute functions are pure functions of matrices (4.3);
+  only the pipelines carry the classes.
 - Can the pipeline run the same chain on another input of the same kind just by naming it? Yes: ports are typed by class, and `run`'s find clauses are
   unchanged.
 - Is every loop over samples or chunks, and every file access, inside io? Yes: `load`, `create` and the chunk service are io's; the classes hold state only.
