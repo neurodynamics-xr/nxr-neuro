@@ -40,6 +40,50 @@ int space_level_of_band(double lambda_lo, double lambda_hi, double piece_area, i
   return std::min(weyl_level(centre, piece_area), depth);
 }
 
+LevelOf level_of_duration(double seconds, double sfreq, std::optional<int> max_level) {
+  if (!(seconds > 0) || !std::isfinite(seconds) || !(sfreq > 0)) throw std::invalid_argument("level_of_duration: a duration > 0 s and a sampling rate > 0 Hz");
+  int k = natural_level(seconds * sfreq);
+  if (max_level) k = std::min(k, std::max(0, *max_level));
+  return LevelOf{k, std::ldexp(1.0, k) / sfreq, "s"};
+}
+
+namespace {
+// the coarsest level l (0 .. depth) with values[l] <= limit, where the values fall as the levels deepen; the refusal names the finest value
+LevelOf coarsest_at_most(const std::vector<double>& values, double limit, const std::string& what, const std::string& unit) {
+  if (values.empty() || !(limit > 0) || !std::isfinite(limit)) throw std::invalid_argument("level_of_" + what + ": a " + what + " > 0 and the measured " + what + " of levels 0 .. depth");
+  for (std::size_t l = 0; l < values.size(); ++l)
+    if (values[l] <= limit * (1 + 1e-9)) return LevelOf{static_cast<int>(l), values[l], unit};
+  throw std::invalid_argument("level_of_" + what + ": no level is fine enough: a " + what + " of " + std::to_string(limit) + " " + unit + " is below the finest level's " + std::to_string(values.back()) + " " + unit);
+}
+}  // namespace
+
+LevelOf level_of_diameter(const std::vector<double>& tile_diameters, double diameter, const std::string& unit) { return coarsest_at_most(tile_diameters, diameter, "diameter", unit); }
+
+LevelOf level_of_area(const std::vector<double>& tile_areas, double area, const std::string& unit) { return coarsest_at_most(tile_areas, area, "area", unit + "^2"); }
+
+LevelOf level_of_eigenvalue(double lambda, double piece_area, int depth, const std::string& unit) {
+  if (depth < 0) throw std::invalid_argument("level_of_eigenvalue: depth >= 0");
+  const int l = std::min(weyl_level(lambda, piece_area), depth);
+  const double top = kFourPi * std::ldexp(1.0, l) / piece_area;                     // the level's band [4 pi 2^(l-1) / A, 4 pi 2^l / A): its shortest wavelength is at the top
+  return LevelOf{l, 2 * M_PI / std::sqrt(top), unit};
+}
+
+LevelOf level_of_wavelength(double wavelength, double piece_area, int depth, const std::string& unit) {
+  if (!(wavelength > 0)) throw std::invalid_argument("level_of_wavelength: a wavelength > 0");
+  const double lambda = std::isinf(wavelength) ? 0.0 : std::pow(2 * M_PI / wavelength, 2);
+  return level_of_eigenvalue(lambda, piece_area, depth, unit);
+}
+
+LevelOf level_of_parts(double parts, int depth) {
+  if (!(parts >= 1) || !std::isfinite(parts) || depth < 0) throw std::invalid_argument("level_of_parts: parts >= 1 and depth >= 0");
+  const double l = std::log2(parts);
+  const double r = std::round(l);
+  if (std::abs(l - r) > 1e-9) throw std::invalid_argument("level_of_parts: " + std::to_string(parts) + " parts is not a power of two (the dyadic grid halves each tile): the nearest are " +
+                                                         std::to_string(std::ldexp(1.0, static_cast<int>(std::floor(l)))) + " and " + std::to_string(std::ldexp(1.0, static_cast<int>(std::ceil(l)))));
+  if (r > depth) throw std::invalid_argument("level_of_parts: " + std::to_string(parts) + " parts needs level " + std::to_string(static_cast<int>(r)) + ", the grid's finest is " + std::to_string(depth));
+  return LevelOf{static_cast<int>(r), std::ldexp(1.0, static_cast<int>(r)), "parts"};
+}
+
 Support support_of(double lo_hz, double hi_hz, double tc, double sfreq, int log2n, std::optional<int> level, bool clamp) {
   if (log2n < 0 || log2n > 62 || !std::isfinite(tc)) throw std::invalid_argument("support_of: a line of 2^log2n samples (0..62) and a finite centre time");
   const int fit = time_level_of_band(lo_hz, hi_hz, sfreq, kJointCycles, log2n);

@@ -108,6 +108,7 @@ struct Selection {
   std::optional<Grid> grid;                 // a grid that is not a tiling: its closed form
   int level = -1;                           // a level: its label, a power of two (tiles of 2^level samples; 2^level tiles a piece)
   std::optional<double> diameter;          // a dyadic level: the MEASURED mean tile diameter (the surface's `unit`), as the surface ladder's `diameter` (the Studio's engine/ladder.ts)
+  std::optional<double> tile_area;         // a dyadic level: the mean tile area (the surface's `unit`^2): the surface's area over the level's tiles (the level's quantity for `level_of_area`)
   std::optional<std::pair<double, double>> band;   // a level: the band of the spectrum it resolves, in `band_unit` (Hz; 1/unit^2)
   std::string band_unit;
   Lookup lookup;                            // a set: what its members' labels mean

@@ -18,7 +18,6 @@ namespace nxr::selection {
 namespace {
 int k_of(double samples) { return static_cast<int>(std::lround(std::ceil(std::log2(samples)))); }   // the power of two a window is rounded up to
 constexpr double kFourPi = 4 * M_PI;
-std::string number(double x) { char b[32]; std::snprintf(b, sizeof b, "%.4g", x); return b; }
 
 void need_surface(const Surface& s, const char* what) {
   if (!s.positions || !s.faces || s.vertices < 1 || s.face_count < 1) throw std::invalid_argument(std::string(what) + ": a surface needs positions and faces");
@@ -60,20 +59,6 @@ Designed design(const Line& line, const ConstantQ& o) {
   return d;
 }
 
-// a set of spans on a spectrum line, one member a band [lo, hi), labelled by its range; the bands must tile the line without gap or overlap
-Selection band_spans(std::vector<std::pair<double, double>> b, const std::string& unit) {
-  if (b.empty()) throw std::invalid_argument("bands: there are none");
-  std::sort(b.begin(), b.end());
-  std::vector<SpanRow> rows;
-  Lookup lookup;
-  for (std::size_t i = 0; i < b.size(); ++i) {
-    if (i + 1 < b.size() && std::abs(b[i].second - b[i + 1].first) > 1e-9 * std::max(1.0, std::abs(b[i].second)))
-      throw std::invalid_argument("bands: a gap or an overlap at " + number(b[i].second) + " " + unit);
-    rows.push_back(SpanRow{b[i].first, b[i].second, static_cast<std::int64_t>(i)});
-    lookup.push_back(Entry{static_cast<std::int64_t>(i), number(b[i].first) + "-" + number(b[i].second) + " " + unit, std::nullopt});
-  }
-  return set_of_spans(std::move(rows), unit, std::move(lookup));
-}
 }  // namespace
 
 // ── a time line, by constant-Q ───────────────────────────────────────────────────────────
@@ -115,16 +100,11 @@ ConstantQDesign constant_q_design(const Line& line, const ConstantQ& o) {
     out.levels.push_back(info);
   }
   out.ladder = set(std::move(levels));
+  for (const Band& b : d.bands) out.bands.emplace_back(b.lo, b.hi);
   return out;
 }
 
 Selection constant_q(const Line& line, const ConstantQ& o) { return constant_q_design(line, o).ladder; }
-
-Selection constant_q_bands(const Line& line, const ConstantQ& o) {
-  std::vector<std::pair<double, double>> b;
-  for (const Band& x : design(line, o).bands) b.emplace_back(x.lo, x.hi);
-  return band_spans(std::move(b), "Hz");
-}
 
 // ── a time line, by a dyadic tiling: tiles of 2^k samples from the first sample ─────────────
 Selection time_grid(const Line& line, int k) {
@@ -154,20 +134,13 @@ Selection dyadic(const Surface& s, const Dyadic& o) {
     level.band = std::make_pair(l == 0 ? 0.0 : kFourPi * static_cast<double>(tiles / 2) / area, kFourPi * static_cast<double>(tiles) / area);
     level.band_unit = "1/" + s.unit + "^2";                            // area in unit^2, so lambda = 4 pi m / A in 1/unit^2
     level.diameter = t.diameter[static_cast<std::size_t>(l)];          // measured, as the ladder's
+    level.tile_area = area / static_cast<double>(tiles);               // the mean tile: the surface's area over the level's tiles
     levels.push_back(std::move(level));
   }
   Selection p = dyadic_grid(t.codes, t.depth, t.slots, std::move(levels));
   p.grid->finest = t.finest;                                           // the deepest level every piece reaches
   p.unit = s.unit;
   return p;
-}
-
-Selection eigenvalue_bands(const Selection& levels) {
-  std::vector<std::pair<double, double>> b;
-  std::string unit;
-  for (const Selection& l : levels.members) if (l.band) { b.push_back(*l.band); unit = l.band_unit; }
-  if (b.empty()) throw std::invalid_argument("eigenvalue_bands: the selection has no levels with bands");
-  return band_spans(std::move(b), unit);
 }
 
 // ── a surface, by transfer: the nearest vertex on the registered spheres, piece by piece (nxr geom.trees Template.tree_for) ─────────────

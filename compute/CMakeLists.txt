@@ -122,7 +122,6 @@ add_library(nxr_compute STATIC
   src/jointbank.cpp
   src/spacetime_kernels.cpp
   src/welch.cpp
-  src/band_amplitude.cpp
   src/pca.cpp
   src/quadrature.cpp
   src/filter.cpp
@@ -136,7 +135,9 @@ add_library(nxr_compute STATIC
   src/selection.cpp
   src/selection_partition.cpp
   src/selection_dyadic.cpp
-  src/selection_scales.cpp
+  src/selection_bands.cpp
+  src/selection_time_rule.cpp
+  src/quantity.cpp
   src/selection_constant_q.cpp
   src/selection_resolved.cpp
   src/selection_grid.cpp
