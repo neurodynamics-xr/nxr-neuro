@@ -31,7 +31,7 @@ const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifo
                                            // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
                                            "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors",
                                            "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator", "within", "by_operator",
-                                           "codes", "carry_origin"};   // codes: 2 = two codes a row (a sparse matrix over a selection's members) · carry_origin: the input whose origin and licence the result carries
+                                           "codes", "carry_origin", "optional"};   // codes: 2 = two codes a row (a sparse matrix over a selection's members) · carry_origin: the input whose origin and licence the result carries  // optional: the node makes it only when the data asks for it; a link may name alternatives `a|b`
 const std::regex kPresetName("^[a-z][a-z0-9_-]*$");
 const std::regex kName("^[a-z][a-z0-9_]*$");
 
@@ -379,7 +379,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
         err(w, kk + ": belongs to the declared kinds (statistic with axes, operator, selection, manifold, field)");
     if (kind == "operator" && (!spec.contains("operator_kind") || !spec.contains("from") || !spec.contains("to"))) err(w, "an operator output names operator_kind, from and to (links to found manifolds)");
     if (kind == "selection" && !spec.contains("type")) err(w, "a selection output names its type: partition, spans, set, tiling, ladder or grid");
-    if (kind == "manifold" && !spec.contains("type")) err(w, "a manifold output names its type: line, surface or product");
+    if (kind == "manifold" && !spec.contains("type")) err(w, "a manifold output names its type: line, surface, product, points or complex");
     if (spec.contains("axes") && !spec["axes"].is_array()) err(w, "axes: a list of {name, on | line}");
   }
   d.outputs = outputs;

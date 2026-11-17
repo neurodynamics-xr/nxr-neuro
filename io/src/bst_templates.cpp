@@ -115,7 +115,7 @@ void write_readme(const fs::path& source, const fs::path& datastore, const std::
   o << "# Templates and references (nxr datastore)\n\n"
     << "Built by `nxr-convert templates` (schema 50) from `" << src << "`; opened by Cortical Flow like any datastore\n"
     << "(dataset `" << dataset << "`, template subject `" << subject << "`). Re-run the command to add maps; Hodge-Dirac modes go on later with\n"
-    << "`nxr-neuro eigen solve --dataset " << (datastore / dataset).string() << " --subject " << subject << "`.\n\n"
+    << "`nxr-neuro run eigenmodes --dataset " << (datastore / dataset).string() << " --subject " << subject << " --surface pial`.\n\n"
     << "**Template:** FreeSurfer 7.4.1 fsaverage, ico7, 163 842 vertices per hemisphere, left then right (327 684), metres.\n"
     << "**Manifolds** (`source/`): `pial` (primary), `white`, `inflated`, `pial_sphere` (sphere.reg); `pial_fsaverage5|6`,\n"
     << "`pial_fsaverage5|6_sphere`, `inflated_fsaverage5|6`. fsaverage5/6 spheres are the first 10 242 / 40 962 vertices of\n"

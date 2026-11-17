@@ -13,7 +13,7 @@
 //   nxr-neuro subject delete --dataset D/N --subject S [--node PATH]
 //   nxr-neuro surface add    --dataset D/N --subject S FILE [--name N] [--scale F] [--primary | --no-primary]
 //   nxr-neuro convert list|scan|subject|surface ...            (Brainstorm: convert_command.cpp)
-//   nxr-neuro eigen solve --dataset D/N --subject S [--modes K] [--surface N] [--replace]     (pipelines)
+//   nxr-neuro run eigenmodes --dataset D/N --subject S --surface N [--modes K] [--glued] [--replace]     (a definition)
 //   nxr-neuro headmodel compute | noisecov compute | inverse compute | psd compute ...                                           (cli/meeg_command.cpp)
 //   nxr-neuro read <dataset folder> [--array <subject> <path> [--region a:b,c:d] [--out FILE]]
 //
@@ -54,7 +54,6 @@ namespace fs = std::filesystem;
 int read_command(int argc, char** argv);
 int convert_main(const std::vector<std::string>& argv);
 #ifdef NXR_NEURO_WITH_PIPELINES
-int eigen_main(const std::vector<std::string>& argv);   // pipelines/tools/eigen_command.cpp
 int phasegradient_main(const std::vector<std::string>& argv); // cli/meeg_command.cpp
 int cyclepattern_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
 int measure_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
@@ -182,7 +181,7 @@ int dataset_main(const std::vector<std::string>& argv) {
           w.lc_levels.push_back(std::stoi(x));
         }
       }
-      if (const auto v = a.maybe("--modes")) {                 // the number of Hodge–Dirac modes to solve (as `eigen solve --modes`)
+      if (const auto v = a.maybe("--modes")) {                 // the number of Hodge–Dirac modes to solve (as `run eigenmodes --modes`)
         try { w.modes = std::stoi(*v); } catch (...) { throw Usage(prog + ": error: --modes is a whole number (the number of modes to solve), not '" + *v + "'"); }
         if (*w.modes < 1) throw Usage(prog + ": error: --modes is a whole number of at least 1");
       }
@@ -469,13 +468,6 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
     if (cmd == "subject") return subject_main(rest);
     if (cmd == "surface") return surface_main(rest);
     if (cmd == "convert") return convert_main(rest);
-    if (cmd == "eigen") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return eigen_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro eigen needs the pipelines (nxr_compute + nxr_io): build with -DNXR_NEURO_BUILD_PIPELINES=ON (README: Pipelines)");
-#endif
-    }
     if (cmd == "run") {
 #ifdef NXR_NEURO_WITH_PIPELINES
       return run_main(rest);

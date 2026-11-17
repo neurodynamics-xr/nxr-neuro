@@ -50,7 +50,26 @@ std::string fill_once(const Plan& P, const std::string& t) {
 std::string fill(const Plan& P, const std::string& t) { return fill_once(P, fill_once(P, t)); }
 
 // the id a link names: an output made already in this unit, a found input (its row's id), or one of its manifolds (`X.manifold.N`, `X.time`, `X.from`, `X.to`)
+std::string link(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where);
+// ALTERNATIVES `a|b`: the first one made in this unit or found (an output the node made only when the data asks for it: the glued surface of a cortex of two pieces, else the surface itself)
+std::string link_first(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where) {
+  std::size_t from = 0;
+  while (from <= ref.size()) {
+    std::size_t bar = ref.find('|', from);
+    if (bar == std::string::npos) bar = ref.size();
+    const std::string part = ref.substr(from, bar - from);
+    from = bar + 1;
+    if (part.empty()) bad(where, "the link '" + ref + "' has an empty alternative");
+    if (!made) { link(P, part, nullptr, where); continue; }                    // at plan time every alternative must be a valid link
+    if (made->count(part)) return made->at(part);
+    if (P.definition.outputs.contains(part) && !P.found.count(part)) continue;   // an output not made (optional): the next alternative
+    return link(P, part, made, where);
+  }
+  if (made) bad(where, "none of the alternatives '" + ref + "' is made or found");
+  return "";
+}
 std::string link(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where) {
+  if (ref.find('|') != std::string::npos) return link_first(P, ref, made, where);
   if (made && made->count(ref)) return made->at(ref);
   if (P.definition.outputs.contains(ref) && !P.found.count(ref)) {
     if (made) bad(where, "'" + ref + "' is an output not made yet (manifolds are made first; list the others after what they lie on)");
@@ -84,6 +103,20 @@ task::Values values_of(const ng::Array& a, const std::vector<std::int64_t>& shap
   v.shape = shape;
   if (single) v.f32.assign(a.data.begin(), a.data.end());
   else v.f64 = a.data;
+  return v;
+}
+// the node's values as integers when it says so (describe.dtype: i32 | u8): an index, a count, a form degree stored as such
+task::Values stored_values_of(const ng::Array& a, const std::vector<std::int64_t>& shape, bool single, const Json& d, const std::string& o) {
+  const std::string dtype = d.value("dtype", std::string());
+  if (dtype.empty()) return values_of(a, shape, single, o);
+  std::int64_t n = 1;
+  for (const auto x : shape) n *= x;
+  if (n != static_cast<std::int64_t>(a.data.size())) bad(o, std::to_string(a.data.size()) + " values for the shape the node describes (" + std::to_string(n) + ")");
+  task::Values v;
+  v.shape = shape;
+  if (dtype == "i32") for (const double x : a.data) v.i32.push_back(static_cast<std::int32_t>(x));
+  else if (dtype == "u8") for (const double x : a.data) v.u8.push_back(static_cast<std::uint8_t>(x));
+  else bad(o, "describe.dtype is i32 or u8, not " + dtype);
   return v;
 }
 const Json& describe_of(const ng::Array& a, const std::string& o) {
@@ -252,12 +285,12 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
     link_of(P, spec, "on", nullptr, o);
   } else {
     const std::string t = spec.value("type", std::string());
-    if (t != "line" && t != "surface" && t != "product") bad(o, "type: line, surface or product");
+    if (t != "line" && t != "surface" && t != "product" && t != "points" && t != "complex") bad(o, "type: line, surface, product, points or complex");
     if (t == "product") {
       if (!spec.contains("factors") || !spec["factors"].is_array() || spec["factors"].size() < 2) bad(o, "a product's factors: a list of two or more links or outputs");
       for (const auto& f : spec["factors"]) link(P, f.get<std::string>(), nullptr, o);
     }
-    if (t == "surface" && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
+    if ((t == "surface" || t == "points" || t == "complex") && spec.contains("derived_from")) link_of(P, spec, "derived_from", nullptr, o);
   }
   (void)db;
 }
@@ -272,8 +305,12 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
       // a product of manifolds: its id is known when io finds or makes it (the store); its node's place is checked there
       return out;
     }
-    const std::string mid = spec.contains("on") ? link_of(P, spec, "on", nullptr, o) : P.values.at(o).manifolds.at(0);
-    out.emplace_back(task::Cls::field, ts.node_path(mid, name));
+    std::string mid = spec.contains("on") ? link_of(P, spec, "on", nullptr, o) : P.values.at(o).manifolds.at(0);
+    if (mid.empty() && spec.contains("on")) {                                // on a manifold this run makes: its place is known once that manifold is stored (by its name); before, there is none
+      const std::string on = spec["on"].get<std::string>();
+      if (const auto id = ts.manifold_named(declared_name(P, on))) mid = *id;
+    }
+    if (!mid.empty()) out.emplace_back(task::Cls::field, ts.node_path(mid, name));
   } else if (k == "statistic") {
     const std::string of = spec["of"].get<std::string>();
     std::string path = "statistics/" + nxr::io::safe_name(name);
@@ -332,6 +369,33 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       if (a.cols != 3) bad(o, "a surface's vertices are [n x 3]");
       for (const auto& f : d.value("faces", Json::array())) s.faces.push_back(f.get<std::int32_t>());
       id = unit.surface(s);
+    } else if (t == "points") {
+      // POINTS with one coordinate each (an operator's mode axis: the eigenvalues): replaced with --replace, what lies on it moved aside with it
+      task::PointsOut p;
+      p.name = name; p.output = o;
+      p.cs_key = spec.contains("cs") ? fill(P, spec["cs"].get<std::string>()) : d.value("cs", std::string("eigenvalue"));
+      p.operator_name = d.value("operator", std::string());
+      if (spec.contains("derived_from")) p.derived_from_id = link_of(P, spec, "derived_from", &made, o);
+      if (d.contains("description") && d["description"].is_string()) p.description = d["description"].get<std::string>();
+      if (d.contains("producer") && d["producer"].is_object()) p.producer = d["producer"];
+      p.positions = values_of(a, {a.rows * a.cols}, false, o);
+      if (replace) clear(task::Cls::manifold, unit.path_of(p));
+      id = unit.points(p);
+    } else if (t == "complex") {
+      // a CELL COMPLEX: vertices [n x 3] are the node's array, its edges [nE x 2] and faces [nF x 3] its description
+      task::ComplexOut c;
+      c.name = name; c.output = o;
+      c.cs_key = spec.contains("cs") ? fill(P, spec["cs"].get<std::string>()) : d.value("cs", std::string("scs"));
+      if (c.cs_key.empty()) c.cs_key = "scs";
+      if (spec.contains("derived_from")) c.derived_from_id = link_of(P, spec, "derived_from", &made, o);
+      if (d.contains("description") && d["description"].is_string()) c.description = d["description"].get<std::string>();
+      if (d.contains("producer") && d["producer"].is_object()) c.producer = d["producer"];
+      if (a.cols != 3) bad(o, "a complex's vertices are [n x 3]");
+      c.vertices = values_of(a, {a.rows, a.cols}, false, o);
+      for (const auto& e : d.value("edges", Json::array())) c.edges.push_back(e.get<std::int32_t>());
+      for (const auto& f : d.value("faces", Json::array())) c.faces.push_back(f.get<std::int32_t>());
+      if (replace) clear(task::Cls::manifold, unit.path_of(c));
+      id = unit.cell_complex(c);
     } else {
       task::ProductOut pr;
       for (const auto& f : spec["factors"]) pr.factors.push_back(link(P, f.get<std::string>(), &made, o));
@@ -355,6 +419,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     f.value_type = d.value("value_type", P.values.at(o).value_type);
     if (d.contains("unit") && d["unit"].is_string()) f.unit = d["unit"].get<std::string>();
     else if (spec.contains("unit")) f.unit = spec["unit"].get<std::string>();
+    if (d.contains("cell") && d["cell"].is_string()) f.cell = d["cell"].get<std::string>();            // which cells of its manifold the values sit on (edges '1', faces '2')
     f.description = spec.contains("description") ? spec["description"].get<std::string>() : d.value("description", f.kind + " \xe2\x80\x94 pipeline " + P.definition.name);
     // a SOURCE ESTIMATE: made by an operator found (by_operator: the inverse kernel) from a recording found (derived_from)
     if (spec.contains("derived_from") && P.found.count(spec["derived_from"].get<std::string>()) && P.found.at(spec["derived_from"].get<std::string>()).row) f.derived_from_id = text(*P.found.at(spec["derived_from"].get<std::string>()).row, "id");
@@ -372,7 +437,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       f.data = values_of(a, {a.rows, a.cols}, a.meta.value("precision", std::string("float64")) == "float32", o);
       f.producer = f.producer.is_object() ? f.producer : Json::object();
       f.producer["layout"] = Json{{"form", "coo"}, {"shape", a.meta.value("shape", Json::array())}, {"columns", Json::array({"row", "column", "value"})}};
-    } else if (!d.value("no_array", false)) f.data = values_of(a, shape_of(a, d), single_of(d), o);   // no_array: a field whose values are its measurements
+    } else if (!d.value("no_array", false)) f.data = stored_values_of(a, shape_of(a, d), single_of(d), d, o);   // no_array: a field whose values are its measurements
     if (spec.contains("carry_origin")) {
       f.producer = f.producer.is_object() ? f.producer : Json::object();
       const Json og = origin_of(P, spec["carry_origin"].get<std::string>(), o);
@@ -516,7 +581,23 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     }
     const std::string acq_from = spec.contains("acquisition_of") ? spec["acquisition_of"].get<std::string>() : spec.contains("derived_from") ? spec["derived_from"].get<std::string>() : std::string();
     if (const auto acq = acquisition_of(P, acq_from); !acq.empty()) op.acquisition = acq;
-    op.data = values_of(a, {a.rows, a.cols}, single_of(d), o);
+    if (d.contains("from_cell") && d["from_cell"].is_string()) op.from_cell = d["from_cell"].get<std::string>();
+    if (d.contains("to_cell") && d["to_cell"].is_string()) op.to_cell = d["to_cell"].get<std::string>();
+    if (d.contains("chunks")) op.chunk_shape = ints(d["chunks"]);
+    if (d.contains("shards")) op.shard_shape = ints(d["shards"]);
+    if (d.contains("sparse") && d["sparse"].is_object()) {
+      // a SPARSE operator: the node's array holds the nnz values, its description the structure (csr: indptr [rows + 1], indices [nnz])
+      const Json& sp = d["sparse"];
+      task::OperatorOut::Sparse x;
+      x.layout = sp.value("layout", std::string("csr"));
+      x.n_rows = sp.value("rows", std::int64_t(0)); x.n_cols = sp.value("cols", std::int64_t(0));
+      for (const auto& v : sp.value("indptr", Json::array())) x.indptr.push_back(v.get<std::int64_t>());
+      for (const auto& v : sp.value("indices", Json::array())) x.indices.push_back(v.get<std::int32_t>());
+      op.sparse = std::move(x);
+      op.data = values_of(a, {static_cast<std::int64_t>(a.data.size())}, single_of(d), o);
+    } else {
+      op.data = values_of(a, {a.rows, a.cols}, single_of(d), o);
+    }
     const std::string path = unit.path_of(op);
     clear(task::Cls::operator_, path);
     report["id"] = unit.operator_(op); report["path"] = path;

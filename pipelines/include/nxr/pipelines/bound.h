@@ -62,6 +62,8 @@ class Bound {
   StoredFrames stored_frames(const std::string& surface_name, std::int64_t n_vertices) const;
   std::string subject_kind() const;                                              // the run's subject's kind: subject, template or group
   std::string coordinate_unit(const std::string& manifold_id) const;             // the length unit of a manifold's coordinate system ("m", "mm"; empty when it records none)
+  std::string coordinate_system_key(const std::string& manifold_id) const;        // the NAME of a manifold's coordinate system ("scs"; empty when it records none): a surface made from it lies in the same one
+  std::vector<std::uint8_t> medial_wall(const SurfaceInput& surface) const;      // a surface's medial wall [nV] (1 on it) from its stored Desikan-Killiany atlas; refused by name without one
   GroupTemplate group_template(const std::string& surface_name) const;           // the default subject's group ladder, sphere and surface, with this subject's registered sphere (group.h)
   internal::GluedDomain glued_domain(const SurfaceInput& surface) const;
   StoredCrossSpectrum cross_spectrum(const std::string& name) const;

@@ -3,6 +3,7 @@
 
 #include <algorithm>
 
+#include "nxr/io/array_reader.h"
 #include "nxr/io/database.h"
 #include "nxr/io/json_text.h"
 #include "nxr/io/layout.h"
@@ -384,6 +385,12 @@ std::optional<std::string> Subject::line_named(const std::string& name) const {
   return text(*r, "id");
 }
 
+std::optional<std::string> Subject::manifold_named(const std::string& name) const {
+  const auto r = impl_->db->one("SELECT id FROM manifold WHERE subject_id = ? AND name = ?", {V(impl_->id), V(name)});
+  if (!r) return std::nullopt;
+  return text(*r, "id");
+}
+
 namespace {
 // the time lines (a product's line factors) of the complete recordings of a subject
 const char* kRecordingLines =
@@ -497,9 +504,13 @@ namespace {
 ArrayView view_of(const Values& v, const std::string& what) {
   std::int64_t n = 1;
   for (const auto d : v.shape) n *= d;
-  if (v.f32.empty() == v.f64.empty()) throw Error(code::invalid_argument, what + ": values in float32 or float64 (one of the two)");
+  const int filled = !v.f32.empty() + !v.f64.empty() + !v.i32.empty() + !v.u8.empty();
+  if (filled != 1) throw Error(code::invalid_argument, what + ": values in one of float32, float64, int32 or uint8");
   if (n != v.size()) throw Error(code::invalid_argument, what + ": " + std::to_string(v.size()) + " values for the shape of " + std::to_string(n));
-  return v.f32.empty() ? view(v.f64, v.shape) : view(v.f32, v.shape);
+  if (!v.f32.empty()) return view(v.f32, v.shape);
+  if (!v.i32.empty()) return view(v.i32, v.shape);
+  if (!v.u8.empty()) return view(v.u8, v.shape);
+  return view(v.f64, v.shape);
 }
 Json producer_of(const By& by, const std::string& output, const Json& own) {
   Json p = by.producer.is_object() ? by.producer : Json::object();
@@ -513,6 +524,10 @@ void need_open(bool open) { if (!open) throw Error(code::not_writable, "unit: cl
 std::string Unit::path_of(const FieldOut& f) const { return f.path ? *f.path : node_path(*impl_->db, f.manifold_id, f.name); }
 std::string Unit::path_of(const OperatorOut& o) const { return o.path ? *o.path : safe_name(o.name); }
 std::string Unit::path_of(const SelectionOut& s) const { return s.path ? *s.path : node_path(*impl_->db, s.manifold_id, s.name); }
+std::string Unit::path_of(const PointsOut& p) const {
+  return p.path ? *p.path : folder_for("points", "", std::nullopt, p.operator_name.empty() ? std::optional<std::string>() : std::optional<std::string>(p.operator_name)) + "/" + safe_name(p.name);
+}
+std::string Unit::path_of(const ComplexOut& c) const { return c.path ? *c.path : "source/" + safe_name(c.name); }
 std::string Unit::path_of(const StatisticOut& s) const {
   if (s.path) return *s.path;
   if (s.of_field_id)
@@ -526,6 +541,15 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
   const auto r = sub.find(to_string(cls), path);
   if (!r) return {};
   if (!replace) throw Error(code::already_exists, sub.name() + ": " + what + " (" + path + ") already exists (made by another job); pass --replace");
+  if (cls == Cls::manifold) {
+    // what lies on a manifold goes with it, each moved aside with its own arrays first (a row removed alone would leave its arrays where the new ones are written)
+    const std::string mid = text(*r, "id");
+    std::vector<std::pair<Cls, std::string>> deps;
+    for (const Row& d : sub.db().all("SELECT path FROM field WHERE manifold_id = ? AND path IS NOT NULL", {V(mid)})) deps.emplace_back(Cls::field, text(d, "path"));
+    for (const Row& d : sub.db().all("SELECT path FROM operator WHERE (from_manifold_id = ? OR to_manifold_id = ?) AND path IS NOT NULL", {V(mid), V(mid)})) deps.emplace_back(Cls::operator_, text(d, "path"));
+    for (const Row& d : sub.db().all("SELECT array_path AS path FROM selection WHERE manifold_id = ? AND array_path IS NOT NULL", {V(mid)})) deps.emplace_back(Cls::selection, text(d, "path"));
+    for (const auto& [c, p] : deps) this->replace(c, p, true, what);
+  }
   std::string moved;
   // a node's folder moved aside, never deleted: a folder of its own for each replacement of the same node the same day (`_replaced-<date>`, then `-2`, `-3`, …): never over what an earlier one moved
   const auto move_aside = [&](const std::string& loc) {
@@ -569,6 +593,7 @@ std::string Unit::field(const FieldOut& f) {
   fs.array.compress = false;
   if (f.acquisition) fs.acquisition = *f.acquisition;
   if (f.unit) fs.cols.set("unit", *f.unit);
+  if (f.cell) fs.cols.set("cell", *f.cell);
   if (f.description) fs.cols.set("description", *f.description);
   if (f.derived_from_id) fs.cols.set("derived_from_id", *f.derived_from_id);
   if (f.of_operator_id) fs.cols.set("of_operator_id", *f.of_operator_id);
@@ -593,12 +618,28 @@ std::string Unit::statistic(const StatisticOut& s) {
 
 std::string Unit::operator_(const OperatorOut& o) {
   need_open(open_);
-  if (o.data.shape.size() != 2) throw Error(code::invalid_argument, "operator " + o.name + ": a dense [rows x cols] array");
   OperatorSpec op;
-  op.name = o.name; op.path = path_of(o); op.kind = o.kind; op.from_manifold_id = o.from_manifold_id; op.layout = "dense";
-  op.n_rows = o.data.shape[0]; op.n_cols = o.data.shape[1];
-  op.data = view_of(o.data, "operator " + o.name);
+  op.name = o.name; op.path = path_of(o); op.kind = o.kind; op.from_manifold_id = o.from_manifold_id;
+  if (o.sparse) {
+    const OperatorOut::Sparse& sp = *o.sparse;
+    if (sp.layout != "csr" && sp.layout != "csc") throw Error(code::invalid_argument, "operator " + o.name + ": a sparse operator is csr or csc");
+    const std::int64_t major = sp.layout == "csr" ? sp.n_rows : sp.n_cols, nnz = o.data.size();
+    if (static_cast<std::int64_t>(sp.indptr.size()) != major + 1 || static_cast<std::int64_t>(sp.indices.size()) != nnz || sp.indptr.back() != nnz)
+      throw Error(code::invalid_argument, "operator " + o.name + ": indptr, indices and values do not describe " + std::to_string(nnz) + " values in " + std::to_string(major) + " " + (sp.layout == "csr" ? "rows" : "columns"));
+    op.layout = sp.layout; op.n_rows = sp.n_rows; op.n_cols = sp.n_cols;
+    op.sparse = SparseArrays{{{"indptr", view(sp.indptr, {major + 1})}, {"indices", view(sp.indices, {nnz})}, {"data", view_of(o.data, "operator " + o.name)}}};
+    op.cols.set("nnz", nnz).set("data_type", o.data.f32.empty() ? "float64" : "float32");
+  } else {
+    if (o.data.shape.size() != 2) throw Error(code::invalid_argument, "operator " + o.name + ": a dense [rows x cols] array");
+    op.layout = "dense";
+    op.n_rows = o.data.shape[0]; op.n_cols = o.data.shape[1];
+    op.data = view_of(o.data, "operator " + o.name);
+    if (!o.chunk_shape.empty()) op.array.chunks = o.chunk_shape;
+    if (!o.shard_shape.empty()) op.array.shards = o.shard_shape;
+  }
   op.array.compress = false;
+  if (o.from_cell) op.cols.set("from_cell", *o.from_cell);
+  if (o.to_cell) op.cols.set("to_cell", *o.to_cell);
   if (o.acquisition) op.acquisition = *o.acquisition;
   op.created_utc = now_utc(false);
   op.cols.set("to_manifold_id", o.to_manifold_id).set("from_value_type", o.from_value_type).set("to_value_type", o.to_value_type);
@@ -868,6 +909,82 @@ std::string Unit::surface(const SurfaceOut& o) {
   ms.populate = [&sub, &v, &f, path, n, m](Store&, const std::string&) {
     sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
     sub.write_array(path + "/faces", view(f, {m, 3}));
+  };
+  return sub.manifold(std::move(ms));
+}
+
+std::string Unit::points(const PointsOut& p) {
+  need_open(open_);
+  SubjectWriter& sub = *impl_->writer;
+  if (p.positions.shape.size() != 1 || p.positions.f64.empty() || p.positions.size() != p.positions.shape[0]) throw Error(code::invalid_argument, "points " + p.name + ": coordinates [n] in float64");
+  const std::int64_t n = p.positions.shape[0];
+  const std::string path = path_of(p);
+  if (const auto r = sub.find("manifold", path)) {   // the same coordinates are the same axis; another one's is the caller's to replace first
+    const Node have = node_of(Cls::manifold, rec::ManifoldRow::from_row(*r));
+    if (have.n_vertices && *have.n_vertices == n) {
+      ArrayReader old = ArrayReader::open(sub.store(), path);
+      const std::vector<std::uint8_t> raw = old.read();
+      if (raw.size() == static_cast<std::size_t>(n) * sizeof(double) && std::equal(raw.begin(), raw.end(), reinterpret_cast<const std::uint8_t*>(p.positions.f64.data()))) return have.id;
+    }
+    throw Error(code::already_exists, sub.name() + ": the points " + p.name + " (" + path + ") exist with other coordinates; replace them first");
+  }
+  ManifoldSpec ms;
+  ms.name = p.name;
+  ms.path = path;
+  ms.type = "points";
+  ms.n_vertices = n;
+  ms.topology = {"none", 0, 1, std::nullopt, {}};
+  GeometrySpec g;
+  g.form = "stored";
+  g.cs_key = p.cs_key;
+  g.positions_path = path;
+  ms.geometry = g;
+  if (p.derived_from_id) ms.cols.set("derived_from_id", *p.derived_from_id);
+  if (!p.operator_name.empty()) ms.cols.set("operator", p.operator_name);
+  if (p.description) ms.cols.set("comment", *p.description);
+  ms.cols.json("producer_json", producer_of(by_, p.output, p.producer));
+  const Values& v = p.positions;
+  ms.populate = [&sub, &v, path, n](Store&, const std::string&) { sub.write_array(path, view(v.f64, {n})); };
+  return sub.manifold(std::move(ms));
+}
+
+std::string Unit::cell_complex(const ComplexOut& o) {
+  need_open(open_);
+  SubjectWriter& sub = *impl_->writer;
+  if (o.vertices.shape.size() != 2 || o.vertices.shape[1] != 3 || o.vertices.f64.empty() || o.vertices.size() != o.vertices.shape[0] * 3) throw Error(code::invalid_argument, "complex " + o.name + ": vertices [n x 3] in float64");
+  if (o.edges.empty() || o.edges.size() % 2 || o.faces.empty() || o.faces.size() % 3) throw Error(code::invalid_argument, "complex " + o.name + ": edges [nE x 2] and faces [nF x 3]");
+  const std::int64_t n = o.vertices.shape[0], nE = static_cast<std::int64_t>(o.edges.size() / 2), nF = static_cast<std::int64_t>(o.faces.size() / 3);
+  for (const auto e : o.edges) if (e < 0 || e >= n) throw Error(code::invalid_argument, "complex " + o.name + ": an edge names vertex " + std::to_string(e) + " of " + std::to_string(n));
+  for (const auto f : o.faces) if (f < 0 || f >= n) throw Error(code::invalid_argument, "complex " + o.name + ": a face names vertex " + std::to_string(f) + " of " + std::to_string(n));
+  const std::string path = path_of(o);
+  if (const auto r = sub.find("manifold", path)) {   // found again when it has the same cells; another one's is the caller's to replace first
+    const Node have = node_of(Cls::manifold, rec::ManifoldRow::from_row(*r));
+    if (have.n_vertices && *have.n_vertices == n && integer(*r, "n_edges") == nE && integer(*r, "n_faces") == nF) return have.id;
+    throw Error(code::already_exists, sub.name() + ": the complex " + o.name + " (" + path + ") exists with other cells; replace it first");
+  }
+  ManifoldSpec ms;
+  ms.name = o.name;
+  ms.path = path;
+  ms.type = "surface";
+  ms.n_vertices = n;
+  ms.topology = {"simplicial", 2, 1, std::string("ccw-outward"), {{1, path + "/edges"}, {2, path + "/faces"}}};
+  GeometrySpec g;
+  g.form = "stored";
+  g.cs_key = o.cs_key;
+  g.positions_path = path + "/vertices";
+  ms.geometry = g;
+  if (o.acquisition_id) ms.cols.set("acquisition_id", *o.acquisition_id);
+  if (o.derived_from_id) ms.cols.set("derived_from_id", *o.derived_from_id);
+  if (o.description) ms.cols.set("comment", *o.description);
+  ms.cols.set("n_edges", nE).set("n_faces", nF);
+  ms.cols.json("producer_json", producer_of(by_, o.output, o.producer));
+  const Values& v = o.vertices;
+  const std::vector<std::int32_t>& e = o.edges;
+  const std::vector<std::int32_t>& f = o.faces;
+  ms.populate = [&sub, &v, &e, &f, path, n, nE, nF](Store&, const std::string&) {
+    sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
+    sub.write_array(path + "/edges", view(e, {nE, 2}));
+    sub.write_array(path + "/faces", view(f, {nF, 3}));
   };
   return sub.manifold(std::move(ms));
 }

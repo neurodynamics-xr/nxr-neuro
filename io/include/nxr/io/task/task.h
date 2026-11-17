@@ -110,7 +110,9 @@ struct Values {
   std::vector<std::int64_t> shape;
   std::vector<float> f32;
   std::vector<double> f64;
-  std::int64_t size() const { return static_cast<std::int64_t>(f32.empty() ? f64.size() : f32.size()); }
+  std::vector<std::int32_t> i32;                   // integer values (an index, a count): exactly one of the four is filled
+  std::vector<std::uint8_t> u8;                    // small codes (a form degree, a flag)
+  std::int64_t size() const { return static_cast<std::int64_t>(f32.size() + f64.size() + i32.size() + u8.size()); }
 };
 // a Field on a manifold
 struct FieldOut {
@@ -118,6 +120,7 @@ struct FieldOut {
   std::optional<std::string> path;                 // default: io's node path for the name on the manifold
   std::string value_type = "scalar";               // scalar · complex · vector3 · quaternion · hermitian3 …
   std::optional<std::string> unit, description, derived_from_id, acquisition;
+  std::optional<std::string> cell;                 // WHICH cells of its manifold the values sit on (the schema's cell key, D92): '0' vertices (the default), '1' edges, '2' faces, '1,0' on a product
   std::optional<std::string> of_operator_id;       // a field of an operator (a head model's source positions)
   std::optional<std::string> by_operator_id;       // a field made BY an operator (a source estimate: the inverse kernel applied to a recording; derived_from_id is the recording)
   Json producer;                                   // added to the unit's producer record (null: nothing added)
@@ -146,7 +149,17 @@ struct OperatorOut {
   std::optional<std::string> from_selection_id, to_selection_id, derived_from_id, of_statistic_id, description, acquisition;   // of_statistic_id: the statistic it is derived from
   Json params;                                     // the operator's parameters (null: none)
   Json producer;
-  Values data;                                     // dense [rows x cols]
+  std::optional<std::string> from_cell, to_cell;   // the cell keys of its two ends (D92): a differential operator maps within ONE manifold and changes the cell (d0: '0' -> '1')
+  std::vector<std::int64_t> chunk_shape, shard_shape;   // a dense array's stored layout (empty: io's policy)
+  // a SPARSE operator (csr or csc, the schema's D160): `data` holds the nnz values (float32 or float64), these the structure; rows x cols is its shape
+  struct Sparse {
+    std::string layout = "csr";
+    std::int64_t n_rows = 0, n_cols = 0;
+    std::vector<std::int64_t> indptr;              // [n_rows + 1] for csr, [n_cols + 1] for csc
+    std::vector<std::int32_t> indices;             // [nnz]: the column of each value in a csr row, the row in a csc column
+  };
+  std::optional<Sparse> sparse;
+  Values data;                                     // dense [rows x cols], or the sparse operator's nnz values
 };
 // MEASUREMENTS OF A FIELD OVER A PARTITION, array-backed: one value per member for each measure (the pyramid's leaves: additive ingredients, ratios derived at read).
 // Each measure's values are stored at `<path>/<measure>` and recorded as a measurement row of `selection_id`; `band` (name, lo_hz, hi_hz) records the band it is within.
@@ -229,6 +242,27 @@ struct SurfaceOut {
   std::vector<std::int32_t> faces;                 // [m x 3], counter-clockwise seen from outside
   Json producer;
 };
+// a manifold of POINTS with ONE coordinate each (an operator's mode axis: the eigenvalues): found by path and REPLACED when asked, its coordinates [n] in float64
+struct PointsOut {
+  std::string name, output;
+  std::optional<std::string> path;                 // default: io's folder for the operator's points (`eigenvalue/<name>`)
+  std::string cs_key = "eigenvalue";               // its coordinate system
+  std::string operator_name;                       // the operator whose by-product this axis is (`hodgeDirac`); recorded on the manifold
+  std::optional<std::string> derived_from_id, description;
+  Values positions;                                // [n], float64
+  Json producer;
+};
+// a CELL COMPLEX on a set of vertices: a surface manifold whose vertices, edges (1-cells, [nE x 2] tail, tip) and faces (2-cells, [nF x 3]) are STORED (two edges may join one
+// pair of vertices, so the incidence is read from the operators d0 and d1 beside it, never from vertex pairs); the cells' fields and operators lie on it
+struct ComplexOut {
+  std::string name, output;
+  std::optional<std::string> path;                 // default: `source/<name>`
+  std::string cs_key = "scs";
+  std::optional<std::string> derived_from_id, description, acquisition_id;
+  Values vertices;                                 // [n x 3], float64
+  std::vector<std::int32_t> edges, faces;          // [nE x 2], [nF x 3]
+  Json producer;
+};
 // a product of manifolds (a sensor × time line, a surface × frequency): its factors in axis order, existing or made in the same unit
 struct ProductOut {
   std::vector<std::string> factors;
@@ -300,6 +334,7 @@ class Subject {
   // ---- what the command line looks up by name
   std::optional<Node> by_id_or_name(Cls, const std::string& key) const;   // the complete node with that id or that name (an id match first)
   std::optional<std::string> line_named(const std::string& name) const;   // the id of the manifold of type line with that name (any status)
+  std::optional<std::string> manifold_named(const std::string& name) const;   // the id of the manifold with that name (the subject's, any status)
   // the time lines a complete recording lies on (the line factors of its product manifold): every recording's, first seen first; or the named recording's first
   std::vector<std::string> recording_time_lines() const;
   std::optional<std::string> recording_time_line(const std::string& recording) const;
@@ -361,11 +396,15 @@ class Unit {
   std::string line(const LineOut&);
   std::string surface(const SurfaceOut&);
   std::string product(const ProductOut&);
+  std::string points(const PointsOut&);            // found by path and kept when it holds the same coordinates; another one's is replaced by `replace` first
+  std::string cell_complex(const ComplexOut&);     // found by path and kept when it holds the same cells; another one's is replaced by `replace` first
   // the place a result would take (what `replace` and the cache look at)
   std::string path_of(const FieldOut&) const;
   std::string path_of(const StatisticOut&) const;
   std::string path_of(const OperatorOut&) const;
   std::string path_of(const SelectionOut&) const;
+  std::string path_of(const PointsOut&) const;
+  std::string path_of(const ComplexOut&) const;
   // a node of class `cls` already at `path`: refused (code already_exists, naming `what`) unless `replace`, then moved aside (its arrays to a dated
   // `_replaced-*` folder, never deleted) and its row removed; returns where its arrays went (empty: nothing was there, or it had none)
   std::string replace(Cls cls, const std::string& path, bool replace, const std::string& what);
