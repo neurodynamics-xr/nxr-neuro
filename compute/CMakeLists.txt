@@ -47,6 +47,8 @@ add_library(nxr_compute STATIC
   src/delaunay.cpp
   src/eigensolver.cpp
   src/congruence.cpp
+  src/nearest.cpp
+  src/connectome.cpp
   src/magnetic.cpp
   src/lag.cpp
   src/region.cpp
@@ -76,6 +78,7 @@ add_library(nxr_compute STATIC
   src/covariant_laplacian.cpp
   src/query_measure.cpp
   src/geometry_grid.cpp
+  src/intrinsic_surface.cpp
   src/gauge.cpp
   src/topology.cpp
   src/geometry_bundle.cpp
@@ -170,6 +173,15 @@ set_source_files_properties(src/glue.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contra
 target_link_libraries(nxr_compute PUBLIC
   geometry-central
 )
+# The pinned geometry-central commit (7 hex), read from the submodule at configure time: nxr::manifold::geometryCentralVersion() and the gauge identity
+# (docs/specs/2026-11-17-geometry-central-switch.md section 7). "unknown" outside a git checkout (a source tarball).
+execute_process(COMMAND git -C ${CMAKE_CURRENT_SOURCE_DIR}/deps/geometry-central rev-parse --short=7 HEAD
+                OUTPUT_VARIABLE NXR_GC_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET RESULT_VARIABLE NXR_GC_RC)
+if(NOT NXR_GC_RC EQUAL 0 OR NXR_GC_COMMIT STREQUAL "")
+  set(NXR_GC_COMMIT "unknown")
+endif()
+set_property(SOURCE src/intrinsic_surface.cpp APPEND PROPERTY COMPILE_DEFINITIONS NXR_GEOMETRY_CENTRAL_COMMIT="${NXR_GC_COMMIT}")
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/../.gitmodules)
 # std::thread (parallel.cpp): the platform's own threads, not a library dependency
 if(NOT EMSCRIPTEN)
   find_package(Threads REQUIRED)
@@ -250,6 +262,17 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     add_executable(test_normalize test/test_normalize.cpp)
     target_link_libraries(test_normalize PRIVATE nxr_compute)
     add_test(NAME test_normalize COMMAND test_normalize)
+
+    # the analytic tests of the geometry-central switch (docs/specs/2026-11-17-geometry-central-switch.md, section 4) and the version pin
+    add_executable(test_intrinsic_surface test/test_intrinsic_surface.cpp)
+    target_link_libraries(test_intrinsic_surface PRIVATE nxr_compute)
+    target_compile_definitions(test_intrinsic_surface PRIVATE NXR_SOURCE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/..")
+    add_test(NAME test_intrinsic_surface COMMAND test_intrinsic_surface)
+
+    # the one-time comparison with the port (kept until the port is deleted) and the poor-mesh study
+    add_executable(test_gc_port_comparison test/test_gc_port_comparison.cpp)
+    target_link_libraries(test_gc_port_comparison PRIVATE nxr_compute)
+    add_test(NAME test_gc_port_comparison COMMAND test_gc_port_comparison)
 
     add_executable(test_delaunay test/test_delaunay.cpp)
     target_link_libraries(test_delaunay PRIVATE nxr_compute)
@@ -356,6 +379,18 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
     target_link_libraries(test_tracks PRIVATE nxr_compute)
     target_compile_definitions(test_tracks PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
     add_test(NAME test_tracks COMMAND test_tracks)
+    add_executable(test_connectome test/test_connectome.cpp)
+    target_link_libraries(test_connectome PRIVATE nxr_compute)
+    add_test(NAME test_connectome COMMAND test_connectome)
+    add_executable(test_connectome_partition test/test_connectome_partition.cpp)
+    target_link_libraries(test_connectome_partition PRIVATE nxr_compute)
+    add_test(NAME test_connectome_partition COMMAND test_connectome_partition)
+    add_executable(test_connectome_gate test/test_connectome_gate.cpp)
+    target_link_libraries(test_connectome_gate PRIVATE nxr_compute)
+    add_test(NAME test_connectome_gate COMMAND test_connectome_gate)
+    add_executable(test_connectome_registration test/test_connectome_registration.cpp)
+    target_link_libraries(test_connectome_registration PRIVATE nxr_compute)
+    add_test(NAME test_connectome_registration COMMAND test_connectome_registration)
     add_executable(test_crossings test/test_crossings.cpp)
     target_link_libraries(test_crossings PRIVATE nxr_compute)
     target_compile_definitions(test_crossings PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")

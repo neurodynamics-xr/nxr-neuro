@@ -1,6 +1,8 @@
 // nxr-io — the task-level API (io/include/nxr/io/task/task.h) on the repositories and io's helpers. The only place orchestration's questions become SQL.
 #include "nxr/io/task/task.h"
 
+#include <algorithm>
+
 #include "nxr/io/database.h"
 #include "nxr/io/layout.h"
 #include "nxr/io/measures.h"
@@ -334,6 +336,52 @@ bool Subject::has_measure(const std::string& selection_id, const std::string& me
   std::vector<Value> args{V(selection_id), V(measure)};
   if (of_field_id) { sql += " AND of_field_id = ?"; args.push_back(V(*of_field_id)); }
   return impl_->db->one(sql + " LIMIT 1", args).has_value();
+}
+
+std::optional<Node> Subject::by_id_or_name(Cls cls, const std::string& key) const {
+  const std::string t = to_string(cls);
+  const auto r = impl_->db->one("SELECT id FROM " + t + " WHERE subject_id = ? AND (id = ? OR name = ?) AND status = 'complete' ORDER BY (id = ?) DESC",
+                                {V(impl_->id), V(key), V(key), V(key)});
+  if (!r) return std::nullopt;
+  return by_id(cls, text(*r, "id"));
+}
+
+std::optional<std::string> Subject::line_named(const std::string& name) const {
+  const auto r = impl_->db->one("SELECT id FROM manifold WHERE subject_id = ? AND name = ? AND type = 'line'", {V(impl_->id), V(name)});
+  if (!r) return std::nullopt;
+  return text(*r, "id");
+}
+
+namespace {
+// the time lines (a product's line factors) of the complete recordings of a subject
+const char* kRecordingLines =
+    "SELECT gd.manifold_id AS line FROM field f JOIN manifold m ON m.id = f.manifold_id JOIN geometry_dimension gd ON gd.geometry_id = m.geometry_id "
+    "JOIN manifold t ON t.id = gd.manifold_id WHERE f.subject_id = ? AND f.kind = 'recording' AND f.status = 'complete' AND t.type = 'line'";
+}  // namespace
+
+std::vector<std::string> Subject::recording_time_lines() const {
+  std::vector<std::string> out;
+  for (const Row& r : impl_->db->all(kRecordingLines, {V(impl_->id)}))
+    if (std::find(out.begin(), out.end(), text(r, "line")) == out.end()) out.push_back(text(r, "line"));
+  return out;
+}
+
+std::optional<std::string> Subject::recording_time_line(const std::string& recording) const {
+  const auto r = impl_->db->one(std::string(kRecordingLines) + " AND f.name = ?", {V(impl_->id), V(recording)});
+  if (!r) return std::nullopt;
+  return text(*r, "line");
+}
+
+NodeCounts Subject::node_counts() const {
+  auto count = [&](const char* t) { return integer(*impl_->db->one(std::string("SELECT count(*) AS n FROM ") + t + " WHERE subject_id = ?", {V(impl_->id)}), "n"); };
+  return NodeCounts{count("manifold"), count("field"), count("operator"), count("selection")};
+}
+
+Json Subject::read_measurements(const Json& q) const {
+  if (impl_->writer) return query_measurements(*impl_->db, impl_->writer->store(), q);
+  if (q.contains("spaceLevel") || q.contains("timeLevel") || q.contains("band") || q.contains("spatialBand"))
+    throw Error(code::invalid_argument, "read_measurements: a pyramid's levels are read through the subject's store (a Subject made from a writer)");
+  return query_measurements(*impl_->db, q);
 }
 
 Unit Subject::unit(const By& by) const {

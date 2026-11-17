@@ -109,7 +109,7 @@ if(NXR_IO_WASM)
   add_subdirectory(formats)   # the pure formats (own target; nxr_io links it)
   add_library(nxr_io
     src/codec_zstd.cpp src/codec_pipeline.cpp src/dtype.cpp src/metadata.cpp src/chunking.cpp src/zarr_store.cpp src/sparse.cpp src/schema.cpp
-    src/dataset.cpp src/array_reader.cpp src/json_text.cpp src/database.cpp src/records.cpp src/task.cpp src/named_paths.cpp src/layout.cpp src/writer_lock.cpp src/array_writer.cpp src/compact.cpp
+    src/dataset.cpp src/array_reader.cpp src/json_text.cpp src/database.cpp src/records.cpp src/task.cpp src/task_dataset.cpp src/named_paths.cpp src/layout.cpp src/writer_lock.cpp src/array_writer.cpp src/compact.cpp
     src/writer.cpp src/subject_writer.cpp src/mesh.cpp src/surface.cpp src/npy.cpp src/default_subject.cpp src/bundle.cpp src/cells.cpp src/measures.cpp src/spatial_bands.cpp src/rollup.cpp src/statistic.cpp src/yaml.cpp src/finder.cpp src/hash.cpp
     src/bst_mat.cpp src/bst_protocol.cpp src/bst_subject.cpp src/bst_entities.cpp src/bst_sensors.cpp src/bst_projectors.cpp src/bst_mri.cpp src/bst_naming.cpp
     src/bst_session.cpp src/bst_recording.cpp src/bst_events.cpp src/bst_resample.cpp src/bst_frequency.cpp src/bst_inverse.cpp src/bst_maps.cpp src/bst_timefreq.cpp
@@ -248,6 +248,7 @@ add_library(nxr_io
   src/database.cpp
   src/records.cpp
   src/task.cpp
+  src/task_dataset.cpp
   src/named_paths.cpp
   src/layout.cpp
   src/writer_lock.cpp
@@ -332,7 +333,7 @@ target_link_libraries(nxr-neuro-bst-compare PRIVATE nxr_io)
 
 # --- tests (hand-written + ctest) ---
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_IO_TESTS import_recording records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import fibers schema51 split_groups)
+  set(NXR_IO_TESTS import_recording records task codec codec_pipeline dtype array_io groups read_existing crud sparse schema writer bst default_subject value_types chunk_loop constant_q measures statistic store small_file_store rollup chunk_separator compact format52 subject_package subject_filter catalogue migrate templates template_import fibers schema51 split_groups task_dataset)
   foreach(t ${NXR_IO_TESTS})
     add_executable(test_${t} test/test_${t}.cpp)
     target_link_libraries(test_${t} PRIVATE nxr_io nxr_io_testing)
