@@ -324,12 +324,67 @@ bool Subject::has_measure(const std::string& selection_id, const std::string& me
   return impl_->db->one(sql + " LIMIT 1", args).has_value();
 }
 
-void Subject::commit(const std::function<void()>& body) const {
-  if (!impl_->writer) throw Error(code::not_writable, "commit: this Subject was opened for reading");
-  // one database transaction around the composition: the node procedure's own rollback undoes the nodes it made; this undoes every other row written inside (measurements on
-  // an existing selection, parameters), so a failed unit stores nothing
-  impl_->db->tx([&] { impl_->writer->compose(body); });
+Unit Subject::unit(const By& by) const {
+  if (!impl_->writer) throw Error(code::not_writable, "unit: this Subject was opened for reading");
+  return Unit(impl_, by);
 }
+
+void Subject::commit(const std::function<void()>& body, const By& by) const {
+  Unit u = unit(by);
+  body();   // an exception leaves `u` to roll back
+  u.commit();
+}
+
+// One database transaction around the composition: the writer's own abort undoes the nodes it made; the transaction undoes every other row written inside
+// (measurements on an existing selection, parameters), so a failed unit stores nothing.
+Unit::Unit(std::shared_ptr<Subject::Impl> impl, By by) : impl_(std::move(impl)), by_(std::move(by)) {
+  impl_->db->tx_begin();
+  open_ = true;
+}
+Unit::Unit(Unit&& o) noexcept : impl_(std::move(o.impl_)), by_(std::move(o.by_)), open_(o.open_) { o.open_ = false; }
+Unit::~Unit() { rollback(); }
+const By& Unit::by() const { return by_; }
+
+void Unit::commit() {
+  if (!open_) throw Error(code::not_writable, "unit: already committed or rolled back");
+  try {
+    impl_->writer->complete();
+  } catch (...) {
+    rollback();
+    throw;
+  }
+  open_ = false;
+  try {
+    impl_->db->tx_commit();
+  } catch (...) {
+    try { impl_->writer->abort(); } catch (...) {}
+    throw;
+  }
+}
+
+void Unit::rollback() noexcept {
+  if (!open_) return;
+  open_ = false;
+  try { impl_->writer->abort(); } catch (...) {}
+  impl_->db->tx_rollback();
+}
+
+std::int64_t Unit::write_measurements(const Json& rows) {
+  if (!open_) throw Error(code::not_writable, "unit: closed");
+  return nxr::io::write_measurements(*impl_->db, rows, by_.tool);
+}
+std::int64_t Unit::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) {
+  if (!open_) throw Error(code::not_writable, "unit: closed");
+  Json where{{"selectionId", selection_id}};
+  if (of_field_id) where["ofFieldId"] = *of_field_id;
+  if (measure) where["measure"] = *measure;
+  return nxr::io::delete_measurements(*impl_->db, where);
+}
+void Unit::set_params(const std::string& selection_id, const Json& params) {
+  if (!open_) throw Error(code::not_writable, "unit: closed");
+  impl_->db->execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(params)), V(selection_id)});
+}
+
 
 std::int64_t Subject::write_measurements(const Json& rows, const std::optional<std::string>& by) const {
   std::int64_t n = 0;

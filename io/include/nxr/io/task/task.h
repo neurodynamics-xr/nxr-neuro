@@ -94,6 +94,14 @@ struct MapSlice {
   std::string value_type = "scalar";
 };
 
+// Who made a result, for its provenance: the program (what a measurement row records as `computed_by`) and the producer JSON a node keeps (how it was made, with its cache key).
+struct By {
+  std::string tool;
+  Json producer;                                   // null: none
+};
+
+class Unit;
+
 // io's handle to ONE subject in one database. Cheap to copy; the writer or package it was made from must outlive it.
 class Subject {
  public:
@@ -137,17 +145,48 @@ class Subject {
   bool has_measures(const std::string& selection_id, const std::string& of_field_id) const;   // any measure of that field on the selection
   bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt) const;
 
-  // ---- commit a result as ONE unit: everything written by `body` (nodes, arrays, measurements, parameters) is stored together or not at all
-  void commit(const std::function<void()>& body) const;
+  // ---- commit a result as ONE unit: everything written inside it (nodes and arrays through the subject's writer, measurements, parameters) is stored together or not at all.
+  //   auto u = subject.unit(By{"nxr-neuro tiles"});   // opens it
+  //   ... writer calls, u.write_measurements(rows), u.set_params(id, p) ...
+  //   u.commit();                                      // every node it made complete, one drain, the transaction committed; a Unit destroyed without it rolls back
+  Unit unit(const By& by) const;
+  // the same as a scope: `body` runs in a Unit that commits when it returns and rolls back when it throws
+  void commit(const std::function<void()>& body, const By& by = By{"nxr-neuro", {}}) const;
+  // measurement rows and parameters outside a unit (each is its own transaction); inside one use the Unit's
   std::int64_t write_measurements(const Json& rows, const std::optional<std::string>& by) const;
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
                                    const std::optional<std::string>& measure = std::nullopt) const;
   void set_params(const std::string& selection_id, const Json& params) const;              // a selection's parameters, replaced
 
  private:
+  friend class Unit;
   struct Impl;
   Subject() = default;
   std::shared_ptr<Impl> impl_;
+};
+
+// ONE atomic unit of writing in a subject (opened by Subject::unit). Move-only. `commit()` stores everything; destroyed (or `rollback()`) without it, nothing is stored.
+class Unit {
+ public:
+  Unit(Unit&&) noexcept;
+  Unit& operator=(Unit&&) = delete;
+  ~Unit();
+  const By& by() const;
+  // the measurement rows of the unit, recorded as computed by `by().tool`; returns the number written
+  std::int64_t write_measurements(const Json& rows);
+  std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
+                                   const std::optional<std::string>& measure = std::nullopt);
+  void set_params(const std::string& selection_id, const Json& params);
+  void commit();
+  void rollback() noexcept;
+  bool open() const { return open_; }
+
+ private:
+  friend class Subject;
+  Unit(std::shared_ptr<Subject::Impl> impl, By by);
+  std::shared_ptr<Subject::Impl> impl_;
+  By by_;
+  bool open_ = false;
 };
 
 }  // namespace nxr::io::task

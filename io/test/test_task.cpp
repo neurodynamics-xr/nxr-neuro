@@ -103,6 +103,25 @@ int main() {
     CHECK(!t.has_measure(member0, "area"));    // all or nothing
     t.commit([&] { t.write_measurements(rows, std::nullopt); });
     CHECK(t.has_measure(member0, "area"));
+    {   // a Unit: rows and parameters together, or nothing
+      t.remove_measurements(member0);
+      const Json params_before = t.require_id(Cls::selection, setid).params;
+      {
+        Unit u = t.unit(By{"unit test", Json::object()});
+        CHECK_EQ(u.write_measurements(rows), static_cast<std::int64_t>(1));
+        u.set_params(setid, Json{{"changed", true}});
+        CHECK(t.has_measure(member0, "area"));
+      }   // destroyed without commit: rolled back
+      CHECK(!t.has_measure(member0, "area"));
+      CHECK(t.require_id(Cls::selection, setid).params == params_before);
+      Unit u = t.unit(By{"unit test", Json::object()});
+      u.write_measurements(rows);
+      u.set_params(setid, Json{{"changed", true}});
+      u.commit();
+      CHECK_EQ(code_of([&] { u.commit(); }), std::string(code::not_writable));
+      CHECK(t.has_measure(member0, "area"));
+      CHECK(t.require_id(Cls::selection, setid).params.contains("changed"));
+    }
     t.set_params(setid, Json{{"atlas", Json{{"tree", "group"}}}, {"joint", 3}});   // back as it was
     sub.complete();
   }

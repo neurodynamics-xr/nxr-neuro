@@ -90,6 +90,11 @@ class Database {
 
   // Run `body` in a transaction (a nested one is a savepoint); any exception rolls back and propagates.
   void tx(const std::function<void()>& body);
+  // The same transaction in three calls, for a scope that cannot be one function (io's task-level Unit): `tx_begin`, then `tx_commit` or `tx_rollback` (never throws).
+  // A nested one is a savepoint; the calls must be made in strict nesting order.
+  void tx_begin();
+  void tx_commit();
+  void tx_rollback() noexcept;
 
   std::vector<Row> all(const std::string& sql, const std::vector<Value>& params = {}) const;
   std::optional<Row> one(const std::string& sql, const std::vector<Value>& params = {}) const;
@@ -115,6 +120,9 @@ class Database {
   bool read_only_ = false;
   void* db_ = nullptr;  // sqlite3*
   int depth_ = 0;
+  mutable std::map<std::string, void*> stmts_;   // the prepared-statement cache: SQL text -> sqlite3_stmt*, kept for the life of the connection, reset after every use
+  void* prepared(const std::string& sql) const;
+  void finalize_prepared() noexcept;
   mutable std::map<std::string, std::vector<std::string>> cols_, pk_;
   void load_columns(const std::string& table) const;
 };
