@@ -1,0 +1,59 @@
+# THE HEAD MODEL OF A SUBJECT IN SPHERES (an operator, the gain): MEG by Sarvas in one sphere fitted to the inner skull (single_sphere) or one sphere a sensor fitted to it
+# (overlapping_spheres, Brainstorm's default); EEG in three concentric shells fitted to the scalp (Berg-Scherg or the series), the electrodes moved onto the sphere. The sources are
+# the vertices of the source surface (x y z moments); the sensors are the channels' coils with their weights when stored, else one point a channel. The surfaces and the channels
+# are named by the caller (nothing is guessed): a model whose surface is not named is refused.
+# Stored: the gain `<name>` (an operator from the source surface, vector3, to the channels) and the source positions `<name>_GridLoc` (a field of it, in m).
+#
+#   nxr-neuro run headmodel --dataset <folder> --subject sub-01 --channels sensors --sources cortex --meg-surface inner_skull --eeg-surface scalp
+pipeline: headmodel
+version: 1
+description: the gain of a spherical head model (MEG by Sarvas, three-shell EEG) on a source surface
+scope: subject
+
+inputs:
+  channels:    {manifold: points, where: {name: $channels}}
+  sources:     {manifold: surface, where: {name: $sources}}
+  meg_surface: {manifold: surface, where: {name: $meg_surface}, required: false}
+  eeg_surface: {manifold: surface, where: {name: $eeg_surface}, required: false}
+
+parameters:
+  channels: {default: null, meaning: "the channels manifold (a points manifold with a 'type' labelling) by name", unit: "-"}
+  sources: {default: null, meaning: "the source surface by name: its vertices are the sources", unit: "-"}
+  meg_surface: {default: null, meaning: "the surface the MEG spheres are fitted to (the inner skull) by name; null: no MEG model", unit: "-"}
+  eeg_surface: {default: null, meaning: "the surface the EEG sphere is fitted to (the scalp) by name; null: no EEG model", unit: "-"}
+  name: {default: headmodel, meaning: "the gain's name; its source positions are <name>_GridLoc", unit: "-"}
+  meg: {default: overlapping_spheres, meaning: "the MEG model: overlapping_spheres | single_sphere | none", unit: "-", choices: [overlapping_spheres, single_sphere, none]}
+  eeg: {default: true, meaning: "compute the EEG channels (three shells)", unit: "-"}
+  project_electrodes: {default: true, meaning: "move the electrodes radially onto the fitted EEG sphere", unit: "-"}
+  sphere_cost: {default: geometric, meaning: "the sphere fit's cost: geometric | algebraic", unit: "-", choices: [geometric, algebraic]}
+  sensor_weight_exponent: {default: 4.0, meaning: "the overlapping spheres' weight exponent p (w = sum |weight| d^-p)", unit: "-"}
+  eeg_layers: {default: brainstorm, meaning: "the shells' radii and conductivities: brainstorm | mne", unit: "-", choices: [brainstorm, mne]}
+  eeg_radii: {default: null, meaning: "the shells' relative radii, innermost to outermost; null: the layers'", unit: "-"}
+  eeg_conductivities: {default: null, meaning: "the shells' conductivities, innermost to outermost; null: the layers'", unit: "S/m"}
+  eeg_approximation: {default: berg_scherg, meaning: "berg_scherg | series", unit: "-", choices: [berg_scherg, series]}
+  eeg_series_terms: {default: null, meaning: "the series' terms; null: the default", unit: "-"}
+  berg_dipoles: {default: null, meaning: "the Berg-Scherg dipoles; null: the default", unit: "-"}
+  berg_terms: {default: null, meaning: "the series terms the Berg-Scherg fit matches; null: the default", unit: "-"}
+  berg_starts: {default: null, meaning: "the Berg-Scherg fit's simplex starts; null: the default", unit: "-"}
+
+steps:
+  before:
+    - node: meeg.spherical_head_model
+      in: {channels: channels, sources: sources, meg_surface: meg_surface, eeg_surface: eeg_surface}
+      with: {meg: $meg, eeg: $eeg, project_electrodes: $project_electrodes, sphere_cost: $sphere_cost, sensor_weight_exponent: $sensor_weight_exponent, eeg_layers: $eeg_layers, eeg_radii: $eeg_radii, eeg_conductivities: $eeg_conductivities, eeg_approximation: $eeg_approximation, eeg_series_terms: $eeg_series_terms, berg_dipoles: $berg_dipoles, berg_terms: $berg_terms, berg_starts: $berg_starts}
+      out: [gain, grid]
+
+outputs:
+  gain:
+    kind: operator
+    operator_kind: forward
+    name: $name
+    from: sources.manifold.0
+    to: channels.manifold.0
+    acquisition_of: channels
+  grid:
+    kind: field
+    kind_name: GridLoc
+    name: "$name_GridLoc"
+    on: sources.manifold.0
+    of_operator: gain

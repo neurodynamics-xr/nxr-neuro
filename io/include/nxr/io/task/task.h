@@ -118,6 +118,7 @@ struct FieldOut {
   std::optional<std::string> path;                 // default: io's node path for the name on the manifold
   std::string value_type = "scalar";               // scalar · complex · vector3 · quaternion · hermitian3 …
   std::optional<std::string> unit, description, derived_from_id, acquisition;
+  std::optional<std::string> of_operator_id;       // a field of an operator (a head model's source positions)
   Json producer;                                   // added to the unit's producer record (null: nothing added)
   Values data;                                     // [n_vertices] or [n_vertices x components]
 };

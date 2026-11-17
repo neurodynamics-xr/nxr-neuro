@@ -69,11 +69,8 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --batch@run null	N	Draws are made in batches of this size	20	draws
 --batch@run spatialnull	N	Draws made between checks of the stopping rule.	20	draws
 --berg-dipoles	J	Number of equivalent dipoles in the Berg-Scherg approximation of the three-shell EEG sphere.	3	-
---berg-dipoles@run headmodel	N	The number of equivalent dipoles J in the Berg-Scherg fit of the EEG sphere.	3	-
 --berg-starts	N	Number of simplex starts when fitting the three-dipole Berg-Scherg approximation of the EEG sphere model; the best fit is kept	12	-
---berg-starts@run headmodel	N	The number of simplex starting points in the Berg-Scherg fit; the best minimum is kept.	12	-
 --berg-terms	N	Number of series terms fitted when approximating the multi-shell EEG model by the Berg-Scherg parameters.	200	terms
---berg-terms@run headmodel	N	The number of series terms the Berg-Scherg fit is made to.	200	-
 --block-frames	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-frames@run	N	How many frames the steps after a frame tiling process at once; limits memory only, the result does not change (0 = the whole chunk's frames).	256	frames
 --block-samples	N	Samples processed at a time, which sets memory use only and does not change the result (run: width for the steps after the last filter, 0 = whole chunk; pyramid build: samples projected at a time)	run: 1024; pyramid build: 512 (fixed-orientation kernel) or 128 (free)	samples
@@ -99,7 +96,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --channels-id@import inverse	ID	Id of the stored channels the kernel was made for (a row of the subject).	found from the subject's session channels	-
 --channels-of	KERNEL	Use the channels of this stored inverse kernel, in its order, for the cross-spectrum; an alternative to --types.	none (all good channels of the chosen types)	-
 --channels-of@run crossspectrum	KERNEL	Use the channels of this stored inverse kernel, in its order, so the cross-spectrum matches the kernel; an alternative to --types.	none (the good channels of the chosen types)	-
---channels@run headmodel	NAME	The channels manifold (sensor positions and types) the gain is computed for.	the subject's only points manifold with a type labelling	-
 --chunks	K|A-B|all	Which part of the recording to read: one chunk K, a range of chunks A-B, or all chunks looped one after another (a chunk is 2^15 samples of every channel). Exclusive with --start/--stop.	0 (one chunk)	chunks
 --combine	each|pool|mean	How values are combined before summarising: each row separately, all rows pooled, or the mean over rows per member	each	-
 --combine@run statistic	each|pool|mean	How values are combined before summarising: each row (channel or vertex) separately, every value of every row pooled, or the mean over rows per member.	each	-
@@ -155,15 +151,10 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --edge-lag	frame|frame-normal|frame-tangent|axial|ambient	How each edge's phase lag is read: in the surface's own frame (frame), its normal or tangent part alone, modulo pi (axial), or from the x y z components as they are (ambient).	frame	-
 --edge-lag@run phasegradient	frame|frame-normal|frame-tangent|axial|ambient	How the phase lag along each mesh edge is compared (with --spatial-band): in the surface frame, its normal or tangent part alone, modulo pi, or as raw x y z components.	frame	-
 --eeg-conductivities	S1,S2,S3	Conductivities of the EEG sphere shells, innermost to outermost (brain, skull, scalp)	0.33,0.0042,0.33	S/m
---eeg-conductivities@run headmodel	C1,C2,...	Conductivities of the EEG sphere's shells, innermost to outermost.	0.33,0.0042,0.33	S/m
 --eeg-radii	R1,R2,R3	Relative radii of the EEG head model's shells, innermost to outermost (brain, skull, scalp).	0.88,0.93,1.0	relative
---eeg-radii@run headmodel	R1,R2,...	Relative radii of the EEG sphere's shells, innermost to outermost (brain, skull, scalp).	0.88,0.93,1.0	fraction
 --eeg-series		Use the multi-shell series itself for the EEG sphere instead of the Berg-Scherg equivalent dipoles (slower, exact up to truncation).	off	-
 --eeg-series-terms	N	Number of terms of the multi-shell series when it is used instead of the three-dipole fit (with --eeg-series)	200	terms
---eeg-series-terms@run headmodel	N	The number of terms of the multi-shell series, with --eeg-series.	200	-
---eeg-series@run headmodel		Compute the EEG gain with the multi-shell series itself instead of the Berg-Scherg equivalent dipoles (exact up to truncation, slower).	off	-
 --eeg-surface	NAME	Name of the surface the EEG sphere is fitted to.	the surface called scalp (or head)	-
---eeg-surface@run headmodel	NAME	The surface the EEG sphere is fitted to.	the surface called scalp (or head)	-
 --enter-sd	SD	A patch is kept when a tile reaches the median plus this many robust standard deviations of the map's tile means.	1.5	SD
 --enter-sd@run patches	K	A patch must reach the median plus K robust standard deviations of the tile means.	1.5	SD
 --estimator	welch|analytic	How the sensor cross-spectrum is estimated: Welch segments, or the band's analytic signal summed per time tile (a series of windows)	welch	-
@@ -339,8 +330,6 @@ R"TBL(--harmonics@run notch	N	With --line, remove the first N multiples of the l
 --measures@run measure	NAME,...	Which measures to compute per member: mean, max, min, mean_square, abs_max, sum (with --over: mean, mean_square, max, min, abs_max; the sample count is always stored).	mean, max, min, mean_square, abs_max (with --over: mean, mean_square, max, min)	-
 --meg	overlapping|single|none	MEG head model: per-sensor overlapping spheres, one single sphere, or no MEG channels	overlapping	-
 --meg-surface	NAME	Name of the surface the MEG spheres are fitted to.	the surface called inner skull	-
---meg-surface@run headmodel	NAME	The surface the MEG spheres are fitted to.	the surface called inner skull	-
---meg@run headmodel	overlapping|single|none	The MEG head model: one sphere per sensor, one sphere for all sensors, or no MEG channels.	overlapping	-
 --members-own		The measure is the members' own (area, number of elements or tiles); --of then names its parent.	off	-
 --members-own@run statistic		The measure is the members' own (area, number of elements or tiles), a property of the partition and not of a field; --of then names its parent.	off	-
 --method	NAME	constantq: hertz (octave edges on powers of two in Hz) or cycles (fixed cycle count); opticalflow: pcg, direct or perscale solver	constantq: hertz; opticalflow: pcg	-
@@ -363,7 +352,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --min-value@query measurements	X	Keep only rows whose rolled-up value is at least this.	none	measure's unit
 --mne		Use MNE-Python's conventions for the kernel: joint types, ridge over the rank, PCA whitener, depth exponent 0.8 by the spectral norm.	off	-
 --mne-eeg-layers		Use MNE-Python's EEG sphere layers and conductivities instead of the default three-shell layers.	off	-
---mne-eeg-layers@run headmodel		Use MNE-Python's four EEG layers (radii 0.90, 0.92, 0.97, 1.00; conductivities 0.33, 1.0, 0.004, 0.33 S/m) instead of three.	off (three layers)	-
 --modes	K	Number of Hodge-Dirac eigenmodes (eigen solve, dataset create: how many to solve; pointspread, cellquadrature, patches: size of the package when it must be computed, 0 = standard; speedspectrum, hodgepower: use the first K of the stored package)	eigen solve: 3000; dataset create: none; speedspectrum, hodgepower: all; pointspread, cellquadrature, patches: 0	modes
 --modes@run cellquadrature	K	Size of the Hodge-Dirac eigenmode package when it must be computed for the spatial band (0 = standard size).	0	modes
 --modes@run eigenmodes	K	About this many positive Hodge-Dirac modes are kept, half exact and half coexact.	3000	modes
@@ -380,7 +368,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run bandstop	NAME	Name of the new filtered recording.	<recording>_bandstop	-
 --name@run crossspectrum	NAME	Stem of the names of the stored cross-spectrum operators (one per band).	<recording>_crossspectrum	-
 --name@run cyclepattern	NAME	Stem of the stored cycle-pattern results.	<cross-spectrum without _windows>_cycle	-
---name@run headmodel	NAME	The name the head model is stored under.	headmodel	-
 --name@run highpass	NAME	Name of the new filtered recording.	<recording>_highpass	-
 --name@run hodgepower	NAME	The stem of the names of the stored fields (one current and one flow field per band).	<recording>_<kernel>_hodge	-
 --name@run lowpass	NAME	Name the filtered recording is stored under.	<recording>_lowpass	-
@@ -408,7 +395,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-depth		Turn depth weighting off.	off (depth weighting on)	-
 --no-detect-diagonal		Do not whiten a diagonal noise covariance by its diagonal alone	off	-
 --no-eeg		Do not compute the EEG channels of the head model.	off (EEG is computed)	-
---no-eeg@run headmodel		Do not compute the EEG channels' gain.	off (EEG is computed)	-
 --no-gain		Do not store the head model's gain matrix.	off (the gain is stored)	-
 --no-gain@import condition		Do not store the head model's gain matrix.	off (the gain is stored)	-
 --no-levi-civita		Do not write the Levi-Civita (transported) form of the vector tile summaries.	off (written)	-
@@ -417,7 +403,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-primary		Do not mark the added mesh as the subject's primary surface	off	-
 --no-primary@add surface		Store the surface without marking it as the subject's primary surface.	off (the surface is made primary)	-
 --no-project-electrodes		Do not move the electrodes radially onto the fitted EEG sphere.	off (electrodes are projected)	-
---no-project-electrodes@run headmodel		Keep the electrodes where they are instead of moving them radially onto the fitted EEG sphere.	off (electrodes are projected)	-
 --no-raw		Do not import the raw recording, only the condition's other data.	off	-
 --no-raw@import condition		Do not import the condition's raw recording; import only its other data files.	off	-
 --no-remove-mean		Do not remove the mean (DC offset) of each block before computing or filtering.	off (mean removed)	-
@@ -596,7 +581,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --selection	NAME	The stored joint Selection (space x time cells) whose measurement is read.	none (required)	-
 --selection@query measurements	NAME	The pyramid's joint selection or spatial partition to read, by name or id; it must be complete.	required	-
 --sensor-weight-exponent	P	Exponent of the distance weighting used to fit each sensor's overlapping sphere.	4	-
---sensor-weight-exponent@run headmodel	P	The exponent p in the overlapping-sphere fit's weights, which fall with the distance d from the sensor as d^-p.	4	-
 --set	NAME=VALUE	Set a pipeline parameter, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); repeatable.	none	-
 --set@run crossspectrum	tiles|brainstorm|scipy|nxr-chain	Reference whose Welch settings are the starting point (Hamming symmetric taper, 50 % overlap, constant detrend, density for tiles and brainstorm).	tiles	-
 --set@run hodgepower	tiles|brainstorm|scipy|nxr-chain	The named set of Welch options to start from: tiles (Brainstorm's taper, detrend and scaling on 2^k-sample segments), brainstorm, scipy or nxr-chain.	tiles	-
@@ -630,7 +614,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --source-protocol	NAME	Record the name of the source protocol the dataset was made from.	none	-
 --source-protocol@create dataset	NAME	Records the name of the source protocol the dataset was made from, in the dataset's provenance.	none	-
 --source-surface	NAME	Surface whose vertices are the sources of the head model.	the primary (cortex) surface	-
---source-surface@run headmodel	NAME	The surface whose vertices are the sources.	the primary (cortex) surface	-
 --source-tool	NAME	Records the tool that produced the source data in the dataset's provenance	none	-
 --source-tool@create dataset	NAME	Records the tool that produced the source data, in the dataset's provenance.	none	-
 --source@run scaleselection	NAME	The pipeline whose stored labellings, cells and baselines are read	cortical_event_pairs	-
@@ -653,7 +636,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --speed-min	X	Smallest phase speed of the log-spaced speed bins.	0 (from the spectrum)	length/s
 --speed-min@run speedspectrum	C	Smallest phase speed of the histogram; 0 takes it from the spectrum	0	m/s
 --sphere-cost	geometric|algebraic	Cost the head sphere is fitted with: distance to the sphere (geometric) or the linear closed-form fit (algebraic).	geometric	-
---sphere-cost@run headmodel	geometric|algebraic	The cost minimised when fitting the spheres: distances to the sphere, or the closed-form algebraic cost.	geometric	-
 )TBL",
 R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, onset, within, offset) or by index	0 (the first stage, burst)	-
 --stage@run null	NAME|INDEX	The stage of the stored crossings to test, by name (burst, onset, within, offset) or index	0	-
@@ -786,7 +768,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@import events	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run headmodel	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run pointspread	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run eigenmodes	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run frames	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1412,13 +1393,6 @@ old: pyramid reduce
 alias: refused
 summary: Reduce several subjects' group-tree pyramids into the group's pyramid; on a catalogue dataset the result is a group package (--into).
 opts: --dataset* --depth --into --kernels --subjects* --templates+
-)TBL",
-R"TBL(@ run headmodel
-old: headmodel compute
-alias: refused
-group: Source imaging
-summary: The sphere head model (gain matrix) for a subject's cortex, MEG and EEG.
-opts: --berg-dipoles --berg-starts --berg-terms --channels --dataset* --eeg-conductivities --eeg-radii --eeg-series --eeg-series-terms --eeg-surface --meg --meg-surface --mne-eeg-layers --name --no-eeg --no-project-electrodes --replace --sensor-weight-exponent --source-surface --sphere-cost --subject* --templates+
 )TBL",
 R"TBL(@ run pointspread
 old: pointspread compute

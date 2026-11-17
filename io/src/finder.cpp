@@ -158,7 +158,7 @@ std::string relation(const std::string& ref, const std::map<std::string, Value>&
     return v.manifolds[what == "from" ? 0 : 1];
   }
   const std::size_t i = std::stoul(m[3].str());
-  if (v.cls != "field" || i >= v.manifolds.size()) refuse(where + ": '" + ref + "': " + base + " has " + std::to_string(v.manifolds.size()) + " factor(s)");
+  if ((v.cls != "field" && v.cls != "manifold") || i >= v.manifolds.size()) refuse(where + ": '" + ref + "': " + base + " has " + std::to_string(v.manifolds.size()) + " factor(s)");
   return v.manifolds[i];
 }
 
@@ -182,6 +182,12 @@ std::vector<std::map<std::string, Value>> resolve(const Database& db, const std:
     std::string missing;
     for (const auto& name : names) {
       const Json& spec = inputs[name];
+      if (!spec.value("required", true) && spec.contains("where")) {      // an optional input named by a parameter left null is not looked for (absent)
+        bool unset = false;
+        for (const auto& [k, v] : spec["where"].items())
+          if (v.is_string() && v.get<std::string>().rfind('$', 0) == 0) { const std::string pk = v.get<std::string>().substr(1); if (params.contains(pk) && params[pk].is_null()) unset = true; }
+        if (unset) continue;
+      }
       const auto hits = matches(db, subject_id, name, spec, found, params);
       const std::string label = anchor ? " (for " + *anchor + " '" + text(*found.at(*anchor).row, "name") + "')" : "";
       if (hits.empty()) {

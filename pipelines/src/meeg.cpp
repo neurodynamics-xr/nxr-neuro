@@ -172,6 +172,48 @@ RecordingInput read_recording(SubjectWriter& sub, const std::string& name) {
 // the type of each channel of a channels manifold (its 'type' labelling); empty when there is none
 std::vector<std::string> channel_types_of(SubjectWriter& sub, const std::string& channels_id) { return family_of(sub, channels_id, "type"); }
 
+// THE SENSOR GEOMETRY of a channels manifold (what a head model reads; a node is handed it): positions [M x 3], the 'type' of each channel, the orientations
+// `<name>_orientation` when stored, and the coils `<name>_coils` (positions, `<name>_coils_orientation`) with their weights `<name>_coil_weights` (CSR [channels x coils])
+SensorGeometry sensor_geometry(SubjectWriter& sub, const std::string& channels_id) {
+  SensorGeometry g;
+  const auto chm = sub.db().one("SELECT m.*, g.positions_path AS positions_path, g.coordinate_system_id AS cs_id FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.id = ?", {V(channels_id)});
+  if (!chm) missing("channels manifold " + channels_id + ": not among the subject's rows");
+  g.id = channels_id; g.name = text(*chm, "name"); g.cs_id = opt_text(*chm, "cs_id").value_or("");
+  g.types = family_of(sub, channels_id, "type");
+  std::vector<std::int64_t> sh;
+  g.positions = read_all<double>(sub.store(), text(*chm, "positions_path"), &sh);
+  const std::int64_t M = sh.empty() ? 0 : sh[0];
+  if (sh.size() != 2 || sh[1] != 3 || static_cast<std::int64_t>(g.types.size()) != M) invalid(g.name + ": its positions are not [channels x 3] with a 'type' for each channel");
+  auto vec3 = [&](const std::string& manifold_id, const std::string& name) -> std::optional<std::vector<double>> {
+    const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND manifold_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(manifold_id), V(name)});
+    if (!f) return std::nullopt;
+    std::vector<std::int64_t> s2;
+    std::vector<double> d = read_all<double>(sub.store(), text(*f, "path"), &s2);
+    if (s2.size() != 2 || s2[1] != 3) invalid(name + ": not [n x 3]");
+    return d;
+  };
+  g.orientation = vec3(channels_id, g.name + "_orientation");
+  if (const auto cm = sub.db().one("SELECT m.*, g.positions_path AS positions_path FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.name = ? AND m.status = 'complete'", {V(sub.id()), V(g.name + "_coils")}))
+    if (const auto wop = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND kind = 'coil weights' AND status = 'complete'", {V(sub.id()), V(g.name + "_coil_weights")})) {
+      std::vector<std::int64_t> s3;
+      g.coil_positions = read_all<double>(sub.store(), text(*cm, "positions_path"), &s3);
+      const auto co = vec3(text(*cm, "id"), g.name + "_coils_orientation");
+      g.coil_orientation = co ? *co : std::vector<double>(g.coil_positions.size(), std::nan(""));
+      g.indptr = read_all<std::int32_t>(sub.store(), text(*wop, "path") + "/indptr");
+      g.indices = read_all<std::int32_t>(sub.store(), text(*wop, "path") + "/indices");
+      g.weights = read_all<float>(sub.store(), text(*wop, "path") + "/data");
+      if (static_cast<std::int64_t>(g.indptr.size()) != M + 1) invalid(g.name + "_coil_weights: not [channels x coils]");
+      g.coils = true;
+    }
+  return g;
+}
+
+// the coordinate system a manifold's geometry is in ("" when it records none)
+std::string coordinate_system_of(SubjectWriter& sub, const std::string& manifold_id) {
+  const auto r = sub.db().one("SELECT g.coordinate_system_id AS cs FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.id = ?", {V(manifold_id)});
+  return r ? opt_text(*r, "cs").value_or("") : std::string();
+}
+
 // what a node may know of a recording's channels (a fact on its port type, not a store read): their types, quality (the recording's flags, else the montage's) and units
 Json channel_facts(SubjectWriter& sub, const std::string& recording) {
   const RecordingInput r = read_recording(sub, recording);
@@ -232,328 +274,6 @@ Eigen::MatrixXd matrix_of(const nxr::io::Chunk& c, std::int64_t rows) {
 }  // namespace
 
 // ── the noise covariance ─────────────────────────────────────────────────────────────────────────────────────────
-
-// ── the head model ───────────────────────────────────────────────────────────────────────────────────────────────
-
-namespace {
-
-std::string squash(std::string s) {
-  std::string out;
-  for (char c : s) if (std::isalnum(static_cast<unsigned char>(c))) out.push_back(static_cast<char>(std::tolower(static_cast<unsigned char>(c))));
-  return out;
-}
-std::vector<std::string> surface_names(SubjectWriter& sub) {
-  std::vector<std::string> out;
-  for (const Row& r : sub.db().all("SELECT name FROM manifold WHERE subject_id = ? AND type = 'surface' AND component_of_id IS NULL AND status = 'complete' ORDER BY name", {V(sub.id())})) out.push_back(text(r, "name"));
-  return out;
-}
-std::string join_names(const std::vector<std::string>& v) {
-  std::string s;
-  for (const auto& n : v) s += (s.empty() ? "'" : ", '") + n + "'";
-  return s.empty() ? "none" : s;
-}
-// The surface to fit a sphere to: the one named, else the only one whose squashed name holds one of `want` (or equals one of `exact`); refused with the subject's surfaces listed.
-SurfaceInput head_surface(SubjectWriter& sub, const std::optional<std::string>& named, const std::vector<std::string>& want, const std::string& what, const char* option) {
-  const std::vector<std::string> have = surface_names(sub);
-  std::string pick;
-  if (named) pick = *named;
-  else {
-    std::vector<std::string> hits;
-    for (const auto& n : have) {
-      const std::string q = squash(n);
-      for (const auto& w : want) if (q.find(w) != std::string::npos) { hits.push_back(n); break; }
-    }
-    if (hits.size() != 1)
-      invalid(sub.name() + ": " + (hits.empty() ? "no surface" : "more than one surface") + " looks like the " + what + "; the subject has the surfaces " + join_names(have) + ". Name the one to fit with " + option +
-              " (a surface is never invented)");
-    pick = hits[0];
-  }
-  if (std::find(have.begin(), have.end(), pick) == have.end()) missing(sub.name() + ": no surface named '" + pick + "' for the " + what + "; the subject has the surfaces " + join_names(have));
-  return read_surface(sub, pick);
-}
-
-Json sphere_json(const nxr::meeg::Sphere& s) { return Json{{"centre", Json::array({s.centre(0), s.centre(1), s.centre(2)})}, {"radius", s.radius}}; }
-Json minimiser_json(const nxr::meeg::NelderMeadOptions& m) {
-  return Json{{"reflection", m.reflection}, {"expansion", m.expansion}, {"contraction", m.contraction}, {"shrink", m.shrink}, {"relative_step", m.relativeStep}, {"zero_step", m.zeroStep},
-              {"x_tolerance", m.xTolerance}, {"f_tolerance", m.fTolerance}, {"max_evaluations", m.maxEvaluations}};
-}
-Json fit_json(const nxr::meeg::SphereFitOptions& f) { return Json{{"cost", f.cost == nxr::meeg::SphereCost::Geometric ? "geometric" : "algebraic"}, {"minimiser", minimiser_json(f.minimiser)}}; }
-Json eigen_json(const Eigen::VectorXd& v) { return Json(std::vector<double>(v.data(), v.data() + v.size())); }
-
-}  // namespace
-
-HeadModelResult headmodel_compute(DatasetWriter& ds, SubjectWriter& sub, const HeadModelOptions& opt, const std::function<void(const Json&)>& progress) {
-  using namespace nxr::meeg;
-  auto say = [&](const Json& j) { if (progress) progress(j); };
-  const auto t0 = std::chrono::steady_clock::now();
-  if (opt.meg == MegModel::None && !opt.eeg) invalid("headmodel compute: neither MEG nor EEG is asked for");
-
-  // the channels: a points manifold with a 'type' labelling
-  Row chm;
-  {
-    std::vector<Row> cands;
-    for (const Row& r : sub.db().all("SELECT m.*, g.positions_path AS positions_path, g.coordinate_system_id AS cs_id FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.type = 'points' AND m.status = 'complete'", {V(sub.id())}))
-      if (opt.channels ? text(r, "name") == *opt.channels : !family_of(sub, text(r, "id"), "type").empty()) cands.push_back(r);
-    if (cands.size() != 1) {
-      std::vector<std::string> nm;
-      for (const Row& r : sub.db().all("SELECT name FROM manifold WHERE subject_id = ? AND type = 'points' ORDER BY name", {V(sub.id())})) nm.push_back(text(r, "name"));
-      invalid(sub.name() + ": " + std::to_string(cands.size()) + " channel manifolds " + (opt.channels ? "named '" + *opt.channels + "'" : std::string("with a 'type' labelling")) + " (points manifolds: " + join_names(nm) +
-              "); name one with --channels");
-    }
-    chm = cands[0];
-  }
-  const std::string channels_id = text(chm, "id"), channels_name = text(chm, "name"), channels_cs = text(chm, "cs_id");
-  const std::vector<std::string> types = family_of(sub, channels_id, "type");
-  std::vector<std::int64_t> pshape;
-  const std::vector<double> chpos = read_all<double>(sub.store(), text(chm, "positions_path"), &pshape);
-  const std::int64_t M = pshape.empty() ? 0 : pshape[0];
-  if (pshape.size() != 2 || pshape[1] != 3 || static_cast<std::int64_t>(types.size()) != M) invalid(channels_name + ": its positions are not [channels x 3] with a 'type' for each channel");
-
-  // the sources and the surfaces
-  const SurfaceInput cortex = read_surface(sub, opt.source_surface);
-  const std::int64_t N = cortex.n_vertices();
-  const auto cortex_cs = sub.db().one("SELECT g.coordinate_system_id AS cs FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.id = ?", {V(cortex.id)});
-  if (cortex_cs && text(*cortex_cs, "cs") != channels_cs) invalid(cortex.name + " and " + channels_name + " are not in the same coordinate system");
-  Eigen::MatrixXd src(N, 3);
-  for (std::int64_t i = 0; i < N; ++i) for (int k = 0; k < 3; ++k) src(i, k) = cortex.vertices[static_cast<std::size_t>(3 * i + k)];
-
-  std::vector<int> meg_ch, eeg_ch;
-  for (std::int64_t i = 0; i < M; ++i) {
-    const std::string& t = types[static_cast<std::size_t>(i)];
-    if (t == "MEG" || t == "MEG MAG" || t == "MEG GRAD") meg_ch.push_back(static_cast<int>(i));
-    else if (t == "EEG") eeg_ch.push_back(static_cast<int>(i));
-  }
-  const bool do_meg = opt.meg != MegModel::None && !meg_ch.empty(), do_eeg = opt.eeg && !eeg_ch.empty();
-  if (!do_meg && !do_eeg) invalid(channels_name + ": no MEG or EEG channel to compute (" + std::to_string(M) + " channels; types " + join_names(std::vector<std::string>(std::set<std::string>(types.begin(), types.end()).begin(), std::set<std::string>(types.begin(), types.end()).end())) + ")");
-  auto surface_points = [&](const SurfaceInput& s) {
-    const auto cs = sub.db().one("SELECT g.coordinate_system_id AS cs FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.id = ?", {V(s.id)});
-    if (cs && text(*cs, "cs") != channels_cs) invalid(s.name + " and " + channels_name + " are not in the same coordinate system");
-    Eigen::MatrixXd P(s.n_vertices(), 3);
-    for (std::int64_t i = 0; i < s.n_vertices(); ++i) for (int k = 0; k < 3; ++k) P(i, k) = s.vertices[static_cast<std::size_t>(3 * i + k)];
-    return P;
-  };
-  std::optional<SurfaceInput> meg_surf, eeg_surf;
-  if (do_meg) meg_surf = head_surface(sub, opt.meg_surface, {"innerskull"}, "inner skull", "--meg-surface");
-  if (do_eeg) eeg_surf = head_surface(sub, opt.eeg_surface, {"scalp", "head"}, "scalp", "--eeg-surface");
-
-  // the sensor geometry: the coils and their weights when stored, else one point per channel
-  auto read_vec3_field = [&](const std::string& manifold_id, const std::string& name) -> std::optional<Eigen::MatrixXd> {
-    const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND manifold_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(manifold_id), V(name)});
-    if (!f) return std::nullopt;
-    std::vector<std::int64_t> sh;
-    const std::vector<double> d = read_all<double>(sub.store(), text(*f, "path"), &sh);
-    if (sh.size() != 2 || sh[1] != 3) invalid(name + ": not [n x 3]");
-    return Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(d.data(), sh[0], 3);
-  };
-  const Eigen::MatrixXd ch_pos = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(chpos.data(), M, 3);
-  const std::optional<Eigen::MatrixXd> ch_ori = read_vec3_field(channels_id, channels_name + "_orientation");
-  Eigen::MatrixXd coil_pos, coil_ori;
-  std::vector<std::int32_t> indptr, indices;
-  std::vector<float> cw;
-  bool have_coils = false;
-  std::string coil_ids;
-  if (const auto cm = sub.db().one("SELECT m.*, g.positions_path AS positions_path FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.name = ? AND m.status = 'complete'", {V(sub.id()), V(channels_name + "_coils")})) {
-    const auto wop = sub.db().one("SELECT * FROM operator WHERE subject_id = ? AND name = ? AND kind = 'coil weights' AND status = 'complete'", {V(sub.id()), V(channels_name + "_coil_weights")});
-    if (wop) {
-      std::vector<std::int64_t> sh;
-      const std::vector<double> d = read_all<double>(sub.store(), text(*cm, "positions_path"), &sh);
-      coil_pos = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(d.data(), sh[0], 3);
-      const auto co = read_vec3_field(text(*cm, "id"), channels_name + "_coils_orientation");
-      coil_ori = co ? *co : Eigen::MatrixXd::Constant(coil_pos.rows(), 3, std::nan(""));
-      indptr = read_all<std::int32_t>(sub.store(), text(*wop, "path") + "/indptr");
-      indices = read_all<std::int32_t>(sub.store(), text(*wop, "path") + "/indices");
-      cw = read_all<float>(sub.store(), text(*wop, "path") + "/data");
-      if (static_cast<std::int64_t>(indptr.size()) != M + 1) invalid(channels_name + "_coil_weights: not [channels x coils]");
-      have_coils = true;
-      coil_ids = text(*cm, "id") + text(*wop, "id");
-    }
-  }
-  auto coils_of = [&](const std::vector<int>& chans, bool need_orientation) {
-    Coils k;
-    std::vector<Eigen::Vector3d> pos, ori;
-    std::vector<double> w;
-    for (std::size_t c = 0; c < chans.size(); ++c) {
-      const int ch = chans[c];
-      std::size_t before = pos.size();
-      if (have_coils)
-        for (std::int32_t q = indptr[static_cast<std::size_t>(ch)]; q < indptr[static_cast<std::size_t>(ch) + 1]; ++q) {
-          const std::int32_t ci = indices[static_cast<std::size_t>(q)];
-          pos.push_back(coil_pos.row(ci).transpose());
-          ori.push_back(coil_ori.row(ci).transpose());
-          w.push_back(cw[static_cast<std::size_t>(q)]);
-          k.channel.push_back(static_cast<int>(c));
-        }
-      if (pos.size() == before) {                                   // no coils stored for this channel: its one point
-        pos.push_back(ch_pos.row(ch).transpose());
-        ori.push_back(ch_ori ? Eigen::Vector3d(ch_ori->row(ch).transpose()) : Eigen::Vector3d::Constant(std::nan("")));
-        w.push_back(1.0);
-        k.channel.push_back(static_cast<int>(c));
-      }
-      if (need_orientation)
-        for (std::size_t q = before; q < pos.size(); ++q)
-          if (!ori[q].allFinite() || ori[q].norm() < 0.5)
-            invalid(channels_name + ": channel " + std::to_string(ch) + " (" + types[static_cast<std::size_t>(ch)] + ") has a sensor point with no orientation; the stored sensor geometry needs " + channels_name + "_orientation or " +
-                    channels_name + "_coils_orientation (the Brainstorm importer writes them)");
-    }
-    k.channels = static_cast<int>(chans.size());
-    k.position.resize(static_cast<Eigen::Index>(pos.size()), 3);
-    k.orientation.resize(static_cast<Eigen::Index>(pos.size()), 3);
-    k.weight.resize(static_cast<Eigen::Index>(pos.size()));
-    for (std::size_t q = 0; q < pos.size(); ++q) {
-      k.position.row(static_cast<Eigen::Index>(q)) = pos[q].transpose();
-      k.orientation.row(static_cast<Eigen::Index>(q)) = (need_orientation ? Eigen::Vector3d(ori[q].normalized()) : Eigen::Vector3d(Eigen::Vector3d::Zero())).transpose();
-      k.weight(static_cast<Eigen::Index>(q)) = w[q];
-    }
-    return k;
-  };
-
-  const std::string name = opt.name ? *opt.name : "headmodel";
-  auto meg_model_name = [&] { return opt.meg == MegModel::SingleSphere ? "single sphere" : opt.meg == MegModel::OverlappingSpheres ? "overlapping spheres" : "none"; };
-  const auto& el = opt.eeg_sphere;
-  Json options = Json{{"meg", do_meg ? meg_model_name() : "none"}, {"eeg", do_eeg ? "three shells" : "none"}, {"sarvas", Json{{"permeability", opt.sarvas.permeability}}},
-                      {"sphere_fit", fit_json(opt.sphere_fit)},
-                      {"sensor_sphere", Json{{"weight_exponent", opt.sensor_sphere.weightExponent}, {"fit", fit_json(opt.sensor_sphere.fit)}}},
-                      {"eeg_sphere", Json{{"radius", eigen_json(el.radius)}, {"conductivity", eigen_json(el.conductivity)},
-                                          {"approximation", el.approximation == EegApproximation::BergScherg ? "berg-scherg" : "series"},
-                                          {"berg", Json{{"dipoles", el.berg.dipoles}, {"terms", el.berg.terms}, {"starts", el.berg.starts}, {"minimiser", minimiser_json(el.berg.minimiser)}}},
-                                          {"given_berg", el.useGivenBerg ? Json{{"eccentricity", eigen_json(el.given.eccentricity)}, {"magnitude", eigen_json(el.given.magnitude)}} : Json()},
-                                          {"series_terms", el.seriesTerms}, {"centre_tolerance", el.centreTolerance}}},
-                      {"project_electrodes", opt.project_electrodes}};
-  CacheKey key;
-  key.pipeline = "headmodel_compute";
-  key.params = options;
-  key.input = Json{{"sources", cortex.id + ":" + positions_key(cortex.vertices)}, {"channels", channels_id},
-                   {"channel_positions", positions_key(chpos)}, {"coils", coil_ids}, {"meg_surface", meg_surf ? meg_surf->id + ":" + positions_key(meg_surf->vertices) : ""},
-                   {"eeg_surface", eeg_surf ? eeg_surf->id + ":" + positions_key(eeg_surf->vertices) : ""}, {"channel_types", types}};
-  key.compute = NXR_COMPUTE_VERSION;
-
-  HeadModelResult res;
-  std::string moved_aside, node_id;
-  bool replaced = false;
-  Json computed;
-  auto load = [&](const Row& op) {
-    std::vector<std::int64_t> sh;
-    const std::vector<float> g = read_all<float>(sub.store(), text(op, "path"), &sh);
-    res.gain = Eigen::Map<const Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(g.data(), sh[0], sh[1]).cast<double>();
-    return 0;
-  };
-  auto compute = [&]() {
-    say(Json{{"stage", "cache"}, {"hit", false}, {"channels", M}, {"sources", N}, {"meg_channels", do_meg ? static_cast<int>(meg_ch.size()) : 0}, {"eeg_channels", do_eeg ? static_cast<int>(eeg_ch.size()) : 0}});
-    res.gain = Eigen::MatrixXd::Zero(M, 3 * N);
-    computed = Json::object();
-    if (do_meg) {
-      const Eigen::MatrixXd P = surface_points(*meg_surf);
-      const Coils k = coils_of(meg_ch, true);
-      Eigen::MatrixXd Gm;
-      Json mj = Json{{"model", meg_model_name()}, {"surface", meg_surf->name}, {"channels", static_cast<int>(meg_ch.size())}};
-      if (opt.meg == MegModel::SingleSphere) {
-        const Sphere s = fitSphere(P, Eigen::VectorXd(), opt.sphere_fit);
-        Gm = sarvasGain(src, k, s.centre, opt.sarvas);
-        mj["sphere"] = sphere_json(s);
-        int outside = 0;
-        for (std::int64_t i = 0; i < N; ++i) if ((src.row(i).transpose() - s.centre).norm() > s.radius) ++outside;
-        mj["sources_outside_sphere"] = outside;
-      } else {
-        const std::vector<Sphere> sp = sensorSpheres(P, k.position, k.weight, k.channel, k.channels, opt.sensor_sphere);
-        std::vector<Eigen::Vector3d> centres;
-        Json sj = Json::array();
-        int outside = 0;
-        for (const Sphere& s : sp) centres.push_back(s.centre);
-        for (std::size_t c = 0; c < sp.size(); ++c) {
-          sj.push_back(Json{{"channel", meg_ch[c]}, {"centre", Json::array({sp[c].centre(0), sp[c].centre(1), sp[c].centre(2)})}, {"radius", sp[c].radius}});
-          for (std::int64_t i = 0; i < N; ++i) if ((src.row(i).transpose() - sp[c].centre).norm() > sp[c].radius) { ++outside; break; }
-        }
-        Gm = sarvasGain(src, k, centres, opt.sarvas);
-        mj["spheres"] = sj;
-        mj["channels_with_a_source_outside_their_sphere"] = outside;
-      }
-      for (std::size_t c = 0; c < meg_ch.size(); ++c) res.gain.row(meg_ch[c]) = Gm.row(static_cast<Eigen::Index>(c));
-      computed["meg"] = mj;
-      say(Json{{"stage", "meg"}, {"model", meg_model_name()}});
-    }
-    if (do_eeg) {
-      const Eigen::MatrixXd P = surface_points(*eeg_surf);
-      const Sphere s = fitSphere(P, Eigen::VectorXd(), opt.sphere_fit);
-      Coils k = coils_of(eeg_ch, false);
-      if (opt.project_electrodes)
-        for (Eigen::Index q = 0; q < k.position.rows(); ++q) {
-          const Eigen::Vector3d d = k.position.row(q).transpose() - s.centre;
-          if (d.norm() == 0) invalid("an electrode sits at the centre of the fitted sphere");
-          k.position.row(q) = (s.centre + s.radius * d.normalized()).transpose();
-        }
-      BergScherg used;
-      const Eigen::MatrixXd Ge = eegSphereGain(src, k, s.centre, opt.eeg_sphere, &used);
-      for (std::size_t c = 0; c < eeg_ch.size(); ++c) res.gain.row(eeg_ch[c]) = Ge.row(static_cast<Eigen::Index>(c));
-      int outside_inner = 0, outside = 0;
-      for (std::int64_t i = 0; i < N; ++i) {
-        const double d = (src.row(i).transpose() - s.centre).norm();
-        if (d > s.radius) ++outside;
-        if (d > s.radius * opt.eeg_sphere.radius(0)) ++outside_inner;
-      }
-      Json ej = Json{{"model", "three shells"}, {"surface", eeg_surf->name}, {"channels", static_cast<int>(eeg_ch.size())}, {"sphere", sphere_json(s)},
-                     {"sources_outside_innermost_shell", outside_inner}, {"sources_outside_sphere", outside}};
-      if (opt.eeg_sphere.approximation == EegApproximation::BergScherg)
-        ej["berg_scherg"] = Json{{"eccentricity", eigen_json(used.eccentricity)}, {"magnitude", eigen_json(used.magnitude)}, {"residual", used.residual}};
-      computed["eeg"] = ej;
-      say(Json{{"stage", "eeg"}, {"sources_outside_innermost_shell", outside_inner}});
-    }
-    if (!res.gain.allFinite()) invalid("headmodel compute: the gain holds a NaN (a sensor point on a source?)");
-    return 0;
-  };
-  auto store = [&](const int&) {
-    moved_aside = clear_stored(ds, sub, {{"operator", name}, {"field", name + "_GridLoc"}}, opt.replace, name, replaced);
-    const std::string acq = acquisition_label(sub, opt_text(chm, "acquisition_id"));
-    std::vector<float> g(static_cast<std::size_t>(M * 3 * N));
-    for (std::int64_t i = 0; i < M; ++i) for (std::int64_t j = 0; j < 3 * N; ++j) g[static_cast<std::size_t>(i * 3 * N + j)] = static_cast<float>(res.gain(i, j));
-    OperatorSpec op;
-    op.name = name;
-    op.path = name;
-    op.kind = "forward";
-    op.from_manifold_id = cortex.id;
-    op.layout = "dense";
-    op.n_rows = M;
-    op.n_cols = 3 * N;
-    op.data = view(g, {M, 3 * N});
-    op.array.compress = true;
-    if (!acq.empty()) op.acquisition = acq;
-    op.cols.set("to_manifold_id", channels_id).set("from_value_type", "vector3").set("to_value_type", "scalar")
-        .set("description", name + " \xe2\x80\x94 the leadfield, source field to sensor field (computed: " + std::string(do_meg ? meg_model_name() : "no MEG") + (do_eeg ? ", three-shell EEG)" : ")"));
-    op.created_utc = now_utc(false);
-    // the importer's keys (`export_forward`), then what a computed head model adds
-    Json pj = Json{{"units", "m"}, {"n_sources", N}, {"has_source_grid", true}, {"head_model_type", "surface"}, {"bst_surface_file", cortex.name}};
-    if (do_meg) pj["meg_method"] = opt.meg == MegModel::SingleSphere ? "meg_sphere" : "os_meg";
-    if (do_eeg) pj["eeg_method"] = "eeg_3sphereberg";
-    pj["producer"] = producer_name("headmodel compute");
-    pj["function"] = "nxr-neuro headmodel compute";
-    pj["computed"] = computed;
-    pj["gain_units"] = Json{{"meg", "T/(A.m)"}, {"eeg", "V/(A.m)"}};
-    pj["average_reference"] = false;
-    pj["cache"] = key.json();
-    op.cols.json("producer_json", pj);
-    op.cols.json("params_json", Json{{"forward", Json{{"options", options}, {"computed", computed}}}});
-    node_id = sub.operator_(std::move(op));
-    std::vector<float> loc(src.rows() * 3);
-    for (std::int64_t i = 0; i < N; ++i) for (int k = 0; k < 3; ++k) loc[static_cast<std::size_t>(3 * i + k)] = static_cast<float>(src(i, k));
-    FieldSpec fs;
-    fs.name = name + "_GridLoc";
-    fs.path = fs.name;
-    fs.kind = "GridLoc";
-    fs.manifold_id = cortex.id;
-    fs.value_type = "vector3";
-    fs.data = view(loc, {N, 3});
-    if (!acq.empty()) fs.acquisition = acq;
-    fs.cols.set("of_operator_id", node_id).set("unit", "m");
-    sub.field(std::move(fs));
-  };
-  const Outcome<int> o = cached<int>(sub, "operator", name, key, load, compute, store);
-  res.hit = o.hit;
-  res.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
-  if (o.hit) say(Json{{"stage", "cache"}, {"hit", true}, {"name", name}});
-  res.info = Json{{"name", name}, {"id", o.hit ? o.node_id : node_id}, {"channels", M}, {"sources", N}, {"meg", do_meg ? meg_model_name() : "none"}, {"eeg", do_eeg ? "three shells" : "none"},
-                  {"computed", o.hit ? Json() : computed}, {"replaced", replaced}, {"moved_aside", moved_aside.empty() ? Json() : Json(moved_aside)}, {"cache", o.hit ? "hit" : "miss"}};
-  return res;
-}
-
 
 // ── the Welch PSD ────────────────────────────────────────────────────────────────────────────────────────────────
 

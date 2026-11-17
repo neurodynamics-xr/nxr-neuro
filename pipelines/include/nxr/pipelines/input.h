@@ -30,6 +30,20 @@ SurfaceInput read_surface(const nxr::io::SubjectPackage& package, const std::str
 
 // A recording's channels as facts a node may read on its port type: {types, quality, units, n_channels} (per channel; quality from the recording's flags, else the montage's).
 nxr::io::Json channel_facts(nxr::io::SubjectWriter& sub, const std::string& recording);
+// The sensor geometry of a channels manifold (what a head model reads): positions [M x 3], types, orientations when stored, and the coils with their weights.
+struct SensorGeometry {
+  std::string id, name, cs_id;
+  std::vector<std::string> types;
+  std::vector<double> positions;                          // [M x 3]
+  std::optional<std::vector<double>> orientation;         // [M x 3], `<name>_orientation`
+  bool coils = false;                                     // `<name>_coils` and `<name>_coil_weights` stored
+  std::vector<double> coil_positions, coil_orientation;   // [Q x 3]
+  std::vector<std::int32_t> indptr, indices;              // the weights' CSR [channels x coils]
+  std::vector<float> weights;
+};
+SensorGeometry sensor_geometry(nxr::io::SubjectWriter& sub, const std::string& channels_id);
+// The coordinate system a manifold's geometry is in ("" when it records none).
+std::string coordinate_system_of(nxr::io::SubjectWriter& sub, const std::string& manifold_id);
 // The type of each channel of a channels manifold (its 'type' labelling); empty when there is none.
 std::vector<std::string> channel_types_of(nxr::io::SubjectWriter& sub, const std::string& channels_id);
 

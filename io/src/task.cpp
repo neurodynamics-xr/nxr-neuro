@@ -564,6 +564,7 @@ std::string Unit::field(const FieldOut& f) {
   if (f.unit) fs.cols.set("unit", *f.unit);
   if (f.description) fs.cols.set("description", *f.description);
   if (f.derived_from_id) fs.cols.set("derived_from_id", *f.derived_from_id);
+  if (f.of_operator_id) fs.cols.set("of_operator_id", *f.of_operator_id);
   fs.cols.set("source", by_.tool);
   fs.cols.json("producer_json", producer_of(by_, f.output, f.producer));
   return impl_->writer->field(std::move(fs));

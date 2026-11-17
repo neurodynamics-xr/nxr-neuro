@@ -29,7 +29,8 @@ const std::vector<std::string> kInputClasses = {"field", "operator", "selection"
 const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
                                            // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
-                                           "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors"};
+                                           "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors",
+                                           "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator"};
 const std::regex kPresetName("^[a-z][a-z0-9_-]*$");
 const std::regex kName("^[a-z][a-z0-9_]*$");
 
@@ -364,7 +365,7 @@ Definition parse(const Json& written, const std::string& source, const std::stri
     if (kind.empty()) err(w, "kind: a name");
     const bool declared_kind = kind == "operator" || kind == "manifold" || (kind == "selection") || (kind == "statistic" && (spec.contains("axes") || spec.contains("of")));
     for (const auto& kk : keys(spec))                // the declaration's keys belong to the declared kinds only
-      if (!declared_kind && kind != "field" && kind != "measurement" && std::set<std::string>{"name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors"}.count(kk))
+      if (!declared_kind && kind != "field" && kind != "measurement" && std::set<std::string>{"name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors", "from_selection", "to_selection", "of_statistic", "inverts", "inverse_kind", "acquisition_of", "of_operator"}.count(kk))
         err(w, kk + ": belongs to the declared kinds (statistic with axes, operator, selection, manifold, field)");
     if (kind == "operator" && (!spec.contains("operator_kind") || !spec.contains("from") || !spec.contains("to"))) err(w, "an operator output names operator_kind, from and to (links to found manifolds)");
     if (kind == "selection" && !spec.contains("type")) err(w, "a selection output names its type: partition, spans, set, tiling or ladder");

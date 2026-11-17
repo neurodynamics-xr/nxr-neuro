@@ -640,60 +640,6 @@ int tiles_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-int headmodel_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro headmodel: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro headmodel compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const std::set<std::string> valued = {"--dataset", "--subject", "--name", "--channels", "--source-surface", "--meg", "--meg-surface", "--eeg-surface", "--sphere-cost", "--sensor-weight-exponent",
-                                        "--eeg-radii", "--eeg-conductivities", "--eeg-series-terms", "--berg-dipoles", "--berg-terms", "--berg-starts"};
-  const std::set<std::string> flags = {"--no-eeg", "--no-project-electrodes", "--mne-eeg-layers", "--eeg-series", "--replace"};
-  const cli::Args a = cli::parse(prog, rest, valued, flags, {"--dataset", "--subject"});
-  using namespace nxr::meeg;
-  nxr::pipelines::HeadModelOptions o;
-  o.name = a.maybe("--name");
-  o.channels = a.maybe("--channels");
-  o.source_surface = a.maybe("--source-surface");
-  o.meg_surface = a.maybe("--meg-surface");
-  o.eeg_surface = a.maybe("--eeg-surface");
-  if (const auto v = a.maybe("--meg")) {
-    if (*v == "overlapping") o.meg = nxr::pipelines::MegModel::OverlappingSpheres;
-    else if (*v == "single") o.meg = nxr::pipelines::MegModel::SingleSphere;
-    else if (*v == "none") o.meg = nxr::pipelines::MegModel::None;
-    else usage(prog, "--meg must be overlapping, single or none");
-  }
-  o.eeg = a.flag.count("--no-eeg") == 0;
-  o.replace = a.flag.count("--replace") > 0;
-  o.project_electrodes = a.flag.count("--no-project-electrodes") == 0;
-  if (const auto v = a.maybe("--sphere-cost")) {
-    SphereCost c;
-    if (*v == "geometric") c = SphereCost::Geometric; else if (*v == "algebraic") c = SphereCost::Algebraic; else usage(prog, "--sphere-cost must be geometric or algebraic");
-    o.sphere_fit.cost = c;
-    o.sensor_sphere.fit.cost = c;
-  }
-  if (const auto v = a.maybe("--sensor-weight-exponent")) o.sensor_sphere.weightExponent = std::stod(*v);
-  if (a.flag.count("--mne-eeg-layers")) o.eeg_sphere = mneEegSphereOptions();
-  auto vec = [&](const char* flag, Eigen::VectorXd& dst) {
-    if (const auto v = a.maybe(flag)) { const auto n = numbers(prog, flag, *v); dst = Eigen::Map<const Eigen::VectorXd>(n.data(), static_cast<Eigen::Index>(n.size())); }
-  };
-  vec("--eeg-radii", o.eeg_sphere.radius);
-  vec("--eeg-conductivities", o.eeg_sphere.conductivity);
-  if (a.flag.count("--eeg-series")) o.eeg_sphere.approximation = EegApproximation::Series;
-  if (const auto v = a.maybe("--eeg-series-terms")) o.eeg_sphere.seriesTerms = std::stoi(*v);
-  if (const auto v = a.maybe("--berg-dipoles")) o.eeg_sphere.berg.dipoles = std::stoi(*v);
-  if (const auto v = a.maybe("--berg-terms")) o.eeg_sphere.berg.terms = std::stoi(*v);
-  if (const auto v = a.maybe("--berg-starts")) o.eeg_sphere.berg.starts = std::stoi(*v);
-  DatasetWriter ds = open_dataset(a);
-  OpenSubjectOptions oo;
-  oo.created_by = cli::stamp();
-  SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-  const auto r = nxr::pipelines::headmodel_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-  Json out = Json{{"stage", "result"}};
-  for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-  out["seconds"] = std::round(r.seconds * 1000) / 1000;
-  cli::emit(out);
-  return 0;
-}
-
 int filter_main(const std::string& verb, const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro " + verb;
   const std::set<std::string> valued = {"--dataset", "--subject", "--recording", "--name", "--fpass", "--fstop", "--frequencies", "--line", "--harmonics", "--bandwidth",

@@ -3,6 +3,7 @@
 // its ports: a recording's channel types and quality) and describes what it made (`Array::meta["describe"]`); the definition says where it is stored.
 //
 //   meeg.noise_covariance  accumulate  x [channels x samples]  ->  channels (the good channels of the imaging types, indices), covariance [M x M] (a statistic)
+//   meeg.spherical_head_model  array   channels (sensor geometry) + sources + meg/eeg surfaces  ->  gain (an operator), grid (the source positions)
 //   meeg.minimum_norm      array       forward (a head model) + covariance (a statistic on a pick)  ->  kernel, channels, covariance, whitener
 #include "nxr/pipelines/meeg_steps.h"
 
@@ -18,6 +19,8 @@
 #include "nxr/graph/node.h"
 #include "nxr/meeg/covariance.h"
 #include "nxr/meeg/inverse.h"
+#include "nxr/meeg/forward.h"
+#include "nxr/meeg/sphere.h"
 #include "nxr/bst/inverse.h"
 
 namespace nxr::pipelines::graph {
@@ -357,11 +360,259 @@ ng::NodeSpec minimum_norm() {
   return n;
 }
 
+
+// ── meeg.spherical_head_model ───────────────────────────────────────────────────────────────────────────────────
+// THE HEAD MODEL (the gain, sources to channels) in spheres: MEG by Sarvas in one sphere fitted to the MEG surface (single_sphere) or one sphere a sensor (overlapping_spheres,
+// Brainstorm's default), EEG in three concentric shells fitted to the EEG surface (Berg-Scherg or the series). The sources are the vertices of the source surface (x y z
+// moments); the sensors are the channels' coils with their weights when stored, else one point a channel. Channels of no computed type keep zero rows.
+using MatRM = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
+Json sphere_record(const nxr::meeg::Sphere& s) { return Json{{"centre", Json::array({s.centre(0), s.centre(1), s.centre(2)})}, {"radius", s.radius}}; }
+Json minimiser_record(const nxr::meeg::NelderMeadOptions& m) {
+  return Json{{"reflection", m.reflection}, {"expansion", m.expansion}, {"contraction", m.contraction}, {"shrink", m.shrink}, {"relative_step", m.relativeStep}, {"zero_step", m.zeroStep},
+              {"x_tolerance", m.xTolerance}, {"f_tolerance", m.fTolerance}, {"max_evaluations", m.maxEvaluations}};
+}
+Json fit_record(const nxr::meeg::SphereFitOptions& f) { return Json{{"cost", f.cost == nxr::meeg::SphereCost::Geometric ? "geometric" : "algebraic"}, {"minimiser", minimiser_record(f.minimiser)}}; }
+Json vector_record(const Eigen::VectorXd& v) { return Json(std::vector<double>(v.data(), v.data() + v.size())); }
+
+struct HeadPrepared {
+  ng::Array channels, sources;
+  std::optional<ng::Array> meg_surface, eeg_surface;
+  std::string meg = "overlapping_spheres";
+  bool eeg = true, project = true;
+  nxr::meeg::SarvasOptions sarvas;
+  nxr::meeg::SphereFitOptions fit;
+  nxr::meeg::SensorSphereOptions sensor;
+  nxr::meeg::EegSphereOptions shells;
+};
+
+ng::NodeSpec spherical_head_model() {
+  ng::NodeSpec n;
+  n.name = "meeg.spherical_head_model";
+  n.kind = ng::Kind::array;
+  n.inputs = {{"channels", "the channels: a points manifold (positions, the 'type' of each, orientations and coils when stored)", false},
+              {"sources", "the source surface: its vertices are the sources", false},
+              {"meg_surface", "the surface the MEG spheres are fitted to (the inner skull)", true},
+              {"eeg_surface", "the surface the EEG sphere is fitted to (the scalp)", true}};
+  n.outputs = {{"gain", "the gain, channels x 3 sources (x y z moments): an operator from the sources (vector3) to the channels", false},
+               {"grid", "the source positions, sources x 3 (m): a field of the gain on the source surface", false}};
+  n.parameters = {
+      {"meg", Json("overlapping_spheres"), "the MEG model: overlapping_spheres | single_sphere | none", "-", {"overlapping_spheres", "single_sphere", "none"}, false},
+      {"eeg", Json(true), "compute the EEG channels (three shells)", "-", {}, false},
+      {"project_electrodes", Json(true), "move the electrodes radially onto the fitted EEG sphere (the formula puts them on the outer shell)", "-", {}, false},
+      {"sphere_cost", Json("geometric"), "the sphere fit's cost: geometric | algebraic", "-", {"geometric", "algebraic"}, false},
+      {"sensor_weight_exponent", Json(4.0), "the overlapping spheres' weight exponent p (w = sum |weight| d^-p)", "-", {}, false},
+      {"eeg_layers", Json("brainstorm"), "the shells' radii and conductivities: brainstorm | mne", "-", {"brainstorm", "mne"}, false},
+      {"eeg_radii", Json(), "the shells' relative radii, innermost to outermost; null: the layers'", "-", {}, true},
+      {"eeg_conductivities", Json(), "the shells' conductivities, innermost to outermost; null: the layers'", "S/m", {}, true},
+      {"eeg_approximation", Json("berg_scherg"), "berg_scherg | series", "-", {"berg_scherg", "series"}, false},
+      {"eeg_series_terms", Json(), "the series' terms; null: the default", "-", {}, true},
+      {"berg_dipoles", Json(), "the Berg-Scherg dipoles; null: the default", "-", {}, true},
+      {"berg_terms", Json(), "the series terms the Berg-Scherg fit matches; null: the default", "-", {}, true},
+      {"berg_starts", Json(), "the Berg-Scherg fit's simplex starts; null: the default", "-", {}, true}};
+  n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "solved in double; the gain is stored as float32 like every operator");
+  n.matches = "Brainstorm's bst_headmodeler (os_meg, meg_sphere, eeg_3sphereberg); meeg nxr::meeg::sarvasGain, eegSphereGain";
+  n.description = "the gain of a spherical head model (Sarvas MEG in one or overlapping spheres, three-shell EEG) on a source surface";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    for (const char* k : {"channels", "sources"}) if (!in.count(k)) ng::refuse(std::string("meeg.spherical_head_model: ") + k + " is not given");
+    const bool meg = p.value("meg", std::string("overlapping_spheres")) != "none" && in.count("meg_surface"), eeg = p.value("eeg", true) && in.count("eeg_surface");
+    if (!meg && !eeg) ng::refuse("meeg.spherical_head_model: no model to compute: name the meg_surface (the inner skull) for MEG, the eeg_surface (the scalp) for EEG");
+    ng::Planned out;
+    out.out["gain"] = constant_port("operator");
+    out.out["grid"] = constant_port("field");
+    return out;
+  };
+  n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json& p, ng::Shared&) {
+    using namespace nxr::meeg;
+    HeadPrepared pr;
+    auto take = [&](const char* k) -> std::optional<ng::Array> { const auto it = c.find(k); if (it == c.end() || it->second.meta.value("placeholder", false)) return std::nullopt; return it->second; };
+    const auto ch = take("channels"), src = take("sources");
+    if (!ch || !src) ng::refuse("meeg.spherical_head_model: the channels and the source surface were not handed over");
+    pr.channels = *ch; pr.sources = *src;
+    pr.meg_surface = take("meg_surface"); pr.eeg_surface = take("eeg_surface");
+    pr.meg = p.value("meg", std::string("overlapping_spheres"));
+    pr.eeg = p.value("eeg", true);
+    pr.project = p.value("project_electrodes", true);
+    const std::string cs = pr.channels.meta.value("cs_id", std::string());
+    for (const ng::Array* s : {&pr.sources, pr.meg_surface ? &*pr.meg_surface : nullptr, pr.eeg_surface ? &*pr.eeg_surface : nullptr})
+      if (s && !cs.empty() && !s->meta.value("cs_id", std::string()).empty() && s->meta.value("cs_id", std::string()) != cs)
+        ng::refuse("meeg.spherical_head_model: " + s->meta.value("name", std::string()) + " and " + pr.channels.meta.value("name", std::string()) + " are not in the same coordinate system");
+    const SphereCost cost = p.value("sphere_cost", std::string("geometric")) == "algebraic" ? SphereCost::Algebraic : SphereCost::Geometric;
+    pr.fit.cost = cost; pr.sensor.fit.cost = cost;
+    pr.sensor.weightExponent = p.value("sensor_weight_exponent", 4.0);
+    if (p.value("eeg_layers", std::string("brainstorm")) == "mne") pr.shells = mneEegSphereOptions();
+    auto vec = [&](const char* k, Eigen::VectorXd& v) {
+      if (!p.contains(k) || p[k].is_null()) return;
+      const std::vector<double> x = p[k].get<std::vector<double>>();
+      v = Eigen::Map<const Eigen::VectorXd>(x.data(), static_cast<Eigen::Index>(x.size()));
+    };
+    vec("eeg_radii", pr.shells.radius);
+    vec("eeg_conductivities", pr.shells.conductivity);
+    if (p.value("eeg_approximation", std::string("berg_scherg")) == "series") pr.shells.approximation = EegApproximation::Series;
+    if (p.contains("eeg_series_terms") && !p["eeg_series_terms"].is_null()) pr.shells.seriesTerms = p["eeg_series_terms"].get<int>();
+    if (p.contains("berg_dipoles") && !p["berg_dipoles"].is_null()) pr.shells.berg.dipoles = p["berg_dipoles"].get<int>();
+    if (p.contains("berg_terms") && !p["berg_terms"].is_null()) pr.shells.berg.terms = p["berg_terms"].get<int>();
+    if (p.contains("berg_starts") && !p["berg_starts"].is_null()) pr.shells.berg.starts = p["berg_starts"].get<int>();
+    return std::any(std::move(pr));
+  };
+  n.run = [](const std::any& prepared, const ng::Arrays&) {
+    using namespace nxr::meeg;
+    const HeadPrepared& pr = std::any_cast<const HeadPrepared&>(prepared);
+    const ng::Array& CH = pr.channels;
+    const std::string chname = CH.meta.value("name", std::string());
+    const std::vector<std::string> types = CH.meta.value("types", std::vector<std::string>());
+    const std::int64_t M = CH.rows, N = pr.sources.rows;
+    const MatRM ch_pos = Eigen::Map<const MatRM>(CH.data.data(), M, 3);
+    const std::optional<std::vector<double>> ch_ori = CH.meta.contains("orientation") ? std::optional<std::vector<double>>(CH.meta["orientation"].get<std::vector<double>>()) : std::nullopt;
+    const Eigen::MatrixXd src = Eigen::Map<const MatRM>(pr.sources.data.data(), N, 3);
+    const bool have_coils = CH.meta.contains("coils");
+    std::vector<double> coil_pos, coil_ori;
+    std::vector<std::int32_t> indptr, indices;
+    std::vector<float> cw;
+    if (have_coils) {
+      const Json& k = CH.meta["coils"];
+      coil_pos = k["positions"].get<std::vector<double>>(); coil_ori = k["orientation"].get<std::vector<double>>();
+      indptr = k["indptr"].get<std::vector<std::int32_t>>(); indices = k["indices"].get<std::vector<std::int32_t>>(); cw = k["weights"].get<std::vector<float>>();
+    }
+    std::vector<int> meg_ch, eeg_ch;
+    for (std::int64_t i = 0; i < M; ++i) {
+      const std::string& t = types[static_cast<std::size_t>(i)];
+      if (t == "MEG" || t == "MEG MAG" || t == "MEG GRAD") meg_ch.push_back(static_cast<int>(i));
+      else if (t == "EEG") eeg_ch.push_back(static_cast<int>(i));
+    }
+    const bool do_meg = pr.meg != "none" && pr.meg_surface && !meg_ch.empty(), do_eeg = pr.eeg && pr.eeg_surface && !eeg_ch.empty();
+    if (!do_meg && !do_eeg) ng::refuse("meeg.spherical_head_model: " + chname + ": no MEG or EEG channel to compute");
+    auto points = [](const ng::Array& s) { return Eigen::MatrixXd(Eigen::Map<const MatRM>(s.data.data(), s.rows, 3)); };
+    auto coils_of = [&](const std::vector<int>& chans, bool need_orientation) {
+      Coils k;
+      std::vector<Eigen::Vector3d> pos, ori;
+      std::vector<double> w;
+      for (std::size_t c = 0; c < chans.size(); ++c) {
+        const int ch = chans[c];
+        const std::size_t before = pos.size();
+        if (have_coils)
+          for (std::int32_t q = indptr[static_cast<std::size_t>(ch)]; q < indptr[static_cast<std::size_t>(ch) + 1]; ++q) {
+            const std::size_t ci = static_cast<std::size_t>(indices[static_cast<std::size_t>(q)]);
+            pos.emplace_back(coil_pos[3 * ci], coil_pos[3 * ci + 1], coil_pos[3 * ci + 2]);
+            ori.emplace_back(coil_ori[3 * ci], coil_ori[3 * ci + 1], coil_ori[3 * ci + 2]);
+            w.push_back(cw[static_cast<std::size_t>(q)]);
+            k.channel.push_back(static_cast<int>(c));
+          }
+        if (pos.size() == before) {                                 // no coils stored for this channel: its one point
+          pos.push_back(ch_pos.row(ch).transpose());
+          const std::size_t o = 3 * static_cast<std::size_t>(ch);
+          ori.push_back(ch_ori ? Eigen::Vector3d((*ch_ori)[o], (*ch_ori)[o + 1], (*ch_ori)[o + 2]) : Eigen::Vector3d::Constant(std::nan("")));
+          w.push_back(1.0);
+          k.channel.push_back(static_cast<int>(c));
+        }
+        if (need_orientation)
+          for (std::size_t q = before; q < pos.size(); ++q)
+            if (!ori[q].allFinite() || ori[q].norm() < 0.5)
+              ng::refuse("meeg.spherical_head_model: " + chname + ": channel " + std::to_string(ch) + " (" + types[static_cast<std::size_t>(ch)] +
+                         ") has a sensor point with no orientation; the MEG model needs " + chname + "_orientation or " + chname + "_coils_orientation");
+      }
+      k.channels = static_cast<int>(chans.size());
+      k.position.resize(static_cast<Eigen::Index>(pos.size()), 3);
+      k.orientation.resize(static_cast<Eigen::Index>(pos.size()), 3);
+      k.weight.resize(static_cast<Eigen::Index>(pos.size()));
+      for (std::size_t q = 0; q < pos.size(); ++q) {
+        k.position.row(static_cast<Eigen::Index>(q)) = pos[q].transpose();
+        k.orientation.row(static_cast<Eigen::Index>(q)) = (need_orientation ? Eigen::Vector3d(ori[q].normalized()) : Eigen::Vector3d(Eigen::Vector3d::Zero())).transpose();
+        k.weight(static_cast<Eigen::Index>(q)) = w[q];
+      }
+      return k;
+    };
+    const char* meg_name = pr.meg == "single_sphere" ? "single sphere" : pr.meg == "overlapping_spheres" ? "overlapping spheres" : "none";
+    Eigen::MatrixXd gain = Eigen::MatrixXd::Zero(M, 3 * N);
+    Json computed = Json::object();
+    if (do_meg) {
+      const Eigen::MatrixXd P = points(*pr.meg_surface);
+      const Coils k = coils_of(meg_ch, true);
+      Eigen::MatrixXd Gm;
+      Json mj = Json{{"model", meg_name}, {"surface", pr.meg_surface->meta.value("name", std::string())}, {"channels", static_cast<int>(meg_ch.size())}};
+      if (pr.meg == "single_sphere") {
+        const Sphere s = fitSphere(P, Eigen::VectorXd(), pr.fit);
+        Gm = sarvasGain(src, k, s.centre, pr.sarvas);
+        mj["sphere"] = sphere_record(s);
+        int outside = 0;
+        for (std::int64_t i = 0; i < N; ++i) if ((src.row(i).transpose() - s.centre).norm() > s.radius) ++outside;
+        mj["sources_outside_sphere"] = outside;
+      } else {
+        const std::vector<Sphere> sp = sensorSpheres(P, k.position, k.weight, k.channel, k.channels, pr.sensor);
+        std::vector<Eigen::Vector3d> centres;
+        Json sj = Json::array();
+        int outside = 0;
+        for (const Sphere& s : sp) centres.push_back(s.centre);
+        for (std::size_t c = 0; c < sp.size(); ++c) {
+          sj.push_back(Json{{"channel", meg_ch[c]}, {"centre", Json::array({sp[c].centre(0), sp[c].centre(1), sp[c].centre(2)})}, {"radius", sp[c].radius}});
+          for (std::int64_t i = 0; i < N; ++i) if ((src.row(i).transpose() - sp[c].centre).norm() > sp[c].radius) { ++outside; break; }
+        }
+        Gm = sarvasGain(src, k, centres, pr.sarvas);
+        mj["spheres"] = sj;
+        mj["channels_with_a_source_outside_their_sphere"] = outside;
+      }
+      for (std::size_t c = 0; c < meg_ch.size(); ++c) gain.row(meg_ch[c]) = Gm.row(static_cast<Eigen::Index>(c));
+      computed["meg"] = mj;
+    }
+    if (do_eeg) {
+      const Eigen::MatrixXd P = points(*pr.eeg_surface);
+      const Sphere s = fitSphere(P, Eigen::VectorXd(), pr.fit);
+      Coils k = coils_of(eeg_ch, false);
+      if (pr.project)
+        for (Eigen::Index q = 0; q < k.position.rows(); ++q) {
+          const Eigen::Vector3d d = k.position.row(q).transpose() - s.centre;
+          if (d.norm() == 0) ng::refuse("meeg.spherical_head_model: an electrode sits at the centre of the fitted sphere");
+          k.position.row(q) = (s.centre + s.radius * d.normalized()).transpose();
+        }
+      BergScherg used;
+      const Eigen::MatrixXd Ge = eegSphereGain(src, k, s.centre, pr.shells, &used);
+      for (std::size_t c = 0; c < eeg_ch.size(); ++c) gain.row(eeg_ch[c]) = Ge.row(static_cast<Eigen::Index>(c));
+      int outside_inner = 0, outside = 0;
+      for (std::int64_t i = 0; i < N; ++i) {
+        const double d = (src.row(i).transpose() - s.centre).norm();
+        if (d > s.radius) ++outside;
+        if (d > s.radius * pr.shells.radius(0)) ++outside_inner;
+      }
+      Json ej = Json{{"model", "three shells"}, {"surface", pr.eeg_surface->meta.value("name", std::string())}, {"channels", static_cast<int>(eeg_ch.size())}, {"sphere", sphere_record(s)},
+                     {"sources_outside_innermost_shell", outside_inner}, {"sources_outside_sphere", outside}};
+      if (pr.shells.approximation == EegApproximation::BergScherg)
+        ej["berg_scherg"] = Json{{"eccentricity", vector_record(used.eccentricity)}, {"magnitude", vector_record(used.magnitude)}, {"residual", used.residual}};
+      computed["eeg"] = ej;
+    }
+    if (!gain.allFinite()) ng::refuse("meeg.spherical_head_model: the gain holds a NaN (a sensor point on a source?)");
+    const auto& el = pr.shells;
+    const Json options = Json{{"meg", do_meg ? meg_name : "none"}, {"eeg", do_eeg ? "three shells" : "none"}, {"sarvas", Json{{"permeability", pr.sarvas.permeability}}},
+                              {"sphere_fit", fit_record(pr.fit)}, {"sensor_sphere", Json{{"weight_exponent", pr.sensor.weightExponent}, {"fit", fit_record(pr.sensor.fit)}}},
+                              {"eeg_sphere", Json{{"radius", vector_record(el.radius)}, {"conductivity", vector_record(el.conductivity)},
+                                                  {"approximation", el.approximation == EegApproximation::BergScherg ? "berg-scherg" : "series"},
+                                                  {"berg", Json{{"dipoles", el.berg.dipoles}, {"terms", el.berg.terms}, {"starts", el.berg.starts}, {"minimiser", minimiser_record(el.berg.minimiser)}}},
+                                                  {"series_terms", el.seriesTerms}, {"centre_tolerance", el.centreTolerance}}},
+                              {"project_electrodes", pr.project}};
+    // the importer's keys (`export_forward`), then what a computed head model adds
+    Json producer = Json{{"units", "m"}, {"n_sources", N}, {"has_source_grid", true}, {"head_model_type", "surface"}, {"bst_surface_file", pr.sources.meta.value("name", std::string())},
+                         {"computed", computed}, {"gain_units", Json{{"meg", "T/(A.m)"}, {"eeg", "V/(A.m)"}}}, {"average_reference", false}};
+    if (do_meg) producer["meg_method"] = pr.meg == "single_sphere" ? "meg_sphere" : "os_meg";
+    if (do_eeg) producer["eeg_method"] = "eeg_3sphereberg";
+    ng::Array G;
+    G.rows = M; G.cols = 3 * N;
+    G.data.resize(static_cast<std::size_t>(M * 3 * N));
+    for (std::int64_t i = 0; i < M; ++i) for (std::int64_t j = 0; j < 3 * N; ++j) G.data[static_cast<std::size_t>(i * 3 * N + j)] = gain(i, j);
+    G.meta["describe"] = Json{{"from_value_type", "vector3"}, {"to_value_type", "scalar"}, {"precision", "float32"}, {"producer", producer},
+                              {"params", Json{{"forward", Json{{"options", options}, {"computed", computed}}}}},
+                              {"description", std::string("the leadfield, source field to sensor field (computed: ") + (do_meg ? meg_name : "no MEG") + (do_eeg ? ", three-shell EEG)" : ")")}};
+    ng::Array L;
+    L.rows = N; L.cols = 3;
+    L.data = pr.sources.data;
+    L.meta["describe"] = Json{{"value_type", "vector3"}, {"unit", "m"}, {"precision", "float32"}, {"description", "the source positions of the head model"}};
+    return ng::Arrays{{"gain", std::move(G)}, {"grid", std::move(L)}};
+  };
+  return n;
+}
+
 }  // namespace
 
 void register_meeg_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {noise_covariance(), minimum_norm()})
+  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

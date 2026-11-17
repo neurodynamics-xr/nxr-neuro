@@ -266,6 +266,11 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (d.contains("unit") && d["unit"].is_string()) f.unit = d["unit"].get<std::string>();
     else if (spec.contains("unit")) f.unit = spec["unit"].get<std::string>();
     f.description = spec.contains("description") ? spec["description"].get<std::string>() : d.value("description", f.kind + " \xe2\x80\x94 pipeline " + P.definition.name);
+    if (spec.contains("of_operator")) {                                  // a field of an operator this run stored (stored after it: the operators' pass comes first)
+      const std::string r = spec["of_operator"].get<std::string>();
+      if (!made.count(r)) bad(o, "of_operator: '" + r + "' is not an operator output stored before it");
+      f.of_operator_id = made.at(r);
+    }
     f.data = values_of(a, shape_of(a, d), single_of(d), o);
     const std::string path = unit.path_of(f);
     clear(task::Cls::field, path);
@@ -297,7 +302,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (const auto inv = id_of("inverts")) {
       if (d.value("inverts", true)) { op.inverts_id = inv; op.inverse_kind = spec.value("inverse_kind", std::string("regularized")); }
     }
-    if (const auto acq = acquisition_of(P, spec.contains("derived_from") ? spec["derived_from"].get<std::string>() : std::string()); !acq.empty()) op.acquisition = acq;
+    const std::string acq_from = spec.contains("acquisition_of") ? spec["acquisition_of"].get<std::string>() : spec.contains("derived_from") ? spec["derived_from"].get<std::string>() : std::string();
+    if (const auto acq = acquisition_of(P, acq_from); !acq.empty()) op.acquisition = acq;
     op.data = values_of(a, {a.rows, a.cols}, single_of(d), o);
     const std::string path = unit.path_of(op);
     clear(task::Cls::operator_, path);

@@ -48,32 +48,6 @@ namespace nxr::pipelines {
 std::vector<std::string> imaging_channel_types();
 
 
-enum class MegModel { None, SingleSphere, OverlappingSpheres };
-
-struct HeadModelOptions {
-  std::optional<std::string> channels;                    // the channels manifold by name; default: the subject's only points manifold with a 'type' labelling
-  std::optional<std::string> source_surface;              // the sources: the vertices of this surface; default the primary (cortex) surface
-  std::optional<std::string> meg_surface;                 // the surface the MEG spheres are fitted to; default: the one called inner skull
-  std::optional<std::string> eeg_surface;                 // the surface the EEG sphere is fitted to; default: the one called scalp (or head)
-  MegModel meg = MegModel::OverlappingSpheres;            // Brainstorm's default MEG head model
-  bool eeg = true;                                        // compute the EEG channels (three shells)
-  std::optional<std::string> name;                        // default `headmodel`
-  nxr::meeg::SarvasOptions sarvas;
-  nxr::meeg::SphereFitOptions sphere_fit;                 // the single MEG sphere and the EEG sphere
-  nxr::meeg::SensorSphereOptions sensor_sphere;           // the overlapping spheres
-  nxr::meeg::EegSphereOptions eeg_sphere;                 // Brainstorm's layers, Berg-Scherg
-  bool project_electrodes = true;                         // electrodes are moved radially onto the fitted EEG sphere (the formula puts them on the outer shell)
-  bool replace = false;
-};
-struct HeadModelResult {
-  bool hit = false;
-  double seconds = 0;
-  nxr::io::Json info;
-  Eigen::MatrixXd gain;                                   // [M x 3N] (zero rows for channels of no computed type)
-};
-// A missing surface, sensor geometry or orientation is an nxr::io::Error that names what the subject has.
-HeadModelResult headmodel_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const HeadModelOptions& opt,
-                                  const std::function<void(const nxr::io::Json&)>& progress = {});
 
 struct SourcePsdOptions {
   std::string recording;                                  // the recording Field by name

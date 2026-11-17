@@ -897,13 +897,22 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.data.assign(f.begin(), f.end());
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
         constants[name] = std::move(a);
-      } else if (v.cls == "manifold") {
+      } else if (v.cls == "manifold" && text(row, "type") == "points") {    // a channels manifold: its sensor geometry (positions; types, orientations, coils in meta)
+        const nxr::pipelines::SensorGeometry g = nxr::pipelines::sensor_geometry(sub, text(row, "id"));
+        nxr::graph::Array a;
+        a.rows = static_cast<std::int64_t>(g.positions.size() / 3); a.cols = 3;
+        a.data = g.positions;
+        a.meta["name"] = g.name; a.meta["id"] = g.id; a.meta["cs_id"] = g.cs_id; a.meta["types"] = g.types;
+        if (g.orientation) a.meta["orientation"] = *g.orientation;
+        if (g.coils) a.meta["coils"] = Json{{"positions", g.coil_positions}, {"orientation", g.coil_orientation}, {"indptr", g.indptr}, {"indices", g.indices}, {"weights", g.weights}};
+        constants[name] = std::move(a);
+      } else if (v.cls == "manifold") {                                     // a surface: its vertices [n x 3] as stored, its faces in meta
         const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(sub, text(row, "name"), true);
         nxr::graph::Array a;
         a.rows = S.n_vertices(); a.cols = 3;
         a.data = S.vertices;
         a.meta["faces"] = S.faces;
-        a.meta["name"] = S.name; a.meta["id"] = S.id;
+        a.meta["name"] = S.name; a.meta["id"] = S.id; a.meta["cs_id"] = nxr::pipelines::coordinate_system_of(sub, S.id);
         constants[name] = std::move(a);
       }
     }
@@ -999,10 +1008,17 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (is_declared(P, o) && ospec["kind"] == "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced));
     std::set<std::string> packed;                                          // the measurement outputs already stored with an earlier one's array
     auto pass = [](const Value& v) { return v.cls == "labelling" ? 1 : over_events(v) ? 2 : v.cls == "statistic" ? 3 : 0; };
-    for (int ps = 0; ps < 5; ++ps)                                          // a fifth pass: the declared operators, last (they name the picks and statistics stored before them)
+    // two more passes: the declared operators (they name the picks and statistics stored before them), then the fields of an operator (`of_operator`)
+    auto declared_pass = [&](const std::string& o, const Json& spec, const Value& v) {
+      if (!is_declared(P, o)) return pass(v);
+      if (ospec_kind(spec) == "operator") return 4;
+      if (ospec_kind(spec) == "field" && spec.contains("of_operator")) return 5;
+      return pass(v);
+    };
+    for (int ps = 0; ps < 6; ++ps)
     for (const auto& [o, spec] : d.outputs.items()) {
       const Value& v = P.values.at(o);
-      if ((is_declared(P, o) && ospec_kind(spec) == "operator" ? 4 : pass(v)) != ps) continue;
+      if (declared_pass(o, spec, v) != ps) continue;
       if (is_declared(P, o) && !data.count(o)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", "its node made none (an optional output)"}}); continue; }
       if (is_declared(P, o)) { if (ospec_kind(spec) != "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced)); continue; }
       if (v.cls == "measurement" && v.facts.value("measure", std::string()) == "tile_crossings") { stored.push_back(store_crossings(sub, unit, P, o, v, data.at(o), made_by(key), opt.replace, replaced)); continue; }
