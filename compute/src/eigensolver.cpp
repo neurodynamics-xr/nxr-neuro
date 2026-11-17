@@ -6,6 +6,9 @@
 #include <Spectra/MatOp/SymShiftInvert.h>
 #include <Spectra/MatOp/SparseCholesky.h>
 
+#include <Eigen/Eigenvalues>
+#include <Eigen/SparseCholesky>
+
 #include <iostream>
 #include <algorithm>
 #include <numeric>
@@ -14,6 +17,8 @@
 #include <limits>
 
 namespace nxr::manifold::solve {
+
+static EigenResult polishPairs(const Eigen::SparseMatrix<double>& A, const Eigen::SparseMatrix<double>& B, EigenResult r, double sigma);
 
 namespace {
 
@@ -244,6 +249,10 @@ EigenResult eigen(
             "Spectra eigensolver returned a numerical-issue error code");
     }
 
+    // polished only for a window that starts above its shift (the k smallest above sigma: K positive semi-definite, sigma below the spectrum); a window
+    // around an interior shift (an indefinite operator, the Hodge-Dirac's) is left as the solver gave it
+    if (result.k > 0 && sigma < result.eigenvalues(0) && result.eigenvalues(0) > -1e-6 * std::max(1.0, std::abs(result.eigenvalues(result.k - 1))))
+        result = polishPairs(K, M, std::move(result), sigma);
     if (removeDC) {
         result = ::nxr::manifold::solve::removeDC(result);
     }
@@ -324,6 +333,10 @@ EigenResult eigenLargestMagn(const Eigen::SparseMatrix<double>& A, const Eigen::
     return eigenCholesky(A, B, k, normalize, Spectra::SortRule::LargestMagn);
 }
 
+// The k eigenpairs of the ladder's window, made complete: see completeLowest (below).
+static EigenResult completeLowest(const Eigen::SparseMatrix<double>& A, const Eigen::SparseMatrix<double>& B, EigenResult r, double sigma,
+                                  const CancellationToken& cancel);
+
 EigenResult eigenSmallest(
     const Eigen::SparseMatrix<double>& A_in,
     const Eigen::SparseMatrix<double>& B_in,
@@ -339,7 +352,7 @@ EigenResult eigenSmallest(
         const double sigmas[2] = { -1e-7 * lmax, -1e-4 * lmax };
         for (double sigma : sigmas) {
             try {
-                return eigen(A, B, k, sigma, normalize, /*removeDC=*/false, cancel, progress);
+                return completeLowest(A, B, eigen(A, B, k, sigma, normalize, /*removeDC=*/false, cancel, progress), sigma, cancel);
             } catch (const Error& e) {
                 if (e.code() != ErrorCode::EigensolveNotConverged) throw;  // k-range etc: don't retry
             }
@@ -409,6 +422,155 @@ private:
     double shift_ = 0; bool haveShift_ = false;
 };
 } // namespace
+
+// COMPLETENESS OF THE SMALLEST k. A single-vector Lanczos run finds ONE vector of a multiple eigenvalue in exact arithmetic (a sphere's 2l+1, any
+// symmetry, a diagonal operator with repeats): the others appear only through rounding, and some never do, so the window can hold an eigenvalue
+// above one it missed (an l = 5 value in place of the last l = 4 one). Sylvester's law of inertia counts them: the number of negative pivots of
+// the LDL' factorisation of K − τM is the number of eigenvalues below τ (M positive definite). With τ just under the largest value held, the held
+// values below τ must be all of the spectrum below τ; if not, the missing ones are searched for with the held vectors projected out of the
+// operator (DeflatedShiftInvertOp), at the same shift, and merged, until the count is right. Deterministic: no random start decides what is found.
+// When the factorisation cannot be trusted (a zero or non-finite pivot) the window is returned as it is.
+static EigenResult completeCore(const Eigen::SparseMatrix<double>& A, const Eigen::SparseMatrix<double>& B, EigenResult r, double sigma,
+                                const CancellationToken& cancel) {
+    const int n = static_cast<int>(A.rows());
+    const int k = r.k;
+    if (k < 1 || k >= n - 1) return r;
+    using Inner = DeflatedShiftInvertOp::Inner;
+    for (int round = 0; round < 25; ++round) {
+        const double lk = r.eigenvalues(k - 1);
+        const double tau = lk - 1e-6 * std::max(1.0, std::abs(lk));
+        int foundBelow = 0;
+        for (int i = 0; i < r.k; ++i) if (r.eigenvalues(i) < tau) ++foundBelow;
+        Eigen::SparseMatrix<double> S = A - tau * B;
+        Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt;
+        ldlt.compute(S);
+        if (ldlt.info() != Eigen::Success) return r;
+        const Eigen::VectorXd D = ldlt.vectorD();
+        int below = 0;
+        for (Eigen::Index i = 0; i < D.size(); ++i) {
+            if (!std::isfinite(D(i)) || D(i) == 0.0) return r;
+            if (D(i) < 0.0) ++below;
+        }
+        const int missing = below - foundBelow;
+        if (missing <= 0) return r;
+
+        Eigen::MatrixXd X = ::nxr::manifold::solve::normalize(r.eigenvectors, B);
+        Inner inner(A, B);
+        DeflatedShiftInvertOp op(inner, B, cancel);
+        op.setDeflation(&X);
+        const int k2 = std::min(missing + 4, n - 1 - r.k);
+        if (k2 < 1) return r;
+        const int ncv = std::min(std::max(2 * k2 + 1, 20), n);
+        Spectra::SparseSymMatProd<double> opM(B);
+        Spectra::SymGEigsShiftSolver<DeflatedShiftInvertOp, Spectra::SparseSymMatProd<double>, Spectra::GEigsMode::ShiftInvert> solver(op, opM, k2, ncv, sigma);
+        solver.init();
+        solver.compute(Spectra::SortRule::LargestMagn, 1000, EigenControls().tol);
+        if (solver.info() != Spectra::CompInfo::Successful && solver.info() != Spectra::CompInfo::NotConverging) return r;
+        const Eigen::VectorXd lam = solver.eigenvalues();
+        const Eigen::MatrixXd vec = ::nxr::manifold::solve::normalize(solver.eigenvectors(), B);
+
+        std::vector<double> L(r.eigenvalues.data(), r.eigenvalues.data() + r.k);
+        std::vector<Eigen::VectorXd> V;
+        for (int c = 0; c < r.k; ++c) V.push_back(r.eigenvectors.col(c));
+        Eigen::MatrixXd held = X;
+        int added = 0;
+        for (int c = 0; c < vec.cols(); ++c) {
+            Eigen::VectorXd x = vec.col(c);
+            Eigen::VectorXd bx = B * x;
+            for (int pass = 0; pass < 2; ++pass) {
+                const Eigen::VectorXd coef = held.transpose() * bx;
+                x -= held * coef;
+                bx = B * x;
+            }
+            const double nrm = std::sqrt(std::max(0.0, x.dot(bx)));
+            if (nrm < 0.1) continue;                      // already spanned by the held vectors
+            x /= nrm;
+            held.conservativeResize(Eigen::NoChange, held.cols() + 1);
+            held.col(held.cols() - 1) = x;
+            L.push_back(lam(c)); V.push_back(x); ++added;
+        }
+        if (added == 0) return r;
+        std::vector<int> ord(L.size());
+        std::iota(ord.begin(), ord.end(), 0);
+        std::sort(ord.begin(), ord.end(), [&](int a, int b) { return L[a] < L[b]; });
+        EigenResult out;
+        out.k = k; out.nConverged = k;
+        out.eigenvalues.resize(k);
+        out.eigenvectors.resize(n, k);
+        for (int c = 0; c < k; ++c) { out.eigenvalues(c) = L[ord[c]]; out.eigenvectors.col(c) = V[ord[c]]; }
+        r = std::move(out);
+    }
+    return r;
+}
+
+
+// POLISH. A member of a multiple eigenvalue converges through rounding, so its Ritz estimate is not the residual that Spectra tests: its eigenvalue can be
+// off by 1e-9 where the others are exact. A few steps of subspace iteration with Rayleigh–Ritz (one factorisation at the shift, the held vectors and their
+// shift-inverted images as the trial space) bring every pair to the tolerance. The pairs' order and the eigenvectors' scale are kept (M-normalised
+// vectors are returned as M-normalised, the solver's own as they were).
+static EigenResult polishPairs(const Eigen::SparseMatrix<double>& A, const Eigen::SparseMatrix<double>& B, EigenResult r, double sigma) {
+    const int n = static_cast<int>(A.rows()), k = r.k;
+    if (k < 1 || 2 * k > n) return r;
+    using Inner = DeflatedShiftInvertOp::Inner;
+    Inner inner(A, B);
+    inner.set_shift(sigma);
+    Eigen::MatrixXd X = ::nxr::manifold::solve::normalize(r.eigenvectors, B);
+    Eigen::VectorXd lam = r.eigenvalues, bestLam = lam;
+    Eigen::MatrixXd bestX = X;
+    double bestResid = std::numeric_limits<double>::infinity();
+    int worse = 0;
+    for (int step = 0; step < 40; ++step) {
+        Eigen::MatrixXd Y(n, k);
+        const Eigen::MatrixXd BX = B * X;
+        for (int j = 0; j < k; ++j) {
+            Eigen::VectorXd y(n);
+            inner.perform_op(BX.col(j).data(), y.data());
+            Y.col(j) = y;
+        }
+        Y -= X * (X.transpose() * (B * Y));                      // what the step adds beyond the held vectors
+        for (int j = 0; j < k; ++j) {
+            const double nj = std::sqrt(std::max(0.0, Y.col(j).dot(B * Y.col(j))));
+            if (nj > 0) Y.col(j) /= nj;
+        }
+        Eigen::MatrixXd W(n, 2 * k);
+        W << X, Y;
+        const Eigen::MatrixXd BW = B * W;
+        Eigen::MatrixXd Ma = W.transpose() * BW;
+        Eigen::MatrixXd Ka = W.transpose() * (A * W);
+        Ma = 0.5 * (Ma + Ma.transpose()); Ka = 0.5 * (Ka + Ka.transpose());
+        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> em(Ma);
+        const double smax = em.eigenvalues().maxCoeff();
+        std::vector<int> keep;
+        for (int i = 0; i < em.eigenvalues().size(); ++i) if (em.eigenvalues()(i) > 1e-13 * smax) keep.push_back(i);
+        if (static_cast<int>(keep.size()) < k) return r;
+        Eigen::MatrixXd T(2 * k, keep.size());
+        for (size_t c = 0; c < keep.size(); ++c) T.col(c) = em.eigenvectors().col(keep[c]) / std::sqrt(em.eigenvalues()(keep[c]));
+        Eigen::MatrixXd Kr = T.transpose() * Ka * T;
+        Kr = 0.5 * (Kr + Kr.transpose());
+        Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> er(Kr);
+        std::vector<int> pick(er.eigenvalues().size());          // the k Ritz values nearest the shift (the window), ascending
+        std::iota(pick.begin(), pick.end(), 0);
+        std::sort(pick.begin(), pick.end(), [&](int a, int b) { return std::abs(er.eigenvalues()(a) - sigma) < std::abs(er.eigenvalues()(b) - sigma); });
+        pick.resize(k);
+        std::sort(pick.begin(), pick.end());
+        Eigen::MatrixXd Cm(er.eigenvectors().rows(), k);
+        for (int c = 0; c < k; ++c) { Cm.col(c) = er.eigenvectors().col(pick[c]); lam(c) = er.eigenvalues()(pick[c]); }
+        X = W * (T * Cm);
+        // stop when the residuals ‖K x − λ M x‖ are down to 1e-12 of the spectral scale (vectors converge slower than the values: the values alone say "done" early)
+        const Eigen::MatrixXd R = A * X - B * X * lam.asDiagonal();
+        const double resid = R.colwise().norm().maxCoeff() / std::max(1.0, lam.cwiseAbs().maxCoeff());
+        if (resid < bestResid) { bestResid = resid; bestX = X; bestLam = lam; worse = 0; }
+        else if (++worse >= 3) break;                            // rounding in the shift-inverted images now outweighs what a step adds: keep the best
+        if (resid < 1e-12) break;
+    }
+    if (bestResid < std::numeric_limits<double>::infinity()) { r.eigenvalues = bestLam; r.eigenvectors = bestX; }     // M-orthonormal
+    return r;
+}
+
+static EigenResult completeLowest(const Eigen::SparseMatrix<double>& A, const Eigen::SparseMatrix<double>& B, EigenResult r, double sigma,
+                                  const CancellationToken& cancel) {
+    return polishPairs(A, B, completeCore(A, B, std::move(r), sigma, cancel), sigma);
+}
 
 // What was wrong with the first version (2026-11-10): it assumed a shift-invert window finds *every* eigenvalue within the radius
 // it converged to. It does not: a single-vector Lanczos run returns some members of a multiplet and not others (a sphere's

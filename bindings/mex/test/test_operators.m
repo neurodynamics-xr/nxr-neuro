@@ -80,8 +80,10 @@ D = [ ReK, -ImK, sparse(nVc,nVc);
 assert(norm(Lp3 - D, 'fro') < 1e-9, 'product == blkdiag(real-expand(K), cotanL)');
 
 % ambient world-form == kron(I3, cotanL) via the realized frame
-c = Gl.vertex.rotation .* G.vertex.grid;  % realized LC frame (rotation==1 for LC)
-e1 = real(c); e2 = imag(c); nrm = cross(e1, e2, 2);
+% The frame the covariant Laplacian is expressed in is the Levi-Civita vertex frame of the operator mesh ('vertexFrames': e1, e2; as the C++ test
+% test_geometry_bundle takes it from geometry::vertexGrid). 'geometry'.vertex.grid is another frame (the embedded mesh's), so it is not used here.
+vf = nxr_compute('vertexFrames', h);
+e1 = vf.e1; e2 = vf.e2; nrm = cross(e1, e2, 2);
 % block-diag frame Fbd (3N×3N), component-major [a;b;c]
 Fbd = [ spdiags(e1(:,1),0,nVc,nVc), spdiags(e2(:,1),0,nVc,nVc), spdiags(nrm(:,1),0,nVc,nVc);
         spdiags(e1(:,2),0,nVc,nVc), spdiags(e2(:,2),0,nVc,nVc), spdiags(nrm(:,2),0,nVc,nVc);

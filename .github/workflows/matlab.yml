@@ -5,7 +5,7 @@ name: matlab
 # - On a version tag (`v*`) and by hand (`workflow_dispatch`): build, test, upload the MEX and the package as workflow artefacts.
 # - On pull requests: only when bindings/mex/** or this workflow changes.
 # What runs: the first slice's tests (bindings/mex/test/first_slice: the same functions, inputs and expected values as the Python wheel's tests and the C++
-# goldens), the symbol check (nothing of HDF5, matio, zlib, zstd or SQLite is exported or shared), and the nxr_compute command tests (informational).
+# goldens), the symbol check (nothing of HDF5, matio, zlib, zstd or SQLite is exported or shared), and the nxr_compute command tests.
 on:
   push:
     tags: ["v*"]
@@ -88,9 +88,7 @@ jobs:
         with:
           select-by-folder: bindings/mex/test/first_slice
           test-results-junit: test-results/first-slice.xml
-      - name: nxr_compute command tests (informational)
-        # the earlier commands' tests: some are sensitive to the platform's floating point; they do not gate
-        continue-on-error: true
+      - name: nxr_compute command tests
         uses: matlab-actions/run-command@v2
         with:
           command: cd bindings/mex/test; run_command_tests
