@@ -95,6 +95,18 @@ resolves.
 | Surface | transfer | another surface's partition carried through the registered spheres, nearest vertex piece by piece (the group tiles are this, from the template's dyadic partition) |
 | Surface | rings, polar, poles, cells, nodal | to come: the Studio's coordinate grids (heat distance, the log map, farthest-point Voronoi, band-filtered nodal domains) |
 
+THE SELECTIONS COMPUTE CREATES (in memory; `compute/include/nxr/selection/`): two types, each with an optional LOOKUP (a code's name and colour; io
+stores it as the selection's dictionary).
+
+- `Partition`: every element in one member, at nested levels; members by arithmetic (a time line), by codes (a surface), or by edges (a line divided at
+  boundaries). Made by a method (constant-Q, dyadic, transfer), or by `labels` (a code per element and a lookup: a parcellation, flags). The bands a
+  constant-Q or dyadic partition's levels resolve partition the spectrum's own line: `spectrum_partition` gives the FREQUENCY partition of a constant-Q one
+  and the EIGENVALUE partition of a dyadic one.
+- `Spans` (labelled spans): intervals [start, stop) on a line with a code each, which may leave gaps and overlap: events on the time line (bursts,
+  spindles, bad segments), named bands on the frequency line (the physiological bands), ranges of eigenvalues.
+
+The same logic holds on every line: time, frequency, eigenvalue.
+
 A subject's own atlases (DK, DKT, Destrieux) are FreeSurfer's (its registration and trained classifier); they are imported with the anatomy, not computed.
 
 ## 5. Examples (illustrative)

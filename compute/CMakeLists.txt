@@ -132,6 +132,7 @@ add_library(nxr_compute STATIC
   src/ladder.cpp
   src/selection_partition.cpp
   src/selection_dyadic.cpp
+  src/selection_spans.cpp
   src/partition.cpp
   src/glue.cpp
   src/forms.cpp
