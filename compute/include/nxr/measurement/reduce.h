@@ -77,4 +77,12 @@ void reduce(MatrixIngredients& acc, const Eigen::MatrixXcd& Z, std::int64_t firs
 /** add one value (a matrix) to a member */
 void add(MatrixIngredients& acc, std::int64_t member, const Eigen::MatrixXcd& value);
 
+// ── MERGING members (the ingredients of members given in another selection's member numbers: events over a grid, a coarser level) ─────
+/** groups (each a list of members of `over_members`, may overlap: an event's tiles) merged by the ingredients' rules: counts, weights and sums add, max and min merge, an empty group is
+ *  the identity (count 0, max -inf, min +inf). The measures named by `request` must be rollable (merge not `none`: a median is refused naming the measure, never rolled up).
+ *  std::invalid_argument for a member outside the ingredients. This is the one merge: `roll_up` (roll_up.h) is it at a level change. */
+Ingredients merge(const Ingredients& over_members, const selection::Elements& groups, const Request&);
+/** matrices summed over groups of members (an event's cross-spectrum as the sum of its tiles') */
+MatrixIngredients merge(const MatrixIngredients& over_members, const selection::Elements& groups);
+
 }  // namespace nxr::measurement

@@ -31,17 +31,11 @@ selection::Elements coarser_groups(const selection::Selection& grid, int from_le
 selection::Elements coarser_groups(const selection::Selection& product, std::size_t factor, int from_level, int to_level);
 
 // ── rolling up ─────────────────────────────────────────────────────────────────────────────
-/** groups (each a list of members of `fine`, may overlap: an event's tiles) merged by the ingredients' rules: counts, weights and sums add, max and min merge, an empty group is the
- *  identity (count 0, max -inf, min +inf). The measures named by `request` must be rollable (merge not `none`: a median is refused naming the measure, never rolled up). std::invalid_argument
- *  for a member outside the fine ingredients. */
-Ingredients merge(const Ingredients& over_members, const selection::Elements& groups, const Request&);
+/** (`merge` is declared with `reduce`, reduce.h: groups of members merged by the ingredients' rules.) `roll_up` is it at a level change. */
 Ingredients roll_up(const Ingredients& fine, const selection::Elements& groups, const Request&);   // = merge
 /** the same members in several subjects: ingredients summed code for code (a stack of subjects is one more factor, rolled to one member). std::invalid_argument for ingredients of
  *  different shapes or a median. */
 Ingredients across(const std::vector<const Ingredients*>& subjects, const Request&);
-/** matrices summed over groups of members (an event's cross-spectrum as the sum of its tiles') */
-MatrixIngredients merge(const MatrixIngredients& over_members, const selection::Elements& groups);
-
 // ── rolling up STORED VALUES by the registry's rule (the in-memory side of io's SQL roll-up; the parity test compares the two) ──────────
 /** `values` [rows x fine members] of `measure` rolled up over `groups` by the measure's merge rule (measures.h, DATA): sum adds, max and min merge, mean is the sum of value x weight over
  *  the sum of weight with `weights` [rows x fine members, or 1 x fine members shared by every row] the values of the measure's `weight` measure; none (a median, a derived measure)

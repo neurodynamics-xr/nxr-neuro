@@ -142,6 +142,11 @@ add_library(nxr_compute STATIC
   src/selection_resolved.cpp
   src/selection_grid.cpp
   src/partition.cpp
+  src/measurement_measures.cpp
+  src/measurement_reduce.cpp
+  src/measurement_roll_up.cpp
+  src/measurement_summarize.cpp
+  src/measurement_estimate.cpp
   src/glue.cpp
   src/forms.cpp
   src/taps.cpp
@@ -174,6 +179,7 @@ set_source_files_properties(src/ladder.cpp PROPERTIES COMPILE_OPTIONS "-ffp-cont
 set_source_files_properties(src/selection_dyadic.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")   # the Studio's ladder.ts, moved here
 # partition.cpp is a port of the Studio's measureOverPartition (no FMA in JavaScript): contraction off, so its sums equal the Studio's to the last bit
 set_source_files_properties(src/partition.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
+set_source_files_properties(src/measurement_measures.cpp src/measurement_reduce.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")   # the same arithmetic, moved into the measurement module
 set_source_files_properties(src/taps.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")    # nxr's taps.py (numpy: no FMA)
 set_source_files_properties(src/forms.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")   # a port of the Studio's fieldForms.ts / faceGradient.ts (no FMA in JavaScript)
 # glue.cpp is a port of the Studio's glue.ts (no FMA in JavaScript): contraction off, so the bridge's positions and the stitch's ties are the Studio's
