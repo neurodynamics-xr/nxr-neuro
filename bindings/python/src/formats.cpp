@@ -12,6 +12,7 @@
 #include "nxr/formats/brainvision.h"
 #include "nxr/formats/edf.h"
 #include "nxr/formats/eeglab.h"
+#include "nxr/formats/fif.h"
 #include "nxr/formats/gifti.h"
 #include "nxr/formats/nifti.h"
 #include "nxr/formats/recording.h"
@@ -119,6 +120,14 @@ Recording open_brainvision(const std::string& path) {
 Recording open_eeglab(const std::string& path) {
   std::unique_ptr<fm::RecordingReader> r;
   { nb::gil_scoped_release release; r = fm::eeglab::open_file(path); }
+  return Recording(std::move(r));
+}
+
+Recording open_fif(const std::string& path, bool allow_maxshield) {
+  fm::fif::OpenOptions o;
+  o.allow_maxshield = allow_maxshield;
+  std::unique_ptr<fm::RecordingReader> r;
+  { nb::gil_scoped_release release; r = fm::fif::open_file(path, o); }
   return Recording(std::move(r));
 }
 
@@ -239,6 +248,7 @@ void bind_formats(nb::module_& m) {
   m.def("open_edf", &open_edf, nb::arg("path"), nb::arg("sampling_rate"));
   m.def("open_brainvision", &open_brainvision, nb::arg("path"));
   m.def("open_eeglab", &open_eeglab, nb::arg("path"));
+  m.def("open_fif", &open_fif, nb::arg("path"), nb::arg("allow_maxshield"));
   m.def("read_nifti", &read_nifti, nb::arg("path"));
   m.def("read_gifti", &read_gifti, nb::arg("path"));
   m.def("read_tsv", &read_tsv, nb::arg("path"));

@@ -30,7 +30,7 @@ def icosphere(levels):
 
 def test_sphere_spectrum_is_l_times_l_plus_one():
     v, f = icosphere(3)                                   # 642 vertices, unit radius
-    r = nn.ops.manifold.eigenmodes(v, f, 25)
+    r = nn.compute.manifold.eigenmodes(v, f, 25)
     want = np.array([0] + [2] * 3 + [6] * 5 + [12] * 7 + [20] * 9)
     assert r.n_converged == 25 and r.eigenvectors.shape == (642, 25)
     np.testing.assert_allclose(r.eigenvalues[1:], want[1:], rtol=0.03)
@@ -40,7 +40,7 @@ def test_sphere_spectrum_is_l_times_l_plus_one():
 
 def test_remove_dc_drops_the_constant_mode():
     v, f = icosphere(2)
-    r = nn.ops.manifold.eigenmodes(v, f, 10, remove_dc=True, normalize=True)
+    r = nn.compute.manifold.eigenmodes(v, f, 10, remove_dc=True, normalize=True)
     assert r.eigenvalues[0] > 1.0
     assert r.eigenvectors.shape == (162, 9)   # the constant mode is gone
 
@@ -48,9 +48,9 @@ def test_remove_dc_drops_the_constant_mode():
 def test_mesh_errors_are_values_not_crashes():
     v, f = icosphere(1)
     with pytest.raises(ValueError, match="outside the mesh"):
-        nn.ops.manifold.eigenmodes(v, np.where(f == 3, 999, f).astype(np.int32), 3)
+        nn.compute.manifold.eigenmodes(v, np.where(f == 3, 999, f).astype(np.int32), 3)
     with pytest.raises(ValueError):
-        nn.ops.manifold.eigenmodes(v[:, :2], f, 3)
+        nn.compute.manifold.eigenmodes(v[:, :2], f, 3)
     with pytest.raises(nn.Error) as e:
-        nn.ops.manifold.eigenmodes(v, f, 0)
+        nn.compute.manifold.eigenmodes(v, f, 0)
     assert e.value.code

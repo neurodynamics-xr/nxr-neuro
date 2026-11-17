@@ -6,6 +6,7 @@ add_library(nxr_io_formats
   src/deflate.cpp
   src/nifti.cpp
   src/gifti.cpp
+  src/cifti.cpp
   src/tsv.cpp
   src/bids.cpp
   src/edf.cpp
@@ -50,7 +51,7 @@ else()
 endif()
 
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_FORMATS_TESTS byte_source recording nifti gifti tsv edf brainvision eeglab fif fif_objects bids ctf kit)
+  set(NXR_FORMATS_TESTS byte_source recording nifti gifti tsv edf brainvision eeglab fif fif_objects bids ctf kit cifti)
   foreach(t ${NXR_FORMATS_TESTS})
     add_executable(test_formats_${t} test/test_${t}.cpp)
     target_link_libraries(test_formats_${t} PRIVATE nxr_io_formats)   # the formats alone: a test that needs the store does not belong here

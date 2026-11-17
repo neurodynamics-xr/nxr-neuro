@@ -11,7 +11,7 @@
 namespace nb = nanobind;
 
 namespace nxrpy {
-void bind_ops(nb::module_& m);
+void bind_compute(nb::module_& m);
 void bind_formats(nb::module_& m);
 }  // namespace nxrpy
 
@@ -40,6 +40,6 @@ NB_MODULE(_core, m) {
         // anything else (std::invalid_argument -> ValueError, std::runtime_error -> RuntimeError) is translated by nanobind
       },
       nullptr);
-  nxrpy::bind_ops(m);
+  nxrpy::bind_compute(m);
   nxrpy::bind_formats(m);
 }

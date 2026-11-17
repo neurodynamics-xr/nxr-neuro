@@ -53,8 +53,8 @@ Studio's chain, and only then write code.
 | `io/` (`io/formats/`: `nxr_io_formats`, pure file formats) | `nxr_io` | SQLite, zstd/blosc/zlib, matio, HDF5, nlohmann/json, rapidyaml (vendored; 2026-11-12). **Never `compute`** |
 | `meeg/` | `nxr_meeg` | Eigen only. **No file I/O, never `compute` or `io`** (the pipelines hand it arrays) |
 | `pipelines/graph/` | `nxr_graph` | `compute`, `meeg`, Eigen, nlohmann/json (amended 2026-11-17). **No file I/O, never `io`**: the graph executor, which knows arrays and parameters only |
-| `pipelines/` | `nxr_pipelines` | `compute`, `io`, `meeg`: **the only place they meet** |
-| `cli/` | `nxr-neuro` | argument parsing and JSON output only, with no maths |
+| `pipelines/` | `nxr_pipelines` | `compute`, `io` (**only io's task API**, `nxr/io/task/`, plus the chunk service), `meeg`: **the only place they meet** |
+| `cli/` | `nxr-neuro` | argument parsing and output only, with no maths and no SQL; it reaches data through io's task API |
 | `bindings/` | MEX, Node, wasm, Python | every library (`compute`, `meeg`, `io`, `pipelines`), as `cli/` does: **faces only**. A binding converts arguments and results and calls the library, with no maths, no SQL and no logic of its own (amended 2026-11-17: the earlier "`compute` only" came from the old nxr-compute repository) |
 
 ## The architecture policy: three layers, each knowing only its own job
@@ -89,8 +89,8 @@ composes what the caller asks for. The dependency table says what a library may 
    - Can the pipeline run the same chain on another input of the same kind just by naming it?
    - Is every loop over samples or chunks, and every file access, inside io?
    - Is every choice of which data (signal, source, span) made by the caller, not inside a function?
-6. **Enforced by** the dependency table, the layering guard test (`cmake/check_layering.cmake`: recordings read only by the chunk service; no io
-   include in `compute/` or `meeg/`), and the checklist in each PR.
+6. **Enforced by** the dependency table, the layering guard tests (`cmake/check_layering.cmake`: recordings read only by the chunk service; no io
+   include in `compute/` or `meeg/`; `layering_sql_only_in_io`: SQL, `database.h` and `nxr/io/records/` only inside io), and the checklist in each PR.
 
 **Pipelines are CPU replicas of the Studio's GPU/TSL chains.** Design every pipeline as if it were one of the Studio's
 device chains, so nxr-neuro can later supply data to them, or run them, with no redesign.
@@ -116,6 +116,55 @@ device chains, so nxr-neuro can later supply data to them, or run them, with no 
 - Compute (`compute/`, `meeg/`) receives a data matrix and never knows its size or where it came from.
 - Enforced by the test `layering_recordings_read_by_chunk_service` (`cmake/check_layering.cmake`). A new recording reader goes through the service, never around the guard.
 - Before building any io, loading or orchestration piece, look for the Studio's (and nxr's) design of it first and port it. Do not design it again here.
+
+## Decided structure (2026-11-17): data access, verbs, pipelines, faces
+
+These rules complete the three layers above. Some of the code is still being migrated to them (see "Transition" at the end of this section); new code
+follows them from the start, and no change may move existing code further from them.
+
+**1. Data access: io in two levels** (spec `docs/specs/2026-11-17-io-record-api.md`).
+- **Inside io: the repositories** (`nxr::io::records`: row structs, `Where` filters, read/list/find/create/update/remove), the shape of the Cortical
+  Flow Studio's repositories. Only io, the binding that serves the Studio (`bindings/wasm-io`) and io's own tests and record tools use them.
+- **For everyone else: io's task API** (`nxr/io/task/`), named by task, never as rows: **find** inputs (by kind, relation, parameters; one match or a
+  clear error), **open** arrays for streaming, **commit** a result as one atomic unit (rows, arrays, provenance, cache key and measurements together, or
+  nothing), **look up the cache**, **query measurements** (the read-time reduction over partitions, members and time).
+- **Only io writes SQL or includes `database.h` or a `records/` header.** Pipelines and the command line never name a row, a table or a column.
+- The SQLite engine is always the pinned amalgamation built with the project, never the system's.
+
+**2. Two verbs, the same in every face** (spec `docs/specs/2026-11-17-compute-and-run.md`).
+- **`compute`** applies a NODE or a GRAPH of nodes to data handed to it: arrays in Python and MATLAB; files in and out on the command line (with a
+  provenance sidecar). It finds nothing and stores nothing in a dataset. What can be computed alone is exactly what can be chained in a definition: the
+  list comes from the node registry.
+- **`run`** runs a PIPELINE on a subject: it finds the inputs, streams the stated time range chunk by chunk, and stores the outputs with provenance and
+  cache key. That is all it does: io around the graph.
+- The command line, the Python wheel and the MATLAB binding have the same verbs and names (`nxr-neuro compute …` = `nxr.compute.…`; `nxr-neuro run …`
+  = `nxr.run(…)`), plus `io` readers in the bindings.
+
+**3. Every pipeline is a definition.**
+- A pipeline is a YAML definition: its inputs, parameters (each with meaning, default and unit, from which `run <pipeline> --help` is generated),
+  steps wired port to port, and outputs. Built-in pipelines ship as definitions in `pipelines/definitions/`; users write their own.
+- **No pipeline is a hand-wired C++ chain.** A new analysis is new nodes (pure functions, registered with their ports, parameters and traits) plus a
+  definition. Never a `<x>_compute` function that finds its own inputs, loops and stores.
+- **A graph of pure functions is itself a pure function.** The graph executor (arrow and port checks, the halo composed from the nodes' traits, state
+  carried across chunks as (block, state) → (output, state)) is pure and io-free (`pipelines/graph/`). The runner only finds, streams and stores.
+- **A graph can be wrapped as a new node** (a composite, as TSL's `Fn` composes nodes), reusable in other graphs and by `compute`.
+- A missing derived input the pipeline needs (e.g. a surface's eigenmodes) is made by its own run first, with a message saying what was made and why;
+  never stored silently inside another run.
+
+**4. Bindings are faces, exactly like the command line.** They may use every library layer, convert arguments and results, and call the library.
+They hold no maths, no SQL and no logic of their own.
+
+**5. Interoperability.**
+- File formats are read and written natively in `io/formats/` (pure: bytes in, objects out; no store, no database). A library is used only when its
+  licence is compatible with BSD-3-Clause and it is clearly easier than writing the format; GPL code is never copied or linked.
+- Reference implementations (MNE-Python, nibabel, scipy, Brainstorm) only GENERATE synthetic goldens; they are never run-time dependencies.
+- Readers parse every header field. What an import keeps is the user's choice: nxr-neuro is a toolbox and imposes no data policy on its users
+  (`--anonymize` drops identifying fields). The repository itself never contains real or identifying data.
+- Imported recordings are copied into the subject package by default; reading in place from the source file is an option.
+
+**Transition** (to be removed when done): some pipelines are still hand-wired C++ verbs and some files still reach the database directly. They are
+listed in the layering check's allowlist, which only shrinks. A hand-wired verb is converted into a definition; it is never extended. `run <name>`
+dispatches to the hand-wired verbs until they are converted.
 
 ## Backends and node traits
 

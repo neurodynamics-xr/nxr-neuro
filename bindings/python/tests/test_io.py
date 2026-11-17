@@ -5,7 +5,7 @@ import pytest
 
 import nxr_neuro as nn
 
-RECORDING = {"edf": nn.io.open_edf, "bdf": nn.io.open_edf, "brainvision": nn.io.open_brainvision, "eeglab": nn.io.open_eeglab}
+RECORDING = {"edf": nn.io.open_edf, "bdf": nn.io.open_edf, "brainvision": nn.io.open_brainvision, "eeglab": nn.io.open_eeglab, "fif": nn.io.open_fif}
 
 
 def cases(golden, name, only=None):
@@ -129,3 +129,38 @@ def test_tsv_equals_the_pandas_golden(golden, formats_dir, name):
 def test_tsv_ragged_row_is_refused_with_its_line(formats_dir):
     with pytest.raises(nn.FormatError, match="line"):
         nn.io.read_tsv(formats_dir / "data" / "tsv_ragged.tsv")
+
+
+def test_fif_equals_the_mne_goldens(golden, f32, formats_dir):
+    """Every real-valued FIF case of the goldens (MNE-Python): the header's channels and rate, the samples by block, the gaps of a skip, the parts of a split file."""
+    seen = 0
+    for name, case in golden("fif")["cases"].items():
+        if not case["data"].endswith(".f32") or case.get("data_has_projector"):
+            continue      # complex and float64 files are checked below; an active projector is the importer's to apply
+        rec = nn.io.open_fif(formats_dir / "data" / case["file"])
+        h = rec.header
+        assert h["format"] == "fif" and h["precision"] == "float32"
+        assert h["sampling_rate"] == pytest.approx(case["sfreq"]) and h["n_samples"] == case["n_times"]
+        assert [c["name"] for c in h["channels"]] == case["info"]["ch_names"]
+        assert sorted(h["bad_channels"]) == sorted(case["info"]["bads"])
+        x = rec.read_all()
+        np.testing.assert_allclose(x, f32(case["data"]).reshape(len(h["channels"]), case["n_times"]), rtol=2e-6, atol=1e-30, err_msg=name)
+        a, b = case["n_times"] // 3, 2 * case["n_times"] // 3
+        np.testing.assert_array_equal(rec.read(a, b), x[:, a:b])
+        assert h["gaps"] == [(g["first"], g["count"]) for g in case["gaps"]]
+        seen += 1
+    assert seen >= 6
+
+
+def test_fif_float64_and_refusals(formats_dir):
+    d = formats_dir / "data"
+    assert nn.io.open_fif(d / "fif_double_raw.fif").read_all().dtype == np.float64
+    assert nn.io.open_fif(d / "fif_basic_raw.fif").header["info"]["first_samp"] == "250"
+    with pytest.raises(nn.UnsupportedError):
+        nn.io.open_fif(d / "fif_refuse_epo.fif")
+    with pytest.raises(nn.UnsupportedError):
+        nn.io.open_fif(d / "fif_complex_raw.fif").read(0, 10)      # complex buffers: refused by the real read
+    with pytest.raises(nn.FormatError):
+        nn.io.open_fif(d / "fif_refuse_notfif.fif")
+    x, header = nn.io.read_fif(d / "fif_basic_raw.fif", start=10, stop=30)
+    assert x.shape == (10, 20) and header["format"] == "fif"
