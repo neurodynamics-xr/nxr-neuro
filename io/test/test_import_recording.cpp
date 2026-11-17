@@ -245,6 +245,11 @@ int main() {
       CHECK(is_null(*cs, "unit"));
     }
     CHECK(s.find_all({.cls = task::Cls::operator_, .kind = "transition"}).empty());
+    if (std::string(file) == "eeglab_fdt.set") {                                 // the file's ICA matrices are operators on the channels, not applied
+      const task::Node un = s.require({.cls = task::Cls::operator_, .name = "rec_channels_ica_unmixing"}, "the ICA unmixing");
+      CHECK_EQ(text(*p.db().one("SELECT kind FROM operator WHERE id = ?", {un.id}), "kind"), std::string("ica unmixing"));
+      CHECK(p.db().one("SELECT id FROM operator WHERE name = 'rec_channels_ica_mixing'").has_value());
+    }
   }
   // in place: the package links the file, holds no samples, and the chunk service reads the file's chunks equal to a copy's
   {

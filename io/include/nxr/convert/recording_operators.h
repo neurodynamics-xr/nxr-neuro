@@ -4,11 +4,15 @@
 //   <channels>_projector_<k>     kind `projector`, dense [M x M]: x -> P x, one per projector in the file's order; params_json status (1 active, 0 not) · method · kind · components
 //   <channels>_ctf_compensation  kind `ctf compensation`, csr [M x M]: entry (MEG channel, reference channel) = the file's coefficient, for the grade the data are at; params_json grade
 //
+//   <channels>_ica_unmixing      kind `ica unmixing`, dense [components x M]: x -> W S x (EEGLAB's icaweights times icasphere), the columns of the channels the ICA was run on
+//   <channels>_ica_mixing        kind `ica mixing`, dense [M x components]: components -> x (EEGLAB's icawinv), the rows of those channels; neither is applied
+//
 // The ACTIVE projectors are applied to the samples as they are copied (in the file's order), and the recording's provenance says which. An orthogonal projector is
 // idempotent, so applying one to samples that already carry it changes nothing. The compensation is NOT applied: it belongs to the forward model (G - C G_ref).
 #pragma once
 #include <cstdint>
 #include <optional>
+#include <utility>
 #include <string>
 #include <vector>
 
@@ -30,6 +34,7 @@ struct CtfCompensation {
 struct RecordingOperators {
   std::vector<nxr::bst::ProjectorEntry> projectors;
   std::optional<CtfCompensation> compensation;
+  std::optional<std::pair<std::int64_t, std::vector<double>>> ica_unmixing, ica_mixing;   // (components, dense row-major [components x M] / [M x components])
   nxr::io::Json record = nxr::io::Json::object();  // `projectors` and `ctf_compensation`, for the recording's producer record (after `write_operators`)
 };
 
