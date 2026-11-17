@@ -734,7 +734,7 @@ int main() {
                     "  centre_vertex: {kind: measurement}\n  centre: {kind: measurement}\n  area: {kind: measurement}\n  peak: {kind: measurement}\n";
     CHECK(what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), g::RunOptions{}); }).find("frame tiling") != std::string::npos); }
   { std::string t = "pipeline: wrong_threshold\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n"
-                    "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} frames 0.00257492 s\"}}\n  welch: {statistic: welch}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
+                    "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid\"}}\n  welch: {statistic: welch}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
                     "      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {level: 3, transform: exact, form: curl_tan}, out: curl}\n"
                     "      - {step: frames, in: {x: curl, tiling: tiling}, out: cf}\n      - {step: cores, in: {x: cf, threshold: welch}, out: [cores, frame, sense, centre_vertex, centre, area, peak]}\noutputs:\n  cores: {kind: spans, types: [core]}\n  frame: {kind: measurement}\n"
                     "  sense: {kind: measurement}\n  centre_vertex: {kind: measurement}\n  centre: {kind: measurement}\n  area: {kind: measurement}\n  peak: {kind: measurement}\n";

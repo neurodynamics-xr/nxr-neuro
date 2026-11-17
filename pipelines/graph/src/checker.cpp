@@ -245,15 +245,12 @@ void gauge_rule(const Unified& u, Types& out, const Signature& sg) {
 
 // ── QUANTITIES, NOT INDICES (spec 2026-11-17-consolidation.md, section 3.1, item 2): a bare level index is never a parameter of a selection or measurement node; a level is stated as a quantity
 // ("20 mm", "8-12 Hz", "2 s") and resolved in closed form. An index is allowed only through the explicitly named `index` chart (`"index:5"`, a string), for diagnostics and tests.
-// The rule is enforced for the nodes of the consolidated system; a node not yet converted (its parameters still a level index) is NOT in `strict_nodes` and is checked as it always was, so the list
-// shrinks to nothing as the nodes are converted (pipelines/src/*_steps.cpp).
-bool strict_quantity_node(const std::string& node) {
-  static const std::set<std::string> exact = {"apply_kernel", "reduce", "reduce.members", "roll_up", "estimate", "summarize", "field.form"};
-  return exact.count(node) != 0 || node.rfind("select.", 0) == 0;
-}
+// The rule is enforced for EVERY node (b2b: every numeric level parameter of the remaining nodes became a quantity resolved by compute's level_of_*): a bare number under one of the names below is refused.
+// A parameter that is a method constant of a node (a Chebyshev order, a package's modes) has another name and stays.
 void refuse_bare_index(const std::string& label, const std::string& node, const Json& params) {
-  static const std::set<std::string> names = {"level", "levels", "space_level", "space_levels", "time_level", "frame_level", "reference_level", "depth", "atlas_depth", "lc_levels"};
-  if (!params.is_object() || !strict_quantity_node(node)) return;
+  static const std::set<std::string> names = {"level", "levels", "space_level", "space_levels", "time_level", "frame_level", "reference_level", "depth", "atlas_depth", "lc_levels", "segment_level", "time_levels", "window_level"};
+  (void)node;                           // every node is checked
+  if (!params.is_object()) return;
   for (const auto& [k, v] : params.items()) {
     if (!names.count(k)) continue;
     const bool bare = v.is_number() || (v.is_array() && !v.empty() && std::all_of(v.begin(), v.end(), [](const Json& e) { return e.is_number(); }));

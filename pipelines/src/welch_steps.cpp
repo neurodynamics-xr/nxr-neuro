@@ -71,7 +71,6 @@ std::vector<ng::ParamSpec> welch_parameters() {
   return {
       {"segment_seconds", Json(4.0), "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", "s", {}, false},
       {"segment_samples", Json(), "the segment's length in samples (wins over segment_seconds; under tile a power of two)", "samples", {}, true},
-      {"segment_level", Json(), "under segment_rule tile: the segment is 2^segment_level samples (wins over segment_seconds)", "level", {}, true},
       {"segment_rule", Json("tile"), "how the segment's length becomes samples: tile = a tile of the line (2^k samples; the span snaps to its grid) | round = round(seconds x fs) from the span's start (Brainstorm, scipy) | even = as round, made even (nxr's chain)", "-", {"tile", "round", "even"}, false},
       {"overlap", Json(0.5), "the fraction of a segment shared with the next, in [0, 1): the hop is n - floor(n x overlap)", "fraction", {}, false},
       {"window", Json("hamming"), "the taper of each segment", "-", {"hann", "hamming", "blackman", "rectangular"}, false},
@@ -104,7 +103,7 @@ Resolved resolve(const Json& p, double sfreq) {
   const std::string bs = p.value("bad_segments", std::string("exclude"));
   if (bs != "exclude" && bs != "ignore") ng::refuse("bad_segments is exclude or ignore (got '" + bs + "')");
   r.exclude = bs == "exclude";
-  const nw::Segment seg = nw::segmentFor(r.rule, opt_double(p, "segment_seconds"), opt_int(p, "segment_samples"), p.contains("segment_level") && p["segment_level"].is_number() ? std::optional<int>(p["segment_level"].get<int>()) : std::nullopt, sfreq, r.wo.overlap);
+  const nw::Segment seg = nw::segmentFor(r.rule, opt_double(p, "segment_seconds"), opt_int(p, "segment_samples"), std::nullopt, sfreq, r.wo.overlap);
   r.wo.segmentSamples = seg.samples;
   r.level = seg.level;
   if (r.wo.segmentSamples < 2) ng::refuse("a segment holds at least 2 samples");

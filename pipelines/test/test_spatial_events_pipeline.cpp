@@ -207,7 +207,7 @@ int main() {
   // ── RELATIVE: power over the stored baseline, read by name ──
   auto def = [&](const std::string& x_step, const std::string& extra) {
     return "pipeline: relative_check\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n"
-           "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} frames 0.00257492 s\"}}\n  bursts: {selection: spans, manifold: recording.time, where: {name: window}}\n"
+           "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid\"}}\n  bursts: {selection: spans, manifold: recording.time, where: {name: window}}\n"
            "  bad: {selection: spans, manifold: recording.time, where: {name: \"{recording}_bad_segments\"}, required: false}\n  baseline: {statistic: mean, where: {name: spatial_baseline.baseline.rest}}\n"
            "steps:\n  chunks:\n    over: recording\n    do:\n      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: frames, in: {x: z, tiling: tiling, within: bursts}, out: zf}\n"
            "      - {step: apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles}, with: {levels: [2, 3], glued: true, transform: exact" + extra + "}, out: j}\n      - {step: power, in: {x: j}, out: p}\n" + x_step +

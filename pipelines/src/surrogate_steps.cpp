@@ -1,8 +1,6 @@
 // nxr-pipelines — the registered steps of the LAG-FREE SURROGATES (spec docs/specs/2026-11-17-surrogates.md; compute nxr::synthesis):
 //
-//   power_series              accumulate   the data's band power in TIME TILES: Σ |z|² over the channels the surrogate covers and over each tile's good samples, and the count (a reduction over a time
-//                                          partition, folded chunk by chunk: the dyadic tiles of 2^level samples on the recording's line); a STATISTIC [tiles × (sum, count)], the mean derived at read. It is
-//                                          the envelope the surrogate is scaled to (Rheome envelopenull's one-cycle envelope: a tile of 2^level samples, the nearest power of two to a cycle).
+//   (power_series is gone: the data's band power per tile is a stored MEASUREMENT, `measure` preset surrogate_lagfree_envelope, read by name by surrogate.lagfree; so is the PSD's channel mean, preset psd_channel_mean: rule 13/32)
 //   surrogate.lagfree_mixing  setup        the ZERO-LAG MIXING of the band: √(Re C) of its stored cross-spectrum at unit mean channel variance (nxr::synthesis::zeroLagMixing), an operator [M × M] over the
 //                                          cross-spectrum's channels, with its provenance; composed into the first linear map of the chain (apply_kernel's `pre_operator`).
 //   surrogate.lagfree         chunk        ONE DRAW, UNMIXED: per channel of the stored cross-spectrum, Gaussian noise with the recording's own mean spectrum (the stored Welch PSD: never flat), scaled in time
@@ -51,9 +49,24 @@ void band_params(const Json& p, const std::string& who, double rate) {
 }
 // what the mixing is OF: the cross-spectrum's name (a value awaiting the mixing names the same, and apply_kernel checks they meet)
 Json operator_of(const Value& cross_spectrum) { return Json{{"cross_spectrum", nxr::io::text(*cross_spectrum.row, "name")}, {"operator", "zero-lag mixing"}}; }
-// ── power_series ──
-struct SeriesState { std::vector<std::int32_t> channels; int level = 7; double rate = 0; Json record; };
-struct SeriesAcc { std::map<std::int64_t, std::pair<double, double>> tiles; };
+// a STORED MEASUREMENT read by name (rule 13: a reduction a chain needs as a constant is a measurement stored by its own definition first): its selection (`facts.over.selection_id`) and, when it is
+// of a field, that field (`facts.of_field_id`). The values are read through the binding (io's measurement_values); nothing is recomputed here.
+void measurement_input(const Value& m, const std::string& who, const std::string& port) {
+  need(m.cls == "measurement" && m.facts.contains("over") && m.facts["over"].contains("selection_id"), who + ": " + port + " must be a stored measurement (read by name; `nxr-neuro run measure --set ...` first)");
+}
+nxr::io::MeasurementValues read_measurement(const Bound& b, const Value& m, const std::string& measure) {
+  return b.measurement_values(m.facts["over"]["selection_id"].get<std::string>(), m.facts.contains("of_field_id") && m.facts["of_field_id"].is_string() ? std::optional<std::string>(m.facts["of_field_id"].get<std::string>()) : std::nullopt, std::nullopt, measure);
+}
+// the tile (samples) of the time factor of a product selection: the time grid the measurement was made over
+std::int64_t time_tile_of(const Bound& b, const Value& m, const std::string& who) {
+  const auto sel = b.selection(m.facts["over"]["selection_id"].get<std::string>());
+  need(sel.has_value(), who + ": the measurement's selection is not stored");
+  const Json pj = Json::parse(nxr::io::opt_text(*sel, "params_json").value_or("{}"), nullptr, false);
+  if (pj.is_object() && pj.contains("product"))
+    for (const auto& f : pj["product"]["factors"]) if (f.value("kind", std::string()) == "time" && f.value("width", std::int64_t(0)) > 0) return f["width"].get<std::int64_t>();
+  if (pj.is_object() && pj.contains("grid") && pj["grid"].value("kind", std::string()) == "time") return pj["grid"].value("width", std::int64_t(0));
+  refuse(who + ": the measurement's selection " + nxr::io::text(*sel, "name") + " is not over a time grid (a product with a time factor)");
+}
 // ── surrogate.lagfree_mixing ──
 struct MixingState { std::string name, id; };
 // ── surrogate.lagfree ──
@@ -70,73 +83,6 @@ struct SurState {
 }  // namespace
 
 void add_surrogate_steps(std::vector<StepSpec>& r) {
-  {
-    StepSpec s;
-    s.name = "power_series"; s.kind = "accumulate";
-    s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "adds each good sample's power into its time tile's sum and count: keyed sums, whatever the order of the blocks (up to rounding)", {});
-    s.inputs = {"x", "cross_spectrum", "exclude"}; s.optional = {"exclude"}; s.outputs = {"series"};
-    s.parameters = Json{{"level", 7}, {"bad_segments", "exclude"}};
-    s.matches = "Rheome envelopenull's one-cycle envelope (the sensors' band power, per tile of 2^level samples: the nearest power of two to a cycle); the dyadic time tiles of the recording's line";
-    s.description = "the band power of the analytic recording in TIME TILES of 2^level samples (the recording's line, from sample 0): per tile the sum of |z|² over the channels of the stored cross-spectrum `cross_spectrum` "
-                    "(the channels the surrogate covers) and over the tile's good samples, and the number of those values; the mean (the one-cycle power the surrogate is scaled to) is DERIVED at read. A reduction over a time partition "
-                    "folded chunk by chunk (the result does not depend on the chunk size); a STATISTIC [tiles × (sum, count)], measure power_sum, method power_tiles";
-    s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
-      const Value& x = ins.at("x");
-      recording_input(x, "power_series", true);
-      need(p["level"].is_number_integer() && p["level"].get<int>() >= 1 && p["level"].get<int>() <= 15, "power_series: level is the tile's size 2^level samples, 1 to 15");
-      need(p["bad_segments"] == "exclude" || p["bad_segments"] == "ignore", "power_series: bad_segments " + p["bad_segments"].dump() + ": exclude or ignore");
-      if (ins.count("exclude")) need(ins.at("exclude").cls == "selection" && ins.at("exclude").manifolds[0] == *x.time, "power_series: exclude must be a selection on x's time line");
-      statistic_input(ins.at("cross_spectrum"), "power_series", "cross_spectrum", "welch", {"cross_spectral_density"});
-      Value y = x;
-      y.row.reset(); y.cls = "statistic"; y.chunked = false; y.complex = false; y.unit.reset(); y.manifolds.clear(); y.time.reset();
-      y.facts = Json{{"measure", "power_sum"}, {"generic", true}};
-      return Values{{"series", y}};
-    };
-    s.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
-      SeriesState st;
-      const auto cs = c.bound.cross_spectrum(nxr::io::text(*ins.at("cross_spectrum").row, "name"));
-      st.channels = cs.channels; st.level = p["level"].get<int>(); st.rate = ins.at("x").rate;
-      st.record = Json{{"level", st.level}, {"tile_samples", std::int64_t(1) << st.level}, {"channels", st.channels.size()}, {"cross_spectrum", nxr::io::text(*ins.at("cross_spectrum").row, "name")}, {"band", ins.at("x").facts.value("band", Json())}};
-      return std::any(std::make_shared<SeriesState>(std::move(st)));
-    };
-    s.record = [](const std::any& st) { return std::any_cast<const std::shared_ptr<SeriesState>&>(st)->record; };
-    s.start = [](const std::any&) { return std::any(SeriesAcc{}); };
-    s.fold = [](const std::any& st_, std::any& acc_, const Blocks& ins, const Place& at) {
-      const SeriesState& st = *std::any_cast<const std::shared_ptr<SeriesState>&>(st_);
-      SeriesAcc& acc = std::any_cast<SeriesAcc&>(acc_);
-      const Block& b = ins.at("x");
-      for (std::int64_t j = 0; j < at.n; ++j) {
-        if (at.good && !at.good->empty() && !(*at.good)[static_cast<std::size_t>(j)]) continue;
-        double sum = 0;
-        for (const std::int32_t ch : st.channels) {
-          const std::size_t i = static_cast<std::size_t>(ch * b.width + b.left + j);
-          const double re = b.re[i], im = b.complex() ? b.im[i] : 0.0;
-          sum += re * re + im * im;
-        }
-        auto& t = acc.tiles[(at.first + j) >> st.level];
-        t.first += sum; t.second += static_cast<double>(st.channels.size());
-      }
-    };
-    s.finish = [](const std::any& st_, std::any& acc_) {
-      const SeriesState& st = *std::any_cast<const std::shared_ptr<SeriesState>&>(st_);
-      const SeriesAcc& acc = std::any_cast<SeriesAcc&>(acc_);
-      if (acc.tiles.empty()) refuse("power_series: no good sample in the span");
-      const std::int64_t n = acc.tiles.rbegin()->first + 1, tile = std::int64_t(1) << st.level;
-      Array y{n, 2, std::vector<double>(static_cast<std::size_t>(n * 2), 0.0)};
-      std::int64_t good = 0;
-      for (const auto& [k, v] : acc.tiles) { y.data[static_cast<std::size_t>(2 * k)] = v.first; y.data[static_cast<std::size_t>(2 * k + 1)] = v.second; good += v.second > 0; }
-      Json edges = Json::array();
-      for (std::int64_t k = 0; k < n; ++k) edges.push_back(static_cast<double>((k + 1) * tile));
-      y.meta = Json{{"generic_statistic", Json{{"measure", "power_sum"}, {"method", "power_tiles"}, {"shape", Json::array({n, std::int64_t(2)})},
-                                               {"axes", Json::array({Json{{"name", "time_tile"}, {"edges", edges}, {"unit", "samples"}, {"size", n}}, Json{{"name", "component"}, {"size", 2}}})},
-                                               {"components", Json::array({Json{{"name", "sum"}}, Json{{"name", "count"}}})}, {"n_members", good},
-                                               {"description", "the band power of the recording in time tiles of " + std::to_string(tile) + " samples: the sum of |z|^2 over the surrogate's channels and the tile's good samples, and the number of values (mean = sum / count at read)"},
-                                               {"options", Json{{"level", st.level}, {"tile_samples", tile}, {"rate", st.rate}, {"channels", st.channels}, {"record", st.record}, {"upper_edges", "the time axis's `edges` are the tiles' upper edges in samples, from sample 0 of the recording's line"}}}}}};
-      return Arrays{{"series", std::move(y)}};
-    };
-    r.push_back(std::move(s));
-  }
-
   {
     StepSpec s;
     s.name = "surrogate.lagfree_mixing"; s.kind = "setup";
@@ -181,9 +127,9 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
     s.name = "surrogate.lagfree"; s.kind = "chunk";
     s.reads_shape_only = true;
     s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the noise is a function of the sample index (a counter-based generator) and reads no sample of the input; each output sample is that noise filtered by the shaping taps, made from the sample index on each side, so it asks no halo of the input; computed in double, stored as float32", "none from the input: the taps' reach (`taps_half` samples each side) is made from the sample index");
-    s.inputs = {"x", "psd", "cross_spectrum", "power_series"}; s.outputs = {"y"};
+    s.inputs = {"x", "psd", "psd_channel_mean", "cross_spectrum", "power_series"}; s.outputs = {"y"};
     s.parameters = Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"taps_half", 0}, {"seed", 0}};
-    s.matches = "Rheome +rheome/+cores lagfreenull and envelopenull (Gaussian noise with the data's mean spectrum, rescaled to the data's one-cycle envelope; the mixing is applied later, composed into the spatial operator); compute nxr::synthesis (shapedNoiseBlock, spectrumShapingTaps, channelMeanSpectrum, analyticGainPower, envelopeScale, interpolateTileSeries); the scale is pointwise (expected, not realised)";
+    s.matches = "Rheome +rheome/+cores lagfreenull and envelopenull (Gaussian noise with the data's mean spectrum, rescaled to the data's one-cycle envelope; the mixing is applied later, composed into the spatial operator); compute nxr::synthesis (shapedNoiseBlock, spectrumShapingTaps, analyticGainPower, envelopeScale, interpolateTileSeries); the scale is pointwise (expected, not realised)";
     s.description = "ONE LAG-FREE DRAW, UNMIXED, in place of the recording: per channel of the stored cross-spectrum one stream of Gaussian noise with the recording's own mean spectrum (the stored Welch PSD over those channels: never flat), "
                     "scaled in time to the data's tile power (`power_series`) over the draw's expected power through the band's analytic gain, so the mixed draw's analytic signal has the data's band envelope. A function of the SAMPLE "
                     "INDEX (a counter-based generator of `seed`): the draw does not depend on the chunk size; another `seed` is another draw. x is the recording's SHAPE (rows, rate, samples; `read: shape`): no sample is read. "
@@ -197,14 +143,15 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
       need(p["taps_half"].is_number_integer() && p["taps_half"].get<int>() >= 0, "surrogate.lagfree: taps_half is a whole number >= 0 (0: from the PSD's resolution)");
       statistic_input(ins.at("psd"), "surrogate.lagfree", "psd", "welch", {"power_density", "power"});
       statistic_input(ins.at("cross_spectrum"), "surrogate.lagfree", "cross_spectrum", "welch", {"cross_spectral_density"});
-      statistic_input(ins.at("power_series"), "surrogate.lagfree", "power_series", "power_tiles", {"power_sum"});
+      measurement_input(ins.at("psd_channel_mean"), "surrogate.lagfree", "psd_channel_mean");
+      measurement_input(ins.at("power_series"), "surrogate.lagfree", "power_series");
       Value y = x;
       y.row.reset();
       y.facts.erase("read");                                                  // the draw has values: the steps after it read them
       y.facts["made_by"] = "surrogate.lagfree";
       y.facts["awaits_operator"] = Json{{"of", operator_of(ins.at("cross_spectrum"))}};
       y.facts["surrogate"] = Json{{"generator", "surrogate.lagfree"}, {"seed", p["seed"]}, {"psd", nxr::io::text(*ins.at("psd").row, "name")}, {"cross_spectrum", nxr::io::text(*ins.at("cross_spectrum").row, "name")},
-                                  {"power_series", nxr::io::text(*ins.at("power_series").row, "name")}};
+                                  {"power_series", ins.at("power_series").facts["over"].value("selection", std::string())}, {"psd_channel_mean", ins.at("psd_channel_mean").facts["over"].value("selection", std::string())}};
       return Values{{"y", y}};
     };
     s.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
@@ -229,25 +176,28 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
       for (std::int64_t k = 0; k < nf; ++k) gain[k] = g(freq[k]);
       const int half = p["taps_half"].get<int>() > 0 ? p["taps_half"].get<int>() : static_cast<int>(std::min(4096.0, std::max(64.0, std::round(fs / (2 * df)))));
       try {
-        psd = nxr::synthesis::channelMeanSpectrum(P.values, nf, st.channels);
+        // the PSD's mean over the cross-spectrum's channels is a STORED MEASUREMENT read by name (rule 32), one value per frequency
+        const nxr::io::MeasurementValues pm = read_measurement(c.bound, ins.at("psd_channel_mean"), "mean");
+        if (pm.members != 1 || pm.rows != nf) throw std::invalid_argument("psd_channel_mean is [" + std::to_string(pm.rows) + " frequencies x " + std::to_string(pm.members) + " members]; the PSD has " + std::to_string(nf) + " frequencies and the mean one member");
+        psd = Eigen::Map<const Eigen::VectorXd>(pm.values.data(), nf);
         st.taps = nxr::synthesis::spectrumShapingTaps(freq, psd, fs, half);
         st.expected = nxr::synthesis::analyticGainPower(freq, psd, gain);             // the unscaled draw's mean |z|^2 through the analytic gain (unit-variance streams, unit mean channel variance after the mixing)
       } catch (const std::invalid_argument& e) { refuse(std::string("surrogate.lagfree: ") + e.what() + " (band " + p["band"].dump() + " Hz)"); }
       // the data's tile power: the mean derived at read (sum / count); a tile with no good sample takes the one before it
-      const nxr::io::StoredStatistic S = c.bound.statistic(nxr::io::text(*ins.at("power_series").row, "name"));
-      need(S.shape.size() == 2 && S.shape[1] == 2, "surrogate.lagfree: power_series is not [tiles × (sum, count)]");
-      const std::int64_t n = S.shape[0];
-      st.stride = std::int64_t(1) << S.options.value("level", 0);
-      need(st.stride > 1, "surrogate.lagfree: the power series records no tile level");
+      const nxr::io::MeasurementValues S = read_measurement(c.bound, ins.at("power_series"), "power");            // mean |z|^2 per tile over the cross-spectrum's channels
+      need(S.rows == 1, "surrogate.lagfree: power_series is [" + std::to_string(S.rows) + " rows x " + std::to_string(S.members) + " tiles]; one row of tiles (the channel set one member)");
+      const std::int64_t n = S.members;
+      st.stride = time_tile_of(c.bound, ins.at("power_series"), "surrogate.lagfree");
+      need(st.stride > 1, "surrogate.lagfree: the power series' time grid records no tile");
       st.power.assign(static_cast<std::size_t>(n), std::nan(""));
-      for (std::int64_t k = 0; k < n; ++k) if (S.values[static_cast<std::size_t>(2 * k + 1)] > 0) st.power[static_cast<std::size_t>(k)] = S.values[static_cast<std::size_t>(2 * k)] / S.values[static_cast<std::size_t>(2 * k + 1)];
+      for (std::int64_t k = 0; k < n; ++k) if (std::isfinite(S.values[static_cast<std::size_t>(k)])) st.power[static_cast<std::size_t>(k)] = S.values[static_cast<std::size_t>(k)];   // a tile with no good sample is NaN: it takes the one before it
       std::int64_t first_ok = -1;
       for (std::int64_t k = 0; k < n; ++k) if (std::isfinite(st.power[static_cast<std::size_t>(k)])) { first_ok = k; break; }
       need(first_ok >= 0, "surrogate.lagfree: the power series holds no good tile");
       for (std::int64_t k = 0; k < n; ++k) { if (!std::isfinite(st.power[static_cast<std::size_t>(k)])) st.power[static_cast<std::size_t>(k)] = k > 0 ? st.power[static_cast<std::size_t>(k - 1)] : st.power[static_cast<std::size_t>(first_ok)]; }
       st.seed = static_cast<std::uint64_t>(p["seed"].get<std::int64_t>());
       st.record = Json{{"generator", "surrogate.lagfree"}, {"seed", p["seed"]}, {"channels", M}, {"taps", st.taps.size()}, {"taps_half", half}, {"frequency_resolution_hz", df}, {"expected_power", st.expected}, {"tile_samples", st.stride},
-                       {"psd", nxr::io::text(*ins.at("psd").row, "name")}, {"cross_spectrum", nxr::io::text(*ins.at("cross_spectrum").row, "name")}, {"power_series", nxr::io::text(*ins.at("power_series").row, "name")},
+                       {"psd", nxr::io::text(*ins.at("psd").row, "name")}, {"cross_spectrum", nxr::io::text(*ins.at("cross_spectrum").row, "name")}, {"power_series", ins.at("power_series").facts["over"].value("selection", std::string())}, {"psd_channel_mean", ins.at("psd_channel_mean").facts["over"].value("selection", std::string())},
                        {"reads", "the recording's shape only (no sample)"}, {"order", "white -> taps -> scale; the mixing composed into the first linear map (spec docs/specs/2026-11-17-surrogates.md, section 4)"},
                        {"reference", "Rheome lagfreenull, envelopenull"},
                        {"warnings", Json::array({"the surrogate has the data's zero-lag covariance, spectrum and envelope and nothing else: a result beyond it is beyond what mixing and amplitude modulation produce, not a proof of a wave",

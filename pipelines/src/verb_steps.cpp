@@ -18,6 +18,9 @@
 #include "nxr/io/finder.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/registry.h"
+#include "nxr/selection/resolved.h"
+#include "nxr/measurement/reduce.h"
+#include "nxr/pipelines/select_nodes.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/scalespace.h"
 #include "nxr/stats.h"
@@ -28,6 +31,27 @@ using nxr::io::Json;
 using nxr::io::text;
 
 namespace {
+// The PSD's mean over the cross-spectrum's channels, per frequency: the ONE reduction system (a mean over a one-member selection of the channel set, rows = frequencies), never a bespoke loop. Rule 32 would have it a
+// stored measurement read by name (`measure` preset psd_channel_mean); this verb reads the PSD itself and measures it through the same function.
+Eigen::VectorXd channel_mean_spectrum(const std::vector<double>& values, std::int64_t channels, std::int64_t nf, const std::vector<std::int32_t>& chosen) {
+  nxr::selection::MemberOfElement set;
+  set.member_of.assign(static_cast<std::size_t>(channels), -1);
+  set.members = 1;
+  for (const std::int32_t c : chosen) {
+    if (c < 0 || c >= channels) throw std::invalid_argument("a channel (" + std::to_string(c) + ") is outside the PSD's " + std::to_string(channels) + " channels");
+    set.member_of[static_cast<std::size_t>(c)] = 0;
+  }
+  std::vector<double> x(static_cast<std::size_t>(nf * channels));                // [frequencies x channels]: the rows stay, the channels are the elements
+  for (std::int64_t f = 0; f < nf; ++f) for (std::int64_t c = 0; c < channels; ++c) x[static_cast<std::size_t>(f * channels + c)] = values[static_cast<std::size_t>(c * nf + f)];
+  nxr::measurement::Request req;
+  req.measures = {"mean"};
+  nxr::measurement::Ingredients acc(nf, 1, 1);
+  nxr::measurement::reduce(acc, x.data(), nf, channels, set, nullptr, req);
+  Eigen::VectorXd out(nf);
+  for (std::int64_t f = 0; f < nf; ++f) out[f] = nxr::measurement::value(acc, f, 0, "mean");
+  return out;
+}
+
 
 [[noreturn]] void refuse(const std::string& m) { throw std::invalid_argument(m); }
 
@@ -45,7 +69,7 @@ StepSpec pointspread_step() {
   s.kind = "setup";
   s.inputs = {"forward", "kernel"};
   s.outputs = {"spread"};
-  s.parameters = Json{{"levels", nullptr}, {"reference_level", nullptr}, {"fraction", 0.5}, {"vertices", 64}, {"list", Json::array()}, {"transform", "auto"}, {"modes", nullptr},
+  s.parameters = Json{{"spatial_scales", nullptr}, {"reference_scale", nullptr}, {"fraction", 0.5}, {"vertices", 64}, {"list", Json::array()}, {"transform", "auto"}, {"modes", nullptr},
                       {"order", nullptr}, {"tolerance", nullptr}, {"spatial_shape", "mexhat"}};
   s.matches = "the spatial events' chain on a planted point source (nxr.detect spatial events); meeg resolution matrix K G";
   s.description = "the instrument's blur: a unit current at sampled vertices through the head model and the kernel, read by the spatial events' chain";
@@ -53,8 +77,9 @@ StepSpec pointspread_step() {
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double, once a run");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     if (!ins.count("forward") || !ins.count("kernel")) refuse("pointspread: forward and kernel are its inputs");
-    if (!p["levels"].is_array() || p["levels"].empty()) refuse("pointspread: levels is a list of the surface ladder's levels");
-    if (p["reference_level"].is_null()) refuse("pointspread: reference_level is one of the levels");
+    if (!p["spatial_scales"].is_array() || p["spatial_scales"].empty() || !std::all_of(p["spatial_scales"].begin(), p["spatial_scales"].end(), [](const Json& e) { return e.is_string(); }))
+      refuse("pointspread: spatial_scales is a list of quantities (tile diameters \"20 mm\", \"parts 16\", wavelengths); a bare level index is never a parameter");
+    if (!p["reference_scale"].is_string()) refuse("pointspread: reference_scale is a quantity, one of spatial_scales");
     const double f = p.value("fraction", 0.5);
     if (!(f > 0 && f < 1)) refuse("pointspread: fraction is in (0, 1)");
     return Values{{"spread", statistic_value()}};
@@ -107,10 +132,17 @@ StepSpec pointspread_step() {
     std::vector<int> sample = p.value("list", std::vector<int>());
     if (sample.empty()) { const int n = std::max(1, std::min<int>(p.value("vertices", 64), static_cast<int>(N))); for (int i = 0; i < n; ++i) sample.push_back(static_cast<int>(static_cast<std::int64_t>(i) * N / n)); }
     for (const int v : sample) if (v < 0 || v >= N) refuse("pointspread: vertex " + std::to_string(v) + " is not one of the " + std::to_string(N) + " vertices");
-    const std::vector<int> levels = p["levels"].get<std::vector<int>>();
-    const int reference = p["reference_level"].get<int>();
+    // the scales are QUANTITIES resolved on the surface's tile ladder (compute's level_of_*); the snapped values go into the provenance
+    std::vector<int> levels;
+    Json scale_snaps = Json::array();
+    for (const auto& q : p["spatial_scales"]) {
+      Json sn;
+      levels.push_back(level_of_surface(b, S, q, "pointspread", &sn));
+      scale_snaps.push_back(Json{{"stated", q}, {"level", levels.back()}, {"snapped", sn}});
+    }
+    const int reference = level_of_surface(b, S, p["reference_scale"], "pointspread");
     const auto refit = std::find(levels.begin(), levels.end(), reference);
-    if (refit == levels.end()) refuse("pointspread: the reference level must be one of the levels");
+    if (refit == levels.end()) refuse("pointspread: the reference scale " + p["reference_scale"].dump() + " (level " + std::to_string(reference) + ") must be one of spatial_scales");
     const std::int64_t NL = static_cast<std::int64_t>(levels.size()), ref = refit - levels.begin();
     std::vector<SpatialBand> bands;
     std::vector<double> size_cm;
@@ -190,7 +222,7 @@ StepSpec pointspread_step() {
         {"axes", Json::array({Json{{"name", "source_vertex"}, {"values", vals}, {"size", NS}}, Json{{"name", "orientation"}, {"values", ors}, {"size", 3}},
                               Json{{"name", "measure"}, {"size", 6}, {"values", Json::array({Json{{"name", "peak_error_cm"}}, Json{{"name", "diameter_cm"}}, Json{{"name", "area_cm2"}},
                                                                                            Json{{"name", "characteristic_level"}}, Json{{"name", "size_cm"}}, Json{{"name", "peak_power"}}})}}})},
-        {"options", Json{{"forward", text(fwd, "name")}, {"kernel", kname}, {"levels", levels}, {"reference_level", reference}, {"fraction", fraction}, {"sample", sample}, {"surface", S.name}}},
+        {"options", Json{{"forward", text(fwd, "name")}, {"kernel", kname}, {"spatial_scales", scale_snaps}, {"reference_scale", Json{{"stated", p["reference_scale"]}, {"level", reference}}}, {"fraction", fraction}, {"sample", sample}, {"surface", S.name}}},
         {"producer", Json{{"warnings", Json::array({"the blur of THIS head model and kernel (their noise model and regularisation) for a source ALONE: many sources blur together differently",
                                                     "sizes are octave-spaced levels; the patch is cut at a fraction of the peak (a point source has no noise floor), not at the events' false-alarm threshold",
                                                     "a source is planted along each Cartesian axis, no orientation is assumed; a vertex the sample misses is not measured"})}}},
@@ -249,7 +281,7 @@ StepSpec lagfree_pairs_step() {
     for (std::int64_t k = 0; k < nf; ++k) freq[k] = static_cast<double>(k) * df;
     for (std::int64_t k = 0; k < nf; ++k) gain[k] = shape == "morlet" ? nxr::filterbank::morletBand(freq[k], band[0], band[1]) : nxr::filterbank::meyerBand(freq[k], band[0], band[1], 1.0 / 3.0);
     double Beff = 0;
-    try { Beff = nxr::synthesis::effectiveBandwidth(freq, nxr::synthesis::channelMeanSpectrum(P.values, nf, win.channels), gain); } catch (const std::invalid_argument& e) { refuse(std::string("surrogate.lagfree_pairs: ") + e.what()); }
+    try { Beff = nxr::synthesis::effectiveBandwidth(freq, channel_mean_spectrum(P.values, P.shape[0], nf, win.channels), gain); } catch (const std::invalid_argument& e) { refuse(std::string("surrogate.lagfree_pairs: ") + e.what()); }
     // each burst's second moment: the windows wholly inside it summed (a selection of the windows by the burst's span: the windows are read, never recomputed)
     std::map<std::int64_t, std::size_t> at;
     for (std::size_t w = 0; w < win.index.size(); ++w) at[win.index[w]] = w;

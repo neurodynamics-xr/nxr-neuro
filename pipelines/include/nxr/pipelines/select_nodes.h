@@ -29,4 +29,17 @@ void register_select_nodes();
  *  `snapped` gets what the level actually is. A bare number is refused. */
 int level_of_quantity(const nxr::selection::Selection& grid, const Json& quantity, const std::string& unit, const std::string& who, Json& snapped);
 
+/** A surface grid's LEVEL DICTIONARY as JSON ([{level, diameter?, lambda_min?, lambda_max?}], levels 0 .. depth) and back as the Selection `level_of_quantity` reads. A node that holds a field of the ladder's
+ *  scales records the dictionary in its output's facts, so a later node resolves ITS quantity without the ladder (at_level, the scale space's readers). */
+Json ladder_dictionary(const nxr::selection::Selection& grid);
+nxr::selection::Selection grid_of_dictionary(const Json& dictionary);
+/** a stored tile ladder's level dictionary as the grid the resolver reads (the ladder's level records: measured diameter, Weyl band), and the surface's length unit ("m" when the ladder records none) */
+nxr::selection::Selection ladder_grid(const Bound& bound, const Value& tiles, std::string* unit = nullptr);
+/** THE LEVEL a quantity states on a stored tile ladder (`tiles`: the ladder selection value), the one resolver for every node that names a scale (tile_crossings, patches, cellquadrature, run_repeat, ...) */
+int level_of_ladder(const Bound& bound, const Value& tiles, const Json& quantity, const std::string& who, Json* snapped = nullptr);
+/** the same for a node that has the SURFACE and no ladder input (the kernel's target): the surface's own tile ladder (`<surface> tiles`) is found and read */
+int level_of_surface(const Bound& bound, const SurfaceInput& surface, const Json& quantity, const std::string& who, Json* snapped = nullptr);
+/** the level a quantity (a scale) states among the levels a field already holds: resolved on the dictionary, then required to be one of `held` (refused naming them with their snapped quantities) */
+int level_among(const Json& dictionary, const std::string& unit, const Json& quantity, const std::vector<int>& held, const std::string& who, Json& snapped);
+
 }  // namespace nxr::pipelines::graph
