@@ -3,6 +3,7 @@
 #include "nxr/pipelines/face.h"
 
 #include <algorithm>
+#include <memory>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -16,6 +17,12 @@
 #include "nxr/io/errors.h"
 #include "nxr/io/task/dataset.h"
 #include "nxr/io/task/task.h"
+#include "nxr/io/default_subject.h"
+#include "nxr/io/selection_store.h"
+#include "nxr/measurement/roll_up.h"
+#include "nxr/measurement/measures.h"
+#include "nxr/pipelines/selection_bridge.h"
+#include "nxr/quantity.h"
 #include "nxr/pipelines/definition.h"
 #include "nxr/pipelines/listing.h"
 #include "nxr/pipelines/meeg.h"
@@ -56,11 +63,13 @@ Json pipelines() {
     Json params = Json::array();
     for (const auto& [k, v] : d.parameters.items()) {
       const Json doc = d.parameter_docs.contains(k) ? d.parameter_docs[k] : Json::object();
-      params.push_back(Json{{"name", k}, {"default", v}, {"meaning", doc.contains("meaning") ? doc["meaning"] : Json("")}, {"unit", doc.contains("unit") ? doc["unit"] : Json("-")},
+      params.push_back(Json{{"name", k}, {"default", v}, {"meaning", doc.contains("meaning") ? doc["meaning"] : Json("")}, {"unit", doc.contains("unit") ? doc["unit"] : Json("-")}, {"chart", doc.contains("chart") ? doc["chart"] : Json("")},
                             {"choices", doc.contains("choices") ? doc["choices"] : Json::array()}});
     }
     std::string first = d.description.substr(0, d.description.find_first_of(".\n"));
-    all.push_back(Json{{"name", n}, {"form", "definition"}, {"summary", first.empty() ? "Run the pipeline definition " + n + "." : first + "."}, {"parameters", params}});
+    Json presets = Json::array();
+    for (const auto& [pk, pv] : d.presets.items()) { (void)pv; presets.push_back(pk); }
+    all.push_back(Json{{"name", n}, {"form", "definition"}, {"kind", d.kind}, {"scope", d.scope}, {"presets", presets}, {"summary", first.empty() ? "Run the pipeline definition " + n + "." : first + "."}, {"parameters", params}});
   }
   std::sort(all.begin(), all.end(), [](const Json& a, const Json& b) { return a["name"].get<std::string>() < b["name"].get<std::string>(); });
   for (auto& j : all) out.push_back(std::move(j));
@@ -93,15 +102,163 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
     if (rq.from) { o.start = *rq.from; o.stop = *rq.to; }
     if (rq.all) o.chunks = "all";
     o.replace = rq.replace;
-    for (const Json& r : g::run(ds, sub, d, rq.parameters, o, false, say)) {
+    o.preset = rq.preset;
+    for (const Json& r : g::run(ds, sub, d, rq.parameters, o, rq.dry_run, say)) {
       const bool hit = r.value("hit", false);
       all_hit = all_hit && hit;
-      runs.push_back(Json{{"cache", hit ? "hit" : "computed"}, {"info", r}});
+      runs.push_back(Json{{"cache", rq.dry_run ? "planned" : hit ? "hit" : "computed"}, {"info", r}});
       if (r.contains("stored"))
         for (const Json& s : r["stored"]) stored.push_back(Json{{"output", s.value("output", "")}, {"name", s.value("output", "")}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
     }
   }
   return Json{{"pipeline", rq.pipeline}, {"subject", subject}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
+}
+
+Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progress& progress) {
+  if (rq.subjects.empty()) refuse("a group run states its subjects (a list of names): there is no default group");
+  if (!rq.parameters.is_object()) refuse("the parameters are a set of names and values");
+  const auto t0 = std::chrono::steady_clock::now();
+  const Progress say = progress ? progress : Progress([](const Json&) {});
+  const g::Definition d = g::load(rq.pipeline);
+  if (d.scope != "group") refuse(d.name + " is not a group definition (scope " + d.scope + "): `run` takes it on one subject");
+  OpenSubjectOptions oo;
+  oo.created_by = stamp();
+  // the members are opened to be read, the group's default subject to be written; a catalogue dataset: each member's package, and the group package the caller names (`into`); a one-database dataset: its one writer
+  std::vector<std::unique_ptr<DatasetWriter>> writers;
+  std::vector<std::unique_ptr<SubjectWriter>> subjects;
+  std::vector<g::GroupMember> members;
+  DatasetWriter* group_ds = nullptr;
+  std::string group_name;
+  if (is_catalogue_dataset(dataset)) {
+    if (rq.into.empty()) refuse("a group run in a catalogue dataset names the group package its results go to (into)");
+    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.into, true)));
+    group_ds = writers.back().get();
+    group_name = rq.into;
+    for (const auto& name : rq.subjects) {
+      writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, name, false)));
+      subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*writers.back(), name)));
+      members.push_back(g::GroupMember{name, writers.back().get(), subjects.back().get()});
+    }
+  } else {
+    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.subjects.front(), true)));
+    group_ds = writers.back().get();
+    const auto tpl = group_ds->template_();
+    if (!tpl) refuse("the dataset has no default subject: a group's results are stored in it");
+    group_name = text(*tpl, "name");
+    for (const auto& name : rq.subjects) {
+      subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*group_ds, name)));
+      members.push_back(g::GroupMember{name, group_ds, subjects.back().get()});
+    }
+  }
+  SubjectWriter group_sub = SubjectWriter::open(*group_ds, group_name, oo);
+  g::RunOptions o;
+  o.replace = rq.replace;
+  o.preset = rq.preset;
+  Json runs = Json::array(), stored = Json::array();
+  bool all_hit = true;
+  for (const Json& r : g::run_group(*group_ds, group_sub, members, d, rq.parameters, o, rq.dry_run, say)) {
+    const bool hit = r.value("hit", false);
+    all_hit = all_hit && hit;
+    runs.push_back(Json{{"cache", rq.dry_run ? "planned" : hit ? "hit" : "computed"}, {"info", r}});
+    if (r.contains("stored"))
+      for (const Json& s : r["stored"]) stored.push_back(Json{{"output", s.value("output", "")}, {"name", s.value("output", "")}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
+  }
+  return Json{{"pipeline", rq.pipeline}, {"subjects", rq.subjects}, {"into", group_name}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
+}
+
+namespace {
+// ── the measurement query's compute side ──
+// ADAPTER (the one place that meets the other batches' names, written to the consolidation spec: io's `measurement ingredients` call and compute's `nxr::measurement`): io hands the FINEST stored
+// ingredients of a measurement and the grid's closed form; compute's `roll_up` and `value` do the arithmetic (the merge rule of each measure is the registry's data, the same io applies in SQL).
+//   io:      Subject::measurement_ingredients({selectionId, ofFieldId?, measure}) -> {rows, members, unit, ingredients: {count, weight, sum, sum_sq, max, min, abs_max: [rows x members]},
+//            grid: {kind: dyadic | time | product, depth, level, factors?: [{name, kind, depth}], levels: [{level, diameter_mm?, area_m2?, seconds?, weyl_band_per_m2?}]}}
+//   compute: nxr::measurement::Ingredients {rows, members, count, weight, sum, sum_sq, max, min, abs_max}; Request {measures, weighting}; coarser_groups(grid, from, to); roll_up; across; value
+nxr::measurement::Ingredients ingredients_of(const Json& fine) {
+  nxr::measurement::Ingredients ing;
+  ing.rows = fine.at("rows").get<std::int64_t>();
+  ing.members = fine.at("members").get<std::int64_t>();
+  const Json& v = fine.at("ingredients");
+  auto take = [&](const char* name, std::vector<double>& into) { if (v.contains(name)) into = v[name].get<std::vector<double>>(); };
+  take("count", ing.count); take("weight", ing.weight); take("sum", ing.sum); take("sum_sq", ing.sum_sq); take("max", ing.max); take("min", ing.min); take("abs_max", ing.abs_max);
+  return ing;
+}
+// the level a stated quantity means on a grid, from the level attributes io returned (consolidation spec 3.3): a tile diameter = the coarsest level whose mean diameter is at most it; a duration = the
+// first level whose tile lasts at least it; a wavelength = the Weyl level holding it; `whole` = -1. The snapped quantity (what the level really is) is returned with it.
+std::pair<int, Json> level_for(const std::string& to, const Json& grid) {
+  if (to == "whole") return {-1, Json{{"whole", true}}};
+  const nxr::quantity::Quantity q = nxr::quantity::parse(to);
+  const Json levels = grid.value("levels", Json::array());
+  for (const Json& L : levels) {
+    const int l = L.at("level").get<int>();
+    if ((q.unit == "mm" && q.chart != "wavelength") && L.contains("diameter_mm") && L["diameter_mm"].get<double>() <= q.hi) return {l, Json{{"diameter_mm", L["diameter_mm"]}}};
+    if (q.unit == "s" && L.contains("seconds") && L["seconds"].get<double>() >= q.lo) return {l, Json{{"seconds", L["seconds"]}}};
+    if (q.chart == "wavelength" && L.contains("weyl_band_per_m2") && L["weyl_band_per_m2"].is_array() && L["weyl_band_per_m2"].size() == 2) {
+      const double lam_per_m2 = std::pow(2.0 * M_PI / (q.lo * 1e-3), 2.0);                 // 1/m2 from a wavelength in mm
+      if (lam_per_m2 >= L["weyl_band_per_m2"][0].get<double>() && lam_per_m2 < L["weyl_band_per_m2"][1].get<double>()) return {l, Json{{"weyl_band_per_m2", L["weyl_band_per_m2"]}}};
+    }
+  }
+  refuse("measurement query: '" + to + "' names no level of this grid (levels: " + std::to_string(levels.size()) + "; give a tile diameter in mm, a duration in s, a wavelength in mm or whole)");
+}
+}  // namespace
+
+Json measurement_query(const fs::path& dataset, const std::string& subject, const MeasurementQuery& q) {
+  if (q.where != "io" && q.where != "compute") refuse("measurement query: where is io (the SQL query) or compute (in memory)");
+  if (q.selection.empty() || q.measure.empty()) refuse("measurement query: name the selection and the measure");
+  DatasetWriter ds = open_for(dataset, subject, false);
+  SubjectWriter sub = SubjectWriter::open(ds, subject);
+  const task::Subject ts = task::Subject::of(sub);
+  const auto sel = ts.by_id_or_name(task::Cls::selection, q.selection);
+  if (!sel) throw Error(code::no_such_row, "no selection named '" + q.selection + "' in subject " + subject);
+  std::string field_id;
+  if (q.of_field) {
+    const auto f = ts.by_id_or_name(task::Cls::field, *q.of_field);
+    if (!f) throw Error(code::no_such_row, "no field named '" + *q.of_field + "' in subject " + subject);
+    field_id = f->id;
+  }
+  Json jq = Json{{"selectionId", sel->id}, {"measure", q.measure}};
+  if (!field_id.empty()) jq["ofFieldId"] = field_id;
+  if (q.where == "io") {                                                    // the SQL query: the roll-up and the derived measures in io's query, across subjects when asked
+    if (q.to) jq["to"] = *q.to;
+    if (q.factor) jq["factor"] = *q.factor;
+    if (!q.subjects.empty()) jq["subjects"] = q.subjects;
+    return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "io"}, {"rows", ts.read_measurements(jq)}};
+  }
+  // compute: the finest ingredients (of each subject asked), summed code for code across subjects, rolled up through the grid's closed form, the measure derived from them
+  std::vector<Json> fines{ts.measurement_ingredients(jq)};
+  for (const auto& other : q.subjects) {
+    if (other == subject) continue;
+    DatasetWriter ods = open_for(dataset, other, false);
+    SubjectWriter osub = SubjectWriter::open(ods, other);
+    const task::Subject ots = task::Subject::of(osub);
+    const auto osel = ots.by_id_or_name(task::Cls::selection, q.selection);
+    if (!osel) throw Error(code::no_such_row, "no selection named '" + q.selection + "' in subject " + other);
+    Json oq = jq;
+    oq["selectionId"] = osel->id;
+    if (q.of_field) { const auto f = ots.by_id_or_name(task::Cls::field, *q.of_field); if (!f) throw Error(code::no_such_row, "no field named '" + *q.of_field + "' in subject " + other); oq["ofFieldId"] = f->id; }
+    fines.push_back(ots.measurement_ingredients(oq));
+  }
+  nxr::measurement::Request request;
+  request.measures = {q.measure};
+  std::vector<nxr::measurement::Ingredients> all;
+  for (const Json& f : fines) all.push_back(ingredients_of(f));
+  nxr::measurement::Ingredients ing = all.size() == 1 ? all.front() : [&] { std::vector<const nxr::measurement::Ingredients*> ptrs; for (const auto& a : all) ptrs.push_back(&a); return nxr::measurement::across(ptrs, request); }();
+  const Json& grid = fines.front().at("grid");
+  Json level_json = Json::object();
+  if (q.to) {
+    const auto [to_level, snapped] = level_for(*q.to, grid);
+    const int from_level = grid.value("level", grid.value("depth", 0));
+    const nxr::selection::Selection grid_selection = nxr::pipelines::made(nxr::io::selection::load(sub.db(), sub.store(), sel->id).description);
+    const nxr::selection::Elements groups = grid.value("kind", std::string()) == "product" && q.factor
+                                                ? nxr::measurement::coarser_groups(grid_selection, [&] { const Json fs = grid.value("factors", Json::array()); for (std::size_t i = 0; i < fs.size(); ++i) if (fs[i].value("name", std::string()) == *q.factor) return i; refuse("measurement query: the product has no factor '" + *q.factor + "'"); }(), from_level, to_level)
+                                                : nxr::measurement::coarser_groups(grid_selection, from_level, to_level);
+    ing = nxr::measurement::roll_up(ing, groups, request);
+    level_json = Json{{"level", to_level}, {"snapped", snapped}};
+  }
+  std::vector<double> values;
+  for (std::int64_t r = 0; r < ing.rows; ++r)
+    for (std::int64_t m = 0; m < ing.members; ++m) values.push_back(nxr::measurement::value(ing, r, m, q.measure));
+  return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "compute"}, {"subjects", q.subjects.empty() ? Json::array({subject}) : Json(q.subjects)}, {"to", q.to ? Json(*q.to) : Json()},
+              {"level", level_json}, {"rows", ing.rows}, {"members", ing.members}, {"values", Json{{"shape", Json::array({ing.rows, ing.members})}, {"data", values}}}, {"unit", fines.front().value("unit", Json())}};
 }
 
 Json datasets(const fs::path& datastore) {

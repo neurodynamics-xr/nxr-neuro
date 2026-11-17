@@ -11,6 +11,7 @@ Json CacheKey::json() const {
   Json j = Json::object();
   j["pipeline"] = pipeline;
   j["params"] = params;
+  if (j["params"].is_object()) j["params"].erase("preset");   // a preset is only a named parameter set (consolidation spec 4.2): its name is provenance, never part of the key; equal parameters are one cached result
   j["input"] = input;
   j["compute"] = compute;
   return j;

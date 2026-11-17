@@ -32,6 +32,11 @@ bool is_declared(const Plan& P, const std::string& output);
 std::string declared_name(const Plan& P, const std::string& output);
 /** the places a declared output takes in the subject: {model class, store path}; a manifold takes none (found by name and reused, never replaced) */
 std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, const std::string& output, nxr::io::SubjectWriter& sub);
+/** a selection output made by a maker (`get_or_create: true`, a `make:` input stored): its maker key {maker, parameters, inputs' identities}; equal keys are the same selection, found and reused, never refused.
+ *  A selection of `type: product` names its `factors` ({selection: LINK, level: N|$param, snapped}), with the level each grid factor is at (consolidation spec 6.2). A Field on the derived glued surface is stored
+ *  RESTRICTED BACK to the original surface (PI rule 33), the bridge dropped, its producer saying so. A `measurement` output may state `value_type`, `components`, `of_statistic` and `level`; a `statistic` whose axes
+ *  run over a selection's members is refused (it is a measurement). */
+Json maker_key(const Plan& P, const std::string& output);
 /** the ids of what a unit has made so far, by output name (manifolds first, so a later output can lie on them) */
 using MadeIds = std::map<std::string, std::string>;
 /** writes one declared output through the unit; `span` is the run's span record (null: none); returns the report entry {output, kind, name, path, id, ...} */

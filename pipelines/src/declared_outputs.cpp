@@ -8,6 +8,8 @@
 #include "nxr/io/fibers.h"
 #include "nxr/io/finder.h"
 #include "nxr/io/layout.h"
+#include "nxr/io/hash.h"
+#include "nxr/pipelines/bound.h"
 
 namespace nxr::pipelines::graph {
 
@@ -261,6 +263,12 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
     link_of(P, spec, "of", nullptr, o);
     for (const auto& ax : spec.value("axes", Json::array())) {
       if (!ax.is_object() || !ax.contains("name")) bad(o, "axes: each {name, on | line}");
+      // ONE TABLE FOR VALUES OVER MEMBERS (consolidation spec 6.1): a value per member of a selection is a MEASUREMENT (`selection_measurement`), never a statistic. A statistic's axes are not a selection's members
+      // (its `partition:` is provenance, the members it was computed from, never an axis); a statistic with such an axis is refused, naming what to declare instead.
+      const bool member_axis = ax.contains("members") || ax.contains("selection") ||
+                               (ax.contains("on") && ax["on"].is_string() && ((P.found.count(ax["on"].get<std::string>()) && P.found.at(ax["on"].get<std::string>()).cls == "selection") ||
+                                                                              (P.definition.outputs.contains(ax["on"].get<std::string>()) && kind_of(P.definition.outputs[ax["on"].get<std::string>()]) == "selection")));
+      if (member_axis) bad(o, "axis '" + ax["name"].get<std::string>() + "' runs over the members of a selection, so these values are a measurement: declare `kind: measurement` (over: the selection) instead of a statistic");
       if (ax.contains("on")) link(P, ax["on"].get<std::string>(), nullptr, o);
     }
     if (spec.contains("partition")) {
@@ -281,7 +289,11 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
     link_of(P, spec, "to", nullptr, o);
   } else if (k == "selection") {
     const std::string t = spec.value("type", std::string());
-    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "tiling" && t != "ladder" && t != "cells" && t != "grid") bad(o, "type: partition, set, indices, spans, tiling, ladder, cells or grid");
+    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "tiling" && t != "ladder" && t != "cells" && t != "grid" && t != "product") bad(o, "type: partition, set, indices, spans, tiling, ladder, cells, grid or product");
+    if (t == "product") {                                                   // a product of selections (a grid when every factor is): its factors, each a link and, for a grid, the level it is at
+      if (!spec.contains("factors") || !spec["factors"].is_array() || spec["factors"].size() < 2) bad(o, "a product selection's factors: a list of two or more {selection: LINK, level: N} (or LINK)");
+      for (const auto& f : spec["factors"]) link(P, f.is_object() ? f.value("selection", std::string()) : f.get<std::string>(), nullptr, o);
+    }
     link_of(P, spec, "on", nullptr, o);
   } else {
     const std::string t = spec.value("type", std::string());
@@ -326,6 +338,19 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
     if (!on_made_here) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
   }
   return out;
+}
+
+// THE MAKER KEY of an output: the step that makes it (its name), its resolved parameters and its inputs' identities (the found input's id, or the name of an earlier output): equal keys are the same selection
+Json maker_key(const Plan& P, const std::string& output) {
+  for (const Planned& p : P.steps) {
+    bool makes = false;
+    for (const auto& [port, name] : p.outs) { (void)port; makes = makes || name == output; }
+    if (!makes) continue;
+    Json ins = Json::object();
+    for (const auto& [port, t] : p.ins) ins[port] = P.found.count(t) && P.found.at(t).row ? Json(text(*P.found.at(t).row, "id")) : Json(t);
+    return Json{{"maker", p.step->name}, {"parameters", p.params}, {"inputs", ins}};
+  }
+  return Json{{"maker", output}};
 }
 
 Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P, const std::string& o, const ng::Array& a, const Json& span, MadeIds& made, bool replace, bool& replaced) {
@@ -437,7 +462,24 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       f.data = values_of(a, {a.rows, a.cols}, a.meta.value("precision", std::string("float64")) == "float32", o);
       f.producer = f.producer.is_object() ? f.producer : Json::object();
       f.producer["layout"] = Json{{"form", "coo"}, {"shape", a.meta.value("shape", Json::array())}, {"columns", Json::array({"row", "column", "value"})}};
-    } else if (!d.value("no_array", false)) f.data = stored_values_of(a, shape_of(a, d), single_of(d), d, o);   // no_array: a field whose values are its measurements
+    } else if (!d.value("no_array", false)) {                                // no_array: a field whose values are its measurements
+      ng::Array stored = a;
+      std::vector<std::int64_t> shape = shape_of(a, d);
+      // THE GLUED CORTEX (PI rule 33): a result on the derived glued surface is RESTRICTED BACK to the original for storage (the glued -> original transfer, exact; the bridge dropped like the medial wall)
+      if (const auto g = Bound(sub, nullptr).glue_of(f.manifold_id); g && !shape.empty() && shape[0] == g->n_glued()) {
+        const auto orig = task::Subject::of(sub).by_id(task::Cls::manifold, g->original_id);
+        if (!orig || !orig->n_vertices) bad(o, "the original surface of the glued one it lies on (" + g->original_id + ") has no vertex count");
+        std::int64_t rest = 1;
+        for (std::size_t i = 1; i < shape.size(); ++i) rest *= shape[i];
+        stored.data = restrict_to_original(a.data, rest, *g, *orig->n_vertices);
+        stored.rows = *orig->n_vertices; stored.cols = rest;
+        shape[0] = *orig->n_vertices;
+        f.producer = f.producer.is_object() ? f.producer : Json::object();
+        f.producer["restricted_from"] = Json{{"glued", g->glued_id}, {"original", g->original_id}, {"dropped", "the bridge"}};
+        f.manifold_id = g->original_id;
+      }
+      f.data = stored_values_of(stored, shape, single_of(d), d, o);
+    }
     if (spec.contains("carry_origin")) {
       f.producer = f.producer.is_object() ? f.producer : Json::object();
       const Json og = origin_of(P, spec["carry_origin"].get<std::string>(), o);
@@ -541,8 +583,23 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       }
       m.measures.push_back(std::move(x));
     }
-    if (d.contains("band")) m.band = d["band"];
+    if (d.contains("band")) m.band = d["band"];                             // ONE band: the band's own, or the member of a band set (`within`)
     if (d.contains("attributes") && d["attributes"].is_object()) m.attributes = d["attributes"];   // the array describes its own axes
+    // A VALUE THAT IS NOT A SCALAR (a window's z zH, a tile's crossing counts): the value's type and its components' names, from the declaration or the node (consolidation spec 6.1); and the statistic it
+    // is of, and the level it is at when it is one level of a grid (the product's factor levels are in the product itself)
+    if (spec.contains("value_type") && spec["value_type"].is_string()) m.value_type = spec["value_type"].get<std::string>();
+    else if (d.contains("value_type") && d["value_type"].is_string()) m.value_type = d["value_type"].get<std::string>();
+    {
+      const Json comps = spec.contains("components") ? spec["components"] : d.value("components", Json());
+      if (comps.is_array()) for (const auto& c : comps) m.components.push_back(c.get<std::string>());
+    }
+    if (spec.contains("of_statistic")) m.of_statistic_id = link_of(P, spec, "of_statistic", &made, o);
+    if (spec.contains("level") && spec["level"].is_number_integer()) m.level = spec["level"].get<std::int64_t>();
+    else if (d.contains("level") && d["level"].is_number_integer()) m.level = d["level"].get<std::int64_t>();
+    if (d.contains("snapped")) {                                            // what the stated quantity snapped to (the level's real size): in the array's attributes, as provenance
+      if (!m.attributes.is_object()) m.attributes = Json::object();
+      m.attributes["snapped"] = d["snapped"];
+    }
     if (spec.contains("within")) {                                          // the bank of bands a measure is within (found: its code is the band's index, which the node names: describe.within_code)
       const std::string w = spec["within"].get<std::string>();
       if (!P.found.count(w) || !P.found.at(w).row) bad(o, "within: '" + w + "' is not a found selection");
@@ -625,11 +682,41 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       } catch (const std::invalid_argument& e) { bad(o, e.what()); }
     }
     else if (t == "grid") s.grid = grid_of(a, d, o);
+    else if (t == "product") {
+      // A PRODUCT of selections (the Studio's D100 productSelection; mixed radix, first factor fastest): a `set` with nothing stored per member; its factors in order, each a stored selection and, when it is a
+      // level of a grid (the line's time grid, the surface's dyadic grid), the LEVEL it is at with the quantity it was snapped to (consolidation spec 6.2: coupled levels are never selections of their own).
+      // The node's description gives the layout (`describe.layout`: product | joint) and the radices.
+      for (const auto& f : spec["factors"]) {
+        task::SelectionOut::Factor fac;
+        fac.selection_id = link(P, f.is_object() ? f.value("selection", std::string()) : f.get<std::string>(), &made, o);
+        if (f.is_object() && f.contains("level")) fac.level = static_cast<int>(f["level"].is_string() && !f["level"].get<std::string>().empty() && f["level"].get<std::string>()[0] == '$'
+                                                                                 ? P.parameters.at(f["level"].get<std::string>().substr(1)).get<std::int64_t>() : f["level"].get<std::int64_t>());
+        if (f.is_object() && f.contains("snapped")) fac.snapped = f["snapped"];
+        s.factors.push_back(std::move(fac));
+      }
+      if (d.contains("layout")) s.params["layout"] = d["layout"];
+      if (d.contains("radices")) s.params["radices"] = d["radices"];
+      if (d.contains("product")) s.params["product"] = d["product"];       // the node's own record of each factor's level and snapped quantity, as it resolved them
+    }
     else if (t == "cells") { s.n_members = d.at("n_members").get<std::int64_t>(); if (d.contains("label")) s.label = d["label"].get<std::string>(); }
     else if (t == "spans") for (const auto& x : d.value("spans", Json::array())) { task::Span sp; sp.start = x["start"].get<double>(); sp.stop = x["stop"].get<double>(); if (x.contains("code")) sp.code = x["code"].get<std::int64_t>(); sp.ordinal = static_cast<std::int64_t>(s.spans.size()); s.spans.push_back(sp); }
     else if (!d.contains("tiling")) bad(o, "its node gives no tiling (describe.tiling)");
     else s.tiling = tiling_of(P, d["tiling"], spec["on"].get<std::string>(), o);
     const std::string path = unit.path_of(s);
+    // A MAKER'S SELECTION, GET-OR-CREATE (`get_or_create: true`: a `make:` input stored): found by its maker key (the maker's name, its resolved parameters and its inputs' ids) it is reused; another one at the
+    // same path is another job's, refused (or replaced with --replace). The key is in the selection's parameters.
+    const std::string mkey = nxr::io::sha256_hex(maker_key(P, o).dump());
+    if (!s.params.is_object()) s.params = Json::object();
+    s.params["maker_key"] = mkey;
+    if (spec.value("get_or_create", false) && !replace)
+      if (const auto row = sub.find("selection", path)) {
+        const Json pj = Json::parse(nxr::io::opt_text(*row, "params_json").value_or("{}"), nullptr, false);
+        if (pj.is_object() && pj.value("maker_key", std::string()) == mkey) {
+          report["id"] = text(*row, "id"); report["path"] = path; report["reused"] = true;
+          made[o] = report["id"].get<std::string>();
+          return report;
+        }
+      }
     clear(task::Cls::selection, path);
     report["id"] = unit.selection(s); report["path"] = path;
     made[o] = report["id"].get<std::string>();
