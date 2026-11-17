@@ -40,7 +40,7 @@ SurfaceLevel read_surface_level(SubjectWriter& sub, const SurfaceInput& S, int l
   const std::int64_t nV = S.n_vertices();
   const task::Subject subj = task::Subject::of(sub);
   const auto ladder = subj.find({.cls = task::Cls::selection, .name = S.name + " tiles", .type = "ladder", .manifold_id = S.id});
-  if (!ladder) missing(sub.name() + ": " + S.name + " has no tile ladder; run `nxr-neuro tiles compute` first");
+  if (!ladder) missing(sub.name() + ": " + S.name + " has no tile ladder; run `nxr-neuro run select_dyadic_surface` first");
   L.ladder = *ladder;
   L.tiling = S.name + " tiles L" + std::to_string(l);
   const auto lvl = subj.find({.cls = task::Cls::selection, .name = L.tiling, .member_of_id = ladder->id});

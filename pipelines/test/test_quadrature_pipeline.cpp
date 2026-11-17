@@ -14,9 +14,9 @@
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/pipelines/tiles.h"
 #include "nxr/quadrature.h"
 #include "nxr/welch.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -142,7 +142,7 @@ static void run() {
     CHECK(ps.axes[1]["values"][0]["rotary_sense"].get<int>() == 1 && ps.axes[1]["values"][0].contains("sigma"));
     int found = 0;
     for (const auto& n : a.info["maps"]) {
-      const auto m = stored_map(sub, n.get<std::string>(), N);       // the map of a statistic, by the name its Field had
+      const auto m = nxrtest::stored_map(sub, n.get<std::string>(), N);       // the map of a statistic, by the name its Field had
       CHECK(m.has_value());
       if (!m) continue;
       ++found;

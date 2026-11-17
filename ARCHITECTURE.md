@@ -40,6 +40,15 @@ composable.
   **derived measure**, computed at read from its stored ingredients, as the lookup derives `sd` from `mean` and `mean_square`. Never a reduction of the
   ratio itself.
 - **Names say what a function computes** (`phaseCurrent`, `power`, `phaseGradient`), never how the code is organised (`sums`, `readout`).
+- **One measurement system, no competing definitions** (`docs/specs/2026-11-17-consolidation.md`). Every selection is made by one of five maker nodes
+  (`select.dyadic_surface`, `select.time_grid`, `select.bands`, `select.product`, `select.events.*`); every reduction is one of four operations, each with ONE
+  implementation (`nxr::measurement`: `reduce`, `roll_up`, `summarize`, `estimate`); values over members live in one table (`selection_measurement`; `statistic`
+  holds statistics, never a member axis); every measuring pipeline is the one `measure` definition fed by a field chain, its presets only named parameter sets.
+  A retired name is refused with the name of what replaces it, never kept as an alias. Every selection parameter is a quantity with a unit in a named chart (a band
+  in Hz, a tile in mm, a duration in s), never a bare level index; levels are resolved from quantities in closed form and recorded with the snapped quantity.
+  **Roll-ups exist in io's query AND in compute**: each measure's merge rule (sum, max, min, mean via sum and count, ratios derived at read) is DATA in the measures
+  registry, applied by io in SQL (for group analysis and statistical modelling: filters by selection, member, level in physical units, subject or group, and roll-ups
+  through a grid's hierarchy and across subjects) and by compute in memory, with a parity test between the two, so there is one definition of each rule.
 
 The detailed rules are below: the dependency table, **the architecture policy** (what each layer may decide), **pipelines as replicas of the Studio's GPU
 chains**, the chunk service, and the PR checklist. Design a new pipeline as its graph first (nodes, ports, inputs, outputs), check it against the
@@ -132,7 +141,7 @@ follows them from the start, and no change may move existing code further from t
   Flow Studio's repositories. Only io, the binding that serves the Studio (`bindings/wasm-io`) and io's own tests and record tools use them.
 - **For everyone else: io's task API** (`nxr/io/task/`), named by task, never as rows: **find** inputs (by kind, relation, parameters; one match or a
   clear error), **open** arrays for streaming, **commit** a result as one atomic unit (rows, arrays, provenance, cache key and measurements together, or
-  nothing), **look up the cache**, **query measurements** (the read-time reduction over partitions, members and time).
+  nothing), **look up the cache**, **query measurements** (selections, members, levels in physical units, subjects and groups; roll-ups through a grid's hierarchy and across subjects, in SQL, with each measure's merge rule read from the registry: the same rule compute applies in memory, checked by a parity test).
 - **Only io writes SQL or includes `database.h` or a `records/` header.** Pipelines and the command line never name a row, a table or a column.
 - The SQLite engine is always the pinned amalgamation built with the project, never the system's.
 

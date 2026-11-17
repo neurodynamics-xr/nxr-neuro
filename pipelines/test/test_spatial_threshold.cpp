@@ -21,7 +21,6 @@
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
-#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/filterbank.h"
 #include "nxr/frame_tiling.h"
@@ -32,7 +31,7 @@
 #include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -124,11 +123,12 @@ int main() {
       op.cols.json("params_json", Json{{"inverse", Json{{"measure", "MNE"}}}});
       sub.operator_(std::move(op));
     });
-    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
-  for (const char* rec : {"rest", "rest_b"}) { nxrtest::run_definition(ds, sub, "frametiling", Json{{"recording", rec}, {"band", Json::array({8.0, 12.0})}}); }
+  nxrtest::make_time_grids(ds, sub);
+  nxrtest::make_tiles(ds, sub);
+  for (const char* rec : {"rest", "rest_b"}) { nxrtest::make_frames(ds, sub, rec, "8-12 Hz"); }
   g::RunOptions all; all.chunks = "all"; all.replace = true;
   const Json lv = Json::array({1, 2, 3, 4});
   const int refl = 4;

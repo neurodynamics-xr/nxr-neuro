@@ -1,0 +1,33 @@
+# THE GLUED CORTEX: the two hemispheres joined by the corpus callosum's bridge, a DERIVED manifold made by its own definition (a `make` move; rule 28, rule 33). The imported two-hemisphere mesh stays the manifold of
+# record (atlases, kernels, exports, results, figures); the glued surface is the default COMPUTATIONAL manifold for spatiotemporal pattern analysis (patterns cross hemispheres smoothly: one cortex), and results are
+# reported back on the original two hemispheres.
+#
+# The definition stores the glued surface with its MAP (glued vertex -> original vertex, -1 on the bridge) and the BRIDGE as a labelled irregular selection ("bridge: not cortex"). Transfers: original -> glued (values
+# kept copied; the bridge by sourcesOf interpolation; the medial wall has no counterpart) and glued -> original (exact; the bridge dropped like the medial wall); atlases are carried by `transfer`. Orientations are also
+# reported in the anatomical frame (canonical frames, gauge recorded) as a check on the bridge's transport. `eigenmodes` and `apply_kernel` take this surface BY NAME: a flag that only chooses the input (`--glued`) is gone.
+#
+# What it cannot resolve: the pieces must match by anatomy (the medial walls cut, a bridge grown); a pair that does not match is refused with the reason.
+#
+#   nxr-neuro run glue --dataset <folder> --subject sub-01 --surface cortex_pial
+pipeline: glue
+version: 1
+description: the two hemispheres of a cortex glued by a bridge, a derived manifold stored with its map to the original and its bridge selection
+scope: subject
+
+inputs:
+  surface: {manifold: surface, where: {name: $surface}, hint: "name the two-hemisphere surface (--surface)"}
+  frames:  {field: canonical frames, where: {name: "{surface}_canonical_frames"}, required: false}
+
+parameters:
+  surface: {default: null, meaning: "the two-hemisphere surface, by name", unit: "-"}
+  bridge_width: {default: null, meaning: "the bridge's width as a length; null: as the anatomy sets it", unit: mm, chart: diameter}
+  name: {default: "{surface}_glued", meaning: "the glued surface's name", unit: "-"}
+
+steps:
+  before:
+    - {node: surface.glue, in: {surface: surface, frames: frames}, with: {bridge_width: $bridge_width}, out: [glued, map, bridge]}
+
+outputs:
+  glued:  {kind: manifold, type: surface, name: $name, derived_from: surface.manifold.0}
+  map:    {kind: field, kind_name: glue map, name: "{name}_map", on: glued}
+  bridge: {kind: selection, type: indices, name: "{name}_bridge", on: glued, lookup: {0: "bridge: not cortex"}}

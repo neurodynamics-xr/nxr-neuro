@@ -18,14 +18,13 @@
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
-#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
 #include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/io/task/task.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -110,11 +109,12 @@ int main() {
       op.cols.json("params_json", Json{{"inverse", Json{{"measure", "MNE"}}}});
       sub.operator_(std::move(op));
     });
-    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
-  for (std::size_t k = 0; k < sigmas.size(); ++k) { nxrtest::run_definition(ds, sub, "frametiling", Json{{"recording", "blob" + std::to_string(k)}, {"band", Json::array({8.0, 12.0})}}); }
+  nxrtest::make_time_grids(ds, sub);
+  nxrtest::make_tiles(ds, sub);
+  for (std::size_t k = 0; k < sigmas.size(); ++k) { nxrtest::make_frames(ds, sub, "blob" + std::to_string(k), "8-12 Hz"); }
 
   // the levels: those of the ladder the hats are made for (several, so the planted widths can spread over them)
   const SurfaceInput S = read_surface(sub, std::nullopt, true);

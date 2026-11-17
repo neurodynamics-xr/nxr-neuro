@@ -19,7 +19,6 @@ parameters:
   name: {default: "{recording}_{operator}_psd_welch", meaning: "the stored statistic's name; its segment partition is <name>_segments", unit: "-"}
   segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
   segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds; under tile a power of two); null: from segment_seconds", unit: "samples"}
-  segment_level: {default: null, meaning: "under segment_rule tile: the segment is 2^segment_level samples (wins over segment_seconds); null: from segment_seconds", unit: "level"}
   segment_rule: {default: tile, meaning: "how the segment's length becomes samples: tile = a tile of the recording's line (2^k samples, the span snaps to its grid) | round = round(seconds x fs) from the span's start (Brainstorm, scipy) | even = as round, made even (nxr's chain)", unit: "-", choices: [tile, round, even]}
   overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next, in [0, 1): the hop is n - floor(n x overlap); under tile the hop must be a tile too (0, 0.5, 0.75, ...)", unit: "fraction"}
   window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
@@ -39,7 +38,7 @@ steps:
     over: recording
     do:
       - {node: rotary.pair, in: {x: recording, operator: plane}, out: z}
-      - {node: welch.complex_psd, in: {z: z, exclude: bad}, with: {segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_level: $segment_level, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: psd}
+      - {node: welch.complex_psd, in: {z: z, exclude: bad}, with: {segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: psd}
 
 outputs:
   psd:

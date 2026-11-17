@@ -88,12 +88,12 @@ One command, verb first: `nxr-neuro <verb> <what> [options]`.
 
 | verb | what it does |
 |---|---|
-| `run <pipeline>` | every pipeline on a subject: the built-in computations (psd, crossspectrum, phasegradient, pyramid, opticalflow, nulls, ...), the shipped definitions (`run global_bursts --band '[8,16]' --all`) and your own definition file (`run my.yaml ...`); a definition's parameters are options, each with its meaning, default and unit in `--help` |
+| `run <pipeline>` | every pipeline on a subject: the built-in computations (psd, crossspectrum, phasegradient, nulls, ...), the selection makers (`select_dyadic_surface`, `select_time_grid`, `select_bands`, `select_product`, `glue`), the one measuring definition `measure` with its presets, and the shipped definitions (`run global_bursts --band "8-16 Hz" --all`) and your own definition file (`run my.yaml ...`); a definition's parameters are options, each with its meaning, default and unit in `--help` |
 | `compute <node>` | reserved for applying a node or a graph to arrays and files (not available yet) |
 | `list datasets\|subjects\|recordings\|kernels\|results\|pipelines` | what exists |
 | `show dataset\|subject`, `read`, `query`, `export` | one thing in detail, stored arrays, measurements, a table for statistics |
 | `import <what>` | from a Brainstorm protocol |
-| `create`, `delete`, `compact`, `recover`, `reduce`, `add` | a dataset's, a subject's and a pyramid's housekeeping |
+| `create`, `delete`, `compact`, `recover`, `add` | a dataset's and a subject's housekeeping (a group's reduce is `run roll_up`) |
 
 A dataset is a folder, named by its path with `--dataset <folder>`, and subjects `--subject <id>`. Results are written into the dataset with their provenance and a cache key, so a repeated
 run with the same options is a cache hit. **A computation over a recording states its time range**: `--from <s> --to <s>` (seconds or `m:ss`) or `--all`; without one it refuses.

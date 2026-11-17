@@ -25,6 +25,8 @@
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
+#include "run_definition.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -112,9 +114,19 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
+  // `phasegradient` is the shipped definition (the hand-wired verb is gone): its parameters as a small struct, the run through the runner
+  struct PhaseGradientOptions { std::string cross_spectrum, signal = "normal", name; std::optional<int> depth; };   // depth: the grid level, stated to the definition as `finest: parts 2^depth`
+  struct PhaseGradientResult { bool hit = false; };
+  auto phasegradient_compute = [&](DatasetWriter& d, SubjectWriter& s, const PhaseGradientOptions& o) {
+    Json set = Json{{"cross_spectrum", o.cross_spectrum}, {"signal", o.signal}};
+    if (!o.name.empty()) set["name"] = o.name;
+    if (o.depth) set["finest"] = "parts " + std::to_string(1 << *o.depth);
+    const auto runs = nxrtest::run_definition(d, s, "phasegradient", set);
+    PhaseGradientResult r;
+    r.hit = !runs.empty() && runs.front().value("hit", false);
+    return r;
+  };
   PhaseGradientOptions po;
-  CHECK_EQ(po.signal, std::string("ambient"));                                      // the default is the full current
-  po.signal = "normal";                                                             // the tests below read the normal current
   po.cross_spectrum = "travel_crossspectrum_alpha";
   auto code_of = [&](auto f) { try { f(); } catch (const Error& e) { return e.code(); } return std::string(); };
   CHECK(!code_of([&] { phasegradient_compute(ds, sub, po); }).empty());            // no such cross-spectrum
@@ -124,7 +136,8 @@ int main() {
     crossspectrum_compute(ds, sub, o);
   }
   CHECK(code_of([&] { phasegradient_compute(ds, sub, po); }) == "invalid_argument");   // no canonical frames yet
-  { FramesComputeOptions fo; frames_compute(ds, sub, fo); }
+  nxrtest::run_definition(ds, sub, "surface_frames", Json{{"surface", "cortex"}});
+  nxrtest::make_tiles(ds, sub);
   const PhaseGradientResult pr = phasegradient_compute(ds, sub, po);
   CHECK(!pr.hit);
   PhaseGradientOptions ps = po; ps.cross_spectrum = "stand_crossspectrum_alpha";

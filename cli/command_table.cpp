@@ -13,7 +13,7 @@
 
 std::vector<const char*> command_table_text() {
   return {
-R"TBL(verb run	Run a pipeline on a subject: a built-in (psd, crossspectrum, phasegradient, pyramid, ...), a built-in definition, or a definition file
+R"TBL(verb run	Run a pipeline on a subject: a built-in (psd, crossspectrum, phasegradient, measure, ...), a built-in definition, or a definition file
 verb compute	Compute a node or a graph on arrays or files (reserved: not available yet; pipelines are run with `run`)
 verb list	List datasets, subjects, recordings, kernels, results or pipelines
 verb show	Show a dataset or a subject
@@ -33,25 +33,22 @@ verb join	Join subject packages back into a one-database dataset
 verb release	Release a template or registration as a frozen, versioned package
 verb verify	Verify a subject package against the hashes it records
 )TBL",
-R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or map belongs to.	none	-
+R"TBL(--atlas-finest	QUANTITY	The finest tile of the default subject's group tree (the dataset's atlas leaves), as a quantity: parts per hemisphere ("parts 256"), a tile diameter ("14 mm") or a tile area ("area 150 mm2"); needs --templates.	parts 256 (2^8 tiles a hemisphere)	parts
+--lc-scales	QUANTITY,...	The tile scales, as quantities, at which the Levi-Civita connection between neighbouring tiles is measured (a measurement over a level's product with itself); needs --templates.	parts 16, parts 64	parts
+--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or map belongs to.	none	-
 --acquisition@import inverse	NAME	The Brainstorm acquisition (condition) the kernel belongs to; it names the session the kernel is stored under.	required	-
 --acquisition@import map	NAME	The Brainstorm acquisition (condition) the map belongs to, used to find a map's surface or atlas when its file does not name one.	none	-
 --all		Do the time line of every recording in the subject (alternative to --recording and --line)	off	-
 --all-surfaces		Import every surface of the subject, not only the ones the condition's head model uses.	off	-
 --all-surfaces@import condition		Import every surface of the subject's anatomy, not only the surface of the condition's head model and the extra surfaces.	off	-
---all@run constantq		Make the ladder for the time line of every recording in the subject (alternative to --recording and --line).	off	-
 --alpha	X	Horn-Schunck smoothness weight of the optical flow; vary it and report the range.	0.01 for the connection regulariser, 1 for ambient	-
---alpha@run opticalflow	X	Horn-Schunck smoothness weight of the flow; vary it and report the range, since a larger weight smooths the flow.	0.01 for the connection regulariser, 1 for ambient	-
 --anat	FILE	The anatomical MRI file to import.	none	-
 --anat@import mri	FOLDER	The subject's anatomical folder of the source protocol, whose MRI images are imported into the subject.	required	-
 --anchor	HZ	Itersine and similar time filterbanks: the anchor frequency the member spacing is built from.	1.0	Hz
---anchor@run opticalflow	HZ	Itersine family only: the anchor frequency from which the members' log-frequency spacing is built.	1	Hz
 --array	SUBJECT PATH	Read one array: the subject and the array's path in the dataset (prints its bytes, or writes them with --out).	none	-
 --array@read dataset	SUBJECT PATH	Read one array: the subject's name and the array's path inside the subject; prints its shape, data type and checksum. Without --array every array of the dataset is listed.	none (list all arrays)	-
---atlas-depth	LEVEL	Leaf level of the group tree that serves as the dataset's default atlas (needs --templates)	8	level
---atlas-depth@create dataset	LEVEL	Leaf level of the group tree that serves as the dataset's default atlas; written with the default subject, so it needs --templates.	8	level
 --band	LO,HI	The frequency band in hertz (frametiling: its centre sets the frame length; surrogate_lagfree_pairs: the band of the stored windows; measure query: INDEX picks one band by its index, a whole number).	none	Hz
---band@query measurements	N	The band (the row's within-code) to read when the pyramid's joint selection holds several.	none (all bands, or the only one)	-
+--band@query measurements	QUANTITY	The temporal band to read, as a quantity in Hz ("8-12 Hz"); the band set's member it falls in is read, and its snapped span is printed.	none (all bands, or the only one)	Hz
 --bands	NAME:LO-HI,...	The frequency bands to compute, each a name and its low and high edge (the mean over the bins from LO to HI, inclusive); pyramid build takes LO-HI,... octave bands without names.	Brainstorm's bands (delta 2-4, theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90); pyramid build: octaves 1-2 to 32-64	Hz
 --bandwidth	HZ	Notch width: the 3 dB bandwidth of each notch	1	Hz
 --batch	N	Number of surrogate draws made at a time before the early-stopping test (Besag-Clifford).	20	draws
@@ -72,7 +69,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --bursts	NAME	Name of a stored set of burst time spans (surrogate_lagfree_pairs: required, each burst is tested; cellquadrature: optional, also computed per burst)	none	-
 --centre	HZ	Centre frequency of the band from which the frame length is derived (the coarsest tower level whose frame is no longer than 1/(centre x frames-per-cycle)).	none	Hz
 --centres	HZ,...	Centre frequencies of the filterbank members (Morlet, Morse, Amor and Bump families); for Morlet, empty means the single member at --freq (opticalflow).	none	Hz
---centres@run opticalflow	HZ,...	Centre frequencies of the filter-bank members (Morlet, Morse, Amor and Bump); for Morlet, empty means the single member at --freq.	none	Hz
 --channel-file	FILE	The channel file to use instead of the condition's own.	the condition's channel file	-
 --channel-file@import condition	FILE	Channel file (in the condition folder) to use for the condition's recordings instead of the one the condition names.	none (the condition's own channel file)	-
 --channel-file@import inverse	FILE	The channel file to take the kernel's channels from instead of the one found for the kernel.	found from the kernel's condition	-
@@ -87,12 +83,8 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 )TBL",
 R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given: scs (anterior +x, superior +z, left +y) or ras (anterior +y, superior +z, left -x).	scs	-
 --cross-spectrum	NAME	Name of the stored sensor cross-spectrum (from crossspectrum compute) to read.	none (required)	-
---cross-spectrum@run cyclepattern	NAME	Name of the stored per-window sensor cross-spectrum series (<stem>_<band>_windows, from crossspectrum compute --estimator analytic) to read.	required	-
 --cycles	C	Cycles of the band's lowest frequency in each window (constantq) or wavelet width as centre frequency / C (speedspectrum, opticalflow)	constantq: set by --method (about 6.8 at 1200 Hz); speedspectrum, opticalflow: 6	cycles
---cycles@run constantq	C	Cycles of a band's lowest frequency held by its window (window rounded up to a power of two of samples).	set by --method (hertz: about 6.83 at 1200 Hz; cycles: 8)	cycles
---cycles@run opticalflow	C	Morlet family only: the wavelet's width is its centre frequency divided by this number of cycles.	6	cycles
 --datafit	auto|gauge|triangle	Data term of the Horn-Schunck flow: auto picks the regulariser's own (gauge for connection, triangle for ambient); gauge is connection only; triangle uses per-triangle finite elements.	auto	-
---datafit@run opticalflow	auto|gauge|triangle	Data term of the Horn-Schunck equation: auto (gauge for the connection regulariser, triangle for ambient), gauge (connection only), or per-triangle finite elements.	auto	-
 --dataset	PATH	The dataset to work on: the path of its folder (a dataset is addressed by its own path; the folder of a one-database dataset, or of a catalogue of subject packages).	required	-
 --datastore	DIR	The folder that holds the dataset folders (their parent); the dataset is then DIR/NAME.	none (required)	-
 --dataset@create dataset	PATH	The folder of the new dataset (made if absent): it holds the catalogue and, by default, each subject's package.	required (unless --datastore)	-
@@ -103,14 +95,11 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --default	NAME	The template resolution used for the dataset's default subject (needs --templates).	fsaverage5	-
 --default@create dataset	NAME	The subject of the --templates folder (the template resolution) that becomes the dataset's default subject; needs --templates.	fsaverage5	-
 --defects	keep|exclude	keep: use every edge of the mesh in the weighted fit; exclude: give zero weight to folded or very short edges (needs --spatial-band)	keep	-
---depth	LEVEL	Level of the surface's tile ladder that gives the leaf tiles on which sums are stored (2^LEVEL tiles per piece); for run tiles, the finest level written.	the finest level every piece of the surface reaches (pyramid reduce: the stored depth)	level
 --depth-channels	all|one-type	Which channels the depth-weighting norm is computed on: all channels, or one channel type (gradiometers if present, else magnetometers, else EEG).	all	-
 --depth-exponent	P	Exponent of the depth weighting that counteracts the bias of the minimum-norm solution towards superficial sources	0.5	-
 --depth-limit	X	Upper limit of the depth weighting (Brainstorm's WeightLimit): the largest-to-smallest weight ratio is limited to this value squared in variance.	10	-
 --depth-limit-on	weight|norm	Where the depth limit is applied: on the weights (Brainstorm's way) or on the inverse norms (MNE-Python's way).	weight	-
 --depth-norm	frobenius|spectral	Matrix norm used for each source's gain when depth weighting	frobenius	-
---depth@run opticalflow	LEVEL	Level of the surface's tile ladder whose leaf tiles hold the stored sums of divergence, curl, speed and velocity; the ladder is made if absent.	the finest level every piece of the surface reaches	level
---depth@reduce pyramid	LEVEL	Level of the group tree at which the members' pyramids are summed, cell for cell.	the atlas depth of the group tree definitions	level
 --detrend	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (the Brainstorm option set)	-
 --divisor	samples-minus-blocks|samples|samples-minus-one	What the covariance sum is divided by: samples minus the number of blocks, the samples, or samples minus one.	samples-minus-blocks	-
 --draws	N	Number of lag-free Wishart draws a burst (surrogate_lagfree_pairs)	1000	draws
@@ -137,7 +126,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (repeatable).	none	-
 --extra-surface@import condition	FILE	An additional surface file of the subject's anatomy to import with the condition; repeat the option for several.	none	-
 --family	NAME	Family of the time filter bank: itersine, meyer, morlet, morse, amor or bump (opticalflow: see the command's description for the accepted names).	none (required)	-
---family@run opticalflow	itersine|meyer|morlet|morse|amor|bump	Family of the time filter bank that band-passes the recording to the analysed band.	required	-
 --field	NAME	Name of a stored field to read (measure query: restrict the query to this field; phasegradient: the phase 1-form to build, only gradient exists).	measure query: none; phasegradient: gradient	-
 --field@query measurements	NAME	The stored field the measurement was made of, by name or id.	the only field measured	-
 --fields	PATTERN	Regular expression matched against the whole name of each stored field to measure (export: the first capture group names the condition)	none (required)	-
@@ -148,71 +136,49 @@ R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (r
 --file@import surface	FILE	A Brainstorm cortex surface file (tess_*.mat) to convert and store; repeat or give several.	required	-
 --fit	inner|mesh|modes	How the timing map is fitted to the edge lags: by inner products with the modes, by a weighted fit on the whole surface complex, or by a weighted fit within the exact modes.	inner	-
 --flow-tolerance	X	Relative residual at which the conjugate-gradient flow solve stops (pcg and per-scale methods).	1e-8	-
---flow-tolerance@run opticalflow	X	Relative residual at which the iterative solver (pcg, perscale) stops.	1e-8	-
---fmax	HZ	Upper frequency limit (constantq: ceiling of the time ladder, at most Nyquist; speedspectrum: the highest frequency bin used).	constantq: 64 Hz cap (method default); speedspectrum: 40	Hz
---fmax@run constantq	HZ	Highest frequency of the ladder; overrides the method's top (never above Nyquist).	hertz: largest power of two at or below Nyquist, at most 64; cycles: Nyquist	Hz
---fmin	HZ	Lowest frequency (constantq: lowest band edge; speedspectrum: lowest frequency bin used)	constantq: 0.5 (hertz method) or 0 (cycles method); speedspectrum: 1	Hz
---fmin@run constantq	HZ	Lowest frequency of the ladder.	hertz: 0.5; cycles: 0	Hz
 --fold-edges	keep|axial|all	How edges across a fold of the surface are read: keep all as they are, axial (lag read modulo pi where the ends' normals are opposed), or all (every edge modulo pi).	keep	-
 --forward	NAME	Name of the stored head model (forward operator) to use.	the subject's only one	-
 --forward-id	ID	The id of the head model the kernel was made with.	found from the kernel file	-
 --forward-id@import inverse	ID	Id of the stored head model the kernel was made with.	found from the kernel's HeadModelFile link	-
 --fpass	HZ|LO,HI	Passband edge: one frequency for lowpass or highpass, LO,HI for bandpass	none (required)	Hz
 --fraction	X	Fraction of the peak power at the reference level above which the connected region counts as the source's patch.	0.5	-
---frame-level	L	Tower level of a time frame, a whole number: a frame lasts 86400 x 2^L seconds (-18 = 0.33 s, -25 = 2.57 ms). (frametiling: alternative to --centre or --band)	-18 (frametiling: none, give a level, centre or band)	-
---frame-level@run opticalflow	L	Tower level of a stored time frame, a whole number: a frame lasts 86400 x 2^L seconds (-18 is 0.33 s).	-18	-
 --frames-per-cycle	N	Frames per cycle of the band's centre frequency, which sets the frame level (the coarsest whose frame is at or under 1/(centre x N))	36	frames
 --freq	HZ	Frequency whose nearest filter-bank member is analysed.	none (required)	Hz
---freq@run opticalflow	HZ	Frequency whose nearest filter-bank member is analysed.	required	Hz
 --frequencies	F,...	Centre frequencies to remove (notch), e.g. a line frequency and its harmonics.	none (give this or --line)	Hz
 --from	FILE	The file to read the bad segments or events from (import badsegments, import events).	none	-
 --from@import badsegments	FILE	JSON file listing the bad segments (start and stop times) to store as the subject's bad-segment selection.	required	-
 --from@import events	FOLDER	The source protocol's data folder to read the events from.	required	-
 --fstop	LO,HI	Stopband edges of a bandstop filter	none (required)	Hz
 --gain	X	Peak in-band response of each filter-bank member (2 makes the coefficient's magnitude the physical amplitude).	none (required)	-
---gain@run opticalflow	X	Peak in-band response of each filter-bank member; 2 makes the coefficient's magnitude the physical amplitude of a real recording.	required	-
 --gamma	G	Morse family: the gamma parameter of the wavelet.	3	-
---gamma@run opticalflow	X	Morse family only: the gamma parameter of the wavelet.	3	-
 --gradient		Also measure the gradient of each scalar field (area-weighted face gradients projected on the vertex tangent plane)	off	-
 --graph-family	mexhat|heat|itersine|logitersine	Family of the spatial (graph) filter bank over the eigenvalue.	none (required)	-
 --graph-filters	N	Number of members of the graph (eigenvalue) filterbank; 0 means derived from --graph-voices.	0	filters
 --graph-voices	N	Members per octave of the spatial (graph) filterbank	3	members/octave
 --half-width	OCT	Meyer family: half-width of each transition between members, in octaves.	0.3333 (1/3)	octaves
---half-width@run opticalflow	OCTAVES	Meyer family only: half-width of the transition between neighbouring octave bands.	0.3333	octaves
 --halo-seconds	SECONDS	Context read on each side of a chunk so the band filter's edge effects fall inside it	8	s
 --harmonics	N	With --line, the number of harmonics of the line frequency to notch.	every multiple below the Nyquist frequency	-
 )TBL",
 R"TBL(--include-imported		Also import conditions that were themselves imported.	off	-
 --include-imported@import condition		When the condition has a raw recording, also import its data files that were themselves imported (by default only the raw recording is).	off	-
 --input	amplitude|signed	What the flow is computed on: the source amplitude |J| of the kernel applied to the complex band coefficients, or the signed band signal itself (fixed-orientation kernels only).	amplitude	-
---input@run opticalflow	amplitude|signed	Map the flow is computed on: the source amplitude |J| of the kernel applied to the band's complex coefficients, or the signed band signal itself (fixed-orientation kernels only).	amplitude	-
 --joint	NAME	Name of the stored joint space-time partition to use	the one for the cross-spectrum's recording, the space level and its tile level	-
 --joint-types		Whiten the channel types of a modality (e.g. magnetometers with gradiometers) together, keeping their cross-covariance, instead of one block per type.	off	-
 --keep-all		Keep every member in the table, including those excluded by default.	off	-
 --keep-all@export measurements		Keep every member in the table, including the default excluded one (clears --exclude)	off	-
 --keep-bad-segments		Keep the recording's bad segments in the computation instead of leaving them out	off	-
 --kernel	NAME	Name of the stored inverse kernel (the map from channels to sources) to apply.	the subject's only kernel	-
---kernel@run cyclepattern	NAME	Name of the stored free-orientation inverse kernel that maps the cross-spectrum to sources.	the subject's only kernel	-
---kernel@run opticalflow	NAME	Name of the stored inverse kernel that maps the channels to sources on the cortex.	the subject's only kernel	-
 --kernels	SPEC,...	Which kernels' pyramids are summed: all, constrained, free, latest, a method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
---kernels@reduce pyramid	SPEC,...	Which source estimates of each member are summed: all, constrained, free, latest, or a kernel's method, stamp, name or glob (kinds combine with AND, tokens of one kind with OR).	all	-
 --kind	subject|template|group	Kind of subject to create	subject	-
 --kind@create subject	subject|template|group	Kind of the new subject: an ordinary subject, a template subject or a group subject.	subject	-
 --labelling	NAME	The partition (a stored Selection with one code per vertex, e.g. a parcellation or a tile level) whose members are measured.	none (required)	-
 --labelling@export measurements	NAME	The partition (labelling) whose members are the table's columns, named the same in every subject	required	-
 --layout	split|wide	Table layout: split gives a table per condition and statistic with a column per member; wide gives one table with a column per condition, member and statistic.	split	-
 --layout@export measurements	split|wide	split writes one table per condition and statistic with a column per member; wide writes one table with a column per condition, member and statistic	split	-
---lc-levels	L,L,...	Tile-ladder levels of the Levi-Civita connection stored with the default subject (needs --templates)	4,6	level
---lc-levels@create dataset	L,L,...	Comma-separated tile levels at which the Levi-Civita connection of the default subject is stored; needs --templates.	4,6	level
---level	L	A level (patches: the tile-ladder level whose spatial band is used; crossspectrum, cyclepattern: the window tile level, windows of 2^L samples; measure compute: the level of a constant-Q time ladder).	none (required for patches; otherwise see the command's description)	level
---level@run cyclepattern	L	Time-tile level of the windows, 2^L samples (at least the stored level); the stored tiles are rolled up to it. Alternative to --window-seconds.	none (--window-seconds applies)	level
 --levels	L,...	Spatial tile levels of the scale space the blur is measured over.	2,3,4,5,6,7,8	levels
 --limit	N	Maximum number of rows returned	none	rows
 --limit@query measurements	N	The most rows to return.	none (all rows)	rows
 --limits	LO-HI	Frequency limits of the filter bank for the itersine and meyer families.	see the command's description	Hz
---limits@run opticalflow	LO-HI	Itersine and Meyer families: the frequency limits of the filter bank, in hertz (e.g. 2-40).	none (set by the family)	Hz
---line	NAME or F	Time line to work on (constantq: a time line by name, alternative to --recording or --all); for lowpass/notch: the mains frequency F, removed with its harmonics.	none	constantq: -; notch: Hz
---line@run constantq	NAME	A time line of the subject, by name, to make the ladder for (alternative to --recording and --all).	none	-
 --list	V,V,...	run: list the available pipeline definitions and their steps (flag); pointspread: native vertex indices to use as the source sample instead of --vertices	run: off; pointspread: none	-
 --map	NAME	The stored cortical map (a scalar per vertex of a surface) in which patches are sought.	none (required)	-
 --max-area	M2	Largest patch area kept; larger patches are dropped.	none	m^2
@@ -221,7 +187,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --max-draws@run surrogate_lagfree_vortex_compare	N	Most surrogate draws made; a rerun with a larger value continues where the last stopped	100	draws
 --max-draws@run surrogate_lagfree_spatial_events_compare	N	The most draws made.	100	draws
 --max-iterations	N	Iteration limit of the iterative flow solver (pcg and perscale methods).	500	iterations
---max-iterations@run opticalflow	N	Most iterations the iterative solver (pcg, perscale) may take for one frame.	500	-
 --max-value	X	Keep only rows with a value at or below X	none	measure units
 --max-value@query measurements	X	Keep only rows whose rolled-up value is at most this.	none	measure's unit
 --measure	NAME	The measure to summarise or read (e.g. mean, max, power_sum).	none (required)	-
@@ -231,8 +196,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --meg-surface	NAME	Name of the surface the MEG spheres are fitted to.	the surface called inner skull	-
 --members-own		The measure is the members' own (area, number of elements or tiles); --of then names its parent.	off	-
 --method	NAME	constantq: hertz (octave edges on powers of two in Hz) or cycles (fixed cycle count); opticalflow: pcg, direct or perscale solver	constantq: hertz; opticalflow: pcg	-
---method@run constantq	hertz|cycles	How the windows are anchored: octave edges on powers of two in Hz (hertz, capped at 64 Hz), or a fixed number of cycles per window (cycles).	hertz	-
---method@run opticalflow	pcg|direct|perscale	Solver: pcg (preconditioned conjugate gradients), direct (exact solve, for parity with the reference) or perscale (one flow per spatial scale).	pcg	-
 )TBL",
 R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --min-crossings	N	Minimum number of crossings a tile needs (in both runs for repeat) to be tested.	10	crossings
@@ -250,8 +213,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --modes@create dataset	K	Solve the default subject's pial Hodge-Dirac eigenmode basis with about this many modes and store it; needs --templates.	none (no basis is solved)	modes
 --name	NAME	Name of what is stored: the dataset, subject or surface, or the stem of the stored result (filters: <recording>_<verb>).	derived from the inputs	-
 --name@add surface	NAME	Name the surface is stored under for the subject.	the mesh file's name without its extension, made safe as a node name	-
---name@run cyclepattern	NAME	Stem of the stored cycle-pattern results.	<cross-spectrum without _windows>_cycle	-
---name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
 --name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
 --name@delete dataset	NAME	Name of the dataset's folder to delete, inside the folder given by --datastore	required	-
@@ -265,8 +226,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-eeg		Do not compute the EEG channels of the head model.	off (EEG is computed)	-
 --no-gain		Do not store the head model's gain matrix.	off (the gain is stored)	-
 --no-gain@import condition		Do not store the head model's gain matrix.	off (the gain is stored)	-
---no-levi-civita		Do not write the Levi-Civita (transported) form of the vector tile summaries.	off (written)	-
---no-levi-civita@run opticalflow		Do not write the Levi-Civita (transported) form of the vector tile summaries; needs --tiles.	off (written)	-
 --no-primary		Do not mark the added mesh as the subject's primary surface	off	-
 --no-primary@add surface		Store the surface without marking it as the subject's primary surface.	off (the surface is made primary)	-
 --no-project-electrodes		Do not move the electrodes radially onto the fitted EEG sphere.	off (electrodes are projected)	-
@@ -295,20 +254,13 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --over@run surrogate_lagfree_vortex_compare	NAME	The tile level Selection the crossings were measured over	the one the recordings have	-
 --overlap	FRACTION	Fraction by which successive Welch segments overlap.	0.5 (the Brainstorm option set)	fraction
 --oversample	X	Oversampling of each filterbank member's own sample rate.	2.0	-
---oversample@run opticalflow	X	Factor by which the filter bank's own sampling rate exceeds the number of frequency bins it keeps.	2	-
---package	STEM	Stem of the stored Hodge-Dirac eigenmode package to use	the one of the kernel's surface	-
---package@run cyclepattern	STEM	Stem of the stored Hodge-Dirac eigenmode package (with full forms) on the kernel's surface to use.	the one of the kernel's surface	-
---package@run opticalflow	STEM	Stem of the stored Hodge-Dirac eigenmode package used for the flow.	the one of the kernel's surface	-
 --padding	mean|zeros	How the filter's edge transient is padded: with the mean of the signal's transient or with zeros.	mean	-
 --pair	A,B	One pair of channels, by channel index (row A, column B), to read from the band-resolved cross-spectrum.	none	-
 --pair@read crossspectrum	A,B	One pair of channels to read, by recording channel index (row A, column B); an alternative to --seed.	none (one of --pair or --seed)	-
 --pairs	K	Number of strongest quadrature pairs stored per band	3	pairs
---patterns	Q	Number of leading cycle patterns kept per spatial band.	3	-
---patterns@run cyclepattern	Q	Number of leading cycle patterns kept per spatial band (a whole number, at least 1).	3	-
 --periodic		Use the periodic (DFT-even) form of the taper instead of the symmetric form.	off for the default and brainstorm sets (symmetric); on for scipy	-
 --phase-of	current|stream	Signal whose phase is taken: the band's current vector field, or its scalar stream function	current	-
 --preconditioner	ldlt|ic	Preconditioner of the flow's conjugate-gradient solve: ldlt (exact factor, built once) or ic (incomplete Cholesky).	ldlt	-
---preconditioner@run opticalflow	ldlt|ic	Preconditioner of the iterative solver (pcg, perscale): the exact factorisation ldlt, or incomplete Cholesky ic.	ldlt	-
 --prefer	protocol.mat|walk	Which reader to prefer for the Brainstorm protocol: its protocol.mat file or a walk of the folders.	automatic	-
 --prefer@import scan	protocol.mat|walk	Which reader to use for the protocol: its protocol.mat file or a walk of the folders.	automatic (protocol.mat when present)	-
 --primary		Mark the added mesh as the subject's primary surface	on	-
@@ -327,8 +279,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording-a@run surrogate_lagfree_vortex_compare	NAME	A recording whose stored tile crossings are compared with lag-free surrogate draws	required	-
 --recording-b	NAME	Second recording whose crossings are compared with the first (run-to-run repeat).	none	-
 --recording-b@run surrogate_lagfree_vortex_compare	NAME	A second recording, to test the run-to-run repeat as well (draws made in step)	none	-
---recording@run constantq	NAME	Recording whose time line gets the ladder (alternative to --line and --all).	none	-
---recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
 --recording@run surrogate_lagfree_spatial_events_compare	NAME	The recording whose stored spatial events are compared with lag-free surrogate draws.	required	-
 --recording@import condition	FILE	Import only this data file of the condition (e.g. data_0raw_x.mat) instead of every data file the condition has.	none (all the condition's recordings)	-
 --recording@import resample	NAME	The recording to resample	required	-
@@ -337,13 +287,11 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --region@read dataset	a:b,c:d	Read only this region of the array: one start:stop index range per dimension, stop excluded; used with --array.	the whole array	samples
 --regularisation	ridge|diagonal|none	Regularisation of the noise covariance when whitening	ridge	-
 --regulariser	connection|ambient	Smoothness term of the flow: connection (connection Laplacian on the signpost gauge) or ambient (Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet).	connection	-
---regulariser@run opticalflow	connection|ambient	Smoothness term: connection (the connection Laplacian on the signpost gauge) or ambient (the Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet 2008).	connection	-
 --replace		Replace an existing result of the same name instead of refusing; the old one is moved aside, not deleted.	off	-
 --resample	HZ	Resample the converted recordings to this sampling rate	none (keep the original rate)	Hz
 --resample@import condition	HZ	Resample the condition's recordings to this sampling rate (polyphase resampling) when they are imported.	none (the original rate is kept)	Hz
 --resample@import subject	HZ	Resample every recording of the subject to this sampling rate (polyphase resampling) when it is imported.	none (the original rate is kept)	Hz
 --resolution	HZ	Frequency resolution on which the filter bank is designed.	0.5	Hz
---resolution@run opticalflow	HZ	Frequency resolution of the grid on which the filter bank is designed.	0.5	Hz
 --resolve	band|bins	Whether to also keep each band's cross-spectrum bin by bin (bins, Welch estimator only) or only the band mean (band).	band	-
 --response	peak|mean	Which response of an event is compared across scale pairs: the largest standardized cell amplitude or their mean	peak	-
 --ridge-fraction	X	Ridge added in whitening, as a fraction of the mean eigenvalue of the noise covariance block (Brainstorm's noise regularisation, MNE-Python's reg).	0.1	fraction
@@ -351,11 +299,8 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --ripple	R	Passband and stopband deviation of the Kaiser-window FIR filter, as a linear value (0.001 is 60 dB attenuation)	0.001	-
 --scale	X	Factor applied to the mesh coordinates to bring them to metres.	1	-
 --scale-family	FAMILY	perscale flow method: the graph filterbank whose band-pass members give one flow per spatial scale (mexhat, itersine or logitersine).	none (required for perscale)	-
---scale-family@run opticalflow	mexhat|itersine|logitersine	perscale only: the graph filter bank whose band-pass members each give one flow per spatial scale.	required for perscale	-
 --scale-filters	N	Number of members of the per-scale graph filterbank (method perscale); 0 derives it from the voices	0	members
---scale-filters@run opticalflow	N	perscale only: number of members of the spatial filter bank; 0 derives it from --scale-voices.	0	-
 --scale-voices	N	Per-scale flow method: voices per octave of the graph filter bank.	3	voices/octave
---scale-voices@run opticalflow	N	perscale only: members of the spatial filter bank per octave.	3	voices/octave
 --scale@add surface	X	Factor multiplied into every vertex coordinate of the mesh file to bring it to metres.	1	-
 --scaling	density|spectrum|chain	How the spectrum is scaled: power per Hz, power per bin, or the chain scaling (measure export: stored|density|power|amplitude|amplitude-density|db|db-density, applied to the stored values).	density (measure export: stored)	-
 --scaling@export measurements	NAME	Scaling applied to the values at read: stored, density, power, amplitude, amplitude-density, db or db-density (needs the Field's recorded spectral scaling)	stored	-
@@ -366,7 +311,7 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-seconds.	derived from the 4 s segment	samples
 --segment-seconds	SECONDS	Length of each Welch segment (under the tiles setting it is snapped to a power-of-two number of samples)	4	s
 --selection	NAME	The stored joint Selection (space x time cells) whose measurement is read.	none (required)	-
---selection@query measurements	NAME	The pyramid's joint selection or spatial partition to read, by name or id; it must be complete.	required	-
+--selection@query measurements	NAME	The selection (a grid, a product or a set of events) whose members' measurements are read, by name or id; it must be complete.	required	-
 --sensor-weight-exponent	P	Exponent of the distance weighting used to fit each sensor's overlapping sphere.	4	-
 --set	NAME=VALUE	Set a pipeline parameter, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); repeatable.	none	-
 --set@run surrogate_lagfree_vortex_compare	NAME=VALUE	Parameter of every null draw (repeatable); {recording} stands for each recording's name	none	-
@@ -375,7 +320,6 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --shape	morlet|meyer|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or meyer (surrogate_lagfree_pairs); pyramid build also accepts power_partition (band powers add to broadband).	morlet	-
 --shift	absolute|relative	How the eigenvalue solve is shifted: at one absolute shift (reference method) or by a scale-aware relative ladder.	absolute	-
 --shift@run eigenmodes	absolute|relative	Shift of the shift-invert solve: absolute (one solve per ladder at --sigma, the reference method) or relative (a ladder scaled to the spectrum).	absolute	-
---shape@run pyramid	morlet|power_partition	Band filter shape: morlet (Gaussian centred on the band, FWHM equal to its width) or power_partition (band powers add up to broadband).	morlet	-
 --side	auto|left|right	Hemisphere of a single-piece surface	auto	-
 --sides	analytic|two-sided	Whether the time bank is one-sided (analytic, positive frequencies) or two-sided.	none (required)	-
 --sign	positive|negative|magnitude	Which tile means form patches: high values, low values, or absolute value	positive	-
@@ -390,11 +334,8 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --source-surface	NAME	Surface whose vertices are the sources of the head model.	the primary (cortex) surface	-
 --source-tool	NAME	Records the tool that produced the source data in the dataset's provenance	none	-
 --source-tool@create dataset	NAME	Records the tool that produced the source data, in the dataset's provenance.	none	-
---space-level	L	Level of the surface's tile ladder that gives the spatial tiles (-1 on measure query: the whole cortex).	measure query: the stored depth; others none (required)	level
---space-level@query measurements	LEVEL	The spatial level the cells are rolled up to (at most the stored depth; -1 is the whole cortex).	the stored depth	level
+--spatial-scale@query measurements	QUANTITY	The spatial scale to read, as a quantity in a chart of the surface's space ("20 mm", "wavelength 40 mm", "parts 16", "area 400 mm2"); coarser than the stored level it is rolled up at read, through the grid's closed-form hierarchy and the measure's merge rule; the level is printed with the snapped quantity.	the stored level	mm
 --space-levels	L,...	Spatial tile levels of the surface to select over (all combinations with --time-levels).	none (required)	levels
---spatial-band	BAND	Spatial band: modes, weyl:J or weyl:all for the phase and cycle patterns (all modes, one Weyl octave J, each member of the Weyl bank); for measure query the whole-number index of a stored spatial band	phasegradient: none (the kernel as it is); cyclepattern: weyl:all; measure query: none	-
---spatial-band@run cyclepattern	BAND	Spatial band: modes (all modes), weyl:J (one Weyl octave J) or weyl:all (every member of the Weyl bank).	weyl:all	-
 --spatial-band@query measurements	N	The spatial band (eigenmode level) of the cells to read.	none	-
 --spatial-shape	NAME	Shape of the spatial scale-space filter at each level (mexhat is the Mexican hat).	mexhat	-
 --speed-bins	N	Number of log-spaced phase-speed bins of the speed spectrum.	40	bins
@@ -408,7 +349,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --star1-floor@run eigenmodes	F	Raise the edge cotan weights (the 1-form Hodge star) that fall below F up to F; unset means no floor.	none	-
 --start	SEC	Start of the span read, in seconds on the recording's clock; give together with --stop. Exclusive with --chunks.	none (one chunk)	s
 --start-s	SECONDS	Time of the recording's first sample as seconds from local midnight, anchoring the time-tile levels	the anchor is the recording	s
---start-s@run opticalflow	SECONDS	Time of the recording's first sample as seconds from local midnight, anchoring the frame tiling.	none (the anchor is the recording)	s
 --statistics	LIST	Comma-separated statistics written per subject in the exported table (e.g. mean,sd).	see the command's description	-
 --statistics@export measurements	NAMES	Comma-separated statistics to export: mean, sd, variance, rms, mean_square, max, min, abs_max, sum, area, n_elements	mean	-
 --stop	SEC	End of the span read, in seconds on the recording's clock (exclusive); give together with --start.	none (one chunk)	s
@@ -417,7 +357,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --subject	NAME	The subject of the dataset to work on.	required	-
 --subjects	A,B,...	Subjects to include, by name.	every subject of the dataset (pyramid reduce: required)	-
 --subjects@export measurements	NAMES	Comma-separated subjects to include	every subject of the dataset	-
---subjects@reduce pyramid	A,B,...	The member subjects whose group-tree pyramids are summed into the group result, by name.	required	-
 --summaries	LIST	Comma-separated summaries across the members, such as median, mad, percentile:75, mean, sd, peak, kurtosis, skewness, min, max	statistic: none (required); patches: count,sum,median,mean,sd,percentile:25,percentile:75,percentile:90	-
 --summary		Print a one-line summary of the scan.	off	-
 --summary@import scan		Print a one-line summary (kind, root, counts) instead of the whole view.	off	-
@@ -436,24 +375,14 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --templates@create dataset	DIR	A FreeSurfer subjects folder; the dataset is created together with its default subject (surfaces, parcellations, frames, group tree) read from it.	none (no default subject is written)	-
 --threads	N	Workers for the kernel products; the result is identical for every count (0 = the machine's performance cores, 1 = serial).	0	threads
 --through	NAME	Name of a stored 2-row operator (a rotation plane) over the channels: compute the two-sided rotary spectrum of its complex signal	none	-
---tile-levels	L1,L2,..	Levels of the tile ladder at which tile summaries of the maps are written (needs --tiles).	1 up to --tile-max-level (6)	levels
---tile-levels@run opticalflow	L1,L2,...	Levels of the tile ladder at which tile summaries of the maps are written; needs --tiles.	1 up to --tile-max-level	level
---tile-max-level	N	Write tile summaries for levels 1 to N (with --tiles).	6	level
---tile-max-level@run opticalflow	L	Highest tile level of the summaries when --tile-levels is not given; needs --tiles.	6	level
 --tile-pairs	on|off	Also compute the blocks between touching tiles (waves crossing from one tile into the next)	on	-
 --tiles		Also write the maps' tile summaries per level of the tile ladder.	off	-
---tiles@run opticalflow		Also write the maps' tile summaries per level of the tile ladder (scalars area-weighted, vectors in the frame and Levi-Civita forms).	off	-
 --time-bandwidth	B	Morse family: the time-bandwidth product of the wavelet.	60	-
---time-bandwidth@run opticalflow	X	Morse family only: the time-bandwidth product of the wavelet.	60	-
---time-level	M	Level of the recording's constant-Q time ladder (joint compute: the time tiles of the cells; measure query: time rolled up to tiles of 2^M frames)	measure query: 0; joint compute: none (required)	level
---time-level@query measurements	LEVEL	The time level the cells are rolled up to: tiles of 2^LEVEL frames on the tower (0 is single frames).	0	level
+--tile@query measurements	QUANTITY	The time tile to read, as a duration ("2 s") or a band ("8-12 Hz"); coarser than the stored tile it is rolled up at read; the tile is printed with its snapped length in seconds.	the stored tile	s
 --time-levels	M1,M2,..	Constant-Q time levels (each one's band is a pair's rhythm) crossed with the space levels.	none (required)	levels
---timing-of	FIELD,...	Also store the timing map (lags) of these fields of each pattern: stream, potential, normal.	none	-
---timing-of@run cyclepattern	FIELD,...	Also store the timing map (lags) of these fields of each pattern: stream, potential, normal.	none	-
 --to	HZ	The sampling rate to resample to (import resample).	none	Hz
 --to@import resample	HZ	The new sampling rate; the recording is resampled by a polyphase filter (scipy resample_poly)	required	Hz
 --tolerance	T	lowpass, notch: IIR look-behind tail left out, relative to the response's L1 norm; pointspread, cellquadrature, patches: largest gain error accepted for the Chebyshev series; opticalflow: tail of the filters' impulse response the margin may leave out	filters: 1e-15; pointspread, cellquadrature, patches: 0.01; opticalflow: from the recording	-
---tolerance@run opticalflow	X	Impulse-response tail the filter bank's margin may leave out, relative to its norm.	derived from the recording's stored precision (1e-7 float32, 1e-12 float64)	-
 )TBL",
 R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: auto (stored eigenmodes; else computed, else Chebyshev announced), eigen, chebyshev (series in the pencil) or exact (dense modes, at most 4096 vertices).	auto	-
 --transient-samples	K	Number of samples at each edge treated as the filter transient (instead of the shortest span holding 99 percent of the impulse response's energy).	from the energy rule	samples
@@ -487,9 +416,6 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --templates@import events	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run surrogate_lagfree_spatial_events_compare	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run surrogate_lagfree_vortex_compare	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@register package	DIR	A folder of released templates to look in (repeatable); when given, each package's template must be found there by name, version and hash and its anchor rows must equal the template's.	none (not checked)	-
@@ -517,8 +443,6 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --name@release template	NAME	Name the template is released under.	required	-
 --template-version@release template	VERSION	Version string of the release (e.g. 1.0); name@version must be new, a released version is frozen.	required	-
 --released-by@release template	WHO	Who releases: the program and the releaser's stated name, recorded in the release.	required	-
---into@reduce pyramid	NAME	On a catalogue dataset: the name of the group package the result is written to (made if absent, else its group fields are replaced); one per analysis, never a default one. Not for a one-database dataset, whose group lives in its default subject.	required for a catalogue	-
---templates@reduce pyramid	DIR	A folder of released templates to look in (repeatable) for the default subject the members' packages are registered to, before NXR_TEMPLATE_PATH and the user setting template_path; the dataset's own template member is found first.	none (the environment variable and the user setting only)	-
 --into@release template	DIR	The templates folder the frozen copy <name>@<version>.nxr.zarr is made in.	required	-
 --package@release redistributable	PATH	The folder of the released full edition to make the redistributable edition from.	required	-
 --into@release redistributable	DIR	The templates folder the redistributable edition is made in.	required	-
@@ -584,16 +508,11 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --trk@import templates	FILE	A tractography streamline file (.trk) whose streamlines and their end points are added to the templates	none	-
 --types	TYPE,...	Channel types to use, e.g. "MEG MAG,MEG GRAD,EEG" (only good channels of these types).	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
 --vertices	N	Number of vertices, spread evenly over the surface, where unit currents are placed	20	vertices
---voices	N	Filter-bank members per octave (constantq: time-ladder voices; opticalflow, speedspectrum: itersine voices).	4 for filter banks; constantq see the command's description	voices/octave
---voices@run constantq	N	Number of bands per octave, counted from the top down.	6	-
---voices@run opticalflow	N	Itersine family only: filter-bank members per octave.	4	voices/octave
 --weight	none|barycentric|voronoi	How the vertices of each member are weighted (measure compute: none is the plain vertex mean, barycentric or voronoi weight by area); phasegradient: power|coherence, the edge weight of a weighted fit.	measure compute: none, must be given; phasegradient: power	-
 --weights	area|none	cellquadrature: weight vertices by their area or equally; crossspectrum read: weight the delay and phase-slope fits by coherence or not	cellquadrature: area; crossspectrum read: coherence	-
 --weights@read crossspectrum	coherence|none	For --reading delay: weight each frequency bin of the phase-slope fit by its squared coherency, or count every bin equally.	coherence	-
 --whitener-form	symmetric|pca	Form of the noise whitener: symmetric or PCA.	symmetric	-
 --window	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming (default and brainstorm sets); hann (scipy set)	-
---window-seconds	SECONDS	Window length for the analytic estimator or the cycle patterns, snapped to the nearest time-tile level (alternative to --level)	crossspectrum: the finest of the bands' windows; cyclepattern: 4	s
---window-seconds@run cyclepattern	SECONDS	Window length, snapped to the nearest time-tile level; ignored when --level is given.	4	s
 --windows	NAME	The stored analytic cross-spectrum windows (named <stem>_<band>_windows) the bursts are read from.	none (required)	-
 --acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
 --anonymize@import recording		Drop the identifying header fields (the file's start time, subject, experimenter, patient and recording identification) instead of keeping them as the file has them.	off (the header is kept as the file has it)	-
@@ -756,7 +675,7 @@ R"TBL(@ create dataset
 old: dataset create
 alias: refused
 summary: Create a dataset: a folder holding a catalogue of subject packages (the default form). --datastore makes the old one-database form.
-opts: --atlas-depth --dataset --datastore --default --lc-levels --modes --name --source-path --source-protocol --source-tool --store-format --templates
+opts: --atlas-finest --dataset --datastore --default --lc-scales --modes --name --source-path --source-protocol --source-tool --store-format --templates
 )TBL",
 R"TBL(@ list datasets
 old: dataset list
@@ -1120,42 +1039,14 @@ opts: --dataset* --name* --pair --reading --seed --subject* --weights --template
 R"TBL(@ query measurements
 old: measure query
 alias: refused
-summary: Query a stored measurement pyramid at any spatial and temporal scale.
-opts: --band --dataset* --field --limit --max-value --measure* --min-value --order --selection* --space-level --spatial-band --subject* --time-level --templates+
+summary: Query stored measurements over a selection's members at any spatial and temporal scale, stated as quantities (rolled up at read).
+opts: --band --dataset* --field --limit --max-value --measure* --min-value --order --selection* --spatial-scale --subject* --tile --templates+
 )TBL",
 R"TBL(@ export measurements
 old: measure export
 alias: refused
 summary: Export stored measurements as a table for statistics (a row per subject), with its dictionary and provenance.
 opts: --dataset* --exclude --fields* --keep-all --labelling* --layout --out* --recipe --scaling --statistics --subjects --table*
-)TBL",
-R"TBL(@ reduce pyramid
-old: pyramid reduce
-alias: refused
-summary: Reduce several subjects' group-tree pyramids into the group's pyramid; on a catalogue dataset the result is a group package (--into).
-opts: --dataset* --depth --into --kernels --subjects* --templates+
-)TBL",
-R"TBL(@ run constantq
-old: constantq compute
-alias: refused
-group: Time
-summary: The constant-Q tiling of a time line (a ladder of dyadic windows).
-opts: --all --cycles --dataset* --fmax --fmin --line --method --recording --subject* --voices --templates+
-)TBL",
-R"TBL(@ run cyclepattern
-old: cyclepattern compute
-alias: refused
-group: Cortical flow and patterns
-summary: The most consistent cycle patterns of the current from a cross-spectrum per window.
-opts: --cross-spectrum* --dataset* --kernel --level --name --package --patterns --replace --spatial-band --subject* --timing-of --window-seconds --templates+
-)TBL",
-R"TBL(@ run opticalflow
-old: opticalflow compute
-alias: refused
-group: Cortical flow and patterns
-summary: Optical flow (Horn-Schunck) of the source estimate: where and how fast the activity moves.
-span: yes
-opts: --alpha --anchor --centres --chunks --cycles --datafit --dataset* --depth --family --flow-tolerance --frame-level --freq --gain --gamma --half-width --input --kernel --limits --max-iterations --method --name --no-levi-civita --oversample --package --preconditioner --recording* --regulariser --replace --resolution --scale-family --scale-filters --scale-voices --start --start-s --stop --subject* --tile-levels --tile-max-level --tiles --time-bandwidth --tolerance --voices --templates+
 )TBL",
 R"TBL(@ run surrogate_lagfree_spatial_events_compare
 old: __surrogate_lagfree_spatial_events_compare compute

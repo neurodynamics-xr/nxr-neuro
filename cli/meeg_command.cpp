@@ -24,7 +24,7 @@
 //     --eeg-surface). Stored as an imported head model is: Operator "forward" `<name>` (default `headmodel`) + `<name>_GridLoc`; `inverse compute` uses it.
 //
 //   nxr-neuro psd compute --dataset D/N --subject S --recording R [--name N] [--chunks K|A-B|all | --start SEC --stop SEC]
-//                         [--set tiles|brainstorm|scipy|nxr-chain] [--segment-seconds SEC | --segment-samples N | --segment-level K] [--overlap F] [--window hann|hamming|blackman|rectangular]
+//                         [--set tiles|brainstorm|scipy|nxr-chain] [--segment-seconds SEC | --segment-samples N] [--overlap F] [--window hann|hamming|blackman|rectangular]
 //                         [--periodic | --symmetric] [--detrend none|constant|linear] [--scaling density|spectrum|chain] [--no-bad-segments] [--through OPERATOR] [--replace]
 //     --through OPERATOR: the ROTARY SPECTRUM. OPERATOR is a stored [2 x C] Operator over the recording's channels (the subject's `<kernel>_rotationPlane`, rows fx, fy); z = fx.X + i fy.X per block, and the
 //     statistic stored is the TWO-SIDED Welch PSD of z over the same segments (axes: pair (1) x frequency on a signed line, -fs/2 ... fs/2; +f = x turning towards y). Default name `<recording>_<OPERATOR>_psd_welch`.
@@ -36,12 +36,7 @@
 //     Stored as a STATISTIC (docs/specs/2026-11-13-statistics.md): `<R>_psd_welch`, power_density by welch, OF the recording, from its segment partition `<name>_segments`,
 //     axes channel x the frequency line `<R>_freq`, float32 [channels x frequencies] beside the recording (`<R>_statistics/`).
 //
-//   nxr-neuro opticalflow compute --dataset D/N --subject S --recording R [--kernel NAME] [--package STEM] [--name STEM] [--chunks K|A-B|all | --start S --stop S] --family F --gain G --freq HZ [--centres HZ,..] [--cycles C] [--voices V] [--anchor HZ] [--limits LO-HI] [--half-width OCT] [--gamma G --time-bandwidth B] [--resolution HZ] [--oversample X] [--tolerance T] [--alpha A] [--depth D] [--frame-level L] [--start-s S] [--method pcg|direct|perscale] [--regulariser connection|ambient] [--datafit auto|gauge|triangle] [--input amplitude|signed] [--flow-tolerance T] [--max-iterations N] [--preconditioner ldlt|ic] [--scale-family F] [--scale-voices V] [--scale-filters N] [--replace]
-//   nxr-neuro run tiles --dataset D/N --subject S [--surface NAME] [--depth L] [--replace]   (a definition: pipelines/definitions/tiles.yaml; the group tree: `run group_tree`, `run group_tiles`)
-//     The dyadic TILE LADDER of a surface (nxr/ladder.h, the Studio's surfaceLadder): 2^l equal-area tiles per connected piece at level l, paired with scale by Weyl's law, stored as Selections (a `ladder` and one `set` per level:
-//     the tile code h 2^l + t of every vertex), their areas, centres and adjacency in the Selection's atlas node. `opticalflow compute` takes --tiles to write their maps' tile summaries per level
-//     (--tile-levels 1,2,3 | --tile-max-level N, --no-levi-civita): scalars area-weighted; vectors in the canonical frame components and in the Levi-Civita (transported) form, labelled; never raw 3-D sums.
-//   nxr-neuro frames compute --dataset D/N --subject S [--surface NAME] [--template SUBJECT [--template-surface NAME]] [--convention scs|ras] [--side auto|left|right] [--min-projection P] [--max-condition C] [--replace]
+//   nxr-neuro run surface_frames --dataset D/N --subject S [--surface NAME] [--template SUBJECT [--template-surface NAME]] [--convention scs|ras] [--side auto|left|right] [--min-projection P] [--max-condition C] [--replace]
 //     The cortical frames of a surface (nxr/frames.h): the CANONICAL frames (north / west; read when stored as `<surface>_canonical_frames`, else computed from the registered sphere `<surface>_sphere`)
 //     and the ANATOMICAL frame (one angle from north to anterior per vertex, the second axis superior-or-medial, a reliability mask). The anatomical axes are carried from --template (its own frame made by
 //     `frames compute` on the template, with --convention for its coordinates) through the registered spheres, or, without it, are the surface's own SCS axes projected on its tangent planes.
@@ -68,23 +63,7 @@
 //     pair (row A, column B); --seed: A against every channel. coherency (default): the coherency per bin (re, im, abs); imag: its imaginary part; phase: arg C_AB per bin (wrapped and
 //     unwrapped, rad); delay: the phase slope over f as a delay in ms and its residual; psi: Nolte's phase-slope index. Positive delay and psi: the row channel (A) leads.
 //
-//   nxr-neuro cyclepattern compute --dataset D/N --subject S --cross-spectrum NAME [--kernel NAME] [--package STEM] [--spatial-band modes|weyl:J|weyl:all] [--patterns Q] [--timing-of stream,potential,normal]
-//                         [--level K | --window-seconds SEC (default 4, snapped to the nearest level)] [--name STEM] [--replace]
-//     The windows read are the stored tiles rolled up to that level (a window kept when all its tiles are stored).
-//     THE CONSISTENT CYCLE PATTERNS (spec docs/specs/2026-11-13-cycle-pattern.md, stage 2) from a cross-spectrum series (crossspectrum compute --estimator analytic): a free kernel
-//     read into the package's full forms, per spatial band the q leading eigenvectors of B C B^T over the span (and per window, for their consistency); stored per band and pattern
-//     on the glued surface as complex S (stream function), A (potential), rho (normal current), and its coefficients on the eigen axis. Default --spatial-band weyl:all, --patterns 3.
 //
-//   nxr-neuro phasegradient compute --dataset D/N --subject S --cross-spectrum NAME [--kernel NAME] [--signal ambient|normal] [--name STEM] [--replace]
-//                                   [--spatial-band modes|weyl:J|weyl:all [--package STEM] [--field gradient] [--edge-lag frame|frame-normal|frame-tangent|axial|ambient] [--fit inner|mesh|modes] [--weight power|coherence] [--defects keep|exclude] [--fold-edges keep|axial|all] [--phase-of current|stream]]
-//     --spatial-band: the kernel read in the surface's Hodge–Dirac modes, weighted by a band of them (modes: every mode; weyl:J Weyl's Meyer octave J on μ²;
-//     weyl:all each member) and synthesised on the glued surface; with --signal ambient. Adds the phase field's reading in the modes: the timing map, the
-//     stream function, divergence, curl, the inconsistency, and the mode coefficients.
-//     Whether the band's activity moves across the cortex, which way and how fast: nxr's phase reader (nxr.detect.core_phase, grad phi = Im(conj z grad z) / |z|^2) in its
-//     spectral form, from a STORED band cross-spectrum (`crossspectrum compute`) through a free kernel and the mesh's P1 gradient, power-weighted. Stored on the measurement pyramid's leaves
-//     (`--depth D`: the tile ladder's level, default the finest every piece reaches; needs `frames compute`): a byte-less Field `<stem>_<band>` and, per leaf of `<surface> tiles L<D>`, the SUMS
-//     phase_power, phase_gradient_power, phase_current_1, phase_current_2 (the phase current in the canonical frames), phase_current_magnitude; the phase gradient, its speed, the travelling
-//     index and the phase coherence are derived at read (`measure query`: phase_gradient_1, ..., travelling_index). The per-vertex Fields of earlier runs are not written any more (and not touched).
 //
 //   nxr-neuro sourcepsd compute --dataset D/N --subject S --recording R [--kernel NAME] [--name STEM] [--chunks K|A-B|all | --start SEC --stop SEC]
 //                               [--bands name:lo-hi,...] [--normalisation none|relative] [the psd options: --set --segment-seconds|--segment-samples --overlap --window --periodic|--symmetric
@@ -113,7 +92,6 @@
 #include "nxr/meeg/crossspectrum.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/frames.h"
-#include "nxr/pipelines/tiles.h"
 
 using namespace nxr::io;
 
@@ -151,11 +129,7 @@ void welch_args(const std::string& prog, const cli::Args& a, Options& o) {
   else usage(prog, "--set must be tiles, brainstorm, scipy or nxr-chain");
   if (const auto v = a.maybe("--segment-seconds")) o.segment_seconds = std::stod(*v);
   if (const auto v = a.maybe("--segment-samples")) o.segment_samples = std::stoll(*v);
-  if (const auto v = a.maybe("--segment-level")) {
-    try { o.segment_level = std::stoi(*v); } catch (...) { usage(prog, "--segment-level is a tile level, a whole number (the segment is 2^level samples)"); }
-  }
-  if ((a.maybe("--segment-seconds") ? 1 : 0) + (a.maybe("--segment-samples") ? 1 : 0) + (a.maybe("--segment-level") ? 1 : 0) > 1)
-    usage(prog, "--segment-seconds, --segment-samples and --segment-level are alternatives");
+  if (a.maybe("--segment-seconds") && a.maybe("--segment-samples")) usage(prog, "--segment-seconds and --segment-samples are alternatives");   // a segment is a duration (s) or a count of samples, never a level index
   if (const auto v = a.maybe("--overlap")) o.welch.overlap = std::stod(*v);
   if (const auto v = a.maybe("--window")) {
     if (*v == "hann") o.welch.window = Window::Hann;
@@ -267,178 +241,4 @@ static int crossspectrum_read_main(const std::vector<std::string>& rest) {
   return 0;
 }
 
-int cyclepattern_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro cyclepattern: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro cyclepattern compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--cross-spectrum", "--kernel", "--package", "--spatial-band", "--patterns", "--name", "--timing-of", "--level", "--window-seconds"},
-                                 {"--replace"}, {"--dataset", "--subject", "--cross-spectrum"});
-  nxr::pipelines::CyclePatternOptions o;
-  o.cross_spectrum = a.get("--cross-spectrum");
-  o.kernel = a.maybe("--kernel");
-  o.package = a.maybe("--package");
-  if (const auto v = a.maybe("--spatial-band")) o.spatial_band = *v;
-  if (const auto v = a.maybe("--patterns")) {
-    try { o.patterns = std::stoi(*v); } catch (...) { usage(prog, "--patterns is a whole number >= 1"); }
-    if (o.patterns < 1) usage(prog, "--patterns is a whole number >= 1");
-  }
-  o.name = a.maybe("--name");
-  if (a.maybe("--level") && a.maybe("--window-seconds")) usage(prog, "--level and --window-seconds are alternatives");
-  if (const auto v = a.maybe("--level")) {
-    try { o.level = std::stoi(*v); } catch (...) { usage(prog, "--level is a tile level, a whole number"); }
-  }
-  if (const auto v = a.maybe("--window-seconds")) o.window_seconds = std::stod(*v);
-  if (const auto v = a.maybe("--timing-of")) o.timing_of = split(*v, ',');
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::cyclepattern_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    out["seconds"] = std::round(r.seconds * 1000) / 1000;
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
-int phasegradient_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro phasegradient: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro phasegradient compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--cross-spectrum", "--kernel", "--signal", "--name", "--spatial-band", "--package", "--field", "--edge-lag", "--fit", "--weight", "--defects", "--fold-edges", "--phase-of", "--depth"}, {"--replace"}, {"--dataset", "--subject", "--cross-spectrum"});
-  nxr::pipelines::PhaseGradientOptions o;
-  o.cross_spectrum = a.get("--cross-spectrum");
-  o.kernel = a.maybe("--kernel");
-  o.signal = a.maybe("--signal").value_or("ambient");
-  if (o.signal != "normal" && o.signal != "ambient") usage(prog, "--signal must be normal or ambient");
-  o.spatial_band = a.maybe("--spatial-band");
-  o.package = a.maybe("--package");
-  o.field = a.maybe("--field").value_or("gradient");
-  o.edge_lag = a.maybe("--edge-lag").value_or("frame");
-  o.fit = a.maybe("--fit").value_or("inner");
-  o.weight = a.maybe("--weight").value_or("power");
-  o.defects = a.maybe("--defects").value_or("keep");
-  o.fold_edges = a.maybe("--fold-edges").value_or("keep");
-  o.phase_of = a.maybe("--phase-of").value_or("current");
-  if (o.phase_of != "current" && o.phase_of != "stream") usage(prog, "--phase-of must be current or stream");
-  if (o.fold_edges != "keep" && o.fold_edges != "axial" && o.fold_edges != "all") usage(prog, "--fold-edges must be keep, axial or all");
-  if (o.defects != "keep" && o.defects != "exclude") usage(prog, "--defects must be keep or exclude");
-  if (o.fit != "inner" && o.fit != "mesh" && o.fit != "modes") usage(prog, "--fit must be inner, mesh or modes");
-  if (o.weight != "power" && o.weight != "coherence") usage(prog, "--weight must be power or coherence");
-  if (o.edge_lag != "frame" && o.edge_lag != "frame-normal" && o.edge_lag != "frame-tangent" && o.edge_lag != "axial" && o.edge_lag != "ambient")
-    usage(prog, "--edge-lag must be frame, frame-normal, frame-tangent, axial or ambient");
-  if (o.field != "gradient") usage(prog, "--field must be gradient");
-  if (!o.spatial_band && (o.package || a.maybe("--field") || a.maybe("--edge-lag") || a.maybe("--fit") || a.maybe("--weight") || a.maybe("--defects") || a.maybe("--fold-edges") || a.maybe("--phase-of"))) usage(prog, "--package, --field, --edge-lag, --fit and --weight go with --spatial-band");
-  o.name = a.maybe("--name");
-  if (const auto v = a.maybe("--depth")) {
-    try { o.depth = std::stoi(*v); } catch (...) { usage(prog, "--depth is a whole number (the tile ladder's level)"); }
-    if (o.spatial_band) usage(prog, "--depth goes with the plain route (the leaves of the pyramid); --spatial-band stores per-vertex Fields on the glued surface");
-  }
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::phasegradient_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    out["seconds"] = std::round(r.seconds * 1000) / 1000;
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
-
-// --tiles [--tile-levels 1,2,3] [--tile-max-level N] [--no-levi-civita]: the maps' tile summaries per level
-template <class O> void tile_args(const std::string& prog, const cli::Args& a, O& o) {
-  o.tiles = a.flag.count("--tiles") > 0;
-  if (!o.tiles && (a.maybe("--tile-levels") || a.maybe("--tile-max-level") || a.flag.count("--no-levi-civita"))) usage(prog, "--tile-levels, --tile-max-level and --no-levi-civita need --tiles");
-  if (const auto v = a.maybe("--tile-levels")) { std::stringstream ss(*v); for (std::string t; std::getline(ss, t, ',');) o.tile_levels.push_back(std::stoi(t)); }
-  if (const auto v = a.maybe("--tile-max-level")) o.tile_max_level = std::stoi(*v);
-  o.tile_levi_civita = a.flag.count("--no-levi-civita") == 0;
-}
-
-int opticalflow_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro opticalflow: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro opticalflow compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const std::set<std::string> valued = {"--dataset", "--subject", "--recording", "--kernel", "--package", "--name", "--depth", "--frame-level", "--start-s", "--chunks", "--start", "--stop", "--family", "--gain", "--freq", "--centres", "--cycles", "--voices", "--anchor", "--limits", "--half-width", "--gamma", "--time-bandwidth", "--resolution", "--oversample", "--tolerance", "--alpha", "--regulariser", "--datafit", "--input", "--method", "--flow-tolerance", "--max-iterations", "--preconditioner", "--scale-family", "--scale-voices", "--scale-filters", "--depth", "--frame-level", "--start-s", "--tile-levels", "--tile-max-level"};
-  const std::set<std::string> flags = {"--replace", "--tiles", "--no-levi-civita"};
-  const cli::Args a = cli::parse(prog, rest, valued, flags, {"--dataset", "--subject", "--recording"});
-  nxr::pipelines::OpticalflowComputeOptions o;
-  o.recording = a.get("--recording");
-  o.kernel = a.maybe("--kernel");
-  o.package = a.maybe("--package");
-  o.name = a.maybe("--name");
-  if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
-  if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
-  o.chunks = a.maybe("--chunks");
-  if (const auto v = a.maybe("--alpha")) o.alpha = std::stod(*v);
-  if (const auto v = a.maybe("--method")) o.method = *v;
-  if (const auto v = a.maybe("--regulariser")) { if (*v != "connection" && *v != "ambient") usage(prog, "--regulariser is connection (default) or ambient"); o.regulariser = *v; }
-  if (const auto v = a.maybe("--datafit")) { if (*v != "auto" && *v != "gauge" && *v != "triangle") usage(prog, "--datafit is auto (default), gauge or triangle"); o.datafit = *v; }
-  if (const auto v = a.maybe("--input")) { if (*v != "amplitude" && *v != "signed") usage(prog, "--input is amplitude or signed"); o.input = *v; }
-  if (const auto v = a.maybe("--flow-tolerance")) o.flow_tolerance = std::stod(*v);
-  if (const auto v = a.maybe("--max-iterations")) o.max_iterations = std::stoi(*v);
-  if (const auto v = a.maybe("--preconditioner")) o.preconditioner = *v;
-  if (const auto v = a.maybe("--scale-family")) o.scale_family = *v;
-  if (const auto v = a.maybe("--scale-voices")) o.scale_voices = std::stoi(*v);
-  if (const auto v = a.maybe("--scale-filters")) o.scale_filters = std::stoi(*v);
-  tile_args(prog, a, o);
-  using F = nxr::timebank::Family;
-  if (const auto v = a.maybe("--family")) {
-    const std::map<std::string, F> fam = {{"itersine", F::Itersine}, {"meyer", F::Meyer}, {"morlet", F::Morlet}, {"morse", F::Morse}, {"amor", F::Amor}, {"bump", F::Bump}};
-    const auto it = fam.find(*v);
-    if (it == fam.end()) usage(prog, "--family is itersine, meyer, morlet, morse, amor or bump");
-    o.family = it->second;
-  } else usage(prog, "--family is required (no default)");
-  if (const auto v = a.maybe("--gain")) o.gain = std::stod(*v); else usage(prog, "--gain is required (2 makes |c| the physical amplitude)");
-  if (const auto v = a.maybe("--freq")) o.freq = std::stod(*v); else usage(prog, "--freq is required (the member nearest to it is used)");
-  if (const auto v = a.maybe("--centres")) {
-    std::stringstream ss(*v);
-    for (std::string tok; std::getline(ss, tok, ',');) o.centres.push_back(std::stod(tok));
-  }
-  if (const auto v = a.maybe("--cycles")) o.cycles = std::stod(*v);
-  if (const auto v = a.maybe("--voices")) o.voices = std::stoi(*v);
-  if (const auto v = a.maybe("--anchor")) o.anchor = std::stod(*v);
-  if (const auto v = a.maybe("--half-width")) o.half_width = std::stod(*v);
-  if (const auto v = a.maybe("--gamma")) o.gamma = std::stod(*v);
-  if (const auto v = a.maybe("--time-bandwidth")) o.time_bandwidth = std::stod(*v);
-  if (const auto v = a.maybe("--resolution")) o.resolution = std::stod(*v);
-  if (const auto v = a.maybe("--oversample")) o.oversample = std::stod(*v);
-  if (const auto v = a.maybe("--tolerance")) o.tolerance = std::stod(*v);
-  if (const auto v = a.maybe("--limits")) {       // lo-hi
-    const auto dash = v->find('-');
-    if (dash == std::string::npos) usage(prog, "--limits is lo-hi (Hz), e.g. 2-40");
-    o.limits = std::make_pair(std::stod(v->substr(0, dash)), std::stod(v->substr(dash + 1)));
-  }
-  try {
-    if (const auto v = a.maybe("--depth")) o.depth = std::stoi(*v);
-    if (const auto v = a.maybe("--frame-level")) o.frame_level = std::stoi(*v);
-    if (const auto v = a.maybe("--start-s")) o.day_start_s = std::stod(*v);
-  } catch (...) { usage(prog, "--depth and --frame-level are whole numbers (the tile ladder's level, the tower level), --start-s a number (s)"); }
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::opticalflow_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    out["seconds"] = std::round(r.seconds * 1000) / 1000;
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
 

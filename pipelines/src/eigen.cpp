@@ -156,7 +156,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
 }
 
 // THE VERB IS A DEFINITION NOW (pipelines/definitions/eigenmodes.yaml, the step `hodge_dirac` in eigen_steps.cpp): this is the library's thin caller of it (the spatial bands make missing
-// eigenmodes, `dataset create --modes` makes the default subject's): it picks `glued` from the surface's pieces, runs the definition as `nxr-neuro run eigenmodes` does (the same plan, run,
+// eigenmodes, `dataset create --modes` makes the default subject's): a cortex of two pieces is glued first by the definition `glue` (the glued surface is a manifold of its own, named as the input; rule 28), then runs the definition as `nxr-neuro run eigenmodes` does (the same plan, run,
 // store, cache and --replace) and reads the stored package back for its caller.
 EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenSolveOptions& opt, const std::function<void(const Json&)>& progress) {
   if (opt.modes < 2) throw Error(code::invalid_argument, "eigen_solve: modes must be at least 2");
@@ -167,9 +167,14 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
   if (pieces > 2)
     throw Error(code::unsupported, in.name + " is " + std::to_string(pieces) + " pieces: the Hodge–Dirac solve takes a surface of one closed piece, or two (a cortex's hemispheres, glued by anatomy)");
   const bool glue = pieces == 2;
+  std::string solved = in.name;
+  if (glue) {
+    run_shipped(ds, sub, "glue", Json{{"surface", in.name}}, false, progress);     // the glued surface, its map and its bridge: stored once, found by name
+    solved = in.name + "_glued";
+  }
   const SolveMethod& sm = opt.method;
   const nxr::manifold::solve::HodgeSolveOptions dflt;
-  Json set = Json{{"surface", in.name}, {"modes", opt.modes}, {"glued", glue}, {"mollify", sm.mollify}, {"flip_eps", sm.flip_eps},
+  Json set = Json{{"surface", solved}, {"modes", opt.modes}, {"mollify", sm.mollify}, {"flip_eps", sm.flip_eps},
                   {"shift", sm.solve.shift == nxr::manifold::solve::HodgeShift::Absolute ? "absolute" : "relative"}, {"slice", sm.solve.slice}, {"normalize", sm.solve.normalize}};
   if (sm.solve.sigma != dflt.sigma) set["sigma"] = sm.solve.sigma;       // a default stays unset, as on the command line: the same run, the same cache key
   if (sm.star1_floor) set["star1_floor"] = *sm.star1_floor;
@@ -178,7 +183,7 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
   const Json& rep = reports.front();
 
   // the stored package, by name
-  const std::string stem = in.primary ? "hodgeDirac" : "hodgeDirac__" + in.name;
+  const std::string stem = glue ? "hodgeDirac__" + solved : (in.primary ? "hodgeDirac" : "hodgeDirac__" + in.name);
   const nxr::io::task::Subject sj = nxr::io::task::Subject::of(sub);
   auto node = [&](nxr::io::task::Cls c, const std::string& name) {
     nxr::io::task::Want w{.cls = c};

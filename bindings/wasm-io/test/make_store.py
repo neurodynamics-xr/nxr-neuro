@@ -49,7 +49,7 @@ for h, cx in (("lh", -40.0), ("rh", 40.0)):
         write_fs(surf / f"{h}.{name}", P, F)
     write_fs(surf / f"{h}.sphere.reg", V * 100, F)
 store = out / "store"
-run("create", "dataset", "--datastore", store, "--name", "d", "--templates", out / "templates", "--atlas-depth", "2", "--lc-levels", "2")
+run("create", "dataset", "--datastore", store, "--name", "d", "--templates", out / "templates", "--atlas-finest", "parts 4", "--lc-scales", "parts 4")
 run("create", "subject", "--dataset", store / "d", "--name", "sub-1")
 obj = out / "oct.obj"
 obj.write_text("v 0.01 0 0\nv -0.01 0 0\nv 0 0.01 0\nv 0 -0.01 0\nv 0 0 0.01\nv 0 0 -0.01\n"

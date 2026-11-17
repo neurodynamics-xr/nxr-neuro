@@ -60,6 +60,15 @@ pipeline, and do not extend an existing one: it is being converted into a defini
 8. Larger designs first get a spec in `docs/specs/YYYY-MM-DD-<topic>.md`. A read-only comparison against the references goes in
    `docs/audits/YYYY-MM-DD-<topic>.md`.
 
+## Quantities, never level indices (inside the paramount architecture)
+
+Every selection parameter of a definition, preset or command is a QUANTITY: a number (or range) with a unit in a named chart of the space it lies in (`8-12 Hz`,
+`2-5 s`, `20 mm`, `wavelength 40 mm`, `parts 16`, `area 100-400 mm2`). A definition declares `unit` and `chart` for such a parameter; a bare level index is refused outside
+the explicit `index` chart (`level index:5`), which is for diagnostics and tests. Grid levels are resolved from the quantity in closed form (`level_of_duration`,
+`level_of_diameter`, `level_of_area`, `level_of_wavelength`, `level_of_parts`, `time_level_of_band`), and the run records the stated quantity, its chart, the resolved level
+and the snapped quantity. Method constants (a frame density, an origin, a cycle count) are options with their defaults written in the definition, never hard-wired in
+compute. Old names are not kept as aliases: a retired name is refused with the name of what replaces it.
+
 ## Converting a hand-wired verb into a definition (the recipe)
 
 `<x>_compute` verbs are being converted one at a time; `psd` (`pipelines/definitions/psd.yaml`, `rotary_psd.yaml`; nodes in `pipelines/src/welch_steps.cpp`; `test_psd_golden`, `test_psd_pipeline`) is the worked example. A conversion

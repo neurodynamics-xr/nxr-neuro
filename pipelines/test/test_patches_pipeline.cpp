@@ -28,7 +28,7 @@
 #include "nxr/ladder.h"
 #include "nxr/pipelines/measure.h"
 #include "nxr/pipelines/patches.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -125,7 +125,7 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S");
-  const TilesComputeResult tr = tiles_compute(ds, sub, TilesComputeOptions{});
+  const TilesComputeResult tr = nxrtest::make_tiles(ds, sub);
   const int depth = tr.info["depth"].get<int>();
   std::printf("  ladder: %d levels, %d tiles at depth %d\n", tr.info["levels"].get<int>(), tr.info["tiles_at_depth"].get<int>(), depth);
 
@@ -359,7 +359,7 @@ int main() {
         w.field(std::move(f));
       }); }
     SubjectWriter w = SubjectWriter::open(d2, "S");
-    tiles_compute(d2, w, TilesComputeOptions{});
+    nxrtest::make_tiles(d2, w);
     PatchesComputeOptions a; a.map = "m"; a.level = 4; a.transform = "exact"; a.enter_sd = 1.0; a.exit_sd = 0.5;
     patches_compute(d2, w, a);
     auto band = [&] { const auto r = nxr::io::task::Subject::of(w).find({.cls = nxr::io::task::Cls::field, .name = "m_band_L4", .any_status = true}); return read_array<double>(w, *r->path); };

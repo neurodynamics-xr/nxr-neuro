@@ -4,7 +4,7 @@
 
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/frames.h"
-#include "nxr/pipelines/tiles.h"
+#include "nxr/pipelines/run_shipped.h"
 
 namespace nxr::pipelines {
 using namespace nxr::io;
@@ -24,15 +24,28 @@ Json create_dataset_with_template(const std::filesystem::path& datastore, const 
     // the canonical frames (north / west, from the registered sphere) and the anatomical frame from FreeSurfer's surface RAS axes (the template every subject's frame is carried from)
     {
       graph::RunOptions ro;
-      const auto runs = graph::run(ds, dsub, graph::load("frames"), Json{{"surface", "cortex_pial"}, {"convention", "ras"}}, ro, false, progress);
+      const auto runs = graph::run(ds, dsub, graph::load("surface_frames"), Json{{"surface", "cortex_pial"}, {"convention", "ras"}}, ro, false, progress);
       out["default_subject"]["frames"] = runs.empty() ? Json() : runs.front();
     }
-    // the group tree: it names the frames, and carries the Levi-Civita connection between its tile centres
-    GroupTreeOptions g;
-    g.resolution = opt.subject.default_resolution;
-    g.atlas_depth = opt.atlas_depth;
-    g.lc_levels = opt.lc_levels;
-    out["default_subject"]["group_tree"] = group_tree_compute(ds, dsub, g, progress).info;
+    // the group tree: the default subject's grid (`select_dyadic_surface`, rule group) with the atlas definitions, its finest tile and its default frame density stated as quantities
+    {
+      const auto runs = run_shipped(ds, dsub, "select_dyadic_surface",
+                                    Json{{"surface", "cortex_pial"}, {"rule", "group"}, {"resolution", opt.subject.default_resolution}, {"finest", opt.atlas_finest}, {"atlas_finest", opt.atlas_finest}, {"frame_rate", opt.frame_rate}},
+                                    false, progress);
+      out["default_subject"]["group_tree"] = runs.empty() ? Json() : runs.front();
+    }
+    // the Levi-Civita connection between neighbouring tiles: a measurement over the product of a level with itself (rule 26), one per stated scale, of the pial's canonical frames
+    {
+      Json lc = Json::array();
+      for (const std::string& scale : opt.lc_scales) {
+        const auto runs = run_shipped(ds, dsub, "measure",
+                                      Json{{"field", "cortex_pial_canonical_frames"}, {"make", Json{{"node", "select.product"}, {"factors", Json::array({Json{{"grid", "surface"}, {"level", scale}}, Json{{"grid", "surface"}, {"level", scale}}})}}},
+                                           {"measures", Json::array({"levi_civita"})}},
+                                      false, progress);
+        lc.push_back(runs.empty() ? Json() : runs.front());
+      }
+      out["default_subject"]["levi_civita"] = lc;
+    }
     out["default_subject"]["modes"] = nullptr;
     if (opt.modes) {
       EigenSolveOptions eo;

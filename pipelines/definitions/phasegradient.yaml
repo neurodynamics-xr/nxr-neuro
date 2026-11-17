@@ -1,12 +1,12 @@
 # A BAND'S PHASE GRADIENT AS THE PYRAMID'S LEAF INGREDIENTS (measurements of a field with no array, over a level of the surface's ladder): from a stored band cross-spectrum
 # (`nxr-neuro run crossspectrum --channels-of KERNEL` first) and the free kernel, the signal's rows (the normal current, or each ambient component) and their tangent P1 gradients
-# give per vertex the power P, the phase current H and the gradient power Q; H is read in the canonical frames (`nxr-neuro run frames` first); per leaf of level `depth` (the
-# surface's ladder: `nxr-neuro tiles` first), the sums weighted by the vertex's lumped area. The gradient, the travelling index and the speed are ratios derived at read.
+# give per vertex the power P, the phase current H and the gradient power Q; H is read in the canonical frames (`nxr-neuro run surface_frames` first); per leaf of the grid level stated as `finest` (a quantity: the surface's grid,
+# `nxr-neuro run select_dyadic_surface` first), by `reduce` over that level, the sums weighted by the vertex's lumped area. The gradient, the travelling index and the speed are ratios derived at read.
 # The kernel spreads each source over its neighbours with no lag: that shrinks the phase gradient, so the speed is overestimated where the spread is wide.
 #
-#   nxr-neuro run phasegradient --dataset <folder> --subject sub-01 --cross-spectrum rest_crossspectrum --band alpha --kernel KERNEL --depth 4
+#   nxr-neuro run phasegradient --dataset <folder> --subject sub-01 --cross-spectrum rest_crossspectrum --band alpha --kernel KERNEL --finest "parts 16"
 pipeline: phasegradient
-version: 1
+version: 2
 description: a band's phase gradient from its cross-spectrum through a free kernel, as the additive ingredients of the surface's leaves
 scope: subject
 
@@ -14,20 +14,20 @@ inputs:
   cross_spectrum: {statistic: welch, where: {name: $cross_spectrum}}
   kernel:         {operator: inverse kernel, where: {name: $kernel}}
   surface:        {manifold: surface, is: kernel.to}
-  frames:         {field: canonical frames, manifold: kernel.to, hint: "the canonical frames of the kernel's surface (`nxr-neuro run frames` first)"}
-  leaves:         {selection: set, manifold: kernel.to, where: {name: "{surface} tiles L${depth}"}, hint: "the surface's ladder (`nxr-neuro tiles` first)"}
+  frames:         {field: canonical frames, manifold: kernel.to, hint: "the canonical frames of the kernel's surface (`nxr-neuro run surface_frames` first)"}
+  leaves:         {selection: ladder, manifold: kernel.to, where: {name: "{surface} tiles"}, hint: "the surface's grid (`nxr-neuro run select_dyadic_surface` first)"}
 
 parameters:
   cross_spectrum: {default: null, meaning: "the band cross-spectrum's name (a statistic made by crossspectrum)", unit: "-"}
   band: {default: null, meaning: "the band of the cross-spectrum (its name); null: its one band", unit: "-"}
   kernel: {default: none, meaning: "the free-orientation inverse kernel's name, or none: the subject's one inverse kernel", unit: "-"}
-  depth: {default: 4, meaning: "the level of the surface's ladder whose leaves are measured", unit: "level"}
+  finest: {default: "parts 16", meaning: "the leaves measured, as a quantity: a tile diameter (mm), a tile area (mm2) or parts per hemisphere (the level is resolved in closed form and recorded with the snapped quantity)", unit: mm, chart: diameter}
   signal: {default: normal, meaning: "normal = the current along the surface's normal | ambient = each of its x y z components", unit: "-", choices: [normal, ambient]}
   name: {default: "{cross_spectrum}_{kernel}_phasegradient_{band}", meaning: "the name of the field the measurements are of", unit: "-"}
 
 steps:
   before:
-    - {node: meeg.phase_gradient, in: {cross_spectrum: cross_spectrum, kernel: kernel, surface: surface, frames: frames, leaves: leaves}, with: {band: $band, signal: $signal}, out: [phase, ingredients]}
+    - {node: meeg.phase_gradient, in: {cross_spectrum: cross_spectrum, kernel: kernel, surface: surface, frames: frames, leaves: leaves}, with: {band: $band, signal: $signal, finest: $finest}, out: [phase, ingredients]}
 
 outputs:
   phase:

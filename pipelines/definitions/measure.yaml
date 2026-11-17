@@ -1,30 +1,101 @@
-# A STORED FIELD MEASURED OVER A PARTITION OF ITS SURFACE: each member of a labelling (a `set` Selection with one code per vertex: a parcellation, a level of the surface's tile ladder) gets the field's measures as
-# additive ingredients (mean, max, min, mean_square, abs_max by default; sum; the exact median with weight none), and the members' own sizes (n_elements, and `area` when the weights are areas). A hermitian3 field is
-# measured as the tensor_* sums in the canonical frames; `gradient` adds a scalar field's gradient_* sums (`nxr-neuro run frames` first for both).
-# The WEIGHT is stated, never assumed: none (1 a vertex: the plain vertex mean), barycentric (a third of each incident triangle), voronoi (the mixed Voronoi area of the mollified input). On a real cortex they differ
-# by tens of percent per region.
+# THE ONE MEASURING DEFINITION (version 2): a FIELD (a stored one by name, OR a field chain composed in) REDUCED over the members of a SELECTION (a stored one by name, OR made in the run by a maker), by the measures of
+# the registry, into one MEASUREMENT over the members (the table `selection_measurement`, array-backed). The four operations are one implementation each (spec docs/specs/2026-11-17-consolidation.md section 2): `reduce`
+# (this definition), `roll_up` (the step `after`, when `to` is given, and the definition `roll_up`), `summarize` (when `summaries` is given, and the definition `summarize`), `estimate` (the Welch family).
 #
-#   nxr-neuro run measure --dataset <folder> --subject sub-01 --field rest_psd_alpha --labelling "cortex tiles L4" --weight barycentric
+# THE FIELD. Exactly one of `field` / `chain`: a stored field by name, or a field chain (`band_analytic`, `cortical_band`, `member_activation`, `band_outer`) composed into the run (nothing stored, its name and resolved
+# parameters in the cache key). THE SELECTION. Exactly one of `over` / `make`: a stored selection by name, or a maker (`select.dyadic_surface`, `select.time_grid`, `select.bands`, `select.product`, `select.events.*`)
+# composed in; a maker composed in stores its selection get-or-create. Both given, or neither, is refused with the reason.
+#
+# THE FORM of the field each measure reads (magnitude, power, phase_current, outer, none) is the pointwise node `field.form`, inserted from the measures registry (`io/schema/measures.json`: the form, the ingredient, the
+# merge rule). The measures are additive INGREDIENTS (count, weight, sum, sum_sq, max, min, abs_max): ratios (amplitude = sum / weight, sd, speed, travelling index) are derived at read, never reduced.
+# THE WEIGHT is stated, never assumed: none (1 a vertex), barycentric (a third of each incident triangle), voronoi (the mixed Voronoi area of the mollified input). On a real cortex they differ by tens of percent.
+# THE BAD SEGMENTS: members lose samples, never a factor. A band SET with a coupled product makes one product and one measurement per band member, in one pass; several (band x spatial scale) pairs are several plans of
+# one run (each cached on its own).
+#
+# PRESETS are ONLY named parameter sets (below). Provenance records the preset's name; the CACHE KEY holds only the resolved parameters, so two presets with equal parameters are one cached result.
+#
+#   nxr-neuro run measure --dataset <folder> --subject sub-01 --field rest_psd_alpha --over "cortex tiles" --weight barycentric --measures '["mean","max"]'
+#   nxr-neuro run measure --dataset <folder> --subject sub-01 --recording rest --set cortical_band_cells --band "8-16 Hz" --spatial-scale "wavelength 40 mm" --all
 pipeline: measure
-version: 1
-description: a stored field measured over the members of a partition of its surface
+version: 2
+description: a field (stored, or a field chain composed in) reduced over the members of a selection (stored, or made by a maker), by registry measures, into one measurement
 scope: subject
 
 inputs:
-  field:     {field: any, each: true, where: {name: $field}}
-  labelling: {selection: set, manifold: field.manifold.0, where: {name: $labelling}, hint: "a set Selection with a code per vertex on the field's surface (a parcellation, a level of the surface's tile ladder)"}
+  field:   {field: any, each: true, where: {name: $field}, chain: $chain, chain_parameters: $chain_parameters, hint: "a stored field by name (--field), OR a field chain composed in (--chain)"}
+  over:    {selection: any, where: {name: $over}, make: $make, hint: "a stored selection by name (--over), OR one made in the run by a maker (--make)"}
+  weights: {field: any, required: false, where: {name: $weights}}
+  bad:     {selection: spans, manifold: field.time, where: {name: "{field}_bad_segments"}, required: false}
 
 parameters:
-  field: {default: null, meaning: "the name of the stored field measured (a scalar or hermitian3 map on a surface)", unit: "-"}
-  labelling: {default: null, meaning: "the partition, by name: a set Selection with a code per vertex", unit: "-"}
-  weight: {default: null, meaning: "how the vertices of a member are weighted: none | barycentric | voronoi (it changes the numbers, so it is always stated)", unit: "-", choices: [none, barycentric, voronoi]}
-  measures: {default: null, meaning: "the measures per member: mean, mean_square, max, min, abs_max, sum, median (median needs weight none); null: mean, max, min, mean_square, abs_max", unit: "-"}
-  gradient: {default: false, meaning: "also the gradient of a scalar field: the registry's gradient_* sums in the canonical frames (the area-weighted face gradients projected on the vertex's tangent plane)", unit: "-"}
+  field: {default: null, meaning: "a stored field, by name (a scalar or hermitian3 map on a surface; `nxr-neuro run surface_frames` first for hermitian3 and gradients)", unit: "-"}
+  chain: {default: null, meaning: "a field chain composed in: band_analytic | cortical_band | member_activation | band_outer (exactly one of field, chain)", unit: "-"}
+  chain_parameters: {default: null, meaning: "the chain's parameters, as quantities (bands, spatial_scale, shape, ...)", unit: "-"}
+  over: {default: null, meaning: "a stored selection by name: any of the five types, any family (exactly one of over, make)", unit: "-"}
+  make: {default: null, meaning: "a maker composed in: {node: select.*, ...} with its parameters as quantities", unit: "-"}
+  recording: {default: none, meaning: "the recording's name when the field is a chain over a recording, or none: every recording of the subject, one run each", unit: "-"}
+  measures: {default: null, meaning: "the measures per member, from the registry (no default: the caller's or the preset's): mean, sum, mean_square, max, min, abs_max, count, median (weight none only), amplitude, envelope_max, power, phase_current, outflow, circulation, levi_civita, tensor_*, gradient_*, and the members' own area, n_elements, duration, centre, path_length", unit: "-"}
+  weight: {default: null, meaning: "how the elements of a member are weighted: none | barycentric | voronoi (it changes the numbers, so it is always stated)", unit: "-", choices: [none, barycentric, voronoi]}
+  weights: {default: null, meaning: "a stored per-element weight field by name (area, mass), when `weight` is given", unit: "-"}
+  bad_segments: {default: exclude, meaning: "exclude = a sample in one of the recording's bad segments carries no value and no count | ignore = every sample counts", unit: "-", choices: [exclude, ignore]}
+  to: {default: null, meaning: "roll the measurement up to a coarser level of its grid, stated as a quantity (a tile diameter, a duration, pieces, whole), merged by each measure's rule; null: stored at the grid's own level", unit: mm, chart: diameter}
+  summaries: {default: null, meaning: "also summarise across the members: mean, sd, median, mad, percentile:P, min, max, skewness, kurtosis, peak, count; null: none", unit: "-"}
+  combine: {default: each, meaning: "summaries: each = per row | pool = the rows pooled | mean = the mean of the rows' summaries", unit: "-", choices: [each, pool, mean]}
+  name: {default: null, meaning: "the stored measurement's name; null: derived from the field and the selection", unit: "-"}
+
+presets:
+  # a field of a stored selection (today's `measure`): the default is a stored field and a stored partition
+  cortical_band_cells:
+    chain: cortical_band
+    make: {node: select.product, factors: [{grid: surface, level_of: spatial_scale}, {grid: time, level_of: band}]}
+    measures: [amplitude, envelope_max]
+  cortical_band_cells_current:
+    chain: cortical_band
+    make: {node: select.product, factors: [{grid: surface, level_of: spatial_scale}, {grid: time, level_of: band}]}
+    measures: [phase_current, power]
+  cortical_band_pyramid:
+    chain: cortical_band
+    chain_parameters: {bands: "frequency bands", frame_grid: "frames", canonical: true}
+    make: {node: select.product, layout: joint, factors: [{bands: band_set}, {grid: surface, level: finest}, {grid: time, rule: frames}]}
+    measures: [count, power, phase_current, tensor_sums]
+    weight: barycentric
+  sensor_band_amplitude:
+    chain: band_analytic
+    make: {node: select.product, factors: [{grid: time, level_of: band, coupled: per_band}, {elements: channels}]}
+    measures: [amplitude, envelope_max]
+  analytic_cross_spectrum_tiles:
+    chain: band_outer
+    make: {node: select.time_grid, rule: band}
+    measures: [sum]
+  channel_span_mean:
+    make: {node: select.product, factors: [{span: run}, {elements: channels}]}
+    measures: [mean]
+    name: "{recording}_channel_mean"
+  surrogate_lagfree_envelope:
+    chain: band_analytic
+    chain_parameters: {channels: cross_spectrum}
+    make: {node: select.product, factors: [{grid: time, rule: tiles}, {set: channels, as: one_member}]}
+    measures: [power]
+  flow_max_amplitude:
+    chain: member_activation
+    make: {node: select.product, factors: [{span: run}, {elements: cortex}]}
+    measures: [envelope_max]
+    to: whole
+  psd_channel_mean:
+    field: psd
+    make: {node: select.product, factors: [{set: channels, as: one_member}]}
+    measures: [mean]
 
 steps:
-  before:
-    - {step: partition_measures, in: {x: field, labelling: labelling}, with: {weight: $weight, measures: $measures, gradient: $gradient}, out: [values, sizes]}
+  chunks:
+    over: field
+    do:
+      - {node: reduce, in: {x: field, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: values}
+  after:
+    - {node: roll_up, in: {x: values}, with: {to: $to}, out: rolled, when: $to}
+    - {node: summarize, in: {x: values}, with: {summaries: $summaries, combine: $combine}, out: statistics, when: $summaries}
 
 outputs:
-  values: {kind: measurement, over: labelling, of: field}
-  sizes: {kind: measurement, over: labelling}
+  values:     {kind: measurement, over: over, of: field, name: $name}
+  rolled:     {kind: measurement, over: over, of: field, when: $to}
+  statistics: {kind: statistic, of: values, when: $summaries}

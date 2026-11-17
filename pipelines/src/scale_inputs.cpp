@@ -50,7 +50,7 @@ ScaleInputs read_scale_inputs(SubjectWriter& sub, const std::string& recording_i
         if (j.value("recording", std::string()) == recording_name && j.value("space_level", -1) == l && j.value("time_level", -1) == m) { f.joint = r; f.p.joint = j; have = true; break; }
       }
       const std::string pair = "space level " + std::to_string(l) + " x time level " + std::to_string(m);
-      if (!have) { missing_joint += (missing_joint.empty() ? "" : "; ") + pair + ": nxr-neuro run joint --recording " + recording_name + " --space-level " + std::to_string(l) + " --time-level " + std::to_string(m); continue; }
+      if (!have) { missing_joint += (missing_joint.empty() ? "" : "; ") + pair + ": nxr-neuro run select_product --recording " + recording_name + " at the spatial scale and time tile of that pair (quantities: the level's measured tile diameter, the tile's seconds)"; continue; }
       const std::string jid = text(f.joint, "id");
       std::vector<Row> labs;
       for (const Row& r : labellings) {
@@ -63,7 +63,7 @@ ScaleInputs read_scale_inputs(SubjectWriter& sub, const std::string& recording_i
       if (labs.size() > 1) { std::string n; for (const Row& r : labs) n += (n.empty() ? "" : ", ") + text(r, "name"); invalid("scaleselection: " + std::to_string(labs.size()) + " labellings of " + text(f.joint, "name") + " were made by " + source + " (" + n + "): remove all but one"); }
       f.labelling = labs[0];
       f.p.tiles = f.p.joint["tiles"].get<std::int64_t>(); f.p.frames = f.p.joint["frames"].get<std::int64_t>(); f.p.window = f.p.joint.value("window_samples", std::int64_t(0));
-      if (f.p.window < 1) invalid("scaleselection: the joint Selection '" + text(f.joint, "name") + "' records no time tile width (made before `window_samples`: `run joint --replace`)");
+      if (f.p.window < 1) invalid("scaleselection: the joint Selection '" + text(f.joint, "name") + "' records no time tile width (made before `window_samples`: `run select_product --replace`)");
       f.p.events = integer(f.labelling, "n_members");
       if (is_null(f.labelling, "array_path")) invalid(text(f.labelling, "name") + ": it stores no array of cells");
       const auto am = nxr::io::selection::measurement_array(sub.db(), jid, recording_id, "amplitude");

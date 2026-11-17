@@ -16,17 +16,15 @@
 #include "check.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
-#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/measures.h"
 #include "nxr/ladder.h"
 #include "nxr/partition.h"
 #include "nxr/pipelines/cellquadrature.h"
-#include "nxr/pipelines/joint.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -116,10 +114,11 @@ int main() {
       kernel("fixed", kid, N, "scalar");
       kernel("free", kfree, 3 * N, "vector3");
     });
-    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
+  nxrtest::make_time_grids(ds, sub);
+  nxrtest::make_tiles(ds, sub);
   int timeLevel = -1;
   for (const task::Node& m : task::Subject::of(sub).find_all({.cls = task::Cls::selection, .params_present = {"resolves_hz"}})) {
     if (!m.member_of_id) continue;

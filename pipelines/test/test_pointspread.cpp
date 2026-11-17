@@ -22,7 +22,7 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/constant_q.h"
 #include "nxr/pipelines/pointspread.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -107,7 +107,7 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
+  nxrtest::make_tiles(ds, sub);
   std::printf("  %d vertices on a 10 cm sphere; head models: the identity, a 2 cm and a 6 cm Gaussian blur\n", N);
   struct Res { std::vector<double> err, diam, size, level; };
   auto run = [&](const std::string& hm) {
