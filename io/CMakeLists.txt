@@ -111,6 +111,7 @@ if(NXR_IO_WASM)
   FetchContent_Declare(matio GIT_REPOSITORY https://github.com/tbeu/matio.git GIT_TAG v1.5.28 GIT_SHALLOW TRUE)
   FetchContent_MakeAvailable(matio)
   target_compile_options(matio PRIVATE -w -sUSE_ZLIB=1)
+  add_subdirectory(formats)   # the pure formats (own target; nxr_io links it)
   add_library(nxr_io
     src/codec_zstd.cpp src/codec_pipeline.cpp src/dtype.cpp src/metadata.cpp src/chunking.cpp src/zarr_store.cpp src/sparse.cpp src/schema.cpp
     src/dataset.cpp src/array_reader.cpp src/json_text.cpp src/database.cpp src/named_paths.cpp src/layout.cpp src/writer_lock.cpp src/array_writer.cpp src/compact.cpp
@@ -138,7 +139,7 @@ if(NXR_IO_WASM)
   target_include_directories(nxr_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
   target_compile_definitions(nxr_sqlite3 PRIVATE SQLITE_THREADSAFE=0 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_ENABLE_MATH_FUNCTIONS=1 SQLITE_DEFAULT_FOREIGN_KEYS=0)
   target_compile_options(nxr_sqlite3 PRIVATE -w -fwasm-exceptions)
-  target_link_libraries(nxr_io PUBLIC nlohmann_json nxr_sqlite3 PRIVATE blosc_static matio)
+  target_link_libraries(nxr_io PUBLIC nxr_io_formats nlohmann_json nxr_sqlite3 PRIVATE blosc_static matio)
   return()
 endif()
 
@@ -226,6 +227,9 @@ file(READ ${CMAKE_CURRENT_SOURCE_DIR}/schema/statistics.json NXR_STATISTICS_JSON
 file(WRITE ${CMAKE_CURRENT_BINARY_DIR}/gen/statistics_json.inc "R\"NXRSTAT(${NXR_STATISTICS_JSON})NXRSTAT\"")
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/schema/statistics.json)
 
+# --- the pure formats (their own target; nxr_io links it) ---
+add_subdirectory(formats)
+
 # --- core library (sources added as TDD adds them) ---
 add_library(nxr_io
   src/codec_zstd.cpp
@@ -296,7 +300,7 @@ set_source_files_properties(src/yaml.cpp PROPERTIES COMPILE_OPTIONS "-w")   # ra
 target_include_directories(nxr_io
   PUBLIC  ${CMAKE_CURRENT_SOURCE_DIR}/include
   PRIVATE ${ZSTD_INCLUDE_DIR} ${c-blosc_SOURCE_DIR}/blosc)
-target_link_libraries(nxr_io PUBLIC nlohmann_json SQLite3::SQLite3 ZLIB::ZLIB PRIVATE ${ZSTD_LIBRARY} blosc_static matio)
+target_link_libraries(nxr_io PUBLIC nxr_io_formats nlohmann_json SQLite3::SQLite3 ZLIB::ZLIB PRIVATE ${ZSTD_LIBRARY} blosc_static matio)
 if(MSVC)
   target_compile_options(nxr_io PRIVATE /W4)
 else()

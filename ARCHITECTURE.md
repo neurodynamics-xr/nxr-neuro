@@ -50,7 +50,7 @@ Studio's chain, and only then write code.
 | folder | library | may depend on |
 |---|---|---|
 | `compute/` | `nxr_compute` | Eigen, Spectra, geometry-central, pocketfft (vendored). **No file I/O, never `io`.** Its own guide: `compute/CONTRIBUTING.md` |
-| `io/` | `nxr_io` | SQLite, zstd/blosc/zlib, matio, HDF5, nlohmann/json, rapidyaml (vendored; 2026-11-12). **Never `compute`** |
+| `io/` (`io/formats/`: `nxr_io_formats`, pure file formats) | `nxr_io` | SQLite, zstd/blosc/zlib, matio, HDF5, nlohmann/json, rapidyaml (vendored; 2026-11-12). **Never `compute`** |
 | `meeg/` | `nxr_meeg` | Eigen only. **No file I/O, never `compute` or `io`** (the pipelines hand it arrays) |
 | `pipelines/` | `nxr_pipelines` | `compute`, `io`, `meeg`: **the only place they meet** |
 | `cli/` | `nxr-neuro` | argument parsing and JSON output only, with no maths |
