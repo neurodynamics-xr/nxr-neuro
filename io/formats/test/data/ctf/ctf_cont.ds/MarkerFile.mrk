@@ -1,0 +1,45 @@
+PATH OF DATASET:
+/x/ctf_cont.ds
+
+
+NUMBER OF MARKERS:
+2
+
+
+CLASSGROUPID:
+3
+NAME:
+stimA
+COMMENT:
+
+COLOR:
+red
+EDITABLE:
+Yes
+CLASSID:
+1
+NUMBER OF SAMPLES:
+2
+LIST OF SAMPLES:
+TRIAL NUMBER		TIME FROM SYNC POINT (in seconds)
+                  +0				+0.250
+                  +2				+0.100
+
+
+CLASSGROUPID:
+3
+NAME:
+stimB
+COMMENT:
+
+COLOR:
+blue
+EDITABLE:
+Yes
+CLASSID:
+2
+NUMBER OF SAMPLES:
+1
+LIST OF SAMPLES:
+TRIAL NUMBER		TIME FROM SYNC POINT (in seconds)
+                  +3				+0.050
