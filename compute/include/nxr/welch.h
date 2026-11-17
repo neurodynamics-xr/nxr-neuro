@@ -26,6 +26,8 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <optional>
+#include <string>
 #include <vector>
 
 namespace nxr::welch {
@@ -46,6 +48,18 @@ struct WelchOptions {
 
 /** The segment length for a duration: round(seconds * sfreq) samples, then +1 if oddEven is set and the count is odd (nxr's chain wants an even n). */
 std::size_t segmentSamplesFor(double seconds, double sfreq, bool makeEven = false);
+
+/** THE SEGMENT GRID of a Welch estimate, as a pure rule (the time-tile amendment of docs/specs/2026-11-13-cycle-pattern.md, section 3).
+ *  Rule `tile`: a segment is a TILE of the recording's line, 2^k samples; k is `level`, or log2 of `samples` (a power of two), or round(log2(seconds * sfreq)) (seconds snap to the nearest
+ *  level; default 4 s); the hop must be a tile too (overlap 0, 1/2, 3/4, ...), so that segments start on the line's grid once the span snaps to level k. Rule `round` (Brainstorm's, scipy's):
+ *  round(seconds * sfreq) samples, or `samples`, from the span's start. Rule `even` (nxr's chain): as `round`, made even. `level` applies to the rule `tile` only.
+ *  `level` of the result is k under `tile` (the grid the span snaps to) and 0 otherwise (no snap). Refuses (std::invalid_argument) a segment that is not whole samples, a level outside 1..24,
+ *  `level` with `samples`, a hop that is not a tile, an unknown rule. */
+struct Segment {
+    std::size_t samples = 0;
+    int level = 0;
+};
+Segment segmentFor(const std::string& rule, const std::optional<double>& seconds, const std::optional<std::int64_t>& samples, const std::optional<int>& level, double sfreq, double overlap);
 
 /** Brainstorm's PSD (process_psd / bst_psd) as its defaults and tutorial give it: 4 s, 50 % overlap, Hamming (symmetric, as MATLAB's hamming(n)),
  *  the mean of each segment removed, power per Hz (the "physical" units). */

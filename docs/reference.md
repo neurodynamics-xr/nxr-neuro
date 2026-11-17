@@ -349,7 +349,6 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run bandpass` | A zero-phase band-pass filter, written as a new recording. | `bandpass` |
 | `nxr-neuro run bandstop` | A zero-phase band-stop filter, written as a new recording. | `bandstop` |
 | `nxr-neuro run notch` | A zero-phase notch filter (line noise and harmonics), written as a new recording. | `notch` |
-| `nxr-neuro run psd` | The Welch power spectral density of a recording, bad segments left out. | `psd compute` |
 | `nxr-neuro run sourcepsd` | The band power maps of the sources (the Welch PSD of the sources, grouped in bands). | `sourcepsd compute` |
 | `nxr-neuro run sourcetensor` | The band cross-spectral tensor of the current, its Stokes quaternion, normal power and share. | `sourcetensor compute` |
 | `nxr-neuro run crossspectrum` | The sensor cross-spectral density per band (Welch, or per time window with the analytic estimator). | `crossspectrum compute` |
@@ -612,8 +611,10 @@ name such as `band power`) are stored as before. A `node:` use (grouped names su
 `presets:` names parameter sets (each a named alternative); `run NAME --set PRESET` starts from one. Precedence: the parameters' defaults, then the preset's values, then the caller's own `--NAME VALUE` or
 `--set NAME=VALUE`. A preset names only declared parameters (refused when the definition is read); its name is in the provenance and the cache key (`preset`), beside the resolved parameters.
 `run NAME --help` lists every preset with the values it sets.
+A statistic's `describe` may carry `producer`, what its readers ask of the provenance beside the run's own record (a spectrum's `frequency_resolution_hz` and `sfreq`, its segments, the share of samples left out, the scaling
+record). A native node that applies a stored dense Operator (`rotary.pair`) is handed its matrix and the channels it lies over by the runner (`meta.channels`); it reads no store.
 
-## The Welch PSD (`compute/include/nxr/welch.h`, `run psd`)
+## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
 `nxr::welch::Welch` is a streaming estimator: fed [channels x samples] chunks of any size, it carries the samples left at a chunk's end into the next, so segments cross chunk edges and **the result is identical to the last bit
 whatever the chunk size** (tested for 1 to the whole record). Memory: the carried samples + one chunk + one segment. A sample mask leaves out every segment that touches a bad sample (the segment grid does not move).
@@ -621,6 +622,12 @@ Options (each a named field of `WelchOptions`): segment length (samples, or seco
 detrend (none · constant · linear), scaling (`Density` power per Hz = scipy "density" and Brainstorm's physical units · `Spectrum` · `Chain` = nxr.spectral.chain's per-bin power). One-sided: interior bins doubled.
 The references are named option sets: `brainstormPsdOptions()` (4 s, 50 %, Hamming **symmetric**, the mean of each segment removed, power per Hz), `scipyWelchOptions()` (Hann periodic, constant detrend; nxr's `qc.sensors.psd` is this at 4 s),
 `nxrChainWelchOptions()` (`nxr.spectral.chain._welch`).
+**`run psd` is a definition** (`pipelines/definitions/psd.yaml`, since D1c of `docs/specs/2026-11-17-definition-outputs.md`): the node `welch.psd` (an accumulate node of `nxr::welch::Welch`; the segment rule is the pure
+`nxr::welch::segmentFor`) streamed by the runner, and a declared `statistic` output with its channel axis, its frequency line and its segment partition. The sets below are its **presets** (`--set tiles|brainstorm|scipy|nxr-chain`);
+the Welch options are its parameters (`--segment-seconds`, `--segment-samples`, `--segment-level`, `--segment-rule tile|round|even`, `--overlap`, `--window`, `--periodic true|false`, `--detrend`, `--scaling`,
+`--bad-segments exclude|ignore`; `--name`; `--recording`, none = every recording), each with its meaning, default and unit in `run psd --help`; the caller's own values win over a preset's. The old `--no-bad-segments` is
+`--bad-segments ignore`, `--periodic`/`--symmetric` are `--periodic true|false`, `--through` is its own definition `rotary_psd` (below). The result is tested against the references (`test_psd_golden`: scipy, nxr's chain and Brainstorm's
+output, and `rotary_welch_golden.txt`, to float32 storage), not against an older output.
 **The pipelines' sets (`--set`, every Welch producer: `psd`, `sourcepsd`, `sourcetensor`, `crossspectrum`, `quadrature`, `hodgepower`, `speedspectrum`):**
 `tiles` (THE DEFAULT since 2026-11-13, the time-tile amendment: a segment is a TILE of 2^k samples on the recording's line, k = round(log2(`--segment-seconds`
 · fs)), the nearest level, as the Studio's `anchorsFor` rounds (the Studio's `welchSeg` rounds up), or `--segment-level k`, or a power-of-two `--segment-samples`;
@@ -636,7 +643,7 @@ measure `power_density` (`power` for the spectrum and chain scalings), method `w
 option in `options_json`, the spectral scaling record, and in `producer_json` the cache key, the share of samples excluded and the
 projectors the recording carries (which are in the samples). All channels are kept, the bad ones too.
 
-### `run psd --through OPERATOR`: the rotary spectrum (2026-11-16; nxr's `docs/specs/2026-11-15-nxr-scopes.md`, "Rotary spectra ...")
+### `run rotary_psd --operator OPERATOR`: the rotary spectrum (2026-11-16; nxr's `docs/specs/2026-11-15-nxr-scopes.md`, "Rotary spectra ..."; its own definition since 2026-11-17, the old `psd --through`)
 
 **What it is for.** A rotating pattern is one pair of sensor filters turning from x towards y: its power sits at ONE sign of frequency. The rotary spectrum is the two-sided spectrum of
 that pair, and its sense index (P₊ − P₋)/(P₊ + P₋) over a band (derived at read, `nxr.spectral.rotary.sense_index`) says which way the pair turns, from +1 (all forward) to 0 (no preferred sense).
@@ -646,7 +653,7 @@ already negates fy when −f wins, so +f is forward and nothing is flipped here)
 **The graph** (the Editor's chain: members → filter → transform, a linear map before any non-linear step): the chunk service gives each block of the recording (rows = the operator's channels, in its
 order, the bad-sample mask) → *members*: z = fx·X + i fy·X (`nxr::rotary::pairSeries`, a pointwise node) → *spectrum*: the two-sided Welch periodogram of each segment (`nxr::welch::ComplexWelch`, pure)
 → *reduce*: the mean over the segment partition, the estimator's own reduction, the same segments, window, detrend, scaling, carrying across chunk edges and bad-segment rule as the sensor PSD
-(`--set`, `--segment-*`, `--window` … apply as they do to `run psd`). The host type-checks before any data flows: a dense Operator of two rows whose channels (from_selection) are on the
+(`--set`, `--segment-*`, `--window` … apply as they do to `run psd`: the same parameters and presets). The host type-checks before any data flows: a dense Operator of two rows whose channels (from_selection) are on the
 recording's channel manifold and inside it; otherwise it is refused with its reason.
 
 **Stored.** The STATISTIC `<recording>_<operator>_psd_welch` (`--name`), measure `power_density` (`power` for the spectrum and chain scalings), method `welch`, OF the recording, from its segment
@@ -654,7 +661,7 @@ partition, axes **[pair (1), frequency]**, the frequency on a SIGNED closed-form
 has every Welch option, `sides: two`, and `input` = the operator, its id, its rows and the band it was made for (the operator's own `band`); its unit is the operator's output squared per Hz.
 It is told from the sensor PSD by its axes (`pair` × a signed frequency). The reference is nxr's `nxr.timefreq.psd` of a complex series (scipy.signal.welch, `return_onesided=False`, f ascending): parity
 to 1e-16 on synthetic signals (`compute/test/golden/gen_rotary_welch_golden.py`), a forward pair peaking at +f and a backward pair at −f (`test_welch`); the stored statistic, the chunk-width
-independence to the last bit and the mirror (fy negated gives P(−f)) are in `test_psd_pipeline`.
+independence to the last bit and the mirror (fy negated gives P(−f)) are in `test_psd_pipeline`; the graph is `rotary.pair` (a pointwise linear map) then `welch.complex_psd` (an accumulate node), the operator handed to the node as its matrix and channels by the runner.
 
 ## Source maps: band power, quadrature, Hodge power (`pipelines/include/nxr/pipelines/meeg.h`)
 

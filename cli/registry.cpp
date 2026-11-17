@@ -50,6 +50,11 @@ struct Table {
 #ifdef NXR_NEURO_WITH_PIPELINES
 // A PIPELINE DEFINITION as a command (docs/specs/2026-11-17-compute-and-run.md, 6.2): `run <name>`, its parameters the options `--<parameter> VALUE` (dashes for underscores),
 // each helped with its declared meaning, default and unit (the definition's long form); a parameter written in the short form is helped as undocumented.
+// the old spellings of the pipelines that became definitions (their table entry went with the hand-wired code): refused, naming the new one (docs/specs/2026-11-17-compute-and-run.md, 6.3)
+const std::vector<std::pair<std::vector<std::string>, std::string>>& converted_spellings() {
+  static const std::vector<std::pair<std::vector<std::string>, std::string>> v = {{{"psd", "compute"}, "run psd"}};
+  return v;
+}
 std::string dashed(std::string s) {
   std::replace(s.begin(), s.end(), '_', '-');
   return s;
@@ -464,6 +469,7 @@ int run_command_line(int argc, char** argv) {
   }
   if (argc >= 2 && std::string(argv[1]) == "__refused") {   // for the tests: `old words|new words` of every refused spelling
     for (const auto& c : commands()) if (c.refused) std::cout << old_words(c) << "|" << c.path() << "\n";
+    for (const auto& [words, now] : converted_spellings()) { std::string w; for (const auto& x : words) w += (w.empty() ? "" : " ") + x; std::cout << w << "|" << now << "\n"; }
     return 0;
   }
   if (argc >= 2 && std::string(argv[1]) == "__check-pipelines") {   // the pipelines' names and the shipped definitions' parameters (spec 2026-11-17-compute-and-run.md, 6.2)
@@ -559,6 +565,15 @@ int run_command_line(int argc, char** argv) {
     if (pipeline) std::cerr << "nxr-neuro: error: 'compute " << next << "' is now 'run " << next << "' (the same options): pipelines are run with `run`; `compute` is reserved for nodes\n";
     else std::cerr << "nxr-neuro compute: a node or a graph applied to arrays or files. Not available yet.\nPipelines are run with `nxr-neuro run <pipeline>` (`nxr-neuro list pipelines`).\n";
     return help && !pipeline ? 0 : 2;
+  }
+  for (const auto& [words, now] : converted_spellings()) {
+    bool match = argc > static_cast<int>(words.size());
+    for (std::size_t i = 0; i < words.size() && match; ++i) match = std::string(argv[1 + i]) == words[i];
+    if (!match) continue;
+    std::string w;
+    for (const auto& x : words) w += (w.empty() ? "" : " ") + x;
+    std::cerr << "nxr-neuro: error: '" << w << "' is now '" << now << "' (the same options); the old spelling is not kept\n";
+    return 2;
   }
   if (argc >= 2) {
     const std::string first = argv[1];
@@ -659,7 +674,7 @@ int run_command_line(int argc, char** argv) {
     for (const CommandDoc* c : all)
       if (c->verb == "run" && c->noun == args[2] && !c->definition.empty())
         for (std::size_t i = 3; i < args.size(); ++i)
-          if (args[i] == "--set" || args[i].rfind("--set=", 0) == 0) {
+          if ((args[i] == "--set" && i + 1 < args.size() && args[i + 1].find('=') != std::string::npos) || (args[i].rfind("--set=", 0) == 0 && args[i].find('=', 6) != std::string::npos)) {   // `--set PRESET` (no `=`) names a preset
             std::cerr << "nxr-neuro run " << args[2] << ": error: `--set NAME=VALUE` is now `--NAME VALUE`: a parameter is an option of its own (`nxr-neuro run " << args[2] << " --help` lists them; dashes stand for underscores)\n";
             return 2;
           }

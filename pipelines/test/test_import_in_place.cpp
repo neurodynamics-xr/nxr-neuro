@@ -5,6 +5,7 @@
 #include <filesystem>
 #include <fstream>
 
+#include "psd_run.h"
 #include "check.h"
 #include "nxr/convert/recording.h"
 #include "nxr/io/subject_package.h"
@@ -39,14 +40,15 @@ void import_into(const fs::path& pkg, const std::string& file, bool in_place) {
 }
 
 // `name`: a new field each time, so a run is never a cache hit (which reads nothing)
-nxr::welch::WelchResult psd_of(const fs::path& pkg, const std::string& name = "psd_welch") {
+Eigen::MatrixXd psd_of(const fs::path& pkg, const std::string& name = "psd_welch") {
   DatasetWriter w = open_package_writer(pkg);
   SubjectWriter sub = SubjectWriter::open(w, "S");
-  PsdOptions po;
-  po.recording = "rec";
-  po.chunks = "all";
-  po.name = name;
-  return psd_compute(w, sub, po).psd;
+  const nxrtest::PsdRun r = nxrtest::run_psd(w, sub, "rec", Json{{"name", name}});
+  std::vector<std::int64_t> shape;
+  const std::vector<float> v = nxrtest::psd_values(sub, r, &shape);
+  Eigen::MatrixXd m(shape[0], shape[1]);
+  for (std::int64_t i = 0; i < shape[0]; ++i) for (std::int64_t k = 0; k < shape[1]; ++k) m(i, k) = v[static_cast<std::size_t>(i * shape[1] + k)];
+  return m;
 }
 }  // namespace
 
@@ -78,9 +80,9 @@ int main() {
   // the same computation on both gives the same numbers
   const auto a = psd_of(root / "copy.nxr.zarr");
   const auto b = psd_of(root / "link.nxr.zarr");
-  CHECK(a.psd.size() > 0);
-  CHECK(a.psd.rows() == b.psd.rows() && a.psd.cols() == b.psd.cols());
-  CHECK((a.psd - b.psd).cwiseAbs().maxCoeff() == 0.0);
+  CHECK(a.size() > 0);
+  CHECK(a.rows() == b.rows() && a.cols() == b.cols());
+  CHECK((a - b).cwiseAbs().maxCoeff() == 0.0);
 
   // a file that changed is refused (the same size, other bytes), by the chunk service
   {
