@@ -3,6 +3,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <limits>
 #include <set>
 #include <stdexcept>
 #include <string>
@@ -111,10 +112,27 @@ void need_set(const Selection& s, const char* what) {
   if (s.type != Type::set) throw std::invalid_argument(std::string(what) + ": a set, not a " + type_name(s.type));
 }
 bool line_span(const Selection& m) { return m.type == Type::span && m.extents.size() == 1 && m.extents[0].axis == 0; }
+void need_product(const Selection& s, const char* what) {
+  if (s.type != Type::set || s.factors.empty()) throw std::invalid_argument(std::string(what) + ": a product (product(factors))");
+}
+// a factor's member of ordinal i, as one selection: a selection that is not a set is its own one member; a set by codes gives the elements of code i
+Selection factor_member(const Selection& f, std::int64_t i) {
+  if (f.type != Type::set) {
+    if (i != 0) throw std::invalid_argument("member: a factor that is not a set has one member (0), not " + std::to_string(i));
+    return f;
+  }
+  if (!f.codes.empty()) {
+    std::vector<std::int32_t> out;
+    for (std::size_t v = 0; v < f.codes.size(); ++v) if (f.codes[v] == i) out.push_back(static_cast<std::int32_t>(v));
+    return indices(std::move(out), i);                                // an empty member when the code holds no element: its ordinal still counts
+  }
+  return member(f, i);
+}
 }  // namespace
 
 std::int64_t count(const Selection& s) {
   need_set(s, "count");
+  if (!s.factors.empty()) return ordinal_count(s);
   if (s.tiling) return s.tiling->count;
   if (!s.codes.empty()) {
     std::set<std::int32_t> distinct;
@@ -126,6 +144,12 @@ std::int64_t count(const Selection& s) {
 
 Selection member(const Selection& s, std::int64_t k) {
   need_set(s, "member");
+  if (!s.factors.empty()) {                                           // the tuple of the factors' members, each one member: a product of one member
+    const std::vector<std::int64_t> at = factor_ordinals(s, k);
+    Selection out; out.type = Type::set;
+    for (std::size_t f = 0; f < s.factors.size(); ++f) out.factors.push_back(factor_member(s.factors[f], at[f]));
+    return out;
+  }
   if (s.tiling) {
     if (k < 0 || k >= s.tiling->count) throw std::invalid_argument("member: " + std::to_string(k) + " outside 0.." + std::to_string(s.tiling->count - 1));
     const double start = s.tiling->origin + static_cast<double>(k) * s.tiling->hop;
@@ -138,6 +162,7 @@ Selection member(const Selection& s, std::int64_t k) {
 
 std::vector<std::int64_t> members_at(const Selection& s, double value) {
   need_set(s, "members_at");
+  if (!s.factors.empty()) throw std::invalid_argument("members_at: a product lies on several lines; ask each factor (factors[f]) and combine with product_ordinal");
   std::vector<std::int64_t> out;
   if (s.tiling) {
     const Tiling& t = *s.tiling;
@@ -177,6 +202,8 @@ Selection member_indices(const Selection& s, std::int64_t code, int level) {
 
 bool disjoint(const Selection& s) {
   need_set(s, "disjoint");
+  if (!s.factors.empty())
+    return std::all_of(s.factors.begin(), s.factors.end(), [](const Selection& f) { return f.type != Type::set || disjoint(f); });
   if (!s.codes.empty()) return true;
   if (s.tiling) return s.tiling->hop >= s.tiling->width;
   if (std::all_of(s.members.begin(), s.members.end(), line_span)) {
@@ -200,6 +227,110 @@ Selection resolve_distance(const Selection& s, chart::ChartKit& kit) {
   std::vector<std::int32_t> out;
   for (int v : kit.disc(static_cast<int>(*s.center), s.radius)) out.push_back(static_cast<std::int32_t>(v));
   return indices(std::move(out), s.code);
+}
+
+// ── products and levels ───────────────────────────────────────────────────────────────────
+bool has_levels(const Selection& s) {
+  if (s.type != Type::set || s.members.empty()) return false;
+  return std::all_of(s.members.begin(), s.members.end(), [](const Selection& m) { return m.type == Type::set && m.level >= 0; });
+}
+
+std::int64_t ordinal_count(const Selection& s) {
+  if (s.type != Type::set) return 1;
+  if (!s.factors.empty()) {
+    std::int64_t n = 1;
+    for (const Selection& f : s.factors) {
+      const std::int64_t c = ordinal_count(f);
+      if (c > 0 && n > std::numeric_limits<std::int64_t>::max() / c) throw std::invalid_argument("product: more members than a 64-bit ordinal holds");
+      n *= c;
+    }
+    return n;
+  }
+  if (has_levels(s)) throw std::invalid_argument("ordinal_count: a set with levels; name one (level(set, k))");
+  if (s.tiling) return s.tiling->count;
+  if (!s.codes.empty()) {
+    std::int64_t top = -1;
+    for (std::int32_t c : s.codes) top = std::max<std::int64_t>(top, c);
+    for (const Entry& e : s.lookup) top = std::max(top, e.code);
+    return top + 1;
+  }
+  return static_cast<std::int64_t>(s.members.size());
+}
+
+Selection level(const Selection& s, int k) {
+  if (!has_levels(s)) throw std::invalid_argument("level: the selection has no levels");
+  const Selection* found = nullptr;
+  std::string have;
+  for (const Selection& m : s.members) {
+    if (m.level == k) found = &m;
+    have += (have.empty() ? "" : ", ") + std::to_string(m.level);
+  }
+  if (!found) throw std::invalid_argument("level: no level " + std::to_string(k) + " (the set has " + have + ")");
+  if (s.codes.empty()) return *found;                                  // a ladder of tilings: the level is its own selection
+  if (k > s.depth) throw std::invalid_argument("level: " + std::to_string(k) + " is finer than the codes' depth " + std::to_string(s.depth));
+  std::vector<std::int32_t> codes(s.codes.size());
+  for (std::size_t v = 0; v < codes.size(); ++v) codes[v] = s.codes[v] < 0 ? -1 : s.codes[v] >> (s.depth - k);
+  Selection out = labels(std::move(codes), k == s.depth ? s.lookup : Lookup{});   // the lookup names the finest codes only
+  out.unit = s.unit;
+  out.level = k;
+  out.code = found->code;
+  out.band = found->band;
+  out.band_unit = found->band_unit;
+  return out;
+}
+
+Selection product(std::vector<Selection> factors) {
+  std::vector<Selection> flat;
+  for (Selection& f : factors) {
+    if (f.type == Type::set && !f.factors.empty()) {                  // a product of products is one product, its factors in order
+      for (Selection& g : f.factors) flat.push_back(std::move(g));
+      continue;
+    }
+    if (has_levels(f)) throw std::invalid_argument("product: factor " + std::to_string(flat.size()) + " has levels; name one (level(set, k))");
+    flat.push_back(std::move(f));
+  }
+  if (flat.size() < 2) throw std::invalid_argument("product: two factors or more");
+  Selection s; s.type = Type::set; s.factors = std::move(flat);
+  ordinal_count(s);                                                    // refuses a product too large to number
+  return s;
+}
+
+std::vector<std::int64_t> factor_ordinals(const Selection& p, std::int64_t k) {
+  need_product(p, "factor_ordinals");
+  const std::int64_t n = ordinal_count(p);
+  if (k < 0 || k >= n) throw std::invalid_argument("factor_ordinals: member " + std::to_string(k) + " outside 0.." + std::to_string(n - 1));
+  std::vector<std::int64_t> out(p.factors.size());
+  for (std::size_t f = p.factors.size(); f-- > 0;) {                  // row-major: the last factor fastest
+    const std::int64_t c = ordinal_count(p.factors[f]);
+    out[f] = k % c;
+    k /= c;
+  }
+  return out;
+}
+
+std::int64_t product_ordinal(const Selection& p, const std::vector<std::int64_t>& at) {
+  need_product(p, "product_ordinal");
+  if (at.size() != p.factors.size()) throw std::invalid_argument("product_ordinal: " + std::to_string(p.factors.size()) + " ordinals, one per factor");
+  std::int64_t k = 0;
+  for (std::size_t f = 0; f < at.size(); ++f) {
+    const std::int64_t c = ordinal_count(p.factors[f]);
+    if (at[f] < 0 || at[f] >= c) throw std::invalid_argument("product_ordinal: ordinal " + std::to_string(at[f]) + " outside factor " + std::to_string(f));
+    k = k * c + at[f];
+  }
+  return k;
+}
+
+std::vector<std::optional<std::int64_t>> factor_labels(const Selection& p, std::int64_t k) {
+  const std::vector<std::int64_t> at = factor_ordinals(p, k);
+  std::vector<std::optional<std::int64_t>> out;
+  for (std::size_t f = 0; f < at.size(); ++f) {
+    const Selection& x = p.factors[f];
+    if (x.type != Type::set) out.push_back(x.code);
+    else if (x.tiling) out.push_back(std::nullopt);
+    else if (!x.codes.empty()) out.push_back(at[f]);                   // a set by codes: the code is the ordinal
+    else out.push_back(x.members[static_cast<std::size_t>(at[f])].code);
+  }
+  return out;
 }
 
 }  // namespace nxr::selection
