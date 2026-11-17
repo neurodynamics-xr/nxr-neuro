@@ -33,6 +33,7 @@ std::optional<Row> manifold_row_named(SubjectWriter& sub, const std::string& nam
 std::vector<std::string> selection_names_on(SubjectWriter& sub, const std::string& manifold_id);
 
 namespace selection {
+std::optional<Row> named_row(SubjectWriter& sub, const std::string& name, const std::optional<std::string>& stored_type = std::nullopt, const std::optional<std::string>& manifold_id = std::nullopt);
 std::optional<Row> labelling_row(SubjectWriter& sub, const std::string& name, const std::optional<std::string>& manifold_id = std::nullopt);
 std::map<std::int64_t, std::string> lookup_names(SubjectWriter& sub, const std::string& dictionary_id);
 Loaded load(SubjectWriter& sub, const std::string& selection_id);

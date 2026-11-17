@@ -109,7 +109,7 @@ inline NoiseCovResult noisecov_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   const std::int64_t M = st.shape.at(0);
   r.covariance.resize(M, M);
   for (std::int64_t i = 0; i < M; ++i) for (std::int64_t j = 0; j < M; ++j) r.covariance(i, j) = st.values[static_cast<std::size_t>(i * M + j)];
-  if (const auto ch = sub.find("selection", name + "_channels"))
+  if (const auto ch = nxr::io::selection::named_row(sub, name + "_channels"))                  // a pick of the recording's channels, found by its name (io lays the node out)
     for (const std::int32_t c : nxr::io::selection::read_element_members(sub, nxr::io::text(*ch, "id")).member_of) r.channels.push_back(c);
   r.info = st.producer;
   r.info["samples"] = st.producer.value("n_samples", std::int64_t(0));

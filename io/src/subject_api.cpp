@@ -28,6 +28,7 @@ std::vector<std::string> selection_names_on(SubjectWriter& sub, const std::strin
 }
 
 namespace selection {
+std::optional<Row> named_row(SubjectWriter& sub, const std::string& name, const std::optional<std::string>& stored_type, const std::optional<std::string>& manifold_id) { return named_row(sub.db(), sub.id(), name, stored_type, manifold_id); }
 std::optional<Row> labelling_row(SubjectWriter& sub, const std::string& name, const std::optional<std::string>& manifold_id) { return labelling_row(sub.db(), sub.id(), name, manifold_id); }
 std::map<std::int64_t, std::string> lookup_names(SubjectWriter& sub, const std::string& dictionary_id) { return lookup_names(sub.db(), dictionary_id); }
 Loaded load(SubjectWriter& sub, const std::string& selection_id) { return load(sub.db(), sub.store(), selection_id); }
