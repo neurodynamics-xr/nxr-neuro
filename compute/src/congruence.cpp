@@ -1,6 +1,8 @@
 // nxr::algebra — congruence on a pattern (congruence.h).
 #include "nxr/congruence.h"
 
+#include <algorithm>
+#include <cmath>
 #include <stdexcept>
 #include <string>
 
@@ -41,5 +43,40 @@ Eigen::MatrixXcd congruence(const Eigen::MatrixXd& A, const Eigen::MatrixXcd& M)
   const Eigen::MatrixXcd Ac = A.cast<std::complex<double>>();
   return Ac * M * Ac.transpose();
 }
+
+
+template <class S>
+Eigen::SparseMatrix<S> sparseCongruence(const Eigen::SparseMatrix<S>& P, const Eigen::SparseMatrix<S>& A) {
+  if (A.rows() != A.cols() || P.cols() != A.rows()) throw std::invalid_argument("sparseCongruence: P is [m x n] and A is [n x n]");
+  Eigen::SparseMatrix<S> pa = P * A;
+  Eigen::SparseMatrix<S> out = pa * P.transpose();
+  out.prune(S(0), S(0));   // entries that are exactly zero are not entries
+  return out;
+}
+
+template <class S>
+Eigen::SparseMatrix<S> sparseCongruenceBlocked(const Eigen::SparseMatrix<S>& P, const Eigen::SparseMatrix<S>& A, std::int64_t block, S drop_below) {
+  if (A.rows() != A.cols() || P.cols() != A.rows()) throw std::invalid_argument("sparseCongruenceBlocked: P is [m x n] and A is [n x n]");
+  if (block < 1) throw std::invalid_argument("sparseCongruenceBlocked: block >= 1");
+  const Eigen::SparseMatrix<S> pa = P * A;
+  const Eigen::SparseMatrix<S> pt = P.transpose();
+  const std::int64_t m = P.rows();
+  std::vector<Eigen::Triplet<S>> kept;
+  for (std::int64_t c0 = 0; c0 < m; c0 += block) {
+    const std::int64_t w = std::min(block, m - c0);
+    const Eigen::SparseMatrix<S> part = pa * pt.middleCols(c0, w);
+    for (int k = 0; k < part.outerSize(); ++k)
+      for (typename Eigen::SparseMatrix<S>::InnerIterator it(part, k); it; ++it)
+        if (it.value() != S(0) && !(std::abs(it.value()) < drop_below)) kept.emplace_back(static_cast<int>(it.row()), static_cast<int>(c0 + k), it.value());
+  }
+  Eigen::SparseMatrix<S> out(static_cast<int>(m), static_cast<int>(m));
+  out.setFromTriplets(kept.begin(), kept.end());
+  return out;
+}
+
+template Eigen::SparseMatrix<float> sparseCongruence(const Eigen::SparseMatrix<float>&, const Eigen::SparseMatrix<float>&);
+template Eigen::SparseMatrix<double> sparseCongruence(const Eigen::SparseMatrix<double>&, const Eigen::SparseMatrix<double>&);
+template Eigen::SparseMatrix<float> sparseCongruenceBlocked(const Eigen::SparseMatrix<float>&, const Eigen::SparseMatrix<float>&, std::int64_t, float);
+template Eigen::SparseMatrix<double> sparseCongruenceBlocked(const Eigen::SparseMatrix<double>&, const Eigen::SparseMatrix<double>&, std::int64_t, double);
 
 }  // namespace nxr::algebra

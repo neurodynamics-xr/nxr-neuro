@@ -40,6 +40,7 @@ add_library(nxr_pipelines
   src/cores_steps.cpp
   src/tracks_steps.cpp
   src/crossings_steps.cpp
+  src/connectome_steps.cpp
   src/surrogate_steps.cpp
   src/run_repeat.cpp
   src/null_compute.cpp
@@ -317,6 +318,11 @@ if(NXR_NEURO_BUILD_TESTS)
   target_include_directories(test_node_traits PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_node_traits COMMAND test_node_traits)
   
+  add_executable(test_connectome_nodes test/test_connectome_nodes.cpp)
+  target_link_libraries(test_connectome_nodes PRIVATE nxr_pipelines)
+  target_include_directories(test_connectome_nodes PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_connectome_nodes COMMAND test_connectome_nodes)
+
   add_executable(test_runner_execute test/test_runner_execute.cpp)
   target_link_libraries(test_runner_execute PRIVATE nxr_pipelines)
   target_include_directories(test_runner_execute PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
