@@ -4,6 +4,7 @@ project(nxr_neuro VERSION 0.1.0 LANGUAGES CXX)
 # nxr-neuro: the project's combined C++ toolkit. One build, separate libraries:
 #   compute/    nxr_compute    pure maths (geometry-central + Eigen + Spectra); no file I/O
 #   io/         nxr_io         the nxr dataset format (SQLite rows + Zarr v3), the writer, the Brainstorm importer (nxr::bst)
+#   pipelines/graph/ nxr_graph  the graph executor: typed nodes, a graph checked on types, run block by block; no io
 #   pipelines/  nxr_pipelines  the glue: read with nxr_io, compute with nxr_compute, write with nxr_io, cached
 #   meeg/       nxr_meeg       MEG/EEG source imaging (whitener, depth weights, minimum-norm kernel, chunk-wise covariance); Eigen only; no file I/O
 #               (each modality is its own folder: meeg/ now; pet/ etc. later)
@@ -84,6 +85,9 @@ if(NXR_NEURO_BUILD_COMPUTE)
 endif()
 if(NXR_NEURO_BUILD_MEEG)
   add_subdirectory(meeg)
+endif()
+if(NXR_NEURO_BUILD_COMPUTE AND NXR_NEURO_BUILD_MEEG)
+  add_subdirectory(pipelines/graph)   # nxr_graph: the graph executor; compute and meeg only, never io (docs/specs/2026-11-17-compute-and-run.md)
 endif()
 if(NXR_NEURO_BUILD_PIPELINES)
   add_subdirectory(pipelines)

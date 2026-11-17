@@ -2,12 +2,14 @@
 # THE STORE: a subject's arrays and node documents are zarr KEYS read and written through nxr::io::Store only
 # (io/include/nxr/io/store.h; FolderStore is the one backend). Fails when the array reader, the array writer or the store-node removal use the filesystem
 # (`std::filesystem`, `fs::`, `fstream`), or when pipelines, cli or bindings reach a subject's folder (`sub.folder()`) instead of its store.
+# Fails when a file of pipelines/graph/ (the graph executor, nxr_graph) includes an io, bst or pipelines header.
 # Fails when code outside io/ (pipelines, cli, compute, meeg, bindings; tests excluded) reads a recording's samples or works out chunks itself:
 #   a region read along a running sample index (`.read({..}, {.. + n})`), the chunk's arithmetic (`chunk_end`, `kChunk`, `chunk_span(`, `1 << 15`), the retired
 #   read size (`chunk_samples`, `--chunk-samples`), or the chunk service built anywhere but the one door, pipelines/src/reading.cpp
 #   (`span_of`, `source_of`: one `resolve_span(` and one `ChunkSource(`).
 file(GLOB_RECURSE files
   ${ROOT}/pipelines/src/*.cpp ${ROOT}/pipelines/include/*.h
+  ${ROOT}/pipelines/graph/src/*.cpp ${ROOT}/pipelines/graph/include/nxr/graph/*.h ${ROOT}/pipelines/graph/test/*.cpp
   ${ROOT}/cli/*.cpp ${ROOT}/cli/*.h
   ${ROOT}/compute/src/*.cpp ${ROOT}/compute/include/*.h
   ${ROOT}/meeg/src/*.cpp ${ROOT}/meeg/include/*.h
@@ -38,6 +40,9 @@ foreach(f ${files})
     endif()
     if((f MATCHES "/compute/" OR f MATCHES "/meeg/") AND l MATCHES "#include *[<\"]nxr/(io|io/|bst/|pipelines/)")
       string(APPEND bad "  ${f}:${i}: compute includes io or pipelines (the architecture policy: compute is functions of matrices): ${l}\n")
+    endif()
+    if(f MATCHES "/pipelines/graph/" AND l MATCHES "#include *[<\"]nxr/(io|io/|bst/|pipelines/)")
+      string(APPEND bad "  ${f}:${i}: the graph executor includes io or pipelines (nxr_graph depends on compute, meeg and nlohmann/json only): ${l}\n")
     endif()
     if(l MATCHES "(^|[^A-Za-z_])sub[A-Za-z0-9_]*\\.folder\\(\\)")
       string(APPEND bad "  ${f}:${i}: a subject's folder is reached outside io (use its store): ${l}\n")

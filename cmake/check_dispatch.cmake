@@ -1,14 +1,16 @@
 # THE DISPATCH GUARD (ARCHITECTURE.md, "Backends and node traits"): a graph node's computation is called in ONE place, `dispatch` (pipelines/src/dispatch.cpp).
+# The graph executor's own dispatch point is pipelines/graph/src/dispatch.cpp, guarded the same way for its NodeSpec.
 # Fails when any other file calls a registered node's functions (prepare, start, chunk, chunk_at, fold, finish, run) through a step: `step->chunk(`, `p->step->fold(`,
 # `step("name").run(`, `registry()[i].finish(` and the like. Run as a test: cmake -DROOT=<repo> -P cmake/check_dispatch.cmake.
 file(GLOB_RECURSE files
   ${ROOT}/pipelines/src/*.cpp ${ROOT}/pipelines/include/*.h ${ROOT}/pipelines/test/*.cpp
+  ${ROOT}/pipelines/graph/src/*.cpp ${ROOT}/pipelines/graph/include/nxr/graph/*.h ${ROOT}/pipelines/graph/test/*.cpp
   ${ROOT}/cli/*.cpp ${ROOT}/cli/*.h
   ${ROOT}/bindings/*.cpp ${ROOT}/bindings/*.h)
 set(bad "")
 set(checked 0)
 foreach(f ${files})
-  if(f MATCHES "/deps/" OR f MATCHES "/pipelines/src/dispatch\\.cpp$" OR f MATCHES "/pipelines/test/test_node_traits\\.cpp$")
+  if(f MATCHES "/deps/" OR f MATCHES "/pipelines/src/dispatch\\.cpp$" OR f MATCHES "/pipelines/graph/src/dispatch\\.cpp$" OR f MATCHES "/pipelines/test/test_node_traits\\.cpp$")
     continue()
   endif()
   math(EXPR checked "${checked} + 1")
@@ -19,6 +21,10 @@ foreach(f ${files})
     # a step reached by pointer, reference or lookup, then one of its computation functions called
     if(l MATCHES "(step|registry\\(\\)|\\)|\\])(->|\\.)(prepare|start|chunk_at|chunk|fold|finish|run)\\(" AND NOT l MATCHES "^ *//")
       string(APPEND bad "  ${f}:${i}: a node's function is called outside the dispatch point (use NodeCall and dispatch): ${l}\n")
+    endif()
+    # the graph executor's nodes (pipelines/graph/): a NodeSpec reached as node, spec or through a lookup, then one of its computation functions called
+    if(f MATCHES "/pipelines/graph/" AND l MATCHES "(node|spec|nodes?\\[[^]]*\\]|registry\\(\\)\\.at\\([^)]*\\)|\\))(->|\\.)(prepare|start|step|chunk|finish|run|frame_place|record)\\(" AND NOT l MATCHES "^ *//")
+      string(APPEND bad "  ${f}:${i}: a graph node's function is called outside the dispatch point (use NodeCall and dispatch): ${l}\n")
     endif()
   endforeach()
 endforeach()

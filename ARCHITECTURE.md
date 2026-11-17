@@ -52,6 +52,7 @@ Studio's chain, and only then write code.
 | `compute/` | `nxr_compute` | Eigen, Spectra, geometry-central, pocketfft (vendored). **No file I/O, never `io`.** Its own guide: `compute/CONTRIBUTING.md` |
 | `io/` (`io/formats/`: `nxr_io_formats`, pure file formats) | `nxr_io` | SQLite, zstd/blosc/zlib, matio, HDF5, nlohmann/json, rapidyaml (vendored; 2026-11-12). **Never `compute`** |
 | `meeg/` | `nxr_meeg` | Eigen only. **No file I/O, never `compute` or `io`** (the pipelines hand it arrays) |
+| `pipelines/graph/` | `nxr_graph` | `compute`, `meeg`, Eigen, nlohmann/json (amended 2026-11-17). **No file I/O, never `io`**: the graph executor, which knows arrays and parameters only |
 | `pipelines/` | `nxr_pipelines` | `compute`, `io`, `meeg`: **the only place they meet** |
 | `cli/` | `nxr-neuro` | argument parsing and JSON output only, with no maths |
 | `bindings/` | MEX, Node, wasm, Python | every library (`compute`, `meeg`, `io`, `pipelines`), as `cli/` does: **faces only**. A binding converts arguments and results and calls the library, with no maths, no SQL and no logic of its own (amended 2026-11-17: the earlier "`compute` only" came from the old nxr-compute repository) |
