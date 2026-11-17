@@ -19,6 +19,7 @@ Calibration and unit scaling are decoding and belong here; any other maths does 
 | `deflate.h` | zlib and gzip streams as byte vectors (zlib) |
 | `nifti.h` | NIfTI-1/2: header (every field, extensions), volume (whole, `.nii`, `.nii.gz`, `.hdr`+`.img`), the best affine (sform, else qform, else pixdims), writer |
 | `gifti.h` | GIFTI: surfaces, shape and functional maps, labels; ASCII, Base64Binary and GZipBase64Binary in either byte order; column-major made row-major; reader and writer (pugixml) |
+| `cifti.h` | CIFTI-2 (dtseries, dscalar, dlabel, pscalar, ptseries, any two-dimensional map): the NIfTI-2 header and the XML extension of code 32 parsed whole (series, named maps and label tables, brain models with vertices and voxels, parcels, surfaces, the volume), the matrix by rectangles of rows and columns; read only |
 | `tsv.h` | BIDS-style TSV tables (`n/a`, no empty cells, LF) and JSON sidecars: read and write |
 | `edf.h` | EDF, EDF+, BDF, BDF+ (continuous and discontinuous: gaps as spans, read as zeros); annotations; several sampling rates refused unless one is named |
 | `brainvision.h` | BrainVision `.vhdr`/`.vmrk`/`.eeg`: INT_16, INT_32, IEEE_FLOAT_32, multiplexed or vectorized; ASCII refused; markers as annotations; coordinates |
@@ -59,3 +60,9 @@ Calibration and unit scaling are decoding and belong here; any other maths does 
 - **Entities** follow the specification's order (`sub`, `ses`, `sample`, `task`, `tissue`, `acq`, `ce`, `trc`, `stain`, `rec`, `dir`, `run`, `mod`, `echo`, `flip`, `inv`, `mt`, `part`, `proc`, `hemi`, `space`, `split`, `recording`, `chunk`, `atlas`, `res`, `den`, `label`, `desc`); `build_name` writes in that order (MNE-BIDS orders a few entities differently; the goldens compare only what both order alike). A name that is not `key-value` entities, a suffix and an extension is refused by `parse_name`; the dataset reader lists such a file in `issues` (or refuses with `ReadOptions::strict`), it never drops it silently.
 - **Inheritance:** a metadata file applies to a data file when its suffix is named and its entities are all in the data file's name (for electrodes and coordinate systems, `space` need not be); JSON files are merged from the root down (a deeper value replaces a shallower one whole), tables (channels, events) take the most specific file, electrodes and coordinate systems one file per `space`.
 - **Recordings:** data files of the `meg`, `eeg` and `ieeg` datatypes; split parts are one recording (the `split` entity is dropped from its entities, parts in numeric order); BrainVision `.vmrk`/`.eeg` and EEGLAB `.fdt` are companions; a CTF `.ds` folder is one data file. The data are never read here.
+
+## CIFTI-2 details
+
+- **Orientation** is nibabel's: the matrix is `rows() x cols()`, rows indexing matrix dimension 0 (the series or the named maps) and columns dimension 1 (the grayordinates or parcels); in the file dimension 0 varies fastest, so `read` makes one contiguous read per column and a time series of a few grayordinates is cheap.
+- **Types:** float32 and float64 files; other data types, CIFTI-1 files (version other than 2 or 2.0), a NIfTI-1 file, a file with no extension of code 32 and gzipped files are refused with the reason. A mapping that does not cover the data's dimension is refused.
+- **Not here yet:** the writer (spec section 5.1, after GIFTI export) and the surface templates a CIFTI file's vertex counts are matched against (the importer's job).
