@@ -24,7 +24,6 @@ parameters:
   band_name: {default: required, meaning: "the member of the band set to read bin by bin: its name (the Welch bins from its lo to its hi inclusive are kept)", unit: "-"}
   segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
   segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds); null: from segment_seconds", unit: "samples"}
-  segment_level: {default: null, meaning: "under segment_rule tile: the segment is 2^segment_level samples; null: from segment_seconds", unit: "level"}
   segment_rule: {default: tile, meaning: "how the segment's length becomes samples: tile | round | even", unit: "-", choices: [tile, round, even]}
   overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next, in [0, 1)", unit: "fraction"}
   window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
@@ -43,7 +42,7 @@ steps:
     over: recording
     do:
       - {node: select.bands, in: {x: recording}, with: {bands: $bands, band_names: $band_names}, out: [freq, bands]}
-      - {node: welch.source_bins, in: {x: recording, kernel: kernel, exclude: bad, bands: bands}, with: {band: $band_name, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_level: $segment_level, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: bins}
+      - {node: welch.source_bins, in: {x: recording, kernel: kernel, exclude: bad, bands: bands}, with: {band: $band_name, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: bins}
 
 outputs:
   bins:

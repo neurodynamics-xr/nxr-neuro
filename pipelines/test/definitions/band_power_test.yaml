@@ -1,4 +1,4 @@
-# A TEST fixture of the runner (not shipped: `band_power_source_map` was retired 2026-11-14 for `pyramid build`): the band power of a minimum-norm source estimate
+# A TEST fixture of the runner (not shipped: `band_power_source_map` was retired 2026-11-14 for the `measure` preset `cortical_band_pyramid`): the band power of a minimum-norm source estimate
 # at every source of the kernel's target, per recording, as a chain (band -> kernel -> power, pointwise) and a measure over the run's span. It exercises the runner's
 # inputs, steps, chunk service, cache and provenance on synthetic subjects. Run by path: `nxr-neuro run pipelines/test/definitions/band_power_test.yaml ...`.
 pipeline: band_power_test
@@ -14,7 +14,7 @@ inputs:
 parameters:
   recording: none            # the recording's name, or none: every recording of the subject, one run each
   kernel: none               # the inverse kernel's name, or none: found by `method`
-  band: [8.0, 12.0]          # Hz
+  band: "8-12 Hz"            # a quantity (Hz)
   shape: morlet              # the temporal band's shape: morlet | meyer (compact edges: bands that add up)
   method: MNE                # the kernel's inverse method (its params.inverse.measure): MNE · dSPM · sLORETA · eLORETA
   bad_segments: exclude      # exclude | ignore the recording's spans on its time line
@@ -23,19 +23,20 @@ steps:
   chunks:
     over: recording
     do:
-      - step: band_filter
+      - node: band_filter
         in:   {x: recording}
         with: {band: $band, shape: $shape}
         out:  x_band
-      - step: apply_kernel
+      - node: apply_kernel
         in:   {x: x_band, kernel: kernel}
         out:  sources
-      - step: power
+      - node: field.form
         in:   {x: sources}
+        with: {form: power}
         out:  source_power
-      - step: measure
-        in:   {x: source_power, exclude: bad}
-        with: {measure: mean, bad_segments: $bad_segments}
+      - node: reduce
+        in:   {x: source_power, over: span, exclude: bad}
+        with: {measures: [mean], bad_segments: $bad_segments}
         out:  band_power
 
 outputs:

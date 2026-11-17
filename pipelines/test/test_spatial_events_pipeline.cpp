@@ -24,14 +24,13 @@
 #include "nxr/tower.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
-#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
 #include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
 #include "nxr/taps.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -114,12 +113,13 @@ int main() {
       op.cols.json("params_json", Json{{"inverse", Json{{"measure", "MNE"}}}});
       sub.operator_(std::move(op));
     });
-    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
+  nxrtest::make_time_grids(ds, sub);
+  nxrtest::make_tiles(ds, sub);
   { EigenSolveOptions eo; eo.modes = 100; eo.surface = "cortex"; eigen_solve(ds, sub, eo, {}); }          // stores the glued surface the curl lives on
-  for (const char* rec : {"rest", "rest_b"}) { nxrtest::run_definition(ds, sub, "frametiling", Json{{"recording", rec}, {"band", Json::array({8.0, 12.0})}}); }
+  for (const char* rec : {"rest", "rest_b"}) { nxrtest::make_frames(ds, sub, rec, "8-12 Hz"); }
   const double fps = 1.0 / nxr::tower::periodS(-25);
 
   // ── THE DIRECT COMPUTATION: the band's analytic signal on the sensors (Morlet taps), sampled at the frames by the Kaiser sinc, each level's free current through its dense exact hat on the glued surface ──

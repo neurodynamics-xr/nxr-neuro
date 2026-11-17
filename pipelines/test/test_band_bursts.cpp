@@ -20,7 +20,6 @@
 #include "nxr/bst/entities.h"
 #include "nxr/filterbank.h"
 #include "nxr/io.h"
-#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
@@ -29,6 +28,7 @@
 #include "nxr/pipelines/statistics.h"
 #include "nxr/stats.h"
 #include "nxr/taps.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 namespace g = nxr::pipelines::graph;
@@ -102,9 +102,10 @@ int main() {
         }
       }
     });
-    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
+  nxrtest::make_time_grids(ds, sub);
   const g::Definition d = g::load("band_bursts");
   g::RunOptions all;
   all.chunks = "all";

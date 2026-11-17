@@ -1,11 +1,11 @@
-# THE OPTICAL FLOW'S UNIT AMPLITUDE, pass one: the largest value of the activation map |J| (the kernel applied to one filter-bank member's coefficients) over the run's frames, stored as a STATISTIC
-# of one number. Rheome scales the map to unit amplitude over the whole window before the flow is solved; that is a reduction, so it is a measurement stored by its own definition and read BY NAME by
-# `run flow_modes` (the way the vortex cores' threshold is), never a second pass inside a run. The window is the run's span (`--from`/`--to`/`--all`): run both over the same one.
+# A FIELD CHAIN (`kind: chain`): the activation of ONE filter-bank member on the cortex, the input of optical flow: the recording through one member of a time filter bank (Itersine, Meyer, Morlet, Morse, Amor, Bump) at the
+# member's own rate, then the kernel: field<cortex x frames(member rate)>. Pointwise; no reduction. Composed into `measure` (preset flow_max_amplitude) or run alone; `flow_modes` reads it.
 #
-#   nxr-neuro run flow_amplitude --dataset <folder> --subject sub-01 --recording rest --kernel KERNEL --family morlet --gain 2 --freq 10 --all
-pipeline: flow_amplitude
+#   nxr-neuro run member_activation --dataset <folder> --subject sub-01 --recording rest --family morlet --gain 2 --freq "10 Hz"
+pipeline: member_activation
+kind: chain
 version: 1
-description: the largest activation amplitude of one filter-bank member's source map over the window (the optical flow's unit amplitude)
+description: one filter-bank member's source activation on the cortex, at the member's own rate (the optical flow's input)
 scope: subject
 
 inputs:
@@ -17,16 +17,16 @@ parameters:
   kernel: {default: none, meaning: "the inverse kernel's name, or none: the subject's one inverse kernel on the recording's channels", unit: "-"}
   family: {default: null, meaning: "the time filter bank: itersine | meyer | morlet | morse | amor | bump (no default)", unit: "-"}
   gain: {default: null, meaning: "the peak in-band response of each member (no default; 2 makes |c| the physical amplitude of a real recording)", unit: "-"}
-  freq: {default: null, meaning: "the frequency whose nearest filter-bank member is analysed", unit: "Hz"}
-  centres: {default: [], meaning: "Morlet, Morse, Amor, Bump: the members' centres; for Morlet, empty means the single member at freq", unit: "Hz"}
-  cycles: {default: 6.0, meaning: "Morlet: the width is centre / cycles", unit: "cycles"}
-  voices: {default: 4, meaning: "Itersine: members per octave", unit: "voices/octave"}
-  anchor: {default: 1.0, meaning: "Itersine: the anchor frequency", unit: "Hz"}
-  limits: {default: null, meaning: "Itersine, Meyer: the bank's frequency limits [lo, hi]", unit: "Hz"}
-  half_width: {default: 0.3333333333333333, meaning: "Meyer: the transition half-width", unit: "octaves"}
+  freq: {default: null, meaning: "the frequency whose nearest filter-bank member is analysed", unit: Hz, chart: linear}
+  centres: {default: [], meaning: "Morlet, Morse, Amor, Bump: the members' centres; for Morlet, empty means the single member at freq", unit: Hz, chart: linear}
+  cycles: {default: 6.0, meaning: "Morlet: the width is centre / cycles", unit: cycles}
+  voices: {default: 4, meaning: "Itersine: members per octave", unit: voices/octave}
+  anchor: {default: "1 Hz", meaning: "Itersine: the anchor frequency", unit: Hz, chart: linear}
+  limits: {default: null, meaning: "Itersine, Meyer: the bank's frequency limits as a range, e.g. \"2-40 Hz\"", unit: Hz, chart: linear}
+  half_width: {default: 0.3333333333333333, meaning: "Meyer: the transition half-width", unit: octaves}
   gamma: {default: 3.0, meaning: "Morse: gamma", unit: "-"}
   time_bandwidth: {default: 60.0, meaning: "Morse: the time-bandwidth product", unit: "-"}
-  resolution: {default: 0.5, meaning: "the frequency resolution of the grid the filter bank is designed on", unit: "Hz"}
+  resolution: {default: "0.5 Hz", meaning: "the frequency resolution of the grid the filter bank is designed on", unit: Hz, chart: linear}
   oversample: {default: 2.0, meaning: "the member's own rate is oversample x the rate its bins need", unit: "-"}
   tolerance: {default: null, meaning: "the impulse response's tail the margin may leave out, relative to its norm; null: 1e-7 (float32 blocks); name 1e-12 for float64", unit: "-"}
   input: {default: amplitude, meaning: "amplitude = |J| | signed = the real part (fixed-orientation kernels only)", unit: "-", choices: [amplitude, signed]}
@@ -37,10 +37,6 @@ steps:
     do:
       - {node: timebank.member_analytic, in: {x: recording, channels_of: kernel}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution, oversample: $oversample, tolerance: $tolerance}, out: z}
       - {node: flow.activation, in: {z: z, kernel: kernel}, with: {input: $input}, out: a}
-      - {node: flow.max_amplitude, in: {a: a}, out: maximum}
 
 outputs:
-  maximum:
-    kind: statistic
-    of: recording
-    axes: []
+  a: {kind: field, kind_name: source estimate, name: "{recording}_member_activation", on: kernel.to, derived_from: recording, by_operator: kernel}

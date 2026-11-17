@@ -19,7 +19,7 @@
 #include "nxr/io.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -62,7 +62,7 @@ int main() {
     s.compose([&] { SurfaceOptions so; so.name = "cortex"; so.sphere = U; add_surface(s, so, V, F); });
   }
   SubjectWriter s1 = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, s1, TilesComputeOptions{});
+  nxrtest::make_tiles(ds, s1);
   const SurfaceInput S = read_surface(s1, std::nullopt, true);
   const int L = 3;
   const SurfaceLevel SL = read_surface_level(s1, S, L);
@@ -163,7 +163,7 @@ int main() {
     s.compose([&] { SurfaceOptions so; so.name = "cortex"; so.sphere = U; add_surface(s, so, V, F); });
   }
   SubjectWriter s2 = SubjectWriter::open(ds, "S2");
-  tiles_compute(ds, s2, TilesComputeOptions{});
+  nxrtest::make_tiles(ds, s2);
   const SurfaceInput S2 = read_surface(s2, std::nullopt, true);
   const SurfaceLevel SL2 = read_surface_level(s2, S2, L);
   {
@@ -201,7 +201,7 @@ int main() {
     }
     // no atlas: not computable; auto falls back (announced), eigen refuses naming the atlas
     SubjectWriter s3 = SubjectWriter::open(ds, "S3");
-    tiles_compute(ds, s3, TilesComputeOptions{});
+    nxrtest::make_tiles(ds, s3);
     const SurfaceInput S3 = read_surface(s3, std::nullopt, true);
     const SurfaceLevel SL3 = read_surface_level(s3, S3, L);
     const SpatialBandPlan p3 = plan_spatial_band(s3, S3, SL3, o);
@@ -211,7 +211,7 @@ int main() {
 
     // THE GLUE: the atlas gives the medial wall; the modes are computed on the glued surface and stored; the band read back on the hemispheres
     SubjectWriter s4 = SubjectWriter::open(ds, "S4");
-    tiles_compute(ds, s4, TilesComputeOptions{});
+    nxrtest::make_tiles(ds, s4);
     const SurfaceInput S4 = read_surface(s4, std::nullopt, true);
     const SurfaceLevel SL4 = read_surface_level(s4, S4, L);
     SpatialBandOptions o4 = o; o4.modes = 160;

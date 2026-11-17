@@ -27,7 +27,6 @@ parameters:
   pairs: {default: 3, meaning: "the k strongest quadrature pairs per band", unit: "-"}
   segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
   segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds); null: from segment_seconds", unit: "samples"}
-  segment_level: {default: null, meaning: "under segment_rule tile: the segment is 2^segment_level samples; null: from segment_seconds", unit: "level"}
   segment_rule: {default: tile, meaning: "how the segment's length becomes samples: tile | round | even", unit: "-", choices: [tile, round, even]}
   overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next, in [0, 1)", unit: "fraction"}
   window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
@@ -44,7 +43,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.cross_spectrum, in: {x: recording, channels_of: kernel, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_level: $segment_level, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum]}
+      - {node: welch.cross_spectrum, in: {x: recording, channels_of: kernel, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum]}
   after:
     - {node: quadrature.source_pairs, in: {spectrum: spectrum, kernel: kernel}, with: {pairs: $pairs}, out: [energy, pairs]}
 

@@ -1,183 +1,121 @@
-# THE GLOBAL BURSTS of a band: WHEN the cortex is in one, and WHERE (spec docs/specs/2026-11-13-cortical-events.md, "Global bursts: WHEN, from the cortex" and "Phase 2b: where per global burst"). The recording's band is read on the cortex through the kernel with
-# the level's spatial band folded in (phase 2a's chain), |z| per vertex, and TWO reductions of it:
-#   * per joint cell (spatial tile × time tile): the amplitude and the largest |z| (the cells of `run cortical_cells`); then per time tile the MAX over the level's spatial tiles (whole brain, or per hemisphere):
-#     the TRACE the time events are found on, by `detect_spans` unchanged (Rheome's 1.5 / 1.0 SD, 0.1 s joined, 0.4 s kept; the baseline a statistic, as `band_bursts`);
-#   * per SAMPLE: the area-weighted mean |z| per spatial tile, then the max over the tiles (`tile_max`), kept as a series (`collect`): what `risefall` (Rheome's double-sigmoid fit) refines each burst's
-#     edges on, coarse to fine. The [tiles × samples] intermediate is never stored.
-# The bursts are GLOBAL (a spans Selection of type `burst` on the recording's time line, no channel); with `groups: per_hemisphere` each event carries the hemisphere (the row) that found it in
-# `params_json.channels`. Per burst: the trace's amplitude and peak, duration, interval (the tiles' exact roll-up) and the fit (t_on, t_off, tau_rise, tau_fall, fit_baseline, fit_height, fit_r2,
-# plateau_duration), each with its statistics across the bursts. `min_r2` (labelalpha's is 0.7) sets the fit of a burst below it NaN; the default keeps every fit and stores its r².
+# THE GLOBAL BURSTS of a band: WHEN the cortex is in one, and WHERE (spec docs/specs/2026-11-13-cortical-events.md; the chain of docs/specs/2026-11-17-consolidation.md section 9.1). THE GRAPH:
+#   recording -- the field chain `cortical_band` (composed: the band read on the cortex through the kernel, the SPATIAL band folded in, |z| per vertex) -->
+#   reduce {over: the coupled product (spatial tiles at the spatial scale x time tiles of the band)}: amplitude and envelope_max per CELL -- roll_up {to: whole | pieces, merge max} --> the TRACE
+#   (the largest cell per time tile, over the whole brain or each connected piece) -- summarize --> the baseline -- select.events.spans (Rheome's 1.5 / 1.0 SD) --> the global bursts (an irregular
+#   selection detected over the time grid; no channel) -- risefall (Rheome's double-sigmoid fit on the per-SAMPLE trace) -- select.events.spans {keep_where: the fit gate; stages: onset, within, offset}
+#   -- select.events.regions (the bursts' space x time EXTENT on the cells) -- reduce {over: the bursts, over the extents} -- summarize.
+# Parameters are QUANTITIES: the band (Hz), the spatial scale (a tile diameter, a wavelength or a named scale: its level is resolved in closed form and recorded with the snapped quantity), the
+# filters of the bursts (a gap to join and a duration range, in seconds or in cycles of the band's centre: "0.1 s", ">=3 cycles"), the extents' area (mm2).
+# The cortex is the caller's choice (rule 19): the kernel's surface (the two-hemisphere surface of record) or the glued surface made by `run glue` (the default computational manifold for
+# spatiotemporal patterns, rule 33); the bursts and extents are reported on the original hemispheres.
 #
-# THE BURSTS' OPTIONS: `durations: cycles` (min 3, merged within 1 cycle of the band's centre; risefall's margin 10, smoothing 1, tau <= 10 cycles) as the named
-# alternative to seconds; `bursts_kept` (the fit gate: r2 >= 0.7 and no tau at its bound; nxr burst_stages); `burst_onset` / `burst_within` / `burst_offset` (the stages of each kept burst, from its stored fit).
+# SEVERAL (band x spatial scale) pairs: `--band` and `--spatial-scale` take LISTS; the runner makes one plan per pair, each cached on its own (this replaces `cortical_event_pairs`).
+# THE BURSTS' OPTIONS: `bursts_kept` (the fit gate: r2 >= 0.7 and no tau at its bound; nxr burst_stages); `burst_onset` / `burst_within` / `burst_offset` (the stages of each kept burst).
+# WHERE: each burst's space x time EXTENT on the cells of its own time tiles; each cell's amplitude standardised against its spatial tile's baseline over the run's time tiles; hysteresis regions
+# (`extent_enter_sd` / `extent_exit_sd`) on the graph of touching tiles within a time tile and a tile with itself in the next; every region an EVENT linked to its burst, its measures by the exact
+# roll-up of its cells (area, amplitude, peak, first and last tile, duration, path length of the centres), with their statistics across the events.
 #
-# WHERE (phase 2b): each burst's space × time EXTENT on the joint cells of its own time tiles. Each cell's amplitude is standardized against its spatial tile's baseline over the run's time tiles
-# (`cell_baseline`: the median and robust SD, a statistic), then hysteresis regions (`extent_enter_sd` / `extent_exit_sd`, detectRegions unchanged) on the graph of touching tiles within a time
-# tile and a tile with itself in the next. Every region is an EVENT linked to its burst (`extent_burst`): the labelling of the cells (`extents`, a `set` Selection on the joint partition, code =
-# the event's ordinal) and each event's measures by the exact roll-up of its cells (`extent_*`: cells, tiles, area, amplitude, peak, first and last time tile, duration, path length of the centres;
-# per time tile the area and the centre), with their statistics across the events.
-#
-#   nxr-neuro run tiles      --dataset <folder> --subject sub-01
-#   nxr-neuro run constantq  --dataset <folder> --subject sub-01 --recording rest
-#   nxr-neuro run joint      --dataset <folder> --subject sub-01 --recording rest --space-level 5 --time-level 3
-#   nxr-neuro run global_bursts --dataset <folder> --subject sub-01 --space-level 5 --band '[8.0,16.0]' --all [--groups per_hemisphere]
+#   nxr-neuro run select_dyadic_surface --dataset <folder> --subject sub-01 --surface cortex --finest "20 mm"
+#   nxr-neuro run select_time_grid      --dataset <folder> --subject sub-01 --recording rest
+#   nxr-neuro run global_bursts --dataset <folder> --subject sub-01 --spatial-scale "wavelength 40 mm" --band "8-16 Hz" --all [--groups per_hemisphere]
 pipeline: global_bursts
-version: 1
+version: 2
 description: the global bursts of a band from the cortex (the max over the spatial tiles), their edges refined on samples by Rheome's rise and fall fit
 scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
-  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
-  tiles:     {selection: ladder, manifold: kernel.to}
-  cells:     {selection: set, where: {params.joint.space_level: $space_level, params.joint.band: $band, params.joint.recording: "{recording}"}}
+  bursts_field: {field: source estimate, chain: cortical_band, chain_parameters: {recording: "{recording}", kernel: $kernel, method: $method, bands: $band, shape: $shape, spatial_scale: $spatial_scale, spatial_shape: $spatial_shape, transform: $transform, envelope: $envelope, modes: $modes, order: $order, tolerance: $tolerance}, hint: "composed in: the band on the cortex (the chain `cortical_band`)"}
+  tiles:     {selection: set, manifold: bursts_field.manifold.0, where: {name: "{surface} tiles"}, hint: "the surface's grid (`nxr-neuro run select_dyadic_surface` first)"}
+  grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid"}, hint: "the line's time grid (`nxr-neuro run select_time_grid` first)"}
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
-  band: {default: [8.0, 16.0], meaning: "Hz: a time level's band (its `resolves_hz`)", unit: "Hz"}
-  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer (compact edges: bands that add up)", unit: "-"}
-  spatial_shape: {default: mexhat, meaning: "the spatial level's gain: mexhat | meyer (the level IS its Weyl band: compact edges)", unit: "-"}
-  space_level: {default: 5, meaning: "the surface ladder's level: its Weyl band is the spatial band, its tiles the spatial partition", unit: "level"}
-  groups: {default: whole_brain, meaning: "whole_brain | per_hemisphere: the max over all the spatial tiles, or over each connected piece's", unit: "-"}
-  combine: {default: mean, meaning: "the detection's series: mean (one global trace: GLOBAL events, no row) | each (a trace a group: with per_hemisphere, each event carries its hemisphere); per_hemisphere needs `each`", unit: "-"}
   method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
-  transform: {default: auto, meaning: "the spatial band's transform: auto = the stored eigenmodes when they reach the level's band, else computed and stored (said), else chebyshev (announced) | eigen | chebyshev | exact (dense, at most 4096 vertices)", unit: "-"}
-  envelope: {default: temporal, meaning: "the spatial amplitude: temporal = |z| of the band-passed field (signed lobes: |z| dips to 0 where lobes of opposite sign meet) | spatiotemporal = the MONOGENIC amplitude sqrt(|z|^2 + |R z|^2), R the band's Riesz part (no zero-crossing dips; the rows are another recipe: a rerun of the other envelope needs --replace)", unit: "-"}
-  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
-  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: "degree"}
-  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
+  surface: {default: null, meaning: "the cortex the kernel maps onto, by name (the surface of record or the glued surface)", unit: "-"}
+  band: {default: "8-16 Hz", meaning: "the band as a quantity (its time level is resolved from it)", unit: Hz, chart: linear}
+  shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer (compact edges: bands that add up)", unit: "-"}
+  spatial_shape: {default: mexhat, meaning: "the spatial band's gain: mexhat | meyer (the scale IS its Weyl band: compact edges)", unit: "-"}
+  spatial_scale: {default: null, meaning: "the spatial band as a quantity: a tile diameter (20 mm), a wavelength (wavelength 40 mm), an eigenvalue or a named scale; its Weyl band is the spatial band, its tiles the spatial partition", unit: mm, chart: wavelength}
+  groups: {default: whole_brain, meaning: "whole_brain | per_hemisphere: the max over all the spatial tiles, or over each connected piece's (the roll-up's target: whole | pieces)", unit: "-"}
+  combine: {default: mean, meaning: "the detection's series: mean (one global trace: GLOBAL events, no row) | each (a trace a group: with per_hemisphere, each event carries its hemisphere); per_hemisphere needs `each`", unit: "-"}
+  transform: {default: auto, meaning: "the spatial band's route: auto = the stored eigenmodes when they reach the scale's band, else computed and stored (said), else chebyshev (announced) | eigen | chebyshev | exact (dense, at most 4096 vertices)", unit: "-"}
+  envelope: {default: temporal, meaning: "the spatial amplitude: temporal = |z| of the band-passed field | spatiotemporal = the monogenic amplitude (another recipe: a rerun of the other envelope needs --replace)", unit: "-"}
+  modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the scale needs it", unit: modes}
+  order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: degree}
+  tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: fraction}
   bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
   enter_sd: {default: 1.5, meaning: "Rheome's labelalpha (as band_bursts)", unit: "robust SD"}
   exit_sd: {default: 1.0, meaning: "robust SDs above the median to extend a burst (Rheome's loSD)", unit: "robust SD"}
-  merge_s: {default: 0.1, meaning: "gaps up to this are joined", unit: "s"}
-  min_s: {default: 0.4, meaning: "the shortest burst kept", unit: "s"}
-  max_s: {default: null, meaning: "the longest burst kept; null: no limit", unit: "s"}
-  durations: {default: seconds, meaning: "the bursts' durations: seconds (merge_s 0.1, min_s 0.4: Rheome's labelalpha, the default) | cycles (the project's nxr spindle_envelope: merge_cycles, min_cycles, max_cycles of the band's CENTRE; and risefall's margin_cycles, smooth_cycles, tau_max_cycles); the seconds above are then not used", unit: "-"}
-  merge_cycles: {default: 1, meaning: "gaps up to this many cycles of the band's centre are joined", unit: "cycles"}
-  min_cycles: {default: 3, meaning: "the shortest burst kept, in cycles of the band's centre", unit: "cycles"}
-  max_cycles: {default: null, meaning: "the longest burst kept, in cycles; null: no limit", unit: "cycles"}
-  margin_cycles: {default: 10, meaning: "risefall in cycles (nxr burst_stages)", unit: "cycles"}
-  smooth_cycles: {default: 1, meaning: "risefall smoothing, in cycles", unit: "cycles"}
-  tau_max_cycles: {default: 10, meaning: "risefall bound, in cycles", unit: "cycles"}
-  gate_min_r2: {default: 0.7, meaning: "fit_gate (nxr burst_stages, labelalpha's): a burst is kept when its fit has r2 at least this and neither tau at its bound", unit: "R2"}
+  gap: {default: "0.1 s", meaning: "gaps up to this are joined; seconds (Rheome's labelalpha, the default) or cycles of the band's centre (the nxr spindle_envelope: \"1 cycles\")", unit: s, chart: clock}
+  duration: {default: ">=0.4 s", meaning: "the bursts kept, by duration: a range or a lower bound, in seconds (\">=0.4 s\") or in cycles of the band's centre (\">=3 cycles\")", unit: s, chart: clock}
+  margin: {default: "1 s", meaning: "risefall: either side of a burst included in its fit; in seconds or cycles (nxr burst_stages: \"10 cycles\")", unit: s, chart: clock}
+  smooth: {default: "0.1 s", meaning: "risefall: the symmetric moving mean applied first; seconds or cycles (\"1 cycles\")", unit: s, chart: clock}
+  tau_max: {default: "1 s", meaning: "risefall: the bound of the rise and fall times; seconds or cycles (\"10 cycles\")", unit: s, chart: clock}
+  gate_min_r2: {default: 0.7, meaning: "the fit gate (nxr burst_stages, labelalpha's): a burst is kept when its fit has r2 at least this and neither tau at its bound", unit: R2}
   model: {default: linear, meaning: "risefall: linear | quadrature (the posterior model is not built)", unit: "-"}
-  margin: {default: 1.0, meaning: "risefall: seconds either side of a burst included in its fit", unit: "s"}
-  smooth: {default: 0.1, meaning: "risefall: the symmetric moving mean applied first (s)", unit: "s"}
-  tau_max: {default: 1.0, meaning: "risefall: the bound of the rise and fall times (s)", unit: "s"}
-  min_r2: {default: null, meaning: "risefall: a fit below it is set NaN; null keeps every fit (the caller filters on fit_r2)", unit: "R2"}
+  min_r2: {default: null, meaning: "risefall: a fit below it is set NaN; null keeps every fit (the caller filters on fit_r2)", unit: R2}
   burst_summaries: {default: [count, sum, median, mean, sd, "percentile:25", "percentile:75", "percentile:90"], meaning: "the statistics across the bursts, per measurement", unit: "-"}
   extent_enter_sd: {default: 1.5, meaning: "the extent's hysteresis on z = (cell amplitude - the tile's median) / the tile's robust SD (as the bursts')", unit: "robust SD"}
   extent_exit_sd: {default: 1.0, meaning: "the extent's lower hysteresis threshold", unit: "robust SD"}
-  min_cells: {default: 1, meaning: "an event holds at least this many cells ...", unit: "cells"}
-  min_area: {default: 0.0, meaning: "... and its cells' tiles at least this area (m2)", unit: "m2"}
+  area: {default: ">=0 mm2", meaning: "an event's cells' tiles cover at least this area (a range or a lower bound, in mm2)", unit: mm2, chart: area}
 
 steps:
   chunks:
     over: recording
     do:
-      - {step: analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
-      - {step: apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {level: $space_level, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, envelope: $envelope}, out: sources}
-      - {step: magnitude, in: {x: sources}, out: mag}
-      - {step: measure, in: {x: mag, over: cells, exclude: bad}, with: {measure: amplitude, bad_segments: $bad_segments}, out: cell_amplitude}
-      - {step: measure, in: {x: mag, over: cells, exclude: bad}, with: {measure: envelope_max, bad_segments: $bad_segments}, out: cell_peak}
-      - {step: tile_max, in: {x: mag, tiles: tiles}, with: {level: $space_level, groups: $groups}, out: trace}
-      - {step: collect, in: {x: trace}, out: samples}
+      # the cells: amplitude and the largest |z| per (spatial tile x time tile), the product coupled to the band and the spatial scale
+      - {node: field.form, in: {x: bursts_field}, with: {form: magnitude}, out: mag}
+      - {node: reduce, in: {x: mag, over: tiles, exclude: bad}, with: {at: $band, spatial_scale: $spatial_scale, measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: cells}
+      # per SAMPLE: the area-weighted mean |z| per spatial tile (pointwise in time), then the max over the tiles, kept as a series for risefall
+      - {node: reduce, in: {x: mag, over: tiles}, with: {spatial_scale: $spatial_scale, measures: [mean]}, out: tile_samples}
+      - {node: roll_up, in: {x: tile_samples}, with: {to: $groups, merge: max}, out: trace}
+      - {node: collect, in: {x: trace}, out: samples}
   after:
-    - {step: reduce_cells, in: {x: cell_amplitude}, with: {groups: $groups}, out: trace_amplitude}
-    - {step: reduce_cells, in: {x: cell_peak}, with: {groups: $groups}, out: trace_peak}
-    - {step: summarize, in: {x: trace_amplitude}, with: {summaries: [median, mad], combine: $combine}, out: baseline}
-    - step: detect_spans
-      in:   {x: trace_amplitude, baseline: baseline}
-      with: {combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, merge_s: $merge_s, min_s: $min_s, max_s: $max_s, durations: $durations, merge_cycles: $merge_cycles, min_cycles: $min_cycles, max_cycles: $max_cycles}
-      out:  bursts
-    - {step: measure_events, in: {x: trace_amplitude, events: bursts}, with: {measure: amplitude},     out: burst_amplitude}
-    - {step: measure_events, in: {x: trace_peak, events: bursts},      with: {measure: envelope_max},  out: burst_peak}
-    - {step: measure_events, in: {x: trace_amplitude, events: bursts}, with: {measure: duration},      out: burst_duration}
-    - {step: measure_events, in: {x: trace_amplitude, events: bursts}, with: {measure: interval_next}, out: burst_interval}
-    - step: risefall
+    - {node: roll_up, in: {x: cells}, with: {to: $groups, merge: max}, out: trace_cells}
+    - {node: summarize, in: {x: trace_cells}, with: {summaries: [median, mad], combine: $combine, of: amplitude}, out: baseline}
+    - {node: select.events.spans, in: {x: trace_cells, baseline: baseline}, with: {measure: amplitude, combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, gap: $gap, duration: $duration}, out: bursts}
+    - {node: reduce, in: {x: trace_cells, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: burst_values}
+    - node: risefall
       in:   {x: samples, events: bursts}
-      with: {model: $model, margin: $margin, smooth: $smooth, tau_max: $tau_max, min_r2: $min_r2, durations: $durations, margin_cycles: $margin_cycles, smooth_cycles: $smooth_cycles, tau_max_cycles: $tau_max_cycles}
+      with: {model: $model, margin: $margin, smooth: $smooth, tau_max: $tau_max, min_r2: $min_r2}
       out:  [t_on, t_off, tau_rise, tau_fall, fit_baseline, fit_height, fit_r2, plateau_duration]
-    - {step: fit_gate, in: {events: bursts, fit_r2: fit_r2}, with: {min_r2: $gate_min_r2}, out: bursts_kept}
-    - step: burst_stages
-      in:   {events: bursts, t_on: t_on, t_off: t_off, tau_rise: tau_rise, tau_fall: tau_fall, kept: bursts_kept}
-      out:  [burst_onset, burst_within, burst_offset]
-    - {step: summarize, in: {x: burst_amplitude}, with: {summaries: $burst_summaries, combine: each}, out: burst_amplitude_stats}
-    - {step: summarize, in: {x: burst_peak},      with: {summaries: $burst_summaries, combine: each}, out: burst_peak_stats}
-    - {step: summarize, in: {x: burst_duration},  with: {summaries: $burst_summaries, combine: each}, out: burst_duration_stats}
-    - {step: summarize, in: {x: burst_interval},  with: {summaries: $burst_summaries, combine: each}, out: burst_interval_stats}
-    - {step: summarize, in: {x: tau_rise},        with: {summaries: $burst_summaries, combine: each}, out: tau_rise_stats}
-    - {step: summarize, in: {x: tau_fall},        with: {summaries: $burst_summaries, combine: each}, out: tau_fall_stats}
-    - {step: summarize, in: {x: fit_r2},          with: {summaries: $burst_summaries, combine: each}, out: fit_r2_stats}
-    - {step: summarize, in: {x: cell_amplitude}, with: {summaries: [median, mad], combine: each}, out: cell_baseline}
-    - step: cell_extent
-      in:   {x: cell_amplitude, baseline: cell_baseline, events: bursts}
-      with: {enter_sd: $extent_enter_sd, exit_sd: $extent_exit_sd, min_cells: $min_cells, min_area: $min_area}
-      out:  extents
-    - {step: extent_measure, in: {labels: extents}, with: {measure: n_cells},       out: extent_n_cells}
-    - {step: extent_measure, in: {labels: extents}, with: {measure: n_tiles},       out: extent_n_tiles}
-    - {step: extent_measure, in: {labels: extents}, with: {measure: area},          out: extent_area}
-    - {step: extent_measure, in: {labels: extents, x: cell_amplitude}, with: {measure: amplitude},    out: extent_amplitude}
-    - {step: extent_measure, in: {labels: extents, x: cell_peak},      with: {measure: envelope_max}, out: extent_peak}
-    - {step: extent_measure, in: {labels: extents}, with: {measure: first_tile},    out: extent_first_tile}
-    - {step: extent_measure, in: {labels: extents}, with: {measure: last_tile},     out: extent_last_tile}
-    - {step: extent_measure, in: {labels: extents}, with: {measure: duration},      out: extent_duration}
-    - {step: extent_measure, in: {labels: extents}, with: {measure: burst_ordinal}, out: extent_burst}
-    - {step: extent_measure, in: {labels: extents}, with: {measure: path_length},   out: extent_path_length}
-    - {step: extent_measure, in: {labels: extents}, with: {measure: area,          per: time_tile}, out: extent_area_by_tile}
-    - {step: extent_measure, in: {labels: extents}, with: {measure: centre_vertex, per: time_tile}, out: extent_centre_by_tile}
-    - {step: summarize, in: {x: extent_n_cells},     with: {summaries: $burst_summaries, combine: each}, out: extent_n_cells_stats}
-    - {step: summarize, in: {x: extent_area},        with: {summaries: $burst_summaries, combine: each}, out: extent_area_stats}
-    - {step: summarize, in: {x: extent_amplitude},   with: {summaries: $burst_summaries, combine: each}, out: extent_amplitude_stats}
-    - {step: summarize, in: {x: extent_peak},        with: {summaries: $burst_summaries, combine: each}, out: extent_peak_stats}
-    - {step: summarize, in: {x: extent_duration},    with: {summaries: $burst_summaries, combine: each}, out: extent_duration_stats}
-    - {step: summarize, in: {x: extent_path_length}, with: {summaries: $burst_summaries, combine: each}, out: extent_path_length_stats}
+    - {node: select.events.spans, in: {events: bursts, fit_r2: fit_r2}, with: {rule: keep_where, min_r2: $gate_min_r2}, out: bursts_kept}
+    - {node: select.events.spans, in: {events: bursts, t_on: t_on, t_off: t_off, tau_rise: tau_rise, tau_fall: tau_fall, kept: bursts_kept}, with: {rule: stages}, out: [burst_onset, burst_within, burst_offset]}
+    - {node: summarize, in: {x: burst_values}, with: {summaries: $burst_summaries, combine: each}, out: burst_stats}
+    - {node: summarize, in: {x: tau_rise},     with: {summaries: $burst_summaries, combine: each}, out: tau_rise_stats}
+    - {node: summarize, in: {x: tau_fall},     with: {summaries: $burst_summaries, combine: each}, out: tau_fall_stats}
+    - {node: summarize, in: {x: fit_r2},       with: {summaries: $burst_summaries, combine: each}, out: fit_r2_stats}
+    - {node: summarize, in: {x: cells},        with: {summaries: [median, mad], combine: each, of: amplitude}, out: cell_baseline}
+    # WHERE: the extents, regions of the cells standardised against their tile's baseline, within each burst
+    - {node: select.events.regions, in: {x: cells, baseline: cell_baseline, events: bursts}, with: {enter_sd: $extent_enter_sd, exit_sd: $extent_exit_sd, area: $area}, out: extents}
+    - {node: reduce, in: {x: cells, over: extents}, with: {measures: [area, amplitude, envelope_max, first_cell, last_cell, duration, path_length, centre]}, out: extent_values}
+    - {node: summarize, in: {x: extent_values}, with: {summaries: $burst_summaries, combine: each}, out: extent_stats}
 
 outputs:
+  cells:            {kind: measurement, over: tiles, of: bursts_field}
   baseline:         {kind: statistic}
-  bursts:           {kind: spans, types: [burst]}
+  bursts:           {kind: spans, types: [burst], detected_over: grid}
   bursts_kept:      {kind: spans, types: [burst]}         # the bursts whose rise-fall fit is good (r2 >= gate_min_r2, no tau at its bound); the unfiltered `bursts` stay
-  burst_onset:      {kind: spans, types: [onset]}         # t_on ± 2 tau_rise of each kept burst
-  burst_within:     {kind: spans, types: [within]}        # the plateau [t_on + 2 tau_rise, t_off − 2 tau_fall]
-  burst_offset:     {kind: spans, types: [offset]}        # t_off ± 2 tau_fall
-  burst_amplitude:  {kind: measurement}
-  burst_peak:       {kind: measurement}
-  burst_duration:   {kind: measurement}
-  burst_interval:   {kind: measurement}
-  t_on:             {kind: measurement}
-  t_off:            {kind: measurement}
-  tau_rise:         {kind: measurement}
-  tau_fall:         {kind: measurement}
-  fit_baseline:     {kind: measurement}
-  fit_height:       {kind: measurement}
-  fit_r2:           {kind: measurement}
-  plateau_duration: {kind: measurement}
-  burst_amplitude_stats: {kind: statistic}
-  burst_peak_stats:      {kind: statistic}
-  burst_duration_stats:  {kind: statistic}
-  burst_interval_stats:  {kind: statistic}
-  tau_rise_stats:        {kind: statistic}
-  tau_fall_stats:        {kind: statistic}
-  fit_r2_stats:          {kind: statistic}
-  cell_baseline:         {kind: statistic}
-  extents:               {kind: labelling}
-  extent_n_cells:        {kind: measurement}
-  extent_n_tiles:        {kind: measurement}
-  extent_area:           {kind: measurement}
-  extent_amplitude:      {kind: measurement}
-  extent_peak:           {kind: measurement}
-  extent_first_tile:     {kind: measurement}
-  extent_last_tile:      {kind: measurement}
-  extent_duration:       {kind: measurement}
-  extent_burst:          {kind: measurement}
-  extent_path_length:    {kind: measurement}
-  extent_area_by_tile:   {kind: measurement}
-  extent_centre_by_tile: {kind: measurement}
-  extent_n_cells_stats:     {kind: statistic}
-  extent_area_stats:        {kind: statistic}
-  extent_amplitude_stats:   {kind: statistic}
-  extent_peak_stats:        {kind: statistic}
-  extent_duration_stats:    {kind: statistic}
-  extent_path_length_stats: {kind: statistic}
+  burst_onset:      {kind: spans, types: [onset]}         # t_on +- 2 tau_rise of each kept burst
+  burst_within:     {kind: spans, types: [within]}        # the plateau [t_on + 2 tau_rise, t_off - 2 tau_fall]
+  burst_offset:     {kind: spans, types: [offset]}        # t_off +- 2 tau_fall
+  burst_values:     {kind: measurement, over: bursts}
+  t_on:             {kind: measurement, over: bursts}
+  t_off:            {kind: measurement, over: bursts}
+  tau_rise:         {kind: measurement, over: bursts}
+  tau_fall:         {kind: measurement, over: bursts}
+  fit_baseline:     {kind: measurement, over: bursts}
+  fit_height:       {kind: measurement, over: bursts}
+  fit_r2:           {kind: measurement, over: bursts}
+  plateau_duration: {kind: measurement, over: bursts}
+  burst_stats:      {kind: statistic, of: burst_values}
+  tau_rise_stats:   {kind: statistic}
+  tau_fall_stats:   {kind: statistic}
+  fit_r2_stats:     {kind: statistic}
+  cell_baseline:    {kind: statistic}
+  extents:          {kind: spans, types: [extent], detected_over: cells}       # irregular: the events' regions on the cells, centre and extent, linked to their burst
+  extent_values:    {kind: measurement, over: extents}
+  extent_stats:     {kind: statistic, of: extent_values}

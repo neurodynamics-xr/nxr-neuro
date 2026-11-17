@@ -19,9 +19,9 @@
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
-#include "nxr/pipelines/constant_q.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/wishart_null.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -96,9 +96,10 @@ int main() {
       for (const auto& [k, l] : bursts) { (void)l; spans.push_back({k * tile_s, (k + 4) * tile_s, 0}); }
       nxr::bst::time_spans(sub, "time/bursts", spans, {"burst"}, bo);
     });
-    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
+  nxrtest::make_time_grids(ds, sub);
   nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});
   { CrossSpectrumOptions co; co.recording = "rest"; co.chunks = "all"; co.bands = {{"alpha", 8.0, 12.0}}; co.estimator = "analytic"; co.level = 8; crossspectrum_compute(ds, sub, co); }
   WishartNullOptions wo;

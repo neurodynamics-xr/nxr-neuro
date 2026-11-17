@@ -26,7 +26,6 @@
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
-#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
 #include "run_definition.h"
@@ -34,7 +33,7 @@
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/surrogate_compare.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -129,11 +128,12 @@ int main() {
       op.cols.json("params_json", Json{{"inverse", Json{{"measure", "MNE"}}}});
       sub.operator_(std::move(op));
     });
-    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
-  for (const char* rec : {"rest", "rest_b"}) { nxrtest::run_definition(ds, sub, "frametiling", Json{{"recording", rec}, {"band", Json::array({8.0, 12.0})}}); }
+  nxrtest::make_time_grids(ds, sub);
+  nxrtest::make_tiles(ds, sub);
+  for (const char* rec : {"rest", "rest_b"}) { nxrtest::make_frames(ds, sub, rec, "8-12 Hz"); }
   std::printf("  %d vertices on a 10 cm sphere; blobs 2 cm at vertex %d and 5 cm at vertex %d (%.1f cm apart)\n", N, vA, vB, 100 * ang(vA, vB));
 
   g::RunOptions all; all.chunks = "all"; all.replace = true;

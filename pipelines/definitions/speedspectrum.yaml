@@ -42,7 +42,6 @@ parameters:
   speed_max: {default: 0.0, meaning: "the highest speed; 0: from the spectrum", unit: "length/s"}
   segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
   segment_samples: {default: null, meaning: "the segment's length in samples; null: from segment_seconds", unit: "samples"}
-  segment_level: {default: null, meaning: "under segment_rule tile: the segment is 2^segment_level samples", unit: "level"}
   segment_rule: {default: tile, meaning: "tile | round | even", unit: "-", choices: [tile, round, even]}
   overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next", unit: "fraction"}
   window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
@@ -57,7 +56,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: welch.mode_cross_spectra, in: {x: recording, weights: weights, exclude: bad}, with: {rows: flow, fmin: $fmin, fmax: $fmax, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_level: $segment_level, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: spectra}
+      - {node: welch.mode_cross_spectra, in: {x: recording, weights: weights, exclude: bad}, with: {rows: flow, fmin: $fmin, fmax: $fmax, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: spectra}
   after:
     - {node: hodge.speed_spectrum, in: {spectra: spectra, weights: weights}, with: {graph_family: $graph_family, graph_voices: $graph_voices, graph_filters: $graph_filters, family: $family, gain: $gain, sides: $sides, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, speed_bins: $speed_bins, speed_min: $speed_min, speed_max: $speed_max}, out: [energy, tile_speed, quadrature, histogram]}
 

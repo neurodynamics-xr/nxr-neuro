@@ -1,5 +1,5 @@
 # ONE DRAW OF THE LAG-FREE SURROGATE of the spatial events (spec docs/specs/2026-11-17-surrogates.md; docs/specs/2026-11-14-spatial-events.md, "Statistics and nulls"): the SAME graph as
-# `run spatial_events`, run on a lag-free surrogate of the recording in place of the recording (Gaussian noise with the data's own spectrum, scaled to the data's band envelope: `run lagfree_envelope`,
+# `run spatial_events`, run on a lag-free surrogate of the recording in place of the recording (Gaussian noise with the data's own spectrum, scaled to the data's band envelope: `run measure --set surrogate_lagfree_envelope`,
 # mixed by the band's real cross-spectrum as its zero-lag covariance, no lag). The baseline, the threshold and the burst frames are the DATA's: only the signal is replaced, so the draw's patches are what
 # the same threshold finds in a signal with the data's covariance, spectrum and envelope and no travelling.
 # THE ORDER (spec section 4): white -> shaping taps -> envelope scale (`surrogate.lagfree`, UNMIXED) -> analytic -> frames -> ONE fused operator per hat level (the kernel's current through the level's hat on
@@ -10,7 +10,7 @@
 #
 #   nxr-neuro run surrogate_lagfree_spatial_events --dataset <folder> --subject sub-01 --recording rest --cross-spectrum rest_crossspectrum_alpha --seed 1 --all
 pipeline: surrogate_lagfree_spatial_events
-version: 1
+version: 2
 description: one draw of the lag-free surrogate of the spatial events (the same graph on a lag-free surrogate of the recording), its home map and patch summary as statistics
 scope: subject
 draw: seed
@@ -18,15 +18,17 @@ draw: seed
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}, read: shape}
   kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
-  tiles:     {selection: ladder, manifold: kernel.to}
-  tiling:    {selection: spans, manifold: recording.time, where: {name: $tiling}}
+  tiles:     {selection: ladder, manifold: kernel.to, where: {name: "{surface} tiles"}, hint: "the surface's grid (`nxr-neuro run select_dyadic_surface` first)"}
+  glued:     {manifold: surface, where: {name: $glued_surface}, hint: "the glued cortex (`nxr-neuro run glue` first)"}
+  grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid"}, hint: "the line's time grid (`nxr-neuro run select_time_grid` first)"}
   bursts:    {selection: spans, manifold: recording.time, where: {name: $bursts}}
   baseline:  {statistic: mean, where: {name: $baseline_statistic}}
   threshold: {statistic: histogram, where: {name: $threshold_statistic}, required: false}   # read only by `threshold: percentile` (refused there when it is not stored)
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
   psd:            {statistic: welch, where: {name: $psd_statistic}}
   cross_spectrum: {statistic: welch, where: {name: $cross_spectrum}}
-  power_series:   {statistic: power_tiles, where: {name: $power_series_statistic}}
+  power_series:   {measurement: any, where: {name: $power_series_measurement}, hint: "the data's band power per tile: `nxr-neuro run measure --set surrogate_lagfree_envelope` first"}
+  psd_channel_mean: {measurement: any, where: {name: $psd_channel_mean_measurement}, hint: "the PSD's mean over channels, a stored measurement (`nxr-neuro run measure --set psd_channel_mean` first), read by name (rule 32)"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
@@ -34,19 +36,23 @@ parameters:
   taps_half: {default: 0, meaning: "the surrogate's taps: 0 from the PSD's resolution", unit: "samples"}
   psd_statistic: {default: "{recording}_psd_welch", meaning: "the stored PSD statistic, by name", unit: "-"}
   cross_spectrum: {default: none, meaning: "the band's stored cross-spectrum (`run crossspectrum --channels-of KERNEL`), by name", unit: "-"}
-  power_series_statistic: {default: "lagfree_envelope.series.{recording}", meaning: "the stored power series statistic, by name", unit: "-"}
+  power_series_measurement: {default: "measure.surrogate_lagfree_envelope.{recording}", meaning: "the stored band power per tile (a measurement: preset surrogate_lagfree_envelope), by name", unit: "-"}
+  psd_channel_mean_measurement: {default: "measure.psd_channel_mean.{recording}", meaning: "the PSD's channel mean (a measurement: preset psd_channel_mean), by name", unit: "-"}
   kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
-  band: {default: [8.0, 12.0], meaning: "the time level's band (its `resolves_hz`)", unit: "Hz"}
+  band: {default: "8-12 Hz", meaning: "the temporal band as a quantity (the frames and the time grid are resolved from it)", unit: Hz, chart: linear}
   shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer", unit: "-"}
   spatial_shape: {default: mexhat, meaning: "the spatial level's gain: mexhat | meyer", unit: "-"}
-  levels: {default: [2, 3, 4, 5, 6, 7, 8], meaning: "the scale space: one hat each (2 and 3 reach the coarse sizes level 4 cut off;); must be the baseline's", unit: "level"}
-  reference_level: {default: 6, meaning: "the level whose relative power the patches are cut from", unit: "level"}
+  spatial_scales: {default: ["parts 4", "parts 8", "parts 16", "parts 32", "parts 64", "parts 128", "parts 256"], meaning: "the scale space: one hat each, as quantities; must be the baseline's", unit: mm, chart: wavelength}
+  reference_scale: {default: "parts 64", meaning: "the scale whose relative power the patches are cut from", unit: mm, chart: wavelength}
   method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
   transform: {default: auto, meaning: "the spatial band's transform: auto | eigen | chebyshev | exact", unit: "-"}
   modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
   order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: "degree"}
   tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
-  tiling: {default: "{recording} frames 0.00257492 s", meaning: "the frame tiling's name", unit: "-"}
+  frames_per_cycle: {default: 36, meaning: "the frame density: frames to one cycle of the band's centre (the 10 degree step of phase work); the data's, as the draw is of the data's chain", unit: frames/cycle}
+  frames_per_tile: {default: null, meaning: "the frame density per tile of the band instead (a power of two); wins over frames_per_cycle when given", unit: frames/tile}
+  origin: {default: start, meaning: "the frames' origin as a point: start | clock | event", unit: "-", choices: [start, clock, event]}
+  glued_surface: {default: null, meaning: "the glued cortex made by `run glue`, by name", unit: "-"}
   bursts: {default: "global_bursts.bursts_kept.{recording}", meaning: "the spans Selection the run uses, by name", unit: "-"}
   baseline_statistic: {default: "spatial_baseline.baseline.{recording}", meaning: "the stored baseline (`run spatial_baseline`), by name", unit: "-"}
   threshold_statistic: {default: "spatial_threshold.histogram.{recording}", meaning: "the stored distribution of the relative power outside the bursts (`run spatial_threshold`), by name", unit: "-"}
@@ -59,22 +65,22 @@ parameters:
 
 steps:
   before:
-    - {step: surrogate.lagfree_mixing, in: {cross_spectrum: cross_spectrum}, out: mixing}
+    - {node: surrogate.lagfree_mixing, in: {cross_spectrum: cross_spectrum}, out: mixing}
   chunks:
     over: recording
     do:
-      - step: surrogate.lagfree
-        in:   {x: recording, psd: psd, cross_spectrum: cross_spectrum, power_series: power_series}
+      - node: surrogate.lagfree
+        in:   {x: recording, psd: psd, psd_channel_mean: psd_channel_mean, cross_spectrum: cross_spectrum, power_series: power_series}
         with: {band: $band, shape: $shape, taps_half: $taps_half, seed: $seed}
         out:  y
-      - {step: analytic, in: {x: y}, with: {band: $band, shape: $shape}, out: z}
-      - {step: frames, in: {x: z, tiling: tiling, within: bursts}, out: z_frames}
-      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, pre_operator: mixing}, with: {levels: $levels, glued: true, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
-      - {step: power, in: {x: j}, out: p}
-      - {step: relative, in: {x: p, baseline: baseline}, out: r}
-      - {step: at_level, in: {x: r}, with: {level: $reference_level}, out: r_ref}
-      - {step: scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
-      - step: patches
+      - {node: analytic, in: {x: y}, with: {band: $band, shape: $shape}, out: z}
+      - {node: frames, in: {x: z, tiling: grid, within: bursts}, with: {band: $band, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
+      - {node: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued, pre_operator: mixing}, with: {spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
+      - {node: field.form, in: {x: j}, with: {form: power}, out: p}
+      - {node: relative, in: {x: p, baseline: baseline}, out: r}
+      - {node: at_level, in: {x: r}, with: {scale: $reference_scale}, out: r_ref}
+      - {node: scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
+      - node: select.events.regions
         in:   {x: r_ref, scale: sc, bursts: bursts, exclude: bad, threshold: threshold}
         with: {threshold: $threshold, percentile: $percentile, ratio: $ratio, min_area: $min_area, block_frames: $block_frames, bad_segments: $bad_segments, events: false}
         out:  [events, frame, burst, centre_vertex, centre, area, diameter_cm, characteristic_level, size_cm, relative_peak, home, summary]

@@ -53,7 +53,45 @@ struct Table {
 // each helped with its declared meaning, default and unit (the definition's long form); a parameter written in the short form is helped as undocumented.
 // the old spellings of the pipelines that became definitions (their table entry went with the hand-wired code): refused, naming the new one (docs/specs/2026-11-17-compute-and-run.md, 6.3)
 const std::vector<std::pair<std::vector<std::string>, std::string>>& converted_spellings() {
-  static const std::vector<std::pair<std::vector<std::string>, std::string>> v = {{{"psd", "compute"}, "run psd"}, {{"tiles", "compute"}, "run tiles"}, {{"eigen", "solve"}, "run eigenmodes"}};
+  // OLD NAMES ARE NOT KEPT as aliases: every retired spelling is refused with the name of what replaces it (docs/specs/2026-11-17-consolidation.md section 9). A replacement's parameters are
+  // quantities (a band in Hz, a tile in mm, a duration in s), never level indices: see `nxr-neuro run <name> --help`.
+  static const std::vector<std::pair<std::vector<std::string>, std::string>> v = {
+      {{"psd", "compute"}, "run psd"},
+      {{"eigen", "solve"}, "run eigenmodes (a cortex of two hemispheres: `run glue` first, then the glued surface by name)"},
+      {{"tiles", "compute"}, "run select_dyadic_surface"},
+      {{"run", "tiles"}, "run select_dyadic_surface --rule subject"},
+      {{"run", "group_tree"}, "run select_dyadic_surface --rule group"},
+      {{"run", "group_tiles"}, "run select_dyadic_surface --rule transfer"},
+      {{"joint", "compute"}, "run select_product (or compose it in `run measure`)"},
+      {{"run", "joint"}, "run select_product (or compose it in `run measure`)"},
+      {{"frametiling", "compute"}, "run select_time_grid --rule frames"},
+      {{"run", "frametiling"}, "run select_time_grid --rule frames"},
+      {{"constantq", "compute"}, "run select_time_grid --rule constant_q"},
+      {{"run", "constantq"}, "run select_time_grid --rule constant_q"},
+      {{"run", "pyramid_bands"}, "run select_bands --rule frequency"},
+      {{"run", "spatial_bands"}, "run select_bands --rule levels"},
+      {{"run", "pyramid"}, "run measure --set cortical_band_pyramid"},
+      {{"pyramid", "reduce"}, "run roll_up (group scope)"},
+      {{"reduce", "pyramid"}, "run roll_up (group scope)"},
+      {{"run", "cortical_cells"}, "run measure --set cortical_band_cells"},
+      {{"run", "cortical_cell_pairs"}, "run measure --set cortical_band_cells (lists of --band and --spatial-scale make one plan each)"},
+      {{"run", "cell_phase_current"}, "run measure --set cortical_band_cells_current"},
+      {{"run", "cortical_event_pairs"}, "run global_bursts (lists of --band and --spatial-scale make one plan each)"},
+      {{"run", "measure_over_time"}, "run measure (a stored field over a stored time grid)"},
+      {{"run", "channel_mean"}, "run measure --set channel_span_mean"},
+      {{"run", "band_amplitude"}, "run measure --set sensor_band_amplitude"},
+      {{"run", "crossspectrum_analytic"}, "run measure --set analytic_cross_spectrum_tiles"},
+      {{"run", "lagfree_envelope"}, "run measure --set surrogate_lagfree_envelope"},
+      {{"run", "flow_amplitude"}, "run measure --set flow_max_amplitude"},
+      {{"run", "statistic"}, "run summarize"},
+      {{"run", "frames"}, "run surface_frames"},
+      {{"frames", "compute"}, "run surface_frames"},
+      {{"cyclepattern", "compute"}, "run measure over the window cross-spectrum series (`select_time_grid --rule windows`, `estimate`), then `run summarize` (method cycle_pattern)"},
+      {{"run", "cyclepattern"}, "run measure over the window cross-spectrum series (`select_time_grid --rule windows`, `estimate`), then `run summarize` (method cycle_pattern)"},
+      {{"phasegradient", "compute"}, "run phasegradient"},
+      {{"opticalflow", "compute"}, "run flow_modes (after `run measure --set flow_max_amplitude`)"},
+      {{"run", "opticalflow"}, "run flow_modes (after `run measure --set flow_max_amplitude`)"},
+  };
   return v;
 }
 std::string dashed(std::string s) {
@@ -576,7 +614,7 @@ int run_command_line(int argc, char** argv) {
     if (!match) continue;
     std::string w;
     for (const auto& x : words) w += (w.empty() ? "" : " ") + x;
-    std::cerr << "nxr-neuro: error: '" << w << "' is now '" << now << "' (the same options); the old spelling is not kept\n";
+    std::cerr << "nxr-neuro: error: '" << w << "' is now '" << now << "' (its parameters are quantities with units: see its --help); the old spelling is not kept\n";
     return 2;
   }
   if (argc >= 2) {

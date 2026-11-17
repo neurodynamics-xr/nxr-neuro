@@ -1,0 +1,36 @@
+# A FIELD CHAIN (`kind: chain`): the recording's analytic signal in a band SET at its sensors, ONE kind of pointwise field with no reduction and no detection. ONE transform a block shared by all the bands (the block's
+# spectrum), then each band selected (its Morlet or Meyer gain, zero phase), never one FFT per band (rule 23). The bands are a band SET made by `select_bands`, taken through its `bands` edge (rule 17).
+#
+# Run alone it stores the field (materialised); COMPOSED into `measure` (input `chain: band_analytic`) its steps are inlined before the consumer's and nothing is stored; the chain's name and resolved parameters are
+# part of the consumer's cache key.
+#
+# THE GRAPH:  recording (sensors x T) -- fft.spectrum {once a block} -- band gains (select.bands) -- inverse transform --> z (field<sensors x members(bands) x T; complex>)
+#
+# What it cannot resolve: the filter is circular over the block, so the first and last `halo` of a recording carry its edge effect; a Morlet band overlaps its neighbours, so band powers do not add to broadband
+# (the Meyer shape does).
+#
+#   nxr-neuro run band_analytic --dataset <folder> --subject sub-01 --recording rest --bands-set "frequency bands" --all
+pipeline: band_analytic
+kind: chain
+version: 1
+description: the analytic signal of a recording in a band set at its sensors, one transform a block shared by all bands
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  bands:     {selection: spans, where: {name: $bands}, hint: "the band set (`nxr-neuro run select_bands` first)"}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  bands: {default: "frequency bands", meaning: "the band set by name (spans on the Frequency line, in Hz)", unit: "-"}
+  shape: {default: morlet, meaning: "the band filter: morlet (a Gaussian centred on the band, FWHM its width) | meyer (compact edges, bands that add up) | power_partition (nxr's bank: band powers add to broadband)", unit: "-", choices: [morlet, meyer, power_partition]}
+  halo: {default: 8.0, meaning: "the context read on each side of a chunk for the filter (its circular edge effect lies inside it)", unit: s, chart: clock}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: analytic, in: {x: recording, bands: bands}, with: {shape: $shape, halo_seconds: $halo}, out: z}
+
+outputs:
+  z: {kind: field, kind_name: analytic signal, name: "{recording}_analytic", on: recording.manifold.0, derived_from: recording}

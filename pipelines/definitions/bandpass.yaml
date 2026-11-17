@@ -1,6 +1,6 @@
 # A ZERO-PHASE BAND-PASS FILTER OF A RECORDING, WRITTEN AS A NEW RECORDING: each block filtered with the halo the design needs (look-behind, look-ahead), the record's ends padded as
 # the option set says (Brainstorm's process_bandpass / process_notch: kaiserord + fir1, or a filtfilt IIR). The whole recording is filtered (--all): a filter makes a recording.
-# A FIR filter that removes the record's mean reads the channel means (`nxr-neuro run channel_mean --all` first), or remove_mean false. The new recording carries over the
+# A FIR filter that removes the record's mean reads the channel means (`nxr-neuro run measure --set channel_span_mean --all` first), or remove_mean false. The new recording carries over the
 # source's channel flags, events, bad segments and projectors.
 #
 #   nxr-neuro run bandpass --dataset <folder> --subject sub-01 --recording rest --all --lower 1 --upper 40
@@ -11,7 +11,7 @@ scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
-  mean:      {statistic: sample, where: {measure: mean, name: "{recording}_channel_mean"}, required: false}
+  mean:      {measurement: any, where: {measure: mean, name: "{recording}_channel_mean"}, required: false}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}

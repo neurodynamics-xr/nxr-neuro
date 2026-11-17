@@ -1,8 +1,8 @@
 #!/bin/sh
-# Compare the optical-flow methods on one recording window: runs `nxr-neuro opticalflow compute` once per method, each into its own named fields
+# Compare the optical-flow methods on one recording window: runs `nxr-neuro run flow_modes` once per method, each into its own named fields
 # (<name>_<method>), and prints the seconds per frame, iterations and the exact fraction of each. Every method runs with the defaults (regulariser connection, datafit gauge: the Cortical Flow Studio's functional, alpha 0.01 unless --alpha is given; modal charges the same connection energy, band-limited to --modes).
 #
-#   cli/scripts/opticalflow-compare.sh NXR_NEURO_BIN DATASET/NAME SUBJECT RECORDING NAME -- <the usual opticalflow options: --family .. --gain .. --freq .. [--kernel K --start S --stop S --alpha A ...]>
+#   cli/scripts/opticalflow-compare.sh NXR_NEURO_BIN DATASET/NAME SUBJECT RECORDING NAME -- <the usual flow_modes options: --family .. --gain .. --freq .. [--kernel K --start S --stop S --alpha A ...]>
 #
 # e.g.  opticalflow-compare.sh build/cli/nxr-neuro /data/ds/study sub-01 rest cmp -- --family morlet --gain 2 --freq 10 --start 10 --stop 20
 # Extra method options by environment: SCALE_FAMILY (default itersine; perscale).
@@ -15,7 +15,7 @@ for m in direct pcg perscale; do
   meth=$m
   [ "$m" = perscale ] && extra="--scale-family ${SCALE_FAMILY:-itersine}"
   echo "== $m"
-  "$bin" run opticalflow --dataset "$ds" --subject "$sub" --recording "$rec" --name "${name}_$m" --method "$meth" $extra "$@" --replace \
+  "$bin" run flow_modes --dataset "$ds" --subject "$sub" --recording "$rec" --name "${name}_$m" --method "$meth" $extra "$@" --replace \
     | python3 -c '
 import sys, json
 for line in sys.stdin:

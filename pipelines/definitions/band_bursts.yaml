@@ -1,33 +1,34 @@
-# THE BURSTS OF A BAND, labelled on the recording's time axis (spec docs/specs/2026-11-13-time-events.md). The band's amplitude is MEASURED per tile of
-# the constant-Q level of the band (the measurement function `amplitude`, mean |z|; the level IS the band, D84); its BASELINE, the median and robust SD
-# per channel over the good tiles (a statistic: summarize, docs/specs/2026-11-13-statistic-summaries.md); then the tiles labelled by Rheome's rule
-# (detect.spindle as flow.labelalpha calls it for alpha episodes): enter at median + 1.5 SD, extend while ≥ + 1.0 SD, join gaps ≤ 0.1 s, keep ≥ 0.4 s.
-# Stored: the amplitude rows (selection_measurement, on the level), the baseline (a statistic beside the recording) and the bursts as a spans Selection
-# (the importer's form of events: code = the type `burst`, the channel in params_json.channels).
+# THE BURSTS OF A BAND, labelled on the recording's time axis (spec docs/specs/2026-11-13-time-events.md; the chain of docs/specs/2026-11-17-consolidation.md section 9.1). THE GRAPH:
+#   recording -- field.form envelope (the band's amplitude) -- reduce {over: the time grid at the band's level} --> amplitude, envelope_max per tile (a measurement over a GRID)
+#   -- summarize --> the baseline (median and robust SD per channel over the good tiles) -- select.events.spans (Rheome's rule: enter at median + 1.5 SD, extend while >= + 1.0 SD, join gaps, keep by
+#   duration) --> the bursts (an IRREGULAR selection, detected over the grid; each member described by its centre and extent) -- reduce {over: the bursts} --> each burst's amplitude, peak, duration,
+#   interval -- summarize --> the statistics across the bursts (a `summary`, never a per-member statistic).
+# The band is a QUANTITY (Hz): the time grid's level is resolved from it in closed form (the Studio's `fitLevelOf`: the first 2^k samples holding 4 cycles of the band's centre) and recorded with the
+# snapped tile length; the grid is the line's one stored `<recording> time grid` (`run select_time_grid`, once). The filters of the bursts are quantities in physical units: a duration range, a gap to join.
+# Stored: the tile measurements, the baseline, the bursts, the bursts' measurements and their statistics.
 #
-#   nxr-neuro run constantq  --dataset <folder> --subject sub-01 --recording rest           # the constant-Q tiling of the recording's time line, once
-#   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --all                  # alpha (8-16 Hz at the hertz anchor), the whole recording
-#   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --band '[4.0,8.0]'          # theta's level
+#   nxr-neuro run select_time_grid --dataset <folder> --subject sub-01 --recording rest                # the line's time grid, once
+#   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --all                                # alpha (8-16 Hz), the whole recording
+#   nxr-neuro run band_bursts --dataset <folder> --subject sub-01 --band "4-8 Hz" --all                # theta's tile
 pipeline: band_bursts
-version: 1
-description: the bursts of a band on the recording's time axis, from the band's amplitude per tile of its constant-Q level
+version: 2
+description: the bursts of a band on the recording's time axis, from the band's amplitude per tile of its time grid level
 scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
-  ladder:    {selection: ladder, manifold: recording.time}
+  grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid"}, hint: "the line's time grid (`nxr-neuro run select_time_grid` first)"}
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
-  band: {default: [8.0, 16.0], meaning: "Hz: a level's band (its `resolves_hz`); alpha at the hertz anchor", unit: "Hz"}
+  band: {default: "8-16 Hz", meaning: "the band as a quantity: its time level is resolved from it; alpha at the hertz anchor", unit: Hz, chart: linear}
   shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer (compact edges: bands that add up)", unit: "-"}
   combine: {default: each, meaning: "each: per channel (detect.spindle) | mean: one trace, the mean over channels", unit: "-"}
   enter_sd: {default: 1.5, meaning: "robust SDs above the median to enter (labelalpha's hiSD)", unit: "robust SD"}
   exit_sd: {default: 1.0, meaning: "robust SDs above the median to extend a burst (labelalpha's loSD)", unit: "robust SD"}
-  merge_s: {default: 0.1, meaning: "gaps up to this joined (s)", unit: "s"}
-  min_s: {default: 0.4, meaning: "shortest burst kept (s)", unit: "s"}
-  max_s: {default: null, meaning: "longest (s); null: no limit", unit: "s"}
+  gap: {default: "0.1 s", meaning: "gaps up to this are joined", unit: s, chart: clock}
+  duration: {default: ">=0.4 s", meaning: "the bursts kept, by duration: a range (\"0.4-2 s\") or a lower bound (\">=0.4 s\"); a filter in cycles is a duration in the band's chart (\">=3 cycles\")", unit: s, chart: clock}
   bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
   burst_summaries: {default: [count, sum, median, mean, sd, "percentile:25", "percentile:75", "percentile:90"], meaning: "the statistics across the bursts, per measurement", unit: "-"}
 
@@ -35,49 +36,20 @@ steps:
   chunks:
     over: recording
     do:
-      - step: envelope
-        in:   {x: recording}
-        with: {band: $band, shape: $shape}
-        out:  amp
-      - step: measure
-        in:   {x: amp, over: ladder, exclude: bad}
-        with: {measure: amplitude, bad_segments: $bad_segments}
-        out:  amplitude
-      - step: measure
-        in:   {x: amp, over: ladder, exclude: bad}
-        with: {measure: envelope_max, bad_segments: $bad_segments}
-        out:  peak
+      - {node: envelope, in: {x: recording}, with: {band: $band, shape: $shape}, out: amp}
+      - {node: reduce, in: {x: amp, over: grid, exclude: bad}, with: {at: $band, measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: tiles}
   after:
-    - step: summarize
-      in:   {x: amplitude}
-      with: {summaries: [median, mad], combine: $combine}
-      out:  baseline
-    - step: detect_spans
-      in:   {x: amplitude, baseline: baseline}
-      with: {combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, merge_s: $merge_s, min_s: $min_s, max_s: $max_s}
-      out:  bursts
-
-    # PER BURST: each burst is measured from the tile measurements it covers (their exact roll-up), on the row of the channel that found it
-    - {step: measure_events, in: {x: amplitude, events: bursts}, with: {measure: amplitude},     out: burst_amplitude}
-    - {step: measure_events, in: {x: peak, events: bursts},      with: {measure: envelope_max},  out: burst_peak}
-    - {step: measure_events, in: {x: amplitude, events: bursts}, with: {measure: duration},      out: burst_duration}
-    - {step: measure_events, in: {x: amplitude, events: bursts}, with: {measure: interval_next}, out: burst_interval}
+    - {node: summarize, in: {x: tiles}, with: {summaries: [median, mad], combine: $combine, of: amplitude}, out: baseline}
+    # the bursts: an irregular selection detected over the grid
+    - {node: select.events.spans, in: {x: tiles, baseline: baseline}, with: {measure: amplitude, combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, gap: $gap, duration: $duration}, out: bursts}
+    # PER BURST: a measurement over the bursts, by merging the tile measurements they cover (the members' own: duration, interval_next)
+    - {node: reduce, in: {x: tiles, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: burst_values}
     # ACROSS THE BURSTS: the statistics of each (the span's good seconds recorded, so rate, occupancy and CV are derived at read)
-    - {step: summarize, in: {x: burst_amplitude}, with: {summaries: $burst_summaries, combine: $combine}, out: burst_amplitude_stats}
-    - {step: summarize, in: {x: burst_peak},      with: {summaries: $burst_summaries, combine: $combine}, out: burst_peak_stats}
-    - {step: summarize, in: {x: burst_duration},  with: {summaries: $burst_summaries, combine: $combine}, out: burst_duration_stats}
-    - {step: summarize, in: {x: burst_interval},  with: {summaries: $burst_summaries, combine: $combine}, out: burst_interval_stats}
+    - {node: summarize, in: {x: burst_values}, with: {summaries: $burst_summaries, combine: $combine}, out: burst_stats}
 
 outputs:
-  amplitude: {kind: measurement}
-  peak:      {kind: measurement}
-  baseline:  {kind: statistic}
-  bursts:    {kind: spans, types: [burst]}
-  burst_amplitude: {kind: measurement}
-  burst_peak:      {kind: measurement}
-  burst_duration:  {kind: measurement}
-  burst_interval:  {kind: measurement}
-  burst_amplitude_stats: {kind: statistic}
-  burst_peak_stats:      {kind: statistic}
-  burst_duration_stats:  {kind: statistic}
-  burst_interval_stats:  {kind: statistic}
+  tiles:        {kind: measurement, over: grid, of: recording}
+  baseline:     {kind: statistic, of: tiles}
+  bursts:       {kind: spans, types: [burst], detected_over: grid}
+  burst_values: {kind: measurement, over: bursts, of: recording}
+  burst_stats:  {kind: statistic, of: burst_values}

@@ -3,8 +3,8 @@
 # surface's own axes in the stated convention or carried from a template subject's through the registered spheres: the angle from north to anterior, which way the second axis
 # points (0 superior, 1 medial) and its sign, and the vertices where it is reliable (the anterior axis projects on the tangent plane with at least min_projection).
 #
-#   nxr-neuro run frames --dataset <folder> --subject sub-01 --surface cortex [--template fsaverage --template-surface cortex_pial]
-pipeline: frames
+#   nxr-neuro run surface_frames --dataset <folder> --subject sub-01 --surface cortex [--template fsaverage --template-surface cortex_pial]
+pipeline: surface_frames
 version: 1
 description: a surface's canonical frames (from its registered sphere) and its anatomical frame
 scope: subject

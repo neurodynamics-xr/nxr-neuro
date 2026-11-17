@@ -1,10 +1,10 @@
 # THE INSTRUMENT'S BLUR (a statistic of the recording it is measured for): a unit current at each sampled vertex (x, y and z separately) through the head model's gain and the
-# kernel, read by the spatial events' chain (the power at each level of the surface's ladder on the glued domain, the patch round the reference level's peak cut at a fraction of it,
+# kernel, read by the spatial events' chain (the power at each level of the surface's ladder on the glued cortex (made by `run glue`, the computational manifold), the patch round the reference level's peak cut at a fraction of it,
 # the characteristic level of its centre). The blur of THIS head model and kernel, for a source alone: many sources blur together differently.
 #
-#   nxr-neuro run pointspread --dataset <folder> --subject sub-01 --recording rest --kernel KERNEL --levels "[2, 3, 4, 5]" --reference-level 4
+#   nxr-neuro run pointspread --dataset <folder> --subject sub-01 --recording rest --kernel KERNEL --spatial-scales '["parts 4","parts 8","parts 16","parts 32"]' --reference-scale "parts 16"
 pipeline: pointspread
-version: 1
+version: 2
 description: the instrument's blur at sampled vertices, read by the spatial events' chain
 scope: subject
 
@@ -18,8 +18,8 @@ parameters:
   kernel: {default: none, meaning: "the inverse kernel's name, or none: the subject's one inverse kernel", unit: "-"}
   forward: {default: none, meaning: "the head model's name, or none: the subject's one head model", unit: "-"}
   name: {default: "pointspread.{kernel}", meaning: "the stored statistic's name", unit: "-"}
-  levels: {default: null, meaning: "the levels of the surface's ladder the blur is read at", unit: "level"}
-  reference_level: {default: null, meaning: "the level whose peak the patch is cut round (one of the levels)", unit: "level"}
+  spatial_scales: {default: null, meaning: "the spatial scales the blur is read at, as quantities (parts per hemisphere, a tile diameter in mm, a wavelength in mm or a named scale)", unit: mm, chart: wavelength}
+  reference_scale: {default: null, meaning: "the scale whose peak the patch is cut round (one of spatial_scales)", unit: mm, chart: wavelength}
   fraction: {default: 0.5, meaning: "the patch is cut at this fraction of the peak", unit: "fraction"}
   vertices: {default: 64, meaning: "the number of sampled vertices (evenly spaced in index)", unit: "-"}
   list: {default: [], meaning: "the sampled vertices, stated (wins over vertices)", unit: "-"}
@@ -31,7 +31,7 @@ parameters:
 
 steps:
   before:
-    - {step: pointspread, in: {forward: forward, kernel: kernel}, with: {levels: $levels, reference_level: $reference_level, fraction: $fraction, vertices: $vertices, list: $list, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: spread}
+    - {node: pointspread, in: {forward: forward, kernel: kernel}, with: {spatial_scales: $spatial_scales, reference_scale: $reference_scale, fraction: $fraction, vertices: $vertices, list: $list, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: spread}
 
 outputs:
   spread:

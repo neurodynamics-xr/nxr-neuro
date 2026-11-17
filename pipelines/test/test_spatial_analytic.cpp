@@ -23,15 +23,13 @@
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
-#include "nxr/pipelines/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/ladder.h"
-#include "nxr/pipelines/joint.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
 #include "nxr/taps.h"
 #include "nxr/filterbank.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -108,10 +106,11 @@ int main() {
       of.cols.json("params_json", Json{{"inverse", Json{{"measure", "dSPM"}}}});
       sub.operator_(std::move(of));
     });
-    sub.compose([&] { nxr::pipelines::constant_q_write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
+  nxrtest::make_time_grids(ds, sub);
+  nxrtest::make_tiles(ds, sub);
   const SurfaceInput S0 = read_surface(sub, std::nullopt, true);
   const SurfaceLevel SL = read_surface_level(sub, S0, L);
   SpatialBandOptions sbo; sbo.transform = "exact";

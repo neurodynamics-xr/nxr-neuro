@@ -16,8 +16,8 @@
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/pipelines/tiles.h"
 #include "nxr/welch.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -142,7 +142,7 @@ int main() {
     const auto axis = sub.find("manifold", "eigenvalue/hodgeDirac");
     CHECK(axis.has_value() && st.axes[0]["manifold_id"] == text(*axis, "id") && st.shape == (std::vector<std::int64_t>{Kn, 4}) && text(st.row, "measure") == "power_density");
     CHECK(st.axes[1]["values"][0]["part"] == "current" && st.axes[1]["values"][1]["part"] == "flow");
-    const auto m = stored_map(sub, a.info["maps"][0].get<std::string>(), Kn);
+    const auto m = nxrtest::stored_map(sub, a.info["maps"][0].get<std::string>(), Kn);
     CHECK(m.has_value() && m->rows() == Kn);
     double w = 0;
     if (m) for (std::int64_t k = 0; k < Kn; ++k) w = std::max(w, std::abs((*m)(k, 0) - want(k, 0)) / std::max(1e-30, std::abs(want(k, 0))));

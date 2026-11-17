@@ -20,7 +20,7 @@
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -85,7 +85,7 @@ int main() {
     b.compose([&] { SurfaceOptions o2; o2.name = "cortex"; o2.sphere = U; std::vector<double> p1(pos.begin(), pos.begin() + static_cast<std::ptrdiff_t>(3 * U.size() / 3)); add_surface(b, o2, p1, F0); });
   }
   SubjectWriter s1 = SubjectWriter::open(ds, "G1");
-  tiles_compute(ds, s1, TilesComputeOptions{});
+  nxrtest::make_tiles(ds, s1);
   const SurfaceInput S = read_surface(s1, std::nullopt, true);
   // the free currents' curl on the native mesh (tested against nxr in test_form_columns), zero on the wall's vertices of the glued domain by construction (the support excludes them)
   std::vector<float> P32(pos.begin(), pos.end());
@@ -160,7 +160,7 @@ int main() {
   // ONE CLOSED PIECE: its own glued domain, no bridge
   {
     SubjectWriter s2 = SubjectWriter::open(ds, "G2");
-    tiles_compute(ds, s2, TilesComputeOptions{});
+    nxrtest::make_tiles(ds, s2);
     const SurfaceInput S2 = read_surface(s2, std::nullopt, true);
     const SurfaceLevel L2 = read_surface_level(s2, S2, 3);
     const internal::GluedDomain d = internal::glued_domain(s2, S2);
