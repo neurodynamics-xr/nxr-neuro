@@ -99,6 +99,7 @@ SurfaceLevel Bound::surface_level(const SurfaceInput& s, int level) const { retu
 StoredFrames Bound::stored_frames(const std::string& surface_name, std::int64_t n_vertices) const { return read_stored_frames(writer(), surface_name, n_vertices); }
 internal::GluedDomain Bound::glued_domain(const SurfaceInput& s) const { return internal::glued_domain(writer(), s); }
 StoredCrossSpectrum Bound::cross_spectrum(const std::string& name) const { return crossspectrum_read(writer(), name); }
+CrossSpectrumWindows Bound::cross_spectrum_windows(const std::string& name) const { return crossspectrum_windows_read(writer(), name, std::nullopt, "stored", std::nullopt); }
 io::StoredStatistic Bound::statistic(const std::string& name) const { return io::read_statistic(writer(), name); }
 std::vector<std::int32_t> Bound::array_int32(const std::string& path) const { return read_array<std::int32_t>(writer().store(), path); }
 std::vector<float> Bound::array_float(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<float>(writer().store(), path, shape); }

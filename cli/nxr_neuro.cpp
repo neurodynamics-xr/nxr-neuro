@@ -62,7 +62,6 @@ int measure_main(const std::vector<std::string>& argv);        // cli/measure_co
 int statistic_main(const std::vector<std::string>& argv);      // cli/measure_command.cpp
 int patches_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
 int cellquadrature_main(const std::vector<std::string>& argv); // cli/measure_command.cpp
-int wishart_main(const std::vector<std::string>& argv);          // cli/measure_command.cpp
 int spatialnull_main(const std::vector<std::string>& argv);     // cli/measure_command.cpp
 int null_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
 int repeat_main(const std::vector<std::string>& argv);         // cli/measure_command.cpp
@@ -497,13 +496,6 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return pyramid_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro pyramid needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "wishart") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return wishart_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro wishart needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "spatialnull") {

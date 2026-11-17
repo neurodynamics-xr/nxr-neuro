@@ -51,7 +51,6 @@ add_library(nxr_pipelines
   src/run_repeat.cpp
   src/null_compute.cpp
   src/spatial_null.cpp
-  src/wishart_null.cpp
   src/spatial_events_steps.cpp
   src/point_events.cpp
   src/runner.cpp

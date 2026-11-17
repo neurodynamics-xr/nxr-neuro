@@ -58,6 +58,7 @@ class Bound {
   StoredFrames stored_frames(const std::string& surface_name, std::int64_t n_vertices) const;
   internal::GluedDomain glued_domain(const SurfaceInput& surface) const;
   StoredCrossSpectrum cross_spectrum(const std::string& name) const;
+  CrossSpectrumWindows cross_spectrum_windows(const std::string& name) const;       // an analytic series on time tiles, by its band's name (as stored)
   nxr::io::StoredStatistic statistic(const std::string& name) const;
   std::vector<std::int32_t> array_int32(const std::string& path) const;                         // a stored array by its store path (a kernel's channel list)
   std::vector<float> array_float(const std::string& path, std::vector<std::int64_t>* shape) const;   // (a kernel's matrix)

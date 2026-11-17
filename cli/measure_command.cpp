@@ -56,7 +56,6 @@
 #include "nxr/pipelines/run_repeat.h"
 #include "nxr/pipelines/null_compute.h"
 #include "nxr/pipelines/spatial_null.h"
-#include "nxr/pipelines/wishart_null.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/scaleselection.h"
 #include "nxr/pipelines/measure.h"
@@ -344,35 +343,6 @@ int cellquadrature_main(const std::vector<std::string>& argv) {
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
     const auto r = nxr::pipelines::cellquadrature_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
-int wishart_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro wishart: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro wishart compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording", "--windows", "--bursts", "--psd", "--band", "--shape", "--draws", "--seed"}, {"--replace"}, {"--dataset", "--subject", "--recording", "--windows", "--bursts", "--psd", "--band"});
-  nxr::pipelines::WishartNullOptions o;
-  o.recording = a.get("--recording"); o.windows = a.get("--windows"); o.bursts = a.get("--bursts"); o.psd = a.get("--psd");
-  { std::stringstream ss(a.get("--band")); std::string e; try { while (std::getline(ss, e, ',')) o.band.push_back(std::stod(e)); } catch (...) { usage(prog, "--band is LO,HI in Hz"); } }
-  if (const auto v = a.maybe("--shape")) o.shape = *v;
-  try {
-    if (const auto v = a.maybe("--draws")) o.draws = std::stoi(*v);
-    if (const auto v = a.maybe("--seed")) o.seed = static_cast<std::uint64_t>(std::stoull(*v));
-  } catch (...) { usage(prog, "--draws and --seed are whole numbers"); }
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::wishart_null_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
     Json out = Json{{"stage", "result"}};
     for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
     cli::emit(out);
