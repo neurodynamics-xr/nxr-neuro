@@ -10,6 +10,7 @@
 
 #include "check.h"
 #include "nxr/convert/fibers.h"
+#include "nxr/formats/trx.h"
 #include "nxr/convert/templates.h"
 #include "nxr/io/array_writer.h"
 #include "nxr/io/fibers.h"
@@ -177,6 +178,46 @@ int main() {
     CHECK(near(b.points[3 * 5 + 1], y1 * 1e-3) && near(b.points[3 * 9 + 2], (z1 + 10) * 1e-3 + 0.05));    // fiber 1: its last point is 10 mm above its first in z
     CHECK_EQ(b.origin["licence"]["id"].get<std::string>(), std::string("CC-BY-SA-4.0"));
     CHECK_EQ(b.source, std::string("t.trk"));
+  }
+  // ── the TRX import: the same streamlines, positions in RAS mm as the file has them ──
+  for (const char* dtype : {"float32", "float16"}) {
+    nxr::formats::trx::Streamlines t;
+    t.points = {0, 0, 0, 10, 0, 0, 20, 0, 0, 0, 5, 0, 0, 5, 10, 1, 1, 1};
+    t.offsets = {0, 3, 5, 6};
+    t.header.dimensions = {10, 12, 14};
+    t.header.voxel_to_rasmm = {1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1};
+    const fs::path file = root / (std::string("t_") + dtype + ".trx");
+    {
+      nxr::formats::FileSink sink(file.string());
+      nxr::formats::trx::WriteOptions wo;
+      wo.positions_dtype = dtype;
+      nxr::formats::trx::write(sink, t, wo);
+      sink.close();
+    }
+    const fs::path pkg3 = root / (std::string("S3_") + dtype + ".nxr.zarr");
+    DatasetWriter w = create_package(pkg3, "S3", opt);
+    SubjectWriter sub = SubjectWriter::open(w, "S3");
+    nxr::convert::TrxImport rq;
+    rq.trx = file;
+    rq.name = "tracts";
+    rq.points = 5;
+    CHECK(has(what_of([&] { nxr::convert::import_trx(sub, rq); }), "transform"));
+    rq.to_scs_m = std::array<double, 12>{0.001, 0, 0, 0, 0.001, 0, 0, 0, 0.001, 0, 0, 0.05};
+    rq.origin = origin;
+    const Json r = nxr::convert::import_trx(sub, rq);
+    CHECK_EQ(r["n_fibers"].get<std::int64_t>(), std::int64_t(2));
+    CHECK_EQ(r["n_dropped"].get<std::int64_t>(), std::int64_t(1));
+    CHECK(r["not_imported"].empty());
+    sub.complete();
+    SubjectPackage p = SubjectPackage::open(pkg3);
+    const auto b = fibers::read_bundle<float>(task::Subject::of(p), p.store(), "tracts");
+    auto near = [](float a, double c) { return std::abs(a - c) < 1e-5; };
+    CHECK_EQ(b.points_per_fiber, std::int64_t(5));
+    CHECK(near(b.points[0], 0) && near(b.points[1], 0) && near(b.points[2], 0.05));                       // fiber 0 starts at the origin, 5 cm up
+    CHECK(near(b.points[3], 0.005) && near(b.points[12], 0.020));                                         // 5 points at equal arc length over 20 mm
+    CHECK(near(b.points[3 * 5 + 1], 0.005) && near(b.points[3 * 9 + 2], 0.01 + 0.05));                   // fiber 1: its last point is 10 mm above its first
+    CHECK_EQ(b.source, file.filename().string());
+    CHECK_EQ(b.origin["licence"]["id"].get<std::string>(), std::string("CC-BY-SA-4.0"));
   }
   fs::remove_all(root);
   return nxrtest::finish("fibers");
