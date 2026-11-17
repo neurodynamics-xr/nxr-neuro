@@ -106,6 +106,8 @@ struct StepSpec {
 
 /** the verbs as registered steps (verb_steps.cpp), appended to the registry */
 void append_verb_steps(std::vector<StepSpec>& r);
+/** the measurement verbs as registered steps (steps_measure.cpp): measures over the windows of a time tiling, over a partition's members, and scale selection */
+void append_measure_steps(std::vector<StepSpec>& r);
 void append_geometry_steps(std::vector<StepSpec>& r);   // steps_geometry.cpp
 /** run_repeat, cellquadrature and patches as registered steps (steps_patches.cpp) */
 void append_patches_steps(std::vector<StepSpec>& r);

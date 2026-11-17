@@ -25,6 +25,7 @@
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/meeg_internal.h"
+#include "nxr/pipelines/scale_inputs.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/pipelines/task.h"
 
@@ -71,6 +72,9 @@ class Bound {
   std::vector<std::int32_t> array_int32(const std::string& path) const;                         // a stored array by its store path (a kernel's channel list)
   std::vector<float> array_float(const std::string& path, std::vector<std::int64_t>* shape) const;   // (a kernel's matrix)
   std::vector<double> array_double(const std::string& path, std::vector<std::int64_t>* shape) const;   // (a covariance: precision follows the stored array)
+  /** what scale selection reads: every (space level, time level) pair's stored joint Selection, labelling, cell amplitude and baseline, found and checked (scale_inputs.h) */
+  nxr::pipelines::ScaleInputs scale_inputs(const std::string& recording_id, const std::string& recording_name, const std::vector<int>& space_levels, const std::vector<int>& time_levels,
+                                           const std::string& source, const std::optional<std::string>& surface) const;
   // ── the spatial band: planned (its key is part of the run's cache key) and made (a missing eigenmode package is computed, said in `say`, and stored by the runner) ──
   SpatialBandPlan plan_spatial_band(const SurfaceInput& surface, const SurfaceLevel& level, const SpatialBandOptions& opt) const;
   SpatialBand make_spatial_band(const SurfaceInput& surface, const SurfaceLevel& level, const SpatialBandOptions& opt) const;

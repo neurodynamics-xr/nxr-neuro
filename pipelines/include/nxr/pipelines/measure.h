@@ -37,26 +37,7 @@ struct MeasureComputeResult { nxr::io::Json info; };
 MeasureComputeResult measure_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const MeasureComputeOptions& opt,
                                      const std::function<void(const nxr::io::Json&)>& progress = {});
 
-// MEASUREMENT OVER TIME — a time-resolved Field (a recording, a source series: [rows x samples] on a product whose time factor is the tiling's line)
-// measured over the windows of a TIME PARTITION (the cardinal rule: time is partitioned as space is): a level of a constant-Q time ladder
-// (`constantq compute`; `over` = the ladder, `level` = its level) or a closed-form `spans` tiling such as the chunk grid (`over` = `<recording>_chunks`).
-// The Studio's design (the envelope, D96): per Field ONE ARRAY beside it, [rows x windows x components], and one `selection_measurement` row a measure
-// (selection = the tiling's member, of_field_id = the Field, array_path, component), `count` (the samples a value is over: the roll-up weight) always the
-// last component. The arithmetic is the Studio's `reduceTiles` (nxr/partition.h), a row at a time, folded window by window across the chunks the chunk
-// service hands over (the span: one chunk by default; windows outside it are NaN). Windows never straddle a stored chunk on a real recording (the ladder's
-// windows are powers of two, chunks 2^15), so the fold is the whole-recording arithmetic; a window split by a chunk edge is folded in float (rounding).
-// Bad segments are not left out.
-struct MeasureOverTimeOptions {
-  std::string over;                          // the time tiling by name: a constant-Q ladder (with `level`) or a closed-form `spans` Selection
-  std::optional<int> level;                  // the ladder's level (required for a ladder)
-  std::string fields;                        // an ECMAScript regex matched against the whole name of each time-resolved Field on the tiling's time line
-  std::vector<std::string> measures;         // default mean, mean_square, max, min (also abs_max); `count` is always stored
-  std::optional<std::string> chunks;         // the span read: "k", "a-b", "all"; or start/stop seconds; neither is an error (the caller states the span)
-  std::optional<double> start, stop;
-  bool replace = false;                      // rows of the same (window member, Field, measure) are replaced; else refused
-};
-MeasureComputeResult measure_over_time(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const MeasureOverTimeOptions& opt,
-                                       const std::function<void(const nxr::io::Json&)>& progress = {});
+// MEASUREMENT OVER TIME is the definition `measure_over_time` (pipelines/definitions/, the step `window_measures` of steps_measure.cpp): a time-resolved field measured over the windows of a time partition.
 
 // THE EXPORT — the stored measurements of a dataset as a MEASUREMENT TABLE for statistics, a study release's layout
 // (nxr docs/specs/2026-11-09-group-analysis-design.md §8): READ ONLY on the dataset; every value read through the measurement lookup

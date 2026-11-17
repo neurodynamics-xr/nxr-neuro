@@ -772,6 +772,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       stored.push_back(Json{{"output", o}, {"kind", "recording"}, {"name", text(*row, "name")}, {"id", text(*row, "id")}});
       continue;
     }
+    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of") && P.found.count(ospec["of"].get<std::string>()) && P.found.count(ospec["over"].get<std::string>()) &&
+        P.found.at(ospec["of"].get<std::string>()).row && P.found.at(ospec["over"].get<std::string>()).row) {
+      // a declared measurement of a FOUND field over a found selection takes no node: it is a hit when every row of the pair was made by this very run (same key)
+      const std::string sel = text(*P.found.at(ospec["over"].get<std::string>()).row, "id"), fld = text(*P.found.at(ospec["of"].get<std::string>()).row, "id");
+      const auto by = sub.db().all("SELECT DISTINCT computed_by FROM selection_measurement WHERE selection_id = ? AND of_field_id = ?", {V(sel), V(fld)});
+      if (by.size() != 1 || nxr::io::opt_text(by[0], "computed_by").value_or("") != made_by(key)) { hit = false; break; }
+      stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}});
+      continue;
+    }
     if (is_declared(P, o)) {                                                // a declared output: each place it takes holds the same key (a manifold is found or made, never a miss)
       Json one = Json{{"output", o}, {"kind", ospec["kind"]}, {"name", declared_name(P, o)}};
       for (const auto& [cls, path] : declared_places(P, o, sub)) {

@@ -1,0 +1,40 @@
+# EACH EVENT'S OWN SIZE AND RHYTHM across a declared set of (spatial level, time level) pairs (spec docs/specs/2026-11-13-cortical-events.md, "Phase 2e"). From STORED rows only, no recording pass: what
+# `run cortical_event_pairs` stored for every pair of the product `space_levels` x `time_levels` (the cells' amplitude on the pair's joint Selection, the cells' per-tile baseline, the labelling of the pair's events on
+# the cells). Events of different pairs are linked by the ladders' exact nesting in space and overlap in time; the connected components are the cross-pair events; each one's response at every pair (its footprint),
+# best pair, the response there. Every missing pair is named, with the command that makes it.
+#
+# Stored: the cross-pair events as a spans Selection on the recording's time line (`<name>`), measurements of the recording over it (scale_space_level, scale_time_level, scale_peak, scale_tile_area, scale_band_lo,
+# scale_band_hi, scale_pairs, scale_edge, and the footprint scale_response_s<l>_t<m> a pair), and the statistic `<name>.links` (the cross-pair event of each pair's event).
+#
+#   nxr-neuro run scaleselection --dataset <folder> --subject sub-01 --recording rest --space-levels '[4,5]' --time-levels '[2,3]'
+pipeline: scaleselection
+version: 1
+description: "each event's own size and rhythm, the best spatial and temporal level of the stored pairs by standardised response"
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+
+parameters:
+  recording: {default: none, meaning: "the recording whose pairs are selected over (its name), or none: every recording of the subject, one run each", unit: "-"}
+  space_levels: {default: null, meaning: "the surface ladder's levels (the pair set is the product space_levels x time_levels)", unit: "level"}
+  time_levels: {default: null, meaning: "the recording's constant-Q levels (each one's band is the pair's rhythm)", unit: "level"}
+  source: {default: cortical_event_pairs, meaning: "the pipeline whose stored labellings, cells and baselines are read (a labelling made by another is not used)", unit: "-"}
+  response: {default: peak, meaning: "peak = the largest standardized cell amplitude of an event (blob-detection scale selection) | mean = their mean", unit: "-", choices: [peak, mean]}
+  min_link: {default: 1, meaning: "events of two pairs are the same cross-pair event when at least this many pairs of their cells nest in space and overlap in time", unit: "pairs"}
+  surface: {default: null, meaning: "the subject's surface; null: the joint partitions'", unit: "-"}
+  name: {default: "{recording}_scale_selection", meaning: "the cross-pair events' Selection; its statistic is <name>.links", unit: "-"}
+
+steps:
+  before:
+    - {step: scale_selection, in: {recording: recording}, with: {space_levels: $space_levels, time_levels: $time_levels, source: $source, response: $response, min_link: $min_link, surface: $surface}, out: [events, scale, links]}
+
+outputs:
+  events: {kind: selection, type: spans, name: $name, on: recording.time}
+  scale: {kind: measurement, over: events, of: recording}
+  links:
+    kind: statistic
+    name: "$name.links"
+    of: recording
+    over: events
+    axes: [{name: pair}, {name: event}]

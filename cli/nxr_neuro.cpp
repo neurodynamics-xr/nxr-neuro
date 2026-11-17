@@ -61,7 +61,6 @@ int quadrature_main(const std::vector<std::string>& argv);  // cli/meeg_command.
 int measure_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
 int spatialnull_main(const std::vector<std::string>& argv);     // cli/measure_command.cpp
 int null_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
-int scaleselection_main(const std::vector<std::string>& argv); // cli/measure_command.cpp
 int pyramid_main(const std::vector<std::string>& argv);          // cli/measure_command.cpp     // cli/measure_command.cpp
 int run_main(const std::vector<std::string>& argv);            // cli/run_command.cpp
 int opticalflow_main(const std::vector<std::string>& argv);   // cli/meeg_command.cpp
@@ -498,13 +497,6 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return null_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro null needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "scaleselection") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return scaleselection_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro scaleselection needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "measure") {

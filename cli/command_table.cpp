@@ -147,7 +147,6 @@ R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (r
 --field	NAME	Name of a stored field to read (measure query: restrict the query to this field; phasegradient: the phase 1-form to build, only gradient exists).	measure query: none; phasegradient: gradient	-
 --field@query measurements	NAME	The stored field the measurement was made of, by name or id.	the only field measured	-
 --fields	PATTERN	Regular expression matched against the whole name of each stored field to measure (export: the first capture group names the condition)	none (required)	-
---fields@run measure	PATTERN	Regular expression matched against the whole name of each stored field to measure (a scalar per vertex for a surface partition; a time-resolved field with --over).	required	-
 --fields@export measurements	REGEX	Regular expression over Field names selecting the Fields to export; its first capture group names the condition (e.g. the band)	required	-
 --file	FILE	A Brainstorm anatomy file (tess_*.mat) to convert; repeat or give several.	none (required)	-
 --file@import inverse	FILE	The Brainstorm inverse kernel file (results_*KERNEL*.mat) to import; one kernel per call, never overwritten.	required	-
@@ -184,7 +183,6 @@ R"TBL(--extra-surface	FILE	An extra surface file to import with the condition (r
 --gamma	G	Morse family: the gamma parameter of the wavelet.	3	-
 --gamma@run opticalflow	X	Morse family only: the gamma parameter of the wavelet.	3	-
 --gradient		Also measure the gradient of each scalar field (area-weighted face gradients projected on the vertex tangent plane)	off	-
---gradient@run measure		Also measure the gradient of each scalar field (area-weighted face gradients projected on the vertex tangent plane); needs the canonical frames from frames compute. Surface partitions only.	off	-
 --graph-family	mexhat|heat|itersine|logitersine	Family of the spatial (graph) filter bank over the eigenvalue.	none (required)	-
 --graph-filters	N	Number of members of the graph (eigenvalue) filterbank; 0 means derived from --graph-voices.	0	filters
 --graph-voices	N	Members per octave of the spatial (graph) filterbank	3	members/octave
@@ -214,7 +212,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --kind	subject|template|group	Kind of subject to create	subject	-
 --kind@create subject	subject|template|group	Kind of the new subject: an ordinary subject, a template subject or a group subject.	subject	-
 --labelling	NAME	The partition (a stored Selection with one code per vertex, e.g. a parcellation or a tile level) whose members are measured.	none (required)	-
---labelling@run measure	NAME	The partition (a stored Selection with one code per vertex, e.g. a parcellation or a tile level) whose members are measured; not used with --over.	required unless --over is given	-
 --labelling@export measurements	NAME	The partition (labelling) whose members are the table's columns, named the same in every subject	required	-
 --layout	split|wide	Table layout: split gives a table per condition and statistic with a column per member; wide gives one table with a column per condition, member and statistic.	split	-
 --layout@export measurements	split|wide	split writes one table per condition and statistic with a column per member; wide writes one table with a column per condition, member and statistic	split	-
@@ -222,7 +219,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --lc-levels@create dataset	L,L,...	Comma-separated tile levels at which the Levi-Civita connection of the default subject is stored; needs --templates.	4,6	level
 --level	L	A level (patches: the tile-ladder level whose spatial band is used; crossspectrum, cyclepattern: the window tile level, windows of 2^L samples; measure compute: the level of a constant-Q time ladder).	none (required for patches; otherwise see the command's description)	level
 --level@run cyclepattern	L	Time-tile level of the windows, 2^L samples (at least the stored level); the stored tiles are rolled up to it. Alternative to --window-seconds.	none (--window-seconds applies)	level
---level@run measure	L	Level of the constant-Q time ladder named by --over; used only with --over.	none (required for a ladder)	level
 --levels	L,...	Spatial tile levels of the scale space the blur is measured over.	2,3,4,5,6,7,8	levels
 --limit	N	Maximum number of rows returned	none	rows
 --limit@query measurements	N	The most rows to return.	none (all rows)	rows
@@ -244,7 +240,6 @@ R"TBL(--include-imported		Also import conditions that were themselves imported.	
 --measure	NAME	The measure to summarise or read (e.g. mean, max, power_sum).	none (required)	-
 --measure@query measurements	NAME	The measure to read, e.g. a stored measure of the pyramid or one derived from its sums.	required	-
 --measures	NAME,...	Which measures to compute per member: mean, max, min, mean_square, abs_max, sum.	mean, max, min, mean_square, abs_max	-
---measures@run measure	NAME,...	Which measures to compute per member: mean, max, min, mean_square, abs_max, sum (with --over: mean, mean_square, max, min, abs_max; the sample count is always stored).	mean, max, min, mean_square, abs_max (with --over: mean, mean_square, max, min)	-
 --meg	overlapping|single|none	MEG head model: per-sensor overlapping spheres, one single sphere, or no MEG channels	overlapping	-
 --meg-surface	NAME	Name of the surface the MEG spheres are fitted to.	the surface called inner skull	-
 --members-own		The measure is the members' own (area, number of elements or tiles); --of then names its parent.	off	-
@@ -259,7 +254,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --min-draws@run null	N	Fewest null draws made	20	draws
 --min-draws@run spatialnull	N	The fewest draws made before stopping, even if every vertex has reached --exceedances.	20	draws
 --min-link	N	Two events of different scale pairs count as one event when at least this many pairs of their cells nest in space and overlap in time.	1	pairs
---min-link@run scaleselection	N	Events of two pairs are one cross-pair event when at least this many of their cells nest in space and overlap in time	1	pairs
 --min-projection	P	Reliability limit of the anatomical frame: the anterior axis must project on the tangent plane with at least this length.	0.34	-
 --min-value	X	Keep only rows with a value at or above X	none	measure units
 --min-value@query measurements	X	Keep only rows whose rolled-up value is at least this.	none	measure's unit
@@ -275,7 +269,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run cyclepattern	NAME	Stem of the stored cycle-pattern results.	<cross-spectrum without _windows>_cycle	-
 --name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
 --name@run quadrature	NAME	Stem of the names of the stored fields.	<recording>_<kernel>_quadrature	-
---name@run scaleselection	NAME	Name of the cross-pair events' Selection	<recording>_scale_selection	-
 --name@create dataset	NAME	Name of the new dataset.	the folder's name (required with --datastore)	-
 --name@create subject	NAME	Name of the new subject in the dataset.	required	-
 --name@delete dataset	NAME	Name of the dataset's folder to delete, inside the folder given by --datastore	required	-
@@ -320,7 +313,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --out@import scan	PATH	File to write the scanned protocol view to as JSON (writing it prints a one-line summary instead of the whole view).	none (the view is printed)	-
 --out@read dataset	FILE	Write the bytes of the array (or of its --region) read with --array to this file, as little-endian values of its data type.	none	-
 --over	NAME	Name of the partition (stored selection) measured over: statistic: the partition whose members were measured; null, repeat: the tile-level selection of the stored crossings; measure compute: the time tiling	statistic, measure compute: none (required); null, repeat: the one the recordings share	-
---over@run measure	NAME	Measure over a time partition instead of a surface one: a constant-Q ladder (with --level) or a spans tiling such as the chunk grid; the result is a time-resolved field.	none (a surface partition is measured)	-
 --over@run null	NAME	The tile level Selection the crossings were measured over	the one the recordings have	-
 --overlap	FRACTION	Fraction by which successive Welch segments overlap.	0.5 (the Brainstorm option set)	fraction
 --overlap@run quadrature	F	Fraction of a Welch segment shared with the next; under --set tiles the hop must also be a tile (0, 0.5, 0.75, ...).	0.5	fraction
@@ -353,7 +345,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --reading@read crossspectrum	coherency|imag|phase|delay|psi	What to derive per pair from the bins: coherency, its imaginary part, phase, the phase-slope delay (ms) or the phase-slope index; positive delay and psi mean the row channel leads.	coherency	-
 )TBL",
 R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measurements are made or read by.	measure compute: partition-<weight>; measure export: any	-
---recipe@run measure	NAME	Name of the recipe (the recorded set of choices) the measurements are stored under; surface partitions only.	partition-<weight>	-
 --recipe@export measurements	NAME	Use only measurements made by this recipe (name or name@version); a subject with rows from another recipe is refused	none (any recipe)	-
 --recording	NAME	Name of the stored recording to read.	none (required)	-
 --recording-a	NAME	First recording, whose stored tile crossings are used (repeat: one of the two compared)	none (required)	-
@@ -364,7 +355,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
 --recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
 --recording@run quadrature	NAME	Name of the stored recording to analyse.	required	-
---recording@run scaleselection	NAME	The recording whose scale pairs are selected over	required	-
 --recording@run spatialnull	NAME	The recording whose stored spatial events are tested against the null.	required	-
 --recording@import condition	FILE	Import only this data file of the condition (e.g. data_0raw_x.mat) instead of every data file the condition has.	none (all the condition's recordings)	-
 --recording@import resample	NAME	The recording to resample	required	-
@@ -382,7 +372,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --resolution@run opticalflow	HZ	Frequency resolution of the grid on which the filter bank is designed.	0.5	Hz
 --resolve	band|bins	Whether to also keep each band's cross-spectrum bin by bin (bins, Welch estimator only) or only the band mean (band).	band	-
 --response	peak|mean	Which response of an event is compared across scale pairs: the largest standardized cell amplitude or their mean	peak	-
---response@run scaleselection	peak|mean	Event response used to pick the scale: the largest or the mean standardized cell amplitude	peak	-
 --ridge-fraction	X	Ridge added in whitening, as a fraction of the mean eigenvalue of the noise covariance block (Brainstorm's noise regularisation, MNE-Python's reg).	0.1	fraction
 --ridge-over-rank		Take the ridge from the trace divided by the rank (MNE-Python) instead of by the number of channels (Brainstorm).	off	-
 --ripple	R	Passband and stopband deviation of the Kaiser-window FIR filter, as a linear value (0.001 is 60 dB attenuation)	0.001	-
@@ -436,11 +425,9 @@ R"TBL(--segment-samples	N	Welch segment length in samples; wins over --segment-s
 --source-surface	NAME	Surface whose vertices are the sources of the head model.	the primary (cortex) surface	-
 --source-tool	NAME	Records the tool that produced the source data in the dataset's provenance	none	-
 --source-tool@create dataset	NAME	Records the tool that produced the source data, in the dataset's provenance.	none	-
---source@run scaleselection	NAME	The pipeline whose stored labellings, cells and baselines are read	cortical_event_pairs	-
 --space-level	L	Level of the surface's tile ladder that gives the spatial tiles (-1 on measure query: the whole cortex).	measure query: the stored depth; others none (required)	level
 --space-level@query measurements	LEVEL	The spatial level the cells are rolled up to (at most the stored depth; -1 is the whole cortex).	the stored depth	level
 --space-levels	L,...	Spatial tile levels of the surface to select over (all combinations with --time-levels).	none (required)	levels
---space-levels@run scaleselection	LEVELS	Comma-separated surface tile levels; the pairs are all space levels times time levels	required	level
 --spatial-band	BAND	Spatial band: modes, weyl:J or weyl:all for the phase and cycle patterns (all modes, one Weyl octave J, each member of the Weyl bank); for measure query the whole-number index of a stored spatial band	phasegradient: none (the kernel as it is); cyclepattern: weyl:all; measure query: none	-
 --spatial-band@run cyclepattern	BAND	Spatial band: modes (all modes), weyl:J (one Weyl octave J) or weyl:all (every member of the Weyl bank).	weyl:all	-
 --spatial-band@query measurements	N	The spatial band (eigenmode level) of the cells to read.	none	-
@@ -474,7 +461,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --surface-id	ID	The id of the surface the kernel was made on.	found from the kernel file	-
 --surface-id@import inverse	ID	Id of the stored cortex surface the kernel was made on.	found from the kernel's SurfaceFile link	-
 --surface@run eigenmodes	NAME	Name of the subject's stored surface to solve on.	the subject's primary surface	-
---surface@run scaleselection	NAME	The subject's surface	the surface of the joint partitions	-
 --surface@run tiles	NAME	The subject's surface whose tile ladder is computed, by name.	the primary (cortex) surface	-
 --surface@import condition	FILE	The subject's cortex surface file (tess_*.mat) the condition is imported on, instead of the one its head model names.	none (the condition's own surface)	-
 --surface@import template	NAME	Convert only this surface (a tess_*.mat file of the template anatomy); repeat for several.	every surface of the template's default anatomy	-
@@ -506,7 +492,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --time-level	M	Level of the recording's constant-Q time ladder (joint compute: the time tiles of the cells; measure query: time rolled up to tiles of 2^M frames)	measure query: 0; joint compute: none (required)	level
 --time-level@query measurements	LEVEL	The time level the cells are rolled up to: tiles of 2^LEVEL frames on the tower (0 is single frames).	0	level
 --time-levels	M1,M2,..	Constant-Q time levels (each one's band is a pair's rhythm) crossed with the space levels.	none (required)	levels
---time-levels@run scaleselection	LEVELS	Comma-separated constant-Q time levels, each giving the pair's rhythm band	required	level
 --timing-of	FIELD,...	Also store the timing map (lags) of these fields of each pattern: stream, potential, normal.	none	-
 --timing-of@run cyclepattern	FIELD,...	Also store the timing map (lags) of these fields of each pattern: stream, potential, normal.	none	-
 --to	HZ	The sampling rate to resample to (import resample).	none	Hz
@@ -553,9 +538,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --templates@run quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run cyclepattern	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run opticalflow	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run scaleselection	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run pyramid	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run measure	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run spatialnull	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run null	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@register package	DIR	A folder of released templates to look in (repeatable); when given, each package's template must be found there by name, version and hash and its anchor rows must equal the template's.	none (not checked)	-
@@ -655,7 +638,6 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --voices@run constantq	N	Number of bands per octave, counted from the top down.	6	-
 --voices@run opticalflow	N	Itersine family only: filter-bank members per octave.	4	voices/octave
 --weight	none|barycentric|voronoi	How the vertices of each member are weighted (measure compute: none is the plain vertex mean, barycentric or voronoi weight by area); phasegradient: power|coherence, the edge weight of a weighted fit.	measure compute: none, must be given; phasegradient: power	-
---weight@run measure	none|barycentric|voronoi	How the vertices of each member are weighted: none is the plain vertex mean, barycentric or voronoi weight by area; not used with --over.	required unless --over is given	-
 --weights	area|none	cellquadrature: weight vertices by their area or equally; crossspectrum read: weight the delay and phase-slope fits by coherence or not	cellquadrature: area; crossspectrum read: coherence	-
 --weights@read crossspectrum	coherence|none	For --reading delay: weight each frequency bin of the phase-slope fit by its squared coherency, or count every bin equally.	coherence	-
 --whitener-form	symmetric|pca	Form of the noise whitener: symmetric or PCA.	symmetric	-
@@ -1250,13 +1232,6 @@ summary: Optical flow (Horn-Schunck) of the source estimate: where and how fast 
 span: yes
 opts: --alpha --anchor --centres --chunks --cycles --datafit --dataset* --depth --family --flow-tolerance --frame-level --freq --gain --gamma --half-width --input --kernel --limits --max-iterations --method --name --no-levi-civita --oversample --package --preconditioner --recording* --regulariser --replace --resolution --scale-family --scale-filters --scale-voices --start --start-s --stop --subject* --tile-levels --tile-max-level --tiles --time-bandwidth --tolerance --voices --templates+
 )TBL",
-R"TBL(@ run scaleselection
-old: scaleselection compute
-alias: refused
-group: Cortical flow and patterns
-summary: Each event's own size and rhythm: the best spatial and temporal level by standardised response.
-opts: --dataset* --min-link --name --recording* --replace --response --source --space-levels* --subject* --surface --time-levels* --templates+
-)TBL",
 R"TBL(@ run pyramid
 old: pyramid build
 alias: refused
@@ -1264,14 +1239,6 @@ group: Measurements
 summary: The measurement pyramid of a recording's cortical current, from space and time tiles.
 span: yes
 opts: --bands --block-samples --chunks --dataset* --depth --frame-level --halo-seconds --keep-bad-segments --kernel --recording* --replace --shape --start --start-s --stop --subject* --threads --tree --templates+
-)TBL",
-R"TBL(@ run measure
-old: measure compute
-alias: refused
-group: Measurements
-summary: Stored fields measured over a partition's members, with their recipe.
-span: yes
-opts: --chunks --dataset* --fields* --gradient --labelling --level --measures --over --recipe --replace --start --stop --subject* --weight --templates+
 )TBL",
 R"TBL(@ run spatialnull
 old: spatialnull compute
