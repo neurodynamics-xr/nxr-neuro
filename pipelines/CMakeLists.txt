@@ -367,6 +367,10 @@ if(NXR_NEURO_BUILD_TESTS)
     target_compile_definitions(test_headmodel PRIVATE NXR_TEST_CLI="$<TARGET_FILE:nxr-neuro>")
   endif()
   add_test(NAME test_headmodel COMMAND test_headmodel)
+  # the type system on the shipped definitions (spec docs/specs/2026-11-17-type-system.md, T2): synthetic input types, no data
+  add_executable(test_definitions_typed test/test_definitions_typed.cpp)
+  target_link_libraries(test_definitions_typed PRIVATE nxr_pipelines)
+  add_test(NAME test_definitions_typed COMMAND test_definitions_typed)
   # every pipeline test may use io's test-only probe (nxr/io/testing/probe.h) for assertions about what was written
   get_directory_property(_pipeline_targets BUILDSYSTEM_TARGETS)
   foreach(_t ${_pipeline_targets})

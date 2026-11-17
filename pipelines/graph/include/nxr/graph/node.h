@@ -12,10 +12,12 @@
 #include <any>
 #include <functional>
 #include <map>
+#include <optional>
 #include <string>
 #include <utility>
 #include <vector>
 
+#include "nxr/graph/signature.h"
 #include "nxr/graph/types.h"
 
 namespace nxr::graph {
@@ -73,6 +75,9 @@ struct NodeSpec {
   std::vector<PortSpec> inputs, outputs;
   std::vector<ParamSpec> parameters;
   NodeTraits traits;
+  /** the node's SIGNATURE (signature.h): its move and its ports' types with manifold variables. The checker runs it beside `plan` when every input is typed (types.h `typed`); a node
+   *  without one is checked by its `plan` alone. `Registry::add` gives a node the built-in signature of its name (signatures.cpp) when the ports match. */
+  std::optional<Signature> signature;
   bool linear_map = false;                // a linear map (a kernel, a form's operator): refused after a non-linear node (D106)
   std::string matches, description;       // the reference it is held equal to; one sentence
 
@@ -108,8 +113,11 @@ class Registry {
   std::vector<std::string> names() const;
   /** the registered names nearest to `name` (the same group first, then the closest spelling) */
   std::vector<std::string> near(const std::string& name, std::size_t limit = 5) const;
+  /** the nodes whose built-in signature was NOT attached because its ports are not the node's (a node's ports changed): empty when every signature fits */
+  const std::vector<std::string>& unmatched_signatures() const { return unmatched_; }
  private:
   std::map<std::string, NodeSpec> nodes_;
+  std::vector<std::string> unmatched_;
 };
 /** the built-in nodes. Empty until the runner's steps are registered as nodes (spec steps C5, C6). */
 Registry& registry();

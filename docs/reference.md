@@ -932,6 +932,23 @@ A `PortType` says what a port carries before any data flows. Beside C1's members
 
 The printed form (`print`, `parse_type`) is the one used by messages and `--dry-run`: `field<cortex(kernel) × frames(tiling); complex vector3; current; band 8-12 Hz morlet; level tiles@5>`. A manifold prints as `label(id)`, a made one `label(~use.output)`, an anonymous one `#n`, a restriction `M|selection`, a member set `members(P)`, a derived one `relation(M)`. `unify` binds the variables of a signature to the terms they meet; its only rules are equality of ids, anonymous numbers, member sets, restrictions and derived terms, a variable's role (a time variable binds a time line only), and one subsumption at an operator's source (a kernel from a restriction reads the whole manifold, or the same restriction).
 
+### Signatures and the shared checker (`signature.h`, `checker.cpp`, `signatures.cpp`; step T2)
+
+A node declares a **signature**: a move, and its ports' types written with manifold variables (`var`, `time_var`, `frames_var`, `var_rest`, an operator's source `from_or_restriction_of`). `type_use` solves a use by unification, builds the outputs' types from the signature (so nothing a node's own code does can get around the rules), applies the move's rule, then runs the node's small `refine` (what the signature cannot say: a parameter that picks a band, a level, a form), which may only narrow the outputs or refuse. It is **one function** for every graph: `check` runs it beside a node's old `plan` when every input is typed, `type_check` runs a graph of signed nodes by itself.
+
+| move | rule |
+|---|---|
+| `pointwise` | the domain is unchanged; non-linear nodes set `nonlinear` |
+| `apply` | an operator maps one factor (its source may be a restriction: the one implicit move); the field is linear (D106); a tangent field needs an operator built in its own gauge (`frame.rotate` otherwise) |
+| `compose` | two operators meet: A to B, B to C gives A to C |
+| `restrict` | at most one factor narrowed (`at_level`: the stack of levels) |
+| `measure` | the **only** move that removes a factor: a partition's members replace the factors it partitions; the partition must be disjoint; a ladder's level is chosen by the field's band; a joint partition's band and level must equal the field's (the level IS the band); a partition of the streamed factor needs an accumulate node |
+| `summarize` | across a partition's members: a statistic that remembers what it is of; a field is measured first (a fused estimation node declares the partition it reduces over) |
+| `detect` | events found on a scalar measurement over a time partition's members: a selection with an identity and what it was detected over, and measurements over its members |
+| `make` | no field input |
+
+The checker never inserts a transition or a restriction: it refuses, names the rule and what to add. A refusal reads `<use> -> <output>: port <port>: <why> (<value> = <printed type>, from <the use that made it>)`. `builtin_signature(name)` holds the signatures of the registered nodes the shipped definitions use; `Registry::add` attaches one to a node of that name when the ports are the node's. Tests: `test_graph_moves` (a graph per move and rule), `test_definitions_typed` (the 15 shipped definitions check; the spec's ten seeded mistakes are refused). The closed vocabulary of quantities is `nxr::graph::quantities()`; a signature naming a quantity outside it is refused when registered.
+
 ## Events on the time axis (`run band_bursts`; spec `docs/specs/2026-11-13-time-events.md`, audit `docs/audits/2026-11-13-time-event-labelling.md`)
 
 **Why.** Standard time-series event labelling: the time axis of a recording labelled with events (bursts, spindles, slow waves, bad

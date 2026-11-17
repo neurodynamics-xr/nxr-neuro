@@ -9,6 +9,8 @@ endif()
 add_library(nxr_graph
   src/node.cpp
   src/types.cpp
+  src/checker.cpp
+  src/signatures.cpp
   src/dispatch.cpp
   src/graph.cpp
   src/execution.cpp
@@ -28,6 +30,9 @@ if(NXR_NEURO_BUILD_TESTS)
   add_executable(test_graph_types test/test_graph_types.cpp)
   target_link_libraries(test_graph_types PRIVATE nxr_graph)
   add_test(NAME test_graph_types COMMAND test_graph_types)
+  add_executable(test_graph_moves test/test_graph_moves.cpp)
+  target_link_libraries(test_graph_moves PRIVATE nxr_graph)
+  add_test(NAME test_graph_moves COMMAND test_graph_moves)
 endif()
 
 # CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.

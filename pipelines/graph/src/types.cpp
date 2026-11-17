@@ -113,6 +113,10 @@ ManifoldRef members(const std::string& partition) {
   Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = Role::time_tiles;
   return make_ref(std::move(m));
 }
+ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role, const std::string& label) {
+  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = role; m.of = of; m.label = label;
+  return make_ref(std::move(m));
+}
 ManifoldRef members_of_port(const std::string& port) { return members("$" + port); }
 ManifoldRef derived(const std::string& relation, const ManifoldRef& of) {
   Manifold m; m.form = Manifold::Form::derived; m.key = relation; m.of = of; m.kind = of ? of->kind : ManifoldKind::points; m.cs = of ? of->cs : std::nullopt;
@@ -125,9 +129,9 @@ bool same(const ManifoldRef& a, const ManifoldRef& b) {
   if (a->form != b->form) return false;
   switch (a->form) {
     case Manifold::Form::id:
+    case Manifold::Form::made: return a->key == b->key && a->label == b->label;      // `sensors(rest)` and `time(rest)` are two manifolds of one recording
     case Manifold::Form::anonymous:
-    case Manifold::Form::variable:
-    case Manifold::Form::made: return a->key == b->key;
+    case Manifold::Form::variable: return a->key == b->key;
     case Manifold::Form::restricted: return a->by == b->by && same(a->of, b->of);
     case Manifold::Form::members: return a->by == b->by;
     case Manifold::Form::derived: return a->key == b->key && same(a->of, b->of);
@@ -236,7 +240,7 @@ bool same(const Domain& a, const Domain& b) {
 std::string print(const Domain& d) {
   std::string s;
   for (std::size_t i = 0; i < d.factors.size(); ++i) s += (i ? " × " : "") + print(d.factors[i]);
-  if (d.cells != "0") s += " {cells " + d.cells + "}";
+  if (!d.cells.empty() && d.cells != "0") s += " {cells " + d.cells + "}";
   return s;
 }
 
@@ -335,7 +339,7 @@ const std::vector<std::string>& quantities() {
       "mean", "mean_square", "max", "min", "abs_max", "median", "envelope_max", "duration", "interval_next", "trace", "frame", "sense", "centre_vertex", "centre", "area", "peak",
       "diameter_cm", "characteristic_level", "size_cm", "relative_peak", "burst", "first_frame", "last_frame", "n_frames", "path_length", "displacement", "track", "crossings",
       "t_on", "t_off", "tau_rise", "tau_fall", "fit_baseline", "fit_height", "fit_r2", "plateau_duration", "summaries", "histogram", "home", "summary", "welch", "power_tiles",
-      "covariance", "cross_spectrum", "psd",
+      "n_cells", "n_tiles", "first_tile", "last_tile", "burst_ordinal", "covariance", "cross_spectrum", "psd",
       // an operator's kind
       "inverse kernel", "forward", "interpolation", "spatial band", "eigenvectors", "transition", "whitener",
       // a selection's type
