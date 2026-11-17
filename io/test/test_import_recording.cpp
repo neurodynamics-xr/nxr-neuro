@@ -139,6 +139,8 @@ int main() {
     CHECK_EQ(static_cast<std::size_t>(N), gold["chs"].size());
     for (std::int64_t i = 0; i < N; ++i) {
       const Json& c = gold["chs"][static_cast<std::size_t>(i)];
+      const Json& L = c["loc"];
+      if (!L[0].is_number() || !L[1].is_number() || !L[2].is_number() || (L[0].get<double>() == 0 && L[1].get<double>() == 0 && L[2].get<double>() == 0)) continue;   // no position (the reader gives none)
       double v[3] = {c["loc"][0].get<double>(), c["loc"][1].get<double>(), c["loc"][2].get<double>()}, h[3];
       if (c["coord_frame"].get<int>() == 1)
         for (int r = 0; r < 3; ++r) h[r] = T[r][0].get<double>() * v[0] + T[r][1].get<double>() * v[1] + T[r][2].get<double>() * v[2] + T[r][3].get<double>();
