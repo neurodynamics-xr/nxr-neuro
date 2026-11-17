@@ -78,6 +78,14 @@ class RecordingReader {
   virtual const RecordingHeader& header() const = 0;
   // Samples [s0, s0 + n) of channels [c0, c1) into out (size (c1 - c0) * n), row after row. Throws code::out_of_range outside the recording.
   virtual void read(std::uint64_t s0, std::uint64_t n, std::size_t c0, std::size_t c1, float* out) const = 0;
+  // The same in 64-bit floats: for a recording whose precision is float64 (an overriding reader gives the values as the file holds them; the float
+  // overload then refuses rather than narrow). For a float32 recording it widens the float read (exactly).
+  virtual void read(std::uint64_t s0, std::uint64_t n, std::size_t c0, std::size_t c1, double* out) const {
+    if (header().precision != Precision::float32) throw refused("this recording holds 64-bit values and its reader gives no double read");
+    std::vector<float> tmp(static_cast<std::size_t>((c1 - c0) * n));
+    read(s0, n, c0, c1, tmp.data());
+    for (std::size_t i = 0; i < tmp.size(); ++i) out[i] = tmp[i];
+  }
 
  protected:
   void check_range(std::uint64_t s0, std::uint64_t n, std::size_t c0, std::size_t c1) const {

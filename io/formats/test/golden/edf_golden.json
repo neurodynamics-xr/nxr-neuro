@@ -1,0 +1,121 @@
+{
+ "mne": "1.13.2",
+ "cases": {
+  "plain": {
+   "file": "edf_plain.edf",
+   "mne_channels": [
+    "Fp1",
+    "Cz",
+    "EOG"
+   ],
+   "sfreq": 100.0,
+   "n_times": 600,
+   "data": "edf_plain.f32",
+   "annotations": [],
+   "format": "edf",
+   "n_gaps": 0
+  },
+  "plus_c": {
+   "file": "edf_plus_c.edf",
+   "mne_channels": [
+    "EEG A1",
+    "EEG A2"
+   ],
+   "sfreq": 100.0,
+   "n_times": 400,
+   "data": "edf_plus_c.f32",
+   "annotations": [
+    {
+     "onset": 0.0,
+     "duration": 0.0,
+     "label": "start"
+    },
+    {
+     "onset": 0.75,
+     "duration": 0.5,
+     "label": "stimulus"
+    },
+    {
+     "onset": 2.25,
+     "duration": 0.0,
+     "label": "response"
+    },
+    {
+     "onset": 3.1,
+     "duration": 0.4,
+     "label": "blink"
+    }
+   ],
+   "format": "edf+",
+   "n_gaps": 0
+  },
+  "plus_d": {
+   "file": "edf_plus_d.edf",
+   "format": "edf+",
+   "gaps": [
+    {
+     "first": 60,
+     "count": 40
+    }
+   ],
+   "n_samples": 160,
+   "data": "edf_plus_d.f32",
+   "sfreq": 20.0,
+   "mne_channels": [
+    "Ch1",
+    "Ch2"
+   ],
+   "annotations": [
+    {
+     "onset": 5.5,
+     "duration": 0.25,
+     "label": "after gap"
+    }
+   ]
+  },
+  "bdf_plain": {
+   "file": "bdf_plain.bdf",
+   "mne_channels": [
+    "A1",
+    "A2",
+    "A3",
+    "Status"
+   ],
+   "sfreq": 250.0,
+   "n_times": 1000,
+   "data": "edf_bdf_plain.f32",
+   "annotations": [],
+   "format": "bdf",
+   "n_gaps": 0
+  },
+  "bdf_plus": {
+   "file": "bdf_plus.bdf",
+   "mne_channels": [
+    "B1",
+    "B2"
+   ],
+   "sfreq": 128.0,
+   "n_times": 512,
+   "data": "edf_bdf_plus.f32",
+   "annotations": [
+    {
+     "onset": 1.5,
+     "duration": 0.5,
+     "label": "event one"
+    },
+    {
+     "onset": 3.0,
+     "duration": 0.0,
+     "label": "event two"
+    }
+   ],
+   "format": "bdf+",
+   "n_gaps": 0
+  },
+  "mixed_rates": {
+   "file": "edf_mixed_rates.edf",
+   "fast": "edf_mixed_fast.f32",
+   "slow": "edf_mixed_slow.f32"
+  }
+ }
+}

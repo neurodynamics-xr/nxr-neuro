@@ -7,6 +7,9 @@ add_library(nxr_io_formats
   src/nifti.cpp
   src/gifti.cpp
   src/tsv.cpp
+  src/edf.cpp
+  src/brainvision.cpp
+  src/eeglab.cpp
 )
 
 # pugixml (MIT; one new dependency, the XML of GIFTI): its single source file compiled into the library, its warnings not ours
@@ -31,7 +34,7 @@ endif()
 target_include_directories(nxr_io_formats PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 # errors.h is the one nxr/io header a pure format sees: the io include folder, for that header only (the layering check holds the line)
 target_include_directories(nxr_io_formats PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/../include)
-target_link_libraries(nxr_io_formats PUBLIC nlohmann_json)   # the JSON sidecars
+target_link_libraries(nxr_io_formats PUBLIC nlohmann_json PRIVATE matio)   # the JSON sidecars; matio reads the MATLAB files of EEGLAB
 if(MSVC)
   target_compile_options(nxr_io_formats PRIVATE /W4)
 else()
@@ -39,7 +42,7 @@ else()
 endif()
 
 if(NXR_IO_BUILD_TESTS)
-  set(NXR_FORMATS_TESTS byte_source recording nifti gifti tsv)
+  set(NXR_FORMATS_TESTS byte_source recording nifti gifti tsv edf brainvision eeglab)
   foreach(t ${NXR_FORMATS_TESTS})
     add_executable(test_formats_${t} test/test_${t}.cpp)
     target_link_libraries(test_formats_${t} PRIVATE nxr_io_formats)   # the formats alone: a test that needs the store does not belong here
