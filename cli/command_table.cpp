@@ -933,6 +933,9 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --to-sphere	NAME	The surface of the second template that carries its registered sphere (e.g. cortex_pial_sphere).	none (required)	-
 --neighbours	K	Modified Shepard weights: the number of nearest source vertices looked at.	8	vertices
 --one-direction		Make only the operator from the first template to the second.	off (both directions are made)	-
+--field-kind	TEXT	The kind of the Field written (what its values are).	the command's own	-
+--label-names	FILE	A text file of `code name` lines naming the entries of a parcellation.	entries are named by their code	-
+--unit	TEXT	The unit of the values written, when known.	none	-
 --licence	TEXT	The licence recorded in the origin of every item.	derived from the two spheres' origin records	-
 --attribution	TEXT	The attribution recorded in the origin of every item.	derived from the two spheres' origin records	-
 --redistributable	yes|no	Whether the registration may be redistributed.	yes only when both spheres' origin records say so	-
@@ -1057,6 +1060,18 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --licence@import fif	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
 --attribution@import fif	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
 --anonymize@import fif		Drop the file names, working folder and command line the file records.	off (kept as the file has them)	-
+--from@import nifti	FILE	The NIfTI-1 or NIfTI-2 volume to import (.nii, .nii.gz, or a .hdr/.img pair).	required	-
+--package@import nifti	PATH	The subject package (made by `create package`) the volume is imported into.	required	-
+--name@import nifti	NAME	The base name of what is written (the manifold is <name>_volume, the field or Selection <name>).	the file's name without .nii / .nii.gz	-
+--kind@import nifti	volume|labels	An intensity volume (a Field) or a label volume (a codes Selection); labels need --parcellation.	labels when --parcellation is given, else volume	-
+--parcellation@import nifti	NAME	The name of the parcellation a label volume is. A label volume is imported only when it is named.	none (the volume is intensities)	-
+--label-names@import nifti	FILE	A text file of `code name` lines naming the entries of the parcellation.	entries are named by their code	-
+--field-kind@import nifti	TEXT	The kind of the intensity Field.	intensity	-
+--unit@import nifti	TEXT	The unit of the values, when known.	none	-
+--source-root@import nifti	DIR	The folder the file's recorded path is relative to (an absolute path is never recorded).	the file's own folder	-
+--licence@import nifti	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
+--attribution@import nifti	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
+--anonymize@import nifti		Drop the file's free-text description and auxiliary file name.	off (kept as the file has them)	-
 --from@import transform	FILE	The -trans.fif file (a head-to-MRI transform, either direction) to import.	required	-
 --package@import transform	PATH	The subject package the transform is imported into.	required	-
 --name@import transform	NAME	The name of the transition operator.	the file's name without its suffix	-
@@ -1374,6 +1389,12 @@ old: __import fif
 alias: no
 summary: Import an MNE FIF object (source space, covariance, forward solution, inverse operator, events, annotations or head-to-MRI transform) into a subject package.
 opts: --acquisition --anonymize --attribution --channels --from* --kind --licence --name --package* --recording --source-root --surface
+)TBL",
+R"TBL(@ import nifti
+old: __import nifti
+alias: no
+summary: Import a NIfTI volume into a subject package: a lattice in its voxel chart (voxel size as spacing in mm), its intensities as a Field (or a named parcellation as a codes Selection), and the voxel-to-world transform as a transition operator in millimetres.
+opts: --anonymize --attribution --field-kind --from* --kind --label-names --licence --name --package* --parcellation --source-root --unit
 )TBL",
 R"TBL(@ import transform
 old: __import transform
