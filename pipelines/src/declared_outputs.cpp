@@ -361,8 +361,12 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     const std::int64_t n = seg.tiling->count + seg.tiling->skipped;
     seg.description = "the " + std::to_string(n) + " segments of " + (P.found.count(of) && P.found.at(of).row ? text(*P.found.at(of).row, "name") : of) + " behind " + name + " (" + std::to_string(seg.tiling->skipped) + " left out)";
     const std::string spath = unit.path_of(seg);
-    clear(task::Cls::selection, spath);
-    st.partition_selection_id = unit.selection(seg);
+    if (const auto again = made.find("partition:" + spath); again != made.end()) st.partition_selection_id = again->second;   // several statistics of one node share their partition
+    else {
+      clear(task::Cls::selection, spath);
+      st.partition_selection_id = unit.selection(seg);
+      made["partition:" + spath] = *st.partition_selection_id;
+    }
     report["partition"] = Json{{"name", seg.name}, {"path", spath}, {"id", *st.partition_selection_id}};
     st.n_members = d.value("n_members", seg.tiling->count);
     st.members_skipped = d.value("members_skipped", seg.tiling->skipped);

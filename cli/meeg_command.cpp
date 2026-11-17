@@ -456,46 +456,6 @@ int phasegradient_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-static int source_spectral_main(const std::vector<std::string>& argv, bool tensor) {   // sourcepsd · sourcetensor: the same options
-  const std::string verb = tensor ? "sourcetensor" : "sourcepsd";
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro " + verb + ": error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro " + verb + " compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const std::set<std::string> valued = {"--dataset", "--subject", "--recording", "--kernel", "--name", "--chunks", "--start", "--stop", "--set", "--segment-seconds", "--segment-samples", "--segment-level",
-                                        "--overlap", "--window", "--detrend", "--scaling", "--bands", "--normalisation"};
-  const std::set<std::string> flags = {"--periodic", "--symmetric", "--no-bad-segments", "--replace"};
-  const cli::Args a = cli::parse(prog, rest, valued, flags, {"--dataset", "--subject", "--recording"});
-  nxr::pipelines::SourcePsdOptions o;
-  o.recording = a.get("--recording");
-  o.kernel = a.maybe("--kernel");
-  o.name = a.maybe("--name");
-  if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
-  if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
-  o.chunks = a.maybe("--chunks");
-  welch_args(prog, a, o);
-  if (const auto v = a.maybe("--bands")) o.bands = bands_arg(prog, *v);
-  o.normalisation = a.maybe("--normalisation").value_or("none");
-  if (o.normalisation != "none" && o.normalisation != "relative") usage(prog, "--normalisation must be none or relative");
-  o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    (void)tensor;
-    const auto r = nxr::pipelines::sourcetensor_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    out["seconds"] = std::round(r.seconds * 1000) / 1000;
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
-int sourcetensor_main(const std::vector<std::string>& argv) { return source_spectral_main(argv, true); }
 
 // --tiles [--tile-levels 1,2,3] [--tile-max-level N] [--no-levi-civita]: the maps' tile summaries per level
 template <class O> void tile_args(const std::string& prog, const cli::Args& a, O& o) {

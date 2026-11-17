@@ -25,8 +25,8 @@ const Shipped kShipped[] = {
 };
 
 const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
-const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "statistic"};
-const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "required", "description", "hint"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
+const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "statistic", "manifold"};
+const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
                                            // DECLARED OUTPUTS (docs/specs/2026-11-17-definition-outputs.md, section 3): where and of what; what the values are, the node says
                                            "name", "kind_name", "type", "on", "of", "axes", "partition", "operator_kind", "from", "to", "over", "alt", "cs", "derived_from", "factors"};

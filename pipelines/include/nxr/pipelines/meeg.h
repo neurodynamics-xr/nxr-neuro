@@ -150,7 +150,6 @@ struct SourcePsdResult {
 //     `<stem>_normalpower_<b>`   Field, scalar: n^T Re(T) n, the power along the normal (n = e1 x e2; the mesh normal where the frames are singular)
 //     `<stem>_normalshare_<b>`   Field, scalar: the normal power over the trace (0 … 1)
 //   Needs the surface's canonical frames (`frames compute`). Cached on the options, the kernel, the recording and the frames.
-SourcePsdResult sourcetensor_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const SourcePsdOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // ── the sensor CROSS-SPECTRUM of a recording: the root of every source cross-spectral quantity ──
 // Per band, the Welch cross-spectral density of the channels, C = S + i Sq with C_ab = <X_a conj(X_b)> (X a segment's Fourier coefficients; nxr::welch::CrossWelch with the

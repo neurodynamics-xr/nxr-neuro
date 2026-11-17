@@ -1,0 +1,69 @@
+# THE BAND CROSS-SPECTRAL TENSOR OF THE CURRENT (four statistics): the channels' cross-spectrum and quadrature per band (Welch, streamed chunk by chunk, the recording's bad
+# segments left out), then T = K_v S K_v^H at every source through a FREE-orientation inverse kernel (3 x 3 Hermitian, the kernel's x y z); from it the tangential Stokes
+# parameters in the canonical frames of the kernel's surface, the power along the normal (the frames' n, the area-weighted mesh normal where they are singular) and its share
+# of the trace. The tensor is the kernel's estimate: a minimum-norm kernel spreads each source over its neighbours, and resolves orientations only as far as it resolves them.
+#
+#   nxr-neuro run sourcetensor --dataset <folder> --subject sub-01 --recording rest --all [--kernel NAME]
+pipeline: sourcetensor
+version: 1
+description: the band cross-spectral tensor of the current at every source, its Stokes parameters, its normal power and normal share
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}}
+  surface:   {manifold: surface, is: kernel.to}
+  frames:    {field: canonical frames, manifold: kernel.to, hint: "the canonical frames of the kernel's surface (`nxr-neuro run frames` first)"}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the free-orientation inverse kernel's name, or none: the subject's one inverse kernel on the recording's channels", unit: "-"}
+  name: {default: "{recording}_{kernel}_tensor", meaning: "the stem of the stored statistics: <name>, <name>_stokes, <name>_normalpower, <name>_normalshare; their segment partition <name>_segments", unit: "-"}
+  bands: {default: [{name: delta, lo: 2, hi: 4}, {name: theta, lo: 5, hi: 7}, {name: alpha, lo: 8, hi: 12}, {name: beta, lo: 15, hi: 29}, {name: gamma1, lo: 30, hi: 59}, {name: gamma2, lo: 60, hi: 90}], meaning: "the bands: {name, lo, hi}; a band holds the bins from lo to hi inclusive (Brainstorm's default bands)", unit: "Hz"}
+  segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
+  segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds); null: from segment_seconds", unit: "samples"}
+  segment_level: {default: null, meaning: "under segment_rule tile: the segment is 2^segment_level samples; null: from segment_seconds", unit: "level"}
+  segment_rule: {default: tile, meaning: "how the segment's length becomes samples: tile | round | even", unit: "-", choices: [tile, round, even]}
+  overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next, in [0, 1)", unit: "fraction"}
+  window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
+  periodic: {default: false, meaning: "the DFT-even form of the window rather than the symmetric one", unit: "-"}
+  detrend: {default: constant, meaning: "what is removed from each segment before windowing", unit: "-", choices: [none, constant, linear]}
+  scaling: {default: density, meaning: "density = power per Hz | spectrum = power | chain = per sample, per bin", unit: "-", choices: [density, spectrum, chain]}
+  bad_segments: {default: exclude, meaning: "exclude = a segment touching one of the recording's bad segments is left out | ignore = every segment is kept", unit: "-", choices: [exclude, ignore]}
+
+presets:
+  tiles:      {segment_rule: tile}
+  brainstorm: {segment_rule: round, window: hamming, periodic: false, detrend: constant, scaling: density}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: welch.source_tensor, in: {x: recording, kernel: kernel, frames: frames, surface: surface, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_level: $segment_level, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [tensor, stokes, normal_power, normal_share]}
+
+outputs:
+  tensor:
+    kind: statistic
+    name: $name
+    of: recording
+    axes: [{name: vertex, on: kernel.to}, {name: band}]
+    partition: {tiling: "$name_segments", on: recording.time}
+  stokes:
+    kind: statistic
+    name: "$name_stokes"
+    of: recording
+    axes: [{name: vertex, on: kernel.to}, {name: band}]
+    partition: {tiling: "$name_segments", on: recording.time}
+  normal_power:
+    kind: statistic
+    name: "$name_normalpower"
+    of: recording
+    axes: [{name: vertex, on: kernel.to}, {name: band}]
+    partition: {tiling: "$name_segments", on: recording.time}
+  normal_share:
+    kind: statistic
+    name: "$name_normalshare"
+    of: recording
+    axes: [{name: vertex, on: kernel.to}, {name: band}]
+    partition: {tiling: "$name_segments", on: recording.time}

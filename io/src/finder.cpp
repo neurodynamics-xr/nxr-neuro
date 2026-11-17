@@ -54,13 +54,13 @@ Json column(const Row& r, const std::string& key) {
   return row_json(r)[key];
 }
 std::string class_of(const Json& spec) {
-  for (const char* c : {"field", "operator", "selection", "statistic"}) if (spec.contains(c)) return c;
-  refuse("an input names one class: field · operator · selection · statistic");
+  for (const char* c : {"field", "operator", "selection", "statistic", "manifold"}) if (spec.contains(c)) return c;
+  refuse("an input names one class: field · operator · selection · statistic · manifold");
 }
 std::vector<Row> matches(const Database& db, const std::string& subject_id, const std::string& name, const Json& spec, const std::map<std::string, Value>& found,
                          const Json& params) {
   const std::string w = "inputs." + name, cls = class_of(spec);
-  const std::string table = cls == "field" ? "field" : cls == "operator" ? "operator" : cls == "statistic" ? "statistic" : "selection", col = cls == "selection" ? "type" : cls == "statistic" ? "method" : "kind";
+  const std::string table = cls == "field" ? "field" : cls == "operator" ? "operator" : cls == "statistic" ? "statistic" : cls == "manifold" ? "manifold" : "selection", col = (cls == "selection" || cls == "manifold") ? "type" : cls == "statistic" ? "method" : "kind";
   if (cls == "statistic") {   // a stored statistic read BY NAME (a global statistic is a stored node: the threshold's distribution); its `method` is the class's value (histogram, welch, …). It lies on no manifold.
     if (spec.contains("from") || spec.contains("to") || spec.contains("manifold")) refuse(w + ": a statistic input has no from / to / manifold (find it by `where: {name: …}`)");
     if (!has_table(db, "statistic")) return {};   // a dataset made before the statistic table has none
@@ -71,7 +71,8 @@ std::vector<Row> matches(const Database& db, const std::string& subject_id, cons
   auto keep = [&](auto pred) { std::vector<Row> k; for (auto& r : out) if (pred(r)) k.push_back(std::move(r)); out = std::move(k); };
   if (spec.contains("from")) { const std::string m = relation(spec["from"].get<std::string>(), found, w); keep([&](const Row& r) { return text(r, "from_manifold_id") == m; }); }
   if (spec.contains("to")) { const std::string m = relation(spec["to"].get<std::string>(), found, w); keep([&](const Row& r) { return opt_text(r, "to_manifold_id") == m; }); }
-  if (spec.contains("manifold")) {
+  if (spec.contains("is")) { const std::string m = relation(spec["is"].get<std::string>(), found, w); keep([&](const Row& r) { return text(r, "id") == m; }); }   // a manifold: the one a relation names (kernel.to)
+  if (cls != "manifold" && spec.contains("manifold")) {
     const std::string m = relation(spec["manifold"].get<std::string>(), found, w);
     keep([&](const Row& r) {
       if (is_null(r, "manifold_id")) return false;
@@ -130,6 +131,8 @@ Value value_of(const Database& db, const std::string& cls, const Row& row) {
     if (v.complex) v.value_type = "scalar";
   } else if (cls == "statistic") {
     v.unit = opt_text(row, "unit");
+  } else if (cls == "manifold") {
+    v.manifolds = {text(row, "id")};
   } else {
     v.manifolds = {opt_text(row, "manifold_id").value_or("")};
   }

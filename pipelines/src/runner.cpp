@@ -1,6 +1,7 @@
 // nxr-pipelines — the runner (runner.h): nxr's nxr/pipelines/runner.py `plan` and the planning half of `run`. The execution (before · the chunk loop · after
 // · store) is the next PR of the spec's order.
 #include "nxr/pipelines/runner.h"
+#include "nxr/pipelines/input.h"
 
 #include "nxr/bst/entities.h"
 #include "nxr/io/measures.h"
@@ -850,9 +851,33 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   nxr::graph::Arrays constants;                                            // a found input that is not streamed is a description the steps read through the binding: no array
   for (const auto& name : checked.inputs)
     if (!checked.values.at(name).streamed()) { nxr::graph::Array a; a.rows = 0; a.cols = 0; a.meta["placeholder"] = true; constants[name] = std::move(a); }
-  // an OPERATOR a native node (a grouped name: a pure function of arrays) reads is handed to it as its matrix and the channels it lies over (the node reads no store)
+  // what a native node (a grouped name: a pure function of arrays) reads is handed to it as arrays (the node reads no store): an OPERATOR as its matrix and the channels it
+  // lies over; a stored FIELD that is not streamed as its values (rows x components); a MANIFOLD (a surface) as its vertices [n x 3], its faces in meta["faces"]
   for (const auto& n : checked.nodes) {
     if (n.spec->name.find('.') == std::string::npos) continue;
+    for (const auto& [port, name] : n.in) {
+      if (!constants.count(name) || !P.values.count(name) || !P.found.count(name) || !P.found.at(name).row) continue;
+      const Value& v = P.values.at(name);
+      const nxr::io::Row& row = *P.found.at(name).row;
+      if (v.cls == "field") {
+        std::vector<std::int64_t> shape;
+        const std::vector<float> f = bound.array_float(text(row, "path"), &shape);
+        nxr::graph::Array a;
+        a.rows = shape.empty() ? 0 : shape[0];
+        a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
+        a.data.assign(f.begin(), f.end());
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
+        constants[name] = std::move(a);
+      } else if (v.cls == "manifold") {
+        const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(sub, text(row, "name"), true);
+        nxr::graph::Array a;
+        a.rows = S.n_vertices(); a.cols = 3;
+        a.data = S.vertices;
+        a.meta["faces"] = S.faces;
+        a.meta["name"] = S.name; a.meta["id"] = S.id;
+        constants[name] = std::move(a);
+      }
+    }
     for (const auto& [port, name] : n.in)
       if (constants.count(name) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row) constants[name] = operator_constant(bound, sub, *P.found.at(name).row, name);
   }

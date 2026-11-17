@@ -18,7 +18,11 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/spectral_record.h"
+#include <algorithm>
+#include <array>
+#include <limits>
 #include "nxr/meeg/sources.h"
+#include "nxr/meeg/tensor.h"
 #include "nxr/rotary.h"
 #include "nxr/welch.h"
 
@@ -532,11 +536,148 @@ ng::NodeSpec welch_source_band_power() {
   };
   return n;
 }
+
+// ── welch.source_tensor ─────────────────────────────────────────────────────────────────────────────────────────
+// The band cross-spectral TENSOR of the current at every source (the hand-wired `sourcetensor` it replaces): the channels' cross-spectrum and quadrature
+// accumulated per band, then T = K_v S K_v^H per source (3 x 3 Hermitian, the kernel's x y z), and from it the tangential Stokes parameters in the canonical frames,
+// the power along the normal and its share of the trace. Four statistics, sources x bands, over one segment partition.
+struct SourceTensorPrepared {
+  SourceBandPrepared b;
+  Eigen::MatrixXd e1, e2, normal;   // [N x 3]; e1/e2 NaN at a singular vertex; normal: e1 x e2, or the area-weighted mesh normal where the frames are singular
+  std::int64_t singular = 0;
+  std::string frames;
+};
+
+ng::NodeSpec welch_source_tensor() {
+  ng::NodeSpec n = welch_source_band_power();
+  n.name = "welch.source_tensor";
+  n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"kernel", "a free-orientation inverse kernel: 3 rows a source x the recording's channels", false},
+              {"frames", "the canonical frames of the kernel's surface: a field, vertices x 9 (e1, e2, n)", false},
+              {"surface", "the kernel's surface: its normals where the frames are singular", false},
+              {"exclude", "the recording's bad segments (spans): a segment touching one is left out when bad_segments is exclude", true}};
+  n.outputs = {{"tensor", "the band cross-spectral tensor of the current (hermitian3), sources x bands", false},
+               {"stokes", "the tangential Stokes parameters [S0 S1 S2 S3] in the canonical frames (quaternion), sources x bands", false},
+               {"normal_power", "the power along the normal, sources x bands", false},
+               {"normal_share", "the normal power over the trace, sources x bands", false}};
+  n.parameters.erase(std::remove_if(n.parameters.begin(), n.parameters.end(), [](const auto& q) { return q.name == "normalisation"; }), n.parameters.end());
+  n.matches = "meeg nxr::meeg::sourceTensor, stokes, normalPower";
+  n.description = "the band cross-spectral tensor of the current through a free-orientation kernel, its tangential Stokes parameters, its normal power and share";
+  n.plan = [](const ng::Types& in, const Json& p) {
+    const ng::PortType& x = streamed_real(in, "x", "welch.source_tensor");
+    const auto k = in.find("kernel");
+    if (k == in.end() || k->second.cls != ng::PortClass::operator_) ng::refuse("welch.source_tensor: kernel is a stored operator (an inverse kernel)");
+    if (!p.contains("bands") || !p["bands"].is_array() || p["bands"].empty()) ng::refuse("welch.source_tensor: at least one band");
+    const Resolved r = resolve(p, *x.sfreq);
+    ng::Planned out;
+    for (const char* o : {"tensor", "stokes", "normal_power", "normal_share"}) out.out[o] = statistic_port();
+    out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    return out;
+  };
+  const auto base_prepare = n.prepare;
+  n.prepare = [base_prepare](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared& sh) {
+    Json q = p; q["normalisation"] = "none";
+    SourceTensorPrepared pr;
+    pr.b = std::any_cast<SourceBandPrepared>(base_prepare(in, constants, q, sh));
+    if (pr.b.orientations != 3) ng::refuse("welch.source_tensor: " + pr.b.kernel + " is a fixed-orientation kernel (one orientation a source): it has no tensor");
+    const std::int64_t N = pr.b.K.rows() / 3;
+    const auto fr = constants.find("frames"), su = constants.find("surface");
+    if (fr == constants.end() || su == constants.end()) ng::refuse("welch.source_tensor: the frames and the surface were not handed over");
+    const ng::Array& F = fr->second;
+    if (static_cast<std::int64_t>(F.data.size()) != N * 9) ng::refuse("welch.source_tensor: the frames hold " + std::to_string(F.data.size()) + " values for " + std::to_string(N) + " sources (9 each)");
+    const ng::Array& S = su->second;
+    if (S.rows != N) ng::refuse("welch.source_tensor: the surface has " + std::to_string(S.rows) + " vertices, the kernel " + std::to_string(N) + " sources");
+    pr.frames = F.meta.value("name", std::string());
+    Eigen::MatrixXd mesh = Eigen::MatrixXd::Zero(N, 3);
+    const std::vector<std::int32_t> faces = S.meta.value("faces", std::vector<std::int32_t>());
+    for (std::size_t f = 0; f + 2 < faces.size(); f += 3) {
+      Eigen::Vector3d v[3];
+      for (int j = 0; j < 3; ++j) for (int c = 0; c < 3; ++c) v[j][c] = S.data[static_cast<std::size_t>(faces[f + j]) * 3 + c];
+      const Eigen::Vector3d fn = (v[1] - v[0]).cross(v[2] - v[0]);
+      for (int j = 0; j < 3; ++j) mesh.row(faces[f + j]) += fn.transpose();
+    }
+    pr.e1.resize(N, 3); pr.e2.resize(N, 3); pr.normal.resize(N, 3);
+    for (std::int64_t i = 0; i < N; ++i) {
+      for (int c = 0; c < 3; ++c) { pr.e1(i, c) = F.data[static_cast<std::size_t>(i * 9 + c)]; pr.e2(i, c) = F.data[static_cast<std::size_t>(i * 9 + 3 + c)]; }
+      if (std::isfinite(pr.e1(i, 0)) && std::isfinite(pr.e2(i, 0))) pr.normal.row(i) = Eigen::Vector3d(pr.e1.row(i)).cross(Eigen::Vector3d(pr.e2.row(i))).transpose();
+      else { pr.normal.row(i) = mesh.row(i).normalized(); ++pr.singular; }
+    }
+    return std::any(std::move(pr));
+  };
+  n.start = [](const std::any&) { return std::any(SourceBandState{}); };
+  n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
+    const SourceBandPrepared& pr = std::any_cast<const SourceTensorPrepared&>(prepared).b;
+    SourceBandState& s = std::any_cast<SourceBandState&>(state);
+    const ng::Block& b = in.at("x");
+    const Eigen::MatrixXd all = own_real(b);
+    Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
+    for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
+    if (s.first < 0) s.first = at.first;
+    if (!s.w) s.w.emplace(static_cast<int>(pr.channels.size()), pr.r.wo, pr.groups, true);
+    if (!pr.r.exclude || all_good(at)) s.w->add(chunk); else s.w->add(chunk, *at.good);
+    s.samples += b.own();
+    if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
+    return std::make_pair(ng::Blocks{}, std::move(state));
+  };
+  n.finish = [](const std::any& prepared, std::any state) {
+    const SourceTensorPrepared& tp = std::any_cast<const SourceTensorPrepared&>(prepared);
+    const SourceBandPrepared& pr = tp.b;
+    const SourceBandState& s = std::any_cast<const SourceBandState&>(state);
+    if (!s.w) ng::refuse("welch.source_tensor: no sample was read");
+    const nw::CrossWelchResult cw = s.w->result();
+    if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
+    const std::size_t B = pr.bands.size();
+    const std::int64_t N = pr.K.rows() / 3;
+    const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
+    const bool density = pr.r.wo.scaling == nw::Scaling::Density;
+    const std::string base = std::string("A") + kSq + "\xc2\xb7m" + kSq;
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    ng::Array T, Q, P, H;
+    T.rows = Q.rows = P.rows = H.rows = N;
+    T.cols = static_cast<std::int64_t>(B) * 18; Q.cols = static_cast<std::int64_t>(B) * 4; P.cols = H.cols = static_cast<std::int64_t>(B);
+    T.data.resize(static_cast<std::size_t>(N * T.cols)); Q.data.resize(static_cast<std::size_t>(N * Q.cols)); P.data.resize(static_cast<std::size_t>(N) * B); H.data.resize(static_cast<std::size_t>(N) * B);
+    Json entries = pr.bands;
+    for (std::size_t b = 0; b < B; ++b) {
+      const nxr::meeg::SourceTensors t = nxr::meeg::sourceTensor(pr.K, cw.S[b], cw.Sq[b]);
+      entries[b]["spectral_scaling"] = welch_scaling_record(pr.r.wo, static_cast<double>(pr.groups[b].last - pr.groups[b].first + 1) * df, base);
+      for (std::int64_t v = 0; v < N; ++v) {
+        const std::size_t vb = static_cast<std::size_t>(v) * B + b;
+        for (int k = 0; k < 9; ++k) { T.data[18 * vb + 2 * k] = t.reOf(v)[k]; T.data[18 * vb + 2 * k + 1] = t.imOf(v)[k]; }
+        const bool ok = std::isfinite(tp.e1(v, 0)) && std::isfinite(tp.e2(v, 0));
+        std::array<double, 3> e1{}, e2{}, nn{};
+        for (int k = 0; k < 3; ++k) { e1[k] = tp.e1(v, k); e2[k] = tp.e2(v, k); nn[k] = tp.normal(v, k); }
+        const nxr::meeg::Stokes st = ok ? nxr::meeg::stokes(t.reOf(v), t.imOf(v), e1, e2) : nxr::meeg::Stokes{nan, nan, nan, nan};
+        Q.data[4 * vb] = st.s0; Q.data[4 * vb + 1] = st.s1; Q.data[4 * vb + 2] = st.s2; Q.data[4 * vb + 3] = st.s3;
+        const double np = nxr::meeg::normalPower(t.reOf(v), nn), tr = nxr::meeg::tracePower(t.reOf(v));
+        P.data[vb] = np;
+        H.data[vb] = tr > 0 ? np / tr : nan;
+      }
+    }
+    Json o = options_of(pr.r);
+    o["kernel"] = pr.kernel; o["frames"] = tp.frames;
+    const Json axes = Json::array({Json{{"name", "vertex"}, {"size", N}}, Json{{"name", "band"}, {"size", static_cast<std::int64_t>(B)}, {"values", entries}}});
+    Json producer = producer_of(pr.r, cw.segments, cw.segmentsSkipped, s.samples, s.bad, df, Json());
+    producer["singular_vertices"] = tp.singular;
+    auto describe = [&](ng::Array& a, const char* measure, const char* value_type, std::vector<std::int64_t> shape, const Json& unit, const std::string& what) {
+      a.meta["describe"] = Json{{"measure", measure}, {"method", "welch"}, {"label", "welch"}, {"precision", "float32"}, {"value_type", value_type}, {"shape", shape}, {"unit", unit},
+                                {"axes", axes}, {"tiling", tiling_of(pr.r.wo, s.first, s.samples, cw.segments, cw.segmentsSkipped)}, {"n_members", cw.segments},
+                                {"members_skipped", cw.segmentsSkipped}, {"producer", producer}, {"options", o}, {"bad_samples", s.bad},
+                                {"description", what + " of the sources through " + pr.kernel + ", per band"}};
+    };
+    const Json u = density ? Json(base + "/Hz") : Json(base);
+    const std::int64_t Bi = static_cast<std::int64_t>(B);
+    describe(T, density ? "cross_spectral_density" : "cross_spectrum", "hermitian3", {N, Bi, 3, 3, 2}, u, "the band cross-spectral tensor of the current");
+    describe(Q, "stokes", "quaternion", {N, Bi, 4}, u, "the tangential Stokes parameters (canonical frames: e1 north, e2 west)");
+    describe(P, density ? "power_density" : "power", "scalar", {N, Bi}, u, "the power along the normal");
+    describe(H, "share", "scalar", {N, Bi}, Json(), "the share of the power along the normal (normal power over the trace)");
+    return ng::Arrays{{"tensor", std::move(T)}, {"stokes", std::move(Q)}, {"normal_power", std::move(P)}, {"normal_share", std::move(H)}};
+  };
+  return n;
+}
 }  // namespace
 
 void register_welch_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power()})
+  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_tensor()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 
