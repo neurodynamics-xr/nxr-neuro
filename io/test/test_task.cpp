@@ -158,6 +158,14 @@ int main() {
   CHECK(s.has_measure(member0, "area"));
   CHECK(!s.cached(Cls::field, Json{{"pipeline", "x"}}));
   CHECK(!s.node_path(mid, "abc").empty());
+  CHECK_EQ(s.at_path(Cls::field, "source/a")->id, fid);
+  CHECK(!s.at_path(Cls::field, "source/none"));
+  CHECK_EQ(s.factors(mid), std::vector<std::string>({mid}));              // not a product: itself
+  CHECK(s.has_measures(member0, fid) == false);
+  CHECK(s.measured_selections(fid, "area").empty());
+  CHECK_EQ(s.describe(a).manifolds, std::vector<std::string>({mid}));
+  CHECK(s.fields_on_axis(mid, 1).empty());
+  CHECK(!s.map_slice("a"));
   CHECK_EQ(code_of([&] { s.commit([] {}); }), std::string(code::not_writable));   // a package opened for reading cannot commit
   fs::remove_all(root);
   return nxrtest::finish("task");

@@ -5,6 +5,7 @@
 #include <filesystem>
 
 #include "nxr/chart.h"
+#include "nxr/pipelines/task.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg_internal.h"
 
@@ -31,13 +32,13 @@ std::vector<float> read_f32(const nxr::io::Store& store, const std::string& key,
   }
   return out;
 }
-std::optional<Row> field_named(SubjectWriter& sub, const std::string& name) {
-  return sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND status = 'complete' AND path IS NOT NULL", {V(sub.id()), V(name)});
+std::optional<task::Node> field_named(SubjectWriter& sub, const std::string& name) {
+  return task::Subject::of(sub).find({.cls = task::Cls::field, .name = name, .stored = true});
 }
 std::optional<std::vector<std::int32_t>> indices_named(SubjectWriter& sub, const std::string& name) {
-  const auto r = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND status = 'complete' AND array_path IS NOT NULL", {V(sub.id()), V(name)});
+  const auto r = task::Subject::of(sub).find({.cls = task::Cls::selection, .name = name, .stored = true});
   if (!r) return std::nullopt;
-  ArrayReader a = ArrayReader::open(sub.store(), text(*r, "array_path"));
+  ArrayReader a = ArrayReader::open(sub.store(), *r->array_path);
   const std::vector<std::uint8_t> raw = a.read();
   std::vector<std::int32_t> out(raw.size() / 4);
   if (!out.empty()) std::memcpy(out.data(), raw.data(), out.size() * 4);
@@ -59,7 +60,7 @@ StoredFrames read_stored_frames(SubjectWriter& sub, const std::string& surface, 
   StoredFrames s;
   if (const auto f = field_named(sub, surface + "_canonical_frames")) {
     std::vector<std::int64_t> shape;
-    const std::vector<float> d = read_f32(sub.store(), text(*f, "path"), &shape);
+    const std::vector<float> d = read_f32(sub.store(), *f->path, &shape);
     if (static_cast<std::int64_t>(d.size()) != N * 9) invalid(surface + "_canonical_frames: " + std::to_string(d.size()) + " values for " + std::to_string(N) + " vertices (3x3 each)");
     s.canonical = true;
     s.e1.resize(N, 3); s.e2.resize(N, 3); s.n.resize(N, 3);
@@ -68,7 +69,7 @@ StoredFrames read_stored_frames(SubjectWriter& sub, const std::string& surface, 
   const auto ang = field_named(sub, surface + "_anatomical_angle"), sec = field_named(sub, surface + "_anatomical_second"), han = field_named(sub, surface + "_anatomical_handed");
   const auto rel = indices_named(sub, surface + "_anatomical_reliable");
   if (ang && sec && han && rel) {
-    const std::vector<float> a = read_f32(sub.store(), text(*ang, "path")), b = read_f32(sub.store(), text(*sec, "path")), c = read_f32(sub.store(), text(*han, "path"));
+    const std::vector<float> a = read_f32(sub.store(), *ang->path), b = read_f32(sub.store(), *sec->path), c = read_f32(sub.store(), *han->path);
     std::vector<char> isrel(static_cast<std::size_t>(N), 0);
     for (std::int32_t i : *rel) if (i >= 0 && i < N) isrel[static_cast<std::size_t>(i)] = 1;
     if (static_cast<std::int64_t>(a.size()) != N) invalid(surface + "_anatomical_angle: " + std::to_string(a.size()) + " values for " + std::to_string(N) + " vertices");
@@ -79,12 +80,12 @@ StoredFrames read_stored_frames(SubjectWriter& sub, const std::string& surface, 
       const std::size_t k = static_cast<std::size_t>(i);
       an.angle[i] = a[k]; an.second[k] = static_cast<std::int8_t>(b[k]); an.handed[k] = static_cast<std::int8_t>(c[k]); an.reliable[k] = isrel[k] && std::isfinite(a[k]);
     }
-    const Json pj = Json::parse(opt_text(*ang, "producer_json").value_or("{}"), nullptr, false);
+    const Json& pj = ang->producer;
     an.definition = pj.is_object() ? pj.value("definition", std::string()) : std::string();
     an.reference = pj.is_object() ? pj.value("reference", std::string("canonical frames")) : std::string("canonical frames");
     s.anatomical = true;
-    s.anatomical_id = text(*ang, "id");
-    s.anatomical_modified = opt_text(*ang, "modified_utc").value_or("");
+    s.anatomical_id = ang->id;
+    s.anatomical_modified = ang->modified_utc.value_or("");
   }
   return s;
 }
@@ -179,7 +180,7 @@ FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const 
   std::string moved;
   const std::string mid = S.id;
   std::vector<std::pair<const char*, std::string>> nodes;
-  for (const char* w : {"angle", "second", "handed"}) nodes.push_back({"field", node_path(sub.db(), mid, sname + "_anatomical_" + w)});
+  for (const char* w : {"angle", "second", "handed"}) nodes.push_back({"field", task::Subject::of(sub).node_path(mid, sname + "_anatomical_" + w)});
   nodes.push_back({"selection", sname + "_anatomical_reliable"});
   moved = internal::clear_stored_nodes(ds, sub, nodes, opt.replace, sname + " anatomical frame", replaced);
   Json pj = Json{{"by", "nxr-neuro frames compute"}, {"producer", internal::producer_string("frames compute")}, {"definition", A.definition}, {"reference", A.reference}, {"min_projection", opt.min_projection},
@@ -190,7 +191,7 @@ FramesComputeResult frames_compute(DatasetWriter& ds, SubjectWriter& sub, const 
     auto put = [&](const std::string& name, const std::string& kind, const std::string& vt, const std::string& unit, const std::string& desc, ArrayView data, const Json& j) {
       FieldSpec f;
       f.name = name;
-      f.path = node_path(sub.db(), mid, name);
+      f.path = task::Subject::of(sub).node_path(mid, name);
       f.kind = kind;
       f.manifold_id = mid;
       f.value_type = vt;

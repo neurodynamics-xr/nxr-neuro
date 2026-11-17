@@ -1,6 +1,8 @@
 // nxr-pipelines — statistic summaries (statistics.h).
 #include "nxr/pipelines/statistics.h"
 
+#include "nxr/pipelines/task.h"
+
 #include "nxr/io/finder.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/statistic.h"
@@ -27,36 +29,31 @@ StatisticComputeResult statistic_compute(nxr::io::DatasetWriter& ds, nxr::io::Su
   if (opt.combine != "each" && opt.combine != "pool" && opt.combine != "mean") invalid("statistic compute: --combine is each, pool or mean");
   if (opt.ddof < 0) invalid("statistic compute: --ddof is at least 0");
   // THE PARTITION and WHAT WAS MEASURED: a Field, or a band of a map statistic
-  const auto sel = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(opt.over)});
+  const task::Subject subj = task::Subject::of(sub);
+  const auto sel = subj.find({.cls = task::Cls::selection, .name = opt.over});
   if (!sel) missing(sub.name() + ": no Selection named '" + opt.over + "'");
-  std::optional<Row> field = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(opt.of)});
-  std::optional<nxr::io::MapSlice> slice;
-  if (!field)
-    for (const Row& st : nxr::io::statistics_of(sub.db(), sub.id())) {
-      const Json axes = Json::parse(text(st, "axes_json"), nullptr, false);
-      if (!axes.is_array() || axes.empty() || !axes[0].contains("manifold_id")) continue;
-      for (const auto& ms : nxr::io::map_slices(sub.db(), sub.id(), axes[0]["manifold_id"].get<std::string>()))
-        if (ms.name == opt.of && text(ms.statistic, "id") == text(st, "id")) slice = ms;
-    }
+  std::optional<task::Node> field = subj.find({.cls = task::Cls::field, .name = opt.of});
+  std::optional<task::MapSlice> slice;
+  if (!field) slice = subj.map_slice(opt.of);
   if (!field && !slice) missing(sub.name() + ": nothing named '" + opt.of + "' (a Field, or a band of a map statistic)");
   // `own`: the measure is the members' OWN (rows of no Field: area, n_elements, n_tiles); the Field is then only the statistic's parent
-  const auto mv = nxr::io::measurement_values(sub, text(*sel, "id"), field && !opt.own ? std::optional<std::string>(text(*field, "id")) : std::nullopt,
-                                              slice && !opt.own ? std::optional<std::string>(text(slice->statistic, "id")) : std::nullopt,
+  const auto mv = nxr::io::measurement_values(sub, sel->id, field && !opt.own ? std::optional<std::string>(field->id) : std::nullopt,
+                                              slice && !opt.own ? std::optional<std::string>(slice->statistic_id) : std::nullopt,
                                               slice && !opt.own ? std::optional<std::int64_t>(slice->index) : std::nullopt, opt.measure);
   const std::string name = opt.name ? *opt.name : nxr::io::safe_name(opt.of + "_" + opt.measure + "_" + opt.over);
-  const std::string path = (field && !nxr::io::is_null(*field, "path") ? text(*field, "path") + "_statistics/" : std::string("statistics/")) + nxr::io::safe_name(name);
+  const std::string path = (field && field->path ? *field->path + "_statistics/" : std::string("statistics/")) + nxr::io::safe_name(name);
   Json sjson = Json::array();
   for (const auto& sm : sums) sjson.push_back(sm.name == "percentile" ? Json{{"name", "percentile"}, {"p", sm.p}} : Json{{"name", sm.name}});
   CacheKey key;
   key.pipeline = "statistic compute";
   key.params = Json{{"name", name}, {"summaries", sjson}, {"combine", opt.combine}, {"ddof", opt.ddof}};
-  key.input = Json{{"over", text(*sel, "id")}, {"of", field ? text(*field, "id") : text(slice->statistic, "id")}, {"of_index", slice ? Json(slice->index) : Json()},
+  key.input = Json{{"over", sel->id}, {"of", field ? field->id : slice->statistic_id}, {"of_index", slice ? Json(slice->index) : Json()},
                    {"measure", opt.measure}, {"computed_by", mv.computed_by}, {"own", opt.own}};
   key.compute = NXR_COMPUTE_VERSION;
   StatisticComputeResult res;
-  if (const auto hit = find_cached(sub.db(), sub.id(), "statistic", key, path)) {
+  if (const auto hit = subj.cached(task::Cls::statistic, key.json(), path)) {
     res.hit = true;
-    res.info = Json{{"name", name}, {"id", text(*hit, "id")}, {"path", path}, {"cache", "hit"}};
+    res.info = Json{{"name", name}, {"id", hit->id}, {"path", path}, {"cache", "hit"}};
     say(Json{{"stage", "cache"}, {"hit", true}, {"statistic", name}});
     return res;
   }
@@ -66,7 +63,7 @@ StatisticComputeResult statistic_compute(nxr::io::DatasetWriter& ds, nxr::io::Su
   // the rows' axis: the measured Field's first factor (its channels, its vertices) when per row of an array; else what the row is
   Json rows_axis;
   if (opt.combine == "each" && field && mv.array_backed) {
-    const auto f = nxr::io::finder::factors(sub.db(), text(*field, "manifold_id"));
+    const auto f = subj.factors(field->manifold_id.value_or(std::string()));
     rows_axis = Json{{"name", "row"}, {"manifold_id", f[0]}, {"size", R}};
   } else {
     rows_axis = Json{{"name", "row"}, {"values", Json::array({Json{{"name", opt.combine == "each" ? opt.of : opt.combine}}})}, {"size", R}};
@@ -79,8 +76,8 @@ StatisticComputeResult statistic_compute(nxr::io::DatasetWriter& ds, nxr::io::Su
   sub.compose([&] {
     nxr::io::StatisticSpec st;
     st.name = name; st.path = path; st.measure = opt.measure; st.method = "summary";
-    if (field) st.of_field_id = text(*field, "id"); else st.of_statistic_id = text(slice->statistic, "id");
-    st.partition_selection_id = text(*sel, "id");
+    if (field) st.of_field_id = field->id; else st.of_statistic_id = slice->statistic_id;
+    st.partition_selection_id = sel->id;
     st.n_members = mv.members; st.members_skipped = mv.members - least;
     st.axes = Json::array({rows_axis, Json{{"name", "summary"}, {"values", sjson}, {"size", S}}});
     st.data = nxr::io::view(out, {R, S});

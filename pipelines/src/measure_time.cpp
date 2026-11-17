@@ -1,6 +1,8 @@
 // nxr-pipelines — measurement over time (measure.h, MeasureOverTimeOptions): a time-resolved Field over the windows of a time partition, the Studio's
 // reduceTiles folded across the chunk service's chunks, stored as one array-backed row a measure (D96, as the envelope).
 #include <cmath>
+
+#include "nxr/pipelines/task.h"
 #include <limits>
 #include <regex>
 
@@ -26,29 +28,30 @@ MeasureComputeResult measure_over_time(DatasetWriter& ds, SubjectWriter& sub, co
   (void)ds;
   auto say = [&](const Json& j) { if (progress) progress(j); };
   // THE TIME PARTITION: a ladder's level, or a closed-form spans tiling
-  const auto top = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(opt.over)});
+  const task::Subject subj = task::Subject::of(sub);
+  const auto top = subj.find({.cls = task::Cls::selection, .name = opt.over});
   if (!top) missing(sub.name() + ": no Selection named '" + opt.over + "' (a time ladder: `constantq compute`; or a closed-form spans tiling such as <recording>_chunks)");
-  Row member = *top;
-  if (text(*top, "type") == "ladder") {
+  task::Node member = *top;
+  if (top->type.value_or(std::string()) == "ladder") {
     if (!opt.level) invalid(opt.over + " is a ladder: name its level");
-    const auto m = sub.db().one("SELECT * FROM selection WHERE member_of_id = ? AND member_ordinal = ? AND status = 'complete'", {V(text(*top, "id")), V(static_cast<std::int64_t>(*opt.level))});
+    const auto m = subj.member(*top, *opt.level);
     if (!m) invalid(opt.over + " has no level " + std::to_string(*opt.level));
     member = *m;
   } else if (opt.level) {
     invalid(opt.over + " is not a ladder: it has no levels");
   }
-  if (text(member, "type") != "spans") invalid(text(member, "name") + " is a " + text(member, "type") + ", not a tiling of time (spans)");
-  const Json mp = Json::parse(opt_text(member, "params_json").value_or("{}"), nullptr, false);
-  if (!mp.is_object() || !mp.contains("tiling")) invalid(text(member, "name") + " has no closed-form tiling");
-  const std::string line = text(member, "manifold_id");
-  const auto ld = sub.db().one("SELECT d.spacing AS spacing, d.origin AS origin, d.n_vertices AS n FROM geometry_dimension d JOIN manifold m ON m.geometry_id = d.geometry_id WHERE m.id = ? AND d.ordinal = 0", {V(line)});
-  if (!ld || is_null(*ld, "spacing")) invalid(text(member, "name") + ": its manifold is not a closed-form time line");
-  const double sfreq = 1.0 / std::stod(text(*ld, "spacing")), t0 = is_null(*ld, "origin") ? 0.0 : std::stod(text(*ld, "origin"));
-  const std::int64_t samples = integer(*ld, "n");
+  if (member.type.value_or(std::string()) != "spans") invalid(member.name + " is a " + member.type.value_or(std::string()) + ", not a tiling of time (spans)");
+  const Json& mp = member.params;
+  if (!mp.is_object() || !mp.contains("tiling")) invalid(member.name + " has no closed-form tiling");
+  const std::string line = member.manifold_id.value_or(std::string());
+  const auto lax = subj.geometry(line).axes;
+  if (lax.empty() || !lax[0].spacing) invalid(member.name + ": its manifold is not a closed-form time line");
+  const double sfreq = 1.0 / *lax[0].spacing, t0 = lax[0].origin.value_or(0.0);
+  const std::int64_t samples = lax[0].n_vertices;
   const Json& tl = mp["tiling"];
   const std::int64_t width = static_cast<std::int64_t>(std::llround(tl["width"].get<double>() * sfreq)), first = static_cast<std::int64_t>(std::llround((tl["origin"].get<double>() - t0) * sfreq));
   const std::int64_t count = tl["count"].get<std::int64_t>();
-  if (width < 1 || std::llround(tl["hop"].get<double>() * sfreq) != width || first != 0) invalid(text(member, "name") + ": only contiguous windows from the line's start (hop = width, origin = the line's) are measured");
+  if (width < 1 || std::llround(tl["hop"].get<double>() * sfreq) != width || first != 0) invalid(member.name + ": only contiguous windows from the line's start (hop = width, origin = the line's) are measured");
   // THE MEASURES
   std::vector<std::string> measures = opt.measures.empty() ? kDefault : opt.measures;
   for (const auto& m : measures) if (std::find(kKnown.begin(), kKnown.end(), m) == kKnown.end()) invalid("measure '" + m + "': over time one of mean, mean_square, max, min, abs_max");
@@ -58,18 +61,17 @@ MeasureComputeResult measure_over_time(DatasetWriter& ds, SubjectWriter& sub, co
   // THE FIELDS: time-resolved, on a product whose time factor (dimension 1) is the tiling's line
   std::regex re;
   try { re = std::regex(opt.fields, std::regex::ECMAScript); } catch (const std::regex_error&) { invalid("--fields is not a regex: " + opt.fields); }
-  std::vector<Row> fields;
-  for (const Row& f : sub.db().all("SELECT f.* FROM field f JOIN manifold m ON m.id = f.manifold_id JOIN geometry_dimension d ON d.geometry_id = m.geometry_id AND d.ordinal = 1 "
-                                   "WHERE f.subject_id = ? AND f.status = 'complete' AND d.manifold_id = ? AND f.path IS NOT NULL ORDER BY f.name", {V(sub.id()), V(line)}))
-    if (std::regex_match(text(f, "name"), re)) fields.push_back(f);
-  if (fields.empty()) invalid("no time-resolved Field on " + text(member, "name") + "'s time line matches '" + opt.fields + "'");
+  std::vector<task::Node> fields;
+  for (const task::Node& f : subj.fields_on_axis(line, 1))
+    if (std::regex_match(f.name, re)) fields.push_back(f);
+  if (fields.empty()) invalid("no time-resolved Field on " + member.name + "'s time line matches '" + opt.fields + "'");
   const std::string by = std::string("measure over time \xc2\xb7 nxr-neuro ") + NXR_NEURO_VERSION;
   Json done = Json::array();
-  for (const Row& f : fields) {
-    const std::string fid = text(f, "id"), fname = text(f, "name");
+  for (const task::Node& f : fields) {
+    const std::string fid = f.id, fname = f.name;
     // refused unless replace: rows already there for this (window member, Field)
-    const auto have = sub.db().all("SELECT measure FROM selection_measurement WHERE selection_id = ? AND of_field_id = ?", {V(text(member, "id")), V(fid)});
-    if (!have.empty() && !opt.replace) invalid(fname + " is already measured over " + text(member, "name") + " (replace to measure it again)");
+    const bool have = subj.has_measures(member.id, fid);
+    if (have && !opt.replace) invalid(fname + " is already measured over " + member.name + " (replace to measure it again)");
     // the span (the chunk service: one chunk by default) and the windows it touches
     // the span snaps to the tiling's windows when they are tiles (a power of two: a ladder's level, the chunk grid;), so its windows are whole
     const Span span = span_of(f, samples, sfreq, t0, opt.chunks, opt.start, opt.stop, std::max(0, nxr::io::constantq::levelOfWidth(width)));
@@ -80,7 +82,7 @@ MeasureComputeResult measure_over_time(DatasetWriter& ds, SubjectWriter& sub, co
     // the window minima and maxima as the Studio keeps them (float32); the sums folded across pieces in double, narrowed once at the end
     std::vector<float> mn(RR * W, std::numeric_limits<float>::infinity()), mx(RR * W, -std::numeric_limits<float>::infinity());
     std::vector<double> sm(RR * W, 0.0), sq(RR * W, 0.0), ct(RR * W, 0.0);
-    say(Json{{"stage", "measure"}, {"field", fname}, {"over", text(member, "name")}, {"windows touched", Json::array({k0, k1})}, {"rows", R}, {"span", span.what}});
+    say(Json{{"stage", "measure"}, {"field", fname}, {"over", member.name}, {"windows touched", Json::array({k0, k1})}, {"rows", R}, {"span", span.what}});
     // FOLD: each chunk split at window edges, each piece reduced by the Studio's reduceTiles (a row at a time), folded into its window
     chunk_loop(src, span, [&](const Chunk& c) {
       for (std::int64_t a = c.first; a < c.first + c.n;) {
@@ -120,23 +122,23 @@ MeasureComputeResult measure_over_time(DatasetWriter& ds, SubjectWriter& sub, co
           arr[(i)*C + c] = v;
         }
       }
-    const std::string path = text(f, "path") + "_" + sanitized(text(member, "name"));
-    const auto unit = opt_text(f, "unit");
+    const std::string path = f.path.value_or(std::string()) + "_" + sanitized(member.name);
+    const auto unit = f.unit;
     sub.compose([&] {
-      if (!have.empty()) delete_measurements(sub.db(), Json{{"selectionId", text(member, "id")}, {"ofFieldId", fid}});
+      if (have) subj.remove_measurements(member.id, fid);
       sub.write_array(path, view(arr, {R, static_cast<std::int64_t>(W), static_cast<std::int64_t>(C)}));
       Json rows = Json::array();
       for (std::size_t c = 0; c < C; ++c) {
-        Json row{{"selection_id", text(member, "id")}, {"of_field_id", fid}, {"measure", comps[c]}, {"array_path", path}, {"component", static_cast<std::int64_t>(c)}, {"computed_by", by}};
+        Json row{{"selection_id", member.id}, {"of_field_id", fid}, {"measure", comps[c]}, {"array_path", path}, {"component", static_cast<std::int64_t>(c)}, {"computed_by", by}};
         if (comps[c] == "mean_square" && unit) row["unit"] = "(" + *unit + ")^2";
         else if (comps[c] != "count" && unit) row["unit"] = *unit;
         rows.push_back(row);
       }
-      write_measurements(sub.db(), rows, by);
+      subj.write_measurements(rows, by);
     });
-    done.push_back(Json{{"field", fname}, {"array", path}, {"windows", w0 < 0 ? Json(nullptr) : Json::array({w0, w1})}, {"of", count}, {"components", comps}, {"span", span.what}, {"replaced", !have.empty()}});
+    done.push_back(Json{{"field", fname}, {"array", path}, {"windows", w0 < 0 ? Json(nullptr) : Json::array({w0, w1})}, {"of", count}, {"components", comps}, {"span", span.what}, {"replaced", have}});
   }
-  return {Json{{"over", text(member, "name")}, {"measured", done}}};
+  return {Json{{"over", member.name}, {"measured", done}}};
 }
 
 }  // namespace nxr::pipelines

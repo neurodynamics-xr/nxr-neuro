@@ -1,6 +1,8 @@
 // nxr-pipelines — the lag-free null's tests (null_compute.h).
 #include "nxr/pipelines/null_compute.h"
 
+#include "nxr/pipelines/task.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -49,7 +51,7 @@ Eigen::VectorXd rho2(const nxr::crossings::Pooled& p, int minn) {
 }
 struct Run {
   std::string name, field_id;
-  Row field;
+  task::Node field;
   std::int64_t members = 0;
   std::vector<double> data;                  // [rows x members x 4] interleaved (x y z count), as a draw's statistic
   std::vector<std::string> computed_by;
@@ -72,23 +74,24 @@ NullResult null_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub,
   std::vector<Run> runs(opt.recording_b ? 2 : 1);
   runs[0].name = opt.recording_a;
   if (opt.recording_b) runs[1].name = *opt.recording_b;
+  const task::Subject subj = task::Subject::of(sub);
   for (Run& r : runs) {
-    const auto f = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(r.name)});
+    const auto f = subj.find({.cls = task::Cls::field, .name = r.name});
     if (!f) missing(sub.name() + ": no recording (Field) named '" + r.name + "'");
-    r.field = *f; r.field_id = text(*f, "id");
+    r.field = *f; r.field_id = f->id;
   }
   // THE TILE LEVEL the crossings were measured over (both runs')
   std::string sel_id;
   if (opt.over) {
-    const auto s = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(sub.id()), V(*opt.over)});
+    const auto s = subj.find({.cls = task::Cls::selection, .name = *opt.over});
     if (!s) missing(sub.name() + ": no Selection named '" + *opt.over + "'");
-    sel_id = text(*s, "id");
+    sel_id = s->id;
   } else {
     std::set<std::string> both;
     bool first = true;
     for (const Run& r : runs) {
       std::set<std::string> have;
-      for (const Row& x : sub.db().all("SELECT DISTINCT selection_id FROM selection_measurement WHERE of_field_id = ? AND measure = 'crossings'", {V(r.field_id)})) have.insert(text(x, "selection_id"));
+      for (const std::string& x : subj.measured_selections(r.field_id, "crossings")) have.insert(x);
       if (have.empty()) missing(sub.name() + ": " + r.name + " has no stored crossings (`run vortex_cores` first)");
       if (first) both = have; else { std::set<std::string> x; for (const auto& s : both) if (have.count(s)) x.insert(s); both = x; }
       first = false;
@@ -97,8 +100,8 @@ NullResult null_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub,
     if (both.size() > 1) invalid(sub.name() + ": the crossings are over " + std::to_string(both.size()) + " tile levels; name one with --over");
     sel_id = *both.begin();
   }
-  const auto sel = sub.db().read("selection", sel_id);
-  const std::int64_t tiles = nxr::io::integer(*sel, "n_members");
+  const auto sel = subj.require_id(task::Cls::selection, sel_id);
+  const std::int64_t tiles = sel.n_members.value_or(0);
   // THE DATA'S CROSSINGS and their stage
   for (Run& r : runs) {
     auto get = [&](const char* m) { return nxr::io::measurement_values(sub, sel_id, r.field_id, std::nullopt, std::nullopt, m); };
@@ -126,7 +129,7 @@ NullResult null_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub,
   const std::string p_cons0 = "statistics/" + nxr::io::safe_name(nm(runs[0].name, "consistency_p"));
   NullResult res;
   if (!opt.replace)
-    if (const auto hit = find_cached(sub.db(), sub.id(), "statistic", key, p_cons0)) {
+    if (const auto hit = subj.cached(task::Cls::statistic, key.json(), p_cons0)) {
       res.hit = true;
       res.info = Json{{"cache", "hit"}, {"consistency_p", nm(runs[0].name, "consistency_p")}};
       say(Json{{"stage", "cache"}, {"hit", true}});
@@ -182,17 +185,17 @@ NullResult null_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub,
     if (decided) { stopped = "decided"; break; }
   }
   // THE P-VALUES, q-values, ratios and the null's resultants
-  const nxr::io::Row& selrow = *sel;
+  const task::Node& selrow = sel;
   auto sequential = [&](const Eigen::VectorXd& data, const Eigen::VectorXd& e) {
     Eigen::VectorXd p(tiles);
     for (std::int64_t t = 0; t < tiles; ++t) p[t] = std::isfinite(data[t]) ? nxr::surrogate::besagCliffordP(static_cast<std::int64_t>(e[t]), nd, opt.h) : kNaN;
     return p;
   };
-  auto store = [&](const std::string& name, const char* measure, const char* method, const Row& of, std::vector<double> values, std::vector<std::int64_t> shape, const Json& axes, const Json& components, const std::string& desc, const Json& options, const Json& warnings, bool first) {
+  auto store = [&](const std::string& name, const char* measure, const char* method, const task::Node& of, std::vector<double> values, std::vector<std::int64_t> shape, const Json& axes, const Json& components, const std::string& desc, const Json& options, const Json& warnings, bool first) {
     const std::string path = "statistics/" + nxr::io::safe_name(name);
     nxr::io::StatisticSpec st;
     st.name = name; st.path = path; st.measure = measure; st.method = method;
-    st.of_field_id = text(of, "id"); st.partition_selection_id = sel_id; st.n_members = tiles;
+    st.of_field_id = of.id; st.partition_selection_id = sel_id; st.n_members = tiles;
     st.axes = axes; if (!components.is_null()) st.components = components;
     st.data = nxr::io::view(values, shape);
     st.description = desc;
@@ -232,7 +235,7 @@ NullResult null_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub,
       for (std::int64_t t = 0; t < tiles; ++t) { pq[static_cast<std::size_t>(3 * t)] = p[t]; pq[static_cast<std::size_t>(3 * t + 1)] = q[t]; pq[static_cast<std::size_t>(3 * t + 2)] = r.exceed[t]; }
       const auto [ax, comps] = axes_with("test", {"p", "q", "exceedances"});
       const Json opts = Json{{"draws", nd}, {"h", opt.h}, {"stopped", stopped}, {"min_crossings", opt.min_crossings}, {"stage", r.stage}, {"statistic", "the unbiased rho2 of the tile's pooled crossings (senses pooled), one-sided"}, {"q", "Benjamini-Hochberg over the tiles with a statistic"}, {"set", opt.set}};
-      made.push_back(store(nm(r.name, "consistency_p"), "null_p", "besag_clifford", r.field, pq, {tiles, 3}, ax, comps, "per tile of " + text(selrow, "name") + ": the sequential p, BH q and exceedances of the crossing consistency (unbiased rho2) of " + r.name + " against " + std::to_string(nd) + " lag-free null draws", opts, warnings, first));
+      made.push_back(store(nm(r.name, "consistency_p"), "null_p", "besag_clifford", r.field, pq, {tiles, 3}, ax, comps, "per tile of " + selrow.name + ": the sequential p, BH q and exceedances of the crossing consistency (unbiased rho2) of " + r.name + " against " + std::to_string(nd) + " lag-free null draws", opts, warnings, first));
       first = false;
       std::vector<double> ratio(static_cast<std::size_t>(tiles)), res4(static_cast<std::size_t>(tiles * 4));
       for (std::int64_t t = 0; t < tiles; ++t) {
@@ -241,9 +244,9 @@ NullResult null_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub,
         for (int k = 0; k < 3; ++k) res4[static_cast<std::size_t>(4 * t + k)] = r.null_sum(t, k) / static_cast<double>(nd);
         res4[static_cast<std::size_t>(4 * t + 3)] = mean_n;
       }
-      made.push_back(store(nm(r.name, "crossing_ratio"), "crossing_ratio", "lagfree_null", r.field, ratio, {tiles}, tile_axis, Json(), "per tile of " + text(selrow, "name") + ": the data's crossings of " + r.name + " over the lag-free null's mean number (" + std::to_string(nd) + " draws)", Json{{"draws", nd}, {"stage", r.stage}}, warnings, false));
+      made.push_back(store(nm(r.name, "crossing_ratio"), "crossing_ratio", "lagfree_null", r.field, ratio, {tiles}, tile_axis, Json(), "per tile of " + selrow.name + ": the data's crossings of " + r.name + " over the lag-free null's mean number (" + std::to_string(nd) + " draws)", Json{{"draws", nd}, {"stage", r.stage}}, warnings, false));
       const auto [ax4, comps4] = axes_with("component", {"resultant_x", "resultant_y", "resultant_z", "crossings"});
-      made.push_back(store(nm(r.name, "resultant"), "null_resultant", "lagfree_null", r.field, res4, {tiles, 4}, ax4, comps4, "per tile of " + text(selrow, "name") + ": the lag-free null's mean resultant crossing vector (senses pooled) and mean crossings for " + r.name + " over " + std::to_string(nd) + " draws: what a group map subtracts", Json{{"draws", nd}, {"stage", r.stage}}, warnings, false));
+      made.push_back(store(nm(r.name, "resultant"), "null_resultant", "lagfree_null", r.field, res4, {tiles, 4}, ax4, comps4, "per tile of " + selrow.name + ": the lag-free null's mean resultant crossing vector (senses pooled) and mean crossings for " + r.name + " over " + std::to_string(nd) + " draws: what a group map subtracts", Json{{"draws", nd}, {"stage", r.stage}}, warnings, false));
       info["consistency"].push_back(Json{{"recording", r.name}, {"tiles_tested", [&] { std::int64_t k = 0; for (std::int64_t t = 0; t < tiles; ++t) k += std::isfinite(r.cons[t]); return k; }()},
                                          {"tiles_q05", [&] { std::int64_t k = 0; for (std::int64_t t = 0; t < tiles; ++t) k += std::isfinite(q[t]) && q[t] < 0.05; return k; }()}});
     }
@@ -253,7 +256,7 @@ NullResult null_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub,
       for (std::int64_t t = 0; t < tiles; ++t) { pq[static_cast<std::size_t>(3 * t)] = p[t]; pq[static_cast<std::size_t>(3 * t + 1)] = q[t]; pq[static_cast<std::size_t>(3 * t + 2)] = dot_exceed[t]; }
       const auto [ax, comps] = axes_with("test", {"p", "q", "exceedances"});
       const Json opts = Json{{"draws", nd}, {"h", opt.h}, {"stopped", stopped}, {"min_crossings", opt.min_crossings}, {"recording_a", runs[0].name}, {"recording_b", runs[1].name}, {"statistic", "the dot product of the two runs' mean resultants (nxr tile_dot), draw i of one run against draw i of the other"}};
-      made.push_back(store(repeat_base + ".p", "null_p", "besag_clifford", runs[0].field, pq, {tiles, 3}, ax, comps, "per tile of " + text(selrow, "name") + ": the sequential p, BH q and exceedances of the repeat (dot product of the mean resultants) of " + runs[0].name + " and " + runs[1].name + " against " + std::to_string(nd) + " null draws", opts, warnings, false));
+      made.push_back(store(repeat_base + ".p", "null_p", "besag_clifford", runs[0].field, pq, {tiles, 3}, ax, comps, "per tile of " + selrow.name + ": the sequential p, BH q and exceedances of the repeat (dot product of the mean resultants) of " + runs[0].name + " and " + runs[1].name + " against " + std::to_string(nd) + " null draws", opts, warnings, false));
       const double pw = std::isfinite(cos_data) ? nxr::surrogate::besagCliffordP(static_cast<std::int64_t>(cos_exceed), nd, opt.h) : kNaN;
       Json axw = Json::array({Json{{"name", "whole"}, {"values", Json::array({Json{{"name", "p"}}, Json{{"name", "exceedances"}}, Json{{"name", "draws"}}})}, {"size", 3}}});
       made.push_back(store(repeat_base + ".whole_p", "null_p", "besag_clifford", runs[0].field, {pw, cos_exceed, static_cast<double>(nd)}, {3}, axw, Json(), "the sequential p of the count-weighted mean cosine of the tiles' directions between " + runs[0].name + " and " + runs[1].name + " against the null's", opts, warnings, false));

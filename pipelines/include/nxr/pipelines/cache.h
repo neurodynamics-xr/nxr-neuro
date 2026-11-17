@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "nxr/io.h"
+#include "nxr/pipelines/task.h"
 
 namespace nxr::pipelines {
 
@@ -74,6 +75,26 @@ Outcome<R> cached(nxr::io::SubjectWriter& sub, const std::string& table, const s
   }
   R v = compute();
   sub.compose([&] { store(v); });
+  return {std::move(v), false, secs(), {}};
+}
+
+// The same rule over the task-level API: `load(node)` reads the stored arrays of the node found; `store(result)` runs inside one unit (`Subject::commit`): the nodes it
+// makes, their arrays and every row it writes are stored together or not at all.
+template <class R>
+Outcome<R> cached(nxr::io::SubjectWriter& sub, const std::string& table, const std::optional<std::string>& path, const CacheKey& key,
+                  const std::function<R(const task::Node&)>& load, const std::function<R()>& compute, const std::function<void(const R&)>& store) {
+  using clock = std::chrono::steady_clock;
+  const auto t0 = clock::now();
+  auto secs = [&] { return std::chrono::duration<double>(clock::now() - t0).count(); };
+  const task::Subject subj = task::Subject::of(sub);
+  const task::Cls cls = table == "manifold" ? task::Cls::manifold : table == "field" ? task::Cls::field : table == "operator" ? task::Cls::operator_
+                      : table == "selection" ? task::Cls::selection : task::Cls::statistic;
+  if (const auto node = subj.cached(cls, key.json(), path)) {
+    R v = load(*node);
+    return {std::move(v), true, secs(), node->id};
+  }
+  R v = compute();
+  subj.commit([&] { store(v); });
   return {std::move(v), false, secs(), {}};
 }
 

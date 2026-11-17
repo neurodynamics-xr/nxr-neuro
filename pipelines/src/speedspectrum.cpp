@@ -1,4 +1,5 @@
 #include "nxr/pipelines/speedspectrum.h"
+#include "nxr/pipelines/task.h"
 
 #include <cmath>
 
@@ -37,7 +38,7 @@ tb::Design time_design(const SpeedSpectrumOptions& o) {
 // A line of member or bin NUMBERS (spacing 1) of `n` points. nxr.subject@6.0 has folders only for time, frequency and eigenvalue lines, so the graph members sit on an eigenvalue-role line
 // and the time members and speed bins on frequency-role lines; the line is an index, the members' real centres are in the fields' producer_json (open: the format ruling for a member axis).
 std::string index_line(SubjectWriter& sub, const std::string& name, const char* role, const char* dim, std::int64_t n, const std::optional<std::string>& acquisition_id) {
-  if (const auto l = sub.db().one("SELECT m.id AS id FROM manifold m WHERE m.subject_id = ? AND m.name = ? AND m.type = 'line'", {V(sub.id()), V(name)})) return text(*l, "id");
+  if (const auto l = task::Subject::of(sub).find({.cls = task::Cls::manifold, .name = name, .type = "line", .any_status = true})) return l->id;
   ManifoldSpec ms;
   ms.name = name;
   ms.path = folder_for("line", "", std::string(role)) + "/" + name;
@@ -112,8 +113,8 @@ SpeedSpectrumResult speedspectrum_compute(DatasetWriter& ds, SubjectWriter& sub,
   std::string moved_aside;
   bool replaced = false;
   std::int64_t modes_exact = 0, modes_coexact = 0;
-  auto load = [&](const Row& f) {
-    const Json pj = Json::parse(opt_text(f, "producer_json").value_or("{}"), nullptr, false);
+  auto load = [&](const task::Node& f) {
+    const Json& pj = f.producer;
     if (pj.is_object()) { segments = pj.value("segments", std::int64_t(0)); skipped = pj.value("segments_skipped", std::int64_t(0)); excluded_fraction = pj.value("excluded_fraction", 0.0); }
     return 0;
   };

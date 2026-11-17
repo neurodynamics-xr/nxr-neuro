@@ -25,7 +25,10 @@ namespace nxr::io {
 std::int64_t chunk_width(const Row& recording) {
   const auto js = opt_text(recording, "chunk_shape_json");
   if (!js) return kChunk;
-  const Json shape = Json::parse(*js, nullptr, false);
+  return chunk_width(Json::parse(*js, nullptr, false));
+}
+
+std::int64_t chunk_width(const Json& shape) {
   if (!shape.is_array() || shape.size() < 2 || !shape[1].is_number_integer()) return kChunk;
   return std::max<std::int64_t>(1, std::min(kChunk, shape[1].get<std::int64_t>()));
 }

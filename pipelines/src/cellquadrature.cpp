@@ -161,7 +161,7 @@ CellQuadratureResult cellquadrature_compute(DatasetWriter& ds, SubjectWriter& su
   if (text(kern, "to_manifold_id") != S.id) invalid(kname + " maps to another surface than the joint Selection's (" + S.name + ")");
   const std::int64_t nV = S.n_vertices();
   const SurfaceLevel SL = read_surface_level(sub, S, l);
-  if (text(SL.level, "id") != jj["space"].get<std::string>()) invalid("cellquadrature: the joint Selection '" + text(*jrow, "name") + "' was made on another tiling of level " + std::to_string(l) + " than the surface's now (`joint compute --replace`)");
+  if (SL.level.id != jj["space"].get<std::string>()) invalid("cellquadrature: the joint Selection '" + text(*jrow, "name") + "' was made on another tiling of level " + std::to_string(l) + " than the surface's now (`joint compute --replace`)");
   const std::int64_t tiles = SL.nodes;
   if (is_null(kern, "from_selection_id")) invalid(kname + ": its channels (from_selection) are not stored");
   const auto ksel = sub.db().read("selection", text(kern, "from_selection_id"));

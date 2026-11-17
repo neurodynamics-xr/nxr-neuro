@@ -180,6 +180,20 @@ std::optional<Node> Subject::by_id(Cls cls, const std::string& row_id) const {
   return std::nullopt;
 }
 
+std::optional<Node> Subject::at_path(Cls cls, const std::string& path) const {
+  const std::string table = to_string(cls);
+  const auto r = impl_->db->one("SELECT * FROM " + table + " WHERE subject_id = ? AND path = ?", {V(id()), V(path)});
+  if (!r) return std::nullopt;
+  switch (cls) {
+    case Cls::manifold: return node_of(cls, rec::ManifoldRow::from_row(*r));
+    case Cls::field: return node_of(cls, rec::FieldRow::from_row(*r));
+    case Cls::operator_: return node_of(cls, rec::OperatorRow::from_row(*r));
+    case Cls::selection: return node_of(cls, rec::SelectionRow::from_row(*r));
+    case Cls::statistic: return node_of(cls, rec::StatisticRow::from_row(*r));
+  }
+  return std::nullopt;
+}
+
 Node Subject::require_id(Cls cls, const std::string& row_id) const {
   auto n = by_id(cls, row_id);
   if (!n) throw Error(code::no_such_row, std::string("no ") + to_string(cls) + " with id " + row_id);
@@ -195,6 +209,19 @@ std::vector<Node> Subject::members(const Node& partition) const {
 std::optional<Node> Subject::member(const Node& partition, std::int64_t ordinal) const {
   if (auto r = impl_->records().selections().member(partition.id, ordinal)) return node_of(Cls::selection, *r);
   return std::nullopt;
+}
+
+std::vector<Node> Subject::fields_on_axis(const std::string& factor_manifold_id, std::int64_t ordinal) const {
+  std::vector<Node> out;
+  for (const Row& r : impl_->db->all("SELECT f.* FROM field f JOIN manifold m ON m.id = f.manifold_id JOIN geometry_dimension d ON d.geometry_id = m.geometry_id AND d.ordinal = ? "
+                                     "WHERE f.subject_id = ? AND f.status = 'complete' AND d.manifold_id = ? AND f.path IS NOT NULL ORDER BY f.name",
+                                     {V(static_cast<long long>(ordinal)), V(id()), V(factor_manifold_id)}))
+    out.push_back(node_of(Cls::field, rec::FieldRow::from_row(r)));
+  return out;
+}
+
+std::int64_t Subject::entry_count(const std::string& dictionary_id) const {
+  return integer(*impl_->db->one("SELECT COUNT(*) AS n FROM dictionary_entry WHERE dictionary_id = ?", {V(dictionary_id)}), "n");
 }
 
 std::vector<Span> Subject::spans(const Node& selection) const {
@@ -214,9 +241,35 @@ Geometry Subject::geometry(const std::string& manifold_id) const {
   return g;
 }
 
+finder::Value Subject::describe(const Node& n) const {
+  const auto r = impl_->db->read(to_string(n.cls), n.id);
+  if (!r) throw Error(code::no_such_row, std::string("no ") + to_string(n.cls) + " with id " + n.id);
+  return finder::value_of(*impl_->db, to_string(n.cls), *r);
+}
+
 std::optional<Node> Subject::manifold_of(const Node& n) const {
   if (!n.manifold_id) return std::nullopt;
   return by_id(Cls::manifold, *n.manifold_id);
+}
+
+std::vector<std::string> Subject::factors(const std::string& manifold_id) const { return finder::factors(*impl_->db, manifold_id); }
+
+std::vector<MapSlice> Subject::map_slices(const std::string& manifold_id) const {
+  std::vector<MapSlice> out;
+  for (const auto& m : nxr::io::map_slices(*impl_->db, id(), manifold_id))
+    out.push_back({text(m.statistic, "id"), m.name, m.manifold_id, m.index, m.n, m.n_components, m.unit, m.value_type});
+  return out;
+}
+
+std::optional<MapSlice> Subject::map_slice(const std::string& name) const {
+  std::optional<MapSlice> found;
+  for (const Row& st : statistics_of(*impl_->db, id())) {
+    const Json axes = Json::parse(text(st, "axes_json"), nullptr, false);
+    if (!axes.is_array() || axes.empty() || !axes[0].contains("manifold_id")) continue;
+    for (const MapSlice& ms : map_slices(axes[0]["manifold_id"].get<std::string>()))
+      if (ms.name == name && ms.statistic_id == text(st, "id")) found = ms;
+  }
+  return found;
 }
 
 std::string Subject::node_path(const std::string& manifold_id, const std::string& name) const { return nxr::io::node_path(*impl_->db, manifold_id, name); }
@@ -251,6 +304,17 @@ std::vector<Json> Subject::measured_kinds(const std::string& selection_id) const
   std::vector<Json> out;
   for (const Json& k : measurement_kinds(*impl_->db, selection_id)) out.push_back(k);
   return out;
+}
+
+std::vector<std::string> Subject::measured_selections(const std::string& of_field_id, const std::string& measure) const {
+  std::vector<std::string> out;
+  for (const Row& r : impl_->db->all("SELECT DISTINCT selection_id FROM selection_measurement WHERE of_field_id = ? AND measure = ? ORDER BY selection_id", {V(of_field_id), V(measure)}))
+    out.push_back(text(r, "selection_id"));
+  return out;
+}
+
+bool Subject::has_measures(const std::string& selection_id, const std::string& of_field_id) const {
+  return impl_->db->one("SELECT 1 AS x FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? LIMIT 1", {V(selection_id), V(of_field_id)}).has_value();
 }
 
 bool Subject::has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id) const {

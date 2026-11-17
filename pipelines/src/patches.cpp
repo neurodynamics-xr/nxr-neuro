@@ -2,6 +2,8 @@
 // compute/ (filterbank band, partition measurements, intervals median/mad, regions); the results are stored by io (Field, Selection, measurement rows, statistics).
 #include "nxr/pipelines/patches.h"
 
+#include "nxr/pipelines/task.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -73,12 +75,13 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   const int l = opt.level;
 
   // ── PREPARATION (host): the rows it reads, type-checked; nothing is computed ──
-  const auto frow = sub.db().one("SELECT * FROM field WHERE subject_id = ? AND name = ? AND status = 'complete' AND path IS NOT NULL", {V(sub.id()), V(opt.map)});
+  const task::Subject subj = task::Subject::of(sub);
+  const auto frow = subj.find({.cls = task::Cls::field, .name = opt.map, .stored = true});
   if (!frow) missing(sub.name() + ": no stored Field '" + opt.map + "' (patches are found in a Field; a band of a map statistic is not read here)");
-  if (text(*frow, "value_type") != "scalar") invalid(opt.map + ": a " + text(*frow, "value_type") + " Field; patches are found in a scalar map (one value per vertex)");
-  const auto man = sub.db().read("manifold", text(*frow, "manifold_id"));
-  if (!man || text(*man, "type") != "surface") invalid(opt.map + ": its manifold is not a surface (a recording, a sensor array or a frequency axis has no tiles)");
-  const SurfaceInput S = read_surface(sub, text(*man, "name"), true);
+  if (frow->value_type.value_or(std::string()) != "scalar") invalid(opt.map + ": a " + frow->value_type.value_or(std::string()) + " Field; patches are found in a scalar map (one value per vertex)");
+  const auto man = subj.by_id(task::Cls::manifold, frow->manifold_id.value_or(std::string()));
+  if (!man || man->type.value_or(std::string()) != "surface") invalid(opt.map + ": its manifold is not a surface (a recording, a sensor array or a frequency axis has no tiles)");
+  const SurfaceInput S = read_surface(sub, man->name, true);
   const std::int64_t nV = S.n_vertices();
   if (opt.transform == "exact" && nV > 4096) invalid("patches: --transform exact is the dense eigen-decomposition: at most 4096 vertices, this surface has " + std::to_string(nV) + "; use --transform chebyshev");
   const std::string surface = S.name, mid = S.id;
@@ -92,7 +95,7 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
 
   const SurfaceLevel SL = read_surface_level(sub, S, l);          // the ladder, the level, its tiles and graph, the Weyl pairing checked
   const std::string tiling = SL.tiling;
-  const auto lvl = SL.level;
+  const auto& lvl = SL.level;
   const std::int64_t nodes = SL.nodes;
   const std::vector<std::int32_t>& tile = SL.tile;
   const std::vector<double>& tile_area = SL.tile_area;
@@ -104,9 +107,9 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   const std::vector<double> vertex_area = lad::vertexAreas(whole);
 
   const std::string band_name = safe_name(opt.map + "_band_L" + std::to_string(l));
-  const std::string band_path = node_path(sub.db(), mid, band_name);
+  const std::string band_path = subj.node_path(mid, band_name);
   const std::string patches_name = opt.map + " patches L" + std::to_string(l) + " " + opt.sign;
-  const std::string patches_path = node_path(sub.db(), mid, safe_name(patches_name));
+  const std::string patches_path = subj.node_path(mid, safe_name(patches_name));
   const std::string by = std::string("nxr-neuro patches compute \xc2\xb7 nxr-neuro ") + NXR_NEURO_VERSION;
   const std::string producer = internal::producer_string("patches compute");
   const std::string mkey = mesh_key(S.faces), pkey = positions_key(S.vertices);
@@ -120,16 +123,16 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   CacheKey bkey;
   bkey.pipeline = "patches spatial_band";
   bkey.params = Json{{"level", l}, {"bank", "weyl"}, {"member", l}, {"half_width_octaves", 1.0 / 3.0}, {"weyl_area_m2", piece_area}, {"spatial_transform", bplan.key}};
-  bkey.input = Json{{"field", text(*frow, "id")}, {"tiling", text(lvl, "id")}, {"mesh", mkey}, {"positions", pkey}};
+  bkey.input = Json{{"field", frow->id}, {"tiling", lvl.id}, {"mesh", mkey}, {"positions", pkey}};
   bkey.compute = NXR_COMPUTE_VERSION;
   PatchesComputeResult res;
   Json band_info;
   std::string band_id;
   bool band_hit = false;
-  if (const auto hit = find_cached(sub.db(), sub.id(), "field", bkey, band_path)) {
+  if (const auto hit = subj.cached(task::Cls::field, bkey.json(), band_path)) {
     band_hit = true;
-    band_id = text(*hit, "id");
-    band_info = Json::parse(opt_text(*hit, "producer_json").value_or("{}"), nullptr, false).value("spatial_band", Json::object());
+    band_id = hit->id;
+    band_info = (hit->producer.is_object() ? hit->producer.value("spatial_band", Json::object()) : Json::object());
     say(Json{{"stage", "spatial_band"}, {"field", band_name}, {"cache", "hit"}});
   } else {
     const SpatialBand sb = make_spatial_band(ds, sub, S, SL, bo, progress);
@@ -138,7 +141,7 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
     const Eigen::VectorXd band = W.col(0);
     std::vector<double> vals(band.data(), band.data() + band.size());
     Json pj = Json{{"by", "nxr-neuro patches compute"}, {"producer", producer}, {"spatial_band", band_info}, {"warnings", band_info.value("warnings", Json::array())},
-                   {"source", Json{{"field", opt.map}, {"id", text(*frow, "id")}}},
+                   {"source", Json{{"field", opt.map}, {"id", frow->id}}},
                    {"note", "the map filtered to the level's Weyl band (graph wavelet, Meyer edges ±1/3 octave, on the cotangent Laplacian pencil of the intrinsic Delaunay mesh): signed, local to the band's wavelength; a tile mean of it is a height relative to the surroundings at that scale, not the map's own value"}};
     const Json st = stamp(bkey);
     pj["cache"] = st["cache"];
@@ -149,7 +152,7 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
       f.name = band_name; f.path = band_path; f.kind = "map"; f.manifold_id = mid; f.value_type = "scalar";
       f.data = view(vals, {nV});
       f.cols.set("function", "spatial_band").set("description", "'" + opt.map + "' filtered to the Weyl band of level " + std::to_string(l) + " of " + surface + "'s tile ladder");
-      if (const auto u = opt_text(*frow, "unit")) f.cols.set("unit", *u);
+      if (const auto u = frow->unit) f.cols.set("unit", *u);
       f.cols.json("producer_json", pj);
       band_id = sub.field(std::move(f));
     });
@@ -162,7 +165,7 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   MeasureComputeOptions mo;
   mo.labelling = tiling; mo.fields = exactly(band_name); mo.weight = "barycentric"; mo.measures = {"mean", "max", "min", "abs_max"}; mo.recipe = "patches-barycentric"; mo.replace = opt.replace;
   const MeasureComputeResult tiles_measured = measure_compute(ds, sub, mo);
-  const MeasurementValues tile_mean_v = measurement_values(sub, text(lvl, "id"), band_id, std::nullopt, std::nullopt, "mean");
+  const MeasurementValues tile_mean_v = measurement_values(sub, lvl.id, band_id, std::nullopt, std::nullopt, "mean");
   Eigen::VectorXd mean = Eigen::VectorXd::Constant(nodes, std::nan(""));
   for (std::int64_t t = 0; t < std::min<std::int64_t>(nodes, tile_mean_v.members); ++t) mean(t) = tile_mean_v.values[static_cast<std::size_t>(t)];
 
@@ -195,16 +198,16 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   pk.params = Json{{"level", l}, {"sign", opt.sign}, {"enter_sd", opt.enter_sd}, {"exit_sd", opt.exit_sd}, {"min_area_m2", opt.min_area ? Json(*opt.min_area) : Json(nullptr)},
                    {"max_area_m2", opt.max_area ? Json(*opt.max_area) : Json(nullptr)}, {"weight", "barycentric"}, {"merge", "none"},
                    {"baseline", "median and robust SD (1.4826 MAD) across the level's tiles"}};
-  pk.input = Json{{"band", band_id}, {"tiling", text(lvl, "id")}, {"map", text(*frow, "id")}};
+  pk.input = Json{{"band", band_id}, {"tiling", lvl.id}, {"map", frow->id}};
   pk.compute = NXR_COMPUTE_VERSION;
   std::int64_t n_patches = 0;
   std::string psel_id;
   Json patches_json = Json::array();
   std::vector<std::int32_t> pcode(static_cast<std::size_t>(nV), -1);
-  if (const auto hit = find_cached(sub.db(), sub.id(), "selection", pk, patches_path)) {
+  if (const auto hit = subj.cached(task::Cls::selection, pk.json(), patches_path)) {
     res.hit = true;
-    psel_id = text(*hit, "id");
-    n_patches = integer(*sub.db().one("SELECT COUNT(*) AS n FROM dictionary_entry WHERE dictionary_id = ?", {V(text(*hit, "dictionary_id"))}), "n");
+    psel_id = hit->id;
+    n_patches = subj.entry_count(hit->dictionary_id.value_or(std::string()));
     say(Json{{"stage", "detect_regions"}, {"selection", patches_name}, {"cache", "hit"}, {"patches", n_patches}});
   } else {
     Eigen::VectorXd w = Eigen::Map<const Eigen::VectorXd>(tile_area.data(), static_cast<Eigen::Index>(tile_area.size()));
@@ -250,7 +253,7 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
       rows.push_back(Json{{"selection_id", psel_id}, {"code", k}, {"of_field_id", nullptr}, {"measure", "n_tiles"}, {"value", static_cast<double>(g.nodes.size())}, {"weight", nullptr}, {"unit", nullptr}, {"computed_utc", now_utc()}, {"computed_by", by}});
       rows.push_back(Json{{"selection_id", psel_id}, {"code", k}, {"of_field_id", nullptr}, {"measure", "centre_vertex"}, {"value", static_cast<double>(centres[static_cast<std::size_t>(k)])}, {"weight", nullptr}, {"unit", nullptr}, {"computed_utc", now_utc()}, {"computed_by", by}});
     }
-    if (!rows.empty()) sub.db().tx([&] { write_measurements(sub.db(), rows, by); });
+    if (!rows.empty()) subj.write_measurements(rows, by);
   }
 
   // ── NODE measure over the patches (the roll-up of the tiles is the measurement of their union) and summarize across the patches ──
@@ -277,9 +280,9 @@ PatchesComputeResult patches_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   if (n_patches == 0 && opt.replace) {   // nothing found now: the statistics of the patches it replaced describe patches that are gone
     for (const char* what : {"area", "n_tiles", "mean", "peak"}) {
       const std::string sname = safe_name(opt.map + "_patches_L" + std::to_string(l) + "_" + opt.sign + "_" + what);
-      if (const auto old = sub.db().one("SELECT path FROM statistic WHERE subject_id = ? AND name = ?", {V(sub.id()), V(sname)})) {
+      if (const auto old = subj.find({.cls = task::Cls::statistic, .name = sname, .any_status = true})) {
         bool replaced = false;
-        clear_stored(ds, sub, {{"statistic", text(*old, "path")}}, true, sname, replaced);
+        clear_stored(ds, sub, {{"statistic", old->path.value_or(std::string())}}, true, sname, replaced);
       }
     }
   }
