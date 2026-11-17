@@ -9,20 +9,22 @@
 # within-region pairs stored (a fiber with both ends in one region adds 2 at its diagonal). Smoothing is pushed onto the memberships (the adjoint of the mesh's smoothing step):
 # the vertex matrix is never formed here. Default smoothing: 0 hops for a partition (3 at the vertex level, `connectome_vertices`).
 #
-# Needs (runner features this definition declares and the runner does not read yet):
-#   1. input classes `curve` (a fiber bundle: its points and `points_per_fiber`), `surface` (positions, faces) and `selection: partition` read as a label per vertex;
-#   2. a required parameter (default `required`: refused when missing, naming it and its valid values);
-#   3. an output of kind `measurement` made of an ARRAY (`counts`, COO regions x regions) with two codes a row (`codes: 2`), on the input partition;
-#   4. the provenance of an output taking the input bundle's `origin` (source, version, citation, licence) when it has one: see `connectome_template`.
+# Needs (runner features; status 2026-11-17):
+#   1. input classes: DONE with the classes the finder has: `manifold: curve` (a fiber bundle, read as its points with `points_per_fiber` in its meta), `manifold: surface`
+#      (vertices, faces) and `selection: set` (a partition read as a member number per vertex), handed to a node that declares `reads_arrays`;
+#   2. a required parameter (default `required`: refused when missing, naming it, its meaning and valid values): DONE (the runner's `parameters_of`);
+#   3. an output of kind `measurement` made of an ARRAY (`counts`, COO regions x regions) with two codes a row (`codes: 2`), on the input partition: NOT DONE (the runner stores a
+#      measurement only over the chunk loop's recording; an array measurement needs the selection store's measurement rows with two codes);
+#   4. the provenance of an output taking the input bundle's `origin` when it has one (the fiber array's meta carries it): the output side is NOT DONE (see connectome_template).
 pipeline: connectome
 version: 1
 description: the fiber counts between the regions of a partition of the end surface (a measurement over the partition), from a fiber bundle's ends
 scope: subject
 
 inputs:
-  fibers:    {curve: fibers, where: {name: $fibers}}
-  surface:   {surface: cortex, where: {name: $end_surface}}
-  partition: {selection: partition, manifold: surface, where: {name: $over}}
+  fibers:    {manifold: curve, where: {name: $fibers}}
+  surface:   {manifold: surface, where: {name: $end_surface}}
+  partition: {selection: set, manifold: surface.manifold.0, where: {name: $over}}
 
 parameters:
   fibers:       {default: required, meaning: "the fiber bundle's name (the subject's own: `curve/<name>`)", unit: "-"}

@@ -10,8 +10,8 @@ description: the connection weights between the vertices of the end surface, fro
 scope: subject
 
 inputs:
-  fibers:  {curve: fibers, where: {name: $fibers}}
-  surface: {surface: cortex, where: {name: $end_surface}}
+  fibers:  {manifold: curve, where: {name: $fibers}}
+  surface: {manifold: surface, where: {name: $end_surface}}
 
 parameters:
   fibers:       {default: required, meaning: "the fiber bundle's name", unit: "-"}
