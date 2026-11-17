@@ -5,6 +5,66 @@ replaces them (ported from the Studio's repositories), the rule and the check th
 migration starts after the subject-package format work now open (the pipelines' open and write paths moving to packages) has landed. Section 7 lists
 the open questions, each with a recommendation.
 
+## 0. Decision (maintainers, 2026-11-17): two levels
+
+The repositories of sections 3 to 3.4 are the **inside** of io, not what orchestration sees.
+
+1. **Level 1, the repositories (`nxr::io::records`, the Studio's shape: row structs, `Where` structs, `read/list/find/create/update/remove`)** stay **inside io**.
+   They are used by io itself, by bindings that serve the Studio (`bindings/wasm-io`), and by record tools. Pipelines and the command line never see a row
+   struct, a `Where` or a table name.
+2. **Level 2, a small TASK-LEVEL API in io is the only thing pipelines and the command line use** (`nxr/io/task/*.h`, namespace `nxr::io::task`), implemented
+   on level 1. It is named by the task, never as CRUD. HTTP is not built now.
+
+The task API:
+
+| task | calls (all take a `Subject`, io's handle to one package or dataset subject; they never take a database) |
+|---|---|
+| **find inputs** | io's existing `finder` completed: `find(subject, Want{cls, name, kind, manifold, relation, params, member_of, ordinal})` returns a `Found` (its id, name, class, manifold ids, value type, unit, time line, and the stored facts a step needs: `params`, `producer`, `n_vertices`, `grid`, ...) or throws one clear error (none, or several: both name the candidates). `find_all` for the few steps that list. Geometry facts a step reads (grid spacing and origin, coordinate unit, factor lines, cells) are members of `Found` for a manifold; a partition's `members(found)` and a selection's `spans(found)` are calls on it. |
+| **open arrays** | `open(found)` returns an array handle for streaming (the chunk service's source, unchanged); `node_path(subject, manifold, name)` and `atlas_node(...)` stay as the naming rules. |
+| **commit a result as ONE unit** | `auto u = subject.unit(by)`; every write inside it (a field, operator, selection, statistic, measurement rows, a dictionary) is one atomic composition: rows, arrays, provenance (`By`, producer JSON), the cache key and the measurements together or nothing (`commit()`; destroyed without it: rolled back). It is `SubjectWriter`'s node procedure with `compose`/`mark`/`rollback_to`, typed once. Replaces `db().tx`, `write_measurements`, `delete_measurements`, `UPDATE selection SET params_json`. |
+| **cache lookup** | `cached(subject, kind, CacheKey, path)` returns the stored `Found` or none (today `find_cached`, moved into io). |
+| **query measurements** | `measure(subject).kinds(selection)` (what is measured, its `computed_by`, unit), `.has(selection, measure, of_field)`, `.query(MeasurementQuery)`: the read-time reduction over partitions, members, code shifts, space and time levels, and `.values(...)` for the statistics' input; `.arrays(...)` for array-backed rows. |
+| **subjects and statistics, by task** | `catalogue`/`subjects` calls of section 3.4 (list, find, status) for the cli; `statistics.of(subject, field)` and `map_slices` as `find` of class `statistic`; dictionary entries by name or code (`Found::entries()`), and `recipes.get(name)`. |
+
+**The 228 pipeline statements, by group, and their task call** (counts: `tools/db_inventory.py`; "found" is `task::find`):
+
+| group (pipeline statements) | task call |
+|---|---|
+| selections found by name, type, manifold, parameters (29 + 6 + 2) | `find(Want{cls: selection, ...})`; the parameter lookups are `Want::params` (equality and presence on the selection's parameters) |
+| manifold geometry and one manifold by id, found by name and type (21 + 20 + 7 + 2) | `find` of a manifold and the `Found`'s geometry members; by id: `find_by_id(subject, cls, id)` |
+| fields by name or kind, virtual or pending, on a manifold, by id (30 + 4 + 4 + 1) | `find(Want{cls: field, ...})`, `find_all` |
+| operators by kind, name, target (36) | `find(Want{cls: operator, ...})` |
+| members of a partition, spans of a selection (13 + 11) | `members(found)`, `spans(found)` |
+| what is measured, provenance, array-backed rows (8 + 5 + 4) | `measure(subject).kinds / has / arrays` |
+| measurement delete (1) | a call inside the unit |
+| selection writes (4) | `unit.selection(...)`, `unit.set_params(...)` |
+| cache (the cache lookup, its one statement) | `cached(...)` |
+| subjects, generic row, statistics, dictionaries, topology cells (3 + 2 + 1 + 2 + 8 + 2) | `catalogue.subject`, `find`, `statistics.of`, `Found::entries()`, `recipes.get`, `Found::cells` |
+
+Also the 137 handle arguments (`node_path`, `find_cached`, `delete_measurements`, `write_measurements`, `value_of`, `statistics_of`, `map_slices`, ...):
+each becomes a task call on the `Subject`; the handle never leaves io.
+
+**The rule** (section 4, amended): pipelines and the command line include only `nxr/io/task/` (and the writer and chunk service as before); **they include no
+`nxr/io/records/` header and no `nxr/io/database.h`, and name no row, table or SQL**. Only io, `bindings/wasm-io` (it serves the Studio) and io's tests include `records/`.
+The layering check enforces it.
+
+**The migration, revised** (one PR each, each based on the latest main; each shrinks the allowlist):
+
+| step | PR |
+|---|---|
+| 1 | the repositories (inside io), the probe, the layering check with its allowlist (this PR) |
+| 2 | the task API in io on the repositories and the existing io helpers: `find`/`find_all`/`members`/`spans`, `measure`, `cached`, `Unit`, `By`, the prepared-statement cache; io tests compare it with the SQL it replaces |
+| 3 | pipelines: the small steps |
+| 4 | pipelines: the runner (`runner.h`/`registry.h` signatures take the `Subject`, not a handle) |
+| 5 | pipelines: partitions and pyramid, group, measure (performance measured before and after) |
+| 6 | `meeg.cpp` |
+| 7 | the command line |
+| 8 | the binding (it uses the repositories) |
+| 9 | tests (the task API and the probe) |
+| 10 | close: empty allowlist; `nxr/io.h` drops `database.h`; ARCHITECTURE.md gains the rule |
+
+Sections 3 to 3.4 below describe level 1; read "pipelines" in section 4 and the migration table of section 5 as amended here.
+
 ## 1. Why
 
 The architecture has three layers: **compute** (functions of matrices), **data** (`io/`: loading and storing) and **orchestration** (`pipelines/`,

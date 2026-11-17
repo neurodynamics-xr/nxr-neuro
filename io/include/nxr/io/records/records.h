@@ -1,6 +1,6 @@
-// nxr-io — the RECORD API: every row of a package or dataset database, read through typed repositories. Orchestration (pipelines, the command line, the
-// bindings) asks io typed questions (`fields.find`, `selections.members`, ...) and never writes SQL or holds a database handle (ARCHITECTURE.md; the
-// design is docs/specs/2026-11-17-io-record-api.md, ported from the Cortical Flow Studio's repositories).
+// nxr-io — LEVEL 1 of the record API: every row of a package or dataset database, read through typed repositories, in the Studio's shape. These stay INSIDE io
+// (used by io, by bindings/wasm-io which serves the Studio, and by record tools). Pipelines and the command line never include this header: they use the
+// task-level API (nxr/io/task/, docs/specs/2026-11-17-io-record-api.md, section 0); the layering check enforces it.
 //
 //   auto rec = nxr::io::records::Records::of(package);          // one database: a subject package, a group package, a dataset
 //   auto f = rec.fields().find({.subject_id = id, .name = "sources"});   // one row, none, or Error(ambiguous)

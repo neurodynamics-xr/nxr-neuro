@@ -3,7 +3,7 @@
 # Run as a test:  cmake -DROOT=<repo> [-DALLOW=<file>|NONE] [-DLIST=1] -P cmake/check_records_layering.cmake
 #
 # It fails on, in a .cpp or .h under pipelines/, cli/, bindings/, compute/, meeg/ (vendored trees skipped; comment lines skipped):
-#   - an #include of nxr/io/database.h or sqlite3.h, or of nxr/io/testing/ outside a test/ folder;
+#   - an #include of nxr/io/database.h or sqlite3.h, or of nxr/io/records/ (the repositories are inside io; only bindings/wasm-io may use them), or of nxr/io/testing/ outside a test/ folder;
 #   - a string literal that starts with an SQL verb (SELECT, INSERT, UPDATE x, DELETE FROM, WITH x AS, CREATE/DROP/ALTER, PRAGMA, BEGIN, ...);
 #   - `.db()`, `->db()`, `Database`, `sqlite3_`.
 # A line with `tamper(` (the test probe's corruption on purpose) is exempt.
@@ -60,6 +60,8 @@ foreach(f ${files})
     set(why "")
     if(l MATCHES "#[ \t]*include[ \t]*[<\"](nxr/io/database\\.h|sqlite3\\.h)[>\"]")
       set(why "includes a database header")
+    elseif(l MATCHES "#[ \t]*include[ \t]*[<\"]nxr/io/records/" AND NOT rel MATCHES "^bindings/wasm-io/")
+      set(why "includes a record repository header (level 1, inside io: use the task API)")
     elseif(l MATCHES "#[ \t]*include[ \t]*[<\"]nxr/io/testing/" AND NOT in_test)
       set(why "includes the test-only probe outside a test")
     elseif(l MATCHES "${sql_start}")
