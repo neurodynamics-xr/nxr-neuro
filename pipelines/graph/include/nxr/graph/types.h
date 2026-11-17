@@ -34,9 +34,9 @@ enum class PortClass {
 };
 /** what a field's columns are: samples (streamed, inside the loop), frames (a retimed stream), or none (an array outside the loop) */
 /** where a value lies in a run: none, an array (outside the loop); samples, a stream of the recording's samples; frames, a stream of frames (after a retiming
- *  node); members; BLOCK, a value a node inside the loop makes ONCE PER BLOCK on axes of its own (a chunk's spectrum: channels x frequency bins; a change of
- *  basis), no halo and never cut into sub-blocks; a node after it reads it whole, and an accumulate node reduces it across blocks. */
-enum class Axis { none, samples, frames, members, block };
+ *  node); members. A value a chunk node makes ONCE PER BLOCK (a chunk's spectrum) has axis none and a domain whose last factor is a line the node MADE
+ *  (`PortType::per_block()`): no halo, never cut into sub-blocks; a node after it reads it whole, and an accumulate node reduces it across blocks. */
+enum class Axis { none, samples, frames, members };
 
 const char* to_string(ValueType v);
 const char* to_string(PortClass c);
@@ -81,6 +81,11 @@ struct Manifold {
   std::optional<CoordinateSystem> cs;                 // the system its positions are in; none for a manifold without geometry (members, an index line)
   std::int64_t n = 0;                                 // its vertices (0: not known before data, as a stream's time line)
   std::optional<double> spacing;                      // a closed-form line's spacing
+  // a MADE line (form made): the line a node's operator makes, as the Studio's product manifold carries a factor of geometry_dimension 1 (D37). Its vertices come with
+  // the block (the count a block was transformed from rides on the block), so its spacing is `rate / samples`.
+  std::optional<double> origin;                       // made line: the coordinate of vertex 0 (0 Hz for a one-sided spectrum)
+  std::optional<double> rate;                         // made line: the sampling rate (Hz) of the line it was made from; spacing = rate / (the block's samples)
+  std::string unit;                                   // made line: the unit of its coordinate ("Hz")
   ManifoldRef of;                                     // restricted, derived: the manifold it is of
   std::string by;                                     // restricted, members: the selection's identity (a stored id, or "<use>.<output>"; a signature's "$port")
   bool rest = false;                                  // variable: stands for all the other factors of a domain (R)
@@ -99,6 +104,8 @@ ManifoldRef frames_var(const std::string& name);     // binds a factor whose rol
 ManifoldRef var_rest(const std::string& name);       // the other factors, carried through unchanged
 ManifoldRef from_or_restriction_of(const ManifoldRef& v);   // an operator's source: a variable that also accepts a restriction of the manifold it is bound to
 ManifoldRef made(const std::string& label, const std::string& key, ManifoldKind kind = ManifoldKind::points, Role role = Role::none, std::optional<CoordinateSystem> cs = std::nullopt);
+/** the line a node's operator makes, keyed "<use>.<output>" (spec type-system 3.1): one factor of the output's product domain, with its origin, unit and the rate it derives its spacing from */
+ManifoldRef made_line(const std::string& label, const std::string& key, Role role, const std::string& unit, double origin, std::optional<double> rate);
 ManifoldRef restricted(const ManifoldRef& of, const std::string& by);
 ManifoldRef members(const std::string& partition);
 /** the member set of `partition`, with the line it partitions (`of`: a time tile's line; the time line of a joint partition), the role it has (frames for a frame tiling,
@@ -140,7 +147,7 @@ std::string print(const Resolution& r);   // "band 8-12 Hz morlet; level tiles@5
 /** a selection's shape: what the members are */
 struct SelectionShape {
   std::string type;                                   // the schema's: point · span · spans · indices · kernel · set · ladder · tiling (closed-form spans)
-  bool partition = false;                             // its members are disjoint: a measurement may be taken over it
+  bool partition = false;                             // a GRID: it partitions the manifold and is defined before data, with its hierarchy in closed form (roll-ups only through it). false: any other selection, an IRREGULAR one (detected events, scouts, atlases): sparse, may overlap, no levels; `measure` takes it member by member
   std::string identity;                               // a stored id, or "<use>.<output>" for one this graph makes
   std::string detected_over;                          // detected events: the identity of the partition whose members they were found on
 };
@@ -157,7 +164,7 @@ struct PortType {
   PortClass cls = PortClass::field;
   ValueType value = ValueType::real;
   std::int64_t rows = 0;                 // elements (channels, vertices, members), a vertex's components consecutive
-  Axis axis = Axis::none;                // samples: streamed (inside the loop); frames: retimed; block: made once per block on its own axes; none: an array
+  Axis axis = Axis::none;                // samples: streamed (inside the loop); frames: retimed; none: an array, or (`per_block()`) a value made once per block on a made line
   std::optional<double> sfreq;           // Hz, for samples (frames: the frame rate)
   std::string unit;                      // SI, as stored
   std::string on, to;                    // the manifold an element lies on (a label the caller gives: "sensors", "cortex"); an operator's target
@@ -180,6 +187,9 @@ struct PortType {
   std::optional<std::pair<CoordinateSystem, CoordinateSystem>> transition;   // operator of kind `transition`: from -> to, one space
   /** a value that flows block by block (samples or frames) rather than being an array */
   bool streamed() const { return axis == Axis::samples || axis == Axis::frames; }
+  /** a value a chunk node makes once per block: not streamed, and its domain's last factor is a frequency line the node made (the product channels x frequency of a
+   *  change of basis). Derived from the type, not a flag: the domain says it. */
+  bool per_block() const;
 };
 using Types = std::map<std::string, PortType>;
 
@@ -215,6 +225,8 @@ Domain instantiate(const Domain& pattern, const Bindings& b, const std::map<std:
  *  The own columns are [left, width - right). Rows are the value's elements, a vector's components consecutive. */
 struct Block {
   std::int64_t rows = 0, width = 0, left = 0, right = 0;
+  /** a value made on a made line: the samples of the block it was made from (n). The line's vertices do not tell it (an odd and an even n make the same count of bins). 0 otherwise. */
+  std::int64_t line_samples = 0;
   std::vector<float> re, im;
   std::int64_t own() const { return width - left - right; }
   bool complex() const { return !im.empty(); }

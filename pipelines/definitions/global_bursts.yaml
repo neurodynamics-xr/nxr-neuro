@@ -92,10 +92,10 @@ steps:
       in:   {x: trace_amplitude, baseline: baseline}
       with: {combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, merge_s: $merge_s, min_s: $min_s, max_s: $max_s, durations: $durations, merge_cycles: $merge_cycles, min_cycles: $min_cycles, max_cycles: $max_cycles}
       out:  bursts
-    - {step: rollup_events, in: {x: trace_amplitude, events: bursts}, with: {measure: amplitude},     out: burst_amplitude}
-    - {step: rollup_events, in: {x: trace_peak, events: bursts},      with: {measure: envelope_max},  out: burst_peak}
-    - {step: rollup_events, in: {x: trace_amplitude, events: bursts}, with: {measure: duration},      out: burst_duration}
-    - {step: rollup_events, in: {x: trace_amplitude, events: bursts}, with: {measure: interval_next}, out: burst_interval}
+    - {step: measure_events, in: {x: trace_amplitude, events: bursts}, with: {measure: amplitude},     out: burst_amplitude}
+    - {step: measure_events, in: {x: trace_peak, events: bursts},      with: {measure: envelope_max},  out: burst_peak}
+    - {step: measure_events, in: {x: trace_amplitude, events: bursts}, with: {measure: duration},      out: burst_duration}
+    - {step: measure_events, in: {x: trace_amplitude, events: bursts}, with: {measure: interval_next}, out: burst_interval}
     - step: risefall
       in:   {x: samples, events: bursts}
       with: {model: $model, margin: $margin, smooth: $smooth, tau_max: $tau_max, min_r2: $min_r2, durations: $durations, margin_cycles: $margin_cycles, smooth_cycles: $smooth_cycles, tau_max_cycles: $tau_max_cycles}

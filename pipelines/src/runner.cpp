@@ -257,7 +257,7 @@ std::vector<std::string> measured_by(const nxr::io::Database& db, const std::str
   }
   return out;
 }
-// a measurement over the EVENTS of the run (rollup_events, extent_measure): its Selection is the run's own events output, stored first: the span set (the default) or, `events_of: labelling`, the labelling
+// a measurement over the EVENTS of the run (measure_events, extent_measure): its Selection is the run's own events output, stored first: the span set (the default) or, `events_of: labelling`, the labelling
 bool over_events(const Value& v) { return v.cls == "measurement" && v.facts["over"].value("events", false); }
 std::string events_class(const Json& over) { return over.value("events_of", std::string("spans")); }
 // a run that makes several sets of point events (the cores, the tracks made of them) names the set by its kind (point_events.h); a measurement is over the set of its kind
@@ -301,7 +301,7 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, nxr::pipelines
   const nxr::io::Row& rec = *P.found.at(*d.over).row;
   const std::string& o0 = group.front();
   const Value& v0 = P.values.at(o0);
-  // over the tiles of a level, or (rollup_events) over the run's own events, whose Selection was stored just before: the member axis is then the events' order
+  // over the tiles of a level, or (measure_events) over the run's own events, whose Selection was stored just before: the member axis is then the events' order
   const std::string sel = over_selection(sub, P, v0);
   if (sel.empty()) refuse("outputs." + o0 + ": the Selection it is over was not stored");
   const Array& a0 = data.at(o0);

@@ -371,7 +371,7 @@ std::vector<StepSpec> build() {
   r.push_back({"reduce_cells", "after", {"x"}, {}, {"y"}, Json{{"groups", "whole_brain"}},
                "docs/specs/2026-11-13-cortical-events.md, Global bursts; the measure `max` over the groups' partition of the spatial tiles",
                "a measurement over a JOINT partition [spatial tiles × time tiles] reduced over the spatial partition to [groups × time tiles] by the MAX over each group's tiles (a tile NaN is left out; a time tile "
-               "NaN in every tile stays NaN): the trace the time events are found on. Its tiles are the TIME level's (so `detect_spans` and `rollup_events` take it unchanged)",
+               "NaN in every tile stays NaN): the trace the time events are found on. Its tiles are the TIME level's (so `detect_spans` and `measure_events` take it unchanged)",
                [](const Values& ins, const Json& p, const PlanContext& c) {
                  const Value& x = ins.at("x");
                  need(x.cls == "measurement" && x.facts.contains("over") && x.facts["over"].value("joint", false), "reduce_cells: x must be a measurement over a joint partition (`measure` with a joint `over`)");
@@ -656,31 +656,31 @@ std::vector<StepSpec> build() {
                  y.facts["detect"] = p;
                  return Values{{"spans", y}};
                }});
-  r.push_back({"rollup_events", "after", {"x", "events"}, {}, {"y"}, Json{{"measure", nullptr}},
+  r.push_back({"measure_events", "after", {"x", "events"}, {}, {"y"}, Json{{"measure", nullptr}},
                "docs/specs/2026-11-13-burst-statistics.md (a burst measured from the tile measurements it covers, by their exact roll-up: the registry's reductions, as the lookup merges members); "
                "compute nxr::intervals::rollupEvents, eventDurations, eventIntervalNext",
-               "a measurement of a tile level's tiles (a constant-Q level's, or a joint partition's cells) rolled up over the tiles of each event: the spans `detect_spans` made in this run, or a STORED spans Selection "
+               "a measurement of a tile level's tiles (a constant-Q level's, or a joint partition's cells) measured over the tiles of each event, member by member (events are irregular selections: nothing rolls up, and the across-event numbers are summary statistics of these measurements): the spans `detect_spans` made in this run, or a STORED spans Selection "
                "(an input `selection: spans`, e.g. the bursts of `global_bursts`): amplitude (the count-weighted mean of the tile means), envelope_max (the max of the tile maxima), power and phase_current (the "
                "count-weighted mean, per component for the vector), or the event's own geometry, duration and interval_next (seconds); [rows x events], an event's value on the row that found it (every row for the "
                "mean trace and for a global stored event), NaN elsewhere; an event holding a tile not whole and good is NaN for the sampled measures",
                [](const Values& ins, const Json& p, const PlanContext& c) {
                  const Value& x = ins.at("x");
                  const Value& ev = ins.at("events");
-                 need(p["measure"].is_string(), "rollup_events: measure is one of amplitude, envelope_max, power, phase_current, duration, interval_next");
+                 need(p["measure"].is_string(), "measure_events: measure is one of amplitude, envelope_max, power, phase_current, duration, interval_next");
                  const std::string m = p["measure"].get<std::string>();
                  need(m == "amplitude" || m == "envelope_max" || m == "power" || m == "phase_current" || m == "duration" || m == "interval_next",
-                      "rollup_events: measure " + p["measure"].dump() + ": amplitude, envelope_max, power, phase_current, duration or interval_next");
-                 need(x.cls == "measurement" && x.facts.contains("over") && !x.facts["over"].value("events", false), "rollup_events: x must be a measurement over a tile level's tiles (`measure` with `over`)");
+                      "measure_events: measure " + p["measure"].dump() + ": amplitude, envelope_max, power, phase_current, duration or interval_next");
+                 need(x.cls == "measurement" && x.facts.contains("over") && !x.facts["over"].value("events", false), "measure_events: x must be a measurement over a tile level's tiles (`measure` with `over`)");
                  const bool stored = ev.cls == "selection";
                  if (stored) {
-                   need(ev.row && nxr::io::text(*ev.row, "type") == "spans", "rollup_events: events must be the spans `detect_spans` made or a stored spans Selection (an input `selection: spans`)");
-                   (void)stored_event_tiles(c.bound, ev, x, "rollup_events");   // refused here, naming the span, when another recording's or not on the tiles
+                   need(ev.row && nxr::io::text(*ev.row, "type") == "spans", "measure_events: events must be the spans `detect_spans` made or a stored spans Selection (an input `selection: spans`)");
+                   (void)stored_event_tiles(c.bound, ev, x, "measure_events");   // refused here, naming the span, when another recording's or not on the tiles
                  } else {
-                   need(ev.cls == "spans" && ev.facts.contains("detect") && ev.facts.contains("over"), "rollup_events: events must be the spans `detect_spans` made or a stored spans Selection (an input `selection: spans`)");
+                   need(ev.cls == "spans" && ev.facts.contains("detect") && ev.facts.contains("over"), "measure_events: events must be the spans `detect_spans` made or a stored spans Selection (an input `selection: spans`)");
                    need(ev.facts["over"].value("selection_id", std::string("a")) == x.facts["over"].value("selection_id", std::string("b")),
-                        "rollup_events: the events were found on the tiles of " + ev.facts["over"].value("selection", std::string("another level")) + ", x is over " + x.facts["over"].value("selection", std::string("?")));
+                        "measure_events: the events were found on the tiles of " + ev.facts["over"].value("selection", std::string("another level")) + ", x is over " + x.facts["over"].value("selection", std::string("?")));
                  }
-                 if (m != "duration" && m != "interval_next") need(x.facts.value("measure", std::string()) == m, "rollup_events: x is the " + x.facts.value("measure", std::string("?")) + " of the tiles, not their " + m);
+                 if (m != "duration" && m != "interval_next") need(x.facts.value("measure", std::string()) == m, "measure_events: x is the " + x.facts.value("measure", std::string("?")) + " of the tiles, not their " + m);
                  Value y = made(x);
                  y.cls = "measurement";
                  y.facts["measure"] = m;
@@ -812,7 +812,7 @@ void bind_traits(std::vector<StepSpec>& r) {
   declare("fit_gate", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "keeps or drops each event on its own fit; events do not interact (the unit is the event, not a timestep)", {}, true));
   declare("burst_stages", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "each event's stage spans from its own fit; events do not interact (the unit is the event, not a timestep)", {}, true));
   declare("detect_spans", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "a hysteresis scan along each series: the in-span state is carried from tile to tile, then gaps are merged and short spans dropped", {}));
-  declare("rollup_events", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64, "rolls the tile measurements up over the tiles each event covers; the unit is the event", "the event's own span of tiles (variable length)", true));
+  declare("measure_events", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64, "measures each event from the tile measurements it covers, event by event (an event is irregular: no level, no roll-up; events may overlap); the unit is the event", "the event's own span of tiles (variable length)", true));
 }
 
 void bind_execution(std::vector<StepSpec>& r) {
@@ -1413,12 +1413,12 @@ void bind_execution(std::vector<StepSpec>& r) {
   // (an array) or a STORED spans Selection (read in preparation, snapped to the tiles: global, so on every row). A vector measurement (comps 3) is rolled up per component: the count-weighted
   // mean of each, never of a ratio (phase_gradient is derived at read from the stored sums).
   struct RollupState { std::string m; std::optional<std::vector<nxr::intervals::TileEvent>> stored; Json selection; };
-  StepSpec& re = at("rollup_events");
+  StepSpec& re = at("measure_events");
   re.prepare = [](const Values& ins, const Json& p, ExecContext& ctx) {
     RollupState st{p["measure"].get<std::string>(), std::nullopt, nullptr};
     const Value& ev = ins.at("events");
     if (ev.cls == "selection") {
-      st.stored = stored_event_tiles(ctx.bound, ev, ins.at("x"), "rollup_events");
+      st.stored = stored_event_tiles(ctx.bound, ev, ins.at("x"), "measure_events");
       st.selection = Json{{"id", nxr::io::text(*ev.row, "id")}, {"name", nxr::io::text(*ev.row, "name")}};
     }
     return std::any(st);
@@ -1429,7 +1429,7 @@ void bind_execution(std::vector<StepSpec>& r) {
     const Array& x = ins.at("x");
     const std::int64_t R = x.rows, T = x.cols, C = x.comps;
     const double width_s = x.meta.value("width_s", 0.0);
-    need(width_s > 0, "rollup_events: x carries no tile width");
+    need(width_s > 0, "measure_events: x carries no tile width");
     Eigen::VectorXd counts = Eigen::VectorXd::Zero(T);
     for (const auto& c : x.meta["counts"]) counts(c[0].get<std::int64_t>()) = c[1].get<double>();
     std::vector<nxr::intervals::TileEvent> evs;
@@ -1539,7 +1539,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       for (int k = 0; k < 8; ++k)
         for (std::int64_t q = row < 0 ? 0 : row; q < (row < 0 ? R : row + 1); ++q) out[names[k]].data[static_cast<std::size_t>(q * E + e)] = vals[k];
     }
-    // the count row an event's measures share: the samples over the event's tiles (as rollup_events', one row a Selection and recording)
+    // the count row an event's measures share: the samples over the event's tiles (as measure_events', one row a Selection and recording)
     std::map<std::int64_t, double> tile_count;
     for (const auto& c : ev.meta["tiles_of"]["counts"]) tile_count[c[0].get<std::int64_t>()] = c[1].get<double>();
     Json counts = Json::array();

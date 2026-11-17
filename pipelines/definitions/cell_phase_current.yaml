@@ -54,8 +54,8 @@ steps:
       - {step: measure, in: {x: current, over: cells, exclude: bad}, with: {measure: phase_current, bad_segments: $bad_segments}, out: cell_phase_current}
       - {step: measure, in: {x: pw, over: cells, exclude: bad}, with: {measure: power, bad_segments: $bad_segments}, out: cell_power}
   after:
-    - {step: rollup_events, in: {x: cell_phase_current, events: bursts}, with: {measure: phase_current}, out: burst_phase_current}
-    - {step: rollup_events, in: {x: cell_power, events: bursts}, with: {measure: power}, out: burst_power}
+    - {step: measure_events, in: {x: cell_phase_current, events: bursts}, with: {measure: phase_current}, out: burst_phase_current}
+    - {step: measure_events, in: {x: cell_power, events: bursts}, with: {measure: power}, out: burst_power}
 
 outputs:
   cell_phase_current:  {kind: measurement}

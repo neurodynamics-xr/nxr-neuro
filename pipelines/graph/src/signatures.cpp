@@ -52,7 +52,7 @@ void events_out(Unified& u, const PortType& x, const std::string& sel_port, cons
   PortType& e = u.out.at(sel_port);
   e.domain = x.domain;
   e.quantity = "spans";
-  e.sel = SelectionShape{"spans", true, u.out_names.at(sel_port), ""};
+  e.sel = SelectionShape{"spans", false, u.out_names.at(sel_port), ""};
   for (const auto& m : measures) {
     PortType& o = u.out.at(m);
     o.domain = dom_of({members(e.sel->identity, line)});
@@ -266,14 +266,14 @@ Signature s_detect_spans() {
         PortType& s = u.out.at("spans");
         s.domain = dom_of({last->of});
         s.quantity = "spans";
-        s.sel = SelectionShape{"spans", true, u.out_names.at("spans"), partition_id(last)};
+        s.sel = SelectionShape{"spans", false, u.out_names.at("spans"), partition_id(last)};   // detected events are irregular: sparse, may overlap, no levels; the grid is provenance only
         s.res.band = x.res.band;
       });
 }
 
-Signature s_rollup_events() {
+Signature s_measure_events() {
   return sig(Move::measure)
-      .in("x", measurement_any().because("The roll-up re-measures a measurement over a tile level."))
+      .in("x", measurement_any().because("Each event is measured from a measurement over a tile level, event by event."))
       .in("events", selection_any())
       .out("y", make_of(PortClass::measurement))
       .refine([](Unified& u, const Json& p) {
@@ -281,10 +281,10 @@ Signature s_rollup_events() {
         const PortType& ev = u.type("events");
         if (x.domain.factors.empty() || !member_like(x.domain.factors.back())) u.fail("x", "must be a measurement over a partition's members (a tile level)");
         if (!ev.sel || ev.sel->type != "spans") u.fail("events", "must be a spans selection");
-        if (!ev.sel->partition) u.fail("events", "a roll-up across members needs disjoint members; `" + id_of(u, "events") + "` overlaps (a partition has disjoint members)");
+        // events are an irregular selection: they may overlap, and each is measured on its own (no roll-up, no level); nothing is asked of their disjointness
         const std::string over = partition_id(x.domain.factors.back());
         if (!ev.sel->detected_over.empty() && ev.sel->detected_over != over)
-          u.fail("events", "were detected on the members of `" + ev.sel->detected_over + "`; x is measured over `" + over + "`. Roll up a measurement over the partition the events were found on (or detect them on x's).");
+          u.fail("events", "were detected on the members of `" + ev.sel->detected_over + "`; x is measured over `" + over + "`. Measure a measurement over the grid the events were found on (or detect them on x's).");
         const std::string m = p.value("measure", std::string());
         if (m.empty()) u.fail("x", "the roll-up needs a `measure`");
         if (m != "duration" && m != "interval_next" && m != x.quantity) u.fail("x", "the measure " + m + " is not x's quantity (" + x.quantity + ")");
@@ -359,7 +359,7 @@ Signature s_cell_extent() {
         PortType& l = u.out.at("labels");
         l.domain = x.domain;
         l.quantity = "set";
-        l.sel = SelectionShape{"set", true, u.out_names.at("labels"), x.domain.factors[0]->by};
+        l.sel = SelectionShape{"set", false, u.out_names.at("labels"), x.domain.factors[0]->by};
       });
 }
 
@@ -502,7 +502,7 @@ Signature s_tracks() {
     PortType& tr = u.out.at("spans");
     tr.domain = dom_of({members(eid, line)});
     tr.quantity = "set";
-    tr.sel = SelectionShape{"set", true, u.out_names.at("spans"), ""};
+    tr.sel = SelectionShape{"set", false, u.out_names.at("spans"), ""};
     for (const auto& m : ms) u.out.at(m).domain = dom_of({m == "track" ? members(eid, line) : members(tr.sel->identity, line)});
   });
 }
@@ -651,7 +651,7 @@ const std::map<std::string, Signature>& table() {
     m["reduce_cells"] = s_reduce_cells();
     m["summarize"] = s_summarize();
     m["detect_spans"] = s_detect_spans();
-    m["rollup_events"] = s_rollup_events();
+    m["measure_events"] = s_measure_events();
     m["risefall"] = s_risefall();
     m["fit_gate"] = s_fit_gate();
     m["burst_stages"] = s_burst_stages();

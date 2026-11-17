@@ -41,7 +41,6 @@ const char* to_string(Axis a) {
     case Axis::samples: return "samples";
     case Axis::frames: return "frames";
     case Axis::members: return "members";
-    case Axis::block: return "block";
   }
   return "?";
 }

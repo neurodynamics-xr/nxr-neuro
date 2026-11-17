@@ -105,6 +105,10 @@ ManifoldRef made(const std::string& label, const std::string& key, ManifoldKind 
   Manifold m; m.form = Manifold::Form::made; m.label = label; m.key = key; m.kind = kind; m.role = role; m.cs = std::move(cs);
   return make_ref(std::move(m));
 }
+ManifoldRef made_line(const std::string& label, const std::string& key, Role role, const std::string& unit, double origin, std::optional<double> rate) {
+  Manifold m; m.form = Manifold::Form::made; m.label = label; m.key = key; m.kind = ManifoldKind::line; m.role = role; m.unit = unit; m.origin = origin; m.rate = rate;
+  return make_ref(std::move(m));
+}
 ManifoldRef restricted(const ManifoldRef& of, const std::string& by) {
   Manifold m; m.form = Manifold::Form::restricted; m.of = of; m.by = by; m.kind = of ? of->kind : ManifoldKind::points; m.role = of ? of->role : Role::none; m.cs = of ? of->cs : std::nullopt;
   return make_ref(std::move(m));
@@ -237,6 +241,11 @@ const Manifold* Domain::streamed() const {
   if (factors.empty()) return nullptr;
   const Manifold& l = *factors.back();
   return l.role == Role::time || l.role == Role::frames ? &l : nullptr;
+}
+bool PortType::per_block() const {
+  if (streamed() || axis != Axis::none || domain.factors.size() < 2) return false;
+  const Manifold& l = *domain.factors.back();
+  return l.form == Manifold::Form::made && l.kind == ManifoldKind::line && l.role == Role::frequency;
 }
 bool same(const Domain& a, const Domain& b) {
   if (a.cells != b.cells || a.factors.size() != b.factors.size()) return false;
