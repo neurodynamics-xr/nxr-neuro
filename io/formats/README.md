@@ -23,13 +23,22 @@ Calibration and unit scaling are decoding and belong here; any other maths does 
 | `edf.h` | EDF, EDF+, BDF, BDF+ (continuous and discontinuous: gaps as spans, read as zeros); annotations; several sampling rates refused unless one is named |
 | `brainvision.h` | BrainVision `.vhdr`/`.vmrk`/`.eeg`: INT_16, INT_32, IEEE_FLOAT_32, multiplexed or vectorized; ASCII refused; markers as annotations; coordinates |
 | `eeglab.h` | EEGLAB `.set` (+ `.fdt`) through matio: events, channel locations, the `.fdt` by seek, data in an uncompressed `.set` by block; compressed variables and epoched datasets refused |
+| `fif.h` | FIF (Neuromag/MNE): the tag layer (`File`: tag directory, block tree, tag values; read) and the raw MEG/EEG reader (`RawReader`): every `meas_info` field (channels with `cal`/`range`/`loc`, `subject_info`, `meas_date`, device and head transforms, `dig`, projectors, compensation, bads, HPI, helium, events, annotations, unmodelled blocks as generic tags), blocks by sample range, int16/int32/float32/float64/complex, skips as gaps, split files as one recording; epoched, evoked and non-raw FIF refused with the reason; ported from MNE-Python (BSD-3-Clause) |
 | `units.h` | file unit strings to SI (`uV`, `µV`, `mV`, `fT`, ...) |
 | `recording.h` | `RecordingHeader` (channels, units, sampling rate, sample count, annotations, bad channels, gaps) and `RecordingReader::read(s0, n, c0, c1, out)`: block reads by sample range, in SI units, row after row, precision following the file (a `double*` overload for 64-bit recordings) |
 
 ## Rules every format follows
 
-- Native: no MATLAB or Python at run time. MNE-Python and nibabel only generate the synthetic goldens (`test/golden/gen_*.py`, each next to its golden).
+- Native: no MATLAB or Python at run time. MNE-Python and nibabel generate the synthetic goldens (`test/golden/gen_*.py`, each next to its golden); the one exception to "no code of a reference" is FIF, ported from MNE-Python with attribution (`THIRD_PARTY_NOTICES.md`).
 - A recording reader holds the file's directory and reads only what a call asks for; the result of a block read never depends on the block size.
 - SI units on import; the file's own unit and scale stay in the channel.
 - A reader parses every header field into the object. What an importer keeps of identifying fields is the importer's decision, not the reader's.
 - An unsupported variant is refused with the reason, never guessed.
+
+## FIF details
+
+- **Channel kinds** (`Channel::kind`, from `FIFF_CH_KIND`): `meg`, `meg_ref`, `eeg`, `stim`, `eog`, `emg`, `ecg`, `misc`, `resp`, `seeg`, `dbs`, `ecog`, `fnirs`, `bio`, `mcg`, `syst`, `ias`, `exci`, `eyetrack`, `gsr`, `temperature`, `dipole_wave`, `goodness_fit` (`fif::channel_kind_name`). The coil type, which tells magnetometers from gradiometers, is MNE's name in `Channel::coil_type` (`VV_MAG_T3`, `VV_PLANAR_T1`, `CTF_GRAD`, ...), without the compensation grade held in its high 16 bits (`info().compensation_grade`).
+- **Values:** `stored x cal x range`, in the unit of `FIFF_CH_UNIT` (T, T/m, V, ...). MNE does not apply `FIFF_CH_UNIT_MUL` and neither does the reader (it is in `info().channels`). Active projectors are not applied (`info().projectors` has them, with `active`).
+- **Time:** sample 0 is the first buffer; `info().first_samp` is the file's first sample number, so `start_time` is `meas_date + first_samp / sfreq`. A skip before the first buffer moves `first_samp`; between buffers it is a gap read as zeros.
+- **Header scope:** the tags and blocks of the measurement that have no field (Maxfilter history, cross-talk and fine-calibration data, vendor blocks) are in `info().other_tags` / `other_blocks` as generic tags, so nothing is dropped.
+- **Not read yet:** tag writing, epochs/evoked, covariance, forward and inverse solutions, source spaces, `.stc`, `-eve.fif` beside a raw file (spec section 7, steps 8 and 11). `data/mne/coil_def.dat` (MNE's coil definitions, BSD-3-Clause, with its licence) is vendored for the forward model and not read by any code yet.
