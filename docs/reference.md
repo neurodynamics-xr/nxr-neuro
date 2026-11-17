@@ -355,6 +355,8 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run bandstop` | A zero-phase band-stop filter, written as a new recording. | `bandstop` |
 | `nxr-neuro run notch` | A zero-phase notch filter (line noise and harmonics), written as a new recording. | `notch` |
 | `nxr-neuro run sourcepsd` | The band power maps of the sources (the Welch PSD of the sources, grouped in bands). | `sourcepsd compute` |
+| `nxr-neuro run sourcepsd_bins` | The power of the sources at every Welch bin of one band (nothing reduced over frequency), through a named kernel. | `sourcepsd compute --resolve bins` |
+| `nxr-neuro run pca` | The principal components across the members of a stored statistic (members by features), with scores, explained variance and centring. | `pca compute` |
 | `nxr-neuro run sourcetensor` | The band cross-spectral tensor of the current, its Stokes quaternion, normal power and share. | `sourcetensor compute` |
 | `nxr-neuro run crossspectrum` | The sensor cross-spectral density per band (Welch, or per time window with the analytic estimator). | `crossspectrum compute` |
 | `nxr-neuro run quadrature` | The quadrature spectrum of the sources per band: fraction, energy map and leading pairs. | `quadrature compute` |
@@ -681,6 +683,15 @@ from lo to hi inclusive).
   `<R>_<kernel>_psd_<band>` (as its Field was named; one stored before as Fields stays readable). `io::map_slices` lists a surface's maps of statistics and
   `read_map_slice` reads one; `run measure` and `measure export` take them as they take Fields (their rows name the statistic and the band:
   `of_statistic_id`, `of_index`, added to the measurement table in place).
+- `run sourcepsd_bins` (spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 3.1; the node `welch.source_bins`): the same Welch pass as `run sourcepsd` keeps every bin of ONE band instead of its mean: the frequency
+  partition's members are the bins, nothing reduced over frequency. `--kernel`, `--band-name`, `--lo` and `--hi` are required (each a choice of data); one run a band (a band is a selection that selects; resolving
+  frequency within it is this transform). Stored: the statistic `<recording>_<kernel>_psd_<band>_bins` (measure `power_density`, `power` for the other scalings; method `welch`; OF the recording, from its segment
+  partition), axes vertex (the kernel's target) x frequency (the band's bins, a line on the Frequency manifold), in the precision of the recording; the band statistic of `run sourcepsd` is the mean of these bins. No
+  normalisation (a total over all bins is not kept bin by bin: divide at read). **Accumulation is on the source side** (`nxr::welch::LinearWelch`, `compute/include/nxr/welch.h`: the kernel applied to each
+  segment's Fourier coefficients, |K X|^2 summed per source per bin, a free kernel's three orientations summed in power): sources x bins x 8 bytes (15 000 sources, 299 bins: ~36 MB) and a block of at most 4096 mapped
+  rows, where the sensor side would hold channels^2 x bins (270 channels, 299 bins: ~350 MB). `LinearWelch` is tested in `compute/test/test_welch.cpp`: equal to Welch on K x over the bins kept, with a bad span and odd
+  segment lengths, independent of the chunk size. **What it cannot resolve:** neighbouring bins are correlated (the window's width), so the bins are not independent estimates; each source's spectrum is the kernel's
+  estimate, with the kernel's spread and orientation bias, and a spectral feature two sources share through that spread is not told apart.
 - `run quadrature`: the quadrature (imaginary) part of the source cross-spectrum, which no zero-delay mixture produces. Per band: `quadratureFraction` ||Im C|| / ||C|| (in the
   fields' params), the `quadratureEnergy` map per source `<stem>_energy_<band>`, and the top K quadrature pairs (p leads q by a quarter cycle) `<stem>_pair<k>_p_<band>` / `_q_`
   (vector3 fields for a free kernel). nxr's `lagged.py` is the reference. Since 2026-11-13 they are MAP STATISTICS by `welch`: `<stem>_energy`
@@ -1677,6 +1688,16 @@ is a STATISTIC: "field -> selection/measurements -> statistic. the statistic is 
   mean · sd (n − 1) · median · mad (1.4826 MAD) · percentile:p (numpy linear) · peak · kurtosis · skewness · min · max (`nxr::stats`, golden from
   numpy/scipy). It reads either stored form (array-backed or scalar rows), never the recording; a rerun is a hit. `band_bursts` stores its thresholds'
   ingredients this way (its baseline) and detects from them.
+- **The `pca` statistic** (`run pca`, the node `statistic.pca`, `compute/include/nxr/pca.h`; spec `docs/specs/2026-11-16-meg-fingerprinting.md`, 4.4): the principal components ACROSS the members of a table (members x
+  features), method `pca`, generalising `eigendecomposition` (which decomposes one second-moment statistic; unchanged). The table is a stored real statistic of two axes (`--of NAME --members AXIS`, by name or position; the
+  other axis is the features; a statistic of more axes is reduced to a table first). The maths is `nxr::pca::pca`, a pure function of a matrix: the thin SVD of the table with each column's mean removed (scikit-learn's PCA,
+  `svd_solver="full"`), never the features x features covariance; `--scale none` (default) or `unit-variance` (ddof 1; a constant feature is refused). Every component up to the table's rank is kept (numpy's
+  `matrix_rank` rule; at most members - 1), so any k is a read. **Sign convention, fixed:** each component's entry of largest absolute loading is positive, its scores' column the same sign (scikit-learn's `svd_flip`,
+  `u_based_decision=False`). Explained variance is S^2 / (n - 1), its ratio over the table's total variance. Stored as four statistics, of the input statistic: `<name>` (`principal_components`, [component x feature]),
+  `<name>_scores` (`principal_scores`, [member x component] = U S), `<name>_variance` (`explained_variance`, [component x 3], float64) and `<name>_centring` (`pca_centring`, [2 x feature]); the first, second and fourth in
+  the input's stored precision. **Reconstruction at k** is derived at read: `nxr::pca::reconstruct(scores, components, mean, scale, k)`. `nxr::pca` is tested against numpy's SVD
+  (`compute/test/golden/gen_pca_golden.py`). **What it cannot show:** a component is a direction of variance in THIS sample; with n members at most n - 1 exist and the leading ones of a small sample are not stable
+  estimates of a population's.
 - **Next** (the spec's order): the other spectral producers, the histogram, Brainstorm's sensor-level timefreq on import. (`run psd`'s PSD is a statistic since 2026-11-13; checked
   against the code 2026-11-14, step 5 of the measurement pyramid: the `<recording>_psd_welch` Field of the spec's table is already gone.)
 

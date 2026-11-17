@@ -927,6 +927,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
         a.data.assign(f.begin(), f.end());
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
+        a.meta["value_type"] = nxr::io::opt_text(row, "value_type").value_or("scalar");
+        if (const auto u = nxr::io::opt_text(row, "unit"); u && !u->empty()) a.meta["unit"] = *u;
+        if (!nxr::io::is_null(row, "path")) a.meta["stored_precision"] = nxr::io::ArrayReader::open(sub.store(), text(row, "path")).dtype() == nxr::io::DType::Float64 ? "float64" : "float32";
         const Json axes = Json::parse(nxr::io::opt_text(row, "axes_json").value_or("[]"), nullptr, false);
         a.meta["axes"] = axes;
         Json chax;                                                         // the first channel axis over a pick (after a band axis, when there is one)
