@@ -123,6 +123,82 @@ int main() {
       CHECK(t.require_id(Cls::selection, setid).params.contains("changed"));
     }
     t.set_params(setid, Json{{"atlas", Json{{"tree", "group"}}}, {"joint", 3}});   // back as it was
+    {   // THE TYPED WRITES (spec 2026-11-17-definition-outputs, section 4): every kind of result in one unit, with the unit's producer record; all or nothing
+      const Json key{{"cache", Json{{"pipeline", "toy@1"}}}};
+      LineOut ln;
+      ln.name = "toy_freq"; ln.alt = "toy_freq_alt"; ln.n = 5; ln.spacing = 0.5;
+      FieldOut fo;
+      fo.name = "toy_map"; fo.output = "map"; fo.kind = "map"; fo.manifold_id = mid; fo.path = "source/toy_map"; fo.unit = "V"; fo.data.shape = {4}; fo.data.f32 = {1, 2, 3, 4};
+      SelectionOut tiles;
+      tiles.name = "toy_segments"; tiles.output = "psd"; tiles.type = "tiling"; tiles.tiling = Tiling{0.0, 2.0, 1.0, 10.0, 8, 1};
+      SelectionOut part;
+      part.name = "toy_parts"; part.output = "parts"; part.type = "partition"; part.manifold_id = mid; part.codes = {0, 0, 1, -1}; part.entries = {"left", "right"};
+      OperatorOut op;
+      op.name = "toy_op"; op.output = "op"; op.kind = "toy operator"; op.from_manifold_id = mid; op.to_manifold_id = mid; op.data.shape = {4, 4}; op.data.f64.assign(16, 0.25);
+      op.params = Json{{"k", 1}};
+      StatisticOut st;
+      st.name = "toy_psd"; st.output = "psd"; st.measure = "power_density"; st.method = "welch"; st.of_field_id = fid; st.n_members = 8; st.members_skipped = 1;
+      st.unit = "V\xc2\xb2/Hz"; st.data.shape = {4, 5}; st.data.f32.assign(20, 1.0f); st.producer = Json{{"segments", 8}};
+      {
+        Unit u = t.unit(By{"unit test", key});
+        CHECK(!u.line(ln).empty());
+        CHECK(!u.field(fo).empty());
+      }   // rolled back
+      CHECK(!t.at_path(Cls::field, "source/toy_map"));
+      Unit u = t.unit(By{"unit test", key});
+      const std::string line_id = u.line(ln);
+      CHECK_EQ(u.line(ln), line_id);                                     // found again: it fits
+      LineOut other = ln;
+      other.spacing = 0.25;
+      CHECK(u.line(other) != line_id);                                   // the name is taken by another grid: the alternative name
+      SurfaceOut so;
+      so.name = "toy_mesh"; so.output = "mesh"; so.derived_from_id = mid;
+      so.vertices.shape = {4, 3}; so.vertices.f64 = {0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0, 1};
+      so.faces = {0, 1, 2, 0, 2, 3};
+      const std::string mesh_id = u.surface(so);
+      CHECK_EQ(u.surface(so), mesh_id);                                  // found again
+      SurfaceOut broken = so;
+      broken.name = "broken"; broken.faces = {0, 1, 9};
+      CHECK_EQ(code_of([&] { u.surface(broken); }), std::string(code::invalid_argument));
+      CHECK_EQ(code_of([&] { u.product(ProductOut{{mesh_id}, std::nullopt}); }), std::string(code::invalid_argument));
+      const std::string prod_id = u.product(ProductOut{{mesh_id, line_id}, std::nullopt});   // a factor made in this unit
+      CHECK(!prod_id.empty());
+      CHECK_EQ(u.replace(Cls::field, u.path_of(fo), false, "the toy map"), std::string());   // nothing there
+      const std::string field_id = u.field(fo);
+      tiles.manifold_id = line_id;
+      const std::string seg_id = u.selection(tiles);
+      const std::string part_id = u.selection(part);
+      const std::string op_id = u.operator_(op);
+      st.partition_selection_id = seg_id;
+      st.axes = Json::array({Json{{"name", "vertex"}, {"manifold_id", mid}, {"size", 4}}, Json{{"name", "frequency"}, {"manifold_id", line_id}, {"size", 5}, {"unit", "Hz"}}});
+      CHECK_EQ(u.path_of(st), std::string("source/a_statistics/toy_psd"));   // beside the field it is of
+      const std::string st_id = u.statistic(st);
+      SelectionOut bad = part;
+      bad.name = "bad"; bad.codes.clear();
+      CHECK_EQ(code_of([&] { u.selection(bad); }), std::string(code::invalid_argument));
+      FieldOut wrong = fo;
+      wrong.name = "wrong"; wrong.path = "source/wrong"; wrong.data.shape = {5};
+      CHECK_EQ(code_of([&] { u.field(wrong); }), std::string(code::invalid_argument));
+      u.commit();
+      const Node fn = t.require_id(Cls::field, field_id);
+      CHECK_EQ(fn.producer["output"].get<std::string>(), std::string("map"));
+      CHECK(t.cached(Cls::field, key["cache"], std::string("source/toy_map")));
+      CHECK_EQ(*t.require_id(Cls::manifold, mesh_id).n_vertices, static_cast<std::int64_t>(4));
+      CHECK_EQ(t.factors(prod_id), std::vector<std::string>({mesh_id, line_id}));
+      CHECK_EQ(t.require_id(Cls::statistic, st_id).producer["segments"].get<int>(), 8);
+      CHECK(t.require_id(Cls::selection, seg_id).params["tiling"]["count"] == Json(9));
+      CHECK_EQ(t.require_id(Cls::selection, part_id).params["producer"]["output"].get<std::string>(), std::string("parts"));
+      CHECK_EQ(*t.require_id(Cls::operator_, op_id).to_manifold_id, mid);
+      CHECK(t.cached(Cls::selection, key["cache"], t.require_id(Cls::selection, seg_id).path));
+      // a result already there: refused without replace, moved aside with it
+      Unit r = t.unit(By{"unit test", key});
+      CHECK_EQ(code_of([&] { r.replace(Cls::field, "source/toy_map", false, "the toy map"); }), std::string(code::already_exists));
+      r.replace(Cls::field, "source/toy_map", true, "the toy map");
+      CHECK(!t.at_path(Cls::field, "source/toy_map"));
+      r.field(fo);
+      r.commit();
+      CHECK(t.at_path(Cls::field, "source/toy_map"));
+    }
     sub.complete();
   }
   SubjectPackage pkg = SubjectPackage::open(root / "S.nxr.zarr");
@@ -142,11 +218,11 @@ int main() {
   CHECK_EQ(a.id, fid);
   CHECK(a.path && *a.path == "source/a");
   CHECK(a.manifold_id && *a.manifold_id == mid);
-  CHECK_EQ(s.find_all({.cls = Cls::field, .manifold_id = mid}).size(), static_cast<std::size_t>(2));
+  CHECK_EQ(s.find_all({.cls = Cls::field, .manifold_id = mid}).size(), static_cast<std::size_t>(3));   // a, b and the typed writes' toy_map
   CHECK_EQ(s.find_all({.cls = Cls::field, .stored = false}).size(), static_cast<std::size_t>(0));
   CHECK_EQ(s.by_id(Cls::field, fid)->name, std::string("a"));
   CHECK(!s.by_id(Cls::field, "no-such-id"));
-  CHECK_EQ(s.find_all({.cls = Cls::statistic}).size(), static_cast<std::size_t>(0));
+  CHECK_EQ(s.find_all({.cls = Cls::statistic}).size(), static_cast<std::size_t>(1));   // the typed writes' toy_psd
 
   // operators, selections by parameters, members, spans
   const Node op = s.require({.cls = Cls::operator_, .kind = "gradient"}, "the gradient");

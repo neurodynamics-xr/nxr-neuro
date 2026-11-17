@@ -311,6 +311,7 @@ class SubjectWriter {
   // The subject's folder on disk (for messages and JSON output; every read and write goes through `store()`).
   const std::filesystem::path& folder() const { return store_; }
   // The dataset's store (keys `<dataset>/<subject>/…`) and this subject's place in it.
+  DatasetWriter& dataset() const { return *ds_; }          // the dataset (or subject package) it writes into
   Store& datastore() const { return ds_->node_store(); }   // the store the nodes' keys are in (a dataset's, or a subject package's own)
   const std::string& prefix() const { return rel_; }
   Database& db() { return *db_; }

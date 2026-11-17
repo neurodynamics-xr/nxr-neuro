@@ -38,6 +38,11 @@ parameters and the found inputs' names (`"{recording}_psd_welch"`, `$name`). The
 | `operator` | `operator_kind`, `from: LINK`, `to: LINK` | layout (dense, csc), rows and cols, `params`, unit | an Operator from → to | `inverse`, `headmodel`, `noisecov`, `eigenmodes` |
 | `selection` | `type: partition \| spans \| set \| tiling \| ladder`, `on: LINK` | codes per element (partition, set), spans [{start, stop, code}], or a closed-form `tiling`; dictionary entries; `params` | a Selection on that manifold (and its dictionary) | `tiles`, `patches`, frame tiling, detections |
 | `measurement` | `over: INPUT \| OUTPUT` (a partition), `of: INPUT` | per member: `measure`, value(s), count, unit | measurement rows on that partition | `measure`, `cellquadrature`, today's measurement outputs |
+| `manifold` (amended 2026-11-17) | `type: line \| surface \| product`; a line: `{name: TEMPLATE, alt: TEMPLATE}`; a surface: `cs: KEY`, `derived_from: LINK`; a product: `factors: [LINK \| OUTPUT…]` | a line: `start`, `step`, `count`, `unit`, `dimension`; a surface: vertices [n × 3], faces [m × 3] | the manifold, found by name and reused when identical, never replaced | time, frame, frequency and mode lines; `headmodel` and template surfaces; sensor × time products |
+
+**Manifolds first (amended 2026-11-17, the maintainers).** A manifold is the sixth kind. Any other output of the same definition may lie on a manifold the
+definition makes (`on: OUTPUT`, an axis `on: OUTPUT`, a product's factor); the runner writes the manifolds first, in the same `task::Unit`, then the rest.
+A statistic's `line:` axis below is this kind written inline (the same `Unit::line`), not a mechanism of its own.
 
 An `AXIS` of a statistic is `{name, on: LINK}` (its entries are the elements of a found manifold: the recording's channels) or `{name, line: TEMPLATE}`
 (a closed-form line made from the node's `line` description, found by name and reused when it fits, else named `TEMPLATE_alt`: today's
@@ -55,6 +60,8 @@ std::string statistic(const StatisticOut&);  // name, of (field or statistic id)
 std::string operator_(const OperatorOut&);   // name, kind, from/to manifold ids, layout, rows, cols, params, data (dense or sparse parts)
 std::string selection(const SelectionOut&);  // name, type, manifold_id, codes | spans | tiling, dictionary entries, params
 std::string line(const LineOut&);            // a closed-form line (n, spacing, origin, unit, folder): found by name and reused when it fits, else made
+std::string surface(const SurfaceOut&);      // vertices and faces from a node's arrays, its coordinate system, the surface it derives from; reused when identical
+std::string product(const ProductOut&);      // a product of existing factors or factors made in the same unit
 std::int64_t write_measurements(const Json&);   // exists
 std::optional<std::string> replace(Cls, const std::string& path);   // --replace: the node at that path moved aside (never deleted)
 ```
@@ -129,7 +136,7 @@ the stored record (axes, line, partition, scaling, unit, provenance, cache hit o
 | # | contents |
 |---|---|
 | D0 | this spec |
-| D1 | io: the `Unit` methods of section 4 and their structs, tested on synthetic outputs of every kind; the runner's `store_output` per kind from the declaration and `describe`; the definition reader accepts the declarations (short forms kept); a toy definition per kind in the runner's tests |
+| D1 | io: the `Unit` methods of section 4 and their structs (the six kinds, manifolds included), tested on synthetic outputs of every kind; the runner's `store_output` per kind from the declaration and `describe`; the definition reader accepts the declarations (short forms kept); a toy definition per kind in the runner's tests |
 | D2 | `welch.psd`, `rotary.pair`, `welch.complex_psd` registered in `nxr::graph::registry()` (grouped names; a definition says `node:`); `Planned::align`; presets in the definition reader, `run` and `--help` |
 | D3 | `psd.yaml` and `rotary_psd.yaml`; `psd_compute` deleted; the tests of section 7; `docs/reference.md`; `CONTRIBUTING.md`: how a verb is converted (outputs, nodes, presets, tests) |
 
