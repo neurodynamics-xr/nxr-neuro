@@ -89,14 +89,14 @@ Json result_line(const Json& r) {
 
 int subject_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro convert subject", rest, {"--subject", "--dataset", "--resample"}, {}, {"--subject", "--dataset"}, 1, {}, "root");
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_one_database(a, "import subject");
   emit(result_line(nxr::bst::convert_subject(ds, a.pos[0], a.get("--subject"), [](const Json& line) { emit(line); }, stamp(), resample_of(a))));
   return 0;
 }
 
 int template_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro convert template", rest, {"--dataset"}, {}, {"--dataset"}, 1, {"--surface"}, "root");
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_one_database(a, "import template");
   std::optional<std::vector<std::string>> surfaces;
   if (a.multi.count("--surface")) surfaces = a.multi.at("--surface");
   emit(result_line(nxr::bst::convert_template(ds, a.pos[0], surfaces, [](const Json& line) { emit(line); }, stamp())));
@@ -105,7 +105,7 @@ int template_command(const std::vector<std::string>& rest) {
 
 int group_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro convert group", rest, {"--dataset"}, {}, {"--dataset"}, 1, {}, "root");
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_one_database(a, "import group");
   emit(result_line(nxr::bst::convert_group(ds, a.pos[0], [](const Json& line) { emit(line); }, stamp())));
   return 0;
 }
@@ -123,7 +123,7 @@ int templates_command(const std::vector<std::string>& rest) {
 int surface_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro convert surface", rest, {"--dataset", "--subject", "--bst-root"}, {}, {"--dataset", "--subject"}, 0, {"--file"});
   if (!a.multi.count("--file")) throw Usage("nxr-neuro convert surface: give --file tess_*.mat ... (--fs-dir is not ported yet)");
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -148,7 +148,7 @@ int surface_command(const std::vector<std::string>& rest) {
 // nxr convert mri --dataset D --subject S --anat <anat dir> [--only N ...]
 int mri_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro convert mri", rest, {"--dataset", "--subject", "--anat"}, {}, {"--dataset", "--subject", "--anat"}, 0, {"--only"});
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -167,7 +167,7 @@ int convert_condition_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro convert convert", rest, {"--subject", "--condition", "--dataset", "--surface", "--recording", "--channel-file", "--resample"},
                        {"--no-gain", "--all-surfaces", "--include-imported", "--no-raw"}, {"--subject", "--condition", "--dataset"}, 1, {"--extra-surface"}, "root");
   const fs::path root = a.pos[0];
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   nxr::bst::ConditionPlanOptions po;
   po.surface = a.maybe("--surface");
   if (a.multi.count("--extra-surface")) po.extra_surfaces = a.multi.at("--extra-surface");
@@ -194,7 +194,7 @@ int convert_condition_command(const std::vector<std::string>& rest) {
   }
   Json r;
   sub->compose([&] { r = nxr::bst::convert_condition(*sub, root, a.get("--condition"), plan, co, [](const Json& line) { emit(line); }); });
-  write_catalog(ds.root());
+  if (!ds.is_package()) write_catalog(ds.root());
   Json out = Json{{"stage", "result"}};
   for (auto it = r.begin(); it != r.end(); ++it) out[it.key()] = it.value();
   emit(out);
@@ -205,7 +205,7 @@ int convert_condition_command(const std::vector<std::string>& rest) {
 int inverse_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro convert inverse", rest, {"--dataset", "--subject", "--file", "--acquisition", "--bst-root", "--channels-id", "--surface-id", "--forward-id", "--name", "--channel-file"},
                        {}, {"--dataset", "--subject", "--file", "--acquisition", "--bst-root"});
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -238,7 +238,7 @@ int map_command(const std::vector<std::string>& rest) {
     buf << in.rdbuf();
     prov = Json::parse(buf.str());
   }
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -262,7 +262,7 @@ int map_command(const std::vector<std::string>& rest) {
 // nxr convert resample --dataset D --subject S --recording NAME --to HZ [--name N]
 int resample_command(const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro convert resample", rest, {"--dataset", "--subject", "--recording", "--to", "--name"}, {}, {"--dataset", "--subject", "--recording", "--to"});
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
@@ -277,7 +277,7 @@ int resample_command(const std::vector<std::string>& rest) {
 // nxr convert badsegments --dataset D --subject S --from JSON [--replace]; nxr convert events --dataset D --subject S --from <protocol data folder> [--replace]
 int events_command(const std::string& cmd, const std::vector<std::string>& rest) {
   const Args a = parse("nxr-neuro convert " + cmd, rest, {"--dataset", "--subject", "--from"}, {"--replace"}, {"--dataset", "--subject", "--from"});
-  DatasetWriter ds = open_writer(a.get("--dataset"));
+  DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);

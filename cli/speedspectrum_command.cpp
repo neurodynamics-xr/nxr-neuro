@@ -124,7 +124,7 @@ int speedspectrum_main(const std::vector<std::string>& argv) {
   if (const auto v = a.maybe("--speed-max")) o.speed.speedMax = std::stod(*v);
   o.replace = a.flag.count("--replace") > 0;
   try {
-    DatasetWriter ds = open_writer(a.get("--dataset"));
+    DatasetWriter ds = open_dataset(a);
     OpenSubjectOptions oo;
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);

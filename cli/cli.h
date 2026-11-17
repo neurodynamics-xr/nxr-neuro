@@ -1,5 +1,6 @@
 // nxr-neuro's command line, shared by its commands: argparse-like arguments, JSON-lines output, the producer stamp.
 #pragma once
+#include <filesystem>
 #include <iostream>
 #include <map>
 #include <optional>
@@ -8,7 +9,9 @@
 #include <string>
 #include <vector>
 
+#include "nxr/io/catalogue.h"
 #include "nxr/io/json_text.h"
+#include "nxr/io/writer.h"
 #include "py_json.h"
 
 #ifndef NXR_NEURO_VERSION
@@ -47,7 +50,12 @@ struct Probe {
 inline Probe& probe() { static Probe p; return p; }
 
 inline Args parse(const std::string& prog, const std::vector<std::string>& argv, const std::set<std::string>& valued, const std::set<std::string>& flags,
-                  const std::set<std::string>& required, std::size_t npos = 0, const std::set<std::string>& multi = {}, const std::string& pos_name = "FILE") {
+                  const std::set<std::string>& required, std::size_t npos = 0, const std::set<std::string>& multi_in = {}, const std::string& pos_name = "FILE") {
+  // Every command that names a subject of a dataset (`--dataset` and `--subject`, both required) also takes `--templates DIR ...`: where to look for the released templates a
+  // subject package is registered to (the template search path; the environment variable NXR_TEMPLATE_PATH and the user setting follow it). A command that declares
+  // `--templates` itself keeps its own meaning of it.
+  std::set<std::string> multi = multi_in;
+  if (required.count("--dataset") && required.count("--subject") && !valued.count("--templates") && !multi.count("--templates")) multi.insert("--templates");
   if (probe().on) {
     Probe& p = probe();
     p.valued = valued; p.flags = flags; p.multi = multi; p.required = required; p.npos = npos;
@@ -75,6 +83,42 @@ inline Args parse(const std::string& prog, const std::vector<std::string>& argv,
   for (const auto& r : required) if (!a.opt.count(r) && !a.multi.count(r)) throw Usage(prog + ": error: the following arguments are required: " + r);
   if (a.pos.size() != npos) throw Usage(prog + ": error: " + (a.pos.size() < npos ? "the following arguments are required: " + pos_name : "unrecognized arguments: " + a.pos[npos]));
   return a;
+}
+
+}  // namespace cli
+
+namespace cli {
+
+// The template search path a command names (`--templates`, repeatable); the environment and the user setting are added by io.
+inline nxr::io::TemplateSearch template_search_of(const Args& a) {
+  nxr::io::TemplateSearch s;
+  if (const auto it = a.multi.find("--templates"); it != a.multi.end()) for (const auto& p : it->second) s.command_paths.push_back(p);
+  return s;
+}
+
+// THE DATASET A COMPUTATION RUNS ON. A dataset is a catalogue of subject packages (`create dataset`): the subject named by `--subject` is found through the catalogue
+// and its package is opened (io's `open_subject_package`), so everything the command writes goes into that package. A one-database dataset (`dataset.sqlite`, store
+// formats 50-52) still opens as it always did; `split dataset` makes it a catalogue.
+inline nxr::io::DatasetWriter open_dataset(const Args& a, const nxr::io::OpenOptions& o = {}) {
+  const std::string folder = a.get("--dataset");
+  if (nxr::io::is_catalogue_dataset(folder)) {
+    const auto subject = a.maybe("--subject");
+    if (!subject) throw Usage("error: " + folder + " is a catalogue of subject packages: name the subject to work on with --subject");
+    return nxr::io::open_subject_package(folder, *subject, o, template_search_of(a));
+  }
+  static bool told = false;
+  if (!told && std::filesystem::is_regular_file(std::filesystem::path(folder) / "dataset.sqlite")) {
+    told = true;
+    std::cerr << "note: " << folder << " is a one-database dataset; `nxr-neuro split dataset` makes it a catalogue of subject packages (the default form).\n";
+  }
+  return nxr::io::open_writer(folder, o);
+}
+
+// The commands that make or change a one-database dataset itself refuse a catalogue, naming what to use.
+inline nxr::io::DatasetWriter open_one_database(const Args& a, const std::string& what, const nxr::io::OpenOptions& o = {}) {
+  if (nxr::io::is_catalogue_dataset(a.get("--dataset")))
+    throw Usage("error: " + what + " works on a one-database dataset; " + a.get("--dataset") + " is a catalogue of subject packages (`list subjects`, `show subject` and the `compute` verbs open its packages)");
+  return nxr::io::open_writer(a.get("--dataset"), o);
 }
 
 }  // namespace cli

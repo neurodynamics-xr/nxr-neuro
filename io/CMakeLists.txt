@@ -10,25 +10,27 @@ else()
 endif()
 
 if(NOT NXR_IO_WASM)
-# NXR_NEURO_PORTABLE (release builds): SQLite from its amalgamation and zstd from the copy c-blosc carries, both linked into the binary, so the
-# command needs no Homebrew or distribution libraries (zlib stays the system's: libz.a on Linux, the system libz on macOS).
+# SQLite is ALWAYS the pinned 3.51 amalgamation, compiled into nxr_sqlite3 with the same options on every platform: one database engine, one
+# behaviour (the system SQLite differs by platform and age: Apple's lacks ORDER BY inside aggregates, which the hub's Homebrew and Ubuntu 24.04 have).
+include(FetchContent)
+enable_language(C)
+FetchContent_Declare(sqlite_amalgamation
+  URL https://www.sqlite.org/2025/sqlite-amalgamation-3510000.zip
+  URL_HASH SHA256=1caf7116f2910600d04473ad69d37ec538fa62fa36adccd37b5e0e43647c98be
+  DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
+FetchContent_MakeAvailable(sqlite_amalgamation)
+add_library(nxr_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
+target_include_directories(nxr_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
+target_compile_definitions(nxr_sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_ENABLE_MATH_FUNCTIONS=1 SQLITE_DEFAULT_FOREIGN_KEYS=0)
+target_compile_options(nxr_sqlite3 PRIVATE -w)
+set_target_properties(nxr_sqlite3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
+find_package(Threads REQUIRED)
+target_link_libraries(nxr_sqlite3 PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
+add_library(SQLite3::SQLite3 ALIAS nxr_sqlite3)
+find_package(ZLIB REQUIRED)
+# NXR_NEURO_PORTABLE (release builds): zstd from the copy c-blosc carries, linked into the binary, so the command needs no Homebrew or
+# distribution libraries (zlib stays the system's: libz.a on Linux, the system libz on macOS).
 if(NXR_NEURO_PORTABLE)
-  include(FetchContent)
-  enable_language(C)
-  FetchContent_Declare(sqlite_amalgamation
-    URL https://www.sqlite.org/2025/sqlite-amalgamation-3510000.zip
-    URL_HASH SHA256=1caf7116f2910600d04473ad69d37ec538fa62fa36adccd37b5e0e43647c98be
-    DOWNLOAD_EXTRACT_TIMESTAMP TRUE)
-  FetchContent_MakeAvailable(sqlite_amalgamation)
-  add_library(nxr_sqlite3 STATIC ${sqlite_amalgamation_SOURCE_DIR}/sqlite3.c)
-  target_include_directories(nxr_sqlite3 PUBLIC ${sqlite_amalgamation_SOURCE_DIR})
-  target_compile_definitions(nxr_sqlite3 PRIVATE SQLITE_THREADSAFE=1 SQLITE_OMIT_LOAD_EXTENSION=1 SQLITE_ENABLE_MATH_FUNCTIONS=1 SQLITE_DEFAULT_FOREIGN_KEYS=0)
-  target_compile_options(nxr_sqlite3 PRIVATE -w)
-  set_target_properties(nxr_sqlite3 PROPERTIES POSITION_INDEPENDENT_CODE ON)
-  find_package(Threads REQUIRED)
-  target_link_libraries(nxr_sqlite3 PUBLIC Threads::Threads ${CMAKE_DL_LIBS})
-  add_library(SQLite3::SQLite3 ALIAS nxr_sqlite3)
-  find_package(ZLIB REQUIRED)
   # zstd: set after c-blosc is fetched (below)
 else()
 # --- libzstd (system; the Zarr v3 `zstd` codec body) ---
@@ -38,13 +40,6 @@ if(NOT ZSTD_INCLUDE_DIR OR NOT ZSTD_LIBRARY)
   message(FATAL_ERROR "libzstd not found (try: brew install zstd)")
 endif()
 
-# --- SQLite (system) and zlib (system; the gzip codec and the CLI's checksum) ---
-find_package(SQLite3 REQUIRED)
-# CMake's FindSQLite3 names its target SQLite::SQLite3; recent CMake also provides SQLite3::SQLite3. Use one name on every CMake version.
-if(NOT TARGET SQLite3::SQLite3 AND TARGET SQLite::SQLite3)
-  add_library(SQLite3::SQLite3 ALIAS SQLite::SQLite3)
-endif()
-find_package(ZLIB REQUIRED)
 endif()
 endif()
 

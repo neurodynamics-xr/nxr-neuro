@@ -20,7 +20,10 @@
 #include "check.h"
 #include "nxr/bst/entities.h"
 #include "nxr/bst/frequency.h"
+#include "nxr/io/catalogue.h"
 #include "nxr/io/layout.h"
+#include "nxr/io/migrate.h"
+#include "nxr/io/subject_package.h"
 #include "nxr/ladder.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/group.h"
@@ -245,6 +248,10 @@ int main() {
     CHECK(n(a) == 16 && n(c) == 16);
   }
   if (keep) { fs::remove_all(fs::path(keep) / "pre"); fs::copy(root, fs::path(keep) / "pre", fs::copy_options::recursive); }
+  const fs::path pkg_root = root.parent_path() / (root.filename().string() + "_pkg");   // the same dataset, to be split into packages: the reduce is run on both
+  fs::remove_all(pkg_root);
+  fs::copy(root, pkg_root, fs::copy_options::recursive);
+  fs::remove(pkg_root / "demo" / ".writer.lock");
 
   // ── refusals (nothing is stored by them) ──
   { PyramidReduceOptions o; CHECK(code_of([&] { pyramid_reduce(ds, o); }) == "invalid_argument"); }
@@ -366,7 +373,57 @@ int main() {
     const auto dens = read_at<double>(dsub, node + "/time/rest__MN_MEG__constrained/samples");
     CHECK(dens.size() == 1);
   }
+  // THE SAME REDUCE ON PACKAGES: the dataset split into a catalogue of subject packages, the members read each from its own package, the result written into a GROUP PACKAGE.
+  // The group fields' arrays equal the one-database reduce's byte for byte, the rows say the same, the group package verifies, and a re-run replaces.
+  {
+    pyramid_reduce(ds, ro);                                                // the full cohort again (the subset above replaced it)
+    SplitOptions so; so.registered_by = "test";
+    split_dataset(pkg_root / "demo", so);
+    const fs::path gd = pkg_root / "demo";
+    CHECK(code_of([&] { pyramid_reduce_group(gd, ro, "", {}); }) == "invalid_argument");                       // the group package is named by the caller
+    PyramidReduceOptions none; CHECK(code_of([&] { pyramid_reduce_group(gd, none, "grp", {}); }) == "invalid_argument");
+    const PyramidReduceResult pr = pyramid_reduce_group(gd, ro, "grp", {});
+    CHECK(pr.info["members"] == 3 && pr.info["depth"] == 3 && pr.info["leaves"] == 16 && pr.info["group"] == "grp");
+    CHECK(pr.info["node"] == node);
+    {
+      DatasetWriter g = open_subject_package(gd, "grp");
+      SubjectWriter gsub = SubjectWriter::open(g, "grp");
+      std::size_t compared = 0;
+      for (const char* what : {"/maps", "/time"}) {
+        const auto keys_old = list_all_keys(dsub.store(), node + what), keys_new = list_all_keys(gsub.store(), node + what);
+        CHECK(keys_old == keys_new && !keys_old.empty());
+        for (const auto& k : keys_old) {
+          const auto a = dsub.store().get(k), b = gsub.store().get(k);
+          if (!a || !b || *a != *b) { std::printf("  differs: %s\n", k.c_str()); CHECK(false); }
+          ++compared;
+        }
+      }
+      std::printf("  group package: %zu keys equal the one-database reduce's, byte for byte\n", compared);
+      const auto fo = dsub.db().all("SELECT name, kind, function, unit FROM field WHERE subject_id = ? AND path IS NULL AND json_extract(producer_json, '$.atlas') IS NOT NULL ORDER BY name", {V(dsub.id())});
+      const auto fn = gsub.db().all("SELECT name, kind, function, unit FROM field WHERE subject_id = ? ORDER BY name", {V(gsub.id())});
+      CHECK(fo.size() == 3 && fn.size() == fo.size());
+      for (std::size_t i = 0; i < fo.size() && i < fn.size(); ++i) CHECK(text(fo[i], "name") == text(fn[i], "name") && text(fo[i], "kind") == text(fn[i], "kind") && text(fo[i], "function") == text(fn[i], "function"));
+      CHECK(integer(*gsub.db().one("SELECT count(*) AS n FROM field_contribution"), "n") == integer(*dsub.db().one("SELECT count(*) AS n FROM field_contribution c JOIN field f ON f.id = c.field_id WHERE f.subject_id = ?", {V(dsub.id())}), "n"));
+      CHECK(gsub.db().all("PRAGMA foreign_key_check").empty());
+      g.close();
+    }
+    CHECK(SubjectPackage::open(gd / "grp.nxr.zarr").verify().ok);
+    const Catalogue cat = Catalogue::open(gd);
+    CHECK(cat.find("grp") && cat.find("grp")->kind == "group" && cat.find("grp")->status == "registered");
+    CHECK(group_member_status(gd, "grp").size() == 3);
+    // the members' packages and the default subject's are not changed by it
+    CHECK(refresh_member_status(gd).size() >= 5);
+    for (const auto& e : cat.entries()) CHECK(e.status == "registered" || e.status == "replaced");
+    // a re-run replaces; a subset names only its own members
+    const PyramidReduceResult again = pyramid_reduce_group(gd, ro, "grp", {});
+    CHECK(again.info["registered"] == "updated" || again.info["registered"] == "unchanged");
+    PyramidReduceOptions sub2; sub2.subjects = {"S1", "S3"}; sub2.kernels = "MN_MEG";
+    pyramid_reduce_group(gd, sub2, "grp2", {});
+    CHECK(Catalogue::open(gd).find("grp2").has_value());
+    CHECK(SubjectPackage::open(gd / "grp2.nxr.zarr").record().members.size() == 2);
+  }
   if (keep) { pyramid_reduce(ds, ro); fs::remove_all(fs::path(keep) / "post"); fs::copy(root, fs::path(keep) / "post", fs::copy_options::recursive); }
   ds.close();
+  fs::remove_all(pkg_root);
   return nxrtest::finish("test_pyramid_reduce");
 }

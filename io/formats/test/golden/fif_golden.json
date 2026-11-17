@@ -1,0 +1,2075 @@
+{
+ "mne": "1.13.2",
+ "cases": {
+  "basic": {
+   "file": "fif_basic_raw.fif",
+   "data": "fif_basic.f32",
+   "n_times": 600,
+   "first_samp": 250,
+   "sfreq": 100.0,
+   "orig_format": "single",
+   "info": {
+    "nchan": 10,
+    "sfreq": 100.0,
+    "highpass": 0.5,
+    "lowpass": 40.0,
+    "line_freq": 50.0,
+    "bads": [
+     "MAG001",
+     "EEG006"
+    ],
+    "ch_names": [
+     "MAG000",
+     "MAG001",
+     "GRA002",
+     "GRA003",
+     "EEG004",
+     "EEG005",
+     "EEG006",
+     "EOG007",
+     "ECG008",
+     "STI009"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 0.0020000000949949026,
+      "coil_type": 3024,
+      "loc": [
+       0.0,
+       -0.019999999552965164,
+       0.05000000074505806,
+       1.0,
+       0.0,
+       0.0,
+       -0.0,
+       1.0,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG000",
+      "coord_frame": 1
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 0.0020000000949949026,
+      "coil_type": 3024,
+      "loc": [
+       0.009999999776482582,
+       -0.019999999552965164,
+       0.050999999046325684,
+       0.9950041770935059,
+       0.0998334139585495,
+       0.0,
+       -0.0998334139585495,
+       0.9950041770935059,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG001",
+      "coord_frame": 1
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 0.0020000000949949026,
+      "coil_type": 3012,
+      "loc": [
+       0.019999999552965164,
+       -0.019999999552965164,
+       0.052000001072883606,
+       0.9800665974617004,
+       0.19866932928562164,
+       0.0,
+       -0.19866932928562164,
+       0.9800665974617004,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "unit": 201,
+      "unit_mul": 0,
+      "ch_name": "GRA002",
+      "coord_frame": 1
+     },
+     {
+      "scanno": 4,
+      "logno": 4,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 0.0020000000949949026,
+      "coil_type": 3012,
+      "loc": [
+       0.029999999329447746,
+       -0.019999999552965164,
+       0.05299999937415123,
+       0.9553365111351013,
+       0.29552021622657776,
+       0.0,
+       -0.29552021622657776,
+       0.9553365111351013,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "unit": 201,
+      "unit_mul": 0,
+      "ch_name": "GRA003",
+      "coord_frame": 1
+     },
+     {
+      "scanno": 5,
+      "logno": 5,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       0.07999999821186066,
+       0.029999999329447746,
+       0.07000000029802322,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG004",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 6,
+      "logno": 6,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       0.10000000149011612,
+       0.029999999329447746,
+       0.07000000029802322,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG005",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 7,
+      "logno": 7,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       0.11999999731779099,
+       0.029999999329447746,
+       0.07000000029802322,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG006",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 8,
+      "logno": 8,
+      "kind": 202,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 0,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EOG007",
+      "coord_frame": 0
+     },
+     {
+      "scanno": 9,
+      "logno": 9,
+      "kind": 402,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 0,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "ECG008",
+      "coord_frame": 0
+     },
+     {
+      "scanno": 10,
+      "logno": 10,
+      "kind": 3,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 0,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "STI009",
+      "coord_frame": 0
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": "+0100",
+    "experimenter": "Invented Experimenter",
+    "description": "synthetic test recording",
+    "proj_id": null,
+    "proj_name": "synthetic project",
+    "gantry_angle": 68,
+    "custom_ref_applied": 0,
+    "subject_info": {
+     "id": 7,
+     "his_id": "SYN-0007",
+     "last_name": "Invented",
+     "first_name": "Test",
+     "middle_name": "Q",
+     "birthday": "1980-02-29",
+     "sex": 2,
+     "hand": 1,
+     "weight": 70.5,
+     "height": 1.75
+    },
+    "device_info": {
+     "type": "synthetic",
+     "model": "s1",
+     "serial": "0000",
+     "site": "nowhere"
+    },
+    "helium_info": {
+     "he_level_raw": 82.5,
+     "helium_level": 90.0,
+     "orig_file_guid": "synthetic-guid",
+     "meas_date": "2026-01-02T03:04:05.678900+00:00"
+    },
+    "dev_head_t": {
+     "from": 1,
+     "to": 4,
+     "trans": [
+      [
+       0.9900000095367432,
+       -0.10000000149011612,
+       0.0,
+       0.0010000000474974513
+      ],
+      [
+       0.10000000149011612,
+       0.9900000095367432,
+       0.0,
+       -0.0020000000949949026
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.03999999910593033
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ]
+    },
+    "ctf_head_t": null,
+    "dig": [
+     {
+      "kind": 1,
+      "r": [
+       -0.07999999821186066,
+       0.0,
+       0.0
+      ],
+      "ident": 1,
+      "coord_frame": 4
+     },
+     {
+      "kind": 1,
+      "r": [
+       0.0,
+       0.10000000149011612,
+       0.0
+      ],
+      "ident": 2,
+      "coord_frame": 4
+     },
+     {
+      "kind": 1,
+      "r": [
+       0.07999999821186066,
+       0.0,
+       0.0
+      ],
+      "ident": 3,
+      "coord_frame": 4
+     },
+     {
+      "kind": 2,
+      "r": [
+       0.029999999329447746,
+       0.05000000074505806,
+       0.009999999776482582
+      ],
+      "ident": 1,
+      "coord_frame": 4
+     },
+     {
+      "kind": 3,
+      "r": [
+       0.019999999552965164,
+       0.029999999329447746,
+       0.07000000029802322
+      ],
+      "ident": 1,
+      "coord_frame": 4
+     },
+     {
+      "kind": 4,
+      "r": [
+       0.0,
+       0.05000000074505806,
+       0.09000000357627869
+      ],
+      "ident": 1,
+      "coord_frame": 4
+     }
+    ],
+    "projs": [
+     {
+      "desc": "synthetic-inactive",
+      "kind": 1,
+      "active": false,
+      "nvec": 1,
+      "col_names": [
+       "EEG004",
+       "EEG005",
+       "EEG006"
+      ],
+      "data": [
+       [
+        0.3635365664958954,
+        0.864299476146698,
+        0.34760257601737976
+       ]
+      ],
+      "explained_var": null
+     },
+     {
+      "desc": "synthetic-second",
+      "kind": 1,
+      "active": false,
+      "nvec": 1,
+      "col_names": [
+       "EEG004",
+       "EEG005",
+       "EEG006"
+      ],
+      "data": [
+       [
+        0.2729806900024414,
+        -0.7548144459724426,
+        -0.5964366793632507
+       ]
+      ],
+      "explained_var": null
+     }
+    ],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [
+    {
+     "onset": 0.5,
+     "duration": 0.25,
+     "label": "blink"
+    },
+    {
+     "onset": 2.0,
+     "duration": 0.0,
+     "label": "stim onset"
+    },
+    {
+     "onset": 4.25,
+     "duration": 1.0,
+     "label": "BAD_segment"
+    }
+   ],
+   "gaps": [],
+   "n_parts": 1
+  },
+  "short": {
+   "file": "fif_short_raw.fif",
+   "data": "fif_short.f32",
+   "n_times": 300,
+   "first_samp": 0,
+   "sfreq": 100.0,
+   "orig_format": "short",
+   "info": {
+    "nchan": 4,
+    "sfreq": 100.0,
+    "highpass": 0.0,
+    "lowpass": 50.0,
+    "line_freq": null,
+    "bads": [],
+    "ch_names": [
+     "EEG000",
+     "EEG001",
+     "MAG002",
+     "MAG003"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 2,
+      "range": 0.5,
+      "cal": 0.0020000000949949026,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG000",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 2,
+      "range": 0.5,
+      "cal": 0.0020000000949949026,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG001",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 1,
+      "range": 0.5,
+      "cal": 0.0020000000949949026,
+      "coil_type": 3024,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG002",
+      "coord_frame": 1
+     },
+     {
+      "scanno": 4,
+      "logno": 4,
+      "kind": 1,
+      "range": 0.5,
+      "cal": 0.0020000000949949026,
+      "coil_type": 3024,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG003",
+      "coord_frame": 1
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": null,
+    "experimenter": null,
+    "description": null,
+    "proj_id": null,
+    "proj_name": null,
+    "gantry_angle": null,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": null,
+    "helium_info": null,
+    "dev_head_t": null,
+    "ctf_head_t": null,
+    "dig": null,
+    "projs": [],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [],
+   "gaps": [],
+   "n_parts": 1
+  },
+  "int": {
+   "file": "fif_int_raw.fif",
+   "data": "fif_int.f32",
+   "n_times": 300,
+   "first_samp": 0,
+   "sfreq": 100.0,
+   "orig_format": "int",
+   "info": {
+    "nchan": 4,
+    "sfreq": 100.0,
+    "highpass": 0.0,
+    "lowpass": 50.0,
+    "line_freq": null,
+    "bads": [],
+    "ch_names": [
+     "EEG000",
+     "EEG001",
+     "MAG002",
+     "MAG003"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 2,
+      "range": 0.5,
+      "cal": 0.0020000000949949026,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG000",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 2,
+      "range": 0.5,
+      "cal": 0.0020000000949949026,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG001",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 1,
+      "range": 0.5,
+      "cal": 0.0020000000949949026,
+      "coil_type": 3024,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG002",
+      "coord_frame": 1
+     },
+     {
+      "scanno": 4,
+      "logno": 4,
+      "kind": 1,
+      "range": 0.5,
+      "cal": 0.0020000000949949026,
+      "coil_type": 3024,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG003",
+      "coord_frame": 1
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": null,
+    "experimenter": null,
+    "description": null,
+    "proj_id": null,
+    "proj_name": null,
+    "gantry_angle": null,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": null,
+    "helium_info": null,
+    "dev_head_t": null,
+    "ctf_head_t": null,
+    "dig": null,
+    "projs": [],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [],
+   "gaps": [],
+   "n_parts": 1
+  },
+  "double": {
+   "file": "fif_double_raw.fif",
+   "data": "fif_double.f64",
+   "n_times": 300,
+   "first_samp": 0,
+   "sfreq": 100.0,
+   "orig_format": "double",
+   "info": {
+    "nchan": 3,
+    "sfreq": 100.0,
+    "highpass": 0.0,
+    "lowpass": 50.0,
+    "line_freq": null,
+    "bads": [],
+    "ch_names": [
+     "EEG000",
+     "EEG001",
+     "MAG002"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG000",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG001",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 3024,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG002",
+      "coord_frame": 1
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": null,
+    "experimenter": null,
+    "description": null,
+    "proj_id": null,
+    "proj_name": null,
+    "gantry_angle": null,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": null,
+    "helium_info": null,
+    "dev_head_t": null,
+    "ctf_head_t": null,
+    "dig": null,
+    "projs": [],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [],
+   "gaps": [],
+   "n_parts": 1
+  },
+  "complex": {
+   "file": "fif_complex_raw.fif",
+   "data": "fif_complex.c128",
+   "n_times": 200,
+   "first_samp": 0,
+   "sfreq": 100.0,
+   "orig_format": "single",
+   "info": {
+    "nchan": 3,
+    "sfreq": 100.0,
+    "highpass": 0.0,
+    "lowpass": 50.0,
+    "line_freq": null,
+    "bads": [],
+    "ch_names": [
+     "EEG000",
+     "EEG001",
+     "MAG002"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG000",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG001",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 3024,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG002",
+      "coord_frame": 1
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": null,
+    "experimenter": null,
+    "description": null,
+    "proj_id": null,
+    "proj_name": null,
+    "gantry_angle": null,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": null,
+    "helium_info": null,
+    "dev_head_t": null,
+    "ctf_head_t": null,
+    "dig": null,
+    "projs": [],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [],
+   "gaps": [],
+   "n_parts": 1
+  },
+  "complexd": {
+   "file": "fif_complexd_raw.fif",
+   "data": "fif_complexd.c128",
+   "n_times": 200,
+   "first_samp": 0,
+   "sfreq": 100.0,
+   "orig_format": "double",
+   "info": {
+    "nchan": 3,
+    "sfreq": 100.0,
+    "highpass": 0.0,
+    "lowpass": 50.0,
+    "line_freq": null,
+    "bads": [],
+    "ch_names": [
+     "EEG000",
+     "EEG001",
+     "MAG002"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG000",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG001",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 3024,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG002",
+      "coord_frame": 1
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": null,
+    "experimenter": null,
+    "description": null,
+    "proj_id": null,
+    "proj_name": null,
+    "gantry_angle": null,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": null,
+    "helium_info": null,
+    "dev_head_t": null,
+    "ctf_head_t": null,
+    "dig": null,
+    "projs": [],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [],
+   "gaps": [],
+   "n_parts": 1
+  },
+  "split": {
+   "file": "fif_split_raw.fif",
+   "data": "fif_split.f32",
+   "n_times": 900,
+   "first_samp": 40,
+   "sfreq": 100.0,
+   "orig_format": "single",
+   "info": {
+    "nchan": 4,
+    "sfreq": 100.0,
+    "highpass": 0.0,
+    "lowpass": 50.0,
+    "line_freq": null,
+    "bads": [],
+    "ch_names": [
+     "EEG000",
+     "EEG001",
+     "EEG002",
+     "MAG003"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG000",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG001",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG002",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 4,
+      "logno": 4,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 3024,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG003",
+      "coord_frame": 1
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": null,
+    "experimenter": null,
+    "description": null,
+    "proj_id": null,
+    "proj_name": null,
+    "gantry_angle": null,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": null,
+    "helium_info": null,
+    "dev_head_t": null,
+    "ctf_head_t": null,
+    "dig": null,
+    "projs": [],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [
+    {
+     "onset": 0.6,
+     "duration": 0.5,
+     "label": "early"
+    },
+    {
+     "onset": 4.6,
+     "duration": 0.0,
+     "label": "middle"
+    },
+    {
+     "onset": 7.6,
+     "duration": 0.5,
+     "label": "late"
+    }
+   ],
+   "gaps": [],
+   "n_parts": 3
+  },
+  "skip": {
+   "file": "fif_skip_raw.fif",
+   "data": "fif_skip.f32",
+   "n_times": 800,
+   "first_samp": 0,
+   "sfreq": 100.0,
+   "orig_format": "single",
+   "info": {
+    "nchan": 3,
+    "sfreq": 100.0,
+    "highpass": 0.0,
+    "lowpass": 50.0,
+    "line_freq": null,
+    "bads": [],
+    "ch_names": [
+     "EEG000",
+     "EEG001",
+     "MAG002"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG000",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG001",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 3024,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG002",
+      "coord_frame": 1
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": null,
+    "experimenter": null,
+    "description": null,
+    "proj_id": null,
+    "proj_name": null,
+    "gantry_angle": null,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": null,
+    "helium_info": null,
+    "dev_head_t": null,
+    "ctf_head_t": null,
+    "dig": null,
+    "projs": [],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [
+    {
+     "onset": 2.0,
+     "duration": 2.0,
+     "label": "BAD_ACQ_SKIP"
+    },
+    {
+     "onset": 5.0,
+     "duration": 1.0,
+     "label": "keep"
+    }
+   ],
+   "gaps": [
+    {
+     "first": 200,
+     "count": 200
+    }
+   ],
+   "n_parts": 1
+  },
+  "nodate_activeproj": {
+   "file": "fif_nodate_activeproj_raw.fif",
+   "data": "fif_nodate_activeproj.f32",
+   "n_times": 250,
+   "first_samp": 500,
+   "sfreq": 100.0,
+   "orig_format": "single",
+   "info": {
+    "nchan": 4,
+    "sfreq": 100.0,
+    "highpass": 0.5,
+    "lowpass": 40.0,
+    "line_freq": 50.0,
+    "bads": [],
+    "ch_names": [
+     "EEG000",
+     "EEG001",
+     "EEG002",
+     "MAG003"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       0.0,
+       0.029999999329447746,
+       0.07000000029802322,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG000",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       0.019999999552965164,
+       0.029999999329447746,
+       0.07000000029802322,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG001",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       0.03999999910593033,
+       0.029999999329447746,
+       0.07000000029802322,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG002",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 4,
+      "logno": 4,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 3024,
+      "loc": [
+       0.029999999329447746,
+       -0.019999999552965164,
+       0.05299999937415123,
+       0.9553365111351013,
+       0.29552021622657776,
+       0.0,
+       -0.29552021622657776,
+       0.9553365111351013,
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MAG003",
+      "coord_frame": 1
+     }
+    ],
+    "meas_date": null,
+    "meas_date_stamp": null,
+    "utc_offset": "+0100",
+    "experimenter": "Invented Experimenter",
+    "description": null,
+    "proj_id": null,
+    "proj_name": "synthetic project",
+    "gantry_angle": 68,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": {
+     "type": "synthetic",
+     "model": "s1",
+     "serial": "0000",
+     "site": "nowhere"
+    },
+    "helium_info": null,
+    "dev_head_t": {
+     "from": 1,
+     "to": 4,
+     "trans": [
+      [
+       0.9900000095367432,
+       -0.10000000149011612,
+       0.0,
+       0.0010000000474974513
+      ],
+      [
+       0.10000000149011612,
+       0.9900000095367432,
+       0.0,
+       -0.0020000000949949026
+      ],
+      [
+       0.0,
+       0.0,
+       1.0,
+       0.03999999910593033
+      ],
+      [
+       0.0,
+       0.0,
+       0.0,
+       1.0
+      ]
+     ]
+    },
+    "ctf_head_t": null,
+    "dig": [
+     {
+      "kind": 1,
+      "r": [
+       -0.07999999821186066,
+       0.0,
+       0.0
+      ],
+      "ident": 1,
+      "coord_frame": 4
+     },
+     {
+      "kind": 1,
+      "r": [
+       0.0,
+       0.10000000149011612,
+       0.0
+      ],
+      "ident": 2,
+      "coord_frame": 4
+     },
+     {
+      "kind": 1,
+      "r": [
+       0.07999999821186066,
+       0.0,
+       0.0
+      ],
+      "ident": 3,
+      "coord_frame": 4
+     },
+     {
+      "kind": 2,
+      "r": [
+       0.029999999329447746,
+       0.05000000074505806,
+       0.009999999776482582
+      ],
+      "ident": 1,
+      "coord_frame": 4
+     },
+     {
+      "kind": 3,
+      "r": [
+       0.019999999552965164,
+       0.029999999329447746,
+       0.07000000029802322
+      ],
+      "ident": 1,
+      "coord_frame": 4
+     },
+     {
+      "kind": 4,
+      "r": [
+       0.0,
+       0.05000000074505806,
+       0.09000000357627869
+      ],
+      "ident": 1,
+      "coord_frame": 4
+     }
+    ],
+    "projs": [
+     {
+      "desc": "synthetic-active",
+      "kind": 1,
+      "active": true,
+      "nvec": 1,
+      "col_names": [
+       "EEG000",
+       "EEG001",
+       "EEG002"
+      ],
+      "data": [
+       [
+        0.618984043598175,
+        -0.7750996947288513,
+        0.1268039047718048
+       ]
+      ],
+      "explained_var": 0.25
+     }
+    ],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [
+    {
+     "onset": 1.0,
+     "duration": 1.0,
+     "label": "after start"
+    }
+   ],
+   "gaps": [],
+   "n_parts": 1,
+   "data_has_projector": true
+  },
+  "comp": {
+   "file": "fif_comp_raw.fif",
+   "data": "fif_comp.f32",
+   "n_times": 200,
+   "first_samp": 0,
+   "sfreq": 100.0,
+   "orig_format": "single",
+   "info": {
+    "nchan": 4,
+    "sfreq": 100.0,
+    "highpass": 0.0,
+    "lowpass": 50.0,
+    "line_freq": null,
+    "bads": [],
+    "ch_names": [
+     "MEG001",
+     "MEG002",
+     "REF001",
+     "REF002"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 201609,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MEG001",
+      "coord_frame": 1
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 1,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 201609,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "MEG002",
+      "coord_frame": 1
+     },
+     {
+      "scanno": 3,
+      "logno": 3,
+      "kind": 301,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 5002,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "REF001",
+      "coord_frame": 1
+     },
+     {
+      "scanno": 4,
+      "logno": 4,
+      "kind": 301,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 5002,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 112,
+      "unit_mul": 0,
+      "ch_name": "REF002",
+      "coord_frame": 1
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": null,
+    "experimenter": null,
+    "description": null,
+    "proj_id": null,
+    "proj_name": null,
+    "gantry_angle": null,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": null,
+    "helium_info": null,
+    "dev_head_t": null,
+    "ctf_head_t": null,
+    "dig": null,
+    "projs": [],
+    "comps": [
+     {
+      "ctfkind": 1194541650,
+      "kind": 3,
+      "save_calibrated": true,
+      "row_names": [
+       "MEG001",
+       "MEG002"
+      ],
+      "col_names": [
+       "REF001",
+       "REF002"
+      ],
+      "data": [
+       [
+        0.5,
+        -0.25
+       ],
+       [
+        0.125,
+        0.75
+       ]
+      ],
+      "rowcals": [
+       1.0,
+       1.0
+      ],
+      "colcals": [
+       1.0,
+       1.0
+      ]
+     }
+    ],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [],
+   "gaps": [],
+   "n_parts": 1
+  },
+  "longnames": {
+   "file": "fif_longnames_raw.fif",
+   "data": "fif_longnames.f32",
+   "n_times": 120,
+   "first_samp": 0,
+   "sfreq": 100.0,
+   "orig_format": "single",
+   "info": {
+    "nchan": 2,
+    "sfreq": 100.0,
+    "highpass": 0.0,
+    "lowpass": 50.0,
+    "line_freq": null,
+    "bads": [
+     "a_rather_long_channel_name_0001"
+    ],
+    "ch_names": [
+     "a_rather_long_channel_name_0001",
+     "EEG 002"
+    ],
+    "chs": [
+     {
+      "scanno": 1,
+      "logno": 1,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "a_rather_long_channel_name_0001",
+      "coord_frame": 4
+     },
+     {
+      "scanno": 2,
+      "logno": 2,
+      "kind": 2,
+      "range": 1.0,
+      "cal": 1.0,
+      "coil_type": 1,
+      "loc": [
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null,
+       null
+      ],
+      "unit": 107,
+      "unit_mul": 0,
+      "ch_name": "EEG 002",
+      "coord_frame": 4
+     }
+    ],
+    "meas_date": "2026-01-02T03:04:05.678900+00:00",
+    "meas_date_stamp": [
+     1767323045,
+     678900
+    ],
+    "utc_offset": null,
+    "experimenter": null,
+    "description": null,
+    "proj_id": null,
+    "proj_name": null,
+    "gantry_angle": null,
+    "custom_ref_applied": 0,
+    "subject_info": null,
+    "device_info": null,
+    "helium_info": null,
+    "dev_head_t": null,
+    "ctf_head_t": null,
+    "dig": null,
+    "projs": [],
+    "comps": [],
+    "meas_id_secs": 0,
+    "file_id": {
+     "secs": 0,
+     "usecs": 2147483647
+    }
+   },
+   "annotations": [],
+   "gaps": [],
+   "n_parts": 1
+  }
+ }
+}

@@ -271,18 +271,28 @@ PyramidLeaves group_leaves(DatasetWriter& ds, SubjectWriter& sub, const SurfaceI
   return out;
 }
 
-PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions& opt, const std::function<void(const Json&)>& progress) {
+namespace {
+// THE REDUCTION, whatever the form of the dataset. `tds` is the writer the default subject can be read through (`tname`); `open_member(name)` gives a member's subject (and, in a
+// package dataset, keeps that member's package open); `out` is where the group fields are written: in a one-database dataset the default subject itself (`own_target`), in a
+// catalogue dataset the group package's subject, whose rows reach the default subject's through anchor rows (`anchor` carries each contribution's member rows into it, before
+// anything is written). The maths, the checks and the stored rows are the same in both.
+struct ReduceTarget {
+  DatasetWriter* tds = nullptr;
+  std::string tname;
+  std::function<SubjectWriter(const std::string&)> open_member;
+  std::function<Row(const std::string&)> member_row;
+  SubjectWriter* out = nullptr;                      // null: the default subject itself
+  std::function<void(const std::vector<std::pair<std::string, std::string>>&)> anchor;
+};
+
+PyramidReduceResult reduce_core(ReduceTarget& tg, const PyramidReduceOptions& opt, const std::function<void(const Json&)>& progress) {
   auto say = [&](const Json& j) { if (progress) progress(j); };
-  if (opt.subjects.empty()) invalid("pyramid reduce: --subjects names the members (a cohort; never all by default)");
-  {
-    std::set<std::string> uniq(opt.subjects.begin(), opt.subjects.end());
-    if (uniq.size() != opt.subjects.size()) invalid("pyramid reduce: a subject is named twice");
-  }
-  const auto tpl = ds.template_();
-  if (!tpl) missing("pyramid reduce: the dataset has no default subject (the group lives in its store)");
-  const std::string tname = text(*tpl, "name");
-  for (const std::string& n : opt.subjects) if (n == tname) invalid("pyramid reduce: the default subject is where the group is stored, not a member");
-  SubjectWriter dsub = SubjectWriter::open(ds, tname);
+  DatasetWriter& ds = *tg.tds;
+  const std::string& tname = tg.tname;
+  SubjectWriter tsub = SubjectWriter::open(ds, tname);
+  SubjectWriter& dsub = tsub;                        // (the default subject: read here)
+  SubjectWriter& wsub = tg.out ? *tg.out : tsub;     // where the group fields are written
+  const bool own_target = tg.out == nullptr;
   const int D = opt.depth ? *opt.depth : group_default_depth(ds);
 
   // the definitions and the default subject's tile partition at depth D (the group's leaves)
@@ -301,9 +311,8 @@ PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions
   struct Member { Row subject; std::string name; SubjectWriter sub; Row part; std::vector<double> w; };
   std::vector<Member> members;
   for (const std::string& name : opt.subjects) {
-    const auto row = ds.db().one("SELECT * FROM subject WHERE dataset_id = ? AND name = ? AND status = 'complete'", {V(ds.id()), V(name)});
-    if (!row) missing("pyramid reduce: no subject '" + name + "' in the dataset");
-    SubjectWriter sub = SubjectWriter::open(ds, name);
+    const Row row = tg.member_row(name);
+    SubjectWriter sub = tg.open_member(name);
     // the member's group-tree partition at depth D, by its rows
     const auto part = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND json_extract(params_json, '$.atlas.tree') = 'group' AND json_extract(params_json, '$.joint') IS NULL AND name LIKE '% group tiles L' || ? AND status = 'complete'", {V(sub.id()), V(std::to_string(D))});
     if (!part || !parse_obj(*part).contains("atlas") || !parse_obj(*part)["atlas"].contains("areas"))
@@ -311,7 +320,7 @@ PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions
     if (integer(*part, "n_members") != n_leaves) invalid("pyramid reduce: " + name + "'s group tiles have " + std::to_string(integer(*part, "n_members")) + " leaves, the default subject's " + std::to_string(n_leaves) + " at depth " + std::to_string(D) + ": not the same tree");
     std::vector<double> w = read_all(sub.store(), parse_obj(*part)["atlas"]["areas"].get<std::string>());
     if (static_cast<std::int64_t>(w.size()) != n_leaves) invalid("pyramid reduce: " + name + "'s leaf areas do not fit its leaves");
-    members.push_back(Member{*row, name, std::move(sub), *part, std::move(w)});
+    members.push_back(Member{row, name, std::move(sub), *part, std::move(w)});
   }
 
   std::map<std::string, std::map<std::string, Acc>> spatial, temporal;
@@ -451,11 +460,16 @@ PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions
   const std::string part_id = text(*dpart, "id");
   const auto frames_row = dsub.db().one("SELECT id FROM field WHERE subject_id = ? AND name = ? AND status = 'complete'", {V(dsub.id()), V(T.name + "_canonical_frames")});
   Json spatial_out = Json::array(), time_out = Json::array();
-  dsub.compose([&] {
+  if (tg.anchor) {   // a group package: the members' rows the contributions name are carried into it first
+    std::set<std::pair<std::string, std::string>> pairs;
+    for (const auto& [key, list] : sources) for (const Json& c : list) pairs.insert({c["subject_id"].get<std::string>(), c["source_field_id"].get<std::string>()});
+    tg.anchor(std::vector<std::pair<std::string, std::string>>(pairs.begin(), pairs.end()));
+  }
+  wsub.compose([&] {
     // a re-run REPLACES: the group fields (their rows go with them), and the arrays
-    for (const Row& r : dsub.db().all("SELECT id FROM field WHERE subject_id = ? AND path IS NULL AND json_extract(producer_json, '$.atlas') IN ('spatial', 'time')", {V(dsub.id())})) dsub.remove("field", text(r, "id"));
-    dsub.store().erase_prefix(node + "/maps");
-    dsub.store().erase_prefix(node + "/time");
+    for (const Row& r : wsub.db().all("SELECT id FROM field WHERE subject_id = ? AND path IS NULL AND json_extract(producer_json, '$.atlas') IN ('spatial', 'time')", {V(wsub.id())})) wsub.remove("field", text(r, "id"));
+    wsub.store().erase_prefix(node + "/maps");
+    wsub.store().erase_prefix(node + "/time");
     Json p = part_params;
     Json a = p.contains("atlas") && p["atlas"].is_object() ? p["atlas"] : Json::object();
     a["tree"] = "group"; a["level"] = D; a["node"] = node;
@@ -466,8 +480,8 @@ PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions
     for (const Member& m : members) names.push_back(m.name);
     a["members"] = names;
     p["atlas"] = a;
-    dsub.db().execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(p)), V(part_id)});
-    const std::string bands_id = (nB > 0 && !temporal.empty()) ? pyramid_bands_selection(dsub, bands) : std::string();
+    if (own_target) wsub.db().execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(p)), V(part_id)});   // (in a group package the partition is the default subject's own row, held as an anchor: left as it is)
+    const std::string bands_id = (nB > 0 && !temporal.empty()) ? pyramid_bands_selection(wsub, bands) : std::string();
 
     auto group_field = [&](const std::string& name, const std::string& kind, const std::optional<std::string>& unit, const Json& producer, const std::vector<Json>& contributions) {
       FieldSpec fs;
@@ -483,9 +497,9 @@ PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions
       }
       if (!foreign.empty()) prod["sources"] = foreign;
       fs.cols.json("producer_json", prod);
-      return dsub.field(std::move(fs));
+      return wsub.field(std::move(fs));
     };
-    auto put = [&](const std::string& path, const std::vector<double>& v, const std::vector<std::int64_t>& shape) { dsub.write_array(path, view(v, shape)); };
+    auto put = [&](const std::string& path, const std::vector<double>& v, const std::vector<std::int64_t>& shape) { wsub.write_array(path, view(v, shape)); };
     auto stack = [&](const std::vector<std::pair<std::string, std::vector<double>>>& st, std::vector<std::int64_t> inner) {
       std::vector<double> out;
       for (const auto& [n, v] : st) out.insert(out.end(), v.begin(), v.end());
@@ -508,7 +522,7 @@ PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions
         c.set("measure", *m).set("of_field_id", fid).set("array_path", g + "/" + rel).set("computed_by", kBy);
         const std::string unit = rel.rfind("grad/", 0) == 0 ? (un.empty() ? std::string("value") : un) + "/m" : un;
         if (!unit.empty()) c.set("unit", unit);
-        dsub.measurement(part_id, c);
+        wsub.measurement(part_id, c);
       }
       spatial_out.push_back(Json{{"kind", kind}, {"field", fid}, {"subjects", subs}});
     }
@@ -533,7 +547,7 @@ PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions
         for (std::size_t b = 0; b < nB; ++b) {
           Cols c;
           c.set("measure", *m).set("of_field_id", fid).set("array_path", g + "/" + rel).set("within_selection_id", bands_id).set("within_code", static_cast<std::int64_t>(b)).set("computed_by", kBy);
-          dsub.measurement(part_id, c);
+          wsub.measurement(part_id, c);
         }
       }
       time_out.push_back(Json{{"key", key}, {"field", fid}, {"subjects", subs}, {"samples", samples_total[key]}});
@@ -544,6 +558,61 @@ PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions
   PyramidReduceResult res;
   res.info = Json{{"members", members.size()}, {"subjects", opt.subjects}, {"depth", D}, {"leaves", n_leaves}, {"node", node}, {"spatial", spatial_out}, {"time", time_out}, {"left_out_measures", lo}, {"kernels", opt.kernels}};
   say(Json{{"stage", "reduced"}, {"members", members.size()}, {"spatial", spatial.size()}, {"time", temporal.size()}});
+  return res;
+}
+}  // namespace
+
+PyramidReduceResult pyramid_reduce(DatasetWriter& ds, const PyramidReduceOptions& opt, const std::function<void(const Json&)>& progress) {
+  if (opt.subjects.empty()) invalid("pyramid reduce: --subjects names the members (a cohort; never all by default)");
+  {
+    std::set<std::string> uniq(opt.subjects.begin(), opt.subjects.end());
+    if (uniq.size() != opt.subjects.size()) invalid("pyramid reduce: a subject is named twice");
+  }
+  const auto tpl = ds.template_();
+  if (!tpl) missing("pyramid reduce: the dataset has no default subject (the group lives in its store)");
+  const std::string tname = text(*tpl, "name");
+  for (const std::string& n : opt.subjects) if (n == tname) invalid("pyramid reduce: the default subject is where the group is stored, not a member");
+  ReduceTarget tg;
+  tg.tds = &ds;
+  tg.tname = tname;
+  tg.member_row = [&](const std::string& name) {
+    const auto row = ds.db().one("SELECT * FROM subject WHERE dataset_id = ? AND name = ? AND status = 'complete'", {V(ds.id()), V(name)});
+    if (!row) missing("pyramid reduce: no subject '" + name + "' in the dataset");
+    return *row;
+  };
+  tg.open_member = [&](const std::string& name) { return SubjectWriter::open(ds, name); };
+  return reduce_core(tg, opt, progress);
+}
+
+PyramidReduceResult pyramid_reduce_group(const std::filesystem::path& dataset, const PyramidReduceOptions& opt, const std::string& group_name, const nxr::io::TemplateSearch& templates,
+                                         const std::function<void(const Json&)>& progress) {
+  if (opt.subjects.empty()) invalid("pyramid reduce: --subjects names the members (a cohort; never all by default)");
+  {
+    std::set<std::string> uniq(opt.subjects.begin(), opt.subjects.end());
+    if (uniq.size() != opt.subjects.size()) invalid("pyramid reduce: a subject is named twice");
+  }
+  if (group_name.empty()) invalid("pyramid reduce: --into names the group package the result goes to (one per analysis; never a default one)");
+  nxr::io::GroupAnalysis ga = nxr::io::GroupAnalysis::open(dataset, group_name, opt.subjects, templates, "nxr-neuro pyramid reduce");
+  PyramidReduceResult res;
+  {
+    SubjectWriter gsub = SubjectWriter::open(ga.group(), group_name);
+    ReduceTarget tg;
+    tg.tds = &ga.group();                          // the default subject's rows are in the group package, as anchors; its arrays are read from its own package
+    tg.tname = ga.template_name();
+    tg.out = &gsub;
+    tg.member_row = [&](const std::string& name) {
+      DatasetWriter& w = ga.member(name);
+      const auto row = w.db().one("SELECT * FROM subject WHERE name = ? AND status = 'complete' AND kind = 'subject'", {V(name)});
+      if (!row) missing("pyramid reduce: no subject '" + name + "' in the dataset");
+      return *row;
+    };
+    tg.open_member = [&](const std::string& name) { return SubjectWriter::open(ga.member(name), name); };
+    tg.anchor = [&](const std::vector<std::pair<std::string, std::string>>& p) { ga.anchor_contributions(p); };
+    res = reduce_core(tg, opt, progress);
+    gsub.complete();
+  }
+  res.info["group"] = group_name;
+  res.info["registered"] = ga.finish();
   return res;
 }
 

@@ -140,36 +140,65 @@ class PackageKeyStore : public Store {
   PackageKeyStore(std::unique_ptr<FolderStore> files, std::unique_ptr<SmallFileStore> small, std::unique_ptr<DigestStore> digest, std::string prefix)
       : files_(std::move(files)), small_(std::move(small)), digest_(std::move(digest)), prefix_(std::move(prefix)) {}
   Store& keys() { return *digest_; }
+  // Keys under `prefix` belong to ANOTHER package (a template's arrays the rows anchored here name): read-only, from the package `resolve` finds when they are first read.
+  void route(const std::string& prefix, PackageResolver resolve) { routes_.push_back(Route{prefix, std::move(resolve), nullptr}); }
 
-  std::optional<Bytes> get(const std::string& k) const override { std::string r; return inside(k, r) && !r.empty() ? digest_->get(r) : std::nullopt; }
+  std::optional<Bytes> get(const std::string& k) const override {
+    std::string r;
+    if (const Store* o = routed(k, r)) return r.empty() ? std::nullopt : o->get(r);
+    return inside(k, r) && !r.empty() ? digest_->get(r) : std::nullopt;
+  }
   std::optional<Bytes> get_range(const std::string& k, std::uint64_t o, std::uint64_t n) const override {
     std::string r;
+    if (const Store* x = routed(k, r)) return r.empty() ? std::nullopt : x->get_range(r, o, n);
     return inside(k, r) && !r.empty() ? digest_->get_range(r, o, n) : std::nullopt;
   }
-  std::optional<std::uint64_t> size(const std::string& k) const override { std::string r; return inside(k, r) && !r.empty() ? digest_->size(r) : std::nullopt; }
-  bool exists(const std::string& k) const override { std::string r; return inside(k, r) && !r.empty() && digest_->exists(r); }
+  std::optional<std::uint64_t> size(const std::string& k) const override {
+    std::string r;
+    if (const Store* o = routed(k, r)) return r.empty() ? std::nullopt : o->size(r);
+    return inside(k, r) && !r.empty() ? digest_->size(r) : std::nullopt;
+  }
+  bool exists(const std::string& k) const override {
+    std::string r;
+    if (const Store* o = routed(k, r)) return !r.empty() && o->exists(r);
+    return inside(k, r) && !r.empty() && digest_->exists(r);
+  }
   bool exists_prefix(const std::string& p) const override {
     std::string r;
+    if (const Store* o = routed(p, r)) return r.empty() ? true : o->exists_prefix(r);
     if (inside(p, r)) return r.empty() ? true : digest_->exists_prefix(r);
-    return above(p);
+    return above(p) || above_route(p);
   }
   Listing list(const std::string& p) const override {
     std::string r;
+    if (const Store* o = routed(p, r)) return o->list(r);
     if (inside(p, r)) return digest_->list(r);
     Listing out;
     if (above(p)) out.prefixes.push_back(next_segment(p));
     return out;
   }
-  bool is_link(const std::string& p) const override { std::string r; return inside(p, r) && !r.empty() && digest_->is_link(r); }
+  bool is_link(const std::string& p) const override {
+    std::string r;
+    if (const Store* o = routed(p, r)) return !r.empty() && o->is_link(r);
+    return inside(p, r) && !r.empty() && digest_->is_link(r);
+  }
   void check_inside(const std::string& k) const override { std::string r; if (inside(k, r) && !r.empty()) digest_->check_inside(r); }
   using Store::set;
   void set(const std::string& key, const std::uint8_t* data, std::size_t n) override {
     std::string r;
+    if (const Store* o = routed(key, r)) {   // another package's key (a template's): never written; writing what is already there (a subject's folder is made again when opened) changes nothing
+      const auto cur = r.empty() ? std::nullopt : o->get(r);
+      if (cur && cur->size() == n && std::equal(cur->begin(), cur->end(), data)) return;
+      // the text of a node whose row is another package's (a template's row this package holds as an anchor) is that package's to write: dropped, as a folder's above the package are
+      if (key.size() > 10 && key.compare(key.size() - 10, 10, "/zarr.json") == 0) return;
+      throw value_error(key + ": belongs to another package (the template's), which is read only here");
+    }
     if (inside(key, r) && !r.empty()) return digest_->set(r, data, n);
     if (!dropped(key)) throw value_error(key + ": outside the package (its keys are under " + prefix_ + "/)");
   }
   std::unique_ptr<StoreWriter> open_writer(const std::string& key) override {
     std::string r;
+    if (routed(key, r)) throw value_error(key + ": belongs to another package (the template's), which is read only here");
     if (inside(key, r) && !r.empty()) return digest_->open_writer(r);
     if (dropped(key)) return std::make_unique<DiscardWriter>();
     throw value_error(key + ": outside the package (its keys are under " + prefix_ + "/)");
@@ -193,6 +222,25 @@ class PackageKeyStore : public Store {
   }
 
  private:
+  struct Route {
+    std::string prefix;
+    PackageResolver resolve;
+    mutable std::shared_ptr<SubjectPackage> pkg;
+  };
+  // The routed package's store when `key` is under a route's prefix (`rest` the key inside that package, empty for the prefix itself); resolves the package on first use.
+  const Store* routed(const std::string& key, std::string& rest) const {
+    for (const Route& rt : routes_) {
+      if (key == rt.prefix) { rest.clear(); } else if (key.size() > rt.prefix.size() + 1 && key.compare(0, rt.prefix.size(), rt.prefix) == 0 && key[rt.prefix.size()] == '/') { rest = key.substr(rt.prefix.size() + 1); } else continue;
+      if (!rt.pkg) rt.pkg = rt.resolve();
+      return &rt.pkg->store();
+    }
+    return nullptr;
+  }
+  bool above_route(const std::string& p) const {
+    for (const Route& rt : routes_) if (rt.prefix.size() > p.size() && rt.prefix.compare(0, p.size(), p) == 0 && (p.empty() || rt.prefix[p.size()] == '/')) return true;
+    return false;
+  }
+  mutable std::vector<Route> routes_;
   // `key` under the prefix as the package's own key (empty for the prefix itself).
   bool inside(const std::string& key, std::string& rest) const {
     if (key == prefix_) { rest.clear(); return true; }
@@ -217,6 +265,15 @@ class PackageKeyStore : public Store {
   std::string prefix_;
 };
 
+}  // namespace
+
+void route_keys_to_package(DatasetWriter& w, const std::string& key_prefix, PackageResolver resolve) {
+  auto* store = dynamic_cast<PackageKeyStore*>(&w.node_store());
+  if (!store) throw value_error("route_keys_to_package: the writer is not over a subject package");
+  store->route(key_prefix, std::move(resolve));
+}
+
+namespace {
 std::unique_ptr<Store> make_package_store(const fs::path& folder, Database& db, const std::string& prefix) {
   auto files = std::make_unique<FolderStore>(folder);
   auto small = std::make_unique<SmallFileStore>(*files, db);
