@@ -552,9 +552,34 @@ Signature s_lagfree_surrogate() {
       });
 }
 
+// positions.transition: a manifold's positions brought into another coordinate system of the same space by an operator of kind transition. The one apply whose result is a manifold:
+// the same manifold term with another coordinate system. It is the node the checker names when two manifolds' systems differ; it is never inserted for the caller.
+Signature s_positions_transition() {
+  return sig(Move::apply)
+      .in("positions", manifold_port(M))
+      .in("transition", transition_port().quantity({"transition"}).because("A transition operator of one space is needed (a device-to-head transform imported with the recording)."))
+      .out("moved", like("positions"))
+      .refine([](Unified& u, const Json&) {
+        const PortType& x = u.type("positions");
+        const PortType& t = u.type("transition");
+        if (!t.transition) u.fail("transition", "is an operator of kind transition without its two coordinate systems");
+        if (x.domain.factors.empty() || !x.domain.factors[0]->cs) u.fail("positions", "has no recorded coordinate system to change");
+        const ManifoldRef& m = x.domain.factors[0];
+        if (m->cs->space != t.transition->first.space)
+          u.fail("transition", "is a transition of the space " + t.transition->first.space + "; the positions are of " + m->cs->space);
+        if (!same_cs(m->cs, t.transition->first))
+          u.fail("transition", "starts in " + print_cs(t.transition->first) + "; the positions are in " + print_cs(m->cs) + ". Apply the transition that starts where the positions are.");
+        Manifold moved = *m;
+        moved.cs = t.transition->second;
+        u.out.at("moved").domain.factors = {std::make_shared<const Manifold>(std::move(moved))};
+        u.out.at("moved").quantity = x.quantity;
+      });
+}
+
 const std::map<std::string, Signature>& table() {
   static const std::map<std::string, Signature> t = [] {
     std::map<std::string, Signature> m;
+    m["positions.transition"] = s_positions_transition();
     m["analytic"] = s_analytic();
     m["envelope"] = s_envelope();
     m["frames"] = s_frames();

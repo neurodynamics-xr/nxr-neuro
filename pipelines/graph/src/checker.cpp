@@ -43,6 +43,8 @@ InPat selection(std::vector<ManifoldRef> f) { return pattern(PortClass::selectio
 InPat selection_any() { InPat p; p.cls = PortClass::selection; return p; }
 InPat statistic_any() { InPat p; p.cls = PortClass::statistic; return p; }
 InPat any_port() { return InPat{}; }
+InPat manifold_port(const ManifoldRef& m) { return pattern(PortClass::manifold, {m}); }
+InPat transition_port() { InPat p; p.cls = PortClass::operator_; return p; }
 InPat operator_(const ManifoldRef& from, const ManifoldRef& to) {
   InPat p;
   p.cls = PortClass::operator_;
@@ -286,6 +288,37 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
     if (pat.has_target && !unify(pat.target, t.target, u.bind, why))
       u.fail(port, "reaches " + print(t.target) + "; " + why + "." + hint);
   }
+
+  // 1b. POSITIONS (T5): the manifolds a node reads positions of lie in ONE coordinate system, or in the one it names. Never a transition of the checker's own.
+  auto position_cs = [&](const std::string& port) {
+    std::vector<std::pair<ManifoldRef, std::string>> found;      // the factors that have positions, with where in the port they are
+    const auto it = use.in.find(port);
+    if (it == use.in.end()) return found;
+    for (const Domain* d : {&it->second.domain, &it->second.target})
+      for (const auto& f : d->factors)
+        if (f && f->cs && f->kind != ManifoldKind::line && f->form != Manifold::Form::members) found.emplace_back(f, port);
+    return found;
+  };
+  auto transition_hint = [&](const ManifoldRef& from, const ManifoldRef& to) {
+    return "No transition is applied by the checker: add `positions.transition` with the transition operator " + from->cs->space + ": " + from->cs->name + " -> " + to->cs->name +
+           " (a transition is stored when the recording's device-to-head transform was imported), then run again.";
+  };
+  for (const auto& group : sg.position_groups) {
+    ManifoldRef first; std::string first_port;
+    for (const auto& port : group)
+      for (const auto& [m, _] : position_cs(port)) {
+        if (!first) { first = m; first_port = port; continue; }
+        if (first->cs->space != m->cs->space)
+          u.fail(port, "its positions are in the space " + m->cs->space + "; those of `" + first_port + "` in " + first->cs->space + ". Positions of two spaces are not compared.");
+        if (!same_cs(first->cs, m->cs))
+          u.fail(port, "its positions (" + print(m) + ") are in " + m->cs->space + "/" + m->cs->name + " (" + m->cs->unit + "); those of `" + first_port + "` (" + print(first) + ") in " +
+                       first->cs->space + "/" + first->cs->name + " (" + first->cs->unit + "). " + transition_hint(m, first));
+      }
+  }
+  for (const auto& [port, want] : sg.positions_named)
+    for (const auto& [m, _] : position_cs(port))
+      if (m->cs->name != want)
+        u.fail(port, "its positions (" + print(m) + ") are in " + m->cs->space + "/" + m->cs->name + "; this node needs " + want + ". " + transition_hint(m, [&] { Manifold x = *m; x.cs = CoordinateSystem{m->cs->space, want, m->cs->unit}; return std::make_shared<const Manifold>(std::move(x)); }()));
 
   // 2. THE OUTPUTS, made from the signature
   std::map<std::string, std::string> sels;
