@@ -37,6 +37,8 @@ using Populate = std::function<void(Store&, const std::string&)>;   // writes a 
 
 // ── the dataset and the catalog (D140) ────────────────────────────────────────────────────────────────────────────
 
+// RETIRED (docs/specs/2026-11-16-subject-centred-datasets.md section 3): the datastore and its `catalog.json` are replaced by datasets addressed by their own path
+// (catalogue.h). Nothing of format 53 reads or writes it; these calls stay only to read and migrate a dataset of formats 50 to 52 (`split_dataset` leaves a catalog.json as it was).
 // `<datastore>/catalog.json`, the index of the datastore's datasets; nullopt when absent or unreadable.
 std::optional<Json> read_catalog(const std::filesystem::path& datastore);
 // Rewritten whole and atomically from the datasets' databases. Its `id` is the datastore's.
@@ -59,26 +61,37 @@ class DatasetWriter {
   DatasetWriter& operator=(DatasetWriter&&) noexcept;
   ~DatasetWriter();
 
-  Database& db() { return db_; }
-  const Database& db() const { return db_; }
+  Database& db() { return *db_; }
+  const Database& db() const { return *db_; }
   const std::filesystem::path& root() const { return root_; }       // the datastore folder
-  DatastoreStore& store() { return *store_; }                       // the datastore's keys: `<dataset>/<subject>/…` (format 52: a subject's small keys are rows of its small_files.sqlite)
+  // A dataset's store; throws in package mode (a subject package has no datastore: use node_store()).
+  DatastoreStore& store();                                           // the datastore's keys: `<dataset>/<subject>/…` (format 52: a subject's small keys are rows of its small_files.sqlite)
+  // The store the nodes' keys are in: keys `<dataset.path>/<subject.path>/…`. For a dataset it is store(); for a subject package it is the package's own keys under
+  // that prefix (subject_package.h), so the writer, the procedure and the pipelines work on a package exactly as on a dataset.
+  Store& node_store() { return package_store_ ? *package_store_ : static_cast<Store&>(*store_); }
+  bool is_package() const { return static_cast<bool>(package_store_); }
   const Row& row() const { return row_; }                           // the dataset row
   std::string id() const { return text(row_, "id"); }
   std::filesystem::path folder() const { return root_ / text(row_, "path"); }
   std::optional<Row> subject(const std::string& name) const;
   std::optional<Row> template_() const;                             // the dataset's default subject
   bool locked() const { return static_cast<bool>(lock_); }
+  // Close the writer: its `before_close` hook (a package's record and content hash) runs first and may throw (the lock is released all the same).
   void close();
+  // Package mode (used by subject_package.cpp): the writer over a subject package's database. `make_store` is given the database in its final place.
+  static DatasetWriter over_package(Database db, std::filesystem::path package_folder, Row home_dataset, WriterLock lock,
+                                    const std::function<std::unique_ptr<Store>(Database&)>& make_store, std::function<void(DatasetWriter&)> before_close);
 
  private:
   friend DatasetWriter open_writer(const std::filesystem::path&, const OpenOptions&);
   friend DatasetWriter create_dataset(const std::filesystem::path&, const std::string&, const CreateOptions&);
-  DatasetWriter(Database db, std::filesystem::path root, Row row, WriterLock lock);
+  DatasetWriter(Database db, std::filesystem::path root, Row row, WriterLock lock, bool package = false);
   WriterLock lock_;   // declared before the database: released after it is closed
-  Database db_;
+  std::unique_ptr<Database> db_;   // by pointer: the stores that share its connection keep their view of it across a move of this writer
   std::filesystem::path root_;
   std::unique_ptr<DatastoreStore> store_;   // by pointer: the subjects' views of it survive a move of this writer
+  std::unique_ptr<Store> package_store_;    // package mode (declared after db_: destroyed first, it uses the database's connection)
+  std::function<void(DatasetWriter&)> before_close_;
   Row row_;
 };
 

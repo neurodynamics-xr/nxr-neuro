@@ -20,7 +20,7 @@ the instrument cannot resolve; it does not claim more than it measures.
 | Folder | Library | What it does |
 |---|---|---|
 | `compute/` | `nxr_compute` | the maths on a cortical surface: operators, eigenmodes, filterbanks, flow, events (Eigen, Spectra, geometry-central, pocketfft; no file I/O) |
-| `io/` | `nxr_io` | the nxr dataset format (SQLite rows plus Zarr v3 arrays), a chunked recording reader, and a Brainstorm protocol importer |
+| `io/` | `nxr_io` | the nxr dataset format (SQLite rows plus Zarr v3 arrays; a subject is a self-contained package, store format 53, a dataset a catalogue of packages, and a template a released, versioned package found on a search path), a chunked recording reader, and a Brainstorm protocol importer |
 | `meeg/` | `nxr_meeg` | MEG/EEG source imaging: head models, noise covariance, minimum-norm kernels |
 | `pipelines/` | `nxr_pipelines` | the glue: read with `io`, compute with `compute` and `meeg`, write with `io`, cached |
 | `cli/` | `nxr-neuro` | the command |

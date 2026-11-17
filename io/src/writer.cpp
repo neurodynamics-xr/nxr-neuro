@@ -84,26 +84,51 @@ Json list_datasets(const fs::path& datastore) {
   return *cat;
 }
 
-DatasetWriter::DatasetWriter(Database db, fs::path root, Row row, WriterLock lock)
-    : lock_(std::move(lock)), db_(std::move(db)), root_(std::move(root)), store_(std::make_unique<DatastoreStore>(root_)), row_(std::move(row)) {
-  store_->set_small_files(text(row_, "path"), store_format_number(db_) >= 52);
+DatasetWriter::DatasetWriter(Database db, fs::path root, Row row, WriterLock lock, bool package)
+    : lock_(std::move(lock)), db_(std::make_unique<Database>(std::move(db))), root_(std::move(root)), row_(std::move(row)) {
+  if (package) return;
+  store_ = std::make_unique<DatastoreStore>(root_);
+  store_->set_small_files(text(row_, "path"), store_format_number(*db_) >= 52);
 }
 DatasetWriter::DatasetWriter(DatasetWriter&&) noexcept = default;
 DatasetWriter& DatasetWriter::operator=(DatasetWriter&& o) noexcept {
-  if (this != &o) { close(); lock_ = std::move(o.lock_); db_ = std::move(o.db_); root_ = std::move(o.root_); store_ = std::move(o.store_); row_ = std::move(o.row_); }
+  if (this != &o) {
+    try { close(); } catch (...) {}
+    lock_ = std::move(o.lock_); db_ = std::move(o.db_); root_ = std::move(o.root_); store_ = std::move(o.store_); package_store_ = std::move(o.package_store_);
+    before_close_ = std::move(o.before_close_); row_ = std::move(o.row_);
+  }
   return *this;
 }
-DatasetWriter::~DatasetWriter() { close(); }
+DatasetWriter::~DatasetWriter() { try { close(); } catch (...) {} }
 void DatasetWriter::close() {
+  std::exception_ptr failed;
+  if (before_close_ && db_ && db_->handle()) {
+    auto hook = std::move(before_close_);
+    before_close_ = nullptr;
+    try { hook(*this); } catch (...) { failed = std::current_exception(); }
+  }
   if (store_) store_->close_all();   // the subjects' small-file databases, their WAL files with them
-  db_.close();
+  package_store_.reset();
+  if (db_) db_->close();
   lock_.release();
+  if (failed) std::rethrow_exception(failed);
+}
+DatastoreStore& DatasetWriter::store() {
+  if (!store_) throw Error(code::invalid_argument, "this writer is over a subject package, which has no datastore: use node_store()");
+  return *store_;
+}
+DatasetWriter DatasetWriter::over_package(Database db, fs::path folder, Row home, WriterLock lock, const std::function<std::unique_ptr<Store>(Database&)>& make_store,
+                                          std::function<void(DatasetWriter&)> before_close) {
+  DatasetWriter w(std::move(db), folder, std::move(home), std::move(lock), true);
+  w.package_store_ = make_store(*w.db_);
+  w.before_close_ = std::move(before_close);
+  return w;
 }
 std::optional<Row> DatasetWriter::subject(const std::string& name) const {
-  return db_.one("SELECT * FROM subject WHERE dataset_id = ? AND name = ?", {id(), name});
+  return db_->one("SELECT * FROM subject WHERE dataset_id = ? AND name = ?", {id(), name});
 }
 std::optional<Row> DatasetWriter::template_() const {
-  return db_.one("SELECT * FROM subject WHERE dataset_id = ? AND kind = 'template' AND status = 'complete' ORDER BY created_utc LIMIT 1", {id()});
+  return db_->one("SELECT * FROM subject WHERE dataset_id = ? AND kind = 'template' AND status = 'complete' ORDER BY created_utc LIMIT 1", {id()});
 }
 
 namespace {

@@ -150,13 +150,14 @@ void bind(sqlite3_stmt* st, const std::vector<Value>& params) {
 }  // namespace
 
 Database::Database(Database&& o) noexcept
-    : path_(std::move(o.path_)), db_(o.db_), depth_(o.depth_), cols_(std::move(o.cols_)), pk_(std::move(o.pk_)) {
+    : path_(std::move(o.path_)), read_only_(o.read_only_), db_(o.db_), depth_(o.depth_), cols_(std::move(o.cols_)), pk_(std::move(o.pk_)) {
   o.db_ = nullptr;
 }
 Database& Database::operator=(Database&& o) noexcept {
   if (this != &o) {
     close();
     path_ = std::move(o.path_);
+    read_only_ = o.read_only_;
     db_ = o.db_;
     depth_ = o.depth_;
     cols_ = std::move(o.cols_);
@@ -178,6 +179,7 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
   }
   Database d;
   d.path_ = file;
+  d.read_only_ = read_only;
   auto connect = [&]() {
     sqlite3* h = nullptr;
     const int flags = read_only ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE);
@@ -214,6 +216,25 @@ Database Database::open(const fs::path& file, bool create, const std::string& bu
     d.close();
     throw;
   }
+  return d;
+}
+
+Database Database::open_plain(const fs::path& file, bool create, bool read_only) {
+  const std::string p = file.string();
+  if (!create && !fs::is_regular_file(file)) throw Error(code::not_found, p + ": no such database");
+  Database d;
+  d.path_ = file;
+  d.read_only_ = read_only;
+  sqlite3* h = nullptr;
+  const int flags = read_only ? SQLITE_OPEN_READONLY : (SQLITE_OPEN_READWRITE | (create ? SQLITE_OPEN_CREATE : 0));
+  if (sqlite3_open_v2(p.c_str(), &h, flags, nullptr) != SQLITE_OK) {
+    const std::string m = h ? sqlite3_errmsg(h) : "cannot open";
+    if (h) sqlite3_close(h);
+    throw Error(code::sqlite, p + ": " + m);
+  }
+  sqlite3_busy_timeout(h, 5000);
+  exec(h, "PRAGMA foreign_keys = ON");
+  d.db_ = h;
   return d;
 }
 
