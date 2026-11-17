@@ -1577,7 +1577,7 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   the level is printed with its snapped quantity. `measure export` is unchanged.
 - **Storage.** One table for values over members (`selection_measurement`, array-backed); `statistic` holds statistics only (a Welch PSD, a covariance, a histogram's bins,
   the summaries across members), and the checker refuses a statistic output with a member axis. Schema 53 adds `selection_factor.level`; the migration of schema-52 datasets is
-  `package migrate-measurements` (written; run only on the PI's word).
+  `package migrate-measurements` (written; run only on the maintainers' word).
 - **Tests.** `test_select_makers` (the maker definitions, the quantity refusal, the glued cortex); the CLI test refuses every retired spelling naming its replacement.
 
 
