@@ -632,6 +632,15 @@ Signature s_frame_project() {
         PortType& y = u.out.at("y");
         y.spin = 1; y.gauge = g.gauge; y.components = 1; y.complex_parts = false; y.rows = x.rows / 3;
       });
+
+// ── the structural connectome's nodes (spec docs/specs/2026-11-16-structural-connectome.md, section 4): arrays in, arrays out, run once before any loop. They take no field and
+// make no field, so each is a `make` node over `constant` values (the arrays a definition's setup section passes between them); the node's own `plan` and `run` check shapes
+// and precision. That a partition's counts are a MEASUREMENT over the region pairs is the definition's declaration (outputs: kind measurement), not a node's port type.
+Signature s_array_node(const std::vector<std::string>& ins, const std::vector<std::string>& optional, const std::vector<std::string>& outs) {
+  Signature s = sig(Move::make);
+  for (const auto& i : ins) s.in(i, std::find(optional.begin(), optional.end(), i) != optional.end() ? any_port().optional() : any_port());
+  for (const auto& o : outs) s.out(o, make_of(PortClass::constant));
+  return s;
 }
 
 const std::map<std::string, Signature>& table() {
@@ -673,6 +682,17 @@ const std::map<std::string, Signature>& table() {
     m["frame.rotate"] = s_frame_rotate();
     m["frame.embed"] = s_frame_embed();
     m["frame.project"] = s_frame_project();
+    m["fiber_ends"] = s_array_node({"fibers"}, {}, {"end_points"});
+    m["nearest_vertex"] = s_array_node({"points", "positions"}, {}, {"vertex", "distance"});
+    m["end_gate"] = s_array_node({"end_distance"}, {}, {"keep"});
+    m["registration_match"] = s_array_node({"template_sphere", "template_pieces", "subject_sphere", "subject_pieces"}, {}, {"match"});
+    m["carry_ends"] = s_array_node({"end_vertex", "match"}, {}, {"end_vertex"});
+    m["smooth_memberships"] = s_array_node({"label", "faces"}, {}, {"memberships"});
+    m["partition_counts"] = s_array_node({"end_vertex", "keep", "memberships"}, {"keep"}, {"counts"});
+    m["end_connectome"] = s_array_node({"end_vertex", "keep"}, {"keep"}, {"fiber_counts"});
+    m["connection_weights"] = s_array_node({"fiber_counts", "faces"}, {}, {"connection_weights"});
+    m["prune_below"] = s_array_node({"connection_weights"}, {}, {"connection_weights"});
+    m["largest_component"] = s_array_node({"connection_weights"}, {}, {"vertices", "label"});
     for (const auto& [name, s] : m) s.validate(name);
     return m;
   }();
