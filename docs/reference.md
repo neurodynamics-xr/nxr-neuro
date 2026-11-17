@@ -367,6 +367,8 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run phasegradient` | The phase gradient of a band from a stored cross-spectrum: phase current, power, speed and travelling index. | `phasegradient compute` |
 | `nxr-neuro run cyclepattern` | The most consistent cycle patterns of the current from a cross-spectrum per window. | `cyclepattern compute` |
 | `nxr-neuro run opticalflow` | Optical flow (Horn-Schunck) of the source estimate: where and how fast the activity moves. | `opticalflow compute` |
+| `nxr-neuro run flow_amplitude` | The optical flow's unit amplitude: the largest source-map amplitude of one filter-bank member over the window, stored as a statistic (run first). | `flow_amplitude` |
+| `nxr-neuro run flow_modes` | The Hodge-Dirac flow weights of the apparent motion of one filter-bank member's source map (reads the stored amplitude by name). The leaf sums stay with `opticalflow` until the grids are redesigned. | `flow_modes` |
 | `nxr-neuro run cellquadrature` | Quadrature (travelling vs standing) per joint cell and per burst, from the stored cross-spectrum. | `cellquadrature compute` |
 | `nxr-neuro run patches` | Patches on a static cortical map: where it stands out from its surroundings, at the size of its tiles. | `patches compute` |
 | `nxr-neuro run scaleselection` | Each event's own size and rhythm: the best spatial and temporal level by standardised response. | `scaleselection compute` |

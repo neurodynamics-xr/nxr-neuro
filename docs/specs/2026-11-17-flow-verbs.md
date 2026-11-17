@@ -62,8 +62,30 @@ analytic cross-spectrum series (a statistic over the time tiles, stored by cross
   one run per band (`--spatial-band weyl:J`), or a spatial-band axis on the output statistic.
 - The window partition is the series' tile grid; the span is the sum over its tiles (a measurement over the partition), never a re-read.
 
-## What remains
-- optical flow: the leaf x frame sums and the frame cells are the pyramid agent's (`pyramid_leaves`, `frame_cells`, `frame_sums_write`); the retiming band node over the member's own rate and the
-  two-pass scale need decisions below. The hand-wired `opticalflow` stays until both are settled.
-- cyclepattern and `phasegradient --spatial-band`: they need the kernel's full forms, the package's intrinsic complex and its forms read through the run's bound services (new `Bound` methods
-  over what `kernel_forms` reads today), and a decision on the per-band outputs. The hand-wired code stays until then.
+## 4. Optical flow, built (2026-11-17): the nodes and the two definitions
+
+The nodes are in `pipelines/src/flow_steps.cpp`, registered by `register_flow_nodes()`:
+`timebank.member_analytic` (retiming, windowed: one filter-bank member at its own rate, the halo declared = the filter's margin plus the lattice period; frame g sits at g p/q samples from sample 0 of the
+recording, so frames do not depend on the chunk), `flow.activation` (J = K z, then |J|), `flow.max_amplitude` (accumulate), `flow.velocity` (stateful: the previous map; the unit amplitude is the stored
+maximum), `flow.hodge_modes` (pointwise), `flow.series` (accumulate: the weights [K x steps] and their line).
+
+- `run flow_amplitude` stores the window's maximum amplitude as a statistic (rule 13); `run flow_modes` reads it by name (input `scale`) and stores the flow weights as a field on (eigen axis x the made time line).
+- The frame cells are no longer made inside the run (rule 15), and the leaf x frame sums (divergence, curl, speed, velocity components per leaf and frame) are NOT part of the definition: they are measurements over
+  a grid (cortex x time), which the PI is redesigning as plain selections and measurements. They follow the grid. Until then the hand-wired `opticalflow` stays (its sums and tile summaries).
+- Not built: `perscale` (one flow per spatial band: a band set, rule 14); the bad segments are not excluded (as before); the line's start is relative to the recording's first sample (the recording's origin is not
+  added: to do with the run's facts); the product output `modes_time` has no producing node (to check against the runner's declared outputs).
+
+## 5. cyclepattern and the phasegradient spatial-band route: graph, not built
+
+Both read the package's intrinsic complex and full forms (`kernel_forms`: A2, A1 [K x M]) and a spatial band (a gain on lambda = mu^2). Graph, as one definition each:
+
+```
+cross-spectrum series (windows) + kernel (free) + package (+ stored intrinsic complex, forms2)
+  --hodge.kernel_forms (array: the kernel read into the modes' full forms)--> A2, A1 [K x M]
+  --select.bands (a band SET: Weyl's bank of the ladder; one selection, rule 14/17)-->
+  --patterns.leading (array, once per band member and per window: q leading eigenvectors of B C B^H)--> vectors, values, similarity
+  --patterns.fields (array)--> stream, potential, normal on the glued surface
+outputs: ONE statistic whose axes include the band member (not one run per band)
+```
+New `Bound` services (generic, reading only): the stored intrinsic complex of a surface (d0, d1, edges, lengths, stars, angles) and a package's full forms (`forms2`). `kernel_forms` and the phase-lag split
+are compute functions already (`nxr::intrinsic`, `nxr::hodge`). Not built in this round: the work waits on the grid redesign for the leaves of `phasegradient --spatial-band` and on the band-set output of rule 14.
