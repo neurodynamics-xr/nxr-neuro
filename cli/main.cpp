@@ -2,7 +2,7 @@
 #include <cstdlib>
 
 #include "cli.h"
-#include "nxr/io/database.h"
+#include "nxr/io/deterministic.h"
 #include "registry.h"
 
 int main(int argc, char** argv) {

@@ -51,6 +51,7 @@
 
 #include "cli.h"
 #include "nxr/io/measures.h"
+#include "nxr/io/task/task.h"
 #include "nxr/pipelines/cellquadrature.h"
 #include "nxr/pipelines/run_repeat.h"
 #include "nxr/pipelines/null_compute.h"
@@ -111,14 +112,15 @@ int measure_query_main(const std::vector<std::string>& argv) {
     oo.created_by = cli::stamp();
     SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
     const std::string key = a.get("--selection");
-    const auto sel = sub.db().one("SELECT id FROM selection WHERE subject_id = ? AND (id = ? OR name = ?) AND status = 'complete' ORDER BY (id = ?) DESC", {V(sub.id()), V(key), V(key), V(key)});
+    const nxr::io::task::Subject ts = nxr::io::task::Subject::of(sub);
+    const auto sel = ts.by_id_or_name(nxr::io::task::Cls::selection, key);
     if (!sel) throw Error(code::no_such_row, sub.name() + ": no selection '" + key + "'");
-    Json q = Json{{"selectionId", text(*sel, "id")}, {"measure", a.get("--measure")}};
+    Json q = Json{{"selectionId", sel->id}, {"measure", a.get("--measure")}};
     try {
       if (const auto v = a.maybe("--field")) {
-        const auto f = sub.db().one("SELECT id FROM field WHERE subject_id = ? AND (id = ? OR name = ?) AND status = 'complete' ORDER BY (id = ?) DESC", {V(sub.id()), V(*v), V(*v), V(*v)});
+        const auto f = ts.by_id_or_name(nxr::io::task::Cls::field, *v);
         if (!f) throw Error(code::no_such_row, sub.name() + ": no field '" + *v + "'");
-        q["ofFieldId"] = text(*f, "id");
+        q["ofFieldId"] = f->id;
       }
       if (const auto v = a.maybe("--band")) q["band"] = std::stoll(*v);
       if (const auto v = a.maybe("--spatial-band")) q["spatialBand"] = std::stoll(*v);
@@ -130,7 +132,7 @@ int measure_query_main(const std::vector<std::string>& argv) {
     } catch (const std::logic_error&) { usage(prog, "--band, --spatial-band, --space-level, --time-level and --limit are whole numbers; --min-value and --max-value numbers"); }
     if (const auto v = a.maybe("--order")) { if (*v != "asc" && *v != "desc") usage(prog, "--order is asc or desc"); q["order"] = *v; }
     if (!q.contains("spaceLevel") && !q.contains("timeLevel") && !q.contains("band") && !q.contains("spatialBand")) q["timeLevel"] = 0;     // this verb always reads the pyramid's cells
-    const Json rows = nxr::io::query_measurements(sub.db(), sub.store(), q);
+    const Json rows = ts.read_measurements(q);
     cli::emit(Json{{"stage", "result"}, {"selection", key}, {"measure", a.get("--measure")}, {"query", q}, {"rows", rows}, {"count", rows.size()}});
   } catch (const std::invalid_argument& e) {
     usage(prog, e.what());

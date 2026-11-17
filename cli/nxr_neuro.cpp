@@ -39,6 +39,8 @@
 #include "cli.h"
 #include "nxr/io/catalogue.h"
 #include "nxr/io/compact.h"
+#include "nxr/io/task/dataset.h"
+#include "nxr/io/task/task.h"
 #include "nxr/io/writer.h"
 
 #ifndef NXR_NEURO_VERSION
@@ -121,18 +123,17 @@ int constantq_main(const std::vector<std::string>& argv) {
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
   // the time lines: a recording's (its product's time factor), a line by name, or every recording's
   std::vector<std::string> lines;
-  const std::string q_time = "SELECT gd.manifold_id AS line FROM field f JOIN manifold m ON m.id = f.manifold_id JOIN geometry_dimension gd ON gd.geometry_id = m.geometry_id "
-                             "JOIN manifold t ON t.id = gd.manifold_id WHERE f.subject_id = ? AND f.kind = 'recording' AND f.status = 'complete' AND t.type = 'line'";
+  const nxr::io::task::Subject ts = nxr::io::task::Subject::of(sub);
   if (const auto r = a.maybe("--recording")) {
-    const auto row = sub.db().one(q_time + " AND f.name = ?", {V(sub.id()), V(*r)});
-    if (!row) throw Usage(prog + ": error: no recording named '" + *r + "' with a time line");
-    lines.push_back(text(*row, "line"));
+    const auto line = ts.recording_time_line(*r);
+    if (!line) throw Usage(prog + ": error: no recording named '" + *r + "' with a time line");
+    lines.push_back(*line);
   } else if (const auto l = a.maybe("--line")) {
-    const auto row = sub.db().one("SELECT id FROM manifold WHERE subject_id = ? AND name = ? AND type = 'line'", {V(sub.id()), V(*l)});
-    if (!row) throw Usage(prog + ": error: no time line named '" + *l + "'");
-    lines.push_back(text(*row, "id"));
+    const auto line = ts.line_named(*l);
+    if (!line) throw Usage(prog + ": error: no time line named '" + *l + "'");
+    lines.push_back(*line);
   } else {
-    for (const Row& row : sub.db().all(q_time, {V(sub.id())})) if (std::find(lines.begin(), lines.end(), text(row, "line")) == lines.end()) lines.push_back(text(row, "line"));
+    lines = ts.recording_time_lines();
   }
   Json made = Json::array();
   for (const std::string& line : lines) {
@@ -237,9 +238,9 @@ int dataset_main(const std::vector<std::string>& argv) {
     DatasetWriter ds = dataset_of(a, false);
     Json kinds = Json::object();
     std::int64_t total = 0;
-    for (const auto& r : ds.db().all("SELECT kind, count(*) AS n FROM subject WHERE dataset_id = ? AND status = 'complete' GROUP BY kind ORDER BY kind", {ds.id()})) {
-      kinds[text(r, "kind")] = integer(r, "n");
-      total += integer(r, "n");
+    for (const auto& k : nxr::io::task::Dataset::of(ds).subject_kinds()) {
+      kinds[k.kind] = k.n;
+      total += k.n;
     }
     auto opt = [&](const char* c) { return is_null(ds.row(), c) ? Json() : Json(text(ds.row(), c)); };
     emit(Json{{"stage", "result"}, {"dataset", text(ds.row(), "name")}, {"id", ds.id()}, {"path", text(ds.row(), "path")}, {"schema_version", schema_version()},
@@ -253,8 +254,9 @@ int dataset_main(const std::vector<std::string>& argv) {
     OpenOptions o;
     o.recover = false;
     DatasetWriter ds = open_one_database(a, "recover dataset", o);
-    const Recovered healed = recover(ds.db(), ds.store());
-    drain(ds.db(), ds.store());
+    const nxr::io::task::Dataset td = nxr::io::task::Dataset::of(ds);
+    const nxr::io::task::Healed healed = td.recover();
+    td.drain();
     write_catalog(ds.root());
     emit(Json{{"stage", "result"}, {"rolled_back", healed.rolled_back}, {"finished", healed.finished}});
     ds.close();
@@ -308,14 +310,14 @@ int subject_main(const std::vector<std::string>& argv) {
     DatasetWriter ds = dataset_of(a, false);
     if (!show) {
       Json rows = Json::array();
-      for (const auto& r : ds.db().all("SELECT name, kind, status, path FROM subject WHERE dataset_id = ? ORDER BY name", {ds.id()}))
-        rows.push_back(Json{{"name", text(r, "name")}, {"kind", text(r, "kind")}, {"status", text(r, "status")}, {"path", text(r, "path")}});
+      for (const auto& r : nxr::io::task::Dataset::of(ds).subjects())
+        rows.push_back(Json{{"name", r.name}, {"kind", r.kind}, {"status", r.status}, {"path", r.path}});
       emit(Json{{"stage", "result"}, {"dataset", text(ds.row(), "name")}, {"subjects", rows}});
     } else {
       SubjectWriter s = SubjectWriter::open(ds, a.get("--subject"));
-      auto count = [&](const char* t) { return integer(*ds.db().one(std::string("SELECT count(*) AS n FROM ") + t + " WHERE subject_id = ?", {s.id()}), "n"); };
-      emit(Json{{"stage", "result"}, {"subject", s.name()}, {"kind", text(s.row(), "kind")}, {"path", text(s.row(), "path")}, {"manifolds", count("manifold")},
-                {"fields", count("field")}, {"operators", count("operator")}, {"selections", count("selection")}});
+      const nxr::io::task::NodeCounts n = nxr::io::task::Subject::of(s).node_counts();
+      emit(Json{{"stage", "result"}, {"subject", s.name()}, {"kind", text(s.row(), "kind")}, {"path", text(s.row(), "path")}, {"manifolds", n.manifolds},
+                {"fields", n.fields}, {"operators", n.operators}, {"selections", n.selections}});
     }
     return 0;
   }
@@ -332,7 +334,7 @@ int subject_main(const std::vector<std::string>& argv) {
       po.built_by = stamp();
       const std::filesystem::path pkg = cat.folder() / (a.get("--name") + kPackageSuffix);
       DatasetWriter w = create_package(pkg, a.get("--name"), po);
-      const std::string sid = read_package_record(w.db()).subject_id;
+      const std::string sid = nxr::io::task::Dataset::of(w).package_subject_id();
       w.close();
       RegisterOptions ro;
       ro.registered_by = stamp();
@@ -356,30 +358,33 @@ int subject_main(const std::vector<std::string>& argv) {
   oo.created_by = stamp();
   SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
   if (!a.maybe("--node")) {
-    remove_node(ds.db(), ds.store(), "subject", sub.id());
+    nxr::io::task::Dataset::of(ds).remove_subject(sub.id());
     write_catalog(ds.root());
     emit(Json{{"stage", "result"}, {"removed", a.get("--subject")}});
   } else {
     const std::string node = *a.maybe("--node");
-    for (const char* t : {"manifold", "field", "operator", "selection"}) {
+    using nxr::io::task::Cls;
+    const nxr::io::task::Dataset td = nxr::io::task::Dataset::of(ds);
+    for (const Cls c : {Cls::manifold, Cls::field, Cls::operator_, Cls::selection}) {
+      const char* t = nxr::io::task::to_string(c);
       if (const auto r = sub.find(t, node)) {
-        remove_node(ds.db(), ds.store(), t, text(*r, "id"));
+        td.remove(c, text(*r, "id"));
         emit(Json{{"stage", "result"}, {"removed", node}, {"table", t}});
         return 0;
       }
     }
     // no store path of that name: the node's NAME (a source estimate or a joint Selection has no path); unique within the subject, else refused with the matches
-    std::vector<std::pair<std::string, std::string>> hits;   // table, id
-    for (const char* t : {"manifold", "field", "operator", "selection", "statistic"})
-      if (const auto r = sub.by_name(t, node)) hits.push_back({t, text(*r, "id")});
+    std::vector<std::pair<Cls, std::string>> hits;   // class, id
+    for (const Cls c : {Cls::manifold, Cls::field, Cls::operator_, Cls::selection, Cls::statistic})
+      if (const auto r = sub.by_name(nxr::io::task::to_string(c), node)) hits.push_back({c, text(*r, "id")});
     if (hits.size() == 1) {
-      remove_node(ds.db(), ds.store(), hits[0].first, hits[0].second);
-      emit(Json{{"stage", "result"}, {"removed", node}, {"table", hits[0].first}, {"by", "name"}});
+      td.remove(hits[0].first, hits[0].second);
+      emit(Json{{"stage", "result"}, {"removed", node}, {"table", nxr::io::task::to_string(hits[0].first)}, {"by", "name"}});
       return 0;
     }
     if (hits.size() > 1) {
       std::string list;
-      for (const auto& h : hits) list += (list.empty() ? "" : ", ") + h.first + " " + h.second;
+      for (const auto& h : hits) list += (list.empty() ? "" : ", ") + std::string(nxr::io::task::to_string(h.first)) + " " + h.second;
       throw Error(code::invalid_argument, node + ": several nodes of " + a.get("--subject") + " have this name (" + list + "); name a store path with --node instead");
     }
     throw Error(code::no_such_row, node + ": no node of " + a.get("--subject") + " by store path or by name");

@@ -101,6 +101,11 @@ struct By {
   Json producer;                                   // null: none
 };
 
+// How many nodes a subject holds, of each class, any status.
+struct NodeCounts {
+  std::int64_t manifolds = 0, fields = 0, operators = 0, selections = 0;
+};
+
 class Unit;
 
 // io's handle to ONE subject in one database. Cheap to copy; the writer or package it was made from must outlive it.
@@ -137,6 +142,14 @@ class Subject {
   std::string node_path(const std::string& manifold_id, const std::string& name) const;
   std::string atlas_node(const std::string& manifold_id, const std::string& name) const;
 
+  // ---- what the command line looks up by name
+  std::optional<Node> by_id_or_name(Cls, const std::string& key) const;   // the complete node with that id or that name (an id match first)
+  std::optional<std::string> line_named(const std::string& name) const;   // the id of the manifold of type line with that name (any status)
+  // the time lines a complete recording lies on (the line factors of its product manifold): every recording's, first seen first; or the named recording's first
+  std::vector<std::string> recording_time_lines() const;
+  std::optional<std::string> recording_time_line(const std::string& recording) const;
+  NodeCounts node_counts() const;
+
   // ---- cache lookup: the complete node whose producer record holds exactly `key` (a selection's: its parameters); with `path`, only that node
   std::optional<Node> cached(Cls, const Json& key, const std::optional<std::string>& path = std::nullopt) const;
 
@@ -146,6 +159,10 @@ class Subject {
   std::vector<std::string> measured_selections(const std::string& of_field_id, const std::string& measure) const;
   bool has_measures(const std::string& selection_id, const std::string& of_field_id) const;   // any measure of that field on the selection
   bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt) const;
+
+  // ---- read measurements: io's read-time query (nxr/io/measures.h, query_measurements): a stored measure as stored, a derived one from its ingredients, a pyramid's
+  // array-backed measurement rolled up at read to the levels `q` names (that needs the subject's store: a Subject made from a writer)
+  Json read_measurements(const Json& q) const;
 
   // ---- commit a result as ONE unit: everything written inside it (nodes and arrays through the subject's writer, measurements, parameters) is stored together or not at all.
   //   auto u = subject.unit(By{"nxr-neuro tiles"});   // opens it
