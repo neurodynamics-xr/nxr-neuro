@@ -20,11 +20,9 @@ version: 1
 description: the dyadic equal-area tiles of a surface as one grid with closed-form levels, from a stated finest tile (subject, group tree, or transfer onto the group tree)
 scope: subject
 
+# (rule transfer reads the subject's registered sphere `<surface>_sphere` and the default subject's group tree itself, through the run's bound subject)
 inputs:
   surface:  {manifold: surface, where: {name: $surface}, hint: "name the surface (--surface)"}
-  spheres:  {field: registered sphere, where: {name: "{surface}_sphere"}, required: false, hint: "rule transfer: the subject's registered sphere (`<surface>_sphere`), beside the template's"}
-  template: {selection: set, manifold: surface.manifold.0, where: {name: "{surface} tiles", subject: "@default_subject"}, required: false, hint: "rule transfer: the default subject's group tree"}
-  frames:   {field: canonical frames, where: {name: "{surface}_canonical_frames"}, required: false}
 
 parameters:
   surface: {default: null, meaning: "the surface whose tiles are made, by name", unit: "-"}
@@ -36,7 +34,7 @@ parameters:
 
 steps:
   before:
-    - {node: select.dyadic_surface, in: {surface: surface, spheres: spheres, template: template, frames: frames}, with: {rule: $rule, finest: $finest, resolution: $resolution, atlas_finest: $atlas_finest, frame_rate: $frame_rate}, out: grid}
+    - {node: select.dyadic_surface, in: {surface: surface}, with: {rule: $rule, finest: $finest, resolution: $resolution, atlas_finest: $atlas_finest, frame_rate: $frame_rate}, out: grid}
 
 outputs:
   grid: {kind: selection, type: grid, on: surface.manifold.0, name: "{surface} tiles"}

@@ -15,6 +15,8 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "nxr/io/bundle.h"
+#include "nxr/io/measurement_query.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/bst/entities.h"
@@ -118,8 +120,12 @@ int main() {
   struct PhaseGradientOptions { std::string cross_spectrum, signal = "normal", name; std::optional<int> depth; };   // depth: the grid level, stated to the definition as `finest: parts 2^depth`
   struct PhaseGradientResult { bool hit = false; };
   auto phasegradient_compute = [&](DatasetWriter& d, SubjectWriter& s, const PhaseGradientOptions& o) {
-    Json set = Json{{"cross_spectrum", o.cross_spectrum}, {"signal", o.signal}};
-    if (!o.name.empty()) set["name"] = o.name;
+    // the cross-spectrum is one statistic, band x channel x channel: its old per-band name `<stem>_<band>` is the statistic `<stem>` and the band
+    std::string cs = o.cross_spectrum;
+    Json set = Json{{"signal", o.signal}, {"kernel", "free"}};
+    if (cs.size() > 6 && cs.compare(cs.size() - 6, 6, "_alpha") == 0) { cs.resize(cs.size() - 6); set["band"] = "alpha"; }
+    set["cross_spectrum"] = cs;
+    set["name"] = !o.name.empty() ? o.name + "_alpha" : cs.substr(0, cs.size() - std::string("_crossspectrum").size()) + "_free_phasegradient_alpha";
     if (o.depth) set["finest"] = "parts " + std::to_string(1 << *o.depth);
     const auto runs = nxrtest::run_definition(d, s, "phasegradient", set);
     PhaseGradientResult r;
@@ -131,13 +137,11 @@ int main() {
   auto code_of = [&](auto f) { try { f(); } catch (const Error& e) { return e.code(); } return std::string(); };
   CHECK(!code_of([&] { phasegradient_compute(ds, sub, po); }).empty());            // no such cross-spectrum
   for (const char* r : {"travel", "stand"}) {
-    CrossSpectrumOptions o;
-    o.recording = r; o.chunks = "all"; o.channels_of = "free"; o.bands = {{"alpha", 8, 12}};
-    crossspectrum_compute(ds, sub, o);
+    nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", r}, {"channels_of", "free"}, {"bands", Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}})}});
   }
   CHECK(code_of([&] { phasegradient_compute(ds, sub, po); }) == "invalid_argument");   // no canonical frames yet
   nxrtest::run_definition(ds, sub, "surface_frames", Json{{"surface", "cortex"}});
-  nxrtest::make_tiles(ds, sub);
+  nxrtest::make_tiles(ds, sub, "", std::string("cortex"));
   const PhaseGradientResult pr = phasegradient_compute(ds, sub, po);
   CHECK(!pr.hit);
   PhaseGradientOptions ps = po; ps.cross_spectrum = "stand_crossspectrum_alpha";
@@ -153,16 +157,26 @@ int main() {
     CHECK(!any);
   }
   const auto fld = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "travel_free_phasegradient_alpha", .kind = "phase gradient", .any_status = true});
-  CHECK(fld && !fld->path);
+  {   // no array of its own (its values are its measurements, stored beside it under its path)
+    bool own_array = false;
+    if (fld && fld->path) { try { ArrayReader::open(sub.store(), *fld->path); own_array = true; } catch (const std::exception&) {} }
+    CHECK(fld && !own_array);
+  }
   const std::string fid = fld->id;
   const Json fpj = fld->producer;
   CHECK_EQ(fpj["studio"]["type"].get<std::string>(), std::string("complex"));   // a tangent vector a vertex: the Studio reads the vector3 as complex
-  CHECK(fpj["time"]["axis"] == "none" && fpj["leaves"]["count"].get<int>() > 8);
+  CHECK(fpj["leaves"]["count"].get<int>() > 8);   // (the producer no longer records a time axis "none": a band has no frames in it)
   const nxr::io::testing::Probe probe(sub);
   const auto first_measured = probe.rows("selection_measurement", {{"of_field_id", V(fid)}});
   const auto part = first_measured.empty() ? std::optional<nxr::io::task::Node>() : nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, text(first_measured.front(), "selection_id"));
-  CHECK(part && part->params.contains("atlas"));
-  const int L = static_cast<int>(*part->n_members), D = part->params["atlas"]["level"].get<int>();
+  // the measurements are over the grid (the ladder `cortex tiles`) at ONE level, stored as an array [rows x members]: its members are that level's tiles (slots << level)
+  CHECK(part && part->type == "ladder");
+  const std::int64_t slots = part->params["grid"].value("slots", std::int64_t(1)), depth = part->params["grid"]["depth"].get<std::int64_t>();
+  const nxr::io::MeasurementValues stored_ph = nxr::io::query::rolled_values(sub, part->id, fid, std::nullopt, std::nullopt, "phase_power", nxr::io::query::RollUp{});
+  const int L = static_cast<int>(stored_ph.members);
+  int D = 0;
+  while ((slots << D) < L) ++D;
+  CHECK((slots << D) == L);
   const auto kinds = probe.rows("selection_measurement", {{"of_field_id", V(fid)}}, "measure");
   CHECK(kinds.size() == 5);
 
@@ -195,11 +209,17 @@ int main() {
   const auto jf = nxr::meeg::phaseCurrentInFrames(sv.phase, sf.e1, sf.e2);
   nxr::ladder::Mesh mesh; mesh.n = N; mesh.positions = S.vertices; mesh.faces = S.faces;
   const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
-  const std::vector<std::int32_t> codes = read_field_at<std::int32_t>(sub, *part->array_path);
+  // the tile of every vertex at level D: the finest level's member of the vertex, shifted
+  std::vector<std::int32_t> codes;
+  {
+    const auto levels = nxr::io::task::Subject::of(sub).members(*part);
+    CHECK(static_cast<std::int64_t>(levels.size()) == depth + 1);
+    for (const std::int32_t c : nxr::io::task::Subject::of(sub).element_members(levels.back().id).member_of) codes.push_back(c < 0 ? c : static_cast<std::int32_t>(c >> (depth - D)));
+  }
   auto ask = [&](const char* measure, int level, const std::string& field) {
-    std::vector<double> out(static_cast<size_t>(level < 0 ? 1 : (L >> (D - level))), std::nan(""));
-    for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", part->id}, {"measure", measure}, {"ofFieldId", field}, {"spaceLevel", level}})) out[r["code"].get<size_t>()] = r["value"].get<double>();
-    return out;
+    nxr::io::query::RollUp roll;                                           // coarser by D - level (the closed-form hierarchy); the whole for a negative level
+    if (level < 0) roll.whole = true; else roll.shift = D - level;
+    return nxr::io::query::rolled_values(sub, part->id, field, std::nullopt, std::nullopt, measure, roll).values;
   };
   // (1) the leaf sums are the vertex sums, weighted by vertex area, grouped by leaf
   double worst = 0;
@@ -250,16 +270,15 @@ int main() {
   {
     const int k = D - 1;
     PhaseGradientOptions pk = po; pk.depth = k; pk.name = "travel_free_k";
-    phasegradient_compute(ds, sub, pk);
+    phasegradient_compute(ds, sub, pk);   // (finest "parts 2^k": a run at the coarser level)
     const auto fk = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "travel_free_k_alpha", .any_status = true});
-    const auto first_k = probe.rows("selection_measurement", {{"of_field_id", V(fk->id)}});
-    const auto partk = first_k.empty() ? std::optional<nxr::io::task::Node>() : nxr::io::task::Subject::of(sub).by_id(nxr::io::task::Cls::selection, text(first_k.front(), "selection_id"));
-    CHECK(partk && partk->n_members == (L >> (D - k)));
+    const auto partk = part;   // the same grid: the coarser run's members are that level's tiles
+    const nxr::io::MeasurementValues stored_k = nxr::io::query::rolled_values(sub, partk->id, fk->id, std::nullopt, std::nullopt, "phase_power", nxr::io::query::RollUp{});
+    CHECK(stored_k.members == (L >> (D - k)));
     double wr = 0, wd = 0;
     for (const char* m : {"phase_power", "phase_gradient_power", "phase_current_1", "phase_current_2", "phase_current_magnitude", "phase_gradient_magnitude", "travelling_index", "phase_coherence"}) {
       const auto rolled = ask(m, k, fid);
-      std::vector<double> direct(rolled.size(), std::nan(""));
-      for (const Json& r : query_measurements(sub.db(), sub.store(), Json{{"selectionId", partk->id}, {"measure", m}, {"ofFieldId", fk->id}, {"spaceLevel", k}})) direct[r["code"].get<size_t>()] = r["value"].get<double>();
+      const std::vector<double> direct = nxr::io::query::rolled_values(sub, partk->id, fk->id, std::nullopt, std::nullopt, m, nxr::io::query::RollUp{}).values;
       for (size_t i = 0; i < rolled.size(); ++i) {
         if (!std::isfinite(rolled[i]) && !std::isfinite(direct[i])) continue;
         wr = std::max(wr, std::abs(rolled[i] - direct[i]) / (std::abs(direct[i]) + 1e-12));

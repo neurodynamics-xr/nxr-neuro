@@ -869,8 +869,9 @@ ng::NodeSpec phase_gradient() {
     }
     std::vector<std::int32_t> codes;
     for (const double c : LA.data) codes.push_back(static_cast<std::int32_t>(c));
-    if (static_cast<std::int64_t>(codes.size()) != N) ng::refuse("meeg.phase_gradient: the leaves are not a partition of the surface's vertices");
+    if (static_cast<std::int64_t>(codes.size()) != N) ng::refuse("meeg.phase_gradient: the leaves are not a partition of the surface's vertices (" + std::to_string(codes.size()) + " codes for " + std::to_string(N) + " vertices)");
     Json finest_snapped = nullptr;
+    int at_level = LA.meta.value("depth", -1);                              // the level of the grid the sums are at (the finest, or the one `finest` resolves to)
     int L = LA.meta.contains("n_members") ? LA.meta["n_members"].get<int>() : (codes.empty() ? 0 : *std::max_element(codes.begin(), codes.end()) + 1);
     if (pr.finest.is_string()) {
       // `finest` is a QUANTITY resolved on the grid's measured level dictionary (compute's level_of_*, via the one resolver); the leaves are that level's tiles: the finest codes shifted (closed form)
@@ -889,6 +890,7 @@ ng::NodeSpec phase_gradient() {
       const int level = nxr::pipelines::graph::level_of_quantity(grid, pr.finest, unit, "meeg.phase_gradient", finest_snapped);
       if (level < 0 || level > depth) ng::refuse("meeg.phase_gradient: finest " + pr.finest.dump() + " is level " + std::to_string(level) + "; the grid has levels 0 .. " + std::to_string(depth));
       for (auto& c : codes) if (c >= 0) c >>= (depth - level);
+      at_level = level;
       const std::int64_t slots = LA.meta.value("slots", std::int64_t(1));
       L = static_cast<int>(slots << level);
     }
@@ -905,7 +907,7 @@ ng::NodeSpec phase_gradient() {
       req.measures = {"sum"};
       req.weighting = nxr::measurement::Weighting::given;
       for (std::size_t c = 0; c < cols.size(); ++c) {
-        nxr::measurement::Ingredients ing;
+        nxr::measurement::Ingredients ing(1, L);
         nxr::measurement::reduce(ing, cols[c].data(), 1, static_cast<std::int64_t>(codes.size()), leaves, wv.data(), req);   // one row (the sums), the vertices the elements
         for (int l = 0; l < L; ++l) Mz.data[static_cast<std::size_t>(l) * cols.size() + c] = nxr::measurement::value(ing, 0, l, "sum");
       }
@@ -917,6 +919,7 @@ ng::NodeSpec phase_gradient() {
                                                          Json{{"measure", "phase_current_1"}, {"unit", "rad/m x power"}}, Json{{"measure", "phase_current_2"}, {"unit", "rad/m x power"}},
                                                          Json{{"measure", "phase_current_magnitude"}, {"unit", "rad/m x power"}}})},
                                {"band", Json{{"name", C.name}, {"lo_hz", C.lo}, {"hi_hz", C.hi}}}};
+    if (at_level >= 0) Mz.meta["describe"]["level"] = at_level;             // the rows are one LEVEL of the grid: its members are that level's tiles
     ng::Array Fd;
     Fd.meta["describe"] = Json{{"no_array", true}, {"value_type", "vector3"},
                                {"description", "the phase gradient of the " + pr.signal + " current by " + KA.meta.value("name", std::string()) + " \xe2\x80\x94 " + C.name +

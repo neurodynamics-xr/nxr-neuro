@@ -714,14 +714,17 @@ std::int64_t Unit::measurements(const MeasurementOut& m) {
   if (m.level) attrs["level"] = *m.level;
   for (const auto& x : m.measures) {
     const std::string path = m.path + "/" + x.measure;
-    const ArrayView v = view_of(x.values, "measurement " + x.measure);
+    ArrayView v = view_of(x.values, "measurement " + x.measure);
+    // a measurement array is [rows x members x components] (the reader's layout, spec 6.1): a node's [members] or [rows x members] values are one component of it
+    if (v.shape.size() == 1) v.shape = {1, v.shape[0], 1};
+    else if (v.shape.size() == 2) v.shape = {v.shape[0], v.shape[1], 1};
     const ArrayMeta laid = sub.write_array(path, v);
     if (!attrs.empty()) {   // the array describes its own axes: laid out again with them, then filled (the same bytes)
       layout_array(sub.store(), path, laid, jdump(attrs));
       populate_array(sub.store(), path, v);
     }
     Cols c;
-    c.set("measure", x.measure).set("array_path", path).set("unit", x.unit).set("computed_by", by_.tool);
+    c.set("measure", x.measure).set("array_path", path).set("component", std::int64_t(0)).set("unit", x.unit).set("computed_by", by_.tool);
     if (!m.of_field_id.empty()) c.set("of_field_id", m.of_field_id);        // none: the members' own (a size)
     if (m.of_statistic_id) { c.set("of_statistic_id", *m.of_statistic_id); c.set("of_index", m.of_index.value_or(0)); }
     if (m.within_selection_id) { c.set("within_selection_id", *m.within_selection_id); if (m.within_code) c.set("within_code", *m.within_code); }

@@ -862,10 +862,16 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       stored.push_back(Json{{"output", o}, {"kind", "recording"}, {"name", text(*row, "name")}, {"id", text(*row, "id")}});
       continue;
     }
-    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of") && P.found.count(ospec["of"].get<std::string>()) && P.found.count(ospec["over"].get<std::string>()) &&
-        P.found.at(ospec["of"].get<std::string>()).row && P.found.at(ospec["over"].get<std::string>()).row) {
-      // a declared measurement of a FOUND field over a found selection takes no node: it is a hit when every row of the pair was made by this very run (same key)
-      const std::string sel = text(*P.found.at(ospec["over"].get<std::string>()).row, "id"), fld = text(*P.found.at(ospec["of"].get<std::string>()).row, "id");
+    // the field a declared measurement is of: a found one, or one of this run's own outputs stored just before (its id in `stored`)
+    std::string of_id;
+    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of")) {
+      const std::string of = ospec["of"].get<std::string>();
+      if (P.found.count(of) && P.found.at(of).row) of_id = text(*P.found.at(of).row, "id");
+      else for (const auto& e : stored) if (e.value("output", std::string()) == of && e.contains("id")) of_id = e["id"].get<std::string>();
+    }
+    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of") && !of_id.empty() && P.found.count(ospec["over"].get<std::string>()) && P.found.at(ospec["over"].get<std::string>()).row) {
+      // a declared measurement of a FOUND field (or of the run's own stored field) over a found selection takes no node: it is a hit when every row of the pair was made by this very run (same key)
+      const std::string sel = text(*P.found.at(ospec["over"].get<std::string>()).row, "id"), fld = of_id;
       const auto by = nxr::io::selection::computed_by_over_field(sub.db(), sel, fld);
       if (by.size() != 1 || by[0] != made_by(key)) { hit = false; break; }
       stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}});
@@ -990,6 +996,26 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         if (!nxr::io::is_null(row, "n_members")) a.meta["n_members"] = nxr::io::integer(row, "n_members");
         a.meta["member_of_id"] = nxr::io::opt_text(row, "member_of_id").value_or("");
         a.meta["params"] = Json::parse(nxr::io::opt_text(row, "params_json").value_or("{}"), nullptr, false);
+        if (text(row, "type") == "ladder" || text(row, "type") == "grid") {   // a grid (dyadic tiles): the FINEST level's tile of every vertex, and the level dictionary (each level's measured diameter and band), as the nodes that read leaves expect
+          const auto levels = bound.level_members(text(row, "id"));
+          if (!levels.empty()) {
+            Json lv = Json::array();
+            for (const auto& m : levels) {
+              const Json lj = Json::parse(nxr::io::opt_text(m, "params_json").value_or("{}"), nullptr, false);
+              Json e = Json::object();
+              if (lj.is_object() && lj.contains("diameter")) e["diameter"] = lj["diameter"];
+              if (lj.is_object() && lj.contains("lambda_min")) { e["lambda_min"] = lj["lambda_min"]; e["lambda_max"] = lj["lambda_max"]; }
+              lv.push_back(e);
+            }
+            const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub.db(), sub.store(), text(levels.back(), "id"));
+            for (const std::int32_t c : em.member_of) a.data.push_back(c);
+            a.rows = static_cast<std::int64_t>(a.data.size()); a.cols = 1;
+            a.meta["levels"] = lv;
+            a.meta["depth"] = static_cast<int>(levels.size()) - 1;
+            const Json g = a.meta["params"].is_object() && a.meta["params"].contains("grid") ? a.meta["params"]["grid"] : Json::object();
+            a.meta["slots"] = g.is_object() ? g.value("slots", std::int64_t(1)) : std::int64_t(1);
+          }
+        }
         constants[name] = std::move(a);
       } else if (v.cls == "selection" && !nxr::io::is_null(row, "array_path")) {   // a partition or a pick: its codes, its member count and parameters
         nxr::graph::Array a;
