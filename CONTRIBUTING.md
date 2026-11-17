@@ -35,24 +35,35 @@ accepted. `docs/reference.md` describes every verb and method, `docs/specs/` the
    - A method's limits go into `producer_json.warnings` and the method's section of `docs/reference.md` (e.g. optical flow: kinematic, aperture-limited, per frame).
    - Do not claim what the measurement cannot show.
 
-## Adding or changing a pipeline verb (all steps, one PR; inside the paramount architecture)
+## Adding a node or a pipeline (inside the paramount architecture and its decided structure)
+
+Every pipeline is a YAML definition of registered nodes (`ARCHITECTURE.md`, "Decided structure"). Do not write a new hand-wired `<x>_compute` C++
+pipeline, and do not extend an existing one: it is being converted into a definition.
 
 0. **First, the graph:** write the pipeline as its graph (nodes, typed ports, the inputs it is handed, the outputs it gives back), place every piece in
    its part (loading · preparation · graph · readback), and check it against the Studio's chain. If any piece does not fit, stop and ask the maintainers.
-1. The maths goes in `compute/` (or `meeg/`) as pure node functions (matrices in, matrices out), with a unit test in `compute/test/test_<topic>.cpp`.
-2. The pipeline goes in `pipelines/include/nxr/pipelines/<area>.h` and `src/`:
-   - an `<X>Options` struct with one comment per field giving the meaning, default and unit
-   - a `<x>_compute(ds, sub, opt, progress)` function that ONLY prepares the inputs (loading through io, selection, type checks), builds the
-     graph, runs it through the executor, and hands the outputs to io: no maths, no loops over samples or chunks
-   - stored names and kinds written the way the importer or nxr stores the same thing, so a reader tells them apart only by the producer
-3. The command goes in `cli/`:
-   - parsing, plus the full option list in the comment at the top of the file
-   - one line in `kUsage` (`cli/nxr_neuro.cpp`) and its dispatch
-4. Add a pipeline test in `pipelines/test/` and register it in `pipelines/CMakeLists.txt`.
-5. Update `docs/reference.md`: the command list, and a section for the method (the why, the default and its reference, what is stored, what it cannot resolve).
-   **A verb is not done until `docs/reference.md` lists it.**
-6. Larger designs first get a spec in `docs/specs/YYYY-MM-DD-<topic>.md`. A read-only comparison against the references goes in
+1. **The maths** goes in `compute/` (or `meeg/`) as pure functions (matrices in, matrices out), with a unit test in `compute/test/test_<topic>.cpp`.
+2. **The node:** register each function as a node with its typed ports, its parameters (one comment each: meaning, default, unit) and its traits
+   (time behaviour, precision). It takes arrays and parameters only: no database, no file, no lookup of its own inputs (those are bound by the runner).
+   A node made of other nodes is a composite (a graph wrapped as a node).
+3. **The pipeline:** a definition in `pipelines/definitions/<name>.yaml`: inputs (found by kind and relation, never by path), parameters (meaning,
+   default, unit), steps wired port to port, outputs. Stored names and kinds follow the way the importer or nxr stores the same thing.
+4. **Data access:** only through io's task API (find, open, commit, cache, measurements). No SQL, no `database.h`, no `nxr/io/records/` header outside
+   io; the test `layering_sql_only_in_io` fails otherwise.
+5. **The command line and the bindings** need no new code for a pipeline (`run <name>`) or a node (`compute <node>`): help and the bindings' functions
+   come from the registry and the definition. A binding or the command line never holds maths, SQL or logic.
+6. **Tests:** the node's unit test; the pipeline on synthetic data (its result independent of the chunk size); goldens against the method's reference.
+7. **Docs:** `docs/reference.md`: the method's section (the why, the default and its reference, what is stored, what it cannot resolve).
+   **A node or pipeline is not done until `docs/reference.md` lists it.**
+8. Larger designs first get a spec in `docs/specs/YYYY-MM-DD-<topic>.md`. A read-only comparison against the references goes in
    `docs/audits/YYYY-MM-DD-<topic>.md`.
+
+## Adding a file format
+
+Pure readers and writers go in `io/formats/` (bytes in, objects out; no store, no database; the layering check enforces it). Recordings are read in
+blocks by sample range, so the chunk service can stream them. Parse every header field; keep the file's units and convert to SI. Goldens are synthetic
+files written by the reference (MNE-Python, nibabel), each next to its generator; never a real recording. A new dependency needs a compatible licence,
+an entry in `THIRD_PARTY_NOTICES.md` and the maintainers' OK.
 
 ## Build and test
 
