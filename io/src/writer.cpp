@@ -141,19 +141,21 @@ const Band kBands[] = {{1, "delta", "δ", 1, 4}, {2, "theta", "θ", 4, 8}, {3, "
 
 // The app-wide `frequency bands` dictionary (D109) — each dataset carries its own copy (D140); `bands.ts`.
 std::string ensure_band_dictionary(Database& db) {
-  if (const auto have = db.one("SELECT id FROM dictionary WHERE scope = 'app' AND name = ?", {std::string(kBandDictionary)})) return text(*have, "id");
-  const std::string did = uuid7();
-  db.tx([&] {
-    db.insert("dictionary", {{"id", did}, {"name", std::string(kBandDictionary)}, {"scope", "app"},
-                             {"description", "the named frequency bands (D109): each entry a band's edges in Hz — a labelling of the frequency space, looked up on any Line"}});
-    int i = 0;
-    for (const auto& b : kBands) {
-      const std::string label = std::string(b.sym) + " " + std::to_string(b.lo) + "–" + std::to_string(b.hi) + " Hz";
-      db.insert("dictionary_entry", {{"dictionary_id", did}, {"code", V(b.code)}, {"name", std::string(b.name)}, {"measurement_unit", "Hz"}, {"ordinal", V(i++)},
-                                     {"attributes_json", jdump(Json{{"lo_hz", b.lo}, {"hi_hz", b.hi}, {"symbol", b.sym}, {"label", label}, {"coordinate_system", "hz"}})}});
-    }
-  });
-  return did;
+  selection::AppLookup spec;
+  spec.name = kBandDictionary;
+  spec.description = "the named frequency bands (D109): each entry a band's edges in Hz — a labelling of the frequency space, looked up on any Line";
+  int i = 0;
+  for (const auto& b : kBands) {
+    selection::AppEntry e;
+    e.code = b.code;
+    e.name = b.name;
+    e.measurement_unit = "Hz";
+    e.ordinal = i++;
+    const std::string label = std::string(b.sym) + " " + std::to_string(b.lo) + "–" + std::to_string(b.hi) + " Hz";
+    e.attributes = Json{{"lo_hz", b.lo}, {"hi_hz", b.hi}, {"symbol", b.sym}, {"label", label}, {"coordinate_system", "hz"}};
+    spec.entries.push_back(std::move(e));
+  }
+  return selection::ensure_app_lookup(db, spec);
 }
 
 namespace {

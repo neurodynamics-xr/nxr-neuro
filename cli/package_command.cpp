@@ -127,6 +127,12 @@ int package_main(const std::vector<std::string>& argv) {
     o.dry_run = a.flag.count("--dry-run") > 0;
     o.on_stage = [](const std::string& stage, const std::string& subject) { emit(Json{{"stage", stage}, {"subject", subject}}); };
     emit(Json{{"stage", "result"}, {"report", split_dataset(a.get("--dataset"), o)}});
+  } else if (action == "migrate-selections") {
+    const Args a = parse(prog, rest, {"--dataset"}, {"--dry-run"}, {"--dataset"});
+    SelectionStorageOptions o;
+    o.dry_run = a.flag.count("--dry-run") > 0;
+    o.on_stage = [](const std::string& stage, const std::string& subject) { emit(Json{{"stage", stage}, {"subject", subject}}); };
+    emit(Json{{"stage", "result"}, {"report", migrate_selection_storage(a.get("--dataset"), o)}});
   } else if (action == "join") {
     const Args a = parse(prog, rest, {"--dataset"}, {}, {"--dataset"});
     emit(Json{{"stage", "result"}, {"report", join_dataset(a.get("--dataset"))}});

@@ -111,6 +111,7 @@ std::optional<Json> subject_bundle(const Database& db, const std::string& sid) {
   for (const Row& g : f_geometries) geom_ids.push_back(str(g, "id").value_or(""));
   const bool has_acq = !q("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'acquisition'").empty();
   const bool has_statistic = !q("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'statistic'").empty();
+  const bool has_selection_factor = !q("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'selection_factor'").empty();   // a database at 50 or 51 has none
   Json b = Json::object();
   b["related_subjects"] = related;
   std::optional<Row> datastore;
@@ -133,6 +134,7 @@ std::optional<Json> subject_bundle(const Database& db, const std::string& sid) {
   b["selections"] = rows_json(selections);
   b["extents"] = rows_json(selection::subject_extent_rows(db, sid));
   b["spans"] = rows_json(selection::subject_span_rows(db, sid));
+  b["selection_factors"] = rows_json(has_selection_factor ? selection::subject_factor_rows(db, sid) : std::vector<Row>());
   b["fields"] = rows_json(fields);
   b["operators"] = rows_json(operators);
   // the subject's STATISTICS (a database from before the statistic table has none)

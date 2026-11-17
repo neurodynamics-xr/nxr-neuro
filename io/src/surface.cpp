@@ -9,6 +9,7 @@
 
 #include "nxr/io/layout.h"
 #include "nxr/io/surface.h"
+#include "nxr/io/selection_store.h"
 
 namespace nxr::io {
 
@@ -244,14 +245,15 @@ SurfaceInfo add_surface(SubjectWriter& sub, const SurfaceOptions& opt, const std
     const std::string set_path = path + "_atlases";
     std::string families;
     for (std::size_t k = 0; k < opt.atlases.size(); ++k) families += (k ? ", " : "") + opt.atlases[k].family;
-    SelectionSpec set;
-    set.name = set_path.substr(set_path.rfind('/') + 1);
-    set.path = set_path;
-    set.type = "set";
-    set.manifold_id = info.id;
-    set.cols.set("n_members", static_cast<std::int64_t>(opt.atlases.size()))
-        .set("description", opt.atlases_description ? *opt.atlases_description : "the cortical parcellations \xe2\x80\x94 " + families);
-    const std::string set_id = sub.selection(std::move(set));
+    selection::Description family;
+    family.type = selection::Type::set;
+    selection::Placement sp;
+    sp.name = set_path.substr(set_path.rfind('/') + 1);
+    sp.path = set_path;
+    sp.manifold_id = info.id;
+    sp.n_members = static_cast<std::int64_t>(opt.atlases.size());
+    sp.description = opt.atlases_description ? *opt.atlases_description : "the cortical parcellations \xe2\x80\x94 " + families;
+    const std::string set_id = selection::save(sub, family, sp).id;
     for (std::size_t k = 0; k < opt.atlases.size(); ++k) {
       const AtlasMember& a = opt.atlases[k];
       DictionarySpec d;
@@ -265,15 +267,15 @@ SurfaceInfo add_surface(SubjectWriter& sub, const SurfaceOptions& opt, const std
         const auto lvl = static_cast<std::size_t>(a.codes[i]);
         codes[i] = dr.codes.empty() ? a.codes[i] : static_cast<std::int32_t>(dr.codes.at(lvl));
       }
-      SelectionSpec ms;
-      ms.name = a.family;
-      ms.path = set_path + "/" + a.family;
-      ms.type = "set";
-      ms.manifold_id = info.id;
-      ms.data = view(codes, {static_cast<std::int64_t>(codes.size())});
-      ms.cols.set("dictionary_id", dr.id).set("n_elements", static_cast<std::int64_t>(codes.size()))
-          .set("description", a.family + " \xe2\x80\x94 one level per element").set("member_of_id", set_id).set("member_ordinal", static_cast<std::int64_t>(k));
-      sub.selection(std::move(ms));
+      // an IRREGULAR family (an atlas: regions of arbitrary shape, no levels): a member number per vertex, each member's label (the app dictionary's code) beside it
+      selection::Placement mp;
+      mp.name = a.family;
+      mp.path = set_path + "/" + a.family;
+      mp.manifold_id = info.id;
+      mp.dictionary_id = dr.id;
+      mp.description = a.family + " \xe2\x80\x94 one level per element";
+      mp.cols.set("member_of_id", set_id).set("member_ordinal", static_cast<std::int64_t>(k));
+      selection::save(sub, selection::set_from_labels(codes), mp);
     }
   }
 

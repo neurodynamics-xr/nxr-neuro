@@ -1,3 +1,4 @@
+#include "nxr/io/selection_store.h"
 // nxr-pipelines — the runner (runner.h): nxr's nxr/pipelines/runner.py `plan` and the planning half of `run`. The execution (before · the chunk loop · after
 // · store) is the next PR of the spec's order.
 #include "nxr/pipelines/runner.h"
@@ -501,12 +502,19 @@ Json store_labelling(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
     dsp.entries->push_back(e);
   }
   const nxr::io::DictionaryResult dr = sub.dictionary(dsp);
-  nxr::io::SelectionSpec ss;
-  ss.name = name; ss.path = path; ss.type = "set"; ss.manifold_id = v.manifolds[0]; ss.data = nxr::io::view(codes, {a.rows, a.cols});
-  ss.cols.set("dictionary_id", dr.id).set("cell", "0,1").set("label", std::to_string(events) + " events")
-      .set("description", "the space x time extent of each global burst: code = the event's ordinal, -1 for a cell in none (pipeline " + key.pipeline + "); the cells are [spatial tile x time tile]")
-      .json("params_json", params);
-  const std::string id = sub.selection(std::move(ss));
+  // THE BURSTS ARE AN IRREGULAR FAMILY on the product manifold of space tiles x time tiles (they overlap in nothing here, vary in extent, have no levels): a member per cell, the
+  // event's ordinal its number (-1: a cell in none), the cells numbered row-major as the field's array is (time fastest); not a product of two grids
+  nxr::io::selection::Description events_set;
+  events_set.type = nxr::io::selection::Type::set;
+  events_set.member_of.assign(codes.begin(), codes.end());
+  events_set.member_codes.resize(static_cast<std::size_t>(events));
+  for (std::int64_t k = 0; k < events; ++k) events_set.member_codes[static_cast<std::size_t>(k)] = k;
+  nxr::io::selection::Placement at;
+  at.name = name; at.path = path; at.manifold_id = v.manifolds[0]; at.dictionary_id = dr.id; at.cell = "0,1";
+  at.label = std::to_string(events) + " events";
+  at.description = "the space x time extent of each global burst: member = the event's ordinal, -1 for a cell in none (pipeline " + key.pipeline + "); the cells are [spatial tile x time tile], row-major, " + std::to_string(a.rows) + " x " + std::to_string(a.cols);
+  at.params = params;
+  const std::string id = nxr::io::selection::save(sub, events_set, at).id;
   return Json{{"output", o}, {"selection", name}, {"path", path}, {"id", id}, {"events", events}};
 }
 // A STATISTIC OUTPUT (summarize, spec docs/specs/2026-11-13-statistic-summaries.md): the summaries of a measurement of the run over its partition's members,

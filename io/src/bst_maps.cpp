@@ -304,8 +304,19 @@ std::optional<std::tuple<std::vector<std::string>, std::vector<std::int64_t>, st
 
 int region_measurements(SubjectWriter& sub, const std::string& selection_id, const std::vector<RegionValue>& rows, const std::string& measure, const std::optional<std::string>& unit,
                         const std::string& computed_by) {
+  // the rows name regions by their atlas label; a member is kept by its number, so the label is looked up in the members' labels (decoding)
+  std::map<std::int64_t, std::int64_t> number;
+  {
+    const std::vector<std::int64_t> labels = nxr::io::selection::member_labels(sub.db(), sub.store(), selection_id);
+    for (std::size_t m = 0; m < labels.size(); ++m) number.emplace(labels[m], static_cast<std::int64_t>(m));
+  }
+  const auto member_of = [&](std::int64_t label) {
+    const auto it = number.find(label);
+    if (it == number.end()) throw nxr::io::Error(code::no_such_row, "region label " + std::to_string(label) + " is no member of the atlas");
+    return it->second;
+  };
   std::vector<nxr::io::selection::MemberValue> values;
-  for (const RegionValue& r : rows) values.push_back({r.code, r.value, r.within_code});
+  for (const RegionValue& r : rows) values.push_back({member_of(r.code), r.value, r.within_code ? std::optional<std::int64_t>(member_of(*r.within_code)) : std::nullopt});
   // a region's value within a region's code: the band key is the atlas itself (within_selection_id = the selection)
   return static_cast<int>(nxr::io::selection::save_member_values(sub, selection_id, measure, values, unit, computed_by, selection_id));
 }

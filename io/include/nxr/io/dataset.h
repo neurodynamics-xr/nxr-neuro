@@ -12,7 +12,7 @@
 
 namespace nxr::io {
 
-constexpr int kSchemaVersion = 51;  // the version this build reads (nxr.io.database.schema_version)
+constexpr int kSchemaVersion = 52;  // the version this build reads (nxr.io.database.schema_version)
 
 class Dataset {
  public:

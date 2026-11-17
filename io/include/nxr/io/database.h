@@ -125,6 +125,10 @@ class Database {
 // ── the canonical zarr.json: the drain (D141's dirty-tracker) ────────────────────────────────────────────────────────
 
 // meta `store_format` of a dataset whose arrays are written as format 51 (additive: user_version unchanged; every array's own zarr.json says which separator it has)
+// meta `selection_storage`: how the dataset's selections are stored. "members": a set per element holds member numbers (+ sibling label and parent arrays, a dictionary of
+// one row per label), a product its factors (selection_store.h, selection_description.h). A dataset without the key holds label arrays and the JSON form of 2026-11-17:
+// `migrate_selection_storage` (migrate.h) converts it; the selection store refuses to read it before.
+constexpr const char* kSelectionStorage = "members";
 constexpr const char* kStoreFormat51 = "51: chunk key separator \".\", arrays over 4 MiB sharded (~64 MiB); both separators are read";
 // Format 52 (/15): each subject's small keys (every zarr.json, every value under 1 MiB) are rows of the subject's small_files.sqlite
 // (io/include/nxr/io/small_file_store.h); the shards over the threshold stay files. Formats 51 and 50 are read and written as before.

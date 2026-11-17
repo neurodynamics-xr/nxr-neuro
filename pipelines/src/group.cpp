@@ -1,3 +1,4 @@
+#include "nxr/io/selection_store.h"
 // nxr-pipelines — the group scope of the measurement pyramid (group.h): the group tree per subject, and the group reduce.
 #include "nxr/pipelines/group.h"
 
@@ -182,7 +183,7 @@ GroupTilesResult group_tiles_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
   const std::string sname = S.name, mid = S.id, gname = sname + "_group_tiles";
   GroupTilesResult res;
-  const auto have = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'set' AND member_of_id IS NULL AND status = 'complete'", {V(sub.id()), V(mid), V(gname)});
+  const auto have = sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'ladder' AND member_of_id IS NULL AND status = 'complete'", {V(sub.id()), V(mid), V(gname)});
   if (have) {
     if (!opt.replace) { res.existed = true; res.info = Json{{"surface", sname}, {"group_tiles", gname}, {"kept", true}}; return res; }
     std::set<std::string> nodes;
@@ -220,27 +221,29 @@ GroupTilesResult group_tiles_compute(DatasetWriter& ds, SubjectWriter& sub, cons
   const std::vector<double> area = lad::vertexAreas(mesh);
   const std::string by = "nxr-neuro pyramid build (group tiles)", producer = internal::producer_string("group tiles");
   sub.compose([&] {
-    SelectionSpec top;
-    top.name = gname; top.type = "set"; top.manifold_id = mid; top.no_elements = true;
-    top.cols.set("n_members", static_cast<std::int64_t>(finest + 1)).set("n_elements", static_cast<std::int64_t>(nV))
-        .set("description", "this subject's vertices on the dataset's GROUP tree (the default subject's tiles, through the registered sphere); member L<k> codes h 2^k + t")
-        .json("params_json", Json{{"tree", "group"}, {"template", text(*tpl, "name")}, {"finest", finest}, {"sphere_match_median", med}, {"sphere_match_max", mx}, {"by", by}, {"producer", producer}});
-    const std::string parent = sub.selection(std::move(top));
+    nxr::io::selection::Placement top;
+    top.name = gname; top.manifold_id = mid;
+    top.dictionary_id = text(*tl, "dictionary_id");
+    top.cols.set("description", "this subject's vertices on the dataset's GROUP tree (the default subject's tiles, through the registered sphere); member L<k> codes h 2^k + t");
+    top.params = Json{{"tree", "group"}, {"template", text(*tpl, "name")}, {"finest", finest}, {"sphere_match_median", med}, {"sphere_match_max", mx}, {"by", by}, {"producer", producer},
+                      {"grid", Json{{"kind", "dyadic"}, {"depth", finest}, {"pieces", truns.size()}}}};   // the hierarchy is a rule (closed form), never parent arrays
+    std::vector<nxr::io::selection::GridLevel> grid;
     for (int l = 0; l <= finest; ++l) {
       const std::vector<std::int32_t>& node = trees[static_cast<std::size_t>(l)].codes;
       const int nodes = trees[static_cast<std::size_t>(l)].nodes(l);
       const std::string name = level_name(sname, l), dir = atlas_node(sub.db(), mid, name);
-      sub.write_array(dir + "/codes", view(node, {static_cast<std::int64_t>(nV)}));
       const std::vector<double> w = lad::tileAreas(node, nodes, area);
       sub.write_array(dir + "/w", view(w, {static_cast<std::int64_t>(nodes)}));
-      SelectionSpec ls;
-      ls.name = name; ls.type = "set"; ls.manifold_id = mid; ls.no_elements = true;
-      ls.cols.set("member_of_id", parent).set("member_ordinal", static_cast<std::int64_t>(l)).set("code", static_cast<std::int64_t>(l)).set("n_elements", static_cast<std::int64_t>(nV)).set("n_members", static_cast<std::int64_t>(nodes))
-          .set("array_path", dir + "/codes").set("dictionary_id", text(tlevels[static_cast<std::size_t>(l)], "dictionary_id"))
-          .set("description", "level " + std::to_string(l) + " of the GROUP tree: the default subject's tile of the nearest vertex on the registered sphere, tile code h 2^" + std::to_string(l) + " + t")
-          .json("params_json", Json{{"tree", "group"}, {"level", l}, {"tiles", nodes}, {"finest", finest}, {"node", dir}, {"areas", dir + "/w"}});
-      sub.selection(std::move(ls));
+      nxr::io::selection::GridLevel g;
+      g.at.name = name; g.at.manifold_id = mid; g.at.dictionary_id = text(tlevels[static_cast<std::size_t>(l)], "dictionary_id");
+      g.at.cols.set("description", "level " + std::to_string(l) + " of the GROUP tree: the default subject's tile of the nearest vertex on the registered sphere, tile code h 2^" + std::to_string(l) + " + t");
+      g.at.params = Json{{"tree", "group"}, {"level", l}, {"tiles", nodes}, {"finest", finest}, {"node", dir}, {"areas", dir + "/w"}};
+      g.array_path = dir + "/codes";
+      g.tile_codes = node;
+      g.tiles = nodes;
+      grid.push_back(std::move(g));
     }
+    nxr::io::selection::save_grid(sub, top, grid);
   });
   res.info = Json{{"surface", sname}, {"group_tiles", gname}, {"template", text(*tpl, "name")}, {"levels", finest + 1}, {"finest", finest}, {"sphere_match_median", med}, {"sphere_match_max", mx}, {"kept", false}};
   return res;
@@ -248,7 +251,7 @@ GroupTilesResult group_tiles_compute(DatasetWriter& ds, SubjectWriter& sub, cons
 
 PyramidLeaves group_leaves(DatasetWriter& ds, SubjectWriter& sub, const SurfaceInput& S, std::optional<int> depth, const std::string& who, const std::function<void(const Json&)>& say) {
   const std::string gname = S.name + "_group_tiles";
-  auto parent_of = [&]() { return sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'set' AND member_of_id IS NULL AND status = 'complete'", {V(sub.id()), V(S.id), V(gname)}); };
+  auto parent_of = [&]() { return sub.db().one("SELECT * FROM selection WHERE subject_id = ? AND manifold_id = ? AND name = ? AND type = 'ladder' AND member_of_id IS NULL AND status = 'complete'", {V(sub.id()), V(S.id), V(gname)}); };
   if (!parent_of()) { GroupTilesOptions go; go.surface = S.name; if (say) say(Json{{"stage", "group tiles"}, {"surface", S.name}, {"made", true}}); group_tiles_compute(ds, sub, go, say); }
   const auto parent = parent_of();
   if (!parent) missing(sub.name() + ": the group tree of " + S.name + " was not stored");
