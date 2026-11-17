@@ -1,0 +1,28 @@
+{
+    "Name": "Synthetic EEG",
+    "BIDSVersion": "1.9.0",
+    "DatasetType": "raw",
+    "License": "CC0",
+    "Authors": [
+        "A. Invented",
+        "B. Imagined"
+    ],
+    "HowToAcknowledge": "Cite nothing: invented",
+    "Funding": [
+        "Invented Fund 1"
+    ],
+    "EthicsApprovals": [
+        "none"
+    ],
+    "ReferencesAndLinks": [
+        "https://example.invalid/ds"
+    ],
+    "DatasetDOI": "doi:10.0000/invented",
+    "GeneratedBy": [
+        {
+            "Name": "MNE-BIDS",
+            "Version": "0.20.0",
+            "CodeURL": "https://mne.tools/mne-bids/"
+        }
+    ]
+}

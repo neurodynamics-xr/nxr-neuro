@@ -1,0 +1,7 @@
+{
+    "CustomKey": 2,
+    "SubjectLevel": true,
+    "Nested": {
+        "a": 9
+    }
+}
