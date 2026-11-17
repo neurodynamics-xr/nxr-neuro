@@ -104,7 +104,7 @@ Execution::Execution(const Checked& checked, const Arrays& constants, const Disp
     if (n.section == Section::before) { run_arrays(i); continue; }
     if (n.section == Section::after) continue;                       // prepared when its inputs exist (finish)
     Arrays consts;
-    for (const auto& [port, name] : n.in) if (!n.in_types.at(port).streamed()) consts[port] = data_.at(name);
+    for (const auto& [port, name] : n.in) if (!n.in_types.at(port).streamed() && n.in_types.at(port).axis != Axis::block) consts[port] = data_.at(name);   // a per-block value comes with each block
     NodeCall p = NodeCall::prepare(n.in_types, consts, n.params, shared_);
     dispatch(*n.spec, p, ctx_);
     prepared_[i] = std::move(p.made);

@@ -783,7 +783,10 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
     if (is_declared(P, o)) {                                                // a declared output: each place it takes holds the same key (a manifold is found or made, never a miss)
       Json one = Json{{"output", o}, {"kind", ospec["kind"]}, {"name", declared_name(P, o)}};
-      for (const auto& [cls, path] : declared_places(P, o, sub)) {
+      const auto places = declared_places(P, o, sub);
+      // an output with no place to look up (a selection on a manifold this run makes, a measurement over it) cannot be shown stored: a miss, never a hit
+      if (places.empty() && ospec["kind"] != "manifold") { hit = false; break; }
+      for (const auto& [cls, path] : places) {
         const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), task::to_string(cls), key, path);
         if (!row) { hit = false; break; }
         if (cls != task::Cls::selection) { one["id"] = text(*row, "id"); one["path"] = path; }

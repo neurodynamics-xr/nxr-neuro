@@ -214,7 +214,10 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
   } else if (k == "operator") {
     out.emplace_back(task::Cls::operator_, nxr::io::safe_name(name));
   } else if (k == "selection") {
-    out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
+    // on a manifold this run makes (a frequency line made with it): it has no place before that manifold is stored, and the store order puts the
+    // manifold first, so it is checked there (a new manifold has no node to collide with)
+    const bool on_made_here = spec.contains("on") && spec["on"].is_string() && P.definition.outputs.contains(spec["on"].get<std::string>());
+    if (!on_made_here) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
   }
   return out;
 }
