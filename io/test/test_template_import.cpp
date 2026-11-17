@@ -489,6 +489,12 @@ int main() {
     for (float d : dist) if (d <= 5.0f) ++within;
     CHECK_EQ(h["ends_within_gate"].get<int>(), within);                        // the operator holds exactly the ends within the gate
     CHECK(within > 0 && within < 6);                                           // and the gate separates some from the others
+    {
+      // the mni -> scs map is a transition operator, and the mni system is defined by it
+      const auto t = *p.db().one("SELECT o.kind, cs.transition FROM operator o JOIN coordinate_system cs ON cs.id = o.from_coordinate_system_id WHERE o.name = 'mni_scs'");
+      CHECK_EQ(text(t, "kind"), std::string("transition"));
+      CHECK_EQ(text(t, "transition"), std::string("operator"));
+    }
     const auto op = *p.db().one("SELECT * FROM operator WHERE name = 'hcp1065_ends'");
     CHECK_EQ(integer(op, "nnz"), static_cast<std::int64_t>(within));
     // a gate between two distances separates exactly those ends; a wide gate takes all
