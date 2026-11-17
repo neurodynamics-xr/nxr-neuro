@@ -167,6 +167,7 @@ set_source_files_properties(src/forms.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contr
 # glue.cpp is a port of the Studio's glue.ts (no FMA in JavaScript): contraction off, so the bridge's positions and the stitch's ties are the Studio's
 set_source_files_properties(src/glue.cpp PROPERTIES COMPILE_OPTIONS "-ffp-contract=off")
 target_link_libraries(nxr_compute PUBLIC
+  nxr_selection
   geometry-central
 )
 # The pinned geometry-central commit (7 hex), read from the submodule at configure time: nxr::manifold::geometryCentralVersion() and the gauge identity
