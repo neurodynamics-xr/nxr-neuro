@@ -37,9 +37,11 @@ ManifoldRef renamed(const ManifoldRef& m, const std::string& prefix) {
 void rename_domain(Domain& d, const std::string& prefix) { for (auto& f : d.factors) f = renamed(f, prefix); }
 
 void require_integer_members(const Array& a, const std::string& name) {
-  for (double v : a.data)
+  for (std::size_t i = 0; i < a.size(); ++i) {
+    const double v = a.at(i);
     if (v != static_cast<double>(static_cast<std::int64_t>(v)) || v < -1)
       refuse("partition '" + name + "' must hold an integer member index per element (-1: none); it holds " + std::to_string(v));
+  }
 }
 
 }  // namespace
@@ -110,7 +112,7 @@ PortType ArrayTyper::type_of(const std::string& name, const Array& a, const Arra
     require_integer_members(a, name);
     t.cls = PortClass::selection;
     t.value = ValueType::integer;
-    t.domain.factors = {factor(name, m.on.empty() ? "" : m.on[0], static_cast<std::int64_t>(a.data.size()), ManifoldKind::points, Role::none, std::nullopt, m)};
+    t.domain.factors = {factor(name, m.on.empty() ? "" : m.on[0], static_cast<std::int64_t>(a.size()), ManifoldKind::points, Role::none, std::nullopt, m)};
     t.sel = SelectionShape{"set", true, name, ""};
     t.quantity = "set";
     return t;

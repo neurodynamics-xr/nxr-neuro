@@ -28,7 +28,8 @@
 #include "nxr/speedspectrum.h"
 #include "nxr/ladder.h"
 #include "nxr/meeg/wave.h"
-#include "nxr/partition.h"
+#include "nxr/measurement/measures.h"
+#include "nxr/measurement/reduce.h"
 #include "nxr/pipelines/spectral_record.h"
 #include "nxr/timebank.h"
 #include "nxr/meeg/inverse.h"
@@ -706,181 +707,8 @@ ng::NodeSpec analytic_bands() {
   return n;
 }
 
-struct TilePrepared {
-  std::vector<std::int32_t> channels;
-  std::vector<std::int64_t> stride;
-  int level = 0;
-  std::int64_t tile = 0;
-  Json bands = Json::array();
-  std::string unit;
-  double sfreq = 0;
-};
-struct TileState {
-  std::int64_t m0 = -1;
-  std::map<std::int64_t, std::vector<Eigen::MatrixXcd>> sum;     // per tile (absolute index on the line), per band
-  std::map<std::int64_t, std::vector<std::int64_t>> count;
-  std::set<std::int64_t> bad;
-  std::int64_t last = -1;                                          // the last sample read + 1
-};
-ng::NodeSpec tile_cross_spectrum() {
-  ng::NodeSpec n;
-  n.name = "analytic.tile_cross_spectrum";
-  n.kind = ng::Kind::accumulate;
-  n.inputs = {{"z", "the analytic signal of each band: bands x channels rows (band-major), complex", false},
-              {"x", "the recording z was made from (its channels' facts name the channels kept)", false},
-              {"channels_of", "the operator whose channels z keeps (as timebank.analytic_bands was given)", true},
-              {"exclude", "the recording's bad segments (spans): a tile touching one is left out when bad_segments is exclude", true}};
-  n.outputs = {{"channels", "the channels covered, in order", false},
-               {"spectrum", "per band and kept tile: the sum of z z^H, band x window x channel x channel (complex)", false},
-               {"windows", "the tiles of the level over the span (closed form); the spectrum's windows are the kept ones", false}};
-  n.parameters = {{"bands", Json::array(), "the bands, as timebank.analytic_bands was given them", "Hz", {}, false},
-                  {"channel_types", Json::array({"MEG", "MEG MAG", "MEG GRAD", "EEG", "SEEG", "ECOG"}), "as timebank.analytic_bands was given them", "-", {}, false},
-                  {"level", Json(), "the tile level: a tile is 2^level samples (0 to 15); null: from window_seconds, else the finest of the bands' constant-Q windows", "level", {}, true},
-                  {"window_seconds", Json(), "the tile's length in seconds (snapped to a level); null: see level", "s", {}, true},
-                  {"bad_segments", Json("exclude"), "exclude = a tile touching one of the recording's bad segments is left out | ignore = every whole tile is kept", "-", {"exclude", "ignore"}, false}};
-  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "per-tile sums carried across blocks, in double");
-  n.matches = "the Studio's envelope tiles (D96); compute nxr::partition::crossSpectrum";
-  n.description = "per band and tile of a level, the sum of z z^H of the band's analytic signal decimated on the line's grid";
-  auto prep = [](const ng::Types& in, const ng::Arrays* constants, const Json& p) {
-    namespace cq = nxr::selection::constantq;   // the band design (compute)
-    namespace tg = nxr::io::constantq;          // the tile grid's own arithmetic (io)
-    TilePrepared t;
-    const ng::PortType& x = streamed(in, "x", "analytic.tile_cross_spectrum");
-    t.sfreq = *x.sfreq;
-    t.unit = x.unit.empty() ? std::string("channel unit") : x.unit;
-    int level = 15;
-    for (const auto& b : p.value("bands", Json::array())) {
-      const double lo = b.value("lo", b.value("lo_hz", 0.0)), hi = b.value("hi", b.value("hi_hz", 0.0));
-      const std::int64_t d = cq::strideFor(t.sfreq, lo);
-      if (hi >= t.sfreq / (2.0 * static_cast<double>(d)))
-        ng::refuse("analytic.tile_cross_spectrum: band " + b.value("name", std::string()) + " reaches its decimated Nyquist rate (the ladder's stride is sized from the low edge: a band is at most 12 times its low edge wide)");
-      t.stride.push_back(d);
-      level = std::min(level, tg::levelOfWidth(cq::windowFor(t.sfreq, lo)));
-      t.bands.push_back(Json{{"name", b.value("name", std::string())}, {"lo_hz", lo}, {"hi_hz", hi}, {"decimation", d}});
-    }
-    if (t.stride.empty()) ng::refuse("analytic.tile_cross_spectrum: at least one band");
-    const bool lv = p.contains("level") && !p["level"].is_null(), ws = p.contains("window_seconds") && !p["window_seconds"].is_null();
-    if (lv && ws) ng::refuse("analytic.tile_cross_spectrum: level and window_seconds are alternatives");
-    if (lv) level = p["level"].get<int>();
-    else if (ws) level = tg::levelOf(p["window_seconds"].get<double>(), t.sfreq);
-    if (level < 0 || level > 15) ng::refuse("analytic.tile_cross_spectrum: the tile level is 0 to 15, got " + std::to_string(level));
-    t.level = level;
-    t.tile = std::int64_t(1) << level;
-    for (std::size_t b = 0; b < t.stride.size(); ++b) {
-      if (t.stride[b] > t.tile) ng::refuse("analytic.tile_cross_spectrum: band " + t.bands[b]["name"].get<std::string>() + "'s stride is longer than a level-" + std::to_string(level) + " tile");
-      t.bands[b]["window_samples"] = t.tile / t.stride[b];
-    }
-    if (constants) {
-      t.channels = channels_picked(x, *constants, p, "analytic.tile_cross_spectrum");
-      // each band's scaling record (its noise bandwidth): a reader converts the per-window sums to density or power from it
-      nxr::timebank::Design d(nxr::timebank::Family::Meyer, 2.0, nxr::timebank::Sides::Analytic);
-      for (const auto& b : t.bands) d.bands.push_back({b["lo_hz"].get<double>(), b["hi_hz"].get<double>()});
-      const nxr::timebank::TimeBank bank = nxr::timebank::design(d, std::size_t(1) << 15, t.sfreq);
-      for (std::size_t b = 0; b < t.bands.size(); ++b)
-        t.bands[b]["spectral_scaling"] = nxr::pipelines::analytic_scaling_record(nxr::timebank::noiseBandwidth(bank, static_cast<int>(b)), t.unit + "\xc2\xb2");
-    }
-    return t;
-  };
-  n.plan = [prep](const ng::Types& in, const Json& p) {
-    const TilePrepared t = prep(in, nullptr, p);
-    ng::Planned out;
-    out.out["channels"] = constant_port("selection");
-    out.out["spectrum"] = constant_port("statistic");
-    out.out["windows"] = constant_port("selection");
-    out.align = t.tile;
-    return out;
-  };
-  n.prepare = [prep](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) { return std::any(prep(in, &constants, p)); };
-  n.start = [](const std::any&) { return std::any(TileState{}); };
-  n.step = [](const std::any& prepared, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
-    const TilePrepared& t = std::any_cast<const TilePrepared&>(prepared);
-    TileState& s = std::any_cast<TileState&>(state);
-    const ng::Block& b = in.at("z");
-    const std::int64_t M = static_cast<std::int64_t>(t.channels.size()), B = static_cast<std::int64_t>(t.stride.size()), own = b.own();
-    if (b.rows != B * M) ng::refuse("analytic.tile_cross_spectrum: z has " + std::to_string(b.rows) + " rows, not bands x channels");
-    if (s.m0 < 0) s.m0 = at.first >> t.level;
-    if (at.good) for (std::int64_t j = 0; j < own; ++j) if (!(*at.good)[static_cast<std::size_t>(j)]) s.bad.insert((at.first + j) >> t.level);
-    for (std::int64_t k = 0; k < B; ++k) {
-      const std::int64_t d = t.stride[static_cast<std::size_t>(k)];
-      const std::int64_t offset = (d - at.first % d) % d;                     // the LINE's grid: the samples kept are multiples of d
-      const std::int64_t cols = offset < own ? (own - offset + d - 1) / d : 0;
-      Eigen::MatrixXcd Z(M, cols);
-      for (std::int64_t i = 0; i < M; ++i)
-        for (std::int64_t c = 0; c < cols; ++c) {
-          const std::size_t q = static_cast<std::size_t>((k * M + i) * b.width + b.left + offset + c * d);
-          Z(i, c) = std::complex<double>(b.re[q], b.im[q]);
-        }
-      for (Eigen::Index col = 0; col < Z.cols();) {                            // one sum per tile: m = line sample >> level
-        const std::int64_t x = at.first + offset + col * d, m = x >> t.level;
-        const std::int64_t end = (m + 1) << t.level;
-        const Eigen::Index len = static_cast<Eigen::Index>(std::min<std::int64_t>(Z.cols() - col, (end - x + d - 1) / d));
-        const auto cs = nxr::partition::crossSpectrum(Z.middleCols(col, len), static_cast<std::size_t>(len), 1);
-        auto& sv = s.sum[m];
-        auto& cv = s.count[m];
-        if (sv.empty()) { sv.assign(static_cast<std::size_t>(B), Eigen::MatrixXcd::Zero(M, M)); cv.assign(static_cast<std::size_t>(B), 0); }
-        sv[static_cast<std::size_t>(k)] += cs.sum[0];
-        cv[static_cast<std::size_t>(k)] += cs.count[0];
-        col += len;
-      }
-    }
-    s.last = at.first + own;
-    return std::make_pair(ng::Blocks{}, std::move(state));
-  };
-  n.finish = [](const std::any& prepared, std::any state) {
-    const TilePrepared& t = std::any_cast<const TilePrepared&>(prepared);
-    const TileState& s = std::any_cast<const TileState&>(state);
-    if (s.m0 < 0) ng::refuse("analytic.tile_cross_spectrum: no sample was read");
-    const std::int64_t M = static_cast<std::int64_t>(t.channels.size()), B = static_cast<std::int64_t>(t.stride.size());
-    const std::int64_t W = (s.last >> t.level) - s.m0;                        // the whole tiles of the span (a partial last one is left out)
-    if (W < 1) ng::refuse("analytic.tile_cross_spectrum: the span holds no whole tile of level " + std::to_string(t.level) + " (" + std::to_string(t.tile) + " samples)");
-    std::vector<std::int64_t> kept;
-    for (std::int64_t m = s.m0; m < s.m0 + W; ++m) {
-      if (s.bad.count(m) || !s.count.count(m)) continue;
-      bool whole = true;
-      for (std::int64_t k = 0; k < B; ++k) whole = whole && s.count.at(m)[static_cast<std::size_t>(k)] == t.tile / t.stride[static_cast<std::size_t>(k)];
-      if (whole) kept.push_back(m);
-    }
-    if (kept.empty()) ng::refuse("analytic.tile_cross_spectrum: no whole tile of " + std::to_string(t.tile) + " samples is free of the recording's bad segments");
-    const std::int64_t K = static_cast<std::int64_t>(kept.size());
-    ng::Array ch;
-    ch.rows = M; ch.cols = 1;
-    for (const auto c : t.channels) ch.data.push_back(c);
-    ch.meta["describe"] = Json{{"description", "the " + std::to_string(M) + " channels the cross-spectrum covers, in order"}};
-    ng::Array S;
-    S.rows = B; S.cols = K * M * M * 2;
-    S.data.resize(static_cast<std::size_t>(B * K * M * M * 2));
-    for (std::int64_t k = 0; k < B; ++k)
-      for (std::int64_t w = 0; w < K; ++w)
-        for (std::int64_t i = 0; i < M; ++i)
-          for (std::int64_t j = 0; j < M; ++j) {
-            const std::complex<double> v = s.sum.at(kept[static_cast<std::size_t>(w)])[static_cast<std::size_t>(k)](i, j);
-            const std::size_t at = static_cast<std::size_t>((((k * K + w) * M + i) * M + j) * 2);
-            S.data[at] = v.real(); S.data[at + 1] = v.imag();
-          }
-    const Json tiling = Json{{"unit", "samples"}, {"origin", s.m0 << t.level}, {"width", t.tile}, {"hop", t.tile}, {"count", K}, {"skipped", W - K}, {"end", (s.m0 + W) << t.level}};
-    S.meta["describe"] = Json{{"measure", "cross_spectrum_sum"}, {"method", "analytic"}, {"label", "analytic"}, {"precision", "float64"}, {"value_type", "complex"},
-                              {"shape", Json::array({B, K, M, M, 2})}, {"unit", t.unit + "\xc2\xb2"},
-                              {"axes", Json::array({Json{{"name", "band"}, {"size", B}, {"values", t.bands}}, Json{{"name", "window"}, {"size", K}, {"members", kept}},
-                                                    Json{{"name", "channel"}, {"size", M}}, Json{{"name", "channel"}, {"size", M}}})},
-                              {"tiling", tiling}, {"n_members", K}, {"members_skipped", W - K},
-                              {"producer", Json{{"stage", "analytic cross-spectrum"}, {"window_level", t.level}, {"window_index", kept}, {"family", "meyer"}, {"gain", 2.0}, {"grid", "line"}}},
-                              {"options", Json{{"level", t.level}, {"bands", t.bands}}},
-                              {"description", "per band and tile of level " + std::to_string(t.level) + " (" + std::to_string(t.tile) + " samples), the sum of z z^H on " + std::to_string(M) + " channels"}};
-    ng::Array Wn;
-    Wn.rows = 0; Wn.cols = 1;
-    Wn.meta["describe"] = Json{{"tiling", tiling}, {"params", Json{{"level", t.level}}},
-                               {"description", "the tiles of level " + std::to_string(t.level) + " (" + std::to_string(t.tile) + " samples) of the span; " + std::to_string(K) + " of them kept"}};
-    return ng::Arrays{{"channels", std::move(ch)}, {"spectrum", std::move(S)}, {"windows", std::move(Wn)}};
-  };
-  return n;
-}
+// (analytic.tile_cross_spectrum is retired: `reduce` of the `outer` form of field.form over a time grid of the band, the preset analytic_cross_spectrum_tiles of the definition measure)
 
-
-// ── meeg.phase_gradient ─────────────────────────────────────────────────────────────────────────────────────────
-// THE BAND'S PHASE GRADIENT AS THE PYRAMID'S LEAF INGREDIENTS (the hand-wired `phasegradient` it replaces; spec docs/specs/2026-11-14-measurement-pyramid.md, step 5): from a
-// stored band cross-spectrum C and a free kernel K, the signal's rows A (the normal current, or each ambient component) and their tangent P1 gradients give per vertex P (power),
-// H (the phase current, x y z) and Q (the gradient power) (nxr::meeg::phaseSums); H is read in the canonical frames; per leaf, the sums weighted by the vertex's lumped area:
-// phase_power, phase_gradient_power, phase_current_1/2, phase_current_magnitude. Ratios (the gradient, the travelling index, the speed) are derived at read.
 struct StatBand { Eigen::MatrixXd S, Sq; std::vector<std::int32_t> channels; std::string name; double lo = 0, hi = 0; bool density = true; };
 // one band of a stored cross-spectrum statistic (band x channel x channel, or channel x channel for a statistic of one band), its channels in order
 StatBand band_of(const ng::Array& C, const Json& band, const char* who) {
@@ -1040,9 +868,19 @@ ng::NodeSpec phase_gradient() {
     ng::Array Mz;
     Mz.rows = L; Mz.cols = static_cast<std::int64_t>(cols.size());
     Mz.data.assign(static_cast<std::size_t>(L) * cols.size(), 0.0);
-    for (std::size_t c = 0; c < cols.size(); ++c) {
-      const auto sum = nxr::partition::accumulate(codes.data(), codes.size(), L, cols[c].data(), wv.data()).sum;
-      for (int l = 0; l < L; ++l) Mz.data[static_cast<std::size_t>(l) * cols.size() + c] = sum[static_cast<std::size_t>(l)];
+    {
+      // the leaves' sums: Σ a_v x_v over each leaf's vertices (the weights a_v the barycentric areas), the ONE reduction (nxr::measurement::reduce) over the leaves as the members of a surface grid
+      nxr::selection::MemberOfElement leaves;
+      leaves.member_of.assign(codes.begin(), codes.end());
+      leaves.members = L;
+      nxr::measurement::Request req;
+      req.measures = {"sum"};
+      req.weighting = nxr::measurement::Weighting::given;
+      for (std::size_t c = 0; c < cols.size(); ++c) {
+        nxr::measurement::Ingredients ing;
+        nxr::measurement::reduce(ing, cols[c].data(), 1, static_cast<std::int64_t>(codes.size()), leaves, wv.data(), req);   // one row (the sums), the vertices the elements
+        for (int l = 0; l < L; ++l) Mz.data[static_cast<std::size_t>(l) * cols.size() + c] = nxr::measurement::value(ing, 0, l, "sum");
+      }
     }
     const std::string per_hz = C.density ? "/Hz" : "";
     const double omega = M_PI * (C.lo + C.hi);
@@ -1117,43 +955,7 @@ const std::vector<ng::ParamSpec>& filter_parameters() {
   return ps;
 }
 
-ng::NodeSpec channel_mean() {
-  ng::NodeSpec n;
-  n.name = "filter.channel_mean";
-  n.kind = ng::Kind::accumulate;
-  n.inputs = {{"x", "the recording: channels x samples (streamed)", false}};
-  n.outputs = {{"mean", "each channel's mean over the span (a statistic over the channels)", false}};
-  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "the sums are carried across blocks in double");
-  n.matches = "Brainstorm's process_bandpass (remove the mean before a FIR filter); compute nxr::filter::RunningMean";
-  n.description = "each channel's mean over the span (the first pass of a FIR filter that removes the record's mean)";
-  n.plan = [](const ng::Types& in, const Json&) {
-    streamed(in, "x", "filter.channel_mean");
-    ng::Planned out;
-    out.out["mean"] = constant_port("statistic");
-    return out;
-  };
-  n.start = [](const std::any&) { return std::any(std::optional<nxr::filter::RunningMean>{}); };
-  n.step = [](const std::any&, std::any state, const ng::Blocks& in, std::int64_t, const ng::Place&) {
-    auto& rm = std::any_cast<std::optional<nxr::filter::RunningMean>&>(state);
-    const ng::Block& b = in.at("x");
-    const Eigen::Map<const RowMajorF> all(b.re.data(), b.rows, b.width);
-    if (!rm) rm.emplace(static_cast<int>(b.rows));
-    rm->add(all.middleCols(b.left, b.own()).cast<double>());
-    return std::make_pair(ng::Blocks{}, std::move(state));
-  };
-  n.finish = [](const std::any&, std::any state) {
-    const auto& rm = std::any_cast<const std::optional<nxr::filter::RunningMean>&>(state);
-    if (!rm || rm->samples() == 0) ng::refuse("filter.channel_mean: no sample was read");
-    const Eigen::VectorXd m = rm->mean();
-    ng::Array a;
-    a.rows = m.size(); a.cols = 1;
-    a.data.assign(m.data(), m.data() + m.size());
-    a.meta["describe"] = Json{{"measure", "mean"}, {"method", "sample"}, {"precision", "float64"}, {"axes", Json::array({Json{{"name", "channel"}, {"size", m.size()}}})},
-                              {"n_members", rm->samples()}, {"description", "each channel's mean over " + std::to_string(rm->samples()) + " samples"}};
-    return ng::Arrays{{"mean", std::move(a)}};
-  };
-  return n;
-}
+// (filter.channel_mean is retired: `reduce` measure mean over the run's span, the preset channel_span_mean of the definition measure)
 
 struct FilterPrepared { std::optional<nxr::filter::Filter> f; std::int64_t halo = 0; };
 ng::NodeSpec filter_apply() {
@@ -1415,7 +1217,7 @@ ng::NodeSpec speed_spectrum() {
 
 void register_meeg_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), tile_cross_spectrum(), phase_gradient(), channel_mean(), filter_apply(), hodge_weights(), speed_spectrum()})
+  for (ng::NodeSpec n : {noise_covariance(), minimum_norm(), spherical_head_model(), analytic_bands(), phase_gradient(), filter_apply(), hodge_weights(), speed_spectrum()})
     if (!r.find(n.name)) r.add(std::move(n));
   register_quadrature_nodes();
 }
