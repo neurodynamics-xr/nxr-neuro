@@ -178,7 +178,7 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
     link_of(P, spec, "to", nullptr, o);
   } else if (k == "selection") {
     const std::string t = spec.value("type", std::string());
-    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "tiling" && t != "ladder") bad(o, "type: partition, set, indices, spans, tiling or ladder");
+    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "tiling" && t != "ladder" && t != "cells") bad(o, "type: partition, set, indices, spans, tiling, ladder or cells");
     link_of(P, spec, "on", nullptr, o);
   } else {
     const std::string t = spec.value("type", std::string());
@@ -353,6 +353,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (d.contains("description")) s.description = d["description"].get<std::string>();
     for (const auto& e : d.value("entries", Json::array())) s.entries.push_back(e.get<std::string>());
     if (t == "partition" || t == "set" || t == "indices") for (const double c : a.data) s.codes.push_back(static_cast<std::int64_t>(c));
+    else if (t == "cells") { s.n_members = d.at("n_members").get<std::int64_t>(); if (d.contains("label")) s.label = d["label"].get<std::string>(); }
     else if (t == "spans") for (const auto& x : d.value("spans", Json::array())) { task::Span sp; sp.start = x["start"].get<double>(); sp.stop = x["stop"].get<double>(); if (x.contains("code")) sp.code = x["code"].get<std::int64_t>(); sp.ordinal = static_cast<std::int64_t>(s.spans.size()); s.spans.push_back(sp); }
     else if (!d.contains("tiling")) bad(o, "its node gives no tiling (describe.tiling)");
     else s.tiling = tiling_of(P, d["tiling"], spec["on"].get<std::string>(), o);

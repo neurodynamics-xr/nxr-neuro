@@ -159,11 +159,12 @@ struct MeasurementOut {
 struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };
 // a Selection on a manifold: a partition or set (a code per element), spans (on a time line), or a tiling (a closed-form spans Selection)
 struct SelectionOut {
-  std::string name, output, type, manifold_id;     // type: partition · set · indices · spans · tiling
+  std::string name, output, type, manifold_id;     // type: partition · set · indices · spans · tiling · cells (a closed-form set: codes by a rule, no element stored)
   std::optional<std::string> path;                 // default: io's node path for the name on the manifold
   std::vector<std::int64_t> codes;                 // partition, set: a code per element (-1: none) · indices: the elements picked, in order
   std::vector<Span> spans;                         // spans: [start, stop) in the manifold's unit, each with its code
   std::optional<Tiling> tiling;                    // tiling
+  std::optional<std::int64_t> n_members;           // cells: the number of cells
   std::vector<std::string> entries;                // the codes' names (a dictionary of the selection's own), when any
   std::optional<std::string> of_field_id, description, label, acquisition;
   Json params;                                     // the selection's parameters (null: none)

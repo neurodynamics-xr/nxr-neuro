@@ -433,7 +433,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording-b@run repeat	NAME	Second recording, whose crossings are compared with the first; the order does not change the result.	required	-
 --recording@run constantq	NAME	Recording whose time line gets the ladder (alternative to --line and --all).	none	-
 --recording@run hodgepower	NAME	The sensor recording whose cross-spectrum is read through the kernel.	required	-
---recording@run joint	NAME	The recording whose time line's constant-Q ladder gives the time level	required	-
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
 --recording@run pointspread	NAME	The recording whose band chain the statistic is of	required	-
 --recording@run pyramid	NAME	Name of the stored recording to build the pyramid from.	required	-
@@ -531,7 +530,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --source@run scaleselection	NAME	The pipeline whose stored labellings, cells and baselines are read	cortical_event_pairs	-
 --space-level	L	Level of the surface's tile ladder that gives the spatial tiles (-1 on measure query: the whole cortex).	measure query: the stored depth; others none (required)	level
 --space-level@run cellquadrature	L	Level of the surface's tile ladder; its Weyl band is the spatial band and its tiles the spatial cells.	required	level
---space-level@run joint	LEVEL	The surface tile ladder's level (2^level tiles per piece)	required	level
 --space-level@query measurements	LEVEL	The spatial level the cells are rolled up to (at most the stored depth; -1 is the whole cortex).	the stored depth	level
 --space-levels	L,...	Spatial tile levels of the surface to select over (all combinations with --time-levels).	none (required)	levels
 --space-levels@run scaleselection	LEVELS	Comma-separated surface tile levels; the pairs are all space levels times time levels	required	level
@@ -576,7 +574,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --surface-id@import inverse	ID	Id of the stored cortex surface the kernel was made on.	found from the kernel's SurfaceFile link	-
 --surface@run eigenmodes	NAME	Name of the subject's stored surface to solve on.	the subject's primary surface	-
 --surface@run frames	NAME	The subject's surface to compute the frames on.	the primary (cortex) surface	-
---surface@run joint	NAME	The subject's surface whose tile ladder gives the spatial level	the subject's primary surface	-
 --surface@run scaleselection	NAME	The subject's surface	the surface of the joint partitions	-
 --surface@run tiles	NAME	The subject's surface whose tile ladder is computed, by name.	the primary (cortex) surface	-
 --surface@import condition	FILE	The subject's cortex surface file (tess_*.mat) the condition is imported on, instead of the one its head model names.	none (the condition's own surface)	-
@@ -613,7 +610,6 @@ R"TBL(--stage	NAME|INDEX	Stage of the stored crossings to use, by name (burst, o
 --time-bandwidth@run opticalflow	X	Morse family only: the time-bandwidth product of the wavelet.	60	-
 --time-bandwidth@run speedspectrum	B	Morse time bank: the time-bandwidth product	60	-
 --time-level	M	Level of the recording's constant-Q time ladder (joint compute: the time tiles of the cells; measure query: time rolled up to tiles of 2^M frames)	measure query: 0; joint compute: none (required)	level
---time-level@run joint	LEVEL	The recording's constant-Q ladder level (its member ordinal; the band it resolves)	required	level
 --time-level@query measurements	LEVEL	The time level the cells are rolled up to: tiles of 2^LEVEL frames on the tower (0 is single frames).	0	level
 --time-levels	M1,M2,..	Constant-Q time levels (each one's band is a pair's rhythm) crossed with the space levels.	none (required)	levels
 --time-levels@run scaleselection	LEVELS	Comma-separated constant-Q time levels, each giving the pair's rhythm band	required	level
@@ -668,7 +664,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@run frames	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run tiles	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run constantq	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run joint	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run quadrature	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run hodgepower	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run speedspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -1312,13 +1307,6 @@ alias: refused
 group: Time
 summary: The constant-Q tiling of a time line (a ladder of dyadic windows).
 opts: --all --cycles --dataset* --fmax --fmin --line --method --recording --subject* --voices --templates+
-)TBL",
-R"TBL(@ run joint
-old: joint compute
-alias: refused
-group: Time
-summary: The joint partition of space and time: cells of a spatial tile level by a time tile level.
-opts: --dataset* --recording* --replace --space-level* --subject* --surface --time-level* --templates+
 )TBL",
 R"TBL(@ run quadrature
 old: quadrature compute

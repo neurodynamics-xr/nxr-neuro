@@ -641,6 +641,12 @@ std::string Unit::selection(const SelectionOut& s) {
     ss.type = "indices";
     ss.data = view(codes, {static_cast<std::int64_t>(codes.size())});
     ss.picked = true;
+  } else if (s.type == "cells") {                    // a closed-form set (the joint cells of space x time): its rule in params, no element stored
+    if (!s.n_members) throw Error(code::invalid_argument, "selection " + s.name + ": cells name their number (n_members)");
+    ss.type = "set";
+    ss.no_elements = true;
+    ss.cols.set("cell", "0,1").set("n_members", *s.n_members);
+    if (s.label) ss.cols.set("label", *s.label);
   } else if (s.type == "spans") {
     ss.type = "spans";
     std::vector<SpanSpec> sp;
@@ -656,7 +662,7 @@ std::string Unit::selection(const SelectionOut& s) {
     params["end"] = t.end;
     params["segments_skipped"] = t.skipped;
   } else {
-    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans or tiling)");
+    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans, tiling or cells)");
   }
   if (!s.entries.empty()) {
     DictionarySpec d;

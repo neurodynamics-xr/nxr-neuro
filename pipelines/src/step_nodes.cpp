@@ -3,6 +3,7 @@
 #include "nxr/pipelines/step_nodes.h"
 #include "nxr/pipelines/welch_steps.h"
 #include "nxr/pipelines/meeg_steps.h"
+#include "nxr/pipelines/partition_steps.h"
 
 #include <variant>
 
@@ -181,6 +182,7 @@ ng::Registry node_registry(const std::shared_ptr<Binding>& binding) {
   ng::Registry r;
   register_welch_nodes();
   register_meeg_nodes();
+  register_partition_nodes();
   for (const auto& st : registry()) if (!st.native) r.add(node_of(st, binding));
   for (const auto& name : nxr::graph::registry().names()) r.add(nxr::graph::registry().at(name));   // the native nodes (grouped names): pure, run as they are
   return r;

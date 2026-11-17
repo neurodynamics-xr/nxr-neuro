@@ -12,18 +12,6 @@
 
 namespace nxr::pipelines {
 
-struct JointComputeOptions {
-  std::string recording;                     // REQUIRED: its time line's constant-Q ladder (`constantq compute`) gives the time level
-  std::optional<std::string> surface;        // the subject's surface (default: the primary one); its tile ladder (`tiles compute`) gives the spatial level
-  int space_level = -1;                      // REQUIRED: the surface ladder's level (2^l tiles a piece)
-  int time_level = -1;                       // REQUIRED: the constant-Q ladder's level (its member ordinal; the band it resolves is the level's)
-  bool replace = false;                      // an existing joint Selection of the pair is removed (with the measurements over it) and rewritten
-};
-struct JointComputeResult {
-  nxr::io::Json info;
-  bool existed = false;                      // the stored one was kept
-};
-JointComputeResult joint_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const JointComputeOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 /** the bits of the time index: max(1, ceil(log2(max(2, frames)))) (the atlas's `bitsFor`) */
 int joint_bits(std::int64_t frames);
 

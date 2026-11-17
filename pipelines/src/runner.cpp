@@ -877,12 +877,20 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (!constants.count(name) || !P.values.count(name) || !P.found.count(name) || !P.found.at(name).row) continue;
       const Value& v = P.values.at(name);
       const nxr::io::Row& row = *P.found.at(name).row;
-      if (v.cls == "selection" && !nxr::io::is_null(row, "array_path")) {   // a partition or a pick: its codes, its member count and parameters
+      if (v.cls == "selection" && nxr::io::is_null(row, "array_path")) {     // a closed-form selection (a tiling, a ladder's level): its record only
+        nxr::graph::Array a;
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["type"] = text(row, "type");
+        if (!nxr::io::is_null(row, "n_members")) a.meta["n_members"] = nxr::io::integer(row, "n_members");
+        a.meta["member_of_id"] = nxr::io::opt_text(row, "member_of_id").value_or("");
+        a.meta["params"] = Json::parse(nxr::io::opt_text(row, "params_json").value_or("{}"), nullptr, false);
+        constants[name] = std::move(a);
+      } else if (v.cls == "selection" && !nxr::io::is_null(row, "array_path")) {   // a partition or a pick: its codes, its member count and parameters
         nxr::graph::Array a;
         for (const std::int32_t c : bound.array_int32(text(row, "array_path"))) a.data.push_back(c);
         a.rows = static_cast<std::int64_t>(a.data.size()); a.cols = 1;
         a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["type"] = text(row, "type");
         if (!nxr::io::is_null(row, "n_members")) a.meta["n_members"] = nxr::io::integer(row, "n_members");
+        a.meta["member_of_id"] = nxr::io::opt_text(row, "member_of_id").value_or("");
         a.meta["params"] = Json::parse(nxr::io::opt_text(row, "params_json").value_or("{}"), nullptr, false);
         constants[name] = std::move(a);
       } else if (v.cls == "statistic") {                                 // its values, its axes; a first axis over a pick of channels: those channels and their types

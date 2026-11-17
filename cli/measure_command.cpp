@@ -195,31 +195,6 @@ int measure_main(const std::vector<std::string>& argv) {
   return 0;
 }
 
-int joint_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro joint: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro joint compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--recording", "--space-level", "--time-level", "--surface"}, {"--replace"}, {"--dataset", "--subject", "--recording", "--space-level", "--time-level"});
-  nxr::pipelines::JointComputeOptions o;
-  o.recording = a.get("--recording");
-  try { o.space_level = std::stoi(a.get("--space-level")); o.time_level = std::stoi(a.get("--time-level")); } catch (...) { usage(prog, "--space-level and --time-level are whole numbers"); }
-  o.surface = a.maybe("--surface");
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::joint_compute(ds, sub, o);
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
-}
-
 int pyramid_main(const std::vector<std::string>& argv) {
   if (!argv.empty() && argv[0] == "spatial-bands") {
     const std::string prog = "nxr-neuro pyramid spatial-bands";

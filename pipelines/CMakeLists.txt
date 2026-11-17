@@ -37,6 +37,7 @@ add_library(nxr_pipelines
   src/step_nodes.cpp
   src/welch_steps.cpp
   src/meeg_steps.cpp
+  src/partition_steps.cpp
   src/registry.cpp
   src/extent_steps.cpp
   src/cores_steps.cpp
