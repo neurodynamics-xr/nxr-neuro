@@ -81,7 +81,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --block-samples@run	N	Width in samples of the blocks that flow through the steps after the last filter; limits memory only, the result does not change (0 = the whole chunk).	1024	samples
 --block-seconds	SECONDS	Length of the blocks whose own mean is removed before the covariance is formed (noisecov: noise window; inverse: when computing the noise covariance from a recording).	one block (a single mean for the whole window)	s
 --block-seconds@run inverse	SECONDS	With --recording: split the noise-covariance window into blocks of this length, each with its own mean removed.	one block for the whole window	s
---block-seconds@run noisecov	SECONDS	Split the chosen span into blocks of this length; each block has its own mean removed before the covariance is summed.	none (the span is one block)	s
 --bst-root	PATH	Root folder of the Brainstorm protocol, used to resolve the surface files named by --file.	none (empty)	-
 --bst-root@import inverse	PATH	Root folder of the Brainstorm protocol, used to resolve the kernel's channel, surface and head-model links.	required	-
 --bst-root@import map	DIR	The Brainstorm protocol folder the map files are read from, with the anatomy folders the maps' surfaces and atlases are found in.	required	-
@@ -155,7 +154,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --detrend@run speedspectrum	none|constant|linear	What is removed from each segment before windowing	constant	-
 --divisor	samples-minus-blocks|samples|samples-minus-one	What the covariance sum is divided by: samples minus the number of blocks, the samples, or samples minus one.	samples-minus-blocks	-
 --divisor@run inverse	samples-minus-blocks|samples|samples-minus-one	With --recording: what the noise covariance's sum of squares is divided by (N-B, N or N-1).	samples-minus-blocks	-
---divisor@run noisecov	samples-minus-blocks|samples|samples-minus-one	What the sum of squares is divided by: samples minus the number of blocks, the number of samples, or samples minus one.	samples-minus-blocks	-
 --draws	N	Number of complex Wishart random draws used for the null distribution	1000	draws
 --draws@run wishart	N	Number of complex Wishart draws of each burst's own zero-lag covariance that form the null.	1000	draws
 --dry-run		Report what would change (compact: files and folders before and after; run: inputs found and arrows checked) without changing or computing anything.	off	-
@@ -397,7 +395,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run hodgepower	NAME	The stem of the names of the stored fields (one current and one flow field per band).	<recording>_<kernel>_hodge	-
 --name@run inverse	NAME	Name of the stored inverse kernel.	<forward>_minnorm	-
 --name@run lowpass	NAME	Name the filtered recording is stored under.	<recording>_lowpass	-
---name@run noisecov	NAME	Name of the stored noise covariance.	<recording>_noise_cov	-
 --name@run notch	NAME	The name of the filtered recording.	<recording>_notch	-
 --name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
 --name@run phasegradient	NAME	Stem of the names of the stored results.	<recording>_<kernel>_phasegradient	-
@@ -443,7 +440,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-remove-mean@run highpass		Do not subtract the record's channel means before filtering (they are otherwise removed and not added back, as the filter has a high-pass part).	off (mean removed)	-
 --no-remove-mean@run inverse		With --recording: keep each block's mean in the noise covariance (raw second moment) instead of removing it.	off (mean removed)	-
 --no-remove-mean@run lowpass		Do not subtract each channel's mean before filtering.	off (the mean is removed, and added back since a lowpass has no high-pass part)	-
---no-remove-mean@run noisecov		Do not remove each block's mean (DC offset) before summing: the covariance is then the raw second moment.	off (each block's mean is removed)	-
 --no-remove-mean@run notch		Do not subtract each channel's mean before filtering.	off (the mean is removed, and added back)	-
 --no-shard		Do not group chunks into shards when compacting	off	-
 --no-shard@compact dataset		Do not group chunks into shards; only the key separator changes, so an array over 4 MiB stays unsharded.	off (arrays are sharded)	-
@@ -546,7 +542,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording@run inverse	NAME	Recording to compute (and store) the noise covariance from; an alternative to --noise-cov.	none (give this or --noise-cov)	-
 --recording@run joint	NAME	The recording whose time line's constant-Q ladder gives the time level	required	-
 --recording@run lowpass	NAME	Name of the stored recording to filter.	required	-
---recording@run noisecov	NAME	The stored recording from which the noise covariance is computed (its span is set by the time-range options).	required	-
 --recording@run notch	NAME	The recording to filter.	required	-
 --recording@run opticalflow	NAME	The stored recording whose band is analysed (its span is set by the time-range options).	required	-
 --recording@run pointspread	NAME	The recording whose band chain the statistic is of	required	-
@@ -814,7 +809,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@import events	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run noisecov	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run inverse	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run headmodel	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run pointspread	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -933,7 +927,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --types	TYPE,...	Channel types to use, e.g. "MEG MAG,MEG GRAD,EEG" (only good channels of these types).	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
 --types@run crossspectrum	TYPE,...	Channel types to include (only the good channels of these types), e.g. "MEG MAG,MEG GRAD,EEG"; an alternative to --channels-of.	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
 --types@run inverse	TYPE,...	With --recording: channel types for the noise covariance, e.g. "MEG MAG,MEG GRAD,EEG" (good channels only).	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
---types@run noisecov	TYPE,...	Channel types the covariance covers (only the good channels of these types), e.g. "MEG MAG,MEG GRAD,EEG".	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
 --vertices	N	Number of vertices, spread evenly over the surface, where unit currents are placed	20	vertices
 --vertices@run pointspread	N	Number of native vertices planted with a unit current, spread evenly over the surface (lowest index first)	20	-
 --voices	N	Filter-bank members per octave (constantq: time-ladder voices; opticalflow, speedspectrum: itersine voices).	4 for filter banks; constantq see the command's description	voices/octave
@@ -1445,14 +1438,6 @@ old: pyramid reduce
 alias: refused
 summary: Reduce several subjects' group-tree pyramids into the group's pyramid; on a catalogue dataset the result is a group package (--into).
 opts: --dataset* --depth --into --kernels --subjects* --templates+
-)TBL",
-R"TBL(@ run noisecov
-old: noisecov compute
-alias: refused
-group: Source imaging
-summary: The noise covariance of a recording's good channels.
-span: yes
-opts: --block-seconds --chunks --dataset* --divisor --name --no-remove-mean --recording* --replace --start --stop --subject* --types --templates+
 )TBL",
 R"TBL(@ run inverse
 old: inverse compute

@@ -616,6 +616,11 @@ std::string Unit::selection(const SelectionOut& s) {
     codes.assign(s.codes.begin(), s.codes.end());
     ss.type = "set";                                 // a partition is a set Selection: a code per element
     ss.data = view(codes, {static_cast<std::int64_t>(codes.size())});
+  } else if (s.type == "indices") {                  // a pick of elements, in order (the channels a covariance covers)
+    codes.assign(s.codes.begin(), s.codes.end());
+    ss.type = "indices";
+    ss.data = view(codes, {static_cast<std::int64_t>(codes.size())});
+    ss.picked = true;
   } else if (s.type == "spans") {
     ss.type = "spans";
     std::vector<SpanSpec> sp;
@@ -631,7 +636,7 @@ std::string Unit::selection(const SelectionOut& s) {
     params["end"] = t.end;
     params["segments_skipped"] = t.skipped;
   } else {
-    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, spans or tiling)");
+    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans or tiling)");
   }
   if (!s.entries.empty()) {
     DictionarySpec d;

@@ -175,7 +175,7 @@ void check_declared(const Plan& P, const std::string& o, const nxr::io::Database
     link_of(P, spec, "to", nullptr, o);
   } else if (k == "selection") {
     const std::string t = spec.value("type", std::string());
-    if (t != "partition" && t != "set" && t != "spans" && t != "tiling" && t != "ladder") bad(o, "type: partition, set, spans, tiling or ladder");
+    if (t != "partition" && t != "set" && t != "indices" && t != "spans" && t != "tiling" && t != "ladder") bad(o, "type: partition, set, indices, spans, tiling or ladder");
     link_of(P, spec, "on", nullptr, o);
   } else {
     const std::string t = spec.value("type", std::string());
@@ -297,13 +297,14 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (d.contains("params")) s.params = d["params"];
     if (d.contains("description")) s.description = d["description"].get<std::string>();
     for (const auto& e : d.value("entries", Json::array())) s.entries.push_back(e.get<std::string>());
-    if (t == "partition" || t == "set") for (const double c : a.data) s.codes.push_back(static_cast<std::int64_t>(c));
+    if (t == "partition" || t == "set" || t == "indices") for (const double c : a.data) s.codes.push_back(static_cast<std::int64_t>(c));
     else if (t == "spans") for (const auto& x : d.value("spans", Json::array())) { task::Span sp; sp.start = x["start"].get<double>(); sp.stop = x["stop"].get<double>(); if (x.contains("code")) sp.code = x["code"].get<std::int64_t>(); sp.ordinal = static_cast<std::int64_t>(s.spans.size()); s.spans.push_back(sp); }
     else if (!d.contains("tiling")) bad(o, "its node gives no tiling (describe.tiling)");
     else s.tiling = tiling_of(P, d["tiling"], spec["on"].get<std::string>(), o);
     const std::string path = unit.path_of(s);
     clear(task::Cls::selection, path);
     report["id"] = unit.selection(s); report["path"] = path;
+    made[o] = report["id"].get<std::string>();
     return report;
   }
 
@@ -328,7 +329,11 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (decl["name"] != ax.value("name", Json())) bad(o, "axis " + std::to_string(i) + " is declared '" + decl["name"].get<std::string>() + "', its node names it " + ax.value("name", Json()).dump());
     const std::int64_t size = ax.value("size", std::int64_t(0));
     Json out = Json{{"name", decl["name"]}, {"size", size}};
-    if (decl.contains("on")) {
+    if (decl.contains("selection")) {                                     // an axis over a pick another output of the run made (a covariance over its channels)
+      const std::string so = decl["selection"].get<std::string>();
+      if (!made.count(so)) bad(o, "axis " + decl["name"].get<std::string>() + ": selection " + so + " is not an output stored before it (list it first)");
+      out["selection_id"] = made.at(so);
+    } else if (decl.contains("on")) {
       out["manifold_id"] = link(P, decl["on"].get<std::string>(), &made, o);
     } else if (decl.contains("line")) {
       if (!ax.contains("line")) bad(o, "axis " + decl["name"].get<std::string>() + " declares a line; its node describes none");
@@ -376,6 +381,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   }
   if (d.contains("components")) st.components = d["components"];
   if (d.contains("scaling")) st.scaling = d["scaling"];
+  if (d.contains("dof") && d["dof"].is_number()) st.dof = d["dof"].get<double>();
   st.options = d.value("options", Json::object());
   if (d.contains("unit") && d["unit"].is_string()) st.unit = d["unit"].get<std::string>();
   if (d.contains("description")) st.description = d["description"].get<std::string>();

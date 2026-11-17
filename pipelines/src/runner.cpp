@@ -842,9 +842,13 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   const auto binding = std::make_shared<Binding>();
   binding->bound = &bound;
   binding->say = progress;
+  nxr::graph::Types types = P.types;
+  for (const auto& [k, v] : P.values)                                      // a streamed recording's channels (types, quality, units) are facts its nodes may read
+    if (v.cls == "field" && v.time && P.found.count(k) && P.found.at(k).row && types.count(k))
+      types[k].facts["channels"] = nxr::pipelines::channel_facts(sub, text(*P.found.at(k).row, "name"));
   nxr::graph::Checked checked;
   try {
-    checked = nxr::graph::check(P.graph, P.types, Json::object(), node_registry(binding));
+    checked = nxr::graph::check(P.graph, types, Json::object(), node_registry(binding));
   } catch (const std::invalid_argument& e) {
     refuse(std::string("steps: ") + e.what());
   }

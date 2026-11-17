@@ -55,7 +55,6 @@ int read_command(int argc, char** argv);
 int convert_main(const std::vector<std::string>& argv);
 #ifdef NXR_NEURO_WITH_PIPELINES
 int eigen_main(const std::vector<std::string>& argv);   // pipelines/tools/eigen_command.cpp
-int noisecov_main(const std::vector<std::string>& argv);   // cli/meeg_command.cpp
 int crossspectrum_main(const std::vector<std::string>& argv);           // cli/meeg_command.cpp
 int phasegradient_main(const std::vector<std::string>& argv); // cli/meeg_command.cpp
 int cyclepattern_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
@@ -592,9 +591,9 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       throw Error(code::unsupported, "nxr-neuro speedspectrum needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
-    if (cmd == "noisecov" || cmd == "inverse" || cmd == "headmodel" || cmd == "crossspectrum" || cmd == "phasegradient" || cmd == "cyclepattern" || cmd == "quadrature" || cmd == "hodgepower" || cmd == "opticalflow" || cmd == "frames" || cmd == "tiles") {
+    if (cmd == "inverse" || cmd == "headmodel" || cmd == "crossspectrum" || cmd == "phasegradient" || cmd == "cyclepattern" || cmd == "quadrature" || cmd == "hodgepower" || cmd == "opticalflow" || cmd == "frames" || cmd == "tiles") {
 #ifdef NXR_NEURO_WITH_PIPELINES
-      return cmd == "noisecov" ? noisecov_main(rest) : cmd == "crossspectrum" ? crossspectrum_main(rest) : cmd == "phasegradient" ? phasegradient_main(rest) : cmd == "cyclepattern" ? cyclepattern_main(rest) : cmd == "quadrature" ? quadrature_main(rest) : cmd == "hodgepower" ? hodgepower_main(rest) : cmd == "opticalflow" ? opticalflow_main(rest) : cmd == "frames" ? frames_main(rest) : cmd == "tiles" ? tiles_main(rest) : cmd == "inverse" ? inverse_main(rest) : headmodel_main(rest);
+      return cmd == "crossspectrum" ? crossspectrum_main(rest) : cmd == "phasegradient" ? phasegradient_main(rest) : cmd == "cyclepattern" ? cyclepattern_main(rest) : cmd == "quadrature" ? quadrature_main(rest) : cmd == "hodgepower" ? hodgepower_main(rest) : cmd == "opticalflow" ? opticalflow_main(rest) : cmd == "frames" ? frames_main(rest) : cmd == "tiles" ? tiles_main(rest) : cmd == "inverse" ? inverse_main(rest) : headmodel_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro " + cmd + " needs the pipelines (nxr_compute + nxr_io + nxr_meeg): build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif

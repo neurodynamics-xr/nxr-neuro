@@ -28,6 +28,9 @@ SurfaceInput read_surface(nxr::io::SubjectWriter& sub, const std::optional<std::
 // The same, from a package opened alone (a released template is never opened by a writer): the surface called `name`; `no_such_row` when there is none.
 SurfaceInput read_surface(const nxr::io::SubjectPackage& package, const std::string& name);
 
+// A recording's channels as facts a node may read on its port type: {types, quality, units, n_channels} (per channel; quality from the recording's flags, else the montage's).
+nxr::io::Json channel_facts(nxr::io::SubjectWriter& sub, const std::string& recording);
+
 // How many connected pieces the faces make (a cortex: its two hemispheres; a mesh or a sphere: one).
 int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n_vertices);
 

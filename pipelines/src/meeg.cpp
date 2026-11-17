@@ -167,6 +167,15 @@ RecordingInput read_recording(SubjectWriter& sub, const std::string& name) {
   return r;
 }
 
+}  // namespace
+
+// what a node may know of a recording's channels (a fact on its port type, not a store read): their types, quality (the recording's flags, else the montage's) and units
+Json channel_facts(SubjectWriter& sub, const std::string& recording) {
+  const RecordingInput r = read_recording(sub, recording);
+  return Json{{"types", r.types}, {"quality", r.quality}, {"units", r.units}, {"n_channels", r.n_channels}};
+}
+
+namespace {
 std::string acquisition_label(SubjectWriter& sub, const std::optional<std::string>& id) {
   if (!id) return "";
   const auto a = sub.db().one("SELECT label FROM acquisition WHERE id = ?", {V(*id)});

@@ -26,6 +26,7 @@
 
 #include "nxr/pipelines/registry.h"
 #include "nxr/pipelines/welch_steps.h"
+#include "nxr/pipelines/meeg_steps.h"
 
 #include <algorithm>
 #include <set>
@@ -1717,6 +1718,7 @@ StepSpec describe_native(const nxr::graph::NodeSpec& n) {
 const std::vector<StepSpec>& registry() {
   static const std::vector<StepSpec> r = [] {
     nxr::pipelines::graph::register_welch_nodes();
+    nxr::pipelines::graph::register_meeg_nodes();
     std::vector<StepSpec> all = build();
     for (const auto& name : nxr::graph::registry().names()) all.push_back(describe_native(nxr::graph::registry().at(name)));   // the nodes registered before the first use
     return all;

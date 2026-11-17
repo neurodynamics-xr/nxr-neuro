@@ -160,28 +160,6 @@ std::vector<double> numbers(const std::string& prog, const std::string& flag, co
 
 }  // namespace
 
-int noisecov_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro noisecov: error: the following arguments are required: action (compute)");
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  std::set<std::string> valued = kNoiseValued;
-  valued.insert({"--dataset", "--subject"});
-  std::set<std::string> flags = kNoiseFlags;
-  flags.insert("--replace");
-  const cli::Args a = cli::parse("nxr-neuro noisecov compute", rest, valued, flags, {"--dataset", "--subject", "--recording"});
-  nxr::pipelines::NoiseCovOptions o = noise_options("nxr-neuro noisecov compute", a, true);
-  o.replace = a.flag.count("--replace") > 0;
-  DatasetWriter ds = open_dataset(a);
-  OpenSubjectOptions oo;
-  oo.created_by = cli::stamp();
-  SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-  const auto r = nxr::pipelines::noisecov_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-  Json out = Json{{"stage", "result"}};
-  for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-  out["seconds"] = std::round(r.seconds * 1000) / 1000;
-  cli::emit(out);
-  return 0;
-}
-
 // the Welch options of `psd compute` and `sourcepsd compute` (--set, --segment-*, --overlap, --window, --periodic|--symmetric, --detrend, --scaling) into any options struct that has
 // option_set, welch, segment_seconds and segment_samples
 template <class Options>

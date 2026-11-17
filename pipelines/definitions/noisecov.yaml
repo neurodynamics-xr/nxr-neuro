@@ -1,0 +1,38 @@
+# THE NOISE COVARIANCE OF A RECORDING (a statistic): the zero-lag second moment of its good imaging channels over the span the caller states (--from/--to or --all), read one
+# chunk at a time; blocks of block_seconds each have their own mean removed (null: the span is one block, one DC offset). The channels it covers are stored as a pick of the
+# recording's channels; the covariance's two axes lie over that pick. The whitener derived from it is an operator, made by the inverse.
+#
+#   nxr-neuro run noisecov --dataset <folder> --subject sub-01 --recording emptyroom --all [--block-seconds 10]
+pipeline: noisecov
+version: 1
+description: the noise covariance of a recording's good imaging channels over a span
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  name: {default: "{recording}_noise_cov", meaning: "the stored statistic's name; its channels are <name>_channels", unit: "-"}
+  channel_types: {default: [MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG], meaning: "the channel types covered (only good ones: the recording's flags, else the montage's quality)", unit: "-"}
+  block_seconds: {default: null, meaning: "the length of a block, its own mean removed; null: the span is one block", unit: "s"}
+  remove_mean: {default: true, meaning: "remove each block's mean", unit: "-"}
+  divisor: {default: samples_minus_blocks, meaning: "the divisor: samples_minus_blocks | samples | samples_minus_one", unit: "-", choices: [samples_minus_blocks, samples, samples_minus_one]}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: meeg.noise_covariance, in: {x: recording}, with: {channel_types: $channel_types, block_seconds: $block_seconds, remove_mean: $remove_mean, divisor: $divisor}, out: [channels, covariance]}
+
+outputs:
+  channels:
+    kind: selection
+    type: indices
+    name: "$name_channels"
+    on: recording.manifold.0
+  covariance:
+    kind: statistic
+    name: $name
+    of: recording
+    axes: [{name: channel, selection: channels}, {name: channel, selection: channels}]

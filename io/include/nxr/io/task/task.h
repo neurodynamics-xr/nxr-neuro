@@ -149,9 +149,9 @@ struct OperatorOut {
 struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };
 // a Selection on a manifold: a partition or set (a code per element), spans (on a time line), or a tiling (a closed-form spans Selection)
 struct SelectionOut {
-  std::string name, output, type, manifold_id;     // type: partition · set · spans · tiling
+  std::string name, output, type, manifold_id;     // type: partition · set · indices · spans · tiling
   std::optional<std::string> path;                 // default: io's node path for the name on the manifold
-  std::vector<std::int64_t> codes;                 // partition, set: a code per element (-1: none)
+  std::vector<std::int64_t> codes;                 // partition, set: a code per element (-1: none) · indices: the elements picked, in order
   std::vector<Span> spans;                         // spans: [start, stop) in the manifold's unit, each with its code
   std::optional<Tiling> tiling;                    // tiling
   std::vector<std::string> entries;                // the codes' names (a dictionary of the selection's own), when any
