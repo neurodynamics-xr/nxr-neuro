@@ -275,15 +275,18 @@ StepSpec cellquadrature_step() {
     const Json recipe = Json{{"pipeline", "cellquadrature"}, {"cross_spectrum", csname}, {"joint", text(*st.joint.row, "name")}, {"kernel", kname}, {"space_level", l}, {"window_level", window_level}, {"spatial_band", band.info}, {"weights", weights},
                              {"note", "T = B C B^T per spatial tile of the level; B the tile's rows of the kernel with the level's Weyl band, all components; stored: sum |T|^2 and sum |Im T|^2; the quadrature fraction is derived at read; weights: " + weights +
                                           " (area: sums of a_i a_j |T_ij|^2 with a the vertex's barycentric area; none: every vertex counts equally)"}};
-    const int nt = static_cast<int>(tiles);
+    // THE GROUPING IS A SELECTION in its resolved form (spec 2026-11-17-selection-module, section 8): the spatial tiles of the level (a GRID: a level of the surface's dyadic grid) as the member number of each row
+    nxr::selection::MemberOfElement tile_members;
+    tile_members.members = tiles;
+    tile_members.member_of.assign(row_tile.begin(), row_tile.end());
     struct Norms { Eigen::MatrixXd total, quad, ptotal, pquad; };
     auto norms_of = [&](const std::vector<Eigen::MatrixXcd>& Cs) {
       Norms n;
       if (tile_pairs) {
-        const auto r = quadrature::pairCongruenceNorms(A, row_tile, nt, SL.pairs, Cs, row_w);
+        const auto r = quadrature::pairCongruenceNorms(A, tile_members, SL.pairs, Cs, row_w);
         n.total = r.tiles.total; n.quad = r.tiles.quadrature; n.ptotal = r.pairTotal; n.pquad = r.pairQuadrature;
       } else {
-        const auto r = quadrature::groupedCongruenceNorms(A, row_tile, nt, Cs, row_w);
+        const auto r = quadrature::groupedCongruenceNorms(A, tile_members, Cs, row_w);
         n.total = r.total; n.quad = r.quadrature;
       }
       return n;

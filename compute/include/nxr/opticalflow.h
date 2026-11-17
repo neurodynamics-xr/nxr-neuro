@@ -143,6 +143,13 @@ enum class ActivationMethod { Analytic, Norm };
 Eigen::MatrixXd activation(const Eigen::MatrixXcd& J, ActivationMethod method = ActivationMethod::Analytic, bool alreadyAnalytic = true);
 /** The analytic signal along the columns' time axis (MATLAB hilbert on each row of X [rows x T]). */
 Eigen::MatrixXcd hilbertRows(const Eigen::MatrixXd& X);
+/** THE EXPLICIT NEIGHBOURHOOD of the FFT Hilbert transform (spec 2026-11-17-selection-module, 7.3 and 8: a halo is a planner fact the node declares, never a selection). hilbertRows takes the whole block it is
+ *  handed, so its result at a sample depends on where the pipeline cut its chunks. hilbertRowsOwn takes a block that carries `left` samples of halo before its own columns and whatever halo follows, and returns the
+ *  analytic signal of the own columns [left, left + own) only: the neighbourhood is the halo the caller read, stated, not the block's accident. hilbertHalo is the halo a node declares for a band whose lowest
+ *  frequency is `lowestHz`: `cycles` cycles of it on each side, in samples (the Studio's `supportOf` / `fitLevelOf` use 4 cycles); a signal band-limited above `lowestHz` has its Hilbert response inside that
+ *  support up to the band's own tail, so the own columns do not depend on the chunk size beyond it. Refuses a block shorter than left + own. */
+std::int64_t hilbertHalo(double sfreq, double lowestHz, double cycles = 4.0);
+Eigen::MatrixXcd hilbertRowsOwn(const Eigen::MatrixXd& block, Eigen::Index left, Eigen::Index own);
 
 struct ApparentOptions {
     double rate = std::numeric_limits<double>::quiet_NaN();   // Hz; required for .speed in length per second

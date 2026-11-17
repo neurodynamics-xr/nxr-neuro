@@ -279,51 +279,7 @@ struct CyclePatternResult {
 };
 CyclePatternResult cyclepattern_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const CyclePatternOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
 
-// ── the quadrature spectrum of sources ──
-// The recording's sensor cross-spectrum per band, S_b = Re + i Im (Welch's, as sourcepsd; nxr::welch::CrossWelch with the quadrature part), its factor L (S_b = L L^H, rank <= channels) read through the
-// kernel K as F = K L [(oN) x r complex, never N x N], and from F (nxr/quadrature.h; nxr's lagged.py):
-//   quadratureFraction   ||Im C||_F / ||C||_F of the band's source cross-spectrum C = F F^H (0 for any zero-delay mixture): in the params of every field of the band
-//   quadratureEnergy     per source, sum_j (Im C_ij)^2 over the other sources j and, for a FREE kernel, over the source's three rows i (x, y, z): Field `<stem>_energy_<band>` (kind quadrature energy)
-//   quadraturePairs      the top k (default 3) eigenvalue pairs +- i sigma of Im C: p leads q by a quarter cycle (the pair turns p -> q, counter-clockwise, the rotary spectrum's +f), Im C ⊇ sigma (p q^T - q p^T),
-//                        sigma its amplitude, share its share of ||Im C||_F^2 (2 sigma^2 / ||Im C||^2), rotary power at +f and -f (always + : the check): Fields `<stem>_pair<k>_p_<band>` and `_q_`
-//                        (kind quadrature pair). The pair is a plane: (p, q) is fixed up to a rotation in it, and the gauge is the strongest row has q = 0, p > 0.
-// FREE KERNEL (three orientation rows per source, x y z interleaved as the kernel is stored): the quadrature spectrum is taken over the 3N rows; the energy of a source is the sum of its three rows' energies;
-// a pair is one pattern over the 3N rows, so its p and q are stored as vector3 Fields [N x 3] (the source's x, y, z components), unit norm over all 3N numbers. A fixed kernel: scalar Fields [N].
-// Memory (free kernel, ~15k sources, ~270 channels): F, [Re F, Im F] and Q are each ~200 MB; one band at a time.
-struct QuadratureOptions {
-  std::string recording;                                  // the recording Field by name
-  std::optional<std::string> kernel;                      // the inverse kernel Operator by name; default: the subject's only one
-  std::optional<std::string> name;                        // the stem of the fields' names; default `<recording>_<kernel>_quadrature`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
-  std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
-  std::optional<double> segment_seconds = 4.0;
-  std::optional<std::int64_t> segment_samples;            // wins when given
-  std::optional<int> segment_level;                       // under the set `tiles`: the segment is 2^segment_level samples (wins over seconds)
-  nxr::welch::WelchOptions welch = nxr::welch::brainstormPsdOptions(1.0);
-  std::string option_set = "tiles";
-  std::vector<nxr::meeg::Band> bands = nxr::meeg::brainstormBands();   // Brainstorm's default bands; the mean of the bins from lo to hi inclusive
-  int pairs = 3;                                          // the k strongest quadrature pairs per band
-  bool exclude_bad_segments = true;
-  // THE STORED FORM (step 5 of the measurement pyramid): the divergence, curl, speed and velocity are stored as additive SUMS per leaf of `<surface> tiles L<depth>` and per frame of the recording's tower tiling (`frame_level`), never as per-vertex time means
-  std::optional<int> depth;                               // the leaves' level (default: the finest level every piece reaches; the ladder is made when the surface has none)
-  int frame_level = -18;                                  // the tower level of a frame (86 400 * 2^L s; -18 = 0.33 s)
-  std::optional<double> day_start_s;                      // the recording's first sample as seconds from local midnight (anchor day); default: the anchor is the recording
-  bool tiles = false;                                     // also write the maps' tile summaries per level (nxr/pipelines/tiles.h): scalars area-weighted, the vector in the frame and the Levi-Civita forms, labelled
-  std::vector<int> tile_levels;                           // the levels (empty: 1 .. tile_max_level)
-  int tile_max_level = 6;
-  bool tile_levi_civita = true;                           // the Levi-Civita form (a transport solve per tile centre)
-  bool replace = false;
-};
-struct QuadratureResult {
-  bool hit = false;
-  double seconds = 0;
-  nxr::io::Json info;                                     // name, fields, bands, per-band fraction and pairs ...
-  std::vector<double> fraction;                           // per band (empty on a cache hit)
-  Eigen::MatrixXd energy;                                 // [sources x bands]
-  std::vector<std::vector<nxr::quadrature::QuadraturePair>> pairs;   // per band; the patterns over the kernel's rows (3N for a free kernel)
-  std::vector<std::vector<double>> share;                 // per band, per pair: its share of ||Im C||_F^2
-};
-QuadratureResult quadrature_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const QuadratureOptions& opt, const std::function<void(const nxr::io::Json&)>& progress = {});
+// (the quadrature spectrum of the sources is the definition `quadrature`: pipelines/src/quadrature_steps.cpp)
 
 // ── Hodge–Dirac eigenmode power of source maps ──
 // The recording's sensor cross-spectrum per band S_b (Welch, as sourcepsd), read through the FUSED weights B [2K x C] of the stored FREE-orientation kernel and the subject's stored

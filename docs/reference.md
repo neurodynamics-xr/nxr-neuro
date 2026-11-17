@@ -354,7 +354,7 @@ A failure is a message on stderr (a `"stage": "error"` object, with its `code`, 
 | `nxr-neuro run sourcepsd` | The band power maps of the sources (the Welch PSD of the sources, grouped in bands). | `sourcepsd compute` |
 | `nxr-neuro run sourcetensor` | The band cross-spectral tensor of the current, its Stokes quaternion, normal power and share. | `sourcetensor compute` |
 | `nxr-neuro run crossspectrum` | The sensor cross-spectral density per band (Welch, or per time window with the analytic estimator). | `crossspectrum compute` |
-| `nxr-neuro run quadrature` | The quadrature spectrum of the sources per band: fraction, energy map and leading pairs. | `quadrature compute` |
+| `nxr-neuro run quadrature` | The quadrature spectrum of the sources per band: fraction, energy map and leading pairs (the definition `quadrature`). | (the definition) |
 | `nxr-neuro run hodgepower` | The band power of the Hodge-Dirac eigenmode coefficients of a free-orientation kernel. | `hodgepower compute` |
 | `nxr-neuro run speedspectrum` | The speed spectrum: mode energy per phase speed from the joint eigenvalue and frequency bank. | `speedspectrum compute` |
 | `nxr-neuro run phasegradient` | The phase gradient of a band from a stored cross-spectrum: phase current, power, speed and travelling index. | `phasegradient compute` |
@@ -678,7 +678,7 @@ from lo to hi inclusive).
   `<R>_<kernel>_psd_<band>` (as its Field was named; one stored before as Fields stays readable). `io::map_slices` lists a surface's maps of statistics and
   `read_map_slice` reads one; `run measure` and `measure export` take them as they take Fields (their rows name the statistic and the band:
   `of_statistic_id`, `of_index`, added to the measurement table in place).
-- `run quadrature`: the quadrature (imaginary) part of the source cross-spectrum, which no zero-delay mixture produces. Per band: `quadratureFraction` ||Im C|| / ||C|| (in the
+- `run quadrature` (a definition: `welch.cross_spectrum` on the kernel's channels, then the node `quadrature.source_pairs`; `docs/specs/2026-11-17-flow-verbs.md`): the quadrature (imaginary) part of the source cross-spectrum, which no zero-delay mixture produces. Per band: `quadratureFraction` ||Im C|| / ||C|| (in the
   fields' params), the `quadratureEnergy` map per source `<stem>_energy_<band>`, and the top K quadrature pairs (p leads q by a quarter cycle) `<stem>_pair<k>_p_<band>` / `_q_`
   (vector3 fields for a free kernel). nxr's `lagged.py` is the reference. Since 2026-11-13 they are MAP STATISTICS by `welch`: `<stem>_energy`
   (`quadrature_energy`, vertex × band, each band entry with its quadrature fraction and the sensors' rank) and `<stem>` (`quadrature_pattern`, vertex ×

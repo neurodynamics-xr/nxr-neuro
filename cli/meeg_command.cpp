@@ -39,7 +39,7 @@
 //   nxr-neuro opticalflow compute --dataset D/N --subject S --recording R [--kernel NAME] [--package STEM] [--name STEM] [--chunks K|A-B|all | --start S --stop S] --family F --gain G --freq HZ [--centres HZ,..] [--cycles C] [--voices V] [--anchor HZ] [--limits LO-HI] [--half-width OCT] [--gamma G --time-bandwidth B] [--resolution HZ] [--oversample X] [--tolerance T] [--alpha A] [--depth D] [--frame-level L] [--start-s S] [--method pcg|direct|perscale] [--regulariser connection|ambient] [--datafit auto|gauge|triangle] [--input amplitude|signed] [--flow-tolerance T] [--max-iterations N] [--preconditioner ldlt|ic] [--scale-family F] [--scale-voices V] [--scale-filters N] [--replace]
 //   nxr-neuro tiles compute --dataset D/N --subject S [--surface NAME] [--depth L] [--replace]
 //     The dyadic TILE LADDER of a surface (nxr/ladder.h, the Studio's surfaceLadder): 2^l equal-area tiles per connected piece at level l, paired with scale by Weyl's law, stored as Selections (a `ladder` and one `set` per level:
-//     the tile code h 2^l + t of every vertex), their areas, centres and adjacency in the Selection's atlas node. `opticalflow compute` and `quadrature compute` take --tiles to write their maps' tile summaries per level
+//     the tile code h 2^l + t of every vertex), their areas, centres and adjacency in the Selection's atlas node. `opticalflow compute` takes --tiles to write their maps' tile summaries per level
 //     (--tile-levels 1,2,3 | --tile-max-level N, --no-levi-civita): scalars area-weighted; vectors in the canonical frame components and in the Levi-Civita (transported) form, labelled; never raw 3-D sums.
 //   nxr-neuro frames compute --dataset D/N --subject S [--surface NAME] [--template SUBJECT [--template-surface NAME]] [--convention scs|ras] [--side auto|left|right] [--min-projection P] [--max-condition C] [--replace]
 //     The cortical frames of a surface (nxr/frames.h): the CANONICAL frames (north / west; read when stored as `<surface>_canonical_frames`, else computed from the registered sphere `<surface>_sphere`)
@@ -86,7 +86,6 @@
 //     phase_power, phase_gradient_power, phase_current_1, phase_current_2 (the phase current in the canonical frames), phase_current_magnitude; the phase gradient, its speed, the travelling
 //     index and the phase coherence are derived at read (`measure query`: phase_gradient_1, ..., travelling_index). The per-vertex Fields of earlier runs are not written any more (and not touched).
 //
-//   nxr-neuro quadrature compute --dataset D/N --subject S --recording R [--kernel NAME] [--bands alpha:8-12,...] [--pairs K]   (see nxr/pipelines/meeg.h)
 //   nxr-neuro sourcepsd compute --dataset D/N --subject S --recording R [--kernel NAME] [--name STEM] [--chunks K|A-B|all | --start SEC --stop SEC]
 //                               [--bands name:lo-hi,...] [--normalisation none|relative] [the psd options: --set --segment-seconds|--segment-samples --overlap --window --periodic|--symmetric
 //                               --detrend --scaling --no-bad-segments] [--replace]
@@ -365,50 +364,6 @@ template <class O> void tile_args(const std::string& prog, const cli::Args& a, O
   if (const auto v = a.maybe("--tile-levels")) { std::stringstream ss(*v); for (std::string t; std::getline(ss, t, ',');) o.tile_levels.push_back(std::stoi(t)); }
   if (const auto v = a.maybe("--tile-max-level")) o.tile_max_level = std::stoi(*v);
   o.tile_levi_civita = a.flag.count("--no-levi-civita") == 0;
-}
-
-int quadrature_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro quadrature: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro quadrature compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const std::set<std::string> valued = {"--dataset", "--subject", "--recording", "--kernel", "--name", "--chunks", "--start", "--stop", "--set", "--segment-seconds", "--segment-samples", "--segment-level",
-                                        "--overlap", "--window", "--detrend", "--scaling", "--bands", "--pairs", "--tile-levels", "--tile-max-level"};
-  const std::set<std::string> flags = {"--periodic", "--symmetric", "--no-bad-segments", "--replace", "--tiles", "--no-levi-civita"};
-  const cli::Args a = cli::parse(prog, rest, valued, flags, {"--dataset", "--subject", "--recording"});
-  nxr::pipelines::QuadratureOptions o;
-  o.recording = a.get("--recording");
-  o.kernel = a.maybe("--kernel");
-  o.name = a.maybe("--name");
-  if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
-  if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
-  o.chunks = a.maybe("--chunks");
-  if (const auto v = a.maybe("--pairs")) o.pairs = std::stoi(*v);
-  tile_args(prog, a, o);
-  welch_args(prog, a, o);
-  if (const auto v = a.maybe("--bands")) {       // name:lo-hi,name:lo-hi
-    o.bands.clear();
-    for (const std::string& item : split(*v, ',')) {
-      const auto colon = item.find(':'), dash = item.find('-', colon == std::string::npos ? 0 : colon);
-      if (colon == std::string::npos || dash == std::string::npos) usage(prog, "--bands is name:lo-hi,name:lo-hi (Hz), e.g. alpha:8-12");
-      o.bands.push_back({item.substr(0, colon), std::stod(item.substr(colon + 1, dash - colon - 1)), std::stod(item.substr(dash + 1))});
-    }
-  }
-  o.exclude_bad_segments = a.flag.count("--no-bad-segments") == 0;
-  o.replace = a.flag.count("--replace") > 0;
-  try {
-    DatasetWriter ds = open_dataset(a);
-    OpenSubjectOptions oo;
-    oo.created_by = cli::stamp();
-    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-    const auto r = nxr::pipelines::quadrature_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-    Json out = Json{{"stage", "result"}};
-    for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-    out["seconds"] = std::round(r.seconds * 1000) / 1000;
-    cli::emit(out);
-  } catch (const std::invalid_argument& e) {
-    usage(prog, e.what());
-  }
-  return 0;
 }
 
 int opticalflow_main(const std::vector<std::string>& argv) {
