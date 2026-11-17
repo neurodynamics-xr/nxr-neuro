@@ -687,6 +687,8 @@ nxr::graph::Array operator_constant(const Bound& bound, nxr::io::SubjectWriter& 
   a.meta["id"] = text(op, "id");
   a.meta["to_value_type"] = nxr::io::opt_text(op, "to_value_type").value_or("vector3");
   a.meta["to_manifold_id"] = nxr::io::opt_text(op, "to_manifold_id").value_or("");
+  a.meta["from_manifold_id"] = text(op, "from_manifold_id");
+  a.meta["from_value_type"] = nxr::io::opt_text(op, "from_value_type").value_or("scalar");
   return a;
 }
 
@@ -863,9 +865,32 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (!constants.count(name) || !P.values.count(name) || !P.found.count(name) || !P.found.at(name).row) continue;
       const Value& v = P.values.at(name);
       const nxr::io::Row& row = *P.found.at(name).row;
-      if (v.cls == "field") {
+      if (v.cls == "statistic") {                                        // its values, its axes; a first axis over a pick of channels: those channels and their types
         std::vector<std::int64_t> shape;
-        const std::vector<float> f = bound.array_float(text(row, "path"), &shape);
+        const std::vector<double> f = bound.array_double(text(row, "path"), &shape);
+        nxr::graph::Array a;
+        a.rows = shape.empty() ? 0 : shape[0];
+        a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
+        a.data.assign(f.begin(), f.end());
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
+        const Json axes = Json::parse(nxr::io::opt_text(row, "axes_json").value_or("[]"), nullptr, false);
+        a.meta["axes"] = axes;
+        if (axes.is_array() && !axes.empty() && axes[0].contains("selection_id"))
+          if (const auto sel = sub.db().read("selection", axes[0]["selection_id"].get<std::string>()); sel && !nxr::io::is_null(*sel, "array_path")) {
+            const std::vector<std::int32_t> ch = bound.array_int32(text(*sel, "array_path"));
+            a.meta["channels"] = ch;
+            a.meta["channels_selection_id"] = text(*sel, "id");
+            const std::string mid = nxr::io::opt_text(*sel, "manifold_id").value_or("");
+            a.meta["channels_manifold_id"] = mid;
+            const std::vector<std::string> all = nxr::pipelines::channel_types_of(sub, mid);
+            Json types = Json::array();
+            for (const auto c : ch) types.push_back(c >= 0 && static_cast<std::size_t>(c) < all.size() ? all[static_cast<std::size_t>(c)] : std::string());
+            a.meta["channel_types"] = types;
+          }
+        constants[name] = std::move(a);
+      } else if (v.cls == "field") {
+        std::vector<std::int64_t> shape;
+        const std::vector<double> f = bound.array_double(text(row, "path"), &shape);
         nxr::graph::Array a;
         a.rows = shape.empty() ? 0 : shape[0];
         a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
@@ -974,10 +999,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (is_declared(P, o) && ospec["kind"] == "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced));
     std::set<std::string> packed;                                          // the measurement outputs already stored with an earlier one's array
     auto pass = [](const Value& v) { return v.cls == "labelling" ? 1 : over_events(v) ? 2 : v.cls == "statistic" ? 3 : 0; };
-    for (int ps = 0; ps < 4; ++ps)
+    for (int ps = 0; ps < 5; ++ps)                                          // a fifth pass: the declared operators, last (they name the picks and statistics stored before them)
     for (const auto& [o, spec] : d.outputs.items()) {
       const Value& v = P.values.at(o);
-      if (pass(v) != ps) continue;
+      if ((is_declared(P, o) && ospec_kind(spec) == "operator" ? 4 : pass(v)) != ps) continue;
+      if (is_declared(P, o) && !data.count(o)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", "its node made none (an optional output)"}}); continue; }
       if (is_declared(P, o)) { if (ospec_kind(spec) != "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced)); continue; }
       if (v.cls == "measurement" && v.facts.value("measure", std::string()) == "tile_crossings") { stored.push_back(store_crossings(sub, unit, P, o, v, data.at(o), made_by(key), opt.replace, replaced)); continue; }
       if (v.cls == "measurement") {

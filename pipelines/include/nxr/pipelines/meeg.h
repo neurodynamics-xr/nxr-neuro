@@ -47,45 +47,6 @@ namespace nxr::pipelines {
 // The channel types source imaging uses (the default of `channel_types`).
 std::vector<std::string> imaging_channel_types();
 
-struct NoiseCovOptions {
-  std::string recording;                                  // the recording Field by name
-  std::optional<std::string> name;                        // default `<recording>_noise_cov`
-  std::optional<std::string> chunks;                      // what is loaded: chunk "k", chunks "a-b", or "all" (the whole recording, a loop over its chunks); REQUIRED: the caller states the span (or start and stop)
-  std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
-  std::optional<double> block_seconds;                    // unset: the window is ONE block (one DC offset); else a block (own mean removed) of this many seconds
-  std::vector<std::string> channel_types = imaging_channel_types();   // only channels of these types, and good ones (the recording's own flags, else the montage's quality)
-  nxr::meeg::CovarianceOptions covariance;                // remove the mean per block · the divisor
-  bool replace = false;                                   // on a miss with a covariance of this name already stored: replace it (its array moved aside, never deleted)
-};
-struct NoiseCovResult {
-  bool hit = false;
-  double seconds = 0;
-  nxr::io::Json info;                                     // name, id, channels, samples, blocks, window, divisor ...
-  Eigen::MatrixXd covariance;                             // [M x M] on `channels`
-  std::vector<std::int32_t> channels;                     // the channel indices (of the channels manifold) it covers, ascending
-};
-NoiseCovResult noisecov_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const NoiseCovOptions& opt,
-                                const std::function<void(const nxr::io::Json&)>& progress = {});
-
-struct InverseComputeOptions {
-  std::optional<std::string> forward;                     // the head model Operator (kind forward) by name; default: the subject's only one
-  std::optional<std::string> noise_cov;                   // a stored noise covariance Operator by name ...
-  std::optional<NoiseCovOptions> from_recording;          // ... or the recording to compute (and store) it from
-  std::optional<std::string> name;                        // the kernel's name; default `<forward>_minnorm`
-  nxr::meeg::KernelOptions kernel;                        // Brainstorm's defaults: depth 0.5/10, SNR 3, ridge 0.1
-  bool average_reference = true;                          // average-reference the EEG, sEEG and ECoG gain rows and covariance (the caller's job in the spec; idempotent on an already referenced gain)
-  bool mne_conventions = false;                           // use MNE-Python's option set (nxr::meeg::mneKernelOptions()) instead of `kernel`
-  bool replace = false;
-};
-struct InverseComputeResult {
-  bool hit = false;
-  double seconds = 0;
-  nxr::io::Json info;
-  int whitener_rank = 0;
-  double lambda = 0;
-};
-InverseComputeResult inverse_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const InverseComputeOptions& opt,
-                                     const std::function<void(const nxr::io::Json&)>& progress = {});
 
 enum class MegModel { None, SingleSphere, OverlappingSpheres };
 

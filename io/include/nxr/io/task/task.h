@@ -140,6 +140,7 @@ struct OperatorOut {
   std::string name, output, kind, from_manifold_id, to_manifold_id;
   std::optional<std::string> path;                 // default: the name
   std::string from_value_type = "scalar", to_value_type = "scalar";
+  std::optional<std::string> inverts_id, inverse_kind;   // the operator it is the (regularized) inverse of: a kernel of its head model
   std::optional<std::string> from_selection_id, to_selection_id, derived_from_id, of_statistic_id, description, acquisition;   // of_statistic_id: the statistic it is derived from
   Json params;                                     // the operator's parameters (null: none)
   Json producer;

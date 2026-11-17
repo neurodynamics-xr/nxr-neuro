@@ -597,6 +597,7 @@ std::string Unit::operator_(const OperatorOut& o) {
   if (o.to_selection_id) op.cols.set("to_selection_id", *o.to_selection_id);
   if (o.derived_from_id) op.cols.set("derived_from_id", *o.derived_from_id);
   if (o.of_statistic_id) op.cols.set("of_statistic_id", *o.of_statistic_id);
+  if (o.inverts_id) op.cols.set("inverts_id", *o.inverts_id).set("inverse_kind", o.inverse_kind.value_or("regularized"));
   if (o.description) op.cols.set("description", *o.description);
   if (!o.params.is_null()) op.cols.json("params_json", o.params);
   op.cols.json("producer_json", producer_of(by_, o.output, o.producer));

@@ -80,7 +80,6 @@ R"TBL(--acquisition	NAME	The Brainstorm acquisition (condition) the kernel or ma
 --block-samples@run pyramid	N	Samples projected through the kernel at a time; sets memory use only, not the result.	512 (fixed-orientation kernel) or 128 (free orientation)	samples
 --block-samples@run	N	Width in samples of the blocks that flow through the steps after the last filter; limits memory only, the result does not change (0 = the whole chunk).	1024	samples
 --block-seconds	SECONDS	Length of the blocks whose own mean is removed before the covariance is formed (noisecov: noise window; inverse: when computing the noise covariance from a recording).	one block (a single mean for the whole window)	s
---block-seconds@run inverse	SECONDS	With --recording: split the noise-covariance window into blocks of this length, each with its own mean removed.	one block for the whole window	s
 --bst-root	PATH	Root folder of the Brainstorm protocol, used to resolve the surface files named by --file.	none (empty)	-
 --bst-root@import inverse	PATH	Root folder of the Brainstorm protocol, used to resolve the kernel's channel, surface and head-model links.	required	-
 --bst-root@import map	DIR	The Brainstorm protocol folder the map files are read from, with the anatomy folders the maps' surfaces and atlases are found in.	required	-
@@ -133,15 +132,10 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --defects@run phasegradient	keep|exclude	With --spatial-band: exclude gives weight 0 to edges at a fold-over of the mesh or shorter than 0.1 of the median edge; keep leaves them in.	keep	-
 --depth	LEVEL	Level of the surface's tile ladder that gives the leaf tiles on which sums are stored (2^LEVEL tiles per piece); for tiles compute, the finest level written.	the finest level every piece of the surface reaches (pyramid reduce: the stored depth)	level
 --depth-channels	all|one-type	Which channels the depth-weighting norm is computed on: all channels, or one channel type (gradiometers if present, else magnetometers, else EEG).	all	-
---depth-channels@run inverse	all|one-type	Channels the depth-weighting norm uses: all channels (Brainstorm) or one type only (MEG GRAD, else MEG MAG, else EEG; MNE-Python).	all	-
 --depth-exponent	P	Exponent of the depth weighting that counteracts the bias of the minimum-norm solution towards superficial sources	0.5	-
---depth-exponent@run inverse	P	Depth-weighting exponent p of the source norm.	0.5 (0.8 with --mne)	-
 --depth-limit	X	Upper limit of the depth weighting (Brainstorm's WeightLimit): the largest-to-smallest weight ratio is limited to this value squared in variance.	10	-
 --depth-limit-on	weight|norm	Where the depth limit is applied: on the weights (Brainstorm's way) or on the inverse norms (MNE-Python's way).	weight	-
---depth-limit-on@run inverse	weight|norm	Where the depth limit is applied: on the weight (Brainstorm) or on the norm (MNE-Python).	weight	-
---depth-limit@run inverse	L	Depth-weighting limit: the largest weight relative to the smallest is bounded by this factor.	10	-
 --depth-norm	frobenius|spectral	Matrix norm used for each source's gain when depth weighting	frobenius	-
---depth-norm@run inverse	frobenius|spectral	Norm of each source's gain block: Frobenius (Brainstorm) or spectral, the largest eigenvalue (MNE-Python).	frobenius	-
 --depth@run opticalflow	LEVEL	Level of the surface's tile ladder whose leaf tiles hold the stored sums of divergence, curl, speed and velocity; the ladder is made if absent.	the finest level every piece of the surface reaches	level
 --depth@run phasegradient	LEVEL	Level of the surface's tile ladder that gives the leaf tiles on which the sums are stored (plain route only, not with --spatial-band).	the finest level every piece of the surface reaches	level
 --depth@run pyramid	LEVEL	Level of the leaf tiles (2^LEVEL tiles per surface piece) on which the sums are stored.	the finest level every piece reaches (group tree: the dataset's atlas depth)	level
@@ -153,7 +147,6 @@ R"TBL(--convention	scs|ras	Axes in which the surface's own coordinates are given
 --detrend@run quadrature	none|constant|linear	Trend removed from each Welch segment before windowing.	constant (set tiles, brainstorm, scipy); none (nxr-chain)	-
 --detrend@run speedspectrum	none|constant|linear	What is removed from each segment before windowing	constant	-
 --divisor	samples-minus-blocks|samples|samples-minus-one	What the covariance sum is divided by: samples minus the number of blocks, the samples, or samples minus one.	samples-minus-blocks	-
---divisor@run inverse	samples-minus-blocks|samples|samples-minus-one	With --recording: what the noise covariance's sum of squares is divided by (N-B, N or N-1).	samples-minus-blocks	-
 --draws	N	Number of complex Wishart random draws used for the null distribution	1000	draws
 --draws@run wishart	N	Number of complex Wishart draws of each burst's own zero-lag covariance that form the null.	1000	draws
 --dry-run		Report what would change (compact: files and folders before and after; run: inputs found and arrows checked) without changing or computing anything.	off	-
@@ -217,7 +210,6 @@ R"TBL(--exit-sd@run patches	K	A patch extends over neighbouring tiles at or abov
 --forward	NAME	Name of the stored head model (forward operator) to use.	the subject's only one	-
 --forward-id	ID	The id of the head model the kernel was made with.	found from the kernel file	-
 --forward-id@import inverse	ID	Id of the stored head model the kernel was made with.	found from the kernel's HeadModelFile link	-
---forward@run inverse	NAME	Name of the stored head model (forward operator) whose gain the kernel inverts.	the subject's only head model	-
 --forward@run pointspread	NAME	The head model (forward operator) the unit currents are planted through	the subject's only forward model	-
 --fpass	HZ|LO,HI	Passband edge: one frequency for lowpass or highpass, LO,HI for bandpass	none (required)	Hz
 --fpass@run bandpass	LO,HI	Lower and upper passband edge of the band-pass filter, both below the Nyquist frequency.	required	Hz
@@ -280,7 +272,6 @@ R"TBL(--harmonics@run notch	N	With --line, remove the first N multiples of the l
 --input@run opticalflow	amplitude|signed	Map the flow is computed on: the source amplitude |J| of the kernel applied to the band's complex coefficients, or the signed band signal itself (fixed-orientation kernels only).	amplitude	-
 --joint	NAME	Name of the stored joint space-time partition to use	the one for the cross-spectrum's recording, the space level and its tile level	-
 --joint-types		Whiten the channel types of a modality (e.g. magnetometers with gradiometers) together, keeping their cross-covariance, instead of one block per type.	off	-
---joint-types@run inverse		Whiten the channel types of a modality (magnetometers with gradiometers) together, keeping their cross-covariance, instead of one block per type.	off	-
 --joint@run cellquadrature	NAME	Stored joint space-time partition whose cells are measured.	the one for the cross-spectrum's recording, this space level and its tile level	-
 --keep-all		Keep every member in the table, including those excluded by default.	off	-
 --keep-all@export measurements		Keep every member in the table, including the default excluded one (clears --exclude)	off	-
@@ -373,7 +364,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --mne		Use MNE-Python's conventions for the kernel: joint types, ridge over the rank, PCA whitener, depth exponent 0.8 by the spectral norm.	off	-
 --mne-eeg-layers		Use MNE-Python's EEG sphere layers and conductivities instead of the default three-shell layers.	off	-
 --mne-eeg-layers@run headmodel		Use MNE-Python's four EEG layers (radii 0.90, 0.92, 0.97, 1.00; conductivities 0.33, 1.0, 0.004, 0.33 S/m) instead of three.	off (three layers)	-
---mne@run inverse		Start from MNE-Python's conventions (joint types, ridge over rank, PCA whitener, depth 0.8 spectral, Lambda by whitener rank); the other options still apply after it.	off (Brainstorm's defaults)	-
 --modes	K	Number of Hodge-Dirac eigenmodes (eigen solve, dataset create: how many to solve; pointspread, cellquadrature, patches: size of the package when it must be computed, 0 = standard; speedspectrum, hodgepower: use the first K of the stored package)	eigen solve: 3000; dataset create: none; speedspectrum, hodgepower: all; pointspread, cellquadrature, patches: 0	modes
 --modes@run cellquadrature	K	Size of the Hodge-Dirac eigenmode package when it must be computed for the spatial band (0 = standard size).	0	modes
 --modes@run eigenmodes	K	About this many positive Hodge-Dirac modes are kept, half exact and half coexact.	3000	modes
@@ -393,7 +383,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@run headmodel	NAME	The name the head model is stored under.	headmodel	-
 --name@run highpass	NAME	Name of the new filtered recording.	<recording>_highpass	-
 --name@run hodgepower	NAME	The stem of the names of the stored fields (one current and one flow field per band).	<recording>_<kernel>_hodge	-
---name@run inverse	NAME	Name of the stored inverse kernel.	<forward>_minnorm	-
 --name@run lowpass	NAME	Name the filtered recording is stored under.	<recording>_lowpass	-
 --name@run notch	NAME	The name of the filtered recording.	<recording>_notch	-
 --name@run opticalflow	NAME	Stem of the names of the stored flow results.	<recording>_<kernel>_opticalflow	-
@@ -411,16 +400,13 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --name@import resample	NAME	Name of the resampled recording that is created	<recording>_<rate>Hz (e.g. meg_250Hz)	-
 --name@read crossspectrum	NAME	The stored band-resolved cross-spectrum to read, named <stem>_<band>_bins (made by run crossspectrum --resolve bins).	required	-
 --no-average-reference		Do not re-reference the EEG gain rows and covariance to the average	off	-
---no-average-reference@run inverse		Do not average-reference the EEG, sEEG and ECoG rows of the gain and the covariance.	off (average reference applied)	-
 --no-bad-segments		Keep the recording's marked bad segments in the estimate instead of leaving out the segments that touch them.	off (bad segments are left out)	-
 --no-bad-segments@run crossspectrum		Keep the recording's marked bad segments in the estimate instead of leaving out the Welch segments that touch a bad sample.	off (segments with a bad sample are left out)	-
 --no-bad-segments@run hodgepower		Keep Welch segments that touch the recording's bad segments.	off (they are left out)	-
 --no-bad-segments@run quadrature		Also use segments that overlap the recording's marked bad segments.	off (bad segments excluded)	-
 --no-bad-segments@run speedspectrum		Keep segments that touch the recording's bad segments instead of leaving them out	off	-
 --no-depth		Turn depth weighting off.	off (depth weighting on)	-
---no-depth@run inverse		Turn depth weighting off (every source weighted equally).	off (depth weighting on)	-
 --no-detect-diagonal		Do not whiten a diagonal noise covariance by its diagonal alone	off	-
---no-detect-diagonal@run inverse		Do not whiten a diagonal noise covariance by its diagonal alone; treat it like any other covariance.	off (a diagonal covariance is detected)	-
 --no-eeg		Do not compute the EEG channels of the head model.	off (EEG is computed)	-
 --no-eeg@run headmodel		Do not compute the EEG channels' gain.	off (EEG is computed)	-
 --no-gain		Do not store the head model's gain matrix.	off (the gain is stored)	-
@@ -438,7 +424,6 @@ R"TBL(--min-area	M2	Smallest patch kept.	none	m^2
 --no-remove-mean@run bandpass		Do not subtract each channel's mean before filtering. By default the mean is removed and added back only when the filter has no high-pass part.	off (the mean is removed)	-
 --no-remove-mean@run bandstop		Do not subtract the record's mean before filtering (the mean is added back afterwards for a filter without a high-pass part).	off (mean removed)	-
 --no-remove-mean@run highpass		Do not subtract the record's channel means before filtering (they are otherwise removed and not added back, as the filter has a high-pass part).	off (mean removed)	-
---no-remove-mean@run inverse		With --recording: keep each block's mean in the noise covariance (raw second moment) instead of removing it.	off (mean removed)	-
 --no-remove-mean@run lowpass		Do not subtract each channel's mean before filtering.	off (the mean is removed, and added back since a lowpass has no high-pass part)	-
 --no-remove-mean@run notch		Do not subtract each channel's mean before filtering.	off (the mean is removed, and added back)	-
 --no-shard		Do not group chunks into shards when compacting	off	-
@@ -449,7 +434,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --node	PATH	Delete only this stored node of the subject, by store path, instead of the whole subject.	none (whole subject)	-
 --node@delete subject	NAME	Delete only this node (manifold, field, operator or selection) of the subject instead of the whole subject	none (the whole subject is deleted)	-
 --noise-cov	NAME	Name of a stored noise covariance to use (alternative to --recording)	none	-
---noise-cov@run inverse	NAME	Name of a stored noise covariance to whiten with; an alternative to --recording.	none (give this or --recording)	-
 --normalisation	none|relative	Normalisation of the band power maps: none, or relative (each map divided by the source's total power over all bins up to Nyquist).	none	-
 --normalize		Re-orthonormalise the eigenmodes afterwards (orthonormal in the mass matrix).	off	-
 --normalize@run eigenmodes		Make the modes orthonormal under the mass matrix after the solve (Cholesky whitening); the reference method does not.	off	-
@@ -519,7 +503,6 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --psd	NAME	The recording's stored Welch spectrum, whose shape gives the band's effective bandwidth.	none (required)	-
 --psd@run wishart	NAME	The recording's stored Welch spectrum; it gives the band's effective bandwidth, hence the degrees of freedom.	required	-
 --rank-tolerance	single|double	Precision used to decide the rank of the noise covariance: single or double precision.	single	-
---rank-tolerance@run inverse	single|double	Threshold for counting non-zero covariance eigenvalues: n x ulp of the largest, in single or double precision.	single	-
 --reading	coherency|imag|phase|delay|psi	Quantity read from the stored bin-by-bin cross-spectrum (positive delay and psi: the row channel leads)	coherency	-
 --reading@read crossspectrum	coherency|imag|phase|delay|psi	What to derive per pair from the bins: coherency, its imaginary part, phase, the phase-slope delay (ms) or the phase-slope index; positive delay and psi mean the row channel leads.	coherency	-
 )TBL",
@@ -539,7 +522,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --recording@run crossspectrum	NAME	The stored sensor recording whose cross-spectrum is computed (its span is set by the time-range options).	required	-
 --recording@run highpass	NAME	Name of the stored recording to filter.	required	-
 --recording@run hodgepower	NAME	The sensor recording whose cross-spectrum is read through the kernel.	required	-
---recording@run inverse	NAME	Recording to compute (and store) the noise covariance from; an alternative to --noise-cov.	none (give this or --noise-cov)	-
 --recording@run joint	NAME	The recording whose time line's constant-Q ladder gives the time level	required	-
 --recording@run lowpass	NAME	Name of the stored recording to filter.	required	-
 --recording@run notch	NAME	The recording to filter.	required	-
@@ -558,7 +540,6 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --region	a:b,c:d	Read only this region of the array: a start:stop range per dimension.	the whole array	samples
 --region@read dataset	a:b,c:d	Read only this region of the array: one start:stop index range per dimension, stop excluded; used with --array.	the whole array	samples
 --regularisation	ridge|diagonal|none	Regularisation of the noise covariance when whitening	ridge	-
---regularisation@run inverse	ridge|diagonal|none	How the whitener is regularised: ridge, diagonal (Brainstorm 'diag') or none.	ridge	-
 --regulariser	connection|ambient	Smoothness term of the flow: connection (connection Laplacian on the signpost gauge) or ambient (Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet).	connection	-
 --regulariser@run opticalflow	connection|ambient	Smoothness term: connection (the connection Laplacian on the signpost gauge) or ambient (the Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet 2008).	connection	-
 --replace		Replace an existing result of the same name instead of refusing; the old one is moved aside, not deleted.	off	-
@@ -572,9 +553,7 @@ R"TBL(--recipe	NAME	Name of the recipe (the recorded set of choices) the measure
 --response	peak|mean	Which response of an event is compared across scale pairs: the largest standardized cell amplitude or their mean	peak	-
 --response@run scaleselection	peak|mean	Event response used to pick the scale: the largest or the mean standardized cell amplitude	peak	-
 --ridge-fraction	X	Ridge added in whitening, as a fraction of the mean eigenvalue of the noise covariance block (Brainstorm's noise regularisation, MNE-Python's reg).	0.1	fraction
---ridge-fraction@run inverse	E	Ridge size as a fraction of the covariance block's mean eigenvalue (Brainstorm's noise regularisation).	0.1	fraction
 --ridge-over-rank		Take the ridge from the trace divided by the rank (MNE-Python) instead of by the number of channels (Brainstorm).	off	-
---ridge-over-rank@run inverse		Take the ridge's mean eigenvalue as trace over rank (MNE-Python) instead of trace over channel count.	off	-
 --ripple	R	Passband and stopband deviation of the Kaiser-window FIR filter, as a linear value (0.001 is 60 dB attenuation)	0.001	-
 --ripple@run bandpass	X	Passband and stopband deviation of the Kaiser-window FIR design (linear); 1e-3 is a 60 dB stopband attenuation.	0.001	-
 --ripple@run bandstop	R	FIR (Kaiser) passband and stopband deviation; not used by bandstop, which is an IIR filter.	1e-3 (not used)	-
@@ -645,8 +624,6 @@ R"TBL(--segment-level@run speedspectrum	LEVEL	Segment length as a tile level: 2^
 --slice@run eigenmodes	N	Spectrum slicing: solve in windows of N modes, each with its own shift; 0 means one solve per ladder.	0 (no slicing)	modes
 --snr	S	Assumed amplitude signal-to-noise ratio of the minimum-norm kernel	3	-
 --snr-normalisation	all-channels|whitener-rank	Whether the signal-to-noise ratio is normalised over all channels or over the rank of the whitener.	all-channels	-
---snr-normalisation@run inverse	all-channels|whitener-rank	Mean eigenvalue used to scale Lambda: over all channels (Brainstorm) or over the whitener's rank (MNE-Python).	all-channels	-
---snr@run inverse	S	Assumed amplitude signal-to-noise ratio that sets the regularisation Lambda (Lambda^2 = 1 / snr^2 in MNE-Python's terms).	3	-
 --source	NAME	The pipeline whose stored cells and events are read.	cortical_event_pairs	-
 --source-path	PATH	Records the path of the source data in the dataset's provenance	none	-
 --source-path@create dataset	PATH	Records the path of the source data the dataset was made from, in the dataset's provenance.	none	-
@@ -809,7 +786,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --templates@import events	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this import uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@read crossspectrum	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this reading uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@query measurements	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this query uses an array of the template.	none (the environment variable and the user setting only)	-
---templates@run inverse	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run headmodel	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run pointspread	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
 --templates@run eigenmodes	DIR	A folder of released templates to look in (repeatable) for the template the subject's package is registered to, before NXR_TEMPLATE_PATH and the user setting template_path; read only when this computation uses an array of the template.	none (the environment variable and the user setting only)	-
@@ -926,7 +902,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --trk@import templates	FILE	A tractography streamline file (.trk) whose streamlines and their end points are added to the templates	none	-
 --types	TYPE,...	Channel types to use, e.g. "MEG MAG,MEG GRAD,EEG" (only good channels of these types).	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
 --types@run crossspectrum	TYPE,...	Channel types to include (only the good channels of these types), e.g. "MEG MAG,MEG GRAD,EEG"; an alternative to --channels-of.	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
---types@run inverse	TYPE,...	With --recording: channel types for the noise covariance, e.g. "MEG MAG,MEG GRAD,EEG" (good channels only).	MEG, MEG MAG, MEG GRAD, EEG, SEEG, ECOG	-
 --vertices	N	Number of vertices, spread evenly over the surface, where unit currents are placed	20	vertices
 --vertices@run pointspread	N	Number of native vertices planted with a unit current, spread evenly over the surface (lowest index first)	20	-
 --voices	N	Filter-bank members per octave (constantq: time-ladder voices; opticalflow, speedspectrum: itersine voices).	4 for filter banks; constantq see the command's description	voices/octave
@@ -940,7 +915,6 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --weights@run cellquadrature	area|none	Weight each vertex of a tile by the area it stands for, or count all vertices equally.	area	-
 --weights@read crossspectrum	coherence|none	For --reading delay: weight each frequency bin of the phase-slope fit by its squared coherency, or count every bin equally.	coherence	-
 --whitener-form	symmetric|pca	Form of the noise whitener: symmetric or PCA.	symmetric	-
---whitener-form@run inverse	symmetric|pca	Form of the whitener: symmetric [M x M] (Brainstorm) or PCA [rank x M] (MNE-Python); the kernel is the same.	symmetric	-
 --window	hann|hamming|blackman|rectangular	Taper applied to each Welch segment.	hamming (default and brainstorm sets); hann (scipy set)	-
 --window-seconds	SECONDS	Window length for the analytic estimator or the cycle patterns, snapped to the nearest time-tile level (alternative to --level)	crossspectrum: the finest of the bands' windows; cyclepattern: 4	s
 --window-seconds@run crossspectrum	SECONDS	Analytic estimator only: window length, snapped to the nearest time-tile level; an alternative to --level.	the finest of the bands' constant-Q windows	s
@@ -1438,14 +1412,6 @@ old: pyramid reduce
 alias: refused
 summary: Reduce several subjects' group-tree pyramids into the group's pyramid; on a catalogue dataset the result is a group package (--into).
 opts: --dataset* --depth --into --kernels --subjects* --templates+
-)TBL",
-R"TBL(@ run inverse
-old: inverse compute
-alias: refused
-group: Source imaging
-summary: The depth-weighted minimum-norm inverse kernel, from a noise covariance and a head model.
-span: yes
-opts: --block-seconds --chunks --dataset* --depth-channels --depth-exponent --depth-limit --depth-limit-on --depth-norm --divisor --forward --joint-types --mne --name --no-average-reference --no-depth --no-detect-diagonal --no-remove-mean --noise-cov --rank-tolerance --recording --regularisation --replace --ridge-fraction --ridge-over-rank --snr --snr-normalisation --start --stop --subject* --types --whitener-form --templates+
 )TBL",
 R"TBL(@ run headmodel
 old: headmodel compute

@@ -128,27 +128,6 @@ std::vector<std::string> split(const std::string& s, char sep) {
 }
 [[noreturn]] void usage(const std::string& prog, const std::string& m) { throw cli::Usage(prog + ": error: " + m); }
 
-const std::set<std::string> kNoiseValued = {"--recording", "--name", "--chunks", "--start", "--stop", "--block-seconds", "--types", "--divisor"};
-const std::set<std::string> kNoiseFlags = {"--no-remove-mean"};
-
-nxr::pipelines::NoiseCovOptions noise_options(const std::string& prog, const cli::Args& a, bool with_name) {
-  nxr::pipelines::NoiseCovOptions o;
-  o.recording = a.get("--recording");
-  if (with_name) o.name = a.maybe("--name");
-  if (const auto v = a.maybe("--start")) o.start = std::stod(*v);
-  if (const auto v = a.maybe("--stop")) o.stop = std::stod(*v);
-  o.chunks = a.maybe("--chunks");
-  if (const auto v = a.maybe("--block-seconds")) o.block_seconds = std::stod(*v);
-  if (const auto v = a.maybe("--types")) o.channel_types = split(*v, ',');
-  o.covariance.removeMean = a.flag.count("--no-remove-mean") == 0;
-  if (const auto v = a.maybe("--divisor")) {
-    if (*v == "samples-minus-blocks") o.covariance.divisor = nxr::meeg::CovarianceDivisor::SamplesMinusBlocks;
-    else if (*v == "samples") o.covariance.divisor = nxr::meeg::CovarianceDivisor::Samples;
-    else if (*v == "samples-minus-one") o.covariance.divisor = nxr::meeg::CovarianceDivisor::SamplesMinusOne;
-    else usage(prog, "--divisor must be samples-minus-blocks, samples or samples-minus-one");
-  }
-  return o;
-}
 
 std::vector<double> numbers(const std::string& prog, const std::string& flag, const std::string& v) {
   std::vector<double> out;
@@ -658,76 +637,6 @@ int tiles_main(const std::vector<std::string>& argv) {
   } catch (const std::invalid_argument& e) {
     usage(prog, e.what());
   }
-  return 0;
-}
-
-int inverse_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw cli::Usage("nxr-neuro inverse: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro inverse compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  std::set<std::string> valued = kNoiseValued;
-  valued.insert({"--dataset", "--subject", "--noise-cov", "--forward", "--depth-exponent", "--depth-limit", "--depth-norm", "--depth-limit-on", "--depth-channels", "--snr",
-                 "--snr-normalisation", "--regularisation", "--ridge-fraction", "--whitener-form", "--rank-tolerance"});
-  std::set<std::string> flags = kNoiseFlags;
-  flags.insert({"--replace", "--no-depth", "--joint-types", "--ridge-over-rank", "--no-detect-diagonal", "--no-average-reference", "--mne"});
-  const cli::Args a = cli::parse(prog, rest, valued, flags, {"--dataset", "--subject"});
-  using namespace nxr::meeg;
-  nxr::pipelines::InverseComputeOptions o;
-  o.forward = a.maybe("--forward");
-  o.noise_cov = a.maybe("--noise-cov");
-  if (a.maybe("--recording")) o.from_recording = noise_options(prog, a, false);
-  if (!o.noise_cov && !o.from_recording) usage(prog, "give --noise-cov NAME (a stored noise covariance) or --recording R (to compute it from)");
-  if (o.noise_cov && o.from_recording) usage(prog, "--noise-cov and --recording are alternatives");
-  o.name = a.maybe("--name");
-  o.replace = a.flag.count("--replace") > 0;
-  o.average_reference = a.flag.count("--no-average-reference") == 0;
-  KernelOptions k = a.flag.count("--mne") ? mneKernelOptions() : KernelOptions{};
-  if (a.flag.count("--no-depth")) k.depth.enabled = false;
-  if (const auto v = a.maybe("--depth-exponent")) k.depth.exponent = std::stod(*v);
-  if (const auto v = a.maybe("--depth-limit")) k.depth.limit = std::stod(*v);
-  if (const auto v = a.maybe("--depth-norm")) {
-    if (*v == "frobenius") k.depth.norm = DepthNorm::Frobenius; else if (*v == "spectral") k.depth.norm = DepthNorm::Spectral; else usage(prog, "--depth-norm must be frobenius or spectral");
-  }
-  if (const auto v = a.maybe("--depth-limit-on")) {
-    if (*v == "weight") k.depth.limitOn = DepthLimitOn::Weight; else if (*v == "norm") k.depth.limitOn = DepthLimitOn::Norm; else usage(prog, "--depth-limit-on must be weight or norm");
-  }
-  if (const auto v = a.maybe("--depth-channels")) {
-    if (*v == "all") k.depth.channels = DepthChannels::All; else if (*v == "one-type") k.depth.channels = DepthChannels::OneType; else usage(prog, "--depth-channels must be all or one-type");
-  }
-  if (const auto v = a.maybe("--snr")) k.snr = std::stod(*v);
-  if (const auto v = a.maybe("--snr-normalisation")) {
-    if (*v == "all-channels") k.snrNormalisation = SnrNormalisation::AllChannels;
-    else if (*v == "whitener-rank") k.snrNormalisation = SnrNormalisation::WhitenerRank;
-    else usage(prog, "--snr-normalisation must be all-channels or whitener-rank");
-  }
-  if (const auto v = a.maybe("--regularisation")) {
-    if (*v == "ridge") k.whitener.regularisation = Regularisation::Ridge;
-    else if (*v == "diagonal") k.whitener.regularisation = Regularisation::Diagonal;
-    else if (*v == "none") k.whitener.regularisation = Regularisation::None;
-    else usage(prog, "--regularisation must be ridge, diagonal or none");
-  }
-  if (const auto v = a.maybe("--ridge-fraction")) k.whitener.ridgeFraction = std::stod(*v);
-  if (a.flag.count("--joint-types")) k.whitener.jointTypes = true;
-  if (a.flag.count("--ridge-over-rank")) k.whitener.ridgeOverRank = true;
-  if (a.flag.count("--no-detect-diagonal")) k.whitener.detectDiagonal = false;
-  if (const auto v = a.maybe("--whitener-form")) {
-    if (*v == "symmetric") k.whitener.form = WhitenerForm::Symmetric; else if (*v == "pca") k.whitener.form = WhitenerForm::Pca; else usage(prog, "--whitener-form must be symmetric or pca");
-  }
-  if (const auto v = a.maybe("--rank-tolerance")) {
-    if (*v == "single") k.whitener.rankTolerance = RankTolerance::SinglePrecision;
-    else if (*v == "double") k.whitener.rankTolerance = RankTolerance::DoublePrecision;
-    else usage(prog, "--rank-tolerance must be single or double");
-  }
-  o.kernel = k;
-  DatasetWriter ds = open_dataset(a);
-  OpenSubjectOptions oo;
-  oo.created_by = cli::stamp();
-  SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-  const auto r = nxr::pipelines::inverse_compute(ds, sub, o, [](const Json& j) { cli::emit(j); });
-  Json out = Json{{"stage", "result"}};
-  for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
-  out["seconds"] = std::round(r.seconds * 1000) / 1000;
-  cli::emit(out);
   return 0;
 }
 

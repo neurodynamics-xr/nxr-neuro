@@ -61,6 +61,7 @@ class Bound {
   nxr::io::StoredStatistic statistic(const std::string& name) const;
   std::vector<std::int32_t> array_int32(const std::string& path) const;                         // a stored array by its store path (a kernel's channel list)
   std::vector<float> array_float(const std::string& path, std::vector<std::int64_t>* shape) const;   // (a kernel's matrix)
+  std::vector<double> array_double(const std::string& path, std::vector<std::int64_t>* shape) const;   // (a covariance: precision follows the stored array)
   // ── the spatial band: planned (its key is part of the run's cache key) and made (a missing eigenmode package is computed, said in `say`, and stored by the runner) ──
   SpatialBandPlan plan_spatial_band(const SurfaceInput& surface, const SurfaceLevel& level, const SpatialBandOptions& opt) const;
   SpatialBand make_spatial_band(const SurfaceInput& surface, const SurfaceLevel& level, const SpatialBandOptions& opt) const;

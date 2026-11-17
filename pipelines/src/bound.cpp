@@ -102,6 +102,7 @@ StoredCrossSpectrum Bound::cross_spectrum(const std::string& name) const { retur
 io::StoredStatistic Bound::statistic(const std::string& name) const { return io::read_statistic(writer(), name); }
 std::vector<std::int32_t> Bound::array_int32(const std::string& path) const { return read_array<std::int32_t>(writer().store(), path); }
 std::vector<float> Bound::array_float(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<float>(writer().store(), path, shape); }
+std::vector<double> Bound::array_double(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<double>(writer().store(), path, shape); }
 SpatialBandPlan Bound::plan_spatial_band(const SurfaceInput& s, const SurfaceLevel& l, const SpatialBandOptions& o) const { return nxr::pipelines::plan_spatial_band(writer(), s, l, o); }
 SpatialBand Bound::make_spatial_band(const SurfaceInput& s, const SurfaceLevel& l, const SpatialBandOptions& o) const {
   if (!ds_) throw io::Error(io::code::invalid_argument, "a spatial band is prepared with the dataset (the runner may have made its eigenmodes first)");

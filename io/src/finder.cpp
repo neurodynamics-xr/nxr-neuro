@@ -67,7 +67,10 @@ std::vector<Row> matches(const Database& db, const std::string& subject_id, cons
   }
   const Json want = param(spec[cls], params, nullptr);
   if (!want.is_string()) refuse(w + ": its " + col + " is a name");
-  std::vector<Row> out = db.all("SELECT * FROM \"" + table + "\" WHERE subject_id = ? AND status = 'complete' AND " + col + " = ? ORDER BY name", {V(subject_id), V(want.get<std::string>())});
+  // `any`: no filter on the class's value (a statistic found by its measure and name whatever its method: a covariance computed or imported)
+  std::vector<Row> out = want.get<std::string>() == "any"
+                             ? db.all("SELECT * FROM \"" + table + "\" WHERE subject_id = ? AND status = 'complete' ORDER BY name", {V(subject_id)})
+                             : db.all("SELECT * FROM \"" + table + "\" WHERE subject_id = ? AND status = 'complete' AND " + col + " = ? ORDER BY name", {V(subject_id), V(want.get<std::string>())});
   auto keep = [&](auto pred) { std::vector<Row> k; for (auto& r : out) if (pred(r)) k.push_back(std::move(r)); out = std::move(k); };
   if (spec.contains("from")) { const std::string m = relation(spec["from"].get<std::string>(), found, w); keep([&](const Row& r) { return text(r, "from_manifold_id") == m; }); }
   if (spec.contains("to")) { const std::string m = relation(spec["to"].get<std::string>(), found, w); keep([&](const Row& r) { return opt_text(r, "to_manifold_id") == m; }); }

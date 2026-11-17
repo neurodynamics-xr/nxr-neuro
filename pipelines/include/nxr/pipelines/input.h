@@ -30,6 +30,8 @@ SurfaceInput read_surface(const nxr::io::SubjectPackage& package, const std::str
 
 // A recording's channels as facts a node may read on its port type: {types, quality, units, n_channels} (per channel; quality from the recording's flags, else the montage's).
 nxr::io::Json channel_facts(nxr::io::SubjectWriter& sub, const std::string& recording);
+// The type of each channel of a channels manifold (its 'type' labelling); empty when there is none.
+std::vector<std::string> channel_types_of(nxr::io::SubjectWriter& sub, const std::string& channels_id);
 
 // How many connected pieces the faces make (a cortex: its two hemispheres; a mesh or a sphere: one).
 int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n_vertices);

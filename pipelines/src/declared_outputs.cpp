@@ -282,6 +282,22 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     op.to_value_type = d.value("to_value_type", std::string("scalar"));
     if (d.contains("description")) op.description = d["description"].get<std::string>();
     if (d.contains("params")) op.params = d["params"];
+    if (d.contains("producer") && d["producer"].is_object()) op.producer = d["producer"];
+    // its links: the picks it maps from/to and the statistic it is derived from (outputs of this run, stored before it: their names sort first, or inputs found), the operator it
+    // is derived from and the one it inverts (inputs found)
+    auto id_of = [&](const char* key) -> std::optional<std::string> {
+      if (!spec.contains(key)) return std::nullopt;
+      const std::string r = spec[key].get<std::string>();
+      if (made.count(r)) return made.at(r);
+      if (P.found.count(r) && P.found.at(r).row) return text(*P.found.at(r).row, "id");
+      bad(o, std::string(key) + ": '" + r + "' is neither an output stored before it nor an input found");
+    };
+    op.from_selection_id = id_of("from_selection"); op.to_selection_id = id_of("to_selection");
+    op.of_statistic_id = id_of("of_statistic"); op.derived_from_id = id_of("derived_from");
+    if (const auto inv = id_of("inverts")) {
+      if (d.value("inverts", true)) { op.inverts_id = inv; op.inverse_kind = spec.value("inverse_kind", std::string("regularized")); }
+    }
+    if (const auto acq = acquisition_of(P, spec.contains("derived_from") ? spec["derived_from"].get<std::string>() : std::string()); !acq.empty()) op.acquisition = acq;
     op.data = values_of(a, {a.rows, a.cols}, single_of(d), o);
     const std::string path = unit.path_of(op);
     clear(task::Cls::operator_, path);

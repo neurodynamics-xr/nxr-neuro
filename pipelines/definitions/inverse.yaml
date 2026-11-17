@@ -1,0 +1,78 @@
+# THE MINIMUM-NORM KERNEL (free orientation) of a subject: from a head model (an operator of kind forward, gain channels x 3 sources) and a noise covariance (a statistic over
+# a pick of the head model's channels: `nxr-neuro run noisecov` first). The gain is restricted to the pick; the average reference of EEG, sEEG and ECoG is applied to the gain
+# and the covariance per family (average_reference false: not); every option starts from the conventions (brainstorm or mne) and may be set on its own.
+# Stored: the inverse kernel `<name>` (an operator from the channels to the head model's sources, vector3, the inverse of the head model), its channels `<name>_channels`,
+# the covariance it was computed with `<name>_noise_cov` (a statistic of the covariance given) and its symmetric whitener `<name>_whitener` (an operator of that statistic).
+#
+#   nxr-neuro run inverse --dataset <folder> --subject sub-01 --noise-cov emptyroom_noise_cov [--forward NAME] [--conventions mne] [--snr 3]
+pipeline: inverse
+version: 1
+description: the free-orientation minimum-norm kernel of a head model and a noise covariance
+scope: subject
+
+inputs:
+  forward:    {operator: forward, where: {name: $forward}}
+  covariance: {statistic: any, where: {measure: covariance, name: $noise_cov}}
+
+parameters:
+  forward: {default: none, meaning: "the head model's name, or none: the subject's one head model", unit: "-"}
+  noise_cov: {default: null, meaning: "the noise covariance's name (a statistic: `nxr-neuro run noisecov` makes one)", unit: "-"}
+  name: {default: "{forward}_minnorm", meaning: "the kernel's name; beside it <name>_channels, <name>_noise_cov and <name>_whitener", unit: "-"}
+  conventions: {default: brainstorm, meaning: "the defaults every option starts from: brainstorm | mne", unit: "-", choices: [brainstorm, mne]}
+  average_reference: {default: true, meaning: "apply the average reference of EEG, sEEG and ECoG to the gain and the covariance, per family", unit: "-"}
+  depth: {default: null, meaning: "depth weighting on or off; null: the conventions'", unit: "-"}
+  depth_exponent: {default: null, meaning: "the depth weighting's exponent; null: the conventions'", unit: "-"}
+  depth_limit: {default: null, meaning: "the largest ratio of the depth weights; null: the conventions'", unit: "-"}
+  depth_norm: {default: null, meaning: "frobenius | spectral; null: the conventions'", unit: "-"}
+  depth_limit_on: {default: null, meaning: "weight | norm; null: the conventions'", unit: "-"}
+  depth_channels: {default: null, meaning: "all | one_type; null: the conventions'", unit: "-"}
+  snr: {default: null, meaning: "the amplitude signal-to-noise ratio (lambda^2 = 1/snr^2); null: the conventions'", unit: "-"}
+  snr_normalisation: {default: null, meaning: "all_channels | whitener_rank; null: the conventions'", unit: "-"}
+  regularisation: {default: null, meaning: "the noise covariance's regularisation: ridge | diagonal | none; null: the conventions'", unit: "-"}
+  ridge_fraction: {default: null, meaning: "the ridge's fraction of the mean eigenvalue; null: the conventions'", unit: "fraction"}
+  whitener_form: {default: null, meaning: "symmetric | pca; null: the conventions'", unit: "-"}
+  rank_tolerance: {default: null, meaning: "single | double; null: the conventions'", unit: "-"}
+  joint_types: {default: null, meaning: "whiten the types of a modality jointly (MEG MAG with MEG GRAD); null: the conventions'", unit: "-"}
+  ridge_over_rank: {default: null, meaning: "the ridge's mean eigenvalue over the rank, not the channel count; null: the conventions'", unit: "-"}
+  detect_diagonal: {default: null, meaning: "whiten a diagonal covariance by its diagonal; null: the conventions'", unit: "-"}
+
+presets:
+  brainstorm: {conventions: brainstorm}
+  mne:        {conventions: mne}
+
+steps:
+  before:
+    - node: meeg.minimum_norm
+      in: {forward: forward, covariance: covariance}
+      with: {conventions: $conventions, average_reference: $average_reference, depth: $depth, depth_exponent: $depth_exponent, depth_limit: $depth_limit, depth_norm: $depth_norm, depth_limit_on: $depth_limit_on, depth_channels: $depth_channels, snr: $snr, snr_normalisation: $snr_normalisation, regularisation: $regularisation, ridge_fraction: $ridge_fraction, whitener_form: $whitener_form, rank_tolerance: $rank_tolerance, joint_types: $joint_types, ridge_over_rank: $ridge_over_rank, detect_diagonal: $detect_diagonal}
+      out: [kernel, channels, used_covariance, whitener]
+
+outputs:
+  kernel:
+    kind: operator
+    operator_kind: inverse kernel
+    name: $name
+    from: forward.to
+    to: forward.from
+    from_selection: channels
+    derived_from: forward
+    inverts: forward
+  channels:
+    kind: selection
+    type: indices
+    name: "$name_channels"
+    on: forward.to
+  used_covariance:
+    kind: statistic
+    name: "$name_noise_cov"
+    of: covariance
+    axes: [{name: channel, selection: channels}, {name: channel, selection: channels}]
+  whitener:
+    kind: operator
+    operator_kind: whitener
+    name: "$name_whitener"
+    from: forward.to
+    to: forward.to
+    from_selection: channels
+    to_selection: channels
+    of_statistic: used_covariance
