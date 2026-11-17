@@ -460,6 +460,7 @@ int list_nodes_main(const std::vector<std::string>& argv) {
 }
 
 int package_main(const std::vector<std::string>& argv);   // cli/package_command.cpp
+int import_main(const std::vector<std::string>& argv);    // cli/import_command.cpp
 int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
   if (cmd == "__list") return list_nodes_main(rest);
   if (cmd == "read") {
@@ -471,6 +472,7 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
   }
     if (cmd == "dataset") return dataset_main(rest);
     if (cmd == "package") return package_main(rest);
+    if (cmd == "__import") return import_main(rest);
     if (cmd == "constantq") return constantq_main(rest);
     if (cmd == "subject") return subject_main(rest);
     if (cmd == "surface") return surface_main(rest);

@@ -78,6 +78,23 @@ Json export_raw_timeseries(nxr::io::SubjectWriter& sub, const std::string& name,
 Json export_timeseries(nxr::io::SubjectWriter& sub, const std::string& name, const std::filesystem::path& data_file, const std::string& acquisition,
                        const std::string& channels_id, const std::vector<std::string>& channel_names, std::optional<double> resample, const Projection& projection = {});
 
+// A recording copied from any block source (the importers of other formats, `nxr/convert/recording.h`): `read(s0, n, out)` fills `out` with samples [s0, s0 + n) of all channels,
+// float32, row after row. Stored exactly as the importer stores a Brainstorm recording (the grid of chunks and shards, the envelope, the events and bad segments, the channel flags).
+struct BlockRecording {
+  std::string name, channels_id, source = "file";
+  std::optional<std::string> acquisition;
+  std::int64_t n_channels = 0, n_samples = 0;
+  double sfreq = 0, t0 = 0;
+  std::vector<std::int64_t> flags;               // 1 good, -1 bad, one per channel (empty: none)
+  EventTable events;
+  std::vector<std::string> channel_names;
+  std::string comment;
+  Json producer = Json::object();
+  Emit progress;
+  std::function<void(std::int64_t s0, std::int64_t n, std::vector<float>& out)> read;
+};
+Json write_recording_blocks(nxr::io::SubjectWriter& sub, const BlockRecording& rec);
+
 // ── the condition (nxr.convert.condition, nxr.convert.subject.condition_plan) ──
 struct ConvertOptions {
   bool write_gain = true, all_surfaces = false;

@@ -427,13 +427,13 @@ r = nxrneuro.compute('psd', sub, 'rest', 'all', true);
 | 6 | EDF/BDF, BrainVision, EEGLAB pure recording readers, MNE goldens (three small PRs, in parallel) | 1 | **now** |
 | 7 | BIDS pure layer: entities, sidecar inheritance, TSV tables, MNE-BIDS goldens | 1, 4 | **built** (`io/formats/include/nxr/formats/bids.h`) |
 | 8 | FIF objects (source spaces, transforms, cov, fwd, inv) and `.stc`: read and write, MNE goldens | 5 | **built, except `.stc`** (`fif_objects.h`): source spaces, covariances, events, annotation files and transforms read and write (rewritten files equal MNE's byte for byte); forward solutions and inverse operators read; their writers and `.stc` with step 11 |
-| 9 | Importers writing packages: FIF raw, EDF/BDF, BrainVision, EEGLAB, with `origin` records; `import <format>` verbs | 5, 6; the package pipelines (open PR) and the `io/convert/` template importers landing | after those |
+| 9 | Importers writing packages: FIF raw, EDF/BDF, BrainVision, EEGLAB, with `origin` records; `import <format>` verbs | 5, 6; the package pipelines (open PR) and the `io/convert/` template importers landing | **built as one verb**: `import recording` (`io/convert/recording.cpp`; the format is read from the file's extension; copy only, `--in-place` and a channel type/units table per format to follow) |
 | 10 | GIFTI exporter of cortical maps and surfaces; `export gifti` | 3, the package pipelines | after those |
 | 11 | MNE exports: `.stc`, `-cov.fif`, `-fwd.fif`, raw FIF chunk by chunk; `export mne` | 8, the package pipelines | after 8 |
 | 12 | `import bids` (a package per subject, the importer rules, participants through `participants import`) | 7, 9 | after 9 |
 | 13 | BIDS-derivatives exporter | 4, 10, 11 | after 11 |
 | 14 | CIFTI-2 read and write (`dscalar`, `dlabel`, `dtseries`) | 2, 3 | **reader built** (`io/formats/include/nxr/formats/cifti.h`); the writer with the exporters |
-| 15 | CTF, then KIT readers and importers | 5 (coil definitions), 9 | **pure readers built** (`ctf.h`, `kit.h`); importers after 9 |
+| 15 | CTF, then KIT readers and importers | 5 (coil definitions), 9 | **pure readers built** (`ctf.h`, `kit.h`); imported by `import recording` (channels and events; CTF coils and compensation operators to follow) |
 | 16 | Python wheel, first slice (6.1), with the dependency-rule amendment; cibuildwheel in CI | the amendment (D3) | **now** (in parallel with 1–8) |
 | 17 | MEX over the same API, first slice (6.2) | 16 | after 16 |
 | 18 | MNE `.h5` (`Spectrum`, CSD), TRX, XDF, 4D/BTi | question 6; demand | on demand |

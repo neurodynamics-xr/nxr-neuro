@@ -1009,6 +1009,19 @@ R"TBL(--tolerance@run patches	X	Chebyshev: the largest difference between the ba
 --window@run speedspectrum	hann|hamming|blackman|rectangular	Taper applied to each segment	hamming	-
 --windows	NAME	The stored analytic cross-spectrum windows (named <stem>_<band>_windows) the bursts are read from.	none (required)	-
 --windows@run wishart	NAME	Stored analytic cross-spectrum windows (<stem>_<band>_windows) whose burst tiles are summed and tested.	required	-
+--acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
+--anonymize@import recording		Drop the identifying header fields (the file's start time, subject, experimenter, patient and recording identification) instead of keeping them as the file has them.	off (the header is kept as the file has it)	-
+--format@import recording	FORMAT	The file's format: fif, edf, bdf, brainvision, eeglab, ctf or kit.	from the file's extension	-
+--licence@import recording	TEXT	The licence recorded in the origin of every item the import makes.	unknown	-
+--attribution@import recording	TEXT	Who is to be credited, recorded in the origin of every item the import makes.	unknown	-
+--anonymize		Drop the identifying fields of a file's header (import recording).	off	-
+--format	FORMAT	A file's format (import recording).	from the file's extension	-
+--source-root	DIR	The folder a file's recorded path is relative to (import recording).	the file's own folder	-
+--acquisition	NAME	The session of the subject the result is stored under (import recording).	rest	-
+--from@import recording	FILE	The recording file to copy into the package (a CTF recording is its .ds folder).	required	-
+--name@import recording	NAME	Name the recording is stored under.	the file's name without its extension	-
+--package@import recording	PATH	The subject package (made by `create package`) the recording is copied into.	required	-
+--source-root@import recording	DIR	The folder the file's recorded path is relative to (an absolute path is never recorded).	the file's own folder	-
 )TBL",
 R"TBL(@ create dataset
 old: dataset create
@@ -1231,6 +1244,12 @@ R"TBL(@ import mri
 old: convert mri
 summary: Import an anatomical MRI of a subject.
 opts: --anat* --dataset* --only+ --subject* --templates+
+)TBL",
+R"TBL(@ import recording
+old: __import recording
+alias: no
+summary: Copy a recording file (FIF, EDF, BDF, BrainVision, EEGLAB, CTF, KIT) into a subject package, with its channels, events, bad channels and an origin record.
+opts: --acquisition --anonymize --attribution --format --from* --licence --name --package* --source-root
 )TBL",
 R"TBL(@ import condition
 old: convert convert
