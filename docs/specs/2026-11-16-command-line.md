@@ -2,6 +2,16 @@
 
 Status: built in this change. Section 7 of `2026-11-16-distribution-and-interoperability.md` opened the design; this note records what was decided and built.
 
+## Amendment (2026-11-17): `compute` and `run` redrawn
+
+The maintainers redrew the two verbs on 2026-11-17; the design is `2026-11-17-compute-and-run.md`. In brief, superseding the parts of this note below:
+- **`run <pipeline>`** runs every pipeline: each `compute <what>` command of section 3's table becomes `run <what>` with the same options (the hand-wired
+  pipelines are dispatched as they are), and the YAML definitions take `--<parameter> VALUE` and `--from/--to`/`--all` (`--set` goes); `run <pipeline> --help`
+  is generated, for definitions from their parameters' declared meaning, default and unit.
+- **`compute <node or graph>`** applies a registered node (grouped names: `welch.psd`, `filter.bandpass`), a composite node or a graph file to files named on the
+  command line (NumPy, MATLAB, GIFTI, NIfTI, the recording formats `io/formats` reads), with a provenance sidecar; `list nodes` lists them.
+- **Old spellings** (section 3's hidden aliases, and `compute <what>`) are not kept: nxr-neuro is unreleased, so they are refused with the new spelling named.
+
 ## 1. What changes
 
 `nxr-neuro` keeps its name and gets one grammar, **verb first** (`verb what [options]`), instead of the mixed `noun verb` / `verb` / `verb noun` forms it grew.
