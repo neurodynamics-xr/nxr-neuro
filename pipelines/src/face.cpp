@@ -109,7 +109,11 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
       all_hit = all_hit && hit;
       runs.push_back(Json{{"cache", rq.dry_run ? "planned" : hit ? "hit" : "computed"}, {"info", r}});
       if (r.contains("stored"))
-        for (const Json& s : r["stored"]) stored.push_back(Json{{"output", s.value("output", "")}, {"name", s.value("output", "")}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
+        for (const Json& s : r["stored"]) {   // the stored thing's own name: a statistic, a selection or a field by its record; a measurement by what it is over
+          std::string name = s.value("statistic", s.value("selection", s.value("name", std::string())));
+          if (name.empty()) name = s.value("output", "");
+          stored.push_back(Json{{"output", s.value("output", "")}, {"name", name}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
+        }
     }
   }
   return Json{{"pipeline", rq.pipeline}, {"subject", subject}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
@@ -162,7 +166,11 @@ Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progres
     all_hit = all_hit && hit;
     runs.push_back(Json{{"cache", rq.dry_run ? "planned" : hit ? "hit" : "computed"}, {"info", r}});
     if (r.contains("stored"))
-      for (const Json& s : r["stored"]) stored.push_back(Json{{"output", s.value("output", "")}, {"name", s.value("output", "")}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
+      for (const Json& s : r["stored"]) {   // the stored thing's own name: a statistic, a selection or a field by its record; a measurement by what it is over
+          std::string name = s.value("statistic", s.value("selection", s.value("name", std::string())));
+          if (name.empty()) name = s.value("output", "");
+          stored.push_back(Json{{"output", s.value("output", "")}, {"name", name}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
+        }
   }
   return Json{{"pipeline", rq.pipeline}, {"subjects", rq.subjects}, {"into", group_name}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
 }

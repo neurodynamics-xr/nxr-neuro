@@ -272,8 +272,7 @@ int main() {
     CHECK(has(refusal([&] { nxrtest::run_definition("rotary_psd", ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"operator", "not_a_pair"}, {"name", "x"}}, "brainstorm"); }), "two rows"));
   }
   // THE PRESET `tiles` (the default since 2026-11-13, the time-tile amendment): a segment of 2^k samples, k = round(log2(2 s x 100 Hz)) = 8 (256 samples), half overlapping, Brainstorm's taper,
-  // detrend and density: nxr::welch on 256-sample segments of the same samples and mask; a span in seconds snaps to level 8 ([3, 33) s = samples [300, 3300) -> [256, 3328)); segment_level states the
-  // level; an overlap that leaves the hop no tile is refused, as is segment_samples that is no power of two, and segment_level with another rule
+  // detrend and density: nxr::welch on 256-sample segments of the same samples and mask; a span in seconds snaps to level 8 ([3, 33) s = samples [300, 3300) -> [256, 3328)); the segment is stated in seconds or samples; an overlap that leaves the hop no tile is refused, as is segment_samples that is no power of two
   {
     const Json t = Json{{"segment_seconds", 2.0}, {"name", "tiles"}};
     const nxrtest::PsdRun r = nxrtest::run_psd(ds, sub, "rest", t);
@@ -290,11 +289,11 @@ int main() {
     }
     with_span("tiles_span", Json{{"segment_seconds", 2.0}}, [](auto& ro) { ro.start = 3.0; ro.stop = 33.0; }, "tiles");
     CHECK(stat("tiles_span").span["start_sample"] == 256 && stat("tiles_span").span["stop_sample"] == 3328);
-    nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_level", 7}, {"name", "tiles_l7"}});   // (the line `rest_b_freq` of 101 bins is taken: this is the second resolution)
+    nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_samples", 128}, {"name", "tiles_l7"}});   // (the line `rest_b_freq` of 101 bins is taken: this is the second resolution)
     CHECK(stat("tiles_l7").options["segment_samples"] == 128);
     CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"name", "t1"}, {"overlap", 0.3}}); }), "hop"));
     CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_samples", 200}, {"name", "t2"}}); }), "tile"));
-    CHECK(has(refusal([&] { nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}, {"name", "t3"}}, "brainstorm"); }), "segment_level"));
+    // (a level index is no parameter any more: the segment is stated in seconds or samples, and `segment_rule: tile` takes a power of two)
   }
 
   ds.close();
