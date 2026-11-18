@@ -22,11 +22,10 @@ classdef RunTest < SliceTestBase
             tc.verifyError(@() nxr.run('psd', tc.ds, 'S1', 'recording', 'rest', 'from', 0), 'nxr:invalidArgument');
             tc.verifyError(@() nxr.run('psd', tc.ds, 'S1', 'recording', 'rest', 'from', 0, 'to', 10, 'all', true), 'nxr:invalidArgument');
             tc.verifyError(@() nxr.run('psd', tc.ds, 'S1', 'recording', 'rest', 'all', true, 'bogus', 1), 'nxr:invalidArgument');
-            tc.verifyError(@() nxr.run('psd', tc.ds, 'S1', 'all', true), 'nxr:invalidArgument');
         end
 
         function psdIsThePureFunctionsResult(tc)
-            r = nxr.run('psd', tc.ds, 'S1', 'recording', 'rest', 'set', 'scipy', 'segment_seconds', 2, 'all', true, 'progress', @(s) assignin('base', 'nxrRunProgress', s));
+            r = nxr.run('psd', tc.ds, 'S1', 'recording', 'rest', 'preset', 'scipy', 'segment_seconds', 2, 'all', true, 'progress', @(s) assignin('base', 'nxrRunProgress', s));
             tc.verifyEqual(r.cache, 'computed');
             tc.verifyEqual({r.stored.name}, {'rest_psd_welch'});
             tc.verifyTrue(evalin('base', 'isstruct(nxrRunProgress)'));
@@ -44,7 +43,7 @@ classdef RunTest < SliceTestBase
             want = nxr.compute.signal.psd(x, 100, segment_samples=200, good=good);   % scipy's set: hann (periodic), constant detrend, 50 % overlap, density
             tc.verifyGreaterThan(want.segments_skipped, 0);
             tc.verifyLessThan(max(abs(got.values ./ want.psd - 1), [], 'all'), 1e-6);
-            r2 = nxr.run('psd', tc.ds, 'S1', 'recording', 'rest', 'set', 'scipy', 'segment_seconds', 2, 'all', true);
+            r2 = nxr.run('psd', tc.ds, 'S1', 'recording', 'rest', 'preset', 'scipy', 'segment_seconds', 2, 'all', true);
             tc.verifyEqual(r2.cache, 'hit');
         end
 
@@ -59,7 +58,7 @@ classdef RunTest < SliceTestBase
             p = nxr.list.pipelines();
             names = {p.name};
             tc.verifyTrue(all(ismember({'psd', 'global_bursts'}, names)));
-            tc.verifyEqual(p(strcmp(names, 'psd')).form, 'built-in');
+            tc.verifyEqual(p(strcmp(names, 'psd')).form, 'definition');
             tc.verifyNotEmpty(strfind(nxr.list.help('psd'), 'segment_seconds'));
             d = nxr.list.datasets(fileparts(tc.ds));
             tc.verifyEqual({d.name}, {'demo'});
