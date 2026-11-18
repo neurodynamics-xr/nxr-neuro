@@ -2,6 +2,7 @@
 #include "nxr/signal/wavelet_cross.h"
 #include "nxr/signal/fourier.h"
 
+#include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <string>
@@ -73,6 +74,26 @@ Eigen::MatrixXd wcoherence(const Eigen::MatrixXcd& Wx, const Eigen::MatrixXcd& W
   for (Index s = 0; s < R.rows(); ++s)
     for (Index t = 0; t < R.cols(); ++t) R(s, t) = std::norm(cross(s, t)) / (px(s, t).real() * py(s, t).real());
   return R;
+}
+
+Eigen::VectorXd coneOfInfluence(Eigen::Index nTime, double dt, double coiScalar) {
+  if (nTime < 1) throw std::invalid_argument("coneOfInfluence: the series needs at least one sample");
+  if (!(dt > 0.0) || !(coiScalar > 0.0)) throw std::invalid_argument("coneOfInfluence: dt and the wavelet's constant must be positive");
+  Eigen::VectorXd coi(nTime);
+  for (Eigen::Index n = 0; n < nTime; ++n) coi(n) = coiScalar * dt * static_cast<double>(std::min<Eigen::Index>(n + 1, nTime - n));
+  return coi;
+}
+
+Eigen::VectorXd coneOfInfluenceFrequency(Eigen::Index nTime, double dt, double coiScalar, double maxFrequency) {
+  if (!(maxFrequency > 0.0)) throw std::invalid_argument("coneOfInfluenceFrequency: the largest frequency must be positive");
+  Eigen::VectorXd f = coneOfInfluence(nTime, dt, coiScalar).cwiseInverse();
+  return f.cwiseMin(maxFrequency);
+}
+
+Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> insideConeOfInfluence(const Eigen::VectorXd& period, const Eigen::VectorXd& coi) {
+  Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> m(period.size(), coi.size());
+  for (Eigen::Index s = 0; s < period.size(); ++s) for (Eigen::Index n = 0; n < coi.size(); ++n) m(s, n) = period(s) > coi(n);
+  return m;
 }
 
 }  // namespace nxr::signal
