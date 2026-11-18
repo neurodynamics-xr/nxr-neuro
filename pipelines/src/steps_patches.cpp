@@ -174,20 +174,6 @@ std::optional<double> area_m2_of(const Json& j, const std::string& who, const st
     return v * nxr::quantity::unit_factor(q.unit, "m^2");
   } catch (const std::invalid_argument& e) { fail(who + ": " + what + ": " + e.what()); }
 }
-// the joint cells of a cellquadrature as the facts the run checks, from a PRODUCT selection (select.product: params.product.factors, a surface level and a time grid; the first factor fastest) or, for
-// a joint made before, its own record. A fact the product does not record (the recording, the tiling's id) is absent and not checked.
-Json joint_facts(const Json& params, const std::string& who) {
-  if (params.is_object() && params.contains("joint")) return params["joint"];
-  need(params.is_object() && params.contains("product") && params["product"].contains("factors"), who + " is not a product of a surface level and a time grid (`select_product` first)");
-  Json out = Json::object();
-  for (const auto& f : params["product"]["factors"]) {
-    const std::string kind = f.value("kind", std::string());
-    if (kind == "dyadic") { out["surface"] = f.value("surface", std::string()); out["space_level"] = f.value("level", -1); }
-    else if (kind == "time") { out["window_samples"] = f.value("width", std::int64_t(0)); out["frames"] = f.value("count", std::int64_t(0)); }
-  }
-  need(out.contains("surface") && out.contains("window_samples"), who + ": its factors are not a surface level and a time grid");
-  return out;
-}
 StepSpec cellquadrature_step() {
   StepSpec s;
   s.name = "measurement.cellquadrature";
@@ -232,18 +218,14 @@ StepSpec cellquadrature_step() {
     const bool tile_pairs = p.value("tile_pairs", true);
     const std::string csname = text(*st.cross_spectrum.row, "name"), recording = text(*st.recording.row, "name");
     // the cross-spectrum: an analytic series on time tiles, its channels' manifold, its provenance
-    const nxr::io::StoredStatistic cst = b.statistic(csname);
-    need(text(cst.row, "method") == "analytic" && text(cst.row, "measure") == "cross_spectrum_sum", "cellquadrature: " + csname + " is not an analytic cross-spectrum (`crossspectrum_analytic`)");
-    need(cst.axes.is_array() && cst.axes.size() > 1, "cellquadrature: " + csname + " has no channel axis");
-    const auto csel = b.selection(cst.axes[1].value("selection_id", std::string()));
-    need(csel.has_value(), "cellquadrature: " + csname + ": its channels (the channel axis's Selection) are not stored");
-    const std::string cs_manifold = text(*csel, "manifold_id");
-    const Json& cpj = cst.producer;
-    need(cpj.is_object() && cpj.contains("recording") && cpj.contains("window_level") && cpj.contains("window_samples"), "cellquadrature: " + csname + ": its provenance names no recording and tile level (made before the time tiles: make it again)");
-    need(cpj["recording"].get<std::string>() == recording, "cellquadrature: " + csname + " is of the recording '" + cpj["recording"].get<std::string>() + "', not '" + recording + "'");
-    const int window_level = cpj["window_level"].get<int>();
-    const std::int64_t window_samples = cpj["window_samples"].get<std::int64_t>();
-    need(window_level >= 0 && window_samples == (std::int64_t(1) << window_level), "cellquadrature: " + csname + ": not stored on a dyadic tile level (level " + std::to_string(window_level) + ", " + std::to_string(window_samples) + " samples)");
+    // (the live analytic cross-spectrum is the complex measurement `sum` over a band's time grid, `run measure --set analytic_cross_spectrum_tiles`; its grid IS the tiles)
+    const Json cpj = Json::parse(nxr::io::opt_text(*st.cross_spectrum.row, "params_json").value_or("{}"), nullptr, false);
+    need(cpj.is_object() && cpj.contains("grid") && cpj["grid"].value("width", std::int64_t(0)) > 0, "cellquadrature: " + csname + " is not a time grid of tiles (`run measure --set analytic_cross_spectrum_tiles` first: its band's time grid holds the cross-spectrum)");
+    need(!st.recording.time.has_value() || text(*st.cross_spectrum.row, "manifold_id") == *st.recording.time, "cellquadrature: " + csname + " is a grid of another time line than " + recording + "'s");
+    const std::int64_t window_samples = cpj["grid"]["width"].get<std::int64_t>();
+    int window_level = -1;
+    for (int k = 0; k < 40; ++k) if ((std::int64_t(1) << k) == window_samples) window_level = k;
+    need(window_level >= 0, "cellquadrature: " + csname + ": its tiles are " + std::to_string(window_samples) + " samples, not a level of the dyadic grid (a power of two)");
     need(st.recording.time.has_value() && st.recording.rate > 0, "cellquadrature: " + recording + ": it has no time line");
     // the spatial scale is a QUANTITY resolved on the kernel's surface's ladder (compute's level_of_*; the snapped value into the provenance)
     Json scale_snapped;
@@ -254,7 +236,7 @@ StepSpec cellquadrature_step() {
     }();
     // the joint partition of the pair (space level l, the time level whose window IS the cross-spectrum's tile level)
     const Json jp = Json::parse(nxr::io::opt_text(*st.joint.row, "params_json").value_or("{}"), nullptr, false);
-    const Json jj = joint_facts(jp, "cellquadrature: " + text(*st.joint.row, "name"));
+    const Json jj = product_facts(jp, [&](const std::string& id) { return b.selection(id); }, [&](const std::string& id) { return b.manifold(id); }, "cellquadrature: " + text(*st.joint.row, "name"));
     need((!jj.contains("recording") || jj["recording"].get<std::string>() == recording) && jj.value("space_level", -1) == l, "cellquadrature: the joint '" + text(*st.joint.row, "name") + "' is not of " + recording + " at spatial level " + std::to_string(l));
     need(jj.value("window_samples", std::int64_t(0)) == window_samples,
          "cellquadrature: the joint '" + text(*st.joint.row, "name") + "' has time tiles of " + std::to_string(jj.value("window_samples", std::int64_t(0))) + " samples, the cross-spectrum '" + csname + "' of " + std::to_string(window_samples) +
@@ -263,7 +245,6 @@ StepSpec cellquadrature_step() {
     // the kernel
     const nxr::io::Row& kern = *st.kernel.row;
     const std::string kname = text(kern, "name");
-    need(text(kern, "from_manifold_id") == cs_manifold, "cellquadrature: " + kname + " is on other channels than " + csname + " (the cross-spectrum's channels are not the kernel's sensors)");
     const auto man = b.manifold(text(kern, "to_manifold_id"));
     need(man.has_value(), "cellquadrature: " + kname + ": its surface is not stored");
     const SurfaceInput S = b.surface(text(*man, "name"), true);
@@ -287,12 +268,6 @@ StepSpec cellquadrature_step() {
     need(!(bo.transform == "exact" && nV > 4096), "cellquadrature: transform exact is the dense eigen-decomposition: at most 4096 vertices, this surface has " + std::to_string(nV) + "; use chebyshev");
     if (ctx.say) ctx.say(Json{{"stage", "prepared"}, {"cross_spectrum", csname}, {"recording", recording}, {"joint", text(*st.joint.row, "name")}, {"tile_level", window_level}, {"tiles", tiles}, {"time_tiles", frames}, {"channels", m},
                               {"bursts", st.bursts ? Json(static_cast<std::int64_t>(spans.size())) : Json(nullptr)}, {"weights", weights}, {"tile_pairs", tile_pairs ? Json(static_cast<std::int64_t>(SL.pairs.size())) : Json(nullptr)}});
-    // a band that is not the joint's is not a refusal (the level is what must match), but it is said
-    if (ctx.say && cpj.contains("band_lo_hz") && jj.contains("band") && jj["band"].is_array() && jj["band"].size() == 2) {
-      const double lo = cpj["band_lo_hz"].get<double>(), hi = cpj["band_hi_hz"].get<double>();
-      if (std::abs(lo - jj["band"][0].get<double>()) > 1e-6 || std::abs(hi - jj["band"][1].get<double>()) > 1e-6)
-        ctx.say(Json{{"stage", "cellquadrature"}, {"warning", "the cross-spectrum's band (" + std::to_string(lo) + " to " + std::to_string(hi) + " Hz) is not the band the joint's time level resolves (" + std::to_string(jj["band"][0].get<double>()) + " to " + std::to_string(jj["band"][1].get<double>()) + " Hz)"}});
-    }
     // LOADING: the tiles of the cross-spectrum on the kernel's channels, in its order (refused for a channel it does not cover)
     const CrossSpectrumWindows win = b.cross_spectrum_windows(csname, chans);
     need(win.level == window_level, "cellquadrature: " + csname + ": read at level " + std::to_string(win.level) + ", recorded at " + std::to_string(window_level));
@@ -399,6 +374,7 @@ StepSpec cellquadrature_step() {
       if (tile_pairs) out["burst_pairs"] = pack(n.ptotal, n.pquad, kPairTotal, kPairQuad, bname, "the quadrature ingredients per pair of touching tiles (nxr::select::tileAdjacency order) and burst");
       if (ctx.say) ctx.say(Json{{"stage", "bursts"}, {"events_read", report}});
     }
+    for (const char* o : {"cells", "cell_pairs", "bursts", "burst_pairs"}) if (!out.count(o)) { Array none; none.meta["absent"] = true; out[o] = std::move(none); }   // a port this run makes none of (no pairs, no bursts)
     return out;
   };
   return s;
@@ -472,7 +448,7 @@ StepSpec patches_step() {
     need(nonfinite == 0, "patches: " + mapname + ": " + std::to_string(nonfinite) + " vertices have no value (NaN or infinite); a band-pass of a map with holes is not defined: fill or mask them first");
     const Eigen::VectorXd x = Eigen::Map<const Eigen::VectorXd>(xv.data(), static_cast<Eigen::Index>(nV));
     const SurfaceLevel SL = b.surface_level(S, l);                   // the ladder, the level, its tiles and graph, the Weyl pairing checked
-    need(SL.level.id == text(*st.tiles.row, "id"), "patches: the tiles found are not the surface's level " + std::to_string(l) + " (" + SL.tiling + ")");
+    need(SL.ladder.id == text(*st.tiles.row, "id"), "patches: the tiles found are not the grid of " + S.name + " (the ladder whose level " + std::to_string(l) + " is " + SL.tiling + ")");
     const std::int64_t nodes = SL.nodes;
     const nxr::signal::graphfilterbank::Member& member = SL.bank.members[static_cast<std::size_t>(l)];
     nxr::select::Mesh whole; whole.n = static_cast<int>(nV); whole.positions = S.vertices; whole.faces = S.faces;
@@ -512,18 +488,18 @@ StepSpec patches_step() {
     const std::string map_unit = nxr::io::opt_text(*st.map.row, "unit").value_or("");
     Json measures_u = Json::array();
     for (const auto& m4 : measures4) measures_u.push_back(Json{{"measure", m4["measure"]}, {"unit", map_unit}});
-    auto four = [&](const std::vector<std::array<double, 4>>& v, const std::string& over_name) {
+    auto four = [&](const std::vector<std::array<double, 4>>& v, const std::string& over_name, const Json& over_member) {
       Array a;
       a.rows = static_cast<std::int64_t>(v.size()); a.cols = 4;
       for (const auto& r : v) a.data.insert(a.data.end(), r.begin(), r.end());
-      a.meta["describe"] = Json{{"measures", measures_u}, {"precision", "float64"}, {"description", "the band's mean (area-weighted by the vertices' barycentric areas), max, min and abs_max over the members of " + over_name}};
+      a.meta["describe"] = Json{{"measures", measures_u}, {"precision", "float64"}, {"over_member", over_member}, {"description", "the band's mean (area-weighted by the vertices' barycentric areas), max, min and abs_max over the members of " + over_name}};
       return a;
     };
     std::vector<std::array<double, 4>> tile_m;
     measure_over(tile, nodes, tile_m);
     Arrays out;
     out["band"] = std::move(band_a);
-    out["tile_measures"] = four(tile_m, SL.tiling);
+    out["tile_measures"] = four(tile_m, SL.tiling, SL.level.id);
     // THE BASELINE across the level's tiles: the median and the robust SD of the band's tile means
     Eigen::VectorXd mean = Eigen::VectorXd::Constant(nodes, kNaN);
     std::vector<double> tmean(static_cast<std::size_t>(nodes));
@@ -536,7 +512,7 @@ StepSpec patches_step() {
       Array a;
       a.rows = 1; a.cols = 2; a.data = bvals;
       a.meta["describe"] = Json{{"measure", "mean"}, {"method", "summary"}, {"precision", "float64"}, {"unit", map_unit.empty() ? Json() : Json(map_unit)}, {"n_members", nodes},
-                                {"axes", Json::array({Json{{"name", "row"}, {"size", 1}}, Json{{"name", "summary"}, {"size", 2}, {"values", Json::array({Json{{"name", "median"}}, Json{{"name", "mad"}}})}}})},
+                                {"axes", Json::array({Json{{"name", "row"}, {"size", 1}, {"values", Json::array({Json{{"name", "all"}}})}}, Json{{"name", "summary"}, {"size", 2}, {"values", Json::array({Json{{"name", "median"}}, Json{{"name", "mad"}}})}}})},
                                 {"options", Json{{"summaries", Json::array({"median", "mad"})}, {"combine", "each"}, {"ddof", 1}}},
                                 {"description", "the median and robust SD of the band's tile means over the tiles of " + SL.tiling + " (the baseline the patches' thresholds are relative to)"}};
       out["baseline"] = std::move(a);
@@ -586,7 +562,7 @@ StepSpec patches_step() {
     if (n_patches > 0) {
       std::vector<std::array<double, 4>> patch_m;
       measure_over(pcode, n_patches, patch_m);
-      out["patch_measures"] = four(patch_m, over_name);
+      out["patch_measures"] = four(patch_m, over_name, nullptr);
       // the patches' own measures: area (m2, the tiles' areas summed), tiles, centre vertex (a count and a place)
       Array own;
       own.rows = n_patches; own.cols = 3;
@@ -608,7 +584,7 @@ StepSpec patches_step() {
         a.rows = 1; a.cols = static_cast<std::int64_t>(sums.size());
         a.data = sv;
         a.meta["describe"] = Json{{"measure", measure}, {"method", "summary"}, {"precision", "float64"}, {"unit", unit.empty() ? Json() : Json(unit)}, {"n_members", n_patches},
-                                  {"axes", Json::array({Json{{"name", "row"}, {"size", 1}}, Json{{"name", "summary"}, {"size", static_cast<std::int64_t>(sums.size())}, {"values", sjson}}})},
+                                  {"axes", Json::array({Json{{"name", "row"}, {"size", 1}, {"values", Json::array({Json{{"name", "all"}}})}}, Json{{"name", "summary"}, {"size", static_cast<std::int64_t>(sums.size())}, {"values", sjson}}})},
                                   {"options", Json{{"summaries", sjson}, {"combine", "each"}, {"ddof", 1}, {"own", what == "area" || what == "n_tiles"}}},
                                   {"description", "the " + measure + " over the members of " + over_name + ", summarised (each)"}};
         return a;
@@ -625,6 +601,7 @@ StepSpec patches_step() {
       out["mean"] = summarize(vm, "mean", map_unit, "mean");
       out["peak"] = summarize(vp, peak_col == 1 ? "max" : peak_col == 2 ? "min" : "abs_max", map_unit, "peak");
     }
+    for (const char* o : {"patch_measures", "patch_own", "area", "n_tiles", "mean", "peak"}) if (!out.count(o)) { Array none; none.meta["absent"] = true; out[o] = std::move(none); }   // no patch: nothing to measure or summarise
     return out;
   };
   return s;

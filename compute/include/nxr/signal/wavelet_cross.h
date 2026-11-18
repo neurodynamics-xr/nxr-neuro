@@ -10,8 +10,10 @@
 //                      S the smoothing operator of Grinsted et al. (their `wtc`): a Gaussian in TIME whose width is the scale (the FFT route, the series zero-padded to the next
 //                      power of two: the circular-convolution edge of the reference), then a boxcar across SCALES of `scaleSmoothingSteps` (Grinsted's dj0 / (2 dj), dj0 = 0.6, the
 //                      decorrelation length of the Morlet wavelet; end weights are the fractional part).
-// What it cannot show: with no smoothing the coherence is 1 everywhere (one estimate has no spread); the result depends on the smoothing widths, which the caller states. The edge
-// samples (the cone of influence) are not masked here.
+//   coneOfInfluence(...)           the cone of influence, as MATLAB's wcoherence (and cwt) returns it: per time sample the period above which a coefficient is influenced by the series' ends
+//   insideConeOfInfluence(...)     the mask [periods x time]: true where a coefficient is inside the cone (edge-affected), false where it is reliable
+// What it cannot show: with no smoothing the coherence is 1 everywhere (one estimate has no spread); the result depends on the smoothing widths, which the caller states. `wcoherence` itself
+// does not mask: the cone is a separate function of the series' length and the wavelet's constant, which the caller applies.
 #include <Eigen/Dense>
 #include <vector>
 
@@ -29,5 +31,15 @@ Eigen::MatrixXcd xwt(const Eigen::MatrixXcd& Wx, const Eigen::MatrixXcd& Wy);
 std::vector<Eigen::MatrixXcd> xwt(const std::vector<Eigen::MatrixXcd>& Wx, const std::vector<Eigen::MatrixXcd>& Wy);
 /** Wavelet coherence R^2 [scales x time] of the transforms Wx, Wy [scales x time]. Throws std::invalid_argument on a shape or option mismatch. */
 Eigen::MatrixXd wcoherence(const Eigen::MatrixXcd& Wx, const Eigen::MatrixXcd& Wy, const WaveletCoherenceOptions& options);
+
+/** The cone of influence of a transform of `nTime` samples at the sampling interval `dt`: for each sample n the PERIOD (in the unit of dt) above which a coefficient is influenced by the ends of the
+ *  series, coi(n) = coiScalar * dt * min(n + 1, nTime - n) (MATLAB cwtfilterbank: the distance to the nearest end in samples, counted from 1). `coiScalar` is the wavelet's constant, its Fourier
+ *  factor over the standard deviation of its envelope in time: for MATLAB's default analytic Morlet (2 pi / 6) / sqrt(2). Throws std::invalid_argument for nTime < 1, dt <= 0 or coiScalar <= 0. */
+Eigen::VectorXd coneOfInfluence(Eigen::Index nTime, double dt, double coiScalar);
+/** The same cone as MATLAB's wcoherence returns it: as a FREQUENCY, 1 / coneOfInfluence, truncated at `maxFrequency` (the highest centre frequency of the analysis). */
+Eigen::VectorXd coneOfInfluenceFrequency(Eigen::Index nTime, double dt, double coiScalar, double maxFrequency);
+/** The mask [period.size() x coi.size()] of the coefficients inside the cone: true where the row's period exceeds the cone's at that sample (edge-affected); false where it is reliable.
+ *  `coi` is the cone as periods: `coneOfInfluence`, or 1 / `coneOfInfluenceFrequency` when the analysis's highest frequency caps it, as MATLAB returns it. */
+Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> insideConeOfInfluence(const Eigen::VectorXd& period, const Eigen::VectorXd& coi);
 
 }  // namespace nxr::signal

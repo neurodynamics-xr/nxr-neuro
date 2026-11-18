@@ -301,6 +301,22 @@ int main() {
     CHECK(rel(K, ref.K) < 1e-5);                                // stored as float32
     CHECK_EQ(k1.whitener_rank, ref.whitenerRank);
     CHECK(std::abs(k1.lambda / ref.lambda - 1) < 1e-9);
+    {   // THE SNR SETS THE REGULARISATION as the maths says: twice the SNR is four times the weight on the data (lambda = snr^2 / mean eigenvalue), the library's kernel at that SNR is the stored one, and the
+        // kernel passes more of the data through (a larger norm: less regularised)
+      InverseComputeOptions hi = io;
+      hi.name = "MN_snr"; hi.snr = 2.0 * nxr::meeg::KernelOptions().snr;
+      const InverseComputeResult k3 = inverse_compute(ds, sub, hi);
+      nxr::meeg::KernelOptions ko;
+      ko.snr = *hi.snr;
+      const nxr::meeg::Kernel ref3 = nxr::meeg::unconstrainedKernel(A * G, Cc, ty, ko);
+      std::vector<std::int64_t> sh3;
+      const auto kf3 = read_typed<float>((sub.folder() / ("MN_snr")), &sh3);
+      MatrixXd K3(sh3[0], sh3[1]);
+      for (int i = 0; i < sh3[0]; ++i) for (int j = 0; j < sh3[1]; ++j) K3(i, j) = kf3[static_cast<std::size_t>(i * sh3[1] + j)];
+      CHECK(rel(K3, ref3.K) < 1e-5);
+      CHECK(std::abs(k3.lambda / k1.lambda - 4.0) < 1e-9);
+      CHECK(K3.norm() > K.norm() && rel(K3, K) > 1e-3);
+    }
   }
   {
     // stored as the importer stores a kernel

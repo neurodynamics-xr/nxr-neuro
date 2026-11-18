@@ -38,6 +38,26 @@ int main() {
         EXPECT(throws([&] { gt::wgft(withMass, kernel, f); }), "wgft: a non-identity mass is refused");
         EXPECT(throws([&] { gt::wgft(t, kernel, Eigen::VectorXd::Zero(N - 1)); }), "wgft: a signal of the wrong length is refused");
     }
+    std::cout << "=== cone of influence vs MATLAB wcoherence ===\n";
+    {
+        const KeyValues m(std::string(NXR_TEST_GOLDEN_DIR) + "/wcoherence_coi_golden.txt");
+        const double fs = m.vec("fs")(0), coiScalar = m.vec("fourier_factor")(0) / m.vec("sigma_t")(0);   // the wavelet's constants, as MATLAB's own function gives them
+        for (const char* tag : {"N64", "N63"}) {
+            const std::string key = tag;
+            const Eigen::Index n = static_cast<Eigen::Index>(m.vec(key + ".n")(0));
+            const Eigen::VectorXd freq = m.vec(key + ".freq_hz"), coiHz = m.vec(key + ".coi_hz");
+            const Eigen::VectorXd mine = coneOfInfluenceFrequency(n, 1.0 / fs, coiScalar, freq.maxCoeff());
+            const double e = mine.size() == coiHz.size() ? ((mine - coiHz).cwiseAbs().array() / coiHz.array()).maxCoeff() : 1e300;
+            EXPECT(e < 1e-12, std::string("coneOfInfluenceFrequency (") + std::to_string(n) + " samples): relative error vs the cone wcoherence returns " + sci(e));
+            // the mask: a coefficient is inside the cone where its frequency is below the cone's (MATLAB's plot: below the dashed line), i.e. its period is above the cone's
+            const Eigen::Array<bool, Eigen::Dynamic, Eigen::Dynamic> inside = insideConeOfInfluence(freq.cwiseInverse(), coneOfInfluenceFrequency(n, 1.0 / fs, coiScalar, freq.maxCoeff()).cwiseInverse());   // the cone as periods, capped at the highest frequency as MATLAB returns it
+            long wrong = 0, inCount = 0;
+            for (Eigen::Index s = 0; s < freq.size(); ++s)
+                for (Eigen::Index t = 0; t < n; ++t) { const bool want = freq(s) < coiHz(t) * (1.0 - 1e-12); wrong += inside(s, t) != want; inCount += inside(s, t); }
+            EXPECT(wrong == 0 && inCount > 0 && inCount < inside.size(), std::string("insideConeOfInfluence (") + std::to_string(n) + " samples): " + std::to_string(inCount) + " of " + std::to_string(inside.size()) + " inside, " + std::to_string(wrong) + " differ from MATLAB's cone");
+        }
+        EXPECT(throws([] { coneOfInfluence(0, 1.0, 1.0); }) && throws([] { coneOfInfluence(8, 0.0, 1.0); }) && throws([] { coneOfInfluenceFrequency(8, 1.0, 1.0, 0.0); }), "coneOfInfluence: bad length, step, constant and cap refused");
+    }
     std::cout << "=== jft / ijft (GSPBox: graph Fourier transform, unitary DFT over time) ===\n";
     {
         const int T = 16;

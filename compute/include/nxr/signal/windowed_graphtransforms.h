@@ -11,6 +11,8 @@
 // `wgft` returns S f as [vertices x frequencies] (row i = the window at vertex i, column k = the graph frequency k, in the order of the eigenvectors given).
 // With all N eigenvectors the transform is a frame and is inverted by `iwgft`:
 //   f(m) = sum_{i,k} S f(i,k) g_{i,k}(m) / ( N sum_i (T_i g)(m)^2 )                                   (the denominator: the window's energy over the vertices at m; > 0 unless the kernel has no mass)
+// LIMIT (stated, tested): the identity mass only. A transform with a mass matrix (a mass-weighted pencil, the cortex's lumped mass) is refused with the reason, never computed as if the mass were the identity;
+// the mass-weighted windowed transform is not designed here.
 // What it cannot show: a window g^ that is zero on part of the spectrum cannot see those frequencies; with K < N eigenvectors the inverse is not exact.
 #include "nxr/signal/graphtransforms.h"
 #include <Eigen/Dense>

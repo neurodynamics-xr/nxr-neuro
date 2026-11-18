@@ -1,8 +1,9 @@
-// nxr-pipelines — WHAT SCALE SELECTION READS (reading only): for every pair (spatial level, time level) of the product of two lists, what `run cortical_event_pairs` stored: the pair's joint Selection,
+// nxr-pipelines — WHAT SCALE SELECTION READS (reading only): for every pair (spatial level, time level) of the product of two lists, what `run global_bursts` stored: the pair's product selection (`select_product`: the surface's level x the band's time grid),
 // the labelling of its events on the cells, the cells' amplitude and the cells' per-tile baseline (median, mad). Every pair is found and checked here, naming EVERY missing one. The runner hands it to
 // the scale-selection step through the bound services (bound.h); the step computes from it and stores nothing.
 #pragma once
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -10,6 +11,12 @@
 #include "nxr/io.h"
 
 namespace nxr::pipelines {
+
+/** the facts of a PRODUCT selection (`select_product`: a surface level x a time grid, the space factor first) as the pipelines read them: `surface` (the space ladder's manifold name), `space_level`, `tiles`, `window_samples`
+ *  (the time grid's tile width), `frames`, `time_level` (log2 of the width: a band's grid is a power of two), `band` ([lo, hi] Hz when the grid is a band's, else absent) and `time_manifold_id`. A joint record made before
+ *  (params `joint`) is returned as it is. Refused (invalid_argument naming `who`) when the selection is not such a product. `selection` and `manifold` read a row by id. */
+nxr::io::Json product_facts(const nxr::io::Json& params, const std::function<std::optional<nxr::io::Row>(const std::string&)>& selection, const std::function<std::optional<nxr::io::Row>(const std::string&)>& manifold,
+                            const std::string& who);
 
 struct ScalePairInput {
   int space_level = 0, time_level = 0;
