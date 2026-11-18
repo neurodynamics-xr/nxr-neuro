@@ -1,4 +1,4 @@
-// nxr::geometry::IntrinsicSurface: see nxr/intrinsic_surface.h and docs/specs/2026-11-17-geometry-central-switch.md.
+// nxr::geometry::IntrinsicSurface: see nxr/geometry/intrinsic_surface.h and docs/specs/2026-11-17-geometry-central-switch.md.
 #include "nxr/geometry/intrinsic_surface.h"
 
 #include "nxr/core/errors.h"

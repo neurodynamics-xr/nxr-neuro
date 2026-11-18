@@ -279,7 +279,7 @@ void cmdCreate(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     // Guard geometry-central against malformed meshes (segfault -> clean MATLAB error).
     validateMesh(nV, nF, faces);
 
-    // DEFAULT intrinsic (geometry-central's intrinsic mollified Delaunay triangulation, nxr/intrinsic_surface.h); intrinsicDelaunay=false is the named option "embedded".
+    // DEFAULT intrinsic (geometry-central's intrinsic mollified Delaunay triangulation, nxr/geometry/intrinsic_surface.h); intrinsicDelaunay=false is the named option "embedded".
     // opts.mollify (relative delta, 1e-6) and opts.flipEps (1e-6) are the construction's recorded options.
     bool intrinsicDelaunay = true;
     nxr::geometry::DelaunayOptions dopt;
@@ -1379,7 +1379,7 @@ mxArray* buildGaugeOperators(ContextHolder& h, const std::string& type, const mx
 //
 // Rotations are COMBING multipliers: rotation .* grid is the combed
 // (trivially-parallel) frame, and real(rotation .* grid) is the trivial
-// parallel direction field. See GaugeRotations in nxr/compute.h.
+// parallel direction field. See GaugeRotations in nxr/geometry/mesh.h.
 //
 // Schema (schemaVersion == 1):
 //   G.type                  string

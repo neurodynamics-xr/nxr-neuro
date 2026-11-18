@@ -1,4 +1,4 @@
-"""Zero-phase filters of a record (`nxr/filter.h`): Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop) filters as documented.
+"""Zero-phase filters of a record (`nxr/signal/filters.h`): Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop) filters as documented.
 
 Each function filters a whole in-memory record [channels, samples]; the result has the same shape and precision. The options are the library's
 `FilterOptions` (the same names as on the command line).

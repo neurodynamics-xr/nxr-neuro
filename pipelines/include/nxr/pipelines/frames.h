@@ -1,4 +1,4 @@
-// nxr-pipelines — the cortical frames of a subject's surface, stored as the dataset stores them (Step 2 of the cortical coordinate system; maths in nxr/frames.h).
+// nxr-pipelines — the cortical frames of a subject's surface, stored as the dataset stores them (Step 2 of the cortical coordinate system; maths in nxr/geometry/frames.h).
 //
 //   canonical frames   `<surface>_canonical_frames`  Field [V,3,3] float32, kind "canonical frames", value_type matrix3; rows e1 = north, e2 = n x e1 = west, n outward; NaN at singular vertices
 //                      `<surface>_frame_singularities`  Selection (indices) of the singular vertices (every hemisphere's two poles, and the ill-conditioned push-forwards)

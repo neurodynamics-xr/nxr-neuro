@@ -1,5 +1,5 @@
 // nxr-pipelines — the registered NODES of the structural connectome (spec docs/specs/2026-11-16-structural-connectome.md, section 4). Each is a pure function of arrays from
-// compute/ (nxr/connectome.h, nxr/nearest.h, nxr/congruence.h) with its ports, parameters and traits; none reads a file, a subject or a database, and none has a time axis, so
+// compute/ (nxr/meeg/connectome.h, nxr/geometry/surface_maps.h, nxr/core/congruence.h) with its ports, parameters and traits; none reads a file, a subject or a database, and none has a time axis, so
 // they run once, before the chunk loop (kind `setup`; the connectome has no recording).
 //
 //   fiber_ends          fibers → end_points                      the first and last point of each fiber

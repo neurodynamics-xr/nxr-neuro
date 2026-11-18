@@ -37,7 +37,7 @@
 //     axes channel x the frequency line `<R>_freq`, float32 [channels x frequencies] beside the recording (`<R>_statistics/`).
 //
 //   nxr-neuro run surface_frames --dataset D/N --subject S [--surface NAME] [--template SUBJECT [--template-surface NAME]] [--convention scs|ras] [--side auto|left|right] [--min-projection P] [--max-condition C] [--replace]
-//     The cortical frames of a surface (nxr/frames.h): the CANONICAL frames (north / west; read when stored as `<surface>_canonical_frames`, else computed from the registered sphere `<surface>_sphere`)
+//     The cortical frames of a surface (nxr/geometry/frames.h): the CANONICAL frames (north / west; read when stored as `<surface>_canonical_frames`, else computed from the registered sphere `<surface>_sphere`)
 //     and the ANATOMICAL frame (one angle from north to anterior per vertex, the second axis superior-or-medial, a reliability mask). The anatomical axes are carried from --template (its own frame made by
 //     `frames compute` on the template, with --convention for its coordinates) through the registered spheres, or, without it, are the surface's own SCS axes projected on its tangent planes.
 //
@@ -78,7 +78,7 @@
 //             lowpass: --fpass HZ · highpass: --fpass HZ · bandpass: --fpass LOW,HIGH · bandstop: --fstop LOW,HIGH · notch: --frequencies F1,F2,... | --line F [--harmonics N]
 //             [--bandwidth HZ (notch: the 3-dB bandwidth, 1)] [--order N (bandstop: Butterworth prototype order, 4)] [--ripple R (FIR deviation, 1e-3: 60 dB)] [--transition HZ]
 //             [--padding mean|zeros] [--transient-samples K] [--no-remove-mean] [--tolerance T]
-//     A temporal filter (MATLAB's names), zero phase and no delay, applied chunk by chunk (nxr/filter.h); the defaults are Brainstorm's filters (a linear-phase Kaiser FIR for the
+//     A temporal filter (MATLAB's names), zero phase and no delay, applied chunk by chunk (nxr/signal/filters.h); the defaults are Brainstorm's filters (a linear-phase Kaiser FIR for the
 //     first three, forward-backward IIR for the last two). Writes a NEW recording `<R>_<verb>` on the same channels and time line, stored as recordings are, with the source's channel flags,
 //     events, bad segments, projectors and CTF compensation carried over, and the verb, every option and the design in its producer_json.
 //     One command per verb (not `filter <kind>`): the verbs are MATLAB's own names and each takes its own edges, as `psd`, `noisecov` and `inverse` take theirs.

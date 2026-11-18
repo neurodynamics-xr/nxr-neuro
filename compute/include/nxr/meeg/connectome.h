@@ -7,8 +7,8 @@
 // largestComponent) is the finest partition, formed only on request.
 //
 // Words, never single letters: "fiber counts" are the counts of fibers; "connection weights" are the smoothed (and pruned) result. The helpers the reference takes from
-// Brainstorm (GPLv3) are written here from the mathematics: Shepard weights (Franke & Nielson 1980, nxr/sphere_registration.h), the nearest-vertex search
-// (nxr/nearest.h), connected components (a union-find), Eigen sparse algebra.
+// Brainstorm (GPLv3) are written here from the mathematics: Shepard weights (Franke & Nielson 1980, nxr/operators/resample.h), the nearest-vertex search
+// (nxr/geometry/surface_maps.h), connected components (a union-find), Eigen sparse algebra.
 //
 // ORDER OF ENDS. A bundle of nF fibers has 2 nF ends in BLOCK order: the first end of fiber f is row f, its second end row nF + f (fiberEnds). `interleaveEnds`
 // converts to the stored order (fiber f's ends at 2f and 2f + 1) and back.

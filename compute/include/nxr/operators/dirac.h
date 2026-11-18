@@ -62,7 +62,7 @@ namespace nxr::operators::hodgedirac {
 //     K = [0 d0ᵀ⋆1 0; ⋆1 d0 0 d1ᵀ⋆2; 0 ⋆2 d1 0],   M = diag(⋆0, ⋆1, ⋆2).
 // ⋆0 mixed-Voronoi mass of the mollified input (obtuse corner: A/2 and A/4), ⋆1 = ½(cot α + cot β), ⋆2 = 1/area. M⁻¹K = d + δ is
 // M-self-adjoint with spectrum ±μ; D² is block-diagonal in the Hodge Laplacians. The triangulation is built from the
-// input's edge lengths by THE one construction (geometry-central's signpost triangulation, nxr/intrinsic_surface.h): mollify (Sharp & Crane 2020, relative factor `mollify`),
+// input's edge lengths by THE one construction (geometry-central's signpost triangulation, nxr/geometry/intrinsic_surface.h): mollify (Sharp & Crane 2020, relative factor `mollify`),
 // then flipToDelaunay (tolerance `flipEps`). Both are named, recorded options (`record`).
 // Vertex indices are the input's; edges and faces are the intrinsic mesh's (edge orientation = its halfedge).
 // ⋆1 is the raw intrinsic cotan weight (nxr, the reference;). A named option `star1Floor` > 0 raises it to that floor so that M > 0 on

@@ -143,7 +143,7 @@ using namespace geometrycentral::surface;
 //   MixedVoronoi — diagonal; the recorded mixed Voronoi mass of the mollified INPUT (default).
 //   Galerkin     — sparse; the L² integrals of P1 hat functions on the operator mesh as it is.
 //   Barycentric  — diagonal; A/3 per vertex on the operator mesh as it is (formerly "Lumped").
-// All conserve total area and are symmetric. All are built from the intrinsic surface (nxr/intrinsic_surface.h).
+// All conserve total area and are symmetric. All are built from the intrinsic surface (nxr/geometry/intrinsic_surface.h).
 
 static Eigen::SparseMatrix<double> diagonalMatrix(const std::vector<double>& d) {
     const int n = static_cast<int>(d.size());

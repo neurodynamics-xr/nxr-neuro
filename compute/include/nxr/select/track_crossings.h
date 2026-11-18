@@ -4,7 +4,7 @@
 // which frames the caller left in (a stage is the caller's mask). A port of nxr's `Tiles.crossings` (nxr/detect/vortex_cores.py), the reference:
 //
 //   a step     sits at the surface vertex NEAREST its start; that vertex's tile and normal are the step's. Its displacement is projected on the tangent plane there (a unit vector; a step shorter than 1e-9 has no direction and is left out).
-//   carried    the unit vector is carried to its tile's CENTRE along the surface (the vector heat method's transport: the Levi-Civita form of nxr/ladder.h, a complex number c1 + i c2 in the vertex's frame turned by e^{-i rho}, the
+//   carried    the unit vector is carried to its tile's CENTRE along the surface (the vector heat method's transport: the Levi-Civita form of nxr/select/dyadic.h, a complex number c1 + i c2 in the vertex's frame turned by e^{-i rho}, the
 //              same arithmetic as `ladder::lcResultant`); vectors at different places of a fold are never added in 3-D. A vertex with no frame or no transport carries 0 (the crossing still counts, as nxr's).
 //   a crossing is ONE TRACK'S STEPS IN ONE TILE, ONE SENSE: their carried vectors added and made a unit vector. The crossings of a tile and sense are then added, and counted.
 //   bridge     a step whose nearest vertex is on the callosal bridge (the glued surface's, not cortex: no tile) has no centre to carry to: its crossing is its track's steps' tangent unit vectors added in 3-D and made a unit vector,

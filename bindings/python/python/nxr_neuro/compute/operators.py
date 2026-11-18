@@ -1,4 +1,4 @@
-"""The Laplace-Beltrami eigenmodes of a triangle mesh (`nxr/compute.h`, `nxr::geometry`)."""
+"""The Laplace-Beltrami eigenmodes of a triangle mesh (`nxr/geometry/mesh.h`, `nxr::geometry`)."""
 
 from __future__ import annotations
 

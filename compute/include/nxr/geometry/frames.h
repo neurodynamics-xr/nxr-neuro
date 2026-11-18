@@ -1,6 +1,6 @@
 #pragma once
 // nxr::geometry — the CANONICAL frames (north / west) and the ANATOMICAL frames (anterior / superior-or-medial) of a cortex: the one tangent frame per vertex that means the same in
-// every subject. Step 2 of the cortical coordinate system (docs/audits/2026-11-11-cortical-coordinates.md; the charts of nxr/chart.h are step 1).
+// every subject. Step 2 of the cortical coordinate system (docs/audits/2026-11-11-cortical-coordinates.md; the charts of nxr/geometry/charts.h are step 1).
 //
 // CANONICAL FRAMES. A port of Rheome's `+rheome/+geom/sphereframe.m` (MIT) = nxr's `nxr.geom.frames.hemisphere_frames(domain="sphere")` in closed form = the frames the Cortical Flow Studio
 // reads as the Field `<surface>_canonical_frames` ([V,3,3] float32, rows e1, e2, n; the Selection `<surface>_frame_singularities` lists the singular vertices):

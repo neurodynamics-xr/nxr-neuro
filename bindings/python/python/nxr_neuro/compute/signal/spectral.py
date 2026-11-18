@@ -1,4 +1,4 @@
-"""Welch's power spectral density and cross-spectral density (`nxr/welch.h`).
+"""Welch's power spectral density and cross-spectral density (`nxr/signal/spectral.h`).
 
 A record x[0..T) of C channels is cut into segments of `segment_samples` (n) samples, a new segment every hop = n - floor(n * overlap) samples,
 from sample 0, as many as fit whole (a partial last segment is dropped, as scipy.signal.welch and Brainstorm do). Each segment is detrended,

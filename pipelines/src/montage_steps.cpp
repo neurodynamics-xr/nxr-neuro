@@ -1,4 +1,4 @@
-// nxr-pipelines — the registered NODE of the standard electrode montage. A pure function of arrays from compute/ (nxr/montage.h) with its ports, parameters and traits; it reads no file, subject
+// nxr-pipelines — the registered NODE of the standard electrode montage. A pure function of arrays from compute/ (nxr/meeg/montage.h) with its ports, parameters and traits; it reads no file, subject
 // or database, and has no time axis, so it runs once, before the chunk loop (kind `setup`).
 //
 //   eeg_montage_1005   scalp_vertices, scalp_faces, landmarks → positions   the 10-05 positions (the 10-10 and 10-20 are subsets of its names) on a closed scalp surface by the published rule

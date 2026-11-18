@@ -28,7 +28,7 @@ namespace nxr::geometry {
 
 class HeatGeodesicSolverImpl;
 // Which mesh the heat method runs on. Intrinsic (DEFAULT): the manifold's operator mesh, the intrinsic Delaunay triangulation, t = tCoef (mean intrinsic edge)^2 — the
-// Studio's HeatMethod (nxr/chart.h). Input: geometry-central's heat method on the input mesh (the former default), kept as the named option.
+// Studio's HeatMethod (nxr/geometry/charts.h). Input: geometry-central's heat method on the input mesh (the former default), kept as the named option.
 enum class HeatMesh { Intrinsic, Input };
 class HeatGeodesicSolver {
 public:

@@ -23,7 +23,7 @@
 
 namespace nxr::operators::hodgedirac {
 
-// The Hodge–Dirac's triangulation is THE one intrinsic construction (nxr/intrinsic_surface.h, on geometry-central): the input's edge lengths, mollified
+// The Hodge–Dirac's triangulation is THE one intrinsic construction (nxr/geometry/intrinsic_surface.h, on geometry-central): the input's edge lengths, mollified
 // (`mollify`), the mixed-Voronoi mass of the mollified input (⋆0), flipped to Delaunay (`flipEps`). The geometry::Manifold's intrinsic surface is used when it is
 // the intrinsic one built with these very options; otherwise the same construction is run on the geometry::Manifold's input. d0, d1, ⋆1 and ⋆2 are
 // geometry-central's DEC operators of that triangulation.

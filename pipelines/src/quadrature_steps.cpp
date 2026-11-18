@@ -12,7 +12,7 @@
 // cross-spectrum and the kernel, never a recording. Every reduction over time is the cross-spectrum's (a statistic over the segment partition); this node is a pointwise function
 // of matrices (a factorisation and Gram products), with no neighbourhood: the kernel's rows are the source axis, one member each.
 // Studio: the rows' linear map reads the chain BEFORE any non-linear transform (D106): here the kernel is applied to the cross-spectrum's factor, never to a squared quantity.
-// Reference: nxr.spectral.lagged (compute nxr/quadrature.h).
+// Reference: nxr.spectral.lagged (compute nxr/signal/crossspectral.h).
 #include <algorithm>
 #include <cmath>
 #include <complex>

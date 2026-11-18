@@ -24,7 +24,7 @@ namespace nxr::geometry {
 
 // Cross-cutting types live in nxr::core; bring them into manifold scope
 // so unqualified uses below (Error, CancellationToken, ProgressObserver)
-// resolve. See <nxr/errors.h>, <nxr/cancellation.h>, <nxr/progress.h>.
+// resolve. See <nxr/core/errors.h>, <nxr/core/cancellation.h>, <nxr/core/progress.h>.
 using core::Error;
 using core::ErrorCode;
 using core::CancellationToken;
@@ -57,7 +57,7 @@ enum class OperatorId {
 // once and reused across multiple calls.
 
 // Which mesh the operators (cotan Laplacian, masses, DEC, connection Laplacian, Hodge–Dirac) are built on.
-//   Intrinsic (DEFAULT): geometry-central's intrinsic mollified Delaunay (signpost) triangulation (nxr/intrinsic_surface.h), with the mixed-Voronoi mass of the mollified input.
+//   Intrinsic (DEFAULT): geometry-central's intrinsic mollified Delaunay (signpost) triangulation (nxr/geometry/intrinsic_surface.h), with the mixed-Voronoi mass of the mollified input.
 //   Embedded: the input triangulation as it is (no mollification, no flips) — a NAMED OPTION, never a silent default.
 enum class MeshKind { Intrinsic, Embedded };
 
@@ -96,7 +96,7 @@ public:
     // True iff the operator mesh is the intrinsic mollified Delaunay mesh (the default).
     bool isIntrinsicDelaunay() const;
 
-    // THE intrinsic surface (nxr/intrinsic_surface.h, geometry-central's signpost intrinsic Delaunay triangulation of the mollified input): every
+    // THE intrinsic surface (nxr/geometry/intrinsic_surface.h, geometry-central's signpost intrinsic Delaunay triangulation of the mollified input): every
     // intrinsic operator (cotan Laplacian, masses, DEC, connection Laplacian, Hodge–Dirac) and every tangent quantity is built on it, in ONE gauge —
     // geometry-central's. With MeshKind::Embedded it is the input as it is. geometry() is unchanged and still used for EXTRINSIC quantities.
     // (`intrinsic()` below is the older data facet; it keeps its name.)

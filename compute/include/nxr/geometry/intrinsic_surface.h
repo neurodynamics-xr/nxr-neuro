@@ -1,7 +1,7 @@
 // THE ONE INTRINSIC SURFACE: the input mesh, its geometry and the intrinsic Delaunay triangulation, all on geometry-central.
 //
 // Specified in docs/specs/2026-11-17-geometry-central-switch.md (section 2). It replaces the line port of the Studio's construction
-// (the port, deleted in G7). `nxr/chart.h` (G4) is a wrapper of this surface.
+// (the port, deleted in G7). `nxr/geometry/charts.h` (G4) is a wrapper of this surface.
 //
 // Construction, in this order (each step names the geometry-central call):
 //   1. ManifoldSurfaceMesh + VertexPositionGeometry of the input (positions [3 nV] row-major, triangle faces [3 nF])

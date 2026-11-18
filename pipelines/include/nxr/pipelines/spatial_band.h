@@ -51,7 +51,7 @@ struct SpatialBandOptions {
   int order = 0;                             // chebyshev degree; 0: the smallest of 40, 80, … 5120 whose series is within `tolerance` of the band's gain
   double tolerance = 0.01;                   // the largest |gain − series| accepted (a band the series cannot follow is refused, never used)
   int modes = 0;                             // when the package is COMPUTED: its size (about half exact, half coexact); 0: the standard 3000, or more when the band needs it by Weyl's law
-  bool riesz = false;                        // also build the band's RIESZ part R_l = ∇ Δ^{-1/2} F_l (the spatial analytic signal, nxr/monogenic.h): the same transform with the gain g/√λ, then the mesh gradient; eigenmode first, Chebyshev second, as the band
+  bool riesz = false;                        // also build the band's RIESZ part R_l = ∇ Δ^{-1/2} F_l (the spatial analytic signal, nxr/signal/riesz.h): the same transform with the gain g/√λ, then the mesh gradient; eigenmode first, Chebyshev second, as the band
   bool glued = false;                        // (one cortex): ALSO evaluate the band on EVERY vertex of the glued surface (the kept vertices and the bridge, the corpus callosum included), `apply_glued`. The input is still the
                                              // native vertices (zero on the bridge before the band: the band fills it); eigenmodes first (the glued modes, as stored), Chebyshev or the dense modes on the glued mesh as the announced fallback
                                              // (never on the native mesh: that has no bridge). Needs the glued surface stored (`eigen solve`), or a one-piece surface. Not with `riesz`

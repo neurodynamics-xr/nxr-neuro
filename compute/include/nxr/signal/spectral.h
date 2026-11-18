@@ -132,7 +132,7 @@ struct CrossWelchResult {
  *  source PSD of the group as diag(K S_g K^T) (nxr::meeg::sourcePower), equal to Welch on K x. */
 class CrossWelch {
 public:
-    /** `withQuadrature`: also accumulate the imaginary part Im C (the quadrature spectrum, nxr/quadrature.h) into `result().Sq`; off, `S` is exactly as before. */
+    /** `withQuadrature`: also accumulate the imaginary part Im C (the quadrature spectrum, nxr/signal/crossspectral.h) into `result().Sq`; off, `S` is exactly as before. */
     CrossWelch(int channels, const WelchOptions& options, const std::vector<BinGroup>& groups, bool withQuadrature = false);
     void add(const Eigen::MatrixXd& chunk);
     void add(const Eigen::MatrixXd& chunk, const std::vector<std::uint8_t>& good);

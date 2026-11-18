@@ -1,5 +1,5 @@
 // quadrature_compute (nxr-neuro quadrature compute) on a small synthetic dataset, for a FREE kernel (three orientation rows per source: vector3 pair maps) and a FIXED one: the fraction, the energy
-// map and the top pairs equal the maths of nxr/quadrature.h on the N x N cross-spectrum; one field per map; rows and arrays together; cache hit; replace.
+// map and the top pairs equal the maths of nxr/signal/crossspectral.h on the N x N cross-spectrum; one field per map; rows and arrays together; cache hit; replace.
 #include <unistd.h>
 
 #include <cmath>
@@ -135,7 +135,7 @@ static void run() {
         a.pairs[b].push_back(std::move(pr));
       }
     }
-    // direct: the same cross-spectra, then the maths of nxr/quadrature.h on the N x N matrices
+    // direct: the same cross-spectra, then the maths of nxr/signal/crossspectral.h on the N x N matrices
     auto wo = nxr::signal::spectral::brainstormPsdOptions(sfreq, 4.0);
     const double df = sfreq / wo.segmentSamples;
     std::vector<nxr::signal::spectral::BinGroup> gr;

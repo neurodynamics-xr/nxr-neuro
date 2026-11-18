@@ -12,7 +12,7 @@
 //                      [M x 3N] (channels <- cortex, vector3 -> scalar), with `<name>_GridLoc`: what `export_forward` stores for an imported head model, the producer saying it
 //                      was computed, `params_json.forward` the model, every option and the fitted spheres. MEG: Sarvas (one sphere) or overlapping spheres; EEG: three shells.
 //   (the sensor PSD and the rotary spectrum are the definitions `psd` and `rotary_psd` (pipelines/definitions/), run by the runner on the nodes welch.psd, rotary.pair and welch.complex_psd)
-//   filter_compute    a temporal filter (lowpass · highpass · bandpass · bandstop · notch; nxr/filter.h) of a recording, read CHUNK BY CHUNK, written as a NEW recording on the same
+//   filter_compute    a temporal filter (lowpass · highpass · bandpass · bandstop · notch; nxr/signal/filters.h) of a recording, read CHUNK BY CHUNK, written as a NEW recording on the same
 //                     channels and the same time line, exactly as recordings are stored (the grid of chunks and shards, the envelope; rows and arrays together): `<recording>_<kind>`,
 //                     its Field derived from the source, the source's channel flags, events and bad segments (Selections) copied unchanged, its projectors and CTF compensation carried
 //                     into `producer_json`, which also records the filter kind, every option, the option set and the design.
@@ -20,7 +20,7 @@
 //                     optionally "Spectrum normalization: relative"): the recording is read CHUNK BY CHUNK, the sensor cross-spectral density accumulated per band (nxr::signal::spectral::CrossWelch), and the
 //                     source PSD is diag(K S K^T) with the three orientations of a free kernel summed. One Field per band `<recording>_<kernel>_psd_<band>` (kind band power, scalar, on the kernel's
 //                     source manifold, folder source), the band a Selection on the Frequency manifold (`producer_json.band`), as the Brainstorm importer and nxr store a band map.
-// The maths and every option: docs/specs/2026-11-10-neuro-forward-inverse.md (the PSD: nxr/welch.h; the filters: nxr/filter.h).
+// The maths and every option: docs/specs/2026-11-10-neuro-forward-inverse.md (the PSD: nxr/signal/spectral.h; the filters: nxr/signal/filters.h).
 #pragma once
 #include "nxr/signal/timefilterbank.h"
 #include <Eigen/Dense>

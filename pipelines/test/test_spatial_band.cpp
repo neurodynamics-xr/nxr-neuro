@@ -110,7 +110,7 @@ int main() {
   // forced eigen uses them too (the default and the forced request agree)
   SpatialBandOptions of = o; of.transform = "eigen";
   CHECK(rel(make_spatial_band(ds, s1, S, SL, of).apply(X), b1.apply(X)) < 1e-12);
-  // THE RIESZ PART of the band (the spatial analytic signal, nxr/monogenic.h): R_l = ∇ Δ^{-1/2} F_l; stored eigenmodes = the dense exact reference; the series follows; absent unless asked
+  // THE RIESZ PART of the band (the spatial analytic signal, nxr/signal/riesz.h): R_l = ∇ Δ^{-1/2} F_l; stored eigenmodes = the dense exact reference; the series follows; absent unless asked
   {
     CHECK(!b1.apply_riesz && !make_spatial_band(S, SL, dense).apply_riesz);
     SpatialBandOptions dr = dense; dr.riesz = true;

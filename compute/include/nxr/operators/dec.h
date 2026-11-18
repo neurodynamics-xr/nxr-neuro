@@ -103,7 +103,7 @@ struct ManifoldOperators {
     // mesh metadata that's already canonical on the context.
 };
 
-/** Assemble operators from a context, on the geometry::Manifold's operator mesh (nxr/intrinsic_surface.h). Default mass variant is MixedVoronoi. */
+/** Assemble operators from a context, on the geometry::Manifold's operator mesh (nxr/geometry/intrinsic_surface.h). Default mass variant is MixedVoronoi. */
 ManifoldOperators assembleManifoldOperators(
     geometry::Manifold& m,
     MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);

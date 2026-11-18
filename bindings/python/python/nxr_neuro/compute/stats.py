@@ -1,4 +1,4 @@
-"""Principal components of a table of observations x features (`nxr/pca.h`), by the thin singular value decomposition (scikit-learn's PCA, svd_solver="full").
+"""Principal components of a table of observations x features (`nxr/stats/pca.h`), by the thin singular value decomposition (scikit-learn's PCA, svd_solver="full").
 
 Each column's mean is removed; optionally each column is then divided by its standard deviation (ddof 1; the correlation matrix's components). Never
 the p x p covariance matrix: p can be tens of thousands where n is a few hundred. Every component up to the rank of the centred table is returned.

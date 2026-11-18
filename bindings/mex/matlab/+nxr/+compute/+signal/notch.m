@@ -2,7 +2,7 @@ function y = notch(x, frequencies, sfreq, opts)
 %NXR.COMPUTE.SIGNAL.NOTCH  Notch filter at the line frequency and its harmonics (nxr::signal::filters::notch).
 %   y = nxr.compute.signal.notch(x, [50 100], 1000)
 %   Zero-phase filters of a whole in-memory record [channels x samples]: Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop)
-%   filters as documented in nxr/filter.h. The result has the same shape and precision.
+%   filters as documented in nxr/signal/filters.h. The result has the same shape and precision.
 %
 %   Inputs
 %     x         [channels x samples]  The record, single or double.
