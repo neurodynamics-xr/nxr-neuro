@@ -40,7 +40,7 @@ inline FilterComputeResult filter_compute(nxr::io::DatasetWriter& ds, nxr::io::S
     nxr::pipelines::graph::RunOptions mo;
     mo.chunks = "all";
     mo.preset = "channel_span_mean";
-    try { nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("measure"), nxr::io::Json{{"field", o.recording}, {"recording", o.recording}}, mo); } catch (const nxr::io::Error& e) { if (e.code() != nxr::io::code::already_exists) throw; }
+    nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("measure"), nxr::io::Json{{"field", o.recording}, {"recording", o.recording}}, mo);   // stored once; the same run again is a cache hit
   }
   nxr::pipelines::graph::RunOptions ro;
   ro.chunks = "all";
