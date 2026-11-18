@@ -12,7 +12,7 @@ from typing import NamedTuple, Sequence
 
 import numpy as np
 
-from .. import _core
+from ... import _core
 
 _SCALING = """\
     scaling : {"density", "spectrum", "chain"}
@@ -76,10 +76,10 @@ def psd(
         (frequencies, psd, segments, segments_skipped). The values are those of scipy.signal.welch for the same segmentation, window, detrend and
         scaling (see `scipyWelchOptions`).
     """
-    return WelchResult(*_core.welch_psd(x, float(sfreq), int(segment_samples), float(overlap), window, bool(periodic), detrend, scaling, good))
+    return WelchResult(*_core.signal_psd(x, float(sfreq), int(segment_samples), float(overlap), window, bool(periodic), detrend, scaling, good))
 
 
-def cross_spectrum(
+def xpsd(
     x,
     sfreq: float,
     bins: Sequence[tuple[int, int]],
@@ -121,7 +121,7 @@ def cross_spectrum(
     """
     b = [(int(a), int(c)) for a, c in bins]
     return CrossSpectrumResult(
-        *_core.welch_cross_spectrum(
+        *_core.signal_xpsd(
             x, float(sfreq), int(segment_samples), float(overlap), window, bool(periodic), detrend, scaling, b, bool(mean), bool(quadrature), good
         )
     )

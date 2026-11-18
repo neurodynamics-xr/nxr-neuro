@@ -112,9 +112,9 @@ std::vector<std::uint8_t> get_good(const mxArray* a, Eigen::Index samples, bool&
   return g;
 }
 
-// [frequencies, psd, segments, segments_skipped] = compute.welch.psd(x, sfreq, segment_samples, overlap, window, periodic, detrend, scaling, good)
+// [frequencies, psd, segments, segments_skipped] = compute.signal.psd(x, sfreq, segment_samples, overlap, window, periodic, detrend, scaling, good)
 void welchPsd(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 9, "compute.welch.psd");
+  need(nrhs, 9, "compute.signal.psd");
   const Matrix x = get_matrix(prhs[1], "x");
   const auto opt = welch_options(prhs + 2);
   bool given = false;
@@ -144,10 +144,10 @@ mxArray* give_stack(const std::vector<Eigen::MatrixXd>& stack, std::size_t rows,
   return a;
 }
 
-// [frequencies, real, imag, segments, segments_skipped] = compute.welch.cross_spectrum(x, sfreq, segment_samples, overlap, window, periodic, detrend, scaling,
+// [frequencies, real, imag, segments, segments_skipped] = compute.signal.xpsd(x, sfreq, segment_samples, overlap, window, periodic, detrend, scaling,
 //                                                                                 bins, mean, quadrature, good)       bins: [G x 2], 1-based
 void welchCross(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 12, "compute.welch.cross_spectrum");
+  need(nrhs, 12, "compute.signal.xpsd");
   const Matrix x = get_matrix(prhs[1], "x");
   const auto opt = welch_options(prhs + 2);
   const Matrix b = get_matrix(prhs[9], "bins");
@@ -171,10 +171,10 @@ void welchCross(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   plhs[4] = give_scalar(static_cast<double>(r.segmentsSkipped));
 }
 
-// y = compute.filter.<kind>(x, sfreq, lower, upper, frequencies, method, ripple, transition_bandwidth, edge, transient_energy, transient_samples, remove_mean,
+// y = compute.signal.<kind>(x, sfreq, lower, upper, frequencies, method, ripple, transition_bandwidth, edge, transient_energy, transient_samples, remove_mean,
 //                       notch_bandwidth, bandstop_order); the kind is the command's last part. [] stands for an option not given.
 void filterApply(const std::string& kind, int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 14, "compute.filter.*");
+  need(nrhs, 14, "compute.signal.*");
   const Matrix x = get_matrix(prhs[1], "x");
   nxr::signal::filters::FilterOptions o = nxr::signal::filters::brainstormFilterOptions(get_scalar(prhs[2], "sfreq"));
   const double lower = get_scalar(prhs[3], "lower"), upper = get_scalar(prhs[4], "upper");
@@ -202,9 +202,9 @@ void filterApply(const std::string& kind, int, mxArray** plhs, int nrhs, const m
   plhs[0] = give(y, x.single);
 }
 
-// [components, singular_values, explained_variance, explained_variance_ratio, scores, mean, scale, rank] = compute.pca.pca(x, scale)
+// [components, singular_values, explained_variance, explained_variance_ratio, scores, mean, scale, rank] = compute.stats.pca(x, scale)
 void pcaFit(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 2, "compute.pca.pca");
+  need(nrhs, 2, "compute.stats.pca");
   const Matrix x = get_matrix(prhs[1], "x");
   nxr::stats::PcaOptions o;
   const std::string s = get_string(prhs[2], "scale");
@@ -222,9 +222,9 @@ void pcaFit(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   plhs[7] = give_scalar(static_cast<double>(r.rank));
 }
 
-// y = compute.pca.reconstruct(scores, components, mean, scale, k)
+// y = compute.stats.reconstruct(scores, components, mean, scale, k)
 void pcaReconstruct(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 5, "compute.pca.reconstruct");
+  need(nrhs, 5, "compute.stats.reconstruct");
   const Matrix scores = get_matrix(prhs[1], "scores"), comps = get_matrix(prhs[2], "components");
   const Eigen::VectorXd mean = get_vector(prhs[3], "mean"), scale = get_vector(prhs[4], "scale");
   const double kd = get_scalar(prhs[5], "k");
@@ -235,9 +235,9 @@ void pcaReconstruct(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   plhs[0] = give(nxr::stats::reconstruct(scores.m, comps.m, mean, scale, static_cast<int>(k)), scores.single);
 }
 
-// [eigenvalues, eigenvectors, n_converged] = compute.manifold.eigenmodes(vertices, faces, k, sigma, normalize, remove_dc, intrinsic_delaunay); faces 1-based
+// [eigenvalues, eigenvectors, n_converged] = compute.operators.eigen(vertices, faces, k, sigma, normalize, remove_dc, intrinsic_delaunay); faces 1-based
 void manifoldEigenmodes(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 7, "compute.manifold.eigenmodes");
+  need(nrhs, 7, "compute.operators.eigen");
   const Matrix v = get_matrix(prhs[1], "vertices");
   const Matrix f = get_matrix(prhs[2], "faces");
   if (v.m.cols() != 3 || f.m.cols() != 3) throw std::invalid_argument("vertices and faces are [n, 3]");
@@ -264,13 +264,29 @@ void manifoldEigenmodes(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   plhs[2] = give_scalar(static_cast<double>(r.nConverged));
 }
 
+// The commands renamed to the toolbox words (one word per thing across the C++ function, the node and the bindings; the test names_across_layers reads this table):
+// an old string is REFUSED with the new name, never answered as an alias.
+const char* const kRetiredCommands[][2] = {
+    {"compute.welch.psd", "compute.signal.psd"},
+    {"compute.welch.cross_spectrum", "compute.signal.xpsd"},
+    {"compute.pca.pca", "compute.stats.pca"},
+    {"compute.pca.reconstruct", "compute.stats.reconstruct"},
+    {"compute.manifold.eigenmodes", "compute.operators.eigen"},
+};
+// "compute.filter.<kind>" became "compute.signal.<kind>"
+bool retired(const std::string& cmd, std::string& renamed) {
+  for (const auto& r : kRetiredCommands) if (cmd == r[0]) { renamed = r[1]; return true; }
+  if (cmd.rfind("compute.filter.", 0) == 0) { renamed = "compute.signal." + cmd.substr(15); return true; }
+  return false;
+}
+
 bool dispatchOps(const std::string& cmd, int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  if (cmd == "compute.welch.psd") welchPsd(nlhs, plhs, nrhs, prhs);
-  else if (cmd == "compute.welch.cross_spectrum") welchCross(nlhs, plhs, nrhs, prhs);
-  else if (cmd.rfind("compute.filter.", 0) == 0) filterApply(cmd.substr(15), nlhs, plhs, nrhs, prhs);
-  else if (cmd == "compute.pca.pca") pcaFit(nlhs, plhs, nrhs, prhs);
-  else if (cmd == "compute.pca.reconstruct") pcaReconstruct(nlhs, plhs, nrhs, prhs);
-  else if (cmd == "compute.manifold.eigenmodes") manifoldEigenmodes(nlhs, plhs, nrhs, prhs);
+  if (cmd == "compute.signal.psd") welchPsd(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.xpsd") welchCross(nlhs, plhs, nrhs, prhs);
+  else if (cmd.rfind("compute.signal.", 0) == 0) filterApply(cmd.substr(15), nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.stats.pca") pcaFit(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.stats.reconstruct") pcaReconstruct(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.operators.eigen") manifoldEigenmodes(nlhs, plhs, nrhs, prhs);
   else return false;
   return true;
 }
@@ -291,6 +307,8 @@ std::string identifier(const std::string& code) {
 bool dispatchFirstSlice(const std::string& cmd, int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
   if (cmd.rfind("compute.", 0) != 0 && cmd.rfind("io.", 0) != 0) return false;
   bool known = true;
+  std::string renamed;
+  if (retired(cmd, renamed)) throw SliceFailure{"nxr:renamed", "The command \"" + cmd + "\" was renamed: use \"" + renamed + "\"."};
   try {
     known = dispatchOps(cmd, nlhs, plhs, nrhs, prhs);
 #ifdef NXR_MEX_WITH_IO

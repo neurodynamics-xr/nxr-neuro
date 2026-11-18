@@ -1,12 +1,12 @@
-function y = bandstop(x, lower, upper, sfreq, opts)
-%NXR.OPS.FILTER.BANDSTOP  Band-stop filter (nxr::signal::filters::bandstop).
-%   y = nxr.compute.filter.bandstop(x, 40, 50, 1000)
+function y = highpass(x, lower, sfreq, opts)
+%NXR.COMPUTE.SIGNAL.HIGHPASS  High-pass filter (nxr::signal::filters::highpass).
+%   y = nxr.compute.signal.highpass(x, 1, 1000)
 %   Zero-phase filters of a whole in-memory record [channels x samples]: Brainstorm's FIR (Kaiser window) and IIR (Butterworth notch and band-stop)
 %   filters as documented in nxr/filter.h. The result has the same shape and precision.
 %
 %   Inputs
 %     x         [channels x samples]  The record, single or double.
-%     lower, upper   Hz: the lower and upper stopband edges.
+%     lower     Hz: the highpass edge.
 %     sfreq     Sampling frequency, Hz.
 %   Name-value options (the library's FilterOptions; the same names as in the Python wheel)
 %     method               "fir" or "iir". Default [] (unset): the reference's (FIR, but IIR for bandstop and notch).
@@ -26,7 +26,6 @@ function y = bandstop(x, lower, upper, sfreq, opts)
     arguments
         x {mustBeNumericOrLogical}
         lower (1,1) double
-        upper (1,1) double
         sfreq (1,1) double
         opts.method = []
         opts.ripple (1,1) double = 1e-3
@@ -38,5 +37,5 @@ function y = bandstop(x, lower, upper, sfreq, opts)
         opts.notch_bandwidth = []
         opts.bandstop_order (1,1) double = 4
     end
-    y = nxr.impl.filter_run('bandstop', x, sfreq, lower, upper, [], opts);
+    y = nxr.impl.filter_run('highpass', x, sfreq, lower, 0, [], opts);
 end

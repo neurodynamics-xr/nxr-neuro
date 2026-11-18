@@ -1,6 +1,6 @@
 # nxr_core: the small library under nxr_compute and nxr_meeg (dated amendment 2026-11-17, ARCHITECTURE.md dependency table): core types and errors,
 # cancellation, progress, parallel, general algebra (congruence) and optimisation's general solvers. Eigen and the platform's threads only.
-# Included once, by compute/cmake/sources_B4.cmake or meeg/CMakeLists.txt, whichever comes first. Temporary file: consolidated in B5.
+# Included once, by compute/cmake/core.cmake or meeg/CMakeLists.txt, whichever comes first. The sources of the core and optimisation toolboxes.
 if(NOT TARGET nxr_core)
   add_library(nxr_core STATIC
     ${CMAKE_CURRENT_LIST_DIR}/../src/core/algebra.cpp

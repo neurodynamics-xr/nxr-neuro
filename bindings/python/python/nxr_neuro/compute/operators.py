@@ -15,7 +15,7 @@ class Eigenmodes(NamedTuple):
     n_converged: int
 
 
-def eigenmodes(vertices, faces, k: int, sigma: float | None = None, normalize: bool = False, remove_dc: bool = False,
+def eigen(vertices, faces, k: int, sigma: float | None = None, normalize: bool = False, remove_dc: bool = False,
                intrinsic_delaunay: bool = True) -> Eigenmodes:
     """The k smallest eigenpairs of K phi = lambda M phi on a mesh (the cotangent Laplacian K and the mixed-Voronoi mass M of the operator mesh).
 
@@ -42,5 +42,5 @@ def eigenmodes(vertices, faces, k: int, sigma: float | None = None, normalize: b
     Eigenmodes
         (eigenvalues, eigenvectors, n_converged).
     """
-    return Eigenmodes(*_core.manifold_eigenmodes(vertices, faces, int(k), None if sigma is None else float(sigma), bool(normalize), bool(remove_dc),
+    return Eigenmodes(*_core.operators_eigen(vertices, faces, int(k), None if sigma is None else float(sigma), bool(normalize), bool(remove_dc),
                                                  bool(intrinsic_delaunay)))

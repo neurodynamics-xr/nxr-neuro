@@ -1,7 +1,7 @@
 """The pipeline level: `nn.run`, `nn.list` and `nn.read` on a synthetic dataset made in the test (the library's `synthetic_dataset`: a recording of known signals, one bad span).
 
 `run("psd", ...)` stores what `nxr-neuro run psd` stores (the C++ test `test_face` runs both on one dataset and compares them); here the stored PSD is checked against the pure
-function `nn.compute.welch.psd` on the stored samples, with the stored recording's bad span left out as the pipeline leaves it out."""
+function `nn.compute.signal.psd` on the stored samples, with the stored recording's bad span left out as the pipeline leaves it out."""
 
 import numpy as np
 import pytest
@@ -41,13 +41,13 @@ def test_psd_is_the_pure_functions_result(dataset):
     assert got.values.shape == (CHANNELS, 101) and got.values.dtype == np.float64
     x = nn.read(dataset, "S1", "rest").values
     assert x.shape == (CHANNELS, int(SECONDS * SFREQ)) and x.dtype == np.float32
-    want = nn.compute.welch.psd(x, SFREQ, segment_samples=200, good=_good(x.shape[1]))     # scipy's set: hann (periodic), constant detrend, 50 % overlap, density
+    want = nn.compute.signal.psd(x, SFREQ, segment_samples=200, good=_good(x.shape[1]))     # scipy's set: hann (periodic), constant detrend, 50 % overlap, density
     assert 0 < want.segments_skipped < want.segments + want.segments_skipped
     assert got.meta["producer"]["bad_segments"]["n_spans"] == 1
     np.testing.assert_allclose(got.values, want.psd, rtol=1e-6)
     # without the bad span left out: the plain PSD
     r2 = nn.run("psd", dataset, "S1", recording="rest", set="scipy", segment_seconds=2.0, all=True, name="plain", exclude_bad_segments=False)
-    np.testing.assert_allclose(r2.read().values, nn.compute.welch.psd(x, SFREQ, segment_samples=200).psd, rtol=1e-6)
+    np.testing.assert_allclose(r2.read().values, nn.compute.signal.psd(x, SFREQ, segment_samples=200).psd, rtol=1e-6)
 
 
 def test_a_rerun_is_a_cache_hit_and_a_range_is_a_range(dataset):

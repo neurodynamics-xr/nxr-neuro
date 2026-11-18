@@ -231,16 +231,16 @@ void def_both(nb::module_& m, const char* name, F1 f64, F2 f32, Extra&&... extra
 
 void bind_compute(nb::module_& m) {
   using nb::arg;
-  def_both(m, "welch_psd", &welch_psd<double>, &welch_psd<float>, arg("x"), arg("sfreq"), arg("segment_samples"), arg("overlap"), arg("window"),
+  def_both(m, "signal_psd", &welch_psd<double>, &welch_psd<float>, arg("x"), arg("sfreq"), arg("segment_samples"), arg("overlap"), arg("window"),
            arg("periodic"), arg("detrend"), arg("scaling"), arg("good").none());
-  def_both(m, "welch_cross_spectrum", &welch_cross_spectrum<double>, &welch_cross_spectrum<float>, arg("x"), arg("sfreq"), arg("segment_samples"),
+  def_both(m, "signal_xpsd", &welch_cross_spectrum<double>, &welch_cross_spectrum<float>, arg("x"), arg("sfreq"), arg("segment_samples"),
            arg("overlap"), arg("window"), arg("periodic"), arg("detrend"), arg("scaling"), arg("bins"), arg("mean"), arg("quadrature"), arg("good").none());
-  def_both(m, "filter", &filter_apply<double>, &filter_apply<float>, arg("kind"), arg("x"), arg("sfreq"), arg("lower"), arg("upper"), arg("frequencies"),
+  def_both(m, "signal_filter", &filter_apply<double>, &filter_apply<float>, arg("kind"), arg("x"), arg("sfreq"), arg("lower"), arg("upper"), arg("frequencies"),
            arg("method").none(), arg("ripple"), arg("transition_bandwidth").none(), arg("edge"), arg("transient_energy"), arg("transient_samples").none(),
            arg("remove_mean"), arg("notch_bandwidth").none(), arg("bandstop_order"));
-  def_both(m, "pca", &pca_fit<double>, &pca_fit<float>, arg("x"), arg("scale"));
-  def_both(m, "pca_reconstruct", &pca_reconstruct<double>, &pca_reconstruct<float>, arg("scores"), arg("components"), arg("mean"), arg("scale"), arg("k"));
-  m.def("manifold_eigenmodes", &manifold_eigenmodes, arg("vertices"), arg("faces"), arg("k"), arg("sigma").none(), arg("normalize"), arg("remove_dc"),
+  def_both(m, "stats_pca", &pca_fit<double>, &pca_fit<float>, arg("x"), arg("scale"));
+  def_both(m, "stats_reconstruct", &pca_reconstruct<double>, &pca_reconstruct<float>, arg("scores"), arg("components"), arg("mean"), arg("scale"), arg("k"));
+  m.def("operators_eigen", &manifold_eigenmodes, arg("vertices"), arg("faces"), arg("k"), arg("sigma").none(), arg("normalize"), arg("remove_dc"),
         arg("intrinsic_delaunay"));
 }
 

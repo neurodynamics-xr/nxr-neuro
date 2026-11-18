@@ -412,15 +412,15 @@ table, with the same names and defaults; docstrings and MATLAB help are the `Par
 
 | verb | Python | MATLAB |
 |---|---|---|
-| one node | `nn.compute.welch.psd(x, sfreq=600.0, segment_samples=512)` | `r = nxr.compute.welch.psd(x, 'sfreq', 600, 'segment_samples', 512)` |
+| one node | `nn.compute.signal.psd(x, sfreq=600.0, segment_samples=512)` | `r = nxr.compute.signal.psd(x, 'sfreq', 600, 'segment_samples', 512)` |
 | any node or graph by name, path or object | `nn.compute("welch.psd", x, sfreq=600.0)`, `nn.compute(g, x=x, kernel=K, band=[8, 12], sfreq=600.0)` | `r = nxr.compute('welch.psd', x, 'sfreq', 600)`, `r = nxr.compute(g, 'x', x, 'kernel', K, 'band', [8 12])` |
 | a pipeline | `nn.run("psd", ds, "sub-01", recording="rest", all=True)` | `r = nxr.run('psd', ds, 'sub-01', 'recording', 'rest', 'all', true)` |
 
 ```python
 import nxr_neuro as nn
 
-f = nn.compute.filter.bandpass(x, sfreq=1000.0, lower=8.0, upper=12.0)    # arrays in, a Result out: f.y (the output port), f.record (provenance)
-psd = nn.compute.welch.psd(x, sfreq=1000.0, good=mask)                     # psd.frequencies, psd.psd, psd.segments, psd.segments_skipped
+f = nn.compute.signal.bandpass(x, sfreq=1000.0, lower=8.0, upper=12.0)    # arrays in, a Result out: f.y (the output port), f.record (provenance)
+psd = nn.compute.signal.psd(x, sfreq=1000.0, good=mask)                     # psd.frequencies, psd.psd, psd.segments, psd.segments_skipped
 
 g = nn.Graph.load("my_chain.yaml")                                         # or nn.Graph({...}) from a dict, or a composite's name
 r = nn.compute(g, x=x, kernel=K, surface=(V, F), sfreq=600.0, band=[8, 12])
@@ -441,8 +441,8 @@ r.cache, r.read()                                                          # "hi
 ```
 
 ```matlab
-f   = nxr.compute.filter.bandpass(x, 'sfreq', 1000, 'lower', 8, 'upper', 12);   % f.y, f.record
-psd = nxr.compute.welch.psd(x, 'sfreq', 1000);
+f   = nxr.compute.signal.bandpass(x, 'sfreq', 1000, 'lower', 8, 'upper', 12);   % f.y, f.record
+psd = nxr.compute.signal.psd(x, 'sfreq', 1000);
 g   = nxr.Graph.load('my_chain.yaml');
 r   = nxr.compute(g, 'x', x, 'kernel', K, 'sfreq', 600, 'band', [8 12]);
 r   = nxr.run('global_bursts', nxr.open('study/'), 'sub-01', 'from', 0, 'to', 300, 'band', [15 29]);

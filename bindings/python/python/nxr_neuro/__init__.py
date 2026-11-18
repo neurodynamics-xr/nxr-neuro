@@ -4,7 +4,7 @@ The Python face of nxr-neuro: the pure functions over NumPy arrays (`nxr_neuro.c
 level (`nxr_neuro.run`, `nxr_neuro.list`, `nxr_neuro.read`). Each calls the same C++ library as the `nxr-neuro` command; nothing here is a second implementation.
 
     import nxr_neuro as nn
-    freqs, psd, *_ = nn.compute.welch.psd(x, sfreq=1000.0)
+    freqs, psd, *_ = nn.compute.signal.psd(x, sfreq=1000.0)
     r = nn.run("psd", "study/demo", "sub-01", recording="rest", all=True)   # a pipeline on a subject: the command line's `run`
 """
 

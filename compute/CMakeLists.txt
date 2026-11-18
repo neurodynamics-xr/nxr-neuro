@@ -47,11 +47,13 @@ if(NOT NXR_GC_RC EQUAL 0 OR NXR_GC_COMMIT STREQUAL "")
   set(NXR_GC_COMMIT "unknown")
 endif()
 add_library(nxr_compute STATIC)
-# the sources, by owner (refactor batches B1-B4); per-file flags are with their files
-include(cmake/sources_B1.cmake)
-include(cmake/sources_B2.cmake)
-include(cmake/sources_B3.cmake)
-include(cmake/sources_B4.cmake)
+# the toolboxes (compute/cmake/<toolbox>.cmake): each lists its sources, their per-file flags and its tests; the layering between them is cmake/check_toolboxes.cmake
+set(NXR_COMPUTE_TOOLBOXES core quantity optimisation stats geometry operators selection measurement select signal synthesis meeg pending_b6)
+foreach(tb IN LISTS NXR_COMPUTE_TOOLBOXES)
+  if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/cmake/${tb}.cmake)
+    include(cmake/${tb}.cmake)
+  endif()
+endforeach()
 
 target_include_directories(nxr_compute PUBLIC
   ${CMAKE_CURRENT_SOURCE_DIR}/include
@@ -79,12 +81,7 @@ endif()
 # Skipped under Emscripten — these are native-only smoke tests;
 # the WASM build has its own JS-side smoke (scripts/_smoke-wasm.mjs).
 
-if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
-    include(cmake/tests_B1.cmake)
-    include(cmake/tests_B2.cmake)
-    include(cmake/tests_B3.cmake)
-    include(cmake/tests_B4.cmake)
-endif()
+# (the tests of each toolbox are in its cmake file, above)
 
 # CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
 set_property(DIRECTORY APPEND PROPERTY LABELS compute)

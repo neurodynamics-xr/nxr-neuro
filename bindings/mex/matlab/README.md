@@ -34,16 +34,16 @@ symbols; it exports only `mexFunction` and `mexfilerequiredapiversion`. SQLite (
 Conventions, once: signals are `[channels x samples]`; options are name=value (`segment_samples=512`, or `'segment_samples', 512`) with the wheel's names and defaults;
 **precision follows the input** (single in, single out; integers and logicals are computed as double); **indices are 1-based**, as everywhere in MATLAB (the wheel's are
 0-based): faces, bins, samples, channels, the gaps' first sample, and a GIFTI triangle's vertex indices. Errors carry identifiers: `nxr:invalidArgument`, `nxr:formatError`,
-`nxr:unsupported` (a valid file the reader refuses, with the reason), `nxr:io`, and the library's own (`nxr:...`). `help nxr.compute.welch.psd` gives each function's meaning,
+`nxr:unsupported` (a valid file the reader refuses, with the reason), `nxr:io`, and the library's own (`nxr:...`). `help nxr.compute.signal.psd` gives each function's meaning,
 default and unit.
 
 | MATLAB | Python wheel | |
 |---|---|---|
-| `r = nxr.compute.welch.psd(x, sfreq, ...)` | `compute.welch.psd` | `r.frequencies`, `r.psd`, `r.segments`, `r.segments_skipped` |
-| `r = nxr.compute.welch.cross_spectrum(x, sfreq, bins, ...)` | `compute.welch.cross_spectrum` | `bins` is `[groups x 2]`, 1-based; `r.real`, `r.imag` are `[groups x channels x channels]` |
-| `y = nxr.compute.filter.lowpass(x, upper, sfreq, ...)`, `highpass(x, lower, sfreq)`, `bandpass(x, lower, upper, sfreq)`, `bandstop(...)`, `notch(x, frequencies, sfreq)` | `compute.filter.*` | |
-| `r = nxr.compute.pca.pca(x, scale="none")`, `y = nxr.compute.pca.reconstruct(scores, components, mean, scale, k)` | `compute.pca.*` | `r.components`, `r.singular_values`, ... as the wheel's fields; per-component lists are rows |
-| `r = nxr.compute.manifold.eigenmodes(vertices, faces, k, ...)` | `compute.manifold.eigenmodes` | faces 1-based; `r.eigenvalues` is a column |
+| `r = nxr.compute.signal.psd(x, sfreq, ...)` | `compute.signal.psd` | `r.frequencies`, `r.psd`, `r.segments`, `r.segments_skipped` |
+| `r = nxr.compute.signal.xpsd(x, sfreq, bins, ...)` | `compute.signal.xpsd` | `bins` is `[groups x 2]`, 1-based; `r.real`, `r.imag` are `[groups x channels x channels]` |
+| `y = nxr.compute.signal.lowpass(x, upper, sfreq, ...)`, `highpass(x, lower, sfreq)`, `bandpass(x, lower, upper, sfreq)`, `bandstop(...)`, `notch(x, frequencies, sfreq)` | `compute.signal.*` | |
+| `r = nxr.compute.stats.pca(x, scale="none")`, `y = nxr.compute.stats.reconstruct(scores, components, mean, scale, k)` | `compute.pca.*` | `r.components`, `r.singular_values`, ... as the wheel's fields; per-component lists are rows |
+| `r = nxr.compute.operators.eigen(vertices, faces, k, ...)` | `compute.operators.eigen` | faces 1-based; `r.eigenvalues` is a column |
 | `rec = nxr.io.open_edf(path)`, `open_bdf`, `open_brainvision`, `open_eeglab`, `open_fif` | `io.open_*` | a `nxr.io.Recording`: `rec.header` (struct), `rec.read(first, last)`, `rec.read_all()`, `rec.close()` |
 | `[x, header] = nxr.io.read_edf(path, first=1, last=1000)` (or `all=true`), `read_bdf`, `read_brainvision`, `read_eeglab`, `read_fif` | `io.read_*` | the span is always stated: `first` and `last` (inclusive), or `all=true` |
 | `[data, header] = nxr.io.read_nifti(path)`, `image = nxr.io.read_gifti(path)`, `[t, names] = nxr.io.read_tsv(path)` | `io.read_nifti`, `read_gifti`, `read_tsv` | |
@@ -52,8 +52,8 @@ default and unit.
 rec = nxr.io.open_fif("sub-01_raw.fif");
 rec.header.sampling_rate, rec.header.n_samples
 x = rec.read(1, 10000);                                  % [channels x samples], SI units
-y = nxr.compute.filter.bandpass(x, 8, 12, rec.header.sampling_rate);
-r = nxr.compute.welch.psd(y, rec.header.sampling_rate, segment_samples=512);
+y = nxr.compute.signal.bandpass(x, 8, 12, rec.header.sampling_rate);
+r = nxr.compute.signal.psd(y, rec.header.sampling_rate, segment_samples=512);
 plot(r.frequencies, r.psd(1, :))
 ```
 

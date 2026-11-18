@@ -241,11 +241,11 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
 
 | function | the library's | what |
 |---|---|---|
-| `compute.welch.psd(x, sfreq, segment_samples=256, overlap=0.5, window="hann", periodic=True, detrend="constant", scaling="density", good=None)` | `nxr::welch::Welch` | Welch's PSD; with those defaults equal to `scipy.signal.welch(nperseg=256)`; `good` leaves out segments touching a bad sample |
-| `compute.welch.cross_spectrum(x, sfreq, bins, ..., mean=True, quadrature=False)` | `nxr::welch::CrossWelch` | the cross-spectral density between channels, per group of bins; optionally its imaginary part |
-| `compute.filter.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch` | `nxr::filter` | Brainstorm's zero-phase FIR and IIR filters, options as `FilterOptions` |
-| `compute.pca.pca(x, scale="none")`, `compute.pca.reconstruct(...)` | `nxr::pca` | principal components of observations x features (scikit-learn's `svd_solver="full"`, sign convention fixed) and the rank-k reconstruction |
-| `compute.manifold.eigenmodes(vertices, faces, k, ...)` | `nxr::manifold::solve::eigen` | the Laplace-Beltrami eigenpairs of a triangle mesh (cotangent Laplacian, mixed-Voronoi mass; the shift ladder by default) |
+| `compute.signal.psd(x, sfreq, segment_samples=256, overlap=0.5, window="hann", periodic=True, detrend="constant", scaling="density", good=None)` | `nxr::welch::Welch` | Welch's PSD; with those defaults equal to `scipy.signal.welch(nperseg=256)`; `good` leaves out segments touching a bad sample |
+| `compute.signal.xpsd(x, sfreq, bins, ..., mean=True, quadrature=False)` | `nxr::welch::CrossWelch` | the cross-spectral density between channels, per group of bins; optionally its imaginary part |
+| `compute.signal.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch` | `nxr::filter` | Brainstorm's zero-phase FIR and IIR filters, options as `FilterOptions` |
+| `compute.stats.pca(x, scale="none")`, `compute.stats.reconstruct(...)` | `nxr::pca` | principal components of observations x features (scikit-learn's `svd_solver="full"`, sign convention fixed) and the rank-k reconstruction |
+| `compute.operators.eigen(vertices, faces, k, ...)` | `nxr::manifold::solve::eigen` | the Laplace-Beltrami eigenpairs of a triangle mesh (cotangent Laplacian, mixed-Voronoi mass; the shift ladder by default) |
 
 **`nn.io`** (the pure formats, `io/formats`; native, no MATLAB and no Python library at run time): `open_edf` / `read_edf` (EDF, EDF+, BDF, BDF+; `open_bdf` and
 `read_bdf` are the same), `open_brainvision` / `read_brainvision`, `open_eeglab` / `read_eeglab`, `open_fif` / `read_fif` (Neuromag / MNE raw; `allow_maxshield=False`) return a recording: `rec.header` (a dictionary holding every field of
@@ -258,8 +258,8 @@ the sign convention; the sphere's eigenvalues l(l+1); the readers against the MN
 
 ## The MATLAB face (`+nxr`, `bindings/mex`; spec `docs/specs/2026-11-17-interoperability.md`)
 
-The same first slice as the Python wheel, **with the same names and options**, under the `+nxr` package: `nxr.compute.welch.psd`, `cross_spectrum`;
-`nxr.compute.filter.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch`; `nxr.compute.pca.pca`, `reconstruct`; `nxr.compute.manifold.eigenmodes`; `nxr.io.open_edf` / `open_bdf` /
+The same first slice as the Python wheel, **with the same names and options**, under the `+nxr` package: `nxr.compute.signal.psd`, `cross_spectrum`;
+`nxr.compute.signal.lowpass`, `highpass`, `bandpass`, `bandstop`, `notch`; `nxr.compute.stats.pca`, `reconstruct`; `nxr.compute.operators.eigen`; `nxr.io.open_edf` / `open_bdf` /
 `open_brainvision` / `open_eeglab` / `open_fif` (a `nxr.io.Recording`: `header` as a struct, `read(first, last)`, `read_all`), `read_<format>` (header and block in one call, the span
 stated), `read_nifti`, `read_gifti`, `read_tsv`. FIF raw (`io/formats/fif.h`: MNE's raw reader, split files, skips, annotations, the whole `info`) is in both faces (`nn.io.open_fif` / `read_fif`).
 A binding only binds: each function is one command of the one `nxr_compute` mexFunction (`compute.*` and `io.*` commands, `bindings/mex/src/first_slice*.cpp`) into the library; the

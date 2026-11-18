@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from typing import Sequence
 
-from .. import _core
+from ... import _core
 
 _OPTIONS = """\
     sfreq : float
@@ -36,7 +36,7 @@ _OPTIONS = """\
 
 def _run(kind, x, sfreq, lower, upper, frequencies, method, ripple, transition_bandwidth, edge, transient_energy, transient_samples, remove_mean,
          notch_bandwidth, bandstop_order):
-    return _core.filter(
+    return _core.signal_filter(
         kind, x, float(sfreq), float(lower), float(upper), [float(f) for f in frequencies], method, float(ripple),
         None if transition_bandwidth is None else float(transition_bandwidth), edge, float(transient_energy),
         None if transient_samples is None else int(transient_samples), bool(remove_mean),

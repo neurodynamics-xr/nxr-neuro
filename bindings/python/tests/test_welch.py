@@ -76,7 +76,7 @@ def test_cross_spectrum_equals_a_numpy_reference(signal):
     x, fs = signal
     x = x[:3]
     bins = [(0, 0), (12, 12), (30, 40)]
-    r = welch.cross_spectrum(x, fs, bins, segment_samples=256, quadrature=True)
+    r = welch.xpsd(x, fs, bins, segment_samples=256, quadrature=True)
     C = _reference_cross(x, fs)
     for g, (a, b) in enumerate(bins):
         want = C[..., a:b + 1].mean(axis=-1)
@@ -89,7 +89,7 @@ def test_cross_spectrum_equals_a_numpy_reference(signal):
 def test_cross_spectrum_diagonal_is_the_psd(signal):
     x, fs = signal
     bins = [(k, k) for k in range(129)]
-    r = welch.cross_spectrum(x, fs, bins, segment_samples=256)
+    r = welch.xpsd(x, fs, bins, segment_samples=256)
     p = welch.psd(x, fs, segment_samples=256).psd
     np.testing.assert_allclose(np.stack([np.diag(r.real[k]) for k in range(129)], axis=1), p, rtol=1e-10)
     assert r.imag is None
@@ -97,12 +97,14 @@ def test_cross_spectrum_diagonal_is_the_psd(signal):
 
 def test_cross_spectrum_sum_versus_mean(signal):
     x, fs = signal
-    a = welch.cross_spectrum(x, fs, [(10, 14)], mean=True).real
-    b = welch.cross_spectrum(x, fs, [(10, 14)], mean=False).real
+    a = welch.xpsd(x, fs, [(10, 14)], mean=True).real
+    b = welch.xpsd(x, fs, [(10, 14)], mean=False).real
     np.testing.assert_allclose(b, a * 5, rtol=1e-12)
 
 
 def test_ops_is_a_deprecated_alias_of_compute():
     with pytest.warns(DeprecationWarning, match="nxr_neuro.compute"):
         ops = nn.ops
-    assert ops.welch is nn.compute.welch
+    assert ops.signal is nn.compute.signal
+    with pytest.raises(AttributeError, match="renamed: use nxr_neuro.compute.signal"):
+        nn.compute.welch

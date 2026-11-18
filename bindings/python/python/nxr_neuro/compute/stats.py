@@ -48,7 +48,7 @@ def pca(x, scale: str = "none") -> PcaResult:
         components, singular_values, explained_variance, explained_variance_ratio, scores, mean, scale, rank. Matches scikit-learn's PCA(svd_solver="full")
         (sign aside, which the convention above fixes).
     """
-    return PcaResult(*_core.pca(x, scale))
+    return PcaResult(*_core.stats_pca(x, scale))
 
 
 def reconstruct(scores, components, mean, scale, k: int):
@@ -56,4 +56,4 @@ def reconstruct(scores, components, mean, scale, k: int):
 
     The best rank-k approximation of the centred table in the least-squares sense (Eckart-Young). k from 0 (the mean) to the components held.
     """
-    return _core.pca_reconstruct(scores, components, mean, scale, int(k))
+    return _core.stats_reconstruct(scores, components, mean, scale, int(k))

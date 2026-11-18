@@ -1,7 +1,7 @@
 classdef RunTest < SliceTestBase
 %RUNTEST  The pipeline level: nxr.run, nxr.list and nxr.read on a synthetic dataset made in the test; the wheel's test_run.py.
 %   nxr.run('psd', ...) stores what `nxr-neuro run psd` stores (the C++ test test_face runs both and compares them); here the stored PSD is compared with the pure function
-%   nxr.compute.welch.psd on the stored samples, the stored recording's bad span left out as the pipeline leaves it out.
+%   nxr.compute.signal.psd on the stored samples, the stored recording's bad span left out as the pipeline leaves it out.
 
     properties
         ds
@@ -41,7 +41,7 @@ classdef RunTest < SliceTestBase
             tc.verifyClass(x, 'single');
             t = (0:size(x, 2) - 1) / 100;
             good = ~(t >= 0.3 * 40 & t < 0.375 * 40);
-            want = nxr.compute.welch.psd(x, 100, segment_samples=200, good=good);   % scipy's set: hann (periodic), constant detrend, 50 % overlap, density
+            want = nxr.compute.signal.psd(x, 100, segment_samples=200, good=good);   % scipy's set: hann (periodic), constant detrend, 50 % overlap, density
             tc.verifyGreaterThan(want.segments_skipped, 0);
             tc.verifyLessThan(max(abs(got.values ./ want.psd - 1), [], 'all'), 1e-6);
             r2 = nxr.run('psd', tc.ds, 'S1', 'recording', 'rest', 'set', 'scipy', 'segment_seconds', 2, 'all', true);
