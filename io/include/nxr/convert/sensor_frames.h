@@ -50,7 +50,8 @@ struct SensorPlacement {
 };
 
 // `base`: the channels' name (it prefixes the operators' names); `acquisition`: the acquisition's label, the device system's suffix.
-SensorPlacement place_sensors(const nxr::formats::RecordingReader& reader, const std::string& base, const std::string& acquisition);
+// `header`: the header whose channels carry the positions when it is not the reader's own (BIDS: the electrodes table's positions, in a frame named `bids-<space>`); null: the reader's.
+SensorPlacement place_sensors(const nxr::formats::RecordingReader& reader, const std::string& base, const std::string& acquisition, const nxr::formats::RecordingHeader* header = nullptr);
 
 // Makes the systems of `p` and writes its links as transition operators from the sensor manifold `from_manifold_id`; call inside the compose, after the manifold is written.
 void make_frames(nxr::io::SubjectWriter& sub, const SensorPlacement& p);
