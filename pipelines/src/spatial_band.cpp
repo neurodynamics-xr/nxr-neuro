@@ -246,7 +246,7 @@ SpatialBandPlan plan_spatial_band(SubjectWriter& sub, const SurfaceInput& S, con
   if (t == "exact") { P.transform = t; P.key = keyed(Json{{"transform", "exact"}}); return P; }
   // eigenmode first. Why the series is used, when it is, goes into `reason`
   const std::string who = "level " + std::to_string(L.l) + " of " + S.name;
-  const std::string stem = S.primary ? std::string("hodgeDirac") : "hodgeDirac__" + S.name;
+  const std::string stem = hodge_package_stem(S);
   std::string reason;
   const internal::StoredLaplace st = internal::stored_laplace_info(sub, S);
   if (st.found) {

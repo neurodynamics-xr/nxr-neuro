@@ -41,6 +41,11 @@ std::vector<T> read_as(const nxr::io::Store& store, const std::string& key) {
 }
 }  // namespace
 
+std::string hodge_package_stem(const SurfaceInput& S) {
+  if (connected_pieces(S.faces, S.n_vertices()) == 2) return "hodgeDirac__" + S.name + "_glued";
+  return S.primary ? std::string("hodgeDirac") : "hodgeDirac__" + S.name;
+}
+
 SurfaceInput read_surface(SubjectWriter& sub, const std::optional<std::string>& name, bool as_stored) {
   std::optional<Row> row;
   if (name) {

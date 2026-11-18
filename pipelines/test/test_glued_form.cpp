@@ -99,9 +99,9 @@ int main() {
   {
     const SurfaceLevel SL = read_surface_level(s1, S, 3);
     const internal::GluedDomain none = internal::glued_domain(s1, S);
-    CHECK(!none.found && has(none.why, "eigen solve"));
+    CHECK(!none.found && has(none.why, "run glue"));
     SpatialBandOptions o; o.glued = true; o.transform = "chebyshev";
-    CHECK(has(what_of([&] { make_spatial_band(ds, s1, S, SL, o); }), "eigen solve"));
+    CHECK(has(what_of([&] { make_spatial_band(ds, s1, S, SL, o); }), "run glue"));
     CHECK(has(what_of([&] { make_spatial_band(S, SL, o); }), "subject"));              // without a subject there is no glued surface
   }
 

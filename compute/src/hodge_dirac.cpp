@@ -43,6 +43,17 @@ HodgeDirac assemble(Manifold& m, double star1Floor, double mollify, double flipE
     h.star1 = g.hodge1.diagonal();
     h.star2 = g.hodge2.diagonal();
     g.unrequireDECOperators();
+    // ⋆1 (the cotan weights of a Delaunay triangulation) is non-negative, and the pencil's mass carries it (and the 2-form ladder its inverse): an edge whose weight is zero within rounding (exactly cocircular
+    // quads, as on a symmetric mesh: -1e-17 or 0) makes the pencil indefinite and the shift-invert factorization fail. With no floor asked for, such an edge is raised to ROUNDING level (1e-9 of the mean weight),
+    // counted in `star1Clamped` (stored with the solve); a floor the caller names (Rheome's 1e-6) is applied as before and replaces it.
+    if (!(star1Floor > 0.0) && nE > 0) {
+        double mean = 0.0;
+        for (int e = 0; e < nE; ++e) mean += std::abs(h.star1(e));
+        mean /= nE;
+        const double tiny = 1e-9 * mean;
+        for (int e = 0; e < nE; ++e)
+            if (h.star1(e) < tiny) { ++h.star1Clamped; h.star1(e) = tiny; }
+    }
     if (star1Floor > 0.0)
         for (int e = 0; e < nE; ++e)
             if (h.star1(e) < star1Floor) { ++h.star1Clamped; h.star1(e) = star1Floor; }

@@ -679,7 +679,7 @@ HodgePackage resolve_hodge_package(SubjectWriter& sub, const Row& smf, const std
   const std::int64_t Vin = pk.Vin;
   const std::optional<std::int64_t>& opt_modes = modes;
   const SurfaceInput in = read_surface(sub, text(smf, "name"));
-  const std::string stem_pkg = package ? *package : (in.primary ? std::string("hodgeDirac") : "hodgeDirac__" + in.name);
+  const std::string stem_pkg = package ? *package : hodge_package_stem(in);
   const auto opr = find_operator(sub.db(), sub.id(), "eigenvectors", stem_pkg + "_eigenvectors");
   if (!opr) missing(sub.name() + ": no stored Hodge-Dirac package '" + stem_pkg + "' (nxr-neuro run eigenmodes, or nxr eigen solve)");
   const auto axis = sub.db().read("manifold", text(*opr, "from_manifold_id"));
@@ -777,7 +777,7 @@ namespace internal {
 
 StoredLaplace stored_laplace_info(SubjectWriter& sub, const SurfaceInput& S) {
   StoredLaplace out;
-  const std::string stem = S.primary ? std::string("hodgeDirac") : "hodgeDirac__" + S.name;
+  const std::string stem = hodge_package_stem(S);
   if (!find_operator(sub.db(), sub.id(), "eigenvectors", stem + "_eigenvectors")) return out;
   const HodgePackage pk = resolve_hodge_package(sub, S.manifold, std::nullopt, std::nullopt, "spatial band");
   out.found = true;
@@ -799,7 +799,7 @@ StoredLaplace stored_laplace_info(SubjectWriter& sub, const SurfaceInput& S) {
 
 GluedDomain glued_domain(SubjectWriter& sub, const SurfaceInput& S) {
   GluedDomain d;
-  const std::string stem = S.primary ? std::string("hodgeDirac") : "hodgeDirac__" + S.name;
+  const std::string stem = hodge_package_stem(S);
   if (find_operator(sub.db(), sub.id(), "eigenvectors", stem + "_eigenvectors")) {
     const HodgePackage pk = resolve_hodge_package(sub, S.manifold, std::nullopt, std::nullopt, "glued domain");
     d.found = true; d.surface = pk.glued; d.support = pk.support;
@@ -811,7 +811,7 @@ GluedDomain glued_domain(SubjectWriter& sub, const SurfaceInput& S) {
     for (std::int64_t i = 0; i < S.n_vertices(); ++i) d.support[static_cast<std::size_t>(i)] = static_cast<std::int32_t>(i);
     return d;
   }
-  d.why = S.name + " is a cortex of several pieces and no glued surface is stored: run `nxr-neuro run eigenmodes --glued` (it glues the hemispheres by anatomy and stores the glued surface)";
+  d.why = S.name + " is a cortex of several pieces and no glued surface is stored: run `nxr-neuro run glue --surface " + S.name + "` (it glues the hemispheres by anatomy and stores the glued surface), then `run eigenmodes` on it";
   return d;
 }
 

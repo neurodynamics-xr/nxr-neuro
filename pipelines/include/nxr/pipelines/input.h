@@ -61,6 +61,9 @@ std::vector<std::string> channel_types_of(nxr::io::SubjectWriter& sub, const std
 
 // How many connected pieces the faces make (a cortex: its two hemispheres; a mesh or a sphere: one).
 int connected_pieces(const std::vector<std::int32_t>& faces, std::int64_t n_vertices);
+/** the stem of the Hodge-Dirac package a surface's eigenmodes are stored under: its own (`hodgeDirac` for the primary surface, `hodgeDirac__<name>`), or, for a cortex of two pieces, the package of its glued
+ *  surface `<name>_glued` (the surface `glue` makes, the one the modes are solved on) */
+std::string hodge_package_stem(const SurfaceInput& surface);
 
 // A surface's MEDIAL WALL [nV] (1 on it): the vertices its stored Desikan–Killiany atlas (`<surface>_atlases/Desikan-Killiany`) codes `unassigned` (or
 // `unknown`), as nxr's `nxr.pipelines.hodge.medial_wall` and the Studio's `medialWall` read it. A surface with no such atlas is refused by name (the
