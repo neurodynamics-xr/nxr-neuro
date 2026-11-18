@@ -1,6 +1,6 @@
 // nxr-pipelines — THE APPARENT MOTION OF A SOURCE MAP AS NODES (the chain of the hand-wired `opticalflow` verb; spec docs/specs/2026-11-17-flow-verbs.md, section 2).
 //
-//   recording --timebank.member_analytic--> z [channels x frames, complex]      RETIMING: one filter-bank member at its OWN rate, the halo declared (its margin)
+//   recording --signal.member_analytic--> z [channels x frames, complex]       RETIMING: one filter-bank member's full-rate analytic signal at the frame grid's frames, the halo declared (the member's impulse response to a tolerance)
 //             --flow.activation----------> a [N x frames]                       pointwise: J = K z (the linear map before the non-linear step, D106), then |J|
 //             --flow.max_amplitude-------> the window's maximum |a|              accumulate: stored by its own definition (`flow_amplitude`), read BY NAME by the flow run
 //             --flow.velocity------------> v [3N x frames]                       stateful: Horn-Schunck between consecutive frames; the previous map is its state; the unit amplitude is the stored maximum
@@ -8,8 +8,8 @@
 //             --flow.series--------------> the flow weights as an array [K x steps] and the line they lie on
 //
 // Every node is a function of the block it is handed. The neighbourhood is explicit: the member's coefficients at the frames inside a block's own samples are computed from the block and its
-// halo (the filter's margin plus the lattice period), so a result does not depend on the chunk size beyond the filter's own tail, which the margin bounds. The frame lattice is the member's:
-// frame g sits at g p/q samples from sample 0 of the recording, the same for every chunk. A reduction over space or time of the velocity (divergence, curl, speed over a leaf and a frame) is a
+// halo (the member's impulse response down to `tolerance` of its L1 norm), so a result does not depend on the chunk size beyond that tail. The frames are a time selection the caller made (`select.time_grid` rule frames):
+// frame j starts at sample origin + j hop, the same for every chunk; the transform evaluates the member's full-rate analytic signal there and chooses nothing. A reduction over space or time of the velocity (divergence, curl, speed over a leaf and a frame) is a
 // measurement over a grid selection: it is NOT a node here (the grids are being redesigned as plain selections; see the spec).
 //
 // WHAT IT CANNOT RESOLVE: kinematic, not physical (where activity is created or destroyed the residual appears as divergence); aperture-limited (Horn-Schunck recovers the velocity along the
@@ -22,6 +22,7 @@
 #include <limits>
 #include <memory>
 #include <numeric>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -97,10 +98,9 @@ ng::Block block_of(const Eigen::MatrixXcd& A) {
     for (Eigen::Index t = 0; t < A.cols(); ++t) b.im[static_cast<std::size_t>(r * b.width + t)] = static_cast<float>(A(r, t).imag());
   return b;
 }
-std::int64_t ceil_div(std::int64_t a, std::int64_t b) { return a >= 0 ? (a + b - 1) / b : -((-a) / b); }
 
 // ── the member's filter bank (timebank.member_analytic) ────────────────────────────────────────────────────────────
-struct BankChoice { tb::TimeFilterbank bank; nxr::signal::WtOptions wo; int member = 0; double centre = 0; };
+struct BankChoice { tb::TimeFilterbank bank; int member = 0; double centre = 0; };
 
 tb::Family family_of(const std::string& f, const char* who) {
   if (f == "itersine") return tb::Family::Itersine;
@@ -128,9 +128,6 @@ BankChoice choose_bank(const Json& p, double sfreq, int channels, const char* wh
   BankChoice c;
   const std::size_t nfft = nxr::signal::next_fast_len(static_cast<std::size_t>(std::ceil(sfreq / resolution)), true);
   try { c.bank = tb::timeBank(d, nfft, sfreq); } catch (const std::invalid_argument& e) { ng::refuse(std::string(who) + ": the filter bank: " + e.what()); }
-  c.wo.oversample = p["oversample"].get<double>();
-  c.wo.tolerance = p.contains("tolerance") && p["tolerance"].is_number() ? p["tolerance"].get<double>() : 1e-7;   // 1e-7: float32 recordings (the blocks are float32); name it for float64
-  if (!(c.wo.tolerance > 0) || !(c.wo.tolerance < 1)) ng::refuse(std::string(who) + ": tolerance must be in (0, 1)");
   const Eigen::VectorXd centres = tb::centerFrequencies(c.bank);
   for (int m = 1; m < c.bank.size(); ++m) if (std::abs(centres[m] - p["freq"].get<double>()) < std::abs(centres[c.member] - p["freq"].get<double>())) c.member = m;
   c.centre = centres[c.member];
@@ -138,22 +135,49 @@ BankChoice choose_bank(const Json& p, double sfreq, int channels, const char* wh
   return c;
 }
 
+// the frame grid `select.time_grid` rule frames made, as its record states it: frame j starts at sample origin + j hop (hop exact, in samples), `count` frames, for samples at `rate`
+struct FrameGrid {
+  std::int64_t origin = 0, count = 0; double hop = 1, rate = 0;
+  double position(std::int64_t j) const { return static_cast<double>(origin) + static_cast<double>(j) * hop; }
+  // the frames whose start lies in [first, first + n): a frame belongs to the chunk holding it, so the result does not depend on the chunk size
+  std::pair<std::int64_t, std::int64_t> span(std::int64_t first, std::int64_t n) const {
+    auto up = [&](std::int64_t sample) { return std::min(count, std::max<std::int64_t>(0, static_cast<std::int64_t>(std::ceil(static_cast<double>(sample - origin) / hop - 1e-9)))); };
+    return {up(first), up(first + n)};
+  }
+};
+std::optional<FrameGrid> grid_of(const Json& params) {
+  if (!params.is_object() || !params.contains("grid") || !params["grid"].is_object() || params["grid"].value("kind", std::string()) != "time") return std::nullopt;
+  const Json& g = params["grid"];
+  if (!g.contains("origin") || !g.contains("count") || !g.contains("rate") || !(g.contains("hop_exact") || g.contains("hop"))) return std::nullopt;
+  FrameGrid f;
+  f.origin = g["origin"].get<std::int64_t>(); f.count = g["count"].get<std::int64_t>(); f.rate = g["rate"].get<double>();
+  f.hop = g.contains("hop_exact") ? g["hop_exact"].get<double>() : g["hop"].get<double>();
+  if (!(f.hop > 0) || !(f.rate > 0)) return std::nullopt;
+  return f;
+}
+
+double tolerance_of(const Json& p, const char* who) {
+  const double t = p.contains("tolerance") && p["tolerance"].is_number() ? p["tolerance"].get<double>() : 1e-6;
+  if (!(t > 0) || !(t < 1)) ng::refuse(std::string(who) + ": tolerance must be in (0, 1)");
+  return t;
+}
+
 struct MemberPrepared {
-  nxr::signal::WtLayout layout;       // the bank's lattice and margin (a function of the bank and the options; no state is held between blocks)
+  tb::TimeFilterbank bank;
+  FrameGrid grid;
   int member = 0;
-  std::int64_t p = 1, q = 1, P = 1, margin = 0;
-  std::int64_t channels = 0, n_samples = 0;
+  std::int64_t halo = 0, channels = 0;
   std::vector<std::int32_t> picked;
-  double rate = 0, centre = 0;
-  MemberPrepared(const BankChoice& c) : layout(nxr::signal::wtLayout(c.bank, c.wo)) {}
+  double centre = 0;
 };
 
 ng::NodeSpec member_analytic() {
   ng::NodeSpec n;
   n.name = "signal.member_analytic";
   n.kind = ng::Kind::chunk;
-  n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"channels_of", "an operator whose channels (its from_selection) are the ones kept, in its order (the inverse kernel)", false}};
-  n.outputs = {{"z", "the member's coefficients on the kept channels at the member's OWN rate: channels rows, complex, axis frames", false}};
+  n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"channels_of", "an operator whose channels (its from_selection) are the ones kept, in its order (the inverse kernel)", false},
+              {"tiling", "the frame grid: a time selection made by `select.time_grid` rule frames (the frames are the caller's, not the transform's)", false}};
+  n.outputs = {{"z", "the member's analytic signal at the frames, on the kept channels: channels rows, complex, axis frames", false}};
   n.parameters = {{"family", Json(), "the filter bank: itersine | meyer | morlet | morse | amor | bump (no default)", "-", {"itersine", "meyer", "morlet", "morse", "amor", "bump"}, false},
                   {"gain", Json(), "the peak in-band response of each member (no default; 2 makes |c| the physical amplitude of a real recording)", "-", {}, false},
                   {"freq", Json(), "the frequency whose nearest member is analysed", "Hz", {}, false},
@@ -166,87 +190,83 @@ ng::NodeSpec member_analytic() {
                   {"gamma", Json(3.0), "Morse: gamma", "-", {}, false},
                   {"time_bandwidth", Json(60.0), "Morse: the time-bandwidth product", "-", {}, false},
                   {"resolution", Json(0.5), "the frequency resolution of the grid the bank is designed on", "Hz", {}, false},
-                  {"oversample", Json(2.0), "the member's own rate is oversample x its bins' rate", "-", {}, false},
-                  {"tolerance", Json(), "the impulse response's tail the margin may leave out, relative to its norm; null: 1e-7 (float32 blocks)", "-", {}, true}};
+                  {"tolerance", Json(1e-6), "the member's impulse response left out by the halo, relative to its L1 norm (timefilterbank::haloOf)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input,
-                             "each block (own samples and halo) is filtered in double (nxr::signal, overlap-save) and the frames inside the own samples are handed on in float32",
-                             "the halo is the filter's margin (tolerance-bound) plus the lattice period on each side; the record's ends are zero padded");
-  n.matches = "Rheome timebank.analysisOwnRate / @timefilterbank wt (the coefficients at the member's own rate); compute nxr::signal::wt(layout, ...)";
-  n.description = "one filter-bank member's analytic coefficients of the recording's channels at the member's own rate (frames on the lattice g p/q samples), a retiming node";
+                             "each block (own samples and halo) is transformed in double (nxr::signal::wt at the frames' instants) and the frames inside the own samples are handed on in float32",
+                             "the member's impulse response to `tolerance` (timefilterbank::haloOf) on each side of the chunk; the record's ends are zero padded");
+  n.matches = "Rheome @timefilterbank wt (the member's full-rate coefficients) evaluated at the frames' instants; compute nxr::signal::wt(bank, member, x, at)";
+  n.description = "one filter-bank member's full-rate analytic signal of the recording's channels at the frames of a frame grid, a retiming node";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = need_port(in, "x", "signal.member_analytic");
     if (!x.streamed() || x.axis != ng::Axis::samples || !x.sfreq || !(*x.sfreq > 0)) ng::refuse("signal.member_analytic: x is a recording's samples (a streamed field with a rate)");
     if (x.value != ng::ValueType::real) ng::refuse("signal.member_analytic: x is a real recording");
     if (!in.count("channels_of")) ng::refuse("signal.member_analytic: channels_of (the kernel) names the channels kept");
+    const ng::PortType& t = need_port(in, "tiling", "signal.member_analytic");
+    if (t.cls != ng::PortClass::selection) ng::refuse("signal.member_analytic: tiling must be the frame grid (`select.time_grid` rule frames)");
     const BankChoice c = choose_bank(p, *x.sfreq, 0, "signal.member_analytic");
-    const nxr::signal::WtLayout plan = nxr::signal::wtLayout(c.bank, c.wo);
+    // the grid's record, when the input is a stored one (a type-only check has none: the frames then come at x's rate until the run reads the grid)
+    std::optional<FrameGrid> g;
+    if (t.facts.contains("value") && t.facts["value"].contains("row") && t.facts["value"]["row"].is_object() && t.facts["value"]["row"].contains("params_json") && t.facts["value"]["row"]["params_json"].is_string())
+      g = grid_of(Json::parse(t.facts["value"]["row"]["params_json"].get<std::string>(), nullptr, false));
+    if (g && std::fabs(g->rate - *x.sfreq) > 1e-9 * *x.sfreq) ng::refuse("signal.member_analytic: the frame grid was made for " + std::to_string(g->rate) + " samples a second, x has " + std::to_string(*x.sfreq));
     ng::Planned out;
     ng::PortType z = x;
     z.value = ng::ValueType::complex;
     z.rows = 0;
     z.axis = ng::Axis::frames;
-    z.sfreq = plan.rate[c.member];
+    z.sfreq = g ? *x.sfreq / g->hop : *x.sfreq;
     z.facts.erase("channels");
-    z.facts["step_p"] = plan.p[c.member]; z.facts["step_q"] = plan.q[c.member];
-    z.facts["centre_hz"] = c.centre; z.facts["rate_hz"] = plan.rate[c.member];
+    z.facts["centre_hz"] = c.centre; z.facts["rate_hz"] = *z.sfreq;
+    z.facts["frame_origin_s"] = g ? static_cast<double>(g->origin) / *x.sfreq : 0.0;
     out.out["z"] = z;
-    out.halo = plan.margin + plan.P;
+    out.halo = static_cast<std::int64_t>(tb::haloOf(c.bank, c.member, tolerance_of(p, "signal.member_analytic")));
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) {
     const double fs = *in.at("x").sfreq;
     const std::vector<std::int32_t> chans = constant(constants, "channels_of", "signal.member_analytic").meta.value("channels", std::vector<std::int32_t>());
     if (chans.empty()) ng::refuse("signal.member_analytic: the kernel names no channel");
+    const ng::Array& tile = constant(constants, "tiling", "signal.member_analytic");
+    Json params = tile.meta.value("params", Json::object());
+    if (!grid_of(params) && tile.meta.contains("describe")) params = tile.meta["describe"].value("params", Json::object());   // a grid made earlier in the same run
+    const std::optional<FrameGrid> g = grid_of(params);
+    if (!g) ng::refuse("signal.member_analytic: the frame grid records no time grid (`select.time_grid` rule frames)");
+    if (std::fabs(g->rate - fs) > 1e-9 * fs) ng::refuse("signal.member_analytic: the frame grid was made for " + std::to_string(g->rate) + " samples a second, x has " + std::to_string(fs));
     const BankChoice c = choose_bank(p, fs, static_cast<int>(chans.size()), "signal.member_analytic");
-    MemberPrepared m(c);
-    const nxr::signal::WtLayout& plan = m.layout;
-    m.member = c.member; m.p = plan.p[c.member]; m.q = plan.q[c.member]; m.P = plan.P; m.margin = plan.margin;
-    m.channels = static_cast<std::int64_t>(chans.size()); m.picked = chans; m.rate = plan.rate[c.member]; m.centre = c.centre;
+    MemberPrepared m;
+    m.bank = c.bank; m.grid = *g; m.member = c.member; m.centre = c.centre;
+    m.halo = static_cast<std::int64_t>(tb::haloOf(c.bank, c.member, tolerance_of(p, "signal.member_analytic")));
+    m.channels = static_cast<std::int64_t>(chans.size()); m.picked = chans;
     return std::any(std::move(m));
   };
   n.chunk = [](const std::any& prepared, const ng::Blocks& in, std::int64_t, const ng::Place& at) {
     const MemberPrepared& m = std::any_cast<const MemberPrepared&>(prepared);
     const ng::Block& b = in.at("x");
-    // the lattice is global: frame g sits at g p / q samples from sample 0 of the recording. The block is fed from the first sample at or after its start that is a multiple of P (every
-    // member's lattice then starts there), so the frames are the same whatever the chunk size.
-    const std::int64_t a_blk = at.first - b.left;                                  // the block's first sample, in the recording
-    const std::int64_t a_feed = ceil_div(a_blk, m.P) * m.P;                        // the first sample fed (a multiple of P)
-    const std::int64_t skip = a_feed - a_blk;
-    const std::int64_t width = b.width - skip;
-    if (width <= 0) ng::refuse("signal.member_analytic: the block is shorter than the lattice period");
-    Eigen::MatrixXd X(m.channels, width);
+    const auto [j0, j1] = m.grid.span(at.first, at.n);
+    // the block read as the recording is: zero outside. Where it has less than the member's reach of context (a recording's end) it is padded with zeros to that reach, so wt's periodic
+    // window never brings its far end into the frames at its near end: the frames do not depend on where the chunks cut
+    const std::int64_t pad_left = std::max<std::int64_t>(0, m.halo - b.left), pad_right = std::max<std::int64_t>(0, m.halo - b.right), width = pad_left + b.width + pad_right;
+    Eigen::VectorXd pos(j1 - j0);
+    for (std::int64_t j = j0; j < j1; ++j) pos(j - j0) = m.grid.position(j) - static_cast<double>(at.first - b.left) + static_cast<double>(pad_left);   // from the padded block's column 0
+    Eigen::MatrixXd X = Eigen::MatrixXd::Zero(m.channels, width);
     for (std::int64_t i = 0; i < m.channels; ++i) {
       const std::int32_t ch = m.picked[static_cast<std::size_t>(i)];
       if (ch < 0 || ch >= b.rows) ng::refuse("signal.member_analytic: a channel of the kernel is outside the recording's channels");
-      for (std::int64_t t = 0; t < width; ++t) X(i, t) = b.re[static_cast<std::size_t>(ch * b.width + skip + t)];
+      for (std::int64_t t = 0; t < b.width; ++t) X(i, pad_left + t) = b.re[static_cast<std::size_t>(ch * b.width + t)];
     }
-    const std::vector<nxr::signal::Block> got = nxr::signal::wt(m.layout, X, {m.member}, a_feed);   // the block from sample a_feed of the recording: the coefficients for t in [-margin, width + margin) of it, the lattice and phase the recording's
-    // the frames g (global) with at.first <= g p/q < at.first + at.n; the block's coefficients carry their global frame number (a_feed is a multiple of P)
-    const std::int64_t g0 = ceil_div(at.first * m.q, m.p), g1 = ceil_div((at.first + at.n) * m.q, m.p);
-    Eigen::MatrixXcd Z = Eigen::MatrixXcd::Constant(m.channels, std::max<std::int64_t>(0, g1 - g0), std::complex<double>(0, 0));
-    std::vector<char> have(static_cast<std::size_t>(std::max<std::int64_t>(0, g1 - g0)), 0);
-    {
-      const nxr::signal::Block& mb = got[static_cast<std::size_t>(m.member)];
-      for (Eigen::Index r = 0; r < mb.coef.rows(); ++r) {
-        const std::int64_t g = mb.first + r;
-        if (g < g0 || g >= g1) continue;
-        Z.col(g - g0) = mb.coef.row(r).transpose();
-        have[static_cast<std::size_t>(g - g0)] = 1;
-      }
-    }
-    for (const char h : have) if (!h) ng::refuse("signal.member_analytic: the filter returned no coefficient for a frame inside the block (the halo is shorter than the filter's margin)");
+    const Eigen::MatrixXcd Z = nxr::signal::wt(m.bank, m.member, X, pos);              // the member's analytic signal at the frames, [channels x frames]
     return ng::Blocks{{"z", block_of(Z)}};
   };
   n.frame_place = [](const std::any& prepared, const ng::Place& at) {
     const MemberPrepared& m = std::any_cast<const MemberPrepared&>(prepared);
+    const auto [j0, j1] = m.grid.span(at.first, at.n);
     ng::FramePlace f;
-    f.first = ceil_div(at.first * m.q, m.p);
-    f.n = ceil_div((at.first + at.n) * m.q, m.p) - f.first;
+    f.first = j0; f.n = j1 - j0;
     return f;
   };
   n.record = [](const std::any& prepared) {
     const MemberPrepared& m = std::any_cast<const MemberPrepared&>(prepared);
-    return Json{{"member", m.member}, {"centre_hz", m.centre}, {"rate_hz", m.rate}, {"step_samples", static_cast<double>(m.p) / static_cast<double>(m.q)}, {"margin_samples", m.margin}, {"lattice_period", m.P}};
+    return Json{{"member", m.member}, {"centre_hz", m.centre}, {"frame_hop_samples", m.grid.hop}, {"frame_origin_samples", m.grid.origin}, {"halo_samples", m.halo}};
   };
   return n;
 }
@@ -507,7 +527,7 @@ ng::NodeSpec hodge_modes() {
   return n;
 }
 
-struct SeriesPrepared { std::int64_t K = 0; double rate = 0; std::vector<int> kind; std::vector<double> mu; };
+struct SeriesPrepared { std::int64_t K = 0; double rate = 0, origin_s = 0; std::vector<int> kind; std::vector<double> mu; };
 struct SeriesState { std::vector<std::vector<float>> cols; std::int64_t first = -1, last = -1; };
 
 ng::NodeSpec series() {
@@ -530,6 +550,7 @@ ng::NodeSpec series() {
   n.prepare = [](const ng::Types& in, const ng::Arrays&, const Json&, ng::Shared&) {
     SeriesPrepared s;
     s.rate = *in.at("b").sfreq;
+    s.origin_s = in.at("b").facts.value("frame_origin_s", 0.0);
     return std::any(std::move(s));
   };
   n.start = [](const std::any&) { return std::any(SeriesState{}); };
@@ -557,10 +578,10 @@ ng::NodeSpec series() {
     for (std::int64_t k = 0; k < K; ++k) for (std::int64_t t = 0; t < steps; ++t) a.data[static_cast<std::size_t>(k * steps + t)] = s.cols[static_cast<std::size_t>(k)][static_cast<std::size_t>(t)];
     a.meta["describe"] = Json{{"shape", Json::array({K, steps})}, {"value_type", "scalar"}, {"first_frame", s.first}, {"steps", steps}, {"rate_hz", pr.rate},
                               {"description", "the Hodge-Dirac flow weights (exact modes: divergence potential, sources and sinks; coexact: stream function, rotation) per step"}};
-    // the line: a step sits between two frames, so its time is (frame - 1/2) / rate from the recording's first sample; the definition adds the recording's origin
+    // the line: a step sits between two frames, so its time is the grid's origin plus (frame - 1/2) / rate from the recording's first sample; the definition adds the recording's origin
     ng::Array line;
     line.rows = 1; line.cols = 1; line.data = {0.0};
-    line.meta["describe"] = Json{{"count", steps}, {"step", 1.0 / pr.rate}, {"start", (static_cast<double>(s.first) - 0.5) / pr.rate}, {"unit", "s"}, {"dimension", "time"}, {"folder", "time"}, {"cs", "clock"}};
+    line.meta["describe"] = Json{{"count", steps}, {"step", 1.0 / pr.rate}, {"start", pr.origin_s + (static_cast<double>(s.first) - 0.5) / pr.rate}, {"unit", "s"}, {"dimension", "time"}, {"folder", "time"}, {"cs", "clock"}};
     return ng::Arrays{{"coefficients", std::move(a)}, {"time", std::move(line)}};
   };
   return n;

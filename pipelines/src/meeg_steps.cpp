@@ -758,7 +758,7 @@ std::int64_t analytic_halo(const Json& p, double sfreq) {
   for (const auto& b : p.value("bands", Json::array())) d.bands.push_back({b.value("lo", b.value("lo_hz", 0.0)), b.value("hi", b.value("hi_hz", 0.0))});
   const nxr::signal::timefilterbank::TimeFilterbank bank = nxr::signal::timefilterbank::timeBank(d, std::size_t(1) << 15, sfreq);
   std::size_t H = 0;
-  for (int m = 0; m < static_cast<int>(d.bands.size()); ++m) H = std::max(H, nxr::signal::timefilterbank::haloOf(bank, m));
+  for (int m = 0; m < static_cast<int>(d.bands.size()); ++m) H = std::max(H, nxr::signal::timefilterbank::haloOfTaps(bank, m));
   return static_cast<std::int64_t>(H);
 }
 ng::NodeSpec analytic_bands() {

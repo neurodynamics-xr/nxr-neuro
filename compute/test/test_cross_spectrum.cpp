@@ -69,7 +69,7 @@ int main() {
   const int band = bandOf(whole.bank);
   EXPECT(band >= 0 && whole.own[static_cast<std::size_t>(band)].rows() == channels && whole.own[static_cast<std::size_t>(band)].cols() == n, "the Meyer band [8, 12] Hz: one member");
   if (band < 0) return 1;
-  const std::size_t H = nxr::signal::timefilterbank::haloOf(whole.bank, band);
+  const std::size_t H = nxr::signal::timefilterbank::haloOfTaps(whole.bank, band);
   double worst = 0, scale = whole.own[static_cast<std::size_t>(band)].cwiseAbs().maxCoeff();
   for (Eigen::Index first = 0; first < n; first += chunk) {
     const Eigen::Index own = std::min(chunk, n - first), left = std::min<Eigen::Index>(static_cast<Eigen::Index>(H), first), right = std::min<Eigen::Index>(static_cast<Eigen::Index>(H), n - first - own);

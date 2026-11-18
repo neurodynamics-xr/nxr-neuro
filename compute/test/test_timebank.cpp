@@ -4,7 +4,7 @@
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/wavelet.h"
 #include "nxr/measurement/band_energy.h"
-using nxr::signal::wt; using nxr::signal::iwt; using nxr::signal::iwtComplex; using nxr::signal::wtOwnRate;
+using nxr::signal::wt; using nxr::signal::iwt; using nxr::signal::iwtComplex;
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include <random>
@@ -48,17 +48,10 @@ static void rheomeItersine() {
         const double eR = std::max(relErr(r.transpose(), rG), relErr(Nmd, NmG));
         const Coefficients W = wt(b, x);
         double eC = 0; for (int m = 0; m < b.size(); ++m) eC = std::max(eC, relErr(MatrixXcd(W[(size_t)m].topRows(N)), MatrixXcd(C.col(m))));
-        const auto own = wtOwnRate(b, x.col(0));
-        double eO = 0;
-        for (int m = 0; m < b.size(); ++m) {
-            const MatrixXd o = g.mat("own" + std::to_string(m + 1));
-            MatrixXcd ref(o.rows(), 1); ref.col(0) = o.col(0).cast<std::complex<double>>() + std::complex<double>(0, 1) * o.col(1).cast<std::complex<double>>();
-            eO = std::max({eO, relErr(MatrixXcd(own[(size_t)m].coef), ref), relErr(MatrixXd(own[(size_t)m].t), MatrixXd(o.col(2)))});
-        }
-        const double e = std::max({eH, eFc, eBins, eB, eR, eC, eO});
+        const double e = std::max({eH, eFc, eBins, eB, eR, eC});
         worst = std::max(worst, e); ++cases;
         EXPECT(e < 1e-11, "N=" + std::to_string(N) + " V=" + std::to_string(V) + " (" + std::to_string(b.size()) + " members): gains " + sci(eH) + ", centres " + sci(eFc) + ", bins " + sci(eBins) +
-                          ", bounds " + sci(eB) + ", rates " + sci(eR) + ", coefficients " + sci(eC) + ", own-rate " + sci(eO));
+                          ", bounds " + sci(eB) + ", rates " + sci(eR) + ", coefficients " + sci(eC));
         if (g.tok() != "end") { std::cout << "  [FAIL] golden structure\n"; ++g_failures; return; }
     }
     EXPECT(cases == 4 && worst < 1e-11, "4 Rheome banks: worst " + sci(worst));
@@ -312,6 +305,23 @@ static void laws() {
         const TimeFilterbank b = timeBank(D(Family::Meyer, 2.0, Sides::Analytic), 128, 100);
         const Coefficients W = wt(b, noise(128, 2, 4));
         EXPECT(nxr::measurement::scalogram(W).size() == W.size() && nxr::measurement::energies(W).rows() == b.size() && nxr::measurement::energies(W).cols() == 2, "scalogram and energies have the members x channels shape");
+    }
+    // haloOf(bank, member, tolerance): a tighter tolerance gives a longer reach, and the impulse response beyond the reach is below the tolerance (the response measured by wt of a unit impulse, both sides)
+    {
+        Design d = D(Family::Morlet, 2.0, Sides::Analytic); d.centres = {10.0}; d.cycles = 6.0;
+        const TimeFilterbank b = timeBank(d, 4096, 200);
+        const std::size_t h3 = haloOf(b, 0, 1e-3), h6 = haloOf(b, 0, 1e-6), h9 = haloOf(b, 0, 1e-9);
+        EXPECT(h3 < h6 && h6 < h9, "haloOf: a tighter tolerance gives a longer reach (" + std::to_string(h3) + ", " + std::to_string(h6) + ", " + std::to_string(h9) + " samples)");
+        MatrixXd imp = MatrixXd::Zero(4096, 1); imp(0, 0) = 1;
+        const Coefficients W = wt(b, imp);
+        const VectorXd mag = W[0].col(0).cwiseAbs();
+        const double total = mag.sum();
+        for (const auto& [tol, h] : {std::pair<double, std::size_t>{1e-3, h3}, {1e-6, h6}, {1e-9, h9}}) {
+            double tail = 0;
+            for (std::size_t t = h + 1; t <= 2048; ++t) tail += mag(static_cast<Eigen::Index>(t)) + mag(static_cast<Eigen::Index>(4096 - t));
+            EXPECT(tail <= 2 * tol * total, "haloOf: the impulse response beyond the reach is below the tolerance " + sci(tol) + " (tail " + sci(tail / total) + " of the L1 norm)");
+        }
+        EXPECT(throws([&] { haloOf(b, 0, 0.0); }) && throws([&] { haloOf(b, 3, 1e-6); }), "haloOf: a tolerance outside (0, 1) and a missing member are refused");
     }
 }
 

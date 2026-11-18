@@ -136,7 +136,7 @@ Eigen::VectorXd centerFrequencies(const TimeFilterbank& bank);
 /** Rheome's rates(): the sampling rate of each member's own sub-band (own-rate) transform: next_fast_len(oversample·bins)·fs/nfft; and the lengths. */
 std::pair<Eigen::VectorXd, std::vector<std::size_t>> rates(const TimeFilterbank& bank, double oversample = 2.0);
 
-// THE TRANSFORMS ARE NOT HERE: a bank only designs (nxr/signal/wavelet.h: wt, iwt, iwtComplex, wtOwnRate, wtBlock; the scalogram and energies are measurements, nxr/measurement/band_energy.h).
+// THE TRANSFORMS ARE NOT HERE: a bank only designs (nxr/signal/wavelet.h: wt, iwt, iwtComplex, wtBlock; the scalogram and energies are measurements, nxr/measurement/band_energy.h).
 using nxr::signal::graphfilterbank::Synthesis;
 /** One [nfft x C] complex block per member (C signals, one per column). Rows beyond the record's n are its zero padding. */
 using Coefficients = std::vector<Eigen::MatrixXcd>;
@@ -158,7 +158,12 @@ Eigen::MatrixXcd coefficientSpectrum(const TimeFilterbank& bank, const Eigen::Ma
 /** THE HALO a member needs, samples on each side: the length of its response, as the Studio's device chain sizes its HALO by the band's taps (deviceChain.ts:
  *  the gain's even and odd taps, truncated where the tail holds under nxr::signal::kTailEnergy of the energy; the longer of the two). A narrow band rings for
  *  longer than the Studio's CPU rule of thumb (3 periods of its low edge): alpha [8, 12] Hz needs about 6 periods. */
-std::size_t haloOf(const TimeFilterbank& bank, int member);
+std::size_t haloOfTaps(const TimeFilterbank& bank, int member);
+
+/** THE HALO a member needs to a stated tolerance, samples on each side: the shortest reach after which the sum of |impulse response| of the member (its gain masked to its support on the bank's grid, taken on a fine
+ *  grid that is doubled while the tail has not decayed) beyond it is below `tolerance` times its L1 norm, at most 2^16. A block with this halo gives the member's coefficients to that tail of the whole record, whatever
+ *  the chunk size. A pure function of the bank; the tolerance is required (a member whose gain jumps, e.g. a high-pass nonzero at Nyquist, has a 1/t tail that the cap ends). */
+std::size_t haloOf(const TimeFilterbank& bank, int member, double tolerance);
 
 // ── THE INDEPENDENT ESTIMATES a band gives over a window (for the statistics of its cross-spectrum: nxr::stats::lagStatistics) ──
 /** The member's STATISTICAL (equivalent) bandwidth, Hz: B = (∫ g² df)² / ∫ g⁴ df over f ≥ 0 (the bandwidth of white noise passed through it; a

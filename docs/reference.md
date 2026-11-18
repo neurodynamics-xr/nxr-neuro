@@ -555,7 +555,7 @@ one place a recording is read and looped over.
 - **What is recorded.** Each producer record states the span (`analysis_window.chunks`) and the chunks read (`chunks_read`, first and last).
 - **The halo** (the Studio's `haloOf`): samples of context a computation needs on each side of its span, so its edges are computed with real samples, never a
   reflection. The service reads them from the neighbouring chunks and clips them where the recording ends (`with_halo`). Its size is the computation's: optical
-  flow's wavelet bank asks for its filterbank's margins; a Welch spectrum asks for n - 1 samples to the RIGHT (an accumulating node's halo: a segment belongs to the chunk that holds its start and reads into the halo; it never reaches past the span's end, and nothing is carried between chunks).
+  flow's member asks for its taps (`haloOf`); a Welch spectrum asks for n - 1 samples to the RIGHT (an accumulating node's halo: a segment belongs to the chunk that holds its start and reads into the halo; it never reaches past the span's end, and nothing is carried between chunks).
 - **The job** (the Studio's `chunkLoop`):
   - Every chunk is read **whole** (the Studio's residency) and handed over cut to the span and its halo.
   - Chunk k + 1 is **read while chunk k is folded**. The memory held is two chunks.
@@ -1579,7 +1579,7 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
 ## Optical flow (`compute/include/nxr/opticalflow*.h`, `run flow_modes`)
 
 Rheome's `flow.apparent` for a recording, streamed (the memory held does not depend on the window's length). One member of a time filterbank (`--family`, `--gain`, `--freq`: no defaults) is
-applied at the sensors, carried through the kernel, and reduced to the amplitude |J| per source (`--input signed`: the band signal itself, fixed kernel only). Horn–Schunck optical flow is solved per
+applied at the sensors and read at the frames of a frame grid made first (`run select_time_grid --rule frames`, input `grid`): the transform returns the member's analytic signal at the recording's full rate and never decimates, resamples or windows it; the frames are the grid's. They are carried through the kernel, and reduced to the amplitude |J| per source (`--input signed`: the band signal itself, fixed kernel only). Horn–Schunck optical flow is solved per
 frame on the cortex, and each velocity is read at once in the Hodge–Dirac modes: **exact** coefficients (sources and sinks of the motion) and **coexact** coefficients (its rotation).
 
 - Defaults: the **connection** regulariser, the Cortical Flow Studio's connection Laplacian on the signpost gauge with its gauge data term (ported line for line), solved by
@@ -1704,7 +1704,7 @@ pairs at a distance, a filterbank band's matrix).
 ## A band's coefficients on a chunk: the filterbank transform of a haloed block (`nxr::signal::wtBlock`, `haloOf`)
 
 **Why.** The FFT route to a band's complex signal: the chunk (with its halo, from io's chunk service) Fourier transformed, the band's gain put on the bins,
-transformed back; any number of members at once, so a time–frequency cross-spectrum or an average over frequencies is the same call. The bank is the
+transformed back; any number of members at once, so a time–frequency cross-spectrum or an average over frequencies is the same call. Every transform returns its coefficients at the input's rate: it never decimates, resamples or windows its input (`wt(bank, member, x, at)` reads one member's analytic signal at instants the caller gives, exactly). The bank is the
 caller's `timebank::Design`: the Signal chain's single Meyer band (`bands = {{8, 12}}`, the Studio's `meyerBand`, not the tight frame: alpha's edges are
 closer than the frame allows), Morlet centres, or any of the frame families. The bank is designed on the block's own grid (zero-padded, no wrap) and only
 the own columns are kept. **The halo** (`haloOf(bank, member)`) is the member's response length, as the Studio's device chain sizes its HALO by the band's
