@@ -61,7 +61,8 @@ def main() -> None:
             diff = subprocess.run(["git", "diff", "-U0", f"{a.base}...{a.head}", "--", f], capture_output=True, text=True, check=True).stdout
             for line in diff.splitlines():
                 if line.startswith("+") and not line.startswith("+++") and line[1:].strip() and not line[1:].startswith("#"):
-                    names.add(line[1:].split("\t")[0])
+                    n = line[1:].split("\t")[0]
+                    if any(t["name"] == n for t in pool): names.add(n)   # only a test this run may build and run (a test made slow leaves the pull-request pool)
             continue
         if f == "tools/gen_record_rows.py":
             libs.add("io"); continue
