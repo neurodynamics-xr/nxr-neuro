@@ -11,7 +11,7 @@ static constexpr double kPi = 3.14159265358979323846;
 int main() {
     const double fs = 1000; const int n = 4096;
     tb::Design d(tb::Family::Meyer, 2.0, tb::Sides::Analytic); d.bands = {{4, 30}}; d.edgeBins = tb::EdgeBins::Drop;      // a wide band: its plateau holds the tone at its full gain
-    const tb::TimeFilterbank bank = tb::design(d, n, fs);
+    const tb::TimeFilterbank bank = tb::timeBank(d, n, fs);
     const double f0 = 10 * 1.0, binf = std::round(f0 * n / fs) * fs / n, A = 1.3, phi = 0.4;   // a frequency on a bin of the grid
     MatrixXd x(2, n); for (int i = 0; i < n; ++i) { x(0, i) = A * std::cos(2 * kPi * binf * i / fs + phi); x(1, i) = 2 * A * std::sin(2 * kPi * binf * i / fs); }
     VectorXd at(5); at << 100.25, 777.5, 1500.125, 2222.9, 3001.333;

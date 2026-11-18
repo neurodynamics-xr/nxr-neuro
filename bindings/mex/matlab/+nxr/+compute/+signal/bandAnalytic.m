@@ -1,7 +1,7 @@
-function z = band_analytic(x, sfreq, bands, opts)
-%NXR.COMPUTE.SIGNAL.BAND_ANALYTIC  The analytic signal of bands (nxr::signal::bandAnalytic): complex [bands x channels x samples].
-%   z = nxr.compute.signal.band_analytic(x, 256, [8 12; 12 30])
-%   z = nxr.compute.signal.band_analytic(x, 256, [8 12], shape="meyer")
+function z = bandAnalytic(x, sfreq, bands, opts)
+%NXR.COMPUTE.SIGNAL.BANDANALYTIC  The analytic signal of bands (nxr::signal::bandAnalytic): complex [bands x channels x samples].
+%   z = nxr.compute.signal.bandAnalytic(x, 256, [8 12; 12 30])
+%   z = nxr.compute.signal.bandAnalytic(x, 256, [8 12], shape="meyer")
 %
 %   One member per band [lo, hi] Hz of shape (morlet: a Gaussian of full width at half maximum hi - lo; meyer: Meyer edges, half_width octaves; power_partition: squared gains adding
 %   to 1), gain 2 (the one-sided analytic signal), DC and Nyquist dropped, designed on x's own length: x is the window the caller hands in (periodic on it; the caller's halo holds
@@ -21,5 +21,5 @@ function z = band_analytic(x, sfreq, bands, opts)
         opts.shape {mustBeTextScalar} = "morlet"
         opts.half_width (1,1) double = 1/3
     end
-    z = nxr_compute('compute.signal.band_analytic', x, sfreq, bands, char(opts.shape), opts.half_width);
+    z = nxr_compute('compute.signal.bandAnalytic', x, sfreq, bands, char(opts.shape), opts.half_width);
 end

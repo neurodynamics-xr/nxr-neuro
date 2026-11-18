@@ -222,7 +222,7 @@ tb::Coefficients bandAnalytic(const MatrixXd& x, double fs, const std::vector<st
     design.bands = bands;
     design.halfWidth = halfWidth;
     design.edgeBins = tb::EdgeBins::Drop;
-    return wt(tb::design(design, static_cast<std::size_t>(x.rows()), fs), x);
+    return wt(tb::timeBank(design, static_cast<std::size_t>(x.rows()), fs), x);
 }
 
 std::vector<MatrixXd> bandEnvelope(const MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, tb::Family shape, double halfWidth) {
@@ -329,7 +329,7 @@ MatrixXcd wt(const tb::TimeFilterbank& b, int member, const MatrixXd& x, const V
 BlockTransform wtBlock(const tb::Design& design, const Eigen::MatrixXd& block, double fs, std::size_t left, std::size_t own) {
   const std::size_t width = static_cast<std::size_t>(block.cols());
   if (left + own > width) throw std::invalid_argument("wtBlock: the own columns [left, left + own) are not inside the block");
-  BlockTransform r{tb::design(design, tb::gridLength(width, tb::Padding::FastLen), fs), {}};
+  BlockTransform r{tb::timeBank(design, tb::gridLength(width, tb::Padding::FastLen), fs), {}};
   const tb::Coefficients all = wt(r.bank, Eigen::MatrixXd(block.transpose()));   // wt takes [samples x signals]
   r.own.reserve(all.size());
   for (const auto& w : all) r.own.push_back(w.middleRows(static_cast<Eigen::Index>(left), static_cast<Eigen::Index>(own)).transpose());

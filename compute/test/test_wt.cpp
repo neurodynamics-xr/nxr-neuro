@@ -83,7 +83,7 @@ int main() {
     { Design d(Family::Meyer, 2.0, Sides::Analytic); d.limits = std::make_pair(2.0, 60.0); cases.push_back({"meyer", d}); }
     const std::size_t nfftDesign = 1024;
     for (auto& cs : cases) {
-        const TimeFilterbank bk = design(cs.d, nfftDesign, fs);
+        const TimeFilterbank bk = timeBank(cs.d, nfftDesign, fs);
         WtOptions o; o.tolerance = 1e-9; o.maxMargin = 8192;
         const WtLayout pl = wtLayout(bk, o);
         std::cout << "=== " << cs.name << ": " << bk.size() << " members, margin " << pl.margin << " samples, P " << pl.P << ", achieved tail " << sci(pl.achieved) << "\n";
@@ -124,7 +124,7 @@ int main() {
     // tone: |c| = (G/2) A
     {
         Design d(Family::Itersine, 3.0, Sides::Analytic); d.voices = 2; d.limits = std::make_pair(2.0, 100.0);
-        const TimeFilterbank bk = design(d, nfftDesign, fs);
+        const TimeFilterbank bk = timeBank(d, nfftDesign, fs);
         const double A = 1.7, f0 = centerFrequencies(bk)(5); MatrixXd t(1, 4000); for (int i = 0; i < 4000; ++i) t(0, i) = A * std::cos(2 * kPi * f0 * i / fs + 0.3);
         const auto W = runWt(bk, t, 500, WtOptions());
         double best = 0; const WtLayout pl = wtLayout(bk, WtOptions());

@@ -120,7 +120,7 @@ struct NamedBank {
     int levels = 0;                      // weyl · rank
     double halfWidth = 1.0 / 3.0;        // meyer · weyl · rank: the transition half-width in octaves
 };
-GraphFilterbank make(const NamedBank& spec);
+GraphFilterbank graphBank(const NamedBank& spec);
 /** "mexhat" | "heat" | "itersine" | "logitersine" → Family; throws naming the valid ones. */
 Family familyOf(const std::string& name);
 

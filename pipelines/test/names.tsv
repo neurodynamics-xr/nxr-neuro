@@ -182,57 +182,57 @@ python	stats_reconstruct	nxr::stats::reconstruct	ok
 mex	compute.select.median	nxr::select::median	ok
 mex	compute.select.mad	nxr::select::mad	ok
 mex	compute.select.crossings	nxr::select::crossings	ok
-mex	compute.select.merge_spans	nxr::select::mergeSpans	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is mergeSpans
-mex	compute.select.keep_spans	nxr::select::keepSpans	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is keepSpans
-mex	compute.select.detect_bursts	nxr::select::detectBursts	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is detectBursts
-mex	compute.select.risefall	nxr::select::fit	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is fit
-mex	compute.select.stages	nxr::select::stagesOf	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is stagesOf
+mex	compute.select.mergeSpans	nxr::select::mergeSpans	ok
+mex	compute.select.keepSpans	nxr::select::keepSpans	ok
+mex	compute.select.detectBursts	nxr::select::detectBursts	ok
+mex	compute.select.risefall	nxr::select::risefall	ok
+mex	compute.select.stagesOf	nxr::select::stagesOf	ok
 mex	compute.signal.wt	nxr::signal::wt	ok
 mex	compute.signal.iwt	nxr::signal::iwt	ok
 mex	compute.signal.gwt	nxr::signal::gwt	ok
 mex	compute.signal.igwt	nxr::signal::igwt	ok
 mex	compute.signal.jwt	nxr::signal::jwt	ok
 mex	compute.signal.ijwt	nxr::signal::ijwt	ok
-mex	compute.signal.band_analytic	nxr::signal::bandAnalytic	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is bandAnalytic
-mex	compute.signal.band_envelope	nxr::signal::bandEnvelope	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is bandEnvelope
-mex	compute.signal.time_bank	nxr::signal::timefilterbank::design	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is design
-mex	compute.signal.graph_bank	nxr::signal::graphfilterbank::make	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is make
+mex	compute.signal.bandAnalytic	nxr::signal::bandAnalytic	ok
+mex	compute.signal.bandEnvelope	nxr::signal::bandEnvelope	ok
+mex	compute.signal.timeBank	nxr::signal::timefilterbank::timeBank	ok
+mex	compute.signal.graphBank	nxr::signal::graphfilterbank::graphBank	ok
 matlab	compute.select.median	nxr::select::median	ok
 matlab	compute.select.mad	nxr::select::mad	ok
 matlab	compute.select.crossings	nxr::select::crossings	ok
-matlab	compute.select.merge_spans	nxr::select::mergeSpans	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is mergeSpans
-matlab	compute.select.keep_spans	nxr::select::keepSpans	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is keepSpans
-matlab	compute.select.detect_bursts	nxr::select::detectBursts	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is detectBursts
-matlab	compute.select.risefall	nxr::select::fit	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is fit
-matlab	compute.select.stages	nxr::select::stagesOf	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is stagesOf
+matlab	compute.select.mergeSpans	nxr::select::mergeSpans	ok
+matlab	compute.select.keepSpans	nxr::select::keepSpans	ok
+matlab	compute.select.detectBursts	nxr::select::detectBursts	ok
+matlab	compute.select.risefall	nxr::select::risefall	ok
+matlab	compute.select.stagesOf	nxr::select::stagesOf	ok
 matlab	compute.signal.wt	nxr::signal::wt	ok
 matlab	compute.signal.iwt	nxr::signal::iwt	ok
 matlab	compute.signal.gwt	nxr::signal::gwt	ok
 matlab	compute.signal.igwt	nxr::signal::igwt	ok
 matlab	compute.signal.jwt	nxr::signal::jwt	ok
 matlab	compute.signal.ijwt	nxr::signal::ijwt	ok
-matlab	compute.signal.band_analytic	nxr::signal::bandAnalytic	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is bandAnalytic
-matlab	compute.signal.band_envelope	nxr::signal::bandEnvelope	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is bandEnvelope
-matlab	compute.signal.time_bank	nxr::signal::timefilterbank::design	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is design
-matlab	compute.signal.graph_bank	nxr::signal::graphfilterbank::make	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is make
+matlab	compute.signal.bandAnalytic	nxr::signal::bandAnalytic	ok
+matlab	compute.signal.bandEnvelope	nxr::signal::bandEnvelope	ok
+matlab	compute.signal.timeBank	nxr::signal::timefilterbank::timeBank	ok
+matlab	compute.signal.graphBank	nxr::signal::graphfilterbank::graphBank	ok
 python	select_median	nxr::select::median	ok
 python	select_mad	nxr::select::mad	ok
 python	select_crossings	nxr::select::crossings	ok
-python	select_merge_spans	nxr::select::mergeSpans	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is mergeSpans
-python	select_keep_spans	nxr::select::keepSpans	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is keepSpans
-python	select_detect_bursts	nxr::select::detectBursts	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is detectBursts
-python	select_risefall	nxr::select::fit	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is fit
-python	select_stages	nxr::select::stagesOf	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is stagesOf
+python	select_mergeSpans	nxr::select::mergeSpans	ok
+python	select_keepSpans	nxr::select::keepSpans	ok
+python	select_detectBursts	nxr::select::detectBursts	ok
+python	select_risefall	nxr::select::risefall	ok
+python	select_stagesOf	nxr::select::stagesOf	ok
 python	signal_wt	nxr::signal::wt	ok
 python	signal_iwt	nxr::signal::iwt	ok
 python	signal_gwt	nxr::signal::gwt	ok
 python	signal_igwt	nxr::signal::igwt	ok
 python	signal_jwt	nxr::signal::jwt	ok
 python	signal_ijwt	nxr::signal::ijwt	ok
-python	signal_band_analytic	nxr::signal::bandAnalytic	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is bandAnalytic
-python	signal_band_envelope	nxr::signal::bandEnvelope	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is bandEnvelope
-python	signal_time_bank	nxr::signal::timefilterbank::design	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is design
-python	signal_graph_bank	nxr::signal::graphfilterbank::make	pending bindings-names: the binding's word is snake_case (one word per thing, the face's spelling); the C++ function is make
+python	signal_bandAnalytic	nxr::signal::bandAnalytic	ok
+python	signal_bandEnvelope	nxr::signal::bandEnvelope	ok
+python	signal_timeBank	nxr::signal::timefilterbank::timeBank	ok
+python	signal_graphBank	nxr::signal::graphfilterbank::graphBank	ok
 wasm	geometry.bff	nxr::geometry::parametrization::bff	ok
 wasm	geometry.compute	nxr::geometry::parametrization::stripes::compute	ok
 wasm	geometry.computeFreq	nxr::geometry::parametrization::stripes::computeFreq	ok

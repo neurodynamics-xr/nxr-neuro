@@ -171,6 +171,7 @@ follows them from the start, and no change may move existing code further from t
 
 **4. Bindings are faces, exactly like the command line.** They may use every library layer, convert arguments and results, and call the library.
 They hold no maths, no SQL and no logic of their own.
+Every function a user would call on data (a transform and its inverse, a bank's design, a detector, a fit, a measure, a statistic) is bound in every face: as a registered node, or directly while the generated bindings are not built. Only implementation helpers stay internal, each listed by name in the coverage test's exception list. A binding uses the C++ word verbatim (camelCase), in every face.
 
 **5. Interoperability.**
 - File formats are read and written natively in `io/formats/` (pure: bytes in, objects out; no store, no database). A library is used only when its

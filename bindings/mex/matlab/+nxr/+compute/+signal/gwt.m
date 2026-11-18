@@ -5,7 +5,7 @@ function w = gwt(F, bank, opts)
 %
 %   Inputs
 %     F      [vertices x samples], real.
-%     bank   a graph bank struct: family and the settings of nxr.compute.signal.graph_bank (lmax, lmin, num_filters, voices, lp_factor, fine_limit, scale_limits, edges, area,
+%     bank   a graph bank struct: family and the settings of nxr.compute.signal.graphBank (lmax, lmin, num_filters, voices, lp_factor, fine_limit, scale_limits, edges, area,
 %            levels, half_width).
 %   The field is transformed through the operator's modes (eigenvalues and eigenvectors [vertices x modes], mass-orthonormal; mass a sparse matrix or its diagonal) or by a Chebyshev
 %   series in the pencil (laplacian and mass sparse; order; lmax, the series' bound, 0 to estimate it). A bank given no lmax is designed on the transform's own spectrum.

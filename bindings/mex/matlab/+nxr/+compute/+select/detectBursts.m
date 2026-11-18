@@ -1,7 +1,7 @@
-function r = detect_bursts(amplitude, step, opts)
-%NXR.COMPUTE.SELECT.DETECT_BURSTS  The bursts of an amplitude series (nxr::select::detectBursts; Rheome's labelalpha in envelope mode, nxr's burst_stages / spindle_envelope).
-%   r = nxr.compute.select.detect_bursts(amplitude, step)
-%   r = nxr.compute.select.detect_bursts(amplitude, step, enter_sd=2, min_s=0.2, baseline=[m s])
+function r = detectBursts(amplitude, step, opts)
+%NXR.COMPUTE.SELECT.DETECTBURSTS  The bursts of an amplitude series (nxr::select::detectBursts; Rheome's labelalpha in envelope mode, nxr's burst_stages / spindle_envelope).
+%   r = nxr.compute.select.detectBursts(amplitude, step)
+%   r = nxr.compute.select.detectBursts(amplitude, step, enter_sd=2, min_s=0.2, baseline=[m s])
 %
 %   The robust baseline (the median and 1.4826 * MAD over the finite values, or the caller's), enter at median + enter_sd * SD, extend while >= median + exit_sd * SD,
 %   gaps joined, spans kept by length. The series is ANY amplitude (a sensor's envelope per sample, a tile measurement per tile, a region's mean). A non-finite value
@@ -36,5 +36,5 @@ function r = detect_bursts(amplitude, step, opts)
         opts.max_s (1,1) double = Inf
         opts.baseline = []
     end
-    r = nxr_compute('compute.select.detect_bursts', amplitude, step, opts.enter_sd, opts.exit_sd, opts.merge_s, opts.min_s, opts.max_s, opts.baseline);
+    r = nxr_compute('compute.select.detectBursts', amplitude, step, opts.enter_sd, opts.exit_sd, opts.merge_s, opts.min_s, opts.max_s, opts.baseline);
 end

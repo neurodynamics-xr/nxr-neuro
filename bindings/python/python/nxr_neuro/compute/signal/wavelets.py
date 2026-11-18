@@ -33,7 +33,7 @@ def _bands(bands) -> np.ndarray:
     return b
 
 
-def band_analytic(x, sfreq: float, bands, shape: str = "morlet", half_width: float = 1 / 3):
+def bandAnalytic(x, sfreq: float, bands, shape: str = "morlet", half_width: float = 1 / 3):
     """The analytic signal of bands (`nxr::signal::bandAnalytic`): complex [bands, channels, samples].
 
     One member per band [lo, hi] Hz of `shape` ("morlet": a Gaussian of full width at half maximum hi - lo; "meyer": Meyer edges, `half_width` octaves;
@@ -42,15 +42,15 @@ def band_analytic(x, sfreq: float, bands, shape: str = "morlet", half_width: flo
 
     x : array [channels, samples], real. bands : [bands, 2] (low, high) in Hz.
     """
-    return _core.signal_band_analytic(x, float(sfreq), _bands(bands), shape, float(half_width))
+    return _core.signal_bandAnalytic(x, float(sfreq), _bands(bands), shape, float(half_width))
 
 
-def band_envelope(x, sfreq: float, bands, shape: str = "morlet", half_width: float = 1 / 3):
-    """The envelopes of bands, |band_analytic| (`nxr::signal::bandEnvelope`): real [bands, channels, samples], in the input's precision. Arguments as `band_analytic`."""
-    return _core.signal_band_envelope(x, float(sfreq), _bands(bands), shape, float(half_width))
+def bandEnvelope(x, sfreq: float, bands, shape: str = "morlet", half_width: float = 1 / 3):
+    """The envelopes of bands, |bandAnalytic| (`nxr::signal::bandEnvelope`): real [bands, channels, samples], in the input's precision. Arguments as `bandAnalytic`."""
+    return _core.signal_bandEnvelope(x, float(sfreq), _bands(bands), shape, float(half_width))
 
 
-def time_bank(
+def timeBank(
     sfreq: float,
     n: int,
     family: str,
@@ -76,7 +76,7 @@ def time_bank(
     """
     bank = dict(family=family, sides=sides, gain=gain, centres=centres, cycles=cycles, bands=bands, edges=edges, half_width=half_width, voices=voices, anchor=anchor,
                 limits=limits, min_bins=min_bins, gamma=gamma, time_bandwidth=time_bandwidth, edge_bins=edge_bins)
-    f, g, c, a, b = _core.signal_time_bank(float(sfreq), int(n), _banks.plain(bank))
+    f, g, c, a, b = _core.signal_timeBank(float(sfreq), int(n), _banks.plain(bank))
     return TimeBank(f, g, c, (a, b))
 
 

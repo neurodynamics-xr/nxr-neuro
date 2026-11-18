@@ -4,7 +4,7 @@ function r = jwt(F, sfreq, graph_bank, time_bank, opts)
 %   r = nxr.compute.signal.jwt(F, 256, gbank, tbank, eigenvalues=lambda, eigenvectors=phi, mass=M, kernels={struct(type="speed", c=1, d=2)})
 %
 %   A member is the product of a graph-bank member, a time-bank member and (optionally) a joint kernel K(lambda, f); the members run over all combinations, the graph index fastest.
-%   graph_bank and time_bank are the structs of nxr.compute.signal.graph_bank and nxr.compute.signal.time_bank (see wt for the time bank's fields). The time bank is designed on F's
+%   graph_bank and time_bank are the structs of nxr.compute.signal.graphBank and nxr.compute.signal.timeBank (see wt for the time bank's fields). The time bank is designed on F's
 %   own number of samples, at sfreq. Kernels: a cell array (or struct array) of structs, type "speed" (c, d: a ridge on omega = c sqrt(lambda), positive f; c in length/s, d the angular
 %   width in rad/s) or "ridge" (v, width, sense +1 or -1: a ridge on f = sense v sqrt(lambda) / 2 pi, width in Hz; a two-sided time bank).
 %

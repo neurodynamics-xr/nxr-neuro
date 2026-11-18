@@ -80,6 +80,6 @@ def risefall(
                                       None if min_r2 is None else float(min_r2)))
 
 
-def stages(t_on: float, t_off: float, tau_rise: float, tau_fall: float) -> Stages:
+def stagesOf(t_on: float, t_off: float, tau_rise: float, tau_fall: float) -> Stages:
     """The stages of an episode from a fit's four numbers, s (`nxr::select::stagesOf`): onset, within (the plateau) and offset. NaN in: no stage."""
-    return Stages(*_core.select_stages(float(t_on), float(t_off), float(tau_rise), float(tau_fall)))
+    return Stages(*_core.select_stagesOf(float(t_on), float(t_off), float(tau_rise), float(tau_fall)))

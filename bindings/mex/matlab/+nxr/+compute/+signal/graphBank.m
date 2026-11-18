@@ -1,7 +1,7 @@
-function r = graph_bank(family, opts)
-%NXR.COMPUTE.SIGNAL.GRAPH_BANK  A graph filterbank, for inspection (nxr::signal::graphfilterbank::make): its members, and its gains and frame bounds at the eigenvalues given.
-%   r = nxr.compute.signal.graph_bank("itersine", eigenvalues=lambda, lmax=max(lambda))
-%   r = nxr.compute.signal.graph_bank("weyl", area=4*pi, levels=4)
+function r = graphBank(family, opts)
+%NXR.COMPUTE.SIGNAL.GRAPHBANK  A graph filterbank, for inspection (nxr::signal::graphfilterbank::make): its members, and its gains and frame bounds at the eigenvalues given.
+%   r = nxr.compute.signal.graphBank("itersine", eigenvalues=lambda, lmax=max(lambda))
+%   r = nxr.compute.signal.graphBank("weyl", area=4*pi, levels=4)
 %
 %   family: "mexhat", "heat", "itersine", "logitersine" (designed on a spectral range), "meyer" (on edges), "weyl" (on area and levels: one octave a level) or "rank" (on levels).
 %   The range is lmin and lmax, or lmax (lmin = lmax / lp_factor), or the eigenvalues themselves.
@@ -34,6 +34,6 @@ function r = graph_bank(family, opts)
     end
     bank = nxr.impl.given('family', family, 'lmax', opts.lmax, 'lmin', opts.lmin, 'num_filters', opts.num_filters, 'voices', opts.voices, 'lp_factor', opts.lp_factor, ...
                           'fine_limit', opts.fine_limit, 'scale_limits', opts.scale_limits, 'edges', opts.edges, 'area', opts.area, 'levels', opts.levels, 'half_width', opts.half_width);
-    [g, roles, s, c, a, b] = nxr_compute('compute.signal.graph_bank', bank, opts.eigenvalues);
+    [g, roles, s, c, a, b] = nxr_compute('compute.signal.graphBank', bank, opts.eigenvalues);
     r = struct('gains', g, 'roles', {roles}, 'scales', s, 'centre_wavenumbers', c, 'frame_bounds', [a b]);
 end

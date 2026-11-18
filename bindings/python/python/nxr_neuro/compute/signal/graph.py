@@ -27,7 +27,7 @@ class GraphBank(NamedTuple):
     frame_bounds: tuple                # (A, B) of sum g^2 on the eigenvalues given, else on the bank's own range; NaN for a bank with neither (meyer, weyl, rank)
 
 
-def graph_bank(
+def graphBank(
     family: str,
     eigenvalues=None,
     lmax: float | None = None,
@@ -50,7 +50,7 @@ def graph_bank(
     """
     bank = dict(family=family, lmax=lmax, lmin=lmin, num_filters=num_filters, voices=voices, lp_factor=lp_factor, fine_limit=fine_limit, scale_limits=scale_limits,
                 edges=edges, area=area, levels=levels, half_width=half_width)
-    g, roles, scales, centres, a, b = _core.signal_graph_bank(_banks.plain(bank), _banks.vector(eigenvalues))
+    g, roles, scales, centres, a, b = _core.signal_graphBank(_banks.plain(bank), _banks.vector(eigenvalues))
     return GraphBank(g, roles, scales, centres, (a, b))
 
 

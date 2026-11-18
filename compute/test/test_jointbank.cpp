@@ -33,7 +33,7 @@ static void rheome() {
     EXPECT(g.tok() == "params", "params");
     const int N = (int)g.num(); const double fs = g.num(); const int V = (int)g.num();
     tb::Design td = TD(tb::Family::Itersine, 2.0, tb::Sides::Analytic); td.edgeBins = tb::EdgeBins::Drop; td.voices = V;
-    const tb::TimeFilterbank time = tb::design(td, (size_t)N, fs);
+    const tb::TimeFilterbank time = tb::timeBank(td, (size_t)N, fs);
     double worst = 0;
     std::string word;
     while (g.f >> word && word == "case") {
@@ -102,7 +102,7 @@ static void laws() {
     for (double gn : {1.0, 2.0, 3.0}) {
         tb::Design td = TD(tb::Family::Itersine, gn, tb::Sides::Analytic); td.voices = 2;
         const size_t T = 120; const double fs = 64;
-        const JointFilterbank jb = make(graph, tb::design(td, T, fs));
+        const JointFilterbank jb = make(graph, tb::timeBank(td, T, fs));
         MatrixXd C = noise(36, (int)T, 5); C.array() += 0.7;       // DC offset
         const auto b = framebounds(jb, lam);
         const double G = gn * gn;           // the time bank's sum of g^2 (the graph itersine bank is tight at 1)
@@ -122,18 +122,18 @@ static void laws() {
     {
         const size_t T = 100; const double fs = 50;
         tb::Design td = TD(tb::Family::Meyer, 1.0, tb::Sides::TwoSided);
-        const JointFilterbank jb = make(graph, tb::design(td, T, fs));
+        const JointFilterbank jb = make(graph, tb::timeBank(td, T, fs));
         const MatrixXcd C = cnoise(36, (int)T, 8);
         const Coefficients W = nxr::signal::jwt(jb, lam, C);
         const double eD = relErr(nxr::signal::ijwtComplex(jb, lam, W, T, fb::Synthesis::Dual), C), eT = relErr(nxr::signal::ijwtComplex(jb, lam, W, T, fb::Synthesis::Tight), C);
         const auto b = framebounds(jb, lam);
         EXPECT(std::abs(b.A - 1) < 1e-10 && std::abs(b.B - 1) < 1e-10 && eD < 1e-12 && eT < 1e-12, "two-sided joint bank: tight A = B = 1 incl. DC and Nyquist, complex series reconstruct exactly (dual " + sci(eD) + ", tight " + sci(eT) + ")");
-        EXPECT(throws([&] { nxr::signal::jwt(make(graph, tb::design(TD(tb::Family::Meyer, 1.0, tb::Sides::Analytic), T, fs)), lam, C); }), "an analytic joint bank REFUSES a complex mode series");
+        EXPECT(throws([&] { nxr::signal::jwt(make(graph, tb::timeBank(TD(tb::Family::Meyer, 1.0, tb::Sides::Analytic), T, fs)), lam, C); }), "an analytic joint bank REFUSES a complex mode series");
         // a (lambda, t) lag kernel is refused with the reason; a (lambda, f) kernel is handed f in HERTZ, signed
-        std::string why; try { make(graph, tb::design(TD(tb::Family::Meyer, 1.0, tb::Sides::Analytic), T, fs), std::vector<LagKernel>{LagKernel{[](double, double) { return cd(1); }}}); } catch (const std::invalid_argument& e) { why = e.what(); }
+        std::string why; try { make(graph, tb::timeBank(TD(tb::Family::Meyer, 1.0, tb::Sides::Analytic), T, fs), std::vector<LagKernel>{LagKernel{[](double, double) { return cd(1); }}}); } catch (const std::invalid_argument& e) { why = e.what(); }
         EXPECT(why.find("time LAG") != std::string::npos && why.find("cannot multiply") != std::string::npos, "a (lambda, t) kernel is refused by the joint bank: \"" + why.substr(0, 70) + "...\"");
         { Kernel probe = [](double, double f) { return cd(f); };
-          const tb::TimeFilterbank two = tb::design(TD(tb::Family::Meyer, 1.0, tb::Sides::TwoSided), T, fs);
+          const tb::TimeFilterbank two = tb::timeBank(TD(tb::Family::Meyer, 1.0, tb::Sides::TwoSided), T, fs);
           const JointFilterbank jbp = make(graph, two, {probe});
           const MatrixXcd Wm = jointfilters(jbp, 0, lam); const VectorXd fr = tb::bins(two); const MatrixXd gg = fb::gains(graph, lam); const MatrixXd tg = tb::gains(two);
           double e = 0; for (int k = 0; k < (int)lam.size(); ++k) for (int j = 0; j < fr.size(); ++j) e = std::max(e, std::abs(Wm(k, j) - fr(j) * gg(k, 0) * tg(j, 0)));
@@ -143,7 +143,7 @@ static void laws() {
     {
         const size_t T = 256; const double fs = 128, v = 8;
         tb::Design td = TD(tb::Family::Itersine, 1.0, tb::Sides::TwoSided); td.voices = 2;
-        const JointFilterbank jb = make(graph, tb::design(td, T, fs), {ridgeKernel(v, 3, +1), ridgeKernel(v, 3, -1)});
+        const JointFilterbank jb = make(graph, tb::timeBank(td, T, fs), {ridgeKernel(v, 3, +1), ridgeKernel(v, 3, -1)});
         MatrixXcd ccw(36, (int)T), cw(36, (int)T);
         for (int k = 0; k < 36; ++k) { const double f = v * std::sqrt(lam(k)) / (2 * kPi); for (int t = 0; t < (int)T; ++t) { const cd z = std::exp(cd(0, 2 * kPi * f * t / fs)); ccw(k, t) = z; cw(k, t) = std::conj(z); } }
         const int per = jb.size() / 2;
@@ -153,11 +153,11 @@ static void laws() {
     }
     // axes: the joint bank carries its axes; compatible() names every mismatch (sizes agreeing proves nothing)
     {
-        const tb::TimeFilterbank a1 = tb::design(TD(tb::Family::Meyer, 1.0, tb::Sides::Analytic), 100, 50), a2 = tb::design(TD(tb::Family::Meyer, 1.0, tb::Sides::Analytic), 100, 60);
+        const tb::TimeFilterbank a1 = tb::timeBank(TD(tb::Family::Meyer, 1.0, tb::Sides::Analytic), 100, 50), a2 = tb::timeBank(TD(tb::Family::Meyer, 1.0, tb::Sides::Analytic), 100, 60);
         const Axes x = axes(make(graph, a1), lam), y = axes(make(graph, a1), lam), z = axes(make(graph, a2), lam, true);
         VectorXd lam2 = lam; lam2(5) += 1;
         const Axes w2 = axes(make(graph, a1), lam2);
-        const Axes tw = axes(make(graph, tb::design(TD(tb::Family::Meyer, 1.0, tb::Sides::TwoSided), 100, 50)), lam);
+        const Axes tw = axes(make(graph, tb::timeBank(TD(tb::Family::Meyer, 1.0, tb::Sides::TwoSided), 100, 50)), lam);
         EXPECT(iscompatible(x, y).empty() && iscompatible(x, z).size() == 2 && iscompatible(x, w2).size() == 1 && iscompatible(x, tw).size() >= 1,
                "compatible(): same axes agree; a different rate and a padded boundary are named (" + std::to_string(iscompatible(x, z).size()) + "), a different spectrum of the same size is caught, analytic vs two-sided is caught");
     }
@@ -172,7 +172,7 @@ static void laws() {
         const fb::GraphFilterbank heat = fb::design(fb::Family::Heat, fb::Range::fromSpectrum(Tr.lambda));
         const size_t T = 64;
         tb::Design td = TD(tb::Family::Itersine, 1.0, tb::Sides::Analytic); td.voices = 1; td.minBins = 4;
-        const JointFilterbank jb = make(heat, tb::design(td, T, 32));
+        const JointFilterbank jb = make(heat, tb::timeBank(td, T, 32));
         const MatrixXd F = noise(n, (int)T, 3);
         const Coefficients We = nxr::signal::jwt(jb, Tr, F);
         const double eR = relErr(nxr::signal::ijwt(jb, Tr, We, T, fb::Synthesis::Dual), F);
@@ -187,11 +187,11 @@ static void laws() {
         const double eCs = relErr(nxr::signal::ijwt(jb, cheb, Wc, T, fb::Synthesis::Dual), F);
         EXPECT(eC < 1e-8, "vertices x time (Chebyshev order 80, heat bank): analysis == exact " + sci(eC));
         EXPECT(eCs < 1e-5, "vertices x time (Chebyshev): dual synthesis o analysis reconstructs the field " + sci(eCs));
-        const JointFilterbank jk = make(heat, tb::design(td, T, 32), {ridgeKernel(1, 1, +1)});
+        const JointFilterbank jk = make(heat, tb::timeBank(td, T, 32), {ridgeKernel(1, 1, +1)});
         EXPECT(throws([&] { nxr::signal::jwt(jk, cheb, F); }), "the polynomial route REFUSES a bank with a joint kernel (it couples lambda and f)");
         const MatrixXcd Fc = cnoise(n, (int)T, 4);
         tb::Design tt = TD(tb::Family::Meyer, 1.0, tb::Sides::TwoSided);
-        const JointFilterbank j2 = make(heat, tb::design(tt, T, 32));
+        const JointFilterbank j2 = make(heat, tb::timeBank(tt, T, 32));
         const Coefficients W2 = nxr::signal::jwt(j2, Tr, Fc);
         EXPECT(relErr(nxr::signal::ijwtComplex(j2, Tr, W2, T), Fc) < 1e-11, "vertices x time, complex field on a two-sided bank (exact) reconstructs " + sci(relErr(nxr::signal::ijwtComplex(j2, Tr, W2, T), Fc)));
         EXPECT(relErr(nxr::signal::jwt(j2, cheb, Fc)[0], W2[0]) < 1e-7, "vertices x time, complex field (Chebyshev) == exact " + sci(relErr(nxr::signal::jwt(j2, cheb, Fc)[0], W2[0])));
@@ -203,11 +203,11 @@ static void morletMeyer() {
     // a synthetic spectrum: 200 eigenvalues on [0, 2], a Meyer (Weyl) graph bank of 4 octaves, a Morlet time bank of 3 centres
     VectorXd lam = VectorXd::LinSpaced(200, 0.0, 2.0);
     fb::NamedBank gs; gs.family = "weyl"; gs.area = 4 * kPi / 0.05; gs.levels = 4;
-    const fb::GraphFilterbank graph = fb::make(gs);
+    const fb::GraphFilterbank graph = fb::graphBank(gs);
     EXPECT(graph.size() == 5 && graph.kind == "meyer", "weyl, 4 levels: scaling + 3 wavelets + top");
     tb::Design td = TD(tb::familyOf("morlet"), 1.0, tb::sidesOf("analytic")); td.centres = {4.0, 8.0, 16.0}; td.cycles = 6;
     const std::size_t nfft = 256; const double fs = 128;
-    const tb::TimeFilterbank time = tb::design(td, nfft, fs);
+    const tb::TimeFilterbank time = tb::timeBank(td, nfft, fs);
     const JointFilterbank j = make(graph, time);
     EXPECT(j.size() == graph.size() * time.size() && j.separable(), "every (graph, time) pair, separable");
     const fb::Bounds plane = framebounds(j, lam, BoundsBy::Plane), prod = framebounds(j, lam, BoundsBy::Product);
@@ -215,9 +215,9 @@ static void morletMeyer() {
     const MatrixXd C = noise(200, 256, 11);     // [K x T] mode series, T = nfft
     const auto W = nxr::signal::jwt(j, lam, C);
     EXPECT(static_cast<int>(W.size()) == j.size() && W[0].rows() == 200 && W[0].cols() == static_cast<Eigen::Index>(nfft), "jwt: one [K x nfft] block per member, on the series handed in");
-    EXPECT(throws([] { fb::NamedBank b; b.family = "gabor"; fb::make(b); }) && throws([] { tb::familyOf("gabor"); }) && throws([] { tb::sidesOf("both"); }), "an unknown family or side is refused");
+    EXPECT(throws([] { fb::NamedBank b; b.family = "gabor"; fb::graphBank(b); }) && throws([] { tb::familyOf("gabor"); }) && throws([] { tb::sidesOf("both"); }), "an unknown family or side is refused");
     fb::NamedBank mh; mh.family = "mexhat"; mh.range = fb::Range::fromLmax(2.0); mh.options.numFilters = 4;
-    EXPECT(fb::make(mh).size() == 5, "mexhat by name: the scaling function + 4 wavelets");
+    EXPECT(fb::graphBank(mh).size() == 5, "mexhat by name: the scaling function + 4 wavelets");
 }
 
 int main() {

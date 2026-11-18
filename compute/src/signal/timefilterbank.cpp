@@ -138,7 +138,7 @@ double bump(double x) {
 
 }  // namespace
 
-TimeFilterbank design(const Design& d, std::size_t nfft, double fs) {
+TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs) {
     if (nfft < 2 || !(fs > 0)) throw std::invalid_argument("timebank::design: nfft >= 2 and fs > 0");
     if (!(d.gain > 0) || !std::isfinite(d.gain)) throw std::invalid_argument("timebank::design: the gain is the peak in-band response, a positive number");
     const bool analytic = d.sides == Sides::Analytic;

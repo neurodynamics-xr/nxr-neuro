@@ -908,7 +908,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       design.bands = {{p["band"][0].get<double>(), p["band"][1].get<double>()}};
       design.halfWidth = p["half_width"].get<double>();
       design.edgeBins = tb::EdgeBins::Drop;
-      s.bank = tb::design(design, std::size_t(1) << 16, x.rate);
+      s.bank = tb::timeBank(design, std::size_t(1) << 16, x.rate);
       // THE HALO is the old streaming wt's margin: the length after which the member's |impulse response| (the masked gain on a fine grid, the grid doubled while the tail has not decayed) holds under
       // 1e-6 of its L1 norm (WtOptions::tolerance; the rule of wtLayout), so the frames of a chunk are the whole record's to that tolerance whatever the chunk size. The band's taps (haloOf) are shorter and left 1e-3.
       nxr::signal::WtOptions wo;
@@ -1307,7 +1307,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       // an event of row -1 (a global event, `combine mean`) is fitted on the MEAN over the series' rows and holds on every row
       Eigen::VectorXd series = Eigen::Map<const Eigen::VectorXd>(x.data.data() + std::max<std::int64_t>(row, 0) * x.cols, x.cols);
       if (row < 0) { series.setZero(); for (std::int64_t q = 0; q < R; ++q) series += Eigen::Map<const Eigen::VectorXd>(x.data.data() + q * x.cols, x.cols); series /= static_cast<double>(R); }
-      const auto F = nxr::select::fit(series, fs, t0, t1, o);
+      const auto F = nxr::select::risefall(series, fs, t0, t1, o);
       const bool keep = F.ok && !(p["min_r2"].is_number() && F.r2 < p["min_r2"].get<double>());
       ok += F.ok; bound += F.ok && F.atBound; below += F.ok && !keep;
       fits.push_back(Json{{"event", e}, {"row", row}, {"ok", F.ok}, {"kept", keep}, {"at_bound", F.atBound}, {"r2", F.ok ? Json(F.r2) : Json()}});

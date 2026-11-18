@@ -66,22 +66,22 @@ def crossings(x, entry: float, exit: float) -> Spans:
     return Spans(*_core.select_crossings(_series(x), float(entry), float(exit)))
 
 
-def merge_spans(spans, gap: int) -> Spans:
+def mergeSpans(spans, gap: int) -> Spans:
     """The spans whose gap (next start - previous stop) is below `gap` samples joined (`nxr::select::mergeSpans`).
 
     spans : a `Spans`, or any object with start, stop, peak and value arrays.
     """
     s = _spans(spans)
-    return Spans(*_core.select_merge_spans(s.start, s.stop, s.peak, s.value, int(gap)))
+    return Spans(*_core.select_mergeSpans(s.start, s.stop, s.peak, s.value, int(gap)))
 
 
-def keep_spans(spans, min_length: int = 0, max_length: int | None = None) -> Spans:
+def keepSpans(spans, min_length: int = 0, max_length: int | None = None) -> Spans:
     """The spans whose length (stop - start, in samples) is in [min_length, max_length] kept (`nxr::select::keepSpans`); max_length None: no upper bound."""
     s = _spans(spans)
-    return Spans(*_core.select_keep_spans(s.start, s.stop, s.peak, s.value, int(min_length), None if max_length is None else int(max_length)))
+    return Spans(*_core.select_keepSpans(s.start, s.stop, s.peak, s.value, int(min_length), None if max_length is None else int(max_length)))
 
 
-def detect_bursts(
+def detectBursts(
     amplitude,
     step: float,
     enter_sd: float = 1.5,
@@ -118,5 +118,5 @@ def detect_bursts(
         (why nothing was detected: fewer than 2 good samples, no spread).
     """
     b = None if baseline is None else (float(baseline[0]), float(baseline[1]))
-    r = _core.select_detect_bursts(_series(amplitude, "amplitude"), float(step), float(enter_sd), float(exit_sd), float(merge_s), float(min_s), float(max_s), b)
+    r = _core.select_detectBursts(_series(amplitude, "amplitude"), float(step), float(enter_sd), float(exit_sd), float(merge_s), float(min_s), float(max_s), b)
     return Bursts(Spans(*r[0]), *r[1:])

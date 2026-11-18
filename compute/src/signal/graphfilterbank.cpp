@@ -300,7 +300,7 @@ Family familyOf(const std::string& name) {
     throw std::invalid_argument("graph bank family '" + name + "' is not one of mexhat, heat, itersine, logitersine, meyer, weyl, rank");
 }
 
-GraphFilterbank make(const NamedBank& b) {
+GraphFilterbank graphBank(const NamedBank& b) {
     if (b.family == "meyer") return dyadic(b.edges, b.halfWidth);
     if (b.family == "weyl") return weyl(b.area, b.levels, b.halfWidth);
     if (b.family == "rank") return rank(b.levels, b.halfWidth);

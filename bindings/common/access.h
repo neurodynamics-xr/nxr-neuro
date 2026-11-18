@@ -90,7 +90,7 @@ inline tfb::Design time_design(const TimeBankSettings& s) {
 }
 
 /** The bank on a grid of n samples at fs (the caller's window: nothing is cut or padded beyond what the design says). */
-inline tfb::TimeFilterbank time_bank(const TimeBankSettings& s, std::size_t n, double fs) { return tfb::design(time_design(s), n, fs); }
+inline tfb::TimeFilterbank time_bank(const TimeBankSettings& s, std::size_t n, double fs) { return tfb::timeBank(time_design(s), n, fs); }
 
 /** A graph bank: the family by name and the NamedBank's settings; a setting not given keeps the library's default. */
 struct GraphBankSettings {
@@ -125,7 +125,7 @@ inline gfb::GraphFilterbank graph_bank(const GraphBankSettings& s, const std::op
   if (s.area) n.area = *s.area;
   if (s.levels) n.levels = *s.levels;
   if (s.half_width) n.halfWidth = *s.half_width;
-  return gfb::make(n);
+  return gfb::graphBank(n);
 }
 
 /** A joint kernel: "speed" (c, d) or "ridge" (v, width, sense). */
@@ -188,13 +188,13 @@ inline tfb::Family band_shape(const std::string& s) {
 }
 
 /** x [channels x samples] -> one [channels x samples] complex block per band. */
-inline Blocks band_analytic(const Eigen::MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, const std::string& shape, double half_width) {
+inline Blocks bandAnalytic(const Eigen::MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, const std::string& shape, double half_width) {
   const Eigen::MatrixXd xt = x.transpose();
   Blocks out;
   for (const Eigen::MatrixXcd& b : nxr::signal::bandAnalytic(xt, fs, bands, band_shape(shape), half_width)) out.push_back(b.transpose());
   return out;
 }
-inline std::vector<Eigen::MatrixXd> band_envelope(const Eigen::MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, const std::string& shape,
+inline std::vector<Eigen::MatrixXd> bandEnvelope(const Eigen::MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, const std::string& shape,
                                                   double half_width) {
   const Eigen::MatrixXd xt = x.transpose();
   std::vector<Eigen::MatrixXd> out;

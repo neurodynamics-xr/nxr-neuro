@@ -1,7 +1,7 @@
-// nxr_neuro._core, the temporal events and the wavelet and filterbank functions: median, mad, crossings, merge_spans, keep_spans, detect_bursts, risefall and stages
-// (`nxr/select`), and the band, time, graph and joint transforms (`nxr/signal`: band_analytic, band_envelope, time_bank, wt, iwt, graph_bank, gwt, igwt, jwt, ijwt).
+// nxr_neuro._core, the temporal events and the wavelet and filterbank functions: median, mad, crossings, mergeSpans, keepSpans, detectBursts, risefall and stagesOf
+// (`nxr/select`), and the band, time, graph and joint transforms (`nxr/signal`: bandAnalytic, bandEnvelope, timeBank, wt, iwt, graphBank, gwt, igwt, jwt, ijwt).
 // Each is one call into nxr_compute on arrays; the maths is the library's. A bank arrives as a dict of the library's design fields (bindings/common/access.h turns it
-// into the library's settings), spans as four arrays. Complex results are complex128; real ones are float64, except band_envelope, which follows the input's precision.
+// into the library's settings), spans as four arrays. Complex results are complex128; real ones are float64, except bandEnvelope, which follows the input's precision.
 #include <nanobind/stl/complex.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/pair.h>
@@ -221,14 +221,14 @@ nb::tuple select_crossings(const Array1<double>& x, double entry, double exit) {
   const Eigen::VectorXd v = to_vector<double>(x);
   return spans_out(sel::crossings(v, entry, exit));
 }
-nb::tuple select_merge_spans(const Index64& start, const Index64& stop, const Index64& peak, const Array1<double>& value, std::int64_t gap) {
+nb::tuple select_mergeSpans(const Index64& start, const Index64& stop, const Index64& peak, const Array1<double>& value, std::int64_t gap) {
   return spans_out(sel::mergeSpans(spans_of(start, stop, peak, value), gap));
 }
-nb::tuple select_keep_spans(const Index64& start, const Index64& stop, const Index64& peak, const Array1<double>& value, std::int64_t min_length,
+nb::tuple select_keepSpans(const Index64& start, const Index64& stop, const Index64& peak, const Array1<double>& value, std::int64_t min_length,
                             const std::optional<std::int64_t>& max_length) {
   return spans_out(sel::keepSpans(spans_of(start, stop, peak, value), min_length, max_length ? *max_length : std::numeric_limits<std::int64_t>::max()));
 }
-nb::tuple select_detect_bursts(const Array1<double>& amplitude, double step, double enter_sd, double exit_sd, double merge_s, double min_s, double max_s,
+nb::tuple select_detectBursts(const Array1<double>& amplitude, double step, double enter_sd, double exit_sd, double merge_s, double min_s, double max_s,
                                const std::optional<std::pair<double, double>>& baseline) {
   const Eigen::VectorXd v = to_vector<double>(amplitude);
   sel::BurstOptions o;
@@ -251,41 +251,41 @@ nb::tuple select_risefall(const Array1<double>& amplitude, double sfreq, double 
   sel::Fit f;
   {
     nb::gil_scoped_release release;
-    f = sel::fit(v, sfreq, t0, t1, o);
+    f = sel::risefall(v, sfreq, t0, t1, o);
   }
   nb::object kept = min_r2 ? nb::cast(sel::passesGate(f, *min_r2)) : nb::none();
   return nb::make_tuple(f.tOn, f.tOff, f.tauR, f.tauF, f.b, f.h, f.r2, f.ok, f.atBound, std::make_pair(f.buildup[0], f.buildup[1]), std::make_pair(f.plateau[0], f.plateau[1]),
                         std::make_pair(f.decay[0], f.decay[1]), f.hasPlateau, kept);
 }
-nb::tuple select_stages(double t_on, double t_off, double tau_rise, double tau_fall) {
+nb::tuple select_stagesOf(double t_on, double t_off, double tau_rise, double tau_fall) {
   const sel::Stages s = sel::stagesOf(t_on, t_off, tau_rise, tau_fall);
   return nb::make_tuple(std::make_pair(s.onset[0], s.onset[1]), std::make_pair(s.within[0], s.within[1]), std::make_pair(s.offset[0], s.offset[1]), s.hasWithin, s.valid);
 }
 
 // ---- signal ----
 
-nb::object signal_band_analytic(const Array2<double>& x, double sfreq, const Array2<double>& bands, const std::string& shape, double half_width) {
+nb::object signal_bandAnalytic(const Array2<double>& x, double sfreq, const Array2<double>& bands, const std::string& shape, double half_width) {
   const Eigen::MatrixXd X = real_matrix(x);
   const auto b = band_list(bands);
   nb_::Blocks out;
   {
     nb::gil_scoped_release release;
-    out = nb_::band_analytic(X, sfreq, b, shape, half_width);
+    out = nb_::bandAnalytic(X, sfreq, b, shape, half_width);
   }
   return complex_stack(out);
 }
 template <class T>
-nb::object signal_band_envelope(const Array2<T>& x, double sfreq, const Array2<double>& bands, const std::string& shape, double half_width) {
+nb::object signal_bandEnvelope(const Array2<T>& x, double sfreq, const Array2<double>& bands, const std::string& shape, double half_width) {
   const Eigen::MatrixXd X = to_matrix<T>(x);
   const auto b = band_list(bands);
   std::vector<Eigen::MatrixXd> out;
   {
     nb::gil_scoped_release release;
-    out = nb_::band_envelope(X, sfreq, b, shape, half_width);
+    out = nb_::bandEnvelope(X, sfreq, b, shape, half_width);
   }
   return give_stack<T>(out, out.empty() ? 0 : out[0].rows(), out.empty() ? 0 : out[0].cols());
 }
-nb::tuple signal_time_bank(double sfreq, size_t n, const nb::dict& bank) {
+nb::tuple signal_timeBank(double sfreq, size_t n, const nb::dict& bank) {
   const auto s = time_settings(bank);
   nb_::TimeBankReport r;
   {
@@ -314,7 +314,7 @@ nb::object signal_iwt(const Array3c& w, double sfreq, size_t n, const nb::dict& 
   }
   return give_series(std::move(r));
 }
-nb::tuple signal_graph_bank(const nb::dict& bank, const std::optional<Array1<double>>& eigenvalues) {
+nb::tuple signal_graphBank(const nb::dict& bank, const std::optional<Array1<double>>& eigenvalues) {
   const auto s = graph_settings(bank);
   std::optional<Eigen::VectorXd> ev;
   if (eigenvalues) ev = to_vector<double>(*eigenvalues);
@@ -390,20 +390,20 @@ void bind_access(nb::module_& m) {
   m.def("select_median", &select_median, arg("x"));
   m.def("select_mad", &select_mad, arg("x"));
   m.def("select_crossings", &select_crossings, arg("x"), arg("entry"), arg("exit"));
-  m.def("select_merge_spans", &select_merge_spans, arg("start"), arg("stop"), arg("peak"), arg("value"), arg("gap"));
-  m.def("select_keep_spans", &select_keep_spans, arg("start"), arg("stop"), arg("peak"), arg("value"), arg("min_length"), arg("max_length").none());
-  m.def("select_detect_bursts", &select_detect_bursts, arg("amplitude"), arg("step"), arg("enter_sd"), arg("exit_sd"), arg("merge_s"), arg("min_s"), arg("max_s"),
+  m.def("select_mergeSpans", &select_mergeSpans, arg("start"), arg("stop"), arg("peak"), arg("value"), arg("gap"));
+  m.def("select_keepSpans", &select_keepSpans, arg("start"), arg("stop"), arg("peak"), arg("value"), arg("min_length"), arg("max_length").none());
+  m.def("select_detectBursts", &select_detectBursts, arg("amplitude"), arg("step"), arg("enter_sd"), arg("exit_sd"), arg("merge_s"), arg("min_s"), arg("max_s"),
         arg("baseline").none());
   m.def("select_risefall", &select_risefall, arg("amplitude"), arg("sfreq"), arg("t0"), arg("t1"), arg("model"), arg("margin"), arg("smooth"), arg("tau_max"),
         arg("min_r2").none());
-  m.def("select_stages", &select_stages, arg("t_on"), arg("t_off"), arg("tau_rise"), arg("tau_fall"));
-  m.def("signal_band_analytic", &signal_band_analytic, arg("x"), arg("sfreq"), arg("bands"), arg("shape"), arg("half_width"));
-  m.def("signal_band_envelope", &signal_band_envelope<double>, arg("x"), arg("sfreq"), arg("bands"), arg("shape"), arg("half_width"));
-  m.def("signal_band_envelope", &signal_band_envelope<float>, arg("x"), arg("sfreq"), arg("bands"), arg("shape"), arg("half_width"));
-  m.def("signal_time_bank", &signal_time_bank, arg("sfreq"), arg("n"), arg("bank"));
+  m.def("select_stagesOf", &select_stagesOf, arg("t_on"), arg("t_off"), arg("tau_rise"), arg("tau_fall"));
+  m.def("signal_bandAnalytic", &signal_bandAnalytic, arg("x"), arg("sfreq"), arg("bands"), arg("shape"), arg("half_width"));
+  m.def("signal_bandEnvelope", &signal_bandEnvelope<double>, arg("x"), arg("sfreq"), arg("bands"), arg("shape"), arg("half_width"));
+  m.def("signal_bandEnvelope", &signal_bandEnvelope<float>, arg("x"), arg("sfreq"), arg("bands"), arg("shape"), arg("half_width"));
+  m.def("signal_timeBank", &signal_timeBank, arg("sfreq"), arg("n"), arg("bank"));
   m.def("signal_wt", &signal_wt, arg("x"), arg("sfreq"), arg("bank"));
   m.def("signal_iwt", &signal_iwt, arg("w"), arg("sfreq"), arg("n"), arg("bank"), arg("synthesis"));
-  m.def("signal_graph_bank", &signal_graph_bank, arg("bank"), arg("eigenvalues").none());
+  m.def("signal_graphBank", &signal_graphBank, arg("bank"), arg("eigenvalues").none());
   m.def("signal_gwt", &signal_gwt, arg("f"), arg("bank"), arg("eigenvalues").none(), arg("eigenvectors").none(), arg("mass").none(), arg("laplacian").none(), arg("order"),
         arg("lmax"));
   m.def("signal_igwt", &signal_igwt, arg("w"), arg("bank"), arg("eigenvalues").none(), arg("eigenvectors").none(), arg("mass").none(), arg("laplacian").none(), arg("order"),

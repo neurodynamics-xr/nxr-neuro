@@ -112,7 +112,7 @@ enum class CentreGrid { Studio, Cwt };
 std::vector<double> centerFrequencies(CentreGrid grid, double lo, double hi, int voices, double fs = 0);
 
 /** Build the bank on a grid of `nfft` samples at `fs`. Throws on an unsatisfiable design (no member fits; gain <= 0; missing centres). */
-TimeFilterbank design(const Design& d, std::size_t nfft, double fs);
+TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs);
 
 /** The grid's frequencies: rfftfreq(nfft, 1/fs) (Analytic) or fftfreq(nfft, 1/fs) (TwoSided). */
 Eigen::VectorXd bins(const TimeFilterbank& bank);

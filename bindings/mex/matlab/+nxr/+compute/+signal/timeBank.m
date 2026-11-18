@@ -1,7 +1,7 @@
-function r = time_bank(sfreq, n, family, opts)
-%NXR.COMPUTE.SIGNAL.TIME_BANK  A time filterbank designed on n samples at sfreq, for inspection (nxr::signal::timefilterbank::design): the grid, the gains and the frame bounds.
-%   r = nxr.compute.signal.time_bank(256, 1024, "meyer")
-%   r = nxr.compute.signal.time_bank(256, 1024, "morlet", centres=[6 10 16], cycles=6, sides="two_sided", gain=2)
+function r = timeBank(sfreq, n, family, opts)
+%NXR.COMPUTE.SIGNAL.TIMEBANK  A time filterbank designed on n samples at sfreq, for inspection (nxr::signal::timefilterbank::design): the grid, the gains and the frame bounds.
+%   r = nxr.compute.signal.timeBank(256, 1024, "meyer")
+%   r = nxr.compute.signal.timeBank(256, 1024, "morlet", centres=[6 10 16], cycles=6, sides="two_sided", gain=2)
 %
 %   family has no default, and neither has the gain's meaning: the PEAK in-band response of each member is gain (default 1). A field left [] keeps the library's default.
 %
@@ -38,6 +38,6 @@ function r = time_bank(sfreq, n, family, opts)
     bank = nxr.impl.given('family', family, 'sides', opts.sides, 'gain', opts.gain, 'centres', opts.centres, 'cycles', opts.cycles, 'bands', opts.bands, 'edges', opts.edges, ...
                           'half_width', opts.half_width, 'voices', opts.voices, 'anchor', opts.anchor, 'limits', opts.limits, 'min_bins', opts.min_bins, 'gamma', opts.gamma, ...
                           'time_bandwidth', opts.time_bandwidth, 'edge_bins', opts.edge_bins);
-    [f, g, c, a, b] = nxr_compute('compute.signal.time_bank', sfreq, n, bank);
+    [f, g, c, a, b] = nxr_compute('compute.signal.timeBank', sfreq, n, bank);
     r = struct('frequencies', f, 'gains', g, 'centre_frequencies', c, 'frame_bounds', [a b]);
 end

@@ -1,5 +1,5 @@
-// The temporal events and the wavelet and filterbank functions of the MATLAB face: `compute.select.*` and `compute.signal.{band_analytic, band_envelope, time_bank, wt, iwt,
-// graph_bank, gwt, igwt, jwt, ijwt}`. Each command is one call into nxr_compute on arrays (through bindings/common/access.h, which the Python face shares); the maths is the
+// The temporal events and the wavelet and filterbank functions of the MATLAB face: `compute.select.*` and `compute.signal.{bandAnalytic, bandEnvelope, timeBank, wt, iwt,
+// graphBank, gwt, igwt, jwt, ijwt}`. Each command is one call into nxr_compute on arrays (through bindings/common/access.h, which the Python face shares); the maths is the
 // library's. Options arrive complete and positional: the defaults live in the MATLAB functions (+nxr/+compute). A bank is a struct of the library's design fields, a field not
 // given keeping the library's default. Spans are a struct of columns: start and peak 1-based, stop the last sample (inclusive), value; the library's are 0-based, stop exclusive,
 // and the conversion is made here, once.
@@ -295,21 +295,21 @@ void selectCrossings(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   const Eigen::VectorXd x = get_vector(prhs[1], "x");
   plhs[0] = spans_out(sel::crossings(x, get_scalar(prhs[2], "entry"), get_scalar(prhs[3], "exit")));
 }
-// spans = compute.select.merge_spans(spans, gap)
+// spans = compute.select.mergeSpans(spans, gap)
 void selectMergeSpans(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 2, "compute.select.merge_spans");
+  need(nrhs, 2, "compute.select.mergeSpans");
   plhs[0] = spans_out(sel::mergeSpans(spans_of(prhs[1]), static_cast<std::int64_t>(get_scalar(prhs[2], "gap"))));
 }
-// spans = compute.select.keep_spans(spans, min_length, max_length); max_length [] or Inf: no upper bound
+// spans = compute.select.keepSpans(spans, min_length, max_length); max_length [] or Inf: no upper bound
 void selectKeepSpans(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 3, "compute.select.keep_spans");
+  need(nrhs, 3, "compute.select.keepSpans");
   const double mx = is_unset(prhs[3]) ? INFINITY : get_scalar(prhs[3], "max_length");
   plhs[0] = spans_out(sel::keepSpans(spans_of(prhs[1]), static_cast<std::int64_t>(get_scalar(prhs[2], "min_length")),
                                      std::isinf(mx) ? std::numeric_limits<std::int64_t>::max() : static_cast<std::int64_t>(mx)));
 }
-// r = compute.select.detect_bursts(amplitude, step, enter_sd, exit_sd, merge_s, min_s, max_s, baseline); baseline [] or [median sd]
+// r = compute.select.detectBursts(amplitude, step, enter_sd, exit_sd, merge_s, min_s, max_s, baseline); baseline [] or [median sd]
 void selectDetectBursts(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 8, "compute.select.detect_bursts");
+  need(nrhs, 8, "compute.select.detectBursts");
   const Eigen::VectorXd x = get_vector(prhs[1], "amplitude");
   sel::BurstOptions o;
   o.enterSd = get_scalar(prhs[3], "enter_sd"); o.exitSd = get_scalar(prhs[4], "exit_sd"); o.mergeS = get_scalar(prhs[5], "merge_s");
@@ -333,16 +333,16 @@ void selectRisefall(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   sel::Options o;
   o.model = sel::parseModel(get_string(prhs[5], "model"));
   o.margin = get_scalar(prhs[6], "margin"); o.smooth = get_scalar(prhs[7], "smooth"); o.tauMax = get_scalar(prhs[8], "tau_max");
-  const sel::Fit f = sel::fit(x, get_scalar(prhs[2], "sfreq"), get_scalar(prhs[3], "t0"), get_scalar(prhs[4], "t1"), o);
+  const sel::Fit f = sel::risefall(x, get_scalar(prhs[2], "sfreq"), get_scalar(prhs[3], "t0"), get_scalar(prhs[4], "t1"), o);
   mxArray* kept = is_unset(prhs[9]) ? mxCreateDoubleMatrix(0, 0, mxREAL) : give_bool(sel::passesGate(f, get_scalar(prhs[9], "min_r2")));
   plhs[0] = make_struct({{"t_on", give_scalar(f.tOn)}, {"t_off", give_scalar(f.tOff)}, {"tau_rise", give_scalar(f.tauR)}, {"tau_fall", give_scalar(f.tauF)},
                          {"baseline", give_scalar(f.b)}, {"height", give_scalar(f.h)}, {"r2", give_scalar(f.r2)}, {"ok", give_bool(f.ok)}, {"at_bound", give_bool(f.atBound)},
                          {"buildup", pair_row(f.buildup[0], f.buildup[1])}, {"plateau", pair_row(f.plateau[0], f.plateau[1])}, {"decay", pair_row(f.decay[0], f.decay[1])},
                          {"has_plateau", give_bool(f.hasPlateau)}, {"kept", kept}});
 }
-// r = compute.select.stages(t_on, t_off, tau_rise, tau_fall)
+// r = compute.select.stagesOf(t_on, t_off, tau_rise, tau_fall)
 void selectStages(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 4, "compute.select.stages");
+  need(nrhs, 4, "compute.select.stagesOf");
   const sel::Stages s = sel::stagesOf(get_scalar(prhs[1], "t_on"), get_scalar(prhs[2], "t_off"), get_scalar(prhs[3], "tau_rise"), get_scalar(prhs[4], "tau_fall"));
   plhs[0] = make_struct({{"onset", pair_row(s.onset[0], s.onset[1])}, {"within", pair_row(s.within[0], s.within[1])}, {"offset", pair_row(s.offset[0], s.offset[1])},
                          {"has_within", give_bool(s.hasWithin)}, {"valid", give_bool(s.valid)}});
@@ -350,21 +350,21 @@ void selectStages(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
 
 // ---- signal ----
 
-// z = compute.signal.band_analytic(x, sfreq, bands, shape, half_width): complex [bands x channels x samples]
+// z = compute.signal.bandAnalytic(x, sfreq, bands, shape, half_width): complex [bands x channels x samples]
 void signalBandAnalytic(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 5, "compute.signal.band_analytic");
+  need(nrhs, 5, "compute.signal.bandAnalytic");
   const Matrix x = get_matrix(prhs[1], "x");
-  plhs[0] = give_complex_stack(nb_::band_analytic(x.m, get_scalar(prhs[2], "sfreq"), pairs_of(prhs[3], "bands"), get_string(prhs[4], "shape"), get_scalar(prhs[5], "half_width")));
+  plhs[0] = give_complex_stack(nb_::bandAnalytic(x.m, get_scalar(prhs[2], "sfreq"), pairs_of(prhs[3], "bands"), get_string(prhs[4], "shape"), get_scalar(prhs[5], "half_width")));
 }
-// e = compute.signal.band_envelope(x, sfreq, bands, shape, half_width): real [bands x channels x samples], in x's precision
+// e = compute.signal.bandEnvelope(x, sfreq, bands, shape, half_width): real [bands x channels x samples], in x's precision
 void signalBandEnvelope(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 5, "compute.signal.band_envelope");
+  need(nrhs, 5, "compute.signal.bandEnvelope");
   const Matrix x = get_matrix(prhs[1], "x");
-  plhs[0] = give_real_stack(nb_::band_envelope(x.m, get_scalar(prhs[2], "sfreq"), pairs_of(prhs[3], "bands"), get_string(prhs[4], "shape"), get_scalar(prhs[5], "half_width")), x.single);
+  plhs[0] = give_real_stack(nb_::bandEnvelope(x.m, get_scalar(prhs[2], "sfreq"), pairs_of(prhs[3], "bands"), get_string(prhs[4], "shape"), get_scalar(prhs[5], "half_width")), x.single);
 }
-// [frequencies, gains, centre_frequencies, A, B] = compute.signal.time_bank(sfreq, n, bank)
+// [frequencies, gains, centre_frequencies, A, B] = compute.signal.timeBank(sfreq, n, bank)
 void signalTimeBank(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 3, "compute.signal.time_bank");
+  need(nrhs, 3, "compute.signal.timeBank");
   const double n = get_scalar(prhs[2], "n");
   if (n < 1 || n != std::floor(n)) throw std::invalid_argument("n must be a positive integer");
   const nb_::TimeBankReport r = nb_::time_bank_report(time_settings(prhs[3]), get_scalar(prhs[1], "sfreq"), static_cast<std::size_t>(n));
@@ -386,9 +386,9 @@ void signalIwt(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   if (n < 1 || n != std::floor(n)) throw std::invalid_argument("n must be a positive integer");
   plhs[0] = give_series(nb_::iwt(get_blocks(prhs[1], "W"), get_scalar(prhs[2], "sfreq"), static_cast<std::size_t>(n), time_settings(prhs[4]), get_string(prhs[5], "synthesis")));
 }
-// [gains, roles, scales, centre_wavenumbers, A, B] = compute.signal.graph_bank(bank, eigenvalues); gains [] without eigenvalues
+// [gains, roles, scales, centre_wavenumbers, A, B] = compute.signal.graphBank(bank, eigenvalues); gains [] without eigenvalues
 void signalGraphBank(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 2, "compute.signal.graph_bank");
+  need(nrhs, 2, "compute.signal.graphBank");
   std::optional<Eigen::VectorXd> ev;
   if (!is_unset(prhs[2])) ev = get_vector(prhs[2], "eigenvalues");
   const nb_::GraphBankReport r = nb_::graph_bank_report(graph_settings(prhs[1]), ev);
