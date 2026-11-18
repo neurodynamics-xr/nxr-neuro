@@ -11,6 +11,7 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include "portable_normal.h"
 #include <random>
 
 #include "brain_helpers.h"
@@ -115,13 +116,12 @@ int main() {
   auto pattern = [&](int tile) { Eigen::MatrixXd e = Eigen::MatrixXd::Zero(N, 1); e(centres[static_cast<std::size_t>(tile)], 0) = 1.0; Eigen::MatrixXd f = sband.apply(e); return Eigen::VectorXd(f.col(0) / f.col(0).cwiseAbs().maxCoeff()); };
   const Eigen::VectorXd p0 = pattern(eps[0].tile), p1 = pattern(eps[1].tile);
   auto S_ = [](double x) { return 1.0 / (1.0 + std::exp(-x)); };
-  std::mt19937 rng(21);
-  std::normal_distribution<double> nd;
+  nxr_test::PortableNormal nd(21);   // the same noise on every platform (std::normal_distribution differs between standard libraries)
   std::vector<float> xf(static_cast<std::size_t>(M) * T);
   for (int v = 0; v < M; ++v)
     for (int t = 0; t < T; ++t) {
       const double s = t / sfreq, osc = std::cos(2 * M_PI * 12.0 * s);
-      double x = 0.005 * nd(rng);
+      double x = 0.005 * nd();
       x += p0(v) * S_((s - eps[0].on) / eps[0].tr) * S_(-(s - eps[0].off) / eps[0].tf) * osc;
       x += p1(v) * S_((s - eps[1].on) / eps[1].tr) * S_(-(s - eps[1].off) / eps[1].tf) * osc;
       xf[static_cast<std::size_t>(v) * T + t] = static_cast<float>(x);
