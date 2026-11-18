@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace nxr::signal::graphfilterbank {
+namespace nxr::signal::graphtransforms {
 namespace {
 void checkBasis(const EigenTransform& t) {
   if (t.mass.rows() != 0 || t.mass.cols() != 0) throw std::invalid_argument("wgft: the windowed graph Fourier transform is defined for orthonormal eigenvectors of a Laplacian (identity mass); a mass-weighted pencil is not supported");
@@ -49,4 +49,4 @@ Eigen::VectorXd iwgft(const EigenTransform& t, const Gain& kernel, const Eigen::
   return f;
 }
 
-}  // namespace nxr::signal::graphfilterbank
+}  // namespace nxr::signal::graphtransforms

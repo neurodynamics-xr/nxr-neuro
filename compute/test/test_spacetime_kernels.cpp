@@ -1,11 +1,13 @@
 // nxr::kernels: parity with Rheome's +filters (space-time kernels, sphere_kernel, steer, spin, scatter), jointfilterbank.speedkernel / band and filters.psitime
 // (goldens/gen_kernels_golden.m, on a synthetic sphere spectrum and icosphere), plus the kernels' own identities. Synthetic data only.
 #include "nxr/signal/kernels.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/signal/jointfilterbank.h"
 #include "golden_io.h"
 #include "mesh_helpers.h"
 using namespace nxr::signal;
 namespace fb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 using cd = std::complex<double>;
 
@@ -78,7 +80,7 @@ int main() {
     const MatrixXd Ld = g.mat("icoL"), Md = g.mat("icoM"), lm = g.mat("icoLambda");
     const MatrixXcd Fc = g.cmat("FcRe", "FcIm");
     Eigen::GeneralizedSelfAdjointEigenSolver<MatrixXd> es(Ld, Md);
-    fb::EigenTransform T; T.phi = es.eigenvectors(); T.lambda = es.eigenvalues(); T.mass = Md.sparseView();
+    gt::EigenTransform T; T.phi = es.eigenvectors(); T.lambda = es.eigenvalues(); T.mass = Md.sparseView();
     for (int i = 0; i < T.lambda.size(); ++i) if (std::abs(T.lambda(i)) < 1e-10) T.lambda(i) = 0;
     std::string word;
     int cases = 0;

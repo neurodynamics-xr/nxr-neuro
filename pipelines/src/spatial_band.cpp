@@ -11,6 +11,7 @@
 #include "nxr/io/array_reader.h"
 #include "nxr/select/dyadic.h"
 #include "nxr/signal/graphwavelet.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/pipelines/task.h"
 #include "nxr/signal/riesz.h"
 #include "nxr/signal/phase_gradient.h"
@@ -21,6 +22,7 @@ namespace nxr::pipelines {
 
 using namespace nxr::io;
 namespace fb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
 namespace lad = nxr::select;
 
 namespace {
@@ -107,7 +109,7 @@ double hat_centre(const SurfaceLevel& L) {
   return m.lo > 0 ? std::sqrt(m.lo * m.hi) : m.hi / std::sqrt(2.0);
 }
 // the level's gain: its Weyl member's (Meyer) or its Mexican hat
-fb::Gain level_gain(const SurfaceLevel& L, const SpatialBandOptions& o) {
+gt::Gain level_gain(const SurfaceLevel& L, const SpatialBandOptions& o) {
   if (!is_hat(o)) return L.bank.members[static_cast<std::size_t>(L.l)].gain;
   const double c = hat_centre(L);
   return [c](double lam) { return fb::mexicanHat(lam, c); };
@@ -125,7 +127,7 @@ Json shape_info(const SurfaceLevel& L, const SpatialBandOptions& o) {
 }
 SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const SpatialBandOptions& opt) {
   check_shape(opt);
-  const fb::Gain gain = level_gain(L, opt);
+  const gt::Gain gain = level_gain(L, opt);
   if (opt.order < 0) invalid("spatial band: the order is at least 0 (0: chosen from the tolerance)");
   if (!(opt.tolerance > 0)) invalid("spatial band: the tolerance is above 0");
   const std::int64_t nV = S.n_vertices();
@@ -150,7 +152,7 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
     Eigen::MatrixXd Ld(Lap), Md = Eigen::MatrixXd::Zero(nV, nV);
     for (std::int64_t i = 0; i < nV; ++i) Md(i, i) = mass[static_cast<std::size_t>(i)];
     Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Ld, Md);
-    auto T = std::make_shared<fb::EigenTransform>();
+    auto T = std::make_shared<gt::EigenTransform>();
     T->phi = es.eigenvectors(); T->lambda = es.eigenvalues().cwiseMax(0.0); T->mass = M;
     out.info["modes"] = static_cast<std::int64_t>(T->lambda.size());
     if (is_hat(opt)) {
@@ -170,33 +172,33 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
     }
     return out;
   }
-  const fb::ChebyshevOperator probe(Lap, M, 0, 40);          // the spectral bound, once
+  const gt::ChebyshevOperator probe(Lap, M, 0, 40);          // the spectral bound, once
   const double lmax = probe.lmax();
   int order = opt.order;
   double err = 0;
   if (order > 0) {
-    err = fb::chebyshevError(gain, lmax, order);
+    err = gt::chebyshevError(gain, lmax, order);
     if (err > opt.tolerance) invalid("spatial band: the Chebyshev series of degree " + std::to_string(order) + " is off the level " + std::to_string(l) + " band by up to " + std::to_string(err) + " (tolerance " + std::to_string(opt.tolerance) + "): raise --order, --order 0 to choose it, or use --transform exact");
   } else {
-    for (int o = 40; o <= 5120; o *= 2) { err = fb::chebyshevError(gain, lmax, o); if (err <= opt.tolerance) { order = o; break; } }
+    for (int o = 40; o <= 5120; o *= 2) { err = gt::chebyshevError(gain, lmax, o); if (err <= opt.tolerance) { order = o; break; } }
     if (order == 0) invalid("spatial band: no Chebyshev series up to degree 5120 follows the level " + std::to_string(l) + " band to within " + std::to_string(opt.tolerance) + " (error " + std::to_string(err) + " at 5120) on this surface (lambda_max " + std::to_string(lmax) + "): raise the tolerance or use the exact transform");
   }
-  auto op = std::make_shared<fb::ChebyshevOperator>(Lap, M, lmax, order);
+  auto op = std::make_shared<gt::ChebyshevOperator>(Lap, M, lmax, order);
   out.info["order"] = order; out.info["series_error"] = err; out.info["lambda_top"] = lmax;
-  if (is_hat(opt)) out.apply = [gain, op](const Eigen::MatrixXd& F) { return fb::chebyshev(*op, gain, F); };
+  if (is_hat(opt)) out.apply = [gain, op](const Eigen::MatrixXd& F) { return gt::chebyshev(*op, gain, F); };
   else out.apply = [bank, l, op](const Eigen::MatrixXd& F) { return nxr::signal::gwt(bank, l, *op, F); };
   if (opt.riesz) {
     // the series of g/√λ: it must follow ITS gain within the tolerance (a scaling member's gain is not 0 at λ = 0: g/√λ is singular and no series follows it, refused)
-    const fb::Gain gR = nxr::signal::rieszGain(gain);
+    const gt::Gain gR = nxr::signal::rieszGain(gain);
     double peak = 0;
     for (int i = 0; i <= 4096; ++i) peak = std::max(peak, std::abs(gR(lmax * i / 4096)));
     int oR = order;
     double eR = 0;                                                  // relative to the peak of g/√λ (it is in metres, the band's gain is not)
-    for (; oR <= 5120; oR *= 2) { eR = peak > 0 ? fb::chebyshevError(gR, lmax, oR) / peak : 0.0; if (eR <= opt.tolerance) break; }
+    for (; oR <= 5120; oR *= 2) { eR = peak > 0 ? gt::chebyshevError(gR, lmax, oR) / peak : 0.0; if (eR <= opt.tolerance) break; }
     if (oR > 5120) invalid("spatial band: no Chebyshev series up to degree 5120 follows the Riesz gain g/sqrt(lambda) of level " + std::to_string(l) + " to within " + std::to_string(opt.tolerance) + " of its peak (error " + std::to_string(eR) + "): raise the tolerance, or use eigenmodes (a scaling level's gain is not 0 at lambda = 0)");
-    const auto opR = oR == order ? op : std::make_shared<fb::ChebyshevOperator>(Lap, M, lmax, oR);
+    const auto opR = oR == order ? op : std::make_shared<gt::ChebyshevOperator>(Lap, M, lmax, oR);
     const auto G = std::make_shared<nxr::signal::Gradient>(riesz_gradient(S, {}));
-    out.apply_riesz = [gR, opR, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszTransform(*G, fb::chebyshev(*opR, gR, F), 1); };
+    out.apply_riesz = [gR, opR, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszTransform(*G, gt::chebyshev(*opR, gR, F), 1); };
     out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"order", oR}, {"series_error", eR}, {"gradient", "P1 faces averaged on the vertices (nxr::signal::vertexGradient), the input mesh"}};
   }
   return out;
@@ -326,7 +328,7 @@ SpatialBand make_spatial_band(DatasetWriter& ds, SubjectWriter& sub, const Surfa
   }
   const int l = L.l;
   const fb::Member& member = L.bank.members[static_cast<std::size_t>(l)];
-  const fb::Gain gain = level_gain(L, opt);
+  const gt::Gain gain = level_gain(L, opt);
   const std::string who = "level " + std::to_string(l) + " of " + S.name;
   Json computed = nullptr;
   if (P.source == "computed") {

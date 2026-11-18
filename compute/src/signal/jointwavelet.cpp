@@ -1,5 +1,6 @@
 // nxr::signal jwt / ijwt — the bodies of jointfilterbank::analysis, analysisSpectrum, synthesis, synthesisComplex, synthesisSpectrum (moved, not edited): a joint bank only designs.
 #include "nxr/signal/jointwavelet.h"
+#include "nxr/signal/graphtransforms.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -8,6 +9,7 @@ namespace nxr::signal {
 using namespace jointfilterbank;
 using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXd;
 namespace fb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
 namespace tb = nxr::signal::timefilterbank;
 using cd = std::complex<double>;
 
@@ -98,34 +100,34 @@ MatrixXcd ijwtComplex(const JointFilterbank& b, const VectorXd& lambda, const Co
 
 // ── vertices ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-static MatrixXcd toModes(const fb::EigenTransform& t, const MatrixXcd& F) {
+static MatrixXcd toModes(const gt::EigenTransform& t, const MatrixXcd& F) {
     const MatrixXd PhiT = t.phi.transpose();
     MatrixXcd BF = t.mass.size() > 0 ? MatrixXcd(t.mass.cast<cd>() * F) : F;
     return PhiT.cast<cd>() * BF;
 }
 
-Coefficients jwt(const JointFilterbank& b, const fb::EigenTransform& t, const MatrixXd& F) {
+Coefficients jwt(const JointFilterbank& b, const gt::EigenTransform& t, const MatrixXd& F) {
     const MatrixXd PhiT = t.phi.transpose();
     const MatrixXd Cm = t.mass.size() > 0 ? MatrixXd(PhiT * (t.mass * F)) : MatrixXd(PhiT * F);
     Coefficients W = jwt(b, t.lambda, Cm);
     for (auto& w : W) w = t.phi.cast<cd>() * w;
     return W;
 }
-Coefficients jwt(const JointFilterbank& b, const fb::EigenTransform& t, const MatrixXcd& F) {
+Coefficients jwt(const JointFilterbank& b, const gt::EigenTransform& t, const MatrixXcd& F) {
     Coefficients W = jwt(b, t.lambda, toModes(t, F));
     for (auto& w : W) w = t.phi.cast<cd>() * w;
     return W;
 }
 
-static Coefficients toCoefficientModes(const fb::EigenTransform& t, const Coefficients& W) {
+static Coefficients toCoefficientModes(const gt::EigenTransform& t, const Coefficients& W) {
     Coefficients M;
     for (const auto& w : W) M.push_back(toModes(t, w));
     return M;
 }
-MatrixXd ijwt(const JointFilterbank& b, const fb::EigenTransform& t, const Coefficients& W, std::size_t n, Synthesis mode) {
+MatrixXd ijwt(const JointFilterbank& b, const gt::EigenTransform& t, const Coefficients& W, std::size_t n, Synthesis mode) {
     return t.phi * ijwt(b, t.lambda, toCoefficientModes(t, W), n, mode);
 }
-MatrixXcd ijwtComplex(const JointFilterbank& b, const fb::EigenTransform& t, const Coefficients& W, std::size_t n, Synthesis mode) {
+MatrixXcd ijwtComplex(const JointFilterbank& b, const gt::EigenTransform& t, const Coefficients& W, std::size_t n, Synthesis mode) {
     return t.phi.cast<cd>() * ijwtComplex(b, t.lambda, toCoefficientModes(t, W), n, mode);
 }
 
@@ -134,7 +136,7 @@ static void requireSeparable(const JointFilterbank& b) {
     if (!b.separable()) throw std::invalid_argument("jointbank: the polynomial (Chebyshev) route needs a SEPARABLE bank; a joint kernel couples lambda and f, which a series in the operator cannot see: use the EigenTransform");
 }
 
-static Coefficients chebAnalysis(const JointFilterbank& b, const fb::ChebyshevOperator& t, const MatrixXcd& spec /* [F x n] */) {
+static Coefficients chebAnalysis(const JointFilterbank& b, const gt::ChebyshevOperator& t, const MatrixXcd& spec /* [F x n] */) {
     requireSeparable(b);
     const MatrixXd Gt = tb::gains(b.time);
     const VectorXd ones = VectorXd::Ones(Gt.rows());
@@ -148,24 +150,24 @@ static Coefficients chebAnalysis(const JointFilterbank& b, const fb::ChebyshevOp
     return W;
 }
 
-Coefficients jwt(const JointFilterbank& b, const fb::ChebyshevOperator& t, const MatrixXd& F) {
+Coefficients jwt(const JointFilterbank& b, const gt::ChebyshevOperator& t, const MatrixXd& F) {
     return chebAnalysis(b, t, tb::spectrum(b.time, MatrixXd(F.transpose())));
 }
-Coefficients jwt(const JointFilterbank& b, const fb::ChebyshevOperator& t, const MatrixXcd& F) {
+Coefficients jwt(const JointFilterbank& b, const gt::ChebyshevOperator& t, const MatrixXcd& F) {
     return chebAnalysis(b, t, tb::spectrum(b.time, MatrixXcd(F.transpose())));
 }
 
-static MatrixXcd chebCombine(const JointFilterbank& b, const fb::ChebyshevOperator& t, const Coefficients& W, Synthesis mode) {
+static MatrixXcd chebCombine(const JointFilterbank& b, const gt::ChebyshevOperator& t, const Coefficients& W, Synthesis mode) {
     requireSeparable(b);
     if (static_cast<int>(W.size()) != b.size()) throw std::invalid_argument("ijwt: one block per member");
     // graph weights g/S_g (dual) or g/total (tight), as functions of lambda; time weights from the time bank
     const fb::GraphFilterbank& g = b.graph;
     const double Smax = std::max(fb::framebounds(g).B, 1e-300);
-    std::vector<fb::Gain> wg;
+    std::vector<gt::Gain> wg;
     for (std::size_t ig = 0; ig < g.members.size(); ++ig) {
         if (mode == Synthesis::Tight) {
             if (std::isnan(g.total) || std::isnan(b.time.total)) throw std::invalid_argument("jointbank: tight synthesis needs two tight banks; use the dual");
-            const fb::Gain gi = g.members[ig].gain; const double tot = g.total;
+            const gt::Gain gi = g.members[ig].gain; const double tot = g.total;
             wg.push_back([gi, tot](double l) { return gi(l) / tot; });
         } else {
             const fb::GraphFilterbank* gp = &g; const std::size_t i = ig;
@@ -193,10 +195,10 @@ static MatrixXcd chebCombine(const JointFilterbank& b, const fb::ChebyshevOperat
     return Z;
 }
 
-MatrixXd ijwt(const JointFilterbank& b, const fb::ChebyshevOperator& t, const Coefficients& W, std::size_t n, Synthesis mode) {
+MatrixXd ijwt(const JointFilterbank& b, const gt::ChebyshevOperator& t, const Coefficients& W, std::size_t n, Synthesis mode) {
     return tb::inverseReal(b.time, chebCombine(b, t, W, mode), n).transpose();
 }
-MatrixXcd ijwtComplex(const JointFilterbank& b, const fb::ChebyshevOperator& t, const Coefficients& W, std::size_t n, Synthesis mode) {
+MatrixXcd ijwtComplex(const JointFilterbank& b, const gt::ChebyshevOperator& t, const Coefficients& W, std::size_t n, Synthesis mode) {
     return tb::inverseComplex(b.time, chebCombine(b, t, W, mode), n).transpose();
 }
 

@@ -2,12 +2,14 @@
 // test_signal_banks_golden.cpp compares the new code to it): signals, banks, a path-graph operator with its modes. Synthetic only.
 #pragma once
 #include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/signal/jointfilterbank.h"
 #include "nxr/signal/timefilterbank.h"
 #include <random>
 namespace sbi {
 namespace tb = nxr::signal::timefilterbank;
 namespace fb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
 using Eigen::MatrixXd; using Eigen::VectorXd; using Eigen::MatrixXcd;
 constexpr double kFs = 250;
 inline MatrixXd noise(int r, int c, unsigned seed) { std::mt19937 g(seed); std::normal_distribution<double> N; MatrixXd x(r, c); for (int j = 0; j < c; ++j) for (int i = 0; i < r; ++i) x(i, j) = N(g); return x; }
@@ -20,7 +22,7 @@ inline tb::TimeFilterbank itersine(std::size_t nfft = 256) { tb::Design d(tb::Fa
 inline tb::TimeFilterbank meyer(std::size_t nfft = 256) { tb::Design d(tb::Family::Meyer, 2.0, tb::Sides::Analytic); d.limits = std::make_pair(2.0, 60.0); return tb::design(d, nfft, kFs); }
 inline tb::TimeFilterbank morlet(std::size_t nfft = 256) { tb::Design d(tb::Family::Morlet, 2.0, tb::Sides::Analytic); d.centres = {4, 8, 16, 32}; d.cycles = 6; return tb::design(d, nfft, kFs); }
 inline tb::TimeFilterbank twoSided(std::size_t nfft = 128) { tb::Design d(tb::Family::Itersine, 1.0, tb::Sides::TwoSided); d.voices = 2; d.limits = std::make_pair(2.0, 100.0); return tb::design(d, nfft, kFs); }
-struct Graph { MatrixXd Ld, Md; Eigen::SparseMatrix<double> L, M; fb::EigenTransform T; VectorXd lam; int n = 0; };
+struct Graph { MatrixXd Ld, Md; Eigen::SparseMatrix<double> L, M; gt::EigenTransform T; VectorXd lam; int n = 0; };
 inline Graph pathGraph(int n = 24) {
     Graph g; g.n = n; g.Ld = MatrixXd::Zero(n, n); g.Md = MatrixXd::Zero(n, n);
     for (int i = 0; i + 1 < n; ++i) { const double w = 1.0 + 0.3 * std::sin(i); g.Ld(i, i) += w; g.Ld(i + 1, i + 1) += w; g.Ld(i, i + 1) -= w; g.Ld(i + 1, i) -= w; }

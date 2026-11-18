@@ -34,4 +34,9 @@ QuadratureFactor skewFactor(const MatrixXcd& F);
 /** Y(i, j) = X(i, j) / d(i). std::invalid_argument when d does not have X's rows, or an entry of d is not finite and above 0 (the message names the first). */
 Eigen::MatrixXd divideRows(const Eigen::Ref<const Eigen::MatrixXd>& X, const Eigen::Ref<const Eigen::VectorXd>& d);
 
+// ── convolution along the columns ───────────────────────────────────────────────────────────────────────────────────
+/** MATLAB's conv(x, taps, 'valid') for each row of X: [rows x n] from [rows x (n + L - 1)], the L (odd) SYMMETRIC taps applied along the columns, the valid part only (output column j is centred on input column
+ *  j + (L-1)/2; the taps are not flipped, which for symmetric taps is the same). std::invalid_argument when L is even or X has fewer than L columns. */
+Eigen::MatrixXd conv(const Eigen::MatrixXd& X, const Eigen::VectorXd& taps);
+
 }  // namespace nxr::core

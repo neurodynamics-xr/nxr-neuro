@@ -1,6 +1,7 @@
 // The windowed graph Fourier transform, jft / ijft, fromOperator, TimeFilterbank kinds, xwt and wcoherence. Goldens from golden/gen_signal_grid_golden.py (NumPy applied to the
 // published formulas of Shuman et al. 2016, GSPBox's jft, Grinsted et al. 2004; synthetic data only).
 #include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/signal/jointtransforms.h"
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/wavelet_cross.h"
@@ -10,6 +11,7 @@
 #include <Eigen/Sparse>
 using namespace nxr::signal;
 namespace gfb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
 
 static std::string sci(double v) { std::ostringstream s; s.precision(2); s << std::scientific << v; return s.str(); }
 template <class F> static bool throws(F f) { try { f(); } catch (const std::invalid_argument&) { return true; } return false; }
@@ -17,24 +19,24 @@ template <class F> static bool throws(F f) { try { f(); } catch (const std::inva
 int main() {
     const KeyValues g(std::string(NXR_TEST_GOLDEN_DIR) + "/signal_grid_golden.txt");
     const int N = 12;
-    gfb::EigenTransform t;
+    gt::EigenTransform t;
     t.phi = g.mat("graph.phi", N, N);
     t.lambda = g.vec("graph.lambda");
     const Eigen::MatrixXd Ld = g.mat("graph.L", N, N);
 
     std::cout << "\n=== windowed graph Fourier transform (Shuman, Ricaud & Vandergheynst 2016) ===\n";
     {
-        const gfb::Gain kernel = [](double l) { return std::exp(-0.8 * l); };
+        const gt::Gain kernel = [](double l) { return std::exp(-0.8 * l); };
         const Eigen::VectorXd f = g.vec("wgft.f");
-        const Eigen::MatrixXd S = gfb::wgft(t, kernel, f);
+        const Eigen::MatrixXd S = gt::wgft(t, kernel, f);
         const double e = (S - g.mat("wgft.S", N, N)).cwiseAbs().maxCoeff();
         EXPECT(S.rows() == N && S.cols() == N && e < 1e-12, "wgft: S f(i, k) == the paper's atoms M_k T_i g (numpy eigh): max error " + sci(e));
-        const Eigen::VectorXd back = gfb::iwgft(t, kernel, S);
+        const Eigen::VectorXd back = gt::iwgft(t, kernel, S);
         const double eb = (back - g.vec("wgft.back")).cwiseAbs().maxCoeff(), er = (back - f).cwiseAbs().maxCoeff();
         EXPECT(eb < 1e-12 && er < 1e-10, "iwgft: the synthesis equals the reference's (" + sci(eb) + ") and recovers the signal (" + sci(er) + ")");
-        gfb::EigenTransform withMass = t; withMass.mass = Eigen::SparseMatrix<double>(N, N); withMass.mass.setIdentity();
-        EXPECT(throws([&] { gfb::wgft(withMass, kernel, f); }), "wgft: a non-identity mass is refused");
-        EXPECT(throws([&] { gfb::wgft(t, kernel, Eigen::VectorXd::Zero(N - 1)); }), "wgft: a signal of the wrong length is refused");
+        gt::EigenTransform withMass = t; withMass.mass = Eigen::SparseMatrix<double>(N, N); withMass.mass.setIdentity();
+        EXPECT(throws([&] { gt::wgft(withMass, kernel, f); }), "wgft: a non-identity mass is refused");
+        EXPECT(throws([&] { gt::wgft(t, kernel, Eigen::VectorXd::Zero(N - 1)); }), "wgft: a signal of the wrong length is refused");
     }
     std::cout << "=== jft / ijft (GSPBox: graph Fourier transform, unitary DFT over time) ===\n";
     {
@@ -62,7 +64,7 @@ int main() {
         const Eigen::VectorXd lam = t.lambda;
         for (int m = 0; m < ob.bank.size(); ++m) {
             const auto& gain = ob.bank.members[m].gain;
-            const Eigen::VectorXd poly = ob.transform.apply(gain, Eigen::MatrixXd(f)).col(0);
+            const Eigen::VectorXd poly = gt::chebyshev(ob.transform, gain, Eigen::MatrixXd(f)).col(0);
             Eigen::VectorXd c = t.phi.transpose() * f;
             for (int k = 0; k < c.size(); ++k) c(k) *= gain(lam(k));
             worst = std::max(worst, (poly - t.phi * c).cwiseAbs().maxCoeff());

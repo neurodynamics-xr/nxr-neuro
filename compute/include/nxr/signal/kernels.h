@@ -9,6 +9,7 @@
 // (jointbank::LagKernel) and says why. The propagators are the CONTINUUM forms; the Chebyshev-angle form is the named Variant::Chebyshev.
 // The ambiguities found in Rheome's definitions and how they were ruled are in docs/specs/2026-11-10-filterbanks.md (§ kernels: RESOLVED).
 #include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/graphtransforms.h"
 #include <Eigen/Dense>
 #include <complex>
 #include <vector>
@@ -91,6 +92,6 @@ struct Scatter {
 std::vector<bool> lowPass(const signal::graphfilterbank::GraphFilterbank& bank);
 /** |W| cascaded through the bank in the exact eigenbasis, then pooled. The second member must be coarser (smaller centre wavenumber); the low-pass takes no part. `order` 1 or 2. `pool` [n × nR]: pooling weights (empty: the mass-weighted global mean).
  *  F real or complex ([n × nT]; complex is the strongly preferred input: |·| of a real graph-wavelet coefficient rectifies it). */
-Scatter scatter(const signal::graphfilterbank::GraphFilterbank& bank, const signal::graphfilterbank::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& pool = MatrixXd());
+Scatter scatter(const signal::graphfilterbank::GraphFilterbank& bank, const signal::graphtransforms::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& pool = MatrixXd());
 
 }  // namespace nxr::signal

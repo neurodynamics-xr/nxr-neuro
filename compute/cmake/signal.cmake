@@ -14,6 +14,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/forms.cpp
   src/signal/fourier.cpp
   src/signal/graphfilterbank.cpp
+  src/signal/graphtransforms.cpp
   src/signal/graphfilterbank_operator.cpp
   src/signal/graphwavelet.cpp
   src/signal/istft.cpp

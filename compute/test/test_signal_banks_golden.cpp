@@ -3,6 +3,7 @@
 #include "golden_hash.h"
 #include "signal_banks_inputs.h"
 #include "nxr/signal/wavelet.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/signal/graphwavelet.h"
 #include "nxr/signal/jointwavelet.h"
 #include "nxr/measurement/band_energy.h"
@@ -71,7 +72,7 @@ int main() {
         w.put(p + "synth", nxr_sig::igwt(bank, g.T, W)); w.put(p + "synthTight", nxr_sig::igwt(bank, g.T, W, fb::Synthesis::Tight));
         w.put(p + "scaleEnergy", ms::scaleEnergy(W)); w.put(p + "memberEnergy", ms::memberEnergy(W));
         w.put(p + "memberEnergyW", ms::memberEnergy(W, g.Md.diagonal()));
-        fb::ChebyshevOperator cheb(g.L, g.M, g.lam.maxCoeff() * 1.01, 40);
+        gt::ChebyshevOperator cheb(g.L, g.M, g.lam.maxCoeff() * 1.01, 40);
         const auto Wc = nxr_sig::gwt(bank, cheb, F); w.putAll(p + "cheb", Wc);
         w.put(p + "chebMember1", nxr_sig::gwt(bank, 1, cheb, F)); w.put(p + "chebSynth", nxr_sig::igwt(bank, cheb, Wc));
         w.put(p + "framebounds", Eigen::MatrixXd((Eigen::VectorXd(4) << fb::framebounds(bank, g.lam).A, fb::framebounds(bank, g.lam).B, fb::framebounds(bank, g.lam).tightness, fb::framebounds(bank, g.lam).uncovered).finished()));
@@ -82,7 +83,7 @@ int main() {
         const MatrixXcd Fc = F.cast<std::complex<double>>() + std::complex<double>(0, 1) * noise(g.n, 3, 12).cast<std::complex<double>>();
         const auto Wcx = nxr_sig::gwt(bank, g.T, Fc); w.putAll(p + "eigenC", Wcx); w.put(p + "synthC", nxr_sig::igwt(bank, g.T, Wcx)); w.put(p + "memberEnergyC", ms::memberEnergy(Wcx));
     }
-    { const auto c = fb::chebyshevCoefficients([](double l) { return std::exp(-0.3 * l); }, 5.0, 20); w.put("gb.chebCoef", c); w.put("gb.chebEval", fb::chebyshevEval(c, 5.0, 1.7)); }
+    { const auto c = gt::chebyshevCoefficients([](double l) { return std::exp(-0.3 * l); }, 5.0, 20); w.put("gb.chebCoef", c); w.put("gb.chebEval", gt::chebyshevEval(c, 5.0, 1.7)); }
     // the joint bank
     {
         const Graph g2 = pathGraph(12); const auto gbank = graphBank(g2);
@@ -92,7 +93,7 @@ int main() {
         const auto Wj = nxr_sig::jwt(jbank, g2.lam, Cm); w.putAll("jb.modes", Wj);
         w.put("jb.synth", nxr_sig::ijwt(jbank, g2.lam, Wj, 50)); w.put("jb.scalogram", ms::memberTotals(Wj));
         const MatrixXd Fj = noise(12, 50, 22); const auto We = nxr_sig::jwt(jbank, g2.T, Fj); w.putAll("jb.eigen", We); w.put("jb.eigenSynth", nxr_sig::ijwt(jbank, g2.T, We, 50));
-        fb::ChebyshevOperator cheb(g2.L, g2.M, g2.lam.maxCoeff() * 1.01, 40);
+        gt::ChebyshevOperator cheb(g2.L, g2.M, g2.lam.maxCoeff() * 1.01, 40);
         const auto Wch = nxr_sig::jwt(jbank, cheb, Fj); w.putAll("jb.cheb", Wch); w.put("jb.chebSynth", nxr_sig::ijwt(jbank, cheb, Wch, 50));
         const MatrixXcd Cspec = MatrixXcd::Random(12, (long)tbk.nfft / 2 + 1);
         const auto Y = nxr_sig::jwtSpectrum(jbank, g2.lam, Cspec); w.putAll("jb.Y", Y); w.put("jb.synthSpectrum", nxr_sig::ijwtSpectrum(jbank, g2.lam, Y)); w.put("jb.synthSpectrumTight", nxr_sig::ijwtSpectrum(jbank, g2.lam, Y, fb::Synthesis::Tight));

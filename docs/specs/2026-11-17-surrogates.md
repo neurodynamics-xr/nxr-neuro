@@ -45,7 +45,7 @@ and keeps its name.
 | `standardNormalAt(seed, stream, index)` | `normalAt` | one standard normal of a counter-based generator (splitmix64, Box-Muller): the same value however samples are cut into blocks |
 | `whiteNoiseBlock(seed, rows, first, n)` | `whiteBlock` | [rows x n] standard normals, column j the sample `first + j` |
 | `spectrumShapingTaps(freq, psd, fs, half)` | `shapingTaps` | zero-phase, Hann-windowed, unit-energy taps whose amplitude response follows √psd |
-| `convolveValid(white, taps)` | `filterValid` | the taps along the columns, the valid part |
+| `convolveValid(white, taps)` | `conv` (nxr::core; decided 2026-11-18) | the taps along the columns, the valid part |
 | `symmetricSquareRoot(A)` | `sqrtPsd` | √A of a symmetric positive semi-definite matrix (negative eigenvalues clipped; Rheome `pairsqrt`) |
 | `shapedNoiseBlock(taps, seed, rows, first, n, scale)` | (new) | the UNMIXED draw: white → taps → per-sample scale |
 | `lagfreeBlock(mixing, taps, seed, first, n, scale)` | `lagfreeBlock` | the mixed draw, `mixing · shapedNoiseBlock(…)` (kept: the reference form the equivalence is tested against) |

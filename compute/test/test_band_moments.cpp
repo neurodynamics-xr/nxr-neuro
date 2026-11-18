@@ -30,9 +30,12 @@
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/graphtransforms.h"
 #include "surface_of.h"
 
 namespace fb = nxr::signal::graphfilterbank;
+
+namespace gt = nxr::signal::graphtransforms;
 using C = std::complex<double>;
 
 int main() {
@@ -47,7 +50,7 @@ int main() {
   // the full eigenbasis, mass-orthonormal (dense: a small mesh)
   const Eigen::MatrixXd Kd(K), Md(M);
   Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Kd, Md);
-  fb::EigenTransform t{es.eigenvectors(), es.eigenvalues().cwiseMax(0.0), M};
+  gt::EigenTransform t{es.eigenvectors(), es.eigenvalues().cwiseMax(0.0), M};
   const Eigen::VectorXd area = M.diagonal();
   double total_area = area.sum();
   // a complex field, 3 columns: noise, a pattern with no lags (real times e^{i 0.7}), a travelling pattern (phase along x)
@@ -60,7 +63,7 @@ int main() {
     X(v, 1) = std::polar(std::cos(40 * z) + 0.3 * x * 20, 0.7);
     X(v, 2) = std::polar(1.0, 60 * x);
   }
-  const Eigen::MatrixXcd c = fb::gft(t, X);
+  const Eigen::MatrixXcd c = gt::gft(t, X);
   const fb::GraphFilterbank meyer = fb::weyl(total_area, 6);
   fb::Range rg; rg.lmax = t.lambda.maxCoeff(); rg.lmin = t.lambda(1);
   fb::DesignOptions o; o.numFilters = 5;

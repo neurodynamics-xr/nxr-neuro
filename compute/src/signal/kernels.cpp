@@ -1,5 +1,6 @@
 // nxr::signal — see include/nxr/spacetime_kernels.h. Ported from rheome/+rheome/+filters.
 #include "nxr/signal/kernels.h"
+#include "nxr/signal/graphtransforms.h"
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -235,7 +236,7 @@ std::vector<bool> lowPass(const signal::graphfilterbank::GraphFilterbank& bank) 
     return low;
 }
 
-Scatter scatter(const signal::graphfilterbank::GraphFilterbank& bank, const signal::graphfilterbank::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& poolIn) {
+Scatter scatter(const signal::graphfilterbank::GraphFilterbank& bank, const signal::graphtransforms::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& poolIn) {
     if (order != 1 && order != 2) throw std::invalid_argument("scatter: order is 1 or 2");
     const Eigen::Index nV = t.phi.rows(), nT = F.cols();
     if (F.rows() != nV) throw std::invalid_argument("scatter: F must have one row per vertex of the basis");

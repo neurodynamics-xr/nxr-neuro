@@ -1,5 +1,6 @@
 // nxr::signal::timefilterbank — see include/nxr/timebank.h and docs/specs/2026-11-10-filterbanks.md.
 #include "nxr/signal/timefilterbank.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/signal/filters_fir.h"
 #include "nxr/stats/bandwidth.h"
 #include <algorithm>
@@ -12,6 +13,7 @@ using Eigen::MatrixXcd;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 namespace fb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
 static constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
 static constexpr double kPi = 3.14159265358979323846;
 
@@ -191,7 +193,7 @@ TimeFilterbank design(const Design& d, std::size_t nfft, double fs) {
         const std::vector<double> edges = d.edges.empty() ? windowEdges(nfft, fs, d.limits) : d.edges;
         const fb::GraphFilterbank dy = fb::dyadic(edges, d.halfWidth);
         for (const auto& m : dy.members) {
-            const fb::Gain g = m.gain;
+            const gt::Gain g = m.gain;
             auto onAbs = [g, sc](double af) { return sc * g(af); };
             const double lo = m.lo, hi = m.hi;
             if (m.role == fb::Role::Scaling) addLow(Role::Scaling, 0.0, hi, onAbs);

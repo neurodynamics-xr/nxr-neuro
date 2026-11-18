@@ -3,6 +3,7 @@
 #include "../golden_hash.h"
 #include "../signal_banks_inputs.h"
 #include "nxr/signal/wavelet.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/signal/spectral.h"
 #include "nxr/synthesis/lagfree.h"
 #include <iostream>
@@ -63,7 +64,7 @@ int main(int argc, char** argv) {
         w.put(p + "synth", fb::igwt(bank, g.T, W)); w.put(p + "synthTight", fb::igwt(bank, g.T, W, fb::Synthesis::Tight));
         w.put(p + "scaleEnergy", fb::scaleEnergy(W)); w.put(p + "memberEnergy", fb::memberEnergy(W));
         w.put(p + "memberEnergyW", fb::memberEnergy(W, g.Md.diagonal()));
-        fb::ChebyshevOperator cheb(g.L, g.M, g.lam.maxCoeff() * 1.01, 40);
+        gt::ChebyshevOperator cheb(g.L, g.M, g.lam.maxCoeff() * 1.01, 40);
         const auto Wc = fb::analysis(bank, cheb, F); w.putAll(p + "cheb", Wc);
         w.put(p + "chebMember1", fb::analysisMember(bank, 1, cheb, F)); w.put(p + "chebSynth", fb::igwt(bank, cheb, Wc));
         w.put(p + "framebounds", Eigen::MatrixXd((Eigen::VectorXd(4) << fb::framebounds(bank, g.lam).A, fb::framebounds(bank, g.lam).B, fb::framebounds(bank, g.lam).tightness, fb::framebounds(bank, g.lam).uncovered).finished()));
@@ -74,7 +75,7 @@ int main(int argc, char** argv) {
         const MatrixXcd Fc = F.cast<std::complex<double>>() + std::complex<double>(0, 1) * noise(g.n, 3, 12).cast<std::complex<double>>();
         const auto Wcx = fb::analysis(bank, g.T, Fc); w.putAll(p + "eigenC", Wcx); w.put(p + "synthC", fb::igwt(bank, g.T, Wcx)); w.put(p + "memberEnergyC", fb::memberEnergy(Wcx));
     }
-    { const auto c = fb::chebyshevCoefficients([](double l) { return std::exp(-0.3 * l); }, 5.0, 20); w.put("gb.chebCoef", c); w.put("gb.chebEval", fb::chebyshevEval(c, 5.0, 1.7)); }
+    { const auto c = gt::chebyshevCoefficients([](double l) { return std::exp(-0.3 * l); }, 5.0, 20); w.put("gb.chebCoef", c); w.put("gb.chebEval", gt::chebyshevEval(c, 5.0, 1.7)); }
     // the joint bank
     {
         const Graph g2 = pathGraph(12); const auto gbank = graphBank(g2);
@@ -84,7 +85,7 @@ int main(int argc, char** argv) {
         const auto Wj = jb::analysis(jbank, g2.lam, Cm); w.putAll("jb.modes", Wj);
         w.put("jb.synth", jb::synthesis(jbank, g2.lam, Wj, 50)); w.put("jb.scalogram", jb::scalogram(Wj));
         const MatrixXd Fj = noise(12, 50, 22); const auto We = jb::analysis(jbank, g2.T, Fj); w.putAll("jb.eigen", We); w.put("jb.eigenSynth", jb::synthesis(jbank, g2.T, We, 50));
-        fb::ChebyshevOperator cheb(g2.L, g2.M, g2.lam.maxCoeff() * 1.01, 40);
+        gt::ChebyshevOperator cheb(g2.L, g2.M, g2.lam.maxCoeff() * 1.01, 40);
         const auto Wch = jb::analysis(jbank, cheb, Fj); w.putAll("jb.cheb", Wch); w.put("jb.chebSynth", jb::synthesis(jbank, cheb, Wch, 50));
         const MatrixXcd Cspec = MatrixXcd::Random(12, (long)tbk.nfft / 2 + 1);
         const auto Y = jb::analysisSpectrum(jbank, g2.lam, Cspec); w.putAll("jb.Y", Y); w.put("jb.synthSpectrum", jb::synthesisSpectrum(jbank, g2.lam, Y)); w.put("jb.synthSpectrumTight", jb::synthesisSpectrum(jbank, g2.lam, Y, fb::Synthesis::Tight));
