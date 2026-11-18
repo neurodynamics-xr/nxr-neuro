@@ -24,6 +24,7 @@ target_sources(nxr_compute PRIVATE
   src/operators/sphere_registration.cpp
   src/operators/spin_dirac.cpp
   src/operators/vector_field.cpp
+  src/operators/weak_forms.cpp
 )
 
 # Treat an unhandled enumerator in a no-default switch as an error for the
@@ -44,6 +45,10 @@ set_source_files_properties(src/geometry/glue.cpp PROPERTIES COMPILE_OPTIONS "-f
 set_property(SOURCE src/geometry/intrinsic_surface.cpp APPEND PROPERTY COMPILE_DEFINITIONS NXR_GEOMETRY_CENTRAL_COMMIT="${NXR_GC_COMMIT}")
 
 if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
+  add_executable(test_integrals test/test_integrals.cpp)
+  target_link_libraries(test_integrals PRIVATE nxr_compute)
+  target_compile_definitions(test_integrals PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_integrals COMMAND test_integrals)
   add_executable(test_eigen test/test_eigen.cpp)
   target_link_libraries(test_eigen PRIVATE nxr_compute)
   add_test(NAME test_eigen COMMAND test_eigen)

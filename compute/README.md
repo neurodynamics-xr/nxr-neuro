@@ -344,7 +344,7 @@ The toolboxes (ARCHITECTURE.md, "The toolboxes"; namespace `nxr::<toolbox>`, fun
 | `meeg` | `connectome` and `montage` (still compiled here under `nxr/meeg/`: they use the sphere-registration operator); the rest of meeg is the `nxr_meeg` library (`../meeg/`) |
 
 The includes between toolboxes run one way, checked by the test `layering_toolboxes_follow_the_dag` (`cmake/check_toolboxes.cmake`).
-Top-level headers still present until the behaviour batch deletes them: `pyramid.h`, `rotary.h`, `integrals.h`, `region.h`.
+Top-level headers still present until the behaviour batch deletes them: `pyramid.h`, `rotary.h` (`integrals.h` and `region.h` are gone: the tile flux and circulation are `operators/weak_forms.h` summed over a tile by `measurement::reduce`).
 
 ## Distribution channels
 

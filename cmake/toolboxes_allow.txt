@@ -1,14 +1,12 @@
 # The toolbox guard's allowance (cmake/check_toolboxes.cmake; ARCHITECTURE.md, "The toolboxes").
-# :top lines: headers that stay at the top of compute/include/nxr/ until the behaviour batch deletes them (the plan's removed list: pyramid, rotary, integrals, region).
+# :top lines: headers that stay at the top of compute/include/nxr/ until the behaviour batch deletes them (the plan's removed list: pyramid, rotary).
 # edge lines: includes that run against the toolbox DAG and predate the cut, with their count; the count may only fall.
 #   geometry operators: a Manifold owns its operator caches (mesh.h, facets.h, ... name DECOperators, CholeskyCache, ManifoldOperators)
 #   geometry synthesis / signal / select: the Manifold's convenience members and the frames of a field call the generators, the optical-flow gauge and the ladder
 #   operators synthesis / signal / measurement: the Hodge solve uses the field generators, the surface calculus (whitney) and the mode power
 #   select signal: the dyadic ladder's frame transport
-:top integrals.h
 :top rotary.h
 :top pyramid.h
-:top region.h
 edge geometry operators 81
 edge geometry select 1
 edge geometry signal 4
