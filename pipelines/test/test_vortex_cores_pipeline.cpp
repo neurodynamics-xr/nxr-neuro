@@ -639,14 +639,8 @@ int main() {
       const StoredStatistic CS = read_statistic(sub, "rest_crossspectrum");
       std::printf("  the PSD's channel mean: [%lld frequencies x %lld member] (the PSD has %lld channels)\n", static_cast<long long>(pmv.rows), static_cast<long long>(pmv.members), static_cast<long long>(P.shape[0]));
       CHECK(pmv.rows == P.shape[1] && pmv.members == 1 && pmv.array_backed && CS.shape.size() >= 2);
-      // the cross-spectrum's channels as stored (its channel axis is a pick of the PSD's channels): read as the runner reads them
-      std::vector<std::int32_t> in_pick;
-      for (const auto& ax : CS.axes)
-        if (ax.contains("selection_id") && ax.value("name", std::string()) == "channel") {
-          const auto sel = sub.db().read("selection", ax["selection_id"].get<std::string>());
-          if (sel && !is_null(*sel, "array_path")) { const nxr::io::ArrayReader ar = nxr::io::ArrayReader::open(sub.store(), text(*sel, "array_path")); const auto raw = ar.read(); in_pick.resize(raw.size() / 4); std::memcpy(in_pick.data(), raw.data(), raw.size()); }
-          break;
-        }
+      // the cross-spectrum's channels as stored (its channel axis is a pick of the PSD's channels)
+      std::vector<std::int32_t> in_pick = crossspectrum_read(sub, "rest_crossspectrum").channels;
       const std::int64_t nf = P.shape[1], nch = P.shape[0];
       if (in_pick.empty()) for (std::int64_t c = 0; c < nch; ++c) in_pick.push_back(static_cast<std::int32_t>(c));
       double worst = 0;
