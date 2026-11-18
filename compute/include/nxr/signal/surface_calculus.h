@@ -32,6 +32,12 @@ struct IsolineResult {
     int segmentCount;
 };
 
+/** How the edge crossings are found; both give the same segments (the same crossing points), in a different order.
+ *    PerTriangle (DEFAULT): the Studio's isoline.ts, face by face, every level: one pass over the faces (timed on a 164k-vertex mesh: test_isoline_methods).
+ *    MarchingTriangles: geometry-central's marchingTriangles, level by level, the segments in the order of the curves (its pass grows faster than linearly
+ *    in a level's crossings). */
+enum class IsolineMethod { PerTriangle, MarchingTriangles };
+
 /** Extract isoline (contours) from a per-vertex scalar field.
  *  numLevels evenly-spaced contour values in [minValue, maxValue].
  *  If minValue == maxValue, auto-detects range from the data. */
@@ -40,7 +46,8 @@ IsolineResult isoline(
     const Eigen::VectorXd& scalarField,
     int numLevels = 20,
     double minValue = 0.0,
-    double maxValue = 0.0
+    double maxValue = 0.0,
+    IsolineMethod method = IsolineMethod::PerTriangle
 );
 
 // ── Streamlines ──────────────────────────────────────────────
