@@ -66,12 +66,27 @@ int main() {
     CHECK(node.has_value() && node->n_members == 7 && node->n_elements == nV);
   }
   // a measure's value for a member, read through the one query (an ingredient as stored, a derived measure from its ingredients)
+  // (the values are array-backed: [rows x members] a measure, read by the measurement's key; the members' own sizes (area, n_elements) are stored beside the field's measures, so asked of the first field)
   auto value = [&](const std::string& fid, int code, const std::string& m) {
-    Json q = Json{{"selectionId", sid}, {"measure", m}};
-    if (!fid.empty()) q["ofFieldId"] = fid;
-    const Json r = query_measurements(sub.db(), sub.store(), q);
-    for (const auto& row : r) if (row["code"].get<std::int64_t>() == code) return row["value"].get<double>();
-    return std::nan("");
+    const std::string of = fid.empty() ? xid : fid;
+    try {
+      const MeasurementValues v = measurement_values(sub, sid, of, std::nullopt, std::nullopt, m);
+      return code >= 0 && code < v.members && v.rows >= 1 ? v.values[static_cast<std::size_t>(code)] : std::nan("");
+    } catch (const Error&) {
+      try {
+        const MeasurementValues v = derived_measurement_values(sub, sid, of, std::nullopt, std::nullopt, m);
+        return code >= 0 && code < v.members && v.rows >= 1 ? v.values[static_cast<std::size_t>(code)] : std::nan("");
+      } catch (const Error&) { return std::nan(""); }
+    }
+  };
+  // a measure's values of a field as [{code, value}], a stored one as stored, a derived one from its stored ingredients (empty when there is none)
+  auto rows_of = [&](const std::string& m, const std::string& fid) {
+    Json out = Json::array();
+    MeasurementValues v;
+    try { v = measurement_values(sub, sid, fid, std::nullopt, std::nullopt, m); }
+    catch (const Error&) { try { v = derived_measurement_values(sub, sid, fid, std::nullopt, std::nullopt, m); } catch (const Error&) { return out; } }
+    for (std::int64_t k = 0; k < v.members; ++k) out.push_back(Json{{"code", k}, {"value", v.values[static_cast<std::size_t>(k)]}});
+    return out;
   };
   // the measure definition on one Field of the labelling, the weight stated; the report says whether it was a cache hit
   auto run = [&](const std::string& field, const std::string& weight, const std::vector<std::string>& measures, bool replace) {
@@ -130,7 +145,7 @@ int main() {
   {
     double worst = 0;
     for (const char* m : {"shape_factor", "impulse_factor", "clearance_factor"}) {
-      const Json q = query_measurements(sub.db(), sub.store(), Json{{"selectionId", sid}, {"measure", m}, {"ofFieldId", xid}});
+      const Json q = rows_of(m, xid);
       CHECK(q.size() == 7);
       for (const auto& row : q) {
         const int k = static_cast<int>(row["code"].get<std::int64_t>());
@@ -144,7 +159,7 @@ int main() {
     CHECK(worst < 1e-9);
     double wm = 0, wd = 0;
     for (const char* m : {"skewness", "kurtosis", "median"}) {
-      const Json q = query_measurements(sub.db(), sub.store(), Json{{"selectionId", sid}, {"measure", m}, {"ofFieldId", xid}});
+      const Json q = rows_of(m, xid);
       CHECK(q.size() == 7);
       for (const auto& row : q) {
         const int k = static_cast<int>(row["code"].get<std::int64_t>());
@@ -161,10 +176,10 @@ int main() {
   }
   {   // the lookup derives sd from the stored mean and mean_square: zero for the constant, positive for the map
     run("map_x", "barycentric", basic, true);
-    const Json sd = query_measurements(sub.db(), sub.store(), Json{{"selectionId", sid}, {"measure", "sd"}, {"ofFieldId", cid}});
+    const Json sd = rows_of("sd", cid);
     CHECK(sd.is_array() && sd.size() == 7);
     for (const auto& row : sd) CHECK(std::abs(row["value"].get<double>()) < 1e-6);
-    const Json sdx = query_measurements(sub.db(), sub.store(), Json{{"selectionId", sid}, {"measure", "sd"}, {"ofFieldId", xid}});
+    const Json sdx = rows_of("sd", xid);
     CHECK(sdx.size() == 7 && sdx[0]["value"].get<double>() > 0);
   }
   // refusals: an unstated weight, a labelling that does not exist, a field that does not exist

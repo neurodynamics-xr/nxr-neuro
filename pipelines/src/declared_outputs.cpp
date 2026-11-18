@@ -118,9 +118,31 @@ std::string link_first(const Plan& P, const std::string& ref, const MadeIds* mad
   if (made) bad(where, "none of the alternatives '" + ref + "' is made or found");
   return "";
 }
+// a manifold of the dataset's DEFAULT subject by name (`default.Frequency`, `default.Eigenvalue`): the shared lines (rule 25, as nxr). A band set lies on the dataset's line, in the subject that owns it.
+bool is_default_link(const std::string& ref) { return ref.rfind("default.", 0) == 0; }
+// the output's `on` as written, with the names its node's plan fixed (`default.{line}`: the line its rule lies on)
+std::string on_named(const Plan& P, const std::string& o, std::string t) {
+  if (P.values.count(o) && P.values.at(o).facts.contains("names"))
+    for (const auto& [k, v] : P.values.at(o).facts["names"].items())
+      for (std::size_t at; (at = t.find("{" + k + "}")) != std::string::npos;) t.replace(at, k.size() + 2, v.get<std::string>());
+  return t;
+}
+std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& ref) {
+  const std::string name = ref.substr(8);
+  if (const auto tpl = sub.dataset().template_()) {
+    task::Want w{.cls = task::Cls::manifold};
+    w.name = name;
+    if (const auto m = task::Subject::of(sub.dataset(), text(*tpl, "id")).find(w)) return m->id;
+  }
+  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": the dataset's default subject has no manifold '" + name + "' (the shared line a band set lies on)");
+}
 std::string link(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where) {
   if (ref.find('|') != std::string::npos) return link_first(P, ref, made, where);
   if (made && made->count(ref)) return made->at(ref);
+  if (is_default_link(ref)) {
+    if (made) bad(where, "'" + ref + "' is a manifold of the default subject: resolved when the output is stored");
+    return "";
+  }
   if (P.definition.outputs.contains(ref) && !P.found.count(ref)) {
     if (made) bad(where, "'" + ref + "' is an output not made yet (manifolds are made first; list the others after what they lie on)");
     return "";                                                                // at plan time: an output of this definition, made in the unit
@@ -389,7 +411,8 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
     // on a manifold this run makes (a frequency line made with it): it has no place before that manifold is stored, and the store order puts the
     // manifold first, so it is checked there (a new manifold has no node to collide with)
     const bool on_made_here = spec.contains("on") && spec["on"].is_string() && P.definition.outputs.contains(spec["on"].get<std::string>());
-    if (!on_made_here) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
+    if (spec.contains("on") && spec["on"].is_string() && is_default_link(spec["on"].get<std::string>())) out.emplace_back(task::Cls::selection, ts.node_path(default_manifold_id(sub, on_named(P, o, spec["on"].get<std::string>())), name));
+    else if (!on_made_here) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
     else if (const auto id = ts.manifold_named(declared_name(P, spec["on"].get<std::string>()))) out.emplace_back(task::Cls::selection, ts.node_path(*id, name));   // the manifold is stored already (a re-run): its place is known, so a re-run is a hit
   }
   return out;
@@ -422,6 +445,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (there) replaced = true;
   };
   Json report = Json{{"output", o}, {"kind", k}, {"name", name}};
+  if (spec.contains("on") && spec["on"].is_string() && is_default_link(spec["on"].get<std::string>()) && !made.count(spec["on"].get<std::string>()))
+    made[spec["on"].get<std::string>()] = default_manifold_id(sub, on_named(P, o, spec["on"].get<std::string>()));
 
   if (k == "manifold") {
     const std::string t = spec["type"].get<std::string>();
@@ -840,7 +865,17 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       else bad(o, "axis " + decl["name"].get<std::string>() + ": selection " + so + " is neither an output stored before it (list it first) nor an input found");
       for (const char* key : {"members", "values"}) if (ax.contains(key)) out[key] = ax[key];
     } else if (decl.contains("on")) {
-      out["manifold_id"] = link(P, decl["on"].get<std::string>(), &made, o);
+      const std::string axis_manifold = link(P, decl["on"].get<std::string>(), &made, o);
+      // an axis of PARTS of each element of the manifold it is linked to (the fused Hodge-Dirac weights: per mode, its normal-current and its flow part): the rows run part-major, size = parts x elements.
+      // An axis names what it runs along by ONE of manifold_id | values (io's rule): its own entries (a part and a mode each) carry the stored mode axis they are of; an axis with none is that manifold's
+      if (ax.contains("values") && ax["values"].is_array()) {
+        Json vals = ax["values"];
+        for (auto& v : vals) if (v.is_object()) v["manifold_id"] = axis_manifold;
+        out["values"] = vals;
+      } else {
+        out["manifold_id"] = axis_manifold;
+      }
+      if (decl.contains("parts")) out["parts"] = decl["parts"];
     } else if (decl.contains("line")) {
       if (!ax.contains("line")) bad(o, "axis " + decl["name"].get<std::string>() + " declares a line; its node describes none");
       const Json& l = ax["line"];

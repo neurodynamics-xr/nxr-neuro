@@ -15,6 +15,8 @@
 #include "nxr/io.h"
 #include "nxr/io/measurement_query.h"
 #include "nxr/io/rollup.h"
+#include "nxr/io/selection_store.h"
+#include "nxr/io/task/task.h"
 
 using namespace nxr::io;
 namespace fs = std::filesystem;
@@ -144,6 +146,39 @@ int main() {
   CHECK(fr.size() == 2 && near(fr.at(1), 7) && near(fr.at(2), 1));
   f.filter.subjects.clear(); f.filter.min_value = 4; f.filter.members = {0, 1, 2, 3};
   CHECK(query::members(db, f).size() == 2 + 1);                 // S1: 4 (code 2); S2: 7 (code 1), 8 (code 3)
+  // VALUE FILTERS on the (rolled-up) value, alone: S1's values are 3 1 4 1 5 9 2 6, rolled one level up 4 5 14 8
+  {
+    query::Query vf;
+    vf.measure = "sum"; vf.filter.subjects = {"S1"};
+    vf.filter.min_value = 4;
+    CHECK(rows_of(vf).size() == 4);                             // 4, 5, 9, 6
+    vf.filter.min_value.reset(); vf.filter.max_value = 2;
+    CHECK(rows_of(vf).size() == 3);                             // 1, 1, 2 (inclusive)
+    vf.filter.min_value = 2; vf.filter.max_value = 5;
+    CHECK(rows_of(vf).size() == 4);                             // 3, 4, 5, 2
+    vf.filter.min_value = 5; vf.filter.max_value.reset(); vf.roll.shift = 1;
+    const auto up = rows_of(vf);
+    CHECK(up.size() == 3 && up.count(1) && up.count(2) && up.count(3) && !up.count(0));   // the filter reads the ROLLED value: 5, 14, 8 (not 4)
+    vf.filter.min_value.reset(); vf.filter.max_value = 5;
+    CHECK(rows_of(vf).size() == 2);                             // 4, 5
+    vf.filter.min_value = 100;
+    CHECK(rows_of(vf).empty());
+  }
+  // A GRID'S LEVELS in physical units (Subject::grid_levels): the line's time grid has one level a power of two of samples, its tile in seconds (the line: 100 samples at 100 Hz)
+  {
+    SubjectWriter sub = SubjectWriter::open(ds, "S1");
+    std::string grid;
+    sub.compose([&] {
+      const auto line = sub.db().one("SELECT id FROM manifold WHERE subject_id = ? AND name = 'line'", {sub.id()});
+      CHECK(line.has_value());
+      grid = selection::save_time_grid(sub, text(*line, "id"), selection::TimeGridRule{0.0, 100.0, 100}, std::nullopt).id;
+    });
+    const Json lv = task::Subject::of(sub).grid_levels(grid);
+    CHECK(lv.is_array() && lv.size() == 7);                     // 2^0 .. 2^6 samples (2^7 = 128 does not fit 100)
+    for (std::size_t k = 0; k < lv.size(); ++k)
+      CHECK(lv[k]["level"].get<int>() == static_cast<int>(k) && near(lv[k]["measurement"].get<double>(), static_cast<double>(std::int64_t(1) << k) / 100.0) && lv[k]["unit"] == "s");
+    CHECK(task::Subject::of(sub).grid_levels(s1).is_array() && task::Subject::of(sub).grid_levels(s1).empty());   // a tiling of spans is no grid with levels
+  }
   // by LEVEL IN PHYSICAL UNITS: the tiles are 0.125 s long
   query::Query lv;
   lv.measure = "sum";

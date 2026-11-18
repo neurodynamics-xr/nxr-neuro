@@ -34,4 +34,4 @@ steps:
     - {node: select.bands, in: {grid: grid}, with: {rule: $rule, bands: $bands}, out: bank}
 
 outputs:
-  bank: {kind: selection, type: spans, name: $name}
+  bank: {kind: selection, type: spans, name: $name, on: "default.{line}"}

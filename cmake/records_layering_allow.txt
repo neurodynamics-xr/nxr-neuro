@@ -10,7 +10,6 @@ pipelines/src/runner.cpp
 pipelines/test/test_band_bursts.cpp
 pipelines/test/test_burst_extent.cpp
 pipelines/test/test_global_bursts.cpp
-pipelines/test/test_measure_pipeline.cpp
 pipelines/test/test_package_pipelines.cpp
 pipelines/test/test_registration.cpp
 pipelines/test/test_runner_execute.cpp

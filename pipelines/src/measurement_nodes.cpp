@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 
+#include "nxr/intrinsic_surface.h"
 #include "nxr/ladder.h"
 #include "nxr/measurement/estimate.h"
 #include "nxr/measurement/measures.h"
@@ -189,6 +190,19 @@ StepSpec outer_form() {
   return s;
 }
 
+// What a stored measurement is told by its node (declared_outputs.h, `describe`): [rows x members x components], one named column a component (a vector measure is stored as `<measure>_x/_y/_z`, as
+// the registry's phase_current_x ...), so io's one writer (Unit::measurements) lays each out the way the Studio's array-backed measurements are, found by the measurement's key.
+Json describe_measures(const Json& measures, std::int64_t R, std::int64_t T, std::int64_t C) {
+  Json cols = Json::array();
+  for (const auto& m : measures) {
+    const std::string name = m.value("measure", std::string());
+    const int k = m.value("components", 1);
+    if (k == 3) for (const char* ax : {"_x", "_y", "_z"}) cols.push_back(Json{{"measure", name + ax}});
+    else cols.push_back(Json{{"measure", name}});
+  }
+  return Json{{"measures", cols}, {"shape", Json::array({R, T, C})}, {"values_f32", false}};
+}
+
 // ── reduce ───────────────────────────────────────────────────────────────────────────────────────────────────────
 // The selection a reduction is over, read from the record of the stored selection (its params_json) or from the description of the one made earlier in the run (`ExecContext::made`,
 // the typed edge). One descriptor schema (written by select_nodes.cpp, read here):
@@ -200,6 +214,13 @@ StepSpec outer_form() {
 Json descriptor_of(const Value& over, const ExecContext& c, const std::string& port, const std::string& who) {
   if (over.row) {
     const Json pj = Json::parse(nxr::io::opt_text(*over.row, "params_json").value_or("{}"), nullptr, false);
+    if (!(pj.is_object() && (pj.contains("grid") || pj.contains("product"))) && !nxr::io::is_null(*over.row, "array_path") && !nxr::io::is_null(*over.row, "n_members"))   // a set or partition: a member number per element
+    {
+      Json d = Json{{"kind", "labelled"}, {"array_path", nxr::io::text(*over.row, "array_path")}, {"members", nxr::io::integer(*over.row, "n_members")}};
+      if (const auto m = nxr::io::is_null(*over.row, "manifold_id") ? std::nullopt : c.bound.manifold(nxr::io::text(*over.row, "manifold_id")))
+        if (nxr::io::text(*m, "type") == "surface") d["surface"] = nxr::io::text(*m, "name");     // the surface its elements are the vertices of (a weight by vertex area)
+      return d;
+    }
     need(pj.is_object() && (pj.contains("grid") || pj.contains("product")), who + ": the selection " + nxr::io::text(*over.row, "name") + " records no grid or product (params.grid / params.product)");
     return pj.contains("product") ? Json{{"kind", "product"}, {"factors", pj["product"]["factors"]}, {"layout", pj["product"].value("layout", std::string("product"))}, {"bits", pj["product"].value("bits", 0)}} : pj["grid"];
   }
@@ -234,6 +255,10 @@ Form form_of(const Json& d, std::int64_t line_samples, ExecContext& c, const std
     f.member_of = L.tile;
     f.members = L.nodes;
     f.size = S.n_vertices();
+  } else if (f.kind == "labelled") {                                      // a stored set / partition: the member number of every element (negative: in no member)
+    f.member_of = c.bound.array_int32(d["array_path"].get<std::string>());
+    f.members = d["members"].get<std::int64_t>();
+    f.size = static_cast<std::int64_t>(f.member_of.size());
   } else if (f.kind == "elements") {
     f.size = d.value("size", std::int64_t(0));
     f.members = f.size;
@@ -331,6 +356,7 @@ struct ReduceState {
   std::vector<Form> factors;                         // one (a grid) or several (a product, the FIRST fastest)
   std::vector<std::int64_t> radices;
   bool product = false;
+  bool static_map = false;                           // the field has no time axis: reduced once over the members of a space selection (Q2)
   ns::ProductForm product_form;
   std::vector<double> weights;
   double rate = 0, origin = 0;
@@ -358,14 +384,18 @@ StepSpec reduce_node() {
   s.traits = node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "ingredients accumulate in double (sums of float32 samples); the blocks arrive in time order");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     const Value& x = ins.at("x");
-    need(x.cls == "field" && x.time && x.chunked, "reduce: x must be a field on ... x time, inside the chunk loop (a measurement over a grid's members is `reduce.members`)");
+    need(x.cls == "field" && x.chunked, "reduce: x must be a field (a streamed one, or a map with no time axis), inside the chunk loop (a measurement over a grid's members is `reduce.members`)");
+    // Q2: a field with NO time axis (a map on a surface, a value per channel) is reduced over the members of a selection of its space, once: nothing streams, the map is the one block
+    need(x.time || ins.count("over"), "reduce: a field with no time axis is reduced over a selection of its space (`over`); with none there is no member to reduce to");
     need(!x.complex, "reduce: x is complex; reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current)");
     need(p["measures"].is_array() && !p["measures"].empty(), "reduce: measures is a list (no default: the caller's or the preset's), e.g. [mean, max]");
     for (const auto& m : p["measures"]) need(m.is_string(), "reduce: a measure is a name");
     need(p["bad_segments"] == "exclude" || p["bad_segments"] == "ignore", "reduce: bad_segments " + p["bad_segments"].dump() + ": exclude or ignore");
     need(p["weight"] == "none" || p["weight"] == "barycentric" || p["weight"] == "voronoi", "reduce: weight " + p["weight"].dump() + ": none, barycentric or voronoi");
+    for (const auto& m : p["measures"]) need(p["weight"] == "none" || (m != "median" && m != "mad"), "reduce: " + m.get<std::string>() + " is the member's own value and has no weighted form (weight none only)");
     if (ins.count("exclude")) {
       const Value& ex = ins.at("exclude");
+      need(x.time.has_value(), "reduce: exclude is a selection on x's time line, and x has none");
       need(ex.cls == "selection" && ex.manifolds[0] == *x.time, "reduce: exclude must be a selection on x's time line (" + *x.time + "), not on " + ex.manifolds[0]);
     }
     Value y = made(x);
@@ -386,10 +416,11 @@ StepSpec reduce_node() {
       } else {                                                               // a grid made earlier in the run: what its maker's port carries (select_nodes.cpp)
         for (const char* k : {"window_samples", "tiles", "width_s", "origin", "resolves_hz", "level"}) if (ov.facts.contains(k)) over[k] = ov.facts[k];
       }
-      if (gd.is_object() && gd.contains("width")) { over["window_samples"] = gd["width"]; over["tiles"] = gd["count"]; over["level"] = gd.value("level", -1); over["width_s"] = gd["width"].get<double>() / x.rate; over["origin"] = x.origin; }
+      if (gd.is_object() && gd.contains("width") && x.time) { over["window_samples"] = gd["width"]; over["tiles"] = gd["count"]; over["level"] = gd.value("level", -1); over["width_s"] = gd["width"].get<double>() / x.rate; over["origin"] = x.origin; }
       if (!band.is_null()) over["resolves_hz"] = Json{{"lo", band[0]}, {"hi", band[1]}};
       y.facts["over"] = over;
-      if (ov.row) y.manifolds = {ov.manifolds.empty() ? *x.time : ov.manifolds[0]};
+      if (ov.row) y.manifolds = {ov.manifolds.empty() ? (x.time ? *x.time : std::string()) : ov.manifolds[0]};
+      if (!x.time) y.rate = 0;
     } else {
       y.manifolds.erase(std::remove(y.manifolds.begin(), y.manifolds.end(), *x.time), y.manifolds.end());   // the run's span is the one member: the streamed factor goes
       y.time.reset();
@@ -404,9 +435,12 @@ StepSpec reduce_node() {
     st.req.measures = st.measures;
     st.req.weighting = p["weight"] == "none" ? nm::Weighting::none : nm::Weighting::given;
     st.rate = x.rate; st.origin = x.origin;
-    const auto line = c.bound.manifold(*x.time);
-    need(line.has_value(), "reduce: x's time line is not among the subject's rows");
-    const std::int64_t samples = nxr::io::integer(*line, "n_vertices");
+    std::int64_t samples = 0;                                              // a map has no time line: nothing streams
+    if (x.time) {
+      const auto line = c.bound.manifold(*x.time);
+      need(line.has_value(), "reduce: x's time line is not among the subject's rows");
+      samples = nxr::io::integer(*line, "n_vertices");
+    }
     if (!ins.count("over")) {
       st.factors.push_back(form_of(Json{{"kind", "span"}}, samples, c, "reduce"));
     } else {
@@ -438,14 +472,22 @@ StepSpec reduce_node() {
       }
     }
     if (!st.product) st.members = st.factors[0].members;
-    need(st.product || st.factors[0].kind == "time", "reduce: over a selection of space alone a streamed field is not reduced here (pointwise in time: a spatial grid x a time grid is a `select.product`); give the product with the time grid");
+    st.static_map = !x.time;
+    need(st.product || st.factors[0].kind == "time" || !x.time, "reduce: over a selection of space alone a streamed field is not reduced here (pointwise in time: a spatial grid x a time grid is a `select.product`); give the product with the time grid");
+    need(x.time || !st.product, "reduce: a map has no time axis: its selection is of its space alone, not a product with a time grid");
     if (p["weight"] != "none") {
       for (const auto& f : st.factors) {
-        if (f.kind != "dyadic") continue;
-        const std::string surface = (st.product ? st.over["factors"][static_cast<std::size_t>(&f - st.factors.data())] : st.over)["surface"].get<std::string>();
+        const Json& fd = st.product ? st.over["factors"][static_cast<std::size_t>(&f - st.factors.data())] : st.over;
+        if (f.kind != "dyadic" && !(f.kind == "labelled" && fd.contains("surface"))) continue;
+        const std::string surface = fd["surface"].get<std::string>();
         const nxr::pipelines::SurfaceInput S = c.bound.surface(surface, true);
-        nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
-        st.weights = nxr::ladder::vertexAreas(mesh);
+        if (p["weight"] == "voronoi") {                                      // the mixed Voronoi mass of the input triangulation (the Studio's, nxr's and Rheome's)
+          nxr::manifold::IntrinsicSurface isurf(S.vertices.data(), static_cast<int>(S.n_vertices()), S.faces.data(), static_cast<int>(S.faces.size() / 3));
+          st.weights = isurf.inputMixedVoronoiMass();
+        } else {
+          nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
+          st.weights = nxr::ladder::vertexAreas(mesh);
+        }
       }
       need(!st.weights.empty(), "reduce: weight " + p["weight"].dump() + " needs a member set of a surface grid to weight its vertices by");
     }
@@ -471,6 +513,18 @@ StepSpec reduce_node() {
     nm::Request req = st.req;
     req.per_row = !pooled_rows;
     const std::int64_t n = b.own();
+    if (st.static_map) {                                                   // THE MAP, ONE BLOCK: its elements are the rows of a one-sample block; folded by the members of their selection, the one reduction of compute
+      std::vector<float> run(static_cast<std::size_t>(elements));
+      ns::MemberOfElement m;
+      m.member_of = st.factors[0].member_of; m.members = st.factors[0].members;
+      need(static_cast<std::int64_t>(m.member_of.size()) == elements, "reduce: the selection has " + std::to_string(m.member_of.size()) + " elements, the map " + std::to_string(elements));
+      for (int comp = 0; comp < ncomp; ++comp) {
+        req.component = comp;
+        for (std::int64_t r = 0; r < elements; ++r) run[static_cast<std::size_t>(r)] = b.re[static_cast<std::size_t>((r * ncomp + comp) * b.width + b.left)];
+        nm::reduce(acc.ing, run.data(), 1, elements, m, st.weights.empty() ? nullptr : st.weights.data(), req);
+      }
+      return;
+    }
     auto good = [&](std::int64_t j) { return !(place.good && !place.good->empty() && !(*place.good)[static_cast<std::size_t>(j)]); };
     std::vector<float> run;                                               // [rows x samples] of one run of good samples, contiguous
     for (std::int64_t a = 0; a < n;) {
@@ -518,6 +572,7 @@ StepSpec reduce_node() {
     Json comps = Json::array();
     for (std::size_t k = 0; k < st.measures.size(); ++k) comps.push_back(Json{{"measure", st.measures[k]}, {"components", st.components[k]}});
     y.meta = Json{{"measures", comps}, {"members", T}, {"whole_members", whole}, {"over", st.over}, {"radices", st.radices}, {"rate", st.rate}, {"origin", st.origin}};
+    y.meta["describe"] = describe_measures(comps, R, T, C);
     // the ingredients, packed [rows x members x K] by the measurement module (what is stored, and what rolls up)
     Array g = pack_ingredients(acc.ing, R, T);
     g.meta = y.meta;
@@ -640,6 +695,7 @@ StepSpec roll_up_node() {
     const nm::Ingredients coarse = nm::roll_up(fine, groups, req);
     Array y = values_of(coarse, req, g.rows, groups.members());
     y.meta = Json{{"members", groups.members()}, {"rolled_to", to}, {"of", g.meta}, {"measures", g.meta.value("measures", Json::array())}};
+    { std::int64_t C = 0; for (const auto& m : y.meta["measures"]) C += m.value("components", 1); y.meta["describe"] = describe_measures(y.meta["measures"], y.rows, y.cols, C); }
     Array gi = pack_ingredients(coarse, g.rows, groups.members());
     gi.meta = y.meta;
     return Arrays{{"values", std::move(y)}, {"ingredients", std::move(gi)}};

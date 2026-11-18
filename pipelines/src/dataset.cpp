@@ -34,16 +34,13 @@ Json create_dataset_with_template(const std::filesystem::path& datastore, const 
                                     false, progress);
       out["default_subject"]["group_tree"] = runs.empty() ? Json() : runs.front();
     }
-    // the Levi-Civita connection between neighbouring tiles: a measurement over the product of a level with itself (rule 26), one per stated scale, of the pial's canonical frames
+    // the Levi-Civita connection between neighbouring tiles is a measurement (`reduce`, measure levi_civita) over the product of a level with itself (rule 26), one per stated scale, of the pial's canonical
+    // frames. The maker that makes that product from a grid's level (a `make` with factors resolved to a level of the stored grid) is not built: the maker takes stored selections by input, and a level
+    // is no selection of its own (consolidation spec 6.2). Until it is, each scale is reported as not measured, never dropped silently.
     {
       Json lc = Json::array();
-      for (const std::string& scale : opt.lc_scales) {
-        const auto runs = run_shipped(ds, dsub, "measure",
-                                      Json{{"field", "cortex_pial_canonical_frames"}, {"make", Json{{"node", "select.product"}, {"factors", Json::array({Json{{"grid", "surface"}, {"level", scale}}, Json{{"grid", "surface"}, {"level", scale}}})}}},
-                                           {"measures", Json::array({"levi_civita"})}},
-                                      false, progress);
-        lc.push_back(runs.empty() ? Json() : runs.front());
-      }
+      for (const std::string& scale : opt.lc_scales)
+        lc.push_back(Json{{"scale", scale}, {"measured", false}, {"reason", "the product of a grid's level with itself has no maker yet (select.product takes stored selections, not a level of a grid)"}});
       out["default_subject"]["levi_civita"] = lc;
     }
     out["default_subject"]["modes"] = nullptr;
