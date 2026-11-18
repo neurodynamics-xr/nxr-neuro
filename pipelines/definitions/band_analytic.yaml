@@ -6,6 +6,8 @@
 #
 # THE GRAPH:  recording (sensors x T) -- signal.rfft {once a block} -- band gains (select.bands) -- inverse transform --> z (field<sensors x members(bands) x T; complex>)
 #
+# ONE BAND or a band SET (exactly one of `band`, `bands`; the definition refuses both and neither): `band` is a quantity (the band's edges in Hz), `bands` the name of a stored set (a band SET stays a selection).
+#
 # What it cannot resolve: the filter is circular over the block, so the first and last `halo` of a recording carry its edge effect; a Morlet band overlaps its neighbours, so band powers do not add to broadband
 # (the Meyer shape does).
 #
@@ -15,16 +17,18 @@ kind: chain
 version: 1
 description: the analytic signal of a recording in a band set at its sensors, one transform a block shared by all bands
 scope: subject
+one_of: [band, bands]
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
-  bands:     {selection: spans, where: {name: $bands}, hint: "the band set (`nxr-neuro run select_bands` first)"}
+  bands:     {selection: spans, where: {name: $bands}, when: $bands, hint: "the band set (`nxr-neuro run select_bands` first); absent when ONE band is given as `band`"}
   channels_of: {statistic: welch, where: {name: $channels}, required: false, hint: "the channels kept: those of this stored cross-spectrum (a surrogate's band power); none: every channel"}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   channels: {default: null, meaning: "a stored cross-spectrum's name: the analytic signal is made on ITS channels only; null: every channel of the recording", unit: "-"}
-  bands: {default: "frequency bands", meaning: "the band set by name (spans on the Frequency line, in Hz)", unit: "-"}
+  bands: {default: null, meaning: "the band SET by name (spans on the Frequency line, in Hz): the field has a member per band. Exactly one of band, bands", unit: "-"}
+  band: {default: null, meaning: "ONE band as a quantity (\"8-16 Hz\"): the field has no band member. Exactly one of band, bands", unit: Hz, chart: linear}
   shape: {default: morlet, meaning: "the band filter: morlet (a Gaussian centred on the band, FWHM its width) | power_partition (nxr's bank: band powers add to broadband)", unit: "-", choices: [morlet, power_partition]}
   halo: {default: 8.0, meaning: "the context read on each side of a chunk for the filter (its circular edge effect lies inside it)", unit: s, chart: clock}
 
@@ -32,7 +36,8 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: signal.analytic, in: {x: recording, bands: bands, channels_of: channels_of}, with: {shape: $shape, halo_seconds: $halo}, out: z}
+      - {node: signal.analytic, in: {x: recording, bands: bands, channels_of: channels_of}, with: {shape: $shape, halo_seconds: $halo}, out: z, when: $bands}
+      - {node: signal.analytic, in: {x: recording, channels_of: channels_of}, with: {band: $band, shape: $shape, halo_seconds: $halo}, out: z, when: $band}
 
 outputs:
   z: {kind: field, kind_name: analytic signal, name: "{recording}_analytic", on: recording.manifold.0, derived_from: recording}

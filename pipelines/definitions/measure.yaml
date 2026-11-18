@@ -27,6 +27,7 @@ inputs:
   weights: {field: any, required: false, where: {name: $weights}}
   line:    {manifold: line, is: field.time, required: false, hint: "the field's time line (what a maker of the run's span reads: a `before` node reads arrays, never the streamed field)"}
   space:   {manifold: any, is: field.manifold.0, required: false, hint: "the field's first manifold (what a maker of its elements reads: the channels, the vertices)"}
+  tiles:   {selection: ladder, manifold: field.manifold.0, when: $spatial_scale, hint: "the surface's grid whose level the spatial scale is (`nxr-neuro run select_dyadic_surface` first); absent without a spatial scale"}
   bad:     {selection: spans, manifold: field.time, where: {name: "{field}_bad_segments"}, required: false}
 
 parameters:
@@ -40,35 +41,92 @@ parameters:
   weight: {default: null, meaning: "how the elements of a member are weighted: none | barycentric | voronoi (it changes the numbers, so it is always stated)", unit: "-", choices: [none, barycentric, voronoi]}
   weights: {default: null, meaning: "a stored per-element weight field by name (area, mass), when `weight` is given", unit: "-"}
   bad_segments: {default: exclude, meaning: "exclude = a sample in one of the recording's bad segments carries no value and no count | ignore = every sample counts", unit: "-", choices: [exclude, ignore]}
+  band: {default: null, meaning: "ONE temporal band as a quantity (\"8-16 Hz\") for the presets that make a chain and a time grid of it (a band SET stays a selection, `over`)", unit: Hz, chart: linear}
+  spatial_scale: {default: null, meaning: "the spatial band as a quantity (a tile diameter, `wavelength 40 mm`, `parts 16`, an eigenvalue): the level of the surface's grid the presets couple to", unit: mm, chart: wavelength}
+  channels: {default: null, meaning: "a stored cross-spectrum's name: the presets that read the sensors' analytic signal use ITS channels only; null: every channel", unit: "-"}
+  duration: {default: null, meaning: "the time tiles of the presets that tile the run: a duration as a quantity (\"1 s\"), snapped to 2^k samples", unit: s, chart: clock}
+  form: {default: null, meaning: "the pointwise form read before the reduction, for a complex or vector field (the registry's form of the measures asked: magnitude for amplitude / envelope_max, power for power, phase_current for the current's measures); null: the field is reduced as it is (a real quantity)", unit: "-", choices: [null, magnitude, power, phase_current]}
   rolled_to: {default: null, meaning: "roll the measurement up to a coarser level of its grid, stated as a quantity (a tile diameter, a duration, pieces, whole), merged by each measure's rule; null: stored at the grid's own level", unit: mm, chart: diameter}
   summaries: {default: null, meaning: "also summarise across the members: mean, sd, median, mad, percentile:P, min, max, skewness, kurtosis, peak, count; null: none", unit: "-"}
   combine: {default: each, meaning: "summaries: each = per row | pool = the rows pooled | mean = the mean of the rows' summaries", unit: "-", choices: [each, pool, mean]}
   name: {default: null, meaning: "the stored measurement's name; null: derived from the field and the selection", unit: "-"}
 
 presets:
-  # a field of a stored selection (today's `measure`): the default is a stored field and a stored partition
+  # a field of a stored selection (today's `measure`): the default is a stored field and a stored partition. The presets that COMPOSE take their band and spatial scale as quantities: `--band "8-16 Hz" --spatial-scale "parts 16"`.
+  # A product's factors are Selections made by makers (the run's span, a channel set, a time grid) or found (`tiles`, the surface's grid); the spatial factor's level is COUPLED to the stated scale in closed form.
   cortical_band_cells:
     chain: cortical_band
-    make: {node: select.product, factors: [{grid: surface, level_of: spatial_scale}, {grid: time, level_of: band}]}
+    chain_parameters: {recording: $recording, band: $band, spatial_scale: $spatial_scale}
+    make:
+      node: select.product
+      name: "{field_recording} cells ${band} ${spatial_scale}"
+      with: {couple: [{factor: 0, scale: $spatial_scale}]}
+      factors:
+        - {input: tiles}
+        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band ${band}"}
+    form: magnitude
     measures: [amplitude, envelope_max]
+    weight: barycentric
+  cortical_band_cells_power:
+    chain: cortical_band
+    chain_parameters: {recording: $recording, band: $band, spatial_scale: $spatial_scale}
+    make:
+      node: select.product
+      name: "{field_recording} cells ${band} ${spatial_scale}"
+      with: {couple: [{factor: 0, scale: $spatial_scale}]}
+      factors:
+        - {input: tiles}
+        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band ${band}"}
+    form: power
+    measures: [power]
+    weight: barycentric
   cortical_band_cells_current:
     chain: cortical_band
-    make: {node: select.product, factors: [{grid: surface, level_of: spatial_scale}, {grid: time, level_of: band}]}
-    measures: [phase_current, power]
+    chain_parameters: {recording: $recording, band: $band, spatial_scale: $spatial_scale}
+    make:
+      node: select.product
+      name: "{field_recording} cells ${band} ${spatial_scale}"
+      with: {couple: [{factor: 0, scale: $spatial_scale}]}
+      factors:
+        - {input: tiles}
+        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band ${band}"}
+    form: phase_current
+    measures: [phase_current]
+    weight: barycentric
+  # the atlas layout: the band's frames (36 to a cycle) joint with the spatial tiles at the scale, the tensors of the current
   cortical_band_pyramid:
     chain: cortical_band
-    chain_parameters: {bands: "frequency bands", frame_grid: "frames", canonical: true}
-    make: {node: select.product, layout: joint, factors: [{bands: band_set}, {grid: surface, level: finest}, {grid: time, rule: frames}]}
-    measures: [count, power, phase_current, tensor_sums]
+    chain_parameters: {recording: $recording, band: $band, spatial_scale: $spatial_scale}
+    make:
+      node: select.product
+      layout: joint
+      name: "{field_recording} atlas ${band} ${spatial_scale}"
+      with: {couple: [{factor: 0, scale: $spatial_scale}]}
+      factors:
+        - {input: tiles}
+        - {node: select.time_grid, in: {line: line}, with: {rule: frames, band: $band}, name: "{field_recording} time grid frames ${band}"}
+    form: power
+    measures: [count, power]
     weight: barycentric
   sensor_band_amplitude:
     chain: band_analytic
-    make: {node: select.product, factors: [{grid: time, level_of: band, coupled: per_band}, {elements: channels}]}
+    chain_parameters: {recording: $recording, band: $band}
+    make:
+      node: select.product
+      name: "{field_recording} sensor tiles ${band}"
+      factors:
+        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band ${band}"}
+        - {node: select.elements, in: {space: space}, with: {as: members}, name: "{field_recording} channels"}
+    form: magnitude
     measures: [amplitude, envelope_max]
+    weight: none
+  # the band's analytic cross-spectrum in time tiles of the band: the sum of z z^H over a tile (the windows of the Wishart null)
   analytic_cross_spectrum_tiles:
     chain: band_outer
-    make: {node: select.time_grid, rule: band}
+    chain_parameters: {recording: $recording, band: $band, channels: $channels}
+    make: {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, store: {type: tiling, on: line.manifold.0, name: "{field_recording} time grid band ${band}"}}
     measures: [sum]
+    weight: none
   # the mean of each channel over the whole run: a product of the run's span (ONE member) and the channels (each its own member), both Selections made by makers in the run and stored (--field is the recording)
   channel_span_mean:
     make:
@@ -80,15 +138,31 @@ presets:
     measures: [mean]
     weight: none
     name: "{field}_channel_mean"
+  # the data's band power in time tiles, on the channels of a stored cross-spectrum (`channels`), the channels one member: what the lag-free surrogates scale their draws to
   surrogate_lagfree_envelope:
     chain: band_analytic
-    chain_parameters: {channels: cross_spectrum}
-    make: {node: select.product, factors: [{grid: time, rule: tiles}, {set: channels, as: one_member}]}
+    chain_parameters: {recording: $recording, band: $band, channels: $channels}
+    make:
+      node: select.product
+      name: "{field_recording} envelope tiles ${duration}"
+      factors:
+        - {node: select.time_grid, in: {line: line}, with: {rule: tiles, duration: $duration}, name: "{field_recording} time grid tiles ${duration}"}
+        - {node: select.elements, in: {space: space}, with: {as: one_member}, name: "{field_recording} channels one member"}
+    form: power
     measures: [power]
+    weight: none
+  # the largest amplitude of the flow's input over the run, per vertex of the cortex rolled to the whole: give the chain's parameters (family, gain, freq, ...) as `chain_parameters`
   flow_max_amplitude:
     chain: member_activation
-    make: {node: select.product, factors: [{span: run}, {elements: cortex}]}
+    make:
+      node: select.product
+      name: "{field_recording} run span x cortex"
+      factors:
+        - {node: select.run_span, in: {line: line}, name: "{field_recording} run span"}
+        - {node: select.elements, in: {space: space}, with: {as: members}, name: "{field_recording} cortex"}
+    form: magnitude
     measures: [envelope_max]
+    weight: none
     rolled_to: whole
   psd_channel_mean:
     field: psd
@@ -99,7 +173,9 @@ steps:
   chunks:
     over: field
     do:
-      - {node: measurement.reduce, in: {x: field, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: [values, ingredients]}
+      - {node: signal.field_form, in: {x: field}, with: {form: $form}, out: shaped, when: $form}
+      - {node: measurement.reduce, in: {x: shaped, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: [values, ingredients], when: $form}
+      - {node: measurement.reduce, in: {x: field, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: [values, ingredients], when: "!$form"}
   after:
     - {node: measurement.roll_up, in: {x: ingredients}, with: {to: $rolled_to}, out: [rolled, rolled_ingredients], when: $rolled_to}
     - {node: measurement.summarize, in: {x: values}, with: {summaries: $summaries, combine: $combine}, out: statistics, when: $summaries}

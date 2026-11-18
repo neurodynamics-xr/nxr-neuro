@@ -224,6 +224,7 @@ Value value_of(const Database& db, const std::string& cls, const Row& row) {
     if (!is_null(row, "m_of_index")) v.facts["of_index"] = integer(row, "m_of_index");
   } else {
     v.manifolds = {opt_text(row, "manifold_id").value_or("")};
+    if (!v.manifolds[0].empty() && db.one("SELECT 1 AS one FROM manifold WHERE id = ? AND type = 'product'", {V(v.manifolds[0])})) v.manifolds = factors(db, v.manifolds[0]);   // a selection on a product lies on its factors, in order
   }
   // the types' facts of every manifold it lies on (T3): read here, so nothing outside io reads a manifold row
   for (const auto& id : v.manifolds) {
@@ -255,7 +256,7 @@ std::string relation(const std::string& ref, const std::map<std::string, Value>&
     return v.manifolds[what == "from" ? 0 : 1];
   }
   const std::size_t i = std::stoul(m[3].str());
-  if ((v.cls != "field" && v.cls != "manifold") || i >= v.manifolds.size()) refuse(where + ": '" + ref + "': " + base + " has " + std::to_string(v.manifolds.size()) + " factor(s)");
+  if ((v.cls != "field" && v.cls != "manifold" && v.cls != "selection") || i >= v.manifolds.size()) refuse(where + ": '" + ref + "': " + base + " has " + std::to_string(v.manifolds.size()) + " factor(s)");
   return v.manifolds[i];
 }
 
@@ -326,12 +327,14 @@ std::vector<std::map<std::string, Value>> resolve(const Database& db, const std:
       // an optional input named by a parameter left null is not looked for (absent); a MEASUREMENT is found by its key (measure, of, over): its name is only a filter, a null name filters nothing
       if (!spec.value("required", true) && spec.contains("where") && !spec.contains("measurement")) {
         bool unset = false;
-        for (const auto& [k, v] : spec["where"].items())
+        for (const auto& [k, v] : spec["where"].items()) {
+          if (v.is_null()) unset = true;                                     // a parameter of a composed chain, null: the input it names is absent
           if (v.is_string() && v.get<std::string>().rfind('$', 0) == 0) {
             const std::string pk = v.get<std::string>().substr(1);
             if (params.contains(pk) && params[pk].is_null()) unset = true;
             else if (params.contains(pk) && params[pk].is_string() && params[pk].get<std::string>() != "none") named_by_caller = true;
           }
+        }
         if (unset) continue;
       }
       std::vector<Row> hits;

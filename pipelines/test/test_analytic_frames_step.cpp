@@ -1,6 +1,6 @@
 // The frames step through wt (`signal.analytic_frames`, pipelines/src/registry.cpp) run through the dispatch point on a synthetic recording:
 //   - its frames equal the compute function it wraps, wt(bank, member, window, instants) of the whole record (float32 result);
-//   - the result does not depend on the chunk size: the same frames from chunks of 1024 and 700 own samples, each with the halo the step declares, agree to the filter tail the halo leaves out (kTailEnergy: about 1e-3 of the peak);
+//   - the result does not depend on the chunk size: the same frames from chunks of 1024 and 700 own samples, each with the halo the step declares, agree with the whole run to the float32 storage (the halo is the band's impulse response down to 1e-12 of its L1 norm);
 //   - a frame belongs to one chunk (the frames of the chunks tile the whole run's), and the output is complex, its columns the frames.
 // Synthetic data only (compute/test/frames_wt_inputs.h).
 #include <unistd.h>
@@ -47,11 +47,12 @@ int main() {
   g::ExecContext ctx{db, [](const Json&) {}, {}, &made};
   Json p = node.parameters;
   p["band"] = Json::array({8.0, 12.0});
+  p["tolerance"] = 1e-6;                                  // the step's default, stated
   g::NodeCall prep = g::NodeCall::prepare(ins, p, ctx);
   g::dispatch(node, prep);
   const std::int64_t H = node.halo(prep.made_state);
   std::printf("  halo %lld samples\n", static_cast<long long>(H));
-  CHECK(H > 0 && H < N / 4);
+  CHECK(H > 0);
 
   const Eigen::MatrixXd rec = fwi::recording();
   auto run = [&](std::int64_t own) {                       // the frames of every chunk of `own` samples, with the declared halo, gathered
@@ -93,7 +94,7 @@ int main() {
   }
   std::printf("  whole run vs wt: %.2e; chunks of 1024 vs whole: %.2e; of 700: %.2e (peak %.3g)\n", e0, e1, e2, peak);
   CHECK(e0 < 1e-5 * peak);
-  CHECK(e1 < 3e-3 * peak && e2 < 3e-3 * peak);
+  CHECK(e1 < 2e-6 * peak && e2 < 2e-6 * peak);          // the declared halo is the impulse response down to 1e-12 of its L1 norm: chunked == whole to the float32 storage
   std::filesystem::remove_all(root);
   return nxrtest::finish("analytic_frames_step");
 }

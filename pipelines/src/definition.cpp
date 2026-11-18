@@ -25,7 +25,7 @@ const Shipped kShipped[] = {
 #include "gen/definitions.inc"
 };
 
-const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw", "kind", "plans"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
+const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw", "kind", "plans", "one_of"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
 const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "measurement", "statistic", "manifold"};
 const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject", "of", "over", "within"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
@@ -138,7 +138,7 @@ bool needs_expansion(const Json& doc) {
   if (doc.contains("steps") && has_key_deep(doc["steps"], "when")) return true;
   if (doc.contains("outputs") && has_key_deep(doc["outputs"], "when")) return true;
   if (doc.contains("inputs") && doc["inputs"].is_object())
-    for (const auto& [k, v] : doc["inputs"].items()) { (void)k; if (v.is_object() && (v.contains("chain") || v.contains("make"))) return true; }
+    for (const auto& [k, v] : doc["inputs"].items()) { (void)k; if (v.is_object() && (v.contains("chain") || v.contains("make") || v.contains("when"))) return true; }
   return false;
 }
 // a value with its `$name`s replaced by the run's parameters (a name not declared is refused by the caller)
@@ -283,7 +283,7 @@ Json expand_doc(const Json& doc, const Json& params, const std::string& where, J
       if (!v.is_object()) continue;
       for (const char* key : {"chain", "make", "chain_parameters"})
         if (v.contains(key)) {
-          if (compositions) { if (!compositions->contains(it.key())) (*compositions)[it.key()] = Json::object(); (*compositions)[it.key()][key] = with_params(v[key], params); }
+          if (compositions) { if (!compositions->contains(it.key())) (*compositions)[it.key()] = Json::object(); (*compositions)[it.key()][key] = with_params(with_params(v[key], params), params); }   // twice: a preset's `make` / `chain_parameters` carry `$name`s of their own
           v.erase(key);
         }
     }
@@ -316,7 +316,13 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   Json doc = written;
   if (written.contains("parameters") && written["parameters"].is_object()) doc["parameters"] = split_parameters(written["parameters"], parameter_docs, where);
   if (needs_expansion(doc)) {              // written out with the parameters' defaults to check it (`for:` repeated, `when:` decided; `chain:` and `make:` composed only at a run); `expand` writes it out again with a run's own
-    const Json defaults = doc.contains("parameters") && doc["parameters"].is_object() ? doc["parameters"] : Json::object();
+    Json defaults = doc.contains("parameters") && doc["parameters"].is_object() ? doc["parameters"] : Json::object();
+    // `one_of: [a, b]`: exactly one of the parameters is given (checked at a run, `expand`); the defaults, which give none, are written out as if the first were given
+    if (doc.contains("one_of") && doc["one_of"].is_array() && !doc["one_of"].empty() && doc["one_of"][0].is_string()) {
+      bool any = false;
+      for (const auto& n : doc["one_of"]) any = any || (n.is_string() && defaults.contains(n.get<std::string>()) && truthy(defaults[n.get<std::string>()]));
+      if (!any) defaults[doc["one_of"][0].get<std::string>()] = "(one_of)";
+    }
     Definition d = parse(expand_doc(doc, defaults, where), source, text);
     d.templ = doc;
     d.parameter_docs = parameter_docs;
@@ -563,6 +569,11 @@ void compose_chain(Definition& e, const std::string& input, const Json& chain_na
   const bool each = e.inputs[input].value("each", false);
   std::map<std::string, std::string> to;                                   // the chain's names → the consumer's
   for (const auto& [k, v] : CE.inputs.items()) { (void)v; to[k] = prefix + k; }
+  // the chain's own recording (its `each` input) IS the recording the consumer runs over, when the consumer has one (an `each` input of its own): one input, not two
+  std::string consumer_each;
+  for (const auto& [k, v] : e.inputs.items()) if (k != input && v.value("each", false)) consumer_each = k;
+  std::string chain_each_input;
+  if (!each && !consumer_each.empty()) for (const auto& [k, v] : CE.inputs.items()) if (v.value("each", false)) { chain_each_input = k; to[k] = consumer_each; }
   for (const StepUse& u : CE.uses()) for (const auto& o : u.outs) to[o] = o == out_name ? input : prefix + o;
   Json inputs = e.inputs;
   inputs.erase(input);
@@ -570,10 +581,21 @@ void compose_chain(Definition& e, const std::string& input, const Json& chain_na
   std::string chain_anchor;                                                  // the chain's own recording (its `each` input): what a measurement of the chain's field is OF
   for (const auto& [k, spec] : CE.inputs.items()) {
     Json sp = spec;
+    if (k == chain_each_input) { chain_anchor = consumer_each; chain_each = true; continue; }
     if (sp.value("each", false)) chain_anchor = prefix + k;
     for (const char* rel : {"from", "to", "is"}) if (sp.contains(rel) && sp[rel].is_string()) sp[rel] = renamed(sp[rel].get<std::string>(), to);
     if (sp.contains("manifold") && !manifold_class_of(sp) && sp["manifold"].is_string()) sp["manifold"] = renamed(sp["manifold"].get<std::string>(), to);
-    if (sp.contains("where")) sp["where"] = with_params(sp["where"], cp);
+    if (sp.contains("where")) {                                              // a `$name` filter whose parameter is null or `none` filters nothing (the finder's rule for a parameter), here before the name is substituted
+      Json w = Json::object();
+      for (const auto& [wk, wv] : sp["where"].items()) {
+        if (wv.is_string() && wv.get<std::string>().size() > 1 && wv.get<std::string>()[0] == '$' && cp.contains(wv.get<std::string>().substr(1))) {
+          const Json& pv = cp[wv.get<std::string>().substr(1)];
+          if (pv.is_null() || (pv.is_string() && pv.get<std::string>() == "none")) { if (!sp.value("required", true)) w[wk] = nullptr; continue; }   // an optional input named by it is absent (the finder: a null filter of an optional input)
+        }
+        w[wk] = with_params(wv, cp);
+      }
+      sp["where"] = w;
+    }
     if (sp.value("each", false)) { chain_each = true; if (!each) sp.erase("each"); }
     if (inputs.contains(prefix + k)) err(w, "the chain's input " + prefix + k + " collides with an input of this definition");
     inputs[prefix + k] = sp;
@@ -595,6 +617,30 @@ void compose_chain(Definition& e, const std::string& input, const Json& chain_na
   convert(CE.do_, e.do_);
   convert(CE.after, e.after);
   e.inputs = inputs;
+  // what the consumer's other inputs say of the composed field (`field.time`, `field.manifold.0`: a time line, the space a maker reads) is of the recording the chain reads and the chain's own output space
+  {
+    const Json& oo = CE.outputs[out_name];
+    const std::string on = oo.is_object() && oo.contains("on") && oo["on"].is_string() ? renamed(oo["on"].get<std::string>(), to) : std::string();
+    for (auto& [nm, sp] : e.inputs.items()) {
+      (void)nm;
+      if (!sp.is_object()) continue;
+      for (const char* rel : {"from", "to", "is", "manifold"}) {
+        if (!sp.contains(rel) || !sp[rel].is_string()) continue;
+        const std::string r = sp[rel].get<std::string>();
+        if (r == input + ".time" && !chain_anchor.empty()) sp[rel] = chain_anchor + ".time";
+        else if (r == input + ".manifold.0" && !on.empty()) sp[rel] = on;
+      }
+      if (sp.contains("where") && sp["where"].is_object() && !chain_anchor.empty())            // `{field}` in a name: the recording the chain reads
+        for (auto& [wk, wv] : sp["where"].items()) {
+          (void)wk;
+          if (!wv.is_string()) continue;
+          std::string t = wv.get<std::string>();
+          const std::string tag = "{" + input + "}";
+          for (std::size_t at = 0; (at = t.find(tag, at)) != std::string::npos; at += chain_anchor.size() + 2) t.replace(at, tag.size(), "{" + chain_anchor + "}");
+          wv = t;
+        }
+    }
+  }
   // a composed chain stores nothing: a measurement declared of its field is of the recording the chain reads (found, as any measured field)
   if (!chain_anchor.empty())
     for (auto& [name, o] : e.outputs.items()) if (o.is_object() && o.contains("of") && o["of"] == input) o["of"] = chain_anchor;
@@ -724,6 +770,11 @@ std::string quantity_for_index_parameter(const std::string& name) {
 Definition expand(const Definition& d, const Json& params) {
   if (d.templ.is_null()) return d;
   const std::string where = d.source.empty() ? "pipeline" : d.source;
+  if (d.templ.contains("one_of") && d.templ["one_of"].is_array()) {
+    std::vector<std::string> names, given;
+    for (const auto& n : d.templ["one_of"]) if (n.is_string()) { names.push_back(n.get<std::string>()); if (params.contains(names.back()) && truthy(params[names.back()])) given.push_back(names.back()); }
+    if (given.size() != 1) err(where, "give exactly one of " + join(names) + (given.empty() ? "; none was given" : "; " + join(given) + " were given"));
+  }
   Json comps = Json::object();
   Definition e = parse(expand_doc(d.templ, params, where, &comps), d.source, d.text);
   e.templ = d.templ;
