@@ -1,5 +1,5 @@
 // nxr::stats — see include/nxr/stats.h.
-#include "nxr/stats.h"
+#include "nxr/stats/summary.h"
 
 #include <algorithm>
 #include <cmath>

@@ -1,5 +1,5 @@
 // nxr::parallel (parallel.h).
-#include "nxr/parallel.h"
+#include "nxr/core/parallel.h"
 
 #include <algorithm>
 #include <atomic>
@@ -19,7 +19,7 @@
 #include <sched.h>
 #endif
 
-namespace nxr::parallel {
+namespace nxr::core {
 
 int performanceCores() {
 #ifdef __EMSCRIPTEN__
@@ -148,4 +148,4 @@ void forRanges(std::int64_t n, int threads, const std::function<void(std::int64_
   if (err) std::rethrow_exception(err);
 }
 
-}  // namespace nxr::parallel
+}  // namespace nxr::core

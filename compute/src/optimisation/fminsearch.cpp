@@ -1,11 +1,11 @@
-#include "nxr/meeg/minimise.h"
+#include "nxr/optimisation/fminsearch.h"
 
 #include <algorithm>
 #include <numeric>
 #include <stdexcept>
 #include <vector>
 
-namespace nxr::meeg {
+namespace nxr::optimisation {
 
 using Eigen::VectorXd;
 
@@ -75,4 +75,4 @@ MinimiseResult nelderMead(const std::function<double(const VectorXd&)>& f, const
   return {v[0], fv[0], evals, converged};
 }
 
-}  // namespace nxr::meeg
+}  // namespace nxr::optimisation

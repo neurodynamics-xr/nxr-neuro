@@ -1,5 +1,5 @@
 // nxr::connectome — the structural connectome's pure functions (connectome.h).
-#include "nxr/connectome.h"
+#include "nxr/meeg/connectome.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,7 +11,7 @@
 #include "nxr/congruence.h"
 #include "nxr/nearest.h"
 
-namespace nxr::connectome {
+namespace nxr::meeg {
 
 namespace {
 [[noreturn]] void refuse(const std::string& m) { throw std::invalid_argument("connectome: " + m); }
@@ -320,4 +320,4 @@ template std::vector<std::int32_t> blockEnds(const std::vector<std::int32_t>&);
 template std::vector<float> blockEnds(const std::vector<float>&);
 template std::vector<double> blockEnds(const std::vector<double>&);
 
-}  // namespace nxr::connectome
+}  // namespace nxr::meeg

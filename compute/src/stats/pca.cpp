@@ -1,5 +1,5 @@
 // nxr::pca — see include/nxr/pca.h.
-#include "nxr/pca.h"
+#include "nxr/stats/pca.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace nxr::pca {
+namespace nxr::stats {
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -60,4 +60,4 @@ MatrixXd reconstruct(const MatrixXd& scores, const MatrixXd& components, const V
     return out;
 }
 
-}  // namespace nxr::pca
+}  // namespace nxr::stats
