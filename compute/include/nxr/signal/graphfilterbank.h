@@ -140,6 +140,18 @@ using CoefficientsC = std::vector<Eigen::MatrixXcd>;
 /** Synthesis weights: the canonical Dual g/S (exact wherever the bank covers) or the Tight g (the frame operator: A·f). */
 enum class Synthesis { Dual, Tight };
 
+// ── a bank straight from an operator (Rheome's graphfilterbank.fromOperator) ──
+
+/** A bank and the Chebyshev transform built with it. */
+struct OperatorBank {
+    GraphFilterbank bank;
+    graphtransforms::ChebyshevOperator transform;
+};
+/** Build a bank straight from the operator: λmax by Lanczos (one eigenvalue, no decomposition; the series' bound, with the margin ChebyshevOperator keeps), the family designed on [0, λmax],
+ *  and the Chebyshev transform of the pencil (L, mass) of degree `order`: GSPBox's ergonomics, and the safe path (the polynomial's λmax bounds the operator's spectrum by construction).
+ *  Family::Itersine and the others as `design`; throws as design and ChebyshevOperator do. */
+OperatorBank fromOperator(const Eigen::SparseMatrix<double>& L, Family family, const Eigen::SparseMatrix<double>& mass = {}, int order = 40, const DesignOptions& options = {});
+
 // THE ENERGIES (scaleEnergy, memberEnergy, bandMoments, bandPower) are measurements: nxr/measurement/band_energy.h.
 
 }  // namespace nxr::signal::graphfilterbank

@@ -14,6 +14,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -249,10 +250,14 @@ struct Array {
 };
 using Blocks = std::map<std::string, Block>;
 using Arrays = std::map<std::string, Array>;
-/** where a block's own columns lie: the first sample (or frame), the count, and which are good (outside the bad samples; null: every one) */
+/** where a block's own columns lie: the first sample (or frame), the count, and which are good (outside the bad samples; null: every one).
+ *  For an ACCUMULATE node that declared a halo (a segment family's n - 1 samples to the right), the rest of the caller's span: `origin` the span's first sample (the segment grid is anchored there),
+ *  `end` its end (exclusive; a segment never reaches past it: the halo columns beyond are not the node's to read), `good_after` the flags of the right halo's columns (null or empty: every one). */
 struct Place {
   std::int64_t first = 0, n = 0;
   const std::vector<std::uint8_t>* good = nullptr;
+  std::int64_t origin = 0, end = std::numeric_limits<std::int64_t>::max();
+  const std::vector<std::uint8_t>* good_after = nullptr;
 };
 /** where a RETIMING node (the frame tiling) puts a block's own columns: its first frame, their count, and which frames are good (empty: all) */
 struct FramePlace {

@@ -4,6 +4,7 @@
 #include "nxr/signal/spectral.h"
 #include "nxr/signal/linear_map.h"
 #include "golden_io.h"
+#include "chunked_feed.h"
 #include "mesh_helpers.h"
 #include <random>
 #include <optional>
@@ -98,10 +99,7 @@ static void chunkInvariance() {
             const WelchResult whole = psd(x, o, withMask ? &good : nullptr);
             for (int chunk : {1, 7, 100, 199, 300, 301, 1024, 4999, 5000}) {
                 Welch w(C, o);
-                for (int s = 0; s < T; s += chunk) {
-                    const int m = std::min(chunk, T - s);
-                    if (withMask) w.add(x.middleCols(s, m), std::vector<std::uint8_t>(good.begin() + s, good.begin() + s + m)); else w.add(x.middleCols(s, m));
-                }
+                nxrtest::feed_chunks(w, x, withMask ? &good : nullptr, chunk, static_cast<std::int64_t>(o.segmentSamples) - 1);
                 const WelchResult r = w.result();
                 EXPECT(r.segments == whole.segments && r.psd == whole.psd, "chunk " + std::to_string(chunk) + (withMask ? " (masked)" : "") + ": identical, " + sci((r.psd - whole.psd).cwiseAbs().maxCoeff()));
             }
@@ -186,7 +184,7 @@ static void rotary() {
         const ComplexWelchResult whole = psd(z, w);
         for (Eigen::Index chunk : {Eigen::Index(1), Eigen::Index(97), Eigen::Index(700), T}) {
             ComplexWelch cw(1, w);
-            for (Eigen::Index s = 0; s < T; s += chunk) cw.add(z.middleCols(s, std::min(chunk, T - s)));
+            nxrtest::feed_chunks(cw, z, nullptr, chunk, static_cast<std::int64_t>(w.segmentSamples) - 1);
             const ComplexWelchResult r = cw.result();
             EXPECT(r.psd == whole.psd && r.segments == whole.segments, "chunk " + std::to_string(chunk) + ": the same to the last bit");
         }
@@ -253,10 +251,7 @@ static void linearMap() {
         const std::size_t first = 3, last = 40;
         for (std::size_t group : {std::size_t(1), std::size_t(3)}) {
             LinearWelch lw(A, group, o, first, last);
-            for (int t = 0; t < T; t += 333) {
-                const int n = std::min(333, T - t);
-                lw.add(x.middleCols(t, n), std::vector<std::uint8_t>(good.begin() + t, good.begin() + t + n));
-            }
+            nxrtest::feed_chunks(lw, x, &good, 333, static_cast<std::int64_t>(o.segmentSamples) - 1);
             const LinearWelchResult r = lw.result();
             MatrixXd want(rows / static_cast<int>(group), last - first + 1);
             for (int o2 = 0; o2 < want.rows(); ++o2) {

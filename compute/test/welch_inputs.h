@@ -2,6 +2,7 @@
 // bad samples, and the runs both make. The old results are recorded as hashes of the raw doubles (bitwise).
 #pragma once
 #include "golden_hash.h"
+#include "chunked_feed.h"
 #include "nxr/signal/spectral.h"
 #include <cmath>
 namespace wi {
@@ -27,14 +28,11 @@ template <class Put> void runs(Put&& put, int chunk) {
     const MatrixXd x = recording(); const auto good = mask();
     MatrixXd map(6, kC); for (int r = 0; r < 6; ++r) for (int c = 0; c < kC; ++c) map(r, c) = std::sin(1.0 + r * 1.7 + c * 0.6);
     MatrixXcd z(2, kN); for (int i = 0; i < kN; ++i) { z(0, i) = {x(0, i), x(1, i)}; z(1, i) = {x(2, i), -x(3, i)}; }
-    auto feed = [&](auto& acc, const auto& data, bool masked) {
-        const int step = chunk ? chunk : kN;
-        for (int a = 0; a < kN; a += step) { const int m = std::min(step, kN - a); const auto part = data.middleCols(a, m).eval();
-            if (masked) acc.add(part, std::vector<std::uint8_t>(good.begin() + a, good.begin() + a + m)); else acc.add(part); }
-    };
+    std::int64_t halo = 0;                                   // n - 1 of the option set under test: each block carries it to the right
+    auto feed = [&](auto& acc, const auto& data, bool masked) { nxrtest::feed_chunks(acc, data, masked ? &good : nullptr, chunk ? chunk : kN, halo); };
     for (int w = 0; w < 3; ++w) {
         const std::string p = "opt" + std::to_string(w) + ".";
-        const sp::WelchOptions o = options(w);
+        const sp::WelchOptions o = options(w); halo = static_cast<std::int64_t>(o.segmentSamples) - 1;
         { sp::Welch a(kC, o); feed(a, x, true); const auto r = a.result(); put(p + "psd", r.psd); put(p + "psdSeg", double(r.segments)); put(p + "psdSkip", double(r.segmentsSkipped)); }
         { sp::Welch a(kC, o); feed(a, x, false); put(p + "psdClean", a.result().psd); }
         { sp::ComplexWelch a(2, o); feed(a, z, true); const auto r = a.result(); put(p + "cpsd", r.psd); put(p + "cpsdSeg", double(r.segments)); }

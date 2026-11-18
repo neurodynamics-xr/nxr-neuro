@@ -13,6 +13,7 @@
 #include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "golden_io.h"
+#include "chunked_feed.h"
 #include "nxr/bst/entities.h"
 #include "nxr/meeg/sources.h"
 #include "nxr/pipelines/meeg.h"
@@ -79,10 +80,7 @@ int main() {
       const double df = fs / wo.segmentSamples;
       const auto gr = groups_of(bands, df, bins, true);
       nxr::signal::spectral::CrossWelch cw(M, wo, gr);
-      for (int t = 0; t < T; t += 333) {
-        const int n = std::min(333, T - t);
-        cw.add(x.middleCols(t, n), std::vector<std::uint8_t>(good.begin() + t, good.begin() + t + n));
-      }
+      nxrtest::feed_chunks(cw, x, &good, 333, static_cast<std::int64_t>(wo.segmentSamples) - 1);
       const auto r = cw.result();
       const auto direct = nxr::signal::spectral::psd(Eigen::MatrixXd(K * x), wo, &good);
       CHECK_EQ(r.segments, direct.segments);

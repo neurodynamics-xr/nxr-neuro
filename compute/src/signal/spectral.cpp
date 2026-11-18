@@ -125,28 +125,12 @@ static void detrendAndWindow(double* row, std::size_t n_, Detrend detrend, const
 }
 
 namespace {
-// the segment model of a streamed run: a chunk joined to the carried tail, the whole segments transformed by `stft`, the samples they have passed dropped
+// a block handed to an estimator: its rows are what the estimator was made for, one flag a column, `own` columns of the block's own
 template <class Matrix>
-void carryAdd(SegmentCarry<Matrix>& carry, const Matrix& chunk, const std::vector<std::uint8_t>& good, const char* noun) {
-    if (chunk.rows() != carry.block.rows()) throw std::invalid_argument("welch: the chunk has " + std::to_string(chunk.rows()) + " " + noun + ", expected " + std::to_string(carry.block.rows()));
-    if (static_cast<Eigen::Index>(good.size()) != chunk.cols()) throw std::invalid_argument("welch: the mask must hold one flag per sample of the chunk");
-    const Eigen::Index c0 = carry.block.cols(), m = chunk.cols();
-    carry.block.conservativeResize(Eigen::NoChange, c0 + m);
-    carry.block.middleCols(c0, m) = chunk;
-    carry.good.insert(carry.good.end(), good.begin(), good.end());
-}
-template <class Matrix>
-void carryDrop(SegmentCarry<Matrix>& carry, std::size_t start) {
-    const std::size_t carried = static_cast<std::size_t>(carry.block.cols());
-    carry.first += static_cast<std::int64_t>(start);
-    const std::size_t keep = carried > start ? carried - start : 0;
-    if (start > 0 && keep > 0) {
-        carry.block.leftCols(static_cast<Eigen::Index>(keep)) = carry.block.middleCols(static_cast<Eigen::Index>(start), static_cast<Eigen::Index>(keep)).eval();
-        carry.good.erase(carry.good.begin(), carry.good.begin() + static_cast<std::ptrdiff_t>(start));
-    } else if (keep == 0) {
-        carry.good.clear();
-    }
-    carry.block.conservativeResize(Eigen::NoChange, static_cast<Eigen::Index>(keep));
+void checkBlock(const Matrix& block, const std::vector<std::uint8_t>& good, Eigen::Index rows, std::int64_t own, const char* noun) {
+    if (block.rows() != rows) throw std::invalid_argument("welch: the chunk has " + std::to_string(block.rows()) + " " + noun + ", expected " + std::to_string(rows));
+    if (static_cast<Eigen::Index>(good.size()) != block.cols()) throw std::invalid_argument("welch: the mask must hold one flag per sample of the chunk");
+    if (own < 0 || own > block.cols()) throw std::invalid_argument("welch: a block owns between 0 and all of its columns");
 }
 }  // namespace
 
@@ -174,15 +158,17 @@ double segmentScale(const WelchOptions& options, const SegmentFamily& family) {
     return 0;
 }
 
-std::size_t stft(const MatrixXd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first,
-                 const std::function<void(std::int64_t, const cd*, std::size_t)>& visit, const std::function<void(std::int64_t)>& skipped) {
+void stft(const MatrixXd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first, std::int64_t own,
+          const std::function<void(std::int64_t, const cd*, std::size_t)>& visit, const std::function<void(std::int64_t)>& skipped) {
     const Eigen::Index C = block.rows();
     const std::size_t n = family.samples, bins = rfftBins(n), width = static_cast<std::size_t>(block.cols());
-    std::size_t start = 0;
+    const std::int64_t hop = static_cast<std::int64_t>(family.hop);
     std::vector<double> seg(static_cast<std::size_t>(C) * n);
     std::vector<cd> spec(static_cast<std::size_t>(C) * bins);
-    while (start + n <= width) {
-        const std::int64_t id = (first + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(family.hop);   // the segment's number on the stream
+    for (std::int64_t at = ((first + hop - 1) / hop) * hop; at < first + own; at += hop) {   // the segments that START in the block's own columns, in start order
+        const std::size_t start = static_cast<std::size_t>(at - first);
+        if (start + n > width) break;                                                          // it would reach past what the block holds (the span's end): not formed
+        const std::int64_t id = at / hop;                                                      // the segment's number on the stream
         bool ok = true;
         for (std::size_t j = start; j < start + n && ok; ++j) ok = good[j] != 0;
         if (ok) {
@@ -196,30 +182,30 @@ std::size_t stft(const MatrixXd& block, const std::vector<std::uint8_t>& good, c
         } else {
             skipped(id);
         }
-        start += family.hop;
     }
-    return start;
 }
 
 Welch::Welch(int channels, const WelchOptions& options) : opt_(options), n_(options.segmentSamples) {
     if (channels < 1) throw std::invalid_argument("welch: at least one channel");
     family_ = segmentFamily(opt_);
-    carry_.block.resize(channels, 0);
+    channels_ = channels;
 }
 
-void Welch::add(const MatrixXd& chunk) { add(chunk, std::vector<std::uint8_t>(static_cast<std::size_t>(chunk.cols()), 1)); }
+void Welch::add(const MatrixXd& whole) { add(whole, std::vector<std::uint8_t>(static_cast<std::size_t>(whole.cols()), 1)); }
 
-void Welch::add(const MatrixXd& chunk, const std::vector<std::uint8_t>& good) {
-    carryAdd(carry_, chunk, good, "channels");
-    samples_ += chunk.cols();
-    consume();
+void Welch::add(const MatrixXd& whole, const std::vector<std::uint8_t>& good) { add(whole, good, 0, whole.cols()); }
+
+void Welch::add(const MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own) {
+    checkBlock(block, good, channels_, own, "channels");
+    samples_ += own;
+    consume(block, good, first, own);
 }
 
 // the family's segments of what has been carried (stft), each one's |X|^2 into the mean (estimate)
-void Welch::consume() {
-    const Eigen::Index C = carry_.block.rows();
+void Welch::consume(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own) {
+    const Eigen::Index C = channels_;
     MatrixXd power(C, static_cast<Eigen::Index>(rfftBins(n_)));
-    const std::size_t passed = stft(carry_.block, carry_.good, family_, carry_.first,
+    stft(block, good, family_, first, own,
         [&](std::int64_t id, const cd* spec, std::size_t bins) {
             for (Eigen::Index c = 0; c < C; ++c)
                 for (std::size_t k = 0; k < bins; ++k) power(c, static_cast<Eigen::Index>(k)) = std::norm(spec[static_cast<std::size_t>(c) * bins + k]);
@@ -227,7 +213,6 @@ void Welch::consume() {
             ++segments_;
         },
         [&](std::int64_t id) { mean_.skip(id); ++skipped_; });
-    carryDrop(carry_, passed);
 }
 
 WelchResult Welch::result() const {
@@ -236,7 +221,7 @@ WelchResult Welch::result() const {
     r.frequencies = rfftfreq(n_, 1.0 / opt_.sfreq);
     r.segments = segments_;
     r.segmentsSkipped = skipped_;
-    r.psd = MatrixXd::Zero(carry_.block.rows(), static_cast<Eigen::Index>(bins));
+    r.psd = MatrixXd::Zero(channels_, static_cast<Eigen::Index>(bins));
     if (segments_ == 0) return r;
     const double scale = segmentScale(opt_, family_);
     r.psd = mean_.sum().real() * (scale / static_cast<double>(segments_));
@@ -277,14 +262,16 @@ static void detrendAndWindowC(cd* row, std::size_t n_, Detrend detrend, const Ve
     for (std::size_t j = 0; j < n_; ++j) row[j] *= win_[static_cast<Eigen::Index>(j)];
 }
 
-std::size_t stft(const MatrixXcd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first,
-                 const std::function<void(std::int64_t, const cd*, std::size_t)>& visit, const std::function<void(std::int64_t)>& skipped) {
+void stft(const MatrixXcd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first, std::int64_t own,
+          const std::function<void(std::int64_t, const cd*, std::size_t)>& visit, const std::function<void(std::int64_t)>& skipped) {
     const Eigen::Index S = block.rows();
     const std::size_t n = family.samples, width = static_cast<std::size_t>(block.cols());
-    std::size_t start = 0;
+    const std::int64_t hop = static_cast<std::int64_t>(family.hop);
     std::vector<cd> seg(static_cast<std::size_t>(S) * n), spec(static_cast<std::size_t>(S) * n);
-    while (start + n <= width) {
-        const std::int64_t id = (first + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(family.hop);
+    for (std::int64_t at = ((first + hop - 1) / hop) * hop; at < first + own; at += hop) {
+        const std::size_t start = static_cast<std::size_t>(at - first);
+        if (start + n > width) break;
+        const std::int64_t id = at / hop;
         bool ok = true;
         for (std::size_t j = start; j < start + n && ok; ++j) ok = good[j] != 0;
         if (ok) {
@@ -298,30 +285,30 @@ std::size_t stft(const MatrixXcd& block, const std::vector<std::uint8_t>& good, 
         } else {
             skipped(id);
         }
-        start += family.hop;
     }
-    return start;
 }
 
 
 ComplexWelch::ComplexWelch(int series, const WelchOptions& options) : opt_(options), n_(options.segmentSamples) {
     if (series < 1) throw std::invalid_argument("welch: at least one series");
     family_ = segmentFamily(opt_);
-    carry_.block.resize(series, 0);
+    channels_ = series;
 }
 
-void ComplexWelch::add(const Eigen::MatrixXcd& chunk) { add(chunk, std::vector<std::uint8_t>(static_cast<std::size_t>(chunk.cols()), 1)); }
+void ComplexWelch::add(const Eigen::MatrixXcd& whole) { add(whole, std::vector<std::uint8_t>(static_cast<std::size_t>(whole.cols()), 1)); }
 
-void ComplexWelch::add(const Eigen::MatrixXcd& chunk, const std::vector<std::uint8_t>& good) {
-    carryAdd(carry_, chunk, good, "series");
-    samples_ += chunk.cols();
-    consume();
+void ComplexWelch::add(const Eigen::MatrixXcd& whole, const std::vector<std::uint8_t>& good) { add(whole, good, 0, whole.cols()); }
+
+void ComplexWelch::add(const Eigen::MatrixXcd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own) {
+    checkBlock(block, good, channels_, own, "series");
+    samples_ += own;
+    consume(block, good, first, own);
 }
 
-void ComplexWelch::consume() {
-    const Eigen::Index S = carry_.block.rows();
+void ComplexWelch::consume(const Eigen::MatrixXcd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own) {
+    const Eigen::Index S = channels_;
     MatrixXd power(S, static_cast<Eigen::Index>(n_));
-    const std::size_t passed = stft(carry_.block, carry_.good, family_, carry_.first,
+    stft(block, good, family_, first, own,
         [&](std::int64_t id, const cd* spec, std::size_t bins) {
             for (Eigen::Index c = 0; c < S; ++c)
                 for (std::size_t k = 0; k < bins; ++k) power(c, static_cast<Eigen::Index>(k)) = std::norm(spec[static_cast<std::size_t>(c) * bins + k]);
@@ -329,7 +316,6 @@ void ComplexWelch::consume() {
             ++segments_;
         },
         [&](std::int64_t id) { mean_.skip(id); ++skipped_; });
-    carryDrop(carry_, passed);
 }
 
 ComplexWelchResult ComplexWelch::result() const {
@@ -337,7 +323,7 @@ ComplexWelchResult ComplexWelch::result() const {
     r.frequencies = signedFrequencies(n_, opt_.sfreq);
     r.segments = segments_;
     r.segmentsSkipped = skipped_;
-    r.psd = MatrixXd::Zero(carry_.block.rows(), static_cast<Eigen::Index>(n_));
+    r.psd = MatrixXd::Zero(channels_, static_cast<Eigen::Index>(n_));
     if (segments_ == 0) return r;
     const double scale = segmentScale(opt_, family_);
     const std::size_t neg = n_ / 2;   // ascending: the DFT's bins neg-from-the-end first
@@ -360,22 +346,24 @@ CrossWelch::CrossWelch(int channels, const WelchOptions& options, const std::vec
     const std::size_t bins = rfftBins(n_);
     if (groups_.empty()) throw std::invalid_argument("welch: at least one group of bins");
     for (const BinGroup& g : groups_) if (g.first > g.last || g.last >= bins) throw std::invalid_argument("welch: a group of bins lies outside 0 .. " + std::to_string(bins - 1));
-    carry_.block.resize(channels, 0);
+    channels_ = channels;
     mean_.assign(groups_.size(), measurement::SegmentMean());
 }
 
-void CrossWelch::add(const MatrixXd& chunk) { add(chunk, std::vector<std::uint8_t>(static_cast<std::size_t>(chunk.cols()), 1)); }
+void CrossWelch::add(const MatrixXd& whole) { add(whole, std::vector<std::uint8_t>(static_cast<std::size_t>(whole.cols()), 1)); }
 
-void CrossWelch::add(const MatrixXd& chunk, const std::vector<std::uint8_t>& good) {
-    carryAdd(carry_, chunk, good, "channels");
-    samples_ += chunk.cols();
-    consume();
+void CrossWelch::add(const MatrixXd& whole, const std::vector<std::uint8_t>& good) { add(whole, good, 0, whole.cols()); }
+
+void CrossWelch::add(const MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own) {
+    checkBlock(block, good, channels_, own, "channels");
+    samples_ += own;
+    consume(block, good, first, own);
 }
 
-void CrossWelch::consume() {
-    const Eigen::Index C = carry_.block.rows();
+void CrossWelch::consume(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own) {
+    const Eigen::Index C = channels_;
     const double last = (n_ % 2 == 0) ? static_cast<double>(rfftBins(n_) - 1) : static_cast<double>(rfftBins(n_));   // bins 1 .. last-1 are doubled (one-sided), see Welch::result
-    const std::size_t passed = stft(carry_.block, carry_.good, family_, carry_.first,
+    stft(block, good, family_, first, own,
         [&](std::int64_t id, const cd* spec, std::size_t bins) {
             // Re(X_k X_k^H) = A A^T + B B^T (X = A + iB), summed over the group's bins with the one-sided doubling in the weights
             for (std::size_t g = 0; g < groups_.size(); ++g) {
@@ -398,7 +386,6 @@ void CrossWelch::consume() {
             ++segments_;
         },
         [&](std::int64_t id) { for (auto& m : mean_) m.skip(id); ++skipped_; });
-    carryDrop(carry_, passed);
 }
 
 CrossWelchResult CrossWelch::result() const {
@@ -406,7 +393,7 @@ CrossWelchResult CrossWelch::result() const {
     r.frequencies = rfftfreq(n_, 1.0 / opt_.sfreq);
     r.segments = segments_;
     r.segmentsSkipped = skipped_;
-    const Eigen::Index C = carry_.block.rows();
+    const Eigen::Index C = channels_;
     r.S.assign(groups_.size(), MatrixXd::Zero(C, C));
     if (quadrature_) r.Sq.assign(groups_.size(), MatrixXd::Zero(C, C));
     if (segments_ == 0) return r;
@@ -428,25 +415,27 @@ LinearWelch::LinearWelch(const MatrixXd& map, std::size_t rowsPerOutput, const W
     family_ = segmentFamily(opt_);
     const std::size_t bins = rfftBins(n_);
     if (first_ > last_ || last_ >= bins) throw std::invalid_argument("welch: the bins lie outside 0 .. " + std::to_string(bins - 1));
-    carry_.block.resize(map.cols(), 0);
+    channels_ = map.cols();
     outputs_ = map.rows() / static_cast<Eigen::Index>(group_);
 }
 
-void LinearWelch::add(const MatrixXd& chunk) { add(chunk, std::vector<std::uint8_t>(static_cast<std::size_t>(chunk.cols()), 1)); }
+void LinearWelch::add(const MatrixXd& whole) { add(whole, std::vector<std::uint8_t>(static_cast<std::size_t>(whole.cols()), 1)); }
 
-void LinearWelch::add(const MatrixXd& chunk, const std::vector<std::uint8_t>& good) {
-    carryAdd(carry_, chunk, good, "channels");
-    samples_ += chunk.cols();
-    consume();
+void LinearWelch::add(const MatrixXd& whole, const std::vector<std::uint8_t>& good) { add(whole, good, 0, whole.cols()); }
+
+void LinearWelch::add(const MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own) {
+    checkBlock(block, good, channels_, own, "channels");
+    samples_ += own;
+    consume(block, good, first, own);
 }
 
-void LinearWelch::consume() {
-    const Eigen::Index C = carry_.block.rows();
+void LinearWelch::consume(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own) {
+    const Eigen::Index C = channels_;
     const double lastDoubled = (n_ % 2 == 0) ? static_cast<double>(rfftBins(n_) - 1) : static_cast<double>(rfftBins(n_));   // bins 1 .. lastDoubled-1 are doubled (one-sided)
     const Eigen::Index nk = static_cast<Eigen::Index>(last_ - first_ + 1);
     const Eigen::Index blockRows = static_cast<Eigen::Index>(group_) * std::max<Eigen::Index>(1, 4096 / static_cast<Eigen::Index>(group_));
     MatrixXd A(C, nk), B(C, nk);
-    const std::size_t passed = stft(carry_.block, carry_.good, family_, carry_.first,
+    stft(block, good, family_, first, own,
         [&](std::int64_t id, const cd* spec, std::size_t bins) {
             // X = A + iB over the bins kept, each scaled by sqrt(2) where the one-sided spectrum doubles it (the power is then doubled)
             for (Eigen::Index c = 0; c < C; ++c)
@@ -470,7 +459,6 @@ void LinearWelch::consume() {
             ++segments_;
         },
         [&](std::int64_t id) { mean_.skip(id); ++skipped_; });
-    carryDrop(carry_, passed);
 }
 
 LinearWelchResult LinearWelch::result() const {

@@ -540,7 +540,7 @@ one place a recording is read and looped over.
 - **What is recorded.** Each producer record states the span (`analysis_window.chunks`) and the chunks read (`chunks_read`, first and last).
 - **The halo** (the Studio's `haloOf`): samples of context a computation needs on each side of its span, so its edges are computed with real samples, never a
   reflection. The service reads them from the neighbouring chunks and clips them where the recording ends (`with_halo`). Its size is the computation's: optical
-  flow's wavelet bank asks for its filterbank's margins; a Welch spectrum needs none (its segments lie inside the span and are carried across chunk edges).
+  flow's wavelet bank asks for its filterbank's margins; a Welch spectrum asks for n - 1 samples to the RIGHT (an accumulating node's halo: a segment belongs to the chunk that holds its start and reads into the halo; it never reaches past the span's end, and nothing is carried between chunks).
 - **The job** (the Studio's `chunkLoop`):
   - Every chunk is read **whole** (the Studio's residency) and handed over cut to the span and its halo.
   - Chunk k + 1 is **read while chunk k is folded**. The memory held is two chunks.
@@ -636,8 +636,8 @@ glued surface `<surface>_glued` with its bridge `<surface>_glued_bridge`; and th
 
 ## The Welch PSD (`compute/include/nxr/welch.h`, the definition `run psd`)
 
-`nxr::signal::spectral::Welch` is a streaming estimator: fed [channels x samples] chunks of any size, it carries the samples left at a chunk's end into the next, so segments cross chunk edges and **the result is identical to the last bit
-whatever the chunk size** (tested for 1 to the whole record). Memory: the carried samples + one chunk + one segment. A sample mask leaves out every segment that touches a bad sample (the segment grid does not move).
+`nxr::signal::spectral::Welch` is a streaming estimator with no carried segment state: a block owns its first `own` columns and carries the right halo (n - 1 samples, fewer where the span ends); it forms every segment that STARTS in its own columns
+(`stft`), so segments cross chunk edges and **the result is identical to the last bit whatever the chunk size** (`test_welch`, `test_welch_halo`: 1 sample to the whole record). Memory: one block with its halo + one segment; the estimator holds only the sum over the segments. A sample mask leaves out every segment that touches a bad sample (the segment grid does not move).
 Options (each a named field of `WelchOptions`): segment length (samples, or seconds with `segmentSamplesFor`), overlap (a fraction; hop = n - floor(n*overlap)), window (Hann · Hamming · Blackman · Rectangular, periodic or symmetric),
 detrend (none · constant · linear), scaling (`Density` power per Hz = scipy "density" and Brainstorm's physical units · `Spectrum` · `Chain` = nxr.spectral.chain's per-bin power). One-sided: interior bins doubled.
 The references are named option sets: `brainstormPsdOptions()` (4 s, 50 %, Hamming **symmetric**, the mean of each segment removed, power per Hz), `scipyWelchOptions()` (Hann periodic, constant detrend; nxr's `qc.sensors.psd` is this at 4 s),
@@ -653,7 +653,7 @@ output, and `rotary_welch_golden.txt`, to float32 storage), not against an older
 · fs)), the nearest level, as the Studio's `anchorsFor` rounds (the Studio's `welchSeg` rounds up), or `--segment-level k`, or a power-of-two `--segment-samples`;
 half overlapping, so the hop is level k − 1 and the overlap must keep it a tile (0, ½, ¾, …); Brainstorm's taper, detrend and density; the span snaps to level k;
 4 s gives level 12 at 1200 Hz, 4096 samples, 3.41 s) · `brainstorm` (Brainstorm's exact behaviour, the default until 2026-11-13: round(4 · fs) samples from the
-span's start) · `scipy` · `nxr-chain`. Segments still cross chunk edges at ½ overlap, and the estimator carries them. Parity (`compute/test/test_welch.cpp`, goldens in `compute/test/golden/`, synthetic signals; generators `gen_welch_golden.py`/`.m`): scipy, nxr and Brainstorm's `bst_psd` outputs agree to 1e-15.
+span's start) · `scipy` · `nxr-chain`. Segments still cross chunk edges at ½ overlap: the right halo carries the samples, no state does. Parity (`compute/test/test_welch.cpp`, goldens in `compute/test/golden/`, synthetic signals; generators `gen_welch_golden.py`/`.m`): scipy, nxr and Brainstorm's `bst_psd` outputs agree to 1e-15.
 
 `run psd` reads a recording chunk by chunk, leaves out the recording's bad segments (the Selection `<recording>_bad_segments`) and stores the PSD as
 a STATISTIC (2026-11-13, `docs/specs/2026-11-13-statistics.md`; until then a Field on channels × frequency, which stays readable): `<recording>_psd_welch`,

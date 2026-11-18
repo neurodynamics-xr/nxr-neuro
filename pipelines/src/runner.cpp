@@ -1206,7 +1206,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         Blocks blocks{{*d.over, std::move(x)}};
         std::vector<std::uint8_t> good;
         if (!h.good.empty()) good.assign(h.good.begin() + h.left, h.good.begin() + h.left + h.n);
-        const Blocks outs = ex->block(blocks, Place{h.first, h.n, &good});
+        std::vector<std::uint8_t> good_after;                                // the right halo's flags, for an accumulate node that reads past its block (a segment family)
+        if (!h.good.empty()) good_after.assign(h.good.begin() + h.left + h.n, h.good.end());
+        Place place{h.first, h.n, &good};
+        place.origin = span->s0; place.end = span->s1; place.good_after = &good_after;   // the segment grid starts at the span's first sample; no segment reaches past its end
+        const Blocks outs = ex->block(blocks, place);
         if (sink) sink(outs);
       });
     };

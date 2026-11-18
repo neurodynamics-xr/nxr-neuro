@@ -3,16 +3,25 @@
 
 target_sources(nxr_compute PRIVATE
   src/signal/complex_signal.cpp
+  src/signal/correlation.cpp
   src/signal/crossspectral_bins.cpp
   src/signal/crossspectral_decomposition.cpp
   src/signal/crossspectral_measures.cpp
   src/signal/filters.cpp
   src/signal/filters_fir.cpp
+  src/signal/filters_fir_design.cpp
+  src/signal/filters_iir.cpp
   src/signal/forms.cpp
   src/signal/fourier.cpp
   src/signal/graphfilterbank.cpp
   src/signal/graphtransforms.cpp
+  src/signal/graphfilterbank_operator.cpp
   src/signal/graphwavelet.cpp
+  src/signal/istft.cpp
+  src/signal/jointtransforms.cpp
+  src/signal/timefilterbank_kinds.cpp
+  src/signal/wavelet_cross.cpp
+  src/signal/windowed_graphtransforms.cpp
   src/signal/intrinsic_forms.cpp
   src/signal/hodge_decomposition.cpp
   src/signal/isolines.cpp
@@ -47,6 +56,14 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_spectral_scaling test/test_spectral_scaling.cpp)
   target_link_libraries(test_spectral_scaling PRIVATE nxr_compute)
   add_test(NAME test_spectral_scaling COMMAND test_spectral_scaling)
+  add_executable(test_signal_design test/test_signal_design.cpp)
+  target_link_libraries(test_signal_design PRIVATE nxr_compute)
+  target_compile_definitions(test_signal_design PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_signal_design COMMAND test_signal_design)
+  add_executable(test_signal_grid test/test_signal_grid.cpp)
+  target_link_libraries(test_signal_grid PRIVATE nxr_compute)
+  target_compile_definitions(test_signal_grid PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_signal_grid COMMAND test_signal_grid)
   add_executable(test_fft test/test_fft.cpp)
   target_link_libraries(test_fft PRIVATE nxr_compute)
   target_compile_definitions(test_fft PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
