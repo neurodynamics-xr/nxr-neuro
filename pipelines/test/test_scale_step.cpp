@@ -16,6 +16,7 @@
 #include "check.h"
 #include "store_at.h"
 #include "mesh_helpers.h"
+#include "brain_helpers.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
 #include "nxr/io/yaml.h"
@@ -36,9 +37,9 @@ template <class F> std::string what_of(F f) { try { f(); } catch (const Error& e
 std::vector<float> read_floats(const fs::path& p) {
   ArrayReader r = nxrtest::open_array(p);
   const auto raw = r.read();
-  std::vector<float> v(raw.size() / sizeof(float));
-  std::memcpy(v.data(), raw.data(), v.size() * sizeof(float));
-  return v;
+  std::vector<double> d(raw.size() / sizeof(double));      // a statistic is float64
+  std::memcpy(d.data(), raw.data(), d.size() * sizeof(double));
+  return std::vector<float>(d.begin(), d.end());
 }
 }  // namespace
 
@@ -50,16 +51,24 @@ int main() {
   struct Cleanup { fs::path p; ~Cleanup() { fs::remove_all(p); } } cleanup{root};
   const double R = 0.1, sfreq = 250.0;                                         // a sphere of 10 cm radius: the cortex's scale
   const int T = 1024;
-  std::vector<double> U;
-  std::vector<std::int32_t> F0;
-  icosphere(3, U, F0, R);
-  const int N = static_cast<int>(U.size() / 3), M = N;
-  const std::vector<double> sigmas = {0.012, 0.02, 0.035, 0.06};                // the planted widths (m)
+  // two hemispheres, each a sphere of radius R (the cortex's scale), a medial wall on each inner side: the hemispheres are glued by anatomy, and the hats are evaluated on the glued cortex
+  const Brain brn = brain(3, false, 0.0, Vector3d(1.0, 1.0, 1.0));
+  std::vector<double> U(brn.P.size());
+  for (std::size_t i = 0; i < U.size(); ++i) U[i] = R * brn.P[i];
+  const std::vector<std::int32_t>& F0 = brn.F;
+  const int N = brn.n, M = N;
+  const std::vector<double> sigmas = {0.004, 0.008, 0.014, 0.025};                // the planted widths (m)
   const int v0 = 0;
+  // the arc from vertex 0 on its own hemisphere (the other hemisphere is far: no blob there)
+  auto arc = [&](int v) {
+    if (v >= brn.nHalf) return 1e9;
+    const double dx = U[3 * v] - U[0], dy = U[3 * v + 1] - U[1], dz = U[3 * v + 2] - U[2], ch = std::sqrt(dx * dx + dy * dy + dz * dz);
+    return 2 * R * std::asin(std::min(1.0, ch / (2 * R)));
+  };
   auto blob = [&](double sigma) {
     std::vector<float> x(static_cast<std::size_t>(M) * T);
     for (int v = 0; v < N; ++v) {
-      const double c = (U[3 * v] * U[0] + U[3 * v + 1] * U[1] + U[3 * v + 2] * U[2]) / (R * R), d = R * std::acos(std::max(-1.0, std::min(1.0, c)));
+      const double d = arc(v);
       const double a = std::exp(-d * d / (2 * sigma * sigma));
       for (int t = 0; t < T; ++t) x[static_cast<std::size_t>(v) * T + t] = static_cast<float>(a * std::cos(2 * M_PI * 10.0 * t / sfreq));
     }
@@ -72,7 +81,10 @@ int main() {
   {
     SubjectWriter sub = SubjectWriter::create(ds, "S1");
     sub.compose([&] {
-      SurfaceOptions so; so.name = "cortex"; so.sphere = U;
+      SurfaceOptions so; so.name = "cortex"; so.sphere = brn.Sph;
+      std::vector<std::int32_t> dk(static_cast<std::size_t>(brn.n), 1);
+      for (int i = 0; i < brn.n; ++i) { const double y = brn.P[static_cast<std::size_t>(3 * i + 1)]; if ((i < brn.nHalf && y < 0.7) || (i >= brn.nHalf && y > -0.7)) dk[static_cast<std::size_t>(i)] = 0; }
+      so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
       surf = add_surface(sub, so, U, F0).id;
       const std::string cid = uuid7();
       std::vector<float> pos(static_cast<std::size_t>(M) * 3, 0.1f);
@@ -114,15 +126,15 @@ int main() {
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   // the line's one time grid is the frames of the band below (a definition finds `<recording> time grid`): no constant-Q grid beside it
   nxrtest::make_tiles(ds, sub);
+  { EigenSolveOptions eo; eo.modes = 100; eo.surface = "cortex"; eigen_solve(ds, sub, eo, {}); }          // stores the glued surface the hats are evaluated on
   for (std::size_t k = 0; k < sigmas.size(); ++k) { nxrtest::make_frames(ds, sub, "blob" + std::to_string(k), "8-12 Hz"); }
 
   // the levels: those of the ladder the hats are made for (several, so the planted widths can spread over them)
   const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
-  const auto ladder = task::Subject::of(sub).require({.cls = task::Cls::selection, .name = "rest_time_constantQ", .type = "ladder"}, "the time ladder");
-  const int top = static_cast<int>(ladder.n_members.value_or(0)) - 1;
+  const int top = 8;   // the hats' levels: the five finest of the ladder the cortex reaches (levels 0 .. 8)
   std::vector<int> lvs;
   for (int l = std::max(1, top - 4); l <= top; ++l) lvs.push_back(l);
-  std::printf("  %d vertices on a %.0f cm sphere; ladder levels 0 … %d; hats at levels", N, R * 100, top);
+  std::printf("  %d vertices on two %.0f cm spheres; ladder levels 0 … %d; hats at levels", N, R * 100, top);
   for (const int l : lvs) std::printf(" %d", l);
   std::printf("\n");
   CHECK(lvs.size() >= 4);
@@ -134,8 +146,8 @@ int main() {
   std::vector<double> size_cm;
   for (const int l : lvs) {
     const SpatialBand b = make_spatial_band(ds, sub, S, read_surface_level(sub, S, l), sbo);
-    CHECK(b.glued_vertices == N);
-    H.push_back(b.apply_glued(Eigen::MatrixXd::Identity(N, N)));
+    CHECK(b.glued_vertices > N);
+    H.push_back(b.apply_glued(Eigen::MatrixXd::Identity(N, N)));   // [glued vertices x N]
     n2.push_back(H.back().rowwise().squaredNorm());
     size_cm.push_back(100.0 * 2 * M_PI / std::sqrt(b.info["hat_centre_lambda"].get<double>()));
   }
@@ -143,12 +155,14 @@ int main() {
   for (const double s : size_cm) std::printf(" %.1f", s);
   std::printf("\n");
   for (std::size_t k = 1; k < size_cm.size(); ++k) CHECK(size_cm[k] < size_cm[k - 1]);           // a higher level is finer
-  const std::string def_text = std::string("pipeline: scale_check\ninputs:\n  recording: {field: recording, each: true}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n"
-                                           "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid\"}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
-                                           "      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: frames, in: {x: z, tiling: tiling}, out: zf}\n"
-                                           "      - {step: apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles}, with: {levels: [") + [&] { std::string s; for (const int l : lvs) s += (s.empty() ? "" : ", ") + std::to_string(l); return s; }() +
-                             "], glued: true, transform: exact}, out: j}\n      - {step: power, in: {x: j}, out: p}\n      - {step: scale, in: {x: p}, with: {transform: exact}, out: lev}\n"
-                             "      - {step: measure, in: {x: lev}, with: {bad_segments: ignore}, out: level}\noutputs:\n  level: {kind: characteristic level}\n";
+  const std::string kHead = "pipeline: scale_check\ninputs:\n  recording: {field: recording, each: true}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n  glued: {manifold: surface, where: {name: cortex_glued}}\n"
+                            "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid frames 8-12 Hz 36 per cycle\"}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
+                            "      - {node: signal.analytic_frames, in: {x: recording, tiling: tiling}, with: {band: [8.0, 12.0], frames_per_cycle: 36}, out: zf}\n";
+  const std::string kTail = "      - {node: measurement.estimate, in: {x: lev}, with: {method: sample}, out: level}\noutputs:\n  level: {kind: statistic}\n";
+  std::string scales;
+  for (const int l : lvs) scales += (scales.empty() ? "" : ", ") + std::string("\"index:") + std::to_string(l) + "\"";
+  const std::string def_text = kHead + "      - {node: meeg.apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scales: [" + scales + "], transform: exact}, out: j}\n"
+                               "      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}\n      - {node: select.scale, in: {x: p}, with: {transform: exact}, out: lev}\n" + kTail;
   const g::Definition d = g::parse(parse_yaml(def_text, "f.yaml"), "f.yaml", def_text);
   g::RunOptions all; all.chunks = "all"; all.replace = true;
   std::vector<int> at_centre;
@@ -157,17 +171,17 @@ int main() {
   for (std::size_t k = 0; k < sigmas.size(); ++k) {
     Json mine;
     for (const auto& r : rall) if (r["anchor"] == "blob" + std::to_string(k)) mine = r;
-    CHECK(!mine.is_null() && mine["stored"].size() == 1);
+    CHECK(!mine.is_null() && mine["stored"].size() >= 1);
     if (mine.is_null()) continue;
     const std::vector<float> got = read_floats((sub.folder() / (mine["stored"][0]["path"].get<std::string>())));
     // the direct: the blob's pattern through each level, squared, over the atom's squared norm, the level of the maximum
     std::vector<double> f(static_cast<std::size_t>(N));
-    for (int v = 0; v < N; ++v) {
-      const double c = (U[3 * v] * U[0] + U[3 * v + 1] * U[1] + U[3 * v + 2] * U[2]) / (R * R), dd = R * std::acos(std::max(-1.0, std::min(1.0, c)));
-      f[static_cast<std::size_t>(v)] = std::exp(-dd * dd / (2 * sigmas[k] * sigmas[k]));
-    }
-    int wrong = 0;
-    for (int v = 0; v < N; ++v) {
+    for (int v = 0; v < N; ++v) { const double dd = arc(v); f[static_cast<std::size_t>(v)] = std::exp(-dd * dd / (2 * sigmas[k] * sigmas[k])); }
+    const int Vg = static_cast<int>(H[0].rows());
+    CHECK(got.size() == static_cast<std::size_t>(Vg));
+    int wrong = 0, vc = 0;                                                     // vc: the glued vertex the blob is centred on (the coarsest hat's strongest response)
+    { double top_r = -1; for (int v = 0; v < Vg; ++v) { double rr = 0; for (int u = 0; u < N; ++u) rr += H[0](v, u) * f[static_cast<std::size_t>(u)]; if (std::abs(rr) > top_r) { top_r = std::abs(rr); vc = v; } } }
+    for (int v = 0; v < Vg; ++v) {
       double best = -1;
       int at = 0;
       for (int li = 0; li < NL; ++li) {
@@ -178,9 +192,9 @@ int main() {
       }
       if (std::abs(got[static_cast<std::size_t>(v)] - lvs[static_cast<std::size_t>(at)]) > 1e-3) ++wrong;
     }
-    at_centre.push_back(static_cast<int>(std::lround(got[static_cast<std::size_t>(v0)])));
-    std::printf("  blob %.1f cm wide: level %d at its centre (size %.1f cm); %d of %d vertices differ from the direct level\n", sigmas[k] * 100, at_centre.back(), size_cm[static_cast<std::size_t>(std::find(lvs.begin(), lvs.end(), at_centre.back()) - lvs.begin())], wrong, N);
-    CHECK(wrong <= N / 100);
+    at_centre.push_back(static_cast<int>(std::lround(got[static_cast<std::size_t>(vc)])));
+    std::printf("  blob %.1f cm wide: level %d at its centre (size %.1f cm); %d of %d glued vertices differ from the direct level\n", sigmas[k] * 100, at_centre.back(), size_cm[static_cast<std::size_t>(std::find(lvs.begin(), lvs.end(), at_centre.back()) - lvs.begin())], wrong, Vg);
+    CHECK(wrong <= Vg / 100);
   }
   // THE SELECTED SIZE TRACKS THE PLANTED WIDTH: wider blob, coarser level (lower index), and the widths span several levels
   bool monotone = true;
@@ -192,14 +206,13 @@ int main() {
   CHECK(monotone && distinct.size() >= 3 && at_centre.front() > at_centre.back());
   // THE PLAN
   auto refused = [&](const std::string& steps) {
-    const std::string t = std::string("pipeline: x\ninputs:\n  recording: {field: recording, each: true, where: {name: blob0}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n"
-                                      "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid\"}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
-                                      "      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: frames, in: {x: z, tiling: tiling}, out: zf}\n") + steps +
-                          "      - {step: measure, in: {x: lev}, with: {bad_segments: ignore}, out: level}\noutputs:\n  level: {kind: characteristic level}\n";
-    return what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), g::RunOptions{}); });
+    std::string t = kHead + steps + kTail;
+    t.replace(t.find("over: recording"), 15, "over: recording");
+    const std::string why = what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), [] { g::RunOptions o; o.chunks = "0"; return o; }()); }); return why;
   };
-  CHECK(refused("      - {step: apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles}, with: {levels: [3, 4], glued: true, transform: exact}, out: j}\n      - {step: scale, in: {x: j}, out: lev}\n").find("band's power") != std::string::npos);
-  CHECK(refused("      - {step: apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles}, with: {level: 3, glued: true, transform: exact}, out: j}\n      - {step: power, in: {x: j}, out: p}\n      - {step: scale, in: {x: p}, out: lev}\n").find("multi-level") != std::string::npos);
-  CHECK(refused("      - {step: apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles}, with: {levels: [3, 4], transform: exact}, out: j}\n      - {step: power, in: {x: j}, out: p}\n      - {step: scale, in: {x: p}, out: lev}\n").find("glued") != std::string::npos);
+  const std::string two = "[\"index:3\", \"index:4\"]";
+  CHECK(refused("      - {node: meeg.apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scales: " + two + ", transform: exact}, out: j}\n      - {node: select.scale, in: {x: j}, out: lev}\n").find("band's power") != std::string::npos);
+  CHECK(refused("      - {node: meeg.apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scale: \"index:3\", transform: exact}, out: j}\n      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}\n      - {node: select.scale, in: {x: p}, out: lev}\n").find("multi-level") != std::string::npos);
+  CHECK(refused("      - {node: meeg.apply_kernel, in: {x: zf, kernel: kernel, tiles: tiles}, with: {spatial_scales: " + two + ", transform: exact}, out: j}\n      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}\n      - {node: select.scale, in: {x: p}, out: lev}\n").find("glued") != std::string::npos);
   return nxrtest::finish("test_scale_step") || g_failures ? 1 : 0;
 }

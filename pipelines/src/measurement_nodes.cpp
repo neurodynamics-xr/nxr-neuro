@@ -213,9 +213,36 @@ Json describe_measures(const Json& measures, std::int64_t R, std::int64_t T, std
 //   elements  {kind: elements, size}                          each element its own member (the channels)
 //   span      {kind: span}                                    the run's span as ONE member
 //   product   {kind: product, factors: [descriptor, ...], layout: "product" | "joint", bits}   mixed radix, the FIRST factor fastest (Studio D100; D129 joint: first factor's radix 2^bits)
+// a STORED product's factors, as io keeps them (params.product: [{selection, members, level?}], the Studio's D100) read back as the descriptors the run's own product records: each factor's selection row says its grid
+// (a time grid, a surface ladder at the level named, the run's span, a set of elements)
+Json product_of_entries(const Json& entries, const ExecContext& c, const std::string& who) {
+  Json out = Json::array();
+  for (const auto& e : entries) {
+    const auto row = c.bound.selection(e.value("selection", std::string()));
+    need(row.has_value(), who + ": a factor of the stored product (" + e.dump() + ") is not among the subject's selections");
+    const Json fp = Json::parse(nxr::io::opt_text(*row, "params_json").value_or("{}"), nullptr, false);
+    const std::string nm = nxr::io::text(*row, "name");
+    Json d;
+    if (fp.is_object() && fp.contains("grid") && fp["grid"].is_object()) {
+      d = fp["grid"];
+      if (d.value("kind", std::string()) == "dyadic") {
+        const auto at = nm.rfind(" tiles");
+        need(at != std::string::npos && e.contains("level"), who + ": the surface factor " + nm + " of the stored product names no level");
+        d["surface"] = nm.substr(0, at); d["level"] = e["level"]; d["tiles"] = e["members"];
+      } else if (d.value("kind", std::string()) == "time" && !d.contains("size") && d.contains("samples")) d["size"] = d["samples"];
+    } else if (fp.is_object() && fp.value("kind", std::string()) == "elements") d = Json{{"kind", "elements"}, {"size", e.value("members", std::int64_t(0))}};
+    else if (fp.is_object() && fp.contains("level") && fp.contains("tiles")) d = Json{{"kind", "dyadic"}, {"surface", fp.value("surface", std::string())}, {"level", fp["level"]}, {"tiles", fp["tiles"]}};
+    else refuse(who + ": the factor " + nm + " of the stored product records no grid");
+    out.push_back(d);
+  }
+  return out;
+}
+
 Json descriptor_of(const Value& over, const ExecContext& c, const std::string& port, const std::string& who) {
   if (over.row) {
     const Json pj = Json::parse(nxr::io::opt_text(*over.row, "params_json").value_or("{}"), nullptr, false);
+    if (pj.is_object() && pj.contains("product") && pj["product"].is_array())
+      return Json{{"kind", "product"}, {"factors", product_of_entries(pj["product"], c, who)}, {"layout", pj.value("layout", std::string("product"))}, {"bits", pj.value("bits", 0)}};
     if (!(pj.is_object() && (pj.contains("grid") || pj.contains("product"))) && !nxr::io::is_null(*over.row, "array_path") && !nxr::io::is_null(*over.row, "n_members"))   // a set or partition: a member number per element
     {
       Json d = Json{{"kind", "labelled"}, {"array_path", nxr::io::text(*over.row, "array_path")}, {"members", nxr::io::integer(*over.row, "n_members")}};
@@ -260,6 +287,8 @@ Form form_of(const Json& d, std::int64_t line_samples, ExecContext& c, const std
   } else if (f.kind == "dyadic") {
     const nxr::pipelines::SurfaceInput S = c.bound.surface(d["surface"].get<std::string>(), true);
     const nxr::pipelines::SurfaceLevel L = c.bound.surface_level(S, d["level"].get<int>());
+    need(!d.contains("tiles") || !d["tiles"].is_number_integer() || d["tiles"].get<std::int64_t>() == L.nodes,
+         who + ": the surface factor's record says " + d.value("tiles", Json()).dump() + " tiles at level " + std::to_string(d["level"].get<int>()) + ", the surface's own level has " + std::to_string(L.nodes));
     f.member_of = L.tile;
     f.members = L.nodes;
     f.size = S.n_vertices();
@@ -831,7 +860,7 @@ void redirect_summarize(StepSpec& sc) {
 // A statistic from a partition of the stream: the MEAN over a family of segments (they may overlap) of a per-segment quantity, folded block by block (`SegmentMean`), or the counts of
 // fixed bins (`Histogram`). The per-segment quantity (taper and FFT; X Xᴴ; |X|²) is a pointwise node before it; `estimate` only means or counts. A segment cut by an excluded span is
 // skipped and counted.
-struct EstimateState { std::string method; std::vector<double> edges; };
+struct EstimateState { std::string method; std::vector<double> edges; std::string rows_manifold, quantity; };
 struct EstimateAcc { std::optional<nm::Histogram> hist; nm::SegmentMean mean; std::int64_t rows = 0, cols = 0; };
 
 StepSpec estimate_node() {
@@ -860,9 +889,11 @@ StepSpec estimate_node() {
     y.time.reset();
     return Values{{"y", y}};
   };
-  s.prepare = [](const Values&, const Json& p, ExecContext&) {
+  s.prepare = [](const Values& ins, const Json& p, ExecContext&) {
     EstimateState st;
     st.method = p["method"].get<std::string>();
+    st.rows_manifold = ins.at("x").manifolds.empty() ? std::string() : ins.at("x").manifolds[0];
+    st.quantity = ins.at("x").facts.value("made_by", std::string());
     if (st.method == "histogram") for (const auto& e : p["edges"]) st.edges.push_back(e.get<double>());
     return std::any(std::move(st));
   };
@@ -906,6 +937,10 @@ StepSpec estimate_node() {
     if (st.method == "histogram") {
       Array y{1, static_cast<std::int64_t>(acc.hist->counts.size()), std::vector<double>(acc.hist->counts.begin(), acc.hist->counts.end())};
       y.meta = Json{{"method", "histogram"}, {"edges", acc.hist->edges}};
+      const std::int64_t nb = static_cast<std::int64_t>(acc.hist->counts.size());
+      y.meta["generic_statistic"] = Json{{"measure", "count"}, {"method", "histogram"}, {"shape", Json::array({1, nb})},
+                                         {"axes", Json::array({Json{{"name", "pool"}, {"values", Json::array({Json{{"name", "every row, every good sample"}}})}, {"size", 1}}, Json{{"name", "bin"}, {"size", nb}, {"edges", acc.hist->edges}}})},
+                                         {"description", "the counts of the good samples of the field in the given bins"}, {"options", Json{{"edges", acc.hist->edges}}}};
       return Arrays{{"y", std::move(y)}};
     }
     need(acc.mean.used > 0, "estimate: no good sample in the span");
@@ -913,6 +948,12 @@ StepSpec estimate_node() {
     Array y{m.rows(), 1, std::vector<double>(static_cast<std::size_t>(m.rows()))};
     for (Eigen::Index r = 0; r < m.rows(); ++r) y.data[static_cast<std::size_t>(r)] = m(r, 0).real();
     y.meta = Json{{"method", "sample"}, {"used", acc.mean.used}, {"skipped", acc.mean.skipped}};
+    // the generic mean of a real per-sample field (the relative power, a magnitude): [row] on the field's first factor, stored as a statistic of method mean
+    Json row_axis = Json{{"name", "row"}, {"size", m.rows()}};
+    if (!st.rows_manifold.empty()) row_axis["manifold_id"] = st.rows_manifold;
+    y.meta["generic_statistic"] = Json{{"measure", st.quantity == "relative" ? std::string("relative_power") : st.quantity == "magnitude" ? std::string("amplitude") : std::string("mean")}, {"method", "mean"}, {"shape", Json::array({m.rows(), 1})},
+                                       {"axes", Json::array({row_axis, Json{{"name", "estimate"}, {"values", Json::array({Json{{"name", "mean"}}})}, {"size", 1}}})},
+                                       {"n_members", acc.mean.used}, {"description", "the mean over the good samples of the field, per row"}, {"options", Json{{"used", acc.mean.used}, {"skipped", acc.mean.skipped}}}};
     return Arrays{{"y", std::move(y)}};
   };
   return s;

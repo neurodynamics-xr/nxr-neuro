@@ -221,7 +221,11 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
     t.domain = *d;
     if (v.cls == "field") t.quantity = nxr::io::opt_text(r, "kind").value_or("");
     if (v.cls == "selection" || v.cls == "spans" || v.cls == "labelling") {
-      const std::string ty = nxr::io::opt_text(r, "type").value_or("");
+      std::string ty = nxr::io::opt_text(r, "type").value_or("");
+      if (ty == "spans") {                                                  // a stored closed-form tiling of a line (a frame grid, a band's tiles) is read back as spans: its record (params.grid of kind time with a width) says it is one
+        const Json pj = Json::parse(nxr::io::opt_text(r, "params_json").value_or("{}"), nullptr, false);
+        if (pj.is_object() && pj.contains("grid") && pj["grid"].is_object() && pj["grid"].value("kind", std::string()) == "time" && pj["grid"].contains("width")) ty = "tiling";
+      }
       t.quantity = ty;
       ng::SelectionShape sh;
       sh.type = ty; sh.identity = nxr::io::text(r, "id");

@@ -792,10 +792,21 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       // A PRODUCT of selections (the Studio's D100 productSelection; mixed radix, first factor fastest): a `set` with nothing stored per member; its factors in order, each a stored selection and, when it is a
       // level of a grid (the line's time grid, the surface's dyadic grid), the LEVEL it is at with the quantity it was snapped to (consolidation spec 6.2: coupled levels are never selections of their own).
       // The node's description gives the layout (`describe.layout`: product | joint) and the radices.
+      std::size_t fk = 0;
       for (const auto& f : spec["factors"]) {
         int fac_level = -1;
         Json fac_snapped;
         s.factor_ids.push_back(link(P, f.is_object() ? f.value("selection", std::string()) : f.get<std::string>(), &made, o));
+        // the level a node COUPLED (select.product `couple`: a band or a scale resolved in closed form at the run) is in the node's own record of the factor
+        const Json* nodes_product = d.contains("product") ? &d["product"] : (d.contains("params") && d["params"].is_object() && d["params"].contains("product") ? &d["params"]["product"] : nullptr);
+        if (nodes_product && nodes_product->contains("factors") && fk < (*nodes_product)["factors"].size()) {
+          const Json& rf = (*nodes_product)["factors"][fk];
+          bool coupled = false;
+          for (const auto& cp : nodes_product->value("coupled", Json::array())) coupled = coupled || (cp.is_object() && cp.value("factor", std::size_t(~0)) == fk);
+          if (coupled && rf.is_object() && rf.contains("level") && rf["level"].is_number_integer() && !(f.is_object() && f.contains("level"))) fac_level = rf["level"].get<int>();
+          if (rf.is_object() && rf.contains("snapped") && !(f.is_object() && f.contains("snapped"))) fac_snapped = rf["snapped"];
+        }
+        ++fk;
         if (f.is_object() && f.contains("level")) fac_level = static_cast<int>(f["level"].is_string() && !f["level"].get<std::string>().empty() && f["level"].get<std::string>()[0] == '$'
                                                                                  ? P.parameters.at(f["level"].get<std::string>().substr(1)).get<std::int64_t>() : f["level"].get<std::int64_t>());
         if (f.is_object() && f.contains("snapped")) fac_snapped = f["snapped"];
@@ -804,6 +815,12 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       }
       if (d.contains("layout")) s.params["layout"] = d["layout"];
       if (d.contains("radices")) s.params["radices"] = d["radices"];
+      if (d.contains("params") && d["params"].is_object() && d["params"].contains("product")) {      // the node's own record (select.product): the layout and each factor's radix, the member count of its level
+        const Json& np = d["params"]["product"];
+        if (!s.params.contains("layout") && np.contains("layout")) s.params["layout"] = np["layout"];
+        if (!s.params.contains("radices") && np.contains("radices")) s.params["radices"] = np["radices"];
+        if (s.radices.empty()) for (const auto& r : (np.contains("counts") ? np["counts"] : np.value("radices", Json::array()))) s.radices.push_back(r.get<std::int64_t>());   // the member count of each factor's level (io needs it for a level of a grid)
+      }
       if (d.contains("product")) s.params["product"] = d["product"];       // the node's own record of each factor's level and snapped quantity, as it resolved them
     }
     else if (t == "cells") { s.n_members = d.at("n_members").get<std::int64_t>(); if (d.contains("label")) s.label = d["label"].get<std::string>(); }

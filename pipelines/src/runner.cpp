@@ -709,7 +709,7 @@ Json store_baseline(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, con
   const std::string path = statistic_out_path(P, o), name = node_name(d, o, P.found);
   nxr::pipelines::clear_stored(ds, sub, {{"statistic", path}}, replace, d.name + " output " + o + " (" + path + ")", replaced);
   const Json& h = a.meta["baseline"];
-  const Json levels = v.facts.contains("levels") && v.facts["levels"].is_array() ? v.facts["levels"] : Json::array();
+  const Json levels = v.facts.is_object() && v.facts.contains("levels") && v.facts["levels"].is_array() ? v.facts["levels"] : Json::array();
   const std::int64_t L = levels.empty() ? 1 : static_cast<std::int64_t>(levels.size()), V = a.rows / L;
   Json entries = Json::array();
   if (levels.empty()) entries.push_back(Json{{"name", "band"}});
@@ -725,7 +725,7 @@ Json store_baseline(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, con
   st.description = "the baseline band power of " + text(rec, "name") + ": the mean of |x|^2 over " + std::to_string(st.n_members.value_or(0)) + " good " + h.value("axis", std::string("sample")) + " (outside the named bursts and the bad segments), per vertex and level \xe2\x80\x94 pipeline " + key.pipeline;
   Json opt = h;
   opt["layout"] = "[vertex x level]: row = vertex * levels + level; the mean of the `power` step's |x|^2 over the good columns";
-  opt["outside"] = v.facts.value("outside", Json());
+  opt["outside"] = v.facts.is_object() ? v.facts.value("outside", Json()) : Json();
   st.options = opt;
   Json pj = producer;
   pj["output"] = o;
@@ -1419,7 +1419,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   for (const MadeOperator& op : bound.offered_operators()) {
     if (bound.stored_operator(op.key)) continue;
     nxr::pipelines::task::OperatorOut oo;
-    oo.name = op.name.empty() ? "fused operator " + nxr::io::sha256_hex(op.key.dump()).substr(0, 12) : op.name;
+    oo.name = (op.name.empty() ? std::string("fused operator") : op.name) + " " + nxr::io::sha256_hex(op.key.dump()).substr(0, 12);   // one name per key: two operators of one kernel (another form, another hat) are two rows
     oo.output = "operator";
     oo.kind = op.kind;
     oo.from_manifold_id = op.from_manifold_id; oo.to_manifold_id = op.to_manifold_id;

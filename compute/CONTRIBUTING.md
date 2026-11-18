@@ -33,11 +33,14 @@ binding shells live under `bindings/`:
 | `bindings/mex/src/nxr_compute_mex.cpp` | `nxr_compute.mexw64` (MATLAB MEX) |
 | `bindings/cli/src/main.cpp` | `nxr_compute.exe` (CLI smoke harness) |
 
-All four are **context-based**: each mesh is bound once via
-`createContext(vertices, faces)` and the resulting opaque handle holds
-the assembled operator structs and a `CholeskyCache` for the rest of
-its lifetime. There are no JS-side handles for individual factors —
-the cache is internal to the C++ side.
+All four are **array-based**: every command takes arrays and returns arrays,
+and nothing is kept between calls (no context, no handle, no cache). A
+surface is data: the struct made once by `geometry.surfaceArrays`
+(positions, faces and the intrinsic Delaunay triangulation, the expensive
+step) is passed as the first argument to every surface command, which
+rebuilds the library's `SurfaceArrays` from it. A factorization a command
+needs is made inside it. Commands carry the library's names,
+`<toolbox>.<function>`.
 
 `MeshOperators` and `DECOperators` mix view and value semantics. Field
 names match geometry-central's canonical cache names where the concept
@@ -60,11 +63,11 @@ all `DECOperators` fields):
   mesh (geometry-central's `vertexLumpedMassMatrix`, formerly this library's `Lumped`; the name `lumped` is retired, no alias, and
   `parseMassMatrixVariant("lumped")` throws). `Galerkin` is the consistent P1 mass on the operator mesh.
 
-Lifetime contract: the binding holders (`ContextHolder` /
-`ContextWrapper`) keep the operator structs and the owning
-`ComputeContext` together, and no code path should call `unrequire*`
-on the geometry while the views are alive. See the comment block
-above `MeshOperators` in `include/nxr/compute.h`.
+Lifetime contract: a caller that holds the operator structs keeps the
+`SurfaceArrays` they view alive with them, and no code path should call
+`unrequire*` on the geometry while the views are alive. The bindings hold
+none of this between calls (each command rebuilds its views from the arrays
+it is handed).
 
 ---
 
@@ -157,7 +160,7 @@ in `bindings/mex/test/test_bundle.m`).
 
 **Operators surface (opt-in).** Passing `opts.operators = true` to any of the
 four commands attaches an `.operators` sub-struct of live native MATLAB sparse
-operators to each surface, cached on the handle (design:
+operators to each surface (design:
 `docs/superpowers/specs/2026-06-08-operators-surface-design.md`). Each surface
 owns the operators whose highest ingredient is that surface — the
 `operators.laplacian` through-line is graph → cotan → connection:
@@ -380,46 +383,16 @@ CurvatureResult     computeCurvatures(ComputeContext&);
 …
 ```
 
-The N-API bindings in `bindings/node/src/addon.cpp` hold a
-`ContextHolder` per JS handle and plumb each call through. The holder
-fields:
-
-```cpp
-struct ContextHolder {
-    std::shared_ptr<ComputeContext>     ctx;
-    std::shared_ptr<MeshOperators>      ops;        // view, lazy via ensureOps()
-    std::shared_ptr<DECOperators>       dec;        // view, lazy via ensureDec()
-    std::shared_ptr<CholeskyCache>      factors;    // pre-factored Cholesky/LU
-    std::shared_ptr<EigenResult>        eigenmodes; // populated by EigenSolveWorker
-    std::shared_ptr<VectorHeatSolver>   vhm;        // lazy via ensureVHM()
-    std::shared_ptr<SignedHeatSolver>   shs;        // lazy via ensureSHS()
-    std::shared_ptr<HeatGeodesicSolver> heatGeo;    // lazy via ensureHeatGeo()
-    std::map<CLCacheKey,
-        std::shared_ptr<ConnectionLaplacian>> connectionLaplacian;     // Pattern-C
-    std::map<SmoothFieldKey, Eigen::MatrixXd>             smoothFaceFieldCache;   // Pattern-C
-    std::map<SmoothFieldKey, SmoothVertexFieldResult>     smoothVertexFieldCache; // Pattern-C
-};
-```
-
-The WASM `ContextWrapper` (`bindings/wasm/src/nxr_compute_wasm.cpp`)
-holds an equivalent set. Both lazy-initialise solver PIMPLs on first
-use; both cache stateless free-function results (connection-Laplacian,
-smooth-direction-field) keyed by all input parameters.
-
-The MEX binding (`bindings/mex/src/nxr_compute_mex.cpp`) is also
-stateful: a file-scope `std::unordered_map<uint64_t, ContextHolder>`
-is the MEX analogue of `ContextWrapper`, and the `uint64` handle
-returned by `nxr_compute('create', V, F)` is the proxy-pointer
-analogue (MEX has no Embind, so it exposes the context through the
-single `nxr_compute('cmd', handle, …)` entry point). Dispatch is
-**additive**: a `uint64` scalar in `prhs[1]` selects the handle path,
-`V, F` arrays select the legacy stateless path (unchanged). The MEX
-holder mirrors the same fields + lazy `ensure*` + result caches and
-reaches full parity with the `ContextWrapper` surface. A bad/destroyed
-handle throws `Error(InvalidHandle)` → `nxr:invalidHandle`. A MATLAB
-`handle`-class wrapper is intentionally out of scope (application-side,
-like the JS wrappers over WASM); see
-`docs/superpowers/specs/2026-05-27-stateful-mex-binding-design.md`.
+The bindings (`bindings/node/src/addon.cpp`, `bindings/wasm/src/nxr_compute_wasm.cpp`,
+`bindings/mex/src/nxr_compute_mex.cpp`) are **faces**: they marshal arrays in
+and out and call the library's functions by their toolbox name; they hold no
+state, no solver and no result cache (there is no context holder and no
+handle). The MEX binding is one `mexFunction` with command dispatch,
+`nxr_compute('<toolbox>.<function>', S, ...)`, where `S` is the surface struct
+made once by `geometry.surfaceArrays`; an old command string (`create`,
+`heat`, `solve`, ...) is refused with an error naming the new name, and the
+former context commands are refused with the reason. A MATLAB wrapper class is
+application-side and out of scope.
 
 ---
 
@@ -442,8 +415,9 @@ and reuse for the same reason.
   factorization sequence the previous inline solvers used. Solves on
   the cached factor are bit-for-bit identical to fresh inline factor +
   solve. Verified by `test/test_cholesky_cache.cpp`.
-- Lifetime: owned by `ContextHolder` in `addon.cpp`; the cache is
-  destroyed when the JS handle releases (i.e. when the mesh changes).
+- Lifetime: a cache lives only as long as the object that owns it (a solver
+  inside one library call, or one the caller keeps); the bindings keep none
+  between calls.
 - Single-threaded. The addon is invoked from Node's main thread; no
   mutex inside the cache.
 
@@ -518,32 +492,25 @@ state, not a missed optimization.
    Web Worker (see `docs/wasm-web-worker.md` for the recipe +
    `bindings/wasm/js/nxr_compute_wasm.worker.template.mjs`).
 
-8. **Solver-instance caching for stateful geometry-central solvers.**
-   Whenever you bind one of geometry-central's `*Solver` classes
+8. **Solver instances live inside a library call, never in a binding.**
+   Whenever you use one of geometry-central's `*Solver` classes
    (`HeatMethodDistanceSolver`, `VectorHeatMethodSolver`,
-   `SignedHeatSolver`), wrap it in a PIMPL class on the nxr-compute
-   side and hold the wrapper alive on `ContextWrapper` (or the addon's
-   `ContextHolder`) via an `ensureXxx()` helper. **Never construct the
-   solver inline per call** — that's a real bug we caught and fixed
-   (`computeGeodesicDistance`, commit `01a212a`). The constructor
-   pre-factors the Cholesky systems; subsequent method calls
-   back-substitute only. Throwing the solver away every call is
-   the perf gap. See `docs/integration-lessons.md` §A.
+   `SignedHeatSolver`), wrap it in a PIMPL class on the nxr-compute side.
+   The constructor pre-factors the Cholesky systems, so a function that
+   needs many solves takes all of them in one call (a batch: a cell array
+   of source sets gives one column per set) and builds ONE solver for the
+   call. The bindings are array-based and keep nothing between calls, so
+   a binding never holds a solver or a result cache. See
+   `docs/integration-lessons.md` §A.
 
-9. **Result-level cache for stateless geometry-central free functions.**
+9. **No result caches in the bindings.**
    Some geometry-central algorithms (e.g.
    `computeSmoothest{,Boundary}AlignedFaceDirectionField`) are pure
-   free functions with no Solver class — each call rebuilds and
-   factorizes internally. Adding a Solver wrapper here would require
-   reimplementing the algorithm. Instead, cache the **output** at the
-   binding level, keyed by all input parameters. Both the N-API
-   addon and the WASM `ContextWrapper` carry parallel slots:
-   `smoothFaceFieldCache` / `smoothVertexFieldCache` (keyed by
-   `(nSym, alignToCurvature)`) and `connectionLaplacian` (keyed by
-   `(domain, nSym, regularization, format)`). The trade-off:
-   parameter changes pay the full cold cost once per new key,
-   identical-parameter repeats are cache-hit fast. See
-   `docs/integration-lessons.md` §C.
+   free functions with no Solver class: each call rebuilds and
+   factorizes internally. A caller that repeats a call with the same
+   parameters keeps the result itself; the library and its bindings
+   do not cache it (the former binding-level result caches went with
+   the context design). See `docs/integration-lessons.md` §C.
 
 10. **Eigensolve K ceiling on browser/WASM.** `solveEigenmodes` throws
     `EigensolveInvalidK` for `k > 1000`. Spectra's Krylov basis size

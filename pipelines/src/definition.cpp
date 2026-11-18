@@ -567,8 +567,10 @@ void compose_chain(Definition& e, const std::string& input, const Json& chain_na
   Json inputs = e.inputs;
   inputs.erase(input);
   bool chain_each = false;
+  std::string chain_anchor;                                                  // the chain's own recording (its `each` input): what a measurement of the chain's field is OF
   for (const auto& [k, spec] : CE.inputs.items()) {
     Json sp = spec;
+    if (sp.value("each", false)) chain_anchor = prefix + k;
     for (const char* rel : {"from", "to", "is"}) if (sp.contains(rel) && sp[rel].is_string()) sp[rel] = renamed(sp[rel].get<std::string>(), to);
     if (sp.contains("manifold") && !manifold_class_of(sp) && sp["manifold"].is_string()) sp["manifold"] = renamed(sp["manifold"].get<std::string>(), to);
     if (sp.contains("where")) sp["where"] = with_params(sp["where"], cp);
@@ -593,6 +595,9 @@ void compose_chain(Definition& e, const std::string& input, const Json& chain_na
   convert(CE.do_, e.do_);
   convert(CE.after, e.after);
   e.inputs = inputs;
+  // a composed chain stores nothing: a measurement declared of its field is of the recording the chain reads (found, as any measured field)
+  if (!chain_anchor.empty())
+    for (auto& [name, o] : e.outputs.items()) if (o.is_object() && o.contains("of") && o["of"] == input) o["of"] = chain_anchor;
   if (e.over && *e.over == input) {
     if (!CE.over) err(w, "the definition's chunk loop walks this input, and the chain streams no recording");
     e.over = prefix + *CE.over;

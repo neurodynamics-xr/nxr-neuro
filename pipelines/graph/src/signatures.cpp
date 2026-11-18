@@ -118,15 +118,15 @@ Signature s_apply_kernel() {
         const PortType& k = u.type("kernel");
         PortType& y = u.out.at("y");
         const std::string form = p.value("form", std::string("none"));
-        if (p.value("glued", false)) y.domain.factors[0] = derived("glued", y.domain.factors[0]);
+        if (u.has("glued") || form != "none") y.domain.factors[0] = derived("glued", y.domain.factors[0]);   // the glued surface is an input (rule 33); a form is taken on it
         y.res.ladder.clear(); y.res.levels.clear(); y.res.spatial_shape.clear();
         if (u.has("tiles")) {
           const PortType& t = u.in.at("tiles");
           if (!t.sel || t.sel->type != "ladder") u.fail("tiles", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a tile ladder");
           std::vector<int> lv;
-          if (p.contains("levels") && p["levels"].is_array()) for (const auto& l : p["levels"]) lv.push_back(level_number(l));
-          else if (p.contains("level") && has_level(p["level"])) lv.push_back(level_number(p["level"]));
-          if (lv.empty()) u.fail("tiles", "`tiles` comes with `level` or `levels`");
+          if (p.contains("spatial_scales") && p["spatial_scales"].is_array()) for (const auto& l : p["spatial_scales"]) lv.push_back(level_number(l));
+          else if (p.contains("spatial_scale") && has_level(p["spatial_scale"])) lv.push_back(level_number(p["spatial_scale"]));
+          if (lv.empty()) u.fail("tiles", "`tiles` comes with `spatial_scale` or `spatial_scales`");
           y.res.ladder = id_of(u, "tiles");
           y.res.levels = lv;
           y.res.spatial_shape = p.value("spatial_shape", std::string("mexhat"));
@@ -469,8 +469,8 @@ Signature s_at_level() {
       .out("y", like("x"))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
-        if (x.res.levels.size() < 2) u.fail("x", "is not a multi-level field (`apply_kernel` with `levels`); its spatial band is " + level_text(x.res));
-        u.out.at("y").res.levels = {p.contains("level") ? level_number(p["level"]) : 0};
+        if (x.res.levels.size() < 2) u.fail("x", "is not a multi-level field (`apply_kernel` with `spatial_scales`); its spatial band is " + level_text(x.res));
+        u.out.at("y").res.levels = {p.contains("scale") && has_level(p["scale"]) ? level_number(p["scale"]) : 0};
       });
 }
 
@@ -587,8 +587,8 @@ Signature s_tile_crossings() {
         if (!t.sel || t.sel->type != "ladder") u.fail("tiles", "must be a tile ladder");
         if (ev.domain.factors.empty() || t.domain.factors.empty() || !same(strip_glued(ev.domain.factors[0]), t.domain.factors[0]))
           u.fail("tiles", "the ladder is on " + print(t.domain) + "; the events lie on " + print(ev.domain) + ": the tile ladder of the events' surface is wanted");
-        if (!p.contains("level") || !has_level(p["level"])) u.fail("tiles", "`level` names the tile level");
-        const std::string lvl = id_of(u, "tiles") + "@" + (level_number(p["level"]) >= 0 ? std::to_string(level_number(p["level"])) : p["level"].get<std::string>());
+        if (!p.contains("spatial_scale") || !has_level(p["spatial_scale"])) u.fail("tiles", "`spatial_scale` names the tile level");
+        const std::string lvl = id_of(u, "tiles") + "@" + (level_number(p["spatial_scale"]) >= 0 ? std::to_string(level_number(p["spatial_scale"])) : p["spatial_scale"].get<std::string>());
         PortType& y = u.out.at("crossings");
         y.domain = dom_of({members(lvl, t.domain.factors[0], Role::none)});
         if (p.value("as", std::string("measurement")) == "statistic") y.cls = PortClass::statistic;   // a null draw's crossings: a statistic of its own, never the data's rows
