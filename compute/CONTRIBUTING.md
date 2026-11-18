@@ -63,11 +63,11 @@ all `DECOperators` fields):
   mesh (geometry-central's `vertexLumpedMassMatrix`, formerly this library's `Lumped`; the name `lumped` is retired, no alias, and
   `parseMassMatrixVariant("lumped")` throws). `Galerkin` is the consistent P1 mass on the operator mesh.
 
-Lifetime contract: the binding holders (`ContextHolder` /
-`ContextWrapper`) keep the operator structs and the owning
-`ComputeContext` together, and no code path should call `unrequire*`
-on the geometry while the views are alive. See the comment block
-above `MeshOperators` in `include/nxr/compute.h`.
+Lifetime contract: a caller that holds the operator structs keeps the
+`SurfaceArrays` they view alive with them, and no code path should call
+`unrequire*` on the geometry while the views are alive. The bindings hold
+none of this between calls (each command rebuilds its views from the arrays
+it is handed).
 
 ---
 
@@ -160,7 +160,7 @@ in `bindings/mex/test/test_bundle.m`).
 
 **Operators surface (opt-in).** Passing `opts.operators = true` to any of the
 four commands attaches an `.operators` sub-struct of live native MATLAB sparse
-operators to each surface, cached on the handle (design:
+operators to each surface (design:
 `docs/superpowers/specs/2026-06-08-operators-surface-design.md`). Each surface
 owns the operators whose highest ingredient is that surface — the
 `operators.laplacian` through-line is graph → cotan → connection:
@@ -492,32 +492,25 @@ state, not a missed optimization.
    Web Worker (see `docs/wasm-web-worker.md` for the recipe +
    `bindings/wasm/js/nxr_compute_wasm.worker.template.mjs`).
 
-8. **Solver-instance caching for stateful geometry-central solvers.**
-   Whenever you bind one of geometry-central's `*Solver` classes
+8. **Solver instances live inside a library call, never in a binding.**
+   Whenever you use one of geometry-central's `*Solver` classes
    (`HeatMethodDistanceSolver`, `VectorHeatMethodSolver`,
-   `SignedHeatSolver`), wrap it in a PIMPL class on the nxr-compute
-   side and hold the wrapper alive on `ContextWrapper` (or the addon's
-   `ContextHolder`) via an `ensureXxx()` helper. **Never construct the
-   solver inline per call** — that's a real bug we caught and fixed
-   (`computeGeodesicDistance`, commit `01a212a`). The constructor
-   pre-factors the Cholesky systems; subsequent method calls
-   back-substitute only. Throwing the solver away every call is
-   the perf gap. See `docs/integration-lessons.md` §A.
+   `SignedHeatSolver`), wrap it in a PIMPL class on the nxr-compute side.
+   The constructor pre-factors the Cholesky systems, so a function that
+   needs many solves takes all of them in one call (a batch: a cell array
+   of source sets gives one column per set) and builds ONE solver for the
+   call. The bindings are array-based and keep nothing between calls, so
+   a binding never holds a solver or a result cache. See
+   `docs/integration-lessons.md` §A.
 
-9. **Result-level cache for stateless geometry-central free functions.**
+9. **No result caches in the bindings.**
    Some geometry-central algorithms (e.g.
    `computeSmoothest{,Boundary}AlignedFaceDirectionField`) are pure
-   free functions with no Solver class — each call rebuilds and
-   factorizes internally. Adding a Solver wrapper here would require
-   reimplementing the algorithm. Instead, cache the **output** at the
-   binding level, keyed by all input parameters. Both the N-API
-   addon and the WASM `ContextWrapper` carry parallel slots:
-   `smoothFaceFieldCache` / `smoothVertexFieldCache` (keyed by
-   `(nSym, alignToCurvature)`) and `connectionLaplacian` (keyed by
-   `(domain, nSym, regularization, format)`). The trade-off:
-   parameter changes pay the full cold cost once per new key,
-   identical-parameter repeats are cache-hit fast. See
-   `docs/integration-lessons.md` §C.
+   free functions with no Solver class: each call rebuilds and
+   factorizes internally. A caller that repeats a call with the same
+   parameters keeps the result itself; the library and its bindings
+   do not cache it (the former binding-level result caches went with
+   the context design). See `docs/integration-lessons.md` §C.
 
 10. **Eigensolve K ceiling on browser/WASM.** `solveEigenmodes` throws
     `EigensolveInvalidK` for `k > 1000`. Spectra's Krylov basis size
