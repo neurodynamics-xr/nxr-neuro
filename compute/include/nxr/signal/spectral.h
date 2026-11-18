@@ -29,6 +29,7 @@
 #include <complex>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <vector>
@@ -80,6 +81,37 @@ Eigen::VectorXd windowOf(std::size_t n, Window window, bool periodic);
  *  (nxr::spectral). */
 double enbwPerBin(const WelchOptions& options);
 
+/** THE SEGMENT FAMILY of a Welch estimate and its transform: segments of `samples`, a new one every `hop` from the stream's first sample, each detrended, multiplied by `window` and transformed. The family
+ *  is a rule of the options alone (no data). `stft` below is the transform over it; `estimate` (measurement::SegmentMean) is the mean of what each segment gives. */
+struct SegmentFamily {
+    std::size_t samples = 0, hop = 0;
+    Eigen::VectorXd window;
+    Detrend detrend = Detrend::Constant;
+    double windowSumSquares = 0, windowSum = 0;
+};
+/** The family the options describe; std::invalid_argument for a segment of fewer than 2 samples, no sampling frequency or an overlap outside [0, 1). */
+SegmentFamily segmentFamily(const WelchOptions& options);
+/** The scale that turns the mean over the segments of |X|^2 (or X X^H) into the options' scaling: 1 / (fs sum w^2), 1 / (sum w)^2 or 1 / (n sum w^2). */
+double segmentScale(const WelchOptions& options, const SegmentFamily& family);
+
+/** STFT over a segment family, a block at a time. `block` [rows x width] holds samples of a stream from stream position `first` on (`first` is the start of a segment: a multiple of the hop); `good` one flag
+ *  a sample. Every whole segment that starts in the block is transformed (rfft of a real block, the FFT of a complex one) and given to `visit(id, spectrum, bins)`, `spectrum` [rows x bins] row-major
+ *  (`id` = the segment's number on the stream, start / hop); a segment touching a sample that is not good is given to `skipped(id)` instead. Returns the samples the block's segments have passed (the
+ *  next segment starts there): the caller keeps the rest of the block and its next samples (the segment model: a segment is owned by the block that holds its start). No state: the result does
+ *  not depend on how the stream was cut. */
+std::size_t stft(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first,
+                 const std::function<void(std::int64_t id, const std::complex<double>* spectrum, std::size_t bins)>& visit, const std::function<void(std::int64_t id)>& skipped);
+std::size_t stft(const Eigen::MatrixXcd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first,
+                 const std::function<void(std::int64_t id, const std::complex<double>* spectrum, std::size_t bins)>& visit, const std::function<void(std::int64_t id)>& skipped);
+
+/** The samples of a stream a segment has not passed yet: the tail of the last block (the start of the next segment) joined to the next chunk (the segment model of a streamed run). */
+template <class Matrix>
+struct SegmentCarry {
+    Matrix block;                             // [rows x carried]
+    std::vector<std::uint8_t> good;
+    std::int64_t first = 0;                   // the stream position of block's first sample
+};
+
 struct WelchResult {
     Eigen::MatrixXd psd;                      // [channels x frequencies]
     Eigen::VectorXd frequencies;              // Hz, segmentSamples/2 + 1 of them
@@ -103,14 +135,11 @@ public:
 private:
     void consume();
     WelchOptions opt_;
-    std::size_t n_, hop_;
-    Eigen::VectorXd win_;
-    double winSumSquares_ = 0, winSum_ = 0;
-    Eigen::MatrixXd buf_;                     // [channels x carried]: samples from the next unprocessed segment's start on
-    std::vector<std::uint8_t> bufGood_;
-    std::size_t carried_ = 0;
+    SegmentFamily family_;
+    std::size_t n_;
+    SegmentCarry<Eigen::MatrixXd> carry_;     // [channels x carried]: samples from the next unprocessed segment's start on
     measurement::SegmentMean mean_;           // [channels x bins]: the mean over the segments of |X|^2 (before scaling and doubling), `estimate`'s one accumulation (its sum is what the scaling multiplies)
-    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0, dropped_ = 0;   // dropped_: samples consumed from the stream's start (a segment's number is its start / hop)
+    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
 };
 
 /** A run of bins first..last (inclusive) of the one-sided spectrum, and whether its value is their mean (a band: Brainstorm's "Group in frequency bands") or their sum (a total). */
@@ -142,16 +171,13 @@ public:
 private:
     void consume();
     WelchOptions opt_;
-    std::size_t n_, hop_;
+    SegmentFamily family_;
+    std::size_t n_;
     std::vector<BinGroup> groups_;
-    Eigen::VectorXd win_;
-    double winSumSquares_ = 0, winSum_ = 0;
-    Eigen::MatrixXd buf_;
-    std::vector<std::uint8_t> bufGood_;
-    std::size_t carried_ = 0;
+    SegmentCarry<Eigen::MatrixXd> carry_;
     std::vector<measurement::SegmentMean> mean_;   // per group: Re (the cross-spectral density) and, with the quadrature, Im in the imaginary part
     bool quadrature_ = false;
-    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0, dropped_ = 0;
+    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
 };
 
 struct LinearWelchResult {
@@ -178,15 +204,12 @@ private:
     const Eigen::MatrixXd& map_;
     std::size_t group_, first_, last_;
     WelchOptions opt_;
-    std::size_t n_, hop_;
-    Eigen::VectorXd win_;
-    double winSumSquares_ = 0, winSum_ = 0;
-    Eigen::MatrixXd buf_;
-    std::vector<std::uint8_t> bufGood_;
-    std::size_t carried_ = 0;
+    SegmentFamily family_;
+    std::size_t n_;
+    SegmentCarry<Eigen::MatrixXd> carry_;
     measurement::SegmentMean mean_;           // [outputs x bins kept]: the mean over the segments of |A X|^2 (the one-sided doubling in it; the scaling is applied at result)
     Eigen::Index outputs_ = 0;
-    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0, dropped_ = 0;
+    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
 };
 
 struct ComplexWelchResult {
@@ -211,14 +234,11 @@ public:
 private:
     void consume();
     WelchOptions opt_;
-    std::size_t n_, hop_;
-    Eigen::VectorXd win_;
-    double winSumSquares_ = 0, winSum_ = 0;
-    Eigen::MatrixXcd buf_;
-    std::vector<std::uint8_t> bufGood_;
-    std::size_t carried_ = 0;
+    SegmentFamily family_;
+    std::size_t n_;
+    SegmentCarry<Eigen::MatrixXcd> carry_;
     measurement::SegmentMean mean_;           // [series x n]: the mean of |X|^2 in the DFT's own order (0, 1, ..., -1)
-    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0, dropped_ = 0;
+    std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
 };
 
 /** `psd` of a COMPLEX series (two-sided), the whole series in one call. */
