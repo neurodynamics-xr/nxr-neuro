@@ -6,6 +6,7 @@
 //   status `composite` a node that runs several functions: its prefix is a toolbox, its word names its job (no single function to match);
 //   status `pending <batch>: <why>` a known mismatch, with the batch that closes it (the behaviour batch: the function is not yet named as decided, e.g. Welch -> psd);
 //   status `legacy`    a binding command of the Manifold context (create, solve, heat, ...), not a compute function by itself;
+//   kind `function` a compute function that is not (yet) a node or a binding: entry `<toolbox>.<word>`, function nxr::<toolbox>::<word> (status `ok`: declared in the toolbox's headers, same word);
 //   kind `retired`     an old name and the new one: the layer refuses the old one with the new in its message (the node registries are called here; the MEX table is read from its source).
 // The table is checked both ways: every node of the registries and every binding string found in the sources is in it, and every row is found.
 #include <cstdio>
@@ -151,7 +152,7 @@ int main(int argc, char** argv) {
     in_sources.insert("matlab compute." + e.path().parent_path().filename().string().substr(1) + "." + e.path().stem().string());
   }
   std::set<std::string> in_table;
-  for (const Row& r : rows) if (r.kind != "node" && r.kind != "retired") in_table.insert(r.kind + " " + r.entry);
+  for (const Row& r : rows) if (r.kind != "node" && r.kind != "retired" && r.kind != "function") in_table.insert(r.kind + " " + r.entry);
   for (const auto& s : in_sources) if (!in_table.count(s)) { std::printf("  a binding entry is not in names.tsv: %s\n", s.c_str()); CHECK(false); }
   for (const auto& s : in_table) if (!in_sources.count(s)) { std::printf("  names.tsv lists a binding entry the sources do not have: %s\n", s.c_str()); CHECK(false); }
 
