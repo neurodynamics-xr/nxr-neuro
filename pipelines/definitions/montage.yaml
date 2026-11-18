@@ -9,7 +9,7 @@
 #
 # What it cannot resolve: these are the SYSTEM's positions on this head model, not where a cap sits on a person; the inion is a stated convention (nxr::meeg::inionFromLandmarks, or the caller's `--inion`), not the bump the inion is.
 #
-#   nxr-neuro run montage --dataset <template package or dataset> --subject <template> [--scalp head --landmarks head_landmarks --name eeg_1005] [--inion X,Y,Z]
+#   nxr-neuro run montage --dataset <template package or dataset> --subject <template> [--scalp head --landmarks head_landmarks --name eeg_1005]
 pipeline: montage
 version: 1
 description: the standard 10-05 electrode montage on a template's scalp, with its names and its 10-20 / 10-10 / 10-05 system partition
