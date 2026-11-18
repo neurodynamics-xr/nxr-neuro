@@ -28,7 +28,6 @@
 #include "nxr/signal/opticalflow.h"
 
 namespace nxr::signal::connection {
-using DelaunayOptions = nxr::geometry::DelaunayOptions;
 
 /** `Corners` (intrinsicGauge.ts): C's gauge, face by face. Per halfedge of the component's INPUT faces: its signpost psi0 (rescaled), its corner's width in psi, its edge's unit vector and the in-plane perpendicular. */
 struct Corners {
