@@ -9,6 +9,8 @@ Before changing anything, read:
 - `docs/reference.md`: every verb and method; `docs/specs/`: the designs behind them.
 
 The rules most often broken, all in those documents:
+- NO WASTE in builds and tests (CONTRIBUTING.md, *No waste*): build only the targets you changed; `tools/tests.py run REGEX` builds and runs only
+  the named tests and never reruns a green one; edit, build once, test once; the full build and suite only with `--suite`, at the end of a round.
 - io, orchestration and compute are separate. Only io writes SQL or touches the database; pipelines and the command line use io's task API.
 - Every pipeline is a YAML definition of registered nodes. Never write or extend a hand-wired C++ pipeline.
 - `compute` = a node or a graph on data handed to it; `run` = a pipeline on a subject (find, stream, store). The same verbs in the command line,
