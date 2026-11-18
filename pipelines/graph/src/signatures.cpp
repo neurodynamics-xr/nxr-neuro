@@ -249,7 +249,10 @@ Signature s_estimate() {
       .in("exclude", selection_any().optional())
       .in("outside", selection_any().optional().because("Samples outside these spans only (the estimate of what is not in an event)."))
       .out("y", make_of(PortClass::statistic))
-      .refine([](Unified& u, const Json& p) { statistic_of_stream(u, "y", p.value("method", std::string("mean")), nullptr); });
+      .refine([](Unified& u, const Json& p) {
+        const std::string method = p.value("method", std::string("sample"));
+        statistic_of_stream(u, "y", method == "histogram" ? "histogram" : "mean", nullptr);   // `sample` is the mean over the good samples
+      });
 }
 
 // `field.form`: the pointwise form of a field (magnitude, power, phase_current, outer)
