@@ -390,6 +390,7 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
     // manifold first, so it is checked there (a new manifold has no node to collide with)
     const bool on_made_here = spec.contains("on") && spec["on"].is_string() && P.definition.outputs.contains(spec["on"].get<std::string>());
     if (!on_made_here) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec, "on", nullptr, o), name));
+    else if (const auto id = ts.manifold_named(declared_name(P, spec["on"].get<std::string>()))) out.emplace_back(task::Cls::selection, ts.node_path(*id, name));   // the manifold is stored already (a re-run): its place is known, so a re-run is a hit
   }
   return out;
 }

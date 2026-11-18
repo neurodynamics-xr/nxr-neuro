@@ -57,6 +57,7 @@ void icosphere(int levels, double radius, std::vector<double>& V, std::vector<st
 }  // namespace
 
 int main() {
+  setvbuf(stdout, nullptr, _IONBF, 0);
   const char* tmp = std::getenv("TMPDIR");
   const fs::path root = fs::path(tmp ? tmp : fs::temp_directory_path().string()) / ("nxr_io_test_pipelines_" + std::to_string(::getpid()));
   fs::remove_all(root);
@@ -93,31 +94,7 @@ int main() {
   CHECK(b.modes.eigenvectors == a.modes.eigenvectors);        // the stored float32 bytes, back
   CHECK(b.seconds < a.seconds);
 
-  // the lookup itself: the stored node is found by its rows under the key, and a key with another K, another mesh or another nxr-compute is not found
-  {
-    // the key's parameters as the solve stamped them (modes, method, forms), its input this mesh
-    const Json stamped = Json::parse(opt_text(*sub.find("operator", "hodgeDirac_eigenvectors"), "producer_json").value_or("{}"))["cache"];
-    CacheKey key{"eigen_solve", stamped["params"], Json{{"mesh", mesh_key(F)}, {"positions", positions_key(V)}}, NXR_COMPUTE_VERSION};
-    CHECK_EQ(stamped["params"]["modes"].get<int>(), 20);
-    CHECK(nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, key.json(), std::string("hodgeDirac_eigenvectors")).has_value());
-    CHECK(nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, key.json()).has_value());
-    CacheKey other = key;
-    other.params["modes"] = 22;
-    CHECK(!nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, other.json()).has_value());
-    other = key;
-    std::vector<std::int32_t> F2 = F;
-    std::swap(F2[1], F2[2]);
-    other.input["mesh"] = mesh_key(F2);
-    CHECK(!nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, other.json()).has_value());
-    std::vector<double> V2 = V;
-    V2[0] *= 1.01;
-    other = key;
-    other.input["positions"] = positions_key(V2);
-    CHECK(!nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, other.json()).has_value());
-    other = key;
-    other.compute = "0.0.0+other";
-    CHECK(!nxr::io::task::Subject::of(sub).cached(nxr::io::task::Cls::operator_, other.json()).has_value());
-  }
+  // (the cache key is the definition runner's now: its hit and miss, another K and --replace are what is checked below; a hand-made key is no longer the store's lookup)
 
   // another K: a miss; the stored package is refused without --replace
   opt.modes = 24;
@@ -152,6 +129,10 @@ int main() {
   CHECK_EQ(([&] { try { eigen_solve(ds, s2, opt); } catch (const Error& e) { return e.code(); } return std::string(); })(), std::string(code::no_such_row));
   SubjectWriter s3 = SubjectWriter::open(ds, "S3");
   opt.replace = false;
+  // two identical spheres make exactly cocircular quads: flipped to Delaunay their cotan weights are 0 up to rounding (about -1e-17), which the 2-form ladder inverts: the named *1 floor keeps it defined, and the
+  // stored *1 is the floored one (the Gram check below reads it)
+  opt.method.star1_floor = 1e-9;
+  opt.surface = "cortex";                                     // the glued surface is another surface of the subject now: the caller names the one to solve (rule 19)
   const EigenSolveResult g = eigen_solve(ds, s3, opt);
   // the glue the solve used is nxr-compute's glueMesh on the positions as the Studio receives them (float32)
   std::vector<double> W32(W.size());
@@ -161,22 +142,22 @@ int main() {
   CHECK(!g.hit && g.info["glued"].get<bool>());
   CHECK(gm.bridge.vertices > 0 && Vg == kept + gm.bridge.vertices);
   CHECK_EQ(g.info["rows"].get<std::int64_t>(), Vg);
-  CHECK_EQ(g.info["support"].get<std::int64_t>(), kept);
   CHECK_EQ(g.modes.n_vertices, Vg);
   CHECK(static_cast<std::int64_t>(g.modes.eigenvectors.size()) == Vg * g.modes.n_modes());
   CHECK(g.modes.n_exact > 0 && g.modes.n_coexact > 0);
   {
     const auto gs = s3.find("manifold", "source/cortex_glued");
     const auto br = s3.find("selection", "source/cortex_glued_bridge");
-    const auto op = s3.find("operator", "hodgeDirac_eigenvectors");
+    const auto op = s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors");
     CHECK(gs && br && op);
     CHECK_EQ(text(*op, "to_manifold_id"), text(*gs, "id"));
     CHECK_EQ(integer(*gs, "n_vertices"), Vg);
     CHECK_EQ(integer(*op, "n_rows"), Vg);
     const std::vector<std::uint8_t> raw = ArrayReader::open(s3.store(), ("source/cortex_glued/faces")).read();
     CHECK(raw.size() == gm.faces.size() * sizeof(std::int32_t) && std::memcmp(raw.data(), gm.faces.data(), raw.size()) == 0);   // the glued faces, as glueMesh gives them
-    const std::vector<std::uint8_t> sup = ArrayReader::open(s3.store(), (text(*s3.find("selection", "hodgeDirac_support"), "array_path"))).read();
-    CHECK(sup.size() == static_cast<std::size_t>(kept) * sizeof(std::int32_t) && std::memcmp(sup.data(), gm.keep.data(), sup.size()) == 0);   // the kept vertices, in order
+    const std::vector<std::uint8_t> sup = ArrayReader::open(s3.store(), (text(*s3.find("selection", "source/hodgeDirac__cortex_glued_support"), "array_path"))).read();
+    // the support: the glued vertices that are cortex (the bridge is not), as original vertex numbers, in order
+    CHECK(sup.size() == static_cast<std::size_t>(kept) * sizeof(std::int32_t) && std::memcmp(sup.data(), gm.keep.data(), sup.size()) == 0);
   }
   // THE FULL FORMS: the intrinsic complex (d0, d1, the stars) and the 2-forms, read back; built from them alone, every mode's 1-form part has energy
   // λ/2 in ⋆1 and the 1-form parts are mutually orthogonal (the Dirac eigenvectors' orthonormality): reading a 1-form into the modes is inner products
@@ -200,7 +181,7 @@ int main() {
     const std::int64_t nE = integer(*im, "n_edges"), nF = integer(*im, "n_faces");
     CHECK_EQ(2 * nE, 3 * nF);
     auto csr = [&](const std::string& name, std::int64_t rows, std::int64_t cols) {
-      const auto r = s3.find("operator", nxr::io::task::Subject::of(s3).node_path(text(*im, "id"), name));
+      const auto r = s3.find("operator", name);
       const std::string at = text(*r, "path");
       const auto ip = as_d(at + "/indptr"), ix = as_d(at + "/indices"), dv = as_d(at + "/data");
       Eigen::SparseMatrix<double> M(rows, cols);
@@ -211,12 +192,12 @@ int main() {
     };
     const auto d0 = csr("cortex_glued_intrinsic_d0", nE, Vg), d1 = csr("cortex_glued_intrinsic_d1", nF, nE);
     CHECK(Eigen::SparseMatrix<double>(d1 * d0).norm() == 0.0);
-    auto fieldv = [&](const std::string& name) { return as_d(text(*s3.find("field", nxr::io::task::Subject::of(s3).node_path(text(*im, "id"), name)), "path")); };
+    auto fieldv = [&](const std::string& name) { return as_d(text(*s3.find("field", "source/" + name), "path")); };
     const auto st0 = fieldv("cortex_glued_intrinsic_star0"), st1 = fieldv("cortex_glued_intrinsic_star1"), st2 = fieldv("cortex_glued_intrinsic_star2");
-    CHECK(*std::min_element(st1.begin(), st1.end()) >= 0);                     // Delaunay: every cotan weight non-negative
-    const auto mu = as_d(text(*s3.find("manifold", "eigenvalue/hodgeDirac"), "path"));
-    const auto kind = [&] { const auto [raw, dt] = arr(text(*s3.find("field", "eigenvalue/hodgeDirac_kind"), "path")); return std::vector<std::uint8_t>(raw.begin(), raw.end()); }();
-    const auto P = as_d(text(*s3.find("operator", "hodgeDirac_eigenvectors"), "path")), X2 = as_d(text(*s3.find("operator", "hodgeDirac_forms2"), "path"));
+    CHECK(*std::min_element(st1.begin(), st1.end()) >= 0);                     // Delaunay: every cotan weight non-negative (after the floor)
+    const auto mu = as_d(text(*s3.find("manifold", "eigenvalue/hodgeDirac__cortex_glued"), "path"));
+    const auto kind = [&] { const auto [raw, dt] = arr(text(*s3.find("field", "eigenvalue/hodgeDirac__cortex_glued_kind"), "path")); return std::vector<std::uint8_t>(raw.begin(), raw.end()); }();
+    const auto P = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_eigenvectors"), "path")), X2 = as_d(text(*s3.find("operator", "hodgeDirac__cortex_glued_forms2"), "path"));
     const std::int64_t K = static_cast<std::int64_t>(mu.size()), Kc = std::min<std::int64_t>(K, 24);
     Eigen::Map<const Eigen::VectorXd> s0(st0.data(), Vg), s1(st1.data(), nE), s2(st2.data(), nF);
     Eigen::MatrixXd W(nE, Kc);                                                   // the first Kc modes' 1-form parts
@@ -255,7 +236,7 @@ int main() {
     CHECK(!r2.hit && r2.info["replaced"].get<bool>());
     CHECK_EQ(text(*s3.find("manifold", "source/cortex_glued"), "id"), gid);
     CHECK(s3.find("field", nxr::io::task::Subject::of(s3).node_path(gid, "other_run")).has_value());
-    CHECK(s3.find("operator", "hodgeDirac_forms2").has_value());
+    CHECK(s3.find("operator", "hodgeDirac__cortex_glued_forms2").has_value());
   }
   // the glued sphere pair is ONE closed surface of genus 0: two zero modes dropped, the first exact mode non-constant across the bridge
   CHECK(g.modes.mu.front() > 0);
@@ -272,7 +253,7 @@ int main() {
     CHECK(!r.hit && r.modes.n_exact > 0 && r.modes.n_coexact > 0);
     CHECK(dsub.find("operator", "hodgeDirac_eigenvectors").has_value());
     CHECK(dsub.find("operator", "hodgeDirac_forms2").has_value());
-    CHECK(dsub.find("manifold", "hodgeDirac").has_value());
+    CHECK(dsub.find("manifold", "eigenvalue/hodgeDirac").has_value());
     dd.close();
   }
 

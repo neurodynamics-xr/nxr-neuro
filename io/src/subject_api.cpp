@@ -11,7 +11,7 @@ std::string manifold_coordinate_system(SubjectWriter& sub, const std::string& ma
 std::optional<Row> find_field(SubjectWriter& sub, const FieldQuery& q) { return find_field(sub.db(), sub.id(), q); }
 std::vector<std::string> surface_names(SubjectWriter& sub) {
   std::vector<std::string> out;
-  for (const Row& r : sub.db().all("SELECT m.name AS name FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.status = 'complete' AND m.type = 'surface' ORDER BY m.name", {V(sub.id())}))
+  for (const Row& r : sub.db().all("SELECT m.name AS name FROM manifold m JOIN geometry g ON g.id = m.geometry_id WHERE m.subject_id = ? AND m.status = 'complete' AND m.type = 'surface' AND (m.producer_json IS NULL OR json_extract(m.producer_json, '$.intrinsic_of') IS NULL) ORDER BY m.name", {V(sub.id())}))
     out.push_back(text(r, "name"));
   return out;
 }
