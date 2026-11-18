@@ -4,6 +4,7 @@ name: wheels
 # (macos-15, deployment target 13.3). The pytest suite (bindings/python/tests) runs on each built wheel, installed into a clean environment.
 # - On a version tag (`v*`) and by hand (`workflow_dispatch`): build and test, upload the wheels as workflow artefacts.
 # - On pull requests: only when bindings/python/**, the pipeline level's face (pipelines/face) or this workflow changes.
+# Only the module target and the libraries it links are built (bindings/python/pyproject.toml: build.targets; no tests, no command line). No nightly.
 # Nothing is published to PyPI: the artefacts are what a maintainer installs and checks.
 on:
   push:

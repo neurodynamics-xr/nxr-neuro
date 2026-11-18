@@ -2,7 +2,7 @@
 // the frame density, frames per cycle or per tile, and the origin are OPTIONS of the function; no tower, no clock anchor).
 //   - the frames of a 250 Hz recording at 36 frames per cycle of 10 Hz: every frame once, from the origin to the end of the line; an origin (a point of the line) starts the first frame there
 //   - frames per tile nest in the band's dyadic level; the two densities are exclusive; refusals
-//   (the band's signal read at the frames: test_wt_at, test_frames_wt)
+//   (the band's signal read at the frames: test_wt_at)
 #include <cmath>
 #include <cstdio>
 #include <complex>

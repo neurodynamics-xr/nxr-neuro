@@ -11,13 +11,19 @@ one it last passed with is still GREEN: it does not need to run again. Only STAL
 
     tools/tests.py status REGEX         build ONLY the matching tests' targets, then list what is green, stale, failed or new (nothing is run)
     tools/tests.py run REGEX            build ONLY the matching tests' targets, then run the stale, failed and new ones among them, and record them
+    tools/tests.py status --kind unit --kind golden REGEX   only tests of these kinds (repeatable); a --kind is a selector, so REGEX may be left out
+    tools/tests.py run --kind unit --fast REGEX             --fast leaves out the tests labelled `slow`
     tools/tests.py run --all REGEX      run every matching test, green or not (say why: a change to a shared core)
     tools/tests.py run --suite          the FULL suite: build every target, run every stale, failed and new test (end of a round only)
+    tools/tests.py targets [--regex R] [--label-regex L] [--exclude-label slow]   print the build targets of a ctest selection (CI)
     tools/tests.py show TEST            the last result of one test and what it printed
 
 NO WASTE. A REGEX is required: it names the tests the change reaches, and only their executables (and the `nxr-neuro` command, for a test
 that calls it) are built. Nothing else is compiled or linked. The full build and the full suite run only with `--suite`, once, at the end of a
 round. Never loop build -> run over the whole tree; never rerun a test that is green.
+
+KINDS. Every test carries one kind label (tests/kinds.tsv, cmake/test_kinds.cmake): unit, golden, integration or guard (CONTRIBUTING.md, Test kinds).
+`--kind K` (repeatable) keeps the tests with that label, combined with REGEX; `--fast` drops the `slow` ones. The build stays scoped to the selected tests.
 
 Only the C++ suite (ctest). The parity pytests are not recorded here yet.
 """
@@ -59,18 +65,39 @@ def calls_cli(t: dict) -> bool:
     return src.exists() and "std::system(" in src.read_text(errors="ignore")
 
 
-def targets_of(regex: str) -> list[str]:
-    """the build targets the matching tests need: each test's executable, and the command line for a test that calls it"""
+def labels_of(t: dict) -> set[str]:
+    for p in t.get("properties") or []:
+        if p.get("name") == "LABELS":
+            v = p.get("value")
+            return set(v if isinstance(v, list) else [v])
+    return set()
+
+
+def selected(t: dict, regex: str | None, kinds: list[str] | None = None, fast: bool = False) -> bool:
+    """a test matches REGEX, carries one of the kinds (when given), and is not slow (when --fast)"""
+    lab = labels_of(t)
+    return bool(re.search(regex or "", t["name"])) and (not kinds or bool(lab & set(kinds))) and not (fast and "slow" in lab)
+
+
+KINDS = ("unit", "golden", "integration", "guard")
+SEL: dict = {"kinds": None, "fast": False}   # set from the command line (--kind, --fast)
+
+
+def targets_for(ts: list[dict]) -> list[str]:
+    """the build targets of the given ctest tests: each test's executable, and the command line for a test that calls it"""
     out: set[str] = set()
-    for t in tests():
-        if not re.search(regex, t["name"]):
-            continue
+    for t in ts:
         cmd = t.get("command") or []
         if cmd and "-P" not in cmd:
             out.add(Path(cmd[0]).name)
         if calls_cli(t):
             out.add("nxr-neuro")
     return sorted(out)
+
+
+def targets_of(regex: str) -> list[str]:
+    """the build targets the matching tests need"""
+    return targets_for([t for t in tests() if selected(t, regex, SEL["kinds"], SEL["fast"])])
 
 
 def build(regex: str | None, suite: bool) -> None:
@@ -164,7 +191,7 @@ def classify(regex: str | None) -> list[tuple[str, str, str]]:
     out = []
     for t in tests():
         name = t["name"]
-        if regex and not re.search(regex, name):
+        if not selected(t, regex, SEL["kinds"], SEL["fast"]):
             continue
         fp = fingerprint(t)
         last = st.get(name)
@@ -221,16 +248,30 @@ def main() -> None:
     sub = ap.add_subparsers(dest="cmd", required=True)
     s = sub.add_parser("status"); s.add_argument("regex", nargs="?"); s.add_argument("--suite", action="store_true")
     r = sub.add_parser("run"); r.add_argument("regex", nargs="?"); r.add_argument("--all", action="store_true"); r.add_argument("--suite", action="store_true")
+    for x in (s, r):
+        x.add_argument("--kind", action="append", choices=KINDS, help="only tests of this kind (repeatable)")
+        x.add_argument("--fast", action="store_true", help="leave out the tests labelled slow")
     w = sub.add_parser("show"); w.add_argument("test")
+    g = sub.add_parser("targets", help="print the build targets of a ctest selection (for CI: build only what is tested)")
+    g.add_argument("--regex", help="test names (ctest -R)")
+    g.add_argument("--label-regex", help="labels (ctest -L)")
+    g.add_argument("--exclude-label", action="append", default=[], help="drop tests with this label (ctest -LE; repeatable)")
     a = ap.parse_args()
+    if a.cmd == "targets":
+        ts = [t for t in tests() if re.search(a.regex or "", t["name"])
+              and (not a.label_regex or any(re.search(a.label_regex, l) for l in labels_of(t)))
+              and not (labels_of(t) & set(a.exclude_label))]
+        print(" ".join(targets_for(ts)))
+        return
     if a.cmd == "show":
         t = load_status().get(a.test)
         print(json.dumps(t, indent=1) if t else f"{a.test}: never run through tools/tests.py")
         return
-    if not a.regex and not a.suite:
-        sys.exit("name the tests your change reaches: tools/tests.py " + a.cmd + " REGEX  (the full suite is --suite, once, at the end of a round)")
-    if a.regex and a.suite:
-        sys.exit("--suite is the whole suite; give either a REGEX or --suite")
+    if not a.regex and not a.kind and not a.suite:
+        sys.exit("name the tests your change reaches: tools/tests.py " + a.cmd + " REGEX or --kind KIND  (the full suite is --suite, once, at the end of a round)")
+    if (a.regex or a.kind) and a.suite:
+        sys.exit("--suite is the whole suite; give either a REGEX / --kind or --suite")
+    SEL["kinds"], SEL["fast"] = a.kind, a.fast
     build(a.regex, a.suite)
     cls = classify(a.regex)
     if a.cmd == "status":

@@ -3,10 +3,9 @@
 //
 // A factorization costs O(n^1.5) to make and O(nnz) per solve: whoever solves the same system many times (the pipeline executor, a binding, a test)
 // makes the factor once with these functions and passes it to every solve.
-//   - (d1 ⋆1⁻¹ d1ᵀ + εI): geometry-central's SquareSolver (Eigen's SparseLU without SuiteSparse): bit-identical to the SparseLU used before
-//     (test_factor_solvers).
+//   - (d1 ⋆1⁻¹ d1ᵀ + εI): geometry-central's SquareSolver (Eigen's SparseLU without SuiteSparse): bit-identical to the SparseLU used before.
 //   - (K + εI) and (d0ᵀ ⋆1 d0 + εI): Eigen's SimplicialLLT, the factor every golden was made with. geometry-central's PositiveDefiniteSolver
-//     (SimplicialLDLT) solves the same systems to ~1e-10 relative but not bit for bit (test_factor_solvers), so it is not substituted.
+//     (SimplicialLDLT) solves the same systems to ~1e-10 relative but not bit for bit, so it is not substituted.
 // ε = 1e-8 on the diagonal, the constant of the solvers these replace. Not available: CHOLMOD / SuiteSparse / MKL (they break the wasm and MEX targets).
 #include <memory>
 #include <Eigen/Core>

@@ -1,4 +1,4 @@
-// Shared by gen_frames_wt_golden.cpp (the OLD path: the band's FIR taps then the Kaiser sinc) and test_frames_wt.cpp (the NEW path: wt at the frames' instants): one deterministic synthetic
+// The synthetic input of test_analytic_frames_step: one deterministic synthetic
 // recording (sums of sines at fixed frequencies and phases, no random generator, so every platform has the same numbers), the bands and the frame instants.
 #pragma once
 #include <Eigen/Dense>

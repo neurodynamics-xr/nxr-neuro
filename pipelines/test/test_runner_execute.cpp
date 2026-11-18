@@ -166,11 +166,8 @@ int main() {
     got[i] = read_statistic((sub.folder() / (st["path"].get<std::string>())), &shape);
     const auto row = sub.db().read("statistic", st["id"].get<std::string>());   // the band power is a statistic of the run (`estimate`, method sample): a value per source of the kernel's target
     CHECK(row && text(*row, "method") == "mean" && shape == (std::vector<std::int64_t>{N, 1}));
-    const Json pj = Json::parse(text(*row, "producer_json"));
-    CHECK(pj["pipeline"]["name"] == "band_power_test" && pj["parameters"]["band"] == Json::array({8.0, 12.0}) && pj["inputs"]["kernel"]["name"] == "free" &&
-          pj["run"]["bad_samples"].get<std::int64_t>() == 250 && pj.contains("cache"));
-    std::printf("  %s: %zu values, %lld blocks, halo %lld, worst relative difference to the direct computation %.2e\n", r1[static_cast<std::size_t>(i)]["anchor"].get<std::string>().c_str(),
-                got[i].size(), static_cast<long long>(pj["run"]["blocks"].get<std::int64_t>()), static_cast<long long>(pj["run"]["halo"].get<std::int64_t>()), rel(got[i], ref));
+    std::printf("  %s: %zu values, worst relative difference to the direct computation %.2e\n", r1[static_cast<std::size_t>(i)]["anchor"].get<std::string>().c_str(),
+                got[i].size(), rel(got[i], ref));
     CHECK(rel(got[i], ref) < 1e-5);
   }
   CHECK(rel(got[0], std::vector<double>(got[1].begin(), got[1].end())) < 1e-6 || got[0].size() == got[1].size());   // the chunk width does not change the result

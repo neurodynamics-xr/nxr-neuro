@@ -89,11 +89,10 @@ int main() {
         std::cout << "=== " << cs.name << ": " << bk.size() << " members, margin " << pl.margin << " samples, P " << pl.P << ", achieved tail " << sci(pl.achieved) << "\n";
         std::vector<Block> ref0;
         double worstChunk = 0, worstEdge = 0;
-        for (std::int64_t chunk : {(std::int64_t)1, (std::int64_t)37, (std::int64_t)n}) {
-            if (chunk == 1) { /* tiny */ }
+        for (std::int64_t chunk : {(std::int64_t)5, (std::int64_t)37, (std::int64_t)n}) {   // a tiny chunk (5 samples: many chunks, each mostly halo), one that divides nothing, the whole record
             WtOptions oo = o; oo.block = 0;
-            const auto got = runWt(bk, chunk == 1 ? x.leftCols(300) : x, chunk, oo);
-            const MatrixXd xs = chunk == 1 ? MatrixXd(x.leftCols(300)) : x;
+            const auto got = runWt(bk, chunk == 5 ? x.leftCols(300) : x, chunk, oo);
+            const MatrixXd xs = chunk == 5 ? MatrixXd(x.leftCols(300)) : x;
             for (int m = 0; m < bk.size(); ++m) {
                 const Block& b = got[m];
                 const MatrixXcd r = reference(bk, pl, m, xs, b.first, b.first + b.coef.rows());
@@ -105,7 +104,7 @@ int main() {
             }
             std::cout << "  chunk " << chunk << ": worst relative error " << sci(worstEdge) << " (" << sci(worstChunk) << " x its tail bound)" << "\n";
         }
-        EXPECT(worstChunk < 10, std::string(cs.name) + ": chunked wt equals the whole-record transform at the members' instants within the stated tail (chunks 1, 37, whole record), error " + sci(worstEdge));
+        EXPECT(worstChunk < 10, std::string(cs.name) + ": chunked wt equals the whole-record transform at the members' instants within the stated tail (chunks 5, 37, whole record), error " + sci(worstEdge));
         // chunk sizes give the same coefficients: exactly (1e-12) where the margin holds the whole impulse response; otherwise within the tail the margin leaves out (a member whose gain jumps has a 1/t tail)
         const auto a = runWt(bk, x, 53, o), b = runWt(bk, x, n, o);
         double dif = 0, rel = 0;

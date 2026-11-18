@@ -1,11 +1,14 @@
 name: ci
 
-# Build and test nxr-neuro.
-# - Linux: every pull request, testing ONLY the libraries its changes touch (and what depends on them); documentation-only pull requests do
-#   not run at all. Every push to main, every night and on demand: all tests, the slow ones included (the full suite).
-# - macOS (macos-15, deployment target 13.3): pushes to main, tags and every night (all tests).
-# Compiled objects are cached with ccache (keyed by branch, falling back to main), so a pull request recompiles only what it changed,
-# the bundled dependencies (HDF5, matio, c-blosc, geometry-central) included.
+# Build and test nxr-neuro, building only what is tested (tools/ci_select.py picks the tests; tools/tests.py targets gives their build targets).
+# - Pull requests (Linux) and pushes to main (Linux and macOS): the SAME scoped selection, slow tests left out (a push to main repeats its pull
+#   request's selection, which already passed). A changed test source selects only that test; a changed library source selects that library's
+#   tests plus the integration tests of the libraries that depend on it; the guards always run; a shared file (top-level CMake, cmake/, this
+#   workflow) selects everything. Only the selected tests' executables (and `nxr-neuro` for tests that call it) are built, never `all`, except
+#   for a scope of "all". Documentation-only pull requests do not run.
+# - Every night, on version tags and on demand: the full build and suite, slow tests included, on Linux and macOS (macos-15, deployment target
+#   13.3). The nightly run first checks whether main changed since the last successful nightly run, and skips everything if not.
+# Compiled objects are cached with ccache (keyed by branch, falling back to main), the bundled dependencies (HDF5, matio, c-blosc, geometry-central) included.
 on:
   push:
     branches: [main]
@@ -22,18 +25,43 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  # a newer push cancels an older run only on pull requests: every run on main finishes (it fills the cache and runs the slow tests)
+  # a newer push cancels an older run only on pull requests: every run on main finishes (it fills the cache)
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
   CCACHE_DIR: ${{ github.workspace }}/.ccache
   CCACHE_MAXSIZE: 2G
   CCACHE_COMPRESS: "true"
-  # tests labelled `slow` (minutes each) run on main, nightly and on demand; pull requests run the rest
-  CTEST_SELECT: ${{ github.event_name == 'pull_request' && '-LE slow' || '' }}
+  # scoped (selected by changed paths, no slow tests): pull requests and pushes to main branches; full (all tests, slow included): nightly, tags, on demand
+  SELECT_ARGS: ${{ (github.event_name == 'pull_request' || (github.event_name == 'push' && github.ref_type == 'branch')) && format('--base {0} --head {1} --exclude-slow', github.event_name == 'pull_request' && github.event.pull_request.base.sha || github.event.before, github.event_name == 'pull_request' && github.event.pull_request.head.sha || github.sha) || '--all' }}
+
+permissions:
+  contents: read
 
 jobs:
+  gate:
+    # the nightly run does nothing when main is what the last successful nightly run tested
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      run: ${{ steps.g.outputs.run }}
+    steps:
+      - id: g
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          run=true
+          if [ "${{ github.event_name }}" = schedule ]; then
+            last=$(gh run list --repo "${{ github.repository }}" --workflow ci.yml --event schedule --branch main --status success --limit 1 --json headSha --jq '.[0].headSha')
+            if [ "$last" = "${{ github.sha }}" ]; then run=false; echo "main is unchanged since the last successful nightly run ($last): nothing to do"; fi
+          fi
+          echo "run=$run" >> "$GITHUB_OUTPUT"
+
   linux:
+    needs: gate
+    if: needs.gate.outputs.run == 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
@@ -59,44 +87,21 @@ jobs:
           key: deps-linux-${{ hashFiles('**/CMakeLists.txt', 'cmake/**') }}
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-      - name: Build
-        run: cmake --build build
+      - name: Select the tests and their build targets
+        run: python3 tools/ci_select.py $SELECT_ARGS | tee -a "$GITHUB_ENV"
+      - name: Build only the selected tests' targets
+        run: |
+          if [ "$BUILD_TARGETS" = all ]; then cmake --build build;
+          elif [ -n "$BUILD_TARGETS" ]; then cmake --build build --target $BUILD_TARGETS;
+          else echo "no target to build (script tests only)"; fi
       - name: Compiler cache statistics
         run: ccache --show-stats --verbose | head -20
-      - name: "Select tests (pull requests: only the libraries the changes touch)"
-        if: github.event_name == 'pull_request'
-        run: |
-          changed=$(git diff --name-only ${{ github.event.pull_request.base.sha }}...${{ github.event.pull_request.head.sha }})
-          labels=""
-          add() { for l in "$@"; do case " $labels " in *" $l "*) ;; *) labels="$labels $l";; esac; done; }
-          all=0
-          for f in $changed; do
-            case "$f" in
-              compute/*)          add compute pipelines pipelines_graph cli ;;
-              meeg/*)             add meeg pipelines cli ;;
-              io/formats/*)       add io_formats io pipelines cli ;;
-              io/*)               add io pipelines cli ;;
-              pipelines/graph/*)  add pipelines_graph pipelines cli ;;
-              pipelines/*)        add pipelines cli ;;
-              cli/*)              add cli ;;
-              bindings/*|docs/*|*.md) ;;
-              tools/gen_record_rows.py) add io pipelines cli ;;   # the one tool a test reads (io's `records_rows_current` runs it)
-              tools/*) ;;                           # the other tools are developer scripts no test reads: the layering checks only
-              .github/workflows/ci.yml) all=1 ;;    # this workflow itself: everything
-              .github/*) ;;                         # the other workflows (bindings, release) and GitHub settings: no C++ tests
-              *)                  all=1 ;;          # top-level CMake, cmake/, CI: everything
-            esac
-          done
-          if [ "$all" = 1 ]; then echo "CTEST_SCOPE=" >> "$GITHUB_ENV"; echo "scope: all (a shared file changed)";
-          elif [ -z "$labels" ]; then echo "CTEST_SCOPE=-R ^layering_" >> "$GITHUB_ENV"; echo "scope: the layering checks only";
-          else re=$(echo $labels | tr ' ' '|'); echo "CTEST_SCOPE=-L ^(${re})\$" >> "$GITHUB_ENV"; echo "scope: $labels"; fi
       - name: Test
-        run: |
-          ctest --test-dir build --output-on-failure -j 4 $CTEST_SELECT $CTEST_SCOPE
-          ctest --test-dir build --output-on-failure -R '^layering_'
+        run: ctest --test-dir build --output-on-failure -j 4 ${CTEST_NAMES:+-R "$CTEST_NAMES"}
 
   macos:
-    if: github.event_name != 'pull_request'
+    needs: gate
+    if: github.event_name != 'pull_request' && needs.gate.outputs.run == 'true'
     runs-on: macos-15            # macos-14 jobs are cancelled before they start for this organisation
     env:
       MACOSX_DEPLOYMENT_TARGET: "13.3"   # std::to_chars for floating point
@@ -104,6 +109,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           submodules: recursive
+          fetch-depth: 0
       - name: Build tools and system libraries
         run: brew install ninja ccache zstd pkg-config
       - name: System SQLite version (for the record; the build uses the pinned amalgamation)
@@ -123,7 +129,12 @@ jobs:
           key: deps-macos-${{ hashFiles('**/CMakeLists.txt', 'cmake/**') }}
       - name: Configure
         run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
-      - name: Build
-        run: cmake --build build
+      - name: Select the tests and their build targets
+        run: python3 tools/ci_select.py $SELECT_ARGS | tee -a "$GITHUB_ENV"
+      - name: Build only the selected tests' targets
+        run: |
+          if [ "$BUILD_TARGETS" = all ]; then cmake --build build;
+          elif [ -n "$BUILD_TARGETS" ]; then cmake --build build --target $BUILD_TARGETS;
+          else echo "no target to build (script tests only)"; fi
       - name: Test
-        run: ctest --test-dir build --output-on-failure -j 3
+        run: ctest --test-dir build --output-on-failure -j 3 ${CTEST_NAMES:+-R "$CTEST_NAMES"}
