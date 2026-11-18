@@ -129,9 +129,12 @@ std::string on_named(const Plan& P, const std::string& o, std::string t) {
 }
 std::string default_manifold_id(nxr::io::SubjectWriter& sub, const std::string& ref) {
   const std::string name = ref.substr(8);
-  const auto m = sub.db().one("SELECT m.id FROM manifold m JOIN subject s ON s.id = m.subject_id WHERE s.kind = 'template' AND m.name = ? ORDER BY m.created_utc LIMIT 1", {name});
-  if (!m) throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": the dataset's default subject has no manifold '" + name + "' (the shared line a band set lies on)");
-  return text(*m, "id");
+  if (const auto tpl = sub.dataset().template_()) {
+    task::Want w{.cls = task::Cls::manifold};
+    w.name = name;
+    if (const auto m = task::Subject::of(sub.dataset(), text(*tpl, "id")).find(w)) return m->id;
+  }
+  throw nxr::io::Error(nxr::io::code::no_such_row, sub.name() + ": the dataset's default subject has no manifold '" + name + "' (the shared line a band set lies on)");
 }
 std::string link(const Plan& P, const std::string& ref, const MadeIds* made, const std::string& where) {
   if (ref.find('|') != std::string::npos) return link_first(P, ref, made, where);
