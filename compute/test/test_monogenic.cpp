@@ -74,7 +74,7 @@ int main() {
   // the Chebyshev series (the fallback) follows it
   {
     const nxr::signal::graphfilterbank::ChebyshevOperator op(Lap, Eigen::SparseMatrix<double>(Md.sparseView()), 0, 320);
-    const Eigen::MatrixXd Sc = op.apply(gR, f0);
+    const Eigen::MatrixXd Sc = chebyshev(op, gR, f0);
     EXPECT((Sc - S).cwiseAbs().maxCoeff() < 2e-3 * S.cwiseAbs().maxCoeff(), "R by the Chebyshev series follows the eigenmodes (" << (Sc - S).cwiseAbs().maxCoeff() / S.cwiseAbs().maxCoeff() << " of the peak)");
   }
   // a mode's sign flip changes nothing

@@ -21,8 +21,8 @@
 // each member's gain is evaluated on the window's own frequency grid, g_m(f) at f = b fs/N (the continuous design, timebank::gains(bank, f): the DC / Nyquist rule is a property
 // of a finite periodic grid and is not applied); the bins of the member's support are inverse-FFT-ed at Mm = N q/p points; the core of the window is kept (overlap-save).
 // L = R is the shortest length after which the sum of the |impulse response| of the longest member (computed on a fine grid from the masked gains) is below `tolerance`
-// times its L1 norm (default 1e-12), capped by maxMargin; `margin()` and `achievedTolerance()` report both. A member with a gain that jumps (e.g. a high-pass that
-// is nonzero at Nyquist) has a 1/t tail: then achievedTolerance() > tolerance and the chunked result differs from the whole record by about that much, for signals
+// times its L1 norm (default 1e-12), capped by maxMargin; `WtLayout::margin` and `WtLayout::achieved` report both. A member with a gain that jumps (e.g. a high-pass that
+// is nonzero at Nyquist) has a 1/t tail: then achieved > tolerance and the chunked result differs from the whole record by about that much, for signals
 // with energy near the jump.
 //
 // RECORD ENDS. The record is zero-padded on both sides: APERIODIC (as timebank::Padding::FastLen), because a long recording cannot be periodic. The coefficients are

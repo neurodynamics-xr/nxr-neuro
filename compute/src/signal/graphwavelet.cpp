@@ -32,7 +32,7 @@ void checkMembers(const GraphFilterbank& bank, std::size_t nW) {
 
 Coefficients gwt(const GraphFilterbank& bank, const EigenTransform& t, const Eigen::MatrixXd& F) {
     if (t.phi.cols() != t.lambda.size()) throw std::invalid_argument("filterbank: phi and lambda disagree");
-    const Eigen::MatrixXd C = forward(t, F);
+    const Eigen::MatrixXd C = gft(t, F);
     const Eigen::MatrixXd H = gains(bank, t.lambda);
     Coefficients W;
     for (int m = 0; m < bank.size(); ++m) W.emplace_back(t.phi * (H.col(m).asDiagonal() * C));
@@ -44,7 +44,7 @@ CoefficientsC gwt(const GraphFilterbank& bank, const EigenTransform& t, const Ei
 
 Coefficients gwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXd& F) {
     Coefficients W;
-    for (const auto& m : bank.members) W.emplace_back(t.apply(m.gain, F));
+    for (const auto& m : bank.members) W.emplace_back(chebyshev(t, m.gain, F));
     return W;
 }
 CoefficientsC gwt(const GraphFilterbank& bank, const ChebyshevOperator& t, const Eigen::MatrixXcd& F) {
@@ -60,15 +60,15 @@ Eigen::MatrixXd gwt(const GraphFilterbank& bank, int member, const EigenTransfor
     if (t.phi.cols() != t.lambda.size()) throw std::invalid_argument("filterbank: phi and lambda disagree");
     Eigen::VectorXd g(t.lambda.size());
     for (Eigen::Index k = 0; k < g.size(); ++k) g(k) = m.gain(t.lambda(k));
-    return t.phi * (g.asDiagonal() * forward(t, F));
+    return t.phi * (g.asDiagonal() * gft(t, F));
 }
-Eigen::MatrixXd gwt(const GraphFilterbank& bank, int member, const ChebyshevOperator& t, const Eigen::MatrixXd& F) { return t.apply(memberOf(bank, member).gain, F); }
+Eigen::MatrixXd gwt(const GraphFilterbank& bank, int member, const ChebyshevOperator& t, const Eigen::MatrixXd& F) { return chebyshev(t, memberOf(bank, member).gain, F); }
 
 Eigen::MatrixXd igwt(const GraphFilterbank& bank, const EigenTransform& t, const Coefficients& W, Synthesis mode) {
     checkMembers(bank, W.size());
     const Eigen::MatrixXd H = mode == Synthesis::Dual ? dualGains(bank, t.lambda) : gains(bank, t.lambda);
     Eigen::MatrixXd C = Eigen::MatrixXd::Zero(t.phi.cols(), W[0].cols());
-    for (int m = 0; m < bank.size(); ++m) C += H.col(m).asDiagonal() * forward(t, W[static_cast<std::size_t>(m)]);
+    for (int m = 0; m < bank.size(); ++m) C += H.col(m).asDiagonal() * gft(t, W[static_cast<std::size_t>(m)]);
     return t.phi * C;
 }
 Eigen::MatrixXcd igwt(const GraphFilterbank& bank, const EigenTransform& t, const CoefficientsC& W, Synthesis mode) {
@@ -92,7 +92,7 @@ Eigen::MatrixXd igwt(const GraphFilterbank& bank, const ChebyshevOperator& t, co
         if (mode == Synthesis::Dual)
             w = [&bank, &g, smax](double l) { double s = 0; for (const auto& q : bank.members) s += q.gain(l) * q.gain(l);
                                               return s <= 1e-12 * smax ? 0.0 : g(l) / s; };
-        F += t.apply(w, W[static_cast<std::size_t>(m)]);
+        F += chebyshev(t, w, W[static_cast<std::size_t>(m)]);
     }
     return F;
 }

@@ -88,7 +88,7 @@ QuadraturePair top_plane(const core::QuadratureFactor& f) {
     return p.empty() ? QuadraturePair{} : p[0];
 }
 
-std::vector<QuadraturePair> planes(const MatrixXcd& F, int k) { return planes(core::quadratureFactor(F), k); }
+std::vector<QuadraturePair> planes(const MatrixXcd& F, int k) { return planes(core::skewFactor(F), k); }
 
 double lagged_share(const core::QuadratureFactor& f, const std::vector<QuadraturePair>& pairs) {
     const double total = f.S.squaredNorm();
@@ -155,15 +155,15 @@ RotarySpectrum rotarySpectrum(const VectorXcd& z, double sfreq, const std::vecto
     return out;
 }
 
-QuadraturePairFilters quadraturePairFilters(const MatrixXd& W, const MatrixXcd& S) {
-    if (W.cols() != S.rows() || S.rows() != S.cols()) throw std::invalid_argument("quadraturePairFilters: W is [R x C], S is [C x C]");
+QuadraturePairFilters rotationPlaneFilters(const MatrixXd& W, const MatrixXcd& S) {
+    if (W.cols() != S.rows() || S.rows() != S.cols()) throw std::invalid_argument("rotationPlaneFilters: W is [R x C], S is [C x C]");
     const MatrixXcd L = core::hermitianFactor(S);
     QuadraturePairFilters r;
     r.fx = VectorXd::Zero(W.cols());
     r.fy = VectorXd::Zero(W.cols());
     if (L.cols() == 0) return r;
     const MatrixXcd F = W.cast<cd>() * L;
-    const QuadraturePair pr = top_plane(core::quadratureFactor(F));
+    const QuadraturePair pr = top_plane(core::skewFactor(F));
     if (pr.p.size() == 0) return r;
     r.sigma = pr.sigma;
     r.fx = W.transpose() * pr.p;
@@ -276,10 +276,10 @@ VectorXcd standingSurrogate(const VectorXcd& z) {
 namespace nxr::signal {
 using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
 
-MatrixXd phaseLag(const MatrixXcd& C) { return C.unaryExpr([](const cd& c) { return std::arg(c); }); }
-double phaseLag(std::complex<double> c) { return std::arg(c); }
-MatrixXd timeLag(const MatrixXcd& C, double f) { return phaseLag(C) / (2 * kPi * f); }
-double timeLag(std::complex<double> c, double f) { return std::arg(c) / (2 * kPi * f); }
+MatrixXd phaseSpectrum(const MatrixXcd& C) { return C.unaryExpr([](const cd& c) { return std::arg(c); }); }
+double phaseSpectrum(std::complex<double> c) { return std::arg(c); }
+MatrixXd timeDelay(const MatrixXcd& C, double f) { return phaseSpectrum(C) / (2 * kPi * f); }
+double timeDelay(std::complex<double> c, double f) { return std::arg(c) / (2 * kPi * f); }
 
 }  // namespace nxr::signal
 

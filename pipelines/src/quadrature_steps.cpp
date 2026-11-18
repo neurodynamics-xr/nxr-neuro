@@ -113,7 +113,7 @@ ng::NodeSpec source_pairs() {
       fraction[static_cast<std::size_t>(b)] = nxr::signal::quadratureFractionFromFactor(F);
       const Eigen::VectorXd rows = nxr::measurement::quadratureEnergy(F, F);
       for (std::int64_t i = 0; i < N; ++i) for (int o = 0; o < orientations; ++o) energy(i, b) += rows[orientations * i + o];
-      const nxr::core::QuadratureFactor qf = nxr::core::quadratureFactor(F);
+      const nxr::core::QuadratureFactor qf = nxr::core::skewFactor(F);
       pairs[static_cast<std::size_t>(b)] = nxr::signal::planes(qf, pr.pairs);
       for (const auto& q : pairs[static_cast<std::size_t>(b)]) {
         share[static_cast<std::size_t>(b)].push_back(nxr::signal::lagged_share(qf, {q}));

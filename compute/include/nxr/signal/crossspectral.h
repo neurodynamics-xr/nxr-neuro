@@ -47,11 +47,11 @@ RotarySpectrum rotarySpectrum(const VectorXcd& z, double sfreq, const std::vecto
 // ── delays ─────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** arg C_ij in (-pi, pi], rad, for every entry: positive where row i leads row j. */
-MatrixXd phaseLag(const MatrixXcd& C);
-double phaseLag(std::complex<double> cij);
+MatrixXd phaseSpectrum(const MatrixXcd& C);
+double phaseSpectrum(std::complex<double> cij);
 /** arg C_ij / (2 pi f), seconds: row i leads row j by this time (negative: lags). Unambiguous within half a cycle (|delay| < 1 / (2 f)). */
-MatrixXd timeLag(const MatrixXcd& C, double frequencyHz);
-double timeLag(std::complex<double> cij, double frequencyHz);
+MatrixXd timeDelay(const MatrixXcd& C, double frequencyHz);
+double timeDelay(std::complex<double> cij, double frequencyHz);
 
 // ── readings of a band's cross-spectrum kept bin by bin (from meeg/crossspectrum.h; spec docs/specs/2026-11-15-band-resolved-cross-spectrum.md) ──
 // Pure functions of matrices: C(f) [M x M] complex per bin, C_ab = <X_a conj(X_b)> (Hermitian), and the bins' frequencies in Hz. SIGN (the stored phase's): arg C_ab > 0 when channel a LEADS

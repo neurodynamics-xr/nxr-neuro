@@ -55,6 +55,6 @@ struct QuadraturePairFilters {
 };
 /** The top quadrature pair of the read-out W [R x C] (rows: the modes' weights, a kernel's rows ...) of a band's sensor cross-spectrum S [C x C] (Hermitian): F = W L, S = L L^H.
  *  nxr's `rotation_plane`, from the band's cross-spectrum instead of a time series. */
-QuadraturePairFilters quadraturePairFilters(const MatrixXd& W, const MatrixXcd& S);
+QuadraturePairFilters rotationPlaneFilters(const MatrixXd& W, const MatrixXcd& S);
 
 }  // namespace nxr::signal

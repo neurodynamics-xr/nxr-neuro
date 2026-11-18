@@ -142,7 +142,7 @@ static Coefficients chebAnalysis(const JointFilterbank& b, const fb::ChebyshevOp
     for (std::size_t it = 0; it < static_cast<std::size_t>(b.time.size()); ++it) {
         const MatrixXcd Ft = tb::filterSpectrum(b.time, Gt.col(static_cast<Eigen::Index>(it)), spec).transpose();      // [n x nfft]
         for (std::size_t ig = 0; ig < static_cast<std::size_t>(b.graph.size()); ++ig)
-            W[ig + static_cast<std::size_t>(b.graph.size()) * it] = t.apply(b.graph.members[ig].gain, Ft);
+            W[ig + static_cast<std::size_t>(b.graph.size()) * it] = chebyshev(t, b.graph.members[ig].gain, Ft);
     }
     (void)ones;
     return W;
@@ -185,7 +185,7 @@ static MatrixXcd chebCombine(const JointFilterbank& b, const fb::ChebyshevOperat
     MatrixXcd Z;
     for (std::size_t it = 0; it < static_cast<std::size_t>(b.time.size()); ++it)
         for (std::size_t ig = 0; ig < static_cast<std::size_t>(g.size()); ++ig) {
-            const MatrixXcd U = t.apply(wg[ig], W[ig + static_cast<std::size_t>(g.size()) * it]);                       // [n x nfft]
+            const MatrixXcd U = chebyshev(t, wg[ig], W[ig + static_cast<std::size_t>(g.size()) * it]);                       // [n x nfft]
             const MatrixXcd Us = tb::coefficientSpectrum(b.time, U.transpose());                                        // [F x n]
             if (Z.size() == 0) Z = MatrixXcd::Zero(Us.rows(), Us.cols());
             for (Eigen::Index j = 0; j < Us.cols(); ++j) for (Eigen::Index k = 0; k < Us.rows(); ++k) Z(k, j) += wt(k, static_cast<Eigen::Index>(it)) * Us(k, j);

@@ -25,7 +25,7 @@ MatrixXcd hermitianFactor(const MatrixXcd& S, double tolerance) {
     return L;
 }
 
-QuadratureFactor quadratureFactor(const MatrixXcd& F) {
+QuadratureFactor skewFactor(const MatrixXcd& F) {
     const Eigen::Index N = F.rows(), n = F.cols();
     MatrixXd RJ(N, 2 * n);
     RJ.leftCols(n) = F.real();
