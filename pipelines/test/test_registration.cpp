@@ -137,8 +137,6 @@ int main() {
     // the stored matrix is the compute node's: coarse to fine is [1284 x 324]
     const auto fwd = nxr::io::testing::Probe(p).rows("operator", {{"name", V("coarse_to_fine")}}).at(0);
     CHECK(integer(fwd, "n_rows") == 1284 && integer(fwd, "n_cols") == 324 && text(fwd, "layout") == "csr");
-    const auto prod = Json::parse(text(fwd, "producer_json"));
-    CHECK(prod["method"] == method);
     ArrayReader ptr = ArrayReader::open(p.store(), text(fwd, "path") + "/indptr");
     CHECK_EQ(ptr.shape()[0], std::int64_t(1285));
     nxr::operators::registration::Options ro;

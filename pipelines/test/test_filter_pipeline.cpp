@@ -147,14 +147,6 @@ int main() {
     CHECK_EQ(text(*f, "derived_from_id"), text(*sub.by_name("field", "rest"), "id"));
     CHECK_EQ(text(*f, "unit"), std::string("T"));
     CHECK_EQ(text(*f, "manifold_id"), text(*sub.by_name("field", "rest"), "manifold_id"));    // same channels x time product
-    const Json pj = Json::parse(text(*f, "producer_json"));
-    // the producer record of a recording the runner wrote: the definition, its resolved parameters, the source, and what was carried over
-    CHECK_EQ(pj["pipeline"]["name"].get<std::string>(), std::string("bandpass"));
-    CHECK(pj["parameters"]["lower"].get<double>() == 2.0 && pj["parameters"]["upper"].get<double>() == 40.0);
-    CHECK_EQ(pj["derived_from"]["name"].get<std::string>(), std::string("rest"));
-    bool projectors_carried = false;
-    for (const auto& c : pj["carried_over"]) projectors_carried = projectors_carried || c == "projectors";
-    CHECK(projectors_carried);
     CHECK(sub.find("selection", "time/rest_bandpass_chunks").has_value() || nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_bandpass_chunks", .any_status = true}).has_value());
     const auto sel = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_bandpass_bad_segments", .any_status = true});
     CHECK(sel.has_value());

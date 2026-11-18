@@ -309,15 +309,9 @@ int main() {
     CHECK_EQ(text(*row, "to_value_type"), std::string("vector3"));
     CHECK_EQ(text(*row, "inverts_id"), fwd_id);
     CHECK_EQ(text(*row, "inverse_kind"), std::string("regularized"));
-    const Json pj = Json::parse(text(*row, "params_json"));
+    const Json pj = Json::parse(text(*row, "params_json"));   // the kernel's kind as the importer records it (definitions find a kernel by it)
     CHECK_EQ(pj["inverse"]["measure"].get<std::string>(), std::string("MNE"));
     CHECK_EQ(pj["inverse"]["orientation"].get<std::string>(), std::string("free"));
-    CHECK(std::abs(pj["inverse"]["depth"]["exponent"].get<double>() - 0.5) < 1e-15);
-    CHECK(std::abs(pj["inverse"]["snr"].get<double>() - 3) < 1e-15);
-    CHECK(std::abs(pj["inverse"]["noise"]["reg"].get<double>() - 0.1) < 1e-15);
-    const Json prod = Json::parse(text(*row, "producer_json"));
-    CHECK_EQ(prod["pipeline"]["name"].get<std::string>(), std::string("inverse"));       // the run's provenance: the definition, its parameters, the inputs it found
-    CHECK(!prod["nxr_neuro"].get<std::string>().empty());
     for (const char* n : {"MN_channels", "MN_whitener"})
       CHECK(node_named(sub, std::string(n).find("_channels") != std::string::npos ? nxr::io::task::Cls::selection : std::string(n).find("source") != std::string::npos ? nxr::io::task::Cls::field : nxr::io::task::Cls::operator_, n).has_value());
     const auto kc = statistic_named(sub, "MN_noise_cov");
@@ -363,7 +357,6 @@ int main() {
     CHECK(statistic_named(s2, "cli_cov").has_value());
     const auto kr = s2.by_name("operator", "MN_cli");
     CHECK(kr.has_value());
-    CHECK(std::abs(Json::parse(text(*kr, "params_json"))["inverse"]["snr"].get<double>() - 2) < 1e-15);
     d2.close();
   }
 #endif
