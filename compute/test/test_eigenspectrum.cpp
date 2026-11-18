@@ -8,6 +8,7 @@
 #include <random>
 
 using namespace nxr::signal::graphfilterbank;
+using namespace nxr::signal::graphtransforms;
 
 static int failures = 0;
 static void check(bool ok, const char* what, double value) {

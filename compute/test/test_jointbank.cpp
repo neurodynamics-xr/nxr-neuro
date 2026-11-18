@@ -2,6 +2,7 @@
 // (gen_timebank_nxr.py), and the joint frame's own laws (separable bounds are products, exact and polynomial transforms, rotation sense on a ridge,
 // refusals). Synthetic data only.
 #include "nxr/signal/jointwavelet.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/measurement/band_energy.h"
 #include "nxr/signal/jointfilterbank.h"
 #include "golden_io.h"
@@ -12,6 +13,7 @@ using Eigen::MatrixXcd;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 namespace fb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
 namespace tb = nxr::signal::timefilterbank;
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static constexpr double kPi = 3.14159265358979323846;
@@ -165,7 +167,7 @@ static void laws() {
         const MatrixXd Ld = g.mat("L"), Md = g.mat("M"); g.mat("lambda");
         const int n = (int)Ld.rows();
         Eigen::GeneralizedSelfAdjointEigenSolver<MatrixXd> es(Ld, Md);
-        fb::EigenTransform Tr; Tr.phi = es.eigenvectors(); Tr.lambda = es.eigenvalues(); Tr.mass = Md.sparseView();
+        gt::EigenTransform Tr; Tr.phi = es.eigenvectors(); Tr.lambda = es.eigenvalues(); Tr.mass = Md.sparseView();
         for (int i = 0; i < Tr.lambda.size(); ++i) if (std::abs(Tr.lambda(i)) < 1e-10) Tr.lambda(i) = 0;
         const fb::GraphFilterbank heat = fb::design(fb::Family::Heat, fb::Range::fromSpectrum(Tr.lambda));
         const size_t T = 64;
@@ -179,7 +181,7 @@ static void laws() {
         const Coefficients Wm = nxr::signal::jwt(jb, Tr.lambda, Cm);
         double eL = 0; for (int m = 0; m < jb.size(); ++m) eL = std::max(eL, relErr(We[(size_t)m], MatrixXcd(Tr.phi.cast<cd>() * Wm[(size_t)m])));
         EXPECT(eR < 1e-11 && eL < 1e-12, "vertices x time (exact): analysis == Phi . modes analysis " + sci(eL) + ", dual synthesis reconstructs the field " + sci(eR));
-        const fb::ChebyshevOperator cheb(Ld.sparseView(), Md.sparseView(), 1.01 * Tr.lambda.maxCoeff(), 80);
+        const gt::ChebyshevOperator cheb(Ld.sparseView(), Md.sparseView(), 1.01 * Tr.lambda.maxCoeff(), 80);
         const Coefficients Wc = nxr::signal::jwt(jb, cheb, F);
         double eC = 0; for (int m = 0; m < jb.size(); ++m) eC = std::max(eC, relErr(Wc[(size_t)m], We[(size_t)m]));
         const double eCs = relErr(nxr::signal::ijwt(jb, cheb, Wc, T, fb::Synthesis::Dual), F);

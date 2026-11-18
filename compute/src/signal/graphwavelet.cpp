@@ -6,6 +6,7 @@
 
 namespace nxr::signal {
 using namespace graphfilterbank;
+using namespace graphtransforms;
 
 namespace {
 

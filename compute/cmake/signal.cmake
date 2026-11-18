@@ -11,6 +11,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/forms.cpp
   src/signal/fourier.cpp
   src/signal/graphfilterbank.cpp
+  src/signal/graphtransforms.cpp
   src/signal/graphwavelet.cpp
   src/signal/intrinsic_forms.cpp
   src/signal/hodge_decomposition.cpp

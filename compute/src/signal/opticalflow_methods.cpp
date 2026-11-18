@@ -8,6 +8,7 @@
 #include <stdexcept>
 
 #include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/signal/opticalflow_connection.h"
 
 namespace nxr::signal {
@@ -15,6 +16,7 @@ namespace nxr::signal {
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 namespace fb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
 constexpr double EPS = 2.220446049250313e-16;
 
 Regulariser parseRegulariser(const std::string& n) {
@@ -60,8 +62,8 @@ struct FlowEngine::Impl {
     optimisation::PcgOptions pcg;
     std::unique_ptr<OpticalflowScalar> flow;
     // perscale
-    std::unique_ptr<fb::ChebyshevOperator> cheb;
-    std::vector<fb::Gain> gains;                  // perscale: the selected members'
+    std::unique_ptr<gt::ChebyshevOperator> cheb;
+    std::vector<gt::Gain> gains;                  // perscale: the selected members'
     std::vector<VectorXd> ab;                     // warm starts: per series
     std::vector<double> seriesMax;                // perscale: each member's max |filtered map|
     std::vector<double> centres;
@@ -75,7 +77,7 @@ struct FlowEngine::Impl {
     // the maps filtered by every gain: columns of X [V x 2] -> per gain [V x 2]
     std::vector<MatrixXd> filtered(const MatrixXd& X) const {
         std::vector<MatrixXd> out;
-        for (const fb::Gain& g : gains) out.push_back(fb::chebyshev(*cheb, g, X));
+        for (const gt::Gain& g : gains) out.push_back(gt::chebyshev(*cheb, g, X));
         return out;
     }
     // previous and next filtered, reusing the last step's `next` as this step's `previous`
@@ -111,7 +113,7 @@ FlowEngine::FlowEngine(const FlowMethodOptions& options, const RowMat3& position
         std::vector<Eigen::Triplet<double>> tr;
         for (Eigen::Index i = 0; i < mass.size(); ++i) tr.emplace_back(i, i, mass[i]);
         M.setFromTriplets(tr.begin(), tr.end());
-        s.cheb = std::make_unique<fb::ChebyshevOperator>(L, M);
+        s.cheb = std::make_unique<gt::ChebyshevOperator>(L, M);
         const double lmax = s.cheb->lmax();
         fb::Family fam;
         if (options.scaleFamily == "mexhat") fam = fb::Family::MexHat;

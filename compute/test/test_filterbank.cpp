@@ -11,6 +11,7 @@
 #include <sstream>
 #include <string>
 using namespace nxr::signal::graphfilterbank;
+using namespace nxr::signal::graphtransforms;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
