@@ -16,6 +16,7 @@
 #include <set>
 #include <sstream>
 #include <iostream>
+#include "portable_normal.h"
 #include <random>
 
 #include "brain_helpers.h"
@@ -126,13 +127,12 @@ int main() {
   auto pattern = [&](int tile) { Eigen::MatrixXd e = Eigen::MatrixXd::Zero(N, 1); e(centres[static_cast<std::size_t>(tile)], 0) = 1.0; Eigen::MatrixXd f = sband.apply(e); return Eigen::VectorXd(f.col(0) / f.col(0).cwiseAbs().maxCoeff()); };
   const Eigen::VectorXd pA = pattern(tileA), pB = pattern(tileB), pC = pattern(tileC);
   auto S_ = [](double x) { return 1.0 / (1.0 + std::exp(-x)); };
-  std::mt19937 rng(21);
-  std::normal_distribution<double> nd;
+  nxr_test::PortableNormal nd(21);   // the same noise on every platform (std::normal_distribution differs between standard libraries)
   std::vector<float> xf(static_cast<std::size_t>(M) * T);
   for (int v = 0; v < M; ++v)
     for (int t = 0; t < T; ++t) {
       const double s = t / sfreq, osc = std::cos(2 * M_PI * 12.0 * s);
-      double x = 0.005 * nd(rng);
+      double x = 0.005 * nd();
       const double a1 = S_((s - 8.0) / 0.3) * S_(-(s - 17.0) / 0.4), wA = S_(-(s - 13.5) / 0.5), wB = S_((s - 11.5) / 0.5);   // A fades out by 13.5 s, B fades in from 11.5 s: both on at 12.5 s
       x += a1 * osc * (wA * pA(v) + wB * pB(v));
       x += pC(v) * S_((s - 30.0) / 0.25) * S_(-(s - 35.0) / 0.35) * osc;
