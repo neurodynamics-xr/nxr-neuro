@@ -170,11 +170,13 @@ int main() {
     const double sd = 1.4826 * median(dev);
     for (std::int64_t t = 0; t < frames; ++t) z(s, t) = (x[static_cast<std::size_t>(t)] - med) / sd;
   }
-  const Row ext = *sub.db().one("SELECT * FROM selection WHERE name = ?", {V(std::string("global_bursts.extents.rest"))});
+  nxr::io::task::Want ext_want{.cls = nxr::io::task::Cls::selection};
+  ext_want.name = "global_bursts.extents.rest";
+  const nxr::io::task::Node ext = nxr::io::task::Subject::of(sub).require(ext_want, "the burst extents");
   std::vector<std::int32_t> cell_member;
-  { ArrayReader lr = ArrayReader::open(sub.store(), text(ext, "array_path")); const auto raw = lr.read(); cell_member.resize(raw.size() / 4); std::memcpy(cell_member.data(), raw.data(), raw.size()); }
+  { ArrayReader lr = ArrayReader::open(sub.store(), *ext.array_path); const auto raw = lr.read(); cell_member.resize(raw.size() / 4); std::memcpy(cell_member.data(), raw.data(), raw.size()); }
   CHECK(static_cast<std::int64_t>(cell_member.size()) == tiles * frames);
-  const std::vector<std::int64_t> event_of_member = nxr::io::selection::member_labels(sub, text(ext, "id"));
+  const std::vector<std::int64_t> event_of_member = nxr::io::selection::member_labels(sub, ext.id);
   struct Fact { double peak = -1e300, mean = 0; int cells = 0; std::int64_t first = 1 << 30, last = -1; };
   std::map<std::int64_t, Fact> by_event;
   for (std::int64_t s = 0; s < tiles; ++s)

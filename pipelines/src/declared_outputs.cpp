@@ -634,7 +634,7 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
     // A MEMBER OF THE FOUND SELECTION (`describe.over_member`: a level's tile set of the grid `over` names, which the node picked by the run's scale): the measurement is over that member
     if (d.contains("over_member") && d["over_member"].is_string()) {
-      const auto member = sub.db().read("selection", d["over_member"].get<std::string>());
+      const auto member = Bound(sub, nullptr).selection(d["over_member"].get<std::string>());
       if (!member || nxr::io::opt_text(*member, "member_of_id") != std::optional<std::string>(m.selection_id)) bad(o, "its node's over_member is not a member of '" + over_name + "'");
       m.selection_id = text(*member, "id");
       over_name = text(*member, "name");

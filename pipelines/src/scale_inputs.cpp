@@ -1,6 +1,7 @@
 // nxr-pipelines — the stored rows scale selection reads (scale_inputs.h). Reading only.
 #include "nxr/io/subject_api.h"
 #include "nxr/pipelines/scale_inputs.h"
+#include "nxr/pipelines/bound.h"
 #include "nxr/io/selection_reads.h"
 #include "nxr/io/selection_store.h"
 #include "nxr/io/subject_reads.h"
@@ -66,8 +67,9 @@ ScaleInputs read_scale_inputs(SubjectWriter& sub, const std::string& recording_i
   std::vector<Row> joints, labellings;
   joints = nxr::io::selection::set_rows_with_param(sub, "product");
   labellings = nxr::io::selection::set_rows_with_param(sub, "cells_of");
-  const auto selection_of = [&](const std::string& id) { return sub.db().read("selection", id); };
-  const auto manifold_of = [&](const std::string& id) { return sub.db().read("manifold", id); };
+  const graph::Bound bound(sub, nullptr);
+  const auto selection_of = [&](const std::string& id) { return bound.selection(id); };
+  const auto manifold_of = [&](const std::string& id) { return bound.manifold(id); };
   const auto stats = statistics_of(sub, recording_id, std::string("amplitude"));
   struct Found { ScalePairInput p; Row joint, labelling, baseline; std::string amp_path; std::int64_t amp_component = 0; };
   std::vector<Found> found;

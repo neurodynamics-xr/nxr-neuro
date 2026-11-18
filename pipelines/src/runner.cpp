@@ -899,7 +899,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (!sel.empty()) {
         auto by = nxr::io::selection::computed_by_over_field(sub.db(), sel, of_id);
         if (by.empty())                                                   // a node may have measured over a member of the found selection (a level's tile set of a grid: describe.over_member)
-          for (const nxr::io::Row& mr : sub.db().all("SELECT id FROM selection WHERE member_of_id = ?", {nxr::io::V(sel)})) { by = nxr::io::selection::computed_by_over_field(sub.db(), text(mr, "id"), of_id); if (!by.empty()) break; }
+          for (const nxr::io::Row& mr : nxr::io::selection::member_rows(sub.db(), sel, false)) { by = nxr::io::selection::computed_by_over_field(sub.db(), text(mr, "id"), of_id); if (!by.empty()) break; }
         if (by.empty() && ospec.value("optional", false)) { stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}, {"stored", false}, {"why", "an optional output this run did not make"}}); continue; }
         if (by.size() != 1 || by[0] != made_by(key)) { hit = false; break; }
         stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}});
