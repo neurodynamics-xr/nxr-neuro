@@ -197,7 +197,7 @@ int main() {
   { double d = 0, tot = 0;
     for (std::size_t i = 0; i < Hs.values.size(); ++i) { d += std::abs(Hs.values[i] - Hb.values[i]); tot += Hs.values[i]; }
     std::printf("  chunks of 4096 vs 1000: L1 difference %.3g of %.0f\n", d, tot);
-    CHECK(d < 1e-2 * tot && Hs.options["frames"] == Hb.options["frames"] && Hs.options["first_frame"] == Hb.options["first_frame"]); }
+    CHECK(d < 1e-3 * tot && Hs.options["frames"] == Hb.options["frames"] && Hs.options["first_frame"] == Hb.options["first_frame"]); }
   { g::RunOptions small = all; small.block_frames = 100;
     g::run(ds, sub, dthr, tset, small);
     const StoredStatistic H2 = read_statistic(sub, "spatial_threshold.histogram.rest");

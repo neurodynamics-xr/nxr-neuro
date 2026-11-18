@@ -1,6 +1,6 @@
 // The node `signal.member_analytic` (pipelines/src/flow_steps.cpp): one filter-bank member's analytic signal read at the frames of a frame grid, through the graph's dispatch point, on a synthetic recording:
 //   - its frames equal the compute function it wraps, wt(bank, member, window, instants), on the whole record (float32 result);
-//   - the result does not depend on the chunk size: chunks of 1024 and 700 own samples, each with the halo the node declares (the member's taps), agree with the whole run to the tail the taps leave out;
+//   - the result does not depend on the chunk size: chunks of 1024 and 700 own samples, each with the halo the node declares (the member's impulse response), agree with the whole run to 1e-6 of the peak;
 //   - the frames are the grid's (a frame belongs to the chunk holding its start; the chunks' frames tile the grid) and the output is complex, on the kept channels, at the frame rate.
 // Synthetic data only (compute/test/frames_wt_inputs.h).
 #include <cmath>
@@ -99,6 +99,6 @@ int main() {
   }
   std::printf("  whole run vs wt: %.2e; chunks of 1024 vs whole: %.2e; of 700: %.2e (peak %.3g)\n", e0, e1, e2, peak);
   CHECK(e0 < 1e-5 * peak);
-  CHECK(e1 < 1e-3 * peak && e2 < 1e-3 * peak);          // the halo is the member's taps (1e-6 of the response's energy left out): chunked == whole to that tail
+  CHECK(e1 < 1e-6 * peak && e2 < 1e-6 * peak);          // the halo is the impulse response down to 1e-6 of its L1 norm: chunked == whole to the float32 storage
   return nxrtest::finish("member_analytic");
 }

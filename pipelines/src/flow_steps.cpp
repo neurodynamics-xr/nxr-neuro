@@ -1,6 +1,6 @@
 // nxr-pipelines — THE APPARENT MOTION OF A SOURCE MAP AS NODES (the chain of the hand-wired `opticalflow` verb; spec docs/specs/2026-11-17-flow-verbs.md, section 2).
 //
-//   recording --signal.member_analytic--> z [channels x frames, complex]       RETIMING: one filter-bank member's full-rate analytic signal at the frame grid's frames, the halo declared (the member's taps)
+//   recording --signal.member_analytic--> z [channels x frames, complex]       RETIMING: one filter-bank member's full-rate analytic signal at the frame grid's frames, the halo declared (the member's impulse response to a tolerance)
 //             --flow.activation----------> a [N x frames]                       pointwise: J = K z (the linear map before the non-linear step, D106), then |J|
 //             --flow.max_amplitude-------> the window's maximum |a|              accumulate: stored by its own definition (`flow_amplitude`), read BY NAME by the flow run
 //             --flow.velocity------------> v [3N x frames]                       stateful: Horn-Schunck between consecutive frames; the previous map is its state; the unit amplitude is the stored maximum
@@ -8,7 +8,7 @@
 //             --flow.series--------------> the flow weights as an array [K x steps] and the line they lie on
 //
 // Every node is a function of the block it is handed. The neighbourhood is explicit: the member's coefficients at the frames inside a block's own samples are computed from the block and its
-// halo (the member's taps), so a result does not depend on the chunk size beyond the filter's own tail. The frames are a time selection the caller made (`select.time_grid` rule frames):
+// halo (the member's impulse response down to `tolerance` of its L1 norm), so a result does not depend on the chunk size beyond that tail. The frames are a time selection the caller made (`select.time_grid` rule frames):
 // frame j starts at sample origin + j hop, the same for every chunk; the transform evaluates the member's full-rate analytic signal there and chooses nothing. A reduction over space or time of the velocity (divergence, curl, speed over a leaf and a frame) is a
 // measurement over a grid selection: it is NOT a node here (the grids are being redesigned as plain selections; see the spec).
 //
@@ -156,6 +156,12 @@ std::optional<FrameGrid> grid_of(const Json& params) {
   return f;
 }
 
+double tolerance_of(const Json& p, const char* who) {
+  const double t = p.contains("tolerance") && p["tolerance"].is_number() ? p["tolerance"].get<double>() : 1e-6;
+  if (!(t > 0) || !(t < 1)) ng::refuse(std::string(who) + ": tolerance must be in (0, 1)");
+  return t;
+}
+
 struct MemberPrepared {
   tb::TimeFilterbank bank;
   FrameGrid grid;
@@ -183,10 +189,11 @@ ng::NodeSpec member_analytic() {
                   {"half_width", Json(1.0 / 3.0), "Meyer: the transition half-width", "octaves", {}, false},
                   {"gamma", Json(3.0), "Morse: gamma", "-", {}, false},
                   {"time_bandwidth", Json(60.0), "Morse: the time-bandwidth product", "-", {}, false},
-                  {"resolution", Json(0.5), "the frequency resolution of the grid the bank is designed on", "Hz", {}, false}};
+                  {"resolution", Json(0.5), "the frequency resolution of the grid the bank is designed on", "Hz", {}, false},
+                  {"tolerance", Json(1e-6), "the member's impulse response left out by the halo, relative to its L1 norm (timefilterbank::haloOf)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "each block (own samples and halo) is transformed in double (nxr::signal::wt at the frames' instants) and the frames inside the own samples are handed on in float32",
-                             "the member's taps (timefilterbank::haloOf) on each side of the chunk; the record's ends are zero padded");
+                             "the member's impulse response to `tolerance` (timefilterbank::haloOf) on each side of the chunk; the record's ends are zero padded");
   n.matches = "Rheome @timefilterbank wt (the member's full-rate coefficients) evaluated at the frames' instants; compute nxr::signal::wt(bank, member, x, at)";
   n.description = "one filter-bank member's full-rate analytic signal of the recording's channels at the frames of a frame grid, a retiming node";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -212,7 +219,7 @@ ng::NodeSpec member_analytic() {
     z.facts["centre_hz"] = c.centre; z.facts["rate_hz"] = *z.sfreq;
     z.facts["frame_origin_s"] = g ? static_cast<double>(g->origin) / *x.sfreq : 0.0;
     out.out["z"] = z;
-    out.halo = static_cast<std::int64_t>(tb::haloOf(c.bank, c.member));
+    out.halo = static_cast<std::int64_t>(tb::haloOf(c.bank, c.member, tolerance_of(p, "signal.member_analytic")));
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) {
@@ -228,7 +235,7 @@ ng::NodeSpec member_analytic() {
     const BankChoice c = choose_bank(p, fs, static_cast<int>(chans.size()), "signal.member_analytic");
     MemberPrepared m;
     m.bank = c.bank; m.grid = *g; m.member = c.member; m.centre = c.centre;
-    m.halo = static_cast<std::int64_t>(tb::haloOf(c.bank, c.member));
+    m.halo = static_cast<std::int64_t>(tb::haloOf(c.bank, c.member, tolerance_of(p, "signal.member_analytic")));
     m.channels = static_cast<std::int64_t>(chans.size()); m.picked = chans;
     return std::any(std::move(m));
   };

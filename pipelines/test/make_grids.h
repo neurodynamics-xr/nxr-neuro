@@ -90,7 +90,7 @@ inline Eigen::MatrixXcd analytic_at_frames(const std::vector<float>& x, int M, i
   d.bands = {{lo, hi}};
   d.edgeBins = tb::EdgeBins::Drop;
   const auto bank = tb::design(d, std::size_t(1) << 16, fs);
-  const std::int64_t H = static_cast<std::int64_t>(tb::haloOf(bank, 0));   // the step's halo: zero beyond the record (wt takes its window periodic)
+  const std::int64_t H = static_cast<std::int64_t>(tb::haloOf(bank, 0, 1e-6));   // the step's halo: zero beyond the record (wt takes its window periodic)
   Eigen::MatrixXd X = Eigen::MatrixXd::Zero(M, T + 2 * H);
   for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) X(c, H + t) = x[static_cast<std::size_t>(c) * T + t];
   Eigen::VectorXd at(static_cast<long>(pos.size()));

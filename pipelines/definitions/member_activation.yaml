@@ -29,13 +29,14 @@ parameters:
   gamma: {default: 3.0, meaning: "Morse: gamma", unit: "-"}
   time_bandwidth: {default: 60.0, meaning: "Morse: the time-bandwidth product", unit: "-"}
   resolution: {default: "0.5 Hz", meaning: "the frequency resolution of the grid the filter bank is designed on", unit: Hz, chart: linear}
+  tolerance: {default: 1.0e-6, meaning: "the member's impulse response the halo leaves out, relative to its L1 norm (a chunk's frames are the whole record's to that tail)", unit: "-"}
   input: {default: amplitude, meaning: "amplitude = |J| | signed = the real part (fixed-orientation kernels only)", unit: "-", choices: [amplitude, signed]}
 
 steps:
   chunks:
     over: recording
     do:
-      - {node: signal.member_analytic, in: {x: recording, channels_of: kernel, tiling: grid}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution}, out: z}
+      - {node: signal.member_analytic, in: {x: recording, channels_of: kernel, tiling: grid}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution, tolerance: $tolerance}, out: z}
       - {node: signal.flow_activation, in: {z: z, kernel: kernel}, with: {input: $input}, out: a}
 
 outputs:

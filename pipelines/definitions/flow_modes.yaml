@@ -3,7 +3,7 @@
 # carried to the package's glued surface and read in its modes (an exact mode: divergence potential, sources and sinks; a coexact mode: stream function, rotation). The amplitude scale is the stored
 # measurement stored by `run measure --set flow_max_amplitude` (the window's maximum, read by name); run both over the same span.
 #
-# THE GRAPH. recording --[signal.member_analytic, retiming at the grid's frames, halo = the member's taps]--> z --[signal.flow_activation]--> a --[signal.flow_velocity, stateful]--> v --[signal.flow_hodge_modes]--> b --[signal.flow_series]--> the
+# THE GRAPH. recording --[signal.member_analytic, retiming at the grid's frames, halo = the member's impulse response to `tolerance`]--> z --[signal.flow_activation]--> a --[signal.flow_velocity, stateful]--> v --[signal.flow_hodge_modes]--> b --[signal.flow_series]--> the
 # weights [K x steps] on (eigen axis x the made time line). The divergence, curl and speed of a leaf and a frame are measurements over the grid (cortex x time): they are NOT part of this definition
 # (the grids are being redesigned as plain selections; the measurement follows them).
 #
@@ -41,6 +41,7 @@ parameters:
   gamma: {default: 3.0, meaning: "Morse: gamma", unit: "-"}
   time_bandwidth: {default: 60.0, meaning: "Morse: the time-bandwidth product", unit: "-"}
   resolution: {default: 0.5, meaning: "the frequency resolution of the grid the filter bank is designed on", unit: "Hz"}
+  tolerance: {default: 1.0e-6, meaning: "the member's impulse response the halo leaves out, relative to its L1 norm (a chunk's frames are the whole record's to that tail)", unit: "-"}
   package: {default: hodgeDirac, meaning: "the Hodge-Dirac package's stem", unit: "-"}
   input: {default: amplitude, meaning: "amplitude = |J| | signed = the real part (fixed-orientation kernels only)", unit: "-", choices: [amplitude, signed]}
   amplitude_over: {default: null, meaning: "the selection the unit amplitude (the measurement of preset flow_max_amplitude) was measured over, by name; null: the one that holds it", unit: "-"}
@@ -57,7 +58,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: signal.member_analytic, in: {x: recording, channels_of: kernel, tiling: grid}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution}, out: z}
+      - {node: signal.member_analytic, in: {x: recording, channels_of: kernel, tiling: grid}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution, tolerance: $tolerance}, out: z}
       - {node: signal.flow_activation, in: {z: z, kernel: kernel}, with: {input: $input}, out: a}
       - {node: signal.flow_velocity, in: {a: a, surface: surface, scale: scale}, with: {method: $method, regulariser: $regulariser, datafit: $datafit, alpha: $alpha, flow_tolerance: $flow_tolerance, max_iterations: $max_iterations, preconditioner: $preconditioner}, out: v}
       - {node: signal.flow_hodge_modes, in: {v: v, package: package}, out: b}

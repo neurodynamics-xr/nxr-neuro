@@ -156,6 +156,11 @@ Eigen::MatrixXcd coefficientSpectrum(const TimeFilterbank& bank, const Eigen::Ma
  *  longer than the Studio's CPU rule of thumb (3 periods of its low edge): alpha [8, 12] Hz needs about 6 periods. */
 std::size_t haloOf(const TimeFilterbank& bank, int member);
 
+/** THE HALO a member needs to a stated tolerance, samples on each side: the shortest reach after which the sum of |impulse response| of the member (its gain masked to its support on the bank's grid, taken on a fine
+ *  grid that is doubled while the tail has not decayed) beyond it is below `tolerance` times its L1 norm, at most 2^16. A block with this halo gives the member's coefficients to that tail of the whole record, whatever
+ *  the chunk size. A pure function of the bank; the tolerance is required (a member whose gain jumps, e.g. a high-pass nonzero at Nyquist, has a 1/t tail that the cap ends). */
+std::size_t haloOf(const TimeFilterbank& bank, int member, double tolerance);
+
 // ── THE INDEPENDENT ESTIMATES a band gives over a window (for the statistics of its cross-spectrum: nxr::stats::lagStatistics) ──
 /** The member's STATISTICAL (equivalent) bandwidth, Hz: B = (∫ g² df)² / ∫ g⁴ df over f ≥ 0 (the bandwidth of white noise passed through it; a
  *  rectangular band of width W gives W). Evaluated on `grid` points of [0, fs/2]. */

@@ -306,6 +306,23 @@ static void laws() {
         const Coefficients W = wt(b, noise(128, 2, 4));
         EXPECT(nxr::measurement::scalogram(W).size() == W.size() && nxr::measurement::energies(W).rows() == b.size() && nxr::measurement::energies(W).cols() == 2, "scalogram and energies have the members x channels shape");
     }
+    // haloOf(bank, member, tolerance): a tighter tolerance gives a longer reach, and the impulse response beyond the reach is below the tolerance (the response measured by wt of a unit impulse, both sides)
+    {
+        Design d = D(Family::Morlet, 2.0, Sides::Analytic); d.centres = {10.0}; d.cycles = 6.0;
+        const TimeFilterbank b = design(d, 4096, 200);
+        const std::size_t h3 = haloOf(b, 0, 1e-3), h6 = haloOf(b, 0, 1e-6), h9 = haloOf(b, 0, 1e-9);
+        EXPECT(h3 < h6 && h6 < h9, "haloOf: a tighter tolerance gives a longer reach (" + std::to_string(h3) + ", " + std::to_string(h6) + ", " + std::to_string(h9) + " samples)");
+        MatrixXd imp = MatrixXd::Zero(4096, 1); imp(0, 0) = 1;
+        const Coefficients W = wt(b, imp);
+        const VectorXd mag = W[0].col(0).cwiseAbs();
+        const double total = mag.sum();
+        for (const auto& [tol, h] : {std::pair<double, std::size_t>{1e-3, h3}, {1e-6, h6}, {1e-9, h9}}) {
+            double tail = 0;
+            for (std::size_t t = h + 1; t <= 2048; ++t) tail += mag(static_cast<Eigen::Index>(t)) + mag(static_cast<Eigen::Index>(4096 - t));
+            EXPECT(tail <= 2 * tol * total, "haloOf: the impulse response beyond the reach is below the tolerance " + sci(tol) + " (tail " + sci(tail / total) + " of the L1 norm)");
+        }
+        EXPECT(throws([&] { haloOf(b, 0, 0.0); }) && throws([&] { haloOf(b, 3, 1e-6); }), "haloOf: a tolerance outside (0, 1) and a missing member are refused");
+    }
 }
 
 int main() {
