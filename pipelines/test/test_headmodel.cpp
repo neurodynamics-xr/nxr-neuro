@@ -275,6 +275,24 @@ int main() {
     CHECK_EQ(text(*gl, "of_operator_id"), text(*row, "id"));
   }
   CHECK(headmodel_compute(ds, sub, ho).hit);
+  {   // THE EEG SHELLS CHANGE THE EEG ROWS as the maths says (the MEG rows are untouched): the conductivities of all three shells doubled halve the gain (V = (1 / sigma_outer) ...), other radii give the gain of those radii
+    HeadModelOptions hs = ho;
+    hs.name = "hm_sigma"; hs.eeg_conductivities = std::vector<double>{0.66, 0.0084, 0.66};
+    const HeadModelResult s = headmodel_compute(ds, sub, hs);
+    nxr::meeg::EegSphereOptions two = nxr::meeg::EegSphereOptions();
+    two.conductivity = 2.0 * two.conductivity;
+    const MatrixXd e2 = nxr::meeg::eegSphereGain(src, ek, es.centre, two);
+    CHECK(rel(s.gain.bottomRows(5), e2) < 1e-6);                                                // the gain of the doubled conductivities
+    CHECK(std::abs((s.gain.bottomRows(5) - a.gain.bottomRows(5)).norm() / a.gain.bottomRows(5).norm() - 0.5) < 0.05);   // about half the default's: scaled by 1/2 (the fitted shell parameters differ from the recorded ones in the third digit)
+    CHECK(rel(s.gain.topRows(5), a.gain.topRows(5)) < 1e-12);                                   // MEG: another model, untouched
+    HeadModelOptions hr = ho;
+    hr.name = "hm_radii"; hr.eeg_radii = std::vector<double>{0.80, 0.90, 1.0};
+    const HeadModelResult r = headmodel_compute(ds, sub, hr);
+    nxr::meeg::EegSphereOptions thin = nxr::meeg::EegSphereOptions();
+    thin.radius = (Eigen::VectorXd(3) << 0.80, 0.90, 1.0).finished();
+    CHECK(rel(r.gain.bottomRows(5), nxr::meeg::eegSphereGain(src, ek, es.centre, thin)) < 1e-6);   // the gain of those radii
+    CHECK((r.gain.bottomRows(5) - a.gain.bottomRows(5)).norm() > 1e-3 * a.gain.bottomRows(5).norm());   // and not the default's
+  }
   ho.eeg = false;                                                         // another model under the same name: refused, then replaced
   CHECK_EQ(kind_of([&] { headmodel_compute(ds, sub, ho); }), std::string(code::already_exists));
   ho.replace = true;
