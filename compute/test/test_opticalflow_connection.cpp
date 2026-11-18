@@ -69,7 +69,7 @@ int main() {
     {
         Golden g(std::string(NXR_TEST_GOLDEN_DIR) + "/opticalflow_connection_golden.txt");
         EXPECT(g.good(), "golden file");
-        double worstC = 0, worstM = 0, worstG = 0, worstZ = 0, worstVz = 0, worstV = 0;
+        double worstC = 0, worstM = 0, worstG = 0, worstZ = 0, worstVz = 0, worstV = 0, closedVz = 0, closedV = 0;
         int meshes = 0;
         while (true) {
             std::string t;
@@ -109,15 +109,18 @@ int main() {
             eV /= std::max(top, 1e-300);
             std::printf("  [%s] n=%d alpha=%g: C %.1e  M %.1e  gauge gradient %.1e  gauge solution z %.1e  embedded z %.1e  velocity (float32) %.1e, %.1f %% of the floats identical\n", name.c_str(), n, alpha, eC, eM, eG, eZ, eVz, eV, 100.0 * exact / ((nT - 1) * 3.0 * n));
             worstC = std::max(worstC, eC); worstM = std::max(worstM, eM); worstG = std::max(worstG, eG); worstZ = std::max(worstZ, eZ); worstVz = std::max(worstVz, eVz); worstV = std::max(worstV, eV);
+            if (name != "patch") { closedVz = std::max(closedVz, eVz); closedV = std::max(closedV, eV); }
             ++meshes;
         }
         EXPECT(meshes == 4, "four golden meshes (sphere, finer sphere, irregular, open patch)");
         std::printf("  worst over meshes: C %.2e  M %.2e  g %.2e  z %.2e  v(z) %.2e  velocity(float32) %.2e\n", worstC, worstM, worstG, worstZ, worstVz, worstV);
-        EXPECT(worstC < 1e-12, "the connection Laplacian equals the Studio's (real 2n x 2n) to 1e-12");
+        // The connection is geometry-central's (docs/specs/2026-11-17-geometry-central-switch.md): its gauge (the reference edge of every vertex) is not the Studio's, so C, the gradient in C's
+        // gauge and the gauge solution z are REPORTED, not compared (they differ by a rotation per vertex). What is gauge-free is compared: the lumped mass, the embedded velocity (a closed
+        // surface: the cone target is 2 pi at every vertex). The open patch is REPORTED: geometry-central scales a boundary vertex's angles to pi, the Studio's port left them (spec section 3.4).
         EXPECT(worstM < 1e-12, "the lumped mass equals the Studio's to 1e-12");
-        EXPECT(worstG < 1e-10, "the gradient in C's gauge equals the Studio's to 1e-10");
-        EXPECT(worstZ < 1e-9 && worstVz < 1e-9, "the gauge solution z (and its embedding) equals the Studio's dense float64 solve to 1e-9");
-        EXPECT(worstV < 2e-7, "the embedded velocity equals the Studio's float32 velocity to float32's resolution (2e-7 of the peak)");
+        EXPECT(closedVz < 1e-9, "the embedded velocity (the gauge solution carried to 3D) of the closed meshes equals the Studio's dense float64 solve to 1e-9");
+        EXPECT(closedV < 2e-7, "the embedded velocity of the closed meshes equals the Studio's float32 velocity to float32's resolution (2e-7 of the peak)");
+        (void)worstC; (void)worstG; (void)worstZ; (void)worstVz; (void)worstV;
     }
 
     // ── (2) the Studio test's assertions ──
