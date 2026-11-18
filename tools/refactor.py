@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Tooling for the toolbox refactor (headers and sources move between folders, names change).
 
-  tools/refactor.py check-map [--map FILE]        every former name of the rename map is found in its former header; prints the missing ones
+  tools/refactor.py check-map --map FILE        every former name of the rename map is found in its former header; prints the missing ones
   tools/refactor.py move OLD NEW [options]        git mv a header (and its source), rewrite namespaces and includes, leave a forwarder at OLD
   tools/refactor.py forwarders [--remove]         list the temporary forwarding headers (or delete them)
   tools/refactor.py owned B [--base REF]          fail when the diff against REF (default feat/refactor) leaves batch B's files
   tools/refactor.py rename OLD NEW [--dry-run]    whole-word rename of an identifier across compute, meeg, pipelines, cli and bindings
 
 Header paths are relative to compute/include/nxr/ (meeg/X.h is meeg/include/nxr/meeg/X.h).
-The rename map is board/proposed.json of the planning folder (set NXR_REFACTOR_MAP or pass --map); the ownership of each batch is tools/refactor-ownership.json.
+The rename map is a JSON file passed with --map; the ownership of each batch is tools/refactor-ownership.json.
 """
 import argparse, fnmatch, json, os, re, subprocess, sys
 
@@ -46,7 +46,7 @@ def code_files(dirs=CODE_DIRS, ext=CODE_EXT):
 
 # ---------------------------------------------------------------- check-map
 def cmd_check_map(a):
-    mp = a.map or os.environ.get("NXR_REFACTOR_MAP") or "/Volumes/Pergammon/workspace/research/dev-data/nxr-neuro/2026-11-17-toolboxes/board/proposed.json"
+    mp = a.map
     data = json.load(open(mp))
     cache, missing, total = {}, [], 0
     for tb in data["toolboxes"]:
@@ -209,7 +209,7 @@ def cmd_rename(a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sp = ap.add_subparsers(dest="cmd", required=True)
-    s = sp.add_parser("check-map"); s.add_argument("--map"); s.set_defaults(f=cmd_check_map)
+    s = sp.add_parser("check-map"); s.add_argument("--map", required=True, help="the rename map (JSON), a file path"); s.set_defaults(f=cmd_check_map)
     s = sp.add_parser("move"); s.add_argument("old"); s.add_argument("new")
     s.add_argument("--namespace", action="append", metavar="OLD=NEW", help="rename the namespace block OLD to NEW (repeatable)")
     s.add_argument("--sub-namespace", help="put the moved declarations in NEW::NAME (types that collide)")

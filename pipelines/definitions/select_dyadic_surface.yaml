@@ -1,14 +1,14 @@
 # THE DYADIC TILES OF A SURFACE: ONE maker (the node `select.dyadic_surface`) for the three ways a surface gets its grid. A grid with closed-form levels (the Studio's `surfaceLadder`, nxr `geom.ladder`, Rheome
 # `+geom/surfaceladder.m`): each tile halved by equal mass across its geodesic diameter, every tile ONE PIECE; level l has 2^l tiles per connected piece, paired with the band it adds by Weyl's law. The hierarchy is a
 # closed form (member number >> (D - l)); no parent map is stored. The finest tile is a QUANTITY (a tile diameter in mm, a tile area in mm2, a wavelength in mm or parts per hemisphere), never a level index; the depth D
-# is resolved from it, and the run records the stated quantity, its chart, the resolved level and the SNAPPED quantity (the level's measured mean tile diameter, rule 16).
+# is resolved from it, and the run records the stated quantity, its chart, the resolved level and the SNAPPED quantity (the level's measured mean tile diameter).
 #
 #   rule subject   the surface's own tiles (tree subject)
 #   rule group     the default subject's tiles as the dataset's GROUP TREE, with the atlas definitions (the atlas leaf, the resolution, the default bands, the default trajectory scales)
 #   rule transfer  the subject's vertices on the group tree through the registered spheres, keeping the template's codes (a tile no vertex reaches is an empty member)
 #
 # Per level the stored attributes are {area_m2, diameter_mm, weyl_band_per_m2}. The Levi-Civita connection between neighbouring tiles is NOT part of the grid: it is a measurement over the product of a level with itself,
-# made by `measure` with the measure `levi_civita` over `select_product` (rule 26).
+# made by `measure` with the measure `levi_civita` over `select_product`.
 #
 # What it cannot resolve: a tile is as equal in area as the cut across the geodesic diameter allows; a surface of several pieces gets piece slots and a piece too small for the finest level stops the ladder there.
 #

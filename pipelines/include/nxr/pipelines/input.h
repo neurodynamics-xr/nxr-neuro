@@ -22,7 +22,7 @@ struct SurfaceInput {
   std::int64_t n_faces() const { return static_cast<std::int64_t>(faces.size() / 3); }
 };
 
-// A subject's surface read from its rows: the surface called `name`; with no name, the subject's one surface. WHICH SURFACE is the caller's choice, never a "primary" default (PI rule 19): a subject with several surfaces
+// A subject's surface read from its rows: the surface called `name`; with no name, the subject's one surface. WHICH SURFACE is the caller's choice, never a "primary" default: a subject with several surfaces
 // and no name is refused, naming them; a subject with none, no_such_row.
 // `as_stored`: the positions at the precision they are stored in (float64), as the Studio's backend (entities/manifold.ts loadPositions) and nxr read
 // them for the dyadic ladder; otherwise (the default) rounded to float32 first, as the Studio's GPU-side pipelines receive them (eigen, flow, …).
@@ -70,7 +70,7 @@ std::string hodge_package_stem(const SurfaceInput& surface);
 // hemispheres are glued by anatomy only).
 std::vector<std::uint8_t> medial_wall(nxr::io::SubjectWriter& sub, const SurfaceInput& surface);
 
-// THE GLUED CORTEX (PI rule 33). The imported two-hemisphere surface is the manifold of record; the glued surface is a DERIVED manifold made by a `glue` definition, which stores its MAP (glued vertex → original
+// THE GLUED CORTEX. The imported two-hemisphere surface is the manifold of record; the glued surface is a DERIVED manifold made by a `glue` definition, which stores its MAP (glued vertex → original
 // vertex, -1 on the bridge) in the manifold's producer record under `glue: {original: <manifold id>}`; the map is the field `<glued name>_map` of the glued surface. Analysis runs on the glued surface; every result is RESTRICTED BACK to the original for
 // storage, export and visualisation: exact (the glued → original transfer), the bridge dropped like the medial wall.
 struct GlueMap {

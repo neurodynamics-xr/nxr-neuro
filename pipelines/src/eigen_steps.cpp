@@ -1,7 +1,7 @@
 // nxr-pipelines — THE HODGE-DIRAC EIGENMODES AS A REGISTERED STEP (the hand-wired `eigen_solve` it replaces): a surface's modes, solved on its intrinsic Delaunay complex, with the full forms.
 //
 //   hodge_dirac   setup   surface (a stored surface of one closed piece; a cortex of two hemispheres is the glued surface `surface.glue` made) -> the modes and everything that lies on them (below)
-//   surface.glue  setup   a cortex of two hemispheres -> its glued surface, the map glued vertex -> original (-1 on the bridge) and the bridge (rule 28, rule 33)
+//   surface.glue  setup   a cortex of two hemispheres -> its glued surface, the map glued vertex -> original (-1 on the bridge) and the bridge (rule 33)
 //
 // THE GRAPH (written first, docs/specs/2026-11-17-eigenmodes-as-definition.md; the Studio's chain: glue.ts glueMesh -> intrinsicDelaunay.ts -> the Laplace-Beltrami and 2-form ladders -> the package):
 //   surface ──[intrinsic Delaunay: mollify, flip]──> the cell complex (vertices, edges, faces) with d0, d1, the three stars, the signposts
@@ -209,7 +209,7 @@ StepSpec hodge_dirac_step() {
     // THE MODE AXIS (points; coordinate mu = sqrt(lambda), ascending) and what lies on it
     out["modes"] = made(K, 1, h.mu, Json{{"cs", "eigenvalue:" + stem}, {"operator", "hodgeDirac"}, {"description", "the eigenvalues mu = sqrt(lambda) > 0 of the Hodge-Dirac operator d + delta on " + solved + ", ascending: the mode axis"},
                                          {"producer", [&] { Json j = Json{{"variant", "Hodge-Dirac (d + delta)"}, {"fieldType", "potentials"}, {"kept", "mu > 0"}}; for (auto it = prov.begin(); it != prov.end(); ++it) j[it.key()] = it.value(); return j; }()}});
-    {   // the eigenvalues lambda = mu^2 as a FIELD of the operator (rule 31), beside the mode axis's coordinates mu
+    {   // the eigenvalues lambda = mu^2 as a FIELD of the operator, beside the mode axis's coordinates mu
       std::vector<double> lam(h.mu.size());
       for (std::size_t i = 0; i < lam.size(); ++i) lam[i] = h.mu[i] * h.mu[i];
       out["eigenvalues"] = made(K, 1, std::move(lam), Json{{"value_type", "scalar"}, {"precision", "float64"}, {"description", "per mode: the eigenvalue lambda = mu^2 of the squared operator"}});
@@ -290,7 +290,7 @@ StepSpec hodge_dirac_step() {
 
 
 // ── surface.glue ─────────────────────────────────────────────────────────────────────────────────────────────────
-// THE GLUED CORTEX (rule 33), made by its own definition (`glue`): the two hemispheres' medial walls (the Desikan-Killiany atlas' `unassigned`) cut as disks and a BRIDGE grown between the rims (the Studio's
+// THE GLUED CORTEX, made by its own definition (`glue`): the two hemispheres' medial walls (the Desikan-Killiany atlas' `unassigned`) cut as disks and a BRIDGE grown between the rims (the Studio's
 // glue.ts glueMesh, nxr-compute glue.h, bit-exact). Makes the glued surface (the kept vertices in ascending original index, then the bridge's), the MAP glued vertex -> original vertex (-1 on the bridge: not
 // cortex) as a field of the glued surface, and the bridge as an indices selection. The surface's producer record carries {glue: {original}}; the map is the field `<glued name>_map` beside it; a result on the glued surface is restricted back to the original.
 struct GlueState { std::string surface; };

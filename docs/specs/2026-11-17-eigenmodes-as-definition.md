@@ -43,7 +43,7 @@ Runner features, all generic: link alternatives (`a|b`), `optional` outputs (a n
 The schema's eigenvalues are "an operator's by-product on the operator's mode axis" (`field.of_operator_id`). The stored layout of `eigen solve` keeps them as the axis's own coordinates (the points manifold),
 which every reader (spatial bands, kernels in the full forms) reads; the kind field is `of_operator` the eigenvectors. A separate eigenvalue field is not stored (see the decisions below).
 
-## Decisions for the PI
+## Open design questions
 
 1. **`glued` is a parameter, not found from the data.** The step's outputs are declared statically (names, links), and the number of pieces is a fact of the data, so `--glued` says the surface is a cortex of
    two hemispheres; a mismatch is refused with the reason. `eigen_solve` (the library's caller) sets it from the pieces. The alternative, `glue` as its own definition run first, would give the glued surface as an

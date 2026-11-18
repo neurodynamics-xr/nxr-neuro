@@ -2,7 +2,7 @@
 //   - the Eigenvalue line (default subject; a line in 1/m^2) and the surface's `<surface> spatial bands` spans Selection on it: one span per ladder level, code = level, edges = the ladder's
 //     Weyl band of the level (level 0 from 0, level l from half the λ of l to the λ of l: contiguous), the same as the library's `weyl(mean piece area, l + 1)` member l; a rerun keeps it
 // The band set is made by the maker definition `select_bands` (rule levels), the surface's grid by `select_dyadic_surface`. The read-time roll-up of a measurement over a band's spatial level is no longer
-// io's (rule 35, one definition of each measure's merge rule): it is tested by the parity test of compute's roll_up and io's query, and the pipelines' query face test.
+// io's (one definition of each measure's merge rule): it is tested by the parity test of compute's roll_up and io's query, and the pipelines' query face test.
 #include <unistd.h>
 
 #include <cmath>

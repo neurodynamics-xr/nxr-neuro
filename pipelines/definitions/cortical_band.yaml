@@ -3,7 +3,7 @@
 # Run alone it stores the field; composed into `measure` (input `chain: cortical_band`) its steps are inlined, nothing stored, its provenance in the consumer's cache key.
 #
 # THE GRAPH:  recording -- band_analytic (composed) -- apply_kernel {spatial_scale} --> field<cortex x members(bands) x T; complex>
-# The kernel's surface is the caller's (rule 19): the two-hemisphere surface of record, or the glued surface made by `glue` (the default computational manifold for spatiotemporal patterns, rule 33) named as the kernel's
+# The kernel's surface is the caller's: the two-hemisphere surface of record, or the glued surface made by `glue` (the default computational manifold for spatiotemporal patterns) named as the kernel's
 # target; results are restricted back to the original hemispheres for storage, export and figures.
 #
 # TRANSFORM ROUTE. `auto` (the stored eigenmodes first; made, with a message, when absent; Chebyshev the announced fallback) | `eigen` | `chebyshev` | `exact` (dense, at most 4096 vertices).
@@ -24,7 +24,7 @@ inputs:
   kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
   z:         {field: analytic signal, chain: band_analytic, chain_parameters: {recording: "{recording}", band: $band, bands: $bands, shape: $shape, halo: $halo}, hint: "composed in: the recording's analytic signal in the band set (one transform a block shared by all bands)"}
   grid:      {selection: ladder, manifold: kernel.to, when: $spatial_scale, hint: "the surface's grid, whose level the spatial scale is (`nxr-neuro run select_dyadic_surface` first); absent when there is no spatial scale"}
-  glued:     {manifold: surface, where: {name: $glued_surface}, required: false, hint: "the glued cortex made by `nxr-neuro run glue`, by name (rule 33): the field is made on it and restored to the original hemispheres for storage"}
+  glued:     {manifold: surface, where: {name: $glued_surface}, required: false, hint: "the glued cortex made by `nxr-neuro run glue`, by name: the field is made on it and restored to the original hemispheres for storage"}
   canonical: {field: canonical frames, manifold: kernel.to, required: false, hint: "a free-orientation kernel's tensor is read in the canonical frames (`nxr-neuro run surface_frames` first)"}
 
 parameters:

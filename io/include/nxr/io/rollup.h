@@ -3,7 +3,7 @@
 //   MEMBERS the same closed form for any grid whose coarser member is `code >> shift` (a line's time grid from its first sample; a product's factor in mixed radix; the same member of several subjects): `members`,
 //          `product_factor`, `across`. THE ONE QUERY (measurement_query.h) does these in SQL for scalar rows and calls these for arrays.
 //   TIME   (retired for new grids) frames are cycles of the day-anchored tower (frame k = tower code code0 + k); a level-m tile is `code >> m` = 2^m consecutive frames ALIGNED ON THE TOWER; kept to read what was made on it.
-// Only MERGEABLE statistics roll up, by the measure's `merge` rule: DATA in schema/measures.json (measures.h `MergeRule`), shared with compute (PI, 2026-11-17: roll-ups live in io's query as well as in compute; one definition,
+// Only MERGEABLE statistics roll up, by the measure's `merge` rule: DATA in schema/measures.json (measures.h `MergeRule`), shared with compute (roll-ups live in io's query as well as in compute; one definition,
 // a parity test between the two): sum, max, min (neutral 0, −∞, +∞), a mean through its sums and weights. Ratios and variances are derived from rolled-up ingredients, never rolled up themselves (the callers' job).
 // Pure functions of arrays, no file or row. They are the SAME arithmetic as compute's `nxr::measurement::roll_up` (io may not depend on compute and compute may not depend on io, so the two exist side by side, and a
 // pipelines test compares them on the same arrays); nxr's own `rollup.space` / `rollup.time` is their golden (io/test/golden/gen_rollup_golden.py).

@@ -631,7 +631,7 @@ StepSpec reduce_node() {
 
 // ── reduce.members ───────────────────────────────────────────────────────────────────────────────────────────────
 // A measurement over a grid G's members, over the members of another selection given in the first one's member numbers (events detected over G): nxr::measurement::merge. The ingredients
-// of each event are the merge of its cells', never a second pass over the signal (rule 13).
+// of each event are the merge of its cells', never a second pass over the signal.
 StepSpec reduce_members_node() {
   StepSpec s;
   s.name = "measurement.reduce_members";

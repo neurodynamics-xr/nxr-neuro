@@ -176,7 +176,7 @@ void add_surrogate_steps(std::vector<StepSpec>& r) {
       for (std::int64_t k = 0; k < nf; ++k) gain[k] = g(freq[k]);
       const int half = p["taps_half"].get<int>() > 0 ? p["taps_half"].get<int>() : static_cast<int>(std::min(4096.0, std::max(64.0, std::round(fs / (2 * df)))));
       try {
-        // the PSD's mean over the cross-spectrum's channels is a STORED MEASUREMENT read by name (rule 32), one value per frequency
+        // the PSD's mean over the cross-spectrum's channels is a STORED MEASUREMENT read by name, one value per frequency
         const nxr::io::MeasurementValues pm = read_measurement(c.bound, ins.at("psd_channel_mean"), "mean");
         if (pm.members != 1 || pm.rows != nf) throw std::invalid_argument("psd_channel_mean is [" + std::to_string(pm.rows) + " frequencies x " + std::to_string(pm.members) + " members]; the PSD has " + std::to_string(nf) + " frequencies and the mean one member");
         psd = Eigen::Map<const Eigen::VectorXd>(pm.values.data(), nf);

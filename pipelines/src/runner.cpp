@@ -1373,7 +1373,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
                                                           : data.at(o).meta.contains("baseline") ? store_baseline(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)
                                                                                                   : store_statistic(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)); continue; }
       std::string mid = v.manifolds.size() == 1 ? v.manifolds[0] : sub.product(v.manifolds);
-      // THE GLUED CORTEX (PI rule 33): a Field on the derived glued surface is RESTRICTED BACK to the original for storage (glued -> original, exact; the bridge dropped like the medial wall), its provenance saying so
+      // THE GLUED CORTEX: a Field on the derived glued surface is RESTRICTED BACK to the original for storage (glued -> original, exact; the bridge dropped like the medial wall), its provenance saying so
       Array back;
       std::optional<GlueMap> glue;
       if (v.manifolds.size() == 1) glue = bound.glue_of(mid);
@@ -1414,7 +1414,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       throw nxr::io::Error(nxr::io::code::invalid_argument, "outputs." + o + ": a record it is stored from is incomplete (" + e.what() + ")");
     }
   }
-  // THE OPERATORS A NODE BUILT (rule 32, the fused operator of a chain): stored through io as operators with their provenance, under the key they were found by, in this unit; the next run finds them
+  // THE OPERATORS A NODE BUILT (the fused operator of a chain): stored through io as operators with their provenance, under the key they were found by, in this unit; the next run finds them
   // (`Bound::stored_operator`) instead of rebuilding them. One already stored under the key is left as it is.
   for (const MadeOperator& op : bound.offered_operators()) {
     if (bound.stored_operator(op.key)) continue;

@@ -3,7 +3,7 @@
 // `measureOverPartition` (backend/src/db/measurements.ts): one pass accumulates, per member, the weight Σw, the weighted sums Σw·x, Σw·x², the count, max, min and max |x|; the
 // measures are read from those (partition.cpp's accumulation, line for line, moved here).
 //
-// THE MERGE RULE IS DATA (PI, 2026-11-17, rule 35: roll-ups live in io's QUERY and in compute, one definition): each measure's merge rule (sum, max, min, mean as the sum of
+// THE MERGE RULE IS DATA (roll-ups live in io's QUERY and in compute, with one definition): each measure's merge rule (sum, max, min, mean as the sum of
 // weighted values over the sum of weights, none: never rolled up) is a row of the measures registry (io/schema/measures.json: `reduction`, `weight`, `derived_from`; plus `form`,
 // the form of the field the measure is taken of). io applies the rule in SQL, compute in memory (`roll_up.h`), and a parity test compares the two. Ratios (amplitude = sum / weight,
 // sd from mean and mean_square, speed, travelling index) are DERIVED at read from the stored ingredients, never reduced themselves.

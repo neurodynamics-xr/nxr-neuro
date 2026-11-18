@@ -25,7 +25,7 @@ bool measure_is_derived(const std::string& name);
 // How a measure's values combine: its merge rule (below), `mean` for a derived one.
 std::string measure_reduction(const std::string& name);
 
-// THE MERGE RULE IS DATA (schema/measures.json and measures_nxr.json, the key `merge`; the consolidation spec 2.1, PI 2026-11-17 rule 35): the ONE definition of how a measure's values
+// THE MERGE RULE IS DATA (schema/measures.json and measures_nxr.json, the key `merge`): the ONE definition of how a measure's values
 // combine when members are rolled up (through a grid's hierarchy, or across subjects). io applies it in SQL (measurement_query.h), compute in memory (nxr::measurement), with a parity test
 // between the two; the table below is what io hands compute (pipelines carry it across, as io and compute never meet).
 //   sum      the members' values add                             max, min   the extreme of the members'

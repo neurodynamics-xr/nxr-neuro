@@ -1,4 +1,4 @@
-// nxr-io — THE MEASUREMENT QUERY API: what is measured, asked as a table, with filters and roll-ups, in SQL (PI, 2026-11-17: roll-ups live in io's query as well as in compute, for group analysis and
+// nxr-io — THE MEASUREMENT QUERY API: what is measured, asked as a table, with filters and roll-ups, in SQL (roll-ups live in io's query as well as in compute, for group analysis and
 // statistical modelling; docs/specs/2026-11-17-consolidation.md sections 2.3 and 12 D1; ARCHITECTURE.md, io's wording extended to say so).
 //
 //   WHAT IT ANSWERS   one row per member (subject, selection, member number) for a measure, or a coarser row once members are merged: the long table a mixed model or a group test reads.

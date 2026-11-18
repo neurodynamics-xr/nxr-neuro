@@ -1,6 +1,6 @@
 // nxr-io — MIGRATE A DATASET'S MEASUREMENT STORAGE to one table for values over members (schema 53; migrate.h `migrate_measurement_storage`; spec 2026-11-17-consolidation.md section 6.3).
 // In place, under the dataset's writer lock, subject by subject, RESUMABLE (a per-statistic note in `meta`, `measurement_storage:<statistic id>`; a second run changes nothing) and never deleting
-// data unless `remove_statistics` is set (the PI's explicit second step). The values of a statistic with a member axis are rewritten into [rows x members x components] at `<path>.members`, verified
+// data unless `remove_statistics` is set (the explicit second step). The values of a statistic with a member axis are rewritten into [rows x members x components] at `<path>.members`, verified
 // byte for byte, and made a `selection_measurement` row. WRITTEN, NOT RUN.
 #include <algorithm>
 #include <cstring>

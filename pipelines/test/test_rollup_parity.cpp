@@ -1,4 +1,4 @@
-// PARITY of the two roll-ups (PI, 2026-11-17, rule 35: roll-ups exist in io's query AND in compute, ONE definition of each measure's merge rule, as data in the measures registry).
+// PARITY of the two roll-ups (roll-ups exist in io's query AND in compute, ONE definition of each measure's merge rule, as data in the measures registry).
 // io's SQL roll-up (nxr::io::query::members: member number `code >> shift`, the whole, across subjects) and compute's in-memory roll-up (nxr::measurement::roll_values over the groups of
 // coarser_groups-style member sets) are run on the SAME synthetic members, with a registry built from io's table (measure_merge_table / measure_registry: what pipelines hand compute), and must give the
 // same numbers for every stored merge rule (sum, max, min, a weighted mean), at every level of the hierarchy, to the whole, and across subjects. A median (merge none) is refused by both.

@@ -47,7 +47,7 @@ struct StoredOperator {
   Eigen::MatrixXd matrix;
   nxr::io::Json provenance;
 };
-/** an operator a node BUILT and offers to be stored (rule 32): found next time by `key` (the operator's own provenance: the rows of its inputs, the request, the band's resolved choice), never rebuilt and
+/** an operator a node BUILT and offers to be stored: found next time by `key` (the operator's own provenance: the rows of its inputs, the request, the band's resolved choice), never rebuilt and
  *  never held in a process-wide cache. The runner stores each offered operator through io with the key and the provenance, in the run's one unit. `from_manifold_id`/`to_manifold_id`: the operator's ends. */
 struct MadeOperator {
   nxr::io::Json key;
@@ -71,11 +71,11 @@ class Bound {
   std::optional<std::string> glued_surface_id(const std::string& manifold_id) const;   // the id of `<name>_glued`, the surface of the same subject (one cortex, the bridge filled)
   std::vector<std::pair<double, double>> spans(const std::string& selection_id) const;   // a spans selection's members in order: start, stop (seconds)
   std::vector<nxr::io::Row> level_members(const std::string& ladder_id) const;  // a ladder's complete members in order: id, name, member_ordinal, params_json
-  // ── stored operators, charts and lines (consolidation spec 3, 7; rules 32, 25) ──
-  /** a stored operator found by its provenance key (the fused operator a node would otherwise cache statically, rule 32): the operator's row, its array read through `array_float`; nothing when it is not stored.
+  // ── stored operators, charts and lines (consolidation spec 3, 7; 25) ──
+  /** a stored operator found by its provenance key (the fused operator a node would otherwise cache statically): the operator's row, its array read through `array_float`; nothing when it is not stored.
    *  The key is the one an operator output's producer record carries (`producer.cache`, stamped by the runner like every stored node's): a node that needs a fused operator asks for it here, and a pipeline that makes it declares it as an `operator` output. */
   std::optional<StoredOperator> stored_operator(const nxr::io::Json& key) const;
-  /** a node offers an operator it built (rule 32); the runner stores it. Offered twice under one key is kept once. */
+  /** a node offers an operator it built; the runner stores it. Offered twice under one key is kept once. */
   void offer_operator(MadeOperator op) const;
   /** what nodes offered in this run, in order (the runner drains it into the unit) */
   const std::vector<MadeOperator>& offered_operators() const { return *offered_; }
@@ -85,7 +85,7 @@ class Bound {
   std::optional<nxr::io::Row> frequency_line() const;
   /** the dataset's Eigenvalue line (1/m2, charts eigenvalue and wavelength): the default subject's, on which spatial band sets are spans; nothing when the dataset has none */
   std::optional<nxr::io::Row> eigenvalue_line() const;
-  /** the glue map of a manifold that is a derived glued surface (made by `glue`): glued vertex → original vertex (-1: the bridge); nothing for any other manifold. Results on it are restricted back to the original (PI rule 33) */
+  /** the glue map of a manifold that is a derived glued surface (made by `glue`): glued vertex → original vertex (-1: the bridge); nothing for any other manifold. Results on it are restricted back to the original */
   std::optional<GlueMap> glue_of(const std::string& manifold_id) const;
   // ── the subject's stored constants (a run) ──
   std::optional<nxr::io::Row> manifold_named(const std::string& name) const;    // the run's subject's manifold by name

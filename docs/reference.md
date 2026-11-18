@@ -803,7 +803,7 @@ from lo to hi inclusive).
     the P1 gradient resolves a wavelength of a few edges at best.
 - **Retired: `phasegradient --spatial-band` (the per-spatial-band route, the timing map and its consistency).** The spatial band is now a band SET selection (`run select_bands --rule levels|eigenvalue|wavelength`) read by `run measure`;
   the intrinsic-form maths (`compute/include/nxr/intrinsic_forms.h`, the phase 1-form split, `nxr::intrinsic::vertexOutflow` / `vertexCirculation`: a tile's flux and circulation are the SUM of the pointwise values by `reduce`) stays in compute.
-  Whether the timing map and its fits return as a node of the measurement system is decided with the PI (spec `docs/specs/2026-11-12-direction-timing.md`).
+  Whether the timing map and its fits return as a node of the measurement system is an open design question.
 
 ## The scaling of a spectral quantity, chosen at read (`compute/include/nxr/spectral_scaling.h`, `pipelines/include/nxr/pipelines/spectral_record.h`; spec `docs/specs/2026-11-13-spectral-scaling.md`)
 
@@ -1517,7 +1517,7 @@ retired name is refused with the name of what replaces it (`nxr-neuro run tiles`
   - `summarize`: members to a statistic (`run summarize`, was `statistic`);
   - `estimate`: a statistic from a partition of the stream (the Welch family, histograms).
   **Roll-ups exist in io's query as well as in compute** (2026-11-17): each measure's merge rule (sum, max, min, mean via sum and count, ratios derived at read) is DATA in the
-  measures registry, applied by io in SQL and by compute in memory, with a parity test between the two (rule 35).
+  measures registry, applied by io in SQL and by compute in memory, with a parity test between the two.
 - **Quantities, never level indices.** Every selection parameter is a number with a unit in a named chart of the space it lies in: `8-12 Hz`, `2-5 s`, `20 mm`,
   `wavelength 40 mm`, `parts 16`, `area 100-400 mm2`. A bare level index is refused outside the explicit `index` chart; a definition declares `unit` and `chart` for each
   such parameter. The run records the stated quantity, the resolved level and the snapped quantity.

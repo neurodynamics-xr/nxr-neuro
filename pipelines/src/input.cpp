@@ -51,7 +51,7 @@ SurfaceInput read_surface(SubjectWriter& sub, const std::optional<std::string>& 
   if (name) {
     row = surface_with_geometry(sub.db(), sub.id(), name);
     if (!row) throw Error(code::no_such_row, sub.name() + ": no surface named '" + *name + "'");
-  } else {                                                                 // no name: the subject's one surface; several are the caller's choice to name (rule 19), none is a default
+  } else {                                                                 // no name: the subject's one surface; several are the caller's choice to name, none is a default
     const std::vector<std::string> all = surface_names(sub);
     if (all.empty()) throw Error(code::no_such_row, sub.name() + ": no surface");
     if (all.size() > 1) {

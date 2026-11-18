@@ -1,8 +1,8 @@
 # A ROLL-UP through a grid's closed-form hierarchy, or ACROSS A GROUP's subjects (the node `roll_up`; one implementation, `nxr::measurement::roll_up` / `across`). The merge rule of every measure is DATA in the measures
-# registry (sum, max, min, mean via sum and count, ratios derived at read), applied by io's query in SQL and by compute in memory, with a parity test between the two (rule 35).
+# registry (sum, max, min, mean via sum and count, ratios derived at read), applied by io's query in SQL and by compute in memory, with a parity test between the two.
 #
 # SUBJECT scope: a measurement over a GRID at level a rolled to a coarser level b (the target stated as a quantity: a tile diameter, a duration, `pieces`, `whole`). Refused over an irregular selection (the checker keys on
-# the selection's family mark, rule 18).
+# the selection's family mark).
 # GROUP scope (`scope: group`): the same measurement in EACH member subject (`per_subject`) over the group tree's codes (`select_dyadic_surface` rule transfer), summed code for code and merged by measure, stored in the
 # group's default subject (the template). The group is stated by the caller (`--subjects A,B,C` or a stored group selection by name): no default. In a catalogue dataset the inputs are read from each member package and the
 # output written to the group package named by `--into`. Provenance lists each subject's measurement id and cache key. Replaces `pyramid reduce`.

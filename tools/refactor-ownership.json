@@ -1,5 +1,5 @@
 {
- "_comment": "Files each refactor batch may change (REFACTOR-PLAN.md section 3). Used by tools/refactor.py owned B (diff against feat/refactor). Patterns are fnmatch (* crosses /). Header paths are relative to compute/include/nxr/ or meeg/include/nxr/; sources are moved to compute/src/<toolbox>/ with their header; tests stay flat in compute/test/.",
+ "_comment": "Files each refactor batch may change (the refactor plan). Used by tools/refactor.py owned B (diff against feat/refactor). Patterns are fnmatch (* crosses /). Header paths are relative to compute/include/nxr/ or meeg/include/nxr/; sources are moved to compute/src/<toolbox>/ with their header; tests stay flat in compute/test/.",
  "B0": {
   "files": [
    "tools/refactor.py",

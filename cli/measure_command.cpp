@@ -61,7 +61,7 @@ int measure_export_main(const std::vector<std::string>& rest) {
 }
 
 // `measure query`: stored measurements over a selection's members at a scale stated as a quantity: the finest ingredients are io's, the roll-up through the grid's closed-form hierarchy and the derived measures
-// are compute's (pipelines/face.h `measurement_query`, rule 35); the level read is printed with its snapped quantity
+// are compute's (pipelines/face.h `measurement_query`); the level read is printed with its snapped quantity
 int measure_query_main(const std::vector<std::string>& argv) {
   const std::string prog = "nxr-neuro measure query";
   const cli::Args a = cli::parse(prog, argv, {"--dataset", "--subject", "--selection", "--field", "--measure", "--band", "--spatial-scale", "--tile", "--min-value", "--max-value", "--limit", "--order", "--where", "--subjects", "--factor"}, {},

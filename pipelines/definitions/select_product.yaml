@@ -1,5 +1,5 @@
 # A PRODUCT SELECTION on a product manifold: ONE maker (the node `select.product`), as the Studio's D100 `productSelection` and D129 joint partition. Two or more FACTORS (a grid level, a band set, an elements grid, or
-# an irregular set), the code mixed radix FIRST factor fastest (`product_code`); `layout: joint` is the atlas layout, code (tile << bits) | frame, arrays [band x tile x frame] (rule 22). A box is a multi-axis span.
+# an irregular set), the code mixed radix FIRST factor fastest (`product_code`); `layout: joint` is the atlas layout, code (tile << bits) | frame, arrays [band x tile x frame]. A box is a multi-axis span.
 #
 # COUPLING (rule 5). A factor may be a grid whose level a band SETS: `{grid: <surface grid>, level_of: band}` (the Weyl level of the band's centre, `space_level_of_band`) or `{grid: <time grid>, level_of: band}` (the
 # time level of the band, `time_level_of_band`). With a band set the product is made per band member, each band its own levels; coupled levels are resolved in closed form at plan time and recorded in the product's

@@ -1,6 +1,6 @@
 # A BAND SET on a line: ONE maker (the node `select.bands`), spans on the dataset's FREQUENCY line (Hz; charts `linear` and `log10`) or on its EIGENVALUE line (1/m2; charts `eigenvalue` and `wavelength` in mm), every
-# band stated as a QUANTITY in a chart of that line, never an index. A single band SELECTS (it is no frequency axis); several bands are one band SET whose members include the bands (rule 14). A consumer takes the set
-# through its `bands` edge (rule 17), never re-making it from parameters.
+# band stated as a QUANTITY in a chart of that line, never an index. A single band SELECTS (it is no frequency axis); several bands are one band SET whose members include the bands. A consumer takes the set
+# through its `bands` edge, never re-making it from parameters.
 #
 #   rule frequency   a list of bands in Hz (or log10 Hz), named; the default is nxr's DEFAULT_BANDS, the octaves 1-2 ... 32-64 Hz
 #   rule eigenvalue  spans in the eigenvalue chart (1/m2) or the wavelength chart (mm)

@@ -5,8 +5,8 @@
 #   --> the global bursts (an irregular selection detected over the time grid; no channel) -- select.events.regions (the bursts' space x time EXTENT on the cells) -- reduce.members -- summarize.
 # Parameters are QUANTITIES: the band (Hz), the spatial scale (a tile diameter, a wavelength or a named scale: its level is resolved in closed form and recorded with the snapped quantity), the
 # filters of the bursts (a gap to join and a duration range, in seconds or in cycles of the band's centre: "0.1 s", ">=3 cycles"), the extents' area (mm2).
-# The cortex is the caller's choice (rule 19): the kernel's surface (the two-hemisphere surface of record) or the glued surface made by `run glue` (the default computational manifold for
-# spatiotemporal patterns, rule 33); the bursts and extents are reported on the original hemispheres.
+# The cortex is the caller's choice: the kernel's surface (the two-hemisphere surface of record) or the glued surface made by `run glue` (the default computational manifold for
+# spatiotemporal patterns); the bursts and extents are reported on the original hemispheres.
 #
 # SEVERAL (band x spatial scale) pairs: `--band` and `--spatial-scale` take LISTS; the runner makes one plan per pair, each cached on its own (this replaces `cortical_event_pairs`).
 # NOT IN THIS DEFINITION YET: the edges refined on SAMPLES by Rheome's rise and fall fit (`risefall`, the fit gate and the burst stages). They read the per-SAMPLE trace (the largest tile mean per sample),

@@ -339,7 +339,7 @@ std::vector<StepSpec> build() {
                  y.facts["band_shape"] = p["shape"];
                  y.facts["axis"] = "frames";
                  const Json gd = t.row ? tp["grid"] : Json::object();
-                 const double hop_s = t.row ? (gd.contains("hop_exact") ? gd["hop_exact"].get<double>() : static_cast<double>(gd["hop"].get<std::int64_t>())) / x.rate : t.facts.value("hop_s", 0.0);   // frames per cycle are not whole samples (exact, rule 36)
+                 const double hop_s = t.row ? (gd.contains("hop_exact") ? gd["hop_exact"].get<double>() : static_cast<double>(gd["hop"].get<std::int64_t>())) / x.rate : t.facts.value("hop_s", 0.0);   // frames per cycle are not whole samples (exact)
                  const double origin_s = t.row ? x.origin + static_cast<double>(gd["origin"].get<std::int64_t>()) / x.rate : t.facts.value("origin_s", x.origin);
                  need(hop_s > 0, "analytic_frames: the frame grid has no hop");
                  y.facts["frames"] = Json{{"tiling", t.row ? Json(nxr::io::text(*t.row, "name")) : Json(t.facts.value("node", std::string("select.time_grid")))}, {"level", t.facts.value("level", t.row ? gd.value("level", -1) : -1)}, {"shape", p["shape"]},
@@ -416,8 +416,8 @@ std::vector<StepSpec> build() {
                    need(p["modes"].is_number_integer() && p["modes"].get<int>() >= 0, "apply_kernel: modes is at least 0 (0: the standard package size, or what the band needs)");
                    need(p["order"].is_number_integer() && p["order"].get<int>() >= 0 && p["tolerance"].is_number() && p["tolerance"].get<double>() > 0, "apply_kernel: order is at least 0 (0: chosen), tolerance above 0");
                    if (ins.count("glued")) {
-                     // THE GLUED SURFACE is the caller's choice, by name (rule 33): the derived manifold `glue` made from the kernel's target; the field is on it, restricted back to the original for storage. A flag that only
-                     // chooses the input is never a parameter (rule 28).
+                     // THE GLUED SURFACE is the caller's choice, by name: the derived manifold `glue` made from the kernel's target; the field is on it, restricted back to the original for storage. A flag that only
+                     // chooses the input is never a parameter.
                      const Value& g = ins.at("glued");
                      const std::string gid = g.row ? nxr::io::text(*g.row, "id") : (g.manifolds.empty() ? std::string() : g.manifolds[0]);
                      need(!gid.empty() && manifold_type(c, gid) == "surface", "apply_kernel: glued must be a surface (the glued cortex made by `glue`)");
@@ -834,7 +834,7 @@ void bind_execution(std::vector<StepSpec>& r) {
     s.chunk = [env](const std::any& st, const Blocks& ins, std::int64_t keep) {
       const Block& b = ins.at("x");
       if (st.type() == typeid(BandAnalytic)) {
-        // ONE transform of the block (the chunk with its halo; circular, the halo holds the edge effect) shared by every band: each band's gain on its spectrum, positive frequencies doubled, back (rule 23)
+        // ONE transform of the block (the chunk with its halo; circular, the halo holds the edge effect) shared by every band: each band's gain on its spectrum, positive frequencies doubled, back
         const BandAnalytic& a = std::any_cast<const BandAnalytic&>(st);
         const std::int64_t M = static_cast<std::int64_t>(a.channels.size()), NB = static_cast<std::int64_t>(a.bank.size());
         Eigen::MatrixXd block(b.width, M);                                   // [samples x channels]
