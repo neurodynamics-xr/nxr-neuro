@@ -55,6 +55,8 @@ void measurement_input(const Value& m, const std::string& who, const std::string
   need(m.cls == "measurement" && m.facts.contains("over") && m.facts["over"].contains("selection_id"), who + ": " + port + " must be a stored measurement (read by name; `nxr-neuro run measure --set ...` first)");
 }
 nxr::io::MeasurementValues read_measurement(const Bound& b, const Value& m, const std::string& measure) {
+  if (m.facts.contains("of_statistic_id") && m.facts["of_statistic_id"].is_string())            // a measurement OF A STORED STATISTIC (the PSD's channel mean)
+    return b.measurement_values_of_statistic(m.facts["over"]["selection_id"].get<std::string>(), m.facts["of_statistic_id"].get<std::string>(), measure);
   return b.measurement_values(m.facts["over"]["selection_id"].get<std::string>(), m.facts.contains("of_field_id") && m.facts["of_field_id"].is_string() ? std::optional<std::string>(m.facts["of_field_id"].get<std::string>()) : std::nullopt, std::nullopt, measure);
 }
 // the tile (samples) of the time factor of a product selection: the time grid the measurement was made over
@@ -62,7 +64,15 @@ std::int64_t time_tile_of(const Bound& b, const Value& m, const std::string& who
   const auto sel = b.selection(m.facts["over"]["selection_id"].get<std::string>());
   need(sel.has_value(), who + ": the measurement's selection is not stored");
   const Json pj = Json::parse(nxr::io::opt_text(*sel, "params_json").value_or("{}"), nullptr, false);
-  if (pj.is_object() && pj.contains("product"))
+  if (pj.is_object() && pj.contains("product") && pj["product"].is_array()) {                    // the stored product: its factors are Selections, in order; the time factor's grid is the tile
+    for (const auto& e : pj["product"]) {
+      if (!e.is_object() || !e.contains("selection") || !e["selection"].is_string()) continue;
+      const auto f = b.selection(e["selection"].get<std::string>());
+      if (!f) continue;
+      const Json fj = Json::parse(nxr::io::opt_text(*f, "params_json").value_or("{}"), nullptr, false);
+      if (fj.is_object() && fj.contains("grid") && fj["grid"].is_object() && fj["grid"].value("kind", std::string()) == "time" && fj["grid"].value("width", std::int64_t(0)) > 0) return fj["grid"]["width"].get<std::int64_t>();
+    }
+  } else if (pj.is_object() && pj.contains("product"))
     for (const auto& f : pj["product"]["factors"]) if (f.value("kind", std::string()) == "time" && f.value("width", std::int64_t(0)) > 0) return f["width"].get<std::int64_t>();
   if (pj.is_object() && pj.contains("grid") && pj["grid"].value("kind", std::string()) == "time") return pj["grid"].value("width", std::int64_t(0));
   refuse(who + ": the measurement's selection " + nxr::io::text(*sel, "name") + " is not over a time grid (a product with a time factor)");

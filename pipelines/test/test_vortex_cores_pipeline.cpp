@@ -247,7 +247,10 @@ int main() {
   // ── PASS ONE: the distribution, stored as a statistic ──
   g::RunOptions all; all.chunks = "all"; all.replace = true;
   auto run_repeat_compute = [&](nxr::io::DatasetWriter& d, SubjectWriter& sb, const RunRepeatOptions& o) {
-    Json set = Json{{"recording_a", o.recording_a}, {"recording_b", o.recording_b}, {"over", "cortex tiles"}, {"spatial_scale", "parts " + std::to_string(1 << level)}, {"min_crossings", o.min_crossings}, {"stage", o.stage}};
+    const auto tsr = tk::Subject::of(sb);                                       // `over` is the LEVEL of the ladder the crossings were counted in (a Selection of its own), found as the runs' measurements are
+    const auto ladr = tsr.find({.cls = tk::Cls::selection, .type = "ladder", .manifold_id = surf});
+    const auto lvr = ladr ? tsr.member(*ladr, level) : std::nullopt;
+    Json set = Json{{"recording_a", o.recording_a}, {"recording_b", o.recording_b}, {"over", lvr ? lvr->name : std::string("cortex tiles")}, {"spatial_scale", "parts " + std::to_string(1 << level)}, {"min_crossings", o.min_crossings}, {"stage", o.stage}};
     if (o.stage_name) set["stage_name"] = *o.stage_name;
     if (!o.name.empty()) set["name"] = o.name;
     const auto rep = nxrtest::run_definition(d, sb, "run_repeat", set);
@@ -259,9 +262,10 @@ int main() {
     r.info = Json{{"tiles_used", used}};
     return r;
   };
-  const Json base = set_of({{"space_level", level}, {"transform", "exact"}, {"bursts", "window"}});
+  const Json base = set_of({{"spatial_scale", "index:" + std::to_string(level)}, {"transform", "exact"}, {"bursts", "window"}, {"glued_surface", "cortex_glued"}, {"onset", Json()}, {"within", Json()}, {"offset", Json()}});
   const g::Definition dthr = g::load("vortex_core_threshold"), dcor = g::load("vortex_cores");
-  const auto rt = g::run(ds, sub, dthr, base, all);
+  Json tbase = base; for (const char* k : {"onset", "within", "offset"}) tbase.erase(k);               // (the stages' selections are the cores' inputs, not the threshold's)
+  const auto rt = g::run(ds, sub, dthr, tbase, all);
   CHECK(rt.size() == 2);                                                       // one run for each recording
   std::map<std::string, StoredStatistic> hist;
   for (const char* rec : {"rest", "rest_b"}) hist.emplace(rec, read_statistic(sub, std::string("vortex_core_threshold.histogram.") + rec));
@@ -287,7 +291,7 @@ int main() {
     CHECK(std::abs(Hb.options["hi"].get<double>() - H.options["hi"].get<double>()) < 1e-6 * H.options["hi"].get<double>() && lb1 <= 2e-4 * total && Hb.options["frames"] == H.options["frames"]); }
   CHECK(H.options["chain"]["form"] == "curl_tan" && H.options["chain"]["glued"] == true && H.options["range_frames"] == 3000);
   // a rerun is a hit
-  { const auto again = g::run(ds, sub, dthr, base, g::RunOptions{[] { g::RunOptions o; o.chunks = "all"; return o; }()});
+  { const auto again = g::run(ds, sub, dthr, tbase, g::RunOptions{[] { g::RunOptions o; o.chunks = "all"; return o; }()});
     CHECK(again.size() == 2 && again[0]["hit"] == true); }
 
   // ── PASS TWO: the cores, the threshold read by name ──
@@ -348,7 +352,7 @@ int main() {
     CHECK(same && dc < 1e-6); }
   // block size: the same cores and the same distribution when the tail runs on blocks of 100 frames (the default is 256, `--block-frames`): only the memory changes
   { g::RunOptions small = all; small.block_frames = 100;
-    g::run(ds, sub, dthr, base, small);
+    g::run(ds, sub, dthr, tbase, small);
     const StoredStatistic H2 = read_statistic(sub, "vortex_core_threshold.histogram.rest");
     double l2 = 0;
     for (int k = 0; k < 4096; ++k) l2 += std::abs(H2.values[static_cast<std::size_t>(k)] - H.values[static_cast<std::size_t>(k)]);
@@ -360,7 +364,7 @@ int main() {
     std::printf("  blocks of 100 frames vs 256: histogram counts differ by %.0f, %zu vs %zu cores, frames/senses/vertices %s, centre and area differ by %.1e\n", l2, Cs.frame.size(), C.frame.size(), same ? "identical" : "DIFFER", dc);
     CHECK(l2 <= 2e-4 * total && same && dc < 1e-6);
     CHECK(g::run(ds, sub, dcor, base, small)[0]["hit"] == true);                 // the block size is in the key: the rerun at 100 is a hit, the one at 256 would not be
-    g::run(ds, sub, dthr, base, all); g::run(ds, sub, dcor, base, all);          // back to the default for the rest
+    g::run(ds, sub, dthr, tbase, all); g::run(ds, sub, dcor, base, all);          // back to the default for the rest
   }
   // a rerun is a hit; another percentile is another threshold from the same stored counts (a lower one: more cores)
   { const auto again = g::run(ds, sub, dcor, base, g::RunOptions{[] { g::RunOptions o; o.chunks = "all"; return o; }()});
@@ -411,7 +415,9 @@ int main() {
     CHECK(labok && in_tracks > 0 && in_tracks < lab.size() + 1);
     CHECK(T.params["detection"]["record"]["tracks"] == static_cast<std::int64_t>(keep.size()) && T.params["detection"]["record"]["link_mm"] == 15.0 && T.params["detection"]["record"]["warnings"].is_array());
     // chunk size: the same tracks from chunks of 1000
-    CHECK(Tb.first == T.first && Tb.last == T.last && Tb.n == T.n && Tb.sense == T.sense && Tb.path == T.path);
+    { bool pathsame = Tb.path.size() == T.path.size();     // the frames are float32 and chunk-independent to 1e-7 of the peak: the paths agree to that, not bit for bit
+      for (std::size_t i = 0; pathsame && i < T.path.size(); ++i) pathsame = std::abs(Tb.path[i] - T.path[i]) <= 1e-5 * std::max(1.0, std::abs(static_cast<double>(T.path[i])));
+      CHECK(Tb.first == T.first && Tb.last == T.last && Tb.n == T.n && Tb.sense == T.sense && pathsame); }
     // a longer link distance joins more (fewer tracks, each longer); min_frames 1 also stores the lone cores
     { Json s = base; s["link_mm"] = 500.0;
       g::run(ds, sub, dcor, s, all);
@@ -608,37 +614,64 @@ int main() {
       const StoredStatistic wn = read_statistic(sub, "none.whole");
       CHECK(std::isnan(wn.values[0])); }
     CHECK(what_of([&] { RunRepeatOptions x = ro; x.recording_b = "rest"; run_repeat_compute(ds, sub, x); }).find("same recording") != std::string::npos);
-    CHECK(what_of([&] { RunRepeatOptions x = ro; x.recording_b = "no_such"; run_repeat_compute(ds, sub, x); }).find("no_such") != std::string::npos);
+    CHECK(what_of([&] { RunRepeatOptions x = ro; x.recording_b = "no_such"; run_repeat_compute(ds, sub, x); }).find("recording_b") != std::string::npos);   // the input the name did not find
     CHECK(what_of([&] { RunRepeatOptions x = ro; x.stage = 3; x.name = "stage3"; run_repeat_compute(ds, sub, x); }).find("stage 3") != std::string::npos);
     g::run(ds, sub, dcor, base, all);                                              // the crossings as the run made them (the reversed copy replaced)
   }
 
   // ── THE LAG-FREE NULL (piece 10): the ingredients, one draw, its node ──
   {
-    nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});
+    nxrtest::run_psd(ds, sub, "rest", Json{{"segment_samples", 256}});
     nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", "rest"}, {"channels_of", "free"}, {"segment_samples", 256}, {"bands", Json::array({Json{{"name", "alpha"}, {"lo", 8.0}, {"hi", 12.0}}})}});
-    const Json env = set_of({{"recording", "rest"}, {"cross_spectrum", "rest_crossspectrum_alpha"}, {"level", 5}});
-    const g::Definition denv = g::load("lagfree_envelope"), dnull = g::load("surrogate_lagfree_vortex");
-    g::run(ds, sub, denv, env, all);
-    const StoredStatistic E = read_statistic(sub, "lagfree_envelope.series.rest");
+    const g::Definition dnull = g::load("surrogate_lagfree_vortex");
+    // THE INGREDIENTS the draws are made from, two stored MEASUREMENTS (the cross-spectrum's channels, tiles of 32 samples): the PSD's mean over those channels (`measure` of a stored statistic, preset psd_channel_mean) and the band's
+    // power per tile (preset surrogate_lagfree_envelope)
+    const auto pm = nxrtest::run_preset(ds, sub, "measure", "psd_channel_mean", set_of({{"statistic", "rest_psd_welch"}, {"channels", "rest_crossspectrum"}}));
+    CHECK(pm.size() == 1 && pm[0]["hit"] == false);
+    {
+      const auto ts0 = tk::Subject::of(sub);
+      const auto pst = ts0.find({.cls = tk::Cls::statistic, .name = "rest_psd_welch"});
+      const auto pset = ts0.find({.cls = tk::Cls::selection, .name = "rest_psd_welch channels rest_crossspectrum one member"});
+      CHECK(pst && pset);
+      const MeasurementValues pmv = measurement_values(sub, pset->id, std::nullopt, pst->id, std::nullopt, "mean");
+      const StoredStatistic P = read_statistic(sub, "rest_psd_welch");
+      // the same mean made directly: over the channels the cross-spectrum holds, each frequency
+      const StoredStatistic CS = read_statistic(sub, "rest_crossspectrum");
+      std::printf("  the PSD's channel mean: [%lld frequencies x %lld member] (the PSD has %lld channels)\n", static_cast<long long>(pmv.rows), static_cast<long long>(pmv.members), static_cast<long long>(P.shape[0]));
+      CHECK(pmv.rows == P.shape[1] && pmv.members == 1 && pmv.array_backed && CS.shape.size() >= 2);
+      // the cross-spectrum's channels as stored (its channel axis is a pick of the PSD's channels)
+      std::vector<std::int32_t> in_pick = crossspectrum_read(sub, "rest_crossspectrum").channels;
+      const std::int64_t nf = P.shape[1], nch = P.shape[0];
+      if (in_pick.empty()) for (std::int64_t c = 0; c < nch; ++c) in_pick.push_back(static_cast<std::int32_t>(c));
+      double worst = 0;
+      for (std::int64_t f = 0; f < nf; ++f) { double m = 0; for (const std::int32_t c : in_pick) m += P.values[static_cast<std::size_t>(c * nf + f)]; m /= static_cast<double>(in_pick.size()); worst = std::max(worst, std::abs(m - pmv.values[static_cast<std::size_t>(f)]) / std::max(1e-30, std::abs(m))); }
+      CHECK(worst < 1e-9);
+    }
+    const auto em = nxrtest::run_preset(ds, sub, "measure", "surrogate_lagfree_envelope", set_of({{"recording", "rest"}, {"band", "8-12 Hz"}, {"channels", "rest_crossspectrum"}, {"duration", "0.128 s"}}));
+    CHECK(em.size() == 1 && em[0]["hit"] == false);
+    const auto tsE = tk::Subject::of(sub);
+    const auto recE = tsE.find({.cls = tk::Cls::field, .name = "rest"});
+    const auto prodE = tsE.find({.cls = tk::Cls::selection, .name = "rest envelope tiles 0.128 s"});
+    CHECK(recE && prodE);
+    const MeasurementValues E = measurement_values(sub, prodE->id, recE->id, std::nullopt, std::nullopt, "power");
     double sum = 0, cnt = 0;
-    for (std::size_t k = 0; k + 1 < E.values.size(); k += 2) { sum += E.values[k]; cnt += E.values[k + 1]; }
+    for (const double v : E.values) if (std::isfinite(v)) { sum += v; cnt += 1; }
     // the direct mean |z|^2: 2 Re^2 for a band signal (the analytic signal's power is twice the band-passed one's), over the good samples
     double direct = 0; std::int64_t nd2 = 0;
     for (int t = 0; t < T; ++t) { const double sec = static_cast<double>(t) / sfreq; if (sec >= bad0 && sec < bad1) continue; direct += Re.col(t).squaredNorm(); nd2 += M; }
     direct = 2 * direct / static_cast<double>(nd2);
-    std::printf("  the envelope statistic: %zu tiles of 32 samples, mean |z|^2 %.4f (direct %.4f)\n", E.values.size() / 2, sum / cnt, direct);
-    CHECK(text(E.row, "method") == "power_tiles" && text(E.row, "measure") == "power_sum" && E.shape.size() == 2 && E.shape[0] == T / 32 && E.shape[1] == 2 && std::abs(sum / cnt / direct - 1) < 0.1);
-    // bad samples are left out: the tiles the bad span (5-5.5 s) covers hold fewer values
+    std::printf("  the envelope measurement: %lld tiles of 32 samples, mean |z|^2 %.4f (direct %.4f)\n", static_cast<long long>(E.members), sum / cnt, direct);
+    CHECK(E.rows == 1 && E.members == T / 32 && std::abs(sum / cnt / direct - 1) < 0.1);
+    // bad samples are left out: a tile the bad span (5-5.5 s) covers holds no value (a short mean is never a tile's mean)
     const std::int64_t tbad = static_cast<std::int64_t>(5.2 * sfreq) / 32;
-    CHECK(E.values[static_cast<std::size_t>(2 * tbad + 1)] < E.values[static_cast<std::size_t>(2 * (tbad - 8) + 1)]);
+    CHECK(std::isnan(E.values[static_cast<std::size_t>(tbad)]) && std::isfinite(E.values[static_cast<std::size_t>(tbad - 8)]));
 
     const auto ts2 = tk::Subject::of(sub);
     const auto lad2 = ts2.find({.cls = tk::Cls::selection, .type = "ladder", .manifold_id = surf});
     const auto lvl2 = ts2.member(*lad2, level);
     const std::string sel_of_level = lvl2->id;
     const std::int64_t NL_tiles_plus_bridge = lvl2->n_members.value_or(0) + 1;
-    Json nb = base; nb["recording"] = "rest"; nb["cross_spectrum"] = "rest_crossspectrum_alpha"; nb["seed"] = 1;
+    Json nb = base; nb["recording"] = "rest"; nb["cross_spectrum"] = "rest_crossspectrum"; nb["seed"] = 1;
     g::run(ds, sub, dnull, nb, all);
     const StoredStatistic D1 = read_statistic(sub, "surrogate_lagfree_vortex.draw1.null_crossings.rest");
     std::printf("  one draw: %s [%lld x %lld x %lld]\n", text(D1.row, "measure").c_str(), static_cast<long long>(D1.shape[0]), static_cast<long long>(D1.shape[1]), static_cast<long long>(D1.shape[2]));
@@ -661,13 +694,14 @@ int main() {
     CHECK(measurement_values(sub, sel_of_level, tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = "rest"})->id, std::nullopt, std::nullopt, "crossings").rows == 2);
     // THE TESTS: the draws in batches, the per-tile p of the crossing consistency and of the repeat, against the same numbers made directly from the stored draws
     {
-      nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_level", 8}});
+      nxrtest::run_psd(ds, sub, "rest_b", Json{{"segment_samples", 256}});
       nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", "rest_b"}, {"channels_of", "free"}, {"segment_samples", 256}, {"bands", Json::array({Json{{"name", "alpha"}, {"lo", 8.0}, {"hi", 12.0}}})}});
-      g::run(ds, sub, denv, set_of({{"recording", "rest_b"}, {"cross_spectrum", "rest_b_crossspectrum_alpha"}, {"level", 5}}), all);
+      nxrtest::run_preset(ds, sub, "measure", "psd_channel_mean", set_of({{"statistic", "rest_b_psd_welch"}, {"channels", "rest_b_crossspectrum"}}));
+      nxrtest::run_preset(ds, sub, "measure", "surrogate_lagfree_envelope", set_of({{"recording", "rest_b"}, {"band", "8-12 Hz"}, {"channels", "rest_b_crossspectrum"}, {"duration", "0.128 s"}}));
       SurrogateVortexCompareOptions no;
       no.chunks = "all";                 // the whole recording, stated
       no.recording_a = "rest"; no.recording_b = "rest_b"; no.batch = 3; no.min_draws = 3; no.max_draws = 6; no.h = 10; no.min_crossings = 5; no.replace = true;   // draws 1 and 2 above were made with other parameters
-      no.set = set_of({{"space_level", level}, {"transform", "exact"}, {"bursts", "window"}, {"cross_spectrum", "{recording}_crossspectrum_alpha"}});
+      no.set = set_of({{"spatial_scale", "index:" + std::to_string(level)}, {"transform", "exact"}, {"bursts", "window"}, {"glued_surface", "cortex_glued"}, {"onset", Json()}, {"within", Json()}, {"offset", Json()}, {"cross_spectrum", "{recording}_crossspectrum"}});
       const auto nr = surrogate_lagfree_vortex_compare(ds, sub, no);
       const std::int64_t nd = nr.info["draws"].get<std::int64_t>();
       std::printf("  surrogate_lagfree_vortex_compare: %lld draws (%s), %lld tiles; consistency: %s; repeat cosine %s p %s\n", static_cast<long long>(nd), nr.info["stopped"].get<std::string>().c_str(), static_cast<long long>(nr.info["tiles"].get<std::int64_t>()),
@@ -745,14 +779,14 @@ int main() {
   { Json s = base; s["threshold_statistic"] = "no.such.statistic"; CHECK(refused(dcor, s).find("threshold") != std::string::npos); }
   { std::string t = "pipeline: no_frames\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n"
                     "  threshold: {statistic: histogram, where: {name: vortex_core_threshold.histogram.rest}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
-                    "      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {level: 3, transform: exact, form: curl_tan}, out: curl}\n"
-                    "      - {step: cores, in: {x: curl, threshold: threshold}, out: [cores, frame, sense, centre_vertex, centre, area, peak]}\noutputs:\n  cores: {kind: spans, types: [core]}\n  frame: {kind: measurement}\n  sense: {kind: measurement}\n"
+                    "      - {step: signal.analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: meeg.apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {spatial_scale: \"index:3\", transform: exact, form: curl_tan}, out: curl}\n"
+                    "      - {step: select.events.cores, in: {x: curl, threshold: threshold}, out: [cores, frame, sense, centre_vertex, centre, area, peak]}\noutputs:\n  cores: {kind: spans, types: [core]}\n  frame: {kind: measurement}\n  sense: {kind: measurement}\n"
                     "  centre_vertex: {kind: measurement}\n  centre: {kind: measurement}\n  area: {kind: measurement}\n  peak: {kind: measurement}\n";
-    CHECK(what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), g::RunOptions{}); }).find("frame tiling") != std::string::npos); }
+    { const std::string why = what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), g::RunOptions{}); }); CHECK(why.find("frame tiling") != std::string::npos); } }
   { std::string t = "pipeline: wrong_threshold\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0}\n  tiles: {selection: ladder, manifold: kernel.to}\n"
                     "  tiling: {selection: spans, manifold: recording.time, where: {name: \"{recording} time grid\"}}\n  welch: {statistic: welch}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
-                    "      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {level: 3, transform: exact, form: curl_tan}, out: curl}\n"
-                    "      - {step: frames, in: {x: curl, tiling: tiling}, out: cf}\n      - {step: cores, in: {x: cf, threshold: welch}, out: [cores, frame, sense, centre_vertex, centre, area, peak]}\noutputs:\n  cores: {kind: spans, types: [core]}\n  frame: {kind: measurement}\n"
+                    "      - {step: signal.analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: meeg.apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {spatial_scale: \"index:3\", transform: exact, form: curl_tan}, out: curl}\n"
+                    "      - {step: signal.analytic_frames, in: {x: curl, tiling: tiling}, out: cf}\n      - {step: select.events.cores, in: {x: cf, threshold: welch}, out: [cores, frame, sense, centre_vertex, centre, area, peak]}\noutputs:\n  cores: {kind: spans, types: [core]}\n  frame: {kind: measurement}\n"
                     "  sense: {kind: measurement}\n  centre_vertex: {kind: measurement}\n  centre: {kind: measurement}\n  area: {kind: measurement}\n  peak: {kind: measurement}\n";
     const std::string w = what_of([&] { g::run(ds, sub, g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t), Json::object(), g::RunOptions{}); });
     CHECK(!w.empty()); }                                                         // no welch statistic stored: refused (nothing matches), never run

@@ -419,6 +419,11 @@ std::optional<CrossSpectrumNode> find_cross_spectrum(SubjectWriter& sub, const s
   for (const Row& r : nxr::io::statistics_of(sub.db(), sub.id())) {
     if (text(r, "name") != name || text(r, "method") != "welch" || text(r, "measure").rfind("cross_spectr", 0) != 0) continue;
     const Json axes = Json::parse(text(r, "axes_json"));
+    if (axes.is_array() && !axes.empty() && axes[0].value("name", std::string()) == "band" && axes[0].contains("values")) {   // the definitions' form: band x channel x channel under ONE name
+      const Json& bands = axes[0]["values"];
+      if (bands.size() != 1) invalid(name + ": it holds " + std::to_string(bands.size()) + " bands; read one by its band's name (`" + name + "_<band>`), or compute the one band wanted");
+      if (auto n = band_slice(sub, nxr::bst::band_field_name(name, bands[0].value("name", std::string())), "welch", "cross_spectr", "", 1)) return n;   // a statistic of one band IS that band's cross-spectrum
+    }
     const auto sel = sub.db().read("selection", axes[0].value("selection_id", std::string()));
     if (!sel || is_null(*sel, "array_path")) invalid(name + ": its channels (the channel axis's Selection) are not stored");
     return CrossSpectrumNode{r, read_all<std::int32_t>(sub.store(), text(*sel, "array_path")), text(*sel, "manifold_id"), text(r, "path"),

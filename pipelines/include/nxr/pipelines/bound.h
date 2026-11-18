@@ -107,6 +107,8 @@ class Bound {
   /** the values of a measure over a selection's members (io's measurement_values): of a field, of a map statistic's slice (by its name, a band of a map), or the members' own */
   nxr::io::MeasurementValues measurement_values(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_slice,
                                                 const std::string& measure) const;
+  /** the values of a measure over a selection's members OF A STORED STATISTIC (`measure` of a statistic, schema 54): [rows x members], rows the statistic's axes after the first */
+  nxr::io::MeasurementValues measurement_values_of_statistic(const std::string& selection_id, const std::string& statistic_id, const std::string& measure) const;
   std::vector<std::int32_t> array_int32(const std::string& path) const;                         // a stored array by its store path (a kernel's channel list)
   std::vector<float> array_float(const std::string& path, std::vector<std::int64_t>* shape) const;   // (a kernel's matrix)
   std::vector<double> array_double(const std::string& path, std::vector<std::int64_t>* shape) const;   // (a covariance: precision follows the stored array)

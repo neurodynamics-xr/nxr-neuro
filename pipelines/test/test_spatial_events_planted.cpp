@@ -22,6 +22,7 @@
 #include "check.h"
 #include "store_at.h"
 #include "mesh_helpers.h"
+#include "brain_helpers.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
@@ -34,6 +35,7 @@
 #include "nxr/pipelines/surrogate_compare.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "make_grids.h"
+#include "nxr/pipelines/input.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -57,18 +59,36 @@ int main() {
   const fs::path root = fs::path(tmp ? tmp : fs::temp_directory_path().string()) / ("nxr_test_spatial_events_planted_" + std::to_string(::getpid()));
   fs::remove_all(root);
   struct Cleanup { fs::path p; ~Cleanup() { fs::remove_all(p); } } cleanup{root};
-  const double R = 0.1, sfreq = 250.0, w0 = 5.0, wm = 8.5, w1 = 12.0, fps = 360.0;
+  const double R = 0.1, sfreq = 250.0, w0 = 5.0, wm = 8.5, w1 = 12.0, fps = 36.0 * std::sqrt(8.0 * 12.0);   // 36 frames a cycle at the band's geometric centre
   const int T = 4096;
-  std::vector<double> U;
+  // a two-hemisphere "brain" (the cortex has a medial wall, so its hemispheres are glued by anatomy: the events live on the glued cortex): two spheres of radius R side by side, the blobs planted in the first
+  std::vector<double> U1, Sph1;
+  std::vector<std::int32_t> F1;
+  icosphere(3, U1, F1, R);
+  icosphere(3, Sph1, F1);                                                      // the same vertices on the unit sphere: the registered sphere of each hemisphere
+  const int nHalf = static_cast<int>(U1.size() / 3);
+  const double cy = 1.3 * R;                                                   // the hemispheres' centres (the gap between them is 0.6 R, as in the two-hemisphere fixture of the other tests)
+  std::vector<double> U, Sph;
   std::vector<std::int32_t> F0;
-  icosphere(3, U, F0, R);
+  for (int h = 0; h < 2; ++h) {
+    for (int i = 0; i < nHalf; ++i) for (int k = 0; k < 3; ++k) { U.push_back(U1[3 * static_cast<std::size_t>(i) + static_cast<std::size_t>(k)] + (k == 1 ? (h == 0 ? cy : -cy) : 0.0)); Sph.push_back(Sph1[3 * static_cast<std::size_t>(i) + static_cast<std::size_t>(k)]); }
+    for (const std::int32_t v : F1) F0.push_back(v + h * nHalf);
+  }
   const int N = static_cast<int>(U.size() / 3), M = N;
-  const int vA = 0;                                                            // the narrow blob here; the wide one at the vertex farthest from it that is not its antipode's neighbour
-  int vB = 0;
-  { double best = 1e9;
-    for (int v = 0; v < N; ++v) { const double c = (U[3 * v] * U[0] + U[3 * v + 1] * U[1] + U[3 * v + 2] * U[2]) / (R * R); if (std::abs(c - 0.0) < best) { best = std::abs(c); vB = v; } } }   // 90 degrees from A
+  // the blobs sit on the lateral side of the first hemisphere (away from the medial wall, where the glue bridge is), 90 degrees apart: the vertices nearest the directions (0, .5, .866) and (0, .866, -.5)
+  int vA = 0, vB = 0;
+  { double ba = -2, bb = -2;
+    for (int v = 0; v < nHalf; ++v) {
+      const double x = U1[3 * v] / R, y = U1[3 * v + 1] / R, z = U1[3 * v + 2] / R;
+      const double da = 0.5 * y + 0.866 * z, db = 0.866 * y - 0.5 * z;
+      if (da > ba) { ba = da; vA = v; }
+      if (db > bb) { bb = db; vB = v; }
+      (void)x;
+    } }
   const double sA = 0.02, sB = 0.05, amp = 6.0;
-  auto ang = [&](int a, int b) { const double c = (U[3 * a] * U[3 * b] + U[3 * a + 1] * U[3 * b + 1] + U[3 * a + 2] * U[3 * b + 2]) / (R * R); return R * std::acos(std::max(-1.0, std::min(1.0, c))); };
+  // the arc length on the sphere a hemisphere is; vertices of the other hemisphere are far from everything planted
+  auto ang = [&](int a, int b) { if (a < 0 || b < 0 || (a < nHalf) != (b < nHalf)) return 1.0e3; const int la = a % nHalf, lb = b % nHalf;
+    const double c = (U1[3 * la] * U1[3 * lb] + U1[3 * la + 1] * U1[3 * lb + 1] + U1[3 * la + 2] * U1[3 * lb + 2]) / (R * R); return R * std::acos(std::max(-1.0, std::min(1.0, c))); };
   std::mt19937 rng(21);
   std::normal_distribution<double> nd;
   std::vector<float> x(static_cast<std::size_t>(M) * T);
@@ -86,7 +106,10 @@ int main() {
   {
     SubjectWriter sub = SubjectWriter::create(ds, "S1");
     sub.compose([&] {
-      SurfaceOptions so; so.name = "cortex"; so.sphere = U;
+      SurfaceOptions so; so.name = "cortex"; so.sphere = Sph;
+      std::vector<std::int32_t> dk(static_cast<std::size_t>(N), 1);            // the medial wall: the vertices facing the other hemisphere are unassigned
+      for (int i = 0; i < N; ++i) { const double y = U[3 * static_cast<std::size_t>(i) + 1]; if ((i < nHalf && y < cy - 0.7 * R) || (i >= nHalf && y > -cy + 0.7 * R)) dk[static_cast<std::size_t>(i)] = 0; }
+      so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
       surf = add_surface(sub, so, U, F0).id;
       const std::string cid = uuid7();
       std::vector<float> pos(static_cast<std::size_t>(M) * 3, 0.1f);
@@ -133,13 +156,23 @@ int main() {
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   // the line's one time grid is the frames of the band below (a definition finds `<recording> time grid`): no constant-Q grid beside it
   nxrtest::make_tiles(ds, sub);
+  { EigenSolveOptions eo; eo.modes = 100; eo.surface = "cortex"; eigen_solve(ds, sub, eo, {}); }          // stores the glued surface the band is evaluated on
+  // the events and the home maps are on the GLUED cortex (its vertices: the surface's, then the bridge's): the map between the two numberings
+  std::vector<std::int32_t> orig_of, glued_of(static_cast<std::size_t>(N), -1);
+  { const auto gm = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::manifold, .name = "cortex_glued"});
+    const auto gmap = gm ? nxr::pipelines::glue_map_of(sub, gm->id) : std::nullopt;
+    CHECK(gmap.has_value());
+    orig_of = gmap->original_of;
+    for (std::size_t g = 0; g < orig_of.size(); ++g) if (orig_of[g] >= 0) glued_of[static_cast<std::size_t>(orig_of[g])] = static_cast<std::int32_t>(g); }
+  auto gv = [&](int v) { return static_cast<std::size_t>(glued_of[static_cast<std::size_t>(v)]); };
   for (const char* rec : {"rest", "rest_b"}) { nxrtest::make_frames(ds, sub, rec, "8-12 Hz"); }
   std::printf("  %d vertices on a 10 cm sphere; blobs 2 cm at vertex %d and 5 cm at vertex %d (%.1f cm apart)\n", N, vA, vB, 100 * ang(vA, vB));
 
   g::RunOptions all; all.chunks = "all"; all.replace = true;
   const Json lv = Json::array({1, 2, 3, 4});
-  const Json set = Json{{"levels", lv}, {"reference_level", 4}, {"threshold", "ratio"}, {"ratio", 100.0}, {"transform", "exact"}, {"bursts", "window"}};
-  const Json bset = Json{{"levels", lv}, {"transform", "exact"}, {"bursts", "window"}};
+  const Json scales = Json::array({"index:1", "index:2", "index:3", "index:4"});   // the hats as the diagnostic index chart (the definitions take quantities)
+  const Json set = Json{{"spatial_scales", scales}, {"reference_scale", "index:4"}, {"threshold", "ratio"}, {"ratio", 100.0}, {"transform", "exact"}, {"bursts", "window"}, {"glued_surface", "cortex_glued"}, {"threshold_statistic", Json()}};   // a ratio threshold reads no stored distribution
+  const Json bset = Json{{"spatial_scales", scales}, {"transform", "exact"}, {"bursts", "window"}, {"glued_surface", "cortex_glued"}};
   g::run(ds, sub, g::load("spatial_baseline"), bset, all);
   const g::Definition dev = g::load("spatial_events");
   const auto r = g::run(ds, sub, dev, set, all);
@@ -166,7 +199,8 @@ int main() {
       for (std::int64_t t = 0; t < sh[1]; ++t) out.push_back(a[static_cast<std::size_t>(t * C + comp)]);
       return out;
     };
-    e.cv = meas("centre_vertex"); e.peak = meas("relative_peak"); e.size = meas("size_cm"); e.diam = meas("diameter_cm"); e.level = meas("characteristic_level"); e.area = meas("area");
+    e.cv = meas("centre_vertex"); for (auto& c : e.cv) c = c >= 0 && static_cast<std::size_t>(c) < orig_of.size() ? static_cast<float>(orig_of[static_cast<std::size_t>(c)]) : -1.0f;   // the glued vertex as the surface's own (-1: the bridge)
+     e.peak = meas("relative_peak"); e.size = meas("size_cm"); e.diam = meas("diameter_cm"); e.level = meas("characteristic_level"); e.area = meas("area");
     return e;
   };
   const Ev E = read_ev("rest"), Eb = read_ev("rest_b");
@@ -194,10 +228,10 @@ int main() {
   CHECK(med(sizeB) > med(sizeA) && med(diamB) > med(diamA));                    // the wide blob's events are the larger, in characteristic size and in extent
   // the home map
   const StoredStatistic H = read_statistic(sub, "spatial_events.home.rest");
-  CHECK(text(H.row, "method") == "occupancy" && H.shape == std::vector<std::int64_t>({N, 2}));
-  auto frac = [&](int v) { return H.values[static_cast<std::size_t>(2 * v)] / H.values[static_cast<std::size_t>(2 * v + 1)]; };
+  CHECK(text(H.row, "method") == "occupancy" && H.shape.size() == 2 && H.shape[1] == 2 && H.shape[0] >= N);
+  auto frac = [&](int v) { return H.values[2 * gv(v)] / H.values[2 * gv(v) + 1]; };
   int anti = 0;
-  { double best = 1e9; for (int v = 0; v < N; ++v) { const double d = ang(v, vA) + ang(v, vB); (void)d; const double far = -(ang(v, vA) + ang(v, vB)); if (far < best) { best = far; anti = v; } } }
+  { double best = -1; for (int v = 0; v < nHalf; ++v) { if (glued_of[static_cast<std::size_t>(v)] < 0) continue; const double d = ang(v, vA) + ang(v, vB); if (d > best) { best = d; anti = v; } } }   // the farthest vertex from both blobs, in their hemisphere, on the glued cortex
   std::printf("  home map: the narrow blob's vertex in a patch in %.2f of the burst frames, the wide blob's %.2f, the farthest vertex %.2f (%lld burst frames)\n", frac(vA), frac(vB), frac(anti), static_cast<long long>(H.values[1]));
   CHECK(frac(vA) > 0.4 && frac(vA) < 0.6 && frac(vB) > 0.4 && frac(vB) < 0.6 && H.values[1] > 1000);   // each blob is on for half of the burst frames
   // chunk size and block size: the same events
@@ -215,9 +249,9 @@ int main() {
     g::run(ds, sub, dev, set, all); }
   { g::RunOptions again; again.chunks = "all"; const auto r2 = g::run(ds, sub, dev, set, again); CHECK(r2.size() == 2 && r2[0]["hit"] == true); }
   // THE DEFAULT THRESHOLD (percentile 99 of the relative power outside the window, `run spatial_threshold`): the blobs are still found
-  { Json tset = bset; tset["reference_level"] = 4;
+  { Json tset = bset; tset["reference_scale"] = "index:4";
     g::run(ds, sub, g::load("spatial_threshold"), tset, all);
-    Json d = set; d.erase("threshold"); d.erase("ratio");
+    Json d = set; d.erase("threshold"); d.erase("ratio"); d.erase("threshold_statistic");
     g::run(ds, sub, dev, d, all);
     const Ev Ed = read_ev("rest");
     std::map<std::int64_t, std::size_t> top;
@@ -242,10 +276,11 @@ int main() {
           && !nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "spatial_events_outside.events.rest", .any_status = true}) && So.options["events_stored"] == false && So.options["threshold"] == Si.options["threshold"]);
     // THE LAG-FREE NULL (piece 10, spatial events): the ingredients, then draws in batches against the data's home map and size distribution
     {
-      nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});
+      nxrtest::run_psd(ds, sub, "rest", Json{{"segment_samples", 256}});
       nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", "rest"}, {"channels_of", "ident"}, {"segment_samples", 256}, {"bands", Json::array({Json{{"name", "alpha"}, {"lo", 8.0}, {"hi", 12.0}}})}});
-      g::run(ds, sub, g::load("lagfree_envelope"), Json{{"recording", "rest"}, {"cross_spectrum", "rest_crossspectrum_alpha"}, {"level", 5}}, all);
-      Json nset = d; nset["cross_spectrum"] = "rest_crossspectrum_alpha";
+      nxrtest::run_preset(ds, sub, "measure", "psd_channel_mean", Json{{"statistic", "rest_psd_welch"}, {"channels", "rest_crossspectrum"}});          // the PSD's mean over the cross-spectrum's channels (measure of a stored statistic)
+      nxrtest::run_preset(ds, sub, "measure", "surrogate_lagfree_envelope", Json{{"recording", "rest"}, {"band", "8-12 Hz"}, {"channels", "rest_crossspectrum"}, {"duration", "0.128 s"}});   // the band's power per tile of 32 samples
+      Json nset = d; nset["cross_spectrum"] = "rest_crossspectrum";
       // one draw: stored as small statistics, a function of its seed
       Json one = nset; one["seed"] = 0; one["recording"] = "rest";
       g::run(ds, sub, g::load("surrogate_lagfree_spatial_events"), one, all);
@@ -260,18 +295,19 @@ int main() {
       const StoredStatistic hp = read_statistic(sub, "surrogate_lagfree_spatial_events_compare.rest.home_p"), hn = read_statistic(sub, "surrogate_lagfree_spatial_events_compare.rest.home_null"), sz = read_statistic(sub, "surrogate_lagfree_spatial_events_compare.rest.size_null");
       // direct: the draws read back, the data's fraction per vertex (the stored home map of the percentile run just made)
       const StoredStatistic Hn = read_statistic(sub, "spatial_events.home.rest");
-      auto fracn = [&](int v) { return Hn.values[static_cast<std::size_t>(2 * v)] / Hn.values[static_cast<std::size_t>(2 * v + 1)]; };
-      Eigen::VectorXd exd = Eigen::VectorXd::Zero(N);
+      const int NG = static_cast<int>(Hn.shape[0]);                              // the glued cortex's vertices (the maps are on it)
+      auto fracn = [&](std::size_t g) { return Hn.values[2 * g] / Hn.values[2 * g + 1]; };
+      Eigen::VectorXd exd = Eigen::VectorXd::Zero(NG);
       for (std::int64_t i = 0; i < nd2; ++i) {
         const StoredStatistic Hd = read_statistic(sub, "surrogate_lagfree_spatial_events.draw" + std::to_string(i) + ".home.rest");
-        for (int v = 0; v < N; ++v) { const double fr = Hd.values[static_cast<std::size_t>(2 * v + 1)], dd = fr > 0 ? Hd.values[static_cast<std::size_t>(2 * v)] / fr : 0.0; if (Hn.values[static_cast<std::size_t>(2 * v)] > 0 && dd >= fracn(v)) exd[v] += 1; }
+        for (int v = 0; v < NG; ++v) { const double fr = Hd.values[static_cast<std::size_t>(2 * v + 1)], dd = fr > 0 ? Hd.values[static_cast<std::size_t>(2 * v)] / fr : 0.0; if (Hn.values[static_cast<std::size_t>(2 * v)] > 0 && dd >= fracn(static_cast<std::size_t>(v))) exd[v] += 1; }
       }
-      bool same = hp.shape == std::vector<std::int64_t>({N, 3});
-      for (int v = 0; same && v < N; ++v) same = hp.values[static_cast<std::size_t>(3 * v + 2)] == exd[v];
-      const double pA = hp.values[static_cast<std::size_t>(3 * vA)], pFar = hp.values[static_cast<std::size_t>(3 * anti)];
-      const double nullA = hn.values[static_cast<std::size_t>(vA)];
+      bool same = hp.shape == std::vector<std::int64_t>({NG, 3});
+      for (int v = 0; same && v < NG; ++v) same = hp.values[static_cast<std::size_t>(3 * v + 2)] == exd[v];
+      const double pA = hp.values[3 * gv(vA)], pFar = hp.values[3 * gv(anti)];
+      const double nullA = hn.values[gv(vA)];
       std::printf("  surrogate_lagfree_spatial_events_compare: %lld draws (%s); the exceedances equal the direct count: %s; the narrow blob's vertex: data %.2f in a patch, null %.3f, p %.3f; the farthest vertex p %.3f (data %.2f)\n", static_cast<long long>(nd2), rn.info["stopped"].get<std::string>().c_str(), same ? "yes" : "NO",
-                  fracn(vA), nullA, pA, pFar, fracn(anti));
+                  fracn(gv(vA)), nullA, pA, pFar, fracn(gv(anti)));
       CHECK(same && nd2 == 4 && text(hp.row, "measure") == "null_p" && text(hn.row, "measure") == "null_fraction" && text(sz.row, "measure") == "null_size");
       // WHAT THE NULL SAYS: it keeps the data's zero-lag covariance, and the planted blobs ARE zero-lag spatial structure (the band's covariance holds both of them), so the null occupies the narrow blob's vertex in nearly every burst frame (0.97), as the data does
       // (0.99): the covariance explains a STATIONARY home map. What the data has beyond it is the small excess over the null at that vertex (none of the 4 draws reaches it: p = 1 / 5, the smallest 4 draws can give).
@@ -284,7 +320,8 @@ int main() {
   // THE PLAN
   { Json s = set; s["spatial_shape"] = "meyer"; CHECK(what_of([&] { g::run(ds, sub, dev, s, g::RunOptions{}); }).find("another spatial_band") != std::string::npos); }
   { Json s = set; s["ratio"] = 0.0; CHECK(what_of([&] { g::run(ds, sub, dev, s, g::RunOptions{}); }).find("ratio") != std::string::npos); }
-  { Json s = set; s["threshold"] = "percentile"; s["threshold_statistic"] = "no_such_statistic"; CHECK(what_of([&] { g::run(ds, sub, dev, s, g::RunOptions{}); }).find("none is stored") != std::string::npos); }
-  { Json s = set; s["reference_level"] = 7; CHECK(what_of([&] { g::run(ds, sub, dev, s, g::RunOptions{}); }).find("not one of the field's levels") != std::string::npos); }
+  { Json s = set; s["threshold"] = "percentile"; s["threshold_statistic"] = "no_such_statistic"; const std::string why = what_of([&] { g::run(ds, sub, dev, s, g::RunOptions{}); });   // a named distribution that is not stored is refused by the input finder
+    CHECK(why.find("inputs.threshold") != std::string::npos && why.find("nothing in the subject matches") != std::string::npos); }
+  { Json s = set; s["reference_scale"] = "index:7"; const std::string why = what_of([&] { g::run(ds, sub, dev, s, g::RunOptions{}); }); CHECK(why.find("holds levels") != std::string::npos); }   // a scale that is not one the field was made with is refused with the levels it holds
   return nxrtest::finish("test_spatial_events_planted") || g_failures ? 1 : 0;
 }

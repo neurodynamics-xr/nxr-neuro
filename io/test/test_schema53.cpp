@@ -26,8 +26,8 @@ int main() {
   const fs::path root = fs::path(tmp ? tmp : fs::temp_directory_path().string()) / ("nxr_test_schema53_" + std::to_string(::getpid()));
   fs::remove_all(root);
   struct Cleanup { fs::path p; ~Cleanup() { fs::remove_all(p); } } cleanup{root};
-  CHECK_EQ(schema_version(), 53);
-  CHECK_EQ(kSchemaVersion, 53);
+  CHECK_EQ(schema_version(), 54);
+  CHECK_EQ(kSchemaVersion, 54);
 
   fs::path file;
   std::string line_id;
@@ -36,10 +36,10 @@ int main() {
     SubjectWriter sub = SubjectWriter::create(ds, "S1");
     Database& db = sub.db();
     // a fresh database is the model's
-    CHECK_EQ(integer(*db.one("PRAGMA user_version"), "user_version"), 53);
+    CHECK_EQ(integer(*db.one("PRAGMA user_version"), "user_version"), 54);
     CHECK(has_column(db, "selection_factor", "level") && has_object(db, "view", "member_value") && has_object(db, "view", "product_factor_level"));
     CHECK_EQ(text(*db.one("SELECT value FROM meta WHERE key = 'measurement_storage'"), "value"), std::string(kMeasurementStorage));
-    CHECK(text(*db.one("SELECT attributes FROM subject_attributes LIMIT 1"), "attributes").find("\"schema_version\":53") != std::string::npos);
+    CHECK(text(*db.one("SELECT attributes FROM subject_attributes LIMIT 1"), "attributes").find("\"schema_version\":54") != std::string::npos);
 
     // A LINE'S TIME GRID: one ladder row, closed form; found and reused; another rule on the line refused
     std::string grid_id, elements_id, product_id;
@@ -125,7 +125,7 @@ int main() {
     d.execute("PRAGMA foreign_keys = OFF");
     d.exec_script("DROP VIEW member_value; DROP VIEW product_factor_level; ALTER TABLE selection_factor DROP COLUMN level;");
     d.with_writable_schema([&] {
-      d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {V("'schema_version', 53"), V("'schema_version', 52")});
+      d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {V("'schema_version', 54"), V("'schema_version', 52")});
       d.execute("PRAGMA schema_version = " + std::to_string(integer(*d.one("PRAGMA schema_version"), "schema_version") + 1));
     });
     d.execute("DELETE FROM meta WHERE key = 'schema_migrated:52->53'");
@@ -141,11 +141,11 @@ int main() {
   }
   {   // opened to write: migrated in place
     Database d = Database::open(file);
-    CHECK_EQ(integer(*d.one("PRAGMA user_version"), "user_version"), 53);
+    CHECK_EQ(integer(*d.one("PRAGMA user_version"), "user_version"), 54);
     CHECK(has_column(d, "selection_factor", "level") && has_object(d, "view", "member_value") && has_object(d, "view", "product_factor_level"));
     CHECK(d.one("SELECT 1 FROM meta WHERE key = 'schema_migrated:52->53'").has_value());
     CHECK_EQ(text(*d.one("PRAGMA quick_check"), "quick_check"), std::string("ok"));
-    CHECK(text(*d.one("SELECT attributes FROM subject_attributes LIMIT 1"), "attributes").find("\"schema_version\":53") != std::string::npos);
+    CHECK(text(*d.one("SELECT attributes FROM subject_attributes LIMIT 1"), "attributes").find("\"schema_version\":54") != std::string::npos);
   }
   {   // a second open changes nothing
     const std::string before = text(*Database::open(file).one("SELECT value FROM meta WHERE key = 'schema_migrated:52->53'"), "value");

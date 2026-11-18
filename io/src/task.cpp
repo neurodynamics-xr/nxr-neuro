@@ -399,10 +399,11 @@ bool Subject::has_measures(const std::string& selection_id, const std::string& o
   return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
-bool Subject::has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id) const {
+bool Subject::has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_statistic_id) const {
   selection::MeasurementFilter f;
   f.measure = measure;
   f.of_field_id = of_field_id;
+  f.of_statistic_id = of_statistic_id;
   return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
@@ -510,9 +511,9 @@ std::int64_t Unit::write_measurements(const Json& rows) {
   if (named.is_array()) for (auto& r : named) if (r.is_object() && (!r.contains("computed_by") || r["computed_by"].is_null())) r["computed_by"] = by_.tool;
   return selection::save_measurements(*impl_->db, named, std::nullopt);
 }
-std::int64_t Unit::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) {
+std::int64_t Unit::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure, const std::optional<std::string>& of_statistic_id) {
   if (!open_) throw Error(code::not_writable, "unit: closed");
-  return selection::remove_measurements(*impl_->db, selection_id, of_field_id, measure);
+  return selection::remove_measurements(*impl_->db, selection_id, of_field_id, measure, of_statistic_id);
 }
 void Unit::set_params(const std::string& selection_id, const Json& params) {
   if (!open_) throw Error(code::not_writable, "unit: closed");
@@ -526,8 +527,8 @@ std::int64_t Subject::write_measurements(const Json& rows, const std::optional<s
   return n;
 }
 
-std::int64_t Subject::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) const {
-  return selection::remove_measurements(*impl_->db, selection_id, of_field_id, measure);
+std::int64_t Subject::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure, const std::optional<std::string>& of_statistic_id) const {
+  return selection::remove_measurements(*impl_->db, selection_id, of_field_id, measure, of_statistic_id);
 }
 
 void Subject::set_params(const std::string& selection_id, const Json& params) const { selection::set_params(*impl_->db, selection_id, params); }

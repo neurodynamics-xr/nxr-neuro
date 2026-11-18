@@ -393,7 +393,7 @@ class Subject {
   // the selections that carry `measure` measured on `of_field_id` (ids, ascending)
   std::vector<std::string> measured_selections(const std::string& of_field_id, const std::string& measure) const;
   bool has_measures(const std::string& selection_id, const std::string& of_field_id) const;   // any measure of that field on the selection
-  bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt) const;
+  bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt) const;
 
   // ---- read measurements: io's read-time query (nxr/io/measures.h, query_measurements): a stored measure as stored, a derived one from its ingredients, a pyramid's
   // array-backed measurement rolled up at read to the levels `q` names (that needs the subject's store: a Subject made from a writer)
@@ -411,7 +411,7 @@ class Subject {
   // measurement rows and parameters outside a unit (each is its own transaction); inside one use the Unit's
   std::int64_t write_measurements(const Json& rows, const std::optional<std::string>& by) const;
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
-                                   const std::optional<std::string>& measure = std::nullopt) const;
+                                   const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt) const;
   void set_params(const std::string& selection_id, const Json& params) const;              // a selection's parameters, replaced
 
  private:
@@ -431,7 +431,7 @@ class Unit {
   // the measurement rows of the unit, recorded as computed by `by().tool` unless a row names its own `computed_by`; returns the number written
   std::int64_t write_measurements(const Json& rows);
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
-                                   const std::optional<std::string>& measure = std::nullopt);
+                                   const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt);
   void set_params(const std::string& selection_id, const Json& params);
   // ---- typed writes, each returning the new node's id (call `replace` on its `path_of` first: a node already there is refused or moved aside)
   std::string field(const FieldOut&);

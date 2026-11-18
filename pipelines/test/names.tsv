@@ -40,6 +40,7 @@ node	meeg.pointspread	-	composite
 node	meeg.prune_below	-	composite
 node	measurement.reduce	-	composite
 node	measurement.reduce_members	-	composite
+node	measurement.reduce_statistic	-	composite
 node	meeg.registration_match	-	composite
 node	measurement.relative	-	composite
 node	select.risefall	-	composite

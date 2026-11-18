@@ -53,9 +53,11 @@ void update_own_measurements(SubjectWriter& sub, const std::string& selection_id
   });
 }
 
-std::int64_t remove_measurements(Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) {
+std::int64_t remove_measurements(Database& db, const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure,
+                                 const std::optional<std::string>& of_statistic_id) {
   Json where{{"selectionId", selection_id}};
   if (of_field_id) where["ofFieldId"] = *of_field_id;
+  if (of_statistic_id) where["ofStatisticId"] = *of_statistic_id;
   if (measure) where["measure"] = *measure;
   return delete_measurements(db, where);
 }

@@ -127,8 +127,11 @@ StepSpec run_repeat_step() {
     Array t;
     t.rows = tiles; t.cols = 1;
     t.data.assign(rep.dot.data(), rep.dot.data() + rep.dot.size());
+    Json tile_values = Json::array();                                       // the entries of the axis: the level's tiles by number (a statistic's axis names what it runs along)
+    for (std::int64_t k = 0; k < tiles; ++k) tile_values.push_back(Json{{"name", std::to_string(k)}});
+    const Json tile_axis = Json{{"name", "tile"}, {"size", tiles}, {"values", tile_values}};
     t.meta["describe"] = Json{{"measure", "repeat_dot"}, {"method", "run_repeat"}, {"precision", "float64"}, {"n_members", tiles}, {"options", opts}, {"producer", pj},
-                              {"axes", Json::array({Json{{"name", "tile"}, {"size", tiles}}})},
+                              {"axes", Json::array({tile_axis})},
                               {"description", "per tile of " + text(*st.over.row, "name") + ": the dot product of the mean resultant crossing vectors of " + name_a + " and " + name_b + " (senses pooled; NaN with fewer than " + std::to_string(min_crossings) + " crossings in either)"}};
     Array w;
     w.rows = 1; w.cols = 1;

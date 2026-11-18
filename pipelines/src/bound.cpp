@@ -169,6 +169,9 @@ io::MeasurementValues Bound::measurement_values(const std::string& selection_id,
   }
   return io::measurement_values(writer(), selection_id, of_field_id, stat, index, measure);
 }
+io::MeasurementValues Bound::measurement_values_of_statistic(const std::string& selection_id, const std::string& statistic_id, const std::string& measure) const {
+  return io::measurement_values(writer(), selection_id, std::nullopt, statistic_id, std::int64_t(0), measure);
+}
 std::vector<std::int32_t> Bound::array_int32(const std::string& path) const { return read_array<std::int32_t>(writer().store(), path); }
 std::vector<float> Bound::array_float(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<float>(writer().store(), path, shape); }
 std::vector<double> Bound::array_double(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<double>(writer().store(), path, shape); }

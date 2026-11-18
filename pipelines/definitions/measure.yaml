@@ -3,7 +3,9 @@
 # (this definition), `roll_up` (the step `after`, when `to` is given, and the definition `roll_up`), `summarize` (when `summaries` is given, and the definition `summarize`), `estimate` (the Welch family).
 #
 # THE FIELD. Exactly one of `field` / `chain`: a stored field by name, or a field chain (`band_analytic`, `cortical_band`, `member_activation`, `band_outer`) composed into the run (nothing stored, its name and resolved
-# parameters in the cache key). THE SELECTION. Exactly one of `over` / `make`: a stored selection by name, or a maker (`select.dyadic_surface`, `select.time_grid`, `select.bands`, `select.product`, `select.events.*`)
+# parameters in the cache key).
+# A STORED STATISTIC instead (`statistic`, schema 54): its first axis (the channels of a PSD) reduced over the members of `over`, the measurement OF the statistic (rows = its other axes, the frequencies); `channels`
+# names a stored cross-spectrum whose channel pick makes the members. Preset `psd_channel_mean`; nothing is streamed. THE SELECTION. Exactly one of `over` / `make`: a stored selection by name, or a maker (`select.dyadic_surface`, `select.time_grid`, `select.bands`, `select.product`, `select.events.*`)
 # composed in; a maker composed in stores its selection get-or-create. Both given, or neither, is refused with the reason.
 #
 # THE FORM of the field each measure reads (magnitude, power, phase_current, outer, none) is the pointwise node `field.form`, inserted from the measures registry (`io/schema/measures.json`: the form, the ingredient, the
@@ -22,15 +24,19 @@ description: a field (stored, or a field chain composed in) reduced over the mem
 scope: subject
 
 inputs:
-  field:   {field: any, each: true, where: {name: $field}, chain: $chain, chain_parameters: $chain_parameters, hint: "a stored field by name (--field), OR a field chain composed in (--chain)"}
+  statistic: {statistic: any, where: {name: $statistic}, when: $statistic, hint: "a stored STATISTIC by name (--statistic): its first axis (the channels of a PSD) is reduced over the members of `over`"}
+  field:   {field: any, each: true, where: {name: $field}, chain: $chain, chain_parameters: $chain_parameters, when: "!$statistic", hint: "a stored field by name (--field), OR a field chain composed in (--chain)"}
   over:    {selection: any, where: {name: $over}, make: $make, hint: "a stored selection by name (--over), OR one made in the run by a maker (--make)"}
-  weights: {field: any, required: false, where: {name: $weights}}
-  line:    {manifold: line, is: field.time, required: false, hint: "the field's time line (what a maker of the run's span reads: a `before` node reads arrays, never the streamed field)"}
-  space:   {manifold: any, is: field.manifold.0, required: false, hint: "the field's first manifold (what a maker of its elements reads: the channels, the vertices)"}
+  weights: {field: any, required: false, where: {name: $weights}, when: "!$statistic"}
+  line:    {manifold: line, is: field.time, required: false, when: "!$statistic", hint: "the field's time line (what a maker of the run's span reads: a `before` node reads arrays, never the streamed field)"}
+  space:   {manifold: any, is: field.manifold.0, required: false, when: "!$statistic", hint: "the field's first manifold (what a maker of its elements reads: the channels, the vertices)"}
+  statistic_space: {manifold: any, is: statistic.manifold.0, required: false, when: $statistic, hint: "the manifold the statistic's first axis runs along (what a maker of its elements reads: a PSD's channels)"}
+  pick:    {statistic: any, where: {name: $channels}, required: false, when: $statistic, hint: "a stored statistic whose channel axis is a pick (a cross-spectrum): the members hold only those channels"}
   tiles:   {selection: ladder, manifold: field.manifold.0, when: $spatial_scale, hint: "the surface's grid whose level the spatial scale is (`nxr-neuro run select_dyadic_surface` first); absent without a spatial scale"}
-  bad:     {selection: spans, manifold: field.time, where: {name: "{field}_bad_segments"}, required: false}
+  bad:     {selection: spans, manifold: field.time, where: {name: "{field}_bad_segments"}, required: false, when: "!$statistic"}
 
 parameters:
+  statistic: {default: null, meaning: "a stored statistic, by name (a PSD [channels x frequencies]): its first axis is reduced over the members of `over`, and the measurement is OF the statistic: the rows are its other axes (the frequencies). Instead of field / chain", unit: "-"}
   field: {default: null, meaning: "a stored field, by name (a scalar or hermitian3 map on a surface; `nxr-neuro run surface_frames` first for hermitian3 and gradients)", unit: "-"}
   chain: {default: null, meaning: "a field chain composed in: band_analytic | cortical_band | member_activation | band_outer (exactly one of field, chain)", unit: "-"}
   chain_parameters: {default: null, meaning: "the chain's parameters, as quantities (bands, spatial_scale, shape, ...)", unit: "-"}
@@ -164,23 +170,32 @@ presets:
     measures: [envelope_max]
     weight: none
     rolled_to: whole
+  # the mean over the channels of a stored PSD, per frequency (rows = the frequencies, ONE member): `--statistic rest_psd_welch --channels rest_crossspectrum_alpha`; the channels a stored cross-spectrum holds
+  # are the members (`channels` null: every channel of the PSD). What the lag-free surrogates shape their noise by (read by name, never computed inside the node).
   psd_channel_mean:
-    field: psd
-    make: {node: select.product, factors: [{set: channels, as: one_member}]}
+    make:
+      node: select.elements
+      in: {space: statistic_space, channels_of: pick}
+      with: {as: one_member}
+      store: {type: set, on: statistic_space.manifold.0, name: "{statistic} channels {channels} one member"}
     measures: [mean]
+    name: "{statistic}_channel_mean"
 
 steps:
   chunks:
+    when: "!$statistic"
     over: field
     do:
       - {node: signal.field_form, in: {x: field}, with: {form: $form}, out: shaped, when: $form}
       - {node: measurement.reduce, in: {x: shaped, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: [values, ingredients], when: $form}
       - {node: measurement.reduce, in: {x: field, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: [values, ingredients], when: "!$form"}
   after:
+    - {node: measurement.reduce_statistic, in: {x: statistic, over: over}, with: {measures: $measures}, out: statistic_values, when: $statistic}
     - {node: measurement.roll_up, in: {x: ingredients}, with: {to: $rolled_to}, out: [rolled, rolled_ingredients], when: $rolled_to}
     - {node: measurement.summarize, in: {x: values}, with: {summaries: $summaries, combine: $combine}, out: statistics, when: $summaries}
 
 outputs:
-  values:     {kind: measurement, over: over, of: field, name: $name}
+  values:     {kind: measurement, over: over, of: field, name: $name, when: "!$statistic"}
+  statistic_values: {kind: measurement, over: over, of_statistic: statistic, name: $name, when: $statistic}
   rolled:     {kind: measurement, over: over, of: field, when: $rolled_to}
   statistics: {kind: statistic, of: values, when: $summaries}

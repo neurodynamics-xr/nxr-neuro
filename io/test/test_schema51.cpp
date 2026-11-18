@@ -28,7 +28,7 @@ int main() {
   const char* tmp = std::getenv("TMPDIR");
   const fs::path root = fs::path(tmp ? tmp : fs::temp_directory_path().string()) / ("nxr_test_schema51_" + std::to_string(::getpid()));
   fs::remove_all(root);
-  CHECK_EQ(schema_version(), 53);
+  CHECK_EQ(schema_version(), 54);
   fs::path file;
   std::map<std::string, std::string> fresh;
   {
@@ -38,7 +38,7 @@ int main() {
     fresh = schema_of(ds.db());
     CHECK(fresh.count("key_digest") && fresh.count("subject_entry") && fresh.count("template_reference"));
     CHECK(fresh.at("subject").find("'registration'") != std::string::npos);
-    CHECK(fresh.at("subject_attributes").find("'schema_version', 53") != std::string::npos);
+    CHECK(fresh.at("subject_attributes").find("'schema_version', 54") != std::string::npos);
     file = ds.folder() / "dataset.sqlite";
     ds.close();
   }
@@ -49,7 +49,7 @@ int main() {
     d.exec_script("DROP TABLE key_digest; DROP TABLE subject_entry; DROP TABLE template_reference;");
     d.with_writable_schema([&] {
       d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE name = 'subject'", {V("'group', 'registration')"), V("'group')")});
-      d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {V("'schema_version', 53"), V("'schema_version', 50")});
+      d.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'view'", {V("'schema_version', 54"), V("'schema_version', 50")});
       d.execute("PRAGMA schema_version = " + std::to_string(integer(*d.one("PRAGMA schema_version"), "schema_version") + 1));
     });
     d.execute("DELETE FROM meta WHERE key = 'schema_migrated:50->51'");
@@ -68,7 +68,7 @@ int main() {
   // opened to write: migrated in place
   {
     Database d = Database::open(file);
-    CHECK_EQ(integer(*d.one("PRAGMA user_version"), "user_version"), 53);
+    CHECK_EQ(integer(*d.one("PRAGMA user_version"), "user_version"), 54);
     CHECK(d.one("SELECT 1 FROM subject WHERE name = 'S'").has_value());
     const auto now = schema_of(d);
     for (const auto& [name, sql] : fresh) {
