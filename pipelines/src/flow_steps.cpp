@@ -127,7 +127,7 @@ BankChoice choose_bank(const Json& p, double sfreq, int channels, const char* wh
   d.halfWidth = p["half_width"].get<double>(); d.gamma = p["gamma"].get<double>(); d.timeBandwidth = p["time_bandwidth"].get<double>();
   BankChoice c;
   const std::size_t nfft = nxr::signal::next_fast_len(static_cast<std::size_t>(std::ceil(sfreq / resolution)), true);
-  try { c.bank = tb::design(d, nfft, sfreq); } catch (const std::invalid_argument& e) { ng::refuse(std::string(who) + ": the filter bank: " + e.what()); }
+  try { c.bank = tb::timeBank(d, nfft, sfreq); } catch (const std::invalid_argument& e) { ng::refuse(std::string(who) + ": the filter bank: " + e.what()); }
   const Eigen::VectorXd centres = tb::centerFrequencies(c.bank);
   for (int m = 1; m < c.bank.size(); ++m) if (std::abs(centres[m] - p["freq"].get<double>()) < std::abs(centres[c.member] - p["freq"].get<double>())) c.member = m;
   c.centre = centres[c.member];

@@ -84,7 +84,7 @@ int main() {
 
   // the compute function it wraps, on the whole record, the bank designed as the node does
   tb::Design d(tb::Family::Morlet, 2.0, tb::Sides::Analytic); d.centres = {10.0}; d.cycles = 6.0;
-  const tb::TimeFilterbank bank = tb::design(d, nxr::signal::next_fast_len(static_cast<std::size_t>(std::ceil(fwi::kFs / 0.5)), true), fwi::kFs);
+  const tb::TimeFilterbank bank = tb::timeBank(d, nxr::signal::next_fast_len(static_cast<std::size_t>(std::ceil(fwi::kFs / 0.5)), true), fwi::kFs);
   Eigen::VectorXd at(count); for (std::int64_t j = 0; j < count; ++j) at(j) = static_cast<double>(j) * fwi::kHop + static_cast<double>(H);
   Eigen::MatrixXd padded = Eigen::MatrixXd::Zero(C, N + 2 * H);                     // zero outside the record, the member's reach each side
   for (std::int64_t r = 0; r < C; ++r) padded.row(r).segment(H, N) = rec.row(kept[static_cast<std::size_t>(r)]).cast<float>().cast<double>();

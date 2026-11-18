@@ -92,6 +92,10 @@ struct TimeFilterbank {
 /** The family named "morlet" | "power_partition" (the node parameter `shape`); throws std::invalid_argument naming both. */
 Family bandFamilyOf(const std::string& name);
 const char* bandFamilyName(Family family);
+/** Every family by name: "itersine" | "meyer" | "morlet" | "morse" | "amor" | "bump" | "power_partition" (for a Design described in data); throws naming them. */
+Family familyOf(const std::string& name);
+/** "analytic" | "two_sided"; throws naming both. */
+Sides sidesOf(const std::string& name);
 /** [bands x freqs] amplitude gains at |f| (freqs in Hz, any sign) of the band shapes Morlet and PowerPartition (a function of the bands alone, no grid): the gains the bank gives its members, divided by G. */
 Eigen::MatrixXd bandGains(const Eigen::VectorXd& freqs, const std::vector<std::pair<double, double>>& bands, Family family);
 
@@ -108,7 +112,7 @@ enum class CentreGrid { Studio, Cwt };
 std::vector<double> centerFrequencies(CentreGrid grid, double lo, double hi, int voices, double fs = 0);
 
 /** Build the bank on a grid of `nfft` samples at `fs`. Throws on an unsatisfiable design (no member fits; gain <= 0; missing centres). */
-TimeFilterbank design(const Design& d, std::size_t nfft, double fs);
+TimeFilterbank timeBank(const Design& d, std::size_t nfft, double fs);
 
 /** The grid's frequencies: rfftfreq(nfft, 1/fs) (Analytic) or fftfreq(nfft, 1/fs) (TwoSided). */
 Eigen::VectorXd bins(const TimeFilterbank& bank);
@@ -154,7 +158,7 @@ Eigen::MatrixXcd coefficientSpectrum(const TimeFilterbank& bank, const Eigen::Ma
 /** THE HALO a member needs, samples on each side: the length of its response, as the Studio's device chain sizes its HALO by the band's taps (deviceChain.ts:
  *  the gain's even and odd taps, truncated where the tail holds under nxr::signal::kTailEnergy of the energy; the longer of the two). A narrow band rings for
  *  longer than the Studio's CPU rule of thumb (3 periods of its low edge): alpha [8, 12] Hz needs about 6 periods. */
-std::size_t haloOf(const TimeFilterbank& bank, int member);
+std::size_t haloOfTaps(const TimeFilterbank& bank, int member);
 
 /** THE HALO a member needs to a stated tolerance, samples on each side: the shortest reach after which the sum of |impulse response| of the member (its gain masked to its support on the bank's grid, taken on a fine
  *  grid that is doubled while the tail has not decayed) beyond it is below `tolerance` times its L1 norm, at most 2^16. A block with this halo gives the member's coefficients to that tail of the whole record, whatever

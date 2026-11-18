@@ -55,9 +55,7 @@ static Case parseCase(std::istream& is) {
     }
     return c;
 }
-static Family familyOf(const std::string& w) {
-    return w == "mexhat" ? Family::MexHat : w == "heat" ? Family::Heat : w == "itersine" ? Family::Itersine : Family::LogItersine;
-}
+// the bank family by name: the library's graphfilterbank::familyOf
 
 int main() {
     std::ifstream f(std::string(NXR_TEST_GOLDEN_DIR) + "/filterbank_golden.txt");

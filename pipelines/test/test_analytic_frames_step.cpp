@@ -82,7 +82,7 @@ int main() {
   tb::Design d(tb::Family::Morlet, 2.0, tb::Sides::Analytic); d.bands = {{8.0, 12.0}}; d.edgeBins = tb::EdgeBins::Drop;
   Eigen::VectorXd at(count); for (std::int64_t j = 0; j < count; ++j) at(j) = static_cast<double>(j) * fwi::kHop + static_cast<double>(H);
   Eigen::MatrixXd padded = Eigen::MatrixXd::Zero(C, N + 2 * H); padded.middleCols(H, N) = rec.cast<float>().cast<double>();   // zero outside the record, the reach of the band each side
-  const Eigen::MatrixXcd direct = nxr::signal::wt(tb::design(d, std::size_t(1) << 16, fwi::kFs), 0, padded, at);
+  const Eigen::MatrixXcd direct = nxr::signal::wt(tb::timeBank(d, std::size_t(1) << 16, fwi::kFs), 0, padded, at);
   double e0 = 0, e1 = 0, e2 = 0, peak = 0;
   for (std::int64_t r = 0; r < C; ++r) for (std::int64_t j = 0; j < count; ++j) {
     const auto w = whole[static_cast<std::size_t>(r * count + j)];

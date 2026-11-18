@@ -126,3 +126,27 @@ inline std::string field_name(const std::string& name) {
 }
 
 }  // namespace nxr::mex::slice
+
+// The temporal events and the wavelet and filterbank functions (access_slice.cpp): each command of the dispatcher, `compute.select.*` and the new `compute.signal.*`.
+// A bank arrives as a struct of the library's design fields (bindings/common/access.h); spans as a struct of columns (start and peak 1-based, stop the last sample, inclusive).
+namespace nxr::mex::access {
+using Command = void (*)(int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs);
+void selectMedian(int, mxArray**, int, const mxArray**);
+void selectMad(int, mxArray**, int, const mxArray**);
+void selectCrossings(int, mxArray**, int, const mxArray**);
+void selectMergeSpans(int, mxArray**, int, const mxArray**);
+void selectKeepSpans(int, mxArray**, int, const mxArray**);
+void selectDetectBursts(int, mxArray**, int, const mxArray**);
+void selectRisefall(int, mxArray**, int, const mxArray**);
+void selectStages(int, mxArray**, int, const mxArray**);
+void signalBandAnalytic(int, mxArray**, int, const mxArray**);
+void signalBandEnvelope(int, mxArray**, int, const mxArray**);
+void signalTimeBank(int, mxArray**, int, const mxArray**);
+void signalWt(int, mxArray**, int, const mxArray**);
+void signalIwt(int, mxArray**, int, const mxArray**);
+void signalGraphBank(int, mxArray**, int, const mxArray**);
+void signalGwt(int, mxArray**, int, const mxArray**);
+void signalIgwt(int, mxArray**, int, const mxArray**);
+void signalJwt(int, mxArray**, int, const mxArray**);
+void signalIjwt(int, mxArray**, int, const mxArray**);
+}  // namespace nxr::mex::access

@@ -97,16 +97,16 @@ int main() {
     {
         using namespace timefilterbank;
         Design d(Family::Itersine, 1.0, Sides::Analytic); d.voices = 2;
-        const TimeFilterbank bank = design(d, 1024, 128.0);
+        const TimeFilterbank bank = timeBank(d, 1024, 128.0);
         const auto k = kinds(bank);
         bool ok = k.size() == static_cast<std::size_t>(bank.size()) && k.size() >= 3 && k.front() == "lowpass" && k.back() == "highpass";
         for (std::size_t i = 1; ok && i + 1 < k.size(); ++i) ok = k[i] == "band";
         EXPECT(ok, "kinds (itersine, analytic): lowpass, then bands, then highpass: " + std::to_string(k.size()) + " members");
         Design m(Family::Meyer, 1.0, Sides::Analytic);
-        const auto km = kinds(design(m, 1024, 128.0));
+        const auto km = kinds(timeBank(m, 1024, 128.0));
         EXPECT(km.front() == "lowpass" && km.back() == "highpass", "kinds (Meyer): the scaling member is a low-pass, the top member a high-pass");
         Design two(Family::Itersine, 1.0, Sides::TwoSided); two.voices = 2;
-        const auto kt = kinds(design(two, 1024, 128.0));
+        const auto kt = kinds(timeBank(two, 1024, 128.0));
         int dc = 0; for (auto& s : kt) dc += s == "dc";
         EXPECT(dc == 1, "kinds (two-sided): the DC bin is a member of its own ('dc')");
     }

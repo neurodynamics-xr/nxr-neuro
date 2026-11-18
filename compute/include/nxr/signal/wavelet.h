@@ -11,7 +11,7 @@
 //
 // The bank is a nxr::signal::timefilterbank::TimeFilterbank, ANALYTIC (a real recording). Its family, gain and sides are REQUIRED by timebank::Design (no default). The bank is
 // designed ONCE on a reference grid `bank.nfft` (its frequency resolution: the lowest member spans >= minBins bins of fs/nfft); the record's length plays no part.
-// A chunked run gives the transform a block with the halo timefilterbank::haloOf(bank, member) on each side; which instants are kept is the caller's selection, never the transform's.
+// A chunked run gives the transform a block with the halo timefilterbank::haloOf(bank, member, tolerance) on each side; which instants are kept is the caller's selection, never the transform's.
 #include "nxr/signal/graphfilterbank.h"
 #include "nxr/signal/timefilterbank.h"
 #include <cstdint>
@@ -29,6 +29,13 @@ timefilterbank::Coefficients wt(const timefilterbank::TimeFilterbank& bank, cons
 Eigen::MatrixXd iwt(const timefilterbank::TimeFilterbank& bank, const timefilterbank::Coefficients& W, std::size_t n, graphfilterbank::Synthesis mode = graphfilterbank::Synthesis::Dual);
 /** TwoSided synthesis to the complex record [n x C]. */
 Eigen::MatrixXcd iwtComplex(const timefilterbank::TimeFilterbank& bank, const timefilterbank::Coefficients& W, std::size_t n, graphfilterbank::Synthesis mode = graphfilterbank::Synthesis::Dual);
+
+/** THE ANALYTIC SIGNAL OF BANDS (the transform of the signal.analytic and signal.envelope nodes, the Studio's band of the Signal chain): one member per band [lo, hi] Hz of `shape`
+ *  (Morlet: a Gaussian of full width at half maximum hi − lo; Meyer: Meyer edges, `halfWidth` octaves; PowerPartition: squared gains adding to 1), gain 2 (the one-sided analytic signal), DC and Nyquist
+ *  dropped, designed on x's OWN length: x is the window the caller hands in (periodic on it; the caller's halo holds the edge effect). x [n × C] real → one [n × C] complex block per band. */
+timefilterbank::Coefficients bandAnalytic(const Eigen::MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, timefilterbank::Family shape, double halfWidth = 1.0 / 3.0);
+/** The bands' ENVELOPES: |bandAnalytic(x, ...)|, one [n × C] real block per band. */
+std::vector<Eigen::MatrixXd> bandEnvelope(const Eigen::MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, timefilterbank::Family shape, double halfWidth = 1.0 / 3.0);
 
 /** The transform of a haloed block: a block [channels x width] whose own columns are [left, left + own). The bank is designed on the BLOCK's grid (gridLength(width, FastLen): zero-padded, no wrap), the block
  *  transformed, and only the own columns kept: one [channels x own] complex block per member. With a halo of at least timefilterbank::haloOf(bank, member) on each side the own columns are what the whole record

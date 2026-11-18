@@ -756,9 +756,9 @@ struct AnalyticBands {
 std::int64_t analytic_halo(const Json& p, double sfreq) {
   nxr::signal::timefilterbank::Design d(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic);
   for (const auto& b : p.value("bands", Json::array())) d.bands.push_back({b.value("lo", b.value("lo_hz", 0.0)), b.value("hi", b.value("hi_hz", 0.0))});
-  const nxr::signal::timefilterbank::TimeFilterbank bank = nxr::signal::timefilterbank::design(d, std::size_t(1) << 15, sfreq);
+  const nxr::signal::timefilterbank::TimeFilterbank bank = nxr::signal::timefilterbank::timeBank(d, std::size_t(1) << 15, sfreq);
   std::size_t H = 0;
-  for (int m = 0; m < static_cast<int>(d.bands.size()); ++m) H = std::max(H, nxr::signal::timefilterbank::haloOf(bank, m));
+  for (int m = 0; m < static_cast<int>(d.bands.size()); ++m) H = std::max(H, nxr::signal::timefilterbank::haloOfTaps(bank, m));
   return static_cast<std::int64_t>(H);
 }
 ng::NodeSpec analytic_bands() {
@@ -1322,7 +1322,7 @@ ng::NodeSpec speed_spectrum() {
     fb::DesignOptions dop; dop.voices = p.value("graph_voices", 3); dop.numFilters = p.value("graph_filters", 0);
     const fb::GraphFilterbank graph = fb::design(gfam, fb::Range::fromSpectrum(mu.array().square().matrix()), dop);
     tb::TimeFilterbank time;
-    try { time = tb::design(d, nfft, fs); } catch (const std::invalid_argument& e) { ng::refuse(std::string("signal.speed_spectrum: the time bank: ") + e.what()); }
+    try { time = tb::timeBank(d, nfft, fs); } catch (const std::invalid_argument& e) { ng::refuse(std::string("signal.speed_spectrum: the time bank: ") + e.what()); }
     nxr::signal::speedspectrum::Options so; so.speedBins = p.value("speed_bins", 40); so.speedMin = p.value("speed_min", 0.0); so.speedMax = p.value("speed_max", 0.0);
     const nxr::signal::speedspectrum::Result R = nxr::signal::speedspectrum::compute(graph, time, mu, std::vector<int>(kind.begin(), kind.begin() + K), ms, so);
     const std::int64_t P = static_cast<std::int64_t>(R.parts.size()), G = R.graphCentres.size(), T = R.timeCentres.size(), NB = R.speedCentres.size();

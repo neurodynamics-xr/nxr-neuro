@@ -38,7 +38,7 @@ Eigen::MatrixXcd bandAnalytic(const Spec& s, const Bands& bands, tb::Family fami
   tb::Design d(family, 2.0, tb::Sides::Analytic);
   d.bands = bands;
   d.edgeBins = tb::EdgeBins::Drop;
-  return nxr::signal::wt(tb::design(d, static_cast<std::size_t>(s.block.rows()), s.sfreq), s.block)[b];
+  return nxr::signal::wt(tb::timeBank(d, static_cast<std::size_t>(s.block.rows()), s.sfreq), s.block)[b];
 }
 // The broadband analytic signal: positive frequencies doubled, the rest 0 (the plain FFT Hilbert).
 Eigen::MatrixXcd analyticBroadband(const Spec& s) {
