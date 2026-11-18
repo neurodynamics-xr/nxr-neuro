@@ -5,6 +5,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstring>
+
+#include "nxr/io/array_reader.h"
 
 #include "nxr/io/layout.h"
 
@@ -135,50 +138,167 @@ std::vector<double> projector_matrix(const ProjectorEntry& e) {
   return p;
 }
 
-std::vector<double> applied_matrix(const std::vector<ProjectorEntry>& entries) {
-  Mat out;
-  std::size_t m = 0;
-  for (const auto& e : entries) {
-    if (e.status != 1) continue;
-    const Mat p = projector_matrix(e);
-    if (out.empty()) { out = p; m = e.m; continue; }
-    Mat s(m * m, 0.0);
-    for (std::size_t l = 0; l < m; ++l)
-      for (std::size_t i = 0; i < m; ++i)
-        for (std::size_t c = 0; c < m; ++c) {
-          const double pr = p[i * m + l] * out[l * m + c];
-          s[i * m + c] = s[i * m + c] + pr;
+namespace {
+// the eigen decomposition of a small symmetric matrix g [k x k] (cyclic Jacobi): eigenvalues descending in `w`, eigenvectors as the columns of `e`
+void symmetric_eigen(Mat g, std::size_t k, std::vector<double>& w, Mat& e) {
+  e.assign(k * k, 0.0);
+  for (std::size_t i = 0; i < k; ++i) e[i * k + i] = 1.0;
+  for (int sweep = 0; sweep < 100; ++sweep) {
+    double off = 0, diag = 0;
+    for (std::size_t i = 0; i < k; ++i) for (std::size_t j = 0; j < k; ++j) (i == j ? diag : off) += g[i * k + j] * g[i * k + j];
+    if (off <= 1e-30 * diag) break;
+    for (std::size_t p = 0; p < k; ++p)
+      for (std::size_t q = p + 1; q < k; ++q) {
+        const double apq = g[p * k + q];
+        if (apq == 0.0) continue;
+        const double theta = (g[q * k + q] - g[p * k + p]) / (2 * apq);
+        const double t = (theta >= 0 ? 1.0 : -1.0) / (std::fabs(theta) + std::sqrt(theta * theta + 1));
+        const double c = 1 / std::sqrt(t * t + 1), sn = t * c;
+        for (std::size_t r = 0; r < k; ++r) {                       // g := J^T g J, columns then rows
+          const double gp = g[r * k + p], gq = g[r * k + q];
+          g[r * k + p] = c * gp - sn * gq;
+          g[r * k + q] = sn * gp + c * gq;
         }
-    out = std::move(s);
+        for (std::size_t r = 0; r < k; ++r) {
+          const double gp = g[p * k + r], gq = g[q * k + r];
+          g[p * k + r] = c * gp - sn * gq;
+          g[q * k + r] = sn * gp + c * gq;
+        }
+        for (std::size_t r = 0; r < k; ++r) {
+          const double ep = e[r * k + p], eq = e[r * k + q];
+          e[r * k + p] = c * ep - sn * eq;
+          e[r * k + q] = sn * ep + c * eq;
+        }
+      }
   }
+  std::vector<std::size_t> idx(k);
+  for (std::size_t i = 0; i < k; ++i) idx[i] = i;
+  std::stable_sort(idx.begin(), idx.end(), [&](std::size_t a, std::size_t b) { return g[a * k + a] > g[b * k + b]; });
+  w.resize(k);
+  Mat es(k * k);
+  for (std::size_t j = 0; j < k; ++j) {
+    w[j] = g[idx[j] * k + idx[j]];
+    for (std::size_t r = 0; r < k; ++r) es[r * k + j] = e[r * k + idx[j]];
+  }
+  e = std::move(es);
+}
+// b := a b for [n x n] row-major
+Mat matmul(const Mat& a, const Mat& b, std::size_t n) {
+  Mat s(n * n, 0.0);
+  for (std::size_t i = 0; i < n; ++i)
+    for (std::size_t l = 0; l < n; ++l) {
+      const double x = a[i * n + l];
+      if (x == 0.0) continue;
+      for (std::size_t c = 0; c < n; ++c) s[i * n + c] += x * b[l * n + c];
+    }
+  return s;
+}
+}  // namespace
+
+std::vector<double> joint_projector(const std::vector<StoredProjector>& projectors, const ProjectorRule& rule, std::vector<std::string>* used) {
+  if (projectors.empty()) return {};
+  const std::size_t m = projectors.front().m;
+  std::vector<std::size_t> ch = rule.channels;
+  if (ch.empty()) for (std::size_t i = 0; i < m; ++i) ch.push_back(i);
+  const std::size_t n = ch.size();
+  for (std::size_t c : ch) if (c >= m) throw nxr::io::Error(code::invalid_argument, "a projector's channel is outside its channels");
+  // the selected entries, in the file's order; the SSP vectors stacked as the columns of V [n x k]
+  std::vector<const StoredProjector*> sel;
+  for (const auto& p : projectors) {
+    if (p.m != m) throw nxr::io::Error(code::invalid_argument, "the projectors " + projectors.front().name + " and " + p.name + " are on different channels");
+    if (std::find(rule.statuses.begin(), rule.statuses.end(), p.status) != rule.statuses.end()) sel.push_back(&p);
+  }
+  std::stable_sort(sel.begin(), sel.end(), [](const StoredProjector* a, const StoredProjector* b) { return a->order < b->order; });
+  std::vector<std::vector<double>> cols;
+  std::vector<int> items;                                            // -1: the joint SSP (at its first entry's place), else the index in `sel` of a matrix projector
+  bool ssp_placed = false;
+  for (std::size_t i = 0; i < sel.size(); ++i) {
+    const StoredProjector& p = *sel[i];
+    if (used) used->push_back(p.name);
+    if (p.kind != "ica" && !p.vectors.empty()) {
+      for (const auto& v : p.vectors) {
+        if (v.size() != m) throw nxr::io::Error(code::invalid_argument, p.name + ": a vector does not match its channels");
+        std::vector<double> c(n);
+        for (std::size_t r = 0; r < n; ++r) c[r] = v[ch[r]];
+        if (rule.renormalise) {
+          double s = 0;
+          for (double x : c) s += x * x;
+          s = std::sqrt(s);
+          if (s > 0) for (double& x : c) x /= s;
+        }
+        cols.push_back(std::move(c));
+      }
+      if (!ssp_placed) { items.push_back(-1); ssp_placed = true; }
+    } else {
+      if (p.matrix.size() != m * m) throw nxr::io::Error(code::invalid_argument, p.name + ": its matrix does not match its channels");
+      items.push_back(static_cast<int>(i));
+    }
+  }
+  Mat ssp;
+  bool any = false;
+  for (const auto& c : cols) for (double x : c) any = any || x != 0.0;
+  if (any) {
+    const std::size_t k = cols.size();
+    Mat g(k * k, 0.0);                                               // V^T V: its eigenvalues are V's squared singular values, its eigenvectors V's right singular vectors
+    for (std::size_t a = 0; a < k; ++a) for (std::size_t b = 0; b < k; ++b) { double s = 0; for (std::size_t r = 0; r < n; ++r) s += cols[a][r] * cols[b][r]; g[a * k + b] = s; }
+    std::vector<double> w;
+    Mat e;
+    symmetric_eigen(g, k, w, e);
+    const double s1 = std::sqrt(std::max(w[0], 0.0));
+    ssp.assign(n * n, 0.0);
+    for (std::size_t i = 0; i < n; ++i) ssp[i * n + i] = 1.0;
+    for (std::size_t j = 0; j < k; ++j) {
+      const double sj = std::sqrt(std::max(w[j], 0.0));
+      if (!(sj >= 0.01 * s1) || sj == 0.0) break;                    // the linearly dependent vectors: a singular value below 1% of the largest
+      std::vector<double> u(n, 0.0);                                 // U[:, j] = V e_j / s_j
+      for (std::size_t a = 0; a < k; ++a) for (std::size_t r = 0; r < n; ++r) u[r] += cols[a][r] * e[a * k + j];
+      for (double& x : u) { x /= sj; if (rule.zero_tiny && std::fabs(x) < 1e-15) x = 0.0; }
+      for (std::size_t r = 0; r < n; ++r) for (std::size_t c = 0; c < n; ++c) ssp[r * n + c] -= u[r] * u[c];
+    }
+  }
+  Mat out;
+  for (int it : items) {
+    Mat p;
+    if (it < 0) { if (ssp.empty()) continue; p = ssp; }
+    else {
+      const StoredProjector& q = *sel[static_cast<std::size_t>(it)];
+      p.assign(n * n, 0.0);
+      for (std::size_t r = 0; r < n; ++r) for (std::size_t c = 0; c < n; ++c) p[r * n + c] = q.matrix[ch[r] * m + ch[c]];
+    }
+    out = out.empty() ? p : matmul(p, out, n);
+  }
+  bool identity = !out.empty();
+  for (std::size_t r = 0; r < n && identity; ++r) for (std::size_t c = 0; c < n && identity; ++c) identity = out[r * n + c] == (r == c ? 1.0 : 0.0);
+  if (identity) out.clear();
   return out;
 }
 
-void project(const std::vector<double>& p, std::size_t m, const std::vector<float>& x, std::size_t n, std::vector<float>& y) {
-  y = x;
-  std::vector<std::size_t> act;
-  for (std::size_t i = 0; i < m; ++i) {
-    bool touched = false;
-    for (std::size_t l = 0; l < m && !touched; ++l) {
-      const double e = i == l ? 1.0 : 0.0;
-      touched = p[i * m + l] != e || p[l * m + i] != e;
+std::vector<StoredProjector> stored_projectors(const nxr::io::Database& db, const nxr::io::Store& store, const std::string& channels_manifold_id) {
+  std::vector<StoredProjector> out;
+  for (const auto& r : db.all("SELECT name, path, n_rows, params_json FROM operator WHERE kind = 'projector' AND from_manifold_id = ? AND status = 'complete'", {nxr::io::V(channels_manifold_id)})) {
+    StoredProjector p;
+    p.name = nxr::io::text(r, "name");
+    p.m = static_cast<std::size_t>(nxr::io::integer(r, "n_rows"));
+    const Json pj = Json::parse(nxr::io::opt_text(r, "params_json").value_or("{}"), nullptr, false);
+    if (pj.is_object()) {
+      p.order = pj.value("order", 0);
+      p.status = pj.value("status", 0);
+      p.kind = pj.value("kind", std::string("ssp"));
+      p.method = pj.value("method", std::string());
+      if (pj.contains("vectors") && pj["vectors"].is_array()) for (const auto& v : pj["vectors"]) p.vectors.push_back(v.get<std::vector<double>>());
     }
-    if (touched) act.push_back(i);
-  }
-  if (act.empty()) return;
-  std::vector<double> acc(act.size() * n, 0.0);
-  for (std::size_t j = 0; j < act.size(); ++j) {
-    const std::size_t l = act[j];
-    for (std::size_t r = 0; r < act.size(); ++r) {
-      const double c = p[act[r] * m + l];
-      for (std::size_t t = 0; t < n; ++t) {
-        const double pr = c * static_cast<double>(x[l * n + t]);
-        acc[r * n + t] = acc[r * n + t] + pr;
-      }
+    if (p.vectors.empty() || p.kind == "ica") {
+      const nxr::io::ArrayReader ar = nxr::io::ArrayReader::open(store, nxr::io::text(r, "path"));
+      const std::vector<std::uint8_t> raw = ar.read();
+      p.matrix.resize(p.m * p.m);
+      if (ar.dtype() == nxr::io::DType::Float64 && raw.size() == p.matrix.size() * 8) std::memcpy(p.matrix.data(), raw.data(), raw.size());
+      else if (ar.dtype() == nxr::io::DType::Float32 && raw.size() == p.matrix.size() * 4) for (std::size_t i = 0; i < p.matrix.size(); ++i) { float f; std::memcpy(&f, raw.data() + 4 * i, 4); p.matrix[i] = f; }
+      else throw nxr::io::Error(code::invalid_argument, p.name + ": a projector is a dense [channels x channels] array of floats");
     }
+    out.push_back(std::move(p));
   }
-  for (std::size_t r = 0; r < act.size(); ++r)
-    for (std::size_t t = 0; t < n; ++t) y[act[r] * n + t] = static_cast<float>(acc[r * n + t]);
+  std::stable_sort(out.begin(), out.end(), [](const StoredProjector& a, const StoredProjector& b) { return a.order < b.order; });
+  return out;
 }
 
 std::optional<CtfGrade> ctf_grade(const Value* sfile) {
@@ -210,7 +330,18 @@ std::vector<std::string> export_projectors(nxr::io::SubjectWriter& sub, const st
     Json comps = Json::array();
     for (std::size_t j = 0; j < e.k; ++j) if (e.mask[j]) comps.push_back(static_cast<std::int64_t>(j));
     op.cols.set("to_manifold_id", channels_id);
-    op.cols.json("params_json", Json{{"status", e.status}, {"comment", e.comment}, {"method", e.method}, {"kind", e.kind}, {"components", comps}, {"order", e.order}});
+    Json pj{{"status", e.status}, {"comment", e.comment}, {"method", e.method}, {"kind", e.kind}, {"components", comps}, {"order", e.order}};
+    if (e.kind != "ica") {                                         // an SSP's removed vectors, as the file holds them: the references compose projectors from these
+      Json vecs = Json::array();
+      for (std::size_t j = 0; j < e.k; ++j) {
+        if (!e.mask[j]) continue;
+        std::vector<double> v(e.m);
+        for (std::size_t i = 0; i < e.m; ++i) v[i] = e.components[i * e.k + j];
+        vecs.push_back(v);
+      }
+      pj["vectors"] = vecs;
+    }
+    op.cols.json("params_json", pj);
     op.cols.set("description", "Brainstorm projector " + std::to_string(e.order) + " (" + upper(e.kind) + "): x -> P x on the channels; status " + std::to_string(e.status) +
                                    " (0 inactive, 1 active, 2 already applied to the samples)");
     sub.operator_(std::move(op));
@@ -274,7 +405,7 @@ Json recording_record(const std::vector<ProjectorEntry>& entries, const std::map
   if (!entries.empty()) {
     Json rec = Json::array();
     for (const auto& e : entries) {
-      const char* applied = e.status == 1 ? "applied by the import" : e.status == 2 ? "already applied to the samples" : "not applied";
+      const char* applied = e.status == 1 ? "applied on load" : e.status == 2 ? "already applied to the samples" : "not applied";
       rec.push_back(Json{{"order", e.order}, {"comment", e.comment}, {"method", e.method}, {"status", e.status}, {"applied", applied},
                          {"operator", name + "_projector_" + std::to_string(e.order)}});
     }

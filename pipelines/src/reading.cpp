@@ -33,9 +33,12 @@ nxr::io::Span span_of(const task::Node& field, std::int64_t n_samples, double sf
 }
 
 nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& field, double sfreq, double t0, std::vector<std::int32_t> rows,
-                               const std::optional<std::vector<std::pair<double, double>>>& bad) {
+                               const std::optional<std::vector<std::pair<double, double>>>& bad, nxr::io::Projectors projectors) {
   const auto p = nxr::io::opt_text(field, "producer_json");
-  return source_with(sub, nxr::io::text(field, "path"), nxr::io::chunk_width(field), sfreq, t0, std::move(rows), bad, p ? link_of(nxr::io::Json::parse(*p, nullptr, false)) : nullptr);
+  nxr::io::ChunkSource src = source_with(sub, nxr::io::text(field, "path"), nxr::io::chunk_width(field), sfreq, t0, std::move(rows), bad, p ? link_of(nxr::io::Json::parse(*p, nullptr, false)) : nullptr);
+  nxr::io::ProjectionOf pr = nxr::io::load_projection(sub.db(), sub.store(), field, projectors);
+  src.project(std::move(pr.projection), std::move(pr.record));
+  return src;
 }
 
 nxr::io::ChunkSource shape_source_of(nxr::io::SubjectWriter& sub, const nxr::io::Row& field, double sfreq, double t0, const std::optional<std::vector<std::pair<double, double>>>& bad) {
@@ -44,8 +47,13 @@ nxr::io::ChunkSource shape_source_of(nxr::io::SubjectWriter& sub, const nxr::io:
 }
 
 nxr::io::ChunkSource source_of(nxr::io::SubjectWriter& sub, const task::Node& field, double sfreq, double t0, std::vector<std::int32_t> rows,
-                               const std::optional<std::vector<std::pair<double, double>>>& bad) {
-  return source_with(sub, field.path.value_or(std::string()), nxr::io::chunk_width(field.fact("chunk_shape_json")), sfreq, t0, std::move(rows), bad, link_of(field.producer));
+                               const std::optional<std::vector<std::pair<double, double>>>& bad, nxr::io::Projectors projectors) {
+  nxr::io::ChunkSource src = source_with(sub, field.path.value_or(std::string()), nxr::io::chunk_width(field.fact("chunk_shape_json")), sfreq, t0, std::move(rows), bad, link_of(field.producer));
+  if (const auto row = sub.db().read("field", field.id)) {
+    nxr::io::ProjectionOf pr = nxr::io::load_projection(sub.db(), sub.store(), *row, projectors);
+    src.project(std::move(pr.projection), std::move(pr.record));
+  }
+  return src;
 }
 
 }  // namespace nxr::pipelines

@@ -39,6 +39,7 @@ struct NoiseCovOptions {
   std::optional<double> block_seconds;
   nxr::stats::CovarianceOptions covariance;
   bool replace = false;
+  nxr::io::Projectors projectors = nxr::io::Projectors::active;
 };
 struct NoiseCovResult {
   bool hit = false;
@@ -101,7 +102,9 @@ inline NoiseCovResult noisecov_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
                                     {"divisor", o.covariance.divisor == nxr::stats::CovarianceDivisor::Samples ? "samples" : o.covariance.divisor == nxr::stats::CovarianceDivisor::SamplesMinusOne ? "samples_minus_one" : "samples_minus_blocks"}};
   if (!o.name.empty()) set["name"] = o.name;
   if (o.block_seconds) set["block_seconds"] = *o.block_seconds;
-  const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("noisecov"), set, span_options(o.chunks, o.start, o.stop, o.replace));
+  nxr::pipelines::graph::RunOptions ro = span_options(o.chunks, o.start, o.stop, o.replace);
+  ro.projectors = o.projectors;
+  const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("noisecov"), set, ro);
   NoiseCovResult r;
   r.hit = !runs.empty() && runs[0].value("hit", false);
   const std::string name = o.name.empty() ? o.recording + "_noise_cov" : o.name;

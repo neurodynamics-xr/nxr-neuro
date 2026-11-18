@@ -150,7 +150,6 @@ RecordingOperators operators_of(const nf::RecordingReader& reader) {
   return ops;
 }
 
-std::vector<double> applied_projection(const RecordingOperators& ops) { return nxr::bst::applied_matrix(ops.projectors); }
 
 void write_operators(nxr::io::SubjectWriter& sub, RecordingOperators& ops, const std::string& channels_name, const std::string& channels_id, const std::string& acquisition) {
   ops.record = Json::object();
@@ -159,7 +158,7 @@ void write_operators(nxr::io::SubjectWriter& sub, RecordingOperators& ops, const
     Json rec = Json::array();
     for (const auto& e : ops.projectors) {
       rec.push_back(Json{{"order", e.order}, {"comment", e.comment}, {"method", e.method}, {"status", e.status}, {"active", e.status == 1},
-                         {"applied", e.status == 1 ? "applied by the import" : "not applied"}, {"operator", channels_name + "_projector_" + std::to_string(e.order)}});
+                         {"applied", e.status == 1 ? "applied on load" : "not applied"}, {"operator", channels_name + "_projector_" + std::to_string(e.order)}});
     }
     ops.record["projectors"] = rec;
   }

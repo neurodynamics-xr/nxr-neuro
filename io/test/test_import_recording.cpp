@@ -224,7 +224,8 @@ int main() {
     SubjectPackage p = SubjectPackage::open(root / "ctf_t.nxr.zarr");
     CHECK(p.db().one("SELECT id FROM operator WHERE name = 'rec_channels_ctf_head_to_head' AND kind = 'transition'").has_value());
   }
-  // an ACTIVE SSP projector is an operator and is applied to the samples as they are copied; an inactive one is only an operator
+  // an ACTIVE SSP projector is an operator; the import stores the samples AS RECORDED (bytes equal to the file's), and the chunk service applies the projector on load
+  // (P x by default, x with projectors none); P is idempotent, so a load of samples that already carry it gives them back (no guard, no special case)
   {
     const fs::path pkg = root / "proj.nxr.zarr";
     import_into(pkg, "fif_nodate_activeproj_raw.fif", false);
@@ -241,19 +242,49 @@ int main() {
     std::memcpy(got.data(), bytes.data(), bytes.size());
     auto reader = cv::open_recording("fif", data + "fif_nodate_activeproj_raw.fif");
     reader->read(0, static_cast<std::uint64_t>(T), 0, static_cast<std::size_t>(C), raw.data());
+    CHECK(got == raw);                                                         // stored as recorded
+    const auto row = p.db().one("SELECT * FROM field WHERE name = 'rec' AND kind = 'recording'");
+    CHECK(row.has_value());
     const double v[3] = {0.618984043598175, -0.7750996947288513, 0.1268039047718048};   // MNE's projector vector over EEG000..2 (the golden)
+    const std::int64_t width = chunk_width(*row);
+    const std::int64_t n0 = std::min<std::int64_t>(T, width);
+    auto load = [&](Projectors o, Json* record) {
+      ChunkSource src(p.store(), *rec.path, width, 1.0, 0.0);
+      ProjectionOf pr = load_projection(p.db(), p.store(), *row, o);
+      if (record) *record = pr.record;
+      src.project(pr.projection, pr.record);
+      Chunk c;
+      src.read(0, c);
+      return c;
+    };
+    Json on_rec, off_rec;
+    const Chunk on = load(Projectors::active, &on_rec), off = load(Projectors::none, &off_rec);
+    CHECK(on_rec["applied"] == Json::array({"rec_channels_projector_1"}));
+    CHECK(off_rec["applied"].empty() && off_rec["option"] == "none");
     double worst = 0, scale = 0;
-    for (std::int64_t t = 0; t < T; ++t) {
+    for (std::int64_t t = 0; t < n0; ++t) {
       double d = 0;
-      for (int c = 0; c < 3; ++c) d += v[c] * raw[static_cast<std::size_t>(c * T + t)];
+      for (int c = 0; c < 3; ++c) d += v[c] * static_cast<double>(raw[static_cast<std::size_t>(c * T + t)]);
       for (int c = 0; c < 3; ++c) {
-        const double want = raw[static_cast<std::size_t>(c * T + t)] - v[c] * d;
-        worst = std::max(worst, std::fabs(got[static_cast<std::size_t>(c * T + t)] - want));
+        const double want = static_cast<double>(raw[static_cast<std::size_t>(c * T + t)]) - v[c] * d;
+        worst = std::max(worst, std::fabs(on.data[static_cast<std::size_t>(c * n0 + t)] - want));
         scale = std::max(scale, std::fabs(want));
       }
-      CHECK(got[static_cast<std::size_t>(3 * T + t)] == raw[static_cast<std::size_t>(3 * T + t)]);   // the other channel is untouched
+      for (std::int64_t c = 0; c < C; ++c) CHECK(off.data[static_cast<std::size_t>(c * n0 + t)] == static_cast<double>(raw[static_cast<std::size_t>(c * T + t)]));   // none: as recorded
+      CHECK(on.data[static_cast<std::size_t>(3 * n0 + t)] == static_cast<double>(raw[static_cast<std::size_t>(3 * T + t)]));   // a channel P leaves alone
     }
-    CHECK(worst < 1e-5 * scale);
+    CHECK(worst < 1e-6 * scale);                                              // the golden vector against the file's float32 one
+    // idempotent: P applied to P x gives P x back (to rounding)
+    const ProjectionOf pr = load_projection(p.db(), p.store(), *row, Projectors::active);
+    CHECK(pr.projection != nullptr);
+    double twice = 0;
+    for (std::int64_t t = 0; t < n0; ++t)
+      for (std::int64_t r = 0; r < C; ++r) {
+        double y = 0;
+        for (std::int64_t l = 0; l < C; ++l) y += pr.projection->matrix[static_cast<std::size_t>(r * C + l)] * on.data[static_cast<std::size_t>(l * n0 + t)];
+        twice = std::max(twice, std::fabs(y - on.data[static_cast<std::size_t>(r * n0 + t)]));
+      }
+    CHECK(twice < 1e-12 * scale);
   }
   // the CTF compensation of a FIF file: an operator on the channels (MEG rows, reference columns), at the grade the data are at
   {

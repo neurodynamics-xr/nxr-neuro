@@ -145,7 +145,7 @@ void add_definition(Table& t, const std::string& noun, const std::string& defini
   };
   std::set<std::string> params;
   for (const auto& [k, _] : d.parameters.items()) params.insert(dashed(k));
-  for (const char* name : {"--dataset", "--subject", "--replace", "--dry-run", "--block-samples", "--block-frames", "--chunks", "--start", "--stop"}) {
+  for (const char* name : {"--dataset", "--subject", "--replace", "--dry-run", "--block-samples", "--block-frames", "--chunks", "--start", "--stop", "--projectors"}) {
     if (params.count(name + 2)) continue;   // a parameter of that name takes the option
     OptionUse u;
     u.name = name;
