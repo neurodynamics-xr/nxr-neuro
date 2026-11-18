@@ -1,4 +1,4 @@
-"""Writes repeat_golden.txt: the reference of nxr::crossings::repeat, nxr's `repeat` and `tile_dot` (nxr/detect/vortex_cores.py), on PLANTED TILE SUMS: 24 tiles, two senses each (nxr's tile-sense index 2 t + (sense > 0)), two runs whose tiles'
+"""Writes repeat_golden.txt: the reference of nxr::select::track_crossings::repeat, nxr's `repeat` and `tile_dot` (nxr/detect/vortex_cores.py), on PLANTED TILE SUMS: 24 tiles, two senses each (nxr's tile-sense index 2 t + (sense > 0)), two runs whose tiles'
 mean resultants share a direction (with noise) in most tiles, oppose it in some, and have too few crossings in a few (below nxr's 10). The sums are 3-D tangent vectors at a tile's centre and the counts are the crossings, as
 `Tiles.crossings` returns them. Run:
   uv run --project <nxr checkout> python compute/test/golden/gen_repeat_golden.py compute/test/golden/repeat_golden.txt

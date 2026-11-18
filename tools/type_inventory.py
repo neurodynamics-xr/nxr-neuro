@@ -703,9 +703,9 @@ def _power_series(i, p, u):
     return {"series": Statistic(axes=("tiles",), measure="power_tiles", of=("power", x.band, None, x.dom[:-1]))}
 
 
-@rule("lagfree_surrogate", "pointwise (a synthetic recording: a field made from statistics; draws on the cross-spectrum's channels)")
+@rule("surrogate.lagfree", "pointwise (a surrogate draw, unmixed: a field made from statistics on the cross-spectrum's channels; it awaits the zero-lag mixing)")
 def _lagfree(i, p, u):
-    x = i["x"]; in_loop(x, "lagfree_surrogate")
+    x = i["x"]; in_loop(x, "surrogate.lagfree")
     s = mk(f"sub({x.dom[0]}, channels(kernel))", type="points")   # STORED: the cross-spectrum was made with --channels-of the kernel
     return {"y": replace(x, dom=(s, x.dom[-1]), quantity="surrogate")}
 
@@ -779,12 +779,8 @@ def section_types(defs):
 MISTAKES = [  # (definition, what the edit does, the edit)
     ("band_bursts", "measure the analytic signal (complex) instead of its envelope",
      lambda d: d["uses"][0][1].update(step="analytic")),
-    ("cell_phase_current", "the kernel applied after `power` (a linear map after a non-linear node)",
-     lambda d: (d["uses"].insert(1, ("chunks", {"step": "power", "in": {"x": "z"}, "out": "zp"})), d["uses"][2][1]["in"].update(x="zp"))),
-    ("global_bursts", "the spatial band at level 4 while the joint cells were made at level 5",
-     lambda d: d["uses"][1][1]["with"].update(level=4)),
-    ("cortical_cells", "the time band changed (14-30 Hz) but the cells are the 8-16 Hz level's",
-     lambda d: d["uses"][0][1]["with"].update(band=[14.0, 30.0])),
+    ("global_bursts", "the spatial scale changed in the chain while the cells were made at another scale (the coupled product is the caller's)",
+     lambda d: d["uses"][1][1]["with"].update(spatial_scale="wavelength 20 mm")),
     ("spatial_events", "frames interpolated after `power` (the band limit is gone)",
      lambda d: (d["uses"].insert(1, ("chunks", {"step": "power", "in": {"x": "z"}, "out": "zp"})), d["uses"][2][1]["in"].update(x="zp"))),
     ("band_bursts", "events detected on a field instead of a measurement over the time tiles",

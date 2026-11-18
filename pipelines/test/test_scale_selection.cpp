@@ -21,15 +21,13 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/io.h"
-#include "nxr/io/constant_q.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
-#include "nxr/ladder.h"
-#include "nxr/pipelines/joint.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/scaleselection.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -96,11 +94,12 @@ int main() {
       op.cols.json("params_json", Json{{"inverse", Json{{"measure", "MNE"}}}});
       sub.operator_(std::move(op));
     });
-    sub.compose([&] { nxr::io::constantq::write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
-  const SurfaceInput S0 = read_surface(sub, std::nullopt, true);
+  nxrtest::make_time_grids(ds, sub);
+  nxrtest::make_tiles(ds, sub);
+  const SurfaceInput S0 = read_surface(sub, std::string("cortex"), true);
   // the time levels of the two bands: the constant-Q levels that resolve 4-8 Hz and 8-16 Hz
   int tl_slow = -1, tl_fast = -1;
   std::int64_t w_slow = 0, w_fast = 0;
@@ -226,7 +225,7 @@ int main() {
     comp = static_cast<int>(integer(*row, "component"));
     return read_vec<double>((sub.folder() / (text(*row, "array_path"))), &shape);
   };
-  // the planted episodes' time windows in samples, and each pair's events' facts, independent of nxr::scale (from the stored labellings and cells)
+  // the planted episodes' time windows in samples, and each pair's events' facts, independent of nxr::select::scale_selection (from the stored labellings and cells)
   const std::array<std::pair<double, double>, 2> episode = {std::pair<double, double>{8.0 * sfreq, 17.0 * sfreq}, std::pair<double, double>{30.0 * sfreq, 35.0 * sfreq}};
   struct Fact { double peak = -1e300, mean = 0; int cells = 0; std::int64_t first = 1 << 30, stop = -1; int episode = -1; };
   std::vector<std::vector<Fact>> facts(static_cast<std::size_t>(P));

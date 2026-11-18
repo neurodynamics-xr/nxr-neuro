@@ -13,6 +13,7 @@
 
 #include "brain_helpers.h"
 #include "check.h"
+#include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
 #include "nxr/pipelines/frames.h"
@@ -113,17 +114,18 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  SourcePsdOptions o;
-  o.recording = "rest"; o.kernel = "free"; o.chunks = "all"; o.segment_seconds = 4.0; o.bands = {{"alpha", 8, 12}};
+  // the definitions through the runner: sourcetensor, sourcepsd and surface_frames (the canonical frames the tensor needs)
+  const Json bands = Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}});
+  auto base = [&](const char* kernel) { return Json{{"recording", "rest"}, {"kernel", kernel}, {"bands", bands}, {"segment_seconds", 4.0}}; };
+  auto run = [&](const char* def, const Json& set) { return nxrtest::run_definition(ds, sub, def, set, false); };
   // refused without the canonical frames
   bool no_frames = false;
-  try { sourcetensor_compute(ds, sub, o); } catch (const Error&) { no_frames = true; }
+  try { run("sourcetensor", base("free")); } catch (const std::exception&) { no_frames = true; }
   CHECK(no_frames);
-  FramesComputeOptions fo;
-  frames_compute(ds, sub, fo);
-  const SourcePsdResult t = sourcetensor_compute(ds, sub, o);
-  CHECK(!t.hit);
-  const SourcePsdResult p = sourcepsd_compute(ds, sub, o);
+  nxrtest::run_definition(ds, sub, "surface_frames", Json{{"surface", "cortex"}}, false);
+  const auto t = run("sourcetensor", base("free"));
+  CHECK(!t.empty() && !t[0].value("hit", false));
+  run("sourcepsd", base("free"));
   const auto herm = map_named(sub, "rest_free_tensor", "rest_free_tensor_alpha"), psd = map_named(sub, "rest_free_psd", "rest_free_psd_alpha");
   const auto stokes = map_named(sub, "rest_free_tensor_stokes", "rest_free_tensor_stokes_alpha"), npow = map_named(sub, "rest_free_tensor_normalpower", "rest_free_tensor_normalpower_alpha");
   CHECK_EQ(static_cast<int>(herm.size()), N * 18);
@@ -155,12 +157,10 @@ int main() {
   CHECK(split < 1e-5);
   CHECK(decided > N / 3 && agree == decided);
   // a re-run is a cache hit; a fixed-orientation kernel is refused
-  CHECK(sourcetensor_compute(ds, sub, o).hit);
-  SourcePsdOptions of = o; of.kernel = "fixed";
+  { const auto again = run("sourcetensor", base("free")); CHECK(!again.empty() && again[0].value("hit", false)); }
   bool fixed = false;
-  try { sourcetensor_compute(ds, sub, of); } catch (const Error&) { fixed = true; }
+  try { run("sourcetensor", base("fixed")); } catch (const std::exception&) { fixed = true; }
   CHECK(fixed);
-  (void)p;
   fs::remove_all(root);
   return nxrtest::finish("test_source_tensor");
 }

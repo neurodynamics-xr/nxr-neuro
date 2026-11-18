@@ -21,8 +21,8 @@
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/constant_q.h"
-#include "nxr/pipelines/pointspread.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
+#include "run_definition.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -107,15 +107,14 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
+  nxrtest::make_tiles(ds, sub);
   std::printf("  %d vertices on a 10 cm sphere; head models: the identity, a 2 cm and a 6 cm Gaussian blur\n", N);
   struct Res { std::vector<double> err, diam, size, level; };
+  auto set_of = [&](const std::string& hm) { return Json{{"recording", "rest"}, {"forward", hm}, {"kernel", "back"}, {"spatial_scales", Json::array({"index:1", "index:2", "index:3", "index:4"})}, {"reference_scale", "index:4"}, {"transform", "exact"}, {"vertices", 6}, {"name", "pointspread." + hm}}; };
   auto run = [&](const std::string& hm) {
-    PointSpreadOptions po;
-    po.recording = "rest"; po.forward = hm; po.kernel = "back"; po.levels = {1, 2, 3, 4}; po.reference_level = 4; po.transform = "exact"; po.vertices = 6; po.name = "pointspread." + hm;
-    const auto r = pointspread_compute(ds, sub, po);
+    const auto r = nxrtest::run_definition(ds, sub, "pointspread", set_of(hm));
     const StoredStatistic S = read_statistic(sub, "pointspread." + hm);
-    CHECK(S.shape == std::vector<std::int64_t>({6, 3, 6}) && text(S.row, "measure") == "point_spread" && text(S.row, "method") == "point_source" && !r.hit);
+    CHECK(S.shape == std::vector<std::int64_t>({6, 3, 6}) && text(S.row, "measure") == "point_spread" && text(S.row, "method") == "point_source" && r.size() == 1 && r[0]["hit"] == false);
     Res o;
     for (std::size_t i = 0; i < S.values.size(); i += 6) { o.err.push_back(S.values[i]); o.diam.push_back(S.values[i + 1]); o.level.push_back(S.values[i + 3]); o.size.push_back(S.values[i + 4]); }
     return std::make_pair(o, S);
@@ -135,11 +134,13 @@ int main() {
   { double d = 0; for (std::size_t s = 0; s < 6; ++s) d = std::max(d, std::max(std::abs(C.diam[s * 3] - C.diam[s * 3 + 1]), std::abs(C.diam[s * 3] - C.diam[s * 3 + 2])));
     CHECK(d < 1e-9); }
   // a rerun is a hit; the refusals
-  { PointSpreadOptions po; po.recording = "rest"; po.forward = "hm_2cm"; po.kernel = "back"; po.levels = {1, 2, 3, 4}; po.reference_level = 4; po.transform = "exact"; po.vertices = 6; po.name = "pointspread.hm_2cm";
-    CHECK(pointspread_compute(ds, sub, po).hit);
-    PointSpreadOptions b = po; b.reference_level = 7; CHECK(what_of([&] { pointspread_compute(ds, sub, b); }).find("reference level") != std::string::npos);
-    b = po; b.recording = "no_such"; CHECK(what_of([&] { pointspread_compute(ds, sub, b); }).find("no_such") != std::string::npos);
-    b = po; b.forward = "no_such"; CHECK(what_of([&] { pointspread_compute(ds, sub, b); }).find("no_such") != std::string::npos);
-    b = po; b.list = {N + 3}; b.name = "pointspread.bad"; CHECK(what_of([&] { pointspread_compute(ds, sub, b); }).find("not one of") != std::string::npos); }
+  { const Json po = set_of("hm_2cm");
+    auto go = [&](const Json& set) { nxrtest::run_definition(ds, sub, "pointspread", set); };
+    const auto again = nxrtest::run_definition(ds, sub, "pointspread", po);
+    CHECK(again.size() == 1 && again[0]["hit"] == true);
+    Json b = po; b["reference_scale"] = "index:7"; b["name"] = "pointspread.bad"; CHECK(what_of([&] { go(b); }).find("reference") != std::string::npos);
+    b = po; b["recording"] = "no_such"; CHECK(what_of([&] { go(b); }).find("nothing in the subject matches") != std::string::npos);
+    b = po; b["forward"] = "no_such"; CHECK(what_of([&] { go(b); }).find("nothing in the subject matches") != std::string::npos);
+    b = po; b["list"] = Json::array({N + 3}); b["name"] = "pointspread.bad"; CHECK(what_of([&] { go(b); }).find("not one of") != std::string::npos); }
   return nxrtest::finish("test_pointspread") ? 1 : 0;
 }

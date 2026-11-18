@@ -102,12 +102,6 @@ int main() {
     hist.data.shape = {3};
     hist.data.f32 = {5.0f, 7.0f, 1.0f};
     u.statistic(hist);
-    StatisticOut bym;
-    bym.name = "bymember"; bym.output = "bymember"; bym.measure = "power"; bym.method = "welch"; bym.of_field_id = field_id;
-    bym.axes = Json::array({Json{{"name", "member"}, {"selection_id", atlas_id}, {"size", 3}}});
-    bym.data.shape = {3};
-    bym.data.f32 = {0.5f, 1.5f, 2.5f};
-    u.statistic(bym);
     u.commit();
   }
   CHECK(SubjectPackage::open(pkg).verify().ok);
@@ -173,11 +167,7 @@ int main() {
     CHECK_EQ(h.number(2, "bin_low"), 2.0);
     CHECK_EQ(h.number(2, "bin_high"), 4.0);
     CHECK_EQ(h.number(1, "value"), 7.0);
-    o.statistic = "bymember"; o.out = (root / "bym").string();
-    ex::export_tsv(pkg, o);
-    const tsv::Table b = tsv::read_file((root / "bym.tsv").string());
-    CHECK_EQ(b.cell(1, "member"), std::string("alpha"));
-    CHECK_EQ(b.number(2, "value"), 2.5);
+    // (a statistic with an axis over a selection's MEMBERS is a measurement now, exported with `partition`/`measures` above; io refuses to write one as a statistic: test_statistic)
     o.statistic = "nope";
     CHECK_EQ(code_of([&] { ex::export_tsv(pkg, o); }), std::string(code::no_such_row));
   }

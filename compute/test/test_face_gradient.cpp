@@ -1,11 +1,28 @@
-#include "nxr/compute.h"
-#include "nxr/facets.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/geometry/parametrization.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
 #include <Eigen/Eigenvalues>
 #include <cmath>
 #include <iostream>
-using namespace nxr::manifold;
+#include "surface_of.h"
+using namespace nxr::geometry;
 
 static int g_failures = 0;
 #define EXPECT(cond, msg) do { \
@@ -22,11 +39,11 @@ static void icosphere(std::vector<double>& V, std::vector<int32_t>& F) {
 }
 
 // per-face area mass [3F×3F] and the block rotation R: per face, v ↦ n_f × v.
-static void faceMass(Manifold& m, Eigen::SparseMatrix<double>& WF,
+static void faceMass(const nxr::geometry::SurfaceArrays& m, Eigen::SparseMatrix<double>& WF,
                      Eigen::SparseMatrix<double>& R) {
     using namespace geometrycentral;
     using namespace geometrycentral::surface;
-    auto& mesh = m.mesh(); auto& geom = m.geometry();
+    auto& mesh = gcOf(m).inputMesh(); auto& geom = gcOf(m).embedded();
     geom.requireFaceAreas(); geom.requireFaceNormals();
     const int Fn = m.nF();
     std::vector<Eigen::Triplet<double>> tw, tr;
@@ -48,22 +65,22 @@ static void faceMass(Manifold& m, Eigen::SparseMatrix<double>& WF,
 static void testGradFace() {
     std::cout << "\n=== facegrad::gradient (barycentric dual gradient) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int Fn = m.nF();   // 20
 
-    Eigen::SparseMatrix<double> G = ops::facegrad::gradient(m);
+    Eigen::SparseMatrix<double> G = nxr::operators::facegrad::gradient(m);
     EXPECT(G.rows() == 3*Fn && G.cols() == Fn, "gradFace is [3F x F] = [60, 20]");
 
     Eigen::VectorXd ones = Eigen::VectorXd::Ones(Fn);
     EXPECT((G*ones).norm() < 1e-10, "gradFace annihilates constants");
 
     // tangency: each per-face 3-vector ⟂ that face's normal
-    m.geometry().requireFaceNormals();
+    gcOf(m).embedded().requireFaceNormals();
     Eigen::VectorXd psi = Eigen::VectorXd::Random(Fn);
     Eigen::VectorXd g = G*psi;
     double maxdot = 0; int fi = 0;
-    for (auto f : m.mesh().faces()) {
-        auto n = m.geometry().faceNormals[f];
+    for (auto f : gcOf(m).inputMesh().faces()) {
+        auto n = gcOf(m).embedded().faceNormals[f];
         Eigen::Vector3d gv(g[3*fi], g[3*fi+1], g[3*fi+2]);
         Eigen::Vector3d nn(n.x, n.y, n.z);
         maxdot = std::max(maxdot, std::abs(gv.dot(nn))); ++fi;
@@ -74,11 +91,11 @@ static void testGradFace() {
 static void testLapFace() {
     std::cout << "\n=== facegrad::laplacian (face Laplacian K̃) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int Fn = m.nF();
 
-    Eigen::SparseMatrix<double> G = ops::facegrad::gradient(m);
-    Eigen::SparseMatrix<double> K = ops::facegrad::laplacian(m);
+    Eigen::SparseMatrix<double> G = nxr::operators::facegrad::gradient(m);
+    Eigen::SparseMatrix<double> K = nxr::operators::facegrad::laplacian(m);
     EXPECT(K.rows()==Fn && K.cols()==Fn, "lapFace is [F x F] = [20, 20]");
     EXPECT((K - Eigen::SparseMatrix<double>(K.transpose())).norm() < 1e-10, "lapFace symmetric");
 
@@ -109,11 +126,11 @@ static void testLapFace() {
 static void testFacetAccessors() {
     std::cout << "\n=== facet accessors gradFace()/lapFace() (cached) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
-    const Eigen::SparseMatrix<double>& G1 = m.operators().gradFace();
-    const Eigen::SparseMatrix<double>& G2 = m.operators().gradFace();
-    EXPECT(&G1 == &G2, "gradFace() returns the same cached object");
-    EXPECT(m.operators().lapFace().rows() == m.nF(), "lapFace() cached, [F x F]");
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
+    const Eigen::SparseMatrix<double>& G1 = nxr::operators::facegrad::gradient(m);
+    const Eigen::SparseMatrix<double>& G2 = nxr::operators::facegrad::gradient(m);
+    EXPECT((G1 - G2).norm() == 0.0, "gradFace() assembled twice is the same matrix");
+    EXPECT(nxr::operators::facegrad::laplacian(m).rows() == m.nF(), "lapFace() cached, [F x F]");
 }
 
 int main() {

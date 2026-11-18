@@ -45,9 +45,7 @@ self.onmessage = async (e) => {
       return
     }
     if (method === 'dispose') {
-      // ManifoldContext doesn't expose an explicit dispose today; the
-      // underlying Embind handle is released when GC collects mctx.
-      // For tighter control, hold a ref to mctx._raw and call .delete().
+      // The ManifoldContext is a plain JS value (the surface data); nothing is held in the wasm heap.
       mctx = null
       self.postMessage({ id, ok: true })
       return

@@ -1,0 +1,46 @@
+# THE RUN-TO-RUN REPEAT OF THE VORTEX CORES' CROSSINGS (two statistics of the first run): does each tile's direction of core movement repeat from one recording to the next? Read from the two
+# runs' stored `tile_crossings` (the measurements `run vortex_cores` stored over the same tile level), never a recording: per tile the dot product of the two runs' mean resultant crossing
+# vectors (the senses pooled), for the tiles with at least `min_crossings` crossings in both runs, and, for the whole recording, the count-weighted mean cosine of the tiles' directions.
+#   <name>.tiles   measure repeat_dot, method run_repeat, [tiles] (NaN where a run has fewer crossings); the axis is the level's Selection
+#   <name>.whole   measure repeat_cosine, method run_repeat, [1]
+# WHAT IT CANNOT SAY: a p-value (a tile's dot against the lag-free surrogate draws', Benjamini-Hochberg over the tiles) needs the lag-free surrogate (`run surrogate_lagfree_vortex_compare`): this is the statistic only. Two runs of one subject share
+# the cortex, the kernel and the instrument's leakage, so their agreement is evidence only against that null.
+#
+#   nxr-neuro run run_repeat --dataset <folder> --subject sub-01 --recording-a rest1 --recording-b rest2 --over "cortex tiles" --spatial-scale "parts 16"
+pipeline: run_repeat
+version: 2
+description: the dot product and cosine of two runs' crossing directions per tile of one level
+scope: subject
+
+inputs:
+  recording_a: {field: recording, where: {name: $recording_a}}
+  recording_b: {field: recording, where: {name: $recording_b}}
+  over:        {selection: any, where: {name: $over}}
+
+parameters:
+  recording_a: {default: null, meaning: "the first run (the statistics are of it); the order does not change the values", unit: "-"}
+  recording_b: {default: null, meaning: "the second run", unit: "-"}
+  over: {default: null, meaning: "the grid both runs were measured over (<surface> tiles)", unit: "-"}
+  spatial_scale: {default: null, meaning: "the tile level the crossings were measured at, as a quantity (a tile diameter in mm, a wavelength or parts per hemisphere)", unit: mm, chart: diameter}
+  stage: {default: 0, meaning: "the stage by index: rows 2s and 2s+1 of the stored crossings (used when stage_name is null)", unit: "-"}
+  stage_name: {default: null, meaning: "the stage by name (burst, onset, within, offset), found in each run's own rows; refused when a run lacks it", unit: "-"}
+  min_crossings: {default: 10, meaning: "a tile counts when both runs have at least this many crossings (the senses pooled); nxr: 10", unit: "crossings"}
+  name: {default: "vortex_cores.run_repeat.{recording_a}.{recording_b}", meaning: "the statistics' name (<name>.tiles, <name>.whole); give another for another stage", unit: "-"}
+
+steps:
+  before:
+    - {node: select.run_repeat, in: {a: recording_a, b: recording_b, over: over}, with: {spatial_scale: $spatial_scale, stage: $stage, stage_name: $stage_name, min_crossings: $min_crossings}, out: [tiles, whole]}
+
+outputs:
+  tiles:
+    kind: statistic
+    name: "$name.tiles"
+    of: recording_a
+    over: over
+    axes: [{name: tile}]
+  whole:
+    kind: statistic
+    name: "$name.whole"
+    of: recording_a
+    over: over
+    axes: [{name: whole}]

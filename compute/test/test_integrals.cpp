@@ -1,8 +1,8 @@
-// nxr::integrals against nxr's measure.integrals (golden: test/golden/integrals_golden.txt, gen_integrals_golden.py; synthetic closed icosphere and folded plane):
+// the tile flux and circulation (the weak forms nxr::operators::weakDivergence / weakCurl summed over each tile by nxr::measurement::reduce, the area the barycentric mass) against nxr's measure.integrals (golden: test/golden/integrals_golden.txt, gen_integrals_golden.py; synthetic closed icosphere and folded plane):
 // the face field, the lumped vertex areas, and each tile's flux and circulation per frame to rounding; additive over tiles (a merged labelling's integral is the sum);
-// a closed surface's tiles together have no net outflow; refusals (NaN, wrong size). And the INTRINSIC form (nxr::intrinsic::tileFlux / tileCirculation, the exact tile integrals of a 1-form on the
+// a closed surface's tiles together have no net outflow; refusals (NaN, wrong size). And the INTRINSIC form (nxr::intrinsic::vertexOutflow / vertexCirculation summed over a tile's vertices by nxr::measurement::reduce, the exact tile integrals of a 1-form on the
 // complex): the circulation of a gradient is 0, the flux of d0 f over all the tiles of a closed surface is 0, a parent's flux is the sum of its children's, and for a smooth f it agrees with the extrinsic
-// flux of the sharpened field (nxr::integrals) to a few percent.
+// flux of the sharpened field (the weak form) to a few percent.
 #include <cmath>
 #include <fstream>
 #include <iostream>
@@ -11,8 +11,32 @@
 #include <string>
 #include <vector>
 
-#include "nxr/integrals.h"
-#include "nxr/intrinsic_forms.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/operators/weak_forms.h"
+#include "nxr/measurement/reduce.h"
+#include "nxr/signal/intrinsic_forms.h"
+
+// a tile's integral is the SUM of the pointwise vertex form over the tile's vertices: the measures `outflow` and `circulation`, `reduce` with measure sum (a negative code is in no tile)
+static Eigen::VectorXd tileSum(const Eigen::VectorXd& vertexForm, const std::int32_t* codes, int nCodes) {
+  nxr::selection::MemberOfElement m;
+  m.member_of.assign(codes, codes + vertexForm.size());
+  m.members = nCodes;
+  std::vector<double> v(vertexForm.data(), vertexForm.data() + vertexForm.size());
+  nxr::measurement::Ingredients g(1, nCodes);
+  nxr::measurement::Request r;
+  r.measures = {"sum"};
+  nxr::measurement::reduce(g, v.data(), 1, static_cast<std::int64_t>(v.size()), m, nullptr, r);
+  Eigen::VectorXd out(nCodes);
+  for (int k = 0; k < nCodes; ++k) out(k) = g.sum[static_cast<std::size_t>(k)];
+  return out;
+}
+
+// the tile integrals of a vertex field: the weak form per vertex, summed over each tile (a measurement over the partition)
+static Eigen::MatrixXd tileForm(const Eigen::MatrixXd& pointwise, const std::int32_t* codes, int nCodes) {
+  Eigen::MatrixXd out(nCodes, pointwise.cols());
+  for (Eigen::Index t = 0; t < pointwise.cols(); ++t) out.col(t) = tileSum(pointwise.col(t), codes, nCodes);
+  return out;
+}
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
@@ -48,9 +72,11 @@ int main() {
     const std::vector<double>& P = c.a.at("P");
     Eigen::MatrixXd J(3 * c.nV, c.T);
     for (int r = 0; r < 3 * c.nV; ++r) for (int t = 0; t < c.T; ++t) J(r, t) = c.a.at("J")[static_cast<std::size_t>(r) * c.T + t];
-    const auto va = nxr::integrals::vertexAreas(P.data(), c.nV, F.data(), c.nF);
+    nxr::geometry::IntrinsicOptions bio; bio.intrinsic = false; bio.mass = nxr::geometry::MassKind::Barycentric;
+    nxr::geometry::IntrinsicSurface bsf(P.data(), c.nV, F.data(), c.nF, bio);
+    const std::vector<double> va = bsf.massDiagonal();                                   // the lumped vertex areas: the barycentric mass
     EXPECT(relmax(va, c.a.at("vertex_area")) < 1e-13, c.tag << ": vertex areas");
-    const Eigen::MatrixXd ff = nxr::integrals::faceField(P.data(), c.nV, F.data(), c.nF, J);
+    const Eigen::MatrixXd ff = nxr::operators::tangentFaceField(P.data(), c.nV, F.data(), c.nF, J);
     std::vector<double> ffv;
     for (int r = 0; r < ff.rows(); ++r) for (int t = 0; t < c.T; ++t) ffv.push_back(ff(r, t));
     EXPECT(relmax(ffv, c.a.at("face_field")) < 1e-13, c.tag << ": the face field");
@@ -61,19 +87,20 @@ int main() {
     for (std::size_t i = 0; i < codes.size(); ++i) dc[i] = codes[i] >= 0 ? dense.at(codes[i]) : -1;
     const int nT = static_cast<int>(dense.size());
     EXPECT(nT == c.tiles, c.tag << ": the tiles");
-    const auto phi = nxr::integrals::flux(P.data(), c.nV, F.data(), c.nF, J, dc.data(), nT);
-    const auto gam = nxr::integrals::circulation(P.data(), c.nV, F.data(), c.nF, J, dc.data(), nT);
-    std::vector<double> pv, gv;
-    for (int k = 0; k < nT; ++k) for (int t = 0; t < c.T; ++t) { pv.push_back(phi.value(k, t)); gv.push_back(gam.value(k, t)); }
-    const double ep = relmax(pv, c.a.at("flux")), eg = relmax(gv, c.a.at("circulation")), ea = relmax(phi.area, c.a.at("area"));
+    const Eigen::MatrixXd phi = tileForm(nxr::operators::weakDivergence(P.data(), c.nV, F.data(), c.nF, J), dc.data(), nT);
+    const Eigen::MatrixXd gam = tileForm(nxr::operators::weakCurl(P.data(), c.nV, F.data(), c.nF, J), dc.data(), nT);
+    const Eigen::VectorXd areaT = tileSum(Eigen::Map<const Eigen::VectorXd>(va.data(), static_cast<Eigen::Index>(va.size())), dc.data(), nT);
+    std::vector<double> pv, gv, av(areaT.data(), areaT.data() + areaT.size());
+    for (int k = 0; k < nT; ++k) for (int t = 0; t < c.T; ++t) { pv.push_back(phi(k, t)); gv.push_back(gam(k, t)); }
+    const double ep = relmax(pv, c.a.at("flux")), eg = relmax(gv, c.a.at("circulation")), ea = relmax(av, c.a.at("area"));
     std::cout << "  " << c.tag << ": flux " << ep << ", circulation " << eg << ", area " << ea << " (relative to nxr)\n";
     EXPECT(ep < 1e-12 && eg < 1e-12 && ea < 1e-13, c.tag << ": flux, circulation and area are nxr's");
     // ADDITIVE: merging two tiles into one gives the sum of their integrals
     if (nT >= 2) {
       std::vector<std::int32_t> merged = dc;
       for (auto& x : merged) if (x == 1) x = 0;
-      const auto m = nxr::integrals::flux(P.data(), c.nV, F.data(), c.nF, J, merged.data(), nT);
-      for (int t = 0; t < c.T; ++t) EXPECT(std::abs(m.value(0, t) - (phi.value(0, t) + phi.value(1, t))) < 1e-12 * (1 + std::abs(m.value(0, t))), c.tag << ": a parent's flux is the sum of its children's");
+      const Eigen::MatrixXd m = tileForm(nxr::operators::weakDivergence(P.data(), c.nV, F.data(), c.nF, J), merged.data(), nT);
+      for (int t = 0; t < c.T; ++t) EXPECT(std::abs(m(0, t) - (phi(0, t) + phi(1, t))) < 1e-12 * (1 + std::abs(m(0, t))), c.tag << ": a parent's flux is the sum of its children's");
     }
   }
   // a closed sphere: all its tiles together have no net outflow (and no circulation) of any field
@@ -83,16 +110,16 @@ int main() {
     for (std::size_t i = 0; i < F.size(); ++i) F[i] = static_cast<std::int32_t>(c.a.at("F")[i]);
     Eigen::MatrixXd J(3 * c.nV, c.T);
     for (int r = 0; r < 3 * c.nV; ++r) for (int t = 0; t < c.T; ++t) J(r, t) = c.a.at("J")[static_cast<std::size_t>(r) * c.T + t];
-    const auto p = nxr::integrals::flux(c.a.at("P").data(), c.nV, F.data(), c.nF, J, one.data(), 1);
-    const auto g = nxr::integrals::circulation(c.a.at("P").data(), c.nV, F.data(), c.nF, J, one.data(), 1);
-    EXPECT(std::abs(p.value(0, 0)) < 1e-12 && std::abs(g.value(0, 0)) < 1e-12, "a closed surface has no net outflow and no circulation");
+    const Eigen::MatrixXd p = tileForm(nxr::operators::weakDivergence(c.a.at("P").data(), c.nV, F.data(), c.nF, J), one.data(), 1);
+    const Eigen::MatrixXd g = tileForm(nxr::operators::weakCurl(c.a.at("P").data(), c.nV, F.data(), c.nF, J), one.data(), 1);
+    EXPECT(std::abs(p(0, 0)) < 1e-12 && std::abs(g(0, 0)) < 1e-12, "a closed surface has no net outflow and no circulation");
     // refusals
     bool threw = false;
     Eigen::MatrixXd bad = J; bad(0, 0) = NAN;
-    try { nxr::integrals::flux(c.a.at("P").data(), c.nV, F.data(), c.nF, bad, one.data(), 1); } catch (const std::invalid_argument&) { threw = true; }
+    try { nxr::operators::weakDivergence(c.a.at("P").data(), c.nV, F.data(), c.nF, bad); } catch (const std::invalid_argument&) { threw = true; }
     EXPECT(threw, "a NaN field is refused");
     threw = false;
-    try { nxr::integrals::flux(c.a.at("P").data(), c.nV, F.data(), c.nF, J.topRows(3), one.data(), 1); } catch (const std::invalid_argument&) { threw = true; }
+    try { nxr::operators::weakDivergence(c.a.at("P").data(), c.nV, F.data(), c.nF, J.topRows(3)); } catch (const std::invalid_argument&) { threw = true; }
     EXPECT(threw, "a field of the wrong size is refused");
   }
   {   // THE INTRINSIC FORM on the closed sphere
@@ -101,26 +128,26 @@ int main() {
     for (std::size_t i = 0; i < F.size(); ++i) F[i] = static_cast<std::int32_t>(c.a.at("F")[i]);
     for (std::size_t i = 0; i < codes.size(); ++i) codes[i] = static_cast<std::int32_t>(c.a.at("codes")[i]);
     const std::vector<double>& P = c.a.at("P");
-    nxr::manifold::IntrinsicSurface dm(P.data(), c.nV, F.data(), c.nF);
-    const nxr::intrinsic::Complex cx = nxr::intrinsic::complexOf(dm);
+    nxr::geometry::IntrinsicSurface dm(P.data(), c.nV, F.data(), c.nF);
+    const nxr::signal::Complex cx = nxr::signal::complexOf(nxr::geometry::surfaceArrays(P.data(), c.nV, F.data(), c.nF));
     Eigen::VectorXd f(c.nV);
     for (int v = 0; v < c.nV; ++v) f(v) = P[static_cast<std::size_t>(3 * v + 2)] / 0.07 + 0.3 * P[static_cast<std::size_t>(3 * v)] / 0.07;   // a smooth function (degree 1: its Laplacian is -2 f / R^2)
     const Eigen::VectorXd u = cx.d0 * f;                                                      // the 1-form of grad f
     const int nT = 8;
-    const Eigen::VectorXd circ = nxr::intrinsic::tileCirculation(cx, u, codes.data(), nT);
+    const Eigen::VectorXd circ = tileSum(nxr::signal::vertexCirculation(cx, u), codes.data(), nT);
     EXPECT(circ.cwiseAbs().maxCoeff() < 1e-12, "the circulation of a gradient is 0: " << circ.cwiseAbs().maxCoeff());
-    const Eigen::VectorXd fl = nxr::intrinsic::tileFlux(cx, u, codes.data(), nT);
+    const Eigen::VectorXd fl = tileSum(nxr::signal::vertexOutflow(cx, u), codes.data(), nT);
     EXPECT(std::abs(fl.sum()) < 1e-12 * (1 + fl.cwiseAbs().maxCoeff()), "a closed surface has no net outflow: " << fl.sum());
     std::vector<std::int32_t> merged = codes;
     for (auto& x : merged) if (x == 1) x = 0;
-    const Eigen::VectorXd fm = nxr::intrinsic::tileFlux(cx, u, merged.data(), nT);
+    const Eigen::VectorXd fm = tileSum(nxr::signal::vertexOutflow(cx, u), merged.data(), nT);
     EXPECT(std::abs(fm(0) - (fl(0) + fl(1))) < 1e-12 * (1 + std::abs(fm(0))), "a parent's flux is the sum of its children's");
     // against the extrinsic flux of the sharpened gradient (a face-constant tangent field): the same tile integrals up to the representation
-    const Eigen::MatrixXd sf = nxr::intrinsic::sharp(cx, u);
-    const auto ex = nxr::integrals::flux(P.data(), c.nV, F.data(), c.nF, sf, codes.data(), nT);
+    const Eigen::MatrixXd sf = nxr::signal::sharp(cx, u);
+    const Eigen::MatrixXd ex = tileForm(nxr::operators::weakDivergence(P.data(), c.nV, F.data(), c.nF, sf), codes.data(), nT);
     double worst = 0, big = 0;
     for (int k = 0; k < nT; ++k) big = std::max(big, std::abs(fl(k)));
-    for (int k = 0; k < nT; ++k) worst = std::max(worst, std::abs(fl(k) - ex.value(k, 0)));
+    for (int k = 0; k < nT; ++k) worst = std::max(worst, std::abs(fl(k) - ex(k, 0)));
     std::cout << "  intrinsic tile flux of a gradient vs the extrinsic one of its sharpened field: worst difference " << worst / big << " of the largest\n";
     EXPECT(worst < 0.1 * big, "the two tile fluxes agree: " << worst / big);
   }

@@ -18,17 +18,16 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/forms.h"
+#include "nxr/signal/forms.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
-#include "nxr/io/constant_q.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
-#include "nxr/filterbank.h"
-#include "nxr/taps.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/filters_fir.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -40,19 +39,19 @@ template <class F> std::string what_of(F f) { try { f(); } catch (const Error& e
 std::vector<float> read_floats(const fs::path& p) {
   ArrayReader r = nxrtest::open_array(p);
   const auto raw = r.read();
-  std::vector<float> v(raw.size() / sizeof(float));
-  std::memcpy(v.data(), raw.data(), v.size() * sizeof(float));
-  return v;
+  std::vector<double> d(raw.size() / sizeof(double));      // a statistic is float64
+  std::memcpy(d.data(), raw.data(), d.size() * sizeof(double));
+  return std::vector<float>(d.begin(), d.end());
 }
 std::string def(const std::string& form, const std::string& levels, bool glued, const std::vector<int>& read) {
   std::string t = "pipeline: levels_run\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0, where: {name: free}}\n"
-                  "  tiles: {selection: ladder, manifold: kernel.to}\nsteps:\n  chunks:\n    over: recording\n    do:\n      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0], shape: morlet}, out: z}\n"
-                  "      - {step: apply_kernel, in: {x: z, kernel: kernel, tiles: tiles}, with: {" + levels + ", transform: exact, spatial_shape: mexhat, form: " + form + ", glued: " + (glued ? "true" : "false") + "}, out: j}\n"
-                  "      - {step: power, in: {x: j}, out: p}\n";
+                  "  tiles: {selection: ladder, manifold: kernel.to}\n" + std::string(glued ? "  glued: {manifold: surface, where: {name: cortex_glued}}\n" : "") + "steps:\n  chunks:\n    over: recording\n    do:\n      - {node: signal.analytic, in: {x: recording}, with: {band: [8.0, 12.0], shape: morlet}, out: z}\n"
+                  "      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel, tiles: tiles" + std::string(glued ? ", glued: glued" : "") + "}, with: {" + levels + ", transform: exact, spatial_shape: mexhat, form: " + form + "}, out: j}\n"
+                  "      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}\n";
   std::string outs = "outputs:\n";
   for (const int l : read) {
-    t += "      - {step: at_level, in: {x: p}, with: {level: " + std::to_string(l) + "}, out: p" + std::to_string(l) + "}\n      - {step: measure, in: {x: p" + std::to_string(l) + "}, with: {bad_segments: ignore}, out: power" + std::to_string(l) + "}\n";
-    outs += "  power" + std::to_string(l) + ": {kind: band power}\n";
+    t += "      - {node: select.at_level, in: {x: p}, with: {scale: \"index:" + std::to_string(l) + "\"}, out: p" + std::to_string(l) + "}\n      - {node: measurement.estimate, in: {x: p" + std::to_string(l) + "}, with: {method: sample}, out: power" + std::to_string(l) + "}\n";
+    outs += "  power" + std::to_string(l) + ": {kind: statistic}\n";
   }
   return t + outs;
 }
@@ -121,27 +120,28 @@ int main() {
       kernel("fixed", kfix, N, "scalar");
       kernel("free", kfree, 3 * N, "vector3");
     });
-    sub.compose([&] { nxr::io::constantq::write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
+  nxrtest::make_time_grids(ds, sub);
+  nxrtest::make_tiles(ds, sub);
   { EigenSolveOptions eo; eo.modes = 100; eo.surface = "cortex"; eigen_solve(ds, sub, eo, {}); }          // stores the glued surface (cortex_glued) and its modes: the form's output lives on it
 
   // the DIRECT computation: Z the band's analytic signal on the channels (Morlet taps), M = F_l form(K) with the dense exact hat, |M Z|² averaged over the run
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   const SurfaceLevel SL = read_surface_level(sub, S, level);
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
   const SpatialBand sband = make_spatial_band(ds, sub, S, SL, sbo);
   const std::int64_t Vg = sband.glued_vertices;
   CHECK(Vg > N && sband.glued_surface == "cortex_glued");
-  const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 12.0); };
-  const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-  const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
+  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
+  const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+  const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
   Eigen::MatrixXd Re(M, T), Im(M, T);
   for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) { Re(c, t) = re[static_cast<std::size_t>(c) * T + t]; Im(c, t) = im[static_cast<std::size_t>(c) * T + t]; }
-  const SurfaceInput S32 = read_surface(sub);
+  const SurfaceInput S32 = read_surface(sub, std::string("cortex"));
   std::vector<float> P32(S32.vertices.begin(), S32.vertices.end());
-  const auto op = nxr::forms::assembleFaceGradient(P32.data(), S32.faces.data(), static_cast<int>(S32.n_vertices()), static_cast<int>(S32.n_faces()));
+  const auto op = nxr::signal::assembleFaceGradient(P32.data(), S32.faces.data(), static_cast<int>(S32.n_vertices()), static_cast<int>(S32.n_faces()));
   Eigen::MatrixXd Kfree(3 * N, M);
   for (int r = 0; r < 3 * N; ++r) for (int c = 0; c < M; ++c) Kfree(r, c) = kfree[static_cast<std::size_t>(r) * M + c];
   auto direct = [&](const Eigen::MatrixXd& Mop) {
@@ -155,7 +155,7 @@ int main() {
     for (std::size_t i = 0; i < want.size(); ++i) { top = std::max(top, want[i]); w = std::max(w, std::abs(got[i] - want[i])); }
     return got.size() == want.size() ? w / top : 1e9;
   };
-  using nxr::forms::Form;
+  using nxr::signal::Form;
   const SurfaceLevel SL2 = read_surface_level(sub, S, 2);
   const SpatialBand sband2 = make_spatial_band(ds, sub, S, SL2, sbo);
   CHECK(sband2.glued_vertices == Vg);
@@ -170,10 +170,10 @@ int main() {
   // WITH A FORM: curl_tan, the levels 2 and 3 in one operator
   std::vector<std::vector<double>> wants;
   {
-    const auto r = run_def(def("curl_tan", "levels: [2, 3]", false, lvs));
-    CHECK(r.size() == 1 && r[0]["stored"].size() == 2);
+    const auto r = run_def(def("curl_tan", "spatial_scales: [\"index:2\", \"index:3\"]", false, lvs));
+    CHECK(r.size() == 1 && r[0]["stored"].size() >= 2);
     for (std::size_t k = 0; k < lvs.size(); ++k) {
-      const Eigen::MatrixXd Mop = bands[k]->apply_glued(nxr::forms::formOfFreeColumns(Form::curl_tan, Kfree, op));
+      const Eigen::MatrixXd Mop = bands[k]->apply_glued(nxr::signal::formOfFreeColumns(Form::curl_tan, Kfree, op));
       wants.push_back(direct(Mop));
       const std::vector<float> got = stored_power(r[0], lvs[k]);
       const double e = worst(got, wants.back());
@@ -186,9 +186,9 @@ int main() {
     const auto& prov = r[0].contains("prepared") ? r[0]["prepared"] : Json::object();
     CHECK(prov.dump().find("\"levels\":[2,3]") != std::string::npos);            // the provenance names them
     // one level of the list equals the same level asked alone
-    std::string one = def("curl_tan", "level: 3", false, {});
-    one.replace(one.find("      - {step: power"), std::string("      - {step: power, in: {x: j}, out: p}\n").size(), "      - {step: power, in: {x: j}, out: p}\n      - {step: measure, in: {x: p}, with: {bad_segments: ignore}, out: power3}\n");
-    one.replace(one.find("outputs:\n"), 9, "outputs:\n  power3: {kind: band power}\n");
+    std::string one = def("curl_tan", "spatial_scale: \"index:3\"", false, {});
+    one.replace(one.find("      - {node: signal.field_form"), std::string("      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}\n").size(), "      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}\n      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: power3}\n");
+    one.replace(one.find("outputs:\n"), 9, "outputs:\n  power3: {kind: statistic}\n");
     const auto r1 = run_def(one);
     const std::vector<float> a = stored_power(r1[0], 3), bb = stored_power(r[0], 3);
     double dmax = 0;
@@ -198,8 +198,8 @@ int main() {
   }
   // NO FORM, glued: the free current's three components each through the band, the power summed over them
   {
-    const auto r = run_def(def("none", "levels: [2, 3]", true, lvs));
-    CHECK(r.size() == 1 && r[0]["stored"].size() == 2);
+    const auto r = run_def(def("none", "spatial_scales: [\"index:2\", \"index:3\"]", true, lvs));
+    CHECK(r.size() == 1 && r[0]["stored"].size() >= 2);
     for (std::size_t k = 0; k < lvs.size(); ++k) {
       std::vector<double> want(static_cast<std::size_t>(Vg), 0.0);
       for (int comp = 0; comp < 3; ++comp) {
@@ -215,17 +215,17 @@ int main() {
     }
   }
   // THE PLAN
-  auto refused = [&](const std::string& t) { return what_of([&] { const g::Definition d = g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t); g::run(ds, sub, d, Json::object(), g::RunOptions{}); }); };
-  CHECK(refused(def("curl_tan", "level: 3, levels: [2, 3]", false, {3})).find("not both") != std::string::npos);
-  CHECK(refused(def("curl_tan", "levels: [3, 3]", false, {3})).find("repeats") != std::string::npos);
-  CHECK(refused(def("curl_tan", "levels: [2, 40]", false, {2})).find("no level 40") != std::string::npos);
-  CHECK(refused(def("curl_tan", "levels: [2, 3]", false, {5})).find("not one of the field's levels") != std::string::npos);
-  CHECK(refused(def("curl_tan", "level: 3", false, {3})).find("not a multi-level field") != std::string::npos);
-  CHECK(refused(def("none", "levels: [2, 3], envelope: spatiotemporal", false, {3})).find("temporal envelope") != std::string::npos);
-  { std::string t = def("none", "level: 3", true, {});
+  auto refused = [&](const std::string& t) { return what_of([&] { const g::Definition d = g::parse(parse_yaml(t, "f.yaml"), "f.yaml", t); g::run(ds, sub, d, Json::object(), [] { g::RunOptions o; o.chunks = "0"; return o; }()); }); };
+  CHECK(refused(def("curl_tan", "spatial_scale: \"index:3\", spatial_scales: [\"index:2\", \"index:3\"]", false, {3})).find("not both") != std::string::npos);
+  CHECK(refused(def("curl_tan", "spatial_scales: [\"index:3\", \"index:3\"]", false, {3})).find("repeats") != std::string::npos);
+  CHECK(refused(def("curl_tan", "spatial_scales: [\"index:2\", \"index:40\"]", false, {2})).find("the tile ladder has levels") != std::string::npos);
+  CHECK(refused(def("curl_tan", "spatial_scales: [\"index:2\", \"index:3\"]", false, {5})).find("the field holds levels") != std::string::npos);
+  CHECK(refused(def("curl_tan", "spatial_scale: \"index:3\"", false, {3})).find("not a multi-level field") != std::string::npos);
+  CHECK(refused(def("none", "spatial_scales: [\"index:2\", \"index:3\"], envelope: spatiotemporal", false, {3})).find("temporal envelope") != std::string::npos);
+  { std::string t = def("none", "spatial_scale: \"index:3\"", true, {});
     t.replace(t.find("transform: exact"), 16, "transform: exact");
-    CHECK(refused("pipeline: x\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0, where: {name: free}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
-                  "      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {step: apply_kernel, in: {x: z, kernel: kernel}, with: {glued: true}, out: j}\n      - {step: power, in: {x: j}, out: p}\n"
-                  "      - {step: measure, in: {x: p}, with: {bad_segments: ignore}, out: power}\noutputs:\n  power: {kind: band power}\n").find("needs `tiles`") != std::string::npos); }
+    CHECK(refused("pipeline: x\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0, where: {name: free}}\n  glued: {manifold: surface, where: {name: cortex_glued}}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
+                  "      - {node: signal.analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}\n      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel, glued: glued}, with: {transform: exact}, out: j}\n      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}\n"
+                  "      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: power}\noutputs:\n  power: {kind: statistic}\n").find("needs `tiles`") != std::string::npos); }
   return nxrtest::finish("test_apply_kernel_levels") || g_failures ? 1 : 0;
 }

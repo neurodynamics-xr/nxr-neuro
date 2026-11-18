@@ -8,7 +8,7 @@ The maintainers redrew the two verbs on 2026-11-17; the design is `2026-11-17-co
 - **`run <pipeline>`** runs every pipeline: each `compute <what>` command of section 3's table becomes `run <what>` with the same options (the hand-wired
   pipelines are dispatched as they are), and the YAML definitions take `--<parameter> VALUE` and `--from/--to`/`--all` (`--set` goes); `run <pipeline> --help`
   is generated, for definitions from their parameters' declared meaning, default and unit.
-- **`compute <node or graph>`** applies a registered node (grouped names: `welch.psd`, `filter.bandpass`), a composite node or a graph file to files named on the
+- **`compute <node or graph>`** applies a registered node (grouped names: `signal.psd`, `filter.bandpass`), a composite node or a graph file to files named on the
   command line (NumPy, MATLAB, GIFTI, NIfTI, the recording formats `io/formats` reads), with a provenance sidecar; `list nodes` lists them.
 - **Old spellings** (section 3's hidden aliases, and `compute <what>`) are not kept: nxr-neuro is unreleased, so they are refused with the new spelling named.
 

@@ -7,7 +7,7 @@
 # Usage from JS:
 #   import createNxrComputeModule from './nxr_compute.js'
 #   const nxr-compute = await createNxrComputeModule()
-#   const ctx = new nxr-compute.Manifold(verts, faces)
+#   const surface = nxr-compute['geometry.surfaceArrays'](verts, faces)   // the surface as data; every function is `<toolbox>.<function>`
 #
 # This target only builds when CMake is configured with the
 # Emscripten toolchain (i.e. via emcmake). It links the nxr-compute
@@ -45,7 +45,7 @@ target_link_libraries(nxr_compute_wasm PRIVATE nxr_compute)
 # MAXIMUM_MEMORY=2GB           Browser-side cap
 # ENVIRONMENT=web,node,worker  Run in any of these
 # NO_EXIT_RUNTIME=1            Keep the runtime alive after main() (so the
-#                              Manifold doesn't get torn down)
+#                              module doesn't get torn down)
 # EXPORT_EXCEPTION_HANDLING_HELPERS=1  C++ exceptions are native wasm exceptions (-fwasm-exceptions, set for the whole build in
 #                              the top-level CMakeLists); this exports getExceptionMessage for them. The old
 #                              DISABLE_EXCEPTION_CATCHING=0 (JS exceptions) cannot be combined with -fwasm-exceptions.

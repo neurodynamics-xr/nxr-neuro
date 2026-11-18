@@ -1,11 +1,13 @@
 // nxr::kernels: parity with Rheome's +filters (space-time kernels, sphere_kernel, steer, spin, scatter), jointfilterbank.speedkernel / band and filters.psitime
 // (goldens/gen_kernels_golden.m, on a synthetic sphere spectrum and icosphere), plus the kernels' own identities. Synthetic data only.
-#include "nxr/spacetime_kernels.h"
-#include "nxr/jointbank.h"
+#include "nxr/signal/kernels.h"
+#include "nxr/signal/graphtransforms.h"
+#include "nxr/signal/jointfilterbank.h"
 #include "golden_io.h"
 #include "mesh_helpers.h"
-using namespace nxr::kernels;
-namespace fb = nxr::filterbank;
+using namespace nxr::signal;
+namespace fb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 using cd = std::complex<double>;
 
@@ -25,7 +27,7 @@ int main() {
     const MatrixXd sf = g.mat("signedFull");
     EXPECT(relErr(MatrixXd(signedFrequencies(half, Half::Positive).transpose()), sh) < 1e-14 && relErr(MatrixXd(signedFrequencies(half, Half::Positive).transpose()), MatrixXd(half.transpose())) < 1e-14,
            "signedFrequencies(one-sided grid, Positive) == Rheome's signedfrequencies(.., 'positive'): unchanged, every bin non-negative (a 20 Hz bin reads +20 Hz)");
-    EXPECT(relErr(MatrixXd(ws.transpose()), sf) < 1e-11 && relErr(MatrixXd(ws), MatrixXd(nxr::fft::fftfreq(grid.size(), 1.0 / 40.0))) < 1e-11,
+    EXPECT(relErr(MatrixXd(ws.transpose()), sf) < 1e-11 && relErr(MatrixXd(ws), MatrixXd(nxr::signal::fftfreq(grid.size(), 1.0 / 40.0))) < 1e-11,
            "signedFrequencies(full grid, Full) == Rheome's, and is fftfreq (Rheome maps +fs/2 to -fs/2 as numpy does)");
     EXPECT(half.minCoeff() >= 0 && signedFrequencies(half, Half::Full)(half.size() - 1) < 0, "  ... what the old unconditional wrap did to the one-sided grid's top bin: " + std::to_string(signedFrequencies(half, Half::Full)(half.size() - 1)) + " Hz for " + std::to_string(half(half.size() - 1)) + " Hz (hence the stated half)");
     eq("gabor", gabor(lam, ws, 20, 10, 2), g.mat("gabor"));
@@ -56,13 +58,13 @@ int main() {
     Eigen::VectorXd a(2), b(2); a << 0.05, 0.1; b << 0.2, 0.5;
     eq("diffgauss", diffgauss(lam, a, b), g.mat("diffgauss"));
     const VectorXd gam = g.mat("gamma").col(0), gl = g.mat("gl").col(0);
-    eq("sphereKernel", MatrixXd(sphereKernel(gam, gl)), g.mat("sphere_kernel"));
+    eq("sphere_kernel", MatrixXd(sphere_kernel(gam, gl)), g.mat("sphere_kernel"));
     const VectorXd f1 = g.mat("f1").row(0).transpose();
     eq("raisedCosineBand == filters.psitime", MatrixXd(raisedCosineBand(f1, 8, 14, 1.5).transpose()), g.mat("psitime"));
     eq("raisedCosineBand == jointfilterbank.band(f), f in Hz", MatrixXd(raisedCosineBand(f1, 8, 14, 1.5).transpose()), g.mat("band_hz"));
-    { nxr::jointbank::Kernel K = nxr::jointbank::speedKernel(40, 6); const MatrixXd ref = g.mat("speed"); MatrixXd out(lam.size(), f1.size());
+    { nxr::signal::jointfilterbank::Kernel K = nxr::signal::jointfilterbank::speedkernel(40, 6); const MatrixXd ref = g.mat("speed"); MatrixXd out(lam.size(), f1.size());
       for (int i = 0; i < lam.size(); ++i) for (int j = 0; j < f1.size(); ++j) out(i, j) = K(lam(i), f1(j)).real();
-      eq("speedKernel (f in Hz, omega = 2 pi f inside)", out, ref); }
+      eq("speedkernel (f in Hz, omega = 2 pi f inside)", out, ref); }
     const MatrixXd Wq = g.mat("Wq"), q0 = g.mat("q0");
     eq("steer", steer(Wq, Eigen::Vector4d(q0.col(0))), g.mat("steer"));
     const MatrixXd V = g.mat("V"), ax = g.mat("axis"), th = g.mat("theta");
@@ -78,14 +80,14 @@ int main() {
     const MatrixXd Ld = g.mat("icoL"), Md = g.mat("icoM"), lm = g.mat("icoLambda");
     const MatrixXcd Fc = g.cmat("FcRe", "FcIm");
     Eigen::GeneralizedSelfAdjointEigenSolver<MatrixXd> es(Ld, Md);
-    fb::EigenTransform T; T.phi = es.eigenvectors(); T.lambda = es.eigenvalues(); T.mass = Md.sparseView();
+    gt::EigenTransform T; T.phi = es.eigenvectors(); T.lambda = es.eigenvalues(); T.mass = Md.sparseView();
     for (int i = 0; i < T.lambda.size(); ++i) if (std::abs(T.lambda(i)) < 1e-10) T.lambda(i) = 0;
     std::string word;
     int cases = 0;
     while (g.f >> word && word == "scatter") {
         const std::string fam = g.tok(); const int P = (int)g.num();
         const MatrixXd sig = g.mat("Sigma"), S0re = g.mat("S0re"), S0im = g.mat("S0im"), S1 = g.mat("S1"), pairs = g.mat("Pairs"), S2 = g.mat("S2");
-        const fb::Bank bank = fb::design(fam == "mexhat" ? fb::Family::MexHat : fam == "heat" ? fb::Family::Heat : fb::Family::Itersine, fb::Range::fromSpectrum(T.lambda));
+        const fb::GraphFilterbank bank = fb::design(fam == "mexhat" ? fb::Family::MexHat : fam == "heat" ? fb::Family::Heat : fb::Family::Itersine, fb::Range::fromSpectrum(T.lambda));
         const Scatter S = scatter(bank, T, Fc, 2);
         MatrixXd s1(S.S1.size(), 3); for (size_t m = 0; m < S.S1.size(); ++m) s1.row((Eigen::Index)m) = S.S1[m].row(0);
         MatrixXd pr(S.pairs.size(), 2), s2(S.pairs.size(), 3);
@@ -111,8 +113,8 @@ int main() {
         EXPECT(throws([&] { diffgauss(l0, VectorXd::Constant(1, 0.3), VectorXd::Constant(1, 0.1)); }) && throws([&] { heat(l0, VectorXd::Constant(1, -1.0), 0); }), "diffgauss t1 >= t2 and heat t < 0 are refused");
         // sphere_kernel: the heat series integrates to the degree-0 gain over the sphere (the mean): ∫K dΩ = g_0
         const int Ng = 4001; VectorXd gm = VectorXd::LinSpaced(Ng, 0, 3.14159265358979323846), glh(30); for (int l = 0; l < 30; ++l) glh(l) = std::exp(-0.3 * l * (l + 1.0));
-        const VectorXd K = sphereKernel(gm, glh); double I = 0; for (int i = 1; i < Ng; ++i) I += 0.5 * (K(i) * std::sin(gm(i)) + K(i - 1) * std::sin(gm(i - 1))) * (gm(i) - gm(i - 1));
-        EXPECT(std::abs(2 * 3.14159265358979323846 * I - glh(0)) < 1e-6, "sphereKernel: ∫ K dΩ = g_0 (" + sci(std::abs(2 * 3.14159265358979323846 * I - glh(0))) + ")");
+        const VectorXd K = sphere_kernel(gm, glh); double I = 0; for (int i = 1; i < Ng; ++i) I += 0.5 * (K(i) * std::sin(gm(i)) + K(i - 1) * std::sin(gm(i - 1))) * (gm(i) - gm(i - 1));
+        EXPECT(std::abs(2 * 3.14159265358979323846 * I - glh(0)) < 1e-6, "sphere_kernel: ∫ K dΩ = g_0 (" + sci(std::abs(2 * 3.14159265358979323846 * I - glh(0))) + ")");
     }
     std::cout << "=== the ruling's definitions ===\n";
     {   // wave on the sphere: the continuum form IS the exact spectrum omega_l = c sqrt(l(l+1)) / R
@@ -140,9 +142,9 @@ int main() {
                "travwave: sense +1 peaks at +c sqrt(lambda)/2pi, -1 at -, 0 is |f| (the sum of the two); sense 2 is refused");
         // a synthetic travelling pattern each way: z(t) = exp(+-i 2 pi f0 t) on the mode of lambda = k^2, through the signed grid of an FFT
         const int N = 200; const double fs = 100, f0b = 3.0, cb = 2 * 3.14159265358979323846 * f0b / k;
-        VectorXd fb_ = nxr::fft::fftfreq(N, 1.0 / fs); VectorXd lk4(1); lk4 << k * k;
+        VectorXd fb_ = nxr::signal::fftfreq(N, 1.0 / fs); VectorXd lk4(1); lk4 << k * k;
         MatrixXcd Z(1, N), Zl(1, N); for (int j = 0; j < N; ++j) { const double ph = 2 * 3.14159265358979323846 * f0b * j / fs; Z(0, j) = cd(std::cos(ph), std::sin(ph)); Zl(0, j) = std::conj(Z(0, j)); }
-        MatrixXcd SR = nxr::fft::fftColumns(MatrixXcd(Z.transpose()), true).transpose(), SL = nxr::fft::fftColumns(MatrixXcd(Zl.transpose()), true).transpose();
+        MatrixXcd SR = nxr::signal::fft(MatrixXcd(Z.transpose())).transpose(), SL = nxr::signal::fft(MatrixXcd(Zl.transpose())).transpose();
         auto share = [&](const MatrixXcd& S, int sense) { const MatrixXd G = travwave(lk4, fb_, cb, 1.0, sense); return (S.array().abs2() * G.array().square()).sum() / S.array().abs2().sum(); };
         EXPECT(share(SR, 1) > 0.99 && share(SR, -1) < 1e-12 && share(SL, -1) > 0.99 && share(SL, 1) < 1e-12 && share(SR, 0) > 0.99 && share(SL, 0) > 0.99,
                "a synthetic wave travelling each way: sense +1 keeps the +f one only, -1 the other, 0 both");

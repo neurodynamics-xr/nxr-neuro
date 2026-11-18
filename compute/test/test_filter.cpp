@@ -1,10 +1,10 @@
 // nxr::filter: parity with Brainstorm's filters (golden/filter_bst_golden.txt from gen_filter_golden.m) on synthetic signals; the frequency response at known points (passband, stopband, the -6 dB / -3 dB points the references define, DC, Nyquist); zero phase / no delay;
 // chunk-size invariance of the streaming filter (FIR to rounding, IIR to its stated tolerance); the refusals.
-#include "nxr/filter.h"
+#include "nxr/signal/filters.h"
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include <random>
-using namespace nxr::filter;
+using namespace nxr::signal::filters;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
@@ -174,20 +174,21 @@ static void chunkInvariance() {
     { FilterOptions o = brainstormFilterOptions(250); o.kind = Kind::Bandstop; o.lowerEdge = 45; o.upperEdge = 55; specs.push_back({"Brainstorm band-stop (IIR forward-backward)", o, 1e-10}); }
     for (const Spec& s : specs) {
         VectorXd mean = x.rowwise().mean();
-        Filter whole(C, s.o, mean);
-        MatrixXd a = whole.add(x), b = whole.finish();
-        MatrixXd ref(C, T);
-        ref << a, b;
-        EXPECT(ref.cols() == T && whole.samplesOut() == T, std::string(s.name) + ": every sample comes out once, in order");
-        EXPECT(whole.lookAhead() > 0 && static_cast<int>(whole.lookAhead()) < T / 2, std::string(s.name) + ": look-ahead " + std::to_string(whole.lookAhead()) + " samples");
+        const Design d = design(s.o);
+        // the whole record: one window with both ends of the record in it
+        const MatrixXd ref = filter(x, s.o, d, mean, 0, T, true, true);
+        EXPECT(ref.cols() == T, std::string(s.name) + ": every sample comes out once, in order");
+        EXPECT(d.lookAhead > 0 && static_cast<int>(d.lookAhead) < T / 2, std::string(s.name) + ": look-ahead " + std::to_string(d.lookAhead) + " samples");
         double worst = 0;
         for (int chunk : {1, 7, 100, 333, 1000, 1023, 1024, 2500, 8999, 9000}) {
-            Filter f(C, s.o, mean);
-            MatrixXd y(C, 0);
-            auto append = [&](const MatrixXd& m) { MatrixXd t(C, y.cols() + m.cols()); t << y, m; y = t; };
-            for (int i = 0; i < T; i += chunk) append(f.add(x.middleCols(i, std::min(chunk, T - i))));
-            append(f.finish());
-            const double e = y.cols() == T ? (y - ref).cwiseAbs().maxCoeff() : 1e9;
+            // the node's way: each block of `chunk` own samples, with its halo of look-behind and look-ahead samples (or the record's ends)
+            MatrixXd y(C, T);
+            for (int i = 0; i < T; i += chunk) {
+                const int own = std::min(chunk, T - i);
+                const int lo = std::max(0, i - static_cast<int>(d.lookBehind)), hi = std::min(T, i + own + static_cast<int>(d.lookAhead));
+                y.middleCols(i, own) = filter(MatrixXd(x.middleCols(lo, hi - lo)), s.o, d, mean, i - lo, own, lo == 0, hi == T);
+            }
+            const double e = (y - ref).cwiseAbs().maxCoeff();
             worst = std::max(worst, e);
             EXPECT(e < s.tol * 20, std::string(s.name) + ", chunk " + std::to_string(chunk) + ": max difference from the whole record " + sci(e));
         }
@@ -208,13 +209,9 @@ static void refusals() {
     EXPECT(throws([&] { bandstop(x, 40, 30, o); }), "a band-stop with the edges swapped");
     EXPECT(throws([&] { notch(MatrixXd::Random(1, 4), {10}, o); }), "an IIR filter on a record shorter than filtfilt's extension");
     FilterOptions b = brainstormFilterOptions(100); b.kind = Kind::Highpass; b.lowerEdge = 5;
-    EXPECT(throws([&] { Filter(2, b); }), "a mean-removing FIR filter without the record's channel means");
+    EXPECT(throws([&] { filter(x, b, Eigen::VectorXd(), 0, 100, true, true); }), "a mean-removing FIR filter without the record's channel means");
     b.removeMean = false;
-    Filter f(2, b);
-    EXPECT(throws([&] { f.add(MatrixXd::Zero(3, 10)); }), "a chunk with the wrong number of channels");
-    f.add(x.leftCols(100));
-    f.finish();
-    EXPECT(throws([&] { f.add(x.leftCols(10)); }), "add after finish");
+    EXPECT(throws([&] { filter(x, b, Eigen::VectorXd(), 0, 6000, true, true); }), "own columns outside the window");
     FilterOptions w = brainstormFilterOptions(1000); w.kind = Kind::Bandpass; w.lowerEdge = 20; w.upperEdge = 400; w.transitionBandwidth = 150;
     EXPECT(throws([&] { design(w); }), "a low-pass edge whose transition band passes Nyquist");
 }

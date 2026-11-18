@@ -3,10 +3,15 @@
 
 #include <algorithm>
 
+#include "nxr/io/array_reader.h"
 #include "nxr/io/database.h"
+#include "nxr/io/json_text.h"
 #include "nxr/io/layout.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/records/records.h"
+#include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/subject_package.h"
 #include "nxr/io/writer.h"
@@ -14,6 +19,8 @@
 #include "nxr/io/store.h"
 
 #include <cmath>
+#include <limits>
+#include <set>
 
 namespace nxr::io::task {
 
@@ -113,6 +120,41 @@ struct Subject::Impl {
   std::string id;
   rec::Records records() const { return rec::Records::of(*db); }
 };
+
+selection::ElementMembers Subject::element_members(const std::string& selection_id) const {
+  if (!impl_->writer) throw Error(code::unsupported, "reading a set's elements needs the subject's store (a writer's subject)");
+  return selection::read_element_members(*impl_->db, impl_->writer->store(), selection_id);
+}
+
+Json Subject::grid_levels(const std::string& selection_id) const {
+  Json out = Json::array();
+  auto node = by_id(Cls::selection, selection_id);
+  if (node && node->type != std::optional<std::string>("ladder") && node->member_of_id) node = by_id(Cls::selection, *node->member_of_id);   // a level of a grid: its grid
+  if (!node || node->type != std::optional<std::string>("ladder")) return out;
+  const Json grid = node->params.is_object() && node->params.contains("grid") ? node->params["grid"] : Json::object();
+  if (grid.is_object() && grid.value("kind", std::string()) == "time" && grid.contains("rate") && grid["rate"].is_number() && grid["rate"].get<double>() > 0) {
+    const double rate = grid["rate"].get<double>();
+    std::int64_t samples = grid.contains("samples") && grid["samples"].is_number_integer() ? grid["samples"].get<std::int64_t>() : (std::int64_t(1) << 24);
+    int top = 0;
+    while (top < 40 && (std::int64_t(1) << (top + 1)) <= samples) ++top;
+    for (int k = 0; k <= top; ++k) out.push_back(Json{{"level", k}, {"measurement", static_cast<double>(std::int64_t(1) << k) / rate}, {"unit", "s"}, {"attributes", Json{{"samples", std::int64_t(1) << k}}}});
+    return out;
+  }
+  if (!node->dictionary_id) return out;
+  for (const Row& r : impl_->db->all("SELECT code, measurement, measurement_unit, attributes_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY code", {V(*node->dictionary_id)})) {
+    Json e = Json{{"level", integer(r, "code")}, {"attributes", Json::parse(opt_text(r, "attributes_json").value_or("{}"), nullptr, false)}};
+    if (!is_null(r, "measurement")) { e["measurement"] = std::holds_alternative<double>(r.at("measurement")) ? std::get<double>(r.at("measurement")) : static_cast<double>(std::get<std::int64_t>(r.at("measurement"))); e["unit"] = opt_text(r, "measurement_unit").value_or(""); }
+    if (!e["attributes"].is_object()) e["attributes"] = Json::object();
+    out.push_back(std::move(e));
+  }
+  return out;
+}
+
+Json Subject::query_members(const query::Query& q) const { return query::members(*impl_->db, q, impl_->writer ? &impl_->writer->store() : nullptr); }
+std::int64_t Subject::write_member_rows(const Json& rows, const std::string& computed_by) const {
+  if (!impl_->writer) throw Error(code::unsupported, "writing measurement rows needs a writer's subject");
+  return ::nxr::io::write_measurements(*impl_->db, rows, std::optional<std::string>(computed_by));
+}
 
 Subject Subject::of(SubjectWriter& sub) {
   Subject s;
@@ -235,19 +277,16 @@ std::vector<Node> Subject::fields_on_axis(const std::string& factor_manifold_id,
 }
 
 std::int64_t Subject::entry_count(const std::string& dictionary_id) const {
-  return integer(*impl_->db->one("SELECT COUNT(*) AS n FROM dictionary_entry WHERE dictionary_id = ?", {V(dictionary_id)}), "n");
+  return selection::lookup_size(*impl_->db, dictionary_id);
 }
 
 std::vector<DictionaryLevel> Subject::dictionary_entries(const std::string& dictionary_id) const {
   std::vector<DictionaryLevel> out;
-  for (const auto& r : impl_->db->all("SELECT code, name, color_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {V(dictionary_id)})) {
+  for (const selection::Entry& x : selection::load_lookup(*impl_->db, dictionary_id)) {
     DictionaryLevel e;
-    e.code = integer(r, "code");
-    e.name = text(r, "name");
-    if (const auto c = opt_text(r, "color_json")) {
-      const Json j = Json::parse(*c, nullptr, false);
-      if (j.is_array() && j.size() >= 3 && j[0].is_number() && j[1].is_number() && j[2].is_number()) e.color = std::array<int, 3>{j[0].get<int>(), j[1].get<int>(), j[2].get<int>()};
-    }
+    e.code = x.code;
+    e.name = x.name;
+    e.color = x.color;
     out.push_back(std::move(e));
   }
   return out;
@@ -351,21 +390,21 @@ std::vector<Json> Subject::measured_kinds(const std::string& selection_id) const
 }
 
 std::vector<std::string> Subject::measured_selections(const std::string& of_field_id, const std::string& measure) const {
-  std::vector<std::string> out;
-  for (const Row& r : impl_->db->all("SELECT DISTINCT selection_id FROM selection_measurement WHERE of_field_id = ? AND measure = ? ORDER BY selection_id", {V(of_field_id), V(measure)}))
-    out.push_back(text(r, "selection_id"));
-  return out;
+  return selection::selections_measured(*impl_->db, of_field_id, measure);
 }
 
 bool Subject::has_measures(const std::string& selection_id, const std::string& of_field_id) const {
-  return impl_->db->one("SELECT 1 AS x FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? LIMIT 1", {V(selection_id), V(of_field_id)}).has_value();
+  selection::MeasurementFilter f;
+  f.of_field_id = of_field_id;
+  return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
-bool Subject::has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id) const {
-  std::string sql = "SELECT 1 AS x FROM selection_measurement WHERE selection_id = ? AND measure = ?";
-  std::vector<Value> args{V(selection_id), V(measure)};
-  if (of_field_id) { sql += " AND of_field_id = ?"; args.push_back(V(*of_field_id)); }
-  return impl_->db->one(sql + " LIMIT 1", args).has_value();
+bool Subject::has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_statistic_id) const {
+  selection::MeasurementFilter f;
+  f.measure = measure;
+  f.of_field_id = of_field_id;
+  f.of_statistic_id = of_statistic_id;
+  return selection::has_measurement(*impl_->db, selection_id, f);
 }
 
 std::optional<Node> Subject::by_id_or_name(Cls cls, const std::string& key) const {
@@ -378,6 +417,12 @@ std::optional<Node> Subject::by_id_or_name(Cls cls, const std::string& key) cons
 
 std::optional<std::string> Subject::line_named(const std::string& name) const {
   const auto r = impl_->db->one("SELECT id FROM manifold WHERE subject_id = ? AND name = ? AND type = 'line'", {V(impl_->id), V(name)});
+  if (!r) return std::nullopt;
+  return text(*r, "id");
+}
+
+std::optional<std::string> Subject::manifold_named(const std::string& name) const {
+  const auto r = impl_->db->one("SELECT id FROM manifold WHERE subject_id = ? AND name = ?", {V(impl_->id), V(name)});
   if (!r) return std::nullopt;
   return text(*r, "id");
 }
@@ -464,36 +509,51 @@ std::int64_t Unit::write_measurements(const Json& rows) {
   // a row that names how it was made keeps that (a result's rows may carry more than the unit's tool); the others are recorded as computed by the unit's tool
   Json named = rows;
   if (named.is_array()) for (auto& r : named) if (r.is_object() && (!r.contains("computed_by") || r["computed_by"].is_null())) r["computed_by"] = by_.tool;
-  return nxr::io::write_measurements(*impl_->db, named, std::nullopt);
+  return selection::save_measurements(*impl_->db, named, std::nullopt);
 }
-std::int64_t Unit::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) {
+std::int64_t Unit::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure, const std::optional<std::string>& of_statistic_id) {
   if (!open_) throw Error(code::not_writable, "unit: closed");
-  Json where{{"selectionId", selection_id}};
-  if (of_field_id) where["ofFieldId"] = *of_field_id;
-  if (measure) where["measure"] = *measure;
-  return nxr::io::delete_measurements(*impl_->db, where);
+  return selection::remove_measurements(*impl_->db, selection_id, of_field_id, measure, of_statistic_id);
 }
 void Unit::set_params(const std::string& selection_id, const Json& params) {
   if (!open_) throw Error(code::not_writable, "unit: closed");
-  impl_->db->execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(params)), V(selection_id)});
+  selection::set_params(*impl_->db, selection_id, params);
 }
 
 
 std::int64_t Subject::write_measurements(const Json& rows, const std::optional<std::string>& by) const {
   std::int64_t n = 0;
-  impl_->db->tx([&] { n = nxr::io::write_measurements(*impl_->db, rows, by); });
+  impl_->db->tx([&] { n = selection::save_measurements(*impl_->db, rows, by); });
   return n;
 }
 
-std::int64_t Subject::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure) const {
-  Json where{{"selectionId", selection_id}};
-  if (of_field_id) where["ofFieldId"] = *of_field_id;
-  if (measure) where["measure"] = *measure;
-  return nxr::io::delete_measurements(*impl_->db, where);
+std::int64_t Subject::remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& measure, const std::optional<std::string>& of_statistic_id) const {
+  return selection::remove_measurements(*impl_->db, selection_id, of_field_id, measure, of_statistic_id);
 }
 
-void Subject::set_params(const std::string& selection_id, const Json& params) const {
-  impl_->db->execute("UPDATE selection SET params_json = ? WHERE id = ?", {V(jdump(params)), V(selection_id)});
+void Subject::set_params(const std::string& selection_id, const Json& params) const { selection::set_params(*impl_->db, selection_id, params); }
+
+std::optional<Node> Subject::stored_operator(const Json& key) const { return cached(Cls::operator_, key); }
+
+std::vector<Node> Subject::fields_of_operator(const std::string& operator_id) const {
+  std::vector<Node> out;
+  for (const Row& r : impl_->db->all("SELECT * FROM field WHERE subject_id = ? AND of_operator_id = ? AND status = 'complete' ORDER BY name, id", {V(id()), V(operator_id)}))
+    out.push_back(node_of(Cls::field, rec::FieldRow::from_row(r)));
+  return out;
+}
+
+std::vector<Chart> Subject::charts(const std::string& manifold_id) const {
+  std::vector<Chart> out;
+  for (const Row& r : impl_->db->all("SELECT c2.* FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system c1 ON c1.id = g.coordinate_system_id "
+                                     "JOIN coordinate_system c2 ON c2.space_id = c1.space_id WHERE m.id = ? ORDER BY c2.is_reference DESC, c2.name", {V(manifold_id)})) {
+    Chart c;
+    c.id = text(r, "id"); c.name = text(r, "name"); c.space_id = text(r, "space_id");
+    c.unit = opt_text(r, "unit"); c.transition = opt_text(r, "transition"); c.description = opt_text(r, "description");
+    c.is_reference = integer(r, "is_reference") != 0;
+    if (const auto tj = opt_text(r, "transition_json")) c.transition_json = Json::parse(*tj, nullptr, false);
+    out.push_back(std::move(c));
+  }
+  return out;
 }
 
 
@@ -503,9 +563,14 @@ namespace {
 ArrayView view_of(const Values& v, const std::string& what) {
   std::int64_t n = 1;
   for (const auto d : v.shape) n *= d;
-  if (v.f32.empty() == v.f64.empty()) throw Error(code::invalid_argument, what + ": values in float32 or float64 (one of the two)");
+  const int filled = !v.f32.empty() + !v.f64.empty() + !v.i32.empty() + !v.u8.empty();
+  if (filled == 0 && n == 0) return view(v.f64, v.shape);                    // no member at all (a run that found no event): an empty array of its shape
+  if (filled != 1) throw Error(code::invalid_argument, what + ": values in one of float32, float64, int32 or uint8");
   if (n != v.size()) throw Error(code::invalid_argument, what + ": " + std::to_string(v.size()) + " values for the shape of " + std::to_string(n));
-  return v.f32.empty() ? view(v.f64, v.shape) : view(v.f32, v.shape);
+  if (!v.f32.empty()) return view(v.f32, v.shape);
+  if (!v.i32.empty()) return view(v.i32, v.shape);
+  if (!v.u8.empty()) return view(v.u8, v.shape);
+  return view(v.f64, v.shape);
 }
 Json producer_of(const By& by, const std::string& output, const Json& own) {
   Json p = by.producer.is_object() ? by.producer : Json::object();
@@ -519,6 +584,10 @@ void need_open(bool open) { if (!open) throw Error(code::not_writable, "unit: cl
 std::string Unit::path_of(const FieldOut& f) const { return f.path ? *f.path : node_path(*impl_->db, f.manifold_id, f.name); }
 std::string Unit::path_of(const OperatorOut& o) const { return o.path ? *o.path : safe_name(o.name); }
 std::string Unit::path_of(const SelectionOut& s) const { return s.path ? *s.path : node_path(*impl_->db, s.manifold_id, s.name); }
+std::string Unit::path_of(const PointsOut& p) const {
+  return p.path ? *p.path : folder_for("points", "", std::nullopt, p.operator_name.empty() ? std::optional<std::string>() : std::optional<std::string>(p.operator_name)) + "/" + safe_name(p.name);
+}
+std::string Unit::path_of(const ComplexOut& c) const { return c.path ? *c.path : "source/" + safe_name(c.name); }
 std::string Unit::path_of(const StatisticOut& s) const {
   if (s.path) return *s.path;
   if (s.of_field_id)
@@ -532,10 +601,19 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
   const auto r = sub.find(to_string(cls), path);
   if (!r) return {};
   if (!replace) throw Error(code::already_exists, sub.name() + ": " + what + " (" + path + ") already exists (made by another job); pass --replace");
+  if (cls == Cls::manifold) {
+    // what lies on a manifold goes with it, each moved aside with its own arrays first (a row removed alone would leave its arrays where the new ones are written)
+    const std::string mid = text(*r, "id");
+    std::vector<std::pair<Cls, std::string>> deps;
+    for (const Row& d : sub.db().all("SELECT path FROM field WHERE manifold_id = ? AND path IS NOT NULL", {V(mid)})) deps.emplace_back(Cls::field, text(d, "path"));
+    for (const Row& d : sub.db().all("SELECT path FROM operator WHERE (from_manifold_id = ? OR to_manifold_id = ?) AND path IS NOT NULL", {V(mid), V(mid)})) deps.emplace_back(Cls::operator_, text(d, "path"));
+    for (const Row& d : sub.db().all("SELECT array_path AS path FROM selection WHERE manifold_id = ? AND array_path IS NOT NULL", {V(mid)})) deps.emplace_back(Cls::selection, text(d, "path"));
+    for (const auto& [c, p] : deps) this->replace(c, p, true, what);
+  }
   std::string moved;
-  const std::string loc = cls == Cls::selection ? opt_text(*r, "array_path").value_or("") : opt_text(*r, "path").value_or("");
-  if (!loc.empty() && sub.store().exists_prefix(loc)) {
-    // a folder of its own for each replacement of the same node the same day (`_replaced-<date>`, then `-2`, `-3`, …): never over what an earlier one moved
+  // a node's folder moved aside, never deleted: a folder of its own for each replacement of the same node the same day (`_replaced-<date>`, then `-2`, `-3`, …): never over what an earlier one moved
+  const auto move_aside = [&](const std::string& loc) {
+    if (loc.empty() || !sub.store().exists_prefix(loc)) return;
     DatasetWriter& ds = sub.dataset();
     const std::string date = now_utc(false).substr(0, 10);
     auto aside = [&](int n) -> std::pair<std::string, std::string> {
@@ -549,6 +627,19 @@ std::string Unit::replace(Cls cls, const std::string& path, bool replace, const 
     while (ds.node_store().exists_prefix(join_key(a.first, loc))) a = aside(++n);
     sub.datastore().rename_prefix(join_key(sub.prefix(), loc), join_key(a.first, loc));
     moved = a.second;
+  };
+  move_aside(cls == Cls::selection ? opt_text(*r, "array_path").value_or("") : opt_text(*r, "path").value_or(""));
+  if (cls == Cls::selection && text(*r, "type") == "ladder") {
+    // a grid's ladder: its level rows go with it, and their arrays and nodes (tile codes, areas, centres, adjacency), as they were written together, are MOVED ASIDE with it (--replace
+    // never deletes; a constant-Q ladder's levels hold no node)
+    std::set<std::string> nodes;
+    for (const Row& m : selection::member_rows(sub.db(), text(*r, "id"), false)) {
+      const Json p = Json::parse(opt_text(m, "params_json").value_or("{}"), nullptr, false);
+      if (p.is_object() && p.contains("node") && p["node"].is_string()) nodes.insert(p["node"].get<std::string>());
+      move_aside(opt_text(m, "array_path").value_or(""));
+      sub.remove("selection", text(m, "id"));
+    }
+    for (const std::string& n : nodes) move_aside(n);
   }
   sub.remove(to_string(cls), text(*r, "id"));
   return moved;
@@ -558,12 +649,15 @@ std::string Unit::field(const FieldOut& f) {
   need_open(open_);
   FieldSpec fs;
   fs.name = f.name; fs.path = path_of(f); fs.kind = f.kind; fs.manifold_id = f.manifold_id; fs.value_type = f.value_type;
-  fs.data = view_of(f.data, "field " + f.name);
+  if (!f.data.shape.empty()) fs.data = view_of(f.data, "field " + f.name);   // no data: a field with no array (its measurements carry the values)
   fs.array.compress = false;
   if (f.acquisition) fs.acquisition = *f.acquisition;
   if (f.unit) fs.cols.set("unit", *f.unit);
+  if (f.cell) fs.cols.set("cell", *f.cell);
   if (f.description) fs.cols.set("description", *f.description);
   if (f.derived_from_id) fs.cols.set("derived_from_id", *f.derived_from_id);
+  if (f.of_operator_id) fs.cols.set("of_operator_id", *f.of_operator_id);
+  if (f.by_operator_id) fs.cols.set("by_operator_id", *f.by_operator_id);
   fs.cols.set("source", by_.tool);
   fs.cols.json("producer_json", producer_of(by_, f.output, f.producer));
   return impl_->writer->field(std::move(fs));
@@ -571,6 +665,17 @@ std::string Unit::field(const FieldOut& f) {
 
 std::string Unit::statistic(const StatisticOut& s) {
   need_open(open_);
+  // a value per MEMBER of a selection is a MEASUREMENT (one table for values over members, spec 6.1): a statistic holds values on axes that are not a selection's members (a PSD on channels x frequency,
+  // a covariance, a histogram's bins, the summaries across members). Its partition is PROVENANCE, never an axis.
+  // a PICK (a selection of type indices: the channels a matrix covers) names elements in an order and partitions nothing: an axis over it holds the elements' values, a statistic's
+  auto is_pick = [&](const std::string& id) {
+    const auto r = impl_->writer->db().read("selection", id);
+    return r && opt_text(*r, "type") == std::optional<std::string>("indices");
+  };
+  if (s.axes.is_array())
+    for (const auto& ax : s.axes)
+      if (ax.is_object() && ax.contains("selection_id") && !ax["selection_id"].is_null() && !is_pick(ax["selection_id"].get<std::string>()))
+        throw Error(code::invalid_argument, "statistic " + s.name + ": an axis lies on the members of a selection (" + ax["selection_id"].dump() + "): values over a selection's members are a measurement (Unit::measurements), not a statistic");
   StatisticSpec st;
   st.name = s.name; st.path = path_of(s); st.measure = s.measure; st.method = s.method; st.value_type = s.value_type;
   st.of_field_id = s.of_field_id; st.of_statistic_id = s.of_statistic_id; st.partition_selection_id = s.partition_selection_id;
@@ -584,12 +689,28 @@ std::string Unit::statistic(const StatisticOut& s) {
 
 std::string Unit::operator_(const OperatorOut& o) {
   need_open(open_);
-  if (o.data.shape.size() != 2) throw Error(code::invalid_argument, "operator " + o.name + ": a dense [rows x cols] array");
   OperatorSpec op;
-  op.name = o.name; op.path = path_of(o); op.kind = o.kind; op.from_manifold_id = o.from_manifold_id; op.layout = "dense";
-  op.n_rows = o.data.shape[0]; op.n_cols = o.data.shape[1];
-  op.data = view_of(o.data, "operator " + o.name);
+  op.name = o.name; op.path = path_of(o); op.kind = o.kind; op.from_manifold_id = o.from_manifold_id;
+  if (o.sparse) {
+    const OperatorOut::Sparse& sp = *o.sparse;
+    if (sp.layout != "csr" && sp.layout != "csc") throw Error(code::invalid_argument, "operator " + o.name + ": a sparse operator is csr or csc");
+    const std::int64_t major = sp.layout == "csr" ? sp.n_rows : sp.n_cols, nnz = o.data.size();
+    if (static_cast<std::int64_t>(sp.indptr.size()) != major + 1 || static_cast<std::int64_t>(sp.indices.size()) != nnz || sp.indptr.back() != nnz)
+      throw Error(code::invalid_argument, "operator " + o.name + ": indptr, indices and values do not describe " + std::to_string(nnz) + " values in " + std::to_string(major) + " " + (sp.layout == "csr" ? "rows" : "columns"));
+    op.layout = sp.layout; op.n_rows = sp.n_rows; op.n_cols = sp.n_cols;
+    op.sparse = SparseArrays{{{"indptr", view(sp.indptr, {major + 1})}, {"indices", view(sp.indices, {nnz})}, {"data", view_of(o.data, "operator " + o.name)}}};
+    op.cols.set("nnz", nnz).set("data_type", o.data.f32.empty() ? "float64" : "float32");
+  } else {
+    if (o.data.shape.size() != 2) throw Error(code::invalid_argument, "operator " + o.name + ": a dense [rows x cols] array");
+    op.layout = "dense";
+    op.n_rows = o.data.shape[0]; op.n_cols = o.data.shape[1];
+    op.data = view_of(o.data, "operator " + o.name);
+    if (!o.chunk_shape.empty()) op.array.chunks = o.chunk_shape;
+    if (!o.shard_shape.empty()) op.array.shards = o.shard_shape;
+  }
   op.array.compress = false;
+  if (o.from_cell) op.cols.set("from_cell", *o.from_cell);
+  if (o.to_cell) op.cols.set("to_cell", *o.to_cell);
   if (o.acquisition) op.acquisition = *o.acquisition;
   op.created_utc = now_utc(false);
   op.cols.set("to_manifold_id", o.to_manifold_id).set("from_value_type", o.from_value_type).set("to_value_type", o.to_value_type);
@@ -597,57 +718,227 @@ std::string Unit::operator_(const OperatorOut& o) {
   if (o.to_selection_id) op.cols.set("to_selection_id", *o.to_selection_id);
   if (o.derived_from_id) op.cols.set("derived_from_id", *o.derived_from_id);
   if (o.of_statistic_id) op.cols.set("of_statistic_id", *o.of_statistic_id);
+  if (o.inverts_id) op.cols.set("inverts_id", *o.inverts_id).set("inverse_kind", o.inverse_kind.value_or("regularized"));
   if (o.description) op.cols.set("description", *o.description);
   if (!o.params.is_null()) op.cols.json("params_json", o.params);
-  op.cols.json("producer_json", producer_of(by_, o.output, o.producer));
+  Json op_producer = producer_of(by_, o.output, o.producer);
+  if (o.cache_key) op_producer["cache"] = *o.cache_key;   // its own provenance: found by Subject::stored_operator
+  op.cols.json("producer_json", op_producer);
   return impl_->writer->operator_(std::move(op));
+}
+
+std::int64_t Unit::measurements(const MeasurementOut& m) {
+  need_open(open_);
+  SubjectWriter& sub = *impl_->writer;
+  std::optional<Json> band;
+  if (m.band.is_object()) band = nxr::bst::band_ref(*impl_->db, m.band.value("name", std::string()), m.band.value("lo_hz", 0.0), m.band.value("hi_hz", 0.0));
+  std::int64_t n = 0;
+  if (m.of_statistic_id) ensure_statistics(*impl_->db);       // the measurement of a statistic's slice: its columns added in place first
+  Json attrs = m.attributes.is_object() ? m.attributes : Json::object();
+  if (m.value_type != "scalar") attrs["value_type"] = m.value_type;
+  if (m.components.is_array() && !m.components.empty()) attrs["components"] = m.components;
+  if (m.level) attrs["level"] = *m.level;
+  for (const auto& x : m.measures) {
+    const std::string path = m.path + "/" + x.measure;
+    ArrayView v = view_of(x.values, "measurement " + x.measure);
+    // a measurement array is [rows x members x components] (the reader's layout, spec 6.1): a node's [members] or [rows x members] values are one component of it
+    if (v.shape.size() == 1) v.shape = {1, v.shape[0], 1};
+    else if (v.shape.size() == 2) v.shape = {v.shape[0], v.shape[1], 1};
+    const ArrayMeta laid = sub.write_array(path, v);
+    if (!attrs.empty()) {   // the array describes its own axes: laid out again with them, then filled (the same bytes)
+      layout_array(sub.store(), path, laid, jdump(attrs));
+      populate_array(sub.store(), path, v);
+    }
+    Cols c;
+    c.set("measure", x.measure).set("array_path", path).set("component", std::int64_t(0)).set("unit", x.unit).set("computed_by", by_.tool);
+    if (!m.of_field_id.empty()) c.set("of_field_id", m.of_field_id);        // none: the members' own (a size)
+    if (m.of_statistic_id) { c.set("of_statistic_id", *m.of_statistic_id); c.set("of_index", m.of_index.value_or(0)); }
+    if (m.within_selection_id) { c.set("within_selection_id", *m.within_selection_id); if (m.within_code) c.set("within_code", *m.within_code); }
+    else if (band && !(*band)["selection_id"].is_null()) c.set("within_selection_id", (*band)["selection_id"].get<std::string>()).set("within_code", (*band)["code"].get<std::int64_t>());
+    selection::save_measurement(sub, m.selection_id, c);
+    ++n;
+  }
+  if (!m.pair_measure.empty()) {                    // two codes a row: the member and the other
+    std::vector<selection::MemberValue> rows;
+    rows.reserve(m.pairs.size());
+    for (const auto& p : m.pairs) rows.push_back({p.code, p.value, p.within_code});
+    n += selection::save_member_values(sub, m.selection_id, m.pair_measure, rows, m.pair_unit.empty() ? std::nullopt : std::optional<std::string>(m.pair_unit), by_.tool, m.selection_id);
+  }
+  return n;
 }
 
 std::string Unit::selection(const SelectionOut& s) {
   need_open(open_);
   SubjectWriter& sub = *impl_->writer;
-  SelectionSpec ss;
-  ss.name = s.name; ss.path = path_of(s); ss.manifold_id = s.manifold_id;
-  if (s.acquisition) ss.acquisition = *s.acquisition;
+  // the result as the selection module's description, and where it goes; the module maps it onto the rows (selection_store.h)
+  selection::Description d;
+  selection::Placement at;
+  at.name = s.name; at.path = path_of(s); at.manifold_id = s.manifold_id;
+  if (s.acquisition) at.acquisition = *s.acquisition;
   Json params = s.params.is_null() ? Json::object() : s.params;
-  std::vector<std::int32_t> codes;
-  if (s.type == "partition" || s.type == "set") {
-    if (s.codes.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a " + s.type + " has a code per element");
-    codes.assign(s.codes.begin(), s.codes.end());
-    ss.type = "set";                                 // a partition is a set Selection: a code per element
-    ss.data = view(codes, {static_cast<std::int64_t>(codes.size())});
+  if (s.type == "grid" && s.grid && s.grid->time) {   // a line's TIME GRID: one ladder row, its rule closed form (schema 53); found and reused when the line has it
+    const TimeGridOut& t = *s.grid->time;
+    return selection::save_time_grid(sub, s.manifold_id, selection::TimeGridRule{t.origin, t.rate, t.samples}, std::nullopt, t.rule_name).id;
+  }
+  if (s.type == "product") {   // a product of selections (a grid when every factor is): the factors in order, each a set, or a level of a grid (selection_factor.level), mixed radix, first factor fastest
+    if (s.factor_ids.size() < 2) throw Error(code::invalid_argument, "selection " + s.name + ": a product has two or more factors (factor_ids)");
+    d.type = selection::Type::set;
+    d.radices = s.radices;
+    d.factor_levels = s.factor_levels;
+    d.factors.resize(s.factor_ids.size());          // the factors are named by id (Placement::factor_ids); their descriptions are what a load fills
+    at.factor_ids = s.factor_ids;
+    at.factor_levels = s.factor_levels;
+    if (s.description) at.description = *s.description;
+    if (s.label) at.label = *s.label;
+    Json pparams = s.params.is_null() ? Json::object() : s.params;
+    const Json ppj = producer_of(by_, s.output, s.producer);
+    if (ppj.contains("cache")) pparams["cache"] = ppj["cache"];
+    pparams["producer"] = ppj;
+    at.params = pparams;
+    return selection::save(sub, d, at).id;
+  }
+  if (s.type == "grid") {     // a dyadic grid with levels (made by compute's `dyadic` or `transfer`): the ladder row and one set row per level, through io's save_grid
+    if (!s.grid || s.grid->levels.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a grid has its levels (grid)");
+    const GridOut& g = *s.grid;
+    const Json pj = producer_of(by_, s.output, s.producer);
+    Json lp = g.params.is_object() ? g.params : Json::object();
+    if (pj.contains("cache")) lp["cache"] = pj["cache"];
+    lp["producer"] = pj;
+    // a dictionary as the node described it ({name, description, entries}), or the one already stored
+    auto dictionary_of = [&](const Json& dj, const std::optional<std::string>& stored, const std::string& surface_unit) -> std::optional<std::string> {
+      if (stored) return stored;
+      if (!dj.is_object()) return std::nullopt;
+      DictionarySpec spec;
+      spec.name = dj.value("name", std::string());
+      spec.scope = "subject";
+      spec.description = dj.value("description", std::string());
+      spec.entries = std::vector<DictionaryEntry>();
+      for (const auto& e : dj.value("entries", Json::array())) {
+        DictionaryEntry x;
+        x.code = e["code"].get<std::int64_t>();
+        x.ordinal = x.code;
+        x.name = e.value("name", std::string());
+        // a dyadic level's size is its mean TILE DIAMETER in mm (`diameter_mm` in its attributes, or `diameter` in the surface's unit): what a query by physical size reads (measurement_query.h), whatever else
+        // the maker put in `measurement` (a level's wavelength is an attribute, not its size)
+        const Json attrs = e.value("attributes", Json::object());
+        auto number = [&](const char* k) { return attrs.is_object() && attrs.contains(k) && attrs[k].is_number() ? std::optional<double>(attrs[k].get<double>()) : std::nullopt; };
+        if (const auto mm = number("diameter_mm")) x.cols.set("measurement", *mm).set("measurement_unit", "mm");
+        else if (const auto d = number("diameter"); d && (surface_unit == "m" || surface_unit == "cm" || surface_unit == "mm"))
+          x.cols.set("measurement", *d * (surface_unit == "m" ? 1e3 : surface_unit == "cm" ? 1e1 : 1.0)).set("measurement_unit", "mm");
+        else if (e.contains("measurement") && e["measurement"].is_number()) x.cols.set("measurement", e["measurement"].get<double>()).set("measurement_unit", e.value("measurement_unit", std::string()));
+        if (e.contains("attributes")) x.cols.json("attributes_json", e["attributes"]);
+        spec.entries->push_back(std::move(x));
+      }
+      return sub.dictionary(spec).id;
+    };
+    selection::Placement top;
+    top.name = s.name; top.path = at.path; top.manifold_id = s.manifold_id;
+    if (s.acquisition) top.acquisition = *s.acquisition;
+    top.dictionary_id = dictionary_of(g.dictionary, g.dictionary_id, g.unit);
+    top.cols.set("unit", g.unit).set("label", g.label).set("description", g.description);
+    top.params = lp;
+    std::vector<selection::GridLevel> levels;
+    for (const GridLevelOut& L : g.levels) {
+      const std::string dir = atlas_node(*impl_->db, s.manifold_id, L.name);       // the level's node: its arrays beside its tile codes
+      bool areas = false;
+      for (const GridArrayOut& a : L.arrays) {
+        if (a.suffix == "w") areas = true;
+        const std::string key = dir + "/" + a.suffix;
+        if (!a.i32.empty() || a.f64.empty()) sub.write_array(key, view(a.i32, a.shape));
+        else sub.write_array(key, view(a.f64, a.shape));
+      }
+      selection::GridLevel gl;
+      gl.at.name = L.name; gl.at.manifold_id = s.manifold_id;
+      gl.at.dictionary_id = dictionary_of(L.dictionary, L.dictionary_id, g.unit);
+      Json rp = L.params.is_object() ? L.params : Json::object();
+      rp["node"] = dir;
+      if (areas) rp["areas"] = dir + "/w";
+      gl.at.params = rp;
+      gl.at.cols.set("unit", g.unit).set("label", L.label).set("description", L.description);
+      gl.array_path = dir + "/codes";
+      gl.tile_codes = L.codes;
+      gl.tiles = L.tiles;
+      levels.push_back(std::move(gl));
+    }
+    const selection::Saved saved = selection::save_grid(sub, top, levels);
+    for (std::size_t l = 0; l < g.levels.size(); ++l) {
+      const GridLevelOut& L = g.levels[l];
+      const std::string& sid = saved.member_ids.at(l);
+      if (L.centres.is_object()) {                  // the tiles' centre vertices, a pick on the surface (-1: an empty tile)
+        selection::Description picks;
+        picks.type = selection::Type::indices;
+        for (const auto& i : L.centres["indices"]) picks.indices.push_back(i.get<std::int32_t>());
+        selection::Placement cs;
+        cs.name = L.centres.value("name", std::string()); cs.path = cs.name; cs.manifold_id = s.manifold_id;
+        cs.description = L.centres.value("description", std::string());
+        selection::save(sub, picks, cs);
+      }
+      if (L.pairs.is_object()) {                    // a value over pairs of the level's tiles: a MEASUREMENT over a selection of pairs (indices: pair number a * tiles + b), one value a pair
+        const std::int64_t tiles = L.pairs.value("tiles", std::int64_t(0));
+        if (tiles < 1 || tiles * tiles > std::numeric_limits<std::int32_t>::max()) throw Error(code::invalid_argument, "grid " + s.name + ": level " + L.name + " has too many tiles for a selection of pairs (" + std::to_string(tiles) + ")");
+        selection::Description pd;
+        pd.type = selection::Type::indices;
+        for (const auto& i : L.pairs["indices"]) pd.indices.push_back(i.get<std::int32_t>());
+        selection::Placement ps;
+        ps.name = L.pairs.value("name", std::string()); ps.path = ps.name; ps.manifold_id = s.manifold_id;
+        ps.description = L.pairs.value("description", std::string());
+        ps.params = Json{{"pairs_of", sid}, {"tiles", tiles}, {"pair_number", "a * tiles + b (a, b the level's member numbers)"}};
+        const selection::Saved pairs = selection::save(sub, pd, ps);
+        std::vector<double> values;
+        for (const auto& v : L.pairs["values"]) values.push_back(v.get<double>());
+        if (values.size() != pd.indices.size()) throw Error(code::invalid_argument, "grid " + s.name + ": " + std::to_string(values.size()) + " values for " + std::to_string(pd.indices.size()) + " pairs");
+        const std::string measure = L.pairs.value("measure", std::string());
+        const std::string vpath = "measurements/" + safe_name(ps.name) + "/" + safe_name(measure);
+        Cols mc;
+        mc.set("measure", measure).set("array_path", vpath).set("unit", L.pairs.value("unit", std::string())).set("computed_by", by_.tool);
+        selection::save_measurement_array(sub, pairs.id, vpath, view(values, {static_cast<std::int64_t>(values.size())}), mc);
+      }
+    }
+    return saved.id;
+  }
+  if (s.type == "partition" || s.type == "set") {     // a partition is a set per element: a member number per element, a label per member
+    if (s.member_of.empty()) throw Error(code::invalid_argument, "selection " + s.name + ": a " + s.type + " has a member number per element (member_of)");
+    d.type = selection::Type::set;
+    d.member_of = s.member_of;
+    d.member_codes = s.member_codes;
+  } else if (s.type == "indices") {                  // a pick of elements, in order (the channels a covariance covers)
+    d.type = selection::Type::indices;
+    d.indices.assign(s.codes.begin(), s.codes.end());
+  } else if (s.type == "cells") {                    // a closed-form set (the joint cells of space x time): its rule in params, no element stored
+    if (!s.n_members) throw Error(code::invalid_argument, "selection " + s.name + ": cells name their number (n_members)");
+    d.type = selection::Type::set;
+    at.n_members = *s.n_members;
+    at.cell = "0,1";
   } else if (s.type == "spans") {
-    ss.type = "spans";
-    std::vector<SpanSpec> sp;
-    for (const auto& x : s.spans) sp.push_back(SpanSpec{x.start, x.stop, x.code});
-    ss.spans = sp;
-    ss.cols.set("cell", "1");
+    d.type = selection::Type::set;
+    for (const auto& x : s.spans) {
+      selection::Description m;
+      m.type = selection::Type::span;
+      m.code = x.code;
+      m.extents.push_back(selection::Extent{0, x.start, x.stop});
+      d.members.push_back(std::move(m));
+    }
   } else if (s.type == "tiling") {
     if (!s.tiling) throw Error(code::invalid_argument, "selection " + s.name + ": a tiling needs its origin, width, hop and count");
     const Tiling& t = *s.tiling;
-    ss.type = "spans";
-    ss.cols.set("cell", "1").set("unit", t.unit).set("n_members", t.count + t.skipped);
-    params["tiling"] = Json{{"origin", t.origin}, {"width", t.width}, {"hop", t.hop}, {"count", t.count + t.skipped}};
+    d.type = selection::Type::set;
+    d.unit = t.unit;
+    d.tiling = selection::Tiling{t.origin, t.width, t.hop, t.count + t.skipped};
     params["end"] = t.end;
     params["segments_skipped"] = t.skipped;
   } else {
-    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, spans or tiling)");
+    throw Error(code::invalid_argument, "selection " + s.name + ": type " + s.type + " (partition, set, indices, spans, tiling, cells, grid or product)");
   }
-  if (!s.entries.empty()) {
-    DictionarySpec d;
-    d.name = s.name;
-    d.names = s.entries;
-    ss.cols.set("dictionary_id", sub.dictionary(d).id);
-  }
-  if (s.of_field_id) ss.cols.set("of_field_id", *s.of_field_id);
-  if (s.description) ss.cols.set("description", *s.description);
-  if (s.label) ss.cols.set("label", *s.label);
+  for (std::size_t k = 0; k < s.entries.size(); ++k) d.lookup.push_back(selection::Entry{static_cast<std::int64_t>(k), s.entries[k], std::nullopt});   // the codes' names
+  if (s.of_field_id) at.of_field_id = *s.of_field_id;
+  if (s.description) at.description = *s.description;
+  if (s.label) at.label = *s.label;
   // a Selection has no producer column: its producer record is in its parameters, the cache key under "cache" (the Studio's searchAtlas: params_json.search)
   const Json pj = producer_of(by_, s.output, s.producer);
   if (pj.contains("cache")) params["cache"] = pj["cache"];
   params["producer"] = pj;
-  ss.cols.json("params_json", params);
-  return sub.selection(std::move(ss));
+  at.params = params;
+  return selection::save(sub, d, at).id;
 }
 
 std::string Unit::line(const LineOut& l) {
@@ -728,6 +1019,82 @@ std::string Unit::surface(const SurfaceOut& o) {
   ms.populate = [&sub, &v, &f, path, n, m](Store&, const std::string&) {
     sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
     sub.write_array(path + "/faces", view(f, {m, 3}));
+  };
+  return sub.manifold(std::move(ms));
+}
+
+std::string Unit::points(const PointsOut& p) {
+  need_open(open_);
+  SubjectWriter& sub = *impl_->writer;
+  if (p.positions.shape.size() != 1 || p.positions.f64.empty() || p.positions.size() != p.positions.shape[0]) throw Error(code::invalid_argument, "points " + p.name + ": coordinates [n] in float64");
+  const std::int64_t n = p.positions.shape[0];
+  const std::string path = path_of(p);
+  if (const auto r = sub.find("manifold", path)) {   // the same coordinates are the same axis; another one's is the caller's to replace first
+    const Node have = node_of(Cls::manifold, rec::ManifoldRow::from_row(*r));
+    if (have.n_vertices && *have.n_vertices == n) {
+      ArrayReader old = ArrayReader::open(sub.store(), path);
+      const std::vector<std::uint8_t> raw = old.read();
+      if (raw.size() == static_cast<std::size_t>(n) * sizeof(double) && std::equal(raw.begin(), raw.end(), reinterpret_cast<const std::uint8_t*>(p.positions.f64.data()))) return have.id;
+    }
+    throw Error(code::already_exists, sub.name() + ": the points " + p.name + " (" + path + ") exist with other coordinates; replace them first");
+  }
+  ManifoldSpec ms;
+  ms.name = p.name;
+  ms.path = path;
+  ms.type = "points";
+  ms.n_vertices = n;
+  ms.topology = {"none", 0, 1, std::nullopt, {}};
+  GeometrySpec g;
+  g.form = "stored";
+  g.cs_key = p.cs_key;
+  g.positions_path = path;
+  ms.geometry = g;
+  if (p.derived_from_id) ms.cols.set("derived_from_id", *p.derived_from_id);
+  if (!p.operator_name.empty()) ms.cols.set("operator", p.operator_name);
+  if (p.description) ms.cols.set("comment", *p.description);
+  ms.cols.json("producer_json", producer_of(by_, p.output, p.producer));
+  const Values& v = p.positions;
+  ms.populate = [&sub, &v, path, n](Store&, const std::string&) { sub.write_array(path, view(v.f64, {n})); };
+  return sub.manifold(std::move(ms));
+}
+
+std::string Unit::cell_complex(const ComplexOut& o) {
+  need_open(open_);
+  SubjectWriter& sub = *impl_->writer;
+  if (o.vertices.shape.size() != 2 || o.vertices.shape[1] != 3 || o.vertices.f64.empty() || o.vertices.size() != o.vertices.shape[0] * 3) throw Error(code::invalid_argument, "complex " + o.name + ": vertices [n x 3] in float64");
+  if (o.edges.empty() || o.edges.size() % 2 || o.faces.empty() || o.faces.size() % 3) throw Error(code::invalid_argument, "complex " + o.name + ": edges [nE x 2] and faces [nF x 3]");
+  const std::int64_t n = o.vertices.shape[0], nE = static_cast<std::int64_t>(o.edges.size() / 2), nF = static_cast<std::int64_t>(o.faces.size() / 3);
+  for (const auto e : o.edges) if (e < 0 || e >= n) throw Error(code::invalid_argument, "complex " + o.name + ": an edge names vertex " + std::to_string(e) + " of " + std::to_string(n));
+  for (const auto f : o.faces) if (f < 0 || f >= n) throw Error(code::invalid_argument, "complex " + o.name + ": a face names vertex " + std::to_string(f) + " of " + std::to_string(n));
+  const std::string path = path_of(o);
+  if (const auto r = sub.find("manifold", path)) {   // found again when it has the same cells; another one's is the caller's to replace first
+    const Node have = node_of(Cls::manifold, rec::ManifoldRow::from_row(*r));
+    if (have.n_vertices && *have.n_vertices == n && integer(*r, "n_edges") == nE && integer(*r, "n_faces") == nF) return have.id;
+    throw Error(code::already_exists, sub.name() + ": the complex " + o.name + " (" + path + ") exists with other cells; replace it first");
+  }
+  ManifoldSpec ms;
+  ms.name = o.name;
+  ms.path = path;
+  ms.type = "surface";
+  ms.n_vertices = n;
+  ms.topology = {"simplicial", 2, 1, std::string("ccw-outward"), {{1, path + "/edges"}, {2, path + "/faces"}}};
+  GeometrySpec g;
+  g.form = "stored";
+  g.cs_key = o.cs_key;
+  g.positions_path = path + "/vertices";
+  ms.geometry = g;
+  if (o.acquisition_id) ms.cols.set("acquisition_id", *o.acquisition_id);
+  if (o.derived_from_id) ms.cols.set("derived_from_id", *o.derived_from_id);
+  if (o.description) ms.cols.set("comment", *o.description);
+  ms.cols.set("n_edges", nE).set("n_faces", nF);
+  ms.cols.json("producer_json", producer_of(by_, o.output, o.producer));
+  const Values& v = o.vertices;
+  const std::vector<std::int32_t>& e = o.edges;
+  const std::vector<std::int32_t>& f = o.faces;
+  ms.populate = [&sub, &v, &e, &f, path, n, nE, nF](Store&, const std::string&) {
+    sub.write_array(path + "/vertices", view(v.f64, {n, 3}));
+    sub.write_array(path + "/edges", view(e, {nE, 2}));
+    sub.write_array(path + "/faces", view(f, {nF, 3}));
   };
   return sub.manifold(std::move(ms));
 }

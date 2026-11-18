@@ -102,4 +102,12 @@ Kernel unconstrainedKernel(const Eigen::MatrixXd& G, const Eigen::MatrixXd& C, c
 // The spacing of the single-precision floats at x > 0 (2^(floor(log2 x) - 23)), the reference's rank unit; 0 for x = 0.
 double ulp32(double x);
 
+// ── THE FREE-ORIENTATION KERNEL PROJECTED ON THE CANONICAL FRAMES (nxr `measure.vectors.band_tensor`) ──
+/** A free-orientation kernel [3V x M] (rows 3v + (x, y, z): Brainstorm's order) projected on the canonical frames: K1 = e1·K, K2 = e2·K, Kn = n·K, each [V x M]. `e1`, `e2`, `n` [V x 3] (NaN at a vertex with no
+ *  frame), `singular` [V] marks those: as nxr, a singular vertex takes an ARBITRARY tangent basis (tangent_basis of its normal, (0, 0, 1) where that is NaN) and a zero normal row, so it is out of the nine tensor
+ *  sums (its weight is 0) yet its tangential power is in `total`. Throws std::invalid_argument on a shape mismatch. */
+struct FrameKernel { Eigen::MatrixXd K1, K2, Kn; };
+FrameKernel frameKernel(const Eigen::MatrixXd& K3, const Eigen::MatrixXd& e1, const Eigen::MatrixXd& e2, const Eigen::MatrixXd& n, const std::vector<char>& singular, int threads = 1);
+
+
 }  // namespace nxr::meeg

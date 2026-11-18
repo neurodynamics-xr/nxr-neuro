@@ -1,4 +1,4 @@
-"""Writes surrogate_golden.txt: the reference of nxr::surrogate, nxr's `lagfree_real` and `envelope_matched_null` (nxr/detect/vortex.py), on a SYNTHETIC 3-channel recording at 100 Hz (4096 samples): a 10 Hz source (a
+"""Writes surrogate_golden.txt: the reference of nxr::synthesis (was nxr::surrogate), nxr's `lagfree_real` and `envelope_matched_null` (nxr/detect/vortex.py), on a SYNTHETIC 3-channel recording at 100 Hz (4096 samples): a 10 Hz source (a
 resonance, 3 Hz wide) reaching the channels with LAGS of 0, 2 and 4 samples (so the data has a large imaginary cross-spectrum) and a slow amplitude modulation (0.4 Hz). Run:
   uv run --project <nxr checkout> python compute/test/golden/gen_surrogate_golden.py compute/test/golden/surrogate_golden.txt
 Written: the recording X [3 x 4096]; then nxr's numbers, each the mean over 40 draws (seeds 0..39) of the SAME statistic the C++ test computes on its own draws (a Welch estimate, 256-sample Hann segments, half overlap):

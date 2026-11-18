@@ -16,7 +16,10 @@
 #include <random>
 
 #include "brain_helpers.h"
+#include "psd_run.h"
 #include "check.h"
+#include "filter_runs.h"
+#include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io/catalogue.h"
@@ -25,7 +28,7 @@
 #include "nxr/io/surface.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/measure.h"
-#include "nxr/pipelines/statistics.h"
+#include "nxr/pipelines/run_shipped.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -88,6 +91,13 @@ void make_old(const fs::path& datastore) {
     SelectionSpec ps; ps.name = "parcels"; ps.path = "source/parcels"; ps.type = "set"; ps.manifold_id = surf; ps.data = view(codes, {N});
     ps.cols.set("dictionary_id", dict.id).set("cell", "0");
     sub.selection(ps);
+    // a map on the cortex (a value per vertex) for the measurement over the parcels: the statistic of a source PSD is not a field a `measure` reads
+    std::vector<float> amap(static_cast<std::size_t>(N));
+    for (auto& v : amap) v = static_cast<float>(std::abs(nd(rng)));
+    FieldSpec fm;
+    fm.name = "alpha_map"; fm.path = nxr::io::task::Subject::of(sub).node_path(surf, "alpha_map"); fm.kind = "band power"; fm.manifold_id = surf;
+    fm.data = view(amap, {N}); fm.array.compress = false;
+    sub.field(std::move(fm));
     std::vector<std::int32_t> chans = {0, 1, 2, 3};
     SelectionSpec ss; ss.name = "kern_channels"; ss.path = ss.name; ss.type = "indices"; ss.manifold_id = cid; ss.data = view(chans, {M}); ss.picked = true;
     const std::string sel = sub.selection(std::move(ss));
@@ -104,29 +114,18 @@ void make_old(const fs::path& datastore) {
 
 // every pipeline family, on whatever writer it is given
 void run_chains(DatasetWriter& ds, SubjectWriter& sub) {
-  PsdOptions po;
-  po.recording = "rest"; po.chunks = "all";
-  CHECK(!psd_compute(ds, sub, po).hit);
-  SourcePsdOptions so;
-  so.recording = "rest"; so.chunks = "all"; so.bands = {{"alpha", 8, 12}};
-  CHECK(!sourcepsd_compute(ds, sub, so).hit);
-  CrossSpectrumOptions co;
-  co.recording = "rest"; co.chunks = "all"; co.channels_of = "kern"; co.bands = {{"alpha", 8, 12}};
-  CHECK(!crossspectrum_compute(ds, sub, co).hit);
-  FilterComputeOptions fo;                                               // the field chain: a filter, then the PSD of what it wrote
+  CHECK(!nxrtest::run_psd(ds, sub, "rest").hit);
+  const Json alpha = Json::array({Json{{"name", "alpha"}, {"lo", 8}, {"hi", 12}}});
+  { const auto r = nxrtest::run_definition(ds, sub, "sourcepsd", Json{{"recording", "rest"}, {"bands", alpha}}); CHECK(!r.empty() && !r[0].value("hit", false)); }
+  { const auto r = nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", "rest"}, {"channels_of", "kern"}, {"bands", alpha}}); CHECK(!r.empty() && !r[0].value("hit", false)); }
+  nxrtest::FilterComputeOptions fo;                                               // the field chain: a filter, then the PSD of what it wrote
   fo.recording = "rest";
-  fo.filter.kind = nxr::filter::Kind::Bandpass;
+  fo.filter.kind = nxr::signal::filters::Kind::Bandpass;
   fo.filter.lowerEdge = 8; fo.filter.upperEdge = 12;
-  filter_compute(ds, sub, fo);
-  PsdOptions pf;
-  pf.recording = "rest_bandpass"; pf.chunks = "all";
-  CHECK(!psd_compute(ds, sub, pf).hit);
-  MeasureComputeOptions mo;                                              // a measurement over a partition
-  mo.labelling = "parcels"; mo.fields = "rest_kern_psd_alpha"; mo.weight = "none"; mo.measures = {"mean", "max"};
-  measure_compute(ds, sub, mo);
-  StatisticComputeOptions st;                                            // its statistic across the members
-  st.over = "parcels"; st.of = "rest_kern_psd_alpha"; st.measure = "mean"; st.summaries = {"median", "mean"}; st.combine = "pool";
-  statistic_compute(ds, sub, st);
+  nxrtest::filter_compute(ds, sub, fo);
+  CHECK(!nxrtest::run_psd(ds, sub, "rest_bandpass").hit);
+  nxr::pipelines::run_shipped(ds, sub, "measure", Json{{"field", "alpha_map"}, {"over", "parcels"}, {"weight", "none"}, {"measures", Json::array({"mean", "max"})}}, false);   // a measurement over a partition
+  nxr::pipelines::run_shipped(ds, sub, "summarize", Json{{"over", "parcels"}, {"of", "alpha_map"}, {"measure", "mean"}, {"summaries", Json::array({"median", "mean"})}, {"combine", "pool"}}, false);   // its statistic across the members
 }
 
 // every key the subject's store holds, with the bytes of its chunks (zarr.json texts carry ids: only their presence is compared)
@@ -197,9 +196,7 @@ int main() {
     // a second run is a cache hit, in the package as in the old form
     DatasetWriter ds = open_subject_package(root / "new", "S1");
     SubjectWriter sub = SubjectWriter::open(ds, "S1");
-    PsdOptions po;
-    po.recording = "rest"; po.chunks = "all";
-    CHECK(psd_compute(ds, sub, po).hit);
+    CHECK(nxrtest::run_psd(ds, sub, "rest").hit);
     ds.close();
   }
   refresh_member_status(root / "new");                                   // the catalogue sees the changed package (stale) until it is registered again

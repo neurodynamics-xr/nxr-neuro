@@ -1,10 +1,16 @@
+#include "nxr/io/selection_store.h"
+#include "nxr/io/fibers.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/subject_reads.h"
 // nxr-pipelines — the runner (runner.h): nxr's nxr/pipelines/runner.py `plan` and the planning half of `run`. The execution (before · the chunk loop · after
 // · store) is the next PR of the spec's order.
 #include "nxr/pipelines/runner.h"
+#include "nxr/pipelines/input.h"
+#include "nxr/bst/session.h"
 
 #include "nxr/bst/entities.h"
 #include "nxr/io/measures.h"
-#include "nxr/histogram.h"
+#include "nxr/stats/histogram.h"
 
 #include <algorithm>
 #include <cmath>
@@ -42,7 +48,7 @@ Json with_value(const Json& v, const Json& params) {
 }
 std::string label(const std::string& sec) { return sec == "do" ? "chunks" : sec; }
 std::string manifold_name(const nxr::io::Database& db, const std::string& id) {
-  const auto m = db.one("SELECT name FROM manifold WHERE id = ?", {nxr::io::V(id)});
+  const auto m = db.read("manifold", id);
   return m ? nxr::io::text(*m, "name") : id;
 }
 std::string on(const nxr::io::Database& db, const Value& v) {
@@ -97,15 +103,22 @@ std::string Plan::text(const nxr::io::Database& db) const {
   return L.str();
 }
 
-Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id) {
+Plan plan(const Definition& d, const Values& found, const Json& params, const nxr::io::Database& db, const std::string& subject_id, const ChannelFacts& channels) {
   Plan P{d, params, found, found, {}, {}, {}};
-  if (d.over && P.values.count(*d.over)) P.values[*d.over].chunked = true;
+  if (d.over && P.values.count(*d.over)) {
+    P.values[*d.over].chunked = true;
+    if (d.inputs.at(*d.over).value("read", std::string("samples")) == "shape") P.values[*d.over].facts["read"] = "shape";   // the steps see it: only one that reads no sample may take it
+  }
   // THE GRAPH the executor checks: the definition's steps as uses of nodes, its found inputs as typed ports (the streamed one is the recording the loop walks), its outputs as the graph's.
   // `with` is written out here ($names and nested ones replaced), so the executor sees values only; the parameters are the run's (defaults, then the caller's).
   nxr::graph::Graph& g = P.graph;
   g.name = d.name; g.version = d.version; g.text = d.text;
   for (const auto& [k, v] : params.items()) g.parameters[k] = Json{{"default", v}, {"optional", v.is_null()}};   // the run's values; a null one (an optional bound) is "not given", read by the steps
-  for (const auto& [k, v] : P.values) { g.inputs.push_back(k); P.types[k] = port_of(v); }
+  for (const auto& [k, v] : P.values) {
+    g.inputs.push_back(k);
+    P.types[k] = port_of(v);
+    if (channels && v.cls == "field" && v.time && v.row) P.types[k].facts["channels"] = channels(nxr::io::text(*v.row, "name"));   // the recording's channels are facts its nodes read at plan
+  }
   for (const auto& [o, _] : d.outputs.items()) g.outputs.push_back(o);
   std::set<std::string> defined;                                           // the inputs found, then what each step makes
   for (const auto& [k, _] : P.values) defined.insert(k);
@@ -142,14 +155,24 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     const StepSpec& st = step(use.step);
     Planned pl{use, &st, checked.nodes[at++].params, {}, {}};
     for (const auto& [port, thing] : use.ins.items()) pl.ins[port] = thing.get<std::string>();
-    for (std::size_t i = 0; i < st.outputs.size(); ++i) pl.outs[st.outputs[i]] = use.outs[i];
+    {
+      std::vector<std::string> used;
+      const std::vector<std::string> only = st.outputs_for ? st.outputs_for(pl.params) : std::vector<std::string>();
+      for (const auto& o : st.outputs) if (!st.outputs_for || std::find(only.begin(), only.end(), o) != only.end()) used.push_back(o);
+      for (std::size_t i = 0; i < used.size() && i < use.outs.size(); ++i) pl.outs[used[i]] = use.outs[i];
+    }
     P.steps.push_back(std::move(pl));
   }
   for (const auto& [o, spec] : d.outputs.items()) {
     const Value& v = P.values.at(o);
     // THREE KINDS OF OUTPUT: a Field (materialized), a measurement over a time partition (reduced: selection_measurement rows), a span set (a spans Selection)
     const std::string kind = spec.value("kind", std::string());
-    if (is_declared(P, o)) { check_declared(P, o, db); continue; }            // a declared output (declared_outputs.h): its kind, links and node checked here, its values at the store
+    if (is_declared(P, o)) { check_declared(P, o); continue; }            // a declared output (declared_outputs.h): its kind, links and node checked here, its values at the store
+    if (kind == "recording") {                                             // a streamed value written as a new recording, block by block, as the loop runs (a filter's output)
+      if (!v.chunked || !d.over) refuse("outputs." + o + ": a recording output is a value inside the chunk loop (what a chunk node makes of the recording)");
+      if (!spec.contains("name")) refuse("outputs." + o + ": a recording output names the new recording (name: …)");
+      continue;
+    }
     const std::string kind_short = kind == "selection" ? v.cls : kind;      // {kind: selection, type: spans | set} are the short forms spans | labelling
     if (v.cls == "measurement" || v.cls == "spans" || v.cls == "statistic" || v.cls == "labelling") {
       if (kind_short != v.cls) refuse("outputs." + o + ": its steps make a " + v.cls + "; declare it {kind: " + v.cls + "}");
@@ -161,7 +184,7 @@ Plan plan(const Definition& d, const Values& found, const Json& params, const nx
     if (kind == "measurement" || kind == "spans" || kind == "statistic" || kind == "labelling") refuse("outputs." + o + ": declared " + kind + " but its steps make a " + v.cls);
     if (v.cls != "field" || v.chunked) refuse("outputs." + o + ": not a field outside the chunk loop: only those are stored");
     for (const auto& m : v.manifolds)
-      if (!db.one("SELECT id FROM manifold WHERE id = ?", {nxr::io::V(m)})) refuse("outputs." + o + ": its manifold " + m + " is not among the subject's rows");
+      if (!db.read("manifold", m)) refuse("outputs." + o + ": its manifold " + m + " is not among the subject's rows");
   }
   return P;
 }
@@ -181,6 +204,13 @@ Json parameters_of(const Definition& d, const Json& set, const std::string& pres
     if (!d.parameters.contains(k)) { unknown += (unknown.empty() ? "" : ", ") + k; continue; }
     p[k] = v;
   }
+  // A REQUIRED PARAMETER (default `required`): a choice of data the definition never defaults. Refused when the run does not give it, naming it, what it means and its valid values.
+  for (const auto& [k, v] : p.items()) {
+    if (!(v.is_string() && v.get<std::string>() == "required")) continue;
+    const Json doc = d.parameter_docs.contains(k) ? d.parameter_docs[k] : Json::object();
+    std::string valid = doc.contains("choices") ? " (valid: " + doc["choices"].dump() + ")" : std::string();
+    refuse(d.name + ": the parameter `" + k + "` is required" + (doc.contains("meaning") ? " (" + doc["meaning"].get<std::string>() + ")" : std::string()) + valid + "; give it with --" + k);
+  }
   if (!unknown.empty()) {
     std::string have;
     for (const auto& [k, _] : d.parameters.items()) have += (have.empty() ? "" : ", ") + k;
@@ -189,15 +219,74 @@ Json parameters_of(const Definition& d, const Json& set, const std::string& pres
   return p;
 }
 
-std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset) {
-  const Json params = parameters_of(d, set, preset);
-  Definition e = expand(d, params);                                         // a definition that repeats over list parameters, written out for this run (flat: unchanged)
-  if (!e.draw.empty()) {                                                    // `draw: seed`: every draw is a node of its own (the stored nodes' names, the cache key's pipeline), the parameter's value in the name
-    if (!params.contains(e.draw) || !params[e.draw].is_number_integer() || params[e.draw].get<std::int64_t>() < 0) refuse(d.name + ": the parameter `" + e.draw + "` (draw) is a whole number >= 0");
-    e.name += ".draw" + std::to_string(params[e.draw].get<std::int64_t>());
+// ONE PLAN PER COMBINATION of the lists a definition's header `plans:` names (consolidation spec 4.2: a band set × spatial scales are several plans of one run, each cached on its own). Each plan has the
+// element as the single parameter and the list parameter neutralised (null), so a plan's cache key holds its own pair and nothing of the lists it was drawn from. No list given: the one plan as it is.
+std::vector<Json> plan_parameter_sets(const Definition& d, const Json& base) {
+  std::vector<Json> sets{base};
+  for (const auto& [var, src] : d.plans.items()) {
+    const std::string list = src.get<std::string>().substr(1);
+    const Json& values = base.contains(list) ? base[list] : Json();
+    if (values.is_null() || (values.is_array() && values.empty())) continue;
+    if (!values.is_array()) refuse(d.name + ": the parameter `" + list + "` is a list (one plan is made for each element)");
+    if (!base[var].is_null()) refuse(d.name + ": give `" + var + "` (one) or `" + list + "` (a list), not both");
+    std::vector<Json> next;
+    for (const Json& s : sets)
+      for (const Json& el : values) { Json p = s; p[var] = el; p[list] = nullptr; next.push_back(std::move(p)); }
+    sets = std::move(next);
   }
+  return sets;
+}
+
+// A POINT ORIGIN (rule 34: the origin of frames is an option of the compute function, with the pipeline's default written in its YAML; it may be the recording start, a clock time or an EVENT). A parameter
+// declared `chart: origin` is given as `start`, a number (a clock time in seconds), {clock: s}, or {event: {selection: NAME, member: N (default 0), at: start|centre|stop (default start)}}; the run resolves
+// it here, from the stored selection, to {kind, seconds, ...} so that the value in the cache key is the point itself and its source. A node reads `kind` and `seconds`; `start` carries no seconds
+// (the line's first sample is the node's to know).
+Json resolve_origins(const Definition& d, const Json& params, const nxr::io::Database& db, const std::string& subject_id) {
+  Json out = params;
+  for (const auto& [k, doc] : d.parameter_docs.items()) {
+    if (doc.value("chart", std::string()) != "origin" || !params.contains(k) || params[k].is_null()) continue;
+    const Json& v = params[k];
+    const std::string w = d.name + ": parameter `" + k + "` (an origin)";
+    if (v.is_string() && v == "start") { out[k] = Json{{"kind", "start"}}; continue; }
+    if (v.is_number()) { out[k] = Json{{"kind", "clock"}, {"seconds", v}}; continue; }
+    if (v.is_object() && v.contains("kind") && v.contains("seconds")) continue;          // already resolved (a rerun from a stored recipe)
+    if (v.is_object() && v.contains("clock") && v["clock"].is_number()) { out[k] = Json{{"kind", "clock"}, {"seconds", v["clock"]}}; continue; }
+    if (v.is_object() && v.contains("event") && v["event"].is_object() && v["event"].contains("selection")) {
+      const Json& ev = v["event"];
+      const task::Subject subj = task::Subject::of(db, subject_id);
+      task::Want want{.cls = task::Cls::selection};
+      const std::string event_name = ev["selection"].get<std::string>();
+      want.name = event_name;
+      const auto sel = subj.find(want);
+      if (!sel) refuse(w + ": no selection named '" + event_name + "' (the events the origin is at)");
+      const auto spans = subj.spans(*sel);
+      const std::int64_t member = ev.value("member", std::int64_t(0));
+      if (member < 0 || member >= static_cast<std::int64_t>(spans.size()))
+        refuse(w + ": member " + std::to_string(member) + " of '" + event_name + "' does not exist (it has " + std::to_string(spans.size()) + " members; a selection of spans is needed)");
+      const std::string at = ev.value("at", std::string("start"));
+      if (at != "start" && at != "centre" && at != "stop") refuse(w + ": at is start, centre or stop");
+      const auto& m = spans[static_cast<std::size_t>(member)];
+      const double t = at == "start" ? m.start : at == "stop" ? m.stop : 0.5 * (m.start + m.stop);
+      out[k] = Json{{"kind", "event"}, {"seconds", t}, {"selection", sel->id}, {"selection_name", event_name}, {"member", member}, {"at", at}};
+      continue;
+    }
+    refuse(w + ": start, a number of seconds, {clock: seconds} or {event: {selection: NAME, member: N, at: start|centre|stop}}");
+  }
+  return out;
+}
+
+std::vector<Plan> plan_runs(const Definition& d, const nxr::io::Database& db, const std::string& subject_id, const Json& set, const std::string& preset, const ChannelFacts& channels) {
+  const Json base = parameters_of(d, set, preset);
   std::vector<Plan> out;
-  for (const auto& found : nxr::io::finder::resolve(db, subject_id, e.inputs, params)) out.push_back(plan(e, found, params, db, subject_id));   // every run planned before any is executed
+  for (const Json& each : plan_parameter_sets(d, base)) {
+    const Json params = resolve_origins(d, each, db, subject_id);
+    Definition e = expand(d, params);                                       // a definition that repeats, decides (`when:`) or composes, written out for this run (flat: unchanged)
+    if (!e.draw.empty()) {                                                  // `draw: seed`: every draw is a node of its own (the stored nodes' names, the cache key's pipeline), the parameter's value in the name
+      if (!params.contains(e.draw) || !params[e.draw].is_number_integer() || params[e.draw].get<std::int64_t>() < 0) refuse(d.name + ": the parameter `" + e.draw + "` (draw) is a whole number >= 0");
+      e.name += ".draw" + std::to_string(params[e.draw].get<std::int64_t>());
+    }
+    for (const auto& found : nxr::io::finder::resolve(db, subject_id, e.inputs, params)) out.push_back(plan(e, found, params, db, subject_id, channels));   // every run planned before any is executed
+  }
   for (auto& P : out) P.preset = preset;
   return out;
 }
@@ -209,10 +298,7 @@ std::string ospec_kind(const Json& spec) { return spec.value("kind", std::string
 
 // an exclude input's spans [start, stop) in seconds (a recording's bad segments)
 std::vector<std::pair<double, double>> spans_of(const nxr::io::Database& db, const nxr::io::Row& selection) {
-  std::vector<std::pair<double, double>> out;
-  for (const auto& r : db.all("SELECT start, stop FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {V(text(selection, "id"))}))
-    out.emplace_back(std::stod(text(r, "start")), std::stod(text(r, "stop")));
-  return out;
+  return nxr::io::selection::span_bounds(db, text(selection, "id"));
 }
 // the components a value holds an element (its rows a vertex)
 std::int64_t components(const Value& v) { return v.value_type == "scalar" ? 1 : v.value_type == "quaternion" ? 4 : 3; }
@@ -240,16 +326,15 @@ std::vector<std::string> measure_rows(const std::string& measure) {
 std::vector<std::string> measured_by(const nxr::io::Database& db, const std::string& selection_id, const Value& v, const std::string& field_id) {
   std::vector<std::string> out;
   if (selection_id.empty()) return out;
-  for (const auto& r : db.all("SELECT DISTINCT computed_by FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = ?",
-                              {V(selection_id), V(field_id), V(measure_rows(v.facts["measure"].get<std::string>())[0])}))
+  for (const std::string& by : nxr::io::selection::computed_by_over_field(db, selection_id, field_id, measure_rows(v.facts["measure"].get<std::string>())[0]))
   {
-    std::string c = nxr::io::opt_text(r, "computed_by").value_or("");
+    std::string c = by;
     const std::size_t at = c.find(" \xc2\xb7 stages ");              // the crossings' stage names are an annotation of the rows, not part of how they were made (the stages are in the cache key already)
     out.push_back(at == std::string::npos ? c : c.substr(0, at));
   }
   return out;
 }
-// a measurement over the EVENTS of the run (rollup_events, extent_measure): its Selection is the run's own events output, stored first: the span set (the default) or, `events_of: labelling`, the labelling
+// a measurement over the EVENTS of the run (measure_events, extent_measure): its Selection is the run's own events output, stored first: the span set (the default) or, `events_of: labelling`, the labelling
 bool over_events(const Value& v) { return v.cls == "measurement" && v.facts["over"].value("events", false); }
 std::string events_class(const Json& over) { return over.value("events_of", std::string("spans")); }
 // a run that makes several sets of point events (the cores, the tracks made of them) names the set by its kind (point_events.h); a measurement is over the set of its kind
@@ -293,7 +378,7 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, nxr::pipelines
   const nxr::io::Row& rec = *P.found.at(*d.over).row;
   const std::string& o0 = group.front();
   const Value& v0 = P.values.at(o0);
-  // over the tiles of a level, or (rollup_events) over the run's own events, whose Selection was stored just before: the member axis is then the events' order
+  // over the tiles of a level, or (measure_events) over the run's own events, whose Selection was stored just before: the member axis is then the events' order
   const std::string sel = over_selection(sub, P, v0);
   if (sel.empty()) refuse("outputs." + o0 + ": the Selection it is over was not stored");
   const Array& a0 = data.at(o0);
@@ -335,13 +420,13 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, nxr::pipelines
   std::vector<std::string> names;
   for (const Part& p : parts) for (const auto& n : p.names) names.push_back(n);
   bool keep_count = false, count_replaced = false;
-  if (const auto cr = sub.db().one("SELECT array_path, component FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure = 'count'", {V(sel), V(fid)})) {
+  if (const auto cr = nxr::io::selection::measurement_array(sub.db(), sel, fid, "count")) {
     bool same = false;
     try {
       // the stored count row says which component of which array is the count (the last): read it there, never assume a layout
-      nxr::io::ArrayReader rd = nxr::io::ArrayReader::open(sub.store(), text(*cr, "array_path"));
+      nxr::io::ArrayReader rd = nxr::io::ArrayReader::open(sub.store(), cr->array_path);
       const auto sh = rd.shape();
-      const std::int64_t cc = nxr::io::integer(*cr, "component");
+      const std::int64_t cc = cr->component;
       if (sh.size() == 3 && sh[1] == T && cc >= 0 && cc < sh[2] && sh[0] >= 1 && rd.dtype() == nxr::io::DType::Float32) {
         const auto raw = rd.read();
         std::vector<float> old(raw.size() / sizeof(float));
@@ -353,7 +438,7 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, nxr::pipelines
     if (same) {
       keep_count = true;
       // a count row in the very array about to be rewritten is rewritten with it (its component may move)
-      if (text(*cr, "array_path") == path) { unit.remove_measurements(sel, fid, "count"); keep_count = false; }
+      if (cr->array_path == path) { unit.remove_measurements(sel, fid, "count"); keep_count = false; }
     } else {
       if (!replace) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + o0 + ": the stored measurements of this Selection and recording were made over another span (their counts differ); pass --replace to rewrite their count row");
       // another span: the count row is rewritten only when no other measure shares it (their counts would no longer match); they are never deleted here
@@ -364,8 +449,8 @@ std::vector<Json> store_measurements(nxr::io::SubjectWriter& sub, nxr::pipelines
         if (v2.cls == "measurement" && !over_events(v2) && over_selection(sub, P, v2) == sel) for (const auto& n2 : measure_rows(v2.facts["measure"].get<std::string>())) ours.insert(n2);
       }
       std::string others;
-      for (const auto& r : sub.db().all("SELECT DISTINCT measure FROM selection_measurement WHERE selection_id = ? AND of_field_id = ? AND measure <> 'count' ORDER BY measure", {V(sel), V(fid)}))
-        if (!ours.count(text(r, "measure")) && std::find(names.begin(), names.end(), text(r, "measure")) == names.end()) others += (others.empty() ? "" : ", ") + text(r, "measure");
+      for (const std::string& r : nxr::io::selection::measures_over_field(sub.db(), sel, fid, std::string("count")))
+        if (!ours.count(r) && std::find(names.begin(), names.end(), r) == names.end()) others += (others.empty() ? "" : ", ") + r;
       if (!others.empty()) throw nxr::io::Error(nxr::io::code::already_exists, sub.name() + ": " + d.name + " output " + o0 + ": the measurements " + others + " of this Selection and recording were made over another span (their counts differ); recompute them over this span (with --replace) or remove them first");
       unit.remove_measurements(sel, fid, "count");
       count_replaced = true;
@@ -434,6 +519,8 @@ Json store_spans(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const 
   const nxr::io::Row& rec = *P.found.at(*d.over).row;
   const std::string name = node_name(d, o, P.found), path = nxr::io::node_path(sub.db(), v.manifolds[0], name);
   nxr::pipelines::clear_stored(ds, sub, {{"selection", path}}, replace, d.name + " output " + o + " (" + path + ")", replaced);
+  if (!a.meta.is_object() || !a.meta.contains("tiles_of") || !a.meta["tiles_of"].is_object() || !a.meta["tiles_of"].contains("width_s") || !a.meta["tiles_of"].contains("origin"))
+    throw nxr::io::Error(nxr::io::code::invalid_argument, "outputs." + o + ": the events record no tile width or origin of the tiles they were found on (meta " + (a.meta.is_object() ? a.meta.value("tiles_of", Json()).dump().substr(0, 300) : std::string("null")) + ")");
   const Json& tiles = a.meta["tiles_of"];
   const double w = tiles["width_s"].get<double>(), t0 = tiles["origin"].get<double>();
   std::vector<nxr::bst::TimeSpan> spans;
@@ -494,12 +581,19 @@ Json store_labelling(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
     dsp.entries->push_back(e);
   }
   const nxr::io::DictionaryResult dr = sub.dictionary(dsp);
-  nxr::io::SelectionSpec ss;
-  ss.name = name; ss.path = path; ss.type = "set"; ss.manifold_id = v.manifolds[0]; ss.data = nxr::io::view(codes, {a.rows, a.cols});
-  ss.cols.set("dictionary_id", dr.id).set("cell", "0,1").set("label", std::to_string(events) + " events")
-      .set("description", "the space x time extent of each global burst: code = the event's ordinal, -1 for a cell in none (pipeline " + key.pipeline + "); the cells are [spatial tile x time tile]")
-      .json("params_json", params);
-  const std::string id = sub.selection(std::move(ss));
+  // THE BURSTS ARE AN IRREGULAR FAMILY on the product manifold of space tiles x time tiles (they overlap in nothing here, vary in extent, have no levels): a member per cell, the
+  // event's ordinal its number (-1: a cell in none), the cells numbered row-major as the field's array is (time fastest); not a product of two grids
+  nxr::io::selection::Description events_set;
+  events_set.type = nxr::io::selection::Type::set;
+  events_set.member_of.assign(codes.begin(), codes.end());
+  events_set.member_codes.resize(static_cast<std::size_t>(events));
+  for (std::int64_t k = 0; k < events; ++k) events_set.member_codes[static_cast<std::size_t>(k)] = k;
+  nxr::io::selection::Placement at;
+  at.name = name; at.path = path; at.manifold_id = v.manifolds[0]; at.dictionary_id = dr.id; at.cell = "0,1";
+  at.label = std::to_string(events) + " events";
+  at.description = "the space x time extent of each global burst: member = the event's ordinal, -1 for a cell in none (pipeline " + key.pipeline + "); the cells are [spatial tile x time tile], row-major, " + std::to_string(a.rows) + " x " + std::to_string(a.cols);
+  at.params = params;
+  const std::string id = nxr::io::selection::save(sub, events_set, at).id;
   return Json{{"output", o}, {"selection", name}, {"path", path}, {"id", id}, {"events", events}};
 }
 // A STATISTIC OUTPUT (summarize, spec docs/specs/2026-11-13-statistic-summaries.md): the summaries of a measurement of the run over its partition's members,
@@ -516,7 +610,7 @@ Json store_statistic(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
                  : combine == "each" ? Json{{"name", "row"}, {"manifold_id", nxr::io::finder::factors(sub.db(), text(rec, "manifold_id"))[0]}, {"size", a.rows}}
                                      : Json{{"name", "row"}, {"values", Json::array({Json{{"name", combine}}})}, {"size", a.rows}};
   std::int64_t least = of.value("tiles", a.cols);
-  for (const auto& u : a.meta["members_used"]) least = std::min<std::int64_t>(least, u.get<std::int64_t>());
+  if (a.meta.contains("members_used") && a.meta["members_used"].is_array()) for (const auto& u : a.meta["members_used"]) least = std::min<std::int64_t>(least, u.get<std::int64_t>());
   nxr::io::StatisticSpec st;
   st.name = name; st.path = path; st.measure = v.facts.value("measure", std::string("amplitude")); st.method = "summary";
   st.of_field_id = text(rec, "id");
@@ -539,12 +633,12 @@ Json store_statistic(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
   if (span.is_object() && rate > 0) good_s = (span["stop_sample"].get<double>() - span["start_sample"].get<double>() - producer["run"].value("bad_samples", 0.0)) / rate;
   st.options = Json{{"summaries", a.meta["summaries"]}, {"combine", combine}, {"ddof", a.meta["ddof"]}, {"span", span}, {"good_s", std::isfinite(good_s) ? Json(good_s) : Json()}};
   Json pj = producer;
-  pj["output"] = o; pj["members_used"] = a.meta["members_used"];
+  pj["output"] = o; if (a.meta.contains("members_used")) pj["members_used"] = a.meta["members_used"];
   st.producer = pj;
   const std::string id = sub.statistic(std::move(st));
   return Json{{"output", o}, {"statistic", name}, {"path", path}, {"id", id}};
 }
-// A HISTOGRAM STATISTIC OUTPUT (`core_histogram`; nxr::histogram): counts in fixed log bins over the burst frames, pooled over the vertices, beside the recording: measure count, method histogram, the bins' range
+// A HISTOGRAM STATISTIC OUTPUT (`core_histogram`; nxr::stats::histogram): counts in fixed log bins over the burst frames, pooled over the vertices, beside the recording: measure count, method histogram, the bins' range
 // (lo, hi, bins) and what the distribution was made from (the chain) in its options, so a reader derives any percentile from the counts (the cores' threshold: the 98th) and the cores' step checks the chain
 Json store_histogram(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan& P, const std::string& o, const Array& a, const Json& producer,
                      const nxr::pipelines::CacheKey& key, bool replace, bool& replaced) {
@@ -554,10 +648,10 @@ Json store_histogram(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
   nxr::pipelines::clear_stored(ds, sub, {{"statistic", path}}, replace, d.name + " output " + o + " (" + path + ")", replaced);
   const Json& h = a.meta["histogram"];
   const std::int64_t bins = h["bins"].get<std::int64_t>();
-  nxr::histogram::LogBins lb;
+  nxr::stats::histogram::LogBins lb;
   lb.lo = h["lo"].get<double>(); lb.hi = h["hi"].get<double>(); lb.bins = static_cast<int>(bins);
   Json edges = Json::array();
-  for (int k = 0; k < lb.bins; ++k) edges.push_back(nxr::histogram::upperEdge(lb, k));
+  for (int k = 0; k < lb.bins; ++k) edges.push_back(nxr::stats::histogram::upperEdge(lb, k));
   nxr::io::StatisticSpec st;
   st.name = name; st.path = path; st.measure = "count"; st.method = "histogram";
   st.of_field_id = text(rec, "id");
@@ -568,7 +662,7 @@ Json store_histogram(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
   st.description = "the distribution of |x| over " + std::to_string(st.n_members.value_or(0)) + " good frames of " + text(rec, "name") + " in " + std::to_string(bins) + " log bins, pooled over the vertices \xe2\x80\x94 pipeline " + key.pipeline;
   Json opt = h;
   opt["edges_axis"] = "the bin axis's `edges` are the bins' UPPER edges";
-  opt["percentile"] = "read: the upper edge of the first bin whose cumulative share reaches p (nxr::histogram::percentile)";
+  opt["percentile"] = "read: the upper edge of the first bin whose cumulative share reaches p (nxr::stats::histogram::binnedPercentile)";
   opt["frames_in_range"] = std::min<std::int64_t>(h["range_frames"].get<std::int64_t>(), h["frames"].get<std::int64_t>());
   st.options = opt;
   Json pj = producer;
@@ -594,6 +688,7 @@ Json store_generic(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, cons
   st.axes = g["axes"];
   if (g.contains("components")) st.components = g["components"];
   if (g.contains("n_members")) st.n_members = g["n_members"].get<std::int64_t>();
+  if (g.contains("partition_selection_id") && g["partition_selection_id"].is_string()) st.partition_selection_id = g["partition_selection_id"].get<std::string>();   // the selection its members are (a surrogate draw's tiles: the comparison checks it is the data's)
   if (g.contains("unit") && g["unit"].is_string()) st.unit = g["unit"].get<std::string>();
   st.data = nxr::io::view(a.data, shape);
   st.description = g.value("description", std::string("a statistic of ") + text(rec, "name")) + " \xe2\x80\x94 pipeline " + key.pipeline;
@@ -614,7 +709,7 @@ Json store_baseline(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, con
   const std::string path = statistic_out_path(P, o), name = node_name(d, o, P.found);
   nxr::pipelines::clear_stored(ds, sub, {{"statistic", path}}, replace, d.name + " output " + o + " (" + path + ")", replaced);
   const Json& h = a.meta["baseline"];
-  const Json levels = v.facts.contains("levels") && v.facts["levels"].is_array() ? v.facts["levels"] : Json::array();
+  const Json levels = v.facts.is_object() && v.facts.contains("levels") && v.facts["levels"].is_array() ? v.facts["levels"] : Json::array();
   const std::int64_t L = levels.empty() ? 1 : static_cast<std::int64_t>(levels.size()), V = a.rows / L;
   Json entries = Json::array();
   if (levels.empty()) entries.push_back(Json{{"name", "band"}});
@@ -630,7 +725,7 @@ Json store_baseline(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, con
   st.description = "the baseline band power of " + text(rec, "name") + ": the mean of |x|^2 over " + std::to_string(st.n_members.value_or(0)) + " good " + h.value("axis", std::string("sample")) + " (outside the named bursts and the bad segments), per vertex and level \xe2\x80\x94 pipeline " + key.pipeline;
   Json opt = h;
   opt["layout"] = "[vertex x level]: row = vertex * levels + level; the mean of the `power` step's |x|^2 over the good columns";
-  opt["outside"] = v.facts.value("outside", Json());
+  opt["outside"] = v.facts.is_object() ? v.facts.value("outside", Json()) : Json();
   st.options = opt;
   Json pj = producer;
   pj["output"] = o;
@@ -667,7 +762,31 @@ Json store_home(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const P
 }
 }  // namespace
 
-Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan& P, const RunOptions& opt, const std::function<void(const Json&)>& progress) {
+// the dense matrix of a stored operator [rows x cols] and, in `meta.channels`, the elements of its `from` manifold its columns lie over (its from_selection), for a node that applies it
+nxr::graph::Array operator_constant(const Bound& bound, nxr::io::SubjectWriter& sub, const nxr::io::Row& op, const std::string& input) {
+  const std::string name = text(op, "name");
+  if (nxr::io::opt_text(op, "layout").value_or("dense") != "dense") refuse("steps: " + input + " (" + name + "): a node applies a dense operator (layout " + nxr::io::opt_text(op, "layout").value_or("") + ")");
+  std::vector<std::int64_t> shape;
+  const std::vector<float> m = bound.array_float(text(op, "path"), &shape);
+  if (shape.size() != 2) refuse("steps: " + input + " (" + name + "): its array is not [rows x cols]");
+  nxr::graph::Array a;
+  a.rows = shape[0]; a.cols = shape[1];
+  a.data.assign(m.begin(), m.end());
+  Json channels = Json::array();
+  const auto sel = nxr::io::is_null(op, "from_selection_id") ? std::nullopt : sub.db().read("selection", text(op, "from_selection_id"));
+  if (sel && !nxr::io::is_null(*sel, "array_path")) for (const std::int32_t c : bound.array_int32(text(*sel, "array_path"))) channels.push_back(c);
+  else for (std::int64_t c = 0; c < a.cols; ++c) channels.push_back(c);
+  a.meta["channels"] = channels;
+  a.meta["name"] = name;
+  a.meta["id"] = text(op, "id");
+  a.meta["to_value_type"] = nxr::io::opt_text(op, "to_value_type").value_or("vector3");
+  a.meta["to_manifold_id"] = nxr::io::opt_text(op, "to_manifold_id").value_or("");
+  a.meta["from_manifold_id"] = text(op, "from_manifold_id");
+  a.meta["from_value_type"] = nxr::io::opt_text(op, "from_value_type").value_or("scalar");
+  return a;
+}
+
+Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan& P, const RunOptions& opt, const std::function<void(const Json&)>& progress, const GroupInputs* group) {
   auto say = [&](const Json& j) { if (progress) progress(j); };
   const Definition& d = P.definition;
   const auto anchor = d.anchor();
@@ -676,9 +795,10 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   std::optional<nxr::io::ChunkSource> source;
   Json span_json = nullptr;
   const auto loop = P.section("do");
-  if (d.over) {
+  const bool static_field = d.over && !P.found.at(*d.over).time;           // a field with no time axis (a map): nothing streams; it is the loop's one block
+  if (d.over && !static_field) {
     const Value& over = P.found.at(*d.over);
-    const auto line = sub.db().one("SELECT n_vertices FROM manifold WHERE id = ?", {V(*over.time)});
+    const auto line = sub.db().read("manifold", *over.time);
     int level = 0;                                                          // the grid a node asks of the span (Planned::align): a segment of 2^k samples starts on the line's grid
     if (P.align > 1) {
       while ((std::int64_t(1) << (level + 1)) <= P.align) ++level;
@@ -705,13 +825,17 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       std::sort(spans.begin(), spans.end());
       bad = spans;
     }
-    source.emplace(nxr::pipelines::source_of(sub, *over.row, over.rate, over.origin, {}, bad));
+    // `read: shape` (a surrogate's draw): the chunk service hands the recording's shape and good samples, never a sample (spec 2026-11-17-surrogates.md, section 6)
+    if (d.inputs.at(*d.over).value("read", std::string("samples")) == "shape") source.emplace(nxr::pipelines::shape_source_of(sub, *over.row, over.rate, over.origin, bad));
+    else source.emplace(nxr::pipelines::source_of(sub, *over.row, over.rate, over.origin, {}, bad));
   }
   // THE CACHE KEY: the definition, its parameters, the inputs, the span (a rerun with all four the same is a hit)
   nxr::pipelines::CacheKey key;
   key.pipeline = d.name + "@" + std::to_string(d.version);
   key.params = Json{{"parameters", P.parameters}, {"definition_sha256", nxr::io::sha256_hex(d.text)}};
-  if (!P.preset.empty()) key.params["preset"] = P.preset;                    // the named parameter set asked for, beside the parameters it resolved to
+  // A PRESET IS ONLY A NAMED PARAMETER SET (consolidation spec 4.2): its name is in the provenance (below), never in the key, so two presets that resolve to equal parameters are one cached result
+  if (!d.chains.empty()) key.params["chains"] = d.chains;                    // the field chains composed in: their names, resolved parameters and sha256 (a changed chain is a new result)
+  if (!d.made.empty()) key.params["made"] = d.made;                          // the makers composed in
   key.params["block_samples"] = opt.block_samples;   // the pointwise tail's sub-block width: the same values up to the rounding of the folds' sums, so in the key (method rule 3)
   for (const Planned* p : loop) if (p->step->frame_place) key.params["block_frames"] = opt.block_frames;   // likewise the frames' (only a run with a frame tiling has one)
   {
@@ -727,7 +851,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     if (!resolved.empty()) key.params["resolved"] = resolved;
   }
   Json ids = Json::object();
-  for (const auto& [k, v] : P.found) ids[k] = text(*v.row, "id");
+  for (const auto& [k, v] : P.found) {
+    if (group && group->ids.count(k)) {                                      // a per-subject input: each member's id, member by member (a group result is of these members)
+      Json per = Json::object();
+      for (std::size_t i = 0; i < group->subjects.size(); ++i) per[group->subjects[i]] = group->ids.at(k)[i];
+      ids[k] = per;
+    } else {
+      ids[k] = text(*v.row, "id");
+    }
+  }
   key.input = Json{{"inputs", ids}, {"span", span_json}};
   key.compute = NXR_COMPUTE_VERSION;
   Json stored = Json::array();
@@ -735,10 +867,41 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   const std::string measured_id = d.over ? text(*P.found.at(*d.over).row, "id") : std::string();
   for (const auto& [o, ospec] : d.outputs.items()) {
     const Value& v = P.values.at(o);
+    if (ospec.value("get_or_create", false)) { stored.push_back(Json{{"output", o}, {"get_or_create", true}}); continue; }   // a maker's selection: found by its maker key or made, never a miss or a refusal
+    if (ospec.value("kind", std::string()) == "recording") {                // a recording output: the field of that name holding the same key
+      const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), "field", key, std::nullopt);
+      if (!row || text(*row, "name") != declared_name(P, o)) { hit = false; break; }
+      stored.push_back(Json{{"output", o}, {"kind", "recording"}, {"name", text(*row, "name")}, {"id", text(*row, "id")}});
+      continue;
+    }
+    // the field a declared measurement is of: a found one, or one of this run's own outputs stored just before (its id in `stored`)
+    std::string of_id;
+    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of")) {
+      const std::string of = ospec["of"].get<std::string>();
+      if (P.found.count(of) && P.found.at(of).row) of_id = text(*P.found.at(of).row, "id");
+      else for (const auto& e : stored) if (e.value("output", std::string()) == of && e.contains("id")) of_id = e["id"].get<std::string>();
+    }
+    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of") && !of_id.empty() && P.found.count(ospec["over"].get<std::string>()) && P.found.at(ospec["over"].get<std::string>()).row) {
+      // a declared measurement of a FOUND field (or of the run's own stored field) over a found selection takes no node: it is a hit when every row of the pair was made by this very run (same key)
+      const std::string sel = text(*P.found.at(ospec["over"].get<std::string>()).row, "id"), fld = of_id;
+      const auto by = nxr::io::selection::computed_by_over_field(sub.db(), sel, fld);
+      if (by.size() != 1 || by[0] != made_by(key)) { hit = false; break; }
+      stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}});
+      continue;
+    }
     if (is_declared(P, o)) {                                                // a declared output: each place it takes holds the same key (a manifold is found or made, never a miss)
       Json one = Json{{"output", o}, {"kind", ospec["kind"]}, {"name", declared_name(P, o)}};
-      for (const auto& [cls, path] : declared_places(P, o, sub)) {
+      const auto places = declared_places(P, o, sub);
+      // an output with no place to look up (a selection on a manifold this run makes, a measurement over it) cannot be shown stored: a miss, never a hit
+      // (a measurement over another output of this run, the run's own events: it is stored with them and a hit with them)
+      if (places.empty() && ospec["kind"] == "measurement" && ospec.contains("over") && ospec["over"].is_string() && d.outputs.contains(ospec["over"].get<std::string>()) && !P.found.count(ospec["over"].get<std::string>()) && !is_declared(P, ospec["over"].get<std::string>())) {
+        stored.push_back(one);
+        continue;
+      }
+      if (places.empty() && ospec["kind"] != "manifold" && !ospec.value("optional", false)) { hit = false; break; }
+      for (const auto& [cls, path] : places) {
         const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), task::to_string(cls), key, path);
+        if (!row && ospec.value("optional", false) && !sub.find(task::to_string(cls), path)) continue;   // an optional output this very run did not make (nothing stored there): not a miss
         if (!row) { hit = false; break; }
         if (cls != task::Cls::selection) { one["id"] = text(*row, "id"); one["path"] = path; }
       }
@@ -781,8 +944,9 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   }
   // another job's outputs of the same names: refused before any data is read (unless replace)
   if (!opt.replace)
-    for (const auto& [o, _] : d.outputs.items()) {
+    for (const auto& [o, ospec_o] : d.outputs.items()) {
       const Value& v = P.values.at(o);
+      if (ospec_o.value("get_or_create", false)) continue;
       if (is_declared(P, o)) {
         for (const auto& [cls, path] : declared_places(P, o, sub))
           if (sub.find(task::to_string(cls), path))
@@ -819,15 +983,179 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   const auto binding = std::make_shared<Binding>();
   binding->bound = &bound;
   binding->say = progress;
+  nxr::graph::Types types = P.types;
+  for (const auto& [k, v] : P.values)                                      // a streamed recording's channels (types, quality, units) are facts its nodes may read
+    if (v.cls == "field" && v.time && P.found.count(k) && P.found.at(k).row && types.count(k))
+      types[k].facts["channels"] = nxr::pipelines::channel_facts(sub, text(*P.found.at(k).row, "name"));
   nxr::graph::Checked checked;
   try {
-    checked = nxr::graph::check(P.graph, P.types, Json::object(), node_registry(binding));
+    checked = nxr::graph::check(P.graph, types, Json::object(), node_registry(binding));
   } catch (const std::invalid_argument& e) {
     refuse(std::string("steps: ") + e.what());
   }
   nxr::graph::Arrays constants;                                            // a found input that is not streamed is a description the steps read through the binding: no array
   for (const auto& name : checked.inputs)
     if (!checked.values.at(name).streamed()) { nxr::graph::Array a; a.rows = 0; a.cols = 0; a.meta["placeholder"] = true; constants[name] = std::move(a); }
+  if (group)                                                               // the per-subject inputs of a group run, stacked over the members: their values, not a description
+    for (const auto& [name, stack] : group->stacked) constants[name] = stack;
+  // what a native node (a grouped name: a pure function of arrays) reads is handed to it as arrays (the node reads no store): an OPERATOR as its matrix and the channels it
+  // lies over; a stored FIELD that is not streamed as its values (rows x components); a MANIFOLD (a surface) as its vertices [n x 3], its faces in meta["faces"]
+  for (const auto& n : checked.nodes) {
+    if (const StepSpec& st = step(n.spec->name); !st.native && !st.reads_arrays) continue;   // a native node (a grouped name of nxr::graph::registry()), or a step that declares it reads its found inputs as arrays; a step with a grouped name of its own (surrogate.*) reads them through the binding
+    for (const auto& [port, name] : n.in) {
+      if (!constants.count(name) || !P.values.count(name) || !P.found.count(name) || !P.found.at(name).row) continue;
+      if (group && group->stacked.count(name)) continue;                    // already the members' stacked values
+      const Value& v = P.values.at(name);
+      const nxr::io::Row& row = *P.found.at(name).row;
+      if (v.cls == "selection" && nxr::io::is_null(row, "array_path")) {     // a closed-form selection (a tiling, a ladder's level): its record only
+        nxr::graph::Array a;
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["type"] = text(row, "type");
+        if (!nxr::io::is_null(row, "n_members")) a.meta["n_members"] = nxr::io::integer(row, "n_members");
+        a.meta["member_of_id"] = nxr::io::opt_text(row, "member_of_id").value_or("");
+        a.meta["params"] = Json::parse(nxr::io::opt_text(row, "params_json").value_or("{}"), nullptr, false);
+        if (text(row, "type") == "ladder" || text(row, "type") == "grid") {   // a grid (dyadic tiles): the FINEST level's tile of every vertex, and the level dictionary (each level's measured diameter and band), as the nodes that read leaves expect
+          const auto levels = bound.level_members(text(row, "id"));
+          if (!levels.empty()) {
+            Json lv = Json::array();
+            for (const auto& m : levels) {
+              const Json lj = Json::parse(nxr::io::opt_text(m, "params_json").value_or("{}"), nullptr, false);
+              Json e = Json::object();
+              if (lj.is_object() && lj.contains("diameter")) e["diameter"] = lj["diameter"];
+              if (lj.is_object() && lj.contains("lambda_min")) { e["lambda_min"] = lj["lambda_min"]; e["lambda_max"] = lj["lambda_max"]; }
+              lv.push_back(e);
+            }
+            const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub.db(), sub.store(), text(levels.back(), "id"));
+            for (const std::int32_t c : em.member_of) a.data.push_back(c);
+            a.rows = static_cast<std::int64_t>(a.data.size()); a.cols = 1;
+            a.meta["levels"] = lv;
+            a.meta["depth"] = static_cast<int>(levels.size()) - 1;
+            const Json g = a.meta["params"].is_object() && a.meta["params"].contains("grid") ? a.meta["params"]["grid"] : Json::object();
+            a.meta["slots"] = g.is_object() ? g.value("slots", std::int64_t(1)) : std::int64_t(1);
+          }
+        }
+        constants[name] = std::move(a);
+      } else if (v.cls == "selection" && !nxr::io::is_null(row, "array_path")) {   // a partition or a pick: its codes, its member count and parameters
+        nxr::graph::Array a;
+        if (text(row, "type") == "set") {                                // a set per element: its member NUMBERS, and each member's label beside them (never the raw array as labels)
+          const nxr::io::selection::ElementMembers em = nxr::io::selection::read_element_members(sub.db(), sub.store(), text(row, "id"));
+          for (const std::int32_t c : em.member_of) a.data.push_back(c);
+          a.meta["member_codes"] = em.member_codes;
+        } else {                                                           // a pick (indices): the element list as stored
+          for (const std::int32_t c : bound.array_int32(text(row, "array_path"))) a.data.push_back(c);
+        }
+        a.rows = static_cast<std::int64_t>(a.data.size()); a.cols = 1;
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["type"] = text(row, "type");
+        if (!nxr::io::is_null(row, "n_members")) a.meta["n_members"] = nxr::io::integer(row, "n_members");
+        a.meta["member_of_id"] = nxr::io::opt_text(row, "member_of_id").value_or("");
+        a.meta["params"] = Json::parse(nxr::io::opt_text(row, "params_json").value_or("{}"), nullptr, false);
+        constants[name] = std::move(a);
+      } else if (v.cls == "statistic") {                                 // its values, its axes; a first axis over a pick of channels: those channels and their types
+        std::vector<std::int64_t> shape;
+        const std::vector<double> f = bound.array_double(text(row, "path"), &shape);
+        nxr::graph::Array a;
+        a.rows = shape.empty() ? 0 : shape[0];
+        a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
+        a.data.assign(f.begin(), f.end());
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
+        a.meta["value_type"] = nxr::io::opt_text(row, "value_type").value_or("scalar");
+        if (const auto u = nxr::io::opt_text(row, "unit"); u && !u->empty()) a.meta["unit"] = *u;
+        if (!nxr::io::is_null(row, "path")) a.meta["stored_precision"] = nxr::io::ArrayReader::open(sub.store(), text(row, "path")).dtype() == nxr::io::DType::Float64 ? "float64" : "float32";
+        const Json axes = Json::parse(nxr::io::opt_text(row, "axes_json").value_or("[]"), nullptr, false);
+        a.meta["axes"] = axes;
+        Json chax;                                                         // the first channel axis over a pick (after a band axis, when there is one)
+        if (axes.is_array()) for (const auto& ax : axes) if (ax.contains("selection_id") && ax.value("name", std::string()) == "channel") { chax = ax; break; }
+        a.meta["producer"] = Json::parse(nxr::io::opt_text(row, "producer_json").value_or("{}"), nullptr, false);
+        a.meta["measure"] = nxr::io::opt_text(row, "measure").value_or("");
+        a.meta["of_field_id"] = nxr::io::opt_text(row, "of_field_id").value_or("");
+        if (!chax.is_null())
+          if (const auto sel = sub.db().read("selection", chax["selection_id"].get<std::string>()); sel && !nxr::io::is_null(*sel, "array_path")) {
+            const std::vector<std::int32_t> ch = bound.array_int32(text(*sel, "array_path"));
+            a.meta["channels"] = ch;
+            a.meta["channels_selection_id"] = text(*sel, "id");
+            const std::string mid = nxr::io::opt_text(*sel, "manifold_id").value_or("");
+            a.meta["channels_manifold_id"] = mid;
+            const std::vector<std::string> all = nxr::pipelines::channel_types_of(sub, mid);
+            Json types = Json::array();
+            for (const auto c : ch) types.push_back(c >= 0 && static_cast<std::size_t>(c) < all.size() ? all[static_cast<std::size_t>(c)] : std::string());
+            a.meta["channel_types"] = types;
+          }
+        constants[name] = std::move(a);
+      } else if (v.cls == "measurement") {                              // a stored measurement found by its key: its values [rows x members], the key in meta
+        const std::optional<std::string> of_field = v.facts.contains("of_field_id") ? std::optional<std::string>(v.facts["of_field_id"].get<std::string>()) : std::nullopt;
+        const std::optional<std::string> of_stat = v.facts.contains("of_statistic_id") ? std::optional<std::string>(v.facts["of_statistic_id"].get<std::string>()) : std::nullopt;
+        const std::optional<std::int64_t> of_index = v.facts.contains("of_index") ? std::optional<std::int64_t>(v.facts["of_index"].get<std::int64_t>()) : std::nullopt;
+        const nxr::io::MeasurementValues mv = nxr::io::measurement_values(sub, text(row, "id"), of_field, of_stat, of_index, v.facts.value("measure", std::string()));
+        nxr::graph::Array a;
+        a.rows = mv.rows; a.cols = mv.members;
+        a.data = mv.values;
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["measure"] = v.facts.value("measure", std::string());
+        if (mv.unit && !mv.unit->empty()) a.meta["unit"] = *mv.unit;
+        constants[name] = std::move(a);
+      } else if (v.cls == "field") {
+        std::vector<std::int64_t> shape;
+        const std::vector<double> f = bound.array_double(text(row, "path"), &shape);
+        nxr::graph::Array a;
+        a.rows = shape.empty() ? 0 : shape[0];
+        a.cols = a.rows > 0 ? static_cast<std::int64_t>(f.size()) / a.rows : 0;
+        a.data.assign(f.begin(), f.end());
+        a.meta["name"] = text(row, "name"); a.meta["id"] = text(row, "id"); a.meta["shape"] = shape;
+        constants[name] = std::move(a);
+      } else if (v.cls == "manifold" && text(row, "type") == "curve") {     // a fiber bundle: its points [nF*nP x 3], fiber-major, held as double to carry them, `precision` in meta (its stored one: no node widens)
+        const nxr::io::task::Subject subject = nxr::io::task::Subject::of(sub);
+        const std::string bundle = text(row, "name"), stored = nxr::io::fibers::bundle_precision(subject, sub.store(), bundle);
+        nxr::graph::Array a;
+        std::int64_t nP = 0;
+        if (stored == "float32") { const auto b = nxr::io::fibers::read_bundle<float>(subject, sub.store(), bundle); a.data.assign(b.points.begin(), b.points.end()); nP = b.points_per_fiber; a.meta["origin"] = b.origin; }
+        else { const auto b = nxr::io::fibers::read_bundle<double>(subject, sub.store(), bundle); a.data.assign(b.points.begin(), b.points.end()); nP = b.points_per_fiber; a.meta["origin"] = b.origin; }
+        a.rows = static_cast<std::int64_t>(a.data.size() / 3); a.cols = 3;
+        a.meta["name"] = bundle; a.meta["id"] = text(row, "id"); a.meta["points_per_fiber"] = nP; a.meta["stored_precision"] = stored;
+        a.meta["precision"] = stored;                                      // the nodes compute in the points' own precision and refuse a mix (no widening: the values are held as double only to carry them)
+        constants[name] = std::move(a);
+      } else if (v.cls == "manifold" && text(row, "type") == "points") {    // a channels manifold: its sensor geometry (positions; types, orientations, coils in meta)
+        const nxr::pipelines::SensorGeometry g = nxr::pipelines::sensor_geometry(sub, text(row, "id"));
+        nxr::graph::Array a;
+        a.rows = static_cast<std::int64_t>(g.positions.size() / 3); a.cols = 3;
+        a.data = g.positions;
+        a.meta["name"] = g.name; a.meta["id"] = g.id; a.meta["cs_id"] = g.cs_id; a.meta["types"] = g.types;
+        if (g.orientation) a.meta["orientation"] = *g.orientation;
+        if (g.coils) a.meta["coils"] = Json{{"positions", g.coil_positions}, {"orientation", g.coil_orientation}, {"indptr", g.indptr}, {"indices", g.indices}, {"weights", g.weights}};
+        constants[name] = std::move(a);
+      } else if (v.cls == "manifold") {                                     // a surface: its vertices [n x 3] as stored, its faces in meta
+        const nxr::pipelines::SurfaceInput S = nxr::pipelines::read_surface(sub, text(row, "name"), true);
+        nxr::graph::Array a;
+        a.rows = S.n_vertices(); a.cols = 3;
+        a.data = S.vertices;
+        a.meta["faces"] = S.faces;
+        a.meta["name"] = S.name; a.meta["id"] = S.id; a.meta["cs_id"] = nxr::pipelines::coordinate_system_of(sub, S.id);
+        a.meta["unit"] = nxr::pipelines::coordinate_unit_of(sub, S.id);
+        if (!nxr::io::is_null(S.manifold, "positions_path"))               // the positions' own precision: a node that meets fibers of another precision refuses the pair, naming both
+          a.meta["precision"] = nxr::io::ArrayReader::open(sub.store(), text(S.manifold, "positions_path")).dtype() == nxr::io::DType::Float64 ? "float64" : "float32";
+        constants[name] = std::move(a);
+      }
+    }
+    for (const auto& [port, name] : n.in)                                   // A HODGE-DIRAC PACKAGE (its eigenvectors' operator): its basis, mass and meshes, read by pipelines
+      if (constants.count(name) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row &&
+          nxr::io::opt_text(*P.found.at(name).row, "kind") == std::optional<std::string>("eigenvectors")) {
+        const nxr::pipelines::HodgePackageData h = nxr::pipelines::hodge_package_data(sub, text(*P.found.at(name).row, "name"), std::nullopt);
+        nxr::graph::Array a;
+        a.rows = h.basis.P.rows(); a.cols = h.basis.P.cols();
+        a.data.resize(static_cast<std::size_t>(a.rows * a.cols));
+        for (Eigen::Index k = 0; k < h.basis.P.rows(); ++k) for (Eigen::Index v = 0; v < h.basis.P.cols(); ++v) a.data[static_cast<std::size_t>(k * a.cols + v)] = h.basis.P(k, v);
+        a.meta["hodge"] = true;
+        a.meta["mu"] = std::vector<double>(h.basis.mu.data(), h.basis.mu.data() + h.basis.mu.size());
+        a.meta["kind"] = h.basis.kind;
+        a.meta["mass"] = std::vector<double>(h.basis.mass.data(), h.basis.mass.data() + h.basis.mass.size());
+        a.meta["positions"] = std::vector<double>(h.basis.positions.data(), h.basis.positions.data() + h.basis.positions.size());
+        a.meta["faces"] = std::vector<std::int32_t>(h.basis.faces.data(), h.basis.faces.data() + h.basis.faces.size());
+        a.meta["keep"] = h.basis.keep;
+        a.meta["input_positions"] = h.input_positions;
+        a.meta["input_surface_id"] = h.input_surface_id;
+        a.meta["name"] = h.stem; a.meta["id"] = h.id; a.meta["axis_id"] = h.axis_id;
+        constants[name] = std::move(a);
+      }
+    for (const auto& [port, name] : n.in)
+      if (constants.count(name) && !constants.at(name).meta.value("hodge", false) && P.values.count(name) && P.values.at(name).cls == "operator" && P.found.count(name) && P.found.at(name).row) constants[name] = operator_constant(bound, sub, *P.found.at(name).row, name);
+  }
   // EIGENMODES FIRST (the spec, question 6): when a step needs a surface's eigenmodes and none are stored, the runner runs the `eigenmodes` pipeline as its OWN run (its own provenance and
   // cache key), says what it made and why, and starts again: nothing is ever stored hidden inside this run. The Chebyshev series stays the announced fallback (`transform: chebyshev`).
   std::optional<nxr::graph::Execution> ex;
@@ -848,20 +1176,88 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
   }
   Json facts = Json::object();
+  Json recording_report;                                                   // a recording output, written as the loop ran
   if (!checked.loop.empty()) {
     const std::int64_t H = ex->halo();
-    say(Json{{"stage", "run"}, {"pipeline", key.pipeline}, {"span", span->what}, {"halo", H}, {"steps", static_cast<std::int64_t>(checked.loop.size())}});
+    say(Json{{"stage", "run"}, {"pipeline", key.pipeline}, {"span", span ? Json(span->what) : Json("the map")}, {"halo", H}, {"steps", static_cast<std::int64_t>(checked.loop.size())}});
     std::int64_t blocks_n = 0;
-    const nxr::io::ChunkRun cr = nxr::io::haloed_loop(*source, *span, H, [&](const nxr::io::HaloedChunk& h) {
-      ++blocks_n;
-      const std::int64_t w = h.left + h.n + h.right;
-      Block x{source->rows(), w, h.left, h.right, std::vector<float>(h.data.size()), {}};
-      for (std::size_t i = 0; i < h.data.size(); ++i) x.re[i] = static_cast<float>(h.data[i]);   // the stored float32, widened by the service, narrowed back exactly
-      Blocks blocks{{*d.over, std::move(x)}};
-      std::vector<std::uint8_t> good;
-      if (!h.good.empty()) good.assign(h.good.begin() + h.left, h.good.begin() + h.left + h.n);
-      ex->block(blocks, Place{h.first, h.n, &good});
-    });
+    // A RECORDING OUTPUT (a filter's): the streamed value written as a new recording as the loop runs, in io's blocks; the source's flags, events, bad segments and projectors
+    // carried over by io (add_derived_recording). Nothing else of the run is held in memory.
+    std::optional<std::string> rec_out;
+    for (const auto& [o, ospec] : d.outputs.items()) if (ospec.value("kind", std::string()) == "recording") rec_out = o;
+    nxr::io::ChunkRun cr;
+    auto loop_with = [&](const std::function<void(const Blocks&)>& sink) {
+      if (static_field) {                                                  // the map's values as ONE one-sample block: its elements are the rows (a vector's components consecutive)
+        std::vector<std::int64_t> shape;
+        const std::vector<double> f = bound.array_double(text(*P.found.at(*d.over).row, "path"), &shape);
+        Block x{static_cast<std::int64_t>(f.size()), 1, 0, 0, std::vector<float>(f.size()), {}};
+        for (std::size_t i = 0; i < f.size(); ++i) x.re[i] = static_cast<float>(f[i]);
+        const std::vector<std::uint8_t> none;
+        ++blocks_n;
+        const Blocks outs = ex->block(Blocks{{*d.over, std::move(x)}}, Place{0, 1, &none});
+        if (sink) sink(outs);
+        return;
+      }
+      cr = nxr::io::haloed_loop(*source, *span, H, [&](const nxr::io::HaloedChunk& h) {
+        ++blocks_n;
+        const std::int64_t w = h.left + h.n + h.right;
+        Block x{source->reads_samples() ? source->rows() : 0, w, h.left, h.right, std::vector<float>(h.data.size()), {}};   // a shape-only source hands no rows (no samples)
+        for (std::size_t i = 0; i < h.data.size(); ++i) x.re[i] = static_cast<float>(h.data[i]);   // the stored float32, widened by the service, narrowed back exactly
+        Blocks blocks{{*d.over, std::move(x)}};
+        std::vector<std::uint8_t> good;
+        if (!h.good.empty()) good.assign(h.good.begin() + h.left, h.good.begin() + h.left + h.n);
+        std::vector<std::uint8_t> good_after;                                // the right halo's flags, for an accumulate node that reads past its block (a segment family)
+        if (!h.good.empty()) good_after.assign(h.good.begin() + h.left + h.n, h.good.end());
+        Place place{h.first, h.n, &good};
+        place.origin = span->s0; place.end = span->s1; place.good_after = &good_after;   // the segment grid starts at the span's first sample; no segment reaches past its end
+        const Blocks outs = ex->block(blocks, place);
+        if (sink) sink(outs);
+      });
+    };
+    if (!rec_out) loop_with({});
+    else {
+      const std::string rname = declared_name(P, *rec_out);
+      const nxr::io::Row& src_row = *P.found.at(*d.over).row;
+      Json rp = nxr::pipelines::stamp(key);
+      rp["pipeline"] = Json{{"name", d.name}, {"version", d.version}, {"sha256", nxr::io::sha256_hex(d.text)}};
+      rp["parameters"] = P.parameters;
+      rp["derived_from"] = Json{{"field", text(src_row, "id")}, {"name", text(src_row, "name")}};
+      rp["carried_over"] = Json::array({"channel flags", "events", "bad segments", "projectors", "ctf_compensation"});
+      std::int64_t written = 0;
+      const std::int64_t io_block = nxr::bst::recording_block_samples();
+      const std::string what = d.outputs[*rec_out].value("description", d.name + " of " + text(src_row, "name"));
+      sub.compose([&] {
+        nxr::bst::add_derived_recording(sub, text(src_row, "name"), rname, what, d.name, rp, [&](const nxr::bst::BlockWriter& write) {
+          std::vector<std::vector<float>> pending;                          // per channel, the samples not yet written
+          std::int64_t rows = 0, held = 0;
+          auto flush = [&](bool last) {
+            while (held >= io_block || (last && held > 0)) {
+              const std::int64_t n = std::min(io_block, held);
+              std::vector<float> x(static_cast<std::size_t>(rows * n));
+              for (std::int64_t r = 0; r < rows; ++r) {
+                std::copy(pending[static_cast<std::size_t>(r)].begin(), pending[static_cast<std::size_t>(r)].begin() + n, x.begin() + r * n);
+                pending[static_cast<std::size_t>(r)].erase(pending[static_cast<std::size_t>(r)].begin(), pending[static_cast<std::size_t>(r)].begin() + n);
+              }
+              write(written, x, n);
+              written += n; held -= n;
+              say(Json{{"stage", "written"}, {"samples", written}});
+            }
+          };
+          loop_with([&](const Blocks& outs) {
+            const auto it = outs.find(*rec_out);
+            if (it == outs.end()) refuse("outputs." + *rec_out + ": the chunk loop made no block of it");
+            const Block& b = it->second;
+            if (pending.empty()) { rows = b.rows; pending.assign(static_cast<std::size_t>(rows), {}); }
+            for (std::int64_t r = 0; r < rows; ++r)
+              pending[static_cast<std::size_t>(r)].insert(pending[static_cast<std::size_t>(r)].end(), b.re.begin() + r * b.width + b.left, b.re.begin() + r * b.width + b.left + b.own());
+            held += b.own();
+            flush(false);
+          });
+          flush(true);
+        }, [&](const Json& j) { say(j); });
+      });
+      recording_report = Json{{"output", *rec_out}, {"kind", "recording"}, {"name", rname}, {"samples", written}};
+    }
     facts = Json{{"span", span_json}, {"halo", H}, {"blocks", blocks_n}, {"block_samples", opt.block_samples}, {"block_frames", opt.block_frames}, {"chunks_read", cr.visited}, {"samples_read", cr.samples}, {"bad_samples", cr.bad_samples}};
   }
   const nxr::graph::Arrays data = ex->finish();
@@ -887,10 +1283,23 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   // STORE: each output a Field on the manifold its steps made, its provenance and the cache key with it; another job's node refused unless replace (moved aside)
   Json producer = Json{{"pipeline", Json{{"name", d.name}, {"version", d.version}, {"definition", d.source}, {"sha256", nxr::io::sha256_hex(d.text)}}},
                        {"parameters", P.parameters}, {"inputs", nxr::io::finder::describe(P.found)}, {"run", facts}, {"prepared", prepared}, {"warnings", warnings}, {"messages", messages}, {"made_first", made_first}, {"nxr_neuro", NXR_NEURO_VERSION}};
-  if (!P.preset.empty()) producer["preset"] = P.preset;
+  if (group) {                                                              // the members, and what each one's input found: the result is of these
+    Json members = Json::object();
+    for (const auto& [k, list] : group->ids) { Json per = Json::object(); for (std::size_t i = 0; i < group->subjects.size(); ++i) per[group->subjects[i]] = list[i]; members[k] = per; }
+    producer["group"] = Json{{"subjects", group->subjects}, {"inputs", members}};
+  }
+  if (!P.preset.empty()) producer["preset"] = P.preset;                      // provenance only: the key holds the resolved parameters
+  if (!d.chains.empty()) producer["chains"] = d.chains;
+  if (!d.made.empty()) producer["made"] = d.made;
+  {                                                                         // T3: each output's type as the checker typed it, written with it and read back by the next run's finder
+    Json types = Json::object();
+    for (const auto& o : checked.outputs) if (checked.values.count(o)) types[o] = nxr::graph::print(checked.values.at(o));
+    producer["types"] = types;
+  }
   const Json stamped = nxr::pipelines::stamp(key);                         // held: iterating a temporary's items() would dangle
   for (const auto& [k, v] : stamped.items()) producer[k] = v;
   stored = Json::array();
+  if (!recording_report.is_null()) stored.push_back(recording_report);
   bool replaced = false;
   // ONE UNIT for the whole result (io's task API): the nodes, their arrays, the measurement rows, the recipe and the cache key (in each producer record) are stored together, or nothing is
   nxr::pipelines::task::Subject subject = nxr::pipelines::task::Subject::of(sub);
@@ -913,14 +1322,30 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     // measurements), then the statistics (whose members may be those events)
     // DECLARED OUTPUTS (declared_outputs.h): the manifolds the definition makes FIRST, so that any other output can lie on them; then each of the others as the declaration and the node's description say
     MadeIds made;
+    // an output the node made none of: not in its arrays, or an array it marks `absent` (a step must hand every port; an optional output it does not make is such a placeholder)
+    auto made_none = [&](const std::string& o) { const auto it = data.find(o); return it == data.end() || it->second.meta.value("absent", false); };
     for (const auto& [o, ospec] : d.outputs.items())
-      if (is_declared(P, o) && ospec["kind"] == "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced));
+      if (is_declared(P, o) && ospec["kind"] == "manifold") {
+        if (made_none(o)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", "its node made none (an optional output)"}}); continue; }
+        stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced));
+      }
     std::set<std::string> packed;                                          // the measurement outputs already stored with an earlier one's array
     auto pass = [](const Value& v) { return v.cls == "labelling" ? 1 : over_events(v) ? 2 : v.cls == "statistic" ? 3 : 0; };
-    for (int ps = 0; ps < 4; ++ps)
-    for (const auto& [o, spec] : d.outputs.items()) {
+    // two more passes: the declared operators (they name the picks and statistics stored before them), then the fields of an operator (`of_operator`)
+    auto declared_pass = [&](const std::string& o, const Json& spec, const Value& v) {
+      if (!is_declared(P, o)) return pass(v);
+      if (ospec_kind(spec) == "operator") return 4;
+      if (ospec_kind(spec) == "field" && spec.contains("of_operator")) return 5;
+      if (ospec_kind(spec) == "selection" && spec.value("type", std::string()) == "product") return 6;   // a product: its factors (selections of this run) are stored before it
+      if (ospec_kind(spec) == "measurement") return 7;                    // over a partition, of a field stored before them
+      return pass(v);
+    };
+    for (int ps = 0; ps < 8; ++ps)
+    for (const auto& [o, spec] : d.outputs.items()) try {
       const Value& v = P.values.at(o);
-      if (pass(v) != ps) continue;
+      if (declared_pass(o, spec, v) != ps) continue;
+      if (spec.value("kind", std::string()) == "recording") continue;     // written as the loop ran
+      if (is_declared(P, o) && made_none(o)) { stored.push_back(Json{{"output", o}, {"stored", false}, {"why", "its node made none (an optional output)"}}); continue; }
       if (is_declared(P, o)) { if (ospec_kind(spec) != "manifold") stored.push_back(store_declared(unit, sub, P, o, data.at(o), span_json, made, opt.replace, replaced)); continue; }
       if (v.cls == "measurement" && v.facts.value("measure", std::string()) == "tile_crossings") { stored.push_back(store_crossings(sub, unit, P, o, v, data.at(o), made_by(key), opt.replace, replaced)); continue; }
       if (v.cls == "measurement") {
@@ -939,18 +1364,42 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         for (auto& j : store_measurements(sub, unit, P, group, data, made_by(key), opt.replace, replaced)) stored.push_back(std::move(j));
         continue;
       }
-      if (v.cls == "labelling") { stored.push_back(store_labelling(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)); continue; }
-      if (v.cls == "spans") { stored.push_back(store_spans(ds, sub, P, o, spec, v, data.at(o), producer, key, opt.replace, replaced)); continue; }
+      if (v.cls == "labelling") {
+        Json lj = store_labelling(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced);
+        if (lj.contains("id") && lj["id"].is_string()) made[o] = lj["id"].get<std::string>();   // a measurement declared over these events finds them by their output name
+        stored.push_back(std::move(lj));
+        continue;
+      }
+      if (v.cls == "spans") {
+        Json js = store_spans(ds, sub, P, o, spec, v, data.at(o), producer, key, opt.replace, replaced);
+        if (js.contains("id") && js["id"].is_string()) made[o] = js["id"].get<std::string>();   // a measurement declared over these events finds them by their output name
+        stored.push_back(std::move(js));
+        continue;
+      }
       if (v.cls == "statistic") { stored.push_back(data.at(o).meta.contains("generic_statistic") ? store_generic(ds, sub, P, o, data.at(o), producer, key, opt.replace, replaced)
                                                           : data.at(o).meta.contains("histogram") ? store_histogram(ds, sub, P, o, data.at(o), producer, key, opt.replace, replaced)
                                                           : data.at(o).meta.contains("home_map") ? store_home(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)
                                                           : data.at(o).meta.contains("baseline") ? store_baseline(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)
                                                                                                   : store_statistic(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)); continue; }
-      const std::string mid = v.manifolds.size() == 1 ? v.manifolds[0] : sub.product(v.manifolds);
-      const auto m = sub.db().one("SELECT name, n_vertices FROM manifold WHERE id = ?", {V(mid)});
+      std::string mid = v.manifolds.size() == 1 ? v.manifolds[0] : sub.product(v.manifolds);
+      // THE GLUED CORTEX: a Field on the derived glued surface is RESTRICTED BACK to the original for storage (glued -> original, exact; the bridge dropped like the medial wall), its provenance saying so
+      Array back;
+      std::optional<GlueMap> glue;
+      if (v.manifolds.size() == 1) glue = bound.glue_of(mid);
+      if (glue && data.at(o).rows * data.at(o).cols == glue->n_glued() * components(v)) {
+        const auto orig = sub.db().read("manifold", glue->original_id);
+        if (!orig) refuse("outputs." + o + ": the original surface of the glued one it lies on is not among the subject's rows");
+        back = data.at(o);
+        back.data = restrict_to_original(data.at(o).data, components(v), *glue, nxr::io::integer(*orig, "n_vertices"));
+        back.rows = nxr::io::integer(*orig, "n_vertices"); back.cols = components(v);
+        mid = glue->original_id;
+      } else {
+        glue.reset();
+      }
+      const auto m = sub.db().read("manifold", mid);
       const std::string node = node_name(d, o, P.found), path = nxr::io::node_path(sub.db(), mid, node);
       nxr::pipelines::clear_stored(ds, sub, {{"field", path}}, opt.replace, d.name + " output " + o + " (" + path + ")", replaced);
-      const Array& a = data.at(o);
+      const Array& a = glue ? back : data.at(o);
       const std::int64_t comps = components(v), n = m ? nxr::io::integer(*m, "n_vertices") : 0;
       if (a.rows * a.cols != n * comps) refuse("outputs." + o + ": " + std::to_string(a.rows * a.cols) + " values for the " + std::to_string(n) + " vertices of " + (m ? text(*m, "name") : mid));
       std::vector<float> f(a.data.begin(), a.data.end());
@@ -964,12 +1413,35 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (anchor) fs.cols.set("derived_from_id", text(*P.found.at(*anchor).row, "id"));
       Json pj = producer;
       pj["output"] = o;
+      if (glue) pj["restricted_from"] = Json{{"glued", glue->glued_id}, {"original", glue->original_id}, {"dropped", "the bridge"}};
       // a tangent vector field (a complex field's form, the phase current) is stored as a vector3 like a free-orientation current: the Studio's type says which (backend valueType.ts algebraOf)
       if (v.value_type == "vector3" && (v.facts.value("field_type", std::string()) == "complex" || v.facts.value("made_by", std::string()) == "phase_current")) pj["studio"] = Json{{"type", "complex"}};
       fs.cols.json("producer_json", pj);
       const std::string fid = sub.field(std::move(fs));
       stored.push_back(Json{{"output", o}, {"path", path}, {"id", fid}, {"on", m ? text(*m, "name") : mid}});
+    } catch (const nlohmann::json::exception& e) {
+      throw nxr::io::Error(nxr::io::code::invalid_argument, "outputs." + o + ": a record it is stored from is incomplete (" + e.what() + ")");
     }
+  }
+  // THE OPERATORS A NODE BUILT (the fused operator of a chain): stored through io as operators with their provenance, under the key they were found by, in this unit; the next run finds them
+  // (`Bound::stored_operator`) instead of rebuilding them. One already stored under the key is left as it is.
+  for (const MadeOperator& op : bound.offered_operators()) {
+    if (bound.stored_operator(op.key)) continue;
+    nxr::pipelines::task::OperatorOut oo;
+    oo.name = (op.name.empty() ? std::string("fused operator") : op.name) + " " + nxr::io::sha256_hex(op.key.dump()).substr(0, 12);   // one name per key: two operators of one kernel (another form, another hat) are two rows
+    oo.output = "operator";
+    oo.kind = op.kind;
+    oo.from_manifold_id = op.from_manifold_id; oo.to_manifold_id = op.to_manifold_id;
+    if (!op.description.empty()) oo.description = op.description;
+    oo.params = Json{{"cache", op.key}};
+    oo.producer = op.provenance.is_object() ? op.provenance : Json::object();
+    oo.producer["pipeline"] = d.name;
+    oo.cache_key = op.key;
+    oo.data.shape = {op.matrix->rows(), op.matrix->cols()};
+    oo.data.f64.resize(static_cast<std::size_t>(op.matrix->size()));
+    for (Eigen::Index r = 0; r < op.matrix->rows(); ++r) for (Eigen::Index c = 0; c < op.matrix->cols(); ++c) oo.data.f64[static_cast<std::size_t>(r * op.matrix->cols() + c)] = (*op.matrix)(r, c);
+    unit.operator_(oo);
+    stored.push_back(Json{{"output", oo.name}, {"kind", "operator"}, {"stored", true}, {"cache_key", op.key}});
   }
   unit.commit();
   report["hit"] = false;
@@ -985,7 +1457,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
 
 std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
                       const std::function<void(const Json&)>& progress) {
-  const auto plans = plan_runs(d, sub.db(), sub.id(), set, opt.preset);     // every run planned before any is executed
+  const auto plans = plan_runs(d, sub.db(), sub.id(), set, opt.preset, [&sub](const std::string& recording) { return nxr::pipelines::channel_facts(sub, recording); });     // every run planned before any is executed
   std::vector<Json> out;
   for (const auto& P : plans) {
     if (dry_run) {
@@ -993,7 +1465,118 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
       if (const auto a = d.anchor()) r["anchor"] = text(*P.found.at(*a).row, "name");
       out.push_back(r);
     } else {
-      out.push_back(execute(ds, sub, P, opt, progress));
+      try { out.push_back(execute(ds, sub, P, opt, progress)); }
+      catch (const std::invalid_argument& e) { refuse(e.what()); }       // a node's refusal (compute throws std::invalid_argument) is the run's: an io error with its code
+    }
+  }
+  return out;
+}
+
+namespace {
+// the grid a member's selection records (`template`, else `grid_key`, in its parameters); null when it records none
+Json grid_recorded(const nxr::io::Row& r) {
+  const Json pj = Json::parse(nxr::io::opt_text(r, "params_json").value_or("{}"), nullptr, false);
+  if (!pj.is_object()) return Json();
+  if (pj.contains("template")) return pj["template"];
+  if (pj.contains("grid_key")) return pj["grid_key"];
+  return Json();
+}
+// THE MEMBERS' VALUES stacked: for each per-subject selection input, its members' measurements (the measures of the run's `measures` parameter, of the field the member's per-subject field input found, when there is
+// one) as one array [subjects x measures x rows x members]. Every member must have the same rows and members (the group tree's codes); a mismatch is refused naming the subject.
+GroupInputs stack_members(const std::vector<GroupMember>& members, const std::vector<Values>& found, const std::vector<std::string>& per, const Json& params, const std::string& pipeline) {
+  GroupInputs g;
+  for (const auto& m : members) g.subjects.push_back(m.name);
+  std::string field_input;
+  for (const auto& k : per) if (found.front().at(k).cls == "field") { field_input = k; break; }
+  bool any_keyed = false;
+  for (const auto& k : per) any_keyed = any_keyed || found.front().at(k).cls == "measurement";
+  if (!any_keyed && (!params.contains("measures") || !params["measures"].is_array() || params["measures"].empty())) refuse(pipeline + ": a group run states the measures to roll up (the parameter `measures`, a list)");
+  for (const auto& k : per) {
+    for (std::size_t i = 0; i < members.size(); ++i) g.ids[k].push_back(text(*found[i].at(k).row, "id"));
+    const bool keyed = found.front().at(k).cls == "measurement";            // a stored measurement found by its key: its own measure and of, in each member
+    if (found.front().at(k).cls != "selection" && !keyed) continue;
+    nxr::graph::Array a;
+    a.rows = static_cast<std::int64_t>(members.size());
+    std::int64_t R = -1, M = -1;
+    Json measures = Json::array();
+    const Json measure_list = keyed ? Json::array({found.front().at(k).facts.value("measure", std::string())}) : params["measures"];
+    for (std::size_t i = 0; i < members.size(); ++i) {
+      const Bound b(*members[i].sub, members[i].ds);
+      const Value& fk = found[i].at(k);
+      const std::optional<std::string> of = keyed ? (fk.facts.contains("of_field_id") ? std::optional<std::string>(fk.facts["of_field_id"].get<std::string>()) : std::nullopt)
+                                                  : (field_input.empty() ? std::nullopt : std::optional<std::string>(text(*found[i].at(field_input).row, "id")));
+      for (const auto& mj : measure_list) {
+        const std::string measure = mj.get<std::string>();
+        const nxr::io::MeasurementValues mv = b.measurement_values(text(*found[i].at(k).row, "id"), of, std::nullopt, measure);
+        if (R < 0) { R = mv.rows; M = mv.members; }
+        if (mv.rows != R || mv.members != M)
+          refuse(members[i].name + ": its '" + measure + "' has " + std::to_string(mv.rows) + " rows x " + std::to_string(mv.members) + " members, the first subject's " + std::to_string(R) + " x " + std::to_string(M) + " (a group lies on one tree's codes)");
+        a.data.insert(a.data.end(), mv.values.begin(), mv.values.end());
+        if (i == 0) measures.push_back(measure);
+      }
+    }
+    a.cols = static_cast<std::int64_t>(measure_list.size()) * R * M;
+    a.meta["subjects"] = g.subjects; a.meta["measures"] = measures; a.meta["rows"] = R; a.meta["members"] = M;
+    a.meta["shape"] = Json::array({static_cast<std::int64_t>(members.size()), static_cast<std::int64_t>(measure_list.size()), R, M});
+    a.meta["name"] = text(*found.front().at(k).row, "name"); a.meta["stack"] = "subjects";
+    g.stacked[k] = std::move(a);
+  }
+  return g;
+}
+}  // namespace
+
+std::vector<Json> run_group(nxr::io::DatasetWriter& group_ds, nxr::io::SubjectWriter& group_sub, const std::vector<GroupMember>& members, const Definition& d, const Json& set, const RunOptions& opt, bool dry_run,
+                            const std::function<void(const Json&)>& progress) {
+  if (d.scope != "group") refuse(d.name + ": a group run takes a definition of scope group (this one is scope " + d.scope + ")");
+  if (members.empty()) refuse(d.name + ": a group run states its subjects (--subjects A,B,C, or a stored group selection by name): there is no default");
+  for (const auto& m : members) if (!m.sub || !m.ds) refuse(d.name + ": member '" + m.name + "' is not open");
+  const Json base = parameters_of(d, set, opt.preset);
+  std::vector<Json> out;
+  for (const Json& each : plan_parameter_sets(d, base)) {
+    const Json params = resolve_origins(d, each, group_sub.db(), group_sub.id());
+    const Definition e = expand(d, params);
+    Json shared = Json::object(), per = Json::object();
+    for (const auto& [k, spec] : e.inputs.items()) {
+      Json sp = spec;
+      sp.erase("per_subject");                                              // the definition language's key: the finder reads the model's relations only
+      (std::find(e.per_subject.begin(), e.per_subject.end(), k) != e.per_subject.end() ? per : shared)[k] = sp;
+    }
+    // each member's per-subject inputs: exactly one match, found in the member's own rows
+    std::vector<Values> found;
+    for (const auto& m : members) {
+      const auto matches = nxr::io::finder::resolve(m.sub->db(), m.sub->id(), per, params);
+      if (matches.size() != 1) refuse(m.name + ": " + d.name + " needs exactly one match of its per-subject inputs (" + std::to_string(matches.size()) + " found)");
+      found.push_back(matches.front());
+    }
+    // the members' inputs lie on the group tree's codes: one grid recorded by all (checked before any data is read)
+    for (const auto& k : e.per_subject) {
+      if (found.front().at(k).cls != "selection") continue;
+      const Json g0 = grid_recorded(*found.front().at(k).row);
+      for (std::size_t i = 1; i < members.size(); ++i)
+        if (grid_recorded(*found[i].at(k).row) != g0)
+          refuse(members[i].name + ": its " + k + " lies on another grid (" + grid_recorded(*found[i].at(k).row).dump() + ") than " + members.front().name + "'s (" + g0.dump() + "); a group's inputs lie on the group tree's codes (transfer them to it first)");
+    }
+    std::vector<Values> shared_matches;
+    if (shared.empty()) shared_matches.push_back(Values{});
+    else shared_matches = nxr::io::finder::resolve(group_sub.db(), group_sub.id(), shared, params);
+    for (const Values& sh : shared_matches) {
+      Values all = sh;
+      for (const auto& k : e.per_subject) {
+        Value v = found.front().at(k);
+        v.facts["stack"] = Json(std::vector<std::string>());
+        for (const auto& m : members) v.facts["stack"].push_back(m.name);
+        all[k] = v;
+      }
+      Plan P = plan(e, all, params, group_sub.db(), group_sub.id());
+      P.preset = opt.preset;
+      if (dry_run) {
+        Json r = Json{{"pipeline", d.name + "@" + std::to_string(d.version)}, {"plan", P.text(group_sub.db())}, {"parameters", P.parameters}, {"subjects", Json(std::vector<std::string>())}};
+        for (const auto& m : members) r["subjects"].push_back(m.name);
+        out.push_back(std::move(r));
+        continue;
+      }
+      const GroupInputs g = stack_members(members, found, e.per_subject, params, d.name);
+      out.push_back(execute(group_ds, group_sub, P, opt, progress, &g));
     }
   }
   return out;

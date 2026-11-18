@@ -13,9 +13,10 @@
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include "brain_helpers.h"
-#include "nxr/frames.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/intrinsic_surface.h"
 
-using namespace nxr::frames;
+using namespace nxr::geometry;
 using Eigen::MatrixXd;
 using Eigen::Vector3d;
 using Eigen::VectorXd;
@@ -159,9 +160,9 @@ int main() {
     const auto cf3 = anatomicalComponents(Afr, vec);
     EXPECT(Af.reference == "none" && maxDiffNaN(cf3, c0) < 1e-12, "the frame-free anatomical projection (3D axes, no gauge) equals the components read through the canonical frames");
     // the array normals are geometry-central's vertexNormals
-    { nxr::manifold::IntrinsicSurface s0(b.P.data(), b.n, b.F.data(), b.nF); const Mat3 g0 = vertexNormals(s0); EXPECT((g0 - b.N).cwiseAbs().maxCoeff() < 1e-12, "vertexNormals(arrays) is geometry-central's vertexNormals (one tangent plane)"); }
+    { nxr::geometry::IntrinsicSurface s0(b.P.data(), b.n, b.F.data(), b.nF); const Mat3 g0 = vertexNormals(s0); EXPECT((g0 - b.N).cwiseAbs().maxCoeff() < 1e-12, "vertexNormals(arrays) is geometry-central's vertexNormals (one tangent plane)"); }
     // the heading from north: the angle in the gauge (geometry-central's), minus the gauge angle of north (frame.rotate(field, canonical_gauge_angle, 1), then arg)
-    nxr::manifold::IntrinsicSurface surf(b.P.data(), b.n, b.F.data(), b.nF);
+    nxr::geometry::IntrinsicSurface surf(b.P.data(), b.n, b.F.data(), b.nF);
     const VectorXd gv = gaugeAngle(surf, vec), ge = gaugeAngle(surf, cf.e1);
     VectorXd head(b.n);
     for (int i = 0; i < b.n; ++i) head[i] = std::isnan(gv[i]) || std::isnan(ge[i]) ? std::numeric_limits<double>::quiet_NaN() : wrapd(gv[i] - ge[i]);

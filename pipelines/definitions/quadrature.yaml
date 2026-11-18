@@ -1,0 +1,62 @@
+# THE QUADRATURE SPECTRUM OF A RECORDING'S SOURCES (two statistics): what no zero-delay mixing can make of the sources' band cross-spectrum. The sensors' band cross-spectrum (Welch, streamed
+# chunk by chunk, the recording's bad segments left out, on the kernel's channels), its factor L (S = L L^H), and F = K L through the kernel (never an N x N matrix); from F, per band, the
+# quadrature fraction ||Im C||_F / ||C||_F (0 for any zero-delay mixture), the quadrature energy of each source (sum over the others of (Im C)^2; a free kernel's three rows added) and the strongest
+# pairs of Im C: p leads q by a quarter cycle, the pattern turns p -> q. A free kernel reads the quadrature over its 3N rows; a pair is one pattern over them, stored as its x y z components.
+# The kernel spreads each source over its neighbours with no lag: it shrinks Im C, so a quadrature fraction is a lower bound of what the sources hold.
+#
+# THE GRAPH. recording --[signal.xpsd, accumulate: partition = the Welch segments (a Rule on the time line)]--> spectrum --[signal.source_planes, array: pointwise matrix maths with the
+# kernel, no neighbourhood]--> energy, pairs. Reductions over time are the cross-spectrum's (a statistic over the segment partition); the per-source values are one member each.
+# Stored: the statistics `<name>_energy` (vertex x band) and `<name>` (vertex x pattern: `pair<k>_<p|q>_<band>`), their segment partition `<name>_segments`.
+#
+#   nxr-neuro run quadrature --dataset <folder> --subject sub-01 --recording rest --all --kernel KERNEL [--bands '[{name: alpha, lo: 8, hi: 12}]'] [--pairs 3]
+pipeline: quadrature
+version: 1
+description: "the quadrature spectrum of the sources per band (the quadrature fraction, the energy per source, the strongest quadrature pairs)"
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name (free or fixed orientation), or none: the subject's one inverse kernel on the recording's channels", unit: "-"}
+  name: {default: "{recording}_{kernel}_quadrature", meaning: "the stem of the stored statistics: <name> (the pairs) and <name>_energy; their segment partition <name>_segments", unit: "-"}
+  bands: {default: [{name: delta, lo: 2, hi: 4}, {name: theta, lo: 5, hi: 7}, {name: alpha, lo: 8, hi: 12}, {name: beta, lo: 15, hi: 29}, {name: gamma1, lo: 30, hi: 59}, {name: gamma2, lo: 60, hi: 90}], meaning: "the bands: {name, lo, hi}; a band holds the bins from lo to hi inclusive (Brainstorm's default bands)", unit: "Hz"}
+  pairs: {default: 3, meaning: "the k strongest quadrature pairs per band", unit: "-"}
+  segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
+  segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds); null: from segment_seconds", unit: "samples"}
+  segment_rule: {default: tile, meaning: "how the segment's length becomes samples: tile | round | even", unit: "-", choices: [tile, round, even]}
+  overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next, in [0, 1)", unit: "fraction"}
+  window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
+  periodic: {default: false, meaning: "the DFT-even form of the window rather than the symmetric one", unit: "-"}
+  detrend: {default: constant, meaning: "what is removed from each segment before windowing", unit: "-", choices: [none, constant, linear]}
+  scaling: {default: density, meaning: "density = power per Hz | spectrum = power | chain = per sample, per bin", unit: "-", choices: [density, spectrum, chain]}
+  bad_segments: {default: exclude, meaning: "exclude = a segment touching one of the recording's bad segments is left out | ignore = every segment is kept", unit: "-", choices: [exclude, ignore]}
+
+presets:
+  tiles:      {segment_rule: tile}
+  brainstorm: {segment_rule: round, window: hamming, periodic: false, detrend: constant, scaling: density}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: signal.xpsd, in: {x: recording, channels_of: kernel, exclude: bad}, with: {bands: $bands, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: [channels, spectrum, bins]}
+  after:
+    - {node: signal.source_planes, in: {spectrum: spectrum, kernel: kernel}, with: {pairs: $pairs}, out: [energy, pairs]}
+
+outputs:
+  energy:
+    kind: statistic
+    name: "$name_energy"
+    of: recording
+    axes: [{name: vertex, on: kernel.to}, {name: band}]
+    partition: {tiling: "$name_segments", on: recording.time}
+  pairs:
+    kind: statistic
+    name: $name
+    of: recording
+    axes: [{name: vertex, on: kernel.to}, {name: pattern}]
+    partition: {tiling: "$name_segments", on: recording.time}

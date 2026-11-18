@@ -1,4 +1,5 @@
 #include "nxr/pipelines/cache.h"
+#include "nxr/io/subject_reads.h"
 
 #include <algorithm>
 #include <cstdio>
@@ -10,6 +11,7 @@ Json CacheKey::json() const {
   Json j = Json::object();
   j["pipeline"] = pipeline;
   j["params"] = params;
+  if (j["params"].is_object()) j["params"].erase("preset");   // a preset is only a named parameter set (consolidation spec 4.2): its name is provenance, never part of the key; equal parameters are one cached result
   j["input"] = input;
   j["compute"] = compute;
   return j;
@@ -50,17 +52,10 @@ std::optional<Row> find_cached(const nxr::io::Database& db, const std::string& s
                                const std::optional<std::string>& path) {
   if (std::find(std::begin(nxr::io::kStatusTables), std::end(nxr::io::kStatusTables), table) == std::end(nxr::io::kStatusTables) || table == "subject")
     throw nxr::io::Error(nxr::io::code::invalid_argument, "find_cached: " + table + " is not a node table (manifold, selection, field, operator)");
-  if (table == "statistic" && !nxr::io::has_table(db, "statistic")) return std::nullopt;   // a dataset made before the statistic table has none
   const Json want = key.json();
   // a Selection has no producer_json: its producer records how it was made in params_json (the Studio's searchAtlas: params_json.search), the key under "cache"
-  const std::string col = table == "selection" ? "params_json" : "producer_json";
-  std::string sql = "SELECT * FROM " + table + " WHERE subject_id = ? AND status = 'complete' AND " + col + " IS NOT NULL";
-  std::vector<nxr::io::Value> args{nxr::io::V(subject_id)};
-  if (path) {
-    sql += " AND path = ?";
-    args.push_back(nxr::io::V(*path));
-  }
-  for (const Row& r : db.all(sql, args)) {
+  const std::string col = nxr::io::producer_column(table);
+  for (const Row& r : nxr::io::producer_rows(db, subject_id, table, path)) {
     Json p = Json::parse(nxr::io::text(r, col), nullptr, false);
     if (p.is_object() && p.contains("cache") && same(p["cache"], want)) return r;
   }

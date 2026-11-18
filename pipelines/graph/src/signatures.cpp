@@ -52,7 +52,7 @@ void events_out(Unified& u, const PortType& x, const std::string& sel_port, cons
   PortType& e = u.out.at(sel_port);
   e.domain = x.domain;
   e.quantity = "spans";
-  e.sel = SelectionShape{"spans", true, u.out_names.at(sel_port), ""};
+  e.sel = SelectionShape{"spans", false, u.out_names.at(sel_port), ""};
   for (const auto& m : measures) {
     PortType& o = u.out.at(m);
     o.domain = dom_of({members(e.sel->identity, line)});
@@ -69,6 +69,8 @@ void need_over(Unified& u, const std::string& port, const std::string& id, const
 Signature s_analytic() {
   return sig(Move::pointwise)
       .in("x", field({M, T}).streamed().value(VT::real).because("The analytic signal is taken of a real field."))
+      .in("bands", any_port().optional().because("The temporal band set (a spans selection) when several bands are made in one pass."))
+      .in("channels_of", any_port().optional().because("The channels of a stored statistic or operator the recording is picked to."))
       .out("y", like("x").with_value(VT::complex))
       .refine([](Unified& u, const Json& p) { if (auto b = band_of(p.value("band", Json()))) u.out.at("y").res.band = b; });
 }
@@ -80,12 +82,12 @@ Signature s_envelope() {
       .refine([](Unified& u, const Json& p) { if (auto b = band_of(p.value("band", Json()))) u.out.at("y").res.band = b; });
 }
 
-Signature s_frames() {
+Signature s_analytic_frames() {
   return sig(Move::apply)
-      .in("x", field({M, T}).streamed().linear().because("The frames interpolate the band-limited signal; after a non-linear node its band limit is gone."))
+      .in("x", field({M, T}).streamed().linear().value(VT::real).because("The band's analytic signal is read at the frames of a real field; after a non-linear node its band limit is gone."))
       .in("tiling", selection({T}).because("The frame tiling is made for x's time line."))
       .in("within", selection({T}).optional())
-      .out("y", like("x").on({M, members_of_port("tiling")}))
+      .out("y", like("x").on({M, members_of_port("tiling")}).with_value(VT::complex))
       .refine([](Unified& u, const Json&) {
         const PortType& t = u.type("tiling");
         if (!t.sel || t.sel->type != "tiling") u.fail("tiling", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a frame tiling (a closed-form tiling of the time line)");
@@ -95,26 +97,36 @@ Signature s_frames() {
       });
 }
 
+// a level as a signature reads it: the explicit index chart ("index:5", diagnostics and tests) is its number; a quantity ("20 mm", "8-12 Hz") is resolved at the run, not by the type rule (-1)
+int level_number(const Json& v) {
+  if (v.is_number()) return v.get<int>();
+  if (v.is_string()) { const std::string t = v.get<std::string>(); if (t.rfind("index:", 0) == 0) return std::stoi(t.substr(6)); }
+  return -1;
+}
+bool has_level(const Json& v) { return v.is_number() || (v.is_string() && !v.get<std::string>().empty()); }
+
 Signature s_apply_kernel() {
   return sig(Move::apply)
       .in("x", field({A, R, TF}).streamed().linear())
       .in("kernel", operator_(from_or_restriction_of(A), B).because("The kernel reads the channels of x; make the cross-spectrum or the recording with `--channels-of <kernel>`."))
       .in("tiles", selection({B}).optional().because("The tile ladder must be the ladder of the kernel's target surface."))
+      .in("pre_operator", any_port().optional().because("A linear operator on x's rows made by an earlier node (a surrogate's zero-lag mixing), composed into the kernel's operator."))
+      .in("glued", any_port().optional().because("The glued surface (made by `glue`) the field is made on and restored from."))
       .out("y", like("x").on({B, R, TF}))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
         const PortType& k = u.type("kernel");
         PortType& y = u.out.at("y");
         const std::string form = p.value("form", std::string("none"));
-        if (p.value("glued", false)) y.domain.factors[0] = derived("glued", y.domain.factors[0]);
+        if (u.has("glued") || form != "none") y.domain.factors[0] = derived("glued", y.domain.factors[0]);   // the glued surface is an input; a form is taken on it
         y.res.ladder.clear(); y.res.levels.clear(); y.res.spatial_shape.clear();
         if (u.has("tiles")) {
           const PortType& t = u.in.at("tiles");
           if (!t.sel || t.sel->type != "ladder") u.fail("tiles", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a tile ladder");
           std::vector<int> lv;
-          if (p.contains("levels") && p["levels"].is_array()) for (const auto& l : p["levels"]) lv.push_back(l.get<int>());
-          else if (p.contains("level") && p["level"].is_number()) lv.push_back(p["level"].get<int>());
-          if (lv.empty()) u.fail("tiles", "`tiles` comes with `level` or `levels`");
+          if (p.contains("spatial_scales") && p["spatial_scales"].is_array()) for (const auto& l : p["spatial_scales"]) lv.push_back(level_number(l));
+          else if (p.contains("spatial_scale") && has_level(p["spatial_scale"])) lv.push_back(level_number(p["spatial_scale"]));
+          if (lv.empty()) u.fail("tiles", "`tiles` comes with `spatial_scale` or `spatial_scales`");
           y.res.ladder = id_of(u, "tiles");
           y.res.levels = lv;
           y.res.spatial_shape = p.value("spatial_shape", std::string("mexhat"));
@@ -126,75 +138,6 @@ Signature s_apply_kernel() {
         else if (is_complex(x) && vt == VT::real) { y.value = VT::complex; y.complex_parts = false; }
         else { y.value = vt; y.complex_parts = false; }
         y.quantity = form == "none" ? "current" : form;
-      });
-}
-
-Signature s_magnitude() {
-  return sig(Move::pointwise).in("x", field({M, TF}).streamed()).out("y", like("x").with_value(VT::real).with_quantity("amplitude").non_linear());
-}
-
-Signature s_power() {
-  return sig(Move::pointwise)
-      .in("x", field({M, TF}).streamed())
-      .out("y", like("x").with_value(VT::real).with_quantity("power").non_linear())
-      .refine([](Unified& u, const Json&) {
-        if (!is_complex(u.type("x"))) u.fail("x", "is real; the band power |z|^2 is taken of the analytic signal's map: band-limit it with `analytic` first");
-      });
-}
-
-Signature s_phase_current() {
-  return sig(Move::pointwise)
-      .in("x", field({M, TF}).streamed().linear())
-      .out("y", like("x").with_value(VT::vector3).with_quantity("phase_current").non_linear())
-      .refine([](Unified& u, const Json&) {
-        const PortType& x = u.type("x");
-        if (!is_complex(x)) u.fail("x", "must be complex (a phase is kept)");
-        if (!is_surface(x.domain.factors.front())) u.fail("x", "its first factor " + print(x.domain.factors.front()) + " is not a surface; the phase current is a tangent vector of a surface");
-      });
-}
-
-Signature s_measure() {
-  return sig(Move::measure).accumulating()
-      .in("x", field({R, TF}).streamed().value_in({VT::real, VT::vector3}).because("Measure a real quantity of it (power, a form, the phase current)."))
-      .in("exclude", selection({TF}).optional())
-      .in("over", selection_any().optional().over())
-      .out("y", make_of(PortClass::measurement))
-      .refine([](Unified& u, const Json& p) {
-        const PortType& x = u.type("x");
-        const std::string m = p.value("measure", std::string("mean"));
-        static const std::map<std::string, std::vector<std::string>> fits = {{"amplitude", {"amplitude", "envelope"}}, {"envelope_max", {"amplitude", "envelope"}},
-                                                                             {"median", {"envelope"}}, {"power", {"power"}}, {"phase_current", {"phase_current"}}};
-        const auto f = fits.find(m);
-        if (f != fits.end() && std::find(f->second.begin(), f->second.end(), x.quantity) == f->second.end()) {
-          std::string want;
-          for (const auto& q : f->second) want += (want.empty() ? "" : " or ") + q;
-          u.fail("x", "is " + x.quantity + "; the measure " + m + " is a measure of " + want);
-        }
-        PortType& y = u.out.at("y");
-        y.quantity = m;
-        y.value = m == "phase_current" && u.has("over") && u.in.at("over").sel && u.in.at("over").sel->type != "ladder" ? VT::vector3 : VT::real;
-      });
-}
-
-Signature s_tile_max() {
-  return sig(Move::measure)
-      .in("x", field({A, TF}).streamed().quantity({"amplitude"}).because("|z| per vertex (`magnitude`) is the trace's input."))
-      .in("tiles", selection({A}).because("The tiles are the tile ladder of x's surface."))
-      .out("y", make_of(PortClass::measurement).with_quantity("trace"))
-      .refine([](Unified& u, const Json& p) {
-        const PortType& x = u.type("x");
-        const PortType& t = u.type("tiles");
-        if (!t.sel || t.sel->type != "ladder") u.fail("tiles", "is a " + (t.sel ? t.sel->type : std::string("?")) + " selection, not a tile ladder");
-        if (!p.contains("level") || !p["level"].is_number()) u.fail("tiles", "`level` names the tile level");
-        const int level = p["level"].get<int>();
-        if (x.res.ladder != id_of(u, "tiles") || x.res.levels != std::vector<int>{level})
-          u.fail("tiles", "the tiles' level " + std::to_string(level) + " of `" + id_of(u, "tiles") + "` is not x's spatial band (" + level_text(x.res) + "); the level IS the band");
-        PortType& y = u.out.at("y");
-        const std::string key = id_of(u, "tiles") + "@" + std::to_string(level) + "," + p.value("groups", std::string("whole_brain"));
-        y.domain = dom_of({made("groups", key, ManifoldKind::members), x.domain.factors.back()});
-        y.res = x.res;
-        y.axis = x.axis;
-        y.sfreq = x.sfreq;
       });
 }
 
@@ -213,21 +156,209 @@ Signature s_collect() {
       });
 }
 
-Signature s_reduce_cells() {
-  return sig(Move::summarize)
-      .in("x", measurement_any().value(VT::real).because("The maximum over the spatial tiles of each time tile is of a scalar."))
-      .out("y", make_of(PortClass::measurement))
+// A LEVEL ROLL-UP (a node whose signature says `rolling_up`: its move carries values up a grid's closed-form hierarchy) reads a GRID's members. The members of an irregular selection (events,
+// scouts, an atlas) have no levels: the checker refuses it from the selection's family mark and the node's move (checker.cpp), and a statistic across them is a `summary`, which `summarize` makes.
+
+
+Signature s_detect_spans();
+Signature s_fit_gate();
+Signature s_burst_stages();
+void statistic_of_stream(Unified& u, const std::string& port, const std::string& statistic_quantity, const ManifoldRef& axis_override);
+
+// ── the consolidated measurement nodes (spec 2026-11-17-consolidation.md, section 2) ─────────────────────────────────────────────────────────────────────────────────────────────────────────────
+// `reduce`: a field over the members of any selection (the only move that removes a factor); its two outputs, the measures' values and the ingredients they are read from, are the same measurement.
+Signature s_reduce() {
+  return sig(Move::measure).accumulating()
+      .in("x", field({R, TF}).streamed().value_in({VT::real, VT::vector3, VT::complex}).because("Reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current), or a complex field by sum or mean."))
+      .in("over", selection_any().optional().over())
+      .in("exclude", selection({TF}).optional())
+      .in("weights", any_port().optional())
+      .out("values", make_of(PortClass::measurement))
+      .out("ingredients", make_of(PortClass::measurement))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
-        if (x.domain.factors.size() != 1 || !is_joint_members(x.domain.factors[0]))
-          u.fail("x", "must be a measurement over a joint partition's cells (one member set of space x time)");
-        const ManifoldRef& c = x.domain.factors[0];
-        PortType& y = u.out.at("y");
-        y.domain = dom_of({made("groups", c->by + "," + p.value("groups", std::string("whole_brain")), ManifoldKind::members),
-                           with_of(made("time_tiles", c->by, ManifoldKind::line, Role::time_tiles), c->of)});
-        y.quantity = x.quantity;
-        y.res = x.res;
+        if (!p.contains("measures") || !p["measures"].is_array() || p["measures"].empty()) u.fail("x", "`measures` names what is measured (no default): the caller's, or the preset's");
+        const std::string m = p["measures"][0].get<std::string>();
+        // a COMPLEX field is reduced as it is only by the measures linear in its value; the others need a real quantity (an order, a magnitude)
+        if (x.value == VT::complex)
+          for (const auto& mj : p["measures"]) {
+            const std::string mm = mj.is_string() ? mj.get<std::string>() : std::string();
+            if (mm != "sum" && mm != "mean") u.fail("x", "is complex and the measure " + mm + " needs a real quantity (an order or a magnitude); a complex field is reduced by sum or mean, or give it a form first (field.form magnitude | power | phase_current)");
+          }
+        static const std::map<std::string, std::vector<std::string>> fits = {{"amplitude", {"amplitude", "envelope"}}, {"envelope_max", {"amplitude", "envelope"}},
+                                                                             {"median", {"envelope"}}, {"power", {"power"}}, {"phase_current", {"phase_current"}}};
+        const auto f = fits.find(m);
+        if (f != fits.end() && std::find(f->second.begin(), f->second.end(), x.quantity) == f->second.end()) {
+          std::string want;
+          for (const auto& q : f->second) want += (want.empty() ? "" : " or ") + q;
+          u.fail("x", "is " + x.quantity + "; the measure " + m + " is a measure of " + want);
+        }
+        for (const char* port : {"values", "ingredients"}) {
+          PortType& y = u.out.at(port);
+          if (is_quantity(m)) y.quantity = m;
+          y.value = m == "phase_current" ? VT::vector3 : x.value == VT::complex ? VT::complex : VT::real;
+        }
       });
+}
+
+// `reduce.statistic`: a stored statistic over the members of a selection of its first axis (a PSD over a channel set); the measurement is OF the statistic
+Signature s_reduce_statistic() {
+  return sig(Move::measure)
+      .in("x", statistic_any().because("`measure` of a stored statistic reduces its first axis (the channels of a PSD) over a selection's members."))
+      .in("over", selection_any().over())
+      .out("values", make_of(PortClass::measurement))
+      .refine([](Unified& u, const Json& p) {
+        if (!p.contains("measures") || !p["measures"].is_array() || p["measures"].empty()) u.fail("x", "`measures` names what is measured (no default): the caller's, or the preset's");
+        const std::string m = p["measures"][0].get<std::string>();
+        PortType& y = u.out.at("values");
+        if (is_quantity(m)) y.quantity = m;
+        y.value = VT::real;
+      });
+}
+
+// `reduce.members`: a measurement over a grid's members, over the members of an irregular selection given on them (events over a grid); the events keep their own members (no level, no roll-up)
+Signature s_reduce_members() {
+  return sig(Move::measure)
+      .in("x", measurement_any().because("Each event is measured from a measurement over a grid's members, event by event."))
+      .in("over", selection_any())
+      .out("values", make_of(PortClass::measurement))
+      .out("ingredients", make_of(PortClass::measurement))
+      .refine([](Unified& u, const Json& p) {
+        const PortType& x = u.type("x");
+        const PortType& ev = u.type("over");
+        if (x.domain.factors.empty() || !member_like(x.domain.factors.back())) u.fail("x", "must be a measurement over a grid's members (a tile level)");
+        if (!ev.sel || (ev.sel->type != "spans" && ev.sel->type != "set")) u.fail("over", "must be a spans selection, or the set of events `select.events.regions` found on the cells");
+        const std::string over = partition_id(x.domain.factors.back());
+        if (!ev.sel->detected_over.empty() && ev.sel->detected_over != over)
+          u.fail("over", "were detected on the members of `" + ev.sel->detected_over + "`; x is measured over `" + over + "`. Reduce a measurement over the grid the events were found on (or detect them on x's).");
+        if (!p.contains("measures") || !p["measures"].is_array() || p["measures"].empty()) u.fail("x", "`measures` names what is measured (no default)");
+        for (const char* port : {"values", "ingredients"}) {
+          PortType& y = u.out.at(port);
+          y.domain = x.domain;
+          y.domain.factors.back() = members(id_of(u, "over"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), Role::time_tiles, "", true);
+          y.quantity = x.quantity;
+          y.value = x.value;
+          y.complex_parts = x.complex_parts;
+          y.res = x.res;
+        }
+      });
+}
+
+// `roll_up`: through a GRID's closed-form hierarchy; refused over an irregular selection's members (checker.cpp: the family mark and the move)
+Signature s_roll_up() {
+  return sig(Move::summarize).rolling_up()
+      .in("x", measurement_any().because("Ingredients are rolled up a grid's hierarchy: reduce a field over the grid's members first."))
+      .in("grid", selection_any().optional())
+      .out("values", make_of(PortClass::measurement))
+      .out("ingredients", make_of(PortClass::measurement))
+      .refine([](Unified& u, const Json&) {
+        const PortType& x = u.type("x");
+        for (const char* port : {"values", "ingredients"}) {
+          PortType& y = u.out.at(port);
+          y.domain = x.domain;
+          y.quantity = x.quantity;
+          y.value = x.value;
+          y.res = x.res;
+        }
+      });
+}
+
+// `estimate`: a statistic from the stream (a histogram's counts, a mean); never of a selection's members
+Signature s_estimate() {
+  return sig(Move::summarize).accumulating().reduces_over("the good samples")
+      .in("x", field({R, TF}).streamed())
+      .in("exclude", selection_any().optional())
+      .in("outside", selection_any().optional().because("Samples outside these spans only (the estimate of what is not in an event)."))
+      .out("y", make_of(PortClass::statistic))
+      .refine([](Unified& u, const Json& p) {
+        const std::string method = p.value("method", std::string("sample"));
+        statistic_of_stream(u, "y", method == "histogram" ? "histogram" : "mean", nullptr);   // `sample` is the mean over the good samples
+      });
+}
+
+// `field.form`: the pointwise form of a field (magnitude, power, phase_current, outer)
+Signature s_field_form() {
+  return sig(Move::pointwise)
+      .in("x", field({M, TF}).streamed())
+      .out("y", like("x"))
+      .refine([](Unified& u, const Json& p) {
+        const PortType& x = u.type("x");
+        const std::string form = p.value("form", std::string());
+        PortType& y = u.out.at("y");
+        y.nonlinear = true;
+        if (form == "magnitude") { y.value = VT::real; y.complex_parts = false; y.quantity = "amplitude"; }
+        else if (form == "power") {
+          if (!is_complex(x)) u.fail("x", "is real; the band power |z|^2 is taken of the analytic signal's map: band-limit it with `analytic` first");
+          y.value = VT::real; y.complex_parts = false; y.quantity = "power";
+        } else if (form == "phase_current") {
+          if (!is_complex(x)) u.fail("x", "must be complex (a phase is kept)");
+          if (!is_surface(x.domain.factors.front())) u.fail("x", "its first factor " + print(x.domain.factors.front()) + " is not a surface; the phase current is a tangent vector of a surface");
+          y.value = VT::vector3; y.complex_parts = false; y.quantity = "phase_current";
+        } else if (form == "outer") {
+          if (!is_complex(x)) u.fail("x", "must be complex (the analytic signal): z z^H of a real field is its square");
+        } else u.fail("x", "form is magnitude, power, phase_current or outer (no default)");
+      });
+}
+
+// ── the makers (spec section 1): each a `make` node reading no field; the grid's identity is the value's name ─────────────────────────────────────────────────────────────────────────────────────
+Signature s_select_time_grid() {
+  return sig(Move::make)
+      .in("line", any_port().because("The time line (or a field on it) the grid is made on."))
+      .in("event", selection_any().optional())
+      .out("grid", make_of(PortClass::selection))
+      .refine([](Unified& u, const Json& p) {
+        PortType& g = u.out.at("grid");
+        if (g.domain.factors.empty() && u.has("line") && !u.in.at("line").domain.factors.empty()) g.domain = u.in.at("line").domain;   // a grid lies on the line it is made on
+        g.quantity = "spans";
+        g.sel = SelectionShape{p.value("rule", std::string()) == "segments" ? "spans" : "tiling", p.value("rule", std::string()) != "segments", u.out_names.at("grid"), ""};   // a grid is a closed-form partition; segments overlap (a family)
+      });
+}
+Signature s_select_dyadic_surface() {
+  return sig(Move::make)
+      .in("surface", any_port().because("The surface the grid is made on."))
+      .out("tiles", make_of(PortClass::selection))
+      .refine([](Unified& u, const Json&) { u.out.at("tiles").sel = SelectionShape{"ladder", true, u.out_names.at("tiles"), ""}; });
+}
+Signature s_select_bands() {
+  return sig(Move::make)
+      .in("line", any_port().optional()).in("grid", any_port().optional())
+      .out("bands", make_of(PortClass::selection))
+      .refine([](Unified& u, const Json& p) { u.out.at("bands").sel = SelectionShape{"spans", p.value("rule", std::string()) == "levels", u.out_names.at("bands"), ""}; });
+}
+Signature s_select_product() {
+  return sig(Move::make)
+      .in("first", any_port()).in("second", any_port()).in("third", any_port().optional()).in("fourth", any_port().optional()).in("bands", any_port().optional())
+      .out("product", make_of(PortClass::constant)).out("cells", make_of(PortClass::selection))
+      .refine([](Unified& u, const Json&) {
+        PortType& c = u.out.at("cells");
+        c.sel = SelectionShape{"set", true, u.out_names.at("cells"), ""};
+        c.domain.factors.clear();                                          // the product lies on its factors' manifolds, in the order of the factors
+        for (const char* k : {"first", "second", "third", "fourth"})
+          if (u.has(k)) for (const ManifoldRef& f : u.in.at(k).domain.factors) c.domain.factors.push_back(f);
+        if (c.domain.cells.empty()) c.domain.cells = "0";
+      });
+}
+// select.events.spans: the three rules (detect, keep_where, stages) of one node; each rule's own signature is applied to its own ports
+Signature s_select_events_spans() {
+  Signature s = sig(Move::detect);
+  s.in("x", measurement_any().optional().because("Events are detected on a measurement over a time partition's members: reduce the field over the constant-Q level first (reduce with `over`).")).in("baseline", statistic_any().optional()).in("events", selection_any().optional()).in("fit_r2", measurement_any().optional())
+   .in("t_on", measurement_any().optional()).in("t_off", measurement_any().optional()).in("tau_rise", measurement_any().optional()).in("tau_fall", measurement_any().optional()).in("kept", selection_any().optional());
+  s.out("spans", make_of(PortClass::selection)).out("onset", make_of(PortClass::selection)).out("within", make_of(PortClass::selection)).out("offset", make_of(PortClass::selection));
+  return s.refine([](Unified& u, const Json& p) {
+    const std::string rule = p.value("rule", std::string());
+    if (rule == "detect") s_detect_spans().refine_fn(u, p);
+    else if (rule == "keep_where") {
+      if (!u.has("events") || !u.has("fit_r2")) u.fail("events", "rule keep_where reads `events` and `fit_r2` (risefall's fit)");
+      PortType kept = u.in.at("events");
+      kept.facts = Json::object();
+      kept.typed = true;
+      u.out["spans"] = kept;
+      s_fit_gate().refine_fn(u, p);
+    } else if (rule == "stages") {
+      for (const char* k : {"events", "t_on", "t_off", "tau_rise", "tau_fall"}) if (!u.has(k)) u.fail("events", std::string("rule stages reads `events` and risefall's t_on, t_off, tau_rise and tau_fall: ") + k + " is not wired");
+      s_burst_stages().refine_fn(u, p);
+    } else u.fail("x", "rule is detect, keep_where or stages (no default)");
+  });
 }
 
 Signature s_summarize() {
@@ -266,34 +397,8 @@ Signature s_detect_spans() {
         PortType& s = u.out.at("spans");
         s.domain = dom_of({last->of});
         s.quantity = "spans";
-        s.sel = SelectionShape{"spans", true, u.out_names.at("spans"), partition_id(last)};
+        s.sel = SelectionShape{"spans", false, u.out_names.at("spans"), partition_id(last)};   // detected events are irregular: sparse, may overlap, no levels; the grid is provenance only
         s.res.band = x.res.band;
-      });
-}
-
-Signature s_rollup_events() {
-  return sig(Move::measure)
-      .in("x", measurement_any().because("The roll-up re-measures a measurement over a tile level."))
-      .in("events", selection_any())
-      .out("y", make_of(PortClass::measurement))
-      .refine([](Unified& u, const Json& p) {
-        const PortType& x = u.type("x");
-        const PortType& ev = u.type("events");
-        if (x.domain.factors.empty() || !member_like(x.domain.factors.back())) u.fail("x", "must be a measurement over a partition's members (a tile level)");
-        if (!ev.sel || ev.sel->type != "spans") u.fail("events", "must be a spans selection");
-        const std::string over = partition_id(x.domain.factors.back());
-        if (!ev.sel->detected_over.empty() && ev.sel->detected_over != over)
-          u.fail("events", "were detected on the members of `" + ev.sel->detected_over + "`; x is measured over `" + over + "`. Roll up a measurement over the partition the events were found on (or detect them on x's).");
-        const std::string m = p.value("measure", std::string());
-        if (m.empty()) u.fail("x", "the roll-up needs a `measure`");
-        if (m != "duration" && m != "interval_next" && m != x.quantity) u.fail("x", "the measure " + m + " is not x's quantity (" + x.quantity + ")");
-        PortType& y = u.out.at("y");
-        y.domain = x.domain;
-        y.domain.factors.back() = members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back());
-        y.quantity = m;
-        y.value = x.value;
-        y.complex_parts = x.complex_parts;
-        y.res = x.res;
       });
 }
 
@@ -306,7 +411,7 @@ Signature s_risefall() {
     const PortType& ev = u.type("events");
     if (!(x.cls == PortClass::measurement || (x.cls == PortClass::field && !x.streamed()))) u.fail("x", "must be the sample series of the run (`collect`)");
     if (!ev.sel || ev.sel->type != "spans" || ev.sel->detected_over.empty()) u.fail("events", "must be the spans `detect_spans` made");
-    for (const auto& o : outs) u.out.at(o).domain = dom_of({members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back())});
+    for (const auto& o : outs) u.out.at(o).domain = dom_of({members(id_of(u, "events"), ev.domain.factors.empty() ? ManifoldRef() : ev.domain.factors.back(), Role::time_tiles, "", true)});
   });
 }
 
@@ -344,7 +449,7 @@ Signature s_burst_stages() {
 
 Signature s_cell_extent() {
   return sig(Move::detect)
-      .in("x", measurement_any().because("The extent is found on a measurement over a joint partition."))
+      .in("x", measurement_any().because("The extent is found on a measurement over a product of a surface grid and a time grid (the cells)."))
       .in("baseline", statistic_any())
       .in("events", selection_any())
       .out("labels", make_of(PortClass::selection))
@@ -352,13 +457,13 @@ Signature s_cell_extent() {
         const PortType& x = u.type("x");
         const PortType& b = u.type("baseline");
         const PortType& ev = u.type("events");
-        if (x.domain.factors.empty() || !is_joint_members(x.domain.factors[0])) u.fail("x", "must be a measurement over a joint partition");
+        if (x.domain.factors.empty() || !is_members(x.domain.factors[0])) u.fail("x", "must be a measurement over a product of a surface grid and a time grid (the cells)");
         if (!b.of || !same(b.of->on, x.domain)) u.fail("baseline", "is not a statistic of x");
         if (!ev.sel || ev.sel->type != "spans") u.fail("events", "must be spans");
         PortType& l = u.out.at("labels");
         l.domain = x.domain;
         l.quantity = "set";
-        l.sel = SelectionShape{"set", true, u.out_names.at("labels"), x.domain.factors[0]->by};
+        l.sel = SelectionShape{"set", false, u.out_names.at("labels"), x.domain.factors[0]->by};
       });
 }
 
@@ -372,7 +477,7 @@ Signature s_extent_measure() {
         if (!l.sel || l.sel->type != "set" || l.domain.factors.empty() || !is_joint_members(l.domain.factors[0])) u.fail("labels", "must be the labelling `cell_extent` made");
         if (u.has("x") && !same(u.in.at("x").domain, l.domain)) u.fail("x", "its cells are not the labelling's");
         PortType& y = u.out.at("y");
-        y.domain = dom_of({members(id_of(u, "labels"), l.domain.factors[0]->of)});
+        y.domain = dom_of({members(id_of(u, "labels"), l.domain.factors[0]->of, Role::time_tiles, "", true)});
         y.quantity = p.value("measure", std::string());
       });
 }
@@ -393,8 +498,8 @@ Signature s_at_level() {
       .out("y", like("x"))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
-        if (x.res.levels.size() < 2) u.fail("x", "is not a multi-level field (`apply_kernel` with `levels`); its spatial band is " + level_text(x.res));
-        u.out.at("y").res.levels = {p.value("level", 0)};
+        if (x.res.levels.size() < 2) u.fail("x", "is not a multi-level field (`apply_kernel` with `spatial_scales`); its spatial band is " + level_text(x.res));
+        u.out.at("y").res.levels = {p.contains("scale") && has_level(p["scale"]) ? level_number(p["scale"]) : 0};
       });
 }
 
@@ -493,7 +598,7 @@ Signature s_tracks() {
     PortType& tr = u.out.at("spans");
     tr.domain = dom_of({members(eid, line)});
     tr.quantity = "set";
-    tr.sel = SelectionShape{"set", true, u.out_names.at("spans"), ""};
+    tr.sel = SelectionShape{"set", false, u.out_names.at("spans"), ""};
     for (const auto& m : ms) u.out.at(m).domain = dom_of({m == "track" ? members(eid, line) : members(tr.sel->identity, line)});
   });
 }
@@ -511,8 +616,8 @@ Signature s_tile_crossings() {
         if (!t.sel || t.sel->type != "ladder") u.fail("tiles", "must be a tile ladder");
         if (ev.domain.factors.empty() || t.domain.factors.empty() || !same(strip_glued(ev.domain.factors[0]), t.domain.factors[0]))
           u.fail("tiles", "the ladder is on " + print(t.domain) + "; the events lie on " + print(ev.domain) + ": the tile ladder of the events' surface is wanted");
-        if (!p.contains("level") || !p["level"].is_number()) u.fail("tiles", "`level` names the tile level");
-        const std::string lvl = id_of(u, "tiles") + "@" + std::to_string(p["level"].get<int>());
+        if (!p.contains("spatial_scale") || !has_level(p["spatial_scale"])) u.fail("tiles", "`spatial_scale` names the tile level");
+        const std::string lvl = id_of(u, "tiles") + "@" + (level_number(p["spatial_scale"]) >= 0 ? std::to_string(level_number(p["spatial_scale"])) : p["spatial_scale"].get<std::string>());
         PortType& y = u.out.at("crossings");
         y.domain = dom_of({members(lvl, t.domain.factors[0], Role::none)});
         if (p.value("as", std::string("measurement")) == "statistic") y.cls = PortClass::statistic;   // a null draw's crossings: a statistic of its own, never the data's rows
@@ -533,11 +638,12 @@ Signature s_power_series() {
       });
 }
 
-Signature s_lagfree_surrogate() {
-  // a surrogate recording drawn on the cross-spectrum's channels: the first factor is replaced by theirs (one factor changes, the others are carried)
+Signature s_surrogate_lagfree() {
+  // a surrogate's unmixed draw on the cross-spectrum's channels (spec docs/specs/2026-11-17-surrogates.md): the first factor is replaced by theirs (one factor changes, the others are carried); it
+  // awaits the zero-lag mixing, composed into the first linear map (apply_kernel's `pre_operator`)
   return sig(Move::apply)
       .in("x", field({A, R, T}).streamed())
-      .in("psd", statistic_any()).in("cross_spectrum", statistic_any()).in("power_series", statistic_any())
+      .in("psd", statistic_any()).in("cross_spectrum", statistic_any()).in("power_series", statistic_any()).in("psd_channel_mean", statistic_any())
       .out("y", like("x").with_quantity("surrogate"))
       .refine([](Unified& u, const Json&) {
         const PortType& x = u.type("x");
@@ -552,40 +658,139 @@ Signature s_lagfree_surrogate() {
       });
 }
 
+// positions.transition: a manifold's positions brought into another coordinate system of the same space by an operator of kind transition. The one apply whose result is a manifold:
+// the same manifold term with another coordinate system. It is the node the checker names when two manifolds' systems differ; it is never inserted for the caller.
+Signature s_positions_transition() {
+  return sig(Move::apply)
+      .in("positions", manifold_port(M))
+      .in("transition", transition_port().quantity({"transition"}).because("A transition operator of one space is needed (a device-to-head transform imported with the recording)."))
+      .out("moved", like("positions"))
+      .refine([](Unified& u, const Json&) {
+        const PortType& x = u.type("positions");
+        const PortType& t = u.type("transition");
+        if (!t.transition) u.fail("transition", "is an operator of kind transition without its two coordinate systems");
+        if (x.domain.factors.empty() || !x.domain.factors[0]->cs) u.fail("positions", "has no recorded coordinate system to change");
+        const ManifoldRef& m = x.domain.factors[0];
+        if (m->cs->space != t.transition->first.space)
+          u.fail("transition", "is a transition of the space " + t.transition->first.space + "; the positions are of " + m->cs->space);
+        if (!same_cs(m->cs, t.transition->first))
+          u.fail("transition", "starts in " + print_cs(t.transition->first) + "; the positions are in " + print_cs(m->cs) + ". Apply the transition that starts where the positions are.");
+        Manifold moved = *m;
+        moved.cs = t.transition->second;
+        u.out.at("moved").domain.factors = {std::make_shared<const Manifold>(std::move(moved))};
+        u.out.at("moved").quantity = x.quantity;
+      });
+}
+// ── the gauge (G5): pointwise conversions between a gauge, a frame and the embedded form (spec docs/specs/2026-11-17-geometry-central-switch.md, section 5.3)
+// frame.rotate(x, to): a tangent value of spin k in gauge g, rotated by e^(-i k to) where `to` is the angle of the target reference in g (e.g. north's gauge angle).
+// Its output is in a FRAME, not in a gauge: its gauge id is "frame(<id of to>)@<g>", which no operator built in g accepts (insert nothing: recompute in g).
+Signature s_frame_rotate() {
+  return sig(Move::pointwise)
+      .in("x", field({M, T}).streamed().value(VT::complex).because("A tangent value is rotated in its complex form."))
+      .in("to", field({M}).value(VT::real).because("`to` is the angle (radians) of the target reference measured in the gauge of x, one per element (e.g. <surface>_canonical_gauge_angle)."))
+      .out("y", like("x"))
+      .refine([](Unified& u, const Json& p) {
+        const PortType& x = u.type("x");
+        const PortType& to = u.type("to");
+        if (to.spin != 0) u.fail("to", "is a tangent value (spin " + std::to_string(to.spin) + "); an angle is a scalar (spin 0).");
+        const int want = p.contains("spin") && p["spin"].is_number_integer() ? p["spin"].get<int>() : 0;
+        if (x.spin == 0 && want == 0) u.fail("x", "has no spin: it is a plain complex scalar, which a change of frame leaves as it is. Name its spin (a tangent vector 1, a line field 2) as the parameter `spin` only when it is one.");
+        if (x.spin != 0 && want != 0 && want != x.spin) u.fail("x", "is spin " + std::to_string(x.spin) + " and the parameter spin is " + std::to_string(want) + ": the input's own spin is the rotation's.");
+        PortType& y = u.out.at("y");
+        y.spin = x.spin != 0 ? x.spin : want;
+        y.gauge = "frame(" + id_of(u, "to") + ")@" + (x.gauge.empty() ? std::string("(none)") : x.gauge);
+      });
+}
+// frame.embed(x, grid): z = a + ib at a vertex becomes a e1 + b e2, the embedded 3-vector: gauge-free (spin 0, no gauge). `grid` is the surface's vertexGrid (e1 + i e2), in x's gauge.
+Signature s_frame_embed() {
+  return sig(Move::pointwise)
+      .in("x", field({M, T}).streamed().value(VT::complex).because("A tangent vector in its complex form."))
+      .in("grid", field({M}).value(VT::complex).because("`grid` is the surface's vertexGrid (e1 + i e2 per vertex) in the gauge of x."))
+      .out("y", like("x").with_value(VT::vector3))
+      .refine([](Unified& u, const Json&) {
+        const PortType& x = u.type("x");
+        const PortType& g = u.type("grid");
+        if (x.spin != 1) u.fail("x", "is spin " + std::to_string(x.spin) + "; only a tangent vector (spin 1) is embedded as a 3-vector.");
+        if (g.spin != 1) u.fail("grid", "must be the gauge's grid (spin 1), it is spin " + std::to_string(g.spin) + ".");
+        PortType& y = u.out.at("y");
+        y.spin = 0; y.gauge.clear(); y.components = 3; y.complex_parts = false; y.rows = x.rows * 3;
+      });
+}
+// frame.project(x, grid): the inverse on the tangent plane: z = (v . e1) + i (v . e2), a spin-1 value in the grid's gauge.
+Signature s_frame_project() {
+  return sig(Move::pointwise)
+      .in("x", field({M, T}).streamed().value(VT::vector3).because("An embedded 3-vector, one per vertex."))
+      .in("grid", field({M}).value(VT::complex).because("`grid` is the surface's vertexGrid (e1 + i e2 per vertex); the result is in its gauge."))
+      .out("y", like("x").with_value(VT::complex))
+      .refine([](Unified& u, const Json&) {
+        const PortType& x = u.type("x");
+        const PortType& g = u.type("grid");
+        if (g.spin != 1) u.fail("grid", "must be the gauge's grid (spin 1), it is spin " + std::to_string(g.spin) + ".");
+        PortType& y = u.out.at("y");
+        y.spin = 1; y.gauge = g.gauge; y.components = 1; y.complex_parts = false; y.rows = x.rows / 3;
+      });
+}
+
+// ── the structural connectome's nodes (spec docs/specs/2026-11-16-structural-connectome.md, section 4): arrays in, arrays out, run once before any loop. They take no field and
+// make no field, so each is a `make` node over `constant` values (the arrays a definition's setup section passes between them); the node's own `plan` and `run` check shapes
+// and precision. That a partition's counts are a MEASUREMENT over the region pairs is the definition's declaration (outputs: kind measurement), not a node's port type.
+Signature s_array_node(const std::vector<std::string>& ins, const std::vector<std::string>& optional, const std::vector<std::string>& outs) {
+  Signature s = sig(Move::make);
+  for (const auto& i : ins) s.in(i, std::find(optional.begin(), optional.end(), i) != optional.end() ? any_port().optional() : any_port());
+  for (const auto& o : outs) s.out(o, make_of(PortClass::constant));
+  return s;
+}
+
 const std::map<std::string, Signature>& table() {
   static const std::map<std::string, Signature> t = [] {
     std::map<std::string, Signature> m;
-    m["analytic"] = s_analytic();
-    m["envelope"] = s_envelope();
-    m["frames"] = s_frames();
-    m["apply_kernel"] = s_apply_kernel();
-    m["magnitude"] = s_magnitude();
-    m["power"] = s_power();
-    m["phase_current"] = s_phase_current();
-    m["measure"] = s_measure();
-    m["tile_max"] = s_tile_max();
-    m["collect"] = s_collect();
-    m["reduce_cells"] = s_reduce_cells();
-    m["summarize"] = s_summarize();
-    m["detect_spans"] = s_detect_spans();
-    m["rollup_events"] = s_rollup_events();
-    m["risefall"] = s_risefall();
-    m["fit_gate"] = s_fit_gate();
-    m["burst_stages"] = s_burst_stages();
-    m["cell_extent"] = s_cell_extent();
+    m["meeg.positions_transition"] = s_positions_transition();
+    m["signal.analytic"] = s_analytic();
+    m["signal.envelope"] = s_envelope();
+    m["signal.analytic_frames"] = s_analytic_frames();
+    m["meeg.apply_kernel"] = s_apply_kernel();
+    m["measurement.reduce"] = s_reduce();
+    m["measurement.reduce_members"] = s_reduce_members();
+    m["measurement.reduce_statistic"] = s_reduce_statistic();
+    m["measurement.roll_up"] = s_roll_up();
+    m["measurement.estimate"] = s_estimate();
+    m["signal.field_form"] = s_field_form();
+    m["select.time_grid"] = s_select_time_grid();
+    m["select.dyadic_surface"] = s_select_dyadic_surface();
+    m["select.bands"] = s_select_bands();
+    m["select.product"] = s_select_product();
+    m["select.events.spans"] = s_select_events_spans();
+    m["measurement.collect"] = s_collect();
+    m["measurement.summarize"] = s_summarize();
+    m["select.risefall"] = s_risefall();
+    m["select.events.regions"] = s_cell_extent();
     m["extent_measure"] = s_extent_measure();
-    m["relative"] = s_relative();
-    m["at_level"] = s_at_level();
-    m["scale"] = s_scale();
+    m["measurement.relative"] = s_relative();
+    m["select.at_level"] = s_at_level();
+    m["select.scale"] = s_scale();
     m["baseline"] = s_baseline();
     m["relative_histogram"] = s_relative_histogram();
     m["core_histogram"] = s_core_histogram();
-    m["cores"] = s_cores();
-    m["patches"] = s_patches();
-    m["tracks"] = s_tracks();
-    m["tile_crossings"] = s_tile_crossings();
+    m["select.events.cores"] = s_cores();
+    m["select.events.patches"] = s_patches();
+    m["select.events.tracks"] = s_tracks();
+    m["select.tile_crossings"] = s_tile_crossings();
     m["power_series"] = s_power_series();
-    m["lagfree_surrogate"] = s_lagfree_surrogate();
+    m["synthesis.lagfree"] = s_surrogate_lagfree();
+    m["geometry.frame_rotate"] = s_frame_rotate();
+    m["geometry.frame_embed"] = s_frame_embed();
+    m["geometry.frame_project"] = s_frame_project();
+    m["meeg.fiber_ends"] = s_array_node({"fibers"}, {}, {"end_points"});
+    m["meeg.nearest_vertex"] = s_array_node({"points", "positions"}, {}, {"vertex", "distance"});
+    m["meeg.end_gate"] = s_array_node({"end_distance"}, {}, {"keep"});
+    m["meeg.registration_match"] = s_array_node({"template_sphere", "template_pieces", "subject_sphere", "subject_pieces"}, {}, {"match"});
+    m["meeg.carry_ends"] = s_array_node({"end_vertex", "match"}, {}, {"end_vertex"});
+    m["meeg.smooth_memberships"] = s_array_node({"label", "faces"}, {}, {"memberships"});
+    m["meeg.partition_counts"] = s_array_node({"end_vertex", "keep", "memberships"}, {"keep"}, {"counts"});
+    m["meeg.end_connectome"] = s_array_node({"end_vertex", "keep"}, {"keep"}, {"fiber_counts"});
+    m["meeg.connection_weights"] = s_array_node({"fiber_counts", "faces"}, {}, {"connection_weights"});
+    m["meeg.prune_below"] = s_array_node({"connection_weights"}, {}, {"connection_weights"});
+    m["meeg.largest_component"] = s_array_node({"connection_weights"}, {}, {"vertices", "label"});
     for (const auto& [name, s] : m) s.validate(name);
     return m;
   }();

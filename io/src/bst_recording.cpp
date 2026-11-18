@@ -17,6 +17,7 @@
 #include "nxr/bst/session.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/layout.h"
+#include "nxr/io/selection_store.h"
 
 namespace nxr::bst {
 
@@ -515,36 +516,29 @@ namespace {
 // A spans Selection of the source recording (`<source>_events`, `<source>_bad_segments`) as the same spans on the new recording: its dictionary, colours, description and parameters kept.
 void copy_spans(SubjectWriter& sub, const std::string& from, const std::string& to, const std::string& time_id, const std::string& of_field_id, const std::optional<std::string>& aid) {
   auto& db = sub.db();
-  const auto sel = db.one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'spans' AND status = 'complete'", {sub.id(), from});
+  const auto sel = nxr::io::selection::find_by_name(db, sub.id(), from, std::string("spans"));
   if (!sel) return;
   std::vector<std::string> types;
   std::map<std::int64_t, std::int64_t> index;
   TimeSpansOptions o;
-  if (!nxr::io::is_null(*sel, "dictionary_id"))
-    for (const auto& e : db.all("SELECT code, name, color_json FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {nxr::io::text(*sel, "dictionary_id")})) {
-      index[nxr::io::integer(e, "code")] = static_cast<std::int64_t>(types.size());
-      types.push_back(nxr::io::text(e, "name"));
-      if (!nxr::io::is_null(e, "color_json")) {
-        const Json c = Json::parse(nxr::io::text(e, "color_json"), nullptr, false);
-        if (c.is_array() && c.size() >= 3) o.colors.push_back({c[0].get<double>() / 255.0, c[1].get<double>() / 255.0, c[2].get<double>() / 255.0});
-      }
+  if (sel->dictionary_id)
+    for (const auto& e : nxr::io::selection::load_lookup(db, *sel->dictionary_id)) {
+      index[e.code] = static_cast<std::int64_t>(types.size());
+      types.push_back(e.name);
+      if (e.color) o.colors.push_back({(*e.color)[0] / 255.0, (*e.color)[1] / 255.0, (*e.color)[2] / 255.0});
     }
   if (o.colors.size() != types.size()) o.colors.clear();
   if (types.empty()) types.push_back("event");
   std::vector<TimeSpan> spans;
-  for (const auto& r : db.all("SELECT start, stop, code FROM selection_span WHERE selection_id = ? ORDER BY ordinal", {nxr::io::text(*sel, "id")})) {
-    const std::int64_t code = nxr::io::is_null(r, "code") ? 0 : nxr::io::integer(r, "code");
-    const auto it = index.find(code);
-    spans.push_back({std::stod(nxr::io::text(r, "start")), std::stod(nxr::io::text(r, "stop")), it == index.end() ? 0 : it->second});
+  for (const auto& r : nxr::io::selection::spans_of(db, sel->id)) {
+    const auto it = index.find(r.code.value_or(0));
+    spans.push_back({r.start, r.stop, it == index.end() ? 0 : it->second});
   }
   o.line_id = time_id;
   o.of_field_id = of_field_id;
   o.acquisition_id = aid;
-  o.description = nxr::io::opt_text(*sel, "description").value_or("");
-  if (const auto pj = nxr::io::opt_text(*sel, "params_json")) {
-    const Json p = Json::parse(*pj, nullptr, false);
-    if (p.is_object()) o.params = p;
-  }
+  o.description = sel->description.value_or("");
+  if (sel->params_json.is_object()) o.params = sel->params_json;
   time_spans(sub, nxr::io::node_path(db, time_id, to), spans, types, o);
 }
 
@@ -592,11 +586,10 @@ Json add_derived_recording(SubjectWriter& sub, const std::string& source, const 
   for (auto it = producer.begin(); it != producer.end(); ++it) merged[it.key()] = it.value();
   r.producer = merged;
   // the recording's own channel flags (1 good / -1 bad), read from its `<source>_flags` partition
-  if (const auto fl = db.one("SELECT * FROM selection WHERE subject_id = ? AND of_field_id = ? AND name = ? AND status = 'complete'", {sub.id(), nxr::io::text(*rec, "id"), source + "_flags"});
-      fl && !nxr::io::is_null(*fl, "array_path") && !nxr::io::is_null(*fl, "dictionary_id")) {
+  if (const auto fl = nxr::io::selection::find_of_field(db, sub.id(), nxr::io::text(*rec, "id"), source + "_flags"); fl && fl->array_path && fl->dictionary_id) {
     std::map<std::int64_t, std::int64_t> sign;
-    for (const auto& e : db.all("SELECT code, name FROM dictionary_entry WHERE dictionary_id = ?", {nxr::io::text(*fl, "dictionary_id")})) sign[nxr::io::integer(e, "code")] = nxr::io::text(e, "name") == "good" ? 1 : -1;
-    const nxr::io::ArrayReader cr = nxr::io::ArrayReader::open(sub.store(), nxr::io::text(*fl, "array_path"));
+    for (const auto& e : nxr::io::selection::load_lookup(db, *fl->dictionary_id)) sign[e.code] = e.name == "good" ? 1 : -1;
+    const nxr::io::ArrayReader cr = nxr::io::ArrayReader::open(sub.store(), *fl->array_path);
     const auto raw = cr.read();
     if (cr.dtype() == nxr::io::DType::Int32 && raw.size() == static_cast<std::size_t>(4 * r.n_chan)) {
       for (std::int64_t c = 0; c < r.n_chan; ++c) {

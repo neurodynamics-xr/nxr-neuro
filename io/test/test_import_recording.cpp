@@ -10,6 +10,8 @@
 #include <fstream>
 
 #include "check.h"
+#include "nxr/bst/entities.h"
+#include "nxr/io/layout.h"
 #include "nxr/convert/recording.h"
 #include "nxr/convert/sensor_frames.h"
 #include "nxr/formats/byte_source.h"
@@ -93,6 +95,47 @@ int main() {
     SubjectPackage p = SubjectPackage::open(pkg);
     CHECK(items_without_origin(p.db()).empty());                                  // an origin record on every item
     CHECK(p.verify().ok);
+  }
+
+  // --montage: the channels' names against a stored montage's labels, exactly; a recorded alias counts and is marked; the rest is listed unmatched, nothing guessed
+  {
+    const fs::path pkg = root / "montage.nxr.zarr";
+    CreatePackageOptions po;
+    po.home_dataset = "demo";
+    const std::string mname = "eeg_test";
+    {
+    DatasetWriter w0 = create_package(pkg, "S", po);
+    SubjectWriter sub = SubjectWriter::open(w0, "S");
+    const std::string mpath = folder_for("points") + "/" + mname, mid = uuid7();
+    const std::vector<float> pos = {0, 0, 0, 1, 0, 0, 0, 1, 0};
+    ManifoldSpec m;
+    m.id = mid; m.name = mname; m.path = mpath; m.type = "points"; m.n_vertices = 3;
+    m.topology = {"none", 0, 1, std::nullopt, {}};
+    GeometrySpec g;
+    g.form = "stored"; g.cs_key = "scs"; g.positions_path = mpath;
+    m.geometry = g;
+    m.populate = [&sub, mpath, pos, mid](Store&, const std::string&) { sub.write_array(mpath, view(pos, {3, 3}), {}, std::nullopt, "manifold", mid); };
+    m.cols.json("producer_json", Json{{"aliases", Json{{"MAG000", "T7"}}}});
+    sub.manifold(std::move(m));
+    nxr::bst::LabellingOptions lo;
+    lo.manifold_id = mid; lo.dictionary = mname + "_names"; lo.scope = "subject";
+    nxr::bst::labelling(sub, mpath + "_names", {0, 1, 2}, {"EEG004", "eeg005", "T7"}, lo);   // "eeg005" differs in case from the file's EEG005: not a match
+    sub.complete();
+    }
+    DatasetWriter w = open_package_writer(pkg);
+    SubjectWriter sub = SubjectWriter::open(w, "S");
+    auto reader = cv::open_recording("fif", data + "fif_basic_raw.fif");
+    cv::RecordingImport opt;
+    opt.name = "rec"; opt.format = "fif"; opt.source = "fif_basic_raw.fif"; opt.source_file = data + "fif_basic_raw.fif";
+    opt.montage = mname;
+    const Json out = cv::import_recording(w, sub, *reader, opt);
+    CHECK_EQ(out["montage"]["matched"].get<int>(), 2);                                    // EEG004 by name, MAG000 by the alias
+    CHECK_EQ(out["montage"]["unmatched"].size(), static_cast<std::size_t>(8));
+    CHECK(std::find(out["montage"]["unmatched"].begin(), out["montage"]["unmatched"].end(), Json("EEG005")) != out["montage"]["unmatched"].end());
+    opt.name = "rec2"; opt.montage = "no_such_montage";
+    bool refused = false;
+    try { auto r2 = cv::open_recording("fif", data + "fif_basic_raw.fif"); cv::import_recording(w, sub, *r2, opt); } catch (const Error&) { refused = true; }
+    CHECK(refused);
   }
 
   // identifying header fields: kept as the file has them, dropped with --anonymize

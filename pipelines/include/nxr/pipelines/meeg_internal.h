@@ -13,7 +13,7 @@
 
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/speedspectrum.h"
+#include "nxr/signal/speedspectrum.h"
 
 namespace nxr::pipelines::internal {
 
@@ -53,7 +53,7 @@ struct HodgeSpectraRequest {
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;
   std::optional<int> segment_level;                       // under the set `tiles`: the segment is 2^segment_level samples (wins over seconds)
-  nxr::welch::WelchOptions welch = nxr::welch::brainstormPsdOptions(1.0);
+  nxr::signal::spectral::WelchOptions welch = nxr::signal::spectral::brainstormPsdOptions(1.0);
   std::string option_set = "tiles";
   bool exclude_bad_segments = true;
   double fmin = 1.0, fmax = 40.0;                         // Hz: the bins kept (DC and Nyquist never)
@@ -66,7 +66,7 @@ struct HodgeSpectraPlan {
   std::optional<std::string> acquisition_id;
   std::int64_t modes = 0, s0 = 0, s1 = 0, first_bin = 0, last_bin = 0, chunk_width = 0;   // chunk_width: the recording's (chunks.h)
   double sfreq = 0, t0 = 0, df = 0;
-  nxr::welch::WelchOptions welch;
+  nxr::signal::spectral::WelchOptions welch;
   nxr::io::Json params;                                   // the choices (cache key part)
   nxr::io::Json input;                                    // the identity of what it is run on (cache key part)
   nxr::io::Json projectors;                               // projector_record of the recording (projectors, applied_in_samples, not_applied, ctf_compensation)
@@ -77,26 +77,24 @@ struct HodgeSpectraPlan {
 struct HodgeSpectraRun {
   Eigen::VectorXd mu;                                     // [K]
   std::vector<int> kind;                                  // [K] 0 exact · 2 coexact
-  nxr::speedspectrum::ModeSpectra spectra;
+  nxr::signal::speedspectrum::ModeSpectra spectra;
   std::int64_t segments = 0, skipped = 0;
   double excluded_fraction = 0;
 };
 
-HodgeSpectraPlan plan_hodge_spectra(nxr::io::SubjectWriter& sub, const HodgeSpectraRequest& req);
-HodgeSpectraRun run_hodge_spectra(nxr::io::SubjectWriter& sub, const HodgeSpectraRequest& req, const std::function<void(const nxr::io::Json&)>& progress = {});
 
 // THE STATISTICS' COMMON PIECES (docs/specs/2026-11-13-statistics.md), by the recording's name: where a statistic of it lives, the Welch segment partition a
 // Welch statistic is computed from (a closed-form spans Selection on its time line; returns its id), and the Welch options as a statistic records them
 std::string statistic_path_of(nxr::io::SubjectWriter& sub, const std::string& recording, const std::string& name);
 std::string segments_path_of(nxr::io::SubjectWriter& sub, const std::string& recording, const std::string& stem);
 std::string welch_segments_of(nxr::io::SubjectWriter& sub, const std::string& recording, const std::string& stem, std::int64_t s0, std::int64_t s1,
-                              const nxr::welch::WelchOptions& wo, std::int64_t segments, std::int64_t skipped);
-nxr::io::Json welch_options_of(const nxr::welch::WelchOptions& wo, const std::string& option_set, bool exclude_bad);
+                              const nxr::signal::spectral::WelchOptions& wo, std::int64_t segments, std::int64_t skipped);
+nxr::io::Json welch_options_of(const nxr::signal::spectral::WelchOptions& wo, const std::string& option_set, bool exclude_bad);
 // meeg.cpp's own helpers, for the store step
 std::string clear_stored_nodes(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const std::vector<std::pair<const char*, std::string>>& nodes, bool replace, const std::string& what, bool& replaced);
 std::string producer_string(const char* verb);
-const char* window_label(nxr::welch::Window w);
-const char* detrend_label(nxr::welch::Detrend d);
-const char* scaling_label(nxr::welch::Scaling s);
+const char* window_label(nxr::signal::spectral::Window w);
+const char* detrend_label(nxr::signal::spectral::Detrend d);
+const char* scaling_label(nxr::signal::spectral::Scaling s);
 
 }  // namespace nxr::pipelines::internal

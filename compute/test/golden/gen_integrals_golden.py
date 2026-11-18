@@ -1,4 +1,4 @@
-"""Writes integrals_golden.txt: the reference of nxr::integrals (a flow's flux and circulation over tiles) — nxr's `measure.integrals` (`flux`, `circulation`, `face_field`, `vertex_area`)
+"""Writes integrals_golden.txt: the reference of the tile integrals (a flow's flux and circulation over tiles) — nxr's `measure.integrals` (`flux`, `circulation`, `face_field`, `vertex_area`)
 on SYNTHETIC meshes: a closed icosphere (a field of three frames, tiles by octant) and a folded, jittered plane (tiles by region), exact to rounding.
 Run:  uv run --project <nxr checkout> python compute/test/golden/gen_integrals_golden.py compute/test/golden/integrals_golden.txt"""
 import sys

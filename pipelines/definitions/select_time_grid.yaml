@@ -1,0 +1,51 @@
+# THE TIME GRID OF A LINE: ONE maker (the node `select.time_grid`), one rule family: every member is [origin + i hop, origin + i hop + width) on the line's samples, width and hop 2^k samples (the Studio's `timeTiling`,
+# nxr `time_grid`). The rules differ only in how the width is resolved from the stated QUANTITY (never a level index):
+#
+#   tiles        a duration (s): the first 2^k samples at least it (`natural_level`)
+#   band         a band (Hz): the first 2^k holding `cycles` cycles of its centre sqrt(lo hi) (the Studio's `fitLevelOf`, 4 cycles)
+#   frames       a band and a FRAME DENSITY: frames per cycle of the band's centre (default 36, the phase work's 10 degree step) OR frames per tile; the frame is the dyadic tile nearest the density asks for
+#   constant_q   a frequency range and voices per octave: one level per band of the ladder, each carrying the Studio's ConstantQLevelInfo (low_hz, high_hz, centre, window, ...)
+#   segments     a duration and an overlap (Welch's segments: members overlap, a family not a partition)
+#   windows      a window duration and a step
+#   chunks       none: the chunk grid (2^15 samples)
+#
+# THE ORIGIN of a grid is a POINT, an option of the run (2026-11-17): the recording's start (`start`, the default), a clock time (`clock 14:30:00`, seconds from local midnight) or an EVENT (a stored selection's
+# first member: `event <name>`). Frame density and origin are options with their defaults WRITTEN HERE; no method constant is hard-wired in compute.
+#
+# What it cannot resolve: a frame is a dyadic tile, so the stated density is met to within the nearest power of two (the snapped frame length is recorded in provenance as seconds and as frames per cycle).
+#
+#   nxr-neuro run select_time_grid --dataset <folder> --subject sub-01 --recording rest --rule frames --band "8-12 Hz"
+#   nxr-neuro run select_time_grid --dataset <folder> --subject sub-01 --recording rest --rule constant_q --range "0.5-64 Hz"
+pipeline: select_time_grid
+version: 1
+description: the dyadic time grid of a recording's line, one rule family (tiles, band, frames, constant-Q, segments, windows, chunks), with the frame density and the origin as options
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  line:      {manifold: line, is: recording.time}
+  event:     {selection: any, manifold: recording.time, where: {name: $origin_event}, required: false, hint: "an origin given as an event: the stored selection whose first member starts the grid"}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  rule: {default: tiles, meaning: "how the width is resolved: tiles | band | frames | constant_q | segments | windows | chunks", unit: "-", choices: [tiles, band, frames, constant_q, segments, windows, chunks]}
+  duration: {default: null, meaning: "rules tiles, segments, windows: the tile, segment or window as a duration", unit: s, chart: clock}
+  band: {default: null, meaning: "rules band and frames: the band in Hz, e.g. \"8-12 Hz\" (a list for rule constant_q's bands is `range`)", unit: Hz, chart: linear}
+  range: {default: "0.5-64 Hz", meaning: "rule constant_q: the ladder's frequency range", unit: Hz, chart: linear}
+  voices: {default: 1, meaning: "rule constant_q: bands per octave", unit: voices/octave}
+  cycles: {default: 4, meaning: "rules band and frames: cycles of the band's centre one tile holds (the Studio's fitLevelOf)", unit: cycles}
+  frames_per_cycle: {default: 36, meaning: "rule frames: frames to one cycle of the band's centre (the 10 degree step of phase work); the alternative to frames_per_tile", unit: frames/cycle}
+  frames_per_tile: {default: null, meaning: "rule frames: frames to one tile of the band (a power of two); when given it wins over frames_per_cycle", unit: frames/tile}
+  overlap: {default: 0.5, meaning: "rule segments: the fraction of a segment shared with the next", unit: fraction}
+  step: {default: null, meaning: "rule windows: the step between windows; null: the window (no overlap)", unit: s, chart: clock}
+  origin: {default: start, meaning: "the grid's origin as a point: start (the recording's first sample) | clock (seconds from local midnight, given in origin_clock) | event (the stored selection named by origin_event)", unit: "-", choices: [start, clock, event]}
+  origin_clock: {default: null, meaning: "origin clock: the time of day of the recording's first sample, as 'HH:MM:SS' or seconds", unit: s, chart: clock}
+  origin_event: {default: null, meaning: "origin event: the name of the stored selection whose first member is the origin", unit: "-"}
+  name: {default: "{recording} time grid {grid_rule}", meaning: "the grid's row, NAMED BY ITS RULE (`{grid_rule}`: band 8-16 Hz, frames 8-12 Hz 36 per cycle, constant_q 0.5-64 Hz 1 voices, tiles 1 s, ...): several grids coexist on a line and a consumer finds its own by that name", unit: "-"}
+
+steps:
+  before:
+    - {node: select.time_grid, in: {line: line, event: event}, with: {rule: $rule, duration: $duration, band: $band, range: $range, voices: $voices, cycles: $cycles, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, overlap: $overlap, step: $step, origin: $origin}, out: grid}
+
+outputs:
+  grid: {kind: selection, type: tiling, on: recording.time, name: $name}

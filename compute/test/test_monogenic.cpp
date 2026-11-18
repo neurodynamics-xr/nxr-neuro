@@ -6,19 +6,19 @@
 //   THE ORIENTATION is the pattern's gradient direction (along the meridian, with the sign of P_5');
 //   R by the eigenmodes equals R by a dense reference (the symmetric matrix function Δ^{-1/2}), the Chebyshev series follows it within its tolerance;
 //   a mode's sign flip leaves R and A unchanged;  A is the same for a complex field read part by part (A² adds Re and Im);  refusals.
-#include "nxr/monogenic.h"
+#include "nxr/signal/riesz.h"
 
 #include <Eigen/Eigenvalues>
 #include <cmath>
 #include <iostream>
 
 #include "mesh_helpers.h"
-#include "nxr/delaunay.h"
-#include "nxr/filterbank.h"
-#include "nxr/phase.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/graphtransforms.h"
+#include "nxr/signal/phase_gradient.h"
 
-namespace dl = nxr::manifold::delaunay;
-using namespace nxr::monogenic;
+using namespace nxr::signal;
 
 static double P5(double x) { return (63 * std::pow(x, 5) - 70 * std::pow(x, 3) + 15 * x) / 8; }
 static double dP5(double x) { return (315 * std::pow(x, 4) - 210 * x * x + 15) / 8; }
@@ -34,11 +34,11 @@ int main() {
   Eigen::Matrix<int32_t, Eigen::Dynamic, 3, Eigen::RowMajor> F(nF, 3);
   for (int i = 0; i < n; ++i) for (int d = 0; d < 3; ++d) P(i, d) = V[3 * i + d];
   for (int f = 0; f < nF; ++f) for (int s = 0; s < 3; ++s) F(f, s) = Fv[3 * f + s];
-  const nxr::phase::Gradient G = nxr::phase::vertexGradient(P, F);
+  const nxr::signal::Gradient G = nxr::signal::vertexGradient(P, F);
 
-  dl::Mesh dm = dl::prepare(V.data(), n, Fv.data(), nF);
-  const Eigen::SparseMatrix<double> Lap = dl::cotanLaplacian(dm);
-  const std::vector<double> mass = dm.mass.empty() ? dl::mixedVoronoiMass(dm) : dm.mass;
+  nxr::geometry::IntrinsicSurface isurf(V.data(), n, Fv.data(), nF);
+  const Eigen::SparseMatrix<double> Lap = isurf.cotanLaplacian();
+  const std::vector<double> mass = isurf.inputMixedVoronoiMass();
   Eigen::MatrixXd Ld(Lap), Md = Eigen::MatrixXd::Zero(n, n);
   Eigen::VectorXd m(n);
   for (int i = 0; i < n; ++i) { Md(i, i) = mass[i]; m(i) = mass[i]; }
@@ -59,7 +59,7 @@ int main() {
     for (int k = 0; k < lam.size(); ++k) gv(k) = g(lam(k));
     return Eigen::MatrixXd(Ph * (gv.asDiagonal() * (Ph.transpose() * m.asDiagonal() * f0)));
   };
-  const Eigen::MatrixXd f = bandOf(Phi, band), S = bandOf(Phi, gR), R = rieszOfScaled(G, S, 1);
+  const Eigen::MatrixXd f = bandOf(Phi, band), S = bandOf(Phi, gR), R = rieszTransform(G, S, 1);
   EXPECT(R.rows() == 3 * n, "R is [3V x m]");
 
   // the dense reference: Δ^{-1/2} as the symmetric matrix function of M^{-1/2} L M^{-1/2}, applied to M^{1/2}-scaled f
@@ -74,15 +74,15 @@ int main() {
   }
   // the Chebyshev series (the fallback) follows it
   {
-    const nxr::filterbank::ChebyshevOperator op(Lap, Eigen::SparseMatrix<double>(Md.sparseView()), 0, 320);
-    const Eigen::MatrixXd Sc = op.apply(gR, f0);
+    const nxr::signal::graphtransforms::ChebyshevOperator op(Lap, Eigen::SparseMatrix<double>(Md.sparseView()), 0, 320);
+    const Eigen::MatrixXd Sc = chebyshev(op, gR, f0);
     EXPECT((Sc - S).cwiseAbs().maxCoeff() < 2e-3 * S.cwiseAbs().maxCoeff(), "R by the Chebyshev series follows the eigenmodes (" << (Sc - S).cwiseAbs().maxCoeff() / S.cwiseAbs().maxCoeff() << " of the peak)");
   }
   // a mode's sign flip changes nothing
   {
     Eigen::MatrixXd Pf = Phi;
     for (int k = 0; k < Pf.cols(); k += 3) Pf.col(k) *= -1;
-    const Eigen::MatrixXd R2 = rieszOfScaled(G, bandOf(Pf, gR), 1), f2 = bandOf(Pf, band);
+    const Eigen::MatrixXd R2 = rieszTransform(G, bandOf(Pf, gR), 1), f2 = bandOf(Pf, band);
     const Eigen::MatrixXd A1 = amplitude(f.cast<std::complex<double>>(), 1, R.cast<std::complex<double>>(), 3), A2 = amplitude(f2.cast<std::complex<double>>(), 1, R2.cast<std::complex<double>>(), 3);
     EXPECT((A1 - A2).cwiseAbs().maxCoeff() < 1e-10, "A is unchanged by a flip of a mode's sign");
   }
@@ -144,13 +144,13 @@ int main() {
   {
     Eigen::MatrixXd two(n, 2);
     two.col(0) = f.col(0); two.col(1) = 3 * f.col(0);
-    const Eigen::MatrixXd R2 = rieszOfScaled(G, Eigen::MatrixXd(Eigen::MatrixXd(two.cols() == 2 ? S.replicate(1, 2) : S)), 1);
+    const Eigen::MatrixXd R2 = rieszTransform(G, Eigen::MatrixXd(Eigen::MatrixXd(two.cols() == 2 ? S.replicate(1, 2) : S)), 1);
     EXPECT((R2.col(0) - R.col(0)).cwiseAbs().maxCoeff() < 1e-14, "R of a frame does not depend on the other frames");
   }
   // refusals
   {
     bool threw = false;
-    try { rieszOfScaled(G, Eigen::MatrixXd(Eigen::MatrixXd::Zero(n + 1, 1)), 1); } catch (const std::invalid_argument&) { threw = true; }
+    try { rieszTransform(G, Eigen::MatrixXd(Eigen::MatrixXd::Zero(n + 1, 1)), 1); } catch (const std::invalid_argument&) { threw = true; }
     EXPECT(threw, "a field of the wrong size is refused");
     threw = false;
     try { amplitude(Eigen::MatrixXcd::Zero(n, 1), 1, Eigen::MatrixXcd::Zero(n, 1), 3); } catch (const std::invalid_argument&) { threw = true; }

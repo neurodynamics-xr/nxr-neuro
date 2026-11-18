@@ -1,0 +1,36 @@
+# THE `summarize` OPERATION (was `statistic`): the values of a stored MEASUREMENT over a selection's members summarised into a STATISTIC, members -> statistic (one implementation, `nxr::measurement::summarize`; its
+# arithmetic is `stats.h`). The measure's values over the members (of a field; or the members' own: area, n_elements, when `of` is not given) are summarised per row (each), pooled, or as
+# the mean of the rows' summaries: mean, sd, median, mad, percentiles, min, max, skewness, kurtosis, peak, count (NaN members skipped and counted). Across an irregular set it is a `summary` statistic; never of a field.
+# The statistic is OF the field `of` and computed from the selection `over`; its axes are the row and the summaries, never the members (a per-member value is a measurement).
+#
+#   nxr-neuro run summarize --dataset <folder> --subject sub-01 --over "cortex tiles" --of rest_kernel_phasegradient_alpha --measure phase_power --summaries "[mean, sd, median]"
+pipeline: summarize
+version: 2
+description: the summaries of a measure's values over a selection's members
+scope: subject
+
+inputs:
+  over: {selection: any, where: {name: $over}}
+  of:   {field: any, where: {name: $of}, required: false}
+  x:    {measurement: $measure, of: of, over: over, hint: "the measurement summarised, found by its key (the measure, of the field `of` (none: the members' own values), over `over`)"}
+
+parameters:
+  over: {default: null, meaning: "the selection whose members are summarised", unit: "-"}
+  of: {default: null, meaning: "the field measured; null: the members' own values (area, n_elements)", unit: "-"}
+  measure: {default: null, meaning: "the measure summarised", unit: "-"}
+  summaries: {default: [mean, sd], meaning: "the summaries: mean, sd, median, mad, min, max, skewness, kurtosis, peak, count, percentile:P", unit: "-"}
+  combine: {default: each, meaning: "each = per row | pool = the rows pooled | mean = the mean of the rows' summaries", unit: "-", choices: [each, pool, mean]}
+  ddof: {default: 1, meaning: "the degrees of freedom removed from the sd's divisor", unit: "-"}
+  name: {default: "{of}_{measure}_{over}", meaning: "the stored statistic's name", unit: "-"}
+
+steps:
+  after:
+    - {node: measurement.summarize, in: {x: x}, with: {summaries: $summaries, combine: $combine, ddof: $ddof}, out: statistic}
+
+outputs:
+  statistic:
+    kind: statistic
+    name: $name
+    of: of
+    over: over
+    axes: [{name: row}, {name: summary}]

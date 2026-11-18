@@ -1,4 +1,6 @@
 // nxr-io — a subject's bundle (see bundle.h): the Studio's `bundleOf`, query for query.
+#include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/bundle.h"
 
 #include <set>
@@ -50,10 +52,9 @@ std::optional<Json> subject_bundle(const Database& db, const std::string& sid) {
   auto q = [&](const std::string& sql, std::vector<Value> args = {}) { return db.all(sql, args); };
   const Value S(sid);
   const auto manifolds = q("SELECT * FROM manifold WHERE subject_id = ? AND status = 'complete' ORDER BY path, name", {S});
-  const auto selections = q("SELECT * FROM selection WHERE subject_id = ? AND status = 'complete' ORDER BY path, name", {S});
+  const auto selections = selection::subject_rows(db, sid);
   const std::string dataset_id = str(*subject, "dataset_id").value_or("");
-  const auto vocab = q("SELECT * FROM dictionary WHERE name IN (?, ?) AND (scope IN ('app', 'user') OR (scope = 'dataset' AND dataset_id = ?) OR (scope = 'subject' AND subject_id = ?))",
-                       {Value(std::string("frequency bands")), Value(std::string("recipes")), Value(dataset_id), S});
+  const auto vocab = selection::vocabulary_rows(db, {"frequency bands", "recipes"}, dataset_id, sid);
   Ids dict_ids; std::set<std::string> dseen;
   for (const Row& s : selections) add(dict_ids, dseen, s, "dictionary_id");
   for (const Row& d : vocab) add(dict_ids, dseen, d, "id");
@@ -110,6 +111,7 @@ std::optional<Json> subject_bundle(const Database& db, const std::string& sid) {
   for (const Row& g : f_geometries) geom_ids.push_back(str(g, "id").value_or(""));
   const bool has_acq = !q("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'acquisition'").empty();
   const bool has_statistic = !q("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'statistic'").empty();
+  const bool has_selection_factor = !q("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'selection_factor'").empty();   // a database at 50 or 51 has none
   Json b = Json::object();
   b["related_subjects"] = related;
   std::optional<Row> datastore;
@@ -120,7 +122,7 @@ std::optional<Json> subject_bundle(const Database& db, const std::string& sid) {
   b["acquisitions"] = has_acq ? rows_json(q("SELECT * FROM acquisition WHERE subject_id = ? ORDER BY label", {S})) : Json::array();
   b["manifolds"] = cat(manifolds, foreign);
   b["spaces"] = cat(q("SELECT * FROM space WHERE subject_id = ?", {S}), by_ids("SELECT * FROM space WHERE id IN ($)", ids_of(f_systems, "space_id")));
-  b["measurements"] = rows_json(q("SELECT m.* FROM selection_measurement m JOIN selection s ON s.id = m.selection_id WHERE s.subject_id = ? AND m.code IS NULL ORDER BY m.selection_id, m.measure", {S}));
+  b["measurements"] = rows_json(selection::subject_own_measurement_rows(db, sid));
   b["contributions"] = rows_json(contributions);
   b["jobs"] = rows_json(q("SELECT * FROM job WHERE subject_id = ? ORDER BY created_utc DESC", {S}));
   b["topologies"] = cat(q("SELECT * FROM topology WHERE subject_id = ?", {S}), f_topologies);
@@ -130,8 +132,9 @@ std::optional<Json> subject_bundle(const Database& db, const std::string& sid) {
   b["dimensions"] = cat(dimensions, by_ids("SELECT * FROM geometry_dimension WHERE geometry_id IN ($) ORDER BY geometry_id, ordinal", geom_ids));
   b["coordinate_systems"] = cat(q("SELECT c.* FROM coordinate_system c JOIN space s ON s.id = c.space_id WHERE s.subject_id = ?", {S}), f_systems);
   b["selections"] = rows_json(selections);
-  b["extents"] = rows_json(q("SELECT e.* FROM selection_extent e JOIN selection s ON s.id = e.selection_id WHERE s.subject_id = ? ORDER BY e.selection_id, e.axis", {S}));
-  b["spans"] = rows_json(q("SELECT p.* FROM selection_span p JOIN selection s ON s.id = p.selection_id WHERE s.subject_id = ? ORDER BY p.selection_id, p.ordinal", {S}));
+  b["extents"] = rows_json(selection::subject_extent_rows(db, sid));
+  b["spans"] = rows_json(selection::subject_span_rows(db, sid));
+  b["selection_factors"] = rows_json(has_selection_factor ? selection::subject_factor_rows(db, sid) : std::vector<Row>());
   b["fields"] = rows_json(fields);
   b["operators"] = rows_json(operators);
   // the subject's STATISTICS (a database from before the statistic table has none)
@@ -139,8 +142,8 @@ std::optional<Json> subject_bundle(const Database& db, const std::string& sid) {
   b["lineage_fields"] = rows_json(foreign_fields);
   b["lineage_operators"] = rows_json(foreign_ops);
   b["operator_factors"] = rows_json(q("SELECT f.* FROM operator_factor f JOIN operator o ON o.id = f.operator_id WHERE o.subject_id = ? ORDER BY f.operator_id, f.ordinal", {S}));
-  b["dictionaries"] = dict_ids.empty() ? Json::array() : rows_json(q("SELECT * FROM dictionary WHERE id IN (" + marks(dict_ids.size()) + ")", vals(dict_ids)));
-  b["entries"] = dict_ids.empty() ? Json::array() : rows_json(q("SELECT * FROM dictionary_entry WHERE dictionary_id IN (" + marks(dict_ids.size()) + ") ORDER BY dictionary_id, code", vals(dict_ids)));
+  b["dictionaries"] = rows_json(selection::dictionary_rows(db, dict_ids));
+  b["entries"] = rows_json(selection::dictionary_entry_rows(db, dict_ids));
   return b;
 }
 

@@ -5,7 +5,24 @@
 #include <iostream>
 #include <vector>
 
-#include "nxr/compute.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
@@ -19,7 +36,7 @@ int main() {
   Eigen::SparseMatrix<double> K(n, n), M(n, n);
   for (int i = 0; i < n; ++i) { K.insert(i, i) = ev[i]; M.insert(i, i) = 1.0; }
   for (int k : {2, 4, 5, 9, 10, 16, 20, 25, 30, 40, 49}) {
-    const auto r = nxr::manifold::solve::eigen(K, M, k, nxr::manifold::solve::kShiftLadder, false, false);
+    const auto r = nxr::operators::eigen(K, M, k, nxr::operators::kShiftLadder, false, false);
     double worst = 0;
     for (int i = 0; i < k; ++i) worst = std::max(worst, std::abs(r.eigenvalues(i) - ev[i]));
     Eigen::MatrixXd X = r.eigenvectors;

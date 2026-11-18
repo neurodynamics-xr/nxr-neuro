@@ -36,7 +36,7 @@ Appendix A lists, for every shipped definition and every hand-wired verb, what f
 | a recording: values on sensors × time, streamed | every recording pipeline | field |
 | a linear map between manifolds: inverse kernel, forward, eigenvectors, a spatial band's filter, an interpolation onto frames | `apply_kernel`, `frames`, `inverse`, `hodgepower`, `pointspread` | operator |
 | a change of coordinate system on one space: device → head, voxel → scs | importers, `headmodel` | operator, kind `transition` |
-| a partition of a manifold: tiles of a level, a constant-Q level, a frame tiling, Welch segments, analytic windows, a joint partition of surface × time, channel types, detected events | `measure`, `rollup_events`, `psd`, `cellquadrature`, `pyramid` | selection (with disjoint members) |
+| a grid on a manifold (tiles of a level, a constant-Q level, a frame tiling, Welch segments, analytic windows, a joint or product grid of surface × time, channel types) or an irregular selection (detected events, tracks) | `measure`, `measure_events`, `psd`, `cellquadrature`, `pyramid` | selection (a grid, or an irregular one) |
 | a family of partitions indexed by level, each level with its resolution (a time band, a spatial band) | tile ladder, constant-Q ladder | selection, type `ladder` |
 | a subset of a manifold's elements: a kernel's channels, a source space, a bad span | kernels' `from_selection`, `exclude` | selection |
 | one value per member of a partition | `measure`, every detection's per-event values | measurement |
@@ -53,12 +53,28 @@ classes contain must be first-class in the **type**, or the checks cannot be sha
    member set is a manifold in every sense the checker needs. A selection can lie on it: `cell_extent` labels the cells of a joint partition, and
    `tracks` labels the cores. It is not a stored manifold of its own: its storage is the partition (dictionary and count) and the measurement rows
    keyed by member. The **frame line** of `frames` is exactly `members(frame tiling)`, so the retiming needs no special case.
-2. **The partition role of a selection.** `measure` is the only reduction, and it needs a selection whose members are disjoint (`set` with a
-   dictionary, `spans`, a ladder's level, a product of two partitions). The type says so (`Selection::partition`), and a ladder's level carries its
+2. **The partition property of a selection.** `measure` is the only reduction, and it takes **any** selection on factors of the field: a region, a
+   time range, a channel set, a tiling. Measuring one region or one time range is a selection of one member. Disjoint members (a **partition**: `set`
+   with a dictionary, `spans` that do not overlap, a ladder's level, a product of two partitions) are required only where members are compared or
+   grouped: `within` (grouping by another selection) and a roll-up through a grid's hierarchy (`summarize`). Two kinds of selection exist. A **grid**
+   partitions the manifold and is defined before any data: chunk grids, constant-Q ladders, dyadic spatial tiles, frame tilings, and products of grids; its levels
+   are a closed-form hierarchy, so only a grid rolls up. An **irregular** selection partitions the field (thresholding a measured signal): bursts, events, scouts,
+   atlases; its members are sparse, may overlap, have any extent and no levels, and are measured member by member; statistics across them are `summary`
+   statistics of their measurements, never a roll-up. The type carries the kind (`SelectionShape::partition`, true for a grid; a property and not a type: the five selection types are point, span, distance, indices and set), and a ladder's level carries its
    **resolution** (the time band of a constant-Q level, the spatial band of a tile level: "the level IS the band"), which is what most of today's
    level checks compare.
 3. **The transition**, an operator between two coordinate systems of one space rather than between two manifolds. Applied to positions, it changes
    the manifold's coordinate system and nothing else. The audit already asks for it.
+4. **An operator a node defines, and the line it makes.** A change of basis (the FFT, a wavelet, an eigenmode projection) is an `apply` of an operator
+   the node itself defines (from the time line to a frequency line, from the surface to the mode axis), not a free-standing transform. The value it
+   makes lies on the line that operator makes: a spectrum is on a frequency line (bin k at k × rate / n Hz, origin 0, unit Hz), a projection on the
+   mode axis. Such a line is a manifold the node makes (the inventory's "a line or a space made by the computation"), with its own identity, so a
+   later node reads a band, a bin or a mode on it by type, and a reduction over a block axis that is only a number is refused. The made line is a **factor**
+   of the output's domain: the output of `signal.rfft` lies on the product `channels × frequency`, the Studio's product manifold (D37: manifold type
+   `product`, geometry form `product`, a `geometry_dimension` per factor: 0 for the channels, 1 for the line; cells per factor, `0,1`). There is no `Axis::block`:
+   a value a chunk node makes once per block is a value whose last factor is a line the node made (`PortType::per_block()`, derived from the domain). The
+   line's spacing is `rate / n`, with `n` the samples of the block it was made from; `n` rides on the block value (`Block::line_samples`) because the bins do
+   not tell it (an odd and an even `n` make the same count of bins).
 
 Two attributes, today buried in `facts`, become fields of a field's type because most of the repeated checks compare them: the **quantity** (what
 the values are: `recording`, `envelope`, `amplitude`, `power`, `phase_current`, `relative power`, `curl_tan`; the stored field's `kind`, a
@@ -92,7 +108,7 @@ struct Manifold {
     id,          // a stored manifold, by id (run: resolved when the inputs are found)
     anonymous,   // an array's manifold in `compute`: equal only to itself (or to another the caller declares the same)
     variable,    // a node signature's M, T: bound by unification, never left in a checked graph
-    made,        // made by a node in this graph (a frequency line, a mode axis, a frame line written as a line): keyed by the use and the output
+    made,        // made by a node in this graph (a frequency line, a mode axis, a frame line written as a line): keyed "<use>.<output>"; a factor of the output's domain
     restricted,  // `of` restricted to the elements of the selection `by` (a kernel's channels, a source space)
     members,     // the member set of the partition `by`
     derived      // a stored manifold related to `of` by `relation` (`glued`: the glued surface of a cortex), resolved in run, structural in compute
@@ -104,12 +120,17 @@ struct Manifold {
   std::optional<CoordinateSystem> cs;      // the system its positions are in; none for a manifold without geometry (members, an index line)
   std::int64_t n = 0;                      // its vertices (0: not known before data, as a stream's time line)
   std::optional<double> spacing;           // a closed-form line's spacing (1 / the sample rate on a time line; the frame rate on a frame line)
+  std::optional<double> origin;            // made line: the coordinate of vertex 0 (0 Hz for a one-sided spectrum)
+  std::optional<double> rate;              // made line: the rate of the line it was made from; its spacing is rate / n, n the block's samples (carried on the block)
+  std::string unit;                        // made line: the unit of its coordinate ("Hz")
   std::shared_ptr<const Manifold> of;      // restricted, derived: the manifold it is of
   std::string by;                          // restricted, members: the selection's identity (a stored id, or "<use>.<output>")
 };
 using ManifoldRef = std::shared_ptr<const Manifold>;
 
-/** where values lie: a product's factors in axis order (one factor when it is not a product), and the cells (the schema's key: "0", "1", "2", "1,0") */
+/** where values lie: a PRODUCT MANIFOLD's factors in axis order (one factor when it is not a product), and the cells (the schema's key, one number per factor: "0", "1", "2", "1,0").
+ *  A node's operator makes a factor: a spectrum lies on channels × the frequency line the FFT made. As the Studio's products (D37), the first factor varies fastest in a product's
+ *  code (D100 `productCode`). */
 struct Domain {
   std::vector<ManifoldRef> factors;
   std::string cells = "0";
@@ -141,7 +162,7 @@ struct Resolution {
 /** a selection's shape: what the members are */
 struct SelectionShape {
   std::string type;          // the schema's: point · span · spans · indices · kernel · set · ladder · tiling (closed-form spans)
-  bool partition = false;    // its members are disjoint: a measurement may be taken over it
+  bool partition = false;    // a GRID (a property, not a type): defined before data, hierarchy in closed form; only a grid rolls up. false: an irregular selection (detected events, scouts, atlases), measured member by member
   std::string identity;      // a stored id, or "<use>.<output>" for one this graph makes
   std::string detected_over; // detected events: the identity of the partition whose members they were found on
 };
@@ -246,17 +267,17 @@ Every node is declared as one move. The move fixes what the node may do to the *
 | move | signature (schematic) | the rule the checker applies |
 |---|---|---|
 | **pointwise** | field<D; V> (+ constants) → field<D; V′> | the domain is **unchanged** (the same factors, the same cells). Linear (`band.analytic`, `band.filter`) keeps `nonlinear`; non-linear (`field.magnitude`, `field.power`, `band.envelope`, `phase.current`) sets it. A constant input (a statistic: `relative`'s baseline) must be **of** the field: its `of` domain equals D without the streamed factor, and its resolution and quantity are the field's |
-| **apply** | operator<A → B>, field<A × R> → field<B × R> | the field is linear (D106); A by the subsumption rule; cells: the operator's from-cells are the field's; value type: the operator's target value type, complex when the field is; gauge: the operator's target gauge (G5). The operator acts on one declared factor: the first (a kernel), or the streamed one (`tiling.frames`: the interpolation from the time line onto `members(tiling)`) |
+| **apply** | operator<A → B>, field<A × R> → field<B × R> | **a change of basis is an apply** (FFT, wavelet, eigenmode projection) of an operator the node itself defines, and the value it makes lies on the line that operator makes: `signal.rfft`'s output is on `channels × frequency`, a product whose second factor is the line the node makes (keyed `signal.rfft.spectrum`; bin k at k × rate / n Hz, origin 0, unit Hz; n carried by the block), never an untyped block axis; a later node reads the bands on that line. The field is linear (D106); A by the subsumption rule; cells: the operator's from-cells are the field's; value type: the operator's target value type, complex when the field is; gauge: the operator's target gauge (G5). The operator acts on one declared factor: the first (a kernel), or the streamed one (`tiling.frames`: the interpolation from the time line onto `members(tiling)`) |
 | **compose** | operator<A → B>, operator<B → C> → operator<A → C> | ends meet (manifold, cells, value type); a pair (`inverts`) has its ends swapped: the Studio's chain and pair rules, D106 |
 | **restrict** | field<M × R>, selection<indices or a level on M> → field<restricted(M, S) × R> | the selection is on M; `at_level` restricts the stack of levels (a component restriction: the domain is unchanged, `res.levels` narrows) |
-| **measure** | field<D>, selection<P on F ⊆ D, partition> → measurement<D with F replaced by members(P)> | **the only move that removes a factor.** P must be a partition (`sel->partition`) on factors of the field, in order (a product of two partitions covers two). A ladder is accepted with its level chosen by the field's resolution (the level IS the band), and refused when no level resolves it. A joint partition's resolution must equal the field's (band and level). The measure must fit the quantity (the node's table: `amplitude` of `amplitude` or `envelope`, `power` of `power`, `phase_current` of `phase_current`). `exclude` (spans on the streamed factor) leaves members out, never a factor. A partition of the streamed factor needs an `accumulate` node; one of another factor keeps the stream (pointwise in time) |
-| **summarize** | measurement<… × members(P) × …> → statistic<axes: the rest; of: the measurement> | across a partition's members: the statistic remembers what it is of (`OfType`), which is what a later node compares. Statistic **estimation** (Welch, a cross-spectrum, a covariance, a histogram, the spatial baseline) is `measure` over a declared partition of the stream (the segments, the good frames) followed by `summarize`, fused in one accumulate node that declares the partition it reduces over |
-| **detect** | field<D> or measurement<… × members(P)> → selection<on D, or on the factor P partitions> (+ measurements over its members) | the input is a scalar field or measurement; the made selection has an identity and `detected_over = P`; the node's other outputs are measurements over `members(made)` (an event table: frame, centre, area, peak). A detection over events (`cores.tracks`) makes a partition of `members(events)` |
+| **measure** | field<D>, selection<S on F ⊆ D> → measurement<D with F replaced by members(S)> | **the only move that removes a factor.** S is any selection on factors of the field, in order; no property is needed, and one region or time range is a selection of one member. Over a **PRODUCT GRID** (a `set` made by a rule per axis, of grids only: Studio D100 `productSelection`, mixed radix, first factor fastest; D129's joint partition of space × time) the measurement removes **every factor the grid covers** and gains one member set (`members(grid)`, label `joint`). The levels of a product grid are per axis or **coupled**: a frequency band sets the time level (constant-Q `natural_level`) and an eigenvalue band sets the dyadic spatial level, so the field's band IS the grid's level on that axis and a mismatch is refused (a single band selects: it is no frequency axis; resolving frequency within it is a transform, an `apply`). An **irregular** selection (detected events, scouts, an atlas) is measured **member by member**: its members may overlap and have no levels, and nothing is rolled up. A ladder is accepted with its level chosen by the field's resolution (the level IS the band), and refused when no level resolves it. A joint partition's (a cells selection's) resolution must equal the field's (band and level). The measure must fit the quantity (the node's table: `amplitude` of `amplitude` or `envelope`, `power` of `power`, `phase_current` of `phase_current`). `exclude` (spans on the streamed factor) leaves members out, never a factor. A selection on the streamed factor needs an `accumulate` node; one on another factor keeps the stream (pointwise in time). Disjointness is asked of nothing here: only a grid has a hierarchy to roll up through (`summarize`). `measure_events` (the tile measurements of each event, event by event) takes the overlapping events `detect` makes |
+| **summarize** | measurement<… × members(P) × …> → statistic<axes: the rest; of: the measurement> | across a selection's members: the statistic remembers what it is of (`OfType`), which is what a later node compares. **Roll-ups go only through a grid's closed-form hierarchy** (a coarser level of a dyadic tiling is the shifted code of the finer, never a parent-map array). Across an **irregular** selection's members (the bursts of a run) the statistic is a **`summary` statistic** of their measurements (count, mean, median, a histogram): the same node, no hierarchy, overlap allowed. Statistic **estimation** (Welch, a cross-spectrum, a covariance, a histogram, the spatial baseline) is `measure` over a declared partition of the stream (the segments, the good frames) followed by `summarize`, fused in one accumulate node that declares the partition it reduces over |
+| **detect** | field<D> or measurement<… × members(P)> → selection<on D, or on the factor P partitions> (+ measurements over its members) | the input is a scalar field or measurement; the made selection is an **irregular** one (`partition` false: sparse, any extent, may overlap, no levels, not indexed by the grid; a lookup only on request), with an identity and `detected_over = P`, which is provenance (the grid whose members bound the event: a detected member's bounds come from that grid; each member is described by centre and extent); the node's other outputs are measurements over `members(made)` (an event table: frame, centre, area, peak). A detection over events (`cores.tracks`) makes a set over `members(events)`, itself irregular |
 | **make** | (parameters, manifolds) → selection or manifold | a partition, a ladder or a line made from geometry or parameters (`tiles`, `constantq`, `frametiling`, `joint` as the product of two partitions, `eigenmodes`' mode axis). No field input |
 
 **The cardinal rule, in the structure.** The checker refuses, for every use: a `pointwise`, `apply`, `restrict` or `compose` node whose output
 domain lacks a factor of its input's (other than the one an `apply` maps); a node that removes a factor without being `measure` or `summarize`;
-a `measure` with no partition input; a `summarize` of a field (a field is measured first). Nothing a node's own code does can get around this,
+a `measure` with no selection input and no run span; a `summarize` of a field (a field is measured first). Nothing a node's own code does can get around this,
 because the output types are made from the signature, not from the node.
 
 **Event tables.** `cores`, `patches` and `tracks` return a selection and many measurements over its members. The inventory found no other shape,
@@ -287,7 +308,7 @@ vortex_null: chunks[3] kernel.apply -> curl_frames: port `kernel`: the kernel re
   `--channels-of <kernel>`.
 
 phase_gradient (a converted verb): port `frames`: x is spin 1 in gauge geometry-central@8579865/vertex:<cortex>:<fingerprint>; the operator was
-  built in gauge …:<glued>:<fingerprint>. Insert frame.rotate, or recompute the stored field (it predates the gauge record).
+  built in gauge …:<glued>:<fingerprint>. Insert geometry.frame_rotate, or recompute the stored field (it predates the gauge record).
 
 headmodel (a converted verb): port `channels`: positions in head/device:run1 (m); the cortex is in head/scs (m). No transition device:run1 → scs is
   stored for this acquisition; import the recording's device → head transform (it is a transition operator), then run again.
@@ -377,7 +398,7 @@ two coordinate systems a node needs. A check that needs an array's values (finit
 **The gauge (G5)** is part of a field's and an operator's type exactly as `2026-11-17-geometry-central-switch.md` §5.2 says: `spin` and `gauge`.
 Signatures declare per port either a fixed spin and "same gauge as input X" (covariant: most tangent nodes) or a produced gauge (a node that builds
 the operators: the bound surface's). Unification treats the gauge as an equality constraint: an arrow whose ends differ in spin, or have the same
-nonzero spin and different gauges, is refused naming `frame.rotate`. A `vector3` value is gauge-free, so fields stored embedded (the phase current,
+nonzero spin and different gauges, is refused naming `geometry.frame_rotate`. A `vector3` value is gauge-free, so fields stored embedded (the phase current,
 the optical-flow velocity) carry no gauge. **Frames** (canonical north / west, anatomical) are not gauges: a node that reports in a frame takes the
 frames field as an input, typed `field<surface; matrix3; canonical frames>`, and its output records the frame in its quantity.
 
@@ -426,7 +447,7 @@ types, rather than written on `finder::Value` and `facts` and then rewritten.
 | T2 | signatures and the shared checker | `NodeSpec::signature`, `Move`, `refine`; `check`'s arrow step runs `type_use` for nodes with a signature, their old `plan` otherwise; the move rules and the cardinal-rule refusals; the 31 steps the definitions use given signatures (their type checks leave `plan`; parameter checks stay); `facts` no longer read across nodes | C5 (the steps are `NodeSpec`s in `pipelines/graph/nodes/`) |
 | T3 | the runner's types | input types from rows (task API `describe` returns them), the producer record's `type` written and read, the outputs' declared kinds checked, the YAML annotations of §7 (`on:`, `of:`, `selection: tiling`), `--dry-run` prints types; the shipped definitions edited (§7) | T2, C4 |
 | D1.2 | the runner stores declared outputs | `2026-11-17-definition-outputs.md` D1's runner half (`store_output` per kind), on T3's types: a declared axis `on: LINK` is a domain factor, a `line:` axis a made manifold, `partition:` a selection the node declared | T3 |
-| D2–D3 | `psd` and `rotary_psd` as definitions | `welch.psd` declared `measure` (segments) + `summarize`, its frequency line `made`; unchanged otherwise | D1.2 |
+| D2–D3 | `psd` and `rotary_psd` as definitions | `signal.psd` declared `measure` (segments) + `summarize`, its frequency line `made`; unchanged otherwise | D1.2 |
 | T4 | `compute`'s types | anonymous manifolds and labels, partitions as member arrays, the sidecar types, the bindings' `on=`/`to=` | T2, C8 |
 | T5 | coordinate systems and transitions | `Manifold::cs` read from rows; the position nodes' constraint; the transition operator's type; G1 fixed first (importers) | T3, audit G1 and G2 |
 | V1… | the verb conversions | each verb a definition on typed nodes, in the order of `definition-outputs.md`: spectra (`sourcepsd`, `crossspectrum`, `sourcetensor`, `quadrature`), then geometry makers (`tiles`, `constantq`, `frametiling`, `joint`, `eigenmodes`: `make` nodes), then source imaging (`noisecov` as a statistic, `inverse`, `headmodel`, `pointspread`), then flow and patterns, then nulls | D2–D3, and T5 for `headmodel` |
@@ -591,6 +612,6 @@ Each is a small edit of a shipped definition; each is refused by the rules of §
 | `global_bursts` | a streamed field summarized | `summarize`: a field is measured first (the cardinal rule) |
 | `global_bursts` | the tile ladder of the sensors instead of the cortex | `apply`: the ladder is not on the kernel's target |
 | `global_bursts` | an output declared a measurement that is a statistic | the outputs' kinds |
-| `band_bursts` | a roll-up over events detected on another band's tiles | `measure` (roll-up): the events' partition against x's |
+| `band_bursts` | `measure_events` of events detected on another band's tiles | `measure` over the events (irregular): the grid they were detected on against x's |
 
 10 of 10 caught.

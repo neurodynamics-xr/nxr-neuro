@@ -1,11 +1,28 @@
-#include "nxr/compute.h"
-#include "nxr/facets.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/geometry/parametrization.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
 #include <Eigen/Eigenvalues>
 #include <cmath>
 #include <iostream>
-using namespace nxr::manifold;
+#include "surface_of.h"
+using namespace nxr::geometry;
 
 static int g_failures = 0;
 #define EXPECT(cond, msg) do { \
@@ -24,10 +41,10 @@ static void icosphere(std::vector<double>& V, std::vector<int32_t>& F) {
 static void testExtrinsicBlockFace() {
     std::cout << "\n=== diracFace: extrinsic block E~ ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int Fn = m.nF();   // 20
 
-    Eigen::SparseMatrix<double> E = ops::dirac::extrinsicBlockFace(m);
+    Eigen::SparseMatrix<double> E = nxr::operators::dirac::extrinsicBlockFace(m);
     EXPECT(E.rows() == 4*Fn && E.cols() == 4*Fn, "E~ is [4F, 4F] = [80, 80]");
 
     Eigen::SparseMatrix<double> asym = E - Eigen::SparseMatrix<double>(E.transpose());
@@ -68,20 +85,20 @@ static void borderedPatch(std::vector<double>& V, std::vector<int32_t>& F) {
 static void testBoundaryThrows() {
     std::cout << "\n=== diracFace: open boundary fails loud ===\n";
     std::vector<double> V; std::vector<int32_t> F; borderedPatch(V, F);
-    Manifold m(V.data(), 7, F.data(), 6);
+    const auto m = surfaceOf(V.data(), 7, F.data(), 6);
     // diracFace is closed-mesh v1: an open boundary (open vertex stars) must throw,
     // not silently produce a degraded operator (CONTRIBUTING.md §6 fail-loud).
     bool threw = false;
-    try { ops::dirac::extrinsicBlockFace(m); } catch (const std::exception&) { threw = true; }
+    try { nxr::operators::dirac::extrinsicBlockFace(m); } catch (const std::exception&) { threw = true; }
     EXPECT(threw, "extrinsicBlockFace throws on an open boundary");
     bool threwFamily = false;
-    try { m.operators().diracFace(1.0); } catch (const std::exception&) { threwFamily = true; }
+    try { nxr::operators::diracFaceFamily(m, 1.0); } catch (const std::exception&) { threwFamily = true; }
     EXPECT(threwFamily, "diracFace(τ>0) throws on an open boundary");
 }
 
 // K̃ = d₁ ⋆₁⁻¹ d₁ᵀ, the DEC 2-form Laplacian (independent oracle for the τ=0 anchor).
-static Eigen::SparseMatrix<double> twoFormLaplacian(Manifold& m) {
-    const ops::DECOperators& dec = m.operators().dec();
+static Eigen::SparseMatrix<double> twoFormLaplacian(const nxr::geometry::SurfaceArrays& m) {
+    const nxr::operators::DECOperators& dec = nxr::operators::assembleDECOperators(m);
     Eigen::SparseMatrix<double> d1t = dec.d1.transpose();
     return dec.d1 * dec.hodge1Inverse * d1t;     // [F×E][E×E][E×F] = [F×F]
 }
@@ -103,65 +120,60 @@ static Eigen::SparseMatrix<double> kron4(const Eigen::SparseMatrix<double>& K) {
 static void testDiracFaceFamily() {
     std::cout << "\n=== diracFace: family L~(τ) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int Fn = m.nF();
 
-    Eigen::SparseMatrix<double> L0 = m.operators().diracFace(0.0);
+    Eigen::SparseMatrix<double> L0 = nxr::operators::diracFaceFamily(m, 0.0);
     Eigen::SparseMatrix<double> anchor = kron4(twoFormLaplacian(m));
     EXPECT((L0 - anchor).norm() < 1e-12, "diracFace(0) == K~ kron I4 (intrinsic anchor)");
 
     for (double tau : {0.0, 0.25, 0.5, 0.75, 1.0}) {
-        Eigen::SparseMatrix<double> L = m.operators().diracFace(tau);
+        Eigen::SparseMatrix<double> L = nxr::operators::diracFaceFamily(m, tau);
         bool shape = (L.rows() == 4*Fn && L.cols() == 4*Fn);
         Eigen::SparseMatrix<double> asym = L - Eigen::SparseMatrix<double>(L.transpose());
         EXPECT(shape && asym.norm() < 1e-10,
                std::string("diracFace(") + std::to_string(tau) + ") is [4F x 4F] symmetric");
     }
 
-    EXPECT((m.operators().diracFace(1.0) - ops::dirac::extrinsicBlockFace(m)).norm() < 1e-12,
+    EXPECT((nxr::operators::diracFaceFamily(m, 1.0) - nxr::operators::dirac::extrinsicBlockFace(m)).norm() < 1e-12,
            "diracFace(1) == extrinsicBlockFace");
 
     double tau = 0.4;
     Eigen::SparseMatrix<double> blend =
-        (1.0 - tau) * m.operators().diracFace(0.0) + tau * m.operators().diracFace(1.0);
-    EXPECT((m.operators().diracFace(tau) - blend).norm() < 1e-12, "diracFace(τ) is the convex blend");
+        (1.0 - tau) * nxr::operators::diracFaceFamily(m, 0.0) + tau * nxr::operators::diracFaceFamily(m, 1.0);
+    EXPECT((nxr::operators::diracFaceFamily(m, tau) - blend).norm() < 1e-12, "diracFace(τ) is the convex blend");
 
-    Eigen::MatrixXd dense(m.operators().diracFace(0.5));
+    Eigen::MatrixXd dense(nxr::operators::diracFaceFamily(m, 0.5));
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(dense);
     EXPECT(es.eigenvalues().minCoeff() > -1e-9, "diracFace(0.5) is PSD");
 
     bool threw = false;
-    try { m.operators().diracFace(1.5); } catch (const std::exception&) { threw = true; }
+    try { nxr::operators::diracFaceFamily(m, 1.5); } catch (const std::exception&) { threw = true; }
     EXPECT(threw, "diracFace(τ>1) throws");
     bool threwNeg = false;
-    try { m.operators().diracFace(-0.1); } catch (const std::exception&) { threwNeg = true; }
+    try { nxr::operators::diracFaceFamily(m, -0.1); } catch (const std::exception&) { threwNeg = true; }
     EXPECT(threwNeg, "diracFace(τ<0) throws");
 }
 
 static void testDiracFaceCache() {
     std::cout << "\n=== diracFace: cache lifecycle ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
-    EXPECT(!m.isOperatorCached(OperatorId::DiracFace), "DiracFace not cached initially");
-    m.operators().diracFace(0.5);
-    EXPECT(m.isOperatorCached(OperatorId::DiracFace), "diracFace(τ>0) caches Ẽ");
-    m.releaseOperator(OperatorId::DiracFace);
-    EXPECT(!m.isOperatorCached(OperatorId::DiracFace), "releaseOperator(DiracFace) clears Ẽ");
-    m.operators().diracFace(0.0);
-    EXPECT(!m.isOperatorCached(OperatorId::DiracFace), "diracFace(0) does not build Ẽ");
+    nxr::operators::diracFaceFamily(m, 0.5);
+    nxr::operators::diracFaceFamily(m, 0.0);
 }
 
 static void testDiracFaceEigenbasis() {
     std::cout << "\n=== diracFace: eigenbasis ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
-    auto& geom = m.geometry(); geom.requireFaceAreas();
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
+    auto& geom = gcOf(m).embedded(); geom.requireFaceAreas();
     const int Fn = m.nF();
 
-    Eigen::SparseMatrix<double> L = m.operators().diracFace(0.5);
+    Eigen::SparseMatrix<double> L = nxr::operators::diracFaceFamily(m, 0.5);
     std::vector<Eigen::Triplet<double>> TB; TB.reserve(4*Fn);
-    for (auto f : m.mesh().faces())
+    for (auto f : gcOf(m).inputMesh().faces())
         for (int c = 0; c < 4; ++c)
             TB.emplace_back(4*static_cast<int>(f.getIndex())+c,
                             4*static_cast<int>(f.getIndex())+c, geom.faceAreas[f]);
@@ -169,8 +181,8 @@ static void testDiracFaceEigenbasis() {
 
     // B-orthonormal face eigenbasis via the production solver (Spectra path).
     const int k = 8;
-    solve::EigenResult er = solve::eigen(L, B, k);
-    Eigen::MatrixXd Phi = solve::normalize(er.eigenvectors, B);
+    nxr::operators::EigenResult er = nxr::operators::eigen(L, B, k);
+    Eigen::MatrixXd Phi = nxr::operators::normalize(er.eigenvectors, B);
     Eigen::MatrixXd gram = Phi.transpose() * (B * Phi);
     EXPECT((gram - Eigen::MatrixXd::Identity(gram.rows(), gram.cols())).cwiseAbs().maxCoeff() < 1e-9,
            "Phi^T B Phi ~ I (B-orthonormal face eigenbasis)");
@@ -195,13 +207,13 @@ static void testDiracFaceEigenbasis() {
 }
 
 // ⋆_V : 4V×4V diagonal of vertex dual areas (each repeated 4×).
-static Eigen::SparseMatrix<double> vertexDualMass4(Manifold& m) {
+static Eigen::SparseMatrix<double> vertexDualMass4(const nxr::geometry::SurfaceArrays& m) {
     using namespace geometrycentral::surface;
-    auto& geom = m.geometry();
+    auto& geom = gcOf(m).embedded();
     geom.requireVertexDualAreas();
     const int N = m.nV();
     std::vector<Eigen::Triplet<double>> T;
-    for (Vertex v : m.mesh().vertices()) {
+    for (Vertex v : gcOf(m).inputMesh().vertices()) {
         const int vi = static_cast<int>(v.getIndex());
         const double Av = geom.vertexDualAreas[v];
         for (int a = 0; a < 4; ++a) T.emplace_back(4 * vi + a, 4 * vi + a, Av);
@@ -214,18 +226,18 @@ static Eigen::SparseMatrix<double> vertexDualMass4(Manifold& m) {
 static void testDiracMatrixFace() {
     std::cout << "\n=== diracFace: first-order operator D~ ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int N = m.nV();    // 12
     const int Fn = m.nF();   // 20
 
-    Eigen::SparseMatrix<double> D = ops::dirac::matrixFace(m);
+    Eigen::SparseMatrix<double> D = nxr::operators::dirac::matrixFace(m);
     EXPECT(D.rows() == 4*N && D.cols() == 4*Fn, "D~ is [4V, 4F] = [48, 80]");
 
     // HEADLINE anchor: Ẽ = D̃ᵀW_V D̃ byte-matches the cached face extrinsic block.
     Eigen::SparseMatrix<double> W = vertexDualMass4(m);
     Eigen::SparseMatrix<double> Dt = D.transpose();
     Eigen::SparseMatrix<double> E_from_D = (Dt * W * D).pruned();
-    EXPECT((E_from_D - ops::dirac::extrinsicBlockFace(m)).norm() < 1e-12,
+    EXPECT((E_from_D - nxr::operators::dirac::extrinsicBlockFace(m)).norm() < 1e-12,
            "D~ᵀW_V D~ == extrinsicBlockFace (Ẽ is D~'s Galerkin square)");
 
     // First-order property: D̃ annihilates a CONSTANT (per-face) quaternionic field
@@ -235,38 +247,33 @@ static void testDiracMatrixFace() {
         for (int c = 0; c < 4; ++c) U(4*f + c, c) = 1.0;
     EXPECT((D * U).cwiseAbs().maxCoeff() < 1e-10, "D~ kills constant face-quaternionic fields");
 
-    EXPECT((m.operators().diracFaceD() - D).norm() < 1e-12,
-           "operators().diracFaceD() == ops::dirac::matrixFace");
+    EXPECT((nxr::operators::dirac::matrixFace(m) - D).norm() < 1e-12,
+           "operators().diracFaceD() == nxr::operators::dirac::matrixFace");
 }
 
 static void testDiracFaceMatrixCacheAndBoundary() {
     std::cout << "\n=== diracFace: first-order D~ cache + boundary ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
-    EXPECT(!m.isOperatorCached(OperatorId::DiracFaceD), "DiracFaceD not cached initially");
-    m.operators().diracFaceD();
-    EXPECT(m.isOperatorCached(OperatorId::DiracFaceD), "diracFaceD() caches D~");
-    EXPECT(!m.isOperatorCached(OperatorId::DiracFace), "diracFaceD() does not build Ẽ");
-    m.releaseOperator(OperatorId::DiracFaceD);
-    EXPECT(!m.isOperatorCached(OperatorId::DiracFaceD), "releaseOperator(DiracFaceD) clears D~");
+    nxr::operators::dirac::matrixFace(m);
 
     // Closed-mesh v1: diracFaceD() must fail loud on an open boundary (as diracFace).
     std::vector<double> Vb; std::vector<int32_t> Fb; borderedPatch(Vb, Fb);
-    Manifold mb(Vb.data(), 7, Fb.data(), 6);
+    const auto mb = surfaceOf(Vb.data(), 7, Fb.data(), 6);
     bool threw = false;
-    try { mb.operators().diracFaceD(); } catch (const std::exception&) { threw = true; }
+    try { nxr::operators::dirac::matrixFace(mb); } catch (const std::exception&) { threw = true; }
     EXPECT(threw, "diracFaceD() throws on an open boundary");
 }
 
 static void testIntrinsicFaceDirac() {
     std::cout << "\n=== diracFaceIntrinsicD: D~_int (centroid immersion root) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int N = m.nV();   // 12
     const int Fn = m.nF();  // 20
 
-    const Eigen::SparseMatrix<double>& Dt = m.operators().diracFaceIntrinsicD();
+    const Eigen::SparseMatrix<double>& Dt = nxr::operators::dirac::matrixFaceIntrinsic(m);
     EXPECT(Dt.rows() == 4*N && Dt.cols() == 4*Fn, "D~_int is [4V, 4F] = [48, 80]");
     EXPECT(Dt.norm() > 1e-6, "D~_int is nonzero on a curved mesh");
 
@@ -286,8 +293,8 @@ static void testIntrinsicFaceDirac() {
         }
     EXPECT(coupled, "D~_int has genuine quaternionic coupling (non-scalar blocks)");
 
-    // Cache stability: const-ref returns the same object on repeat.
-    EXPECT(&m.operators().diracFaceIntrinsicD() == &Dt, "D~_int cached (same object)");
+    // Nothing is cached: a second assembly is the same matrix.
+    EXPECT((nxr::operators::dirac::matrixFaceIntrinsic(m) - Dt).norm() == 0.0, "D~_int assembled again is the same matrix");
 }
 
 int main() {

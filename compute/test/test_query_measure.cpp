@@ -14,14 +14,32 @@
  *   7. query::point / area validate inputs and throw on out-of-range.
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/synthesis/fields.h"
 
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
-using namespace nxr::manifold;
+using namespace nxr::geometry;
 
 static void buildIcosahedron(std::vector<double>& V, std::vector<int32_t>& F) {
     double t = (1.0 + std::sqrt(5.0)) / 2.0;
@@ -60,8 +78,8 @@ int main() {
     const int nV = static_cast<int>(V.size() / 3);
     const int nF = static_cast<int>(F.size() / 3);
 
-    Manifold m(V.data(), nV, F.data(), nF);
-    auto ops = ops::assembleManifoldOperators(m);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
     const double totalArea = ops.totalArea;
     std::cout << "  mesh: " << nV << " V, " << nF << " F, total area " << totalArea << std::endl;
 

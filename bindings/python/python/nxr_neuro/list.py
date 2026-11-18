@@ -20,12 +20,15 @@ __all__ = ["pipelines", "datasets", "subjects", "results", "Pipeline"]
 
 @dataclass
 class Pipeline:
-    """A pipeline `run` takes: its `name`, `form` ("built-in" or "definition"), `summary` and `parameters` (each: name, default, meaning, unit, choices)."""
+    """A pipeline `run` takes: its `name`, `form` ("definition"), `kind`, `scope`, `presets`, `summary` and `parameters` (each: name, default, meaning, unit, choices)."""
 
     name: str
     form: str
     summary: str
     parameters: list[dict[str, Any]] = field(default_factory=list)
+    kind: str = ""
+    scope: str = ""
+    presets: list[str] = field(default_factory=list)
 
     def help(self) -> str:
         """The pipeline's help, made from its parameters' declared meaning, default and unit (what `nxr-neuro run NAME --help` prints)."""

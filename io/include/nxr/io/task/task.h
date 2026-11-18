@@ -19,6 +19,8 @@
 
 #include "nxr/io/finder.h"
 #include "nxr/io/json_text.h"
+#include "nxr/io/measurement_query.h"
+#include "nxr/io/selection_store.h"
 
 namespace nxr::io {
 class SubjectWriter;
@@ -110,7 +112,9 @@ struct Values {
   std::vector<std::int64_t> shape;
   std::vector<float> f32;
   std::vector<double> f64;
-  std::int64_t size() const { return static_cast<std::int64_t>(f32.empty() ? f64.size() : f32.size()); }
+  std::vector<std::int32_t> i32;                   // integer values (an index, a count): exactly one of the four is filled
+  std::vector<std::uint8_t> u8;                    // small codes (a form degree, a flag)
+  std::int64_t size() const { return static_cast<std::int64_t>(f32.size() + f64.size() + i32.size() + u8.size()); }
 };
 // a Field on a manifold
 struct FieldOut {
@@ -118,8 +122,11 @@ struct FieldOut {
   std::optional<std::string> path;                 // default: io's node path for the name on the manifold
   std::string value_type = "scalar";               // scalar · complex · vector3 · quaternion · hermitian3 …
   std::optional<std::string> unit, description, derived_from_id, acquisition;
+  std::optional<std::string> cell;                 // WHICH cells of its manifold the values sit on (the schema's cell key, D92): '0' vertices (the default), '1' edges, '2' faces, '1,0' on a product
+  std::optional<std::string> of_operator_id;       // a field of an operator (a head model's source positions)
+  std::optional<std::string> by_operator_id;       // a field made BY an operator (a source estimate: the inverse kernel applied to a recording; derived_from_id is the recording)
   Json producer;                                   // added to the unit's producer record (null: nothing added)
-  Values data;                                     // [n_vertices] or [n_vertices x components]
+  Values data;                                     // [n_vertices] or [n_vertices x components]; empty: a field with no array (what measurements are of)
 };
 // a Statistic: what it is (measure, method), of what, from which partition, along which axes
 struct StatisticOut {
@@ -140,20 +147,98 @@ struct OperatorOut {
   std::string name, output, kind, from_manifold_id, to_manifold_id;
   std::optional<std::string> path;                 // default: the name
   std::string from_value_type = "scalar", to_value_type = "scalar";
+  std::optional<std::string> inverts_id, inverse_kind;   // the operator it is the (regularized) inverse of: a kernel of its head model
   std::optional<std::string> from_selection_id, to_selection_id, derived_from_id, of_statistic_id, description, acquisition;   // of_statistic_id: the statistic it is derived from
   Json params;                                     // the operator's parameters (null: none)
   Json producer;
-  Values data;                                     // dense [rows x cols]
+  std::optional<Json> cache_key;                   // the operator's OWN provenance key (the fused operator of a chain, a kernel's inputs): stored in its producer record, found by `Subject::stored_operator(key)`
+                                                   // instead of being rebuilt or held in a process-wide cache (overrides the unit's key for this operator)
+  std::optional<std::string> from_cell, to_cell;   // the cell keys of its two ends (D92): a differential operator maps within ONE manifold and changes the cell (d0: '0' -> '1')
+  std::vector<std::int64_t> chunk_shape, shard_shape;   // a dense array's stored layout (empty: io's policy)
+  // a SPARSE operator (csr or csc, the schema's D160): `data` holds the nnz values (float32 or float64), these the structure; rows x cols is its shape
+  struct Sparse {
+    std::string layout = "csr";
+    std::int64_t n_rows = 0, n_cols = 0;
+    std::vector<std::int64_t> indptr;              // [n_rows + 1] for csr, [n_cols + 1] for csc
+    std::vector<std::int32_t> indices;             // [nnz]: the column of each value in a csr row, the row in a csc column
+  };
+  std::optional<Sparse> sparse;
+  Values data;                                     // dense [rows x cols], or the sparse operator's nnz values
+};
+// MEASUREMENTS OF A FIELD (or of a statistic's slice) OVER A SELECTION'S MEMBERS, array-backed: one value per member for each measure (the pyramid's leaves: additive ingredients, ratios derived at read).
+// ONE table holds every value over a selection's members (spec 6.1): a per-member value that is not a scalar (a window's z zH, a tile's counts) is an array [rows x members x components].
+// Each measure's values are stored at `<path>/<measure>` and recorded as a measurement row of `selection_id`; `band` (name, lo_hz, hi_hz) records the band it is within.
+struct MeasurementOut {
+  std::string output, selection_id, of_field_id, path;
+  struct Measure { std::string measure, unit; Values values; };
+  std::vector<Measure> measures;
+  Json attributes;                                 // what each measure's array says of its own axes (the zarr attributes: rows = ..., columns = ...); null: none
+  Json band;                                       // {name, lo_hz, hi_hz} or null: the band of the dataset's standard bank
+  std::optional<std::string> within_selection_id;  // the Selection a measure is WITHIN (a bank of bands whose code is the band's index: the pyramid's `atlas bands`) and the member of it: wins over `band`
+  std::optional<std::int64_t> within_code;
+  std::string value_type = "scalar";               // each member's value, as a field's (scalar, complex, vector3, hermitian3, ...): its shape trails [rows x members] as `components`
+  Json components;                                 // the value's parts when there are several, in order: ["re", "im"], matrix entries; null: one
+  std::optional<std::string> of_statistic_id;      // the measurement is of a slice of a statistic (a band of a map statistic) rather than of a field: with `of_index`
+  std::optional<std::int64_t> of_index;
+  std::optional<int> level;                        // the LEVEL of the selection's grid the members are at (the product's factor level, a dyadic level, a time level k): recorded in the array's attributes, so a reader
+                                                   // of the array alone knows the scale; the selection (or its product) is the authority
+  // TWO CODES A ROW (a measurement of a non-chunk array: the fiber counts between the regions of a partition): one value per ordered pair of the selection's members, a row (code, within_code, value)
+  // on `selection_id` (the member and the other); the rows are of the members themselves (no field)
+  struct Pair { std::int64_t code = 0, within_code = 0; double value = 0; };
+  std::string pair_measure, pair_unit;
+  std::vector<Pair> pairs;
 };
 // a closed-form tiling of a time line: `count` tiles of `width` a new one every `hop` from `origin` (in `unit`), `skipped` of them left out
 struct Tiling { double origin = 0, width = 0, hop = 0, end = 0; std::int64_t count = 0, skipped = 0; std::string unit = "s"; };
+// one array beside a grid level's tile codes, in the level's node (the tiles' areas `w`, the tile centres, the tiles' adjacency): float64 or int32, its shape
+struct GridArrayOut {
+  std::string suffix;                              // the array's key under the level's node, e.g. `w`, `lc/L3/centre`
+  std::vector<std::int64_t> shape;
+  std::vector<double> f64;                         // float64 values, or ...
+  std::vector<std::int32_t> i32;                   // ... int32 values (the one that is not empty)
+};
+// one level of a dyadic GRID as a node made it: the tile of every element as the tile CODE h 2^l + t (which is the member number; -1 none), the level's row and its arrays
+struct GridLevelOut {
+  std::string name, label, description;            // the level's selection name (`<surface> tiles L3`), its label and description
+  Json params;                                     // the level row's parameters (the store adds `node` and, when an array `w` is given, `areas`)
+  std::int64_t tiles = 0;                          // the level's member count (empty tiles included)
+  std::vector<std::int32_t> codes;                 // the tile code of every element at this level
+  Json dictionary;                                 // {name, description, entries: [{code, name, measurement, measurement_unit, attributes}]} to make, or null
+  std::optional<std::string> dictionary_id;        // or the id of a dictionary already stored (the group tree's levels reuse the template's)
+  std::vector<GridArrayOut> arrays;
+  Json centres;                                    // {name, description, indices}: a pick of the tiles' centre vertices made beside the level (null: none)
+  Json pairs;                                      // {name, description, measure, unit, tiles, indices, values}: a value over PAIRS of the level's members, as a measurement over a selection of pairs (an `indices` selection made beside the level, pair number a * tiles + b; null: none)
+};
+// a line's TIME GRID (schema 53): the one `ladder` row `<line> time grid`, its rule closed form: sample i at origin + i / rate, level k tiles 2^k samples from the line's FIRST sample; nothing stored per level or tile
+// (io's save_time_grid). Found and reused when the line has it; another rule on the same line is refused.
+struct TimeGridOut {
+  double origin = 0, rate = 0;                     // seconds, Hz
+  std::int64_t samples = 0;                        // the line's samples
+  std::string rule_name;                           // the grid named by its rule ("band 8-16 Hz"): `<line> time grid <rule_name>`; empty: `<line> time grid`
+};
+// a dyadic GRID with its levels: a `ladder` row (its levels' dictionary) and one `set` row per level; the hierarchy is the closed form, no parent arrays (io's save_grid); or, with `time`, a line's time grid
+struct GridOut {
+  std::optional<TimeGridOut> time;                 // a time grid: the other members are not used
+  std::string label, description, unit;
+  Json params;                                     // the ladder row's parameters (including the rule `grid` {kind, depth, slots, pieces})
+  Json dictionary;                                 // the levels' dictionary to make: {name, description, entries: [...]}, or null
+  std::optional<std::string> dictionary_id;        // or one already stored
+  std::vector<GridLevelOut> levels;
+};
 // a Selection on a manifold: a partition or set (a code per element), spans (on a time line), or a tiling (a closed-form spans Selection)
 struct SelectionOut {
-  std::string name, output, type, manifold_id;     // type: partition · set · spans · tiling
+  std::string name, output, type, manifold_id;     // type: partition · set · indices · spans · tiling · cells (a closed-form set: codes by a rule, no element stored) · grid (a dyadic grid with levels, or a line's time grid: `grid`) · product (`factor_ids`)
+  std::optional<GridOut> grid;                     // grid
   std::optional<std::string> path;                 // default: io's node path for the name on the manifold
-  std::vector<std::int64_t> codes;                 // partition, set: a code per element (-1: none)
+  std::vector<std::int64_t> codes;                 // indices: the elements picked, in order
+  std::vector<std::int32_t> member_of;             // partition, set: the member NUMBER of each element (dense 0 .. n - 1, -1: none), made from the labels by compute's `from_labels` (pipelines)
+  std::vector<std::int64_t> member_codes;          // partition, set: each member's LABEL, one per member (empty: member i is labelled i); `entries` name the labels
   std::vector<Span> spans;                         // spans: [start, stop) in the manifold's unit, each with its code
   std::optional<Tiling> tiling;                    // tiling
+  std::optional<std::int64_t> n_members;           // cells: the number of cells
+  std::vector<std::string> factor_ids;             // product (the Studio's D100, mixed radix, first factor fastest): the factors' stored selections, in order (>= 2)
+  std::vector<int> factor_levels;                  // product (schema 53): the LEVEL of each factor that is a grid (`ladder`), -1 for a factor as it is; empty: all -1. A coupled level (a band's) is named here, never made a row of its own
+  std::vector<std::int64_t> radices;               // product: each factor's radix; required for a factor that is a level of a grid (its member count there); empty: the factors' member counts
   std::vector<std::string> entries;                // the codes' names (a dictionary of the selection's own), when any
   std::optional<std::string> of_field_id, description, label, acquisition;
   Json params;                                     // the selection's parameters (null: none)
@@ -178,7 +263,28 @@ struct SurfaceOut {
   std::vector<std::int32_t> faces;                 // [m x 3], counter-clockwise seen from outside
   Json producer;
 };
-// a product of manifolds (a sensor × time line, a surface × frequency): its factors in axis order, existing or made in the same unit
+// a manifold of POINTS with ONE coordinate each (an operator's mode axis: the eigenvalues): found by path and REPLACED when asked, its coordinates [n] in float64
+struct PointsOut {
+  std::string name, output;
+  std::optional<std::string> path;                 // default: io's folder for the operator's points (`eigenvalue/<name>`)
+  std::string cs_key = "eigenvalue";               // its coordinate system
+  std::string operator_name;                       // the operator whose by-product this axis is (`hodgeDirac`); recorded on the manifold
+  std::optional<std::string> derived_from_id, description;
+  Values positions;                                // [n], float64
+  Json producer;
+};
+// a CELL COMPLEX on a set of vertices: a surface manifold whose vertices, edges (1-cells, [nE x 2] tail, tip) and faces (2-cells, [nF x 3]) are STORED (two edges may join one
+// pair of vertices, so the incidence is read from the operators d0 and d1 beside it, never from vertex pairs); the cells' fields and operators lie on it
+struct ComplexOut {
+  std::string name, output;
+  std::optional<std::string> path;                 // default: `source/<name>`
+  std::string cs_key = "scs";
+  std::optional<std::string> derived_from_id, description, acquisition_id;
+  Values vertices;                                 // [n x 3], float64
+  std::vector<std::int32_t> edges, faces;          // [nE x 2], [nF x 3]
+  Json producer;
+};
+// a product of MANIFOLDS (a sensor × time line, a surface × frequency): its factors in axis order, existing or made in the same unit. (A product of SELECTIONS, with factor levels, is `SelectionOut` type "product".)
 struct ProductOut {
   std::vector<std::string> factors;
   std::optional<std::string> acquisition_id;
@@ -199,6 +305,13 @@ struct KeyDigest {
   std::string key;
   std::int64_t size_bytes = 0;
   std::string sha256;
+};
+// A chart of a space: one coordinate system the space's manifolds are read in (the Frequency line: `linear` in Hz, the reference, and `log10`; the Eigenvalue line: the eigenvalue itself and the wavelength).
+struct Chart {
+  std::string id, name, space_id;
+  std::optional<std::string> unit, transition, description;   // transition: identity (the reference) · affine · log · power · operator
+  bool is_reference = false;
+  Json transition_json;                            // the transition's parameters (log base, power scale and exponent), null: none
 };
 // How many nodes a subject holds, of each class, any status.
 struct NodeCounts {
@@ -235,6 +348,17 @@ class Subject {
   // the recorded digests of the keys under `prefix` (a package records them; a database that does not gives none), by key
   std::vector<KeyDigest> key_digests(const std::string& prefix) const;
   std::vector<Span> spans(const Node& selection) const;
+  // a stored set per element as it is read: each element's member number, each member's label and the lookup (a writer's subject only; Error otherwise)
+  selection::ElementMembers element_members(const std::string& selection_id) const;
+  // the measurement QUERY (measurement_query.h: filters, roll-ups through a grid's hierarchy, to the whole, across subjects; each measure merged by its registry rule, in SQL): the rows, one a member
+  Json query_members(const query::Query& q) const;
+  // A GRID's LEVEL DICTIONARY (the Studio's surface-ladder / ConstantQLevelInfo attributes), what a roll-up to a physical size reads: for a ladder (or a level of one, or a time grid) the list
+  // [{level, measurement?, unit?, attributes}] one entry a level, ascending. A dyadic grid: `measurement` the mean tile diameter in mm, its attributes (area_m2, diameter_mm, weyl_band_per_m2, ...) as
+  // the maker wrote them; a constant-Q ladder: the level's window in s with its band; a line's TIME GRID (closed form, nothing stored per level): level k tiles 2^k samples, `measurement` its
+  // seconds. Empty when the selection is of no grid.
+  Json grid_levels(const std::string& selection_id) const;
+  // scalar measurement rows written as they are ({selection_id, code, measure, value, weight?}: io's write_measurements), for a caller that holds values already (a writer's subject only)
+  std::int64_t write_member_rows(const Json& rows, const std::string& computed_by) const;
   Geometry geometry(const std::string& manifold_id) const;
   // The model's description of a found node (its manifolds, value type, time line and rate, unit): io's finder::Value.
   finder::Value describe(const Node& n) const;
@@ -249,6 +373,7 @@ class Subject {
   // ---- what the command line looks up by name
   std::optional<Node> by_id_or_name(Cls, const std::string& key) const;   // the complete node with that id or that name (an id match first)
   std::optional<std::string> line_named(const std::string& name) const;   // the id of the manifold of type line with that name (any status)
+  std::optional<std::string> manifold_named(const std::string& name) const;   // the id of the manifold with that name (the subject's, any status)
   // the time lines a complete recording lies on (the line factors of its product manifold): every recording's, first seen first; or the named recording's first
   std::vector<std::string> recording_time_lines() const;
   std::optional<std::string> recording_time_line(const std::string& recording) const;
@@ -256,17 +381,25 @@ class Subject {
 
   // ---- cache lookup: the complete node whose producer record holds exactly `key` (a selection's: its parameters); with `path`, only that node
   std::optional<Node> cached(Cls, const Json& key, const std::optional<std::string>& path = std::nullopt) const;
+  // the complete operator stored with `key` as its own provenance (`OperatorOut::cache_key`): its values are read by the caller through io's readers; none when it was never stored
+  std::optional<Node> stored_operator(const Json& key) const;
+  // the fields OF an operator (`of_operator_id`): an operator's eigenvalues are a field of it on its mode axis (the schema's `of_operator_id`), besides the axis's coordinates
+  std::vector<Node> fields_of_operator(const std::string& operator_id) const;
+  // the CHARTS of a manifold's space: its coordinate systems, the reference first (the Frequency line's `linear` and `log10`, the Eigenvalue line's eigenvalue and wavelength). Empty: no geometry
+  std::vector<Chart> charts(const std::string& manifold_id) const;
 
   // ---- what is measured on a selection
   std::vector<Json> measured_kinds(const std::string& selection_id) const;            // io's measurement_kinds: {of_field_id, measure, members, min, max, computed_by, unit}
   // the selections that carry `measure` measured on `of_field_id` (ids, ascending)
   std::vector<std::string> measured_selections(const std::string& of_field_id, const std::string& measure) const;
   bool has_measures(const std::string& selection_id, const std::string& of_field_id) const;   // any measure of that field on the selection
-  bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt) const;
+  bool has_measure(const std::string& selection_id, const std::string& measure, const std::optional<std::string>& of_field_id = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt) const;
 
   // ---- read measurements: io's read-time query (nxr/io/measures.h, query_measurements): a stored measure as stored, a derived one from its ingredients, a pyramid's
   // array-backed measurement rolled up at read to the levels `q` names (that needs the subject's store: a Subject made from a writer)
   Json read_measurements(const Json& q) const;
+  // the same measurements as a TABLE with filters and roll-ups, in SQL (nxr/io/measurement_query.h `query::members`, where the filter and roll-up structs are): through a grid's hierarchy and across subjects.
+  // The query API is io's; the face (pipelines) applies nothing of its own.
 
   // ---- commit a result as ONE unit: everything written inside it (nodes and arrays through the subject's writer, measurements, parameters) is stored together or not at all.
   //   auto u = subject.unit(By{"nxr-neuro tiles"});   // opens it
@@ -278,7 +411,7 @@ class Subject {
   // measurement rows and parameters outside a unit (each is its own transaction); inside one use the Unit's
   std::int64_t write_measurements(const Json& rows, const std::optional<std::string>& by) const;
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
-                                   const std::optional<std::string>& measure = std::nullopt) const;
+                                   const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt) const;
   void set_params(const std::string& selection_id, const Json& params) const;              // a selection's parameters, replaced
 
  private:
@@ -298,22 +431,27 @@ class Unit {
   // the measurement rows of the unit, recorded as computed by `by().tool` unless a row names its own `computed_by`; returns the number written
   std::int64_t write_measurements(const Json& rows);
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
-                                   const std::optional<std::string>& measure = std::nullopt);
+                                   const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt);
   void set_params(const std::string& selection_id, const Json& params);
   // ---- typed writes, each returning the new node's id (call `replace` on its `path_of` first: a node already there is refused or moved aside)
   std::string field(const FieldOut&);
   std::string statistic(const StatisticOut&);
   std::string operator_(const OperatorOut&);
   std::string selection(const SelectionOut&);
+  std::int64_t measurements(const MeasurementOut&);   // the rows written (one a measure); a measure already there for the field is replaced
   // MANIFOLDS (the sixth kind): made first, so the other results of the unit can lie on them; each found and reused when identical, never replaced
   std::string line(const LineOut&);
   std::string surface(const SurfaceOut&);
   std::string product(const ProductOut&);
+  std::string points(const PointsOut&);            // found by path and kept when it holds the same coordinates; another one's is replaced by `replace` first
+  std::string cell_complex(const ComplexOut&);     // found by path and kept when it holds the same cells; another one's is replaced by `replace` first
   // the place a result would take (what `replace` and the cache look at)
   std::string path_of(const FieldOut&) const;
   std::string path_of(const StatisticOut&) const;
   std::string path_of(const OperatorOut&) const;
   std::string path_of(const SelectionOut&) const;
+  std::string path_of(const PointsOut&) const;
+  std::string path_of(const ComplexOut&) const;
   // a node of class `cls` already at `path`: refused (code already_exists, naming `what`) unless `replace`, then moved aside (its arrays to a dated
   // `_replaced-*` folder, never deleted) and its row removed; returns where its arrays went (empty: nothing was there, or it had none)
   std::string replace(Cls cls, const std::string& path, bool replace, const std::string& what);

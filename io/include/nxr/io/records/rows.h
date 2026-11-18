@@ -2150,4 +2150,41 @@ struct TemplateReferenceRow {
   }
 };
 
+// table `selection_factor`
+struct SelectionFactorRow {
+  std::string selection_id;
+  std::int64_t ordinal;
+  std::string factor_selection_id;
+  std::optional<std::int64_t> level;
+  static constexpr const char* kTable = "selection_factor";
+  static const std::vector<std::string>& columns() {
+    static const std::vector<std::string> c = {"selection_id", "ordinal", "factor_selection_id", "level"};
+    return c;
+  }
+  static SelectionFactorRow from_row(const Row& r) {
+    SelectionFactorRow x;
+    x.selection_id = detail::take<std::string>(r, "selection_id");
+    x.ordinal = detail::take<std::int64_t>(r, "ordinal");
+    x.factor_selection_id = detail::take<std::string>(r, "factor_selection_id");
+    x.level = detail::take_opt<std::int64_t>(r, "level");
+    return x;
+  }
+  static SelectionFactorRow from_json(const Json& j) {
+    SelectionFactorRow x;
+    x.selection_id = detail::get<std::string>(j, "selection_id");
+    x.ordinal = detail::get<std::int64_t>(j, "ordinal");
+    x.factor_selection_id = detail::get<std::string>(j, "factor_selection_id");
+    x.level = detail::get_opt<std::int64_t>(j, "level");
+    return x;
+  }
+  Json to_json() const {
+    Json j = Json::object();
+    detail::put(j, "selection_id", selection_id);
+    detail::put(j, "ordinal", ordinal);
+    detail::put(j, "factor_selection_id", factor_selection_id);
+    detail::put(j, "level", level);
+    return j;
+  }
+};
+
 }  // namespace nxr::io::records

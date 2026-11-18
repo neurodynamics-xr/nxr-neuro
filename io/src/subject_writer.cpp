@@ -9,6 +9,8 @@
 #include "nxr/io/writer.h"
 #include "nxr/io/statistic.h"
 #include "nxr/io/measures.h"
+#include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_store.h"
 
 namespace fs = std::filesystem;
 
@@ -71,6 +73,13 @@ SpaceSpec space_spec(const std::string& key) {
   if (key == "freesurfer-sphere")
     return {"sphere", "volume", "the R³ FreeSurfer's registration sphere sits in (its positions are stored as three numbers each)",
             {{key, "freesurfer", std::nullopt, true, "identity", std::nullopt, std::string("radius 100")}}};
+  // the dataset's Frequency line (bst::ensure_frequency, schema 53): its two charts, `linear` (the reference, Hz) and `log10` (log10 Hz); a band set is spans on it in either
+  if (key == "frequency:line" || key == "frequency:log10") {
+    SpaceSpec s{"frequency line", "line", "the dataset's frequency line, R\xc2\xb9: linear in hertz (the reference chart) and log10 of the frequency", {}};
+    s.systems.push_back({"frequency:line", "linear", std::string("Hz"), true, "identity", std::nullopt, std::string("cycles per second")});
+    s.systems.push_back({"frequency:log10", "log10", std::string("log10 Hz"), false, "log", Json{{"base", 10}}, std::string("log10 of the frequency in hertz")});
+    return s;
+  }
   if (key == "frequency" || key == "octave") {
     SpaceSpec s{"frequency", "line", "the frequency line, R¹ — what a time → frequency operator maps the time line onto", {}};
     s.systems.push_back({"frequency", "hz", std::string("Hz"), true, "identity", std::nullopt, std::string("cycles per second")});
@@ -314,7 +323,7 @@ void SubjectWriter::compose(const std::function<void()>& body) {
 void SubjectWriter::drop_unused(const std::vector<std::string>& dictionary_ids, const std::vector<std::string>& acquisition_ids) {
   db_->tx([&] {
     for (const auto& did : dictionary_ids)
-      if (!db_->one("SELECT 1 FROM selection WHERE dictionary_id = ? LIMIT 1", {did})) db_->execute("DELETE FROM dictionary WHERE id = ?", {did});
+      if (!selection::lookup_in_use(*db_, did)) db_->execute("DELETE FROM dictionary WHERE id = ?", {did});
     for (const auto& aid : acquisition_ids) {  // an acquisition this composition made, which no node it kept names
       bool used = false;
       for (const char* t : {"manifold", "field", "selection", "operator"})
@@ -699,40 +708,26 @@ std::string SubjectWriter::selection(SelectionSpec spec) {
     if (spec.data && spec.path) r["array_path"] = *spec.path;
     merge(r, prov(spec.created_utc));
     merge(r, cols);
-    db_->insert("selection", r);
+    // THE CODES ARE THE ARRAY'S: no per-element rows: the row carries the counts only, a subset its picked elements, a partition its elements and its distinct
+    // codes (D48). The rows themselves are the selection module's (selection_store.h).
+    std::optional<std::int64_t> n_elements, n_members;
     if (el) {
-      // THE CODES ARE THE ARRAY'S: no per-element rows — the row carries the counts only, a subset its picked elements, a partition its
-      // elements and its distinct codes (D48)
-      if (spec.picked) db_->execute("UPDATE selection SET n_elements = ? WHERE id = ?", {vint(el->size()), sid});
-      else db_->execute("UPDATE selection SET n_elements = ?, n_members = ? WHERE id = ?", {vint(el->size()), vint(distinct_count(*el)), sid});
+      n_elements = el->size();
+      if (!spec.picked) n_members = distinct_count(*el);
     }
-    if (spec.spans) {
-      int k = 0;
-      for (const auto& s : *spec.spans)
-        db_->execute("INSERT INTO selection_span (selection_id, ordinal, start, stop, code) VALUES (?, ?, ?, ?, ?)",
-                     {sid, V(k++), s.start, s.stop, s.code ? Value(*s.code) : Value(std::monostate{})});
-      db_->execute("UPDATE selection SET n_members = ? WHERE id = ?", {vint(static_cast<std::int64_t>(spec.spans->size())), sid});
-    }
-    for (const auto& e : spec.extents) db_->insert("selection_extent", {{"selection_id", sid}, {"axis", vint(e.axis)}, {"start", e.start}, {"stop", e.stop}});
-    for (const auto& m : spec.measurements) {
-      Row mr = {{"selection_id", sid}};
-      merge(mr, m);
-      db_->insert("selection_measurement", mr);
-    }
+    nxr::io::selection::insert_row(*db_, r, n_elements, n_members, spec.spans, spec.extents, spec.measurements);
   };
   const bool has_array = spec.path && (meta || spec.populate);
   return node("selection", sid, rows, has_array ? array_populate("selection", sid, meta, spec.data, spec.populate, spec.dense) : Populate());
 }
 
-void SubjectWriter::measurement(const std::string& selection_id, const Cols& row) {
-  auto go = [&] {
-    Row mr = {{"selection_id", selection_id}};
-    merge(mr, row);
-    db_->insert("selection_measurement", mr);
-  };
-  if (immediate_) update_node(*db_, ds_->node_store(), go);
-  else db_->tx(go);
+void SubjectWriter::update(const std::function<void()>& body) {
+  if (immediate_) update_node(*db_, ds_->node_store(), body); else db_->tx(body);
 }
+void SubjectWriter::set_spans(const std::string& selection_id, const std::vector<SpanSpec>& spans) { update([&] { nxr::io::selection::replace_spans(*db_, selection_id, spans); }); }
+void SubjectWriter::set_extents(const std::string& selection_id, const std::vector<ExtentSpec>& extents) { update([&] { nxr::io::selection::replace_extents(*db_, selection_id, extents); }); }
+void SubjectWriter::set_own_measurements(const std::string& selection_id, const std::vector<Cols>& rows) { nxr::io::selection::update_own_measurements(*this, selection_id, rows); }
+void SubjectWriter::measurement(const std::string& selection_id, const Cols& row) { nxr::io::selection::save_measurement(*this, selection_id, row); }
 
 DictionaryResult SubjectWriter::dictionary(const DictionarySpec& spec) {
   Cols scope_cols;

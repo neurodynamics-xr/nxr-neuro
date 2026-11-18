@@ -1,4 +1,4 @@
-"""Writes magnetic_golden.txt: the reference for nxr::magnetic::hermitianEigs. A magnetic Laplacian L = D - W on a random graph (400 vertices, about 1600
+"""Writes magnetic_golden.txt: the reference for nxr::operators::hermitianEigs. A magnetic Laplacian L = D - W on a random graph (400 vertices, about 1600
 edges, random strengths and lags; seeded), its lowest 8 eigenpairs by scipy's eigsh (ARPACK's complex Hermitian solver, shift-invert at -1e-6). Synthetic
 data only.
 Format: `n m k`, then m lines `u v re(W_uv) im(W_uv)`, then k eigenvalues, then the k eigenvectors, one per line (re im pairs, n each).

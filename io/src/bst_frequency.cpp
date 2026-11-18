@@ -2,6 +2,7 @@
 #include "nxr/bst/frequency.h"
 
 #include "nxr/io/layout.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/surface.h"
 
 namespace nxr::bst {
@@ -25,10 +26,9 @@ std::string frequency_folder() { return nxr::io::folder_for("line", "", std::str
 std::vector<BandEntry> band_entries(nxr::io::Database& db) {
   const std::string did = band_dictionary_id(db);
   std::vector<BandEntry> out;
-  for (const Row& e : db.all("SELECT * FROM dictionary_entry WHERE dictionary_id = ? ORDER BY ordinal, code", {did})) {
-    const Json a = Json::parse(nxr::io::opt_text(e, "attributes_json").value_or("{}"), nullptr, false);
-    if (a.is_object() && a.contains("lo_hz") && a.contains("hi_hz"))
-      out.push_back({nxr::io::integer(e, "code"), nxr::io::text(e, "name"), a["lo_hz"].get<double>(), a["hi_hz"].get<double>()});
+  for (const nxr::io::records::DictionaryEntryRow& e : nxr::io::selection::lookup_entries(db, did)) {
+    const Json& a = e.attributes_json;
+    if (a.is_object() && a.contains("lo_hz") && a.contains("hi_hz")) out.push_back({e.code, e.name, a["lo_hz"].get<double>(), a["hi_hz"].get<double>()});
   }
   return out;
 }
@@ -37,9 +37,9 @@ std::optional<FrequencyRows> find_frequency(nxr::io::Database& db) {
   const auto m = db.one("SELECT m.* FROM manifold m JOIN subject s ON s.id = m.subject_id WHERE s.kind = 'template' AND m.name = ? AND m.type = 'line' "
                         "ORDER BY m.created_utc LIMIT 1", {std::string(kFrequencyName)});
   if (!m) return std::nullopt;
-  const auto b = db.one("SELECT * FROM selection WHERE manifold_id = ? AND name = ? AND type = 'spans'", {nxr::io::text(*m, "id"), std::string(kBandsName)});
+  const auto b = nxr::io::selection::find_on_manifold(db, nxr::io::text(*m, "id"), std::string(kBandsName), std::string("spans"));
   if (!b) return std::nullopt;
-  return FrequencyRows{*m, *b};
+  return FrequencyRows{*m, *db.read("selection", b->id)};
 }
 
 FrequencyIds ensure_frequency(SubjectWriter& sub) {
@@ -61,7 +61,7 @@ FrequencyIds ensure_frequency(SubjectWriter& sub) {
     if (lc.n_volumes) ms.cols.set("n_volumes", *lc.n_volumes); else ms.cols.null("n_volumes");
     nxr::io::GeometrySpec g;
     g.form = "closed_form";
-    g.cs_key = "hz";
+    g.cs_key = "frequency:line";   // charts `linear` (Hz, the reference) and `log10` (schema 53); a Frequency line made before has the one chart it was made with
     nxr::io::DimensionSpec d;
     d.name = "frequency";
     d.n_vertices = kFrequencySamples;
@@ -75,8 +75,8 @@ FrequencyIds ensure_frequency(SubjectWriter& sub) {
   } else {
     mid = nxr::io::text(*have, "id");
   }
-  if (const auto sel = sub.db().one("SELECT id FROM selection WHERE manifold_id = ? AND name = ?", {mid, std::string(kBandsName)}))
-    return {mid, nxr::io::text(*sel, "id")};
+  if (const auto sel = nxr::io::selection::find_on_manifold(sub.db(), mid, std::string(kBandsName)))
+    return {mid, sel->id};
   const std::string did = band_dictionary_id(sub.db());
   nxr::io::SelectionSpec s;
   s.name = kBandsName;

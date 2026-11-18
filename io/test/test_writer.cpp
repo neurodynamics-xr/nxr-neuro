@@ -170,7 +170,7 @@ int main() {
   CHECK(!bids_entities("N2")["ses"].has_value());
 
   // the schema is the one embedded
-  CHECK_EQ(schema_version(), 51);
+  CHECK_EQ(schema_version(), 54);
 
   fs::remove_all(root);
   // ── WRITE A REGION (write_region): read-modify-write of the chunks a region touches, against the whole array built in memory ──

@@ -138,7 +138,7 @@ int main() {
     // the documented fminsearch behaviour, one start (a start of the published kind): how near does it come to the reference's parameters?
     EegSphereOptions fm = bst;
     fm.berg.starts = 1;
-    fm.berg.minimiser = fminsearchOptions(3);
+    fm.berg.minimiser = nxr::optimisation::fminsearchOptions(3);
     BergScherg one;
     const MatrixXd Gone = eegSphereGain(src, el, ec, fm, &one);
     std::printf("  EEG single start, fminsearch rules: vs Brainstorm %.2e, vs the series %.2e (residual %.1e)\n", rel(Gone, g.at("eeg_bst.bst")), rel(Gone, Gser), one.residual);

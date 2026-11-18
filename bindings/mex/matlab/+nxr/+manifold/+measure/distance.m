@@ -6,6 +6,5 @@ function d = distance(mctx, sourceVerts)
 %   geodesic distances (0 at the sources).
 %
 %   See also nxr.manifold.measure.signedDistance (signed, from a curve).
-    d = nxr.manifold.impl.withHandle(mctx, @(h) ...
-        nxr_compute('heat', h, int32(sourceVerts)));
+    d = nxr_compute('geometry.heat', mctx.surface, int32(sourceVerts));
 end

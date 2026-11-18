@@ -14,6 +14,7 @@
 #pragma once
 #include <array>
 #include <cstdint>
+#include <limits>
 #include <map>
 #include <memory>
 #include <optional>
@@ -33,6 +34,9 @@ enum class PortClass {
   measurement, statistic, manifold                                  // the type system's: one value per member of a partition; what is computed from members; a line or space made
 };
 /** what a field's columns are: samples (streamed, inside the loop), frames (a retimed stream), or none (an array outside the loop) */
+/** where a value lies in a run: none, an array (outside the loop); samples, a stream of the recording's samples; frames, a stream of frames (after a retiming
+ *  node); members. A value a chunk node makes ONCE PER BLOCK (a chunk's spectrum) has axis none and a domain whose last factor is a line the node MADE
+ *  (`PortType::per_block()`): no halo, never cut into sub-blocks; a node after it reads it whole, and an accumulate node reduces it across blocks. */
 enum class Axis { none, samples, frames, members };
 
 const char* to_string(ValueType v);
@@ -78,8 +82,14 @@ struct Manifold {
   std::optional<CoordinateSystem> cs;                 // the system its positions are in; none for a manifold without geometry (members, an index line)
   std::int64_t n = 0;                                 // its vertices (0: not known before data, as a stream's time line)
   std::optional<double> spacing;                      // a closed-form line's spacing
+  // a MADE line (form made): the line a node's operator makes, as the Studio's product manifold carries a factor of geometry_dimension 1 (D37). Its vertices come with
+  // the block (the count a block was transformed from rides on the block), so its spacing is `rate / samples`.
+  std::optional<double> origin;                       // made line: the coordinate of vertex 0 (0 Hz for a one-sided spectrum)
+  std::optional<double> rate;                         // made line: the sampling rate (Hz) of the line it was made from; spacing = rate / (the block's samples)
+  std::string unit;                                   // made line: the unit of its coordinate ("Hz")
   ManifoldRef of;                                     // restricted, derived: the manifold it is of
   std::string by;                                     // restricted, members: the selection's identity (a stored id, or "<use>.<output>"; a signature's "$port")
+  bool irregular = false;                             // members of an IRREGULAR selection (events, scouts, an atlas: no levels): a statistic across them is a summary, never a level roll-up
   bool rest = false;                                  // variable: stands for all the other factors of a domain (R)
   bool subsume = false;                               // variable at an operator's source: also accepts a restriction of what it is bound to (`apply`'s one implicit move)
 };
@@ -96,14 +106,18 @@ ManifoldRef frames_var(const std::string& name);     // binds a factor whose rol
 ManifoldRef var_rest(const std::string& name);       // the other factors, carried through unchanged
 ManifoldRef from_or_restriction_of(const ManifoldRef& v);   // an operator's source: a variable that also accepts a restriction of the manifold it is bound to
 ManifoldRef made(const std::string& label, const std::string& key, ManifoldKind kind = ManifoldKind::points, Role role = Role::none, std::optional<CoordinateSystem> cs = std::nullopt);
+/** the line a node's operator makes, keyed "<use>.<output>" (spec type-system 3.1): one factor of the output's product domain, with its origin, unit and the rate it derives its spacing from */
+ManifoldRef made_line(const std::string& label, const std::string& key, Role role, const std::string& unit, double origin, std::optional<double> rate);
 ManifoldRef restricted(const ManifoldRef& of, const std::string& by);
 ManifoldRef members(const std::string& partition);
 /** the member set of `partition`, with the line it partitions (`of`: a time tile's line; the time line of a joint partition), the role it has (frames for a frame tiling,
  *  time_tiles for a time ladder's level) and a label (`joint` for the cells of a joint partition of space x time). Equality ignores all three: it is the partition's. */
-ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role = Role::time_tiles, const std::string& label = "");
+ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role = Role::time_tiles, const std::string& label = "", bool irregular = false);
 ManifoldRef members_of_port(const std::string& port);      // in a signature: the member set of the selection read at `port` (instantiated to members(<its identity>))
 ManifoldRef derived(const std::string& relation, const ManifoldRef& of);
-bool same(const ManifoldRef& a, const ManifoldRef& b);                 // structural equality
+bool same(const ManifoldRef& a, const ManifoldRef& b);                 // structural equality; the coordinate system is part of it when both manifolds record one (T5)
+bool same_cs(const std::optional<CoordinateSystem>& a, const std::optional<CoordinateSystem>& b);   // true when either is not recorded
+std::string print_cs(const std::optional<CoordinateSystem>& c);        // "head/scs (m)"
 std::string print(const ManifoldRef& m);
 ManifoldRef parse_manifold(const std::string& text);
 
@@ -135,7 +149,7 @@ std::string print(const Resolution& r);   // "band 8-12 Hz morlet; level tiles@5
 /** a selection's shape: what the members are */
 struct SelectionShape {
   std::string type;                                   // the schema's: point · span · spans · indices · kernel · set · ladder · tiling (closed-form spans)
-  bool partition = false;                             // its members are disjoint: a measurement may be taken over it
+  bool partition = false;                             // a GRID: it partitions the manifold and is defined before data, with its hierarchy in closed form (roll-ups only through it). false: any other selection, an IRREGULAR one (detected events, scouts, atlases): sparse, may overlap, no levels; `measure` takes it member by member
   std::string identity;                               // a stored id, or "<use>.<output>" for one this graph makes
   std::string detected_over;                          // detected events: the identity of the partition whose members they were found on
 };
@@ -152,7 +166,7 @@ struct PortType {
   PortClass cls = PortClass::field;
   ValueType value = ValueType::real;
   std::int64_t rows = 0;                 // elements (channels, vertices, members), a vertex's components consecutive
-  Axis axis = Axis::none;                // samples: streamed (inside the loop); frames: retimed; none: an array
+  Axis axis = Axis::none;                // samples: streamed (inside the loop); frames: retimed; none: an array, or (`per_block()`) a value made once per block on a made line
   std::optional<double> sfreq;           // Hz, for samples (frames: the frame rate)
   std::string unit;                      // SI, as stored
   std::string on, to;                    // the manifold an element lies on (a label the caller gives: "sensors", "cortex"); an operator's target
@@ -175,6 +189,9 @@ struct PortType {
   std::optional<std::pair<CoordinateSystem, CoordinateSystem>> transition;   // operator of kind `transition`: from -> to, one space
   /** a value that flows block by block (samples or frames) rather than being an array */
   bool streamed() const { return axis == Axis::samples || axis == Axis::frames; }
+  /** a value a chunk node makes once per block: not streamed, and its domain's last factor is a frequency line the node made (the product channels x frequency of a
+   *  change of basis). Derived from the type, not a flag: the domain says it. */
+  bool per_block() const;
 };
 using Types = std::map<std::string, PortType>;
 
@@ -211,6 +228,8 @@ Domain instantiate(const Domain& pattern, const Bindings& b, const std::map<std:
 struct Block {
   std::int64_t rows = 0, width = 0, left = 0, right = 0;
   std::vector<float> re, im;
+  /** a value made on a made line: the samples of the block it was made from (n). The line's vertices do not tell it (an odd and an even n make the same count of bins). 0 otherwise. */
+  std::int64_t line_samples = 0;
   std::int64_t own() const { return width - left - right; }
   bool complex() const { return !im.empty(); }
 };
@@ -221,13 +240,24 @@ struct Array {
   std::vector<double> data;
   Json meta = Json::object();
   std::int64_t comps = 1;
+  /** PRECISION FOLLOWS THE INPUT (the maintainers' rule, 2026-11-17: no blanket double). An array made of float32 input holds its values in `single` (and `data` is empty); one made of float64
+   *  input, or a node's own accumulated statistic, holds them in `data`. The two are never both filled. `values()` reads either, as double, for a consumer that wants double. */
+  std::vector<float> single;
+  bool is_single() const { return data.empty() && !single.empty(); }
+  std::size_t size() const { return is_single() ? single.size() : data.size(); }
+  double at(std::size_t i) const { return is_single() ? static_cast<double>(single[i]) : data[i]; }
+  std::vector<double> values() const { return is_single() ? std::vector<double>(single.begin(), single.end()) : data; }
 };
 using Blocks = std::map<std::string, Block>;
 using Arrays = std::map<std::string, Array>;
-/** where a block's own columns lie: the first sample (or frame), the count, and which are good (outside the bad samples; null: every one) */
+/** where a block's own columns lie: the first sample (or frame), the count, and which are good (outside the bad samples; null: every one).
+ *  For an ACCUMULATE node that declared a halo (a segment family's n - 1 samples to the right), the rest of the caller's span: `origin` the span's first sample (the segment grid is anchored there),
+ *  `end` its end (exclusive; a segment never reaches past it: the halo columns beyond are not the node's to read), `good_after` the flags of the right halo's columns (null or empty: every one). */
 struct Place {
   std::int64_t first = 0, n = 0;
   const std::vector<std::uint8_t>* good = nullptr;
+  std::int64_t origin = 0, end = std::numeric_limits<std::int64_t>::max();
+  const std::vector<std::uint8_t>* good_after = nullptr;
 };
 /** where a RETIMING node (the frame tiling) puts a block's own columns: its first frame, their count, and which frames are good (empty: all) */
 struct FramePlace {

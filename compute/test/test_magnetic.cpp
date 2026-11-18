@@ -1,4 +1,4 @@
-// nxr::algebra::congruence and nxr::magnetic (the magnetic Laplacian, its eigenpairs, the winding of a complex field), on synthetic data only:
+// nxr::core::congruence and nxr::operators (the magnetic Laplacian, its eigenpairs, the winding of a complex field), on synthetic data only:
 //   congruence           against the dense A M Aᴴ;
 //   hermitianEigs        a ring with flux α (exact λ_k = 2 − 2cos(2π(k + α)/n)), with α = 0 too (doubly degenerate pairs); a random graph with random
 //                        lags against scipy's eigsh (golden: gen_magnetic_golden.py) and against the dense oracle;
@@ -15,11 +15,12 @@
 #include <stdexcept>
 
 #include "mesh_helpers.h"
-#include "nxr/congruence.h"
-#include "nxr/errors.h"
-#include "nxr/magnetic.h"
+#include "nxr/core/congruence.h"
+#include "nxr/core/errors.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
 
-using namespace nxr::magnetic;
+using namespace nxr::operators;
 using C = std::complex<double>;
 
 namespace {
@@ -66,13 +67,13 @@ int main() {
     for (Eigen::Index i = 0; i < B.size(); ++i) B.data()[i] = C(nd(rng), nd(rng));
     const Eigen::MatrixXcd M = B * B.adjoint();
     const Eigen::MatrixXcd full = A.cast<C>() * M * A.transpose().cast<C>();
-    nxr::algebra::Pairs P(40, 2);
+    nxr::core::Pairs P(40, 2);
     for (Eigen::Index p = 0; p < 40; ++p) { P(p, 0) = static_cast<int32_t>(rng() % 30); P(p, 1) = static_cast<int32_t>(rng() % 30); }
-    const auto got = nxr::algebra::congruence(A, M, P);
+    const auto got = nxr::core::congruence(A, M, P);
     double worst = 0;
     for (Eigen::Index p = 0; p < 40; ++p) worst = std::max(worst, std::abs(got[static_cast<std::size_t>(p)] - full(P(p, 0), P(p, 1))) / full.cwiseAbs().maxCoeff());
     EXPECT(worst < 1e-14, "congruence == the dense A M A^H on 40 pairs (worst " << worst << ")");
-    EXPECT(throws([&] { nxr::algebra::congruence(A, Eigen::MatrixXcd::Zero(7, 7), P); }), "congruence refuses mismatched shapes");
+    EXPECT(throws([&] { nxr::core::congruence(A, Eigen::MatrixXcd::Zero(7, 7), P); }), "congruence refuses mismatched shapes");
   }
 
   // THE RING with flux α: exact spectrum; α = 0 has doubly degenerate pairs

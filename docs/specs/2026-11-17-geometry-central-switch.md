@@ -61,7 +61,7 @@ A thin class in `compute/` (working name `nxr::manifold::IntrinsicSurface`, head
 the intrinsic triangulation, and is the only place the construction is written. It is pure (arrays in, the object out) and keeps the port's record.
 
 Construction, in this order (each step names the geometry-central call):
-1. `makeManifoldSurfaceMeshAndGeometry` (or the `ManifoldSurfaceMesh` + `VertexPositionGeometry` the `Manifold` already holds): the input mesh and
+1. `makeManifoldSurfaceMeshAndGeometry` (or the `ManifoldSurfaceMesh` + `VertexPositionGeometry` built from the `SurfaceArrays`): the input mesh and
    its embedded geometry.
 2. An `EdgeLengthGeometry` of the input mesh with the input's `edgeLengths`, then `mollifyIntrinsic(mesh, edgeLengths, mollify)` on **those
    input lengths** (option `mollify`, section 3). ε is recorded as the length added (the difference before and after; 0 when nothing was needed).
@@ -73,7 +73,7 @@ Construction, in this order (each step names the geometry-central call):
    keeps no count); `isDelaunay()` is checked after.
 6. The record: `mollify`, ε, `flipEps`, flips, the mass option, the geometry-central version (section 7), and the gauge identity (section 5.1).
 
-With the named option `mesh = embedded` (today's `MeshKind::Embedded`), steps 2 to 5 are skipped and every operator is the input geometry's.
+With the named option `mesh = embedded` (`IntrinsicOptions::intrinsic = false`), steps 2 to 5 are skipped and every operator is the input geometry's.
 
 Each connected piece of a surface is one `IntrinsicSurface` (as `ChartKit` solves each piece by itself today), so the heat and vector heat solvers
 never see a disconnected Laplacian; values off a piece stay NaN as now.
@@ -132,7 +132,7 @@ lines in `IntrinsicSurface`, with a test that it equals `vertexTangentBasis` to 
 
 ## 3. Method choices: named options, defaults stated
 
-The port's deliberate choices stay explicit: each is a named, recorded option of `IntrinsicSurface` (and of `ManifoldOptions`), reproduced through
+The port's deliberate choices stay explicit: each is a named, recorded option of `IntrinsicSurface` (and of the surface's `IntrinsicOptions`), reproduced through
 geometry-central where possible.
 
 | option | default | through geometry-central | reproduced? |
@@ -290,18 +290,18 @@ std::string gauge;       // "" for spin 0 and for vector3 values; else the gauge
 ```
 
 `check` (the arrow check, before any data flows) refuses an arrow whose two ends have different `spin`, or the same nonzero spin and different
-`gauge`, naming both and the conversion to insert (`frame.rotate`). A node declares, per port, either a fixed spin and "same gauge as input X"
+`gauge`, naming both and the conversion to insert (`geometry.frame_rotate`). A node declares, per port, either a fixed spin and "same gauge as input X"
 (covariant: most tangent nodes) or a produced gauge (a node that builds the operators: its gauge is the bound `IntrinsicSurface`'s). Bound
 constants (mesh operators) carry the gauge of the surface they were built on, so an operator from one surface can never act on a field in another
 surface's gauge. `compute` on arrays handed to it takes the gauge from the caller's metadata (or the sidecar), and refuses a complex tangent array
 that names none.
 
-### 5.3 The conversion node: `frame.rotate`
+### 5.3 The conversion node: `geometry.frame_rotate`
 
 A pure, pointwise node (traits: `pointwise`, precision follows the input):
 
 ```
-frame.rotate(field, to, spin) -> field'
+geometry.frame_rotate(field, to, spin) -> field'
   field  [V] complex, spin k, in gauge g
   to     [V] real, radians: the angle of the target reference measured in g (e.g. <surface>_canonical_gauge_angle, north's angle in the gauge)
   spin   k (from the field's type; a parameter only when the input names none)
@@ -309,7 +309,7 @@ frame.rotate(field, to, spin) -> field'
 ```
 
 With `to` = north's gauge angle, a spin-1 field becomes components on (north, west); with spin 2 a line field's double angle is measured from
-north. Its siblings, also pure: `frame.embed(field, grid) -> vector3` (z → a e1 + b e2) and `frame.project(vector3, grid) -> complex` (its inverse
+north. Its siblings, also pure: `geometry.frame_embed(field, grid) -> vector3` (z → a e1 + b e2) and `geometry.frame_project(vector3, grid) -> complex` (its inverse
 on the tangent plane). A rotation between the old port's gauge and the new one is never shipped as a node: old data is recomputed (5.1).
 
 ## 6. Frames (`compute/include/nxr/frames.h`)
@@ -323,7 +323,7 @@ What changes in `frames.h`:
 - `vertexNormals` (area-weighted): **removed**; callers take `vertexNormals` of the input geometry (the one tangent plane).
 - `gaugeAngle(chart::ChartKit&, direction)` → `gaugeAngle(const IntrinsicSurface&, direction)`: atan2 against `vertexTangentBasis`. The canonical
   frame's stored form is `gaugeAngle(surface, e1)`, the field `<surface>_canonical_gauge_angle` (kept name), now with its gauge record.
-- `angleFromNorth(kit, vectors, e1)` → **removed** from `frames.h`; it is `frame.rotate(field, canonical_gauge_angle, 1)` followed by `arg` (a
+- `angleFromNorth(kit, vectors, e1)` → **removed** from `frames.h`; it is `geometry.frame_rotate(field, canonical_gauge_angle, 1)` followed by `arg` (a
   pipeline step, section 5.3).
 - `Anatomical`, `anatomicalFrame`, `carryAnatomical`, `anatomicalComponents`, `angleFromAnterior`: become the **anatomical projection** (rename
   `anatomicalProjection`). A reporting projection of a tangent vector onto the anterior and second axes:
@@ -385,7 +385,7 @@ consumers; it is ordered so the compute PRs run in parallel with both, and the p
 | G2 | the one-time comparison (4) as a test, and appendix B of this spec with its numbers | `compute/test/` new test, this spec | G1 | as G1 |
 | G3 | `Manifold` on `IntrinsicSurface`: `operatorMesh` → `intrinsic()`, the cotan Laplacian, masses, DEC, the vertex connection Laplacian (n-RoSy built from transport), Hodge–Dirac and `intrinsic_forms` rebuilt on it; `vertexFrames` / `vertexGrid` become geometry-central's (the `…Embedded` names kept as deprecated aliases); `geodesic.cpp` and `vector_heat.cpp` on the intrinsic surface; compute goldens that are gauge-free re-checked within tolerance, Studio-parity goldens replaced by section 4's tests | `compute/src`, `compute/include/nxr/compute.h`, `compute/test`; the compute bindings (`bindings/mex`, `bindings/node`, `bindings/wasm`, `bindings/python`) only where a name changes | G2 | as G1. Pipelines compile unchanged (the public compute API keeps its names) |
 | G4 | the charts and frames on `IntrinsicSurface`: `ChartKit` a thin wrapper of `HeatMethodDistanceSolver` / `VectorHeatMethodSolver` (same API, the new gauge), `gaugeHeading` on `vertexTangentBasis`, `frames.h` as section 6, `ladder`, `quadrature`, `crossings`, the optical flow's `Corners` rebuilt; their tests and goldens | `compute/` only, plus expected values in the pipeline tests that read a gauge-dependent number | G3 | C4, C5, migration 6 to 8. **Overlap:** migration step 9 moves `pipelines/test/*` onto the task API; land G4 before it starts, or rebase G4 (the overlap is expected-value lines) |
-| G5 | the gauge in the executor: `PortType::spin`, `PortType::gauge`, `check`'s refusal; `frame.rotate`, `frame.embed`, `frame.project` as nodes with their traits and tests | `pipelines/graph/` (types, check, a new node file) | **C5** (it moves the steps into `pipelines/graph/nodes/`; the type change is additive, but landing after C5 spares it a rebase) | migration 6 to 10 |
+| G5 | the gauge in the executor: `PortType::spin`, `PortType::gauge`, `check`'s refusal; `geometry.frame_rotate`, `geometry.frame_embed`, `geometry.frame_project` as nodes with their traits and tests | `pipelines/graph/` (types, check, a new node file) | **C5** (it moves the steps into `pipelines/graph/nodes/`; the type change is additive, but landing after C5 spares it a rebase) | migration 6 to 10 |
 | G6a | the gauge record in rows and provenance; refusal of old-gauge data; `"gauge": "canonical frames"` → `"frame": "canonical"`; `<surface>_canonical_gauge_angle` recomputed: the small steps | `pipelines/src/frames.cpp`, `tiles.cpp`, `crossings_steps.cpp`, `pipelines/include/nxr/pipelines/frames.h`, `tiles.h` | G4, G5; **C4's `crossings_steps.cpp` PR and C5** | migration 6 to 10 |
 | G6b | the same for the large files | `pipelines/src/meeg.cpp`, `pyramid.cpp`, `group.cpp`, `measure.cpp`, `eigen.cpp`, `spatial_band.cpp`, `patches.cpp`; `cli/meeg_command.cpp` | G6a; **migration 6 (`meeg.cpp`) and 7 (the command line)** | migration 8 to 10 |
 | G7 | retire the port: delete `delaunay.h` / `delaunay.cpp`, the port inside `chart.cpp`, `compute/test/parity/delaunay_reference.mts` and `test_delaunay_parity.py`, `delaunay_dump.cpp`, the Studio-parity golden generators and goldens of section 8 item 6, the `…Embedded` aliases; `tools/geometry_inventory.py` reports 0 PORT uses (a test runs it); `docs/reference.md`, `compute/CONTRIBUTING.md` (its gauge and operator-mesh paragraphs) updated | `compute/`, `docs/`, bindings' deprecated names | G6b | migration 10 |
@@ -414,7 +414,7 @@ G6a and G6b write the new records and refuse old ones in the same PR that recomp
 
 ## Checklist (the architecture policy)
 
-- Each new compute function can be called with a matrix from anywhere: `IntrinsicSurface` takes positions and faces; `frame.rotate` takes arrays.
+- Each new compute function can be called with a matrix from anywhere: `IntrinsicSurface` takes positions and faces; `geometry.frame_rotate` takes arrays.
 - No reduction moves into a node: every node here is pointwise.
 - No file access, no io: `IntrinsicSurface` and the frame nodes are in `compute/` and `pipelines/graph/`; the gauge record is written by the runner
   through io's task API.
@@ -478,7 +478,7 @@ counts are for tracking, not accounting.
 | `chart::tangentBasis / Basis` | PORT | 21 | 12 | vertexTangentBasis (+ vertexNormals) of the input VertexPositionGeometry |
 | `gaugeHeading / headingVector` | PORT | 16 | 6 | atan2 on vertexTangentBasis (nxr, one line each) |
 | `frames::gaugeAngle` | PORT | 12 | 8 | canonical frame as angle array in geometry-central's gauge (vertexTangentBasis) |
-| `frames::angleFromNorth` | PORT | 3 | 3 | frame.rotate(field, to=canonical, spin=1) node |
+| `frames::angleFromNorth` | PORT | 3 | 3 | geometry.frame_rotate(field, to=canonical, spin=1) node |
 | `frames::vertexNormals` | PORT | 8 | 6 | vertexNormals (angle-weighted) of the input VertexPositionGeometry |
 | `ladder::leviCivita` | PORT | 15 | 10 | VectorHeatMethodSolver::transportTangentVector (unchanged maths, new gauge) |
 | `geometry::vertexFrames` | PORT | 20 | 14 | vertexTangentBasis (one frame; vertexFramesEmbedded becomes vertexFrames) |
@@ -645,7 +645,7 @@ spectrum error is dominated by the mesh's own geometric error. The jittered sphe
 - The Studio's chart golden and its generator (`chart_golden.txt`, `gen_chart_golden.mts`) are deleted: `test_chart` checks the wrapper against geometry-central and the sphere / plane analytically instead.
 - The port's chart code is kept for the one-time comparison only, in `compute/test/chart_port.*` (namespace `nxr::chart_port`); G7 deletes it with the rest of the port.
 - `frames.h` as section 6: `gaugeAngle(IntrinsicSurface&, direction)` (the canonical frame's stored form), `vertexNormals(IntrinsicSurface&)` (geometry-central's, and the array form of the same formula),
-  `angleFromNorth` removed (a pipeline step: `frame.rotate`, then `arg`), and the anatomical axes as `anatomicalProjection`: frame-free for the SCS definition (3D axes, `anatomicalComponents(a, vectors)`, no gauge). Kept until
+  `angleFromNorth` removed (a pipeline step: `geometry.frame_rotate`, then `arg`), and the anatomical axes as `anatomicalProjection`: frame-free for the SCS definition (3D axes, `anatomicalComponents(a, vectors)`, no gauge). Kept until
   the pipelines move (G6a), because the pipelines compile unchanged in G4: `gaugeAngle(ChartKit&, …)`, `anatomicalFrame`, `Anatomical::reference`.
 - `ladder`, `quadrature` and `crossings` are unchanged code on the new kit. The Levi-Civita rho is gauge-free; against the Studio's transport it now agrees to the two gauges' 3D realisations (sphere 1e-3, irregular mesh a median of
   6e-3 rad), and the exact check is analytic: parallel transport along the great circle on the unit sphere, 1.8e-3 rad on the 2562-vertex icosphere (`test_ladder`).

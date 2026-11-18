@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/task.h"
@@ -36,7 +36,7 @@ struct SurfaceLevel {
   std::vector<double> tile_area;             // [nodes] m²
   std::vector<std::pair<std::int32_t, std::int32_t>> pairs;   // the tiles joined by a mesh edge (a < b)
   double piece_area = 0;                     // the mean connected piece's area (m²): Weyl's A
-  nxr::filterbank::Bank bank;                // weyl(piece_area, max(1, l + 1))
+  nxr::signal::graphfilterbank::GraphFilterbank bank;                // weyl(piece_area, max(1, l + 1))
   int member = 0;                            // = l: the level's band
 };
 /** Reads and checks (refusing with the reason, as the pipelines do): a ladder of the surface exists, the level exists, its arrays fit the surface, its band is Weyl member l. */
@@ -51,7 +51,7 @@ struct SpatialBandOptions {
   int order = 0;                             // chebyshev degree; 0: the smallest of 40, 80, … 5120 whose series is within `tolerance` of the band's gain
   double tolerance = 0.01;                   // the largest |gain − series| accepted (a band the series cannot follow is refused, never used)
   int modes = 0;                             // when the package is COMPUTED: its size (about half exact, half coexact); 0: the standard 3000, or more when the band needs it by Weyl's law
-  bool riesz = false;                        // also build the band's RIESZ part R_l = ∇ Δ^{-1/2} F_l (the spatial analytic signal, nxr/monogenic.h): the same transform with the gain g/√λ, then the mesh gradient; eigenmode first, Chebyshev second, as the band
+  bool riesz = false;                        // also build the band's RIESZ part R_l = ∇ Δ^{-1/2} F_l (the spatial analytic signal, nxr/signal/riesz.h): the same transform with the gain g/√λ, then the mesh gradient; eigenmode first, Chebyshev second, as the band
   bool glued = false;                        // (one cortex): ALSO evaluate the band on EVERY vertex of the glued surface (the kept vertices and the bridge, the corpus callosum included), `apply_glued`. The input is still the
                                              // native vertices (zero on the bridge before the band: the band fills it); eigenmodes first (the glued modes, as stored), Chebyshev or the dense modes on the glued mesh as the announced fallback
                                              // (never on the native mesh: that has no bridge). Needs the glued surface stored (`eigen solve`), or a one-piece surface. Not with `riesz`

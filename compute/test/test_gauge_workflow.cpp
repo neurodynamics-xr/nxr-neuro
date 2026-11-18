@@ -1,7 +1,17 @@
-#include "nxr/facets.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/assembled.h"
 #include <cmath>
 #include <iostream>
-using namespace nxr::manifold;
+#include "surface_of.h"
+using namespace nxr::geometry;
 
 static int g_failures = 0;
 #define EXPECT(cond, msg) do { \
@@ -17,76 +27,63 @@ static void icosphere(std::vector<double>& V, std::vector<int32_t>& F) {
          2,4,11, 6,2,10, 8,6,7, 9,8,1};
 }
 
+// There is no connection state: the connection is each function's argument, checked by geometry::checkSingularities (Gauss–Bonnet for the trivial one).
 static void testDefaultsAndValidation() {
-    std::cout << "\n=== gauge: defaults + Gauss-Bonnet ===\n";
+    std::cout << "\n=== connection: defaults + Gauss-Bonnet ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
-    EXPECT(m.activeGaugeType() == GaugeType::LeviCivita, "pattern 1 default = Levi-Civita");
-    EXPECT(m.eulerCharacteristic() == 2, "chi = 2");
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
+    EXPECT(nxr::geometry::eulerCharacteristic(m) == 2, "chi = 2");
 
     // valid singularities (sum == chi == 2)
     bool ok = true;
-    try { m.setGauge(GaugeType::Trivial, {{0,1.0},{3,1.0}}); }
+    try { nxr::geometry::checkSingularities(m, ConnectionType::Trivial, {{0,1.0},{3,1.0}}); }
     catch (...) { ok = false; }
-    EXPECT(ok && m.activeGaugeType() == GaugeType::Trivial, "setGauge(trivial, sum=2) ok");
+    EXPECT(ok, "trivial with sum = 2 accepted");
 
     // invalid sum throws
     bool threw = false;
-    try { m.setGauge(GaugeType::Trivial, {{0,1.0}}); } catch (const Error&) { threw = true; }
+    try { nxr::geometry::checkSingularities(m, ConnectionType::Trivial, {{0,1.0}}); } catch (const Error&) { threw = true; }
     EXPECT(threw, "Gauss-Bonnet violation (sum=1 != chi=2) throws");
 
     // empty singularities throws
     threw = false;
-    try { m.setGauge(GaugeType::Trivial, {}); } catch (const Error&) { threw = true; }
+    try { nxr::geometry::checkSingularities(m, ConnectionType::Trivial, {}); } catch (const Error&) { threw = true; }
     EXPECT(threw, "trivial with empty singularities throws");
 
-    // non-trivial gauge with singularities throws (fail loud, not silent discard)
+    // non-trivial connection with singularities throws (fail loud, not silent discard)
     threw = false;
-    try { m.setGauge(GaugeType::LeviCivita, {{0,1.0}}); } catch (const Error&) { threw = true; }
-    EXPECT(threw, "non-trivial setGauge with singularities throws");
-    // reset to a clean LC state for any later assertions
-    m.setGauge(GaugeType::LeviCivita);
-    EXPECT(m.activeGaugeType() == GaugeType::LeviCivita && m.activeSingularities().empty(),
-           "setGauge(LeviCivita) clears to empty");
+    try { nxr::geometry::checkSingularities(m, ConnectionType::LeviCivita, {{0,1.0}}); } catch (const Error&) { threw = true; }
+    EXPECT(threw, "non-trivial connection with singularities throws");
+    ok = true;
+    try { nxr::geometry::checkSingularities(m, ConnectionType::LeviCivita, {}); } catch (...) { ok = false; }
+    EXPECT(ok, "Levi-Civita with no singularities accepted");
 
-    // pattern 2: singularity ctor -> default trivial
-    Manifold m2(V.data(), 12, F.data(), 20, std::map<int,double>{{0,1.0},{3,1.0}});
-    EXPECT(m2.activeGaugeType() == GaugeType::Trivial, "pattern 2 ctor default = Trivial");
-    // pattern 2 with bad sum throws at construction
+    // the operators check the connection they are given
     threw = false;
-    try { Manifold mb(V.data(), 12, F.data(), 20, std::map<int,double>{{0,1.0}}); }
-    catch (const Error&) { threw = true; }
-    EXPECT(threw, "pattern 2 ctor validates Gauss-Bonnet");
+    try { (void)nxr::operators::vertexConnectionLaplacian(m, ConnectionType::Trivial, {{0,1.0}}); } catch (const Error&) { threw = true; }
+    EXPECT(threw, "the connection Laplacian validates Gauss-Bonnet");
 }
 
 static void testGridRealization() {
-    std::cout << "\n=== gauge: grid realization ===\n";
+    std::cout << "\n=== connection: grid realization ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
-    // pattern 1: gauge() is LC; grid == raw vertexGrid
-    auto gLC = m.gauge();
-    EXPECT(gLC.type() == GaugeType::LeviCivita, "active gauge LC");
-    EXPECT((gLC.grid() - geometry::vertexGrid(m)).cwiseAbs().maxCoeff() < 1e-12, "LC grid == vertexGrid");
+    // Levi-Civita: grid == raw vertexGrid
+    EXPECT((nxr::operators::connectionGrid(m, ConnectionType::LeviCivita, {}) - nxr::geometry::vertexGrid(m)).cwiseAbs().maxCoeff() < 1e-12, "LC grid == vertexGrid");
 
-    // pattern 3: ad-hoc trivial request returns a value; default unchanged
+    // trivial
     std::map<int,double> sing{{0,1.0},{3,1.0}};
-    auto gTriReq = m.gauge(GaugeType::Trivial, sing);
-    EXPECT(m.activeGaugeType() == GaugeType::LeviCivita, "ad-hoc gauge() does not mutate default");
-    Eigen::MatrixXcd triGrid = gTriReq.grid();
+    Eigen::MatrixXcd triGrid = nxr::operators::connectionGrid(m, ConnectionType::Trivial, sing);
     EXPECT(triGrid.rows() == 12 && triGrid.cols() == 3, "trivial grid [12,3]");
     // realized trivial frame stays unit-tangent (|c row| preserved vs LC up to rotation)
-    EXPECT(std::abs(triGrid.row(0).norm() - geometry::vertexGrid(m).row(0).norm()) < 1e-9,
+    EXPECT(std::abs(triGrid.row(0).norm() - nxr::geometry::vertexGrid(m).row(0).norm()) < 1e-9,
            "trivial rotation preserves frame magnitude");
 
-    // pattern 2 default trivial equals the pattern-3 value for same singularities
-    Manifold m2(V.data(), 12, F.data(), 20, sing);
-    EXPECT((m2.gauge().grid() - triGrid).cwiseAbs().maxCoeff() < 1e-9,
-           "pattern 2 default == pattern 3 request (same singularities)");
-
-    // setGauge re-points default
-    m.setGauge(GaugeType::Trivial, sing);
-    EXPECT(m.gauge().type() == GaugeType::Trivial, "setGauge re-points active gauge");
+    // the same request on the same surface gives the same value (nothing is held between calls)
+    const auto m2 = surfaceOf(V.data(), 12, F.data(), 20);
+    EXPECT((nxr::operators::connectionGrid(m2, ConnectionType::Trivial, sing) - triGrid).cwiseAbs().maxCoeff() == 0.0,
+           "the trivial grid is a function of its arguments");
 }
 
 int main() {

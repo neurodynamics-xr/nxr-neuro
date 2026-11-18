@@ -80,9 +80,11 @@ jobs:
               pipelines/*)        add pipelines cli ;;
               cli/*)              add cli ;;
               bindings/*|docs/*|*.md) ;;
+              tools/gen_record_rows.py) add io pipelines cli ;;   # the one tool a test reads (io's `records_rows_current` runs it)
+              tools/*) ;;                           # the other tools are developer scripts no test reads: the layering checks only
               .github/workflows/ci.yml) all=1 ;;    # this workflow itself: everything
               .github/*) ;;                         # the other workflows (bindings, release) and GitHub settings: no C++ tests
-              *)                  all=1 ;;          # top-level CMake, cmake/, tools/, CI: everything
+              *)                  all=1 ;;          # top-level CMake, cmake/, CI: everything
             esac
           done
           if [ "$all" = 1 ]; then echo "CTEST_SCOPE=" >> "$GITHUB_ENV"; echo "scope: all (a shared file changed)";

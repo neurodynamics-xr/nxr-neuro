@@ -60,7 +60,7 @@ struct PortSpec { std::string name, meaning; bool optional = false; };
 /** a parameter: its default (null: the caller must set it, unless `optional`), meaning and unit; the command line's help is made from these. `optional`: null is a value, "not given": the node decides what that means (a pipeline's optional bound) */
 struct ParamSpec { std::string name; Json def; std::string meaning, unit; std::vector<std::string> choices; bool optional = false; };
 
-/** what a node's plan gives back: the outputs' types (by output port name) and the halo it needs on each side (a chunk node; 0 otherwise) */
+/** what a node's plan gives back: the outputs' types (by output port name) and the halo it needs on each side (a chunk node), or to the RIGHT only (an accumulate node that forms segments longer than a block: a segment family's n - 1; the node reads own + right columns, `Place` says where the span ends); 0 otherwise */
 struct Planned {
   Types out;
   std::int64_t halo = 0;
@@ -70,7 +70,7 @@ struct Planned {
 using Shared = std::map<std::string, std::any>;
 
 struct NodeSpec {
-  std::string name;                       // grouped: "welch.psd"
+  std::string name;                       // grouped: "signal.psd"
   Kind kind = Kind::chunk;
   std::vector<PortSpec> inputs, outputs;
   std::vector<ParamSpec> parameters;
@@ -82,6 +82,9 @@ struct NodeSpec {
   std::string matches, description;       // the reference it is held equal to; one sentence
 
   /** PLAN: the arrows, on types only. `in` holds the types of the inputs that are present; `params` every parameter resolved. Refuses with refuse("...") naming the port and the reason. */
+  /** the outputs a use with these parameters makes, a subset of `outputs` (a node whose parameter chooses a part, each part making its own: `select.events.spans` rule detect makes the spans, rule stages three
+   *  more); null: every output. `out` of a use names exactly these, in the order of `outputs`. */
+  std::function<std::vector<std::string>(const Json& params)> outputs_for;
   std::function<Planned(const Types& in, const Json& params)> plan;
   /** PREPARE (optional): once, before any block: the constants bound (taps designed, a matrix built), from the parameters and the inputs that are not streamed. Immutable for the run. */
   std::function<std::any(const Types& in, const Arrays& constants, const Json& params, Shared& shared)> prepare;

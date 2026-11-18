@@ -8,14 +8,17 @@
 #include <cmath>
 #include <complex>
 #include <iostream>
+#include <limits>
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
-#include "nxr/chart.h"
-#include "nxr/frames.h"
-#include "nxr/ladder.h"
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/select/dyadic.h"
+#include "nxr/measurement/reduce.h"
 
-using namespace nxr::ladder;
+using namespace nxr::select;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
@@ -33,6 +36,72 @@ static double maxDiff(const MatrixXd& a, const MatrixXd& b) {
 static MatrixXd row(const VectorXd& v) { return v.transpose(); }
 template <class T> static MatrixXd rowOf(const std::vector<T>& v) { MatrixXd m(1, static_cast<Eigen::Index>(v.size())); for (size_t k = 0; k < v.size(); ++k) m(0, static_cast<Eigen::Index>(k)) = static_cast<double>(v[k]); return m; }
 static double wrap(double a) { return std::remainder(a, 2 * M_PI); }
+
+// THE TILE SUMMARIES are measures now: `nxr::measurement::reduce` over the tiles' vertices, area-weighted (the arithmetic nxr's measure.scalars.map_stats / measure.vectors.vector_stats and the
+// Levi-Civita resultant had). A vertex whose components are not finite is left out of the tiles (member -1), as the caller of the reduction does.
+namespace ms = nxr::measurement;
+static ms::Ingredients overTiles(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const double* x) {
+    nxr::selection::MemberOfElement m; m.member_of = node; m.members = nodes;
+    ms::Ingredients g(1, nodes);
+    ms::Request r; r.measures = {"sum", "max", "min"}; r.weighting = ms::Weighting::given;   // the ingredients a measure needs are folded: sum, and the extremes the summary reads
+    ms::reduce(g, x, 1, static_cast<std::int64_t>(node.size()), m, area.data(), r);
+    return g;
+}
+static VectorXd sums(const ms::Ingredients& g) { VectorXd v(g.members); for (int k = 0; k < g.members; ++k) v[k] = g.sum[static_cast<size_t>(k)]; return v; }
+struct ScalarSummary { VectorXd w, s1, s2, n, min, max; };
+static ScalarSummary scalarSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const double* x) {
+    std::vector<int32_t> nd = node;                                      // a vertex whose value is not finite is left out of its tile (member -1), as the caller of the reduction does
+    for (size_t i = 0; i < nd.size(); ++i) if (!std::isfinite(x[i])) nd[i] = -1;
+    const ms::Ingredients g = overTiles(nd, nodes, area, x);
+    ScalarSummary s;
+    s.w.resize(nodes); s.s1.resize(nodes); s.s2.resize(nodes); s.n.resize(nodes); s.min.resize(nodes); s.max.resize(nodes);
+    for (int k = 0; k < nodes; ++k) { const size_t i = static_cast<size_t>(k); s.w[k] = g.weight[i]; s.s1[k] = g.sum[i]; s.s2[k] = g.sum_sq[i]; s.n[k] = static_cast<double>(g.count[i]); s.min[k] = g.min[i]; s.max[k] = g.max[i]; }
+    return s;
+}
+struct FrameSummary { VectorXd w, c1, c2, cn, c11, c22, c12, mag; };
+static FrameSummary frameSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::select::Mat3& e1, const nxr::select::Mat3& e2, const nxr::select::Mat3& normal, const nxr::select::Mat3& v) {
+    const size_t n = node.size();
+    std::vector<int32_t> nd = node;
+    std::vector<double> c1(n), c2(n), cn(n), c11(n), c22(n), c12(n), mag(n);
+    for (size_t r = 0; r < n; ++r) {
+        const Eigen::Index i = static_cast<Eigen::Index>(r);
+        c1[r] = v.row(i).dot(e1.row(i)); c2[r] = v.row(i).dot(e2.row(i)); cn[r] = v.row(i).dot(normal.row(i));
+        if (!std::isfinite(c1[r]) || !std::isfinite(c2[r]) || !std::isfinite(cn[r])) nd[r] = -1;
+        c11[r] = c1[r] * c1[r]; c22[r] = c2[r] * c2[r]; c12[r] = c1[r] * c2[r]; mag[r] = std::hypot(c1[r], c2[r]);
+    }
+    FrameSummary f;
+    const ms::Ingredients g1 = overTiles(nd, nodes, area, c1.data());
+    f.w.resize(nodes);
+    for (int k = 0; k < nodes; ++k) f.w[k] = g1.weight[static_cast<size_t>(k)];
+    f.c1 = sums(g1); f.c2 = sums(overTiles(nd, nodes, area, c2.data())); f.cn = sums(overTiles(nd, nodes, area, cn.data()));
+    f.c11 = sums(overTiles(nd, nodes, area, c11.data())); f.c22 = sums(overTiles(nd, nodes, area, c22.data())); f.c12 = sums(overTiles(nd, nodes, area, c12.data())); f.mag = sums(overTiles(nd, nodes, area, mag.data()));
+    return f;
+}
+// a tile's resultant: the sum of the vector map carried to the tile centre (carriedToCentre, pointwise) over the tile's vertices; weight and magnitude as the old resultant returned them
+static Eigen::VectorXcd lcResultant(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::select::Mat3& e1, const nxr::select::Mat3& e2, const VectorXd& rho, const nxr::select::Mat3& v,
+                                    VectorXd* weight = nullptr, VectorXd* magnitude = nullptr) {
+    std::vector<char> finite;
+    const Eigen::VectorXcd z = nxr::select::carriedToCentre(e1, e2, rho, v, &finite);
+    std::vector<int32_t> nd = node;
+    std::vector<double> re(node.size()), im(node.size()), mg(node.size());
+    for (size_t r = 0; r < node.size(); ++r) { if (!finite[r]) nd[r] = -1; re[r] = finite[r] ? z[static_cast<Eigen::Index>(r)].real() : 0.0; im[r] = finite[r] ? z[static_cast<Eigen::Index>(r)].imag() : 0.0; mg[r] = finite[r] ? std::abs(z[static_cast<Eigen::Index>(r)]) : 0.0; }
+    const ms::Ingredients gr = overTiles(nd, nodes, area, re.data()), gi = overTiles(nd, nodes, area, im.data()), gm = overTiles(nd, nodes, area, mg.data());
+    Eigen::VectorXcd out(nodes);
+    for (int k = 0; k < nodes; ++k) out[k] = std::complex<double>(gr.sum[static_cast<size_t>(k)], gi.sum[static_cast<size_t>(k)]);
+    if (weight) { weight->resize(nodes); for (int k = 0; k < nodes; ++k) (*weight)[k] = gr.weight[static_cast<size_t>(k)]; }
+    if (magnitude) *magnitude = sums(gm);
+    return out;
+}
+struct VectorSummary { FrameSummary frame; Eigen::VectorXcd transported; VectorXd weight, resultantLength; };
+static VectorSummary vectorSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::select::Mat3& e1, const nxr::select::Mat3& e2, const nxr::select::Mat3& normal, const VectorXd& rho, const nxr::select::Mat3& v) {
+    VectorSummary s;
+    s.frame = frameSummary(node, nodes, area, e1, e2, normal, v);
+    VectorXd mg;
+    s.transported = lcResultant(node, nodes, area, e1, e2, rho, v, &s.weight, &mg);
+    s.resultantLength.resize(nodes);
+    for (int k = 0; k < nodes; ++k) s.resultantLength[k] = mg[k] > 0 ? std::abs(s.transported[k]) / mg[k] : std::numeric_limits<double>::quiet_NaN();
+    return s;
+}
 
 static void meshParity(Golden& g) {
     if (g.tok() != "mesh") { std::cout << "  [FAIL] golden: expected mesh\n"; std::exit(1); }
@@ -83,15 +152,17 @@ static void meshParity(Golden& g) {
         const ScalarSummary s = scalarSummary(L.labels[static_cast<size_t>(k)], 1 << k, L.mass, x.data());
         const char* keys[6] = {"w", "s1", "s2", "n", "min", "max"};
         const VectorXd* v[6] = {&s.w, &s.s1, &s.s2, &s.n, &s.min, &s.max};
-        for (int c = 0; c < 6; ++c) errS = std::max(errS, maxDiff(row(*v[c]), g.mat("M" + std::to_string(k) + "_" + keys[c])));
+        for (int c = 0; c < 6; ++c) {
+            errS = std::max(errS, maxDiff(row(*v[c]), g.mat("M" + std::to_string(k) + "_" + keys[c])));
+        }
     }
     EXPECT(errS < 1e-13, name + ": scalar tile statistics (w, s1, s2, n, min, max) equal nxr map_stats (max |diff| " + sci(errS) + ")");
     // the vector field, its frame, and the Levi-Civita connection (the golden's meshes both carry them)
     const VectorXd alpha = g.mat("alpha").row(0).transpose();
     const MatrixXd E1 = g.mat("e1"), E2 = g.mat("e2"), NN = g.mat("nrm"), VV = g.mat("v");
-    nxr::ladder::Mat3 e1 = E1, e2 = E2, nrm = NN, v = VV;
-    nxr::chart::ChartKit kit(mesh.positions.data(), n, mesh.faces.data(), nF);
-    const VectorXd gauge = nxr::frames::gaugeAngle(kit, e1);
+    nxr::select::Mat3 e1 = E1, e2 = E2, nrm = NN, v = VV;
+    nxr::geometry::ChartKit kit(mesh.positions.data(), n, mesh.faces.data(), nF);
+    const VectorXd gauge = nxr::geometry::gaugeAngle(kit, e1);
     // the golden's e1 is the Studio's basis turned by alpha (the Studio's gauge); the gauge is geometry-central's now, so `gauge` (the angle of e1 in it) is NOT alpha. rho and Omega are the
     // transported frame angle seen from each vertex's own e1: gauge-free, so they are still compared with the Studio's (the transport is the same maths)
     double eg = 0;
@@ -122,7 +193,7 @@ static void meshParity(Golden& g) {
         MatrixXd om = lc.omega, omRef = omG;
         for (int a = 0; a < tiles; ++a) {
             if (cen[a] < 0) continue;
-            const VectorXd da = kit.heatDistance(cen[a]);
+            const VectorXd da = nxr::geometry::heatDistance(kit, cen[a]);
             for (int i = 0; i < n; ++i) if (lab[static_cast<size_t>(i)] == a && da[i] > kFar) { rhoOurs(0, i) = rhoG(0, i); lc.rho[i] = rhoG(0, i); }
             for (int b = 0; b < tiles; ++b) if (cen[b] >= 0 && da[cen[b]] > kFar) om(a, b) = omRef(a, b) = 0;
         }
@@ -212,10 +283,10 @@ static void foldedSheet() {
     const int nF = static_cast<int>(F.size() / 3);
     Mesh mesh; mesh.n = n; mesh.positions = P; mesh.faces = F;
     const SurfaceLadder L = surfaceLadder(mesh);
-    const nxr::frames::Mat3 nrm = nxr::frames::vertexNormals(P.data(), n, F.data(), nF);
-    nxr::chart::ChartKit kit(P.data(), n, F.data(), nF);
+    const nxr::geometry::Mat3 nrm = nxr::geometry::vertexNormals(P.data(), n, F.data(), nF);
+    nxr::geometry::ChartKit kit(P.data(), n, F.data(), nF);
     // the uniform flow: the unit tangent along the sheet's x direction (parallel along the whole sheet: the sheet is a cylinder, flat)
-    nxr::ladder::Mat3 v(n, 3), e1(n, 3), e2(n, 3);
+    nxr::select::Mat3 v(n, 3), e1(n, 3), e2(n, 3);
     for (int j = 0; j < ny; ++j) for (int i = 0; i < nx; ++i) {
         const int q = id(i, j);
         const double x = Lx * i / (nx - 1), s = h * k * std::cos(k * x), nrmv = std::sqrt(1 + s * s);
@@ -228,7 +299,7 @@ static void foldedSheet() {
         e1.row(q) = (std::cos(al) * t + std::sin(al) * tn).transpose();
         e2.row(q) = nn.cross(Eigen::Vector3d(e1.row(q).transpose())).transpose();
     }
-    const VectorXd gauge = nxr::frames::gaugeAngle(kit, e1);
+    const VectorXd gauge = nxr::geometry::gaugeAngle(kit, e1);
     const Mesh& m = mesh;
     bool ok = true;
     for (int level = 1; level <= 2; ++level) {
@@ -258,8 +329,8 @@ static void sphereTransport() {
     std::vector<double> P; std::vector<int32_t> F;
     icosphere(4, P, F, 1.0);
     const int n = static_cast<int>(P.size() / 3), nF = static_cast<int>(F.size() / 3);
-    nxr::chart::ChartKit kit(P.data(), n, F.data(), nF);
-    nxr::ladder::Mat3 e1(n, 3), e2(n, 3);
+    nxr::geometry::ChartKit kit(P.data(), n, F.data(), nF);
+    nxr::select::Mat3 e1(n, 3), e2(n, 3);
     const Eigen::Vector3d z(0, 0, 1);
     for (int i = 0; i < n; ++i) {
         const Eigen::Vector3d q(P[3 * i], P[3 * i + 1], P[3 * i + 2]);
@@ -268,7 +339,7 @@ static void sphereTransport() {
         t.normalize();
         e1.row(i) = t.transpose(); e2.row(i) = q.cross(t).transpose();
     }
-    const VectorXd gauge = nxr::frames::gaugeAngle(kit, e1);
+    const VectorXd gauge = nxr::geometry::gaugeAngle(kit, e1);
     const int c = 100;
     const Eigen::Vector3d p(P[3 * c], P[3 * c + 1], P[3 * c + 2]), u = e1.row(c).transpose();
     const std::vector<int32_t> node(static_cast<size_t>(n), 0);

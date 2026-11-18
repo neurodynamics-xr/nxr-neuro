@@ -1,0 +1,54 @@
+# THE POWER OF A RECORDING'S SOURCES, BIN BY BIN WITHIN ONE BAND (a statistic; sourcepsd's `--resolve bins`): the frequency partition's members are the Welch bins from lo to hi Hz
+# inclusive, nothing reduced over frequency, so each source keeps its spectrum within the band. The kernel is applied to each segment's Fourier coefficients and |K X|^2 summed per source
+# per bin (nxr::signal::spectral::LinearWelch): the source side holds sources x bins, never the channels^2 x bins of the cross-spectrum route; the same numbers to rounding. `kernel` and the band set are
+# the caller's choice (no default); the set is a selection made first (select.bands) and the node reads the band from it through an edge. The band statistic of `run sourcepsd` is the mean of these bins. One run a band; stored: the statistic `<recording>_<kernel>_psd_<band>_bins`
+# (measure power_density or power, by welch, OF the recording; axes vertex (the kernel's target) x frequency, the frequency line the band's bins), and its segment partition `<name>_segments`.
+# It cannot resolve: what the kernel cannot (a minimum-norm kernel spreads each source over its neighbours); a bin is one Welch bin, its width the segment's 1 / length.
+#
+#   nxr-neuro run sourcepsd_bins --dataset <folder> --subject sub-01 --recording rest --all --kernel NAME --bands '["8-12 Hz","13-30 Hz"]' --band_names '["alpha","beta"]' --band_name alpha
+pipeline: sourcepsd_bins
+version: 1
+description: the power of a recording's sources at every Welch bin of a band, through an inverse kernel
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: required, meaning: "the inverse kernel's name: which kernel the sources are read through is the caller's choice", unit: "-"}
+  bands: {default: required, meaning: "the band set select.bands makes: a list of quantities in Hz (\"8-12 Hz\"), each the span [lo, hi) of the frequency line (the caller's choice, no default)", unit: "Hz"}
+  band_names: {default: null, meaning: "one name per band of the set; none: the range, e.g. 8-12", unit: "-"}
+  band_name: {default: required, meaning: "the member of the band set to read bin by bin: its name (the Welch bins from its lo to its hi inclusive are kept)", unit: "-"}
+  segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
+  segment_samples: {default: null, meaning: "the segment's length in samples (wins over segment_seconds); null: from segment_seconds", unit: "samples"}
+  segment_rule: {default: tile, meaning: "how the segment's length becomes samples: tile | round | even", unit: "-", choices: [tile, round, even]}
+  overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next, in [0, 1)", unit: "fraction"}
+  window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
+  periodic: {default: false, meaning: "the DFT-even form of the window rather than the symmetric one", unit: "-"}
+  detrend: {default: constant, meaning: "what is removed from each segment before windowing", unit: "-", choices: [none, constant, linear]}
+  scaling: {default: density, meaning: "density = power per Hz | spectrum = power | chain = per sample, per bin", unit: "-", choices: [density, spectrum, chain]}
+  bad_segments: {default: exclude, meaning: "exclude = a segment touching one of the recording's bad segments is left out | ignore = every segment is kept", unit: "-", choices: [exclude, ignore]}
+
+presets:
+  tiles:      {segment_rule: tile}
+  brainstorm: {segment_rule: round, window: hamming, periodic: false, detrend: constant, scaling: density}
+  scipy:      {segment_rule: round, window: hann, periodic: true, detrend: constant, scaling: density}
+
+steps:
+  before:
+    - {node: select.bands, with: {rule: frequency, bands: $bands, names: $band_names}, out: bands}
+  chunks:
+    over: recording
+    do:
+      - {node: meeg.source_bins, in: {x: recording, kernel: kernel, exclude: bad, bands: bands}, with: {band: $band_name, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: bins}
+
+outputs:
+  bins:
+    kind: statistic
+    name: "{recording}_{kernel}_psd_$band_name_bins"
+    of: recording
+    axes: [{name: vertex, on: kernel.to}, {name: frequency, line: "{recording}_{kernel}_$band_name_bins_freq"}]
+    partition: {tiling: "{recording}_{kernel}_psd_$band_name_bins_segments", on: recording.time}

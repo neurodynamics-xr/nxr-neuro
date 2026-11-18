@@ -508,14 +508,13 @@ CREATE TABLE dictionary_entry (
 --                  when they mean something (a level's tile dictionary, D83).
 --   indices        a subset: the picked elements (`selection_element` with a null code)
 --   kernel         a rule: `weight_fn` + `params_json` at the values in use
---   set            a GROUP of Selections. Either its members are ROWS (`member_of_id` +
---                  `member_ordinal`, written by the member as `memberOf` + `ordinal`: the
---                  montage families, the parcellations of a surface, a set of ROIs), or it is a
---                  PARTITION stored as one array — an integer code per element (`array_path` +
---                  `dictionary_id`; the codes as `selection_element` rows when the manifold is
---                  points or a surface, the array alone for a lattice image or volume, D32):
---                  a parcellation, the channel names, a recording's flags. Its members are
---                  "the elements whose code is k", derivable, never rows (D48).
+--   set            a GROUP of Selections (members: docs/specs/2026-11-17-selection-module.md, section 0). Its members are ROWS (`member_of_id` +
+--                  `member_ordinal`: the montage families, the parcellations of a surface, a set of ROIs, the LEVELS of a set per element), or it is a
+--                  PARTITION stored as arrays: `array_path` holds the MEMBER NUMBER of each element (dense 0 .. n_members - 1, -1 in none), `P.labels`
+--                  (P = array_path) each member's label, a code of `dictionary_id` (absent when member i is labelled i). The dictionary has ONE ROW
+--                  PER LABEL, never per member. A GRID's levels are a closed-form rule (`params_json.grid`), never rows or parent arrays.
+--                  Or it is a PRODUCT of other selections (`selection_factor`), nothing stored per member. A parcellation, the channel names, a
+--                  recording's flags are sets per element. A member's number is its identity; its label is its code (two members may share one).
 -- EVERY selection is a set of CELLS of one kind — vertices by default (`cell`, D92); two things
 -- may be said OF one (D48):
 --   `code`         an integer that groups it — an event's type, a chunk's index, a tile's label,
@@ -548,7 +547,7 @@ CREATE TABLE selection (
   code            INTEGER,               -- what this selection IS, as an integer (D48) — read with dictionary_id
   dictionary_id   TEXT REFERENCES dictionary (id) ON DELETE RESTRICT,  -- the dictionary its code (or a partition's codes) is read with
   n_elements      INTEGER,               -- elements it covers: picked (indices) or labelled (a partition)
-  n_members       INTEGER,               -- a set's members: rows, or a partition's distinct codes; a spans set's intervals
+  n_members       INTEGER,               -- a set's members: rows, a partition's members (empty ones too), the product of a product's factors; a spans set's intervals
   array_path      TEXT,                  -- the stored per-element values (codes · indices); null for a rule
   center          INTEGER,               -- point · distance: the centre ELEMENT of the manifold
   position        REAL,                  -- a point on a SPACE: its coordinate, in `coordinate_system_id` (D95)
@@ -616,7 +615,7 @@ CREATE TABLE selection_extent (
 -- queryable without loading anything: the FIELD it describes and the member CODE it is for, so
 -- "the tiles of this level where this field's mean power exceeds T" is one indexed scan. Values
 -- are stored at the FINEST level of a tiling only; a coarser view is the dyadic roll-up
--- `code >> shift` under the measure's reduction (the ladder numbers a tile's children 2t, 2t+1).
+-- `code >> shift` under the measure's merge rule (the ladder numbers a tile's children 2t, 2t+1).
 -- ARRAY-BACKED (D96, 2026-09-25): when a measure has a value per MEMBER per ROW of its field — the
 -- envelope, a min and a max per window per channel, millions of values — the values are an ARRAY in
 -- the store (`array_path`, `[rows × members × components]`, `component` naming its slice) and this is
@@ -647,7 +646,7 @@ CREATE TABLE selection_measurement (
   of_index     INTEGER,
   CHECK ((within_code IS NULL) >= (within_selection_id IS NULL)),   -- a code needs a selection to read it
   CHECK ((value IS NULL) = (array_path IS NOT NULL)),              -- a value here, or an array of them
-  CHECK (array_path IS NULL OR (code IS NULL AND of_field_id IS NOT NULL))   -- an array is per member, of a field
+  CHECK (array_path IS NULL OR (code IS NULL AND (of_field_id IS NOT NULL OR of_statistic_id IS NOT NULL)))   -- an array is per member, of a field or (schema 54) of a statistic
 ) STRICT;
 CREATE UNIQUE INDEX selection_measurement_key ON selection_measurement (selection_id, coalesce(code, -1), coalesce(of_field_id, ''), coalesce(of_statistic_id, ''), coalesce(of_index, -1), coalesce(within_selection_id, ''), coalesce(within_code, -1), measure);
 CREATE INDEX selection_measurement_statistic ON selection_measurement (of_statistic_id, of_index, measure);
@@ -1240,6 +1239,52 @@ CREATE TABLE template_reference (
 ) STRICT;
 -- ── schema 51 (end) ──
 
+-- ── schema 52 (begin: Database::open runs this block on a database at 51, in place) ───────────────────────────────────────────────────────────
+-- A PRODUCT selection (docs/specs/2026-11-17-selection-module.md, section 9; the Studio's D100) is a `set` whose members are every combination of the members of its
+-- FACTORS, each a GRID (a tiling, a level of a grid, a dyadic or elements grid; never an irregular set). Its code is MIXED RADIX, the FIRST factor fastest:
+-- code = c0 + n0 (c1 + n1 (..)). The factors are stored selections in their own right, on their own manifolds; the product names them, in order, here (the shape of
+-- `operator_factor`), and their radices in `params_json.product` [{selection, members}] (a joint's first radix a power of two, D129: code = (tile << bits) | frame).
+-- The product's row: type 'set', `manifold_id` the product manifold, `cell` one rank per factor, `n_members` the product of the radices, no array and no
+-- dictionary (the factors carry theirs). A measurement on a product has `code` = the member's product code.
+-- What a set per element keeps beside its element array is a CONVENTION, not a column (selection above): sibling arrays of the element array at `array_path` P, written
+-- by io's selection store: `P.labels` (each member's label, a dictionary code: absent when member i is labelled i). A grid's levels are
+-- a closed-form rule (`params_json.grid`), never rows or parent arrays.
+-- The data conversion of a database made before (label arrays, the JSON form of 2026-11-17) is `migrate_selection_storage` (io/migrate.h), meta `selection_storage`.
+CREATE TABLE selection_factor (
+  selection_id        TEXT NOT NULL REFERENCES selection (id) ON DELETE CASCADE DEFERRABLE INITIALLY DEFERRED,
+  ordinal             INTEGER NOT NULL,
+  factor_selection_id TEXT NOT NULL REFERENCES selection (id) ON DELETE NO ACTION DEFERRABLE INITIALLY DEFERRED,
+  level               INTEGER,                -- schema 53: the LEVEL of the factor's grid (a `ladder`: a line's time grid, a surface's dyadic grid), by its IDENTITY (the ordinal of its level-dictionary entry; the code is its label); null: the factor as it is, as a whole
+  PRIMARY KEY (selection_id, ordinal),
+  CHECK (factor_selection_id <> selection_id)
+) STRICT;
+CREATE INDEX selection_factor_factor ON selection_factor (factor_selection_id);
+-- ── schema 52 (end) ──
+
+-- ── schema 53 (begin: Database::open runs this block on a database at 52, in place; `migrate_52_to_53` in database.cpp) ───────────────────────────
+-- docs/specs/2026-11-17-consolidation.md, section 6.2. DDL only (the data step is `migrate_measurement_storage`, io/migrate.h):
+--   * `selection_factor.level` (above): a product's factor may be a LEVEL of a stored grid, so a coupled level (a band's time or space level) needs no row of its own.
+--   * A line's TIME GRID is one `ladder` row `<line> time grid`, its rule closed form in `params_json.grid` {kind "time", origin, rate, samples}: every level 2^k samples is
+--     computed, never stored (io/selection_store.h `save_time_grid`).
+--   * Two views the measurement QUERY API reads (io/measurement_query.h): the member values of every subject with the grid level each lies at, and the factors of a product with
+--     their levels. Views only: nothing stored.
+CREATE VIEW IF NOT EXISTS member_value AS
+SELECT m.selection_id, s.subject_id, s.name AS selection_name, s.type AS selection_type, s.member_of_id, s.code AS level_code, s.manifold_id,
+       m.code AS member_code, m.of_field_id, m.of_statistic_id, m.of_index, m.measure, m.value, m.weight, m.within_selection_id, m.within_code, m.unit, m.array_path, m.component
+FROM selection_measurement m JOIN selection s ON s.id = m.selection_id
+WHERE m.code IS NOT NULL OR m.array_path IS NOT NULL;
+CREATE VIEW IF NOT EXISTS product_factor_level AS
+SELECT f.selection_id, f.ordinal, f.factor_selection_id, f.level, s.name AS factor_name, s.type AS factor_type, s.n_members AS factor_members, s.params_json AS factor_params
+FROM selection_factor f JOIN selection s ON s.id = f.factor_selection_id;
+-- ── schema 53 (end) ──
+
+-- ── schema 54 (begin: Database::open runs this on a database at 53, in place; `migrate_53_to_54` in database.cpp) ───────────────────────────
+-- `measure` takes a stored STATISTIC as its input (a PSD [channels x frequencies] reduced over its channel axis). The measurement of a statistic is array-backed like a field's: ONE row per
+-- measure with `of_statistic_id` (and `of_index`), `code` null and `array_path` the array [rows x members x components]: rows = the statistic's other axes in order (the frequencies),
+-- members = the selection's members, components = a value's parts. Before 54 the CHECK on `selection_measurement` wanted `of_field_id` for every array; now a field OR a statistic.
+-- The only change is that CHECK (no column, no row changes): the migration replaces its text in place (SQLite's writable_schema procedure) and every row stays valid.
+-- ── schema 54 (end) ──
+
 -- ── BEGIN GENERATED: the attribute views (backend/scripts/gen-attribute-views.mjs) — do not edit ──
 -- One view per node table: its zarr.json attributes as TEXT (D145). Every writer writes zarr.json from these, in any language.
 CREATE VIEW manifold_attributes AS
@@ -1275,12 +1320,12 @@ SELECT o.id, json_object('class', 'operator', 'id', o.id, 'status', o.status, 's
 ) AS attributes FROM operator o;
 
 CREATE VIEW subject_attributes AS
-SELECT s.id, json_object('class', 'subject', 'schema_version', 51, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
+SELECT s.id, json_object('class', 'subject', 'schema_version', 54, 'id', s.id, 'status', s.status, 'dataset_id', s.dataset_id, 'name', s.name, 'path', s.path, 'kind', s.kind, 'template_id', s.template_id, 'source_format', s.source_format, 'source_path', s.source_path, 'created_utc', s.created_utc, 'created_by', s.created_by, 'modified_utc', s.modified_utc, 'modified_by', s.modified_by,
   'rows_without_path', json_object('manifold', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM manifold r JOIN manifold_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'selection', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM selection r JOIN selection_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'field', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM field r JOIN field_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL), 'operator', (SELECT json_group_array(json(v.attributes) ORDER BY r.name) FROM operator r JOIN operator_attributes v ON v.id = r.id WHERE r.subject_id = s.id AND r.path IS NULL)),
   'acquisitions', (SELECT json_group_array(json_object('id', a.id, 'label', a.label, 'ses', a.ses, 'task', a.task, 'run', a.run, 'acq', a.acq, 'proc', a.proc, 'split', a.split) ORDER BY a.label) FROM acquisition a WHERE a.subject_id = s.id)
 ) AS attributes FROM subject s;
 
 CREATE VIEW dataset_attributes AS
-SELECT d.id, json_object('class', 'dataset', 'schema_version', 51, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
+SELECT d.id, json_object('class', 'dataset', 'schema_version', 54, 'id', d.id, 'datastore_id', d.datastore_id, 'name', d.name, 'path', d.path, 'source_tool', d.source_tool, 'source_protocol', d.source_protocol, 'source_path', d.source_path, 'created_utc', d.created_utc, 'created_by', d.created_by, 'modified_utc', d.modified_utc, 'modified_by', d.modified_by) AS attributes FROM dataset d;
 -- ── END GENERATED: the attribute views ──
-PRAGMA user_version = 51;
+PRAGMA user_version = 54;

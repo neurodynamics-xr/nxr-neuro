@@ -6,29 +6,29 @@ classdef ComputeWelchTest < SliceTestBase
             g = tc.readGolden('welch_golden.txt');
             fs = g.fs; x = g.x;
             check = @(r, name) tc.verifyLessThan(rowRel(r.psd, g.(name)), 1e-10, name);
-            check(nxr.compute.welch.psd(x, fs, segment_samples=400, overlap=0.5), 'scipy_hann_const_n400');
-            check(nxr.compute.welch.psd(x, fs, segment_samples=301, overlap=100/301, window="hamming", detrend="linear"), 'scipy_hamming_linear_n301_ov100');
-            check(nxr.compute.welch.psd(x, fs, segment_samples=256, overlap=64/256, window="blackman", detrend="none", scaling="spectrum"), ...
+            check(nxr.compute.signal.psd(x, fs, segment_samples=400, overlap=0.5), 'scipy_hann_const_n400');
+            check(nxr.compute.signal.psd(x, fs, segment_samples=301, overlap=100/301, window="hamming", detrend="linear"), 'scipy_hamming_linear_n301_ov100');
+            check(nxr.compute.signal.psd(x, fs, segment_samples=256, overlap=64/256, window="blackman", detrend="none", scaling="spectrum"), ...
                   'scipy_blackman_none_spectrum_n256_ov64');
         end
 
         function badSamplesLeaveSegmentsOut(tc)
             g = tc.readGolden('welch_golden.txt');
-            r = nxr.compute.welch.psd(g.x, g.fs, segment_samples=400, overlap=0.5, good=g.good > 0.5);
+            r = nxr.compute.signal.psd(g.x, g.fs, segment_samples=400, overlap=0.5, good=g.good > 0.5);
             tc.verifyLessThan(rowRel(r.psd, g.scipy_hann_const_n400_bad), 1e-10);
             tc.verifyEqual(r.segments, g.scipy_hann_const_n400_bad_segments);
             % the wheel's case: 8 s at 1000 Hz, samples 1000..1009 (0-based) bad, segments of 256 every 128: those at 768 and 896 touch them
             [x, fs] = tc.signal();
             good = true(1, size(x, 2)); good(1001:1010) = false;
-            r = nxr.compute.welch.psd(x, fs, segment_samples=256, overlap=0.5, good=good);
-            full = nxr.compute.welch.psd(x, fs, segment_samples=256, overlap=0.5);
+            r = nxr.compute.signal.psd(x, fs, segment_samples=256, overlap=0.5, good=good);
+            full = nxr.compute.signal.psd(x, fs, segment_samples=256, overlap=0.5);
             tc.verifyEqual(r.segments_skipped, 2);
             tc.verifyEqual(r.segments, full.segments - 2);
         end
 
         function psdEqualsAnFftReference(tc)
             [x, fs] = tc.signal();
-            r = nxr.compute.welch.psd(x, fs, segment_samples=256, overlap=0.5);
+            r = nxr.compute.signal.psd(x, fs, segment_samples=256, overlap=0.5);
             C = referenceCross(x, fs, 256, 0.5);
             want = zeros(4, 129);
             for k = 1:129, want(:, k) = real(diag(C(:, :, k))); end
@@ -40,28 +40,28 @@ classdef ComputeWelchTest < SliceTestBase
 
         function precisionFollowsTheInput(tc)
             [x, fs] = tc.signal();
-            r64 = nxr.compute.welch.psd(x, fs);
-            r32 = nxr.compute.welch.psd(single(x), fs);
+            r64 = nxr.compute.signal.psd(x, fs);
+            r32 = nxr.compute.signal.psd(single(x), fs);
             tc.verifyClass(r64.psd, 'double');
             tc.verifyClass(r32.psd, 'single');
             tc.verifyEqual(double(r32.psd), r64.psd, 'RelTol', 2e-4);
-            tc.verifyClass(nxr.compute.welch.psd(round(x * 100), fs).psd, 'double');
-            tc.verifyClass(nxr.compute.welch.psd(int32(round(x * 100)), fs).psd, 'double');   % an integer input is computed as double
+            tc.verifyClass(nxr.compute.signal.psd(round(x * 100), fs).psd, 'double');
+            tc.verifyClass(nxr.compute.signal.psd(int32(round(x * 100)), fs).psd, 'double');   % an integer input is computed as double
         end
 
         function refusesWhatItCannotDo(tc)
             [x, fs] = tc.signal();
-            tc.verifyError(@() nxr.compute.welch.psd(x, fs, window="triangle"), 'nxr:invalidArgument');
-            tc.verifyError(@() nxr.compute.welch.psd(x, fs, good=true(1, 10)), 'nxr:invalidArgument');
-            tc.verifyError(@() nxr.compute.welch.psd(x, fs, detrend="quadratic"), 'nxr:invalidArgument');
-            tc.verifyError(@() nxr.compute.welch.psd(x, fs, scaling="power"), 'nxr:invalidArgument');
+            tc.verifyError(@() nxr.compute.signal.psd(x, fs, window="triangle"), 'nxr:invalidArgument');
+            tc.verifyError(@() nxr.compute.signal.psd(x, fs, good=true(1, 10)), 'nxr:invalidArgument');
+            tc.verifyError(@() nxr.compute.signal.psd(x, fs, detrend="quadratic"), 'nxr:invalidArgument');
+            tc.verifyError(@() nxr.compute.signal.psd(x, fs, scaling="power"), 'nxr:invalidArgument');
         end
 
         function crossSpectrumEqualsAReference(tc)
             [x, fs] = tc.signal();
             x = x(1:3, :);
             bins = [1 1; 13 13; 31 41];                 % 1-based: the wheel's (0, 0), (12, 12), (30, 40)
-            r = nxr.compute.welch.cross_spectrum(x, fs, bins, segment_samples=256, quadrature=true);
+            r = nxr.compute.signal.xpsd(x, fs, bins, segment_samples=256, quadrature=true);
             C = referenceCross(x, fs, 256, 0.5);
             for g = 1:3
                 want = mean(C(:, :, bins(g, 1):bins(g, 2)), 3);
@@ -75,8 +75,8 @@ classdef ComputeWelchTest < SliceTestBase
         function crossSpectrumDiagonalIsThePsd(tc)
             [x, fs] = tc.signal();
             bins = [(1:129)' (1:129)'];
-            r = nxr.compute.welch.cross_spectrum(x, fs, bins, segment_samples=256);
-            p = nxr.compute.welch.psd(x, fs, segment_samples=256).psd;
+            r = nxr.compute.signal.xpsd(x, fs, bins, segment_samples=256);
+            p = nxr.compute.signal.psd(x, fs, segment_samples=256).psd;
             d = zeros(4, 129);
             for k = 1:129, d(:, k) = diag(squeeze(r.real(k, :, :))); end
             tc.verifyEqual(d, p, 'RelTol', 1e-10);
@@ -85,10 +85,10 @@ classdef ComputeWelchTest < SliceTestBase
 
         function crossSpectrumSumVersusMean(tc)
             [x, fs] = tc.signal();
-            a = nxr.compute.welch.cross_spectrum(x, fs, [11 15], mean=true).real;
-            b = nxr.compute.welch.cross_spectrum(x, fs, [11 15], mean=false).real;
+            a = nxr.compute.signal.xpsd(x, fs, [11 15], mean=true).real;
+            b = nxr.compute.signal.xpsd(x, fs, [11 15], mean=false).real;
             tc.verifyEqual(b, a * 5, 'RelTol', 1e-12);
-            tc.verifyError(@() nxr.compute.welch.cross_spectrum(x, fs, [0 3]), 'nxr:invalidArgument');   % bins are 1-based
+            tc.verifyError(@() nxr.compute.signal.xpsd(x, fs, [0 3]), 'nxr:invalidArgument');   % bins are 1-based
         end
     end
 end

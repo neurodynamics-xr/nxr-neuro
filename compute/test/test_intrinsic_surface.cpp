@@ -3,8 +3,24 @@
 //   A1 sphere Laplacian · A2 connection Laplacian (incl. n-RoSy) · A3 gauge invariance · A4 flat patch · A5 holonomy and Gauss–Bonnet
 //   A6 Hodge decomposition · A8 distance and log map · A9 gauge realisation · A10 the record · the version pin and the gauge fingerprint
 //   A7 Hodge–Dirac on the rebuilt DEC (G3)
-#include "nxr/compute.h"
-#include "nxr/intrinsic_surface.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
 
 #include "geometrycentral/surface/heat_method_distance.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -24,7 +40,7 @@
 #include <string>
 #include <vector>
 
-using namespace nxr::manifold;
+using namespace nxr::geometry;
 namespace gcs = geometrycentral::surface;
 using C = std::complex<double>;
 
@@ -34,6 +50,7 @@ static std::string fmt(const char* f, double a, double b = 0, double c = 0) { ch
 
 
 #include "synthetic_meshes.h"
+#include "surface_of.h"
 
 static IntrinsicSurface make(const Mesh& m, IntrinsicOptions o = {}) { return IntrinsicSurface(m.V.data(), m.nV(), m.F.data(), m.nF(), o); }
 static const MassKind kMasses[3] = {MassKind::InputMixedVoronoi, MassKind::Barycentric, MassKind::Galerkin};
@@ -41,7 +58,7 @@ static const char* kMassNames[3] = {"input-mixed-voronoi", "barycentric", "galer
 
 // the k smallest eigenvalues of the cotan Laplacian pencil
 static Eigen::VectorXd laplacianSpectrum(IntrinsicSurface& s, int k) {
-    return solve::eigenSmallest(s.cotanLaplacian(), s.massMatrix(), k, false).eigenvalues;
+    return nxr::operators::eigenSmallest(s.cotanLaplacian(), s.massMatrix(), k, false).eigenvalues;
 }
 // the clusters l = 0..L of the unit sphere: (mean relative error over l = 1..L, worst spread/gap, sizes ok)
 struct Clusters { double relErr = 0, worstSpread = 0; bool sizesOk = true; std::vector<double> signedErr; };
@@ -104,7 +121,7 @@ static Eigen::VectorXd connectionSpectrum(IntrinsicSurface& s, int n, int kCompl
     }
     for (int k = 0; k < M.outerSize(); ++k) for (Eigen::SparseMatrix<double>::InnerIterator it(M, k); it; ++it) { tm.emplace_back(it.row(), it.col(), it.value()); tm.emplace_back(it.row() + V, it.col() + V, it.value()); }
     Eigen::SparseMatrix<double> A(2 * V, 2 * V), B(2 * V, 2 * V); A.setFromTriplets(t.begin(), t.end()); B.setFromTriplets(tm.begin(), tm.end());
-    const Eigen::VectorXd e = solve::eigenSmallest(A, B, 2 * kComplex, false).eigenvalues;
+    const Eigen::VectorXd e = nxr::operators::eigenSmallest(A, B, 2 * kComplex, false).eigenvalues;
     Eigen::VectorXd out(kComplex); for (int i = 0; i < kComplex; ++i) out[i] = 0.5 * (e[2*i] + e[2*i+1]);
     return out;
 }
@@ -243,9 +260,9 @@ static void testA6() {
 static void testA7() {
     std::cout << "A7 Hodge–Dirac: spectrum ±sqrt(l(l+1)), kernel of dimension 2, D^2 = the Hodge Laplacian\n";
     const Mesh m = icosphere(2);
-    Manifold M(m.V.data(), m.nV(), m.F.data(), m.nF());
-    const auto h = ops::hodgedirac::assemble(M);
-    CHECK(h.record.flips >= 0 && h.record.delaunay && h.nV == m.nV() && h.nF == m.nF() && h.nE == (int)M.intrinsicSurface().mesh().nEdges(), "the pencil is on the intrinsic triangulation (" + std::to_string(h.record.flips) + " flips)");
+    const auto M = surfaceOf(m.V.data(), m.nV(), m.F.data(), m.nF());
+    const auto h = nxr::operators::hodgedirac::assemble(M);
+    CHECK(h.record.flips >= 0 && h.record.delaunay && h.nV == m.nV() && h.nF == m.nF() && h.nE == (int)gcOf(M).mesh().nEdges(), "the pencil is on the intrinsic triangulation (" + std::to_string(h.record.flips) + " flips)");
     const int N = h.nV + h.nE + h.nF;
     Eigen::MatrixXd K = Eigen::MatrixXd(h.K);
     Eigen::VectorXd isq = h.M.cwiseSqrt().cwiseInverse();
@@ -276,20 +293,19 @@ static void testA7() {
 static void testManifold() {
     std::cout << "G3 Manifold on IntrinsicSurface: one gauge\n";
     const Mesh m = jitterSphere(icosphere(3), 0.4, 3);
-    Manifold M(m.V.data(), m.nV(), m.F.data(), m.nF());
-    CHECK(M.intrinsicSurface().record().epsilon == 0.0 && M.intrinsicSurface().record().flips > 0, "the default Manifold flipped " + std::to_string(M.intrinsicSurface().record().flips) + " edges, nothing mollified");
-    const auto vf = geometry::vertexFrames(M);
-    auto& geom = M.geometry(); geom.requireVertexTangentBasis(); geom.requireVertexNormals();
-    double d = 0; for (gcs::Vertex v : M.mesh().vertices()) for (int c = 0; c < 3; ++c) {
+    const auto M = surfaceOf(m.V.data(), m.nV(), m.F.data(), m.nF());
+    CHECK(gcOf(M).record().epsilon == 0.0 && gcOf(M).record().flips > 0, "the default Manifold flipped " + std::to_string(gcOf(M).record().flips) + " edges, nothing mollified");
+    const auto vf = nxr::geometry::vertexFrames(M);
+    auto& geom = gcOf(M).embedded(); geom.requireVertexTangentBasis(); geom.requireVertexNormals();
+    double d = 0; for (gcs::Vertex v : gcOf(M).inputMesh().vertices()) for (int c = 0; c < 3; ++c) {
         const size_t i = v.getIndex();
         d = std::max(d, std::abs(vf.e1(i, c) - geom.vertexTangentBasis[v][0][c]) + std::abs(vf.e2(i, c) - geom.vertexTangentBasis[v][1][c]) + std::abs(vf.normals(i, c) - geom.vertexNormals[v][c]));
     }
     CHECK(d < 1e-12, "vertexFrames is geometry-central's vertexTangentBasis (" + fmt("%.1e", d) + ")");
-    CHECK((geometry::vertexFramesEmbedded(M).e1 - vf.e1).cwiseAbs().maxCoeff() == 0.0, "vertexFramesEmbedded is the same frame (deprecated alias)");
-    auto& surf = M.intrinsicSurface();
+    auto& surf = gcOf(M);
     const Eigen::SparseMatrix<double> L = surf.cotanLaplacian();
-    CHECK((L - M.operatorCotan()).norm() < 1e-12 * L.norm(), "the Manifold's cotan Laplacian is the surface's");
-    auto dec = ops::assembleDECOperators(M);
+    CHECK((L - nxr::operators::cotanLaplacian(M)).norm() < 1e-12 * L.norm(), "the operators' cotan Laplacian is the surface's");
+    auto dec = nxr::operators::assembleDECOperators(M);
     const Eigen::SparseMatrix<double> L2 = dec.d0.transpose() * dec.hodge1 * dec.d0;
     CHECK((L - L2).norm() < 1e-10 * L.norm(), "d0^T *1 d0 is the cotan Laplacian (DEC of the intrinsic triangulation)");
     CHECK((dec.hodge0.diagonal() - Eigen::Map<const Eigen::VectorXd>(surf.massDiagonal().data(), M.nV())).cwiseAbs().maxCoeff() < 1e-15, "*0 is the input's mixed-Voronoi mass");

@@ -46,9 +46,10 @@ const faces = new Int32Array([
   4, 9, 5,  2, 4,11,  6, 2,10,  8, 6, 7,  9, 8, 1,
 ])
 
-const ctx = new nxr.Manifold(verts, faces)
-const nV = ctx.nV(), nF = ctx.nF(), nE = ctx.nE()
-console.log(`[smoke-cl] context: nV=${nV}, nF=${nF}, nE=${nE}`)
+const S = nxr['geometry.surfaceArrays'](verts, faces, null)   // the surface as data
+const ops0 = nxr['operators.assembleManifoldOperators'](S, '')
+const nV = ops0.nV, nF = ops0.nF, nE = ops0.nE
+console.log(`[smoke-cl] surface: nV=${nV}, nF=${nF}, nE=${nE}`)
 
 function require(cond, msg) {
   if (!cond) {
@@ -60,7 +61,7 @@ function require(cond, msg) {
 const expectedBase = { vertex: nV, face: nF, edge: nE }
 for (const domain of ['vertex', 'face', 'edge']) {
   for (const nSym of [1, 2, 4]) {
-    const cl = ctx.assembleConnectionLaplacian({ domain, nSym })
+    const cl = nxr['operators.assembleConnectionLaplacian'](S, { domain, nSym })
     require(cl.format === 'real2N',           `${domain} nSym=${nSym}: default format is real2N`)
     require(cl.baseDim === expectedBase[domain],
             `${domain} nSym=${nSym}: baseDim == ${expectedBase[domain]} (got ${cl.baseDim})`)
@@ -76,7 +77,7 @@ for (const domain of ['vertex', 'face', 'edge']) {
 
 // Complex form sanity check.
 {
-  const cl = ctx.assembleConnectionLaplacian({ domain: 'vertex', nSym: 4, format: 'complex' })
+  const cl = nxr['operators.assembleConnectionLaplacian'](S, { domain: 'vertex', nSym: 4, format: 'complex' })
   require(cl.format === 'complex',     'complex format round-trip')
   require(cl.outputDim === nV,         'complex outputDim == V')
   require(cl.K.rows === nV && cl.K.cols === nV,  'K complex shape == V × V')
@@ -86,26 +87,26 @@ for (const domain of ['vertex', 'face', 'edge']) {
   console.log(`  ✓ vertex nSym=4 complex: ${nV}×${nV}, nnz=${cl.K.nnz}`)
 }
 
-// ── Cache hit check ─────────────────────────────────────────
+// ── Repeatability ───────────────────────────────────────────
 //
-// Two assemblies with identical options must produce COO views with
+// Nothing is kept between calls: two assemblies with identical options must produce COO views with
 // identical structure. The native test asserts bit-identity at the
 // matrix level; here we just sanity-check the surfaced nnz.
 {
-  const a = ctx.assembleConnectionLaplacian({ domain: 'vertex', nSym: 4 })
-  const b = ctx.assembleConnectionLaplacian({ domain: 'vertex', nSym: 4 })
-  require(a.K.nnz === b.K.nnz, `cache hit: same nnz on repeat call (got ${a.K.nnz} vs ${b.K.nnz})`)
-  console.log(`  ✓ cache hit: same nnz on repeat call`)
+  const a = nxr['operators.assembleConnectionLaplacian'](S, { domain: 'vertex', nSym: 4 })
+  const b = nxr['operators.assembleConnectionLaplacian'](S, { domain: 'vertex', nSym: 4 })
+  require(a.K.nnz === b.K.nnz, `repeat call: same nnz (got ${a.K.nnz} vs ${b.K.nnz})`)
+  console.log(`  ✓ repeat call: same nnz`)
 }
 
-// ── Composition with solveEigenmodesFromTriplets ────────────
+// ── Composition with operators.eigen ────────────
 //
 // Build a 2V × 2V identity mass and feed the connection Laplacian
 // (real2N) into the generic eigensolver. Recovers the smallest k
 // eigenpair on the connection bundle — the smoothest n-direction
 // field.
 {
-  const cl = ctx.assembleConnectionLaplacian({
+  const cl = nxr['operators.assembleConnectionLaplacian'](S, {
     domain: 'vertex', nSym: 4, regularization: 1e-6,
   })
   const N = cl.outputDim
@@ -117,13 +118,14 @@ for (const domain of ['vertex', 'face', 'edge']) {
   const Mvals = new Float64Array(massN)
   for (let i = 0; i < N; i++) { Mrows[i] = i; Mcols[i] = i; Mvals[i] = 1.0 }
 
-  // Raw embind function takes positional args. The friendly destructured
+  // Raw embind function takes positional args. The friendly (K, M, options)
   // signature lives on the JS wrapper from `initNxrCompute()`.
-  const eig = nxr.solveEigenmodesFromTriplets(
+  const eig = nxr['operators.eigen'](
     cl.K.row, cl.K.col, cl.K.data,
     Mrows,    Mcols,    Mvals,
     N, k, -1e-8,
     0, 0, 0,
+    false, false,
   )
 
   require(eig.k === k,                 'k modes returned')
@@ -137,8 +139,7 @@ for (const domain of ['vertex', 'face', 'edge']) {
   for (let i = 1; i < k; i++) {
     require(eig.eigenvalues[i] >= eig.eigenvalues[i - 1] - 1e-9, `λ sorted ascending`)
   }
-  console.log(`  ✓ solveEigenmodesFromTriplets: k=${k}, λ₀=${eig.eigenvalues[0].toExponential(3)}`)
+  console.log(`  ✓ operators.eigen: k=${k}, λ₀=${eig.eigenvalues[0].toExponential(3)}`)
 }
 
-ctx.delete()
 console.log('[smoke-cl] all assertions passed ✓')

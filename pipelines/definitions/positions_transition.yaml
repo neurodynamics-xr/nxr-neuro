@@ -1,0 +1,28 @@
+# A SURFACE'S POSITIONS IN ANOTHER COORDINATE SYSTEM OF ITS SPACE (a new surface): its vertices through an operator of kind transition (an affine of the space's two systems:
+# SCS to MNI, voxel to SCS, ...). The checker never applies a transition itself: when two inputs' systems differ it names this pipeline. The faces are kept.
+#
+#   nxr-neuro run positions_transition --dataset <folder> --subject sub-01 --surface cortex --transition T1_mni --name cortex_mni
+pipeline: positions_transition
+version: 1
+description: a surface's positions brought into another coordinate system of its space by its transition operator
+scope: subject
+
+inputs:
+  surface:    {manifold: surface, where: {name: $surface}}
+  transition: {operator: transition, where: {name: $transition}}
+
+parameters:
+  surface: {default: null, meaning: "the surface by name", unit: "-"}
+  transition: {default: null, meaning: "the transition operator by name (kind transition)", unit: "-"}
+  name: {default: "{surface}_{transition}", meaning: "the new surface's name", unit: "-"}
+
+steps:
+  before:
+    - {node: meeg.positions_transition, in: {positions: surface, transition: transition}, out: moved}
+
+outputs:
+  moved:
+    kind: manifold
+    type: surface
+    name: $name
+    derived_from: surface.manifold.0

@@ -1,0 +1,110 @@
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/synthesis/fields.h"
+
+#include "geometrycentral/surface/manifold_surface_mesh.h"
+#include "geometrycentral/surface/vertex_position_geometry.h"
+
+namespace nxr::operators::differential {
+
+// Build Fv = [e1 | e2 | n] (columns) for vertex v from precomputed frames.
+static Eigen::Matrix3d frameOf(const geometry::VertexFrames& vf, int v) {
+    Eigen::Matrix3d Fv;
+    Fv.col(0) = vf.e1.row(v).transpose();
+    Fv.col(1) = vf.e2.row(v).transpose();
+    Fv.col(2) = vf.normals.row(v).transpose();
+    return Fv;
+}
+
+Eigen::Matrix3d frameTransport(const geometry::SurfaceArrays& surface, int i, int j) {
+    const int nV = surface.nV();
+    if (i < 0 || i >= nV || j < 0 || j >= nV)
+        throw Error(ErrorCode::InvalidInput,
+            "frameTransport: vertex index out of range",
+            "Expected 0 <= i,j < " + std::to_string(nV) + ".");
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
+    return frameOf(vf, j).transpose() * frameOf(vf, i);   // P_ij = Fj^T Fi
+}
+
+Eigen::MatrixXd vertexFrameMatrices(const geometry::SurfaceArrays& surface) {
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
+    const int nV = surface.nV();
+    Eigen::MatrixXd out(nV, 9);
+    for (int v = 0; v < nV; ++v) {
+        Eigen::Matrix3d Fv = frameOf(vf, v);
+        for (int p = 0; p < 3; ++p)
+            for (int q = 0; q < 3; ++q)
+                out(v, 3*p + q) = Fv(p, q);   // row-major flatten
+    }
+    return out;
+}
+
+Eigen::MatrixXd liftToWorld(const geometry::SurfaceArrays& surface, const Eigen::MatrixXd& Lloc) {
+    const int nV = surface.nV();
+    if (Lloc.rows() != nV || Lloc.cols() != 3)
+        throw Error(ErrorCode::InvalidInput,
+            "liftToWorld: field must be [nV, 3]",
+            "Expected [" + std::to_string(nV) + ", 3].");
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
+    Eigen::MatrixXd out(nV, 3);
+    for (int v = 0; v < nV; ++v)
+        out.row(v) = (frameOf(vf, v) * Lloc.row(v).transpose()).transpose();   // Fv * local
+    return out;
+}
+
+Eigen::MatrixXd liftToFrame(const geometry::SurfaceArrays& surface, const Eigen::MatrixXd& Lworld) {
+    const int nV = surface.nV();
+    if (Lworld.rows() != nV || Lworld.cols() != 3)
+        throw Error(ErrorCode::InvalidInput,
+            "liftToFrame: field must be [nV, 3]",
+            "Expected [" + std::to_string(nV) + ", 3].");
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
+    Eigen::MatrixXd out(nV, 3);
+    for (int v = 0; v < nV; ++v)
+        out.row(v) = (frameOf(vf, v).transpose() * Lworld.row(v).transpose()).transpose();  // Fv^T * world
+    return out;
+}
+
+Eigen::SparseMatrix<double> covariantGradient(const geometry::SurfaceArrays& surface) {
+    geometry::IntrinsicSurface gs(surface);
+    using namespace geometrycentral::surface;
+    geometry::VertexFrames vf = geometry::vertexFrames(surface);
+    auto& mesh = gs.inputMesh();
+    const int N = surface.nV();
+    const int E = static_cast<int>(gs.inputMesh().nEdges());
+
+    std::vector<Eigen::Triplet<double>> T;
+    T.reserve(static_cast<size_t>(E) * 12);   // 3 (+I) + 9 (-P) per edge
+
+    for (Edge e : mesh.edges()) {
+        Halfedge he = e.halfedge();                       // canonical orientation
+        const int i = static_cast<int>(he.tailVertex().getIndex());
+        const int j = static_cast<int>(he.tipVertex().getIndex());
+        const int eIdx = static_cast<int>(e.getIndex());
+
+        // P_ij = Fj^T Fi  (transport i -> j)
+        Eigen::Matrix3d Pij = frameOf(vf, j).transpose() * frameOf(vf, i);
+
+        // delta_e[p] = L_j[p] - sum_q P_ij[p,q] L_i[q],  component-major rows {E*p + eIdx}.
+        for (int p = 0; p < 3; ++p) {
+            T.emplace_back(E*p + eIdx, N*p + j, 1.0);                 // +I at vertex j
+            for (int q = 0; q < 3; ++q)
+                T.emplace_back(E*p + eIdx, N*q + i, -Pij(p, q));      // -P_ij at vertex i
+        }
+    }
+
+    Eigen::SparseMatrix<double> G(3*E, 3*N);
+    G.setFromTriplets(T.begin(), T.end());
+    G.makeCompressed();
+    return G;
+}
+
+} // namespace nxr::operators::differential

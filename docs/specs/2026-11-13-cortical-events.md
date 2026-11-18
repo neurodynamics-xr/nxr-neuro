@@ -233,7 +233,7 @@ The runner took the work without a change to the executor (the three registry st
   at level 3 (a few global modes: a neighbour's tile can win), 32 of 32 at level 4, 62 of 64 at level 5. The test runs at level 4. A bump WIDER than a tile (σ 0.8 m) is no one tile's: its largest cell is another tile. Phase 2b: events at a coarse
   level are placed to within the band's scale, not the tile; compare cells of one level.
 - **No multirate.** The analytic signal is at the recording's rate; the Studio's chain reads the band every D samples (`chainStride`, about 30 samples a cycle) and nxr's analytic cross-spectrum estimator decimates. The runner has no
-  decimating step (a chunk step's width is its input's); at 1200 Hz an alpha band is 100 samples a cycle, so the |z| accumulation is 3-4× the work it needs, and M_l x costs the same. Needs a `decimate` chunk step whose output is on a coarser
+  decimating step (a chunk step's width is its input's); at 1200 Hz an alpha band is 100 samples a cycle, so the |z| accumulation is 3-4× the work it needs, and M_l x costs the same. Needs a `downsample` chunk step whose output is on a coarser
   time line (a new Value time axis), or the accumulator reading every D-th sample (the tile width stays a multiple of D).
 - **F_l from the stored modes: BUILT (feat/eigenmode-first).**
   `transform: auto` is the default of `patches compute` and `apply_kernel`: the stored package's exact (Laplace–Beltrami) modes when they reach the band (λmax ≥ the band's top with its Meyer edge), else `eigen_solve` computes and stores them (a message in the progress,
@@ -555,7 +555,7 @@ GRAPH (pure nodes)      analytic(band)  →  apply_kernel(tiles, level, envelope
                         →  measure over the joint cells (amplitude, envelope_max) …  (unchanged)
 READBACK (io)           as before; the recipe's `parameters.envelope` and the step's resolved band record which envelope
 ```
-- **Nodes (compute, `nxr::monogenic`, pure, called by tests directly):** `rieszGain` (g → g/√λ); `rieszOfScaled` (G, Δ^{-1/2}F_l f → R f); `amplitude` (z, R z → A); `phase` (f, R f → atan2(|R f|, f)); `orientation` (R f → unit tangent vector, NaN where
+- **Nodes (compute, `nxr::monogenic`, pure, called by tests directly):** `rieszGain` (g → g/√λ); `rieszTransform` (G, Δ^{-1/2}F_l f → R f); `amplitude` (z, R z → A); `phase` (f, R f → atan2(|R f|, f)); `orientation` (R f → unit tangent vector, NaN where
   |R f| = 0). Phase and orientation are nodes with typed ports in compute, tested, and NOT stored by default (no registry output until a pipeline asks for them).
 - **Option `envelope: temporal | spatiotemporal`** on `cortical_cells`, `cortical_cell_pairs`, `global_bursts` (the cell amplitudes that `cell_extent` reads are these). DEFAULT `temporal`: the chain is byte-for-byte the old one. It is a parameter of the
   step `apply_kernel` (with `tiles`/`level`), so it is in the definition's parameters, the cache key and the producer record.
@@ -573,7 +573,7 @@ READBACK (io)           as before; the recipe's `parameters.envelope` and the st
 
 ## Spatial analytic signal build notes: issues for what follows
 
-Built: `compute/include/nxr/monogenic.h` (`rieszGain`, `rieszOfScaled`, `amplitude`, `phase`, `orientation`), `SpatialBandOptions::riesz` and `SpatialBand::apply_riesz` (`spatial_band.cpp`, the three transforms: exact, Chebyshev, stored eigenmodes), `apply_kernel`'s parameter `envelope`
+Built: `compute/include/nxr/monogenic.h` (`rieszGain`, `rieszTransform`, `amplitude`, `phase`, `orientation`), `SpatialBandOptions::riesz` and `SpatialBand::apply_riesz` (`spatial_band.cpp`, the three transforms: exact, Chebyshev, stored eigenmodes), `apply_kernel`'s parameter `envelope`
 (field type `monogenic`, 4c rows a vertex), `magnitude` reading it, `envelope: temporal` in the three definitions, tests `test_monogenic`, `test_spatial_band` (Riesz part), `test_spatial_analytic`.
 Decisions made:
 - **No new step.** The spec's graph names `magnitude` as the node that makes A; it is the same step, now the norm over a typed monogenic field (checked by type: `magnitude` of any other chain is unchanged). The definitions need no conditional step: the option is a parameter

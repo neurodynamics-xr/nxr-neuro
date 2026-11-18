@@ -4,11 +4,11 @@
 #include <vector>
 
 #include "mesh_helpers.h"
-#include "nxr/frames.h"
+#include "nxr/geometry/frames.h"
 
 using Eigen::Vector3d;
-using nxr::frames::Mat3;
-using nxr::frames::vertexNormals;
+using nxr::geometry::Mat3;
+using nxr::geometry::vertexNormals;
 
 struct Brain {
     std::vector<double> P, Sph;

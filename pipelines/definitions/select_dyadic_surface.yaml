@@ -1,0 +1,40 @@
+# THE DYADIC TILES OF A SURFACE: ONE maker (the node `select.dyadic_surface`) for the three ways a surface gets its grid. A grid with closed-form levels (the Studio's `surfaceLadder`, nxr `geom.ladder`, Rheome
+# `+geom/surfaceladder.m`): each tile halved by equal mass across its geodesic diameter, every tile ONE PIECE; level l has 2^l tiles per connected piece, paired with the band it adds by Weyl's law. The hierarchy is a
+# closed form (member number >> (D - l)); no parent map is stored. The finest tile is a QUANTITY (a tile diameter in mm, a tile area in mm2, a wavelength in mm or parts per hemisphere), never a level index; the depth D
+# is resolved from it, and the run records the stated quantity, its chart, the resolved level and the SNAPPED quantity (the level's measured mean tile diameter).
+#
+#   rule subject   the surface's own tiles (tree subject)
+#   rule group     the default subject's tiles as the dataset's GROUP TREE, with the atlas definitions (the atlas leaf, the resolution, the default bands, the default trajectory scales)
+#   rule transfer  the subject's vertices on the group tree through the registered spheres, keeping the template's codes (a tile no vertex reaches is an empty member)
+#
+# Per level the stored attributes are {area_m2, diameter_mm, weyl_band_per_m2}. The Levi-Civita connection between neighbouring tiles is NOT part of the grid: it is a measurement over the product of a level with itself,
+# made by `measure` with the measure `levi_civita` over `select_product`.
+#
+# What it cannot resolve: a tile is as equal in area as the cut across the geodesic diameter allows; a surface of several pieces gets piece slots and a piece too small for the finest level stops the ladder there.
+#
+#   nxr-neuro run select_dyadic_surface --dataset <folder> --subject sub-01 --surface cortex --rule subject --finest "20 mm"
+#   nxr-neuro run select_dyadic_surface --dataset <folder> --subject @default_subject --surface cortex_pial --rule group --finest "10 mm"
+#   nxr-neuro run select_dyadic_surface --dataset <folder> --subject sub-01 --surface cortex --rule transfer
+pipeline: select_dyadic_surface
+version: 1
+description: the dyadic equal-area tiles of a surface as one grid with closed-form levels, from a stated finest tile (subject, group tree, or transfer onto the group tree)
+scope: subject
+
+# (rule transfer reads the subject's registered sphere `<surface>_sphere` and the default subject's group tree itself, through the run's bound subject)
+inputs:
+  surface:  {manifold: surface, where: {name: $surface}, hint: "name the surface (--surface)"}
+
+parameters:
+  surface: {default: null, meaning: "the surface whose tiles are made, by name", unit: "-"}
+  rule: {default: subject, meaning: "subject = the surface's own tiles | group = the default subject's tiles as the group tree | transfer = this subject's vertices on the group tree through the registered spheres", unit: "-", choices: [subject, group, transfer]}
+  finest: {default: null, meaning: "the finest tile as a quantity: a tile diameter (20 mm), a tile area (area 400 mm2), a wavelength (wavelength 40 mm) or parts per hemisphere (parts 256); the depth is resolved from it; null: the finest every piece reaches; rule transfer takes the template's", unit: mm, chart: diameter}
+  resolution: {default: fsaverage5, meaning: "rule group: the template's resolution, recorded in the atlas definitions", unit: "-"}
+  atlas_finest: {default: null, meaning: "rule group: the finest tile of the dataset's atlases as a quantity (the grid must reach it); null: the grid's finest", unit: mm, chart: diameter}
+  frame_rate: {default: "36 frames/cycle", meaning: "rule group: the default frame density recorded in the atlas definitions (frames per cycle of the band's centre; the origin of frames is a parameter of `select_time_grid`)", unit: frames/cycle, chart: rate}
+
+steps:
+  before:
+    - {node: select.dyadic_surface, in: {surface: surface}, with: {rule: $rule, finest: $finest, resolution: $resolution, atlas_finest: $atlas_finest, frame_rate: $frame_rate}, out: grid}
+
+outputs:
+  grid: {kind: selection, type: grid, on: surface.manifold.0, name: "{surface} tiles"}

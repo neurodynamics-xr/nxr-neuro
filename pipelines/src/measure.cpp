@@ -1,7 +1,9 @@
-// nxr-pipelines — measure compute: stored Fields measured over a partition's members (measure.h). The arithmetic is nxr::partition (the Studio's
+// nxr-pipelines — measure compute: stored Fields measured over a partition's members (measure.h). The arithmetic is nxr::select (the Studio's
 // measureOverPartition); the rows are the Studio's (`selection_measurement`, written through nxr::io::write_measurements, the port of its repository);
 // the recipe is an entry of the dataset's `recipes` dictionary as the Studio's `recipes.save` writes one (adapters/nxr/recipes.ts, recipe.ts entryOfRecipe).
 #include "nxr/pipelines/measure.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/subject_reads.h"
 #include "nxr/io/statistic.h"
 #include "nxr/pipelines/spectral_record.h"
 
@@ -15,10 +17,9 @@
 #include <regex>
 #include <set>
 
-#include "nxr/delaunay.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/io/measures.h"
-#include "nxr/ladder.h"
-#include "nxr/partition.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg_internal.h"
@@ -31,437 +32,14 @@ namespace fs = std::filesystem;
 namespace {
 [[noreturn]] void invalid(const std::string& m) { throw Error(code::invalid_argument, m); }
 
-const char* kRecipes = "recipes";
-const char* kRecipesDescription = "the recipes of this dataset (nxr.recipe): one entry a version, the recipe in params_json";
 
 // the Studio's stableJson / Python's json.dumps(sort_keys=True, separators=(',', ':')): keys sorted at every depth
-Json sorted(const Json& v) {
-  if (v.is_object()) {
-    std::map<std::string, Json> m;
-    for (auto it = v.begin(); it != v.end(); ++it) m[it.key()] = sorted(it.value());
-    Json o = Json::object();
-    for (auto& [k, x] : m) o[k] = x;
-    return o;
-  }
-  if (v.is_array()) { Json a = Json::array(); for (const auto& x : v) a.push_back(sorted(x)); return a; }
-  return v;
-}
 
-std::vector<double> read_doubles(SubjectWriter& sub, const std::string& path, std::int64_t expect, const std::string& what) {
-  ArrayReader r = ArrayReader::open(sub.store(), path);
-  std::int64_t n = 1;
-  for (auto s : r.shape()) n *= s;
-  if (r.shape().size() != 1 || n != expect) invalid(what + ": a value per vertex is [" + std::to_string(expect) + "], this array has another shape");
-  const std::vector<std::uint8_t> raw = r.read();
-  std::vector<double> out(static_cast<size_t>(n));
-  if (r.dtype() == DType::Float64) std::memcpy(out.data(), raw.data(), out.size() * 8);
-  else if (r.dtype() == DType::Float32) { std::vector<float> f(out.size()); std::memcpy(f.data(), raw.data(), f.size() * 4); std::copy(f.begin(), f.end(), out.begin()); }
-  else invalid(what + ": a scalar Field is float32 or float64");
-  return out;
-}
 
-std::vector<std::int32_t> read_codes(SubjectWriter& sub, const std::string& path, std::int64_t expect, const std::string& what) {
-  ArrayReader r = ArrayReader::open(sub.store(), path);
-  std::int64_t n = 1;
-  for (auto s : r.shape()) n *= s;
-  if (n != expect) invalid(what + ": a partition has a code per vertex (" + std::to_string(expect) + "), this one has " + std::to_string(n));
-  const std::vector<std::uint8_t> raw = r.read();
-  std::vector<std::int32_t> out(static_cast<size_t>(n));
-  if (r.dtype() == DType::Int32) std::memcpy(out.data(), raw.data(), out.size() * 4);
-  else if (r.dtype() == DType::Int64) { std::vector<std::int64_t> v(out.size()); std::memcpy(v.data(), raw.data(), v.size() * 8); std::transform(v.begin(), v.end(), out.begin(), [](std::int64_t x) { return static_cast<std::int32_t>(x); }); }
-  else if (r.dtype() == DType::Int16) { std::vector<std::int16_t> v(out.size()); std::memcpy(v.data(), raw.data(), v.size() * 2); std::copy(v.begin(), v.end(), out.begin()); }
-  else invalid(what + ": a partition's codes are integers");
-  return out;
-}
 
 // the unit of a measure of a field in `u` (the Studio's measureUnit and the registry: a square for mean_square, the weight's unit times u for a sum)
-std::optional<std::string> unit_of(const std::string& measure, const std::optional<std::string>& u, bool areas) {
-  if (measure == "area") return std::string("m²");
-  if (measure == "n_elements") return std::nullopt;
-  if (!u || u->empty()) return std::nullopt;
-  if (measure == "mean_square") return "(" + *u + ")²";
-  if (measure == "sum") return areas ? *u + "·m²" : *u;
-  return u;
-}
 }  // namespace
 
-MeasureComputeResult measure_compute(DatasetWriter& ds, SubjectWriter& sub, const MeasureComputeOptions& opt, const std::function<void(const Json&)>& progress) {
-  if (opt.weight != "none" && opt.weight != "barycentric" && opt.weight != "voronoi") invalid("--weight is one of none, barycentric, voronoi (it changes the numbers, so it is always stated)");
-  if (opt.labelling.empty()) invalid("--labelling names the partition (a set Selection with a code per vertex)");
-  if (opt.fields.empty()) invalid("--fields is a pattern over the Field names to measure");
-  std::vector<std::string> measures = opt.measures.empty() ? nxr::partition::field_measures() : opt.measures;
-  for (const auto& m : measures)
-    if (m != "median" && (!nxr::partition::known_measure(m) || m == "area" || m == "n_elements")) invalid("--measures: " + m + " is not one this producer writes per Field (mean, mean_square, max, min, abs_max, sum, median)");
-  // the median is exact and unweighted (nxr::partition::medians;); a weighted median is not built
-  const bool want_median = std::find(measures.begin(), measures.end(), "median") != measures.end();
-  if (want_median && opt.weight != "none") invalid("--measures median: a weighted median is not built; the median is exact and unweighted, so it needs --weight none");
-  std::regex re;
-  try { re = std::regex(opt.fields, std::regex::ECMAScript); } catch (const std::regex_error& e) { invalid("--fields " + opt.fields + ": not a regular expression (" + e.what() + ")"); }
-
-  // THE PARTITION and its surface
-  const auto sels = sub.db().all("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'set' AND array_path IS NOT NULL AND status = 'complete'", {V(sub.id()), V(opt.labelling)});
-  if (sels.empty()) throw Error(code::no_such_row, sub.name() + ": no partition '" + opt.labelling + "' (a set Selection with a code per element)");
-  if (sels.size() > 1) invalid(sub.name() + ": " + std::to_string(sels.size()) + " partitions are called '" + opt.labelling + "'");
-  const Row& sel = sels[0];
-  if (is_null(sel, "manifold_id")) invalid(opt.labelling + ": a partition on a space has no vertices to measure");
-  const auto man = sub.db().read("manifold", text(sel, "manifold_id"));
-  if (!man || text(*man, "type") != "surface") invalid(opt.labelling + ": its manifold is not a surface");
-  const SurfaceInput S = read_surface(sub, text(*man, "name"), true);
-  const std::int64_t nV = S.n_vertices();
-  const std::vector<std::int32_t> codes = read_codes(sub, text(sel, "array_path"), nV, opt.labelling);
-  const int members = codes.empty() ? 0 : *std::max_element(codes.begin(), codes.end()) + 1;
-
-  // THE WEIGHTS
-  std::vector<double> w;
-  if (opt.weight == "barycentric") {
-    nxr::ladder::Mesh m; m.positions = S.vertices; m.faces = S.faces; m.n = static_cast<int>(nV);
-    w = nxr::ladder::vertexAreas(m);
-  } else if (opt.weight == "voronoi") {
-    namespace dl = nxr::manifold::delaunay;
-    dl::Mesh m = dl::prepare(S.vertices.data(), static_cast<int>(nV), S.faces.data(), static_cast<int>(S.n_faces()));
-    w = m.mass.empty() ? dl::mixedVoronoiMass(m) : m.mass;
-  }
-  const bool areas = !w.empty();
-  const double* wp = areas ? w.data() : nullptr;
-
-  // THE RECIPES: every choice that changes a number (not the inputs: the labelling and the Fields are the rows' keys). One recipe a FAMILY of
-  // measurements, so a choice of one family never makes another's rows "another recipe's": `<name>` the scalar measures and the members' sizes,
-  // `<name>-gradient` a scalar Field's gradient, `<name>-tensor` a hermitian3 Field's tensor_* sums; each a new version when its own choices change.
-  struct Recipe { std::string name; int version = 1; std::string tag, by; };
-  auto recipe_for = [&](const std::string& rn, const Json& choice_in, const std::string& description) {
-    const Json choice = sorted(choice_in);
-    Recipe r; r.name = rn;
-    const auto dict = sub.db().one("SELECT id FROM dictionary WHERE scope = 'dataset' AND dataset_id = ? AND name = ?", {V(ds.id()), V(std::string(kRecipes))});
-    if (dict) {
-      int top = 0;
-      bool found = false;
-      for (const Row& e : sub.db().all("SELECT * FROM dictionary_entry WHERE dictionary_id = ?", {V(text(*dict, "id"))})) {
-        const Json a = Json::parse(opt_text(e, "attributes_json").value_or("{}"), nullptr, false);
-        if (!a.is_object() || a.value("recipe", std::string()) != rn) continue;
-        const int v = a.value("version", 0);
-        top = std::max(top, v);
-        const Json pp = Json::parse(opt_text(e, "params_json").value_or("{}"), nullptr, false);
-        if (pp.is_object() && pp.contains("measure") && sorted(pp["measure"]) == choice) { r.version = v; found = true; }
-      }
-      if (!found) r.version = top + 1;
-    }
-    const Json recipe = sorted(Json{{"format", 1}, {"name", rn}, {"version", r.version}, {"measure", choice}, {"description", description}, {"provenance", Json{{"made_by", "nxr-neuro"}}}});
-    DictionaryEntry e;
-    e.name = rn + "@" + std::to_string(r.version);
-    e.cols.set("function", std::string("reduction"));
-    e.cols.set("params_json", jdump(recipe));
-    e.cols.set("attributes_json", jdump(Json{{"recipe", rn}, {"version", r.version}, {"format", 1}}));
-    DictionarySpec spec;
-    spec.name = kRecipes; spec.scope = "dataset"; spec.description = kRecipesDescription; spec.entries = std::vector<DictionaryEntry>{e};
-    sub.dictionary(spec);
-    r.tag = "recipe " + rn + "@" + std::to_string(r.version);
-    r.by = r.tag + " \xc2\xb7 nxr-neuro " + NXR_NEURO_VERSION;
-    return r;
-  };
-  const std::string rname = opt.recipe.value_or("partition-" + opt.weight);
-  const Recipe base = recipe_for(rname, Json{{"kind", "reduction"}, {"method", "partition"}, {"weight", opt.weight}, {"measures", measures}},
-                                 "a Field measured over a partition's members (nxr-neuro measure compute; the Studio's measureOverPartition), weights: " + opt.weight);
-  std::optional<Recipe> grad_recipe, tensor_recipe;
-  auto gradient_recipe = [&]() -> const Recipe& {
-    if (!grad_recipe) grad_recipe = recipe_for(rname + "-gradient", Json{{"kind", "reduction"}, {"method", "partition-gradient"}, {"weight", opt.weight}, {"gauge", "canonical frames"},
-        {"gradient", "nxr measure.vectors.vertex_gradient: the area-weighted face gradients, projected on the vertex's tangent plane"}, {"measures", "the registry's gradient_*, over the frames' regular vertices"}},
-        "the gradient of a scalar Field measured over a partition's members: the registry's gradient_* sums in the canonical frames, weights: " + opt.weight);
-    return *grad_recipe;
-  };
-  auto tensor_recipe_of = [&]() -> const Recipe& {
-    if (!tensor_recipe) tensor_recipe = recipe_for(rname + "-tensor", Json{{"kind", "reduction"}, {"method", "partition-tensor"}, {"weight", opt.weight}, {"gauge", "canonical frames"},
-        {"measures", "the registry's tensor_*: area-weighted sums of the tensor's components in (e1 north, e2 west, n); total over every vertex, the components over the frames' regular ones"}},
-        "a cross-spectral tensor measured over a partition's members: the registry's tensor_* sums in the canonical frames, weights: " + opt.weight);
-    return *tensor_recipe;
-  };
-  const std::string tag = base.tag, by = base.by;
-  const int version = base.version;
-  const std::string stamp = now_utc();
-  const std::string sid = text(sel, "id");
-
-  // one recipe's rows at a time per (labelling, Field, measure): the same recipe is a cache hit, another is refused unless replace
-  // a map of a statistic (2026-11-13): its rows name the statistic and the slice (of_statistic_id, of_index) where a Field's name the Field
-  const bool stat_cols = has_column(sub.db(), "selection_measurement", "of_statistic_id");
-  std::optional<std::pair<std::string, std::int64_t>> slice;      // set while a map slice is measured
-  auto existing = [&](const std::optional<std::string>& fid, const std::vector<std::string>& ms) {
-    std::string q = "SELECT computed_by, COUNT(*) AS n FROM selection_measurement WHERE selection_id = ? AND ";
-    std::vector<Value> a = {V(sid)};
-    if (slice) { q += "of_statistic_id = ? AND of_index = ?"; a.push_back(V(slice->first)); a.push_back(V(slice->second)); }
-    else { q += fid ? "of_field_id = ?" : "of_field_id IS NULL"; if (fid) a.push_back(V(*fid)); if (stat_cols) q += " AND of_statistic_id IS NULL"; }
-    q += " AND measure IN (";
-    for (size_t i = 0; i < ms.size(); ++i) { q += (i ? ",?" : "?"); a.push_back(V(ms[i])); }
-    return sub.db().all(q + ") GROUP BY computed_by", a);
-  };
-  auto settle = [&](const std::optional<std::string>& fid, const std::string& what, const std::vector<std::string>& ms, const Recipe& rec) -> bool {   // true: write
-    const std::string& tag = rec.tag;
-    const auto have = existing(fid, ms);
-    if (have.empty()) return true;
-    bool ours = true;
-    for (const Row& r : have) if (opt_text(r, "computed_by").value_or("").rfind(tag + " ", 0) != 0) ours = false;
-    if (ours && !opt.replace) return false;
-    if (!fid && !slice && !opt.replace) {   // the members' sizes depend on the weight rule alone: another recipe's, made with the same weights, are these
-      bool same = true;
-      for (const Row& r : have) {
-        const std::string other = opt_text(r, "computed_by").value_or("");
-        const std::string rv = other.rfind("recipe ", 0) == 0 ? other.substr(7, other.find(' ', 7) - 7) : "";
-        const auto e = rv.empty() ? std::nullopt : sub.db().one("SELECT params_json FROM dictionary_entry WHERE name = ? AND dictionary_id IN (SELECT id FROM dictionary WHERE name = 'recipes')", {V(rv)});
-        const Json pj = e ? Json::parse(opt_text(*e, "params_json").value_or("{}"), nullptr, false) : Json();
-        if (!pj.is_object() || !pj.contains("measure") || pj["measure"].value("weight", std::string()) != opt.weight) same = false;
-      }
-      if (same) return false;
-    }
-    if (!ours && !opt.replace) {
-      std::string other;
-      for (const Row& r : have) if (opt_text(r, "computed_by").value_or("").rfind(tag + " ", 0) != 0) { other = opt_text(r, "computed_by").value_or("(no recipe)"); break; }
-      throw Error(code::invalid_argument, what + " on " + opt.labelling + " already has measurements by " + other + "; --replace replaces them with " + tag);
-    }
-    for (const auto& m : ms) {
-      Json where = {{"selectionId", sid}, {"measure", m}};
-      if (slice) { delete_measurements(sub.db(), Json{{"selectionId", sid}, {"measure", m}, {"ofStatisticId", slice->first}, {"ofIndex", slice->second}}); continue; }
-      where["ofFieldId"] = fid ? Json(*fid) : Json(nullptr);
-      if (fid) delete_measurements(sub.db(), where);
-      else sub.db().execute("DELETE FROM selection_measurement WHERE selection_id = ? AND of_field_id IS NULL AND measure = ?", {V(sid), V(m)});
-    }
-    return true;
-  };
-
-  Json warnings = Json::array(), fields_out = Json::array();
-  std::int64_t written = 0;
-  // THE MEMBERS themselves (geometric: no Field)
-  const nxr::partition::Sums geo = nxr::partition::accumulate(codes.data(), codes.size(), members, nullptr, wp);
-  if (geo.unassigned) warnings.push_back(std::to_string(geo.unassigned) + " vertices have a negative code: in no member, left out");
-  std::vector<std::string> geo_ms = {"n_elements"};
-  if (areas) geo_ms.push_back("area");
-  // both size measures are one recipe's: a recipe without areas (none) also takes the place of another's `area`
-  if (settle(std::nullopt, "the members' sizes", {"n_elements", "area"}, base)) {
-    Json rows = Json::array();
-    for (int k = 0; k < members; ++k)
-      for (const auto& m : geo_ms) {
-        const double v = nxr::partition::measure(geo, k, m);
-        if (std::isnan(v)) continue;
-        rows.push_back(Json{{"selection_id", sid}, {"code", k}, {"of_field_id", nullptr}, {"measure", m}, {"value", v}, {"weight", geo.weight[static_cast<size_t>(k)]},
-                            {"unit", unit_of(m, std::nullopt, areas) ? Json(*unit_of(m, std::nullopt, areas)) : Json(nullptr)}, {"computed_utc", stamp}, {"computed_by", by}});
-      }
-    sub.db().tx([&] { written += write_measurements(sub.db(), rows, by); });
-  }
-  std::int64_t empty = 0;
-  for (int k = 0; k < members; ++k) if (geo.count[static_cast<size_t>(k)] == 0) ++empty;
-  if (empty) warnings.push_back(std::to_string(empty) + " codes below " + std::to_string(members) + " have no vertex: their means are written as 0, as the reference does");
-
-  // A TENSOR Field (hermitian3, [nV x 3 x 3 x 2]): the registry's tensor_* — per member, the area-weighted sums of its components in the canonical
-  // frames, P = E T E^T with E's rows e1 (north), e2 (west), n = e1 x e2 (nxr measure.vectors.band_tensor's layout): 11 22 nn, 12 1n 2n (real and
-  // imaginary), and the total (the trace, over EVERY vertex of the member; the components over the frames' regular vertices only, as nxr's).
-  static const std::vector<std::string> kTensor = {"tensor_11", "tensor_22", "tensor_nn", "tensor_12_re", "tensor_12_im", "tensor_1n_re", "tensor_1n_im", "tensor_2n_re", "tensor_2n_im", "tensor_total"};
-  std::optional<StoredFrames> frames;
-  // a hermitian3 map (a Field, or a band of a statistic: `slice` set), its values [nV x 18] loaded by `load`
-  auto measure_tensor = [&](const std::string& fname, const std::optional<std::string>& fid_opt, const std::optional<std::string>& funit, const std::function<std::vector<float>()>& load) {
-    const std::string fid = fid_opt.value_or("");
-    const Recipe& tr = tensor_recipe_of();
-    const std::string& by = tr.by;
-    if (!settle(fid_opt, fname, kTensor, tr)) { fields_out.push_back(Json{{"name", fname}, {"cache", "hit"}}); return; }
-    if (!frames) {
-      frames = read_stored_frames(sub, S.name, nV);
-      if (!frames->canonical) invalid(S.name + " has no canonical frames: a tensor is measured in them (`nxr-neuro frames compute` first)");
-    }
-    const std::vector<float> T = load();
-    const std::int64_t cnt = static_cast<std::int64_t>(T.size());
-    if (cnt != nV * 18) invalid(fname + ": a hermitian3 map is [" + std::to_string(nV) + " x 3 x 3 x 2]");
-    std::vector<std::array<double, 10>> sums(static_cast<size_t>(members));
-    for (auto& a : sums) a.fill(0.0);
-    std::vector<double> mw(static_cast<size_t>(members), 0.0);
-    std::int64_t singular = 0;
-    for (std::int64_t v = 0; v < nV; ++v) {
-      const int k = codes[static_cast<size_t>(v)];
-      if (k < 0) continue;
-      const double w = wp ? wp[v] : 1.0;
-      auto re = [&](int i, int j) { return static_cast<double>(T[static_cast<size_t>(18 * v + 2 * (3 * i + j))]); };
-      auto im = [&](int i, int j) { return static_cast<double>(T[static_cast<size_t>(18 * v + 2 * (3 * i + j) + 1)]); };
-      mw[static_cast<size_t>(k)] += w;
-      sums[static_cast<size_t>(k)][9] += w * (re(0, 0) + re(1, 1) + re(2, 2));
-      const Eigen::Vector3d e1(frames->e1(v, 0), frames->e1(v, 1), frames->e1(v, 2)), e2(frames->e2(v, 0), frames->e2(v, 1), frames->e2(v, 2));
-      if (!e1.allFinite() || !e2.allFinite()) { ++singular; continue; }
-      const Eigen::Vector3d n = e1.cross(e2);
-      const Eigen::Vector3d E[3] = {e1, e2, n};
-      auto P = [&](int a, int b, bool imag) { double x = 0; for (int i = 0; i < 3; ++i) for (int j = 0; j < 3; ++j) x += E[a][i] * (imag ? im(i, j) : re(i, j)) * E[b][j]; return x; };
-      const double c[9] = {P(0, 0, false), P(1, 1, false), P(2, 2, false), P(0, 1, false), P(0, 1, true), P(0, 2, false), P(0, 2, true), P(1, 2, false), P(1, 2, true)};
-      for (int i = 0; i < 9; ++i) sums[static_cast<size_t>(k)][static_cast<size_t>(i)] += w * c[i];
-    }
-    if (singular) warnings.push_back(fname + ": " + std::to_string(singular) + " vertices where the canonical frames are singular: in tensor_total, not in the components");
-    const auto u = unit_of("sum", funit, areas);
-    Json rows = Json::array();
-    for (int k = 0; k < members; ++k) {
-      if (mw[static_cast<size_t>(k)] <= 0) continue;
-      for (std::size_t i = 0; i < kTensor.size(); ++i) {
-        Json row{{"selection_id", sid}, {"code", k}, {"measure", kTensor[i]}, {"value", sums[static_cast<size_t>(k)][i]}, {"weight", mw[static_cast<size_t>(k)]},
-                 {"unit", u ? Json(*u) : Json(nullptr)}, {"computed_utc", stamp}, {"computed_by", by}};
-        if (slice) { row["of_statistic_id"] = slice->first; row["of_index"] = slice->second; } else row["of_field_id"] = fid;
-        rows.push_back(row);
-      }
-    }
-    std::int64_t n = 0;
-    sub.db().tx([&] { n = write_measurements(sub.db(), rows, by); });
-    written += n;
-    fields_out.push_back(Json{{"name", fname}, {"cache", "miss"}, {"rows", n}, {"kind", "tensor"}});
-    if (progress) progress(Json{{"stage", "field"}, {"name", fname}, {"rows", n}});
-  };
-
-  // THE GRADIENT of a scalar Field (nxr's vertex_gradient and vector_stats): per member, over the frames' regular vertices, the registry's
-  // gradient_weight Σa, gradient_1 · gradient_2 · gradient_n Σa·(∇x)_c, gradient_11 · gradient_22 · gradient_12 Σa·(∇x)_c (∇x)_c', gradient_magnitude Σa·|∇x|_tangent
-  static const std::vector<std::string> kGrad = {"gradient_weight", "gradient_1", "gradient_2", "gradient_n", "gradient_11", "gradient_22", "gradient_12", "gradient_magnitude"};
-  auto measure_gradient = [&](const std::string& fid, const std::string& fname, const std::vector<double>& x, const std::optional<std::string>& funit) {
-    const Recipe& gr = gradient_recipe();
-    const std::string& by = gr.by;
-    if (!settle(fid, fname + " (its gradient)", kGrad, gr)) { fields_out.push_back(Json{{"name", fname}, {"gradient", "hit"}}); return; }
-    if (!frames) {
-      frames = read_stored_frames(sub, S.name, nV);
-      if (!frames->canonical) invalid(S.name + " has no canonical frames: a gradient is measured in them (`nxr-neuro frames compute` first)");
-    }
-    // the face gradients, area-weighted onto the vertices
-    std::vector<Eigen::Vector3d> acc(static_cast<size_t>(nV), Eigen::Vector3d::Zero());
-    std::vector<double> wsum(static_cast<size_t>(nV), 0.0);
-    auto pos = [&](std::int32_t v) { return Eigen::Vector3d(S.vertices[static_cast<size_t>(3 * v)], S.vertices[static_cast<size_t>(3 * v + 1)], S.vertices[static_cast<size_t>(3 * v + 2)]); };
-    for (std::int64_t f = 0; f < S.n_faces(); ++f) {
-      const std::int32_t i[3] = {S.faces[static_cast<size_t>(3 * f)], S.faces[static_cast<size_t>(3 * f + 1)], S.faces[static_cast<size_t>(3 * f + 2)]};
-      const Eigen::Vector3d p0 = pos(i[0]), p1 = pos(i[1]), p2 = pos(i[2]);
-      const Eigen::Vector3d nn = (p1 - p0).cross(p2 - p0);
-      const double A2 = nn.norm();
-      if (!(A2 > 0)) continue;
-      const Eigen::Vector3d nh = nn / A2;
-      // ∇φ_k = n × (the edge opposite k) / (2A)
-      const Eigen::Vector3d g = (nh.cross(p2 - p1) * x[static_cast<size_t>(i[0])] + nh.cross(p0 - p2) * x[static_cast<size_t>(i[1])] + nh.cross(p1 - p0) * x[static_cast<size_t>(i[2])]) / A2;
-      for (int k = 0; k < 3; ++k) { acc[static_cast<size_t>(i[k])] += g * (A2 / 2); wsum[static_cast<size_t>(i[k])] += A2 / 2; }
-    }
-    std::vector<std::array<double, 8>> sums(static_cast<size_t>(members));
-    for (auto& a : sums) a.fill(0.0);
-    std::int64_t singular = 0;
-    for (std::int64_t v = 0; v < nV; ++v) {
-      const int k = codes[static_cast<size_t>(v)];
-      if (k < 0) continue;
-      const Eigen::Vector3d e1(frames->e1(v, 0), frames->e1(v, 1), frames->e1(v, 2)), e2(frames->e2(v, 0), frames->e2(v, 1), frames->e2(v, 2));
-      if (!e1.allFinite() || !e2.allFinite() || !(wsum[static_cast<size_t>(v)] > 0)) { ++singular; continue; }
-      const Eigen::Vector3d n = e1.cross(e2);
-      Eigen::Vector3d gv = acc[static_cast<size_t>(v)] / wsum[static_cast<size_t>(v)];
-      gv -= gv.dot(n) * n;                                                 // on the vertex's tangent plane
-      const double c1 = gv.dot(e1), c2 = gv.dot(e2), cn = gv.dot(n), a = wp ? wp[v] : 1.0;
-      auto& s = sums[static_cast<size_t>(k)];
-      s[0] += a; s[1] += a * c1; s[2] += a * c2; s[3] += a * cn; s[4] += a * c1 * c1; s[5] += a * c2 * c2; s[6] += a * c1 * c2; s[7] += a * std::hypot(c1, c2);
-    }
-    if (singular) warnings.push_back(fname + " (its gradient): " + std::to_string(singular) + " vertices where the canonical frames are singular, left out");
-    const std::string u = funit.value_or("");
-    auto unit_g = [&](std::size_t i) -> Json {
-      if (i == 0) return areas ? Json("m\xc2\xb2") : Json(nullptr);
-      if (u.empty()) return Json(nullptr);
-      if (i >= 4 && i <= 6) return Json("(" + u + "/m)\xc2\xb2" + (areas ? "\xc2\xb7m\xc2\xb2" : ""));
-      return Json("(" + u + "/m)" + (areas ? "\xc2\xb7m\xc2\xb2" : ""));
-    };
-    Json rows = Json::array();
-    for (int k = 0; k < members; ++k) {
-      if (!(sums[static_cast<size_t>(k)][0] > 0)) continue;
-      for (std::size_t i = 0; i < kGrad.size(); ++i)
-        rows.push_back(Json{{"selection_id", sid}, {"code", k}, {"of_field_id", fid}, {"measure", kGrad[i]}, {"value", sums[static_cast<size_t>(k)][i]}, {"weight", sums[static_cast<size_t>(k)][0]},
-                            {"unit", unit_g(i)}, {"computed_utc", stamp}, {"computed_by", by}});
-    }
-    std::int64_t n = 0;
-    sub.db().tx([&] { n = write_measurements(sub.db(), rows, by); });
-    written += n;
-    fields_out.push_back(Json{{"name", fname}, {"gradient", "miss"}, {"rows", n}});
-  };
-
-  // THE FIELDS
-  const auto frows = sub.db().all("SELECT * FROM field WHERE subject_id = ? AND manifold_id = ? AND status = 'complete' AND path IS NOT NULL ORDER BY name", {V(sub.id()), V(S.id)});
-  int matched = 0;
-  for (const Row& f : frows) {
-    const std::string fname = text(f, "name");
-    if (!std::regex_match(fname, re)) continue;
-    const std::string vt = opt_text(f, "value_type").value_or("scalar");
-    if (vt == "hermitian3") {
-      ++matched;
-      measure_tensor(fname, text(f, "id"), opt_text(f, "unit"), [&] {
-        ArrayReader r = ArrayReader::open(sub.store(), text(f, "path"));
-        if (r.dtype() != DType::Float32) invalid(fname + ": a hermitian3 Field is float32");
-        const std::vector<std::uint8_t> raw = r.read();
-        std::vector<float> T(raw.size() / 4); std::memcpy(T.data(), raw.data(), raw.size());
-        return T;
-      });
-      continue;
-    }
-    if (vt != "scalar") { warnings.push_back(fname + ": a " + vt + " Field is not measured (scalar and hermitian3 are)"); continue; }
-    ++matched;
-    const std::string fid = text(f, "id");
-    const std::optional<std::string> funit = opt_text(f, "unit");
-    if (!settle(fid, fname, measures, base)) {
-      fields_out.push_back(Json{{"name", fname}, {"cache", "hit"}});
-      if (opt.gradient) measure_gradient(fid, fname, read_doubles(sub, text(f, "path"), nV, fname), funit);
-      continue;
-    }
-    const std::vector<double> x = read_doubles(sub, text(f, "path"), nV, fname);
-    if (opt.gradient) measure_gradient(fid, fname, x, funit);
-    const nxr::partition::Sums s = nxr::partition::accumulate(codes.data(), codes.size(), members, x.data(), wp);
-    const std::vector<double> med = want_median ? nxr::partition::medians(codes.data(), codes.size(), members, x.data()) : std::vector<double>();
-    std::int64_t bad = 0;
-    for (auto c : s.nonfinite) bad += c;
-    if (bad) warnings.push_back(fname + ": " + std::to_string(bad) + " non-finite values; the members holding them are not written");
-    Json rows = Json::array();
-    for (int k = 0; k < members; ++k)
-      for (const auto& m : measures) {
-        const double v = m == "median" ? med[static_cast<size_t>(k)] : nxr::partition::measure(s, k, m);
-        if (std::isnan(v)) continue;
-        const auto u = unit_of(m, funit, areas);
-        rows.push_back(Json{{"selection_id", sid}, {"code", k}, {"of_field_id", fid}, {"measure", m}, {"value", v}, {"weight", s.weight[static_cast<size_t>(k)]},
-                            {"unit", u ? Json(*u) : Json(nullptr)}, {"computed_utc", stamp}, {"computed_by", by}});
-      }
-    std::int64_t n = 0;
-    sub.db().tx([&] { n = write_measurements(sub.db(), rows, by); });
-    written += n;
-    fields_out.push_back(Json{{"name", fname}, {"cache", "miss"}, {"rows", n}});
-    if (progress) progress(Json{{"stage", "field"}, {"name", fname}, {"rows", n}});
-  }
-  // THE MAPS OF STATISTICS on the surface (2026-11-13: a band of a map statistic, `<statistic>_<band>`, read as a map; its rows name the statistic and the band)
-  for (const MapSlice& ms : map_slices(sub.db(), sub.id(), S.id)) {
-    if (!std::regex_match(ms.name, re)) continue;
-    if (ms.value_type != "scalar" && ms.value_type != "hermitian3") { warnings.push_back(ms.name + ": a " + ms.value_type + " map is not measured (scalar and hermitian3 are)"); continue; }
-    ++matched;
-    slice = std::make_pair(text(ms.statistic, "id"), ms.index);
-    if (ms.value_type == "hermitian3") {                        // a band of a tensor statistic: the registry's tensor_* sums, as a hermitian3 Field's
-      measure_tensor(ms.name, std::nullopt, ms.unit, [&] { const auto d = read_map_slice(sub, ms); return std::vector<float>(d.begin(), d.end()); });
-      slice.reset();
-      continue;
-    }
-    if (opt.gradient) warnings.push_back(ms.name + ": the gradient of a statistic's map is not measured (Fields only)");
-    if (!settle(std::nullopt, ms.name, measures, base)) { fields_out.push_back(Json{{"name", ms.name}, {"statistic", text(ms.statistic, "name")}, {"cache", "hit"}}); slice.reset(); continue; }
-    if (ms.n != nV) throw Error(code::invalid_argument, ms.name + ": " + std::to_string(ms.n) + " values for the " + std::to_string(nV) + " vertices of " + S.name);
-    const std::vector<double> x = read_map_slice(sub, ms);
-    const nxr::partition::Sums sm = nxr::partition::accumulate(codes.data(), codes.size(), members, x.data(), wp);
-    const std::vector<double> med = want_median ? nxr::partition::medians(codes.data(), codes.size(), members, x.data()) : std::vector<double>();
-    std::int64_t bad = 0;
-    for (auto c : sm.nonfinite) bad += c;
-    if (bad) warnings.push_back(ms.name + ": " + std::to_string(bad) + " non-finite values; the members holding them are not written");
-    Json rows = Json::array();
-    for (int k = 0; k < members; ++k)
-      for (const auto& m : measures) {
-        const double v = m == "median" ? med[static_cast<size_t>(k)] : nxr::partition::measure(sm, k, m);
-        if (std::isnan(v)) continue;
-        const auto u = unit_of(m, ms.unit, areas);
-        rows.push_back(Json{{"selection_id", sid}, {"code", k}, {"of_statistic_id", text(ms.statistic, "id")}, {"of_index", ms.index}, {"measure", m}, {"value", v},
-                            {"weight", sm.weight[static_cast<size_t>(k)]}, {"unit", u ? Json(*u) : Json(nullptr)}, {"computed_utc", stamp}, {"computed_by", by}});
-      }
-    std::int64_t n = 0;
-    sub.db().tx([&] { n = write_measurements(sub.db(), rows, by); });
-    written += n;
-    fields_out.push_back(Json{{"name", ms.name}, {"statistic", text(ms.statistic, "name")}, {"cache", "miss"}, {"rows", n}});
-    if (progress) progress(Json{{"stage", "field"}, {"name", ms.name}, {"rows", n}});
-    slice.reset();
-  }
-  if (!matched) throw Error(code::no_such_row, sub.name() + ": no scalar or hermitian3 Field, nor a map of a statistic, on " + S.name + " matches '" + opt.fields + "'");
-  drain(ds.db(), ds.node_store());
-
-  MeasureComputeResult out;
-  out.info = Json{{"stage", "result"}, {"labelling", opt.labelling}, {"surface", S.name}, {"members", members}, {"weight", opt.weight}, {"measures", measures},
-                  {"recipe", Json{{"name", rname}, {"version", version}}}, {"computed_by", by},
-                  {"recipes", [&] { Json r = Json::array({base.name + "@" + std::to_string(base.version)}); if (grad_recipe) r.push_back(grad_recipe->name + "@" + std::to_string(grad_recipe->version));
-                                     if (tensor_recipe) r.push_back(tensor_recipe->name + "@" + std::to_string(tensor_recipe->version)); return r; }()}, {"fields", fields_out}, {"rows", written}, {"warnings", warnings}};
-  return out;
-}
 
 // ── THE EXPORT ───────────────────────────────────────────────────────────────────────────────────────────────────────────────
 namespace {
@@ -540,8 +118,8 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
   for (const auto& st : opt.statistics) if (!known.count(st)) invalid("--statistics: " + st + " is not one of mean, sd, variance, rms, mean_square, max, min, abs_max, sum, area, n_elements, "
                                                                      "tensor_* (a hermitian3 Field's sums), normal_share, anisotropy, circularity, axis_deg, power_density (read from them), "
                                                                      "gradient_* (a gradient's sums), gradient_strength, gradient_coherence, gradient_direction_deg (read from them)");
-  nxr::spectral::Target target;
-  try { target = nxr::spectral::parseTarget(opt.scaling); } catch (const std::invalid_argument& e) { invalid(std::string("--scaling ") + e.what()); }
+  nxr::signal::spectral_scaling::Target target;
+  try { target = nxr::signal::spectral_scaling::parseTarget(opt.scaling); } catch (const std::invalid_argument& e) { invalid(std::string("--scaling ") + e.what()); }
   // how a statistic of a Field follows its values: 1 (a factor: mean, max, …, sd), 2 (the factor squared: mean_square, variance), 0 (a ratio, unchanged)
   auto power_of = [](const std::string& st) -> int {
     static const std::set<std::string> one = {"mean", "max", "min", "sum", "abs_max", "sd", "rms", "tensor_11", "tensor_22", "tensor_nn", "tensor_12_re", "tensor_12_im",
@@ -550,11 +128,11 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
     static const std::set<std::string> zero = {"normal_share", "anisotropy", "circularity", "axis_deg"};
     return one.count(st) ? 1 : two.count(st) ? 2 : zero.count(st) ? 0 : -1;
   };
-  if (target != nxr::spectral::Target::Stored)
+  if (target != nxr::signal::spectral_scaling::Target::Stored)
     for (const auto& st : opt.statistics) {
       if (st == "area" || st == "n_elements") continue;
       if (power_of(st) < 0) invalid("--scaling " + opt.scaling + ": the statistic " + st + " is not converted (a gradient's sums): export it with --scaling stored");
-      if (!nxr::spectral::isLinear(target) && st != "mean" && st != "max" && st != "min" && power_of(st) != 0)
+      if (!nxr::signal::spectral_scaling::isLinear(target) && st != "mean" && st != "max" && st != "min" && power_of(st) != 0)
         invalid("--scaling " + opt.scaling + " is non-linear: it applies to mean, max and min (of the stored power), not to " + st);
     }
   std::regex re;
@@ -563,9 +141,9 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
   const Database db = Database::open(folder / "dataset.sqlite", false, "nxr-neuro", true);
 
   std::vector<Row> subjects;
-  if (opt.subjects.empty()) subjects = db.all("SELECT id, name FROM subject WHERE kind = 'subject' AND status = 'complete' ORDER BY name");
+  if (opt.subjects.empty()) subjects = complete_subjects(db);
   else for (const auto& n : opt.subjects) {
-    const auto r = db.one("SELECT id, name FROM subject WHERE name = ? AND status = 'complete'", {V(n)});
+    const auto r = find_subject(db, n);
     if (!r) throw Error(code::no_such_row, "no subject " + n);
     subjects.push_back(*r);
   }
@@ -588,16 +166,15 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
 
   for (const Row& subj : subjects) {
     const std::string sname = text(subj, "name"), sid_subj = text(subj, "id");
-    const auto sel = db.one("SELECT * FROM selection WHERE subject_id = ? AND name = ? AND type = 'set' AND array_path IS NOT NULL AND status = 'complete'", {V(sid_subj), V(opt.labelling)});
+    const auto sel = nxr::io::selection::labelling_row(db, sid_subj, opt.labelling);
     if (!sel) { per_subject.push_back(Json{{"subject", sname}, {"missing", "no partition " + opt.labelling}}); continue; }
     const std::string sid = text(*sel, "id");
     std::map<std::int64_t, std::string> names;
-    if (!is_null(*sel, "dictionary_id"))
-      for (const Row& e : db.all("SELECT code, name FROM dictionary_entry WHERE dictionary_id = ?", {V(text(*sel, "dictionary_id"))})) names[integer(e, "code")] = text(e, "name");
+    if (!is_null(*sel, "dictionary_id")) names = nxr::io::selection::lookup_names(db, text(*sel, "dictionary_id"));
     auto member_name = [&](std::int64_t c) { const auto it = names.find(c); return it != names.end() ? it->second : "member " + std::to_string(c); };
     // the Fields: one per condition
     std::map<std::string, Row> by_cond;
-    for (const Row& f : db.all("SELECT * FROM field WHERE subject_id = ? AND manifold_id = ? AND status = 'complete' ORDER BY rowid", {V(sid_subj), V(text(*sel, "manifold_id"))})) {
+    for (const Row& f : fields_on_manifold(db, sid_subj, text(*sel, "manifold_id"))) {
       std::smatch m;
       const std::string fname = text(f, "name");
       if (!std::regex_match(fname, m, re)) continue;
@@ -623,17 +200,15 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
     auto take = [&](const std::optional<Row>& f, const std::string& cond, const std::string& st, int st_order) {
       const std::string ing = ingredient(st);
       Json q = {{"selectionId", sid}, {"measure", st}};
-      std::vector<Value> a = {V(sid), V(ing)};
-      std::string w = "selection_id = ? AND measure = ? AND ";
+      nxr::io::selection::MeasuredOf of_what;
       if (f && slice_index.count(cond)) {                       // a statistic's map: its rows name the statistic and the slice
         q["ofStatisticId"] = text(*f, "id"); q["ofIndex"] = slice_index.at(cond);
-        w += "of_statistic_id = ? AND of_index = ?"; a.push_back(V(text(*f, "id"))); a.push_back(V(slice_index.at(cond)));
+        of_what.statistic_id = text(*f, "id"); of_what.index = slice_index.at(cond);
       } else {
         q["ofFieldId"] = f ? Json(text(*f, "id")) : Json(nullptr);
-        if (f) { w += "of_field_id = ?"; a.push_back(V(text(*f, "id"))); } else w += "of_field_id IS NULL";
-        if (has_column(db, "selection_measurement", "of_statistic_id")) w += " AND of_statistic_id IS NULL";
+        if (f) of_what.field_id = text(*f, "id");
       }
-      const auto meta = db.all("SELECT DISTINCT computed_by, unit FROM selection_measurement WHERE " + w, a);
+      const auto meta = nxr::io::selection::computed_by_and_unit(db, sid, ing, of_what);
       if (meta.empty()) return;
       std::set<std::string> rvs;
       std::optional<std::string> unit;
@@ -641,7 +216,7 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
       for (const auto& rv : rvs) if (!wanted(rv)) invalid(sname + ": the " + ing + " of " + (f ? text(*f, "name") : std::string("the members")) + " on " + opt.labelling + " was made by " + rv + ", not " + *opt.recipe);
       const std::string rv = *rvs.begin();
       if (!recipes.contains(rv)) {
-        const auto e = db.one("SELECT params_json FROM dictionary_entry WHERE name = ? AND dictionary_id IN (SELECT id FROM dictionary WHERE name = 'recipes')", {V(rv)});
+        const auto e = nxr::io::selection::lookup_entry_named(db, "recipes", rv);
         recipes[rv] = e ? Json::parse(opt_text(*e, "params_json").value_or("null"), nullptr, false) : Json(nullptr);
       }
       Json got;
@@ -696,15 +271,15 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
       }
       // the scaling chosen at read, from the Field's producer record
       double factor = 1.0;
-      std::optional<nxr::spectral::Scaling> conv;
-      if (f && target != nxr::spectral::Target::Stored && power_of(st) != 0) {
+      std::optional<nxr::signal::spectral_scaling::Scaling> conv;
+      if (f && target != nxr::signal::spectral_scaling::Target::Stored && power_of(st) != 0) {
         const auto rec = spectral_record(Json::parse(opt_text(*f, "producer_json").value_or("{}"), nullptr, false));
         if (!rec) invalid(sname + ": " + text(*f, "name") + " has no spectral scaling record (not a spectrum, a relative power, or computed before 2026-11-13): export it with --scaling stored");
         try {
-          if (nxr::spectral::isLinear(target)) factor = std::pow(nxr::spectral::linearFactor(rec->scaling, target), power_of(st));
+          if (nxr::signal::spectral_scaling::isLinear(target)) factor = std::pow(nxr::signal::spectral_scaling::linearFactor(rec->scaling, target), power_of(st));
           else conv = rec->scaling;
         } catch (const std::invalid_argument& e) { invalid(sname + ": " + text(*f, "name") + ": " + e.what()); }
-        const std::string base = nxr::spectral::unitOf(rec->power_unit, rec->scaling, target);
+        const std::string base = nxr::signal::spectral_scaling::unitOf(rec->power_unit, rec->scaling, target);
         unit = power_of(st) == 2 ? "(" + base + ")\xc2\xb2" : base;
       }
       for (const auto& r : got) {
@@ -719,7 +294,7 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
         c.unit = unit_text(st, unit).value_or(""); c.recipe = rv; c.field_order = f ? cond_order[cond] : -1; c.member_order = member_order[member]; c.stat_order = st_order;
         if (!r["value"].is_null()) {
           const double v = r["value"].get<double>();
-          values[sname][var] = conv ? nxr::spectral::convert(v, *conv, target) : v * factor;
+          values[sname][var] = conv ? nxr::signal::spectral_scaling::convert(v, *conv, target) : v * factor;
         }
       }
     };
@@ -826,7 +401,7 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
       tables_out.push_back(Json{{"name", tb.name}, {"columns", tb.cols.size() + 1}});
     }
   }
-  const auto dsrow = db.one("SELECT id, name FROM dataset");
+  const auto dsrow = dataset_row(db);
   Json prov = {{"table", opt.table}, {"generated_utc", now_utc()}, {"generated_by", std::string("nxr-neuro ") + NXR_NEURO_VERSION + " measure export"},
                {"dataset", Json{{"path", fs::absolute(folder).string()}, {"id", dsrow ? text(*dsrow, "id") : ""}, {"name", dsrow ? text(*dsrow, "name") : ""}}},
                {"request", Json{{"labelling", opt.labelling}, {"fields", opt.fields}, {"statistics", opt.statistics}, {"recipe", opt.recipe ? Json(*opt.recipe) : Json(nullptr)}, {"exclude", opt.exclude}, {"scaling", opt.scaling}}},

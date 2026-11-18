@@ -1,7 +1,7 @@
 // nxr-pipelines — the registered step of the CROSSINGS of tracks through tiles (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 7):
 //
 //   tile_crossings   after   a crossing is ONE TRACK'S STEPS inside ONE TILE of the surface ladder at `level` (one sense): the steps' unit directions carried to the tile's centre (the vector heat method's transport: the
-//                            Levi-Civita form, nxr `Tiles.crossings`, compute nxr::crossings), added, and made a unit vector. The crossings of a tile are added and counted, per sense and per STAGE (the burst frames, and the onset /
+//                            Levi-Civita form, nxr `Tiles.crossings`, compute nxr::select::track_crossings), added, and made a unit vector. The crossings of a tile are added and counted, per sense and per STAGE (the burst frames, and the onset /
 //                            within / offset stages when given). Stored as ONE MEASUREMENT over the level's tiles, `tile_crossings`: [rows = stage × sense × members = the tiles + a `bridge` member × 4 = the vector (x y z)
 //                            then the count]; rows 2i and 2i+1 are stage i's senses +1 and −1. A crossing inside the callosal bridge (no tile, no centre to carry to) is in the `bridge` member (the last), its unit
 //                            vectors added in 3-D.
@@ -16,14 +16,16 @@
 #include <map>
 #include <memory>
 
-#include "nxr/chart.h"
-#include "nxr/crossings.h"
-#include "nxr/frames.h"
-#include "nxr/ladder.h"
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/select/track_crossings.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/pipelines/registry.h"
+#include "nxr/pipelines/select_nodes.h"
 #include "nxr/pipelines/spatial_band.h"
 
 namespace nxr::pipelines::graph {
@@ -31,8 +33,8 @@ namespace nxr::pipelines::graph {
 namespace {
 void need(bool ok, const std::string& msg) { if (!ok) refuse(msg); }
 struct CrossState {
-  nxr::crossings::Surface surface;          // over the GLUED vertices: positions, normals, e1, e2, rho of each (the bridge has none), tile
-  nxr::frames::Mat3 e1, e2;                 // the native surface's frames, for the embedding at the centres
+  nxr::select::track_crossings::Surface surface;          // over the GLUED vertices: positions, normals, e1, e2, rho of each (the bridge has none), tile
+  nxr::geometry::Mat3 e1, e2;                 // the native surface's frames, for the embedding at the centres
   std::vector<int> centres;                 // [tiles] the native centre vertex of each tile (-1 empty)
   int tiles = 0;
   std::vector<std::string> stages;
@@ -40,6 +42,7 @@ struct CrossState {
   double fps = 0, origin = 0;
   Json record;
   bool as_statistic = false;
+  std::string level_selection_id, level_selection;   // the Selection the crossings are over (the level's tiles): a surrogate draw's statistic records it, so the comparison takes the data's and the draws' over the same one
   int level = 0;
 };
 const char* const kStageNames[] = {"burst", "onset", "within", "offset"};
@@ -51,13 +54,13 @@ const char* const kWarnings[] = {
 
 void add_crossings_steps(std::vector<StepSpec>& r) {
   StepSpec s;
-  s.name = "tile_crossings"; s.kind = "after";
-  s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64, "each step of a track is read from the previous core of the same track", "one core back along the same track (a step runs from the previous core's centre)", true);
+  s.name = "select.tile_crossings"; s.kind = "after";
+  s.traits = node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64, "each step of a track is read from the previous core of the same track: it runs once over the whole event table (never per block), so it is a window of two cores along a track, with no state carried between blocks", "one core back along the same track (a step runs from the previous core's centre)");
   s.inputs = {"events", "frame", "sense", "centre", "track", "tiles", "onset", "within", "offset"};
   s.optional = {"onset", "within", "offset"};
   s.outputs = {"crossings"};
-  s.parameters = Json{{"level", nullptr}, {"stages", Json::array({"burst"})}, {"as", "measurement"}};
-  s.matches = "nxr vortex_cores.Tiles.crossings (a track's steps in one tile, carried to the tile centre by the vector heat method, added, made a unit vector; per tile and sense); compute nxr::crossings, nxr::ladder::leviCivita";
+  s.parameters = Json{{"spatial_scale", nullptr}, {"stages", Json::array({"burst"})}, {"as", "measurement"}};
+  s.matches = "nxr vortex_cores.Tiles.crossings (a track's steps in one tile, carried to the tile centre by the vector heat method, added, made a unit vector; per tile and sense); compute nxr::select::track_crossings, nxr::select::leviCivita";
   s.description = "the CROSSINGS of the run's tracks through the tiles of the surface ladder at `level`: each core after the first of a stored track is a STEP from the previous core's centre; a crossing is one track's steps in "
                   "one tile and one sense, their unit directions (projected on the tangent plane at the nearest vertex) carried to the tile's centre along the surface (the Levi-Civita form, the vector heat method), added and made a "
                   "unit vector. Per tile, sense and STAGE (`burst`: every step; `onset`, `within`, `offset`: the steps whose frame starts inside that stage's spans, the inputs of those names): the crossings' unit vectors added "
@@ -75,7 +78,9 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     need(tr.cls == "measurement" && tr.facts.value("measure", std::string()) == "track" && tr.facts["over"].value("events_kind", std::string()) == "cores", "tile_crossings: track must be the labelling core → track (`tracks`' `track`)");
     const Value& t = ins.at("tiles");
     need(t.cls == "selection" && t.row && nxr::io::text(*t.row, "type") == "ladder", "tile_crossings: tiles must be a surface's tile ladder (`selection: ladder`)");
-    need(p["level"].is_number_integer() && p["level"].get<int>() >= 0, "tile_crossings: level is the ladder level whose tiles the crossings are counted in (a whole number ≥ 0)");
+    need(p["spatial_scale"].is_string(), "tile_crossings: spatial_scale is a quantity (a tile diameter \"20 mm\", \"parts 16\", a wavelength) stating the tiles the crossings are counted in; a bare level index is never a parameter");
+    Json snapped;
+    const int level = level_of_ladder(c.bound, t, p["spatial_scale"], "tile_crossings", &snapped);
     need(p["stages"].is_array() && !p["stages"].empty(), "tile_crossings: stages is a list: burst, and any of onset, within, offset");
     for (const auto& st : p["stages"]) {
       need(st.is_string() && std::find_if(std::begin(kStageNames), std::end(kStageNames), [&](const char* k) { return st == k; }) != std::end(kStageNames), "tile_crossings: stage " + st.dump() + ": burst, onset, within or offset");
@@ -87,13 +92,13 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     }
     std::optional<nxr::io::Row> lv;
     for (const auto& m : c.bound.level_members(nxr::io::text(*t.row, "id")))
-      if (nxr::io::integer(m, "member_ordinal") == static_cast<std::int64_t>(p["level"].get<int>())) { lv = m; break; }
-    need(lv.has_value(), "tile_crossings: the ladder " + nxr::io::text(*t.row, "name") + " has no level " + std::to_string(p["level"].get<int>()));
+      if (nxr::io::integer(m, "member_ordinal") == static_cast<std::int64_t>(level)) { lv = m; break; }
+    need(lv.has_value(), "tile_crossings: the ladder " + nxr::io::text(*t.row, "name") + " has no level " + std::to_string(level));
     need(p["as"] == "measurement" || p["as"] == "statistic", "tile_crossings: as is measurement (the run's own crossings, over the level's tiles) or statistic (a null draw's: a node of its own, never the data's rows)");
     if (p["as"] == "statistic") {                      // a lag-free null's draw: the same array as a statistic beside the recording, so the data's measurement is never touched
       Value z = ev;
       z.row.reset(); z.cls = "statistic"; z.chunked = false; z.unit.reset(); z.manifolds.clear(); z.time.reset();
-      z.facts = Json{{"measure", "crossing_sum"}, {"generic", true}, {"over", Json{{"selection_id", nxr::io::text(*lv, "id")}, {"selection", nxr::io::text(*lv, "name")}, {"level", p["level"]}}}, {"stages", p["stages"]}};
+      z.facts = Json{{"measure", "crossing_sum"}, {"generic", true}, {"over", Json{{"selection_id", nxr::io::text(*lv, "id")}, {"selection", nxr::io::text(*lv, "name")}, {"level", level}, {"scale", Json{{"stated", p["spatial_scale"]}, {"snapped", snapped}}}}}, {"stages", p["stages"]}};
       return Values{{"crossings", z}};
     }
     Value y = ev;
@@ -101,50 +106,52 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     y.cls = "measurement";
     y.chunked = false;
     y.unit.reset();
-    y.facts = Json{{"measure", "tile_crossings"}, {"over", Json{{"selection_id", nxr::io::text(*lv, "id")}, {"selection", nxr::io::text(*lv, "name")}, {"level", p["level"]}}}, {"stages", p["stages"]}};
+    y.facts = Json{{"measure", "tile_crossings"}, {"over", Json{{"selection_id", nxr::io::text(*lv, "id")}, {"selection", nxr::io::text(*lv, "name")}, {"level", level}, {"scale", Json{{"stated", p["spatial_scale"]}, {"snapped", snapped}}}}}, {"stages", p["stages"]}};
     return Values{{"crossings", y}};
   };
   s.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     CrossState st;
     const Value &ev = ins.at("events"), &t = ins.at("tiles");
     st.fps = ev.rate; st.origin = ev.origin;     // the frame tiling's rate and origin are the events' (tiles_of); re-read at run from the cores' own meta
-    const int level = p["level"].get<int>();
+    const int level = level_of_ladder(c.bound, t, p["spatial_scale"], "tile_crossings");
     const auto man = c.bound.manifold(t.manifolds[0]);
     const SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);
     const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
     const SurfaceLevel SL = c.bound.surface_level(S, level);
     st.tiles = static_cast<int>(SL.nodes);
     st.as_statistic = p["as"] == "statistic"; st.level = level;
+    for (const auto& m : c.bound.level_members(nxr::io::text(*t.row, "id")))
+      if (nxr::io::integer(m, "member_ordinal") == static_cast<std::int64_t>(level)) { st.level_selection_id = nxr::io::text(m, "id"); st.level_selection = nxr::io::text(m, "name"); break; }
     // the frames: the canonical ones when stored, else the signpost basis (said); the transport of each tile centre's frame to every vertex of its tile
-    nxr::chart::ChartKit kit(S.vertices.data(), nV, S.faces.data(), nF);
+    nxr::geometry::ChartKit kit(S.vertices.data(), nV, S.faces.data(), nF);
     const StoredFrames sf = c.bound.stored_frames(S.name, nV);
-    std::string gauge = "canonical frames";
+    std::string frame = "canonical";                                     // the frame (G6: "frame", never "gauge")
     if (sf.canonical) { st.e1 = sf.e1; st.e2 = sf.e2; }
     else {
-      const nxr::chart::Basis b = kit.basis();
+      const nxr::geometry::Basis b = kit.basis();
       st.e1.resize(nV, 3); st.e2.resize(nV, 3);
       for (int i = 0; i < nV; ++i) for (int k = 0; k < 3; ++k) { st.e1(i, k) = b.e1[static_cast<std::size_t>(3 * i + k)]; st.e2(i, k) = b.e2[static_cast<std::size_t>(3 * i + k)]; }
-      gauge = "signpost basis";
+      frame = "gauge";
       if (c.say) c.say(Json{{"stage", "tile_crossings"}, {"message", "no canonical frames stored for " + S.name + " (`frames compute`): the signpost basis carries the crossings"}});
     }
-    const Eigen::VectorXd gaugeAngle = nxr::frames::gaugeAngle(kit, st.e1);
-    nxr::ladder::Mesh mesh; mesh.n = nV; mesh.positions = S.vertices; mesh.faces = S.faces;
-    const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
+    const Eigen::VectorXd gaugeAngle = nxr::geometry::gaugeAngle(kit, st.e1);
+    nxr::select::Mesh mesh; mesh.n = nV; mesh.positions = S.vertices; mesh.faces = S.faces;
+    const std::vector<double> area = nxr::select::vertexAreas(mesh);
     std::vector<char> singular(static_cast<std::size_t>(nV), 0);
     for (int i = 0; i < nV; ++i) singular[static_cast<std::size_t>(i)] = !(std::isfinite(st.e1(i, 0)) && std::isfinite(st.e1(i, 1)) && std::isfinite(st.e1(i, 2)));
-    st.centres = nxr::ladder::tileCentres(S.vertices.data(), SL.tile, st.tiles, area, singular);
-    const nxr::ladder::LeviCivita lc = nxr::ladder::leviCivita(kit, st.e1, st.e2, gaugeAngle, SL.tile, st.tiles, st.centres);
-    const nxr::frames::Mat3 nrm = nxr::frames::vertexNormals(S.vertices.data(), nV, S.faces.data(), nF);
+    st.centres = nxr::select::tileCentres(S.vertices.data(), SL.tile, st.tiles, area, singular);
+    const nxr::select::LeviCivita lc = nxr::select::leviCivita(kit, st.e1, st.e2, gaugeAngle, SL.tile, st.tiles, st.centres);
+    const nxr::geometry::Mat3 nrm = nxr::geometry::vertexNormals(S.vertices.data(), nV, S.faces.data(), nF);
     // the GLUED vertices (the cores live there): the kept ones in `support` order, then the bridge's
     const internal::GluedDomain dom = c.bound.glued_domain(S);
     if (!dom.found) refuse("tile_crossings: " + dom.why);
     const std::int64_t Vg = dom.surface.n_vertices(), kept = static_cast<std::int64_t>(dom.support.size());
-    nxr::crossings::Surface& G = st.surface;
+    nxr::select::track_crossings::Surface& G = st.surface;
     G.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(dom.surface.vertices.data(), Vg, 3);
-    const nxr::frames::Mat3 gn = nxr::frames::vertexNormals(dom.surface.vertices.data(), static_cast<int>(Vg), dom.surface.faces.data(), static_cast<int>(dom.surface.n_faces()));
+    const nxr::geometry::Mat3 gn = nxr::geometry::vertexNormals(dom.surface.vertices.data(), static_cast<int>(Vg), dom.surface.faces.data(), static_cast<int>(dom.surface.n_faces()));
     G.normals = gn; G.e1 = Eigen::MatrixXd::Constant(Vg, 3, std::nan("")); G.e2 = G.e1;
     G.rho = Eigen::VectorXd::Constant(Vg, std::nan(""));
-    G.node.assign(static_cast<std::size_t>(Vg), nxr::crossings::kBridge);
+    G.node.assign(static_cast<std::size_t>(Vg), nxr::select::track_crossings::kBridge);
     for (std::int64_t i = 0; i < kept; ++i) {
       const std::int32_t v = dom.support[static_cast<std::size_t>(i)];
       G.normals.row(i) = nrm.row(v); G.e1.row(i) = st.e1.row(v); G.e2.row(i) = st.e2.row(v);
@@ -160,7 +167,7 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
           sp.emplace_back(r.first, r.second);
       st.spans.push_back(std::move(sp));
     }
-    st.record = Json{{"level", level}, {"tiles", st.tiles}, {"surface", S.name}, {"glued", Json{{"vertices", Vg}, {"kept", kept}, {"bridge", Vg - kept}}}, {"gauge", gauge}, {"stages", p["stages"]},
+    st.record = Json{{"level", level}, {"tiles", st.tiles}, {"surface", S.name}, {"glued", Json{{"vertices", Vg}, {"kept", kept}, {"bridge", Vg - kept}}}, {"frame", frame}, {"gauge", nxr::pipelines::gauge_block(kit, nV, S.id)}, {"stages", p["stages"]},
                      {"rows", "stage × sense: row 2i the stage i's sense +1, row 2i+1 sense -1"}, {"members", "the level's tiles, then `bridge`"}, {"components", "crossing_sum_x, crossing_sum_y, crossing_sum_z, crossings"},
                      {"reference", "nxr vortex_cores.Tiles.crossings"}, {"warnings", Json::array({kWarnings[0], kWarnings[1], kWarnings[2]})}};
     return std::any(std::make_shared<CrossState>(std::move(st)));
@@ -173,7 +180,7 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     if (sn.cols != E || tk.cols != E || ce.cols != E || ce.comps != 3) throw std::invalid_argument("tile_crossings: the cores' attributes are of different lengths");
     const double fps = ev.meta["tiles_of"]["fps"].get<double>(), origin = ev.meta["tiles_of"]["origin"].get<double>();
     // the steps of the stored tracks: each core after the first of its track, from the previous core's centre
-    nxr::crossings::Steps steps;
+    nxr::select::track_crossings::Steps steps;
     std::vector<std::int64_t> sframe;
     std::map<std::int64_t, std::int64_t> last;
     std::vector<std::array<double, 3>> from, disp;
@@ -208,10 +215,10 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
           for (const auto& [a, b] : st.spans[g]) if (tj >= a && tj < b) { use[static_cast<std::size_t>(i)] = 1; break; }
         }
       }
-      const nxr::crossings::Result res = nxr::crossings::crossings(steps, use, st.surface, st.tiles);
+      const nxr::select::track_crossings::Result res = nxr::select::track_crossings::crossings(steps, use, st.surface, st.tiles);
       for (int sx = 0; sx < 2; ++sx) {
         const std::int64_t row = 2 * static_cast<std::int64_t>(g) + sx;
-        const Eigen::MatrixXd v = nxr::crossings::embedAtCentres(res.sum.col(sx), st.centres, st.e1, st.e2);
+        const Eigen::MatrixXd v = nxr::select::track_crossings::embedAtCentres(res.sum.col(sx), st.centres, st.e1, st.e2);
         for (int t = 0; t < st.tiles; ++t) {
           double* o = out.data.data() + ((row * T + t) * C);
           for (int k = 0; k < 3; ++k) o[k] = v(t, k);
@@ -233,9 +240,9 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
       out.meta["generic_statistic"] = Json{{"measure", "crossing_sum"}, {"method", "lagfree_null"}, {"shape", Json::array({R, T, C})},
                                            {"axes", Json::array({Json{{"name", "stage_sense"}, {"values", rows}, {"size", R}}, Json{{"name", "tile"}, {"values", names}, {"size", T}}, Json{{"name", "component"}, {"size", C}}})},
                                            {"components", Json::array({Json{{"name", "crossing_sum_x"}}, Json{{"name", "crossing_sum_y"}}, Json{{"name", "crossing_sum_z"}}, Json{{"name", "crossings"}}})},
-                                           {"n_members", n},
-                                           {"description", "the crossings of the tracks of a lag-free null draw through the tiles of level " + std::to_string(st.level) + ": per stage and sense, per tile then the bridge, the vector sum (x y z) and the count"},
-                                           {"options", Json{{"level", st.level}, {"tiles", st.tiles}, {"stages_used", used}, {"crossings", st.record}}}};
+                                           {"n_members", n}, {"partition_selection_id", st.level_selection_id},
+                                           {"description", "the crossings of the tracks of a lag-free surrogate draw through the tiles of level " + std::to_string(st.level) + ": per stage and sense, per tile then the bridge, the vector sum (x y z) and the count"},
+                                           {"options", Json{{"level", st.level}, {"tiles", st.tiles}, {"over", Json{{"selection_id", st.level_selection_id}, {"selection", st.level_selection}}}, {"stages_used", used}, {"crossings", st.record}}}};
     }
     return Arrays{{"crossings", std::move(out)}};
   };

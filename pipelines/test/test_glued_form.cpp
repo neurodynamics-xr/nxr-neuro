@@ -15,12 +15,12 @@
 
 #include "check.h"
 #include "mesh_helpers.h"
-#include "nxr/forms.h"
+#include "nxr/signal/forms.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -85,23 +85,23 @@ int main() {
     b.compose([&] { SurfaceOptions o2; o2.name = "cortex"; o2.sphere = U; std::vector<double> p1(pos.begin(), pos.begin() + static_cast<std::ptrdiff_t>(3 * U.size() / 3)); add_surface(b, o2, p1, F0); });
   }
   SubjectWriter s1 = SubjectWriter::open(ds, "G1");
-  tiles_compute(ds, s1, TilesComputeOptions{});
-  const SurfaceInput S = read_surface(s1, std::nullopt, true);
+  nxrtest::make_tiles(ds, s1);
+  const SurfaceInput S = read_surface(s1, std::string("cortex"), true);
   // the free currents' curl on the native mesh (tested against nxr in test_form_columns), zero on the wall's vertices of the glued domain by construction (the support excludes them)
   std::vector<float> P32(pos.begin(), pos.end());
-  const auto op = nxr::forms::assembleFaceGradient(P32.data(), faces.data(), nv, nf);
+  const auto op = nxr::signal::assembleFaceGradient(P32.data(), faces.data(), nv, nf);
   Eigen::MatrixXd K(3 * nv, cols);
   for (int r = 0; r < 3 * nv; ++r) for (int c = 0; c < cols; ++c) K(r, c) = q[static_cast<std::size_t>(r * cols + c)];
-  const Eigen::MatrixXd X = nxr::forms::formOfFreeColumns(nxr::forms::Form::curl_tan, K, op);
+  const Eigen::MatrixXd X = nxr::signal::formOfFreeColumns(nxr::signal::Form::curl_tan, K, op);
   CHECK(rel(X, curl, cols) < 1e-4);
 
   // a cortex of two pieces with no stored glue: refused, saying what to run
   {
     const SurfaceLevel SL = read_surface_level(s1, S, 3);
     const internal::GluedDomain none = internal::glued_domain(s1, S);
-    CHECK(!none.found && has(none.why, "eigen solve"));
+    CHECK(!none.found && has(none.why, "run glue"));
     SpatialBandOptions o; o.glued = true; o.transform = "chebyshev";
-    CHECK(has(what_of([&] { make_spatial_band(ds, s1, S, SL, o); }), "eigen solve"));
+    CHECK(has(what_of([&] { make_spatial_band(ds, s1, S, SL, o); }), "run glue"));
     CHECK(has(what_of([&] { make_spatial_band(S, SL, o); }), "subject"));              // without a subject there is no glued surface
   }
 
@@ -160,8 +160,8 @@ int main() {
   // ONE CLOSED PIECE: its own glued domain, no bridge
   {
     SubjectWriter s2 = SubjectWriter::open(ds, "G2");
-    tiles_compute(ds, s2, TilesComputeOptions{});
-    const SurfaceInput S2 = read_surface(s2, std::nullopt, true);
+    nxrtest::make_tiles(ds, s2);
+    const SurfaceInput S2 = read_surface(s2, std::string("cortex"), true);
     const SurfaceLevel L2 = read_surface_level(s2, S2, 3);
     const internal::GluedDomain d = internal::glued_domain(s2, S2);
     CHECK(d.found && d.surface.n_vertices() == S2.n_vertices() && d.support.size() == static_cast<std::size_t>(S2.n_vertices()));

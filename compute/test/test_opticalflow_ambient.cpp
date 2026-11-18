@@ -1,4 +1,4 @@
-// nxr::flow, the ambient / triangle functional (Lefevre and Baillet 2008, as Brainstorm's bst_opticalflow):
+// nxr::signal, the ambient / triangle functional (Lefevre and Baillet 2008, as Brainstorm's bst_opticalflow):
 // (1) the comparison with bst_opticalflow (golden made by CALLING it, never reading it, gen_opticalflow_bst_golden.m) on a tiny irregular sphere: REPORTED, and held to the
 //     direction (cos) only. The two are NOT yet equal to 1e-10 (see the PR): same direction, speed about half of ours, so something in Brainstorm's discretisation is not what is
 //     written here and cannot be settled without its source;
@@ -9,9 +9,9 @@
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
-#include "nxr/opticalflow.h"
+#include "nxr/signal/opticalflow.h"
 
-using namespace nxr::flow;
+using namespace nxr::signal;
 using Eigen::MatrixXd;
 
 static double rel(const MatrixXd& a, const MatrixXd& b) { return a.rows() != b.rows() || a.cols() != b.cols() ? 1e9 : (a - b).cwiseAbs().maxCoeff() / std::max(1e-300, b.cwiseAbs().maxCoeff()); }
@@ -22,8 +22,8 @@ int main() {
     const MatrixXd Vg = g.mat("positions"), Fg = g.mat("faces"), A = g.mat("A");
     const MatrixXd b1 = g.mat("bst_1_1"); g.mat("bst_1_2"); g.mat("bst_1_3");
     const RowMat3 pos = Vg;
-    const FaceMat faces = Fg.cast<std::int32_t>();
-    const RowMat3 nrm = vertexNormals(pos, faces);
+    const nxr::operators::FaceMat faces = Fg.cast<std::int32_t>();
+    const RowMat3 nrm = rheomeVertexNormals(pos, faces);
     const FlowForm lb{Regulariser::Ambient, DataFit::Triangle};
     {
         const MatrixXd v = opticalflowScalar(A, pos, faces, nrm, 1.0, lb);

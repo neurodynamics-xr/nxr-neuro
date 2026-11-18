@@ -45,7 +45,7 @@ Sphere fitSphere(const MatrixXd& points, const VectorXd& weights, const SphereFi
       const double R = (w.array() * d.array()).sum() / w.sum();
       return (w.array() * (d.array() - R).square()).sum() / w.sum();
     };
-    c = nelderMead(cost, c, opt.minimiser).x;
+    c = fminsearch(cost, c, opt.minimiser).x;
   }
   const VectorXd d = (x.rowwise() - c.transpose()).rowwise().norm();
   double radiusScaled;

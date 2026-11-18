@@ -1,4 +1,5 @@
 // nxr::bst — nxr.convert.entities: labelling, label_set, flag_levels.
+#include "nxr/io/selection_store.h"
 #include "nxr/bst/entities.h"
 
 #include <algorithm>
@@ -27,33 +28,33 @@ std::string labelling(SubjectWriter& sub, const std::string& path, const std::ve
     const auto lvl = static_cast<std::size_t>(codes[i]);
     data[i] = dr.codes.empty() ? static_cast<std::int32_t>(codes[i]) : static_cast<std::int32_t>(dr.codes.at(lvl));
   }
-  SelectionSpec s;
-  s.name = path.substr(path.rfind('/') + 1);
-  s.path = path;
-  s.type = "set";
-  s.manifold_id = opt.manifold_id;
-  s.data = nxr::io::view(data, {static_cast<std::int64_t>(data.size())});
-  s.no_elements = !opt.element_rows;
-  s.acquisition = opt.acquisition;
-  if (opt.acquisition_id) s.cols.set("acquisition_id", *opt.acquisition_id);
-  s.cols.set("dictionary_id", dr.id).set("n_elements", static_cast<std::int64_t>(data.size()));
-  if (opt.description) s.cols.set("description", *opt.description);
-  if (opt.of_field_id) s.cols.set("of_field_id", *opt.of_field_id);
-  if (opt.member_of) s.cols.set("member_of_id", opt.member_of->first).set("member_ordinal", static_cast<std::int64_t>(opt.member_of->second));
-  return sub.selection(std::move(s));
+  // a labelling (flags, channel types, names): a member number per element, each member's label (the dictionary's code) beside it; labels are mapped to numbers here (decoding)
+  nxr::io::selection::Placement at;
+  at.name = path.substr(path.rfind('/') + 1);
+  at.path = path;
+  at.manifold_id = opt.manifold_id;
+  at.acquisition = opt.acquisition;
+  at.acquisition_id = opt.acquisition_id;
+  at.dictionary_id = dr.id;
+  if (opt.description) at.description = *opt.description;
+  if (opt.of_field_id) at.of_field_id = *opt.of_field_id;
+  if (opt.member_of) at.cols.set("member_of_id", opt.member_of->first).set("member_ordinal", static_cast<std::int64_t>(opt.member_of->second));
+  return nxr::io::selection::save(sub, nxr::io::selection::set_from_labels(data), at).id;
 }
 
 std::pair<std::string, std::vector<std::string>> label_set(SubjectWriter& sub, const std::string& set_path, const std::vector<LabelMember>& members,
                                                            const std::string& manifold_id, const std::string& description, const std::optional<std::string>& acquisition,
                                                            const std::function<std::pair<std::string, std::string>(const std::string&)>& dictionary) {
-  SelectionSpec set;
-  set.name = set_path.substr(set_path.rfind('/') + 1);
-  set.path = set_path;
-  set.type = "set";
-  set.manifold_id = manifold_id;
-  set.acquisition = acquisition;
-  set.cols.set("n_members", static_cast<std::int64_t>(members.size())).set("description", description);
-  const std::string set_id = sub.selection(std::move(set));
+  nxr::io::selection::Description group;
+  group.type = nxr::io::selection::Type::set;
+  nxr::io::selection::Placement gp;
+  gp.name = set_path.substr(set_path.rfind('/') + 1);
+  gp.path = set_path;
+  gp.manifold_id = manifold_id;
+  gp.acquisition = acquisition;
+  gp.n_members = static_cast<std::int64_t>(members.size());
+  gp.description = description;
+  const std::string set_id = nxr::io::selection::save(sub, group, gp).id;
   std::vector<std::string> ids;
   int k = 0;
   for (const auto& m : members) {

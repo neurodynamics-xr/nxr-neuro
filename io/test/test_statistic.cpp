@@ -129,6 +129,9 @@ int main() {
     db.with_writable_schema([&] {
       db.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'table' AND name = 'sync_job'", {V(std::string("'field', 'operator', 'statistic'))")), V(std::string("'field', 'operator'))"))});
       db.execute("UPDATE sqlite_master SET sql = replace(sql, ?, '') WHERE type = 'table' AND name = 'selection_measurement'", {V(std::string("  of_statistic_id TEXT REFERENCES statistic (id) ON DELETE CASCADE,\n  of_index     INTEGER,\n"))});
+      // (and the array CHECK as schema 53 had it: schema 54's reads of_statistic_id, a column this simulated old table does not have)
+      db.execute("UPDATE sqlite_master SET sql = replace(sql, ?, ?) WHERE type = 'table' AND name = 'selection_measurement'",
+                 {V(std::string("CHECK (array_path IS NULL OR (code IS NULL AND (of_field_id IS NOT NULL OR of_statistic_id IS NOT NULL)))")), V(std::string("CHECK (array_path IS NULL OR (code IS NULL AND of_field_id IS NOT NULL))"))});
       db.execute("PRAGMA schema_version = " + std::to_string(sv + 1));
     });
     db.exec_script("CREATE UNIQUE INDEX selection_measurement_key ON selection_measurement (selection_id, coalesce(code, -1), coalesce(of_field_id, ''), coalesce(within_selection_id, ''), coalesce(within_code, -1), measure);\n" +

@@ -10,7 +10,7 @@
 //
 //   1. **Vertex / face packed buffers.** MATLAB users pass V as
 //      Vx3 double (column-major: x,x,…,y,y,…,z,z,…). nxr-compute's
-//      Manifold takes a flat row-major xyz buffer. We
+//      geometry::surfaceArrays takes a flat row-major xyz buffer. We
 //      repack at the boundary.
 //
 //   2. **Face indexing.** MATLAB convention is 1-based; nxr-compute uses
@@ -20,16 +20,35 @@
 // defaults to CSC. The index types differ (`mwIndex` vs `int`)
 // so we copy through rather than alias.
 
-#include "nxr/compute.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_arrays.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
 #include "mex.h"
 
 #include <complex>
 #include <cstdint>
+#include <cstring>
 #include <stdexcept>
 #include <string>
 #include <vector>
 
-namespace nxr::manifold::mex {
+namespace nxr::geometry::mex {
 
 // ── Scalar / string ─────────────────────────────────────────
 
@@ -325,7 +344,7 @@ inline std::vector<std::int32_t> mxToFaceBuffer(const mxArray* arr, int& nFOut) 
 
 // ── Struct builders for compound return values ──────────────
 
-inline mxArray* meshOperatorsToStruct(const nxr::manifold::ops::ManifoldOperators& ops,
+inline mxArray* meshOperatorsToStruct(const nxr::operators::ManifoldOperators& ops,
                                       int nV, int nE, int nF) {
     const char* fields[] = {
         "cotanLaplacian", "mass", "vertexDualAreas", "vertexNormals",
@@ -347,7 +366,7 @@ inline mxArray* meshOperatorsToStruct(const nxr::manifold::ops::ManifoldOperator
     return s;
 }
 
-inline mxArray* eigenResultToStruct(const nxr::manifold::solve::EigenResult& r) {
+inline mxArray* eigenResultToStruct(const nxr::operators::EigenResult& r) {
     const char* fields[] = {"eigenvectors", "eigenvalues", "k", "nConverged"};
     mxArray* s = mxCreateStructMatrix(1, 1, 4, fields);
     mxSetField(s, 0, "eigenvectors", eigenMatrixToMx(r.eigenvectors));
@@ -360,11 +379,11 @@ inline mxArray* eigenResultToStruct(const nxr::manifold::solve::EigenResult& r) 
 /** Read back an EigenResult struct previously returned by
  *  eigenResultToStruct. Used by removeDC, which takes the result
  *  of solve and returns a trimmed copy. */
-inline nxr::manifold::solve::EigenResult mxToEigenResult(const mxArray* s) {
+inline nxr::operators::EigenResult mxToEigenResult(const mxArray* s) {
     if (!mxIsStruct(s)) {
         throw std::invalid_argument("expected an EigenResult struct");
     }
-    nxr::manifold::solve::EigenResult r;
+    nxr::operators::EigenResult r;
     mxArray* uField = mxGetField(s, 0, "eigenvectors");
     mxArray* lField = mxGetField(s, 0, "eigenvalues");
     if (!uField || !lField) {
@@ -383,7 +402,7 @@ inline nxr::manifold::solve::EigenResult mxToEigenResult(const mxArray* s) {
 // mxArray, sparse → CSC, so these builders just forward to the existing
 // eigen*ToMx helpers. Parity with WASM is numerical, not byte-layout.
 
-inline mxArray* decOperatorsToStruct(const nxr::manifold::ops::DECOperators& dec) {
+inline mxArray* decOperatorsToStruct(const nxr::operators::DECOperators& dec) {
     const char* fields[] = {"d0", "d1", "hodge0", "hodge1", "hodge2", "hodge1Inverse"};
     mxArray* s = mxCreateStructMatrix(1, 1, 6, fields);
     mxSetField(s, 0, "d0",            eigenSparseToMx(dec.d0));
@@ -396,8 +415,8 @@ inline mxArray* decOperatorsToStruct(const nxr::manifold::ops::DECOperators& dec
 }
 
 inline mxArray* connectionLaplacianToStruct(
-    const nxr::manifold::ops::laplacian::connection::ConnectionLaplacian& cl) {
-    namespace ns = nxr::manifold::ops::laplacian::connection;
+    const nxr::operators::laplacian::connection::ConnectionLaplacian& cl) {
+    namespace ns = nxr::operators::laplacian::connection;
     const char* fields[] = {"K_real", "K_imag", "frameE1", "frameE2",
                             "baseDim", "outputDim",
                             "nSym", "regularization", "domain", "format"};
@@ -434,7 +453,7 @@ inline mxArray* connectionLaplacianToStruct(
     return s;
 }
 
-inline mxArray* faceFramesToStruct(const nxr::manifold::geometry::FaceFrames& f) {
+inline mxArray* faceFramesToStruct(const nxr::geometry::FaceFrames& f) {
     const char* fields[] = {"e1", "e2", "normals"};
     mxArray* s = mxCreateStructMatrix(1, 1, 3, fields);
     mxSetField(s, 0, "e1",      eigenMatrixToMx(f.e1));
@@ -443,7 +462,7 @@ inline mxArray* faceFramesToStruct(const nxr::manifold::geometry::FaceFrames& f)
     return s;
 }
 
-inline mxArray* vertexFramesToStruct(const nxr::manifold::geometry::VertexFrames& f) {
+inline mxArray* vertexFramesToStruct(const nxr::geometry::VertexFrames& f) {
     const char* fields[] = {"e1", "e2", "normals"};
     mxArray* s = mxCreateStructMatrix(1, 1, 3, fields);
     mxSetField(s, 0, "e1",      eigenMatrixToMx(f.e1));
@@ -452,7 +471,7 @@ inline mxArray* vertexFramesToStruct(const nxr::manifold::geometry::VertexFrames
     return s;
 }
 
-inline mxArray* hodgeResultToStruct(const nxr::manifold::solve::HodgeResult& r) {
+inline mxArray* hodgeResultToStruct(const nxr::signal::HodgeResult& r) {
     const char* fields[] = {
         "exactPotential", "coExactPotentialF", "coExactPotentialV",
         "combinedPotential", "omega", "dAlpha", "deltaBeta", "gamma",
@@ -473,7 +492,7 @@ inline mxArray* hodgeResultToStruct(const nxr::manifold::solve::HodgeResult& r) 
     return s;
 }
 
-inline mxArray* curvatureResultToStruct(const nxr::manifold::geometry::CurvatureResult& r) {
+inline mxArray* curvatureResultToStruct(const nxr::geometry::CurvatureResult& r) {
     const char* fields[] = {"gaussian", "mean", "kMin", "kMax", "principalDirMax"};
     mxArray* s = mxCreateStructMatrix(1, 1, 5, fields);
     mxSetField(s, 0, "gaussian",        eigenVectorToMx(r.gaussian));
@@ -494,7 +513,7 @@ inline mxArray* positionsSegmentsToStruct(const Eigen::MatrixXd& positions, int 
 }
 
 inline mxArray* directionFieldResultToStruct(
-    const nxr::manifold::connection::DirectionFieldResult& r) {
+    const nxr::operators::connection::DirectionFieldResult& r) {
     const char* fields[] = {"connections", "directionVectors", "orthogonalVectors",
                             "vertexVectors", "vertexOrthogonalVectors",
                             "eulerCharacteristic", "gaussBonnetSatisfied"};
@@ -509,6 +528,201 @@ inline mxArray* directionFieldResultToStruct(
     return s;
 }
 
+// ── The surface: geometry::SurfaceArrays ↔ a MATLAB struct ──────
+//
+// `geometry.surfaceArrays` makes the surface once (the intrinsic triangulation is the expensive step); every surface command takes the struct it
+// returned as its first argument and rebuilds SurfaceArrays from it, in both directions through the two functions below. Nothing is kept between calls.
+//
+//   S.positions [nV x 3] double
+//   S.faces     [nF x 3] double, 1-based (as the input F)
+//   S.triangulation.options   intrinsic (logical), mollify, flipEps, mass (char), surface (char)
+//   S.triangulation.record    mesh, mollify, epsilon, flipEps, flips, delaunay (logical), mass, boundaryVertices, geometryCentral, fingerprint, gauge, gaugeId
+//   S.triangulation.<arrays>  mass, inputEdgeLength, edgeLength, signpost, vertexAngleSum, halfedgeVectorInVertex (double);
+//                             halfedgeNext, halfedgeVertex, halfedgeFace, vertexHalfedge, faceHalfedge (int64, geometry-central's own 0-based
+//                             numbering, kept raw so the triangulation is rebuilt exactly); boundaryLoops (double)
+// The triangulation's arrays are opaque to the user: pass the struct on, do not edit it.
+
+inline mxArray* doubleVectorToMx(const std::vector<double>& v) {
+    mxArray* arr = mxCreateDoubleMatrix(v.size(), 1, mxREAL);
+    if (!v.empty()) std::memcpy(mxGetPr(arr), v.data(), v.size() * sizeof(double));
+    return arr;
+}
+
+inline mxArray* int64VectorToMx(const std::vector<int64_t>& v) {
+    mxArray* arr = mxCreateNumericMatrix(v.size(), 1, mxINT64_CLASS, mxREAL);
+    if (!v.empty()) std::memcpy(mxGetData(arr), v.data(), v.size() * sizeof(int64_t));
+    return arr;
+}
+
+inline const mxArray* surfaceField(const mxArray* s, const char* name) {
+    if (!s || !mxIsStruct(s) || mxGetNumberOfElements(s) != 1)
+        throw std::invalid_argument("expected the surface struct made by nxr_compute('geometry.surfaceArrays', V, F)");
+    const mxArray* f = mxGetField(s, 0, name);
+    if (!f) throw std::invalid_argument(std::string("the surface struct has no field '") + name + "': make it with nxr_compute('geometry.surfaceArrays', V, F)");
+    return f;
+}
+
+inline std::vector<double> mxToDoubleVector(const mxArray* a, const char* name) {
+    if (!mxIsDouble(a) || mxIsComplex(a) || mxIsSparse(a))
+        throw std::invalid_argument(std::string("the surface field '") + name + "' must be a real double array");
+    const std::size_t n = mxGetNumberOfElements(a);
+    std::vector<double> out(n);
+    if (n) std::memcpy(out.data(), mxGetPr(a), n * sizeof(double));
+    return out;
+}
+
+inline std::vector<int64_t> mxToInt64Vector(const mxArray* a, const char* name) {
+    const std::size_t n = mxGetNumberOfElements(a);
+    std::vector<int64_t> out(n);
+    if (mxIsInt64(a)) {
+        if (n) std::memcpy(out.data(), mxGetData(a), n * sizeof(int64_t));
+    } else if (mxIsDouble(a) && !mxIsComplex(a) && !mxIsSparse(a)) {
+        const double* p = mxGetPr(a);
+        for (std::size_t i = 0; i < n; ++i) out[i] = static_cast<int64_t>(p[i]);
+    } else {
+        throw std::invalid_argument(std::string("the surface field '") + name + "' must be an int64 array");
+    }
+    return out;
+}
+
+inline std::string massKindName(nxr::geometry::MassKind k) {
+    switch (k) {
+        case nxr::geometry::MassKind::InputMixedVoronoi: return "input-mixed-voronoi";
+        case nxr::geometry::MassKind::Barycentric:       return "barycentric";
+        case nxr::geometry::MassKind::Galerkin:          return "galerkin";
+    }
+    return "input-mixed-voronoi";
+}
+
+inline nxr::geometry::MassKind parseMassKind(const std::string& s) {
+    if (s == "input-mixed-voronoi") return nxr::geometry::MassKind::InputMixedVoronoi;
+    if (s == "barycentric")         return nxr::geometry::MassKind::Barycentric;
+    if (s == "galerkin")            return nxr::geometry::MassKind::Galerkin;
+    throw std::invalid_argument("the surface's mass is '" + s + "': use input-mixed-voronoi, barycentric or galerkin");
+}
+
+inline std::string stringField(const mxArray* s, const char* name) {
+    const mxArray* f = surfaceField(s, name);
+    if (!mxIsChar(f)) throw std::invalid_argument(std::string("the surface field '") + name + "' must be a string");
+    char* c = mxArrayToString(f);
+    std::string out(c ? c : "");
+    mxFree(c);
+    return out;
+}
+
+inline double scalarField(const mxArray* s, const char* name) {
+    const mxArray* f = surfaceField(s, name);
+    if ((!mxIsNumeric(f) && !mxIsLogical(f)) || mxGetNumberOfElements(f) != 1)
+        throw std::invalid_argument(std::string("the surface field '") + name + "' must be a scalar");
+    return mxGetScalar(f);
+}
+
+inline mxArray* surfaceToStruct(const nxr::geometry::SurfaceArrays& s) {
+    namespace g = nxr::geometry;
+    const g::IntrinsicTriangulation& t = s.triangulation;
+
+    mxArray* opt = nullptr;
+    {
+        const char* f[] = {"intrinsic", "mollify", "flipEps", "mass", "surface"};
+        opt = mxCreateStructMatrix(1, 1, 5, f);
+        mxSetField(opt, 0, "intrinsic", mxCreateLogicalScalar(t.options.intrinsic));
+        mxSetField(opt, 0, "mollify",   scalarToMx(t.options.mollify));
+        mxSetField(opt, 0, "flipEps",   scalarToMx(t.options.flipEps));
+        mxSetField(opt, 0, "mass",      mxCreateString(massKindName(t.options.mass).c_str()));
+        mxSetField(opt, 0, "surface",   mxCreateString(t.options.surface.c_str()));
+    }
+    mxArray* rec = nullptr;
+    {
+        const g::IntrinsicRecord& r = t.record;
+        const char* f[] = {"mesh", "mollify", "epsilon", "flipEps", "flips", "delaunay", "mass", "boundaryVertices", "geometryCentral", "fingerprint", "gauge", "gaugeId"};
+        rec = mxCreateStructMatrix(1, 1, 12, f);
+        mxSetField(rec, 0, "mesh",             mxCreateString(r.mesh.c_str()));
+        mxSetField(rec, 0, "mollify",          scalarToMx(r.mollify));
+        mxSetField(rec, 0, "epsilon",          scalarToMx(r.epsilon));
+        mxSetField(rec, 0, "flipEps",          scalarToMx(r.flipEps));
+        mxSetField(rec, 0, "flips",            scalarToMx(r.flips));
+        mxSetField(rec, 0, "delaunay",         mxCreateLogicalScalar(r.delaunay));
+        mxSetField(rec, 0, "mass",             mxCreateString(r.mass.c_str()));
+        mxSetField(rec, 0, "boundaryVertices", scalarToMx(r.boundaryVertices));
+        mxSetField(rec, 0, "geometryCentral",  mxCreateString(r.geometryCentral.c_str()));
+        mxSetField(rec, 0, "fingerprint",      mxCreateString(r.fingerprint.c_str()));
+        mxSetField(rec, 0, "gauge",            mxCreateString(r.gauge.c_str()));
+        mxSetField(rec, 0, "gaugeId",          mxCreateString(r.gaugeId.c_str()));
+    }
+    const char* tf[] = {"options", "record", "mass", "inputEdgeLength", "halfedgeNext", "halfedgeVertex", "halfedgeFace", "vertexHalfedge", "faceHalfedge",
+                        "boundaryLoops", "edgeLength", "signpost", "vertexAngleSum", "halfedgeVectorInVertex"};
+    mxArray* tri = mxCreateStructMatrix(1, 1, 14, tf);
+    mxSetField(tri, 0, "options",                opt);
+    mxSetField(tri, 0, "record",                 rec);
+    mxSetField(tri, 0, "mass",                   doubleVectorToMx(t.mass));
+    mxSetField(tri, 0, "inputEdgeLength",        doubleVectorToMx(t.inputEdgeLength));
+    mxSetField(tri, 0, "halfedgeNext",           int64VectorToMx(t.halfedgeNext));
+    mxSetField(tri, 0, "halfedgeVertex",         int64VectorToMx(t.halfedgeVertex));
+    mxSetField(tri, 0, "halfedgeFace",           int64VectorToMx(t.halfedgeFace));
+    mxSetField(tri, 0, "vertexHalfedge",         int64VectorToMx(t.vertexHalfedge));
+    mxSetField(tri, 0, "faceHalfedge",           int64VectorToMx(t.faceHalfedge));
+    mxSetField(tri, 0, "boundaryLoops",          scalarToMx(static_cast<double>(t.boundaryLoops)));
+    mxSetField(tri, 0, "edgeLength",             doubleVectorToMx(t.edgeLength));
+    mxSetField(tri, 0, "signpost",               doubleVectorToMx(t.signpost));
+    mxSetField(tri, 0, "vertexAngleSum",         doubleVectorToMx(t.vertexAngleSum));
+    mxSetField(tri, 0, "halfedgeVectorInVertex", doubleVectorToMx(t.halfedgeVectorInVertex));
+
+    const char* sf[] = {"positions", "faces", "triangulation"};
+    mxArray* out = mxCreateStructMatrix(1, 1, 3, sf);
+    Eigen::MatrixXd pos = s.positions;
+    Eigen::MatrixXd fac = s.faces.cast<double>();
+    fac.array() += 1.0;   // 0-based → 1-based at the MATLAB boundary
+    mxSetField(out, 0, "positions",     eigenMatrixToMx(pos));
+    mxSetField(out, 0, "faces",         eigenMatrixToMx(fac));
+    mxSetField(out, 0, "triangulation", tri);
+    return out;
+}
+
+inline nxr::geometry::SurfaceArrays structToSurface(const mxArray* s) {
+    namespace g = nxr::geometry;
+    g::SurfaceArrays out;
+    int nV = 0, nF = 0;
+    const std::vector<double> xyz = mxToVertexBuffer(surfaceField(s, "positions"), nV);   // row-major
+    const std::vector<std::int32_t> tri = mxToFaceBuffer(surfaceField(s, "faces"), nF);   // 0-based
+    out.positions = Eigen::Map<const g::RowMat3>(xyz.data(), nV, 3);
+    out.faces     = Eigen::Map<const g::FaceMat>(tri.data(), nF, 3);
+
+    const mxArray* tr = surfaceField(s, "triangulation");
+    g::IntrinsicTriangulation& t = out.triangulation;
+    const mxArray* opt = surfaceField(tr, "options");
+    t.options.intrinsic = scalarField(opt, "intrinsic") != 0.0;
+    t.options.mollify   = scalarField(opt, "mollify");
+    t.options.flipEps   = scalarField(opt, "flipEps");
+    t.options.mass      = parseMassKind(stringField(opt, "mass"));
+    t.options.surface   = stringField(opt, "surface");
+    const mxArray* rec = surfaceField(tr, "record");
+    t.record.mesh             = stringField(rec, "mesh");
+    t.record.mollify          = scalarField(rec, "mollify");
+    t.record.epsilon          = scalarField(rec, "epsilon");
+    t.record.flipEps          = scalarField(rec, "flipEps");
+    t.record.flips            = static_cast<int>(scalarField(rec, "flips"));
+    t.record.delaunay         = scalarField(rec, "delaunay") != 0.0;
+    t.record.mass             = stringField(rec, "mass");
+    t.record.boundaryVertices = static_cast<int>(scalarField(rec, "boundaryVertices"));
+    t.record.geometryCentral  = stringField(rec, "geometryCentral");
+    t.record.fingerprint      = stringField(rec, "fingerprint");
+    t.record.gauge            = stringField(rec, "gauge");
+    t.record.gaugeId          = stringField(rec, "gaugeId");
+    t.mass                   = mxToDoubleVector(surfaceField(tr, "mass"), "mass");
+    t.inputEdgeLength        = mxToDoubleVector(surfaceField(tr, "inputEdgeLength"), "inputEdgeLength");
+    t.halfedgeNext           = mxToInt64Vector(surfaceField(tr, "halfedgeNext"), "halfedgeNext");
+    t.halfedgeVertex         = mxToInt64Vector(surfaceField(tr, "halfedgeVertex"), "halfedgeVertex");
+    t.halfedgeFace           = mxToInt64Vector(surfaceField(tr, "halfedgeFace"), "halfedgeFace");
+    t.vertexHalfedge         = mxToInt64Vector(surfaceField(tr, "vertexHalfedge"), "vertexHalfedge");
+    t.faceHalfedge           = mxToInt64Vector(surfaceField(tr, "faceHalfedge"), "faceHalfedge");
+    t.boundaryLoops          = static_cast<int64_t>(scalarField(tr, "boundaryLoops"));
+    t.edgeLength             = mxToDoubleVector(surfaceField(tr, "edgeLength"), "edgeLength");
+    t.signpost               = mxToDoubleVector(surfaceField(tr, "signpost"), "signpost");
+    t.vertexAngleSum         = mxToDoubleVector(surfaceField(tr, "vertexAngleSum"), "vertexAngleSum");
+    t.halfedgeVectorInVertex = mxToDoubleVector(surfaceField(tr, "halfedgeVectorInVertex"), "halfedgeVectorInVertex");
+    return out;
+}
+
 // MatrixXf [T, n] → double mxArray [T, n]. Both column-major; cast float→double.
 inline mxArray* eigenMatrixXfToMx(const Eigen::MatrixXf& m) {
     mxArray* arr = mxCreateDoubleMatrix(m.rows(), m.cols(), mxREAL);
@@ -519,4 +733,4 @@ inline mxArray* eigenMatrixXfToMx(const Eigen::MatrixXf& m) {
     return arr;
 }
 
-} // namespace nxr::manifold::mex
+} // namespace nxr::geometry::mex

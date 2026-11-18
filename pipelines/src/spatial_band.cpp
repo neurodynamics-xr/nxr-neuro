@@ -7,20 +7,23 @@
 #include <filesystem>
 #include <memory>
 
-#include "nxr/delaunay.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/io/array_reader.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
+#include "nxr/signal/graphwavelet.h"
+#include "nxr/signal/graphtransforms.h"
 #include "nxr/pipelines/task.h"
-#include "nxr/monogenic.h"
-#include "nxr/phase.h"
+#include "nxr/signal/riesz.h"
+#include "nxr/signal/phase_gradient.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/meeg_internal.h"
 
 namespace nxr::pipelines {
 
 using namespace nxr::io;
-namespace fb = nxr::filterbank;
-namespace lad = nxr::ladder;
+namespace fb = nxr::signal::graphfilterbank;
+namespace gt = nxr::signal::graphtransforms;
+namespace lad = nxr::select;
 
 namespace {
 [[noreturn]] void invalid(const std::string& m) { throw Error(code::invalid_argument, m); }
@@ -40,7 +43,7 @@ SurfaceLevel read_surface_level(SubjectWriter& sub, const SurfaceInput& S, int l
   const std::int64_t nV = S.n_vertices();
   const task::Subject subj = task::Subject::of(sub);
   const auto ladder = subj.find({.cls = task::Cls::selection, .name = S.name + " tiles", .type = "ladder", .manifold_id = S.id});
-  if (!ladder) missing(sub.name() + ": " + S.name + " has no tile ladder; run `nxr-neuro tiles compute` first");
+  if (!ladder) missing(sub.name() + ": " + S.name + " has no tile ladder; run `nxr-neuro run select_dyadic_surface` first");
   L.ladder = *ladder;
   L.tiling = S.name + " tiles L" + std::to_string(l);
   const auto lvl = subj.find({.cls = task::Cls::selection, .name = L.tiling, .member_of_id = ladder->id});
@@ -76,9 +79,9 @@ SurfaceLevel read_surface_level(SubjectWriter& sub, const SurfaceInput& S, int l
 
 namespace {
 // chebyshev | exact: the transforms of the input mesh itself, needing no subject
-// the mesh gradient of the Riesz part (nxr::phase::vertexGradient: the P1 faces' gradients averaged on the vertices), on the faces whose three vertices are all `kept` (empty: every face): a vertex
+// the mesh gradient of the Riesz part (nxr::signal::vertexGradient: the P1 faces' gradients averaged on the vertices), on the faces whose three vertices are all `kept` (empty: every face): a vertex
 // at the edge of the cut medial wall has a one-sided gradient, never one across the wall's zero
-nxr::monogenic::Gradient riesz_gradient(const SurfaceInput& S, const std::vector<std::int32_t>& kept, std::int64_t* faces_used = nullptr) {
+nxr::signal::Gradient riesz_gradient(const SurfaceInput& S, const std::vector<std::int32_t>& kept, std::int64_t* faces_used = nullptr) {
   const std::int64_t nV = S.n_vertices();
   std::vector<std::uint8_t> keep(static_cast<std::size_t>(nV), kept.empty() ? 1 : 0);
   for (const auto v : kept) keep[static_cast<std::size_t>(v)] = 1;
@@ -92,7 +95,7 @@ nxr::monogenic::Gradient riesz_gradient(const SurfaceInput& S, const std::vector
   Eigen::Matrix<std::int32_t, Eigen::Dynamic, 3, Eigen::RowMajor> F(static_cast<Eigen::Index>(faces.size() / 3), 3);
   for (std::size_t f = 0; f < faces.size() / 3; ++f) for (int s = 0; s < 3; ++s) F(static_cast<Eigen::Index>(f), s) = faces[3 * f + static_cast<std::size_t>(s)];
   if (faces_used) *faces_used = static_cast<std::int64_t>(faces.size() / 3);
-  return nxr::phase::vertexGradient(P, F);
+  return nxr::signal::vertexGradient(P, F);
 }
 
 constexpr double kHatFloor = 1e-3;          // the hat's tail the eigen route may drop: the modes must reach where the gain falls under this
@@ -106,7 +109,7 @@ double hat_centre(const SurfaceLevel& L) {
   return m.lo > 0 ? std::sqrt(m.lo * m.hi) : m.hi / std::sqrt(2.0);
 }
 // the level's gain: its Weyl member's (Meyer) or its Mexican hat
-fb::Gain level_gain(const SurfaceLevel& L, const SpatialBandOptions& o) {
+gt::Gain level_gain(const SurfaceLevel& L, const SpatialBandOptions& o) {
   if (!is_hat(o)) return L.bank.members[static_cast<std::size_t>(L.l)].gain;
   const double c = hat_centre(L);
   return [c](double lam) { return fb::mexicanHat(lam, c); };
@@ -124,16 +127,15 @@ Json shape_info(const SurfaceLevel& L, const SpatialBandOptions& o) {
 }
 SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const SpatialBandOptions& opt) {
   check_shape(opt);
-  const fb::Gain gain = level_gain(L, opt);
+  const gt::Gain gain = level_gain(L, opt);
   if (opt.order < 0) invalid("spatial band: the order is at least 0 (0: chosen from the tolerance)");
   if (!(opt.tolerance > 0)) invalid("spatial band: the tolerance is above 0");
   const std::int64_t nV = S.n_vertices();
   const int l = L.l;
   const fb::Member& member = L.bank.members[static_cast<std::size_t>(l)];
-  namespace dl = nxr::manifold::delaunay;
-  dl::Mesh dm = dl::prepare(S.vertices.data(), static_cast<int>(nV), S.faces.data(), static_cast<int>(S.n_faces()));
-  const Eigen::SparseMatrix<double> Lap = dl::cotanLaplacian(dm);
-  const std::vector<double> mass = dm.mass.empty() ? dl::mixedVoronoiMass(dm) : dm.mass;
+  nxr::geometry::IntrinsicSurface isurf(S.vertices.data(), static_cast<int>(nV), S.faces.data(), static_cast<int>(S.n_faces()));
+  const Eigen::SparseMatrix<double> Lap = isurf.cotanLaplacian();          // on geometry-central's intrinsic Delaunay triangulation
+  const std::vector<double> mass = isurf.inputMixedVoronoiMass();
   Eigen::SparseMatrix<double> M(static_cast<Eigen::Index>(nV), static_cast<Eigen::Index>(nV));
   {
     std::vector<Eigen::Triplet<double>> t;
@@ -144,13 +146,13 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
   out.info = Json{{"level", l}, {"member", l}, {"role", member.role == fb::Role::Scaling ? "scaling" : "wavelet"}, {"lambda_min", member.lo}, {"lambda_max", member.hi},
                   {"wavelength_m", L.record.value("wavelength_m", std::nan(""))}, {"half_width_octaves", 1.0 / 3.0}, {"weyl_area_m2", L.piece_area}, {"transform", opt.transform}};
   { const Json si = shape_info(L, opt); for (const auto& [k, v] : si.items()) out.info[k] = v; }
-  const fb::Bank bank = L.bank;
+  const fb::GraphFilterbank bank = L.bank;
   if (opt.transform == "exact") {
     if (nV > 4096) invalid("spatial band: the exact transform is the dense eigen-decomposition: at most 4096 vertices, this surface has " + std::to_string(nV) + "; use chebyshev");
     Eigen::MatrixXd Ld(Lap), Md = Eigen::MatrixXd::Zero(nV, nV);
     for (std::int64_t i = 0; i < nV; ++i) Md(i, i) = mass[static_cast<std::size_t>(i)];
     Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Ld, Md);
-    auto T = std::make_shared<fb::EigenTransform>();
+    auto T = std::make_shared<gt::EigenTransform>();
     T->phi = es.eigenvectors(); T->lambda = es.eigenvalues().cwiseMax(0.0); T->mass = M;
     out.info["modes"] = static_cast<std::int64_t>(T->lambda.size());
     if (is_hat(opt)) {
@@ -158,46 +160,46 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
       for (Eigen::Index k = 0; k < gv0->size(); ++k) (*gv0)(k) = gain(T->lambda(k));
       out.apply = [T, gv0](const Eigen::MatrixXd& F) { return Eigen::MatrixXd(T->phi * (gv0->asDiagonal() * (T->phi.transpose() * (T->mass * F)))); };
     } else {
-      out.apply = [bank, l, T](const Eigen::MatrixXd& F) { return fb::analysisMember(bank, l, *T, F); };
+      out.apply = [bank, l, T](const Eigen::MatrixXd& F) { return nxr::signal::gwt(bank, l, *T, F); };
     }
     if (opt.riesz) {
-      const auto G = std::make_shared<nxr::monogenic::Gradient>(riesz_gradient(S, {}));
-      const auto gR = nxr::monogenic::rieszGain(gain);
+      const auto G = std::make_shared<nxr::signal::Gradient>(riesz_gradient(S, {}));
+      const auto gR = nxr::signal::rieszGain(gain);
       auto gv = std::make_shared<Eigen::VectorXd>(T->lambda.size());
       for (Eigen::Index k = 0; k < gv->size(); ++k) (*gv)(k) = gR(T->lambda(k));
-      out.apply_riesz = [T, gv, G](const Eigen::MatrixXd& F) { return nxr::monogenic::rieszOfScaled(*G, Eigen::MatrixXd(T->phi * (gv->asDiagonal() * (T->phi.transpose() * (T->mass * F)))), 1); };
-      out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"gradient", "P1 faces averaged on the vertices (nxr::phase::vertexGradient), the input mesh"}};
+      out.apply_riesz = [T, gv, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszTransform(*G, Eigen::MatrixXd(T->phi * (gv->asDiagonal() * (T->phi.transpose() * (T->mass * F)))), 1); };
+      out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"gradient", "P1 faces averaged on the vertices (nxr::signal::vertexGradient), the input mesh"}};
     }
     return out;
   }
-  const fb::ChebyshevOperator probe(Lap, M, 0, 40);          // the spectral bound, once
+  const gt::ChebyshevOperator probe(Lap, M, 0, 40);          // the spectral bound, once
   const double lmax = probe.lmax();
   int order = opt.order;
   double err = 0;
   if (order > 0) {
-    err = fb::chebyshevError(gain, lmax, order);
+    err = gt::chebyshevError(gain, lmax, order);
     if (err > opt.tolerance) invalid("spatial band: the Chebyshev series of degree " + std::to_string(order) + " is off the level " + std::to_string(l) + " band by up to " + std::to_string(err) + " (tolerance " + std::to_string(opt.tolerance) + "): raise --order, --order 0 to choose it, or use --transform exact");
   } else {
-    for (int o = 40; o <= 5120; o *= 2) { err = fb::chebyshevError(gain, lmax, o); if (err <= opt.tolerance) { order = o; break; } }
+    for (int o = 40; o <= 5120; o *= 2) { err = gt::chebyshevError(gain, lmax, o); if (err <= opt.tolerance) { order = o; break; } }
     if (order == 0) invalid("spatial band: no Chebyshev series up to degree 5120 follows the level " + std::to_string(l) + " band to within " + std::to_string(opt.tolerance) + " (error " + std::to_string(err) + " at 5120) on this surface (lambda_max " + std::to_string(lmax) + "): raise the tolerance or use the exact transform");
   }
-  auto op = std::make_shared<fb::ChebyshevOperator>(Lap, M, lmax, order);
+  auto op = std::make_shared<gt::ChebyshevOperator>(Lap, M, lmax, order);
   out.info["order"] = order; out.info["series_error"] = err; out.info["lambda_top"] = lmax;
-  if (is_hat(opt)) out.apply = [gain, op](const Eigen::MatrixXd& F) { return op->apply(gain, F); };
-  else out.apply = [bank, l, op](const Eigen::MatrixXd& F) { return fb::analysisMember(bank, l, *op, F); };
+  if (is_hat(opt)) out.apply = [gain, op](const Eigen::MatrixXd& F) { return gt::chebyshev(*op, gain, F); };
+  else out.apply = [bank, l, op](const Eigen::MatrixXd& F) { return nxr::signal::gwt(bank, l, *op, F); };
   if (opt.riesz) {
     // the series of g/√λ: it must follow ITS gain within the tolerance (a scaling member's gain is not 0 at λ = 0: g/√λ is singular and no series follows it, refused)
-    const fb::Gain gR = nxr::monogenic::rieszGain(gain);
+    const gt::Gain gR = nxr::signal::rieszGain(gain);
     double peak = 0;
     for (int i = 0; i <= 4096; ++i) peak = std::max(peak, std::abs(gR(lmax * i / 4096)));
     int oR = order;
     double eR = 0;                                                  // relative to the peak of g/√λ (it is in metres, the band's gain is not)
-    for (; oR <= 5120; oR *= 2) { eR = peak > 0 ? fb::chebyshevError(gR, lmax, oR) / peak : 0.0; if (eR <= opt.tolerance) break; }
+    for (; oR <= 5120; oR *= 2) { eR = peak > 0 ? gt::chebyshevError(gR, lmax, oR) / peak : 0.0; if (eR <= opt.tolerance) break; }
     if (oR > 5120) invalid("spatial band: no Chebyshev series up to degree 5120 follows the Riesz gain g/sqrt(lambda) of level " + std::to_string(l) + " to within " + std::to_string(opt.tolerance) + " of its peak (error " + std::to_string(eR) + "): raise the tolerance, or use eigenmodes (a scaling level's gain is not 0 at lambda = 0)");
-    const auto opR = oR == order ? op : std::make_shared<fb::ChebyshevOperator>(Lap, M, lmax, oR);
-    const auto G = std::make_shared<nxr::monogenic::Gradient>(riesz_gradient(S, {}));
-    out.apply_riesz = [gR, opR, G](const Eigen::MatrixXd& F) { return nxr::monogenic::rieszOfScaled(*G, opR->apply(gR, F), 1); };
-    out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"order", oR}, {"series_error", eR}, {"gradient", "P1 faces averaged on the vertices (nxr::phase::vertexGradient), the input mesh"}};
+    const auto opR = oR == order ? op : std::make_shared<gt::ChebyshevOperator>(Lap, M, lmax, oR);
+    const auto G = std::make_shared<nxr::signal::Gradient>(riesz_gradient(S, {}));
+    out.apply_riesz = [gR, opR, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszTransform(*G, gt::chebyshev(*opR, gR, F), 1); };
+    out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"order", oR}, {"series_error", eR}, {"gradient", "P1 faces averaged on the vertices (nxr::signal::vertexGradient), the input mesh"}};
   }
   return out;
 }
@@ -247,7 +249,7 @@ SpatialBandPlan plan_spatial_band(SubjectWriter& sub, const SurfaceInput& S, con
   if (t == "exact") { P.transform = t; P.key = keyed(Json{{"transform", "exact"}}); return P; }
   // eigenmode first. Why the series is used, when it is, goes into `reason`
   const std::string who = "level " + std::to_string(L.l) + " of " + S.name;
-  const std::string stem = S.primary ? std::string("hodgeDirac") : "hodgeDirac__" + S.name;
+  const std::string stem = hodge_package_stem(S);
   std::string reason;
   const internal::StoredLaplace st = internal::stored_laplace_info(sub, S);
   if (st.found) {
@@ -326,7 +328,7 @@ SpatialBand make_spatial_band(DatasetWriter& ds, SubjectWriter& sub, const Surfa
   }
   const int l = L.l;
   const fb::Member& member = L.bank.members[static_cast<std::size_t>(l)];
-  const fb::Gain gain = level_gain(L, opt);
+  const gt::Gain gain = level_gain(L, opt);
   const std::string who = "level " + std::to_string(l) + " of " + S.name;
   Json computed = nullptr;
   if (P.source == "computed") {
@@ -386,8 +388,8 @@ SpatialBand make_spatial_band(DatasetWriter& ds, SubjectWriter& sub, const Surfa
   if (opt.riesz) {
     // R_l = G Φ diag(g/√λ) Φᵀ ⋆0 on the glued surface's kept vertices, the gradient on the input mesh's faces whose vertices are all kept (the wall's and the bridge's are not)
     std::int64_t faces_used = 0;
-    const auto G = std::make_shared<nxr::monogenic::Gradient>(riesz_gradient(S, modes->support, &faces_used));
-    const auto gRfn = nxr::monogenic::rieszGain(gain);
+    const auto G = std::make_shared<nxr::signal::Gradient>(riesz_gradient(S, modes->support, &faces_used));
+    const auto gRfn = nxr::signal::rieszGain(gain);
     auto gR = std::make_shared<Eigen::VectorXd>(k);
     for (Eigen::Index j = 0; j < k; ++j) (*gR)(j) = gRfn(modes->lambda(j));
     out.apply_riesz = [modes, gR, G, nV](const Eigen::MatrixXd& F) {
@@ -398,9 +400,9 @@ SpatialBand make_spatial_band(DatasetWriter& ds, SubjectWriter& sub, const Surfa
       const Eigen::MatrixXd Y = modes->phi * (gR->asDiagonal() * (modes->phi.transpose() * modes->mass.asDiagonal() * Xg));      // Δ^{-1/2} F_l f on the glued surface
       Eigen::MatrixXd Sx = Eigen::MatrixXd::Zero(nV, n);
       for (std::size_t i = 0; i < modes->support.size(); ++i) Sx.row(modes->support[i]) = Y.row(static_cast<Eigen::Index>(i));
-      return nxr::monogenic::rieszOfScaled(*G, Sx, 1);
+      return nxr::signal::rieszTransform(*G, Sx, 1);
     };
-    out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"gradient", "P1 faces averaged on the vertices (nxr::phase::vertexGradient), the input mesh's faces whose three vertices are kept"}, {"faces_used", faces_used}};
+    out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"gradient", "P1 faces averaged on the vertices (nxr::signal::vertexGradient), the input mesh's faces whose three vertices are kept"}, {"faces_used", faces_used}};
   }
   return out;
 }

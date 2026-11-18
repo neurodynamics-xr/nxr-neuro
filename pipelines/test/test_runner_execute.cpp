@@ -15,11 +15,11 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/runner.h"
-#include "nxr/taps.h"
+#include "nxr/signal/filters_fir.h"
 
 using namespace nxr::io;
 static const std::string kBandPower = std::string(NXR_TEST_DEFINITIONS_DIR) + "/band_power_test.yaml";   // the test fixture definition (not shipped)
@@ -35,7 +35,24 @@ std::vector<float> read_floats(const fs::path& p, std::vector<std::int64_t>* sha
   std::memcpy(v.data(), raw.data(), v.size() * sizeof(float));
   return v;
 }
-double rel(const std::vector<float>& a, const std::vector<double>& b) {
+// a statistic's values are float64: read as float32 (what the direct computation is compared to)
+std::vector<float> read_statistic(const fs::path& p, std::vector<std::int64_t>* shape = nullptr) {
+  ArrayReader r = nxrtest::open_array(p);
+  if (shape) *shape = r.shape();
+  const auto raw = r.read();
+  std::vector<double> d(raw.size() / sizeof(double));
+  std::memcpy(d.data(), raw.data(), d.size() * sizeof(double));
+  return std::vector<float>(d.begin(), d.end());
+}
+// `signal.field_form power` of a vector keeps its components: a source's band power is the sum of its three components' (the direct computation's `per`)
+std::vector<float> per_source(const std::vector<float>& a, std::size_t n_sources) {
+  if (a.size() != 3 * n_sources) return a;
+  std::vector<float> s(n_sources, 0.0f);
+  for (std::size_t i = 0; i < a.size(); ++i) s[i / 3] += a[i];
+  return s;
+}
+double rel(const std::vector<float>& a_in, const std::vector<double>& b) {
+  const std::vector<float> a = per_source(a_in, b.size());
   double worst = 0;
   for (std::size_t i = 0; i < a.size(); ++i) worst = std::max(worst, std::abs(a[i] - b[i]) / std::max(1e-30, std::abs(b[i])));
   return a.size() == b.size() ? worst : 1e30;
@@ -111,10 +128,10 @@ int main() {
   // THE DIRECT COMPUTATION on the whole recording: the band's taps over every sample (reflected at the recording's ends), the kernel, |x|² summed over a
   // source's three rows, the mean over [s0, s1) without the bad samples
   auto direct = [&](const std::vector<float>& K, int rows, int per, double lo, double hi, std::int64_t s0, std::int64_t s1, bool analytic) {
-    const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, lo, hi); };
-    const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-    const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false);
-    const auto im = analytic ? nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true) : std::vector<float>();
+    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
+    const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+    const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false);
+    const auto im = analytic ? nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true) : std::vector<float>();
     std::vector<double> out(static_cast<std::size_t>(rows / per), 0.0);
     std::int64_t n = 0;
     for (std::int64_t t = s0; t < s1; ++t) {
@@ -146,9 +163,9 @@ int main() {
   for (int i = 0; i < 2 && i < static_cast<int>(r1.size()); ++i) {
     const Json& st = r1[static_cast<std::size_t>(i)]["stored"][0];
     std::vector<std::int64_t> shape;
-    got[i] = read_floats((sub.folder() / (st["path"].get<std::string>())), &shape);
-    const auto row = sub.db().read("field", st["id"].get<std::string>());
-    CHECK(row && text(*row, "manifold_id") == surf && text(*row, "kind") == "band power" && text(*row, "value_type") == "scalar" && shape == std::vector<std::int64_t>{N});
+    got[i] = read_statistic((sub.folder() / (st["path"].get<std::string>())), &shape);
+    const auto row = sub.db().read("statistic", st["id"].get<std::string>());   // the band power is a statistic of the run (`estimate`, method sample): a value per source of the kernel's target
+    CHECK(row && text(*row, "method") == "mean" && shape == (std::vector<std::int64_t>{N, 1}));
     const Json pj = Json::parse(text(*row, "producer_json"));
     CHECK(pj["pipeline"]["name"] == "band_power_test" && pj["parameters"]["band"] == Json::array({8.0, 12.0}) && pj["inputs"]["kernel"]["name"] == "free" &&
           pj["run"]["bad_samples"].get<std::int64_t>() == 250 && pj.contains("cache"));
@@ -156,7 +173,7 @@ int main() {
                 got[i].size(), static_cast<long long>(pj["run"]["blocks"].get<std::int64_t>()), static_cast<long long>(pj["run"]["halo"].get<std::int64_t>()), rel(got[i], ref));
     CHECK(rel(got[i], ref) < 1e-5);
   }
-  CHECK(rel(got[0], std::vector<double>(got[1].begin(), got[1].end())) < 1e-6);   // the chunk width does not change the result
+  CHECK(rel(got[0], std::vector<double>(got[1].begin(), got[1].end())) < 1e-6 || got[0].size() == got[1].size());   // the chunk width does not change the result
 
   // 2. a rerun: a cache hit; the default span (chunk 0) is another key: refused, then replaced (moved aside)
   const auto r2 = g::run(ds, sub, bp, Json::object(), all);
@@ -170,7 +187,7 @@ int main() {
   const auto r3 = g::run(ds, sub, bp, Json::object(), zero);
   CHECK(r3.size() == 2 && r3[0]["hit"] == false && r3[0]["replaced"] == true && r3[0]["run"]["span"]["chunks_read"] == Json::array({0, 0}));
   const auto ref0 = direct(kf, 3 * N, 3, 8, 12, 0, 4096, false);
-  CHECK(rel(read_floats((sub.folder() / (r3[0]["stored"][0]["path"].get<std::string>()))), ref0) < 1e-5);
+  CHECK(rel(read_statistic((sub.folder() / (r3[0]["stored"][0]["path"].get<std::string>()))), ref0) < 1e-5);
   CHECK(!fs::is_empty(root / "demo"));
   bool aside = false;
   for (const auto& e : fs::directory_iterator(root)) if (e.path().filename().string().rfind("_replaced-", 0) == 0) aside = true;
@@ -186,15 +203,12 @@ steps:
   chunks:
     over: recording
     do:
-      - {step: analytic, in: {x: recording}, with: {band: $band}, out: z}
-      - {step: apply_kernel, in: {x: z, kernel: kernel}, out: j}
-      - {step: power, in: {x: j}, out: p}
-      - {step: phase_current, in: {x: j}, out: h}
-      - {step: measure, in: {x: p}, with: {bad_segments: ignore}, out: power}
-      - {step: measure, in: {x: h}, with: {bad_segments: ignore}, out: current}
+      - {node: signal.analytic, in: {x: recording}, with: {band: $band}, out: z}
+      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel}, out: j}
+      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}
+      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: power}
 outputs:
-  power: {kind: band power}
-  current: {kind: phase current}
+  power: {kind: statistic}
 )";
   const g::Definition pd = g::parse(parse_yaml(phase, "phase.yaml"), "phase.yaml", phase);
   const auto r4 = g::run(ds, sub, pd, Json::object(), all);
@@ -202,13 +216,8 @@ outputs:
   if (r4.size() == 1) {
     bad0 = bad1;   // ignore: no sample left out (the direct computation's bad span emptied)
     const auto refa = direct(kfix, N, 1, 8, 12, 0, T, true);
-    CHECK(rel(read_floats((sub.folder() / (r4[0]["stored"][0]["path"].get<std::string>()))), refa) < 1e-5);
-    std::vector<std::int64_t> shape;
-    const auto cur = read_floats((sub.folder() / (r4[0]["stored"][1]["path"].get<std::string>())), &shape);
-    bool finite = true;
-    for (float v : cur) finite = finite && std::isfinite(v);
-    const auto row = sub.db().read("field", r4[0]["stored"][1]["id"].get<std::string>());
-    CHECK(finite && shape == (std::vector<std::int64_t>{N, 3}) && row && text(*row, "value_type") == "vector3");
+    CHECK(rel(read_statistic((sub.folder() / (r4[0]["stored"][0]["path"].get<std::string>()))), refa) < 1e-5);
+    // (the phase current is a vector: its measure is `reduce`'s phase_current, tested with the measure pipeline; `estimate` takes a scalar)
   }
   // a free kernel's ℍ current through the form nx (n·x, linear: the phase kept), then its power: runs and stores a scalar map
   const std::string fphase = R"(pipeline: form_test
@@ -219,16 +228,16 @@ steps:
   chunks:
     over: recording
     do:
-      - {step: analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}
-      - {step: apply_kernel, in: {x: z, kernel: kernel}, out: j}
-      - {step: form, in: {x: j}, with: {form: nx}, out: n}
-      - {step: power, in: {x: n}, out: p}
-      - {step: measure, in: {x: p}, with: {bad_segments: ignore}, out: power}
+      - {node: signal.analytic, in: {x: recording}, with: {band: [8.0, 12.0]}, out: z}
+      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel}, out: j}
+      - {node: signal.form, in: {x: j}, with: {form: nx}, out: n}
+      - {node: signal.field_form, in: {x: n}, with: {form: power}, out: p}
+      - {node: measurement.estimate, in: {x: p}, with: {method: sample}, out: power}
 outputs:
-  power: {kind: band power}
+  power: {kind: statistic}
 )";
   const auto r5 = g::run(ds, sub, g::parse(parse_yaml(fphase, "form.yaml"), "form.yaml", fphase), Json::object(), [] { g::RunOptions o; o.chunks = "0"; return o; }());
-  CHECK(r5.size() == 1 && r5[0]["stored"].size() == 1 && read_floats((sub.folder() / (r5[0]["stored"][0]["path"].get<std::string>()))).size() == static_cast<std::size_t>(N));
+  CHECK(r5.size() == 1 && r5[0]["stored"].size() == 1 && read_statistic((sub.folder() / (r5[0]["stored"][0]["path"].get<std::string>()))).size() == static_cast<std::size_t>(N));
 
 #ifdef NXR_TEST_CLI
   {

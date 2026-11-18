@@ -38,7 +38,7 @@ int main() {
   CHECK(has(pl, "name", "psd") && has(pl, "name", "global_bursts"));
   for (const auto& p : pl) {
     if (p["name"] == "psd") {
-      CHECK_EQ(p["form"].get<std::string>(), std::string("built-in"));
+      CHECK_EQ(p["form"].get<std::string>(), std::string("definition"));      // psd is a shipped definition like the others
       CHECK(has(p["parameters"], "name", "segment_seconds") && has(p["parameters"], "name", "recording"));
       for (const auto& q : p["parameters"]) CHECK(!q["meaning"].get<std::string>().empty());
     }
@@ -48,7 +48,8 @@ int main() {
   // the time range is required: none, half of one, both kinds, and an unknown parameter are refused before anything is read
   face::RunRequest rq;
   rq.pipeline = "psd";
-  rq.parameters = {{"recording", "rest"}, {"set", "brainstorm"}, {"segment_seconds", 2.0}};
+  rq.parameters = {{"recording", "rest"}, {"segment_seconds", 2.0}};
+  rq.preset = "brainstorm";
   CHECK_EQ(code_of([&] { face::run(folder, "S1", rq); }), std::string("invalid_argument"));
   face::RunRequest half = rq;
   half.from = 0.0;
@@ -98,7 +99,7 @@ int main() {
     std::ifstream in(log);
     std::string line, all;
     while (std::getline(in, line)) all += line + "\n";
-    CHECK(all.find("\"cache\": \"hit\"") != std::string::npos);
+    CHECK(all.find("\"hit\": true") != std::string::npos || all.find("\"hit\":true") != std::string::npos);   // the run report of a cache hit
     CHECK_EQ(std::system((same + " --name cli_psd >> " + log).c_str()), 0);
     const face::Stored c = face::read(folder, "S1", "cli_psd");
     CHECK(c.arrays.size() == 1 && c.arrays[0].bytes == s.arrays[0].bytes);

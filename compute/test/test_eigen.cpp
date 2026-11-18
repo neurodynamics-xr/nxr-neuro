@@ -8,26 +8,45 @@
  * Run:   ./build/Release/test_eigen.exe
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
 #include <iostream>
 #include <iomanip>
 #include <vector>
 #include <cmath>
+#include "surface_of.h"
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::solve;
-using namespace nxr::manifold::ops;
-using namespace nxr::manifold::ops::laplacian::connection;
-using namespace nxr::manifold::transport;
-using namespace nxr::manifold::connection;
-using namespace nxr::manifold::parametrization;
-using namespace nxr::manifold::parametrization::stripes;
-using namespace nxr::manifold::geometry;
-using namespace nxr::manifold::query;
-using namespace nxr::field::generate;
-using namespace nxr::field::interp;
-using namespace nxr::field::op;
-using namespace nxr::field::extract;
+using namespace nxr::geometry;
+using namespace nxr::operators;
+using namespace nxr::operators;
+using namespace nxr::operators::laplacian::connection;
+using namespace nxr::geometry::transport;
+using namespace nxr::geometry::connection;
+using namespace nxr::operators::connection;
+using namespace nxr::geometry::parametrization;
+using namespace nxr::geometry::parametrization::stripes;
+using namespace nxr::geometry;
+using namespace nxr::geometry::query;
+using namespace nxr::synthesis;
+using namespace nxr::signal;
+using namespace nxr::operators;
+using namespace nxr::signal;
 
 // Generate a subdivided icosphere for a slightly larger test mesh
 void generateIcosphere(std::vector<double>& vertices, std::vector<int32_t>& faces) {
@@ -67,18 +86,17 @@ int main() {
     std::cout << "\nTest mesh: icosahedron (" << nV << " V, " << nF << " F)" << std::endl;
 
     // ── Create compute context + factor cache ────────────────
-    nxr::manifold::Manifold m(vertices.data(), nV, faces.data(), nF);
-    nxr::manifold::ops::CholeskyCache cache;
+    const auto m = surfaceOf(vertices.data(), nV, faces.data(), nF);
 
     // ── Test 1: Operator assembly ────────────────────────────
     std::cout << "\n[Test 1] Operator Assembly" << std::endl;
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
     std::cout << "  cotanLaplacian: " << ops.cotanLaplacian.nonZeros() << " nnz" << std::endl;
     std::cout << "  Total area: " << ops.totalArea << std::endl;
 
     // ── Test 2: DEC operators ────────────────────────────────
     std::cout << "\n[Test 2] DEC Operators" << std::endl;
-    auto dec = nxr::manifold::ops::assembleDECOperators(m);
+    auto dec = nxr::operators::assembleDECOperators(m);
     std::cout << "  d0: " << dec.d0.rows() << "x" << dec.d0.cols() << " (" << dec.d0.nonZeros() << " nnz)" << std::endl;
     std::cout << "  d1: " << dec.d1.rows() << "x" << dec.d1.cols() << " (" << dec.d1.nonZeros() << " nnz)" << std::endl;
     std::cout << "  hodge1: " << dec.hodge1.rows() << "x" << dec.hodge1.cols() << std::endl;
@@ -86,7 +104,7 @@ int main() {
     // ── Test 3: Eigensolver ──────────────────────────────────
     std::cout << "\n[Test 3] Eigensolver" << std::endl;
     int k = 6;
-    auto result = nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, k);
+    auto result = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, k);
     std::cout << "  Eigenvalues:" << std::endl;
     for (int i = 0; i < result.k; i++) {
         std::cout << "    λ_" << i << " = " << std::setprecision(6) << result.eigenvalues(i) << std::endl;
@@ -94,12 +112,12 @@ int main() {
 
     // ── Test 4: Normalization ────────────────────────────────
     std::cout << "\n[Test 4] Normalization" << std::endl;
-    auto U_norm = nxr::manifold::solve::normalize(result.eigenvectors, ops.mass);
+    auto U_norm = nxr::operators::normalize(result.eigenvectors, ops.mass);
     result.eigenvectors = U_norm;
 
     // ── Test 5: DC removal ───────────────────────────────────
     std::cout << "\n[Test 5] DC Removal" << std::endl;
-    auto noDC = nxr::manifold::solve::removeDC(result);
+    auto noDC = nxr::operators::removeDC(result);
     std::cout << "  Modes remaining: " << noDC.k << std::endl;
 
     // ── Test 6: Poisson solver ───────────────────────────────
@@ -107,7 +125,7 @@ int main() {
     std::map<int, double> densityMap;
     densityMap[0] = 1.0;   // source at vertex 0
     densityMap[3] = -1.0;  // sink at vertex 3 (opposite side of icosahedron)
-    auto phi = nxr::manifold::solve::poisson(ops, cache, densityMap);
+    auto phi = nxr::operators::poisson(ops, *nxr::operators::laplacianFactor(ops.cotanLaplacian), densityMap);
     std::cout << "  φ at source (v=0): " << phi(0) << std::endl;
     std::cout << "  φ at sink (v=3):   " << phi(3) << std::endl;
 
@@ -117,16 +135,16 @@ int main() {
     // calls. Mirrors the VectorHeatSolver / SignedHeatSolver pattern.
     std::cout << "\n[Test 7] Geodesic Distance" << std::endl;
     std::vector<int> sources = {0};
-    nxr::manifold::solve::HeatGeodesicSolver heatGeo(m);
-    auto dists = nxr::manifold::solve::heat(heatGeo, sources);
+    auto dists = nxr::geometry::heat(m, sources);
     std::cout << "  Distance at source (v=0): " << dists(0) << std::endl;
     std::cout << "  Distance at v=3:          " << dists(3) << std::endl;
     std::cout << "  Max distance:             " << dists.maxCoeff() << std::endl;
 
     // ── Test 8: Hodge decomposition ──────────────────────────
     std::cout << "\n[Test 8] Hodge Decomposition" << std::endl;
-    auto omega = nxr::field::generate::randomOmega(m.nE());
-    auto hodge = nxr::manifold::solve::hodge(m, dec, cache, omega);
+    auto omega = nxr::synthesis::randomOmega(nxr::geometry::meshTopology(m).nE);
+    auto coexact = nxr::operators::coexactFormSolver(dec);
+    auto hodge = nxr::signal::hodge(m, dec, *nxr::operators::exactFormFactor(dec), *coexact, omega);
     std::cout << "  ω norm:       " << omega.norm() << std::endl;
     std::cout << "  α norm:       " << hodge.exactPotential.norm() << std::endl;
     std::cout << "  β norm (V):   " << hodge.coExactPotentialV.norm() << std::endl;
@@ -137,7 +155,7 @@ int main() {
 
     // ── Test 9: Curvatures ───────────────────────────────────
     std::cout << "\n[Test 9] Curvatures" << std::endl;
-    auto curv = nxr::manifold::geometry::curvatures(m);
+    auto curv = nxr::geometry::curvatures(m);
     std::cout << "  K range: [" << curv.gaussian.minCoeff() << ", " << curv.gaussian.maxCoeff() << "]" << std::endl;
     std::cout << "  H range: [" << curv.mean.minCoeff() << ", " << curv.mean.maxCoeff() << "]" << std::endl;
     std::cout << "  κ_min range: [" << curv.kMin.minCoeff() << ", " << curv.kMin.maxCoeff() << "]" << std::endl;
@@ -145,21 +163,21 @@ int main() {
 
     // ── Test 10: Vertex normals (all 6 variants) ─────────────
     std::cout << "\n[Test 10] Vertex Normals" << std::endl;
-    auto n_angle = nxr::manifold::geometry::normals(m, nxr::manifold::geometry::NormalType::AngleWeighted);
-    auto n_area = nxr::manifold::geometry::normals(m, nxr::manifold::geometry::NormalType::AreaWeighted);
-    auto n_sphere = nxr::manifold::geometry::normals(m, nxr::manifold::geometry::NormalType::SphereInscribed);
+    auto n_angle = nxr::geometry::normals(m, nxr::geometry::NormalType::AngleWeighted);
+    auto n_area = nxr::geometry::normals(m, nxr::geometry::NormalType::AreaWeighted);
+    auto n_sphere = nxr::geometry::normals(m, nxr::geometry::NormalType::SphereInscribed);
     std::cout << "  First normal (angle):  (" << n_angle(0, 0) << ", " << n_angle(0, 1) << ", " << n_angle(0, 2) << ")" << std::endl;
     std::cout << "  First normal (area):   (" << n_area(0, 0) << ", " << n_area(0, 1) << ", " << n_area(0, 2) << ")" << std::endl;
     std::cout << "  First normal (sphere): (" << n_sphere(0, 0) << ", " << n_sphere(0, 1) << ", " << n_sphere(0, 2) << ")" << std::endl;
 
     // ── Test 11: Scalar gradient on Poisson solution ─────────
     std::cout << "\n[Test 11] Scalar Gradient" << std::endl;
-    auto grad = nxr::field::op::gradient(m, phi);
+    auto grad = nxr::operators::gradient(m, phi);
     std::cout << "  Gradient norm at face 0: " << grad.row(0).norm() << std::endl;
 
     // ── Test 12: Isolines on geodesic distances ──────────────
     std::cout << "\n[Test 12] Isolines" << std::endl;
-    auto iso = nxr::field::extract::isoline(m, dists, 10);
+    auto iso = nxr::signal::isoline(m, dists, 10);
     std::cout << "  Segment count: " << iso.segmentCount << std::endl;
 
     // ── Test 13: Direction field (icosahedron: χ=2) ──────────
@@ -167,7 +185,7 @@ int main() {
     std::map<int, double> singularities;
     singularities[0] = 1.0;
     singularities[3] = 1.0;  // Antipodal vertices on icosahedron, sum = 2 = χ
-    auto dirField = nxr::manifold::connection::trivial(m, dec, cache, singularities);
+    auto dirField = nxr::operators::connection::trivial(m, dec, *nxr::operators::exactFormFactor(dec), singularities);
     std::cout << "  χ = " << dirField.eulerCharacteristic << std::endl;
     std::cout << "  Gauss-Bonnet: " << (dirField.gaussBonnetSatisfied ? "OK" : "FAIL") << std::endl;
     std::cout << "  Direction at face 0: (" << dirField.directionVectors(0, 0) << ", "
@@ -175,7 +193,7 @@ int main() {
 
     // ── Test 14: Streamlines on the direction field ──────────
     std::cout << "\n[Test 14] Streamlines" << std::endl;
-    auto streams = nxr::field::extract::streamline(m, dirField.directionVectors, 5, 0.2, 100);
+    auto streams = nxr::signal::streamline(m, dirField.directionVectors, 5, 0.2, 100);
     std::cout << "  Streamline segments: " << streams.segmentCount << std::endl;
 
     std::cout << "\n==========================================" << std::endl;

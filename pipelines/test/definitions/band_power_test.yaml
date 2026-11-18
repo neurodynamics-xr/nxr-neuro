@@ -1,5 +1,5 @@
-# A TEST fixture of the runner (not shipped: `band_power_source_map` was retired 2026-11-14 for `pyramid build`): the band power of a minimum-norm source estimate
-# at every source of the kernel's target, per recording, as a chain (band -> kernel -> power, pointwise) and a measure over the run's span. It exercises the runner's
+# A TEST fixture of the runner (not shipped: `band_power_source_map` was retired 2026-11-14 for the `measure` preset `cortical_band_pyramid`): the band power of a minimum-norm source estimate
+# at every source of the kernel's target, per recording, as a chain (band -> kernel -> power, pointwise) and the mean over the run's good samples (`estimate`, a statistic). It exercises the runner's
 # inputs, steps, chunk service, cache and provenance on synthetic subjects. Run by path: `nxr-neuro run pipelines/test/definitions/band_power_test.yaml ...`.
 pipeline: band_power_test
 version: 1
@@ -23,20 +23,21 @@ steps:
   chunks:
     over: recording
     do:
-      - step: band_filter
+      - node: signal.band_filter
         in:   {x: recording}
         with: {band: $band, shape: $shape}
         out:  x_band
-      - step: apply_kernel
+      - node: meeg.apply_kernel
         in:   {x: x_band, kernel: kernel}
         out:  sources
-      - step: power
+      - node: signal.field_form
         in:   {x: sources}
+        with: {form: power}
         out:  source_power
-      - step: measure
+      - node: measurement.estimate
         in:   {x: source_power, exclude: bad}
-        with: {measure: mean, bad_segments: $bad_segments}
+        with: {method: sample, bad_segments: $bad_segments}
         out:  band_power
 
 outputs:
-  band_power: {kind: band power, unit: "A²·m²"}
+  band_power: {kind: statistic}

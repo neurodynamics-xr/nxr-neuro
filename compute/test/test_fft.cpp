@@ -1,10 +1,10 @@
-// nxr::fft against numpy.fft (goldens from golden/gen_fft_golden.py: random inputs, numpy's outputs) and its own round trips.
-#include "nxr/fft.h"
+// nxr::signal against numpy.fft (goldens from golden/gen_fft_golden.py: random inputs, numpy's outputs) and its own round trips.
+#include "nxr/signal/fourier.h"
 #include "mesh_helpers.h"
 #include <fstream>
 #include <sstream>
 #include <string>
-using namespace nxr::fft;
+using namespace nxr::signal;
 
 static std::vector<double> readValues(std::istream& is, const std::string& tag) {
     std::string t; is >> t;
@@ -22,7 +22,7 @@ static double relErr(const double* a, const double* b, size_t n) {   // max |a-b
 }
 
 int main() {
-    std::cout << "\n=== nxr::fft vs numpy.fft ===\n";
+    std::cout << "\n=== nxr::signal vs numpy.fft ===\n";
     std::ifstream f(std::string(NXR_TEST_GOLDEN_DIR) + "/fft_golden.txt");
     EXPECT(f.good(), "golden file opens");
     std::string tok; int cases = 0; double worst = 0;
@@ -76,20 +76,29 @@ int main() {
             EXPECT(e2 < 1e-13, "ifft(fft(z)) == z, n " + std::to_string(n) + ", err " + std::to_string(e2));
         }
         Eigen::VectorXd x = Eigen::VectorXd::Random(100);
-        double pe = (rfft(x, Norm::Ortho).cwiseAbs2().sum() * 2 - std::norm(rfft(x, Norm::Ortho)(0)) - std::norm(rfft(x, Norm::Ortho)(50))) - x.squaredNorm();
+        double pe = (rfft(x, Norm::Ortho).cwiseAbs2().sum() * 2 - std::norm(rfft(x, Norm::Ortho)(0, 0)) - std::norm(rfft(x, Norm::Ortho)(50, 0))) - x.squaredNorm();
         EXPECT(std::abs(pe) < 1e-12, "ortho: Parseval (one-sided sum doubled) err " + std::to_string(pe));
     }
     {   // column helper: one signal per column of a column-major matrix
         Eigen::MatrixXd X = Eigen::MatrixXd::Random(50, 4);
-        Eigen::MatrixXcd C = rfftColumns(X);
-        EXPECT(C.rows() == 26 && C.cols() == 4, "rfftColumns shape [n/2+1 x m]");
+        Eigen::MatrixXcd C = rfft(X);
+        EXPECT(C.rows() == 26 && C.cols() == 4, "rfft shape [n/2+1 x m]");
         double e = 0; for (int j = 0; j < 4; ++j) e = std::max(e, (C.col(j) - rfft(X.col(j))).cwiseAbs().maxCoeff());
-        EXPECT(e < 1e-13, "rfftColumns == rfft of each column");
-        EXPECT((irfftColumns(C, 50) - X).cwiseAbs().maxCoeff() < 1e-13, "irfftColumns(rfftColumns(X), n) == X");
-        EXPECT((fftColumns(fftColumns(X.cast<std::complex<double>>()), false) - X.cast<std::complex<double>>()).cwiseAbs().maxCoeff() < 1e-13, "fftColumns round trip");
+        EXPECT(e < 1e-13, "rfft of a matrix == rfft of each column");
+        EXPECT((irfft(C, 50) - X).cwiseAbs().maxCoeff() < 1e-13, "irfft(rfft(X), n) == X");
+        EXPECT((ifft(fft(X.cast<std::complex<double>>())) - X.cast<std::complex<double>>()).cwiseAbs().maxCoeff() < 1e-13, "fft round trip");
     }
-    EXPECT(nextFastLen(13, true) == 15 && nextFastLen(17, true) == 18 && nextFastLen(97, true) == 100 && nextFastLen(7, false) == 7 && nextFastLen(1031, false) == 1050,
-           "nextFastLen (scipy: real {2,3,5}, complex {2,3,5,7,11})");
+    {   // the axis argument: axis 1 transforms the rows, bit for bit what axis 0 gives on the transpose
+        Eigen::MatrixXd X = Eigen::MatrixXd::Random(4, 50);
+        EXPECT(rfft(X, 1) == Eigen::MatrixXcd(rfft(Eigen::MatrixXd(X.transpose())).transpose()), "rfft along axis 1 is axis 0 of the transpose");
+        EXPECT((irfft(rfft(X, 1), 50, 1) - X).cwiseAbs().maxCoeff() < 1e-13, "irfft(rfft(X, 1), n, 1) == X");
+        const Eigen::MatrixXcd Z = X.cast<std::complex<double>>();
+        EXPECT((ifft(fft(Z, 1), 1) - Z).cwiseAbs().maxCoeff() < 1e-13, "ifft(fft(Z, 1), 1) == Z");
+        { bool threw = false; try { rfft(X, 2); } catch (const std::invalid_argument&) { threw = true; } EXPECT(threw, "an axis other than 0 and 1 is refused"); }
+    }
+    EXPECT(fftshift(fftfreq(5, 1.0)) == (Eigen::VectorXd(5) << -0.4, -0.2, 0.0, 0.2, 0.4).finished() && fftshift(fftfreq(4, 1.0))(0) == -0.5, "fftshift of fftfreq is numpy's ascending line");
+    EXPECT(next_fast_len(13, true) == 15 && next_fast_len(17, true) == 18 && next_fast_len(97, true) == 100 && next_fast_len(7, false) == 7 && next_fast_len(1031, false) == 1050,
+           "next_fast_len (scipy: real {2,3,5}, complex {2,3,5,7,11})");
     std::cout << (g_failures ? "\nFAILURES\n" : "\nALL PASSED\n");
     return g_failures ? 1 : 0;
 }

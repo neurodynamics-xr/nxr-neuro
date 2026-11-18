@@ -11,13 +11,31 @@
  * Run:   ./build/Release/test_progress.exe
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
 
 #include <atomic>
 #include <cmath>
 #include <cstdint>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
 namespace {
 
@@ -101,8 +119,8 @@ void test_SolveEigenmodesUpdatesProgress() {
     int nV = static_cast<int>(mesh.vertices.size() / 3);
     int nF = static_cast<int>(mesh.faces.size() / 3);
 
-    nxr::manifold::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
+    const auto m = surfaceOf(mesh.vertices.data(), nV, mesh.faces.data(), nF);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
 
     std::atomic<int32_t> iter{0}, total{0}, residual{0};
     nxr::core::ProgressObserver obs;
@@ -110,7 +128,7 @@ void test_SolveEigenmodesUpdatesProgress() {
     obs.totalIterations = &total;
     obs.residualMicro = &residual;
 
-    auto result = nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, 6, -1e-8,
+    auto result = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, 6, -1e-8,
                                        /*normalize=*/false, /*removeDC=*/false,
                                        nxr::core::CancellationToken{}, obs);
 

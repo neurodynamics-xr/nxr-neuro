@@ -7,9 +7,9 @@
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
-#include "nxr/opticalflow.h"
+#include "nxr/signal/opticalflow.h"
 
-using namespace nxr::flow;
+using namespace nxr::signal;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
@@ -21,13 +21,13 @@ int main() {
     const MatrixXd Vg = g.mat("positions"), Fg = g.mat("faces"), N = g.mat("normals"), A = g.mat("A"), e1 = g.mat("e1"), e2 = g.mat("e2"), v1 = g.mat("v1"), v2 = g.mat("v2"),
                    dv = g.mat("div"), cu = g.mat("curl"), sp = g.mat("speed"), J = g.mat("J"), an = g.mat("act_analytic"), nm = g.mat("act_norm");
     const RowMat3 pos = Vg;
-    const FaceMat faces = Fg.cast<std::int32_t>();
+    const nxr::operators::FaceMat faces = Fg.cast<std::int32_t>();
     const RowMat3 nrm = N;
     {
-        const TangentBasis tb = tangentBasis(nrm);
+        const TangentBasis tb = rheomeTangentBasis(nrm);
         std::printf("  tangent basis vs Rheome: %.2e\n", std::max(rel(tb.e1, e1), rel(tb.e2, e2)));
         EXPECT(std::max(rel(tb.e1, e1), rel(tb.e2, e2)) < 1e-12, "tangentBasis matches Rheome");
-        EXPECT(rel(vertexNormals(pos, faces), N) < 1e-12, "vertexNormals are Rheome's area-weighted normals");
+        EXPECT(rel(rheomeVertexNormals(pos, faces), N) < 1e-12, "vertexNormals are Rheome's area-weighted normals");
     }
     const FlowReadout r = flowReadout(v1, pos, faces);
     std::printf("  flowReadout vs Rheome: div %.2e curl %.2e speed %.2e\n", rel(r.divergence, dv), rel(r.vorticity, cu), rel(r.speed, sp));
@@ -41,7 +41,7 @@ int main() {
     std::vector<double> Vv; std::vector<int32_t> Ff;
     icosphere(3, Vv, Ff);
     RowMat3 P = Eigen::Map<RowMat3>(Vv.data(), Vv.size() / 3, 3);
-    FaceMat Fm = Eigen::Map<FaceMat>(Ff.data(), Ff.size() / 3, 3);
+    nxr::operators::FaceMat Fm = Eigen::Map<nxr::operators::FaceMat>(Ff.data(), Ff.size() / 3, 3);
     const double theta = 0.06;
     MatrixXd bump(P.rows(), 3);
     const Eigen::Vector3d c0 = Eigen::Vector3d(1, 0.3, 0.5).normalized();
@@ -49,7 +49,7 @@ int main() {
         const Eigen::Vector3d c = Eigen::AngleAxisd(theta * t, Eigen::Vector3d::UnitZ()) * c0;
         for (Eigen::Index i = 0; i < P.rows(); ++i) bump(i, t) = 0.1 + std::exp(-(P.row(i).transpose() - c).squaredNorm() / 0.3);
     }
-    const MatrixXd v = opticalflowScalar(bump, P, Fm, vertexNormals(P, Fm), 0.01);
+    const MatrixXd v = opticalflowScalar(bump, P, Fm, rheomeVertexNormals(P, Fm), 0.01);
     double num = 0, den = 0, cosSum = 0, wsum = 0;
     for (Eigen::Index i = 0; i < P.rows(); ++i) {
         const Eigen::Vector3d x = P.row(i), truth = Eigen::Vector3d::UnitZ().cross(x) * theta, est = v.block<3, 1>(3 * i, 0);
@@ -64,12 +64,12 @@ int main() {
 
     // (3) the Hodge–Dirac reading, on the glued icosphere of the hodge-weights golden
     Golden h(std::string(NXR_TEST_GOLDEN_DIR) + "/hodge_weights_golden.txt");
-    nxr::hodge::Basis b;
+    nxr::operators::Basis b;
     const MatrixXd V2 = h.mat("positions"), F2 = h.mat("faces"), P2 = h.mat("P"), mu = h.mat("mu"), kind = h.mat("kind"), mass = h.mat("mass"), keep = h.mat("keep");
     b.P = P2; b.positions = V2; b.faces = F2.cast<std::int32_t>(); b.mu = mu.row(0).transpose(); b.mass = mass.row(0).transpose();
     for (int i = 0; i < kind.cols(); ++i) b.kind.push_back(static_cast<int>(kind(0, i)));
     for (int i = 0; i < keep.cols(); ++i) b.keep.push_back(static_cast<std::int64_t>(keep(0, i)));
-    const nxr::hodge::FaceOperators ops(b.positions, b.faces);
+    const nxr::operators::FaceOperators ops(b.positions, b.faces);
     const int K = static_cast<int>(P2.rows()), V = static_cast<int>(P2.cols());
     int ex = -1, co = -1, exs = 0, cos_ = 0;
     for (int k = 0; k < K; ++k) {
@@ -78,7 +78,7 @@ int main() {
     std::printf("  basis: %d modes (%d exact, %d coexact); using exact %d, coexact %d\n", K, exs, cos_, ex, co);
     auto flowOf = [&](int k, bool rotational) {
         MatrixXd g[3];
-        ops.vertexGradient(P2.row(k).transpose(), g);
+        ops.meanFaceGradient(P2.row(k).transpose(), g);
         MatrixXd vel(3 * V, 1);
         for (int i = 0; i < V; ++i) {
             const Eigen::Vector3d gr(g[0](i, 0), g[1](i, 0), g[2](i, 0)), n = ops.normals.row(i), f = rotational ? Eigen::Vector3d(n.cross(gr)) : Eigen::Vector3d(-gr);
@@ -97,13 +97,13 @@ int main() {
     }
     // (4) the streaming forms equal the all-at-once ones: OpticalflowScalar::step, FlowReader::read, WeightsReader::flow
     {
-        OpticalflowScalar st(P, Fm, vertexNormals(P, Fm), 0.01, bump.cwiseAbs().maxCoeff());
+        OpticalflowScalar st(P, Fm, rheomeVertexNormals(P, Fm), 0.01, bump.cwiseAbs().maxCoeff());
         const FlowReader fr(P, Fm);
-        const nxr::hodge::WeightsReader wr(b);
+        const nxr::operators::WeightsReader wr(b);
         const FlowReadout full = flowReadout(v, P, Fm);
         double e1 = 0, e2 = 0, e3 = 0;
         const MatrixXd rnd = MatrixXd::Random(3 * V, 3);
-        const MatrixXd all = nxr::hodge::hodgeWeights(b, rnd);
+        const MatrixXd all = nxr::operators::hodgeWeights(b, rnd);
         for (int t = 0; t < 2; ++t) {
             const VectorXd vt = st.step(bump.col(t), bump.col(t + 1));
             e1 = std::max(e1, (vt - v.col(t)).cwiseAbs().maxCoeff());
@@ -114,6 +114,23 @@ int main() {
         for (int j = 0; j < 3; ++j) e3 = std::max(e3, (wr.flow(rnd.col(j)).col(0) - all.col(j).tail(K)).cwiseAbs().maxCoeff());
         std::printf("  streaming vs all at once: step %.1e, readout %.1e, flow weights %.1e\n", e1, e2, e3);
         EXPECT(e1 < 1e-12 && e2 < 1e-12 && e3 < 1e-12, "the streaming steps equal the all-at-once versions");
+    }
+    // (5) hilbert: the Spectral method is MATLAB's (a tone gives its quadrature); the Fir method gives the same where the whole filter lies inside the block, and depends on `halfLength` samples each side only
+    {
+        const int T = 2000; const double fs = 250.0;
+        MatrixXd x(2, T);
+        for (int t = 0; t < T; ++t) { x(0, t) = std::cos(2 * M_PI * 10.0 * t / fs); x(1, t) = std::cos(2 * M_PI * 23.0 * t / fs + 0.4); }
+        const Eigen::MatrixXcd sp = hilbert(x), fir = hilbert(x, HilbertMethod::Fir, 100);
+        double e = 0;
+        for (int r = 0; r < 2; ++r) for (int t = 100; t < T - 100; ++t) e = std::max(e, std::abs(sp(r, t) - fir(r, t)));
+        std::printf("  hilbert Fir vs Spectral inside the block: %.1e\n", e);
+        EXPECT(e < 5e-3, "the FIR Hilbert equals the spectral one inside the block");
+        EXPECT(std::abs(sp(0, 400) - std::exp(std::complex<double>(0, 2 * M_PI * 10.0 * 400 / fs))) < 1e-9, "the spectral Hilbert of a cosine is its complex exponential");
+        const Eigen::MatrixXcd piece = hilbert(MatrixXd(x.middleCols(500, 300)), HilbertMethod::Fir, 100);
+        double d = 0;
+        for (int t = 100; t < 200; ++t) d = std::max(d, std::abs(piece(0, t) - fir(0, 500 + t)));
+        EXPECT(d == 0, "the FIR Hilbert of a sample depends on its halo alone: any cut of the record gives it bit for bit");
+        EXPECT(piece(0, 50) == std::complex<double>(x(0, 550), 0.0), "inside the first halfLength samples the quadrature part is not computed (0)");
     }
     std::cout << (g_failures ? "FAILED\n" : "ok\n");
     return g_failures ? 1 : 0;

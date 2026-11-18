@@ -1,4 +1,4 @@
-"""Writes tracks_golden.txt: the reference of nxr::tracks::Linker, the linking of nxr's `_track_stats` (nxr/detect/vortex.py), on PLANTED MOVING VORTICES: on a sphere of radius 80 mm, a few cores of both senses
+"""Writes tracks_golden.txt: the reference of nxr::select::Linker, the linking of nxr's `_track_stats` (nxr/detect/vortex.py), on PLANTED MOVING VORTICES: on a sphere of radius 80 mm, a few cores of both senses
 walk (random headings, about 4-6 mm a frame) for many frames, appear and disappear, two same-sense cores pass within the link distance of each other (the greedy choice decides who follows whom), a few lone cores
 come and go, and the run has frames with no core and frames left out (a gap breaks every track). `_track_stats` is called as it is (its Jaccard sums empty) with `steps=[]`: the steps it appends are the links
 (sense, from, displacement, track, frame), and its lifetime, path and displacement lists are of the tracks of at least 3 frames. Run:

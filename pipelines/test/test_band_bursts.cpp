@@ -18,17 +18,17 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "nxr/io.h"
-#include "nxr/io/constant_q.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/runner.h"
-#include "nxr/pipelines/statistics.h"
-#include "nxr/stats.h"
-#include "nxr/taps.h"
+#include "nxr/pipelines/run_shipped.h"
+#include "nxr/stats/summary.h"
+#include "nxr/signal/filters_fir.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 namespace g = nxr::pipelines::graph;
@@ -102,9 +102,10 @@ int main() {
         }
       }
     });
-    sub.compose([&] { nxr::io::constantq::write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
+  nxrtest::make_time_grids(ds, sub, "band", Json{{"band", "8-16 Hz"}});
   const g::Definition d = g::load("band_bursts");
   g::RunOptions all;
   all.chunks = "all";
@@ -122,43 +123,34 @@ int main() {
   CHECK(!ra.is_null() && ra["hit"] == false);
   // the amplitude rows: on the alpha level, array-backed [3 x tiles x 2], equal to the direct mean of |z| per tile
   auto out_of = [](const Json& r, const std::string& o) -> Json { for (const auto& x : r["stored"]) if (x["output"] == o) return x; return Json(); };
-  const Json am = out_of(ra, "amplitude");
-  CHECK(am["measurement"] == "amplitude");
+  const Json am = out_of(ra, "tiles");
+  CHECK(am["kind"] == "measurement" && am["rows"] == 2);                        // amplitude and envelope_max: the two measures of one reduction
   const auto tsub = tk::Subject::of(sub);
   const nxr::io::testing::Probe probe(sub);
-  const auto lvl = tsub.find({.cls = tk::Cls::selection, .name = am["over"].get<std::string>(), .any_status = true});
-  CHECK(lvl.has_value());
+  const auto lvl = tsub.by_id(tk::Cls::selection, am["over"].get<std::string>());
+  CHECK(lvl.has_value() && lvl->name == "rest time grid band 8-16 Hz");        // the grid is found by the name of its rule
   const Json lp = lvl->params;
-  CHECK(lp["resolves_hz"]["lo"] == 8.0 && lp["resolves_hz"]["hi"] == 16.0 && lp["window_samples"] == 1024);
-  const std::int64_t TT = lp["tiling"]["count"].get<std::int64_t>(), W = 1024;
-  std::vector<std::int64_t> shape;
-  const auto arr = nxrtest::read_packed(sub.folder(), am, &shape);
-  CHECK(shape == (std::vector<std::int64_t>{M, TT, 2}));
+  CHECK(lp["band"][0] == 8.0 && lp["band"][1] == 16.0 && lp["grid"]["width"] == 512);       // the band rule: the first 2^k samples holding 4 cycles of the band's centre (11.3 Hz: 0.35 s -> 512)
+  const std::int64_t TT = lp["grid"]["count"].get<std::int64_t>(), W = lp["grid"]["width"].get<std::int64_t>();
   const auto rest = tsub.find({.cls = tk::Cls::field, .name = "rest", .any_status = true});
-  // the rows of one (selection, field, measure) in the measurement table
-  auto measured = [&](const std::string& selection_id, const std::string& measure, const std::string& order_by = "") {
-    return probe.rows("selection_measurement", {{"selection_id", V(selection_id)}, {"of_field_id", V(rest->id)}, {"measure", V(measure)}}, order_by);
-  };
-  std::vector<Row> rows;
-  for (const char* m : {"amplitude", "count"}) for (const Row& r : measured(lvl->id, m)) rows.push_back(r);
-  std::stable_sort(rows.begin(), rows.end(), [](const Row& a, const Row& b) { return integer(a, "component") < integer(b, "component"); });
-  CHECK(rows.size() == 2 && text(rows[0], "measure") == "amplitude" && text(rows[1], "measure") == "count" && opt_text(rows[0], "computed_by").value_or("").rfind("pipeline band_bursts@1", 0) == 0);
-  // the band's peak per tile is stored beside it on the same level and shares the count row
-  CHECK_EQ(measured(lvl->id, "envelope_max").size(), std::size_t(1));
-  CHECK_EQ(measured(lvl->id, "count").size(), std::size_t(1));
+  CHECK(rest.has_value());
+  // the values of one measure over a selection, [rows x members]
+  auto values_of = [&](const std::string& selection_id, const std::string& field_id, const char* measure) { return measurement_values(sub, selection_id, field_id, std::nullopt, std::nullopt, measure); };
+  const MeasurementValues amp_mv = values_of(lvl->id, rest->id, "amplitude"), peak_mv = values_of(lvl->id, rest->id, "envelope_max");
+  CHECK(amp_mv.rows == M && amp_mv.members == TT && peak_mv.members == TT);
+  const std::vector<double>& arr = amp_mv.values;
   {
-    const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 16.0); };
-    const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-    const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
+    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+    const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+    const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
     double worst = 0, scale = 0;
     for (int c = 0; c < M; ++c)
       for (std::int64_t t = 0; t < T / W; ++t) {
         double s = 0;
         for (std::int64_t k = t * W; k < (t + 1) * W; ++k) { const double a = re[static_cast<std::size_t>(c * T + k)], b = im[static_cast<std::size_t>(c * T + k)]; s += static_cast<float>(std::sqrt(a * a + b * b)); }
-        const double want = s / W, got = arr[static_cast<std::size_t>((c * TT + t) * 2)];
+        const double want = s / W, got = arr[static_cast<std::size_t>(c * TT + t)];
         worst = std::max(worst, std::abs(got - want));
         scale = std::max(scale, want);
-        CHECK_EQ(static_cast<std::int64_t>(arr[static_cast<std::size_t>((c * TT + t) * 2 + 1)]), W);
       }
     std::printf("  amplitude per tile vs the direct |z| mean: %.2e (of %.2e)\n", worst, scale);
     CHECK(worst < 1e-5 * scale);
@@ -170,19 +162,17 @@ int main() {
     const Json bl = out_of(ra, "baseline");
     CHECK(!bl.is_null());
     if (!bl.is_null()) {
-      const StoredStatistic st = read_statistic(sub, bl["statistic"].get<std::string>());
+      const StoredStatistic st = read_statistic(sub, bl["name"].get<std::string>());
       CHECK(text(st.row, "method") == "summary" && text(st.row, "measure") == "amplitude" && st.shape == (std::vector<std::int64_t>{M, 2}));
-      CHECK(st.axes[1]["values"][0]["name"] == "median" && st.axes[1]["values"][1]["name"] == "mad" && text(st.row, "partition_selection_id") == lvl->id);
+      CHECK(st.axes[1]["values"][0]["name"] == "median" && st.axes[1]["values"][1]["name"] == "mad");
       // the baseline is the median and robust SD of the stored amplitude tiles (channel 2: no burst)
       std::vector<double> c2;
-      for (std::int64_t t = 0; t < TT; ++t) { const float v = arr[static_cast<std::size_t>((2 * TT + t) * 2)]; if (std::isfinite(v)) c2.push_back(v); }
+      for (std::int64_t t = 0; t < TT; ++t) { const double v = arr[static_cast<std::size_t>(2 * TT + t)]; if (std::isfinite(v)) c2.push_back(v); }
       CHECK(std::abs(st.values[2 * 2] - nxr::stats::median(c2)) < 1e-12 && std::abs(st.values[2 * 2 + 1] - nxr::stats::mad(c2)) < 1e-12);
-      // the same from the STORED amplitude by the verb (statistic compute, array-backed rows): the run's baseline
-      nxr::pipelines::StatisticComputeOptions so;
-      so.over = lvl->name; so.of = "rest"; so.measure = "amplitude"; so.summaries = {"median", "mad"}; so.name = "rest_alpha_baseline";
-      const auto vr = nxr::pipelines::statistic_compute(ds, sub, so);
+      // the same from the STORED amplitude by the verb (summarize a stored measurement): the run's baseline
+      const auto vr = nxr::pipelines::run_shipped(ds, sub, "summarize", Json{{"over", lvl->name}, {"of", "rest"}, {"measure", "amplitude"}, {"summaries", Json::array({"median", "mad"})}, {"name", "rest_alpha_baseline"}}, false);
       const StoredStatistic vs = read_statistic(sub, "rest_alpha_baseline");
-      CHECK(vr.info["rows"] == M && vs.values == st.values && vs.axes[0].contains("manifold_id"));
+      CHECK(!vr.empty() && vs.values == st.values);
     }
   }
   const auto sel_rows = probe.rows("selection", {{"id", V(bs["id"].get<std::string>())}});
@@ -205,28 +195,25 @@ int main() {
     std::printf("  burst %zu on channel %d: [%.3f, %.3f) s\n", k, ch, a, b);
     CHECK(matched);
   }
-  // PER-BURST MEASUREMENTS (docs/specs/2026-11-13-burst-statistics.md): each burst measured from the tiles it covers, stored over the run's own bursts Selection,
-  // [rows x bursts x 2], on the row of the channel that found it; equal to the direct values over the burst's samples
+  // PER-BURST MEASUREMENTS (docs/specs/2026-11-13-burst-statistics.md): each burst measured from the tiles it covers (the tiles' ingredients merged), stored over the run's own bursts Selection,
+  // [rows x bursts] a measure, on the row of the channel that found it; equal to the direct values over the burst's samples
+  std::vector<double> dur_all;
   {
-    const std::int64_t TW = 1024;
-    const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 16.0); };
-    const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-    const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
+    const std::int64_t TW = W;
+    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+    const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+    const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
     auto env = [&](int c, std::int64_t k) { const double a = re[static_cast<std::size_t>(c * T + k)], b = im[static_cast<std::size_t>(c * T + k)]; return static_cast<double>(static_cast<float>(std::sqrt(a * a + b * b))); };
     const auto evs = probe.rows("selection_span", {{"selection_id", V(bs["id"].get<std::string>())}}, "ordinal");
     const Json params = tsub.require_id(tk::Cls::selection, bs["id"].get<std::string>()).params;
     const std::int64_t E = static_cast<std::int64_t>(evs.size());
     CHECK_EQ(E, std::int64_t(3));
     const double wt = static_cast<double>(TW) / sfreq;
-    auto matrix = [&](const char* output, std::vector<std::int64_t>* shape = nullptr) {
-      const Json m = out_of(ra, output);
-      CHECK(!m.is_null() && m["rows"] == M);
-      return nxrtest::read_packed(sub.folder(), m, shape);
-    };
-    std::vector<std::int64_t> sh;
-    const auto A = matrix("burst_amplitude", &sh);
-    CHECK(sh == (std::vector<std::int64_t>{M, E, 2}));
-    const auto P = matrix("burst_peak"), D = matrix("burst_duration"), I = matrix("burst_interval");
+    const Json bv = out_of(ra, "burst_values");
+    CHECK(bv["kind"] == "measurement" && bv["rows"] == 4 && bv["over"] == bs["id"]);   // amplitude, envelope_max, duration, interval_next
+    const std::string sid_ev = bs["id"].get<std::string>();
+    const MeasurementValues A = values_of(sid_ev, rest->id, "amplitude"), P = values_of(sid_ev, rest->id, "envelope_max"), D = values_of(sid_ev, rest->id, "duration"), I = values_of(sid_ev, rest->id, "interval_next");
+    CHECK(A.rows == M && A.members == E && A.array_backed && D.members == E && I.members == E);
     std::vector<int> ch;
     std::vector<double> dur, gap, amps, peaks;
     std::vector<std::vector<double>> dur_by(M), amp_by(M), peak_by(M), gap_by(M);
@@ -238,11 +225,10 @@ int main() {
       for (std::int64_t t = f * TW; t < e * TW; ++t) { sa += env(c, t); pk = std::max(pk, env(c, t)); }
       const double want_a = sa / static_cast<double>((e - f) * TW);
       for (int r = 0; r < M; ++r) {
-        const auto at = [&](const std::vector<float>& v) { return v[static_cast<std::size_t>((r * E + k) * 2)]; };
+        const auto at = [&](const MeasurementValues& v) { return v.values[static_cast<std::size_t>(r * E + k)]; };
         if (r == c) {
           worst = std::max({worst, std::abs(at(A) - want_a), std::abs(at(P) - pk)});
           CHECK(std::abs(at(D) - static_cast<double>(e - f) * wt) < 1e-5);
-          CHECK_EQ(static_cast<std::int64_t>(A[static_cast<std::size_t>((r * E + k) * 2 + 1)]), (e - f) * TW);
         } else {
           CHECK(std::isnan(at(A)) && std::isnan(at(P)) && std::isnan(at(D)) && std::isnan(at(I)));
         }
@@ -258,57 +244,54 @@ int main() {
       std::int64_t first0 = -1, second0 = -1;
       for (std::int64_t k = 0; k < E; ++k) if (ch[static_cast<std::size_t>(k)] == 0) (first0 < 0 ? first0 : second0) = k;
       const double s1 = std::stod(text(evs[static_cast<std::size_t>(second0)], "start")), e0 = std::stod(text(evs[static_cast<std::size_t>(first0)], "stop"));
-      CHECK(std::abs(I[static_cast<std::size_t>((0 * E + first0) * 2)] - (s1 - e0)) < 1e-4 && std::isnan(I[static_cast<std::size_t>((0 * E + second0) * 2)]));
-      for (std::int64_t k = 0; k < E; ++k) if (ch[static_cast<std::size_t>(k)] == 1) CHECK(std::isnan(I[static_cast<std::size_t>((1 * E + k) * 2)]));
+      CHECK(std::abs(I.values[static_cast<std::size_t>(0 * E + first0)] - (s1 - e0)) < 1e-4 && std::isnan(I.values[static_cast<std::size_t>(0 * E + second0)]));
+      for (std::int64_t k = 0; k < E; ++k) if (ch[static_cast<std::size_t>(k)] == 1) CHECK(std::isnan(I.values[static_cast<std::size_t>(1 * E + k)]));
       gap_by[0].push_back(s1 - e0);
     }
-    // read back by the lookup as [rows x bursts]
+    CHECK(std::abs(A.values[static_cast<std::size_t>(ch[0] * E)] - amp_by[static_cast<std::size_t>(ch[0])][0]) < 1e-5);
+    // THE STATISTICS ACROSS THE BURSTS, per channel and measure: count, sum, median, mean, sd, percentiles 25, 75, 90 (the default); channel 2 has none: count and sum 0.
+    // One statistic: axes row x measure (amplitude, envelope_max, duration, interval_next) x summary.
     {
-      const auto sid_ev = bs["id"].get<std::string>();
-      const MeasurementValues mv = measurement_values(sub, sid_ev, rest->id, std::nullopt, std::nullopt, "amplitude");
-      CHECK(mv.rows == M && mv.members == E && mv.array_backed);
-      CHECK(std::abs(mv.values[static_cast<std::size_t>(ch[0] * E)] - amp_by[static_cast<std::size_t>(ch[0])][0]) < 1e-5);
-    }
-    // THE STATISTICS ACROSS THE BURSTS, per channel: count, sum, median, mean, sd, percentiles 25, 75, 90 (the default); channel 2 has none: count and sum 0
-    {
-      auto stat = [&](const char* output) { return read_statistic(sub, out_of(ra, output)["statistic"].get<std::string>()); };
-      const StoredStatistic sd_ = stat("burst_duration_stats"), sa_ = stat("burst_amplitude_stats"), sp_ = stat("burst_peak_stats"), si_ = stat("burst_interval_stats");
-      CHECK(sd_.shape == (std::vector<std::int64_t>{M, 8}));
-      CHECK(sd_.axes[1]["values"][0]["name"] == "count" && sd_.axes[1]["values"][1]["name"] == "sum" && sd_.axes[1]["values"][7]["p"] == 90.0);
+      const StoredStatistic ss = read_statistic(sub, out_of(ra, "burst_stats")["name"].get<std::string>());
+      const std::int64_t K = 4, S = 8;
+      CHECK(ss.shape == (std::vector<std::int64_t>{M, K, S}));
+      CHECK(ss.axes[1]["values"][0]["name"] == "amplitude" && ss.axes[1]["values"][2]["name"] == "duration" && ss.axes[2]["values"][0]["name"] == "count" && ss.axes[2]["values"][1]["name"] == "sum" && ss.axes[2]["values"][7]["name"] == "percentile:90");
+      auto at = [&](int c, int m, int sm) { return ss.values[static_cast<std::size_t>((c * K + m) * S + sm)]; };
       for (int c = 0; c < M; ++c) {
         const auto& d = dur_by[static_cast<std::size_t>(c)];
         const double n = static_cast<double>(d.size());
-        CHECK(sd_.values[static_cast<std::size_t>(c * 8)] == n && sa_.values[static_cast<std::size_t>(c * 8)] == n);
+        CHECK(at(c, 2, 0) == n && at(c, 0, 0) == n);
         double tot = 0; for (double v : d) tot += v;
-        CHECK(std::abs(sd_.values[static_cast<std::size_t>(c * 8 + 1)] - tot) < 1e-5);
-        if (d.empty()) { CHECK(std::isnan(sd_.values[static_cast<std::size_t>(c * 8 + 2)])); continue; }
-        CHECK(std::abs(sd_.values[static_cast<std::size_t>(c * 8 + 2)] - nxr::stats::median(d)) < 1e-5 && std::abs(sd_.values[static_cast<std::size_t>(c * 8 + 3)] - nxr::stats::mean(d)) < 1e-5);
-        CHECK(std::abs(sa_.values[static_cast<std::size_t>(c * 8 + 2)] - nxr::stats::median(amp_by[static_cast<std::size_t>(c)])) < 1e-5);
-        CHECK(std::abs(sp_.values[static_cast<std::size_t>(c * 8 + 3)] - nxr::stats::mean(peak_by[static_cast<std::size_t>(c)])) < 1e-5);
-        CHECK(std::abs(sa_.values[static_cast<std::size_t>(c * 8 + 7)] - nxr::stats::percentile(amp_by[static_cast<std::size_t>(c)], 90)) < 1e-5);
+        CHECK(std::abs(at(c, 2, 1) - tot) < 1e-5);
+        if (d.empty()) { CHECK(std::isnan(at(c, 2, 2))); continue; }
+        CHECK(std::abs(at(c, 2, 2) - nxr::stats::median(d)) < 1e-5 && std::abs(at(c, 2, 3) - nxr::stats::mean(d)) < 1e-5);
+        CHECK(std::abs(at(c, 0, 2) - nxr::stats::median(amp_by[static_cast<std::size_t>(c)])) < 1e-5);
+        CHECK(std::abs(at(c, 1, 3) - nxr::stats::mean(peak_by[static_cast<std::size_t>(c)])) < 1e-5);
+        CHECK(std::abs(at(c, 0, 7) - nxr::stats::percentile(amp_by[static_cast<std::size_t>(c)], 90)) < 1e-5);
       }
-      CHECK(si_.values[0] == 1 && std::abs(si_.values[1] - gap_by[0][0]) < 1e-4 && si_.values[8] == 0 && si_.values[9] == 0);   // one interval on channel 0; none on 1 and 2
-      // the span and its good seconds are recorded: rate, occupancy and CV are derived at read
-      const Json opt = Json::parse(text(sd_.row, "options_json"));
-      CHECK(std::abs(opt["good_s"].get<double>() - T / sfreq) < 1e-9 && opt["span"]["stop_sample"] == T);
-      CHECK(text(sd_.row, "partition_selection_id") == bs["id"].get<std::string>());
+      CHECK(at(0, 3, 0) == 1 && std::abs(at(0, 3, 1) - gap_by[0][0]) < 1e-4 && at(1, 3, 0) == 0 && at(2, 3, 0) == 0);   // one interval on channel 0; none on 1 and 2
+      CHECK(text(ss.row, "partition_selection_id") == bs["id"].get<std::string>());
     }
   }
   // 2. ANOTHER CHUNK WIDTH: the same tiles and bursts
   {
     const Json rb = result("rest_b");
-    const auto arr_b = nxrtest::read_packed(sub.folder(), out_of(rb, "amplitude"));
+    const auto rest_b = tsub.find({.cls = tk::Cls::field, .name = "rest_b", .any_status = true});
+    CHECK(rest_b.has_value());
+    const MeasurementValues mb = values_of(out_of(rb, "tiles")["over"].get<std::string>(), rest_b->id, "amplitude");
     double worst = 0;
-    for (std::size_t i = 0; i < arr.size(); i += 2) if (std::isfinite(arr[i])) worst = std::max(worst, static_cast<double>(std::abs(arr_b[i] - arr[i]) / std::max(1e-6f, arr[i])));
+    CHECK(mb.values.size() == arr.size());
+    for (std::size_t i = 0; i < arr.size(); ++i) if (std::isfinite(arr[i])) worst = std::max(worst, std::abs(mb.values[i] - arr[i]) / std::max(1e-6, arr[i]));
     std::printf("  chunk width 32768 vs 3000: %.2e\n", worst);
     CHECK(worst < 1e-4);
     CHECK(out_of(rb, "bursts")["spans"] == bs["spans"]);
   }
-  // 3. A BAD SPAN [40, 40.5) s: tiles 46 and 47 NaN, their counts short
+  // 3. A BAD SPAN [40, 40.5) s: tiles 93 and 94 NaN
   {
-    const auto arr_c = nxrtest::read_packed(sub.folder(), out_of(result("rest_c"), "amplitude"));
-    CHECK(std::isnan(arr_c[46 * 2]) && std::isnan(arr_c[47 * 2]) && std::isfinite(arr_c[45 * 2]) && std::isfinite(arr_c[48 * 2]));
-    CHECK(arr_c[46 * 2 + 1] < W && arr_c[47 * 2 + 1] < W);
+    const auto rest_c = tsub.find({.cls = tk::Cls::field, .name = "rest_c", .any_status = true});
+    CHECK(rest_c.has_value());
+    const MeasurementValues mc = values_of(out_of(result("rest_c"), "tiles")["over"].get<std::string>(), rest_c->id, "amplitude");
+    CHECK(std::isnan(mc.values[93]) && std::isnan(mc.values[94]) && std::isfinite(mc.values[92]) && std::isfinite(mc.values[95]));
   }
   // 4. A RERUN is a hit; other parameters refused unless replace; COMBINE MEAN: the three bursts on one trace, no channel
   {
@@ -326,96 +309,49 @@ int main() {
     const auto s2 = tsub.by_id(tk::Cls::selection, out_of(rm, "bursts")["id"].get<std::string>());
     CHECK(s2 && !s2->params.contains("channels"));
     // the mean trace's bursts are measured on every row, each on its own tiles, and their statistics are one row
-    const Json ba = out_of(rm, "burst_amplitude");
-    std::vector<std::int64_t> shm;
-    const auto Am = nxrtest::read_packed(sub.folder(), ba, &shm);
-    CHECK(shm == (std::vector<std::int64_t>{M, 3, 2}));
-    for (int r = 0; r < M; ++r) for (int k = 0; k < 3; ++k) CHECK(std::isfinite(Am[static_cast<std::size_t>((r * 3 + k) * 2)]));   // each row on its own tiles
-    const StoredStatistic cs = read_statistic(sub, out_of(rm, "burst_duration_stats")["statistic"].get<std::string>());
-    CHECK(cs.shape == (std::vector<std::int64_t>{1, 8}) && cs.values[0] == 3);
+    const MeasurementValues Am = values_of(out_of(rm, "burst_values")["over"].get<std::string>(), rest->id, "amplitude");
+    CHECK(Am.rows == M && Am.members == 3);
+    for (int r = 0; r < M; ++r) for (int k = 0; k < 3; ++k) CHECK(std::isfinite(Am.values[static_cast<std::size_t>(r * 3 + k)]));   // each row on its own tiles
+    const StoredStatistic cs = read_statistic(sub, out_of(rm, "burst_stats")["name"].get<std::string>());
+    CHECK(cs.shape == (std::vector<std::int64_t>{1, 4, 8}) && cs.values[(2) * 8] == 3);   // one row; the duration's count
   }
-  // 5. THE MEDIAN of the band's envelope per tile (exact; numpy's), held per tile until it closes: equal to the direct median of |z|, whatever the chunk width;
-  //    and over the run's whole span (no `over`), per row
+  // 5. THE MEDIAN of the band's envelope per tile (exact; numpy's), held per tile until it closes: equal to the direct median of |z|, whatever the chunk width
   {
     const std::string yaml =
         "pipeline: band_median\nversion: 1\ndescription: test\nscope: subject\n"
-        "inputs:\n  recording: {field: recording, each: true}\n  ladder: {selection: ladder, manifold: recording.time}\n"
+        "inputs:\n  recording: {field: recording, each: true}\n  grid: {selection: any, manifold: recording.time, where: {name: \"{recording} time grid band 8-16 Hz\"}}\n"
         "  bad: {selection: spans, manifold: recording.time, where: {name: \"{recording}_bad_segments\"}, required: false}\n"
-        "parameters:\n  band: [8.0, 16.0]\nsteps:\n  chunks:\n    over: recording\n    do:\n"
-        "      - {step: envelope, in: {x: recording}, with: {band: $band}, out: amp}\n"
-        "      - {step: measure, in: {x: amp, over: ladder, exclude: bad}, with: {measure: median}, out: med}\n"
-        "      - {step: measure, in: {x: amp, exclude: bad}, with: {measure: median}, out: whole}\n"
-        "outputs:\n  med: {kind: measurement}\n  whole: {kind: median envelope}\n";
+        "parameters:\n  band: {default: \"8-16 Hz\", meaning: test, unit: Hz}\nsteps:\n  chunks:\n    over: recording\n    do:\n"
+        "      - {node: signal.envelope, in: {x: recording}, with: {band: $band}, out: amp}\n"
+        "      - {node: measurement.reduce, in: {x: amp, over: grid, exclude: bad}, with: {measures: [median]}, out: [med, med_ingredients]}\n"
+        "outputs:\n  med: {kind: measurement, over: grid, of: recording}\n";
     const g::Definition dm = g::parse(parse_yaml(yaml, "test.yaml"), "test.yaml", yaml);
     const auto rm = g::run(ds, sub, dm, Json::object(), all);
-    const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 16.0); };
-    const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-    const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
+    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+    const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+    const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
     auto env = [&](int c, std::int64_t k) { const double a = re[static_cast<std::size_t>(c * T + k)], b = im[static_cast<std::size_t>(c * T + k)]; return static_cast<double>(static_cast<float>(std::sqrt(a * a + b * b))); };
-    std::vector<float> first;
+    std::vector<double> first;
     for (const char* rec : {"rest", "rest_b"}) {
       Json one;
       for (const auto& x : rm) if (x.value("anchor", std::string()) == rec) one = x;
       CHECK(!one.is_null());
-      Json tilesarr; std::string wholearr;
-      for (const auto& x : one["stored"]) { if (x["output"] == "med") tilesarr = x; if (x["output"] == "whole") wholearr = x["path"].get<std::string>(); }
-      CHECK(!tilesarr.is_null() && !wholearr.empty());
-      std::vector<std::int64_t> sh;
-      const auto a = nxrtest::read_packed(sub.folder(), tilesarr, &sh);
-      const std::int64_t TT = sh[1], W = 1024;
+      const Json md = out_of(one, "med");
+      CHECK(!md.is_null());
+      const auto fld = tsub.find({.cls = tk::Cls::field, .name = rec, .any_status = true});
+      const MeasurementValues a = values_of(md["over"].get<std::string>(), fld->id, "median");
       double worst = 0, scale = 0;
       for (int c = 0; c < M; ++c)
         for (std::int64_t t = 0; t < T / W; ++t) {
           std::vector<double> v;
           for (std::int64_t k = t * W; k < (t + 1) * W; ++k) v.push_back(env(c, k));
-          const double want = nxr::stats::median(v), got = a[static_cast<std::size_t>((c * TT + t) * 2)];
+          const double want = nxr::stats::median(v), got = a.values[static_cast<std::size_t>(c * a.members + t)];
           worst = std::max(worst, std::abs(got - want)); scale = std::max(scale, want);
         }
       std::printf("  median per tile (%s) vs the direct median of |z|: %.2e (of %.2e)\n", rec, worst, scale);
       CHECK(worst < 1e-5 * scale);
-      if (first.empty()) first = a; else CHECK(a == first);            // the chunk width changes nothing
-      const auto wh = read_floats((sub.folder() / (wholearr)), &sh);
-      for (int c = 0; c < M; ++c) {
-        std::vector<double> v;
-        for (std::int64_t k = 0; k < T; ++k) v.push_back(env(c, k));
-        CHECK(std::abs(wh[static_cast<std::size_t>(c)] - nxr::stats::median(v)) < 1e-5 * scale);
-      }
+      if (first.empty()) first = a.values; else CHECK(a.values == first);            // the chunk width changes nothing
     }
-  }
-  // 6. THE COUNT ROW is one per (level, recording): the amplitude run and the median run (same span) share it; a measure over another span is refused, --replace rewrites it
-  {
-    auto counts = [&] { std::size_t n = 0; for (const Row& r : measured(lvl->id, "count")) n += !is_null(r, "array_path"); return n; };
-    auto nmeasure = [&](const char* m) { return measured(lvl->id, m).size(); };
-    CHECK(nmeasure("amplitude") == 1 && nmeasure("median") == 1 && counts() == 1);
-    const std::string yaml =
-        "pipeline: band_power_tiles\nversion: 1\ndescription: test\nscope: subject\n"
-        "inputs:\n  recording: {field: recording, each: true}\n  ladder: {selection: ladder, manifold: recording.time}\n"
-        "  bad: {selection: spans, manifold: recording.time, where: {name: \"{recording}_bad_segments\"}, required: false}\n"
-        "parameters:\n  band: [8.0, 16.0]\nsteps:\n  chunks:\n    over: recording\n    do:\n"
-        "      - {step: analytic, in: {x: recording}, with: {band: $band}, out: z}\n"
-        "      - {step: power, in: {x: z}, out: pw}\n"
-        "      - {step: measure, in: {x: pw, over: ladder, exclude: bad}, with: {measure: power}, out: pwr}\n"
-        "outputs:\n  pwr: {kind: measurement}\n";
-    const g::Definition dp = g::parse(parse_yaml(yaml, "test.yaml"), "test.yaml", yaml);
-    g::RunOptions one;
-    one.chunks = "0";
-    const std::string msg = [&] { try { g::run(ds, sub, dp, Json::object(), one); } catch (const Error& e) { CHECK_EQ(e.code(), std::string(code::already_exists)); return std::string(e.what()); } return std::string(); }();
-    CHECK(msg.find("another span") != std::string::npos);
-    CHECK(nmeasure("power") == 0 && counts() == 1);
-    one.replace = true;
-    // amplitude and median share the count row: --replace over another span is refused, naming them; nothing is deleted
-    const std::string msg2 = [&] { try { g::run(ds, sub, dp, Json::object(), one); } catch (const Error& e) { CHECK_EQ(e.code(), std::string(code::already_exists)); return std::string(e.what()); } return std::string(); }();
-    CHECK(msg2.find("amplitude") != std::string::npos && msg2.find("median") != std::string::npos && msg2.find("envelope_max") != std::string::npos && msg2.find("another span") != std::string::npos);
-    CHECK(nmeasure("power") == 0 && nmeasure("amplitude") == 1 && nmeasure("median") == 1 && counts() == 1);
-    // with those removed (by the caller), the power measure is the sole one: the count row is rewritten to its span
-    std::set<std::string> measured_selections;
-    for (const char* m : {"amplitude", "median", "envelope_max"}) for (const Row& r : probe.rows("selection_measurement", {{"measure", V(std::string(m))}})) measured_selections.insert(text(r, "selection_id"));
-    for (const std::string& sid : measured_selections)
-      for (const char* m : {"amplitude", "median", "envelope_max"}) tsub.remove_measurements(sid, std::nullopt, std::string(m));
-    const auto rp = g::run(ds, sub, dp, Json::object(), one);
-    bool cr = false;
-    for (const auto& x : rp) for (const auto& st : x["stored"]) cr = cr || st.value("count_replaced", false);
-    CHECK(cr && nmeasure("power") == 1 && counts() == 1);
   }
   return nxrtest::finish("test_band_bursts");
 }

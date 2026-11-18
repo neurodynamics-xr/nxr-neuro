@@ -1,10 +1,12 @@
 /**
  * nxr_compute_wasm.cpp — Embind bindings exposing nxr-compute to JavaScript via WebAssembly.
  *
- * Mirrors the N-API addon's surface — same compute methods, same stateful
- * Manifold pattern, same data shapes — but built around Embind's
- * idioms instead of N-API. Designed for browser apps (three.js, plain JS,
- * frameworks) that consume nxr-compute as a portable compute backend.
+ * Mirrors the N-API addon's surface — the same compute functions, the same data shapes — built around Embind's idioms instead of N-API. Designed for browser
+ * apps (three.js, plain JS, frameworks) that consume nxr-compute as a portable compute backend.
+ *
+ * The functions are the library's, by toolbox name (`geometry.heat` calls `nxr::geometry::heat`). They take arrays and return arrays, and nothing is kept
+ * between calls (no class, no handle, no cache). A SURFACE is data: the object made once by `geometry.surfaceArrays`, passed as the first argument to every
+ * surface function, which rebuilds the library's SurfaceArrays from it. A factorization a function needs is made inside it.
  *
  * Conventions:
  *   • Inputs:  JS typed arrays cross the boundary as `emscripten::val`,
@@ -13,20 +15,32 @@
  *              so they're safe to keep across subsequent compute calls.
  *   • Sparse: returned as JS objects { row, col, data, rows, cols } in COO.
  *   • Structs (HodgeResult, EigenResult, …): returned as JS objects.
- *
- * The class `ContextWrapper` caches ManifoldOperators, DECOperators,
- * CholeskyCache, and EigenResult on the C++ side — same pattern as the
- * addon's ContextHolder. This means a Hodge solve after a Poisson solve
- * doesn't refactor the cotan Laplacian.
  */
 
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
-#include "nxr/compute.h"
-#include "nxr/facets.h"   // OperatorsFacet definition (operators() command)
-#include "nxr/operator_registry.h"
-#include "nxr/field_registry.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_arrays.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/operators/registry/operator_registry.h"
+#include "nxr/operators/registry/field_registry.h"
 
 #include <atomic>
 #include <cstdint>
@@ -148,8 +162,7 @@ std::vector<double> valToDoubleVector(const val& jsArr) {
 }
 
 // Re-throw an nxr-compute Error as a std::runtime_error whose message carries
-// the "[CODE] msg | hint: ..." shape JS consumers parse (same as solve() /
-// assembleConnectionLaplacian above). Centralised so every binding method that
+// the "[CODE] msg | hint: ..." shape JS consumers parse. Centralised so every binding method that
 // surfaces nxr::core::Error produces an identical JS .message.
 [[noreturn]] void rethrowAsJsError(const nxr::core::Error& e) {
     std::string msg = "[";
@@ -165,461 +178,573 @@ std::vector<double> valToDoubleVector(const val& jsArr) {
 
 } // namespace
 
-// ── Manifold wrapper class ─────────────────────────────
+// ── The surface: geometry::SurfaceArrays ↔ a JS object ───────
 //
-// Stateful: caches operators / DEC / Cholesky / eigenmodes after first
-// compute, mirroring the addon's ContextHolder pattern. JS holds an
-// Embind handle; calling .delete() on it frees the WASM memory.
+// `geometry.surfaceArrays` makes the surface once (the intrinsic Delaunay triangulation is the expensive step) and returns a plain object; every surface
+// function takes that object as its first argument and rebuilds SurfaceArrays from it, in both directions through the two functions below. Nothing is kept
+// between calls: no class, no handle, no cache.
+//
+//   S.positions      Float64Array [3 nV] row-major
+//   S.faces          Int32Array   [3 nF] 0-based
+//   S.triangulation  { options: { intrinsic, mollify, flipEps, mass, surface },
+//                      record:  { mesh, mollify, epsilon, flipEps, flips, delaunay, mass, boundaryVertices, geometryCentral, fingerprint, gauge, gaugeId },
+//                      mass, inputEdgeLength, edgeLength, signpost, vertexAngleSum, halfedgeVectorInVertex   Float64Array
+//                      halfedgeNext, halfedgeVertex, halfedgeFace, vertexHalfedge, faceHalfedge             Float64Array of geometry-central's own 0-based ids
+//                                                                                                           (-1 = none; exact integers, kept raw)
+//                      boundaryLoops  number }
+// The triangulation's arrays are opaque: pass the object on, do not edit it.
 
-class ContextWrapper {
-public:
-    ContextWrapper(val verticesArr, val facesArr) {
-        verts_ = emscripten::convertJSArrayToNumberVector<double>(verticesArr);
-        faces_ = emscripten::convertJSArrayToNumberVector<int>(facesArr);
+namespace {
 
-        if (verts_.size() % 3 != 0) {
-            throw std::invalid_argument("vertices length must be a multiple of 3");
-        }
-        if (faces_.size() % 3 != 0) {
-            throw std::invalid_argument("faces length must be a multiple of 3");
-        }
+namespace geom = nxr::geometry;
+namespace ops = nxr::operators;
+namespace cl = nxr::operators::laplacian::connection;
+namespace syn = nxr::synthesis;
+using nxr::operators::EigenResult;
 
-        int nV = static_cast<int>(verts_.size() / 3);
-        int nF = static_cast<int>(faces_.size() / 3);
-
-        // nxr::manifold::Manifold takes int32_t* for faces; copy into the
-        // canonical type since convertJSArrayToNumberVector<int> may
-        // produce a different underlying integer width on some platforms.
-        faces32_.resize(faces_.size());
-        for (std::size_t i = 0; i < faces_.size(); i++) {
-            faces32_[i] = static_cast<int32_t>(faces_[i]);
-        }
-
-        ctx_ = std::make_unique<nxr::manifold::Manifold>(
-            verts_.data(), nV, faces32_.data(), nF);
-        cache_ = std::make_unique<nxr::manifold::ops::CholeskyCache>();
+// Run a body and re-throw an nxr::core::Error as the "[CODE] msg | hint: ..." JS error.
+template <typename Fn>
+auto guarded(Fn&& fn) -> decltype(fn()) {
+    try {
+        return fn();
+    } catch (const nxr::core::Error& e) {
+        rethrowAsJsError(e);
     }
+}
 
-    int nV() const { return ctx_->nV(); }
-    int nE() const { return ctx_->nE(); }
-    int nF() const { return ctx_->nF(); }
+[[noreturn]] void invalidInput(const std::string& msg) {
+    throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, msg);
+}
 
-    // ── Mesh operators ───────────────────────────────────────
+const char* massKindName(geom::MassKind k) {
+    switch (k) {
+        case geom::MassKind::InputMixedVoronoi: return "input-mixed-voronoi";
+        case geom::MassKind::Barycentric:       return "barycentric";
+        case geom::MassKind::Galerkin:          return "galerkin";
+    }
+    return "input-mixed-voronoi";
+}
 
-    // Optional `variantName` accepts "mixedVoronoi" (default), "galerkin" or
-    // "barycentric" ("lumped" is retired). Empty string → default. Switching
-    // variants invalidates the cached ManifoldOperators (and any cached
-    // factor that depended on the previous mass).
-    val assembleManifoldOperators(const std::string& variantName) {
-        nxr::manifold::ops::MassMatrixVariant variant = variantName.empty()
-            ? nxr::manifold::ops::MassMatrixVariant::MixedVoronoi
-            : nxr::manifold::ops::parseMassMatrixVariant(variantName);
-        if (!ops_ || ops_->massVariant != variant) {
-            ops_ = std::make_unique<nxr::manifold::ops::ManifoldOperators>(
-                nxr::manifold::ops::assembleManifoldOperators(*ctx_, variant));
+geom::MassKind parseMassKind(const std::string& s) {
+    if (s == "input-mixed-voronoi") return geom::MassKind::InputMixedVoronoi;
+    if (s == "barycentric")         return geom::MassKind::Barycentric;
+    if (s == "galerkin")            return geom::MassKind::Galerkin;
+    invalidInput("the surface's mass is '" + s + "': use input-mixed-voronoi, barycentric or galerkin");
+}
+
+val doublesOut(const std::vector<double>& v) { return toJsArrayCopy(v.data(), v.size()); }
+
+val idsOut(const std::vector<int64_t>& v) {
+    std::vector<double> d(v.begin(), v.end());
+    return toJsArrayCopy(d.data(), d.size());
+}
+
+val surfaceField(const val& o, const char* name) {
+    if (!o.hasOwnProperty(name))
+        invalidInput(std::string("the surface has no field '") + name + "': make it with geometry.surfaceArrays(vertices, faces)");
+    return o[name];
+}
+
+std::vector<double> doublesField(const val& o, const char* name) { return emscripten::convertJSArrayToNumberVector<double>(surfaceField(o, name)); }
+
+std::vector<int64_t> idsField(const val& o, const char* name) {
+    const std::vector<double> d = doublesField(o, name);
+    return std::vector<int64_t>(d.begin(), d.end());
+}
+
+double numberField(const val& o, const char* name) {
+    val v = surfaceField(o, name);
+    if (v.isTrue()) return 1.0;
+    if (v.isFalse()) return 0.0;
+    return v.as<double>();
+}
+
+std::string stringField(const val& o, const char* name) { return surfaceField(o, name).as<std::string>(); }
+
+val surfaceToVal(const geom::SurfaceArrays& s) {
+    const geom::IntrinsicTriangulation& t = s.triangulation;
+    val opt = val::object();
+    opt.set("intrinsic", t.options.intrinsic);
+    opt.set("mollify",   t.options.mollify);
+    opt.set("flipEps",   t.options.flipEps);
+    opt.set("mass",      std::string(massKindName(t.options.mass)));
+    opt.set("surface",   t.options.surface);
+    val rec = val::object();
+    rec.set("mesh",             t.record.mesh);
+    rec.set("mollify",          t.record.mollify);
+    rec.set("epsilon",          t.record.epsilon);
+    rec.set("flipEps",          t.record.flipEps);
+    rec.set("flips",            t.record.flips);
+    rec.set("delaunay",         t.record.delaunay);
+    rec.set("mass",             t.record.mass);
+    rec.set("boundaryVertices", t.record.boundaryVertices);
+    rec.set("geometryCentral",  t.record.geometryCentral);
+    rec.set("fingerprint",      t.record.fingerprint);
+    rec.set("gauge",            t.record.gauge);
+    rec.set("gaugeId",          t.record.gaugeId);
+    val tri = val::object();
+    tri.set("options",                opt);
+    tri.set("record",                 rec);
+    tri.set("mass",                   doublesOut(t.mass));
+    tri.set("inputEdgeLength",        doublesOut(t.inputEdgeLength));
+    tri.set("halfedgeNext",           idsOut(t.halfedgeNext));
+    tri.set("halfedgeVertex",         idsOut(t.halfedgeVertex));
+    tri.set("halfedgeFace",           idsOut(t.halfedgeFace));
+    tri.set("vertexHalfedge",         idsOut(t.vertexHalfedge));
+    tri.set("faceHalfedge",           idsOut(t.faceHalfedge));
+    tri.set("boundaryLoops",          static_cast<double>(t.boundaryLoops));
+    tri.set("edgeLength",             doublesOut(t.edgeLength));
+    tri.set("signpost",               doublesOut(t.signpost));
+    tri.set("vertexAngleSum",         doublesOut(t.vertexAngleSum));
+    tri.set("halfedgeVectorInVertex", doublesOut(t.halfedgeVectorInVertex));
+
+    geom::RowMat3 pos = s.positions;   // row-major [nV x 3]
+    geom::FaceMat fac = s.faces;
+    val out = val::object();
+    out.set("positions",     toJsArrayCopy(pos.data(), static_cast<std::size_t>(pos.size())));
+    out.set("faces",         toJsArrayCopy(fac.data(), static_cast<std::size_t>(fac.size())));
+    out.set("triangulation", tri);
+    return out;
+}
+
+geom::SurfaceArrays valToSurface(const val& o) {
+    if (o.isUndefined() || o.isNull() || o.typeOf().as<std::string>() != "object") invalidInput("expected the surface object made by geometry.surfaceArrays(vertices, faces)");
+    geom::SurfaceArrays out;
+    const std::vector<double> xyz = doublesField(o, "positions");
+    const std::vector<int> fac = emscripten::convertJSArrayToNumberVector<int>(surfaceField(o, "faces"));
+    if (xyz.size() % 3 != 0 || fac.size() % 3 != 0) invalidInput("the surface's positions and faces hold triples");
+    out.positions = Eigen::Map<const geom::RowMat3>(xyz.data(), static_cast<Eigen::Index>(xyz.size() / 3), 3);
+    out.faces.resize(static_cast<Eigen::Index>(fac.size() / 3), 3);
+    for (std::size_t i = 0; i < fac.size(); ++i) out.faces(static_cast<Eigen::Index>(i / 3), static_cast<Eigen::Index>(i % 3)) = static_cast<std::int32_t>(fac[i]);
+
+    const val tr = surfaceField(o, "triangulation");
+    geom::IntrinsicTriangulation& t = out.triangulation;
+    const val opt = surfaceField(tr, "options");
+    t.options.intrinsic = numberField(opt, "intrinsic") != 0.0;
+    t.options.mollify   = numberField(opt, "mollify");
+    t.options.flipEps   = numberField(opt, "flipEps");
+    t.options.mass      = parseMassKind(stringField(opt, "mass"));
+    t.options.surface   = stringField(opt, "surface");
+    const val rec = surfaceField(tr, "record");
+    t.record.mesh             = stringField(rec, "mesh");
+    t.record.mollify          = numberField(rec, "mollify");
+    t.record.epsilon          = numberField(rec, "epsilon");
+    t.record.flipEps          = numberField(rec, "flipEps");
+    t.record.flips            = static_cast<int>(numberField(rec, "flips"));
+    t.record.delaunay         = numberField(rec, "delaunay") != 0.0;
+    t.record.mass             = stringField(rec, "mass");
+    t.record.boundaryVertices = static_cast<int>(numberField(rec, "boundaryVertices"));
+    t.record.geometryCentral  = stringField(rec, "geometryCentral");
+    t.record.fingerprint      = stringField(rec, "fingerprint");
+    t.record.gauge            = stringField(rec, "gauge");
+    t.record.gaugeId          = stringField(rec, "gaugeId");
+    t.mass                   = doublesField(tr, "mass");
+    t.inputEdgeLength        = doublesField(tr, "inputEdgeLength");
+    t.halfedgeNext           = idsField(tr, "halfedgeNext");
+    t.halfedgeVertex         = idsField(tr, "halfedgeVertex");
+    t.halfedgeFace           = idsField(tr, "halfedgeFace");
+    t.vertexHalfedge         = idsField(tr, "vertexHalfedge");
+    t.faceHalfedge           = idsField(tr, "faceHalfedge");
+    t.boundaryLoops          = static_cast<int64_t>(numberField(tr, "boundaryLoops"));
+    t.edgeLength             = doublesField(tr, "edgeLength");
+    t.signpost               = doublesField(tr, "signpost");
+    t.vertexAngleSum         = doublesField(tr, "vertexAngleSum");
+    t.halfedgeVectorInVertex = doublesField(tr, "halfedgeVectorInVertex");
+    return out;
+}
+
+// A COO object {row, col, data, rows, cols} (as `sparseToVal` returns) → Eigen sparse
+Eigen::SparseMatrix<double> valToSparse(const val& coo, const char* name) {
+    if (!coo.hasOwnProperty("row") || !coo.hasOwnProperty("col") || !coo.hasOwnProperty("data") || !coo.hasOwnProperty("rows") || !coo.hasOwnProperty("cols"))
+        invalidInput(std::string(name) + ": expected {row, col, data, rows, cols}");
+    const int rows = coo["rows"].as<int>(), cols = coo["cols"].as<int>();
+    const auto r = emscripten::convertJSArrayToNumberVector<int32_t>(coo["row"]);
+    const auto c = emscripten::convertJSArrayToNumberVector<int32_t>(coo["col"]);
+    const auto d = emscripten::convertJSArrayToNumberVector<double>(coo["data"]);
+    if (r.size() != c.size() || r.size() != d.size()) invalidInput(std::string(name) + ": row/col/data length mismatch");
+    std::vector<Eigen::Triplet<double>> trip;
+    trip.reserve(r.size());
+    for (std::size_t i = 0; i < r.size(); ++i) {
+        if (r[i] < 0 || r[i] >= rows || c[i] < 0 || c[i] >= cols) invalidInput(std::string(name) + ": index out of bounds");
+        trip.emplace_back(r[i], c[i], d[i]);
+    }
+    Eigen::SparseMatrix<double> M(rows, cols);
+    M.setFromTriplets(trip.begin(), trip.end());
+    M.makeCompressed();
+    return M;
+}
+
+// JS row-major flat [rows*cols] → MatrixXd
+Eigen::MatrixXd valToMatrix(const val& arr, Eigen::Index rows, Eigen::Index cols, const char* what) {
+    const std::vector<double> v = emscripten::convertJSArrayToNumberVector<double>(arr);
+    if (static_cast<Eigen::Index>(v.size()) != rows * cols) invalidInput(std::string(what) + " must have length " + std::to_string(rows * cols));
+    Eigen::MatrixXd m(rows, cols);
+    for (Eigen::Index r = 0; r < rows; ++r)
+        for (Eigen::Index c = 0; c < cols; ++c) m(r, c) = v[static_cast<std::size_t>(r * cols + c)];
+    return m;
+}
+
+std::map<int, double> vertexValueMap(const val& verts, const val& values, const char* what) {
+    const auto v = emscripten::convertJSArrayToNumberVector<int>(verts);
+    const auto x = emscripten::convertJSArrayToNumberVector<double>(values);
+    if (v.size() != x.size()) invalidInput(std::string(what) + ": the values must match the vertices in length");
+    std::map<int, double> out;
+    for (std::size_t i = 0; i < v.size(); ++i) out[v[i]] = x[i];
+    return out;
+}
+
+val vertexVal(const Eigen::Vector3d& c) {
+    double xyz[3] = {c.x(), c.y(), c.z()};
+    return toJsArrayCopy(xyz, 3);
+}
+
+val logMapVal(const geom::transport::LogMapResult& r) {
+    val obj = val::object();
+    obj.set("logCoords", eigenMatrixToVal(r.logCoords));
+    obj.set("sourceE1", vertexVal(r.sourceE1));
+    obj.set("sourceE2", vertexVal(r.sourceE2));
+    return obj;
+}
+
+val meshOpsToVal(const ops::ManifoldOperators& o, const geom::SurfaceArrays& surface) {
+    val v = val::object();
+    v.set("cotanLaplacian",  sparseToVal(o.cotanLaplacian));
+    v.set("mass",            sparseToVal(o.mass));
+    v.set("massVariant",     std::string(
+        o.massVariant == ops::MassMatrixVariant::MixedVoronoi ? "mixedVoronoi" :
+        o.massVariant == ops::MassMatrixVariant::Barycentric  ? "barycentric"  :
+        o.massVariant == ops::MassMatrixVariant::Galerkin     ? "galerkin" : "?"));
+    v.set("vertexDualAreas", eigenVectorToVal(o.vertexDualAreas));
+    v.set("vertexNormals",   eigenMatrixToVal(o.vertexNormals));
+    v.set("totalArea",       o.totalArea);
+    v.set("nV",              surface.nV());
+    v.set("nE",              surface.nV() + surface.nF() - geom::eulerCharacteristic(surface));   // χ = nV − nE + nF
+    v.set("nF",              surface.nF());
+    return v;
+}
+
+val eigenResultToVal(const EigenResult& r) {
+    val o = val::object();
+    // vMajor row-major: U[v*K + k]. Matches the cortical-flow Zarr schema (manifold/eigenmodes/eigenvectors stored as [V, K]) and the GPU spectral-synthesis access pattern.
+    o.set("eigenvectors", eigenMatrixToVal(r.eigenvectors));
+    o.set("eigenvalues",  eigenVectorToVal(r.eigenvalues));
+    o.set("k",            r.k);
+    o.set("nConverged",   r.nConverged);
+    if (r.kind.size() > 0) {   // Hodge–Dirac: 0 exact · 1 harmonic · 2 coexact, per mode
+        std::vector<int> kd(r.kind.data(), r.kind.data() + r.kind.size());
+        o.set("kind", emscripten::val::array(kd));
+    }
+    return o;
+}
+
+EigenResult valToEigenResult(const val& s) {
+    EigenResult r;
+    auto uVec = emscripten::convertJSArrayToNumberVector<double>(s["eigenvectors"]);
+    auto lVec = emscripten::convertJSArrayToNumberVector<double>(s["eigenvalues"]);
+    int K = static_cast<int>(lVec.size());
+    int V = K > 0 ? static_cast<int>(uVec.size()) / K : 0;
+    // Round-trip layout: JS hands back vMajor (V×K row-major). Map the buffer as a row-major matrix and let Eigen's assignment transpose into its own storage.
+    Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>> rowMajor(uVec.data(), V, K);
+    r.eigenvectors = rowMajor;
+    r.eigenvalues.resize(K);
+    if (K > 0) std::memcpy(r.eigenvalues.data(), lVec.data(), K * sizeof(double));
+    r.k = K;
+    r.nConverged = K;
+    return r;
+}
+
+val stripeVal(const geom::parametrization::stripes::StripePatternResult& r) {
+    val obj = val::object();
+    obj.set("positions",    eigenMatrixToVal(r.positions));
+    obj.set("segmentCount", r.segmentCount);
+    return obj;
+}
+
+bool isMissing(const val& v) { return v.isUndefined() || v.isNull(); }
+
+} // namespace
+
+// ── geometry.surfaceArrays(vertices, faces, options) → surface ────
+//
+// options: { intrinsicDelaunay?: boolean (default true; false = the named option "embedded": the input as it is), mollify?: number (relative delta, default 1e-6),
+//            flipEps?: number (default 1e-6), surface?: string (an id, recorded in the gauge identity) } or null.
+val surfaceArraysJS(val verticesArr, val facesArr, val options) {
+    return guarded([&] {
+        auto verts = emscripten::convertJSArrayToNumberVector<double>(verticesArr);
+        auto faces = emscripten::convertJSArrayToNumberVector<int>(facesArr);
+        if (verts.size() % 3 != 0) throw std::invalid_argument("vertices length must be a multiple of 3");
+        if (faces.size() % 3 != 0) throw std::invalid_argument("faces length must be a multiple of 3");
+        std::vector<int32_t> faces32(faces.begin(), faces.end());
+        bool intrinsicDelaunay = true;
+        geom::DelaunayOptions dopt;
+        std::string surfaceId;
+        if (!isMissing(options)) {
+            if (options.hasOwnProperty("intrinsicDelaunay")) intrinsicDelaunay = options["intrinsicDelaunay"].as<bool>();
+            if (options.hasOwnProperty("mollify")) dopt.mollify = options["mollify"].as<double>();
+            if (options.hasOwnProperty("flipEps")) dopt.flipEps = options["flipEps"].as<double>();
+            if (options.hasOwnProperty("surface")) surfaceId = options["surface"].as<std::string>();
         }
-        return meshOpsToVal();
-    }
+        geom::IntrinsicOptions o = geom::intrinsicOptions(intrinsicDelaunay, dopt);
+        o.surface = surfaceId;
+        return surfaceToVal(geom::surfaceArrays(verts.data(), static_cast<int>(verts.size() / 3), faces32.data(), static_cast<int>(faces32.size() / 3), o));
+    });
+}
 
-    val assembleDECOperators() {
-        ensureDec();
-        return decOpsToVal();
-    }
+// ── operators ────────────────────────────────────────────────
 
-    // Connection Laplacian on the chosen domain (vertex / face / edge).
-    // Result-level cache keyed by (domain, nSym, regularization, format)
-    // — same pattern as smoothFace (CONTRIBUTING.md rule 9).
-    //
-    // `opts` is a JS object: { domain?, nSym?, regularization?, format? }.
-    // Defaults: { domain: 'vertex', nSym: 1, regularization: 1e-8, format: 'real2N' }.
-    val assembleConnectionLaplacian(val opts) {
-        nxr::manifold::ops::laplacian::connection::ConnectionLaplacianOptions o;
-        if (!opts.isNull() && !opts.isUndefined()) {
+// `variantName` ∈ "mixedVoronoi" (default, also for "") | "galerkin" | "barycentric" ("lumped" is retired).
+val assembleManifoldOperatorsJS(val surfaceVal, std::string variantName) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        const ops::MassMatrixVariant variant = variantName.empty() ? ops::MassMatrixVariant::MixedVoronoi : ops::parseMassMatrixVariant(variantName);
+        return meshOpsToVal(ops::assembleManifoldOperators(surface, variant), surface);
+    });
+}
+
+val assembleDECOperatorsJS(val surfaceVal) {
+    return guarded([&] {
+        const ops::DECOperators dec = ops::assembleDECOperators(valToSurface(surfaceVal));
+        val o = val::object();
+        o.set("d0",            sparseToVal(dec.d0));
+        o.set("d1",            sparseToVal(dec.d1));
+        o.set("hodge0",        sparseToVal(dec.hodge0));
+        o.set("hodge1",        sparseToVal(dec.hodge1));
+        o.set("hodge2",        sparseToVal(dec.hodge2));
+        o.set("hodge1Inverse", sparseToVal(dec.hodge1Inverse));
+        return o;
+    });
+}
+
+// Connection Laplacian on the chosen domain (vertex / face / edge).
+// `opts` is a JS object: { domain?, nSym?, regularization?, format? }.
+// Defaults: { domain: 'vertex', nSym: 1, regularization: 1e-8, format: 'real2N' }.
+val assembleConnectionLaplacianJS(val surfaceVal, val opts) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        cl::ConnectionLaplacianOptions o;
+        if (!isMissing(opts)) {
             val domainV = opts["domain"];
             val nSymV   = opts["nSym"];
             val regV    = opts["regularization"];
             val fmtV    = opts["format"];
-            if (!domainV.isUndefined())
-                o.domain = nxr::manifold::ops::laplacian::connection::parseConnectionDomain(domainV.as<std::string>());
-            if (!nSymV.isUndefined())
-                o.nSym = nSymV.as<int>();
-            if (!regV.isUndefined())
-                o.regularization = regV.as<double>();
-            if (!fmtV.isUndefined())
-                o.format = nxr::manifold::ops::laplacian::connection::parseConnectionLaplacianFormat(fmtV.as<std::string>());
+            if (!domainV.isUndefined()) o.domain = cl::parseConnectionDomain(domainV.as<std::string>());
+            if (!nSymV.isUndefined())   o.nSym = nSymV.as<int>();
+            if (!regV.isUndefined())    o.regularization = regV.as<double>();
+            if (!fmtV.isUndefined())    o.format = cl::parseConnectionLaplacianFormat(fmtV.as<std::string>());
         }
-
-        const CLKey key{o.domain, o.nSym, o.regularization, o.format};
-        auto it = clCache_.find(key);
-        if (it == clCache_.end()) {
-            try {
-                auto cl = std::make_shared<nxr::manifold::ops::laplacian::connection::ConnectionLaplacian>(
-                    nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(*ctx_, o));
-                it = clCache_.emplace(key, std::move(cl)).first;
-            } catch (const nxr::core::Error& e) {
-                std::string msg = "[";
-                msg += nxr::core::errorCodeName(e.code());
-                msg += "] ";
-                msg += e.what();
-                if (!e.hint().empty()) {
-                    msg += " | hint: ";
-                    msg += std::string(e.hint());
-                }
-                throw std::runtime_error(msg);
-            }
-        }
-        const nxr::manifold::ops::laplacian::connection::ConnectionLaplacian& cl = *it->second;
+        const cl::ConnectionLaplacian c = cl::assembleConnectionLaplacian(surface, o);
 
         const char* domainStr =
-            cl.domain == nxr::manifold::ops::laplacian::connection::ConnectionDomain::Vertex              ? "vertex" :
-            cl.domain == nxr::manifold::ops::laplacian::connection::ConnectionDomain::Face                ? "face"   :
-            cl.domain == nxr::manifold::ops::laplacian::connection::ConnectionDomain::EdgeCrouzeixRaviart ? "edge"   : "?";
-        const char* formatStr =
-            cl.format == nxr::manifold::ops::laplacian::connection::ConnectionLaplacianFormat::Real2N ? "real2N" : "complex";
+            c.domain == cl::ConnectionDomain::Vertex              ? "vertex" :
+            c.domain == cl::ConnectionDomain::Face                ? "face"   :
+            c.domain == cl::ConnectionDomain::EdgeCrouzeixRaviart ? "edge"   : "?";
+        const char* formatStr = c.format == cl::ConnectionLaplacianFormat::Real2N ? "real2N" : "complex";
 
         val out = val::object();
-        if (cl.format == nxr::manifold::ops::laplacian::connection::ConnectionLaplacianFormat::Real2N) {
-            out.set("K", sparseToVal(cl.K_real));
-        } else {
-            out.set("K", sparseComplexToVal(cl.K_complex));
-        }
-        out.set("baseDim",        cl.baseDim);
-        out.set("outputDim",      cl.outputDim);
+        if (c.format == cl::ConnectionLaplacianFormat::Real2N) out.set("K", sparseToVal(c.K_real));
+        else                                                     out.set("K", sparseComplexToVal(c.K_complex));
+        out.set("baseDim",        c.baseDim);
+        out.set("outputDim",      c.outputDim);
         out.set("domain",         std::string(domainStr));
-        out.set("nSym",           cl.nSym);
-        out.set("regularization", cl.regularization);
+        out.set("nSym",           c.nSym);
+        out.set("regularization", c.regularization);
         out.set("format",         std::string(formatStr));
         return out;
+    });
+}
+
+/**
+ * operators.eigen: generalized eigenproblem K φ = λ M φ from JS-supplied COO triplets (K and M assembled by `operators.assembleManifoldOperators`, or any other
+ * sparse Laplacians: graph Laplacians, FEM assemblies, custom regularized matrices).
+ *
+ * Args (all coordinate-format inputs are 0-based):
+ *   K_rows, K_cols  Int32Array (or array of ints), length = K_nnz
+ *   K_vals          Float64Array (or array of numbers), length = K_nnz
+ *   M_rows, M_cols, M_vals  same shape as K
+ *   n               common matrix size for K and M (square)
+ *   k, sigma        eigensolve params (sigma: an explicit shift; NaN = the scale-aware shift ladder, kShiftLadder)
+ *   normalize       M-orthonormalize the eigenvectors; removeDC  strip the null space
+ *   cancelAddr      wasm heap pointer to a single int32 (0 = none). Allocate via `Module._malloc(4)` and write via `Module.HEAP32[ptr >> 2] = 1` to cancel.
+ *                   With SHARED_MEMORY, JS can use `Atomics.store(new Int32Array(Module.HEAPU8.buffer), ptr >> 2, 1)` from a different thread.
+ *   progressAddr, progressLen   wasm heap pointer to a 3×int32 array (0 = none). Layout: [iteration, totalIterations, residual×1e6].
+ *
+ * Returns: { eigenvectors, eigenvalues, k, nConverged } in vMajor row-major layout (Φ[v, k] at offset v*K + k).
+ * Errors land in JS as Error objects whose .message starts with "[CODE] " (the nxr::core::ErrorCode name, e.g. CANCELLED).
+ * Triplets with duplicate (row, col) pairs are summed when the sparse matrix is built (Eigen's setFromTriplets default).
+ */
+val eigenJS(
+    val K_rows, val K_cols, val K_vals,
+    val M_rows, val M_cols, val M_vals,
+    int n,
+    int k, double sigma,
+    std::intptr_t cancelAddr,
+    std::intptr_t progressAddr,
+    int progressLen,
+    bool normalize,
+    bool removeDC)
+{
+    auto Kr = emscripten::convertJSArrayToNumberVector<int32_t>(K_rows);
+    auto Kc = emscripten::convertJSArrayToNumberVector<int32_t>(K_cols);
+    auto Kv = emscripten::convertJSArrayToNumberVector<double>(K_vals);
+    auto Mr = emscripten::convertJSArrayToNumberVector<int32_t>(M_rows);
+    auto Mc = emscripten::convertJSArrayToNumberVector<int32_t>(M_cols);
+    auto Mv = emscripten::convertJSArrayToNumberVector<double>(M_vals);
+
+    if (Kr.size() != Kc.size() || Kr.size() != Kv.size()) throw std::invalid_argument("operators.eigen: K row/col/val length mismatch");
+    if (Mr.size() != Mc.size() || Mr.size() != Mv.size()) throw std::invalid_argument("operators.eigen: M row/col/val length mismatch");
+    if (n <= 0) throw std::invalid_argument("operators.eigen: n must be > 0");
+
+    Eigen::SparseMatrix<double> K(n, n), M(n, n);
+    {
+        std::vector<Eigen::Triplet<double>> Kt;
+        Kt.reserve(Kr.size());
+        for (std::size_t i = 0; i < Kr.size(); ++i) Kt.emplace_back(Kr[i], Kc[i], Kv[i]);
+        K.setFromTriplets(Kt.begin(), Kt.end());
+        K.makeCompressed();
+    }
+    {
+        std::vector<Eigen::Triplet<double>> Mt;
+        Mt.reserve(Mr.size());
+        for (std::size_t i = 0; i < Mr.size(); ++i) Mt.emplace_back(Mr[i], Mc[i], Mv[i]);
+        M.setFromTriplets(Mt.begin(), Mt.end());
+        M.makeCompressed();
     }
 
-    // Single named operator as COO sparse — mirrors the MEX 'operators' command
-    // (bindings/mex/src/nxr_compute_mex.cpp::cmdOperators) for cross-binding
-    // parity. The `arg` is polymorphic: a subtype STRING for laplacian/mass/hodge,
-    // a numeric TAU for dirac/diracFace (∈ [0,1]), or null/undefined for the
-    // no-argument families (dec/gradient3D/diracD/diracFaceD/diracIntrinsicD).
-    // Returns a real COO object; 'connection' returns a complex COO
-    // ({row,col,realData,imagData}); 'dec' returns { d0, d1 }. Same matrices the
-    // internal solvers use (single source of truth — the Manifold operators facet).
-    val operators(std::string family, val arg) {
-        namespace cl = nxr::manifold::ops::laplacian::connection;
-        nxr::manifold::Manifold& m = *ctx_;
-        const bool hasNum = arg.isNumber();
-        const std::string sub = arg.isString() ? arg.as<std::string>() : "";
-        try {
-            if (family == "laplacian") {
-                if (sub == "cotan")      return sparseToVal(m.operators().laplacian().cotan());
-                if (sub == "graph")      return sparseToVal(m.operators().laplacian().graph());
-                if (sub == "connection") return sparseComplexToVal(m.operators().laplacian().connection());
-                if (sub == "covariant")  return sparseToVal(m.operators().laplacian().covariant(cl::CovariantCoupling::Ambient));
-                throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
-                    "operators laplacian: subtype must be cotan|graph|connection|covariant.");
-            } else if (family == "mass") {
-                if (sub == "mixedVoronoi") return sparseToVal(m.operators().mass().mixedVoronoi());
-                if (sub == "barycentric")  return sparseToVal(m.operators().mass().barycentric());
-                if (sub == "galerkin")     return sparseToVal(m.operators().mass().galerkin());
-                throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
-                    "operators mass: subtype must be mixedVoronoi|galerkin|barycentric.");
-            } else if (family == "hodge") {
-                if (sub == "h0")    return sparseToVal(m.operators().hodge().h0());
-                if (sub == "h1")    return sparseToVal(m.operators().hodge().h1());
-                if (sub == "h2")    return sparseToVal(m.operators().hodge().h2());
-                if (sub == "h1inv") return sparseToVal(m.operators().hodge().h1inv());
-                throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
-                    "operators hodge: subtype must be h0|h1|h2|h1inv.");
-            } else if (family == "dec") {
-                const auto& dec = m.operators().dec();
-                val obj = val::object();
-                obj.set("d0", sparseToVal(dec.d0));
-                obj.set("d1", sparseToVal(dec.d1));
-                return obj;
-            } else if (family == "gradient3D") {
-                return sparseToVal(m.operators().gradient3D());
-            } else if (family == "dirac") {
-                if (!hasNum)
-                    throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
-                        "operators dirac: expected a numeric tau, operators('dirac', tau).");
-                return sparseToVal(m.operators().dirac(arg.as<double>()));
-            } else if (family == "diracFace") {
-                if (!hasNum)
-                    throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
-                        "operators diracFace: expected a numeric tau, operators('diracFace', tau).");
-                return sparseToVal(m.operators().diracFace(arg.as<double>()));
-            } else if (family == "diracD") {
-                return sparseToVal(m.operators().diracD());
-            } else if (family == "diracFaceD") {
-                return sparseToVal(m.operators().diracFaceD());
-            } else if (family == "diracIntrinsicD") {
-                return sparseToVal(m.operators().diracIntrinsicD());
-            } else if (family == "diracFaceIntrinsicD") {
-                return sparseToVal(m.operators().diracFaceIntrinsicD());
-            } else if (family == "gradFace") {
-                return sparseToVal(m.operators().gradFace());
-            } else if (family == "lapFace") {
-                return sparseToVal(m.operators().lapFace());
-            } else if (family == "connectionGradient") {
-                // nSym: numeric arg (default 1). Returns complex COO — mirrors 'laplacian'/'connection'.
-                int nSym = hasNum ? static_cast<int>(arg.as<double>()) : 1;
-                return sparseComplexToVal(m.operators().connectionGradient(nSym));
-            } else if (family == "extrinsicWeitzenbock") {
-                // [3V×3V] real symmetric sparse — ambient extrinsic Weitzenböck, world-frame component-major.
-                return sparseToVal(m.operators().extrinsicWeitzenbock());
-            }
-            throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
-                "operators: family must be "
-                "laplacian|mass|hodge|dec|gradient3D|dirac|diracFace|diracD|diracFaceD|diracIntrinsicD|diracFaceIntrinsicD|gradFace|lapFace|connectionGradient|extrinsicWeitzenbock.");
-        } catch (const nxr::core::Error& e) {
-            rethrowAsJsError(e);
+    nxr::core::CancellationToken cancel = cancelAddr
+        ? nxr::core::CancellationToken(reinterpret_cast<const std::atomic<int32_t>*>(cancelAddr))
+        : nxr::core::CancellationToken{};
+    nxr::core::ProgressObserver progress;
+    if (progressAddr && progressLen >= 3) {
+        auto* base = reinterpret_cast<std::atomic<int32_t>*>(progressAddr);
+        progress.iteration       = &base[0];
+        progress.totalIterations = &base[1];
+        progress.residualMicro   = &base[2];
+    }
+
+    return guarded([&] { return eigenResultToVal(ops::eigen(K, M, k, sigma, normalize, removeDC, cancel, progress)); });
+}
+
+// operators.eigenOperator: named-operator eigensolve — assembles the operator AND its natural generalized mass C++-side (no JS-side ⊗I₄, one boundary crossing)
+// and eigensolves via the shared operators::eigenOperator (single source of truth).
+// opts: { operator: 'laplacian'|'cotan'|'graph'|'dirac'|'diracFace'|'hodgeDirac'|'spinExtrinsic'|'spinIntrinsicHY'|'spinIntrinsicYe',
+//         subtype?: 'cotan'|'graph',           // when operator === 'laplacian'
+//         tau?: number,                        // dirac / diracFace blend ∈ [0,1]
+//         graphMass?: 'identity'|'degree', star1Floor?, mollify?, bothSigns?   // graph / hodgeDirac
+//         mass?: 'mixedVoronoi'|'galerkin'|'barycentric',   // vertex-domain mass (default mixedVoronoi)
+//         k: number, sigma?: number (absent = the shift ladder, kShiftLadder),
+//         normalize?: boolean (= true),
+//         multiplets?: boolean (= false),      // Dirac: exact 4-fold ℍ-reconstruction
+//         dense?: boolean (= false) }          // exact small-mesh verification
+// Returns { eigenvectors (vMajor, n·k), eigenvalues, k, nConverged, blockSize }.
+val eigenOperatorJS(val surfaceVal, val opts) {
+    if (isMissing(opts) || opts["operator"].isUndefined()) throw std::runtime_error("[INVALID_INPUT] operators.eigenOperator: expected { operator, k, ... }.");
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        ops::EigenOperatorSpec spec;
+        const std::string op = opts["operator"].as<std::string>();
+        int blockSize = 1;
+        if (op == "laplacian") {
+            const std::string sub = opts["subtype"].isUndefined() ? "" : opts["subtype"].as<std::string>();
+            if      (sub == "cotan") spec.op = ops::EigenOperator::LaplacianCotan;
+            else if (sub == "graph") spec.op = ops::EigenOperator::LaplacianGraph;
+            else invalidInput("operators.eigenOperator laplacian: subtype must be cotan|graph.");
+        } else if (op == "cotan") {
+            spec.op = ops::EigenOperator::LaplacianCotan;
+        } else if (op == "graph") {
+            spec.op = ops::EigenOperator::LaplacianGraph;
+        } else if (op == "dirac") {
+            spec.op = ops::EigenOperator::Dirac; blockSize = 4;
+        } else if (op == "diracFace") {
+            spec.op = ops::EigenOperator::DiracFace; blockSize = 4;
+        } else if (op == "hodgeDirac") {
+            spec.op = ops::EigenOperator::HodgeDirac;
+        } else if (op == "spinExtrinsic") {
+            spec.op = ops::EigenOperator::SpinExtrinsic; blockSize = 4;
+        } else if (op == "spinIntrinsicHY") {
+            spec.op = ops::EigenOperator::SpinIntrinsicHY; blockSize = 4;
+        } else if (op == "spinIntrinsicYe") {
+            spec.op = ops::EigenOperator::SpinIntrinsicYe; blockSize = 4;
+        } else {
+            invalidInput("operators.eigenOperator: operator must be laplacian|cotan|graph|dirac|diracFace|hodgeDirac|spinExtrinsic|spinIntrinsicHY|spinIntrinsicYe.");
         }
-    }
+        if (!opts["graphMass"].isUndefined()) spec.graphDegreeMass = opts["graphMass"].as<std::string>() == "degree";
+        if (!opts["star1Floor"].isUndefined()) spec.star1Floor = opts["star1Floor"].as<double>();
+        if (!opts["mollify"].isUndefined())    spec.mollify    = opts["mollify"].as<double>();
+        if (!opts["bothSigns"].isUndefined())  spec.bothSigns  = opts["bothSigns"].as<bool>();
+        if (!opts["tau"].isUndefined())  spec.tau  = opts["tau"].as<double>();
+        if (!opts["mass"].isUndefined()) spec.mass = ops::parseMassMatrixVariant(opts["mass"].as<std::string>());
+        if (opts["k"].isUndefined()) invalidInput("operators.eigenOperator: k is required.");
 
-    // Named-operator eigensolve — assembles the operator AND its natural
-    // generalized mass C++-side (no JS-side ⊗I₄, one boundary crossing) and
-    // eigensolves via the shared solve::eigenOperator (single source of truth).
-    // opts: { operator: 'laplacian'|'cotan'|'graph'|'dirac'|'diracFace',
-    //         subtype?: 'cotan'|'graph',           // when operator === 'laplacian'
-    //         tau?: number,                        // dirac / diracFace blend ∈ [0,1]
-    //         graphMass?: 'identity'|'degree', star1Floor?, mollify?, bothSigns?   // graph / hodgeDirac (operator: hodgeDirac|spinExtrinsic|spinIntrinsicHY|spinIntrinsicYe)
-    //         mass?: 'mixedVoronoi'|'galerkin'|'barycentric',   // vertex-domain mass (default mixedVoronoi)
-    //         k: number, sigma?: number (absent = the shift ladder, kShiftLadder),
-    //         normalize?: boolean (= true),
-    //         multiplets?: boolean (= false),      // Dirac: exact 4-fold ℍ-reconstruction
-    //         dense?: boolean (= false) }          // exact small-mesh verification
-    // Returns { eigenvectors (vMajor, n·k), eigenvalues, k, nConverged, blockSize }.
-    val eigs(val opts) {
-        if (opts.isNull() || opts.isUndefined() || opts["operator"].isUndefined())
-            throw std::runtime_error("[INVALID_INPUT] eigs: expected { operator, k, ... }.");
-        try {
-            nxr::manifold::solve::EigenOperatorSpec spec;
-            const std::string op = opts["operator"].as<std::string>();
-            int blockSize = 1;
-            if (op == "laplacian") {
-                const std::string sub = opts["subtype"].isUndefined() ? "" : opts["subtype"].as<std::string>();
-                if      (sub == "cotan") spec.op = nxr::manifold::solve::EigenOperator::LaplacianCotan;
-                else if (sub == "graph") spec.op = nxr::manifold::solve::EigenOperator::LaplacianGraph;
-                else throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
-                    "eigs laplacian: subtype must be cotan|graph.");
-            } else if (op == "cotan") {
-                spec.op = nxr::manifold::solve::EigenOperator::LaplacianCotan;
-            } else if (op == "graph") {
-                spec.op = nxr::manifold::solve::EigenOperator::LaplacianGraph;
-            } else if (op == "dirac") {
-                spec.op = nxr::manifold::solve::EigenOperator::Dirac; blockSize = 4;
-            } else if (op == "diracFace") {
-                spec.op = nxr::manifold::solve::EigenOperator::DiracFace; blockSize = 4;
-            } else if (op == "hodgeDirac") {
-                spec.op = nxr::manifold::solve::EigenOperator::HodgeDirac;
-            } else if (op == "spinExtrinsic") {
-                spec.op = nxr::manifold::solve::EigenOperator::SpinExtrinsic; blockSize = 4;
-            } else if (op == "spinIntrinsicHY") {
-                spec.op = nxr::manifold::solve::EigenOperator::SpinIntrinsicHY; blockSize = 4;
-            } else if (op == "spinIntrinsicYe") {
-                spec.op = nxr::manifold::solve::EigenOperator::SpinIntrinsicYe; blockSize = 4;
-            } else {
-                throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
-                    "eigs: operator must be laplacian|cotan|graph|dirac|diracFace|hodgeDirac|spinExtrinsic|spinIntrinsicHY|spinIntrinsicYe.");
-            }
-            if (!opts["graphMass"].isUndefined()) spec.graphDegreeMass = opts["graphMass"].as<std::string>() == "degree";
-            if (!opts["star1Floor"].isUndefined()) spec.star1Floor = opts["star1Floor"].as<double>();
-            if (!opts["mollify"].isUndefined())    spec.mollify    = opts["mollify"].as<double>();
-            if (!opts["bothSigns"].isUndefined())  spec.bothSigns  = opts["bothSigns"].as<bool>();
+        const int    k          = opts["k"].as<int>();
+        const double sigma      = opts["sigma"].isUndefined()      ? ops::kShiftLadder : opts["sigma"].as<double>();
+        const bool   normalize  = opts["normalize"].isUndefined()  ? true  : opts["normalize"].as<bool>();
+        const bool   multiplets = opts["multiplets"].isUndefined() ? false : opts["multiplets"].as<bool>();
+        const bool   dense      = opts["dense"].isUndefined()      ? false : opts["dense"].as<bool>();
 
-            if (!opts["tau"].isUndefined())  spec.tau  = opts["tau"].as<double>();
-            if (!opts["mass"].isUndefined())
-                spec.mass = nxr::manifold::ops::parseMassMatrixVariant(opts["mass"].as<std::string>());
-            if (opts["k"].isUndefined())
-                throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "eigs: k is required.");
-
-            const int    k          = opts["k"].as<int>();
-            const double sigma      = opts["sigma"].isUndefined()      ? nxr::manifold::solve::kShiftLadder : opts["sigma"].as<double>();
-            const bool   normalize  = opts["normalize"].isUndefined()  ? true  : opts["normalize"].as<bool>();
-            const bool   multiplets = opts["multiplets"].isUndefined() ? false : opts["multiplets"].as<bool>();
-            const bool   dense      = opts["dense"].isUndefined()      ? false : opts["dense"].as<bool>();
-
-            nxr::manifold::solve::EigenResult r = nxr::manifold::solve::eigenOperator(
-                *ctx_, spec, k, sigma, normalize, multiplets, dense);
-            val out = eigenResultToVal(r);
-            out.set("blockSize", blockSize);
-            return out;
-        } catch (const nxr::core::Error& e) {
-            rethrowAsJsError(e);
-        }
-    }
-
-    /** Per-VERTEX tangent frames — the vertex connection Laplacian's gauge
-     *  (geometry-central vertexTangentBasis). Parity with node/MEX 'vertexFrames'. */
-    val vertexFrames() {
-        auto f = nxr::manifold::geometry::vertexFrames(*ctx_);
-        val obj = val::object();
-        obj.set("e1",      eigenMatrixToVal(f.e1));
-        obj.set("e2",      eigenMatrixToVal(f.e2));
-        obj.set("normals", eigenMatrixToVal(f.normals));
-        return obj;
-    }
-
-    val frames() {
-        auto frames = nxr::manifold::geometry::frames(*ctx_);
-        val obj = val::object();
-        obj.set("e1",      eigenMatrixToVal(frames.e1));
-        obj.set("e2",      eigenMatrixToVal(frames.e2));
-        obj.set("normals", eigenMatrixToVal(frames.normals));
-        return obj;
-    }
-
-    val normals(int type) {
-        nxr::manifold::geometry::NormalType nt = static_cast<nxr::manifold::geometry::NormalType>(type);
-        Eigen::MatrixXd N = nxr::manifold::geometry::normals(*ctx_, nt);
-        return eigenMatrixToVal(N);
-    }
-
-    // ── Spectral basis ───────────────────────────────────────
-
-    // Cancellation/progress contract for WASM consumers:
-    //   • cancelAddr — wasm heap pointer to a single int32. Pass 0 to
-    //     opt out. Allocate via `Module._malloc(4)` and write via
-    //     `Module.HEAP32[ptr >> 2] = 1` to cancel. With SHARED_MEMORY
-    //     enabled, JS can use `Atomics.store(new Int32Array(Module
-    //     .HEAPU8.buffer), ptr >> 2, 1)` from a different thread.
-    //   • progressAddr — wasm heap pointer to a 3×int32 array. Pass 0
-    //     to opt out. Layout: [iteration, totalIterations, residual×1e6].
-    //
-    // Errors land in JS as Error objects whose .message starts with
-    // "[CODE] " (where CODE is the nxr::core::ErrorCode name, e.g. CANCELLED).
-    // A small parseError helper on the JS side recovers .code from the
-    // message prefix; richer per-binding error mapping can land in a
-    // future phase.
-    val solve(int k, double sigma,
-                        std::intptr_t cancelAddr,
-                        std::intptr_t progressAddr,
-                        int progressLen) {
-        ensureOps();
-
-        nxr::core::CancellationToken cancel = cancelAddr
-            ? nxr::core::CancellationToken(reinterpret_cast<const std::atomic<int32_t>*>(cancelAddr))
-            : nxr::core::CancellationToken{};
-
-        nxr::core::ProgressObserver progress;
-        if (progressAddr && progressLen >= 3) {
-            auto* base = reinterpret_cast<std::atomic<int32_t>*>(progressAddr);
-            progress.iteration       = &base[0];
-            progress.totalIterations = &base[1];
-            progress.residualMicro   = &base[2];
-        }
-
-        try {
-            nxr::manifold::solve::EigenResult r = nxr::manifold::solve::eigen(
-                ops_->cotanLaplacian, ops_->mass, k, sigma,
-                /*normalize=*/false, /*removeDC=*/false, cancel, progress);
-            return eigenResultToVal(r);
-        } catch (const nxr::core::Error& e) {
-            // Prefix the message with the code so JS consumers can
-            // pattern-match without losing the human-readable text.
-            std::string msg = "[";
-            msg += nxr::core::errorCodeName(e.code());
-            msg += "] ";
-            msg += e.what();
-            if (!e.hint().empty()) {
-                msg += " | hint: ";
-                msg += std::string(e.hint());
-            }
-            throw std::runtime_error(msg);
-        }
-    }
-
-    val normalize(val UJsArr, int rows, int cols) {
-        ensureOps();
-        auto vec = emscripten::convertJSArrayToNumberVector<double>(UJsArr);
-        if (static_cast<int>(vec.size()) != rows * cols) {
-            throw std::invalid_argument("eigenvectors size mismatch");
-        }
-        // JS hands us row-major; re-pack into Eigen column-major.
-        Eigen::MatrixXd U(rows, cols);
-        for (int r = 0; r < rows; r++) {
-            for (int c = 0; c < cols; c++) {
-                U(r, c) = vec[r * cols + c];
-            }
-        }
-        Eigen::MatrixXd Un = nxr::manifold::solve::normalize(U, ops_->mass);
-        return eigenMatrixToVal(Un);
-    }
-
-    val removeDC(val eigStruct) {
-        nxr::manifold::solve::EigenResult r = valToEigenResult(eigStruct);
-        nxr::manifold::solve::EigenResult t = nxr::manifold::solve::removeDC(r);
-        return eigenResultToVal(t);
-    }
-
-    /** One-shot precompute: assemble + DEC + eigensolve + normalize +
-     *  removeDC + face frames, returned as a single struct. The
-     *  visualization-defaults pack from docs/nxr-compute/architecture.md. */
-    val precompute(int k, double sigma) {
-        ensureOps();
-        ensureDec();
-
-        nxr::manifold::solve::EigenResult eig = nxr::manifold::solve::eigen(
-            ops_->cotanLaplacian, ops_->mass, k, sigma,
-            /*normalize=*/true, /*removeDC=*/true);
-        eigCache_ = std::make_unique<nxr::manifold::solve::EigenResult>(eig);
-
-        auto frames = nxr::manifold::geometry::frames(*ctx_);
-
-        val out = val::object();
-        out.set("operators",  meshOpsToVal());
-        out.set("dec",        decOpsToVal());
-        out.set("eigenmodes", eigenResultToVal(eig));
-        val framesVal = val::object();
-        framesVal.set("e1",      eigenMatrixToVal(frames.e1));
-        framesVal.set("e2",      eigenMatrixToVal(frames.e2));
-        framesVal.set("normals", eigenMatrixToVal(frames.normals));
-        out.set("frames", framesVal);
+        EigenResult r = ops::eigenOperator(surface, spec, k, sigma, normalize, multiplets, dense);
+        val out = eigenResultToVal(r);
+        out.set("blockSize", blockSize);
         return out;
-    }
+    });
+}
 
-    // ── Solvers ──────────────────────────────────────────────
+// operators.normalize(U (vMajor row-major, rows x cols), rows, cols, M COO) → U normalized (M-orthonormal), vMajor row-major
+val normalizeJS(val UJsArr, int rows, int cols, val Mcoo) {
+    return guarded([&] {
+        Eigen::MatrixXd U = valToMatrix(UJsArr, rows, cols, "eigenvectors");
+        Eigen::SparseMatrix<double> M = valToSparse(Mcoo, "operators.normalize M");
+        return eigenMatrixToVal(ops::normalize(U, M));
+    });
+}
 
-    val poisson(val sourceVertsArr, val sourceValuesArr) {
-        ensureOps();
-        auto verts = emscripten::convertJSArrayToNumberVector<int>(sourceVertsArr);
-        auto vals  = emscripten::convertJSArrayToNumberVector<double>(sourceValuesArr);
-        if (verts.size() != vals.size()) {
-            throw std::invalid_argument("sourceVerts and sourceValues must have the same length");
-        }
-        std::map<int, double> srcMap;
-        for (std::size_t i = 0; i < verts.size(); i++) srcMap[verts[i]] = vals[i];
-        Eigen::VectorXd phi = nxr::manifold::solve::poisson(*ops_, *cache_, srcMap);
-        return eigenVectorToVal(phi);
-    }
+val removeDCJS(val eigStruct) {
+    return guarded([&] { return eigenResultToVal(ops::removeDC(valToEigenResult(eigStruct))); });
+}
 
-    val heat(val sourceVertsArr) {
-        ensureHeatGeo();
-        auto sources = emscripten::convertJSArrayToNumberVector<int>(sourceVertsArr);
-        Eigen::VectorXd d = nxr::manifold::solve::heat(*heatGeo_, sources);
-        return eigenVectorToVal(d);
-    }
+// operators.poisson(K, M, sourceVerts, sourceValues): K, M as COO objects; the Laplacian's factor is made inside, from K.
+val poissonJS(val Kcoo, val Mcoo, val sourceVertsArr, val sourceValuesArr) {
+    return guarded([&] {
+        Eigen::SparseMatrix<double> K = valToSparse(Kcoo, "operators.poisson K");
+        Eigen::SparseMatrix<double> M = valToSparse(Mcoo, "operators.poisson M");
+        const std::map<int, double> srcMap = vertexValueMap(sourceVertsArr, sourceValuesArr, "operators.poisson");
+        const std::unique_ptr<ops::CholeskyFactor> factor = ops::laplacianFactor(K);
+        return eigenVectorToVal(ops::poisson(K, M, *factor, srcMap));
+    });
+}
 
-    val tracePath(int vStart, int vEnd) {
-        nxr::manifold::query::GeodesicPath path = nxr::manifold::query::tracePathSurface(*ctx_, vStart, vEnd);
-        val out = val::object();
-        out.set("positions", eigenMatrixToVal(path.positions));
-        out.set("nPoints",   static_cast<int>(path.positions.rows()));
-        // where each point lies on the mesh: up to three vertices and their weights
-        std::vector<int> verts(path.vertices.rows() * 3);
-        for (int i = 0; i < path.vertices.rows(); i++)
-            for (int k = 0; k < 3; k++) verts[i * 3 + k] = path.vertices(i, k);
-        out.set("vertices",  val(emscripten::typed_memory_view(verts.size(), verts.data())).call<val>("slice"));
-        out.set("weights",   eigenMatrixToVal(path.weights));
-        out.set("length",    path.length);
-        return out;
-    }
+val gradientJS(val surfaceVal, val scalarArr) {
+    return guarded([&] { return eigenMatrixToVal(ops::gradient(valToSurface(surfaceVal), valToEigenVector(scalarArr))); });
+}
 
-    // the exact (MMP) geodesic distance between two vertices, mesh units
-    double exactDistance(int vStart, int vEnd) {
-        return nxr::manifold::query::exactDistance(*ctx_, vStart, vEnd);
-    }
+// operators.trivial(surface, singVerts, singValues): the trivial-connection direction field with prescribed singularities (their indices sum to χ).
+val trivialJS(val surfaceVal, val singVertsArr, val singValuesArr) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        const std::map<int, double> singMap = vertexValueMap(singVertsArr, singValuesArr, "operators.trivial");
+        const ops::DECOperators dec = ops::assembleDECOperators(surface);
+        const std::unique_ptr<ops::CholeskyFactor> exact = ops::exactFormFactor(dec);
+        ops::connection::DirectionFieldResult r = ops::connection::trivial(surface, dec, *exact, singMap);
+        val o = val::object();
+        o.set("connections",          eigenVectorToVal(r.connections));
+        o.set("directionVectors",     eigenMatrixToVal(r.directionVectors));
+        o.set("orthogonalVectors",    eigenMatrixToVal(r.orthogonalVectors));
+        o.set("eulerCharacteristic",  r.eulerCharacteristic);
+        o.set("gaussBonnetSatisfied", r.gaussBonnetSatisfied);
+        return o;
+    });
+}
 
-    val hodge(val omegaArr) {
-        ensureDec();
+// ── signal ───────────────────────────────────────────────────
+
+// signal.hodge(surface, omega): omega is a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges; the DEC and the two factorizations are made inside.
+val hodgeJS(val surfaceVal, val omegaArr) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
         Eigen::VectorXd omega = valToEigenVector(omegaArr);
-        nxr::manifold::solve::HodgeResult h = nxr::manifold::solve::hodge(*ctx_, *dec_, *cache_, omega);
+        const ops::DECOperators dec = ops::assembleDECOperators(surface);
+        const std::unique_ptr<ops::CholeskyFactor> exact = ops::exactFormFactor(dec);
+        const std::unique_ptr<ops::SquareSolver> coexact = ops::coexactFormSolver(dec);
+        nxr::signal::HodgeResult h = nxr::signal::hodge(surface, dec, *exact, *coexact, omega);
         val o = val::object();
         o.set("exactPotential",     eigenVectorToVal(h.exactPotential));
         o.set("coExactPotentialV",  eigenVectorToVal(h.coExactPotentialV));
@@ -632,10 +757,44 @@ public:
         o.set("deltaBetaVectors",   eigenMatrixToVal(h.deltaBetaVectors));
         o.set("gammaVectors",       eigenMatrixToVal(h.gammaVectors));
         return o;
-    }
+    });
+}
 
-    val curvatures() {
-        nxr::manifold::geometry::CurvatureResult c = nxr::manifold::geometry::curvatures(*ctx_);
+val isolineJS(val surfaceVal, val scalarsArr, int numLevels, double minVal, double maxVal) {
+    return guarded([&] {
+        nxr::signal::IsolineResult r = nxr::signal::isoline(valToSurface(surfaceVal), valToEigenVector(scalarsArr), numLevels, minVal, maxVal);
+        val out = val::object();
+        out.set("positions",    eigenMatrixToVal(r.positions));
+        out.set("segmentCount", r.segmentCount);
+        return out;
+    });
+}
+
+val streamlineJS(val surfaceVal, val faceFieldArr, int numSeeds, double stepCoef, int maxSteps) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        Eigen::MatrixXd faceField = valToMatrix(faceFieldArr, surface.nF(), 3, "faceField");
+        nxr::signal::StreamlineResult r = nxr::signal::streamline(surface, faceField, numSeeds, stepCoef, maxSteps);
+        val o = val::object();
+        o.set("positions",    eigenMatrixToVal(r.positions));
+        o.set("segmentCount", r.segmentCount);
+        return o;
+    });
+}
+
+// signal.whitney(surface, oneForm): a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges to face vectors [nF*3].
+val whitneyJS(val surfaceVal, val oneFormArr) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        return eigenMatrixToVal(nxr::signal::whitney(surface, ops::assembleDECOperators(surface), valToEigenVector(oneFormArr)));
+    });
+}
+
+// ── geometry ─────────────────────────────────────────────────
+
+val curvaturesJS(val surfaceVal) {
+    return guarded([&] {
+        geom::CurvatureResult c = geom::curvatures(valToSurface(surfaceVal));
         val o = val::object();
         o.set("gaussian",     eigenVectorToVal(c.gaussian));
         o.set("mean",         eigenVectorToVal(c.mean));
@@ -643,375 +802,239 @@ public:
         o.set("kMax",         eigenVectorToVal(c.kMax));
         o.set("principalDir", eigenMatrixToVal(c.principalDirMax));
         return o;
-    }
+    });
+}
 
-    val bff() {
-        Eigen::MatrixXd uvs = nxr::manifold::parametrization::bff(*ctx_);
-        return eigenMatrixToVal(uvs);
-    }
+val bffJS(val surfaceVal) {
+    return guarded([&] { return eigenMatrixToVal(geom::parametrization::bff(valToSurface(surfaceVal))); });
+}
 
-    val isoline(val scalarsArr, int numLevels, double minVal, double maxVal) {
-        Eigen::VectorXd scalars = valToEigenVector(scalarsArr);
-        nxr::field::extract::IsolineResult r = nxr::field::extract::isoline(*ctx_, scalars, numLevels, minVal, maxVal);
+val framesJS(val surfaceVal) {
+    return guarded([&] {
+        auto f = geom::frames(valToSurface(surfaceVal));
+        val obj = val::object();
+        obj.set("e1",      eigenMatrixToVal(f.e1));
+        obj.set("e2",      eigenMatrixToVal(f.e2));
+        obj.set("normals", eigenMatrixToVal(f.normals));
+        return obj;
+    });
+}
+
+/** Per-VERTEX tangent frames — the vertex connection Laplacian's gauge (geometry-central vertexTangentBasis). Parity with node/MEX 'geometry.vertexFrames'. */
+val vertexFramesJS(val surfaceVal) {
+    return guarded([&] {
+        auto f = geom::vertexFrames(valToSurface(surfaceVal));
+        val obj = val::object();
+        obj.set("e1",      eigenMatrixToVal(f.e1));
+        obj.set("e2",      eigenMatrixToVal(f.e2));
+        obj.set("normals", eigenMatrixToVal(f.normals));
+        return obj;
+    });
+}
+
+val normalsJS(val surfaceVal, int type) {
+    return guarded([&] { return eigenMatrixToVal(geom::normals(valToSurface(surfaceVal), static_cast<geom::NormalType>(type))); });
+}
+
+// geometry.heat(surface, sources, tCoef, mesh): sources a vertex array (→ Float64Array [nV]) or an Array of vertex arrays (the batch form, one factorization for
+// all → an Array of Float64Array [nV]); mesh = 'intrinsic' | 'input'.
+val heatJS(val surfaceVal, val sources, double tCoef, std::string meshName) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        geom::HeatMesh mesh = geom::HeatMesh::Intrinsic;
+        if (meshName == "input") mesh = geom::HeatMesh::Input;
+        else if (!meshName.empty() && meshName != "intrinsic") invalidInput("heat: mesh must be 'intrinsic' or 'input'");
+        if (sources.isArray()) {
+            std::vector<std::vector<int>> sets;
+            const int n = sources["length"].as<int>();
+            for (int i = 0; i < n; ++i) sets.push_back(emscripten::convertJSArrayToNumberVector<int>(sources[i]));
+            const Eigen::MatrixXd D = geom::heat(surface, sets, tCoef, mesh);   // column j = the distances from set j
+            val out = val::array();
+            for (Eigen::Index j = 0; j < D.cols(); ++j) out.call<void>("push", eigenVectorToVal(D.col(j)));
+            return out;
+        }
+        return eigenVectorToVal(geom::heat(surface, emscripten::convertJSArrayToNumberVector<int>(sources), tCoef, mesh));
+    });
+}
+
+val tracePathJS(val surfaceVal, int vStart, int vEnd) {
+    return guarded([&] {
+        geom::query::GeodesicPath path = geom::query::tracePathSurface(valToSurface(surfaceVal), vStart, vEnd);
         val out = val::object();
-        out.set("positions",    eigenMatrixToVal(r.positions));
-        out.set("segmentCount", r.segmentCount);
+        out.set("positions", eigenMatrixToVal(path.positions));
+        out.set("nPoints",   static_cast<int>(path.positions.rows()));
+        // where each point lies on the mesh: up to three vertices and their weights
+        std::vector<int> verts(path.vertices.rows() * 3);
+        for (int i = 0; i < path.vertices.rows(); i++)
+            for (int k = 0; k < 3; k++) verts[i * 3 + k] = path.vertices(i, k);
+        out.set("vertices",  val(emscripten::typed_memory_view(verts.size(), verts.data())).call<val>("slice"));
+        out.set("weights",   eigenMatrixToVal(path.weights));
+        out.set("length",    path.length);
         return out;
-    }
+    });
+}
 
-    val trivial(val singVertsArr, val singValuesArr) {
-        ensureDec();
-        auto verts = emscripten::convertJSArrayToNumberVector<int>(singVertsArr);
-        auto vals  = emscripten::convertJSArrayToNumberVector<double>(singValuesArr);
-        std::map<int, double> singMap;
-        for (std::size_t i = 0; i < verts.size(); i++) singMap[verts[i]] = vals[i];
-        nxr::manifold::connection::DirectionFieldResult r = nxr::manifold::connection::trivial(*ctx_, *dec_, *cache_, singMap);
-        val o = val::object();
-        o.set("connections",         eigenVectorToVal(r.connections));
-        o.set("directionVectors",    eigenMatrixToVal(r.directionVectors));
-        o.set("orthogonalVectors",   eigenMatrixToVal(r.orthogonalVectors));
-        o.set("eulerCharacteristic", r.eulerCharacteristic);
-        o.set("gaussBonnetSatisfied", r.gaussBonnetSatisfied);
-        return o;
-    }
+// the exact (MMP) geodesic distance between two vertices, mesh units
+double exactDistanceJS(val surfaceVal, int vStart, int vEnd) {
+    return guarded([&] { return geom::query::exactDistance(valToSurface(surfaceVal), vStart, vEnd); });
+}
 
-    val streamline(val faceFieldArr, int numSeeds, double stepCoef, int maxSteps) {
-        auto vec = emscripten::convertJSArrayToNumberVector<double>(faceFieldArr);
-        int nFf = ctx_->nF();
-        if (static_cast<int>(vec.size()) != nFf * 3) {
-            throw std::invalid_argument("faceField must have length nF*3");
+// ── geometry: vector heat method ─────────────────────────────
+//
+// Each call builds the solver on the surface and drops it on return; the batch forms (Arrays of source sets / sources) share one solver and one factorization.
+
+// geometry.parallel(surface, sourceVerts, sourceVectors, tCoef): one set (vertex array, Float64Array [3n] → Float64Array [nV*3]) or Arrays of them (→ an Array of them).
+val parallelJS(val surfaceVal, val sourceVerts, val sourceVectors, double tCoef) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        if (sourceVerts.isArray() != sourceVectors.isArray()) invalidInput("sourceVerts and sourceVectors are both Arrays (the batch form) or both typed arrays");
+        if (sourceVerts.isArray()) {
+            const int n = sourceVerts["length"].as<int>();
+            if (sourceVectors["length"].as<int>() != n) invalidInput("sourceVectors holds one array per set of sourceVerts");
+            std::vector<std::vector<int>> sets;
+            std::vector<Eigen::MatrixXd> vecs;
+            for (int i = 0; i < n; ++i) {
+                sets.push_back(emscripten::convertJSArrayToNumberVector<int>(sourceVerts[i]));
+                vecs.push_back(valToMatrix(sourceVectors[i], static_cast<Eigen::Index>(sets.back().size()), 3, "each set of sourceVectors"));
+            }
+            const auto out = geom::transport::parallel(surface, sets, vecs, tCoef);
+            val arr = val::array();
+            for (const auto& m : out) arr.call<void>("push", eigenMatrixToVal(m));
+            return arr;
         }
-        Eigen::MatrixXd faceField(nFf, 3);
-        for (int i = 0; i < nFf; i++) {
-            faceField(i, 0) = vec[i * 3 + 0];
-            faceField(i, 1) = vec[i * 3 + 1];
-            faceField(i, 2) = vec[i * 3 + 2];
-        }
-        nxr::field::extract::StreamlineResult r = nxr::field::extract::streamline(*ctx_, faceField, numSeeds, stepCoef, maxSteps);
-        val o = val::object();
-        o.set("positions",    eigenMatrixToVal(r.positions));
-        o.set("segmentCount", r.segmentCount);
-        return o;
-    }
+        auto verts = emscripten::convertJSArrayToNumberVector<int>(sourceVerts);
+        Eigen::MatrixXd S = valToMatrix(sourceVectors, static_cast<Eigen::Index>(verts.size()), 3, "sourceVectors (Nx3, length 3*sources)");
+        return eigenMatrixToVal(geom::transport::parallel(surface, verts, S, tCoef));
+    });
+}
 
-    // ── Vector field ops ────────────────────────────────────
-
-    val whitney(val oneFormArr) {
-        ensureDec();
-        Eigen::VectorXd omega = valToEigenVector(oneFormArr);
-        Eigen::MatrixXd faceVecs = nxr::field::interp::whitney(*ctx_, *dec_, omega);
-        return eigenMatrixToVal(faceVecs);
-    }
-
-    val gradient(val scalarArr) {
-        Eigen::VectorXd s = valToEigenVector(scalarArr);
-        Eigen::MatrixXd grad = nxr::field::op::gradient(*ctx_, s);
-        return eigenMatrixToVal(grad);
-    }
-
-    // ── Time-varying field generators ───────────────────────
-
-    val heatDiffusion(val sourceVertsArr, val sourceValuesArr,
-                              val timestepsArr, double alpha) {
-        ensureOps();
-        if (!eigCache_) {
-            throw std::runtime_error(
-                "heatDiffusion: eigenmodes not yet computed; "
-                "call solve() or precompute() first");
-        }
+val extendScalarJS(val surfaceVal, val sourceVertsArr, val sourceValuesArr, double tCoef) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
         auto verts = emscripten::convertJSArrayToNumberVector<int>(sourceVertsArr);
         auto vals  = emscripten::convertJSArrayToNumberVector<double>(sourceValuesArr);
-        std::map<int, double> sources;
-        for (std::size_t i = 0; i < verts.size(); i++) sources[verts[i]] = vals[i];
-        Eigen::VectorXd u0 = nxr::field::generate::delta(ctx_->nV(), sources);
+        if (verts.size() != vals.size()) invalidInput("sourceVerts and sourceValues must have the same length");
+        Eigen::VectorXd vv(vals.size());
+        for (std::size_t i = 0; i < vals.size(); i++) vv[i] = vals[i];
+        return eigenVectorToVal(geom::transport::extendScalar(surface, verts, vv, tCoef));
+    });
+}
+
+// geometry.logMap(surface, sourceVertex, strategy, tCoef): a number → one { logCoords, sourceE1, sourceE2 }; an array of sources (the batch form, one solver) → an Array of them.
+val logMapJS(val surfaceVal, val sourceVertex, int strategy, double tCoef) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        auto s = static_cast<geom::transport::LogMapStrategy>(strategy);
+        if (sourceVertex.isNumber()) return logMapVal(geom::transport::logMap(surface, sourceVertex.as<int>(), s, tCoef));
+        const auto results = geom::transport::logMap(surface, emscripten::convertJSArrayToNumberVector<int>(sourceVertex), s, tCoef);
+        val arr = val::array();
+        for (const auto& r : results) arr.call<void>("push", logMapVal(r));
+        return arr;
+    });
+}
+
+val findCenterJS(val surfaceVal, val sourceVertsArr, int p, double tCoef) {
+    return guarded([&] {
+        return vertexVal(geom::transport::findCenter(valToSurface(surfaceVal), emscripten::convertJSArrayToNumberVector<int>(sourceVertsArr), p, tCoef));
+    });
+}
+
+// geometry.signedHeat(surface, curve, isLoop, levelSet, tCoef): curve a vertex array (→ Float64Array [nV]) or an Array of them (the batch form → an Array of Float64Array [nV]).
+val signedHeatJS(val surfaceVal, val curve, bool isLoop, int levelSet, double tCoef) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        auto ls = static_cast<geom::SignedHeatLevelSet>(levelSet);
+        if (curve.isArray()) {
+            std::vector<std::vector<int>> curves;
+            const int n = curve["length"].as<int>();
+            for (int i = 0; i < n; ++i) curves.push_back(emscripten::convertJSArrayToNumberVector<int>(curve[i]));
+            const Eigen::MatrixXd D = geom::signedHeat(surface, curves, isLoop, ls, tCoef);
+            val out = val::array();
+            for (Eigen::Index j = 0; j < D.cols(); ++j) out.call<void>("push", eigenVectorToVal(D.col(j)));
+            return out;
+        }
+        return eigenVectorToVal(geom::signedHeat(surface, emscripten::convertJSArrayToNumberVector<int>(curve), isLoop, ls, tCoef));
+    });
+}
+
+// ── geometry: smooth direction fields and stripe patterns ────
+
+val smoothFaceJS(val surfaceVal, int nSym, bool alignToCurvature) {
+    return guarded([&] { return eigenMatrixToVal(geom::connection::smoothFace(valToSurface(surfaceVal), nSym, alignToCurvature)); });
+}
+
+val smoothVertexJS(val surfaceVal, int nSym, bool alignToCurvature) {
+    return guarded([&] {
+        geom::connection::SmoothVertexFieldResult r = geom::connection::smoothVertex(valToSurface(surfaceVal), nSym, alignToCurvature);
+        val obj = val::object();
+        obj.set("vertexVectors",  eigenMatrixToVal(r.vertexVectors));
+        obj.set("vertexFieldRaw", eigenVectorToVal(r.vertexFieldRaw));
+        obj.set("nSym",           r.nSym);
+        return obj;
+    });
+}
+
+val stripesJS(val surfaceVal, val vertexFieldArr, double uniformFrequency, bool connectOnSingularities) {
+    return guarded([&] {
+        return stripeVal(geom::parametrization::stripes::compute(valToSurface(surfaceVal), valToEigenVector(vertexFieldArr), uniformFrequency, connectOnSingularities));
+    });
+}
+
+val stripesFreqJS(val surfaceVal, val vertexFieldArr, val freqsArr, bool connectOnSingularities) {
+    return guarded([&] {
+        return stripeVal(geom::parametrization::stripes::computeFreq(valToSurface(surfaceVal), valToEigenVector(vertexFieldArr), valToEigenVector(freqsArr), connectOnSingularities));
+    });
+}
+
+// ── synthesis: field generators ──────────────────────────────
+
+// synthesis.delta(nV, sourceVerts, sourceValues) → Float64Array [nV]: zero except at the sources.
+val deltaJS(int nV, val sourceVertsArr, val sourceValuesArr) {
+    return guarded([&] { return eigenVectorToVal(syn::delta(nV, vertexValueMap(sourceVertsArr, sourceValuesArr, "synthesis.delta"))); });
+}
+
+// synthesis.heatDiffusion(M (COO), eig, u0, timesteps, alpha) → { data: Float32Array [T*nV], T, nV }; eig: the result of an eigensolve (M-orthonormal modes).
+val heatDiffusionJS(val Mcoo, val eigStruct, val u0Arr, val timestepsArr, double alpha) {
+    return guarded([&] {
+        Eigen::SparseMatrix<double> M = valToSparse(Mcoo, "synthesis.heatDiffusion M");
+        EigenResult eig = valToEigenResult(eigStruct);
+        Eigen::VectorXd u0 = valToEigenVector(u0Arr);
         std::vector<double> ts = valToDoubleVector(timestepsArr);
-        Eigen::MatrixXf field = nxr::field::generate::heatDiffusion(
-            *ops_, *eigCache_, u0, ts, alpha);
+        Eigen::MatrixXf field = syn::heatDiffusion(M, eig, u0, ts, alpha);
         val out = val::object();
         out.set("data", eigenMatrixFloat32ToVal(field));
         out.set("T",  static_cast<int>(field.rows()));
         out.set("nV", static_cast<int>(field.cols()));
         return out;
-    }
+    });
+}
 
-    val dampedWave(val modeIndicesArr, val amplitudesArr,
-                           val dampingsArr, val phasesArr,
-                           val timestepsArr) {
-        if (!eigCache_) {
-            throw std::runtime_error(
-                "dampedWave: eigenmodes not yet computed; "
-                "call solve() or precompute() first");
-        }
+val dampedWaveJS(val eigStruct, val modeIndicesArr, val amplitudesArr, val dampingsArr, val phasesArr, val timestepsArr) {
+    return guarded([&] {
+        EigenResult eig = valToEigenResult(eigStruct);
         auto mi  = valToInt32Vector(modeIndicesArr);
         auto am  = valToDoubleVector(amplitudesArr);
         auto da  = valToDoubleVector(dampingsArr);
         auto ph  = valToDoubleVector(phasesArr);
         auto ts  = valToDoubleVector(timestepsArr);
-        Eigen::MatrixXf field = nxr::field::generate::dampedWave(
-            *eigCache_, mi, am, da, ph, ts);
+        Eigen::MatrixXf field = syn::dampedWave(eig, mi, am, da, ph, ts);
         val out = val::object();
         out.set("data", eigenMatrixFloat32ToVal(field));
         out.set("T",  static_cast<int>(field.rows()));
         out.set("nV", static_cast<int>(field.cols()));
         return out;
-    }
+    });
+}
 
-    val randomDecomposed1Form(double alphaStrength, double betaStrength,
-                                      double gammaStrength, int seed) {
-        ensureDec();
-        Eigen::VectorXd omega = nxr::field::generate::randomDecomposed1Form(
-            *dec_, ctx_->nV(), ctx_->nE(), ctx_->nF(),
-            alphaStrength, betaStrength, gammaStrength,
-            static_cast<unsigned int>(seed));
-        return eigenVectorToVal(omega);
-    }
-
-    // ── Vector heat method ──────────────────────────────────
-
-    val parallel(val sourceVertsArr, val sourceVectorsArr) {
-        ensureVHM();
-        auto verts = emscripten::convertJSArrayToNumberVector<int>(sourceVertsArr);
-        auto vecs  = emscripten::convertJSArrayToNumberVector<double>(sourceVectorsArr);
-        if (vecs.size() != verts.size() * 3) {
-            throw std::invalid_argument("sourceVectors must be Nx3 (length 3*sources)");
-        }
-        Eigen::MatrixXd S(static_cast<int>(verts.size()), 3);
-        for (std::size_t i = 0; i < verts.size(); i++) {
-            S(i, 0) = vecs[i * 3 + 0];
-            S(i, 1) = vecs[i * 3 + 1];
-            S(i, 2) = vecs[i * 3 + 2];
-        }
-        Eigen::MatrixXd out = nxr::manifold::transport::parallel(*vhm_, verts, S);
-        return eigenMatrixToVal(out);
-    }
-
-    val extendScalar(val sourceVertsArr, val sourceValuesArr) {
-        ensureVHM();
-        auto verts = emscripten::convertJSArrayToNumberVector<int>(sourceVertsArr);
-        auto vals  = emscripten::convertJSArrayToNumberVector<double>(sourceValuesArr);
-        if (verts.size() != vals.size()) {
-            throw std::invalid_argument("sourceVerts and sourceValues must have the same length");
-        }
-        Eigen::VectorXd vv(vals.size());
-        for (std::size_t i = 0; i < vals.size(); i++) vv[i] = vals[i];
-        Eigen::VectorXd out = nxr::manifold::transport::extendScalar(*vhm_, verts, vv);
-        return eigenVectorToVal(out);
-    }
-
-    val logMap(int sourceVertex, int strategy) {
-        ensureVHM();
-        auto s = static_cast<nxr::manifold::transport::LogMapStrategy>(strategy);
-        nxr::manifold::transport::LogMapResult r = nxr::manifold::transport::logMap(*vhm_, sourceVertex, s);
-        val obj = val::object();
-        obj.set("logCoords", eigenMatrixToVal(r.logCoords));
-        double e1[3] = {r.sourceE1.x(), r.sourceE1.y(), r.sourceE1.z()};
-        double e2[3] = {r.sourceE2.x(), r.sourceE2.y(), r.sourceE2.z()};
-        obj.set("sourceE1", toJsArrayCopy(e1, 3));
-        obj.set("sourceE2", toJsArrayCopy(e2, 3));
-        return obj;
-    }
-
-    val findCenter(val sourceVertsArr, int p) {
-        ensureVHM();
-        auto verts = emscripten::convertJSArrayToNumberVector<int>(sourceVertsArr);
-        Eigen::Vector3d c = nxr::manifold::transport::findCenter(*vhm_, verts, p);
-        double xyz[3] = {c.x(), c.y(), c.z()};
-        return toJsArrayCopy(xyz, 3);
-    }
-
-    // ── Signed heat method ──────────────────────────────────
-
-    val signedHeat(val curveVertsArr, bool isLoop, int levelSet) {
-        ensureSHS();
-        auto verts = emscripten::convertJSArrayToNumberVector<int>(curveVertsArr);
-        auto ls    = static_cast<nxr::manifold::solve::SignedHeatLevelSet>(levelSet);
-        Eigen::VectorXd out = nxr::manifold::solve::signedHeat(*shs_, verts, isLoop, ls);
-        return eigenVectorToVal(out);
-    }
-
-    // ── Smooth direction fields ─────────────────────────────
-    //
-    // geometry-central exposes computeSmoothest{,Boundary}AlignedFaceDirectionField
-    // and computeCurvatureAlignedFaceDirectionField as stateless free
-    // functions — each call rebuilds the connection-Laplacian and
-    // factorizes it. We can't add a Solver class without reimplementing
-    // the algorithm, so we cache at the result level keyed by
-    // (nSym, alignToCurvature). The geometry doesn't change for the
-    // lifetime of a Manifold, so the cache is correct by
-    // construction. Repeated identical calls become near-zero-cost;
-    // parameter changes still pay the full cold cost once per new key.
-
-    val smoothFace(int nSym, bool alignToCurvature) {
-        auto key = std::make_pair(nSym, alignToCurvature);
-        auto it = smoothFaceFieldCache_.find(key);
-        if (it != smoothFaceFieldCache_.end()) {
-            return eigenMatrixToVal(it->second);
-        }
-        Eigen::MatrixXd v = nxr::manifold::connection::smoothFace(*ctx_, nSym, alignToCurvature);
-        smoothFaceFieldCache_.emplace(key, v);
-        return eigenMatrixToVal(v);
-    }
-
-    val smoothVertex(int nSym, bool alignToCurvature) {
-        auto key = std::make_pair(nSym, alignToCurvature);
-        auto it = smoothVertexFieldCache_.find(key);
-        if (it != smoothVertexFieldCache_.end()) {
-            const auto& r = it->second;
-            val obj = val::object();
-            obj.set("vertexVectors",  eigenMatrixToVal(r.vertexVectors));
-            obj.set("vertexFieldRaw", eigenVectorToVal(r.vertexFieldRaw));
-            obj.set("nSym",           r.nSym);
-            return obj;
-        }
-        nxr::manifold::connection::SmoothVertexFieldResult r =
-            nxr::manifold::connection::smoothVertex(*ctx_, nSym, alignToCurvature);
-        val obj = val::object();
-        obj.set("vertexVectors",  eigenMatrixToVal(r.vertexVectors));
-        obj.set("vertexFieldRaw", eigenVectorToVal(r.vertexFieldRaw));
-        obj.set("nSym",           r.nSym);
-        smoothVertexFieldCache_.emplace(key, std::move(r));
-        return obj;
-    }
-
-    // ── Stripe patterns ─────────────────────────────────────
-
-    val compute(val vertexFieldArr, double uniformFrequency,
-                             bool connectOnSingularities) {
-        Eigen::VectorXd raw = valToEigenVector(vertexFieldArr);
-        nxr::manifold::parametrization::stripes::StripePatternResult r = nxr::manifold::parametrization::stripes::compute(
-            *ctx_, raw, uniformFrequency, connectOnSingularities);
-        val obj = val::object();
-        obj.set("positions",    eigenMatrixToVal(r.positions));
-        obj.set("segmentCount", r.segmentCount);
-        return obj;
-    }
-
-    val computeFreq(val vertexFieldArr, val freqsArr,
-                                 bool connectOnSingularities) {
-        Eigen::VectorXd raw   = valToEigenVector(vertexFieldArr);
-        Eigen::VectorXd freqs = valToEigenVector(freqsArr);
-        nxr::manifold::parametrization::stripes::StripePatternResult r = nxr::manifold::parametrization::stripes::computeFreq(
-            *ctx_, raw, freqs, connectOnSingularities);
-        val obj = val::object();
-        obj.set("positions",    eigenMatrixToVal(r.positions));
-        obj.set("segmentCount", r.segmentCount);
-        return obj;
-    }
-
-private:
-    // Lazy state (matches the addon's ContextHolder caching).
-    void ensureOps() {
-        if (!ops_) ops_ = std::make_unique<nxr::manifold::ops::ManifoldOperators>(
-            nxr::manifold::ops::assembleManifoldOperators(*ctx_));
-    }
-    void ensureDec() {
-        if (!dec_) dec_ = std::make_unique<nxr::manifold::ops::DECOperators>(
-            nxr::manifold::ops::assembleDECOperators(*ctx_));
-    }
-    void ensureVHM() {
-        if (!vhm_) vhm_ = std::make_unique<nxr::manifold::transport::VectorHeatSolver>(*ctx_);
-    }
-    void ensureSHS() {
-        if (!shs_) shs_ = std::make_unique<nxr::manifold::solve::SignedHeatSolver>(*ctx_);
-    }
-    void ensureHeatGeo() {
-        if (!heatGeo_) heatGeo_ = std::make_unique<nxr::manifold::solve::HeatGeodesicSolver>(*ctx_);
-    }
-
-    val meshOpsToVal() {
-        ensureOps();
-        val o = val::object();
-        o.set("cotanLaplacian",  sparseToVal(ops_->cotanLaplacian));
-        o.set("mass",            sparseToVal(ops_->mass));
-        o.set("massVariant",     std::string(
-            ops_->massVariant == nxr::manifold::ops::MassMatrixVariant::MixedVoronoi ? "mixedVoronoi" :
-            ops_->massVariant == nxr::manifold::ops::MassMatrixVariant::Barycentric  ? "barycentric"  :
-            ops_->massVariant == nxr::manifold::ops::MassMatrixVariant::Galerkin     ? "galerkin" : "?"));
-        o.set("vertexDualAreas", eigenVectorToVal(ops_->vertexDualAreas));
-        o.set("vertexNormals",   eigenMatrixToVal(ops_->vertexNormals));
-        o.set("totalArea",       ops_->totalArea);
-        o.set("nV",              ctx_->nV());
-        o.set("nE",              ctx_->nE());
-        o.set("nF",              ctx_->nF());
-        return o;
-    }
-
-    val decOpsToVal() {
-        ensureDec();
-        val o = val::object();
-        o.set("d0",            sparseToVal(dec_->d0));
-        o.set("d1",            sparseToVal(dec_->d1));
-        o.set("hodge0",        sparseToVal(dec_->hodge0));
-        o.set("hodge1",        sparseToVal(dec_->hodge1));
-        o.set("hodge2",        sparseToVal(dec_->hodge2));
-        o.set("hodge1Inverse", sparseToVal(dec_->hodge1Inverse));
-        return o;
-    }
-
-    val eigenResultToVal(const nxr::manifold::solve::EigenResult& r) {
-        val o = val::object();
-        // vMajor row-major: U[v*K + k]. Matches the cortical-flow
-        // Zarr schema (manifold/eigenmodes/eigenvectors stored as
-        // [V, K]) and the GPU spectral-synthesis access pattern.
-        o.set("eigenvectors", eigenMatrixToVal(r.eigenvectors));
-        o.set("eigenvalues",  eigenVectorToVal(r.eigenvalues));
-        o.set("k",            r.k);
-        o.set("nConverged",   r.nConverged);
-        if (r.kind.size() > 0) {   // Hodge–Dirac: 0 exact · 1 harmonic · 2 coexact, per mode
-            std::vector<int> kd(r.kind.data(), r.kind.data() + r.kind.size());
-            o.set("kind", emscripten::val::array(kd));
-        }
-        return o;
-    }
-
-    nxr::manifold::solve::EigenResult valToEigenResult(const val& s) {
-        nxr::manifold::solve::EigenResult r;
-        val uField = s["eigenvectors"];
-        val lField = s["eigenvalues"];
-        auto uVec = emscripten::convertJSArrayToNumberVector<double>(uField);
-        auto lVec = emscripten::convertJSArrayToNumberVector<double>(lField);
-        int K = static_cast<int>(lVec.size());
-        int V = K > 0 ? static_cast<int>(uVec.size()) / K : 0;
-        // Round-trip layout: JS hands back vMajor (V×K row-major).
-        // Map the buffer as a row-major matrix and let Eigen's
-        // assignment operator transpose into its own column-major
-        // storage — one copy, no manual indexing.
-        Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>
-            rowMajor(uVec.data(), V, K);
-        r.eigenvectors = rowMajor;
-        r.eigenvalues.resize(K);
-        std::memcpy(r.eigenvalues.data(), lVec.data(), K * sizeof(double));
-        r.k = K;
-        r.nConverged = K;
-        return r;
-    }
-
-    std::unique_ptr<nxr::manifold::Manifold>     ctx_;
-    std::unique_ptr<nxr::manifold::ops::ManifoldOperators>      ops_;
-    std::unique_ptr<nxr::manifold::ops::DECOperators>       dec_;
-    std::unique_ptr<nxr::manifold::ops::CholeskyCache>      cache_;
-    std::unique_ptr<nxr::manifold::solve::EigenResult>        eigCache_;
-    std::unique_ptr<nxr::manifold::transport::VectorHeatSolver>   vhm_;
-    std::unique_ptr<nxr::manifold::solve::SignedHeatSolver>   shs_;
-    std::unique_ptr<nxr::manifold::solve::HeatGeodesicSolver> heatGeo_;
-    // Smooth-field result caches — keyed by (nSym, alignToCurvature).
-    // Stored by value so the cache owns the data; lookups copy back
-    // out to JS via toJsArrayCopy on each return.
-    std::map<std::pair<int, bool>, Eigen::MatrixXd>                       smoothFaceFieldCache_;
-    std::map<std::pair<int, bool>, nxr::manifold::connection::SmoothVertexFieldResult> smoothVertexFieldCache_;
-    // Connection-Laplacian result cache — keyed by all four assembly
-    // options. Stored by shared_ptr so callers can hold references
-    // without keeping the entire ContextWrapper alive longer than
-    // intended.
-    using CLKey = std::tuple<nxr::manifold::ops::laplacian::connection::ConnectionDomain,
-                              int,
-                              double,
-                              nxr::manifold::ops::laplacian::connection::ConnectionLaplacianFormat>;
-    std::map<CLKey, std::shared_ptr<nxr::manifold::ops::laplacian::connection::ConnectionLaplacian>>   clCache_;
-    std::vector<double>  verts_;
-    std::vector<int>     faces_;
-    std::vector<int32_t> faces32_;
-};
+// synthesis.randomDecomposed1Form(surface, alphaStrength, betaStrength, gammaStrength, seed) → a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges
+val randomDecomposed1FormJS(val surfaceVal, double alphaStrength, double betaStrength, double gammaStrength, int seed) {
+    return guarded([&] {
+        const geom::SurfaceArrays surface = valToSurface(surfaceVal);
+        const ops::DECOperators dec = ops::assembleDECOperators(surface);
+        return eigenVectorToVal(syn::randomDecomposed1Form(dec, surface.nV(), static_cast<int>(dec.d0.rows()), surface.nF(),
+                                                           alphaStrength, betaStrength, gammaStrength, static_cast<unsigned int>(seed)));
+    });
+}
 
 // ── Free functions ───────────────────────────────────────────
 
@@ -1019,129 +1042,14 @@ std::string getVersion() {
     return "nxr-compute 0.1.0";
 }
 
-/**
- * Generalized eigenproblem K φ = λ M φ from JS-supplied COO triplets.
- *
- * Mirrors `ContextWrapper::solve` — same Spectra IRAM /
- * shift-invert path and same cancel/progress contract — but takes K
- * and M as raw triplet arrays instead of building them through
- * `assembleManifoldOperators`. Useful for callers that compute their own
- * sparse Laplacians (graph Laplacians, FEM assemblies on non-manifold
- * face soups, custom regularized matrices, etc.) without going through
- * the geometry-central halfedge stack.
- *
- * Args (all coordinate-format inputs are 0-based):
- *   K_rows, K_cols  Int32Array (or array of ints), length = K_nnz
- *   K_vals          Float64Array (or array of numbers), length = K_nnz
- *   M_rows, M_cols, M_vals  same shape as K
- *   n               common matrix size for K and M (square)
- *   k, sigma        eigensolve params (sigma: an explicit shift; NaN = the
- *                   scale-aware shift ladder, kShiftLadder).
- *   cancelAddr, progressAddr, progressLen  same as ContextWrapper.solve
- *
- * Returns: { eigenvectors, eigenvalues, k, nConverged } in vMajor
- * row-major layout, identical to ContextWrapper.solve.
- *
- * Triplets with duplicate (row, col) pairs are summed when the sparse
- * matrix is built (Eigen's setFromTriplets default behavior). This is
- * the natural assembly order for FEM consistent-mass and cotangent
- * stiffness, which both accumulate per-triangle contributions.
- */
-val solveEigenmodesFromTriplets(
-    val K_rows, val K_cols, val K_vals,
-    val M_rows, val M_cols, val M_vals,
-    int n,
-    int k, double sigma,
-    std::intptr_t cancelAddr,
-    std::intptr_t progressAddr,
-    int progressLen)
-{
-    auto Kr = emscripten::convertJSArrayToNumberVector<int32_t>(K_rows);
-    auto Kc = emscripten::convertJSArrayToNumberVector<int32_t>(K_cols);
-    auto Kv = emscripten::convertJSArrayToNumberVector<double>(K_vals);
-    auto Mr = emscripten::convertJSArrayToNumberVector<int32_t>(M_rows);
-    auto Mc = emscripten::convertJSArrayToNumberVector<int32_t>(M_cols);
-    auto Mv = emscripten::convertJSArrayToNumberVector<double>(M_vals);
-
-    if (Kr.size() != Kc.size() || Kr.size() != Kv.size()) {
-        throw std::invalid_argument(
-            "solveEigenmodesFromTriplets: K row/col/val length mismatch");
-    }
-    if (Mr.size() != Mc.size() || Mr.size() != Mv.size()) {
-        throw std::invalid_argument(
-            "solveEigenmodesFromTriplets: M row/col/val length mismatch");
-    }
-    if (n <= 0) {
-        throw std::invalid_argument(
-            "solveEigenmodesFromTriplets: n must be > 0");
-    }
-
-    Eigen::SparseMatrix<double> K(n, n), M(n, n);
-    {
-        std::vector<Eigen::Triplet<double>> Kt;
-        Kt.reserve(Kr.size());
-        for (std::size_t i = 0; i < Kr.size(); ++i) {
-            Kt.emplace_back(Kr[i], Kc[i], Kv[i]);
-        }
-        K.setFromTriplets(Kt.begin(), Kt.end());
-        K.makeCompressed();
-    }
-    {
-        std::vector<Eigen::Triplet<double>> Mt;
-        Mt.reserve(Mr.size());
-        for (std::size_t i = 0; i < Mr.size(); ++i) {
-            Mt.emplace_back(Mr[i], Mc[i], Mv[i]);
-        }
-        M.setFromTriplets(Mt.begin(), Mt.end());
-        M.makeCompressed();
-    }
-
-    nxr::core::CancellationToken cancel = cancelAddr
-        ? nxr::core::CancellationToken(
-            reinterpret_cast<const std::atomic<int32_t>*>(cancelAddr))
-        : nxr::core::CancellationToken{};
-    nxr::core::ProgressObserver progress;
-    if (progressAddr && progressLen >= 3) {
-        auto* base = reinterpret_cast<std::atomic<int32_t>*>(progressAddr);
-        progress.iteration       = &base[0];
-        progress.totalIterations = &base[1];
-        progress.residualMicro   = &base[2];
-    }
-
-    try {
-        nxr::manifold::solve::EigenResult r = nxr::manifold::solve::eigen(
-            K, M, k, sigma,
-            /*normalize=*/false, /*removeDC=*/false, cancel, progress);
-        // Build the JS return object inline (mirrors ContextWrapper's
-        // eigenResultToVal — that one is a class member, so we replicate
-        // its three-line body here rather than re-host it).
-        val o = val::object();
-        o.set("eigenvectors", eigenMatrixToVal(r.eigenvectors));
-        o.set("eigenvalues",  eigenVectorToVal(r.eigenvalues));
-        o.set("k",            r.k);
-        o.set("nConverged",   r.nConverged);
-        return o;
-    } catch (const nxr::core::Error& e) {
-        std::string msg = "[";
-        msg += nxr::core::errorCodeName(e.code());
-        msg += "] ";
-        msg += e.what();
-        if (!e.hint().empty()) {
-            msg += " | hint: ";
-            msg += std::string(e.hint());
-        }
-        throw std::runtime_error(msg);
-    }
-}
-
 // ── Operator registry metadata ───────────────────────────────
 //
-// Mirrors the MEX 'operatorInfo' command (bindings/mex/src/nxr_compute_mex.cpp).
+// Mirrors the MEX 'operators.operatorById' command (bindings/mex/src/nxr_compute_mex.cpp).
 // Returns a plain JS object with all OperatorVariant metadata strings. Field
 // names match the MEX struct fields exactly so downstream consumers work
 // identically against either binding.
-emscripten::val operatorInfoJS(std::string id) {
-    using namespace nxr::manifold::registry;
+emscripten::val operatorByIdJS(std::string id) {
+    using namespace nxr::operators::registry;
     const OperatorVariant* v = operatorById(id);
     if (!v) {
         try {
@@ -1176,12 +1084,12 @@ emscripten::val operatorInfoJS(std::string id) {
 
 // ── Field registry metadata ──────────────────────────────────
 //
-// Mirrors the MEX 'fieldInfo' command (bindings/mex/src/nxr_compute_mex.cpp).
+// Mirrors the MEX 'operators.fieldById' command (bindings/mex/src/nxr_compute_mex.cpp).
 // Returns a plain JS object with all FieldVariant metadata strings. Field
 // names match the MEX struct fields exactly so downstream consumers work
 // identically against either binding.
-emscripten::val fieldInfoJS(std::string id) {
-    using namespace nxr::manifold::registry;
+emscripten::val fieldByIdJS(std::string id) {
+    using namespace nxr::operators::registry;
     const FieldVariant* v = fieldById(id);
     if (!v) {
         try {
@@ -1205,66 +1113,54 @@ emscripten::val fieldInfoJS(std::string id) {
 }
 
 // ── Embind module bindings ───────────────────────────────────
+//
+// Free functions named `<toolbox>.<function>` (one name per thing across the C++ function, the node and the bindings). Embind takes every argument (no
+// optional ones): the JS wrapper (js/wrap.mjs) fills the defaults. An old name (`createContext`, `solve`, `heat`, ...) is refused there with the new name.
 
 EMSCRIPTEN_BINDINGS(nxr_compute_wasm) {
-    emscripten::class_<ContextWrapper>("Manifold")
-        .constructor<val, val>()
-        // Accessors
-        .function("nV", &ContextWrapper::nV)
-        .function("nE", &ContextWrapper::nE)
-        .function("nF", &ContextWrapper::nF)
-        // Operators
-        .function("assembleManifoldOperators",  &ContextWrapper::assembleManifoldOperators)
-        .function("assembleDECOperators",   &ContextWrapper::assembleDECOperators)
-        .function("assembleConnectionLaplacian", &ContextWrapper::assembleConnectionLaplacian)
-        .function("operators",   &ContextWrapper::operators)
-        .function("eigs",        &ContextWrapper::eigs)
-        .function("frames",      &ContextWrapper::frames)
-        .function("vertexFrames", &ContextWrapper::vertexFrames)
-        .function("normals",   &ContextWrapper::normals)
-        // Spectral
-        .function("solve",        &ContextWrapper::solve)
-        .function("normalize",    &ContextWrapper::normalize)
-        .function("removeDC",               &ContextWrapper::removeDC)
-        .function("precompute",             &ContextWrapper::precompute)
-        // Solvers
-        .function("poisson",           &ContextWrapper::poisson)
-        .function("heat",&ContextWrapper::heat)
-        .function("tracePath",              &ContextWrapper::tracePath)
-        .function("exactDistance",          &ContextWrapper::exactDistance)
-        .function("hodge",         &ContextWrapper::hodge)
-        // Geometric
-        .function("curvatures",      &ContextWrapper::curvatures)
-        .function("bff",   &ContextWrapper::bff)
-        .function("isoline",        &ContextWrapper::isoline)
-        .function("trivial",  &ContextWrapper::trivial)
-        .function("streamline",       &ContextWrapper::streamline)
-        // Vector field
-        .function("whitney",     &ContextWrapper::whitney)
-        .function("gradient",         &ContextWrapper::gradient)
-        // Time-varying generators
-        .function("heatDiffusion",  &ContextWrapper::heatDiffusion)
-        .function("dampedWave",     &ContextWrapper::dampedWave)
-        .function("randomDecomposed1Form",
-                                            &ContextWrapper::randomDecomposed1Form)
-        // Vector heat method
-        .function("parallel",    &ContextWrapper::parallel)
-        .function("extendScalar", &ContextWrapper::extendScalar)
-        .function("logMap",       &ContextWrapper::logMap)
-        .function("findCenter",   &ContextWrapper::findCenter)
-        // Signed heat method
-        .function("signedHeat",     &ContextWrapper::signedHeat)
-        // Smooth direction fields
-        .function("smoothFace",   &ContextWrapper::smoothFace)
-        .function("smoothVertex", &ContextWrapper::smoothVertex)
-        // Stripe patterns
-        .function("compute",     &ContextWrapper::compute)
-        .function("computeFreq", &ContextWrapper::computeFreq)
-        ;
+    // the surface as data
+    emscripten::function("geometry.surfaceArrays", &surfaceArraysJS);
+    // operators
+    emscripten::function("operators.assembleManifoldOperators", &assembleManifoldOperatorsJS);
+    emscripten::function("operators.assembleDECOperators", &assembleDECOperatorsJS);
+    emscripten::function("operators.assembleConnectionLaplacian", &assembleConnectionLaplacianJS);
+    emscripten::function("operators.eigen", &eigenJS);
+    emscripten::function("operators.eigenOperator", &eigenOperatorJS);
+    emscripten::function("operators.normalize", &normalizeJS);
+    emscripten::function("operators.removeDC", &removeDCJS);
+    emscripten::function("operators.poisson", &poissonJS);
+    emscripten::function("operators.gradient", &gradientJS);
+    emscripten::function("operators.trivial", &trivialJS);
+    emscripten::function("operators.operatorById", &operatorByIdJS);
+    emscripten::function("operators.fieldById", &fieldByIdJS);
+    // signal
+    emscripten::function("signal.hodge", &hodgeJS);
+    emscripten::function("signal.isoline", &isolineJS);
+    emscripten::function("signal.streamline", &streamlineJS);
+    emscripten::function("signal.whitney", &whitneyJS);
+    // geometry
+    emscripten::function("geometry.curvatures", &curvaturesJS);
+    emscripten::function("geometry.bff", &bffJS);
+    emscripten::function("geometry.frames", &framesJS);
+    emscripten::function("geometry.vertexFrames", &vertexFramesJS);
+    emscripten::function("geometry.normals", &normalsJS);
+    emscripten::function("geometry.heat", &heatJS);
+    emscripten::function("geometry.tracePath", &tracePathJS);
+    emscripten::function("geometry.exactDistance", &exactDistanceJS);
+    emscripten::function("geometry.parallel", &parallelJS);
+    emscripten::function("geometry.extendScalar", &extendScalarJS);
+    emscripten::function("geometry.logMap", &logMapJS);
+    emscripten::function("geometry.findCenter", &findCenterJS);
+    emscripten::function("geometry.signedHeat", &signedHeatJS);
+    emscripten::function("geometry.smoothFace", &smoothFaceJS);
+    emscripten::function("geometry.smoothVertex", &smoothVertexJS);
+    emscripten::function("geometry.compute", &stripesJS);
+    emscripten::function("geometry.computeFreq", &stripesFreqJS);
+    // synthesis
+    emscripten::function("synthesis.delta", &deltaJS);
+    emscripten::function("synthesis.heatDiffusion", &heatDiffusionJS);
+    emscripten::function("synthesis.dampedWave", &dampedWaveJS);
+    emscripten::function("synthesis.randomDecomposed1Form", &randomDecomposed1FormJS);
 
     emscripten::function("version", &getVersion);
-    emscripten::function("solveEigenmodesFromTriplets",
-                         &solveEigenmodesFromTriplets);
-    emscripten::function("operatorInfo", &operatorInfoJS);
-    emscripten::function("fieldInfo", &fieldInfoJS);
 }

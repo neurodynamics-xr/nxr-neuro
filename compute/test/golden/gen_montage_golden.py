@@ -1,4 +1,4 @@
-"""Writes montage_golden.txt: MNE-Python's `spherical_1005` standard montage (mne.channels.make_standard_montage), the reference of nxr::montage::tenFive on a SPHERE (MNE's file is the
+"""Writes montage_golden.txt: MNE-Python's `spherical_1005` standard montage (mne.channels.make_standard_montage), the reference of nxr::meeg::tenFive on a SPHERE (MNE's file is the
 10-05 rule of Oostenveld and Praamstra 2001 computed on a sphere of radius 0.095 m, from the `eeg_positions` package). The generator only CALLS MNE; its output is the golden: the 10-05 labels with
 their positions (metres, MNE's head frame: x to the right, y to the front, z up; the landmarks NAS, LPA, RPA included, and Nz, T9, T10 which coincide with them) and the label lists of MNE's
 `spherical_1010` and `spherical_1020`. Nothing from a real head.

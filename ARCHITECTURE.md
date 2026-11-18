@@ -40,6 +40,18 @@ composable.
   **derived measure**, computed at read from its stored ingredients, as the lookup derives `sd` from `mean` and `mean_square`. Never a reduction of the
   ratio itself.
 - **Names say what a function computes** (`phaseCurrent`, `power`, `phaseGradient`), never how the code is organised (`sums`, `readout`).
+- **One measurement system, no competing definitions** (`docs/specs/2026-11-17-consolidation.md`). Every selection is made by one of five maker nodes
+  (`select.dyadic_surface`, `select.time_grid`, `select.bands`, `select.product`, `select.events.*`); every reduction is one of four operations, each with ONE
+  implementation (`nxr::measurement`: `reduce`, `measurement.roll_up`, `summarize`, `estimate`); values over members live in one table (`selection_measurement`; `statistic`
+  holds statistics, never a member axis); every measuring pipeline is the one `measure` definition fed by a field chain, its presets only named parameter sets.
+  A retired name is refused with the name of what replaces it, never kept as an alias. Every selection parameter is a quantity with a unit in a named chart (a band
+  in Hz, a tile in mm, a duration in s), never a bare level index; levels are resolved from quantities in closed form and recorded with the snapped quantity.
+  **Roll-ups exist in io's query AND in compute**: each measure's merge rule (sum, max, min, mean via sum and count, ratios derived at read) is DATA in the measures
+  registry, applied by io in SQL (for group analysis and statistical modelling: filters by selection, member, level in physical units, subject or group, and roll-ups
+  through a grid's hierarchy and across subjects) and by compute in memory, with a parity test between the two, so there is one definition of each rule.
+  **The glued cortex**: the imported mesh is the manifold of record; results made on the derived glued surface (Fields, selections, measurements) are restricted back
+  to it for storage, export and display, the bridge dropped. **An operator a node builds** is stored through io with its provenance and found by its key, never held
+  in a process-wide cache.
 
 The detailed rules are below: the dependency table, **the architecture policy** (what each layer may decide), **pipelines as replicas of the Studio's GPU
 chains**, the chunk service, and the PR checklist. Design a new pipeline as its graph first (nodes, ports, inputs, outputs), check it against the
@@ -51,7 +63,8 @@ Studio's chain, and only then write code.
 |---|---|---|
 | `compute/` | `nxr_compute` | Eigen, Spectra, geometry-central, pocketfft (vendored). **No file I/O, never `io`.** Its own guide: `compute/CONTRIBUTING.md` |
 | `io/` (`io/formats/`: `nxr_io_formats`, pure file formats) | `nxr_io` | SQLite, zstd/blosc/zlib, matio, HDF5, nlohmann/json, rapidyaml (vendored; 2026-11-12). **Never `compute`** |
-| `meeg/` | `nxr_meeg` | Eigen only. **No file I/O, never `compute` or `io`** (the pipelines hand it arrays) |
+| `core/` (`compute/include/nxr/core/`, `optimisation/`) | `nxr_core` | Eigen and the platform's threads only (added 2026-11-17): core types, errors, cancellation, progress, parallel, general algebra (congruence, row scaling) and the general solvers of optimisation. **No file I/O, never `compute`, `meeg` or `io`.** Linked by `nxr_compute` and `nxr_meeg` |
+| `meeg/` | `nxr_meeg` | Eigen and `nxr_core` (amended 2026-11-17). **No file I/O, never `compute` or `io`** (the pipelines hand it arrays) |
 | `pipelines/graph/` | `nxr_graph` | `compute`, `meeg`, Eigen, nlohmann/json (amended 2026-11-17). **No file I/O, never `io`**: the graph executor, which knows arrays and parameters only |
 | `pipelines/` | `nxr_pipelines` | `compute`, `io` (**only io's task API**, `nxr/io/task/`, plus the chunk service), `meeg`: **the only place they meet** |
 | `cli/` | `nxr-neuro` | argument parsing and output only, with no maths and no SQL; it reaches data through io's task API |
@@ -101,7 +114,9 @@ device chains, so nxr-neuro can later supply data to them, or run them, with no 
   `SignalChain` (`studio/src/engine/toolbox/signal/chain.ts`) and its device form (`studio/src/studio/engine/gpu/deviceChain.ts`):
   - members (a linear spatial map) → filter (zero-phase sections, a band, a Meyer or Morlet wavelet band) → transform (none · envelope ·
     wavelet power or complex · spectrum, with the Studio's output shapes `xt`, `xft`, `xf`);
-  - a linear map (a kernel, a form's operator) reads the chain BEFORE any non-linear transform (D106);
+  - a linear map (a kernel, a form's operator) reads the chain BEFORE any non-linear transform (D106); consecutive linear maps of the rows are composed ONCE
+    into one operator (the type system's compose move: a kernel's `pre_operator`, e.g. a surrogate's zero-lag mixing, which commutes with the per-channel time
+    filters before it), and a value that awaits its operator reaches no non-linear step or reduction before it is applied (`docs/specs/2026-11-17-surrogates.md`);
   - then the field's forms (`fieldForms.ts`) and the measures (reductions as sums folded across blocks).
   - Stages keep the Studio's order and names; state carried between blocks is an accumulator, as a device chain's is.
 - **Readback (gather):** the chain's outputs come back to the host, which stores them (io) or hands them to the next analysis.
@@ -113,6 +128,8 @@ device chains, so nxr-neuro can later supply data to them, or run them, with no 
 - `io/include/nxr/io/chunk_loop.h` is the one place a recording is loaded and looped over: the span of a run (always stated by the caller; never defaulted), whole chunks read in order, one at a time with bounded memory,
   the rows asked for, the bad-sample mask, progress.
 - A pipeline only declares what it reads (the recording, its rows, its span: `span_of`, `source_of`) and passes a `visit` that folds each chunk into its accumulators.
+  A run that makes its own values from the sample index (a surrogate draw) declares the recording `read: shape`: the service hands the shape and the good samples, never a sample
+  (`shape_source_of`); only a node that reads no sample (`reads_shape_only`) may take it.
   It never opens a recording's array, loops over its samples, or works out chunks.
 - Compute (`compute/`, `meeg/`) receives a data matrix and never knows its size or where it came from.
 - Enforced by the test `layering_recordings_read_by_chunk_service` (`cmake/check_layering.cmake`). A new recording reader goes through the service, never around the guard.
@@ -128,7 +145,7 @@ follows them from the start, and no change may move existing code further from t
   Flow Studio's repositories. Only io, the binding that serves the Studio (`bindings/wasm-io`) and io's own tests and record tools use them.
 - **For everyone else: io's task API** (`nxr/io/task/`), named by task, never as rows: **find** inputs (by kind, relation, parameters; one match or a
   clear error), **open** arrays for streaming, **commit** a result as one atomic unit (rows, arrays, provenance, cache key and measurements together, or
-  nothing), **look up the cache**, **query measurements** (the read-time reduction over partitions, members and time).
+  nothing), **look up the cache**, **query measurements** (selections, members, levels in physical units, subjects and groups; roll-ups through a grid's hierarchy and across subjects, in SQL, with each measure's merge rule read from the registry: the same rule compute applies in memory, checked by a parity test).
 - **Only io writes SQL or includes `database.h` or a `records/` header.** Pipelines and the command line never name a row, a table or a column.
 - The SQLite engine is always the pinned amalgamation built with the project, never the system's.
 
@@ -147,7 +164,7 @@ follows them from the start, and no change may move existing code further from t
 - **No pipeline is a hand-wired C++ chain.** A new analysis is new nodes (pure functions, registered with their ports, parameters and traits) plus a
   definition. Never a `<x>_compute` function that finds its own inputs, loops and stores.
 - **A graph of pure functions is itself a pure function.** The graph executor (arrow and port checks, the halo composed from the nodes' traits, state
-  carried across chunks as (block, state) → (output, state)) is pure and io-free (`pipelines/graph/`). The runner only finds, streams and stores.
+  carried across chunks as (block, state) → (output, state)) is pure and io-free (`pipelines/graph/`). An accumulating node may declare a halo to the RIGHT (a segment family's n - 1 samples): the planner adds it to the loop's halo, the executor hands the block with it and the span's end (`Place`), and a segment belongs to the chunk that holds its start, so a Welch estimate carries no segment state between chunks. The runner only finds, streams and stores.
 - **A graph can be wrapped as a new node** (a composite, as TSL's `Fn` composes nodes), reusable in other graphs and by `compute`.
 - A missing derived input the pipeline needs (e.g. a surface's eigenmodes) is made by its own run first, with a message saying what was made and why;
   never stored silently inside another run.
@@ -183,4 +200,22 @@ Two cheap steps toward running the graph on a GPU. They change no result: the CP
 **One dispatch point.** The executor never calls a node's functions itself. It describes the call (`NodeCall`: the phase, the node's prepared state, its inputs) and hands it to `dispatch` (`pipelines/include/nxr/pipelines/dispatch.h`, `pipelines/src/dispatch.cpp`), which checks the traits and runs the phase on the context's backend (`Backend::cpu`). A GPU backend is added in that one place, without touching a pipeline, a node or the runner. Enforced by the test `dispatch_is_the_only_call_path` (`cmake/check_dispatch.cmake`), which fails when any other file calls a node's `prepare`, `start`, `chunk`, `chunk_at`, `fold`, `finish` or `run` through a step.
 
 A new dependency, or a new modality folder (e.g. `pet/`), needs the maintainers' OK and a dated amendment in the table in `docs/reference.md`.
-Namespaces follow the folder: `nxr::compute` and topic namespaces (`nxr::welch`, `nxr::filter`, `nxr::flow`, …), `nxr::io`, `nxr::bst`, `nxr::meeg`, `nxr::pipelines`.
+Namespaces follow the folder: one namespace per toolbox, `nxr::<toolbox>` (`nxr::signal`, `nxr::geometry`, `nxr::operators`, …), `nxr::io`, `nxr::bst`, `nxr::meeg`, `nxr::pipelines`; functions are flat in their toolbox namespace (`nxr::signal::fft`), and a type whose name two headers of one toolbox share lives in a sub-namespace named after its header (`nxr::signal::timefilterbank::Family`).
+
+## The toolboxes (compute is cut into ten folders; added 2026-11-17)
+
+`compute/include/nxr/<toolbox>/` and `compute/src/<toolbox>/` hold one toolbox each; no header stays at the top of `compute/include/nxr/`, and there is no umbrella header. The includes between toolboxes run one way:
+
+| toolbox | holds | may include |
+|---|---|---|
+| `core` | types, errors, cancellation, progress, parallel, general matrix algebra (the Hermitian and antisymmetric factors, congruence, row scaling) | nothing (library `nxr_core`) |
+| `quantity`, `optimisation`, `stats`, `geometry` | quantities and units; general solvers (`fminsearch`); statistics (summary, histogram, circular, lag, null tests, PCA); the manifold, its intrinsic geometry, frames, charts, distances | `core` |
+| `operators` | the assembled and computed operators (Laplacians, DEC, Dirac family, eigenmodes, Hodge weights, the resample operator) | `core`, `geometry` |
+| `selection` | the Selection class and its resolution | `core`, `geometry` |
+| `measurement` | measures over selections, reductions, roll-ups | `core`, `stats`, `selection` |
+| `select` | the makers of selections (bands, grids, dyadic partitions, events, regions, cores, tracks) | `core`, `geometry`, `stats`, `selection`, `measurement` |
+| `signal` | transforms and filters of signals (Fourier, filters, windows, filter banks, wavelets, cross-spectral measures, phase gradient, optical flow) | `core`, `geometry`, `operators`, `stats`, `selection`, `measurement`, `optimisation` |
+| `synthesis` | generators of fields and surrogates | `core`, `geometry`, `operators`, `stats` |
+| `meeg` (`nxr_meeg`) | forward and inverse models, covariance, cross-spectra of sensors and sources | `core`, `optimisation` (never compute); the connectome and montage code that still needs geometry stays in `nxr_compute` under `nxr/meeg/` |
+
+Enforced by the test `layering_toolboxes_follow_the_dag` (`cmake/check_toolboxes.cmake`, with its WILL_FAIL twin `layering_toolboxes_catches`). A few includes that predate the cut and run against the table (the operators call two synthesis helpers) are counted in `cmake/toolboxes_allow.txt`: the count may only fall, and a new one fails the test. One word names a thing in every layer: the C++ function, the registered node (`<toolbox>.<function>`) and the binding entry (the test `names_across_layers`, `pipelines/test/names.tsv`).

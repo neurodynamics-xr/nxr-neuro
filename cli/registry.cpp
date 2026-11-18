@@ -17,6 +17,7 @@
 #include "nxr/io/errors.h"
 #include "output.h"
 #ifdef NXR_NEURO_WITH_PIPELINES
+int compute_main(const std::vector<std::string>& args);   // cli/compute_command.cpp
 #include "nxr/pipelines/definition.h"
 #endif
 
@@ -50,6 +51,49 @@ struct Table {
 #ifdef NXR_NEURO_WITH_PIPELINES
 // A PIPELINE DEFINITION as a command (docs/specs/2026-11-17-compute-and-run.md, 6.2): `run <name>`, its parameters the options `--<parameter> VALUE` (dashes for underscores),
 // each helped with its declared meaning, default and unit (the definition's long form); a parameter written in the short form is helped as undocumented.
+// the old spellings of the pipelines that became definitions (their table entry went with the hand-wired code): refused, naming the new one (docs/specs/2026-11-17-compute-and-run.md, 6.3)
+const std::vector<std::pair<std::vector<std::string>, std::string>>& converted_spellings() {
+  // OLD NAMES ARE NOT KEPT as aliases: every retired spelling is refused with the name of what replaces it (docs/specs/2026-11-17-consolidation.md section 9). A replacement's parameters are
+  // quantities (a band in Hz, a tile in mm, a duration in s), never level indices: see `nxr-neuro run <name> --help`.
+  static const std::vector<std::pair<std::vector<std::string>, std::string>> v = {
+      {{"psd", "compute"}, "run psd"},
+      {{"eigen", "solve"}, "run eigenmodes (a cortex of two hemispheres: `run glue` first, then the glued surface by name)"},
+      {{"tiles", "compute"}, "run select_dyadic_surface"},
+      {{"run", "tiles"}, "run select_dyadic_surface --rule subject"},
+      {{"run", "group_tree"}, "run select_dyadic_surface --rule group"},
+      {{"run", "group_tiles"}, "run select_dyadic_surface --rule transfer"},
+      {{"joint", "compute"}, "run select_product (or compose it in `run measure`)"},
+      {{"run", "joint"}, "run select_product (or compose it in `run measure`)"},
+      {{"frametiling", "compute"}, "run select_time_grid --rule frames"},
+      {{"run", "frametiling"}, "run select_time_grid --rule frames"},
+      {{"constantq", "compute"}, "run select_time_grid --rule constant_q"},
+      {{"run", "constantq"}, "run select_time_grid --rule constant_q"},
+      {{"run", "pyramid_bands"}, "run select_bands --rule frequency"},
+      {{"run", "spatial_bands"}, "run select_bands --rule levels"},
+      {{"run", "pyramid"}, "run measure --set cortical_band_pyramid"},
+      {{"pyramid", "reduce"}, "run roll_up (group scope)"},
+      {{"reduce", "pyramid"}, "run roll_up (group scope)"},
+      {{"run", "cortical_cells"}, "run measure --set cortical_band_cells"},
+      {{"run", "cortical_cell_pairs"}, "run measure --set cortical_band_cells (lists of --band and --spatial-scale make one plan each)"},
+      {{"run", "cell_phase_current"}, "run measure --set cortical_band_cells_current"},
+      {{"run", "cortical_event_pairs"}, "run global_bursts (lists of --band and --spatial-scale make one plan each)"},
+      {{"run", "measure_over_time"}, "run measure (a stored field over a stored time grid)"},
+      {{"run", "channel_mean"}, "run measure --set channel_span_mean"},
+      {{"run", "band_amplitude"}, "run measure --set sensor_band_amplitude"},
+      {{"run", "crossspectrum_analytic"}, "run measure --set analytic_cross_spectrum_tiles"},
+      {{"run", "lagfree_envelope"}, "run measure --set surrogate_lagfree_envelope"},
+      {{"run", "flow_amplitude"}, "run measure --set flow_max_amplitude"},
+      {{"run", "statistic"}, "run summarize"},
+      {{"run", "frames"}, "run surface_frames"},
+      {{"frames", "compute"}, "run surface_frames"},
+      {{"cyclepattern", "compute"}, "run measure over the window cross-spectrum series (`select_time_grid --rule windows`, `estimate`), then `run summarize` (method cycle_pattern)"},
+      {{"run", "cyclepattern"}, "run measure over the window cross-spectrum series (`select_time_grid --rule windows`, `estimate`), then `run summarize` (method cycle_pattern)"},
+      {{"phasegradient", "compute"}, "run phasegradient"},
+      {{"opticalflow", "compute"}, "run flow_modes (after `run measure --set flow_max_amplitude`)"},
+      {{"run", "opticalflow"}, "run flow_modes (after `run measure --set flow_max_amplitude`)"},
+  };
+  return v;
+}
 std::string dashed(std::string s) {
   std::replace(s.begin(), s.end(), '_', '-');
   return s;
@@ -59,7 +103,26 @@ std::string default_text(const nxr::io::Json& v) {
   return v.dump();
 }
 void add_definition(Table& t, const std::string& noun, const std::string& definition) {
-  const nxr::pipelines::graph::Definition d = nxr::pipelines::graph::load(definition);
+  nxr::pipelines::graph::Definition d;
+  try {
+    d = nxr::pipelines::graph::load(definition);
+  } catch (const std::exception& e) {            // a definition that does not load must not take the whole command line down: its command is listed, and says why it cannot run
+    CommandDoc bad;
+    bad.verb = "run";
+    bad.noun = noun;
+    bad.old = {"run"};
+    bad.alias = false;
+    bad.unprobed = true;
+    bad.span = true;
+    bad.definition = definition;
+    bad.group = "Pipeline definitions";
+    std::string why = e.what();
+    for (auto& ch : why) if (ch == '\n') ch = ' ';
+    bad.summary = "Does not load yet: " + why;
+    bad.positional = "";
+    t.commands.push_back(bad);
+    return;
+  }
   CommandDoc c;
   c.verb = "run";
   c.noun = noun;
@@ -216,7 +279,7 @@ const OptionDoc& option_doc(const std::string& name, const std::string& path) {
     if (late != late_options().end()) return late->second;
   }
   const auto it = table().options.find(name);
-  if (it == table().options.end()) throw std::logic_error("the command table has no description of " + name);
+  if (it == table().options.end()) throw std::logic_error("the command table has no description of " + name + (path.empty() ? "" : " (for " + path + ")"));
   return it->second;
 }
 std::vector<std::string> pipeline_names() {
@@ -226,6 +289,7 @@ std::vector<std::string> pipeline_names() {
   return v;
 }
 bool is_flag(const std::string& name) { return option_doc(name).value.empty(); }
+bool is_flag_of(const std::string& name, const std::string& path) { return option_doc(name, path).value.empty(); }   // an option documented for one command only has no global entry
 
 double parse_time(const std::string& option, const std::string& text) {
   const auto bad = [&] { return Usage("error: argument " + option + ": '" + text + "' is not a time: give seconds (90) or m:ss (1:30) or h:mm:ss"); };
@@ -272,7 +336,7 @@ std::string example_of(const CommandDoc& c) {
   std::string t = "nxr-neuro " + c.path();
   if (!c.positional.empty()) t += " " + c.positional;
   for (const auto& o : c.options)
-    if (o.required && !span_hidden(c, o.name)) t += " " + o.name + (is_flag(o.name) ? "" : " " + option_doc(o.name, c.path()).value);
+    if (o.required && !span_hidden(c, o.name)) t += " " + o.name + (is_flag_of(o.name, c.path()) ? "" : " " + option_doc(o.name, c.path()).value);
   if (c.span) t += c.seconds ? " --from 0:10 --to 1:10" : " --all";
   return t;
 }
@@ -442,7 +506,7 @@ int run_command_line(int argc, char** argv) {
       Probe p = probe();
       std::set<std::string> parser, req, mul, flg, table_names, table_req, table_mul, table_flg;
       parser.insert(p.valued.begin(), p.valued.end()); parser.insert(p.multi.begin(), p.multi.end()); parser.insert(p.flags.begin(), p.flags.end());
-      for (const auto& u : c.options) { const std::string n = u.legacy.empty() ? u.name : u.legacy; table_names.insert(n); if (u.required) table_req.insert(n); if (u.multi) table_mul.insert(n); if (is_flag(u.name)) table_flg.insert(n); }
+      for (const auto& u : c.options) { const std::string n = u.legacy.empty() ? u.name : u.legacy; table_names.insert(n); if (u.required) table_req.insert(n); if (u.multi) table_mul.insert(n); if (is_flag_of(u.name, c.path())) table_flg.insert(n); }
       auto diff = [&](const char* what, const std::set<std::string>& a, const std::set<std::string>& b) {
         std::string m;
         for (const auto& x : a) if (!b.count(x)) m += " " + x;
@@ -457,13 +521,14 @@ int run_command_line(int argc, char** argv) {
       diff("flag in the parser only:", p.flags, table_flg);
       diff("flag in the table only:", table_flg, p.flags);
       if ((p.npos > 0) != !c.positional.empty()) { std::cout << c.path() << ": positional argument differs\n"; ++bad; }
-      for (const auto& u : c.options) if (!table().options.count(u.name)) { std::cout << c.path() << ": " << u.name << " has no description\n"; ++bad; }
+      for (const auto& u : c.options) if (!table().options.count(u.name) && !table().options.count(u.name + "@" + c.path())) { std::cout << c.path() << ": " << u.name << " has no description\n"; ++bad; }
     }
     std::cout << (bad ? "the command table does not match the parsers\n" : "the command table matches the parsers\n");
     return bad ? 1 : 0;
   }
   if (argc >= 2 && std::string(argv[1]) == "__refused") {   // for the tests: `old words|new words` of every refused spelling
     for (const auto& c : commands()) if (c.refused) std::cout << old_words(c) << "|" << c.path() << "\n";
+    for (const auto& [words, now] : converted_spellings()) { std::string w; for (const auto& x : words) w += (w.empty() ? "" : " ") + x; std::cout << w << "|" << now << "\n"; }
     return 0;
   }
   if (argc >= 2 && std::string(argv[1]) == "__check-pipelines") {   // the pipelines' names and the shipped definitions' parameters (spec 2026-11-17-compute-and-run.md, 6.2)
@@ -508,7 +573,7 @@ int run_command_line(int argc, char** argv) {
         const std::string h = option_help(d);
         if (!d.def.empty() && d.def != "none" && d.def != "off" && d.def != "required" && h.find("default: " + d.def) == std::string::npos) { std::cout << c.path() << ": " << u.name << " help lacks its default\n"; ++bad; }
         if (!d.unit.empty() && d.unit != "-" && h.find("unit: " + d.unit) == std::string::npos) { std::cout << c.path() << ": " << u.name << " help lacks its unit\n"; ++bad; }
-        if (d.value.empty() != is_flag(u.name)) { std::cout << c.path() << ": " << u.name << " flag and value disagree\n"; ++bad; }
+        if (d.value.empty() != is_flag_of(u.name, c.path())) { std::cout << c.path() << ": " << u.name << " flag and value disagree\n"; ++bad; }
       }
     }
     std::cout << (bad ? "some options lack their own description\n" : "every option has its own description\n");
@@ -553,12 +618,24 @@ int run_command_line(int argc, char** argv) {
   // for nodes (a later step).
   if (argc >= 2 && std::string(argv[1]) == "compute") {
     const std::string next = argc >= 3 ? argv[2] : "";
-    const bool help = next.empty() || next == "-h" || next == "--help";
     const std::vector<std::string> names = pipeline_names();
     const bool pipeline = !next.empty() && std::find(names.begin(), names.end(), next) != names.end();
-    if (pipeline) std::cerr << "nxr-neuro: error: 'compute " << next << "' is now 'run " << next << "' (the same options): pipelines are run with `run`; `compute` is reserved for nodes\n";
-    else std::cerr << "nxr-neuro compute: a node or a graph applied to arrays or files. Not available yet.\nPipelines are run with `nxr-neuro run <pipeline>` (`nxr-neuro list pipelines`).\n";
-    return help && !pipeline ? 0 : 2;
+    if (pipeline) { std::cerr << "nxr-neuro: error: 'compute " << next << "' is now 'run " << next << "' (the same options): pipelines are run with `run`; `compute` is for nodes\n"; return 2; }
+#ifdef NXR_NEURO_WITH_PIPELINES
+    return compute_main(std::vector<std::string>(argv + 2, argv + argc));
+#else
+    std::cerr << "nxr-neuro compute needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON\n";
+    return 2;
+#endif
+  }
+  for (const auto& [words, now] : converted_spellings()) {
+    bool match = argc > static_cast<int>(words.size());
+    for (std::size_t i = 0; i < words.size() && match; ++i) match = std::string(argv[1 + i]) == words[i];
+    if (!match) continue;
+    std::string w;
+    for (const auto& x : words) w += (w.empty() ? "" : " ") + x;
+    std::cerr << "nxr-neuro: error: '" << w << "' is now '" << now << "' (its parameters are quantities with units: see its --help); the old spelling is not kept\n";
+    return 2;
   }
   if (argc >= 2) {
     const std::string first = argv[1];
@@ -659,7 +736,7 @@ int run_command_line(int argc, char** argv) {
     for (const CommandDoc* c : all)
       if (c->verb == "run" && c->noun == args[2] && !c->definition.empty())
         for (std::size_t i = 3; i < args.size(); ++i)
-          if (args[i] == "--set" || args[i].rfind("--set=", 0) == 0) {
+          if ((args[i] == "--set" && i + 1 < args.size() && args[i + 1].find('=') != std::string::npos) || (args[i].rfind("--set=", 0) == 0 && args[i].find('=', 6) != std::string::npos)) {   // `--set PRESET` (no `=`) names a preset
             std::cerr << "nxr-neuro run " << args[2] << ": error: `--set NAME=VALUE` is now `--NAME VALUE`: a parameter is an option of its own (`nxr-neuro run " << args[2] << " --help` lists them; dashes stand for underscores)\n";
             return 2;
           }
@@ -723,7 +800,7 @@ std::string completion_script(const std::string& shell) {
         for (const auto& name : opts_of(*c)) {
           if (name == "--help") continue;
           o << "complete -c nxr-neuro -n '__fish_seen_subcommand_from " << c->noun << "' -l " << name.substr(2);
-          if (table().options.count(name)) { std::string h = option_help(option_doc(name, c->path())); std::replace(h.begin(), h.end(), '\'', ' '); o << (is_flag(name) ? "" : " -r") << " -d '" << h << "'"; }
+          if (table().options.count(name)) { std::string h = option_help(option_doc(name, c->path())); std::replace(h.begin(), h.end(), '\'', ' '); o << (is_flag_of(name, c->path()) ? "" : " -r") << " -d '" << h << "'"; }
           o << "\n";
         }
       }

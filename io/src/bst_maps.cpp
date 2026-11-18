@@ -7,6 +7,8 @@
 
 #include "bst_pyvalue.h"
 #include "nxr/io/layout.h"
+#include "nxr/io/selection_measurement.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/surface.h"
 
 namespace nxr::bst {
@@ -275,8 +277,8 @@ std::optional<std::tuple<std::vector<std::string>, std::vector<std::int64_t>, st
                                                                                                           const std::string& atlas) {
   const std::string fam = nxr::io::sanitize_node_name(atlas);
   const auto atlases = sub.find("selection", cortex_path + "_atlases");
-  std::optional<Row> member;
-  if (atlases) member = sub.db().one("SELECT * FROM selection WHERE member_of_id = ? AND name = ?", {nxr::io::text(*atlases, "id"), fam});
+  std::optional<nxr::io::records::SelectionRow> member;
+  if (atlases) member = nxr::io::selection::find_member(sub.db(), nxr::io::text(*atlases, "id"), fam);
   const auto vars = read_variables(cortex_file, {"Atlas"});
   const Value* at = get(vars, "Atlas");
   const Value* entry = nullptr;
@@ -289,29 +291,34 @@ std::optional<std::tuple<std::vector<std::string>, std::vector<std::int64_t>, st
   const Value* scouts = entry->field("Scouts", entry_i);
   if (scouts && scouts->is_struct() && scouts->has_field("Label")) for (std::size_t s = 0; s < scouts->numel(); ++s) levels.push_back(py_str(scouts->field("Label", s)));
   std::map<std::string, std::int64_t> code_of_name;
-  for (const Row& r : sub.db().all("SELECT name, code FROM dictionary_entry WHERE dictionary_id = ?", {nxr::io::text(*member, "dictionary_id")}))
-    code_of_name[nxr::io::text(r, "name")] = nxr::io::integer(r, "code");
+  if (member->dictionary_id)
+    for (const auto& e : nxr::io::selection::load_lookup(sub.db(), *member->dictionary_id)) code_of_name[e.name] = e.code;
   std::vector<std::int64_t> code_of;
   for (const auto& nm : levels) {
     const auto it = code_of_name.find(nm);
     if (it == code_of_name.end()) throw nxr::io::Error(code::no_such_row, "'" + nm + "'");
     code_of.push_back(it->second);
   }
-  return std::make_tuple(levels, code_of, nxr::io::text(*member, "id"));
+  return std::make_tuple(levels, code_of, member->id);
 }
 
 int region_measurements(SubjectWriter& sub, const std::string& selection_id, const std::vector<RegionValue>& rows, const std::string& measure, const std::optional<std::string>& unit,
                         const std::string& computed_by) {
-  const std::string stamp = nxr::io::now_utc();
-  sub.db().tx([&] {
-    for (const RegionValue& r : rows) {
-      Row row = {{"selection_id", selection_id}, {"code", nxr::io::V(r.code)}, {"of_field_id", nxr::io::V(nullptr)}, {"measure", measure}, {"value", r.value},
-                 {"unit", nxr::io::V(unit)}, {"within_selection_id", r.within_code ? nxr::io::Value(selection_id) : nxr::io::Value(std::monostate{})},
-                 {"within_code", r.within_code ? nxr::io::V(*r.within_code) : nxr::io::Value(std::monostate{})}, {"computed_utc", stamp}, {"computed_by", computed_by}};
-      sub.db().insert("selection_measurement", row);
-    }
-  });
-  return static_cast<int>(rows.size());
+  // the rows name regions by their atlas label; a member is kept by its number, so the label is looked up in the members' labels (decoding)
+  std::map<std::int64_t, std::int64_t> number;
+  {
+    const std::vector<std::int64_t> labels = nxr::io::selection::member_labels(sub.db(), sub.store(), selection_id);
+    for (std::size_t m = 0; m < labels.size(); ++m) number.emplace(labels[m], static_cast<std::int64_t>(m));
+  }
+  const auto member_of = [&](std::int64_t label) {
+    const auto it = number.find(label);
+    if (it == number.end()) throw nxr::io::Error(code::no_such_row, "region label " + std::to_string(label) + " is no member of the atlas");
+    return it->second;
+  };
+  std::vector<nxr::io::selection::MemberValue> values;
+  for (const RegionValue& r : rows) values.push_back({member_of(r.code), r.value, r.within_code ? std::optional<std::int64_t>(member_of(*r.within_code)) : std::nullopt});
+  // a region's value within a region's code: the band key is the atlas itself (within_selection_id = the selection)
+  return static_cast<int>(nxr::io::selection::save_member_values(sub, selection_id, measure, values, unit, computed_by, selection_id));
 }
 
 bool is_region_map(const fs::path& path) {
@@ -346,7 +353,7 @@ Json export_region_map(SubjectWriter& sub, const fs::path& p, const fs::path& bs
   }
   const std::string comment = text_field(get(m, "Comment")).empty() ? p.stem().string() : text_field(get(m, "Comment"));
   const std::string stem = nxr::io::sanitize_node_name(removeprefix(p.stem().string(), "matrix_"));
-  if (sub.db().one("SELECT 1 FROM selection_measurement WHERE selection_id = ? AND measure = ? AND of_field_id IS NULL AND within_code IS NULL LIMIT 1", {sid, comment}))
+  if (nxr::io::selection::has_measurement(sub.db(), sid, [&] { nxr::io::selection::MeasurementFilter f; f.measure = comment; f.of_field_none = true; f.whole_only = true; return f; }()))
     value_error(fname + ": the " + aname + " atlas already holds a measure '" + comment + "'");
   const std::string fam = nxr::io::sanitize_node_name(aname);
   const auto unit = suvr_unit(stem, comment);

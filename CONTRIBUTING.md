@@ -35,6 +35,18 @@ accepted. `docs/reference.md` describes every verb and method, `docs/specs/` the
    - A method's limits go into `producer_json.warnings` and the method's section of `docs/reference.md` (e.g. optical flow: kinematic, aperture-limited, per frame).
    - Do not claim what the measurement cannot show.
 
+## Where a compute function goes, and what it is called (the toolboxes)
+
+- A compute function lives in the toolbox of what it computes: `compute/include/nxr/<toolbox>/<header>.h` with its source in `compute/src/<toolbox>/`, namespace `nxr::<toolbox>`, flat in it (`nxr::signal::fft`).
+  A type whose name two headers of one toolbox share goes in a sub-namespace named after its header. No header at the top of `compute/include/nxr/`; there is no umbrella header.
+- Includes between toolboxes follow the table in ARCHITECTURE.md ("The toolboxes"). The test `layering_toolboxes_follow_the_dag` fails on a new include against the table.
+  The few that predate the cut are counted in `cmake/toolboxes_allow.txt`; a count may only fall.
+- A toolbox's sources, per-file flags and tests are in `compute/cmake/<toolbox>.cmake`.
+- **One word per thing across the layers.** The C++ function (`nxr::signal::lowpass`), the registered node (`signal.lowpass`: toolbox, dot, the function's word) and every binding entry
+  (MEX `compute.signal.lowpass`, the MATLAB package `+nxr/+compute/+signal/lowpass.m`, the Python module `nxr_neuro.compute.signal.lowpass` and its native `signal_lowpass`) use the same word.
+  Add each new entry to `pipelines/test/names.tsv`; the test `test_names_across_layers` fails on a mismatch, on an entry missing from the table and on a table row the sources do not have.
+  A renamed entry is refused under its old name with the new name in the message (`retired` rows), never kept as an alias.
+
 ## Adding a node or a pipeline (inside the paramount architecture and its decided structure)
 
 Every pipeline is a YAML definition of registered nodes (`ARCHITECTURE.md`, "Decided structure"). Do not write a new hand-wired `<x>_compute` C++
@@ -60,6 +72,40 @@ pipeline, and do not extend an existing one: it is being converted into a defini
 8. Larger designs first get a spec in `docs/specs/YYYY-MM-DD-<topic>.md`. A read-only comparison against the references goes in
    `docs/audits/YYYY-MM-DD-<topic>.md`.
 
+## Quantities, never level indices (inside the paramount architecture)
+
+Every selection parameter of a definition, preset or command is a QUANTITY: a number (or range, open-ended as `>=0.4 s`) with a unit in a named chart of the space it lies in (`8-12 Hz`,
+`2-5 s`, `20 mm`, `wavelength 40 mm`, `parts 16`, `area 100-400 mm2`). A definition declares `unit` and `chart` for such a parameter; a bare level index is refused outside
+the explicit `index` chart (`level index:5`), which is for diagnostics and tests. Grid levels are resolved from the quantity in closed form (`level_of_duration`,
+`level_of_diameter`, `level_of_area`, `level_of_wavelength`, `level_of_parts`, `time_level_of_band`), and the run records the stated quantity, its chart, the resolved level
+and the snapped quantity. Method constants (a frame density, an origin, a cycle count) are options with their defaults written in the definition, never hard-wired in
+compute. Old names are not kept as aliases: a retired name is refused with the name of what replaces it.
+
+## Converting a hand-wired verb into a definition (the recipe)
+
+`<x>_compute` verbs are being converted one at a time; `psd` (`pipelines/definitions/psd.yaml`, `rotary_psd.yaml`; nodes in `pipelines/src/welch_steps.cpp`; `test_psd_golden`, `test_psd_pipeline`) is the worked example. A conversion
+is a PR of its own, on the latest main, with these parts in this order. Nothing in it needs a new mechanism: if it does, stop and ask.
+
+1. **Read the verb for what it stores, not how.** List every thing `<x>_compute` writes (Field, statistic, Operator, Selection, line or other manifold, measurement rows) and, for each, what a later reader asks of it: the stored
+   names and paths, the axes, the lines and partitions it names, and every `producer_json` key a reader reads (grep the readers: `grep -rn 'producer\.value\|producer\[' pipelines/src`). These stay as they are.
+2. **Outputs.** Declare each one in the definition's `outputs:` with its kind (`field`, `statistic`, `operator`, `selection`, `manifold`: `docs/reference.md`, "Declared outputs and presets"): the found input it is of or lies on
+   (a link: `recording.manifold.0`, `recording.time`), its name as a template (the verb's default name, `$name`), the names of its line and partition. What the values ARE (measure, method, axes with sizes and a closed-form
+   line, the segment tiling, the scaling record, the unit, the options it resolved, the `producer` keys readers ask for) goes in the node's `describe`, never in the definition.
+3. **Nodes.** Move each piece of maths the verb holds into `compute/` as a pure function (matrices and parameters in, matrices out) with a unit test and a golden against its reference, then register it as a node
+   (grouped name, e.g. `signal.psd`; a file `pipelines/src/<topic>_steps.cpp`, which the layering test `layering_nodes_without_io` scans): ports (streamed input, optional `exclude` for the bad segments), parameters (each with
+   meaning, default and unit), traits (time behaviour: an accumulate node over segments carried across blocks is `stateful`; precision), `plan` on types only (its refusals say the port and the reason; `Planned::align` when
+   the span must snap to a grid), `prepare`, `start`/`step`/`finish` (accumulate) or `chunk` (pointwise). A node reads no database, file or id: what it needs of a stored operator comes as an array from the runner. A node
+   chooses nothing by itself: a mode that changes the graph is another definition, not a switch.
+4. **Parameters and presets.** The verb's options become the definition's `parameters:` (long form: meaning, default, unit, choices) and the node's `with:`; each named option set the verb offered (`--set NAME`) becomes a
+   preset that names only declared parameters (defaults, then the preset, then the caller's own value). Old flags map to parameters (`--no-x` to `--x ignore`, a pair of flags to a boolean), recorded in the PR.
+5. **Delete the hand-wired code**: the `<x>_compute` function and its options and result types, its CLI parser and its entry in `cli/command_table.cpp` (the definition's command `run <x>` is made from the definition), its
+   private helpers that nothing else uses. Keep the old spelling refused, naming the new one (`converted_spellings()` in `cli/registry.cpp`). Tests that only used `<x>_compute` to make a fixture call the runner through a helper
+   (`pipelines/test/psd_run.h`).
+6. **Tests.** Compare with the REFERENCES (the method's goldens: scipy, Brainstorm, nxr, Rheome), not with the old output: one run per preset and parameter set against the golden, to the stored precision; the result the same to
+   the last bit for another storage chunk width; the stored record (axes, lines, partition, scaling, unit, provenance, a cache hit on a rerun, a refused name and `--replace`); the refusals (each names the parameter or port).
+   Build only the targets you touch and run only their tests (`tools/tests.py`), never the full suite.
+7. **Docs.** `docs/reference.md`: the method's section says it is a definition, lists its parameters and presets, and what is stored; the command table loses the hand-wired row.
+
 ## Adding a file format
 
 Pure readers and writers go in `io/formats/` (bytes in, objects out; no store, no database; the layering check enforces it). Recordings are read in
@@ -71,21 +117,36 @@ an entry in `THIRD_PARTY_NOTICES.md` and the maintainers' OK.
 
 CMake 3.20+, Ninja, C++17. Clone with `--recurse-submodules` (geometry-central). Large build trees may live on another disk: make `build/` a link to it before the first configure. The SQLite engine is always the pinned amalgamation (fetched at configure time, compiled with the same options on every platform), never the system library, so a platform SQLite older than the SQL the code uses cannot break a build; zstd and zlib come from the system unless `NXR_NEURO_PORTABLE` is set.
 
-    cmake -S . -B build -G Ninja && cmake --build build 2>&1 | tail -20
-    tools/tests.py status [REGEX]       # what is green, stale (what it runs has changed since it passed), failed or new; runs nothing
-    tools/tests.py run REGEX            # run the stale, failed and new tests among those matching, and record them
+    cmake -S . -B build -G Ninja                         # configure once
+    cmake --build build --target <the targets you changed> 2>&1 | tail -20
+    tools/tests.py status REGEX         # builds ONLY the matching tests' targets; lists green, stale, failed or new; runs nothing
+    tools/tests.py run REGEX            # builds ONLY the matching tests' targets; runs the stale, failed and new ones among them; records them
     tools/tests.py show TEST            # a test's last result and what it printed
+    tools/tests.py run --suite          # the full build and suite: once, at the end of a round, never during development
+
+**No waste: this is a hard rule, not a preference.** Building and testing cost real time and compute; a brute-force loop is a defect in how
+the work was done, whatever the change.
+- **Never build everything to test something.** Build the targets you changed (`--target`), never `all`. `tools/tests.py` requires a REGEX
+  and builds only the executables of the tests it names (and the `nxr-neuro` command, for a test that calls it).
+- **Never rerun a green test.** The record knows what each test ran; an unchanged test is not run again. Do not bypass the record with bare
+  `ctest` to dodge a build: the record would no longer be true and the next run repeats your work.
+- **Edit, then build once, then test once.** Batch the edits of one item, then one targeted build and one scoped run. Do not iterate
+  compile → run → compile over a whole library for each small edit; read the error, fix every instance, then build again.
+- **Slow tests are labelled `slow`** (`set_tests_properties(<test> PROPERTIES LABELS slow)`) and run only when the change reaches them.
+- **Header-wide renames go first and alone.** A change to a header included everywhere invalidates every build that includes it; land it
+  before parallel work starts, never alongside it.
+- **The full suite and the full build run once, at the end of a round** (`tools/tests.py run --suite`), when the maintainers say so.
 
 - **The test record.** Results are kept in `test-results/` (in the repo, never in git): `status.json` holds every test's latest result
   and the FINGERPRINT of what it ran (its binary, the `nxr-neuro` command it calls, its library's goldens and data); `runs/` holds each run. A test
   whose fingerprint is unchanged since it passed is still green and is not run again. Run tests through `tools/tests.py`, not bare `ctest`, so the
-  record stays true.
+  record stays true and no green test runs twice.
 - **The full suite runs at the end of a development round, when the maintainers say so,** not during it. During development: `status`,
   then `run` on what the change reaches.
 - **Continuous integration** (`.github/workflows/ci.yml`): a pull request builds on Linux (compiled objects cached with ccache) and runs **only the
   tests of the libraries its changes touch** and of what depends on them (each library's tests carry its label: `compute`, `meeg`, `io`,
-  `io_formats`, `pipelines`, `pipelines_graph`, `cli`), plus the layering checks; a change to a shared file (top-level CMake, `cmake/`, `tools/`,
-  CI) runs everything. **Documentation-only pull requests run nothing.** Tests labelled `slow` run only on main. The full suite (Linux and macOS,
+  `io_formats`, `pipelines`, `pipelines_graph`, `cli`), plus the layering checks; a change to a shared file (top-level CMake, `cmake/`, CI) runs everything;
+  a change to `tools/` runs the layering checks only (except `tools/gen_record_rows.py`, which io's `records_rows_current` test runs: it runs the io tests). **Documentation-only pull requests run nothing.** Tests labelled `slow` run only on main. The full suite (Linux and macOS,
   slow tests included) runs on pushes to main, nightly, and when the maintainers ask for it at the end of a round. A test that takes minutes gets
   `set_tests_properties(<test> PROPERTIES LABELS slow)` next to its `add_test`.
 
@@ -139,7 +200,7 @@ not signed or notarised yet; that needs an Apple developer account and is not do
   ask the maintainers first.
 
 - **Branch and PR:** work on a branch in this checkout (`feat/…`, `fix/…`, `docs/…`) and merge through a pull request on `neurodynamics-xr/nxr-neuro`.
-- **Commit messages:** one sentence on what changed and why, prefixed by the area when it helps (`opticalflow: …`).
+- **Commit messages:** one sentence on what changed and why, prefixed by the area when it helps (`flow: …`).
 - **Never** force-push, leave work uncommitted at the end of a run, or commit data, build outputs or `Testing/`.
 - **`compute/` and `io/` came in by `git subtree`** with their history (`git log -- compute/src` reaches the old repos). The old `nxr-compute` and `nxr-io`
   repos are frozen: make changes here. Bringing in nxr-compute's open branch is described in `docs/reference.md` (*The old repositories*).

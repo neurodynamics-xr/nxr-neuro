@@ -1,0 +1,75 @@
+# THE APPARENT MOTION OF A SOURCE MAP, in the Hodge-Dirac modes of the cortex (a field of flow weights per step): one filter-bank member of the recording at its own rate, the kernel applied to its
+# complex coefficients (the linear map before the non-linear step) and the amplitude |J| per source, the Horn-Schunck optical flow between consecutive frames on the cortical manifold, and the velocity
+# carried to the package's glued surface and read in its modes (an exact mode: divergence potential, sources and sinks; a coexact mode: stream function, rotation). The amplitude scale is the stored
+# measurement stored by `run measure --set flow_max_amplitude` (the window's maximum, read by name); run both over the same span.
+#
+# THE GRAPH. recording --[signal.member_analytic, retiming, halo = the filter's margin]--> z --[signal.flow_activation]--> a --[signal.flow_velocity, stateful]--> v --[signal.flow_hodge_modes]--> b --[signal.flow_series]--> the
+# weights [K x steps] on (eigen axis x the made time line). The divergence, curl and speed of a leaf and a frame are measurements over the grid (cortex x time): they are NOT part of this definition
+# (the grids are being redesigned as plain selections; the measurement follows them).
+#
+# What it cannot resolve: kinematic, not physical (where activity is created or destroyed the residual appears as divergence); aperture-limited (alpha sets how much of v is data: vary it and report the
+# range); per frame, not per second; the recording's bad segments are not excluded (choose a window free of them); the filter's margin at a recording's ends is zero padding.
+#
+#   nxr-neuro run measure --set flow_max_amplitude --dataset <folder> --subject sub-01 --recording rest --kernel KERNEL --family morlet --gain 2 --freq "10 Hz" --all
+#   nxr-neuro run flow_modes     --dataset <folder> --subject sub-01 --recording rest --kernel KERNEL --family morlet --gain 2 --freq 10 --all
+pipeline: flow_modes
+version: 1
+description: the Hodge-Dirac flow weights of the apparent motion of one filter-bank member's source map, per step at the member's own rate
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}}
+  surface:   {manifold: surface, is: kernel.to}
+  package:   {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "a Hodge-Dirac package of the kernel's surface (`nxr-neuro eigen solve` first)"}
+  scale:     {measurement: envelope_max, of: recording, where: {name: $amplitude_over}, hint: "the window's maximum amplitude (`nxr-neuro run measure --set flow_max_amplitude` first, over the same span)"}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the inverse kernel's name, or none: the subject's one inverse kernel on the recording's channels", unit: "-"}
+  family: {default: null, meaning: "the time filter bank: itersine | meyer | morlet | morse | amor | bump (no default)", unit: "-"}
+  gain: {default: null, meaning: "the peak in-band response of each member (no default; 2 makes |c| the physical amplitude of a real recording)", unit: "-"}
+  freq: {default: null, meaning: "the frequency whose nearest filter-bank member is analysed", unit: "Hz"}
+  centres: {default: [], meaning: "Morlet, Morse, Amor, Bump: the members' centres; for Morlet, empty means the single member at freq", unit: "Hz"}
+  cycles: {default: 6.0, meaning: "Morlet: the width is centre / cycles", unit: "cycles"}
+  voices: {default: 4, meaning: "Itersine: members per octave", unit: "voices/octave"}
+  anchor: {default: 1.0, meaning: "Itersine: the anchor frequency", unit: "Hz"}
+  limits: {default: null, meaning: "Itersine, Meyer: the bank's frequency limits [lo, hi]", unit: "Hz"}
+  half_width: {default: 0.3333333333333333, meaning: "Meyer: the transition half-width", unit: "octaves"}
+  gamma: {default: 3.0, meaning: "Morse: gamma", unit: "-"}
+  time_bandwidth: {default: 60.0, meaning: "Morse: the time-bandwidth product", unit: "-"}
+  resolution: {default: 0.5, meaning: "the frequency resolution of the grid the filter bank is designed on", unit: "Hz"}
+  oversample: {default: 2.0, meaning: "the member's own rate is oversample x the rate its bins need", unit: "-"}
+  tolerance: {default: null, meaning: "the impulse response's tail the margin may leave out, relative to its norm; null: 1e-7 (float32 blocks); name 1e-12 for float64", unit: "-"}
+  package: {default: hodgeDirac, meaning: "the Hodge-Dirac package's stem", unit: "-"}
+  input: {default: amplitude, meaning: "amplitude = |J| | signed = the real part (fixed-orientation kernels only)", unit: "-", choices: [amplitude, signed]}
+  amplitude_over: {default: null, meaning: "the selection the unit amplitude (the measurement of preset flow_max_amplitude) was measured over, by name; null: the one that holds it", unit: "-"}
+  name: {default: "{recording}_{kernel}_opticalflow", meaning: "the stem of the stored flow weights (<name>_flow_modes) and their time line (<name>_time)", unit: "-"}
+  method: {default: pcg, meaning: "the solver: pcg (preconditioned conjugate gradients) | direct (exact solve)", unit: "-", choices: [pcg, direct]}
+  regulariser: {default: connection, meaning: "connection (the connection Laplacian on the signpost gauge) | ambient (the Dirichlet energy of the ambient 3-vector field, Lefevre and Baillet 2008)", unit: "-", choices: [connection, ambient]}
+  datafit: {default: auto, meaning: "auto (gauge for connection, triangle for ambient) | gauge | triangle", unit: "-"}
+  alpha: {default: null, meaning: "the smoothness weight; null: the regulariser's own (connection 0.01, ambient 1); vary it and report the range", unit: "-"}
+  flow_tolerance: {default: 1.0e-8, meaning: "the relative residual at which the iterative solver stops", unit: "-"}
+  max_iterations: {default: 500, meaning: "the most iterations of the iterative solver for one frame", unit: "-"}
+  preconditioner: {default: ldlt, meaning: "ldlt | ic", unit: "-", choices: [ldlt, ic]}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: signal.member_analytic, in: {x: recording, channels_of: kernel}, with: {family: $family, gain: $gain, freq: $freq, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, resolution: $resolution, oversample: $oversample, tolerance: $tolerance}, out: z}
+      - {node: signal.flow_activation, in: {z: z, kernel: kernel}, with: {input: $input}, out: a}
+      - {node: signal.flow_velocity, in: {a: a, surface: surface, scale: scale}, with: {method: $method, regulariser: $regulariser, datafit: $datafit, alpha: $alpha, flow_tolerance: $flow_tolerance, max_iterations: $max_iterations, preconditioner: $preconditioner}, out: v}
+      - {node: signal.flow_hodge_modes, in: {v: v, package: package}, out: b}
+      - {node: signal.flow_series, in: {b: b}, out: [coefficients, time]}
+
+outputs:
+  time:
+    kind: manifold
+    type: line
+    name: "$name_time"
+  coefficients:
+    kind: field
+    kind_name: optical flow
+    name: "$name_flow_modes"
+    on: "package.from x time"

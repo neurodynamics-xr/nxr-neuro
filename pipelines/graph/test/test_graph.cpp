@@ -173,6 +173,37 @@ g::NodeSpec power_sum_node() {   // ACCUMULATE: the sum of squares and the count
   };
   return s;
 }
+// ACCUMULATE WITH A RIGHT HALO: per row, the sum over the windows of kAhead samples that START in the block's own columns and lie inside the span (the segment rule of a Welch family: a window
+// belongs to the block that holds its start, reads into the halo, and never reaches past the span's end). Nothing is carried but the sum and the count.
+constexpr std::int64_t kAhead = 4;
+g::NodeSpec ahead_sum_node() {
+  g::NodeSpec s;
+  s.name = "toy.ahead_sum"; s.kind = g::Kind::accumulate;
+  s.traits = g::node_traits(g::TimeBehaviour::stateful, g::Precision::float64, g::OutputPrecision::float64, "window sums in start order");
+  s.inputs = {{"x", "signal"}}; s.outputs = {{"total", "sum of the windows per row"}, {"count", "windows formed"}};
+  s.plan = [](const g::Types& in, const Json&) { return g::Planned{{{"total", array_of(in.at("x").rows)}, {"count", array_of(1)}}, kAhead - 1}; };
+  s.start = [](const std::any&) { return std::any(Sums{}); };
+  s.step = [](const std::any&, std::any state, const g::Blocks& in, std::int64_t, const g::Place& p) {
+    auto a = std::any_cast<Sums>(std::move(state));
+    const g::Block& x = in.at("x");
+    a.sum.resize(static_cast<std::size_t>(x.rows), 0.0);
+    const std::int64_t after = std::max<std::int64_t>(0, std::min<std::int64_t>(x.right, p.end - (p.first + p.n)));   // the halo columns inside the span
+    for (std::int64_t j = 0; j < x.own(); ++j) {
+      if (j + kAhead > x.own() + after) break;                                                                        // it would reach past the span's end: not formed
+      for (std::int64_t r = 0; r < x.rows; ++r) { double w = 0; for (std::int64_t k = 0; k < kAhead; ++k) w += at(x, r, x.left + j + k); a.sum[static_cast<std::size_t>(r)] += w; }
+      ++a.n;
+    }
+    return std::make_pair(g::Blocks{}, std::any(std::move(a)));
+  };
+  s.finish = [](const std::any&, std::any state) {
+    auto a = std::any_cast<Sums>(std::move(state));
+    g::Arrays out;
+    out["total"] = g::Array{static_cast<std::int64_t>(a.sum.size()), 1, a.sum, Json::object(), 1};
+    out["count"] = g::Array{1, 1, {static_cast<double>(a.n)}, Json::object(), 1};
+    return out;
+  };
+  return s;
+}
 g::NodeSpec mean_node() {   // ARRAY node, in `after`
   g::NodeSpec s;
   s.name = "toy.mean"; s.kind = g::Kind::array;
@@ -213,7 +244,7 @@ g::NodeSpec retime_node() {      // a RETIMING node: the mean of kF consecutive 
 
 g::Registry toys() {
   g::Registry r;
-  for (auto n : {scale_node(), smooth_node(), add_const_node(), square_node(), linear_node(), cumsum_node(), power_sum_node(), mean_node(), twice_node(), retime_node()}) r.add(std::move(n));
+  for (auto n : {scale_node(), smooth_node(), add_const_node(), square_node(), linear_node(), cumsum_node(), power_sum_node(), ahead_sum_node(), mean_node(), twice_node(), retime_node()}) r.add(std::move(n));
   g::NodeSpec bad = scale_node(); bad.name = "toy.undeclared"; bad.traits = {}; r.add(bad);
   return r;
 }
@@ -248,7 +279,9 @@ Result run_blocks(const g::Checked& c, const std::vector<float>& x, std::int64_t
     b.re.resize(static_cast<std::size_t>(rows * b.width));
     for (std::int64_t r = 0; r < rows; ++r) for (std::int64_t j = 0; j < b.width; ++j) b.re[static_cast<std::size_t>(r * b.width + j)] = x[static_cast<std::size_t>(r * n + first - left + j)];
     std::vector<std::uint8_t> good(static_cast<std::size_t>(own), 1);
-    g::Blocks out = ex.block({{c.inputs.at(0), std::move(b)}}, g::Place{first, own, &good});
+    g::Place place{first, own, &good};
+    place.end = n;                                                     // the span is the whole recording here
+    g::Blocks out = ex.block({{c.inputs.at(0), std::move(b)}}, place);
     for (auto& [name, blk] : out) {
       auto& v = acc[name];
       CHECK(blk.left == 0 && blk.right == 0);
@@ -396,6 +429,60 @@ void test_block_independence() {
   CHECK(run_blocks(c2, x, R, N, 13).stream.at(0) == d);
 }
 
+// an accumulate node may declare a right halo (a window family): the planner adds it to the loop's halo, the upstream nodes keep it, the node reads it past its block and the span's end
+// limits the windows; whatever the blocks, the sums are those of the whole record, exactly.
+void test_accumulate_halo() {
+  const g::Registry reg = toys();
+  g::Graph gr; gr.name = "ahead"; gr.inputs = {"x"};
+  gr.chunks = {use("toy.smooth", {{"x", "x"}}, {"a"}, Json{{"radius", 1}}), use("toy.ahead_sum", {{"x", "a"}}, {"total", "count"})};
+  gr.outputs = {"total", "count"};
+  const g::Checked c = g::check(gr, {{"x", stream_of(R)}}, Json::object(), reg);
+  CHECK(c.nodes[c.loop[1]].planned.halo == kAhead - 1);
+  CHECK(c.nodes[c.loop[0]].keep == kAhead - 1);                       // the node before it leaves the halo the accumulate node reads
+  CHECK(c.halo == 1 + kAhead - 1);                                    // smooth's own halo plus what it must keep
+  CHECK(c.tail == 2);                                                 // the accumulate node reads the block with its halo: it is not in the pointwise tail
+  const std::vector<float> x = signal(R, N);
+  // the reference: smooth, then the windows that fit inside [0, N)
+  std::vector<double> want(R, 0.0);
+  for (std::int64_t r = 0; r < R; ++r) {
+    std::vector<float> a(N);
+    for (std::int64_t t = 0; t < N; ++t) a[static_cast<std::size_t>(t)] = smooth_at(&x[static_cast<std::size_t>(r * N)], N, t, 1);
+    for (std::int64_t t = 0; t + kAhead <= N; ++t) { double w = 0; for (std::int64_t k = 0; k < kAhead; ++k) w += a[static_cast<std::size_t>(t + k)]; want[static_cast<std::size_t>(r)] += w; }
+  }
+  const g::Arrays whole = g::apply(c, {{"x", array_of_rows(x, R, N)}});
+  CHECK(whole.at("count").data[0] == static_cast<double>(N - kAhead + 1));
+  for (std::int64_t r = 0; r < R; ++r) CHECK(whole.at("total").data[static_cast<std::size_t>(r)] == want[static_cast<std::size_t>(r)]);
+  for (const std::int64_t width : {1, 2, 3, 7, 64, 202, 203, 500}) {   // a block shorter than a window, a window over three blocks, the last block partial
+    const Result res = run_blocks(c, x, R, N, width);
+    CHECK(res.arrays.at("count").data[0] == static_cast<double>(N - kAhead + 1));
+    for (std::int64_t r = 0; r < R; ++r) CHECK(res.arrays.at("total").data[static_cast<std::size_t>(r)] == want[static_cast<std::size_t>(r)]);
+  }
+  // the span ends before the recording: the halo samples beyond the span end are present in the block but are not the node's to read
+  {
+    const std::int64_t span_end = 150;
+    g::Execution ex(c, {}, {}, {});
+    const std::int64_t H = ex.halo();
+    for (std::int64_t first = 0; first < span_end; first += 40) {
+      const std::int64_t own = std::min<std::int64_t>(40, span_end - first), left = std::min(H, first), right = std::min(H, N - first - own);
+      g::Block b; b.rows = R; b.width = left + own + right; b.left = left; b.right = right; b.re.resize(static_cast<std::size_t>(R * b.width));
+      for (std::int64_t r = 0; r < R; ++r) for (std::int64_t j = 0; j < b.width; ++j) b.re[static_cast<std::size_t>(r * b.width + j)] = x[static_cast<std::size_t>(r * N + first - left + j)];
+      std::vector<std::uint8_t> good(static_cast<std::size_t>(own), 1);
+      g::Place place{first, own, &good};
+      place.end = span_end;
+      ex.block({{"x", std::move(b)}}, place);
+    }
+    const g::Arrays part = ex.finish();
+    CHECK(part.at("count").data[0] == static_cast<double>(span_end - kAhead + 1));
+  }
+  // a halo is for a chunk node and an accumulate node; an array node in `after` has none
+  g::NodeSpec bad = mean_node(); bad.name = "toy.mean_halo";
+  bad.plan = [](const g::Types& in, const Json&) { return g::Planned{{{"mean", in.at("total")}}, 2}; };
+  g::Registry r2 = toys(); r2.add(bad);
+  g::Graph g2 = chain_graph();
+  g2.after = {use("toy.mean_halo", {{"total", "total"}, {"count", "count"}}, {"mean"})};
+  CHECK(refused([&] { g::check(g2, {{"x", stream_of(R)}}, Json::object(), r2); }, "only a chunk node or an accumulate node has a halo"));
+}
+
 void test_constants_and_before() {
   const g::Registry reg = toys();
   const std::vector<float> x = signal(R, N);
@@ -481,6 +568,7 @@ int main() {
   test_check_refusals();
   test_halo();
   test_block_independence();
+  test_accumulate_halo();
   test_constants_and_before();
   test_state();
   test_retime();

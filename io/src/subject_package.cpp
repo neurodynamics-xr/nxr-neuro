@@ -1,3 +1,4 @@
+#include "nxr/io/selection_store.h"
 #include "nxr/io/subject_package.h"
 
 #include <algorithm>
@@ -868,11 +869,11 @@ std::vector<IdClash> find_id_clashes(const std::vector<fs::path>& packages) {
       for (const auto& c : info) { if (integer(c, "pk") > 0) ++pk_count; if (text(c, "name") == "id" && integer(c, "pk") == 1) by_id = true; }
       if (!by_id || pk_count != 1) continue;
       const bool vocabulary = table == "dictionary";
-      for (const auto& r : db.all(vocabulary ? "SELECT id, scope || '/' || name AS shared FROM dictionary WHERE scope IN ('app', 'dataset', 'user')" + std::string(" UNION ALL SELECT id, NULL FROM dictionary WHERE scope = 'subject'")
-                                              : "SELECT id, NULL AS shared FROM \"" + table + "\"")) {
-        const std::string id = text(r, "id");
+      std::vector<std::pair<std::string, std::string>> keys;   // (id, shared key)
+      if (vocabulary) keys = selection::dictionary_keys(db);
+      else for (const auto& r : db.all("SELECT id FROM \"" + table + "\"")) keys.emplace_back(text(r, "id"), "");
+      for (const auto& [id, shared] : keys) {
         if (anchors.count({table, id})) continue;
-        const std::string shared = text(r, "shared");
         const auto [it, fresh] = owner.insert({{table, id}, Owner{i, shared}});
         // a shared vocabulary row copied unchanged into several packages (a split dataset's) is one row under one key
         if (!fresh && it->second.package != i && !(vocabulary && !shared.empty() && it->second.shared_key == shared)) out.push_back({table, id, packages[it->second.package], packages[i]});

@@ -7,8 +7,24 @@
  * Run:   ./build/test_vector_covariant_operators
  */
 
-#include "nxr/compute.h"
-#include "nxr/facets.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/geometry/parametrization.h"
 
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
@@ -19,8 +35,9 @@
 #include <string>
 #include <utility>
 #include <vector>
+#include "surface_of.h"
 
-using namespace nxr::manifold::ops::laplacian::connection;
+using namespace nxr::operators::laplacian::connection;
 
 static int g_failures = 0;
 #define CHECK(c, m)                                                      \
@@ -127,9 +144,9 @@ static Eigen::SparseMatrix<double> kronI3(const Eigen::SparseMatrix<double>& L, 
 // Conjugate a LOCAL-frame component-major [3N×3N] operator into WORLD frame:
 // world_block(i,j) = F_i · local_block(i,j) · F_jᵀ, with F_v = [e1|e2|n] (cols).
 static Eigen::SparseMatrix<double> localToWorld(const Eigen::SparseMatrix<double>& A,
-                                                nxr::manifold::Manifold& m) {
+                                                const nxr::geometry::SurfaceArrays& m) {
     const int N = m.nV();
-    nxr::manifold::geometry::VertexFrames vf = nxr::manifold::geometry::vertexFrames(m);
+    nxr::geometry::VertexFrames vf = nxr::geometry::vertexFrames(m);
     std::vector<Eigen::Matrix3d> F(N);
     for (int v = 0; v < N; ++v) {
         F[v].col(0) = vf.e1.row(v).transpose();
@@ -164,27 +181,26 @@ static Eigen::SparseMatrix<double> localToWorld(const Eigen::SparseMatrix<double
 
 // ── Cell D: extrinsicWeitzenbock — construction, anchors, curvature sensitivity ─
 static void test_cellD_extrinsic_weitzenbock() {
-    using namespace nxr::manifold;
+    using namespace nxr::geometry;
     std::vector<double>   V;
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
-    Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                F.data(), static_cast<int>(F.size()) / 3);
     const int N = m.nV();
 
     // (D1) Facet wiring + cache.
-    const Eigen::SparseMatrix<double>& W = m.operators().extrinsicWeitzenbock();
+    const Eigen::SparseMatrix<double>& W = nxr::operators::differential::assembleExtrinsicWeitzenbock(m);
     CHECK(W.rows() == 3 * N && W.cols() == 3 * N, "extrinsicWeitzenbock shape [3V×3V]");
-    CHECK(m.isOperatorCached(OperatorId::ExtrinsicWeitzenbock), "cached after access");
-    const Eigen::SparseMatrix<double>& Wb = m.operators().extrinsicWeitzenbock();
-    CHECK(&W == &Wb, "same cached ref on second call");
+    const Eigen::SparseMatrix<double>& Wb = nxr::operators::differential::assembleExtrinsicWeitzenbock(m);
+    CHECK((W - Wb).norm() == 0.0, "same matrix on a second assembly");
     std::cout << "  D1 facet/cache: [" << W.rows() << "×" << W.cols()
               << "] nnz=" << W.nonZeros() << "\n";
 
     // (D2) Cross-bundle anchor — TAUTOLOGICAL BY CONSTRUCTION (W *is* this block).
     // Kept only as a wiring/round-trip check that the public squared-Dirac surface
     // and the operator agree; it proves nothing geometric on its own.
-    Eigen::SparseMatrix<double> S = m.operators().dirac(0.5);
+    Eigen::SparseMatrix<double> S = nxr::operators::diracFamily(m, 0.5);
     S = (2.0 * S).pruned();
     Eigen::SparseMatrix<double> Wref = imagBlock(S, N);
     double dCross = maxAbsDiffReal(W, Wref);
@@ -202,10 +218,10 @@ static void test_cellD_extrinsic_weitzenbock() {
     // Build kron(I₃, cotanL) directly from the cotan Laplacian (no Dirac path),
     // and separately confirm the imag block of dirac(0) equals it byte-wise
     // (the documented τ=0 anchor). Then W − flat is the pure extrinsic term.
-    Eigen::SparseMatrix<double> cotanL = m.operators().laplacian().cotan();
+    Eigen::SparseMatrix<double> cotanL = nxr::operators::cotanLaplacian(m);
     Eigen::SparseMatrix<double> flatWorld = kronI3(cotanL, N);
     Eigen::SparseMatrix<double> imagDirac0 = imagBlock(
-        (Eigen::SparseMatrix<double>)m.operators().dirac(0.0), N);
+        (Eigen::SparseMatrix<double>)nxr::operators::diracFamily(m, 0.0), N);
     double dFlatAnchor = maxAbsDiffReal(imagDirac0, flatWorld);
     std::cout << "  D4 imag(dirac(0)) == kron(I₃,cotanL) maxAbsDiff = " << dFlatAnchor << "\n";
     CHECK(dFlatAnchor < 1e-12, "flat block byte-matches kron(I₃,cotanL)");
@@ -235,11 +251,11 @@ static void test_cellD_extrinsic_weitzenbock() {
     // covariant transformed local→world. If maxAbsDiff ≈ 0 the algebraic Gauss
     // shortcut coincides with the geometric squared-Dirac construction.
     Eigen::SparseMatrix<double> prodLocal =
-        m.operators().laplacian().covariant(
-            ops::laplacian::connection::CovariantCoupling::Product);
+        nxr::operators::covariantLaplacian(m, 
+            nxr::geometry::ConnectionType::LeviCivita, {}, nxr::operators::laplacian::connection::CovariantCoupling::Product);
     Eigen::SparseMatrix<double> ambLocal =
-        m.operators().laplacian().covariant(
-            ops::laplacian::connection::CovariantCoupling::Ambient);
+        nxr::operators::covariantLaplacian(m, 
+            nxr::geometry::ConnectionType::LeviCivita, {}, nxr::operators::laplacian::connection::CovariantCoupling::Ambient);
     Eigen::SparseMatrix<double> prodWorld = localToWorld(prodLocal, m);
     Eigen::SparseMatrix<double> ambWorld  = localToWorld(ambLocal, m);
     // Sanity: ambient covariant in world == kron(I₃,cotanL).
@@ -250,8 +266,6 @@ static void test_cellD_extrinsic_weitzenbock() {
     std::cout << "  D6 (log) ‖W − (2·flat − product_world)‖_max = " << dGauss << "\n";
 
     // Release.
-    m.releaseOperator(OperatorId::ExtrinsicWeitzenbock);
-    CHECK(!m.isOperatorCached(OperatorId::ExtrinsicWeitzenbock), "released");
 }
 
 // ── Cell A: (d^∇)ᴴ ⋆₁ d^∇ == connectionLaplacian ────────────────────────────
@@ -262,16 +276,16 @@ static void test_cellA_squares_to() {
 
     for (int nSym : {1, 2}) {
         // Fresh Manifold per nSym to avoid any cached-state cross-contamination.
-        nxr::manifold::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+        const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                                   F.data(), static_cast<int>(F.size()) / 3);
 
         // Assemble the gradient D: [E×V] complex
         Eigen::SparseMatrix<std::complex<double>> D = assembleConnectionGradient(m, nSym);
 
         // ⋆₁ = diag(edgeCotanWeights) — the Hodge-1 star in real form.
-        // nxr::manifold::ops::hodge1(m) returns const SparseMatrix<double>&;
+        // nxr::operators::hodge1(m) returns const SparseMatrix<double>&;
         // cast to complex for the Hermitian product.
-        Eigen::SparseMatrix<std::complex<double>> W = toComplex(nxr::manifold::ops::hodge1(m));
+        Eigen::SparseMatrix<std::complex<double>> W = toComplex(nxr::operators::hodge1(m));
 
         // DᴴWD — squares the gradient to the connection Laplacian.
         Eigen::SparseMatrix<std::complex<double>> sq = (D.adjoint() * W * D).pruned();
@@ -298,11 +312,11 @@ static void test_cellB_shape() {
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
 
-    nxr::manifold::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                               F.data(), static_cast<int>(F.size()) / 3);
 
     Eigen::SparseMatrix<std::complex<double>> D = assembleConnectionGradient(m, 1);
-    const int E  = static_cast<int>(m.nE());
+    const int E  = static_cast<int>(nxr::geometry::meshTopology(m).nE);
     const int Nv = static_cast<int>(m.nV());
 
     std::cout << "  Cell B shape: D is " << D.rows() << "×" << D.cols()
@@ -319,7 +333,7 @@ static void test_cellC_invalid_nsym() {
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
 
-    nxr::manifold::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                               F.data(), static_cast<int>(F.size()) / 3);
 
     bool threw = false;
@@ -338,32 +352,25 @@ static void test_cellA_facet_accessor() {
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
 
-    nxr::manifold::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    const auto m = surfaceOf(V.data(), static_cast<int>(V.size()) / 3,
                               F.data(), static_cast<int>(F.size()) / 3);
 
-    const auto& G1 = m.operators().connectionGradient(1);
-    CHECK(G1.rows() == m.nE() && G1.cols() == m.nV(),
+    const auto& G1 = nxr::operators::laplacian::connection::assembleConnectionGradient(m, 1);
+    CHECK(G1.rows() == nxr::geometry::meshTopology(m).nE && G1.cols() == m.nV(),
           "connectionGradient(1) shape [E×V]");
-    CHECK(m.isOperatorCached(nxr::manifold::OperatorId::ConnectionGradient),
-          "cached after access");
 
     // Second call must return the same object (pointer identity).
-    const auto& G1b = m.operators().connectionGradient(1);
-    CHECK(&G1 == &G1b, "same cached ref for same nSym");
+    const auto& G1b = nxr::operators::laplacian::connection::assembleConnectionGradient(m, 1);
+    CHECK((G1 - G1b).norm() == 0.0, "same matrix for the same nSym");
 
     // Release + check no longer cached.
-    m.releaseOperator(nxr::manifold::OperatorId::ConnectionGradient);
-    CHECK(!m.isOperatorCached(nxr::manifold::OperatorId::ConnectionGradient),
-          "released");
 
     // nSym=2 must produce a different (cached) matrix.
-    const auto& G2 = m.operators().connectionGradient(2);
-    CHECK(G2.rows() == m.nE() && G2.cols() == m.nV(),
+    const auto& G2 = nxr::operators::laplacian::connection::assembleConnectionGradient(m, 2);
+    CHECK(G2.rows() == nxr::geometry::meshTopology(m).nE && G2.cols() == m.nV(),
           "connectionGradient(2) shape [E×V]");
-    CHECK(m.isOperatorCached(nxr::manifold::OperatorId::ConnectionGradient),
-          "cached after nSym=2 access");
     std::cout << "  Cell A2 facet accessor: OK (nV=" << m.nV()
-              << " nE=" << m.nE() << ")\n";
+              << " nE=" << nxr::geometry::meshTopology(m).nE << ")\n";
 }
 
 // ── main ──────────────────────────────────────────────────────────────────────

@@ -24,7 +24,7 @@ so graphs belong at the pure level, beside single nodes. This spec draws that li
 ## 2. The model
 
 **Node.** One pure function of matrices with typed input and output ports, parameters with defaults, declared traits (time behaviour, precision), and the
-reference it is held equal to. It is registered once (the registry), under a **grouped name** (`welch.psd`, `filter.bandpass`, `band.analytic`). A node has
+reference it is held equal to. It is registered once (the registry), under a **grouped name** (`signal.psd`, `filter.bandpass`, `band.analytic`). A node has
 one of three kinds:
 
 | kind | runs | its inputs → outputs |
@@ -54,7 +54,7 @@ The runner keeps no step logic. **Built-in pipelines** are of two forms, both ru
   parses today. Converting them into YAML definitions is NOT part of this spec (a separate decision for the maintainers);
 - YAML definitions, shipped with nxr-neuro or the user's own (a path).
 
-**Naming.** Pipelines have plain names (`psd`, `global_bursts`): no dot. Nodes have grouped names (`welch.psd`, `filter.bandpass`): `<group>.<name>`,
+**Naming.** Pipelines have plain names (`psd`, `global_bursts`): no dot. Nodes have grouped names (`signal.psd`, `filter.bandpass`): `<group>.<name>`,
 with a dot. They never collide; the registry and the pipeline table each refuse a name of the other form, and a test checks both tables.
 
 **Reductions stay where the architecture puts them.** A node is pointwise or an `accumulate` node that reduces over a TIME partition handed to it; ratios are
@@ -111,7 +111,7 @@ struct PortSpec  { std::string name, meaning; bool optional = false; };
 struct ParamSpec { std::string name; Json def; std::string meaning, unit; std::vector<std::string> choices; };   // help is made from these
 
 struct NodeSpec {
-  std::string name;                       // grouped: "welch.psd"
+  std::string name;                       // grouped: "signal.psd"
   Kind kind;                              // array · chunk · accumulate
   std::vector<PortSpec> inputs, outputs;
   std::vector<ParamSpec> parameters;
@@ -332,12 +332,12 @@ Examples:
 
 ```
 nxr-neuro compute filter.bandpass rest.edf rest_alpha.npy --lower 8 --upper 12 --from 0 --to 60
-nxr-neuro compute welch.psd x.npy psd.npy --sfreq 600 --segment-samples 512
-nxr-neuro compute welch.psd run.fif#MEG psd.mat --all --frequencies freqs.npy
+nxr-neuro compute signal.psd x.npy psd.npy --sfreq 600 --segment-samples 512
+nxr-neuro compute signal.psd run.fif#MEG psd.mat --all --frequencies freqs.npy
 nxr-neuro compute manifold.eigenmodes lh.pial.surf.gii modes.npy --k 200 --eigenvalues evals.npy
 nxr-neuro compute phase.current_of_band x.npy K.npy cortex.surf.gii j.npy p.npy --sfreq 600 --band '[8,12]'
 nxr-neuro compute my_chain.yaml x.npy y.npy --sfreq 1000 --band '[15,29]'
-nxr-neuro compute welch.psd --help
+nxr-neuro compute signal.psd --help
 ```
 
 ### 6.2 `run <pipeline>`: io around the executor
@@ -412,15 +412,15 @@ table, with the same names and defaults; docstrings and MATLAB help are the `Par
 
 | verb | Python | MATLAB |
 |---|---|---|
-| one node | `nn.compute.welch.psd(x, sfreq=600.0, segment_samples=512)` | `r = nxr.compute.welch.psd(x, 'sfreq', 600, 'segment_samples', 512)` |
-| any node or graph by name, path or object | `nn.compute("welch.psd", x, sfreq=600.0)`, `nn.compute(g, x=x, kernel=K, band=[8, 12], sfreq=600.0)` | `r = nxr.compute('welch.psd', x, 'sfreq', 600)`, `r = nxr.compute(g, 'x', x, 'kernel', K, 'band', [8 12])` |
+| one node | `nn.compute.signal.psd(x, sfreq=600.0, segment_samples=512)` | `r = nxr.compute.signal.psd(x, 'sfreq', 600, 'segment_samples', 512)` |
+| any node or graph by name, path or object | `nn.compute("signal.psd", x, sfreq=600.0)`, `nn.compute(g, x=x, kernel=K, band=[8, 12], sfreq=600.0)` | `r = nxr.compute('signal.psd', x, 'sfreq', 600)`, `r = nxr.compute(g, 'x', x, 'kernel', K, 'band', [8 12])` |
 | a pipeline | `nn.run("psd", ds, "sub-01", recording="rest", all=True)` | `r = nxr.run('psd', ds, 'sub-01', 'recording', 'rest', 'all', true)` |
 
 ```python
 import nxr_neuro as nn
 
-f = nn.compute.filter.bandpass(x, sfreq=1000.0, lower=8.0, upper=12.0)    # arrays in, a Result out: f.y (the output port), f.record (provenance)
-psd = nn.compute.welch.psd(x, sfreq=1000.0, good=mask)                     # psd.frequencies, psd.psd, psd.segments, psd.segments_skipped
+f = nn.compute.signal.bandpass(x, sfreq=1000.0, lower=8.0, upper=12.0)    # arrays in, a Result out: f.y (the output port), f.record (provenance)
+psd = nn.compute.signal.psd(x, sfreq=1000.0, good=mask)                     # psd.frequencies, psd.psd, psd.segments, psd.segments_skipped
 
 g = nn.Graph.load("my_chain.yaml")                                         # or nn.Graph({...}) from a dict, or a composite's name
 r = nn.compute(g, x=x, kernel=K, surface=(V, F), sfreq=600.0, band=[8, 12])
@@ -441,8 +441,8 @@ r.cache, r.read()                                                          # "hi
 ```
 
 ```matlab
-f   = nxr.compute.filter.bandpass(x, 'sfreq', 1000, 'lower', 8, 'upper', 12);   % f.y, f.record
-psd = nxr.compute.welch.psd(x, 'sfreq', 1000);
+f   = nxr.compute.signal.bandpass(x, 'sfreq', 1000, 'lower', 8, 'upper', 12);   % f.y, f.record
+psd = nxr.compute.signal.psd(x, 'sfreq', 1000);
 g   = nxr.Graph.load('my_chain.yaml');
 r   = nxr.compute(g, 'x', x, 'kernel', K, 'sfreq', 600, 'band', [8 12]);
 r   = nxr.run('global_bursts', nxr.open('study/'), 'sub-01', 'from', 0, 'to', 300, 'band', [15 29]);
@@ -474,7 +474,7 @@ waits for the migration step that touches it, and builds on the task API it leav
 | C3 | `run` for every pipeline; the clean switch | the command table: every `compute <what>` moves to `run <what>`; hidden aliases removed, old spellings refused with the new name; `run` takes `--from/--to/--all` and `--<parameter>`; the definitions' long-form parameters (`definition.h` parse) and the 15 shipped definitions documented; `list pipelines`; generated `run <pipeline> --help`; the name-collision test; smoke test and docs | — | migration 3 to 6. It touches `cli/`; migration step 7 touches only lookup lines in `cli/` (`run_command.cpp`'s `--dry-run` subject lookup). Whichever lands second rebases; C3 should land first if both are ready |
 | C4 | nodes without io | every step's `plan` and `prepare` stop reading the database or the subject: lookups become declared inputs bound by the runner (the glued surface, the ladder's tiling, the stored eigenmodes), `resolve` becomes the runner's binding step; the spatial band's "compute and store the eigenmodes when absent" leaves the node (question 6). One PR per file: `registry.cpp` (37 such reads), `spatial_events_steps.cpp` (14), `crossings_steps.cpp` (7), `extent_steps.cpp` (6), `cores_steps.cpp` (5), `surrogate_steps.cpp` (4); the shipped definitions name the new inputs | migration 3 (small steps) and 4 (runner): they rewrite these same lookups onto `task::find`; C4 then moves those calls from the node into the runner | migration 5 to 10 |
 | C5 | the runner split | the step logic of `runner.cpp`'s `execute` (halo composition, the sub-block and frame-block tails, start/step/finish, before/after) moves into `Execution`; the steps' code moves to `pipelines/graph/nodes/` as `NodeSpec`s; the runner keeps find → bind (task `Node` → `PortType`, constants read by name) → `haloed_loop` calling `Execution::block` → store; `StepSpec`, `PlanContext`, `ExecContext` go | C4; migration 4 | migration 5 to 10 (they touch other files) |
-| C6 | the registry's names and the pure functions as nodes | grouped names for every node (table in 8.1); the bound pure functions (`welch.psd`, `welch.cross_spectrum`, `filter.*`, `pca.*`, `manifold.eigenmodes`, `mesh.gradient`) registered as nodes with their goldens; the shipped definitions use the new names; nxr's reference definitions follow (question 2) | C5 | — |
+| C6 | the registry's names and the pure functions as nodes | grouped names for every node (table in 8.1); the bound pure functions (`signal.psd`, `signal.xpsd`, `filter.*`, `pca.*`, `manifold.eigenmodes`, `mesh.gradient`) registered as nodes with their goldens; the shipped definitions use the new names; nxr's reference definitions follow (question 2) | C5 | — |
 | C7 | composite nodes | `wrap`, expansion in `check`, the composite YAML, `pipelines/graph/nodes/*.yaml`, the search path, `list nodes`, provenance of composites | C6 | C8 |
 | C8 | `compute` on files | the `compute` verb: ports positional, parameters from the registry, the format readers and writers, streamed recording inputs, the sidecar; man pages and completion from the registry | C6 (C7 for composites) | C7 |
 | C9 | the bindings generated | `nn.compute.<group>.<node>`, `nn.compute(...)`, `nn.compute.stream`, `nn.Graph`, `nn.list_nodes`; `nn.run`; the MATLAB twins and generated `+compute` files; the coverage test | C6, C3; `run` needs the task API (merged) | — |
@@ -497,10 +497,10 @@ not convert, so they never meet C4 or C5. Main stays green at each step: C1 adds
 | `form` | `field.form` | | `risefall` | `bursts.risefall` |
 | `magnitude` | `field.magnitude` | | `fit_gate`, `burst_stages` | `bursts.fit_gate`, `bursts.stages` |
 | `power` | `field.power` | | `detect_spans` | `spans.detect` |
-| `phase_current` | `phase.current` | | `rollup_events` | `events.rollup` |
+| `phase_current` | `phase.current` | | `measure_events` | `events.measure` |
 | `gradient_power` | `phase.gradient_power` | | `core_histogram`, `cores`, `tracks` | `cores.histogram`, `cores.detect`, `cores.tracks` |
 | `tile_max` | `tiles.max` | | `tile_crossings`, `power_series` | `tiles.crossings`, `tiles.power_series` |
-| `lagfree_surrogate` | `surrogate.lagfree` | | (the bound pure functions) | `welch.psd`, `welch.cross_spectrum`, `filter.lowpass` … `filter.notch`, `pca.pca`, `pca.reconstruct`, `manifold.eigenmodes` |
+| `lagfree_surrogate` | `synthesis.lagfree` | | (the bound pure functions) | `signal.psd`, `signal.xpsd`, `filter.lowpass` … `filter.notch`, `pca.pca`, `pca.reconstruct`, `manifold.eigenmodes` |
 
 ## 9. Tests (scoped, through `tools/tests.py`; synthetic data only)
 
@@ -525,7 +525,7 @@ runner's existing plan, execute and parity tests pass unchanged after C5 (the de
 
 **`compute` (C8).** Each format in and out on synthetic files (round trip; precision follows the input); the sidecar's fields; a recording input streamed
 equals the same samples handed as an `.npy`; a missing time range for a recording refused; an existing output refused without `--replace`;
-`compute <node> --help` lists every port and parameter. **Parity across verbs:** `compute welch.psd` on the samples of a span equals what `run psd`
+`compute <node> --help` lists every port and parameter. **Parity across verbs:** `compute signal.psd` on the samples of a span equals what `run psd`
 stores for that span (both call the same compute function).
 
 **Bindings (C9).** Every registry node and composite has `nn.compute.<group>.<node>` and its MATLAB file, with the registry's signature; a node called from

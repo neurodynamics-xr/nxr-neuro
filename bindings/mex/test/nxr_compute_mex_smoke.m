@@ -47,7 +47,8 @@ nF = size(F, 1);
 fprintf('  mesh: nV=%d nF=%d\n', nV, nF);
 
 % ── 1. assembleManifoldOperators ─────────────────────────────────
-ops = nxr_compute('assembleManifoldOperators', V, F);
+S = nxr_compute('geometry.surfaceArrays', V, F);   % the surface as data, made once
+ops = nxr_compute('operators.assembleManifoldOperators', S);
 fprintf('  [1] assembleManifoldOperators ✓\n');
 assert(ops.nV == 12 && ops.nF == 20, 'unexpected vertex / face count');
 assert(issparse(ops.cotanLaplacian), 'stiffness must be sparse');
@@ -67,7 +68,7 @@ assert(abs(sum(massDiag) - ops.totalArea) < 1e-9, 'mass diagonal sum vs totalAre
 
 % ── 2. solve ───────────────────────────────────────
 K = 6;
-result = nxr_compute('solve', ops.cotanLaplacian, ops.mass, K);
+result = nxr_compute('operators.eigen', ops.cotanLaplacian, ops.mass, K);
 fprintf('  [2] solve ✓ (k=%d, nConverged=%d)\n', ...
     result.k, result.nConverged);
 assert(result.k == K, 'wrong k returned');
@@ -83,7 +84,7 @@ assert(abs(result.eigenvalues(2) - 2.0) < 1e-6, ...
     'expected λ_1 ≈ 2 on icosahedron, got %g', result.eigenvalues(2));
 
 % ── 3. normalize ───────────────────────────────────
-Un = nxr_compute('normalize', result.eigenvectors, ops.mass);
+Un = nxr_compute('operators.normalize', result.eigenvectors, ops.mass);
 fprintf('  [3] normalize ✓\n');
 assert(isequal(size(Un), [nV K]), 'normalized U shape');
 
@@ -95,15 +96,15 @@ assert(deviation < 1e-12, 'M-orthonormality violated');
 
 % ── 4. removeDC ──────────────────────────────────────────────
 result.eigenvectors = Un;
-trimmed = nxr_compute('removeDC', result);
+trimmed = nxr_compute('operators.removeDC', result);
 fprintf('  [4] removeDC ✓ (k=%d → %d)\n', result.k, trimmed.k);
 assert(trimmed.k == result.k - 1, 'removeDC should drop one mode');
 assert(size(trimmed.eigenvectors, 2) == trimmed.k, 'trimmed eigenvectors width');
 assert(numel(trimmed.eigenvalues) == trimmed.k, 'trimmed eigenvalues length');
 
-% ── 5. precompute (one-shot pipeline) ────────────────────────
-oneShot = nxr_compute('precompute', V, F, K);
-fprintf('  [5] precompute (one-shot) ✓ (k=%d)\n', oneShot.k);
+% ── 5. operators.eigen with normalize and removeDC (one call) ────────────────────────
+oneShot = nxr_compute('operators.eigen', ops.cotanLaplacian, ops.mass, K, [], true, true);
+fprintf('  [5] eigen + normalize + removeDC (one call) ✓ (k=%d)\n', oneShot.k);
 assert(oneShot.k == trimmed.k, ...
     'one-shot pipeline should match step-by-step (k mismatch)');
 
@@ -118,19 +119,19 @@ assert(deltaLambda < 1e-10, ...
 % Output is V×3 in MATLAB's column-major convention, with each
 % column being x / y / z respectively.
 srcVecs = [1 0 0];
-transported = nxr_compute('parallel', V, F, 1, srcVecs);
+transported = nxr_compute('geometry.parallel', S, 1, srcVecs);
 fprintf('  [6] parallel ✓ (size %dx%d)\n', size(transported, 1), size(transported, 2));
 assert(isequal(size(transported), [nV 3]), 'transported should be V×3');
 assert(any(vecnorm(transported, 2, 2) > 1e-6), 'transported field should be non-trivial');
 
 % ── 7. extendScalar ────────────────────────────────
-extended = nxr_compute('extendScalar', V, F, [1; 7], [1.0; 0.0]);
+extended = nxr_compute('geometry.extendScalar', S, [1; 7], [1.0; 0.0]);
 fprintf('  [7] extendScalar ✓\n');
 assert(numel(extended) == nV, 'extended field length must be nV');
 
 % ── 8. logMap ──────────────────────────────────────
 % Default strategy = AffineLocal (1).
-lm = nxr_compute('logMap', V, F, 1);
+lm = nxr_compute('geometry.logMap', S, 1);
 fprintf('  [8] logMap ✓\n');
 assert(isequal(size(lm.logCoords), [nV 2]), 'logCoords should be V×2');
 assert(numel(lm.sourceE1) == 3 && numel(lm.sourceE2) == 3, ...
@@ -139,7 +140,7 @@ assert(numel(lm.sourceE1) == 3 && numel(lm.sourceE2) == 3, ...
 assert(norm(lm.logCoords(1, :)) < 1e-6, 'log map at source should be ~0');
 
 % ── 9. findCenter ──────────────────────────────────
-center = nxr_compute('findCenter', V, F, [1; 2; 6]);
+center = nxr_compute('geometry.findCenter', S, [1; 2; 6]);
 fprintf('  [9] findCenter ✓ ([%g %g %g])\n', center(1), center(2), center(3));
 assert(numel(center) == 3 && all(isfinite(center)), 'center should be a finite 3-vector');
 % Unit-sphere icosahedron — center should sit roughly on the surface.
@@ -147,26 +148,26 @@ assert(abs(norm(center) - 1) < 0.4, 'center should be near unit-sphere surface')
 
 % ── 10. signedHeat ───────────────────────────────────
 % Loop around vertex 1 (north pole). Curve indices are 1-based.
-sd = nxr_compute('signedHeat', V, F, [12; 6; 2; 8; 11], 1);
+sd = nxr_compute('geometry.signedHeat', S, [12; 6; 2; 8; 11], 1);
 fprintf('  [10] signedHeat ✓ (range [%g, %g])\n', min(sd), max(sd));
 assert(numel(sd) == nV, 'signed distance length nV');
 assert(min(sd) < 0 && max(sd) > 0, 'signed distance should straddle zero');
 
 % ── 11. smoothFace ───────────────────────────────
-faceField = nxr_compute('smoothFace', V, F, 4);
+faceField = nxr_compute('geometry.smoothFace', S, 4);
 fprintf('  [11] smoothFace ✓ (nSym=4)\n');
 assert(isequal(size(faceField), [nF 3]), 'face field should be F×3');
 assert(any(vecnorm(faceField, 2, 2) > 1e-6), 'face field should be non-trivial');
 
 % ── 12. smoothVertex ─────────────────────────────
-vfield = nxr_compute('smoothVertex', V, F, 2);
+vfield = nxr_compute('geometry.smoothVertex', S, 2);
 fprintf('  [12] smoothVertex ✓ (nSym=2)\n');
 assert(isequal(size(vfield.vertexVectors), [nV 3]), 'vertexVectors should be V×3');
 assert(numel(vfield.vertexFieldRaw) == nV * 2, 'vertexFieldRaw should be V*2');
 assert(vfield.nSym == 2, 'nSym should round-trip');
 
 % ── 13. compute ─────────────────────────────────
-stripes = nxr_compute('compute', V, F, vfield.vertexFieldRaw, 8.0);
+stripes = nxr_compute('geometry.compute', S, vfield.vertexFieldRaw, 8.0);
 fprintf('  [13] compute ✓ (segs=%d)\n', stripes.segmentCount);
 assert(stripes.segmentCount >= 0, 'segmentCount non-negative');
 assert(isequal(size(stripes.positions), [stripes.segmentCount * 2, 3]), ...

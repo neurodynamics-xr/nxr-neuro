@@ -1,3 +1,4 @@
+#include "nxr/io/selection_measurement.h"
 #include "nxr/io/migrate.h"
 
 #include <unistd.h>
@@ -92,7 +93,7 @@ std::string ownership(const std::string& table, const std::vector<std::string>& 
   static const std::map<std::string, std::pair<std::string, std::string>> child = {
       {"topology_cell", {"topology_id", "topology"}}, {"coordinate_system", {"space_id", "space"}}, {"geometry_dimension", {"geometry_id", "geometry"}},
       {"selection_element", {"selection_id", "selection"}}, {"selection_extent", {"selection_id", "selection"}}, {"selection_measurement", {"selection_id", "selection"}},
-      {"selection_span", {"selection_id", "selection"}}, {"operator_factor", {"operator_id", "operator"}}};
+      {"selection_span", {"selection_id", "selection"}}, {"selection_factor", {"selection_id", "selection"}}, {"operator_factor", {"operator_id", "operator"}}};
   if (table == "subject") return "id = ?";
   if (table == "dictionary") return "scope IN ('app', 'dataset', 'user') OR subject_id = ?";
   if (table == "dictionary_entry") return "dictionary_id IN (SELECT id FROM src.dictionary WHERE scope IN ('app', 'dataset', 'user') OR subject_id = ?)";
@@ -207,9 +208,8 @@ std::vector<MovedGroup> find_moved_groups(const Database& src, const std::vector
     std::set<std::string> prefixes;
     for (const auto& id : g.field_ids) {
       g.n_contributions += integer(*src.one("SELECT count(*) AS n FROM field_contribution WHERE field_id = ?", {id}), "n");
-      for (const auto& m : src.all("SELECT array_path FROM selection_measurement WHERE of_field_id = ? AND array_path IS NOT NULL", {id})) {
+      for (const std::string& path : selection::measurement_array_paths_of_field(src, id)) {
         ++g.n_measurements;
-        const std::string path = text(m, "array_path");
         for (const char* marker : {"/maps/", "/time/"}) {
           const auto at = path.find(marker);
           if (at != std::string::npos) { prefixes.insert(path.substr(0, at + 5)); break; }
@@ -252,6 +252,11 @@ Json split_dataset(const fs::path& folder_in, const SplitOptions& opt) {
   if (!fs::is_regular_file(original)) {
     if (fs::is_regular_file(folder / kCatalogueFile) && fs::exists(folder / kOriginalAside)) { report["already_split"] = true; return report; }
     throw Error(code::not_found, folder.string() + ": no " + kDatasetFile + " here: not a dataset of formats 50 to 52");
+  }
+  {   // the selections are converted first: a package made from unconverted rows would carry the new marker over the old form
+    Database db = Database::open(original, false, "", true);
+    const auto m = db.one("SELECT value FROM meta WHERE key = 'selection_storage'");
+    if (!m || text(*m, "value") != kSelectionStorage) throw refuse("split: convert the selections first (migrate_selection_storage: `nxr-neuro package migrate-selections --dataset <folder>`)");
   }
   if (opt.dry_run) {
     Database db = Database::open(original, false, "", true);
@@ -346,7 +351,7 @@ Json split_dataset(const fs::path& folder_in, const SplitOptions& opt) {
           }
           // the rows it owns, parents before children
           static const char* const first[] = {"subject", "acquisition", "topology", "topology_cell", "space", "coordinate_system", "geometry", "geometry_dimension", "manifold",
-                                              "dictionary", "dictionary_entry", "selection", "selection_element", "selection_extent", "selection_measurement", "selection_span",
+                                              "dictionary", "dictionary_entry", "selection", "selection_element", "selection_extent", "selection_measurement", "selection_span", "selection_factor",
                                               "field", "field_contribution", "operator", "operator_factor", "statistic", "job"};
           std::vector<std::string> order(std::begin(first), std::end(first));
           for (const auto& t : model_tables) if (!bookkeeping(t) && t != "dataset" && t != "datastore" && !has(order, t)) order.push_back(t);

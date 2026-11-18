@@ -46,6 +46,13 @@ producing identical numerics regardless of host language.
   convenience overloads — the same solvers work on cotangent
   Laplacians + mass (mesh case) or graph Laplacians +
   node-weight diagonals (graph signal processing case).
+- **One measurement module** (`nxr::measurement`) — the four operations over a
+  selection's members: `reduce` (a field over any selection's members, block by block),
+  `roll_up` and `merge` (through a grid's closed-form hierarchy, across subjects),
+  `summarize` (members to a statistic) and `estimate` (a mean over a family of
+  segments, a histogram). Each measure's merge rule is data in the measures registry.
+  Selections are made from quantities (`nxr::quantity`: a number with a unit in a named
+  chart), band sets from `selection/bands.h`, time grids by one rule (`time_rule`).
 - **Cancellation + progress contracts** per long-running call (atomic
   flag bridge usable from JS, MATLAB, WASM, and CLI).
 
@@ -201,20 +208,20 @@ M   = nxr.manifold.operator.mass(mctx);
 ### Mesh and mass
 
 Every operator (cotan Laplacian, masses, DEC, vertex connection Laplacian, Hodge–Dirac) is built on **one** mesh, made by **one** construction
-(`include/nxr/delaunay.h`, a line port of the Studio's `intrinsicDelaunay.ts`; nxr's and Rheome's are ports of the same file): the intrinsic **mollified
+(`include/nxr/intrinsic_surface.h`: geometry-central's signpost intrinsic triangulation): the intrinsic **mollified
 Delaunay** mesh, with the **mixed-Voronoi** mass (Meyer et al. 2003) of the mollified input, recorded before the first flip. That is the DEFAULT
-(`create(V, F)`, `Manifold(V, nV, F, nF)`). The others are named options, never silent defaults:
+(`geometry::surfaceArrays(V, nV, F, nF)`, whose `SurfaceArrays` every function takes). The others are named options, never silent defaults:
 
-- mesh: `intrinsicDelaunay: true` (default) · `false` = the input as it is (`MeshKind::Embedded`: no mollification, no flips);
+- mesh: `intrinsicDelaunay: true` (default) · `false` = the input as it is (`IntrinsicOptions::intrinsic = false`: no mollification, no flips);
 - mass: `"mixedVoronoi"` (default; diagonal) · `"galerkin"` (sparse FEM: `(A_T / 12) · [[2 1 1][1 2 1][1 1 2]]` on the operator mesh) ·
   `"barycentric"` (diagonal, `A_T/3` per vertex on the operator mesh; this is what was called `"lumped"` — the name is retired, no alias: "lumped"
   means the mixed-Voronoi mass in nxr and the Studio);
 - the construction's two numerical constants, named and recorded with the shared names: **`mollify`** (relative δ, default 1e-6 × the mean edge
   length; ε = max over corners of l_C − l_A − l_B + δ, added to every edge if positive) and **`flipEps`** (flip while the cotan weight is below
-  −flipEps, default 1e-6). `Manifold::intrinsicSurface().record()` holds mollify, ε, flipEps, the flip count and the gauge identity.
+  −flipEps, default 1e-6). `SurfaceArrays::triangulation.record` holds mollify, ε, flipEps, the flip count and the gauge identity.
 
 The stand-alone DEC follows the mesh option (`d0ᵀ⋆1d0 == cotanL`, `hodge0 == mass`). What is indexed by the input's own edges and faces (the
-1-form of a Hodge decomposition, the trivial connection, the face Diracs) uses `Manifold::decEmbedded()`.
+1-form of a Hodge decomposition, the trivial connection, the face Diracs) uses `operators::embeddedDEC(m)`.
 
 ```js
 mctx.assembleManifoldOperators('mixedVoronoi')      // default
@@ -312,16 +319,32 @@ accessors.
 ## Layout
 
 ```
-nxr-compute/
-├── include/nxr/             public headers (compute.h, errors.h, …)
-├── src/                     library sources
-├── test/                    13 unit/smoke tests
-├── bindings/{node,wasm,mex,cli}/  binding shells
-├── deps/geometry-central/   git submodule
-├── docs/                    usage, extensions, architecture, recipes
-├── scripts/                 build + smoke entry points
-└── .github/workflows/       CI: cross-platform MEX publishing
+compute/
+├── include/nxr/<toolbox>/   public headers, one folder per toolbox (no header at the top level, no umbrella header)
+├── src/<toolbox>/           the sources of each toolbox
+├── cmake/<toolbox>.cmake    each toolbox's sources, per-file flags and tests (one file per toolbox)
+├── test/                    the unit tests (flat), goldens and their generators in test/golden/
+└── deps/geometry-central/   git submodule
 ```
+
+The toolboxes (ARCHITECTURE.md, "The toolboxes"; namespace `nxr::<toolbox>`, functions flat in it):
+
+| toolbox | holds |
+|---|---|
+| `core` | types, errors, cancellation, progress, parallel, general matrix algebra (`hermitianFactor`, `skewFactor`, `divideRows`, congruence); library `nxr_core` |
+| `optimisation` | general solvers (`fminsearch`); in `nxr_core` |
+| `stats` | summary statistics, `histogram`, circular statistics (`circ_mean`, `circ_r`, `circ_rtest`), lag, null tests, `pca` |
+| `geometry` | `SurfaceArrays` (a surface as plain data), intrinsic geometry, frames, charts (`ChartKit`), distances (`heat`, `signedHeat`), transport, glue, nearest, parametrization, `faceAreas` |
+| `operators` | Laplacians, DEC, the Dirac family, `eigen`, Hodge weights, the sphere-registration resample operator, the registries |
+| `selection` | the Selection class, its resolution and lookup |
+| `measurement` | measures over selections, reductions, roll-ups, congruence norms |
+| `select` | the makers of selections: bands, grids, dyadic partitions, events, regions, cores, tracks, crossings, scale selection |
+| `signal` | `fft`, filters, windows, the time, graph and joint filterbanks (`TimeFilterbank`, `GraphFilterbank`, `JointFilterbank`), wavelets, cross-spectral measures (`cospectrum`, `quadspectrum`, `lagged_share`, `planes`), phase gradient, forms, optical flow |
+| `synthesis` | field and surrogate generators |
+| `meeg` | `connectome` and `montage` (still compiled here under `nxr/meeg/`: they use the sphere-registration operator); the rest of meeg is the `nxr_meeg` library (`../meeg/`) |
+
+The includes between toolboxes run one way, checked by the test `layering_toolboxes_follow_the_dag` (`cmake/check_toolboxes.cmake`).
+Top-level headers still present until the behaviour batch deletes them: `pyramid.h`, `rotary.h` (`integrals.h` and `region.h` are gone: the tile flux and circulation are `operators/weak_forms.h` summed over a tile by `measurement::reduce`).
 
 ## Distribution channels
 

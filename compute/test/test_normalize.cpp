@@ -1,12 +1,30 @@
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <iostream>
 #include <set>
 #include <vector>
+#include "surface_of.h"
 
-using nxr::manifold::fixDelaunay;
+using nxr::geometry::fixDelaunay;
 
 static int g_failures = 0;
 #define EXPECT(cond, msg) do { if (!(cond)) { \
@@ -60,8 +78,8 @@ static void testThinQuad() {
 
     // Input: non-Delaunay mesh → some positive off-diagonal (negative cotan weight).
     {
-        nxr::manifold::Manifold mIn(V.data(), 4, F.data(), 2, /*intrinsicDelaunay=*/false);   // the input as it is (the embedded option)
-        auto opsIn = nxr::manifold::ops::assembleManifoldOperators(mIn);
+        const auto mIn = surfaceOf(V.data(), 4, F.data(), 2, /*intrinsicDelaunay=*/false);   // the input as it is (the embedded option)
+        auto opsIn = nxr::operators::assembleManifoldOperators(mIn);
         EXPECT(maxOffDiag(opsIn.cotanLaplacian) > 1e-9,
                "input has a negative cotan weight");
     }
@@ -71,9 +89,9 @@ static void testThinQuad() {
         std::vector<int32_t> Fout(static_cast<size_t>(r.faces.rows() * 3));
         for (int i = 0; i < r.faces.rows(); ++i)
             for (int k = 0; k < 3; ++k) Fout[3 * i + k] = r.faces(i, k);
-        nxr::manifold::Manifold mOut(V.data(), 4, Fout.data(),
+        const auto mOut = surfaceOf(V.data(), 4, Fout.data(),
                                       static_cast<int>(r.faces.rows()), /*intrinsicDelaunay=*/false);
-        auto opsOut = nxr::manifold::ops::assembleManifoldOperators(mOut);
+        auto opsOut = nxr::operators::assembleManifoldOperators(mOut);
         EXPECT(maxOffDiag(opsOut.cotanLaplacian) < 1e-9,
                "normalized mesh has all cotan weights >= 0");
     }

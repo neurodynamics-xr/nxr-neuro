@@ -1,4 +1,4 @@
-// nxr::flow, the connection-Laplacian regulariser (the Cortical Flow Studio's optical flow, ported line for line; the default since).
+// nxr::signal, the connection-Laplacian regulariser (the Cortical Flow Studio's optical flow, ported line for line; the default since).
 // (1) PARITY with the Studio's own code (golden/gen_opticalflow_connection_golden.mts runs flow/opticalFlow.ts): the pencil's C, M, the gradient in C's gauge, the gauge solution z
 //     (the Studio's system solved densely in float64) and the embedded velocity, on a sphere, a finer sphere, an irregular (stretched, jittered) mesh and an open patch;
 // (2) the Studio test's assertions (opticalFlow.test.ts): the sphere bump oracle (direction at every alpha, the speed at the default alpha), GAUGE-FREEDOM (the faces listed in
@@ -11,23 +11,23 @@
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
-#include "nxr/opticalflow_connection.h"
-#include "nxr/opticalflow_methods.h"
+#include "nxr/signal/opticalflow_connection.h"
+#include "nxr/signal/opticalflow_methods.h"
 
-using namespace nxr::flow;
+using namespace nxr::signal;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-namespace cn = nxr::flow::connection;
+namespace cn = nxr::signal::connection;
 
 static double maxAbs(const VectorXd& a) { return a.size() ? a.cwiseAbs().maxCoeff() : 0; }
 static double relMax(const VectorXd& a, const VectorXd& b) { return a.size() != b.size() ? 1e9 : maxAbs(a - b) / std::max(1e-300, maxAbs(b)); }
 
-struct Mesh { RowMat3 P; FaceMat F; };
+struct Mesh { RowMat3 P; nxr::operators::FaceMat F; };
 static Mesh sphere(int sub, double R) {
     std::vector<double> V; std::vector<int32_t> F;
     icosphere(sub, V, F, R);
     Mesh m; m.P = Eigen::Map<const RowMat3>(V.data(), static_cast<Eigen::Index>(V.size() / 3), 3);
-    m.F = Eigen::Map<const FaceMat>(F.data(), static_cast<Eigen::Index>(F.size() / 3), 3);
+    m.F = Eigen::Map<const nxr::operators::FaceMat>(F.data(), static_cast<Eigen::Index>(F.size() / 3), 3);
     return m;
 }
 // the travelling bump of the Studio test (MATLAB's optical_flow_validate): a Gaussian of geodesic width sigma = 0.2 R whose centre turns about y at omega0
@@ -60,7 +60,7 @@ static Read readMiddle(const RowMat3& P, const VectorXd& vel, double mid, double
     return {med(cs), med(got) / med(want), static_cast<int>(cs.size())};
 }
 static VectorXd flowOf(const Mesh& m, const VectorXd& a, const VectorXd& b, double alpha, double peak, Regulariser r = Regulariser::Connection, DataFit d = DataFit::Auto) {
-    OpticalflowScalar f(m.P, m.F, vertexNormals(m.P, m.F), alpha, peak, FlowForm{r, d});
+    OpticalflowScalar f(m.P, m.F, rheomeVertexNormals(m.P, m.F), alpha, peak, FlowForm{r, d});
     return f.step(a, b);
 }
 
@@ -69,7 +69,7 @@ int main() {
     {
         Golden g(std::string(NXR_TEST_GOLDEN_DIR) + "/opticalflow_connection_golden.txt");
         EXPECT(g.good(), "golden file");
-        double worstC = 0, worstM = 0, worstG = 0, worstZ = 0, worstVz = 0, worstV = 0;
+        double worstC = 0, worstM = 0, worstG = 0, worstZ = 0, worstVz = 0, worstV = 0, closedVz = 0, closedV = 0;
         int meshes = 0;
         while (true) {
             std::string t;
@@ -79,7 +79,7 @@ int main() {
             const int n = static_cast<int>(g.num()), nT = static_cast<int>(g.num());
             const double alpha = g.num(), peak = g.num();
             const RowMat3 P = g.mat("positions");
-            const FaceMat F = g.mat("faces").cast<std::int32_t>();
+            const nxr::operators::FaceMat F = g.mat("faces").cast<std::int32_t>();
             const MatrixXd I = g.mat("I"), Ct = g.mat("C"), Mg = g.mat("M"), Ng = g.mat("normals"), gg = g.mat("g"), zg = g.mat("z"), zvg = g.mat("zv"), vg = g.mat("velocity");
             (void)Ng;
             cn::ConnectionFlow flow(P, F, alpha, peak);
@@ -109,15 +109,18 @@ int main() {
             eV /= std::max(top, 1e-300);
             std::printf("  [%s] n=%d alpha=%g: C %.1e  M %.1e  gauge gradient %.1e  gauge solution z %.1e  embedded z %.1e  velocity (float32) %.1e, %.1f %% of the floats identical\n", name.c_str(), n, alpha, eC, eM, eG, eZ, eVz, eV, 100.0 * exact / ((nT - 1) * 3.0 * n));
             worstC = std::max(worstC, eC); worstM = std::max(worstM, eM); worstG = std::max(worstG, eG); worstZ = std::max(worstZ, eZ); worstVz = std::max(worstVz, eVz); worstV = std::max(worstV, eV);
+            if (name != "patch") { closedVz = std::max(closedVz, eVz); closedV = std::max(closedV, eV); }
             ++meshes;
         }
         EXPECT(meshes == 4, "four golden meshes (sphere, finer sphere, irregular, open patch)");
         std::printf("  worst over meshes: C %.2e  M %.2e  g %.2e  z %.2e  v(z) %.2e  velocity(float32) %.2e\n", worstC, worstM, worstG, worstZ, worstVz, worstV);
-        EXPECT(worstC < 1e-12, "the connection Laplacian equals the Studio's (real 2n x 2n) to 1e-12");
+        // The connection is geometry-central's (docs/specs/2026-11-17-geometry-central-switch.md): its gauge (the reference edge of every vertex) is not the Studio's, so C, the gradient in C's
+        // gauge and the gauge solution z are REPORTED, not compared (they differ by a rotation per vertex). What is gauge-free is compared: the lumped mass, the embedded velocity (a closed
+        // surface: the cone target is 2 pi at every vertex). The open patch is REPORTED: geometry-central scales a boundary vertex's angles to pi, the Studio's port left them (spec section 3.4).
         EXPECT(worstM < 1e-12, "the lumped mass equals the Studio's to 1e-12");
-        EXPECT(worstG < 1e-10, "the gradient in C's gauge equals the Studio's to 1e-10");
-        EXPECT(worstZ < 1e-9 && worstVz < 1e-9, "the gauge solution z (and its embedding) equals the Studio's dense float64 solve to 1e-9");
-        EXPECT(worstV < 2e-7, "the embedded velocity equals the Studio's float32 velocity to float32's resolution (2e-7 of the peak)");
+        EXPECT(closedVz < 1e-9, "the embedded velocity (the gauge solution carried to 3D) of the closed meshes equals the Studio's dense float64 solve to 1e-9");
+        EXPECT(closedV < 2e-7, "the embedded velocity of the closed meshes equals the Studio's float32 velocity to float32's resolution (2e-7 of the peak)");
+        (void)worstC; (void)worstG; (void)worstZ; (void)worstVz; (void)worstV;
     }
 
     // ── (2) the Studio test's assertions ──
@@ -226,7 +229,7 @@ int main() {
         EXPECT(refused, "connection with another data term is refused");
         const Mesh T = sphere(3, R);
         const VectorXd a = bumpAt(T.P, 0, R), b = bumpAt(T.P, 1, R);
-        FlowEngine ed(d, T.P, T.F, vertexNormals(T.P, T.F), 0.05), ep(p, T.P, T.F, vertexNormals(T.P, T.F), 0.05);
+        FlowEngine ed(d, T.P, T.F, rheomeVertexNormals(T.P, T.F), 0.05), ep(p, T.P, T.F, rheomeVertexNormals(T.P, T.F), 0.05);
         ed.observe(a); ed.observe(b); ep.observe(a); ep.observe(b);
         const FlowStep sd = ed.step(a, b), sp = ep.step(a, b);
         const double e = relMax(sp.velocity[0], sd.velocity[0]);

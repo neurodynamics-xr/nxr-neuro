@@ -1,59 +1,52 @@
-// nxr::frametiling: the band-limited interpolation that samples a block at the TOWER's frames (tower.h; the tiling itself is tested in test_tower).
-//   - the tower frames of a 250 Hz recording at level -25 (10 Hz x 36): every frame once, whatever the chunk size
-//   - a complex exponential in the band (10 Hz, 250 Hz sampling) interpolated at the frames equals e^{iωt} (the analytic signal of a band-limited signal): max error
-//   - refusals
+// nxr::signal and the frame option of the time rule: the band-limited interpolation that samples a block at the frames of a time rule (selection/partition.h `TimeRule`, kind frames:
+// the frame density, frames per cycle or per tile, and the origin are OPTIONS of the function; no tower, no clock anchor).
+//   - the frames of a 250 Hz recording at 36 frames per cycle of 10 Hz: every frame once, from the origin to the end of the line; an origin (a point of the line) starts the first frame there
+//   - frames per tile nest in the band's dyadic level; the two densities are exclusive; refusals
+//   (the band's signal read at the frames: test_wt_at, test_frames_wt)
 #include <cmath>
+#include <cstdio>
 #include <complex>
 #include <iostream>
 #include <stdexcept>
+#include <vector>
 
-#include "nxr/frame_tiling.h"
-#include "nxr/tower.h"
+#include "nxr/select/grid.h"
+#include "nxr/select/partition.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
 
 int main() {
-  using namespace nxr::frametiling;
-  namespace tw = nxr::tower;
+  namespace sel = nxr::selection;
   const double fs = 250.0, f0 = 10.0;
   const std::int64_t n = 5000;
-  const int L = tw::frameLevelFor(f0, 36);
-  const tw::FrameTiling t = tw::makeFrameTiling(fs, n, L);
-  EXPECT(L == -25 && t.count == static_cast<std::int64_t>(std::floor((n - 1) / t.tile_samples())) + 1, "level -25: the tiles the samples touch");
-  EXPECT(std::fabs(t.position(36) - 36 * t.tile_samples()) < 1e-9, "frame 36 starts 36 tiles on");
-  // every frame once, whatever the chunk size
-  for (std::int64_t chunk : {std::int64_t(1), std::int64_t(7), std::int64_t(1000), std::int64_t(4096), n}) {
-    std::int64_t seen = 0, next = 0;
-    bool ordered = true;
-    for (std::int64_t s = 0; s < n; s += chunk) {
-      const auto [a, b] = tw::frameSpan(t, s, std::min(chunk, n - s));
-      ordered = ordered && a == next;
-      next = b; seen += b - a;
-      for (std::int64_t j = a; j < b; ++j) ordered = ordered && t.position(j) >= s - 1e-6 && t.position(j) < s + std::min(chunk, n - s) + 1e-6;
-    }
-    EXPECT(seen == t.count && ordered, "chunk " << chunk << ": the frames are not a partition (" << seen << " of " << t.count << ")");
-  }
-  // a band-limited complex exponential at 10 Hz (a band 8-12) sampled at the frames
-  const double phi = 0.4;
-  std::vector<float> re(n), im(n);
-  for (std::int64_t i = 0; i < n; ++i) { re[i] = static_cast<float>(std::cos(2 * M_PI * f0 * i / fs + phi)); im[i] = static_cast<float>(std::sin(2 * M_PI * f0 * i / fs + phi)); }
-  // a 600-sample block in the middle: the frames of its own 400 samples need a halo of the half width
-  const int H = 32;
-  const std::int64_t s0 = 2000, len = 400;
-  const auto [j0, j1] = tw::frameSpan(t, s0, len);
-  std::vector<double> pos;
-  for (std::int64_t j = j0; j < j1; ++j) pos.push_back(t.position(j) - static_cast<double>(s0 - H));
-  const auto yr = sincInterpolate(re.data() + (s0 - H), 1, len + 2 * H, pos, H), yi = sincInterpolate(im.data() + (s0 - H), 1, len + 2 * H, pos, H);
-  double worst = 0;
-  for (std::int64_t j = j0; j < j1; ++j) {
-    const double tt = t.position(j) / fs;
-    worst = std::max(worst, std::abs(std::complex<double>(yr[j - j0], yi[j - j0]) - std::polar(1.0, 2 * M_PI * f0 * tt + phi)));
-  }
-  std::printf("  %lld frames of %lld samples at %.0f Hz: max |interpolated - exact| %.2e (half width %d)\n", static_cast<long long>(j1 - j0), static_cast<long long>(len), t.fps(), worst, H);
-  EXPECT(std::llabs((j1 - j0) - static_cast<std::int64_t>(std::llround(len / t.tile_samples()))) <= 1 && worst < 2e-4, "the interpolation is off");
+  const sel::Line line{"s", n, 0.0, 1.0 / fs};
+  nxr::select::TimeRule rule;
+  rule.kind = nxr::select::TimeRule::Kind::frames;
+  rule.band_hz = std::make_pair(f0, f0);
+  rule.frames_per_cycle = 36;
+  const nxr::select::TimeGrid t = nxr::select::time_rule_resolved(line, rule);
+  const double tile = t.width_s * fs;                                          // the frame in samples, not whole
+  const std::int64_t count = sel::count(t.grid);
+  EXPECT(std::abs(t.width_s - 1.0 / (f0 * 36)) < 1e-15 && count == static_cast<std::int64_t>(std::ceil(static_cast<double>(n) / tile - 1e-9)), "36 frames a cycle of 10 Hz: the frames the samples touch");
+  // an origin is an option: a point of the line (or an event's span) starts the first frame there
+  nxr::select::TimeRule shifted = rule;
+  shifted.origin = sel::point(500);
+  const nxr::select::TimeGrid o = nxr::select::time_rule_resolved(line, shifted);
+  EXPECT(o.origin_sample == 500 && sel::count(o.grid) == static_cast<std::int64_t>(std::ceil(static_cast<double>(n - 500) / tile - 1e-9)), "frames start at the origin and run to the end of the line");
+  // frames per tile are a power of two nested in the band's dyadic level
+  nxr::select::TimeRule nested;
+  nested.kind = nxr::select::TimeRule::Kind::frames;
+  nested.band_hz = std::make_pair(8.0, 12.0);
+  nested.frames_per_tile = 8;
+  const nxr::select::TimeGrid nd = nxr::select::time_rule_resolved(line, nested);
+  const int fit = nxr::select::time_level_of_band(8.0, 12.0, fs);
+  EXPECT(nd.level == fit - 3 && nd.width_samples == (std::int64_t(1) << (fit - 3)), "8 frames a tile: level " << fit << " - 3, got " << nd.level);
   auto refused = [&](auto f) { try { f(); } catch (const std::invalid_argument&) { return true; } return false; };
-  EXPECT(refused([] { tw::makeFrameTiling(0, 100, -5); }) && refused([] { tw::frameLevelFor(10, 0); }) && refused([&] { sincInterpolate(re.data(), 1, 10, {1.0}, 0); }), "refusals");
+  nxr::select::TimeRule both = rule; both.frames_per_tile = 4;
+  nxr::select::TimeRule odd = nested; odd.frames_per_tile = 6;
+  nxr::select::TimeRule outside = rule; outside.origin = sel::point(n + 5);
+  EXPECT(refused([&] { nxr::select::time_rule(line, both); }) && refused([&] { nxr::select::time_rule(line, odd); }) && refused([&] { nxr::select::time_rule(line, outside); }), "both densities, a non power of two, an origin outside the line are refused");
   std::cout << (fails ? "FAILED " : "ok ") << fails << "\n";
   return fails ? 1 : 0;
 }

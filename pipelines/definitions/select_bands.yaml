@@ -1,0 +1,37 @@
+# A BAND SET on a line: ONE maker (the node `select.bands`), spans on the dataset's FREQUENCY line (Hz; charts `linear` and `log10`) or on its EIGENVALUE line (1/m2; charts `eigenvalue` and `wavelength` in mm), every
+# band stated as a QUANTITY in a chart of that line, never an index. A single band SELECTS (it is no frequency axis); several bands are one band SET whose members include the bands. A consumer takes the set
+# through its `bands` edge, never re-making it from parameters.
+#
+#   rule frequency   a list of bands in Hz (or log10 Hz), named; the default is nxr's DEFAULT_BANDS, the octaves 1-2 ... 32-64 Hz
+#   rule eigenvalue  spans in the eigenvalue chart (1/m2) or the wavelength chart (mm)
+#   rule wavelength  named scales by wavelength (the named scales of `scales.h`: hemisphere, lobe, region, gyrus)
+#   rule parts       named scales by parts per hemisphere
+#   rule levels      a dyadic grid's levels, each level's Weyl band (needs the grid; was `spatial_bands`)
+#
+# The band's span is half open [lo, hi); the code is the band's position in the list, the lookup carries {name, lo, hi, unit, chart}. A transform's bins are NOT a line made here: the Frequency line is the dataset's own
+# (nxr `convert.frequency`, 0.5 Hz steps to 500 Hz), and a transform's output carries its made line as a factor.
+#
+#   nxr-neuro run select_bands --dataset <folder> --subject sub-01 --rule frequency [--bands '["1-2 Hz","2-4 Hz","4-8 Hz"]']
+#   nxr-neuro run select_bands --dataset <folder> --subject sub-01 --rule levels --surface cortex
+pipeline: select_bands
+version: 1
+description: a band set as spans on the dataset's Frequency or Eigenvalue line, each band a quantity in a chart of the line
+scope: subject
+
+inputs:
+  surface: {manifold: surface, where: {name: $surface}, required: false, hint: "rule levels: the surface whose grid's levels are the bands"}
+  grid:    {selection: ladder, manifold: surface.manifold.0, where: {name: "{surface} tiles"}, required: false, hint: "rule levels: the surface's tiles (`nxr-neuro run select_dyadic_surface` first)"}
+
+parameters:
+  rule: {default: frequency, meaning: "frequency | eigenvalue | wavelength | parts | levels", unit: "-", choices: [frequency, eigenvalue, wavelength, parts, levels]}
+  surface: {default: null, meaning: "rules wavelength, parts, levels: the surface (its subject owns the spatial band set)", unit: "-"}
+  bands: {default: ["1-2 Hz", "2-4 Hz", "4-8 Hz", "8-16 Hz", "16-32 Hz", "32-64 Hz"], meaning: "the bands as quantities, each half open [lo, hi): Hz (chart linear or log10) for rule frequency, 1/m2 or mm for rule eigenvalue; optionally named {name, band}", unit: Hz, chart: linear}
+  scales: {default: null, meaning: "rules wavelength and parts: the named scales (hemisphere, lobe, region, gyrus) or quantities (wavelength 40 mm, parts 16)", unit: mm, chart: wavelength}
+  name: {default: "{rule} bands", meaning: "the band set's name", unit: "-"}
+
+steps:
+  before:
+    - {node: select.bands, in: {grid: grid}, with: {rule: $rule, bands: $bands}, out: bank}
+
+outputs:
+  bank: {kind: selection, type: spans, name: $name, on: "default.{line}"}

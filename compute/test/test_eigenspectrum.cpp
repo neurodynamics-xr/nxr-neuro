@@ -1,5 +1,5 @@
 // The eigenspectrum (filterbank::forward / inverse, Rheome's graphtransform.eigen): round trip, Parseval, projection, complex fields.
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 
 #include <Eigen/Eigenvalues>
 
@@ -7,7 +7,8 @@
 #include <cstdio>
 #include <random>
 
-using namespace nxr::filterbank;
+using namespace nxr::signal::graphfilterbank;
+using namespace nxr::signal::graphtransforms;
 
 static int failures = 0;
 static void check(bool ok, const char* what, double value) {
@@ -38,29 +39,29 @@ int main() {
     for (int i = 0; i < n; ++i) for (int j = 0; j < nT; ++j) F(i, j) = N01(rng);
 
     // full basis: exact round trip and Parseval
-    const Eigen::MatrixXd C = forward(t, F);
+    const Eigen::MatrixXd C = gft(t, F);
     check(C.rows() == n && C.cols() == nT, "forward shape", 0);
-    const double rt = (inverse(t, C) - F).norm() / F.norm();
-    check(rt < 1e-12, "inverse(forward(F)) = F", rt);
+    const double rt = (igft(t, C) - F).norm() / F.norm();
+    check(rt < 1e-12, "igft(gft(F)) = F", rt);
     const double e1 = C.squaredNorm(), e0 = (F.transpose() * Bd * F).trace();
     check(std::abs(e1 - e0) / e0 < 1e-12, "Parseval ||C||^2 = F'BF", std::abs(e1 - e0) / e0);
 
-    // truncated basis: inverse(forward) is the B-orthogonal projection (idempotent)
+    // truncated basis: igft(forward) is the B-orthogonal projection (idempotent)
     EigenTransform k = t;
     k.phi = t.phi.leftCols(12);
     k.lambda = t.lambda.head(12);
-    const Eigen::MatrixXd P1 = inverse(k, forward(k, F));
-    const double idem = (inverse(k, forward(k, P1)) - P1).norm() / P1.norm();
+    const Eigen::MatrixXd P1 = igft(k, gft(k, F));
+    const double idem = (igft(k, gft(k, P1)) - P1).norm() / P1.norm();
     check(idem < 1e-12, "projection is idempotent", idem);
 
     // complex fields (one FFT bin per column): the parts transform separately
     Eigen::MatrixXcd Z(n, nT);
     Z.real() = F;
     for (int i = 0; i < n; ++i) for (int j = 0; j < nT; ++j) Z(i, j).imag(N01(rng));
-    const Eigen::MatrixXcd Cz = forward(t, Z);
-    const double cr = (Cz.real() - forward(t, Eigen::MatrixXd(Z.real()))).norm() + (Cz.imag() - forward(t, Eigen::MatrixXd(Z.imag()))).norm();
+    const Eigen::MatrixXcd Cz = gft(t, Z);
+    const double cr = (Cz.real() - gft(t, Eigen::MatrixXd(Z.real()))).norm() + (Cz.imag() - gft(t, Eigen::MatrixXd(Z.imag()))).norm();
     check(cr < 1e-12, "complex forward = forward of the parts", cr);
-    const double crt = (inverse(t, Cz) - Z).norm() / Z.norm();
+    const double crt = (igft(t, Cz) - Z).norm() / Z.norm();
     check(crt < 1e-12, "complex round trip", crt);
 
     // no mass: plain orthonormal basis
@@ -68,15 +69,15 @@ int main() {
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> eu(L);
     u.phi = eu.eigenvectors();
     u.lambda = eu.eigenvalues();
-    const double urt = (inverse(u, forward(u, F)) - F).norm() / F.norm();
+    const double urt = (igft(u, gft(u, F)) - F).norm() / F.norm();
     check(urt < 1e-12, "identity-mass round trip", urt);
 
     // shape errors throw
     bool threw = false;
-    try { forward(t, Eigen::MatrixXd(n + 1, 1)); } catch (const std::invalid_argument&) { threw = true; }
+    try { gft(t, Eigen::MatrixXd(n + 1, 1)); } catch (const std::invalid_argument&) { threw = true; }
     check(threw, "forward rejects a field of the wrong length", 0);
     threw = false;
-    try { inverse(k, Eigen::MatrixXd(n, 1)); } catch (const std::invalid_argument&) { threw = true; }
+    try { igft(k, Eigen::MatrixXd(n, 1)); } catch (const std::invalid_argument&) { threw = true; }
     check(threw, "inverse rejects coefficients of the wrong length", 0);
 
     if (failures) return 1;

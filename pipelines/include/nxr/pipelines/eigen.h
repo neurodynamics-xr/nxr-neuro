@@ -1,4 +1,7 @@
-// nxr-pipelines — `eigen_solve`: a subject's Hodge–Dirac eigenmodes, read from its stored surface (nxr-io), solved (nxr-compute), stored (nxr-io), CACHED.
+// nxr-pipelines — a subject's Hodge–Dirac eigenmodes. THE VERB IS A DEFINITION (definitions/eigenmodes.yaml: `nxr-neuro run eigenmodes`, the registered step `hodge_dirac` in eigen_steps.cpp, stored by
+// io's declared outputs: a mode axis, cell complexes, sparse operators, fields on cells). What stays here: `solve_hodge_dirac` (the pure solve the step calls, and tests call) and `eigen_solve`, the library's
+// thin caller of the definition (the spatial bands make missing eigenmodes with it, `dataset create --modes` the default subject's). The stored layout below is unchanged.
+// Before the conversion: read from its stored surface (nxr-io), solved (nxr-compute), stored (nxr-io), CACHED.
 // The twin of `nxr eigen solve` (nxr.pipelines.hodge: solve / solved_package, nxr.io.eigen: store_package) for a surface of one closed piece, or a cortex glued by anatomy (below):
 // intrinsic Delaunay, the split solve — the Laplace–Beltrami ladder (d0^T *1 d0, *0: exact modes) and the 2-form ladder (*2 d1 *1^-1 d1^T *2, *2:
 // coexact modes), cut at ONE lambda, the constants out — and the package stored in nxr's layout (see `nxr/io/eigen.py`):
@@ -37,7 +40,24 @@
 #include <string>
 #include <vector>
 
-#include "nxr/compute.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
 #include "nxr/pipelines/cache.h"
 #include "nxr/pipelines/input.h"
 
@@ -55,6 +75,7 @@ struct HodgeDirac {
   std::int64_t star1_clamped = 0;            // edges whose *1 was raised to the floor (0 without a floor)
   double mollify_epsilon = 0;                // the length mollification added to every edge (0 = none needed)
   std::int64_t flips = 0;                    // edge flips of the intrinsic Delaunay construction
+  nxr::io::Json gauge;                       // the triangulation's gauge (G6): {gauge, gauge_record: {mollify, epsilon, flipEps, mass, boundary_vertices, fingerprint}}
   // THE FULL FORMS: the intrinsic complex the modes are solved on, and each mode's 2-form. With the 0-form part (the vertex potential
   // ψ/√2 above) they give both 1-form parts exactly: dψ/(μ√2) (exact) and ⋆1⁻¹ d1ᵀ ⋆2 χ/(μ√2) (coexact), with d0, d1 read from `edges`, `face_edges`.
   std::vector<std::int32_t> edges;           // [nE x 2] each intrinsic edge's (tail, tip) vertices: d0's orientation (−1 at the tail, +1 at the tip)
@@ -78,7 +99,7 @@ struct HodgeDirac {
 // constants as named, recorded options of the shared names: `mollify` (the mollification margin relative to the mean edge length) and `flip_eps` (an edge is
 // flipped while its cotan weight is below -flip_eps); both in the cache key and the provenance.
 struct SolveMethod {
-  nxr::manifold::solve::HodgeSolveOptions solve;   // shift, sigma, slice, normalize (+ convergence controls tol, ncv, maxit)
+  nxr::operators::HodgeSolveOptions solve;   // shift, sigma, slice, normalize (+ convergence controls tol, ncv, maxit)
   std::optional<double> star1_floor;               // floor of *1 (the cotan weights); unset = none
   double mollify = 1e-6;                           // delta = mollify x the mean edge length (the Studio's `mollify`)
   double flip_eps = 1e-6;                          // the Studio's `flipEps`
@@ -101,8 +122,9 @@ struct EigenSolveResult {
   HodgeDirac modes;
 };
 
-// The pipeline: find the stored package whose producer record equals this job's key (the surface's mesh key and positions, `modes`, nxr-compute's
-// version); reuse it, or solve and store it (rows and arrays together). Progress lines (`{"stage": ...}`) go to `progress`.
+// The caller of the definition `eigenmodes` (`glued` chosen from the surface's pieces): its run finds the stored package whose producer record equals the job's key (the surface's mesh key and
+// positions, the options, nxr-compute's version) and reuses it, or solves and stores it (rows and arrays together). The result reads the stored mu, kind and eigenvectors back (`modes`; the
+// complex and the 2-form parts are stored, not returned). Progress lines (`{"stage": ...}`) go to `progress`.
 EigenSolveResult eigen_solve(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const EigenSolveOptions& opt = {},
                              const std::function<void(const nxr::io::Json&)>& progress = {});
 

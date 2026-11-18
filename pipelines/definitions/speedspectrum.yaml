@@ -1,0 +1,87 @@
+# THE SPEED SPECTRUM OF THE HODGE-DIRAC MODES OF A RECORDING'S SOURCES (four statistics): the fused weights of a free kernel on a stored Hodge-Dirac package, their flow rows applied
+# to each chunk, the modes' cross-spectra bin by bin over [fmin, fmax] (Welch, with the quadrature part, the bad segments left out), then read through a joint bank, the separable
+# product of a graph bank over lambda = mu^2 and a time bank over f: per tile its energy, its speed (a wave of phase speed c lies on 2 pi f = c mu) and its quadrature fraction, and
+# the energy over log-spaced speed bins; exact (divergence) and coexact (rotation) modes apart. The banks have no default family: the caller names them.
+#
+#   nxr-neuro run speedspectrum --dataset <folder> --subject sub-01 --recording rest --all --kernel KERNEL --graph-family mexhat --family morlet --gain 1 --sides analytic --centres "[4, 8, 16]"
+pipeline: speedspectrum
+version: 1
+description: the speed spectrum of the Hodge-Dirac modes of a recording's sources (joint wavenumber x frequency bank)
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel}}
+  package:   {operator: eigenvectors, where: {name: "${package}_eigenvectors"}, hint: "a Hodge-Dirac package of the kernel's surface (`nxr-neuro eigen solve` first)"}
+  bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  kernel: {default: none, meaning: "the free-orientation inverse kernel's name, or none: the subject's one inverse kernel", unit: "-"}
+  package: {default: hodgeDirac, meaning: "the Hodge-Dirac package's stem", unit: "-"}
+  modes: {default: null, meaning: "the first K modes of the package; null: all", unit: "-"}
+  name: {default: "{recording}_{kernel}_speedspectrum", meaning: "the stem of the stored statistics (<name>_energy, _tile_speed, _quadrature, _histogram) and their segments <name>_segments", unit: "-"}
+  fmin: {default: 1.0, meaning: "the lowest frequency kept", unit: "Hz"}
+  fmax: {default: 40.0, meaning: "the highest frequency kept", unit: "Hz"}
+  graph_family: {default: null, meaning: "the graph bank over lambda = mu^2: mexhat | heat | itersine | logitersine (no default)", unit: "-"}
+  graph_voices: {default: 3, meaning: "graph members per octave", unit: "-"}
+  graph_filters: {default: 0, meaning: "graph member count; 0: from the voices", unit: "-"}
+  family: {default: null, meaning: "the time bank: itersine | meyer | morlet | morse | amor | bump (no default)", unit: "-"}
+  gain: {default: null, meaning: "the time bank's peak in-band gain (no default)", unit: "-"}
+  sides: {default: null, meaning: "analytic | two_sided (no default)", unit: "-"}
+  centres: {default: [], meaning: "Morlet, Morse, Amor, Bump: the members' centres", unit: "Hz"}
+  cycles: {default: 6.0, meaning: "Morlet: the width as centre / cycles", unit: "-"}
+  voices: {default: 4, meaning: "Itersine: voices per octave", unit: "-"}
+  anchor: {default: 1.0, meaning: "Itersine: the anchor frequency", unit: "Hz"}
+  limits: {default: null, meaning: "Itersine, Meyer: the bank's frequency limits [lo, hi]", unit: "Hz"}
+  half_width: {default: 0.3333333333333333, meaning: "Meyer: the transition half-width", unit: "octaves"}
+  gamma: {default: 3.0, meaning: "Morse: gamma", unit: "-"}
+  time_bandwidth: {default: 60.0, meaning: "Morse: the time-bandwidth product", unit: "-"}
+  speed_bins: {default: 40, meaning: "log-spaced speed bins", unit: "-"}
+  speed_min: {default: 0.0, meaning: "the lowest speed; 0: from the spectrum", unit: "length/s"}
+  speed_max: {default: 0.0, meaning: "the highest speed; 0: from the spectrum", unit: "length/s"}
+  segment_seconds: {default: 4.0, meaning: "the segment's length in seconds (under segment_rule tile it snaps to the nearest 2^k samples)", unit: "s"}
+  segment_samples: {default: null, meaning: "the segment's length in samples; null: from segment_seconds", unit: "samples"}
+  segment_rule: {default: tile, meaning: "tile | round | even", unit: "-", choices: [tile, round, even]}
+  overlap: {default: 0.5, meaning: "the fraction of a segment shared with the next", unit: "fraction"}
+  window: {default: hamming, meaning: "the taper of each segment", unit: "-", choices: [hann, hamming, blackman, rectangular]}
+  periodic: {default: false, meaning: "the DFT-even form of the window", unit: "-"}
+  detrend: {default: constant, meaning: "what is removed from each segment before windowing", unit: "-", choices: [none, constant, linear]}
+  scaling: {default: density, meaning: "density | spectrum | chain", unit: "-", choices: [density, spectrum, chain]}
+  bad_segments: {default: exclude, meaning: "exclude | ignore", unit: "-", choices: [exclude, ignore]}
+
+steps:
+  before:
+    - {node: operators.hodge_weights, in: {kernel: kernel, package: package}, with: {modes: $modes}, out: weights}
+  chunks:
+    over: recording
+    do:
+      - {node: signal.mode_cross_spectra, in: {x: recording, weights: weights, exclude: bad}, with: {rows: flow, fmin: $fmin, fmax: $fmax, segment_seconds: $segment_seconds, segment_samples: $segment_samples, segment_rule: $segment_rule, overlap: $overlap, window: $window, periodic: $periodic, detrend: $detrend, scaling: $scaling, bad_segments: $bad_segments}, out: spectra}
+  after:
+    - {node: signal.speed_spectrum, in: {spectra: spectra, weights: weights}, with: {graph_family: $graph_family, graph_voices: $graph_voices, graph_filters: $graph_filters, family: $family, gain: $gain, sides: $sides, centres: $centres, cycles: $cycles, voices: $voices, anchor: $anchor, limits: $limits, half_width: $half_width, gamma: $gamma, time_bandwidth: $time_bandwidth, speed_bins: $speed_bins, speed_min: $speed_min, speed_max: $speed_max}, out: [energy, tile_speed, quadrature, histogram]}
+
+outputs:
+  energy:
+    kind: statistic
+    name: "$name_energy"
+    of: recording
+    axes: [{name: kind}, {name: graph_member}, {name: time_member}]
+    partition: {tiling: "$name_segments", on: recording.time}
+  tile_speed:
+    kind: statistic
+    name: "$name_tile_speed"
+    of: recording
+    axes: [{name: kind}, {name: graph_member}, {name: time_member}]
+    partition: {tiling: "$name_segments", on: recording.time}
+  quadrature:
+    kind: statistic
+    name: "$name_quadrature"
+    of: recording
+    axes: [{name: kind}, {name: graph_member}, {name: time_member}]
+    partition: {tiling: "$name_segments", on: recording.time}
+  histogram:
+    kind: statistic
+    name: "$name_histogram"
+    of: recording
+    axes: [{name: kind}, {name: graph_member}, {name: speed_bin}]
+    partition: {tiling: "$name_segments", on: recording.time}

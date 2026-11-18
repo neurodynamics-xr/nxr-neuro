@@ -112,7 +112,7 @@ roll-up and derived measures) and `measure over time`.
   - **Not present:** sleep staging, K-complexes, any Brainstorm-event export.
 - **nxr:**
   - **`detect/sleep_events.py`** is the one general detector (spindles and slow waves of a night of EEG):
-    - it works at 100 Hz after `decimate` (an average reference, a 40 Hz low-pass, ÷ 10);
+    - it works at 100 Hz after `downsample` (an average reference, a 40 Hz low-pass, ÷ 10);
     - it uses the sleep stage per sample (`stage_track`, from imported scored stages).
     - Slow waves:
       - band-pass 0.5–4 Hz;

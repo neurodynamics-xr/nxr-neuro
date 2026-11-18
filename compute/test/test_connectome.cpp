@@ -1,4 +1,4 @@
-// nxr::connectome, nxr::nearest and the sparse congruence: one test a function, and the VERTEX-level fiber counts, connection weights, pruning and largest component against an
+// nxr::meeg, nxr::geometry::nearest and the sparse congruence: one test a function, and the VERTEX-level fiber counts, connection weights, pruning and largest component against an
 // independent DENSE implementation of the reference's behaviour (tess_connectome; test/connectome_helpers.h) on synthetic fibers and a synthetic surface, gate none.
 #include <array>
 #include <cmath>
@@ -6,11 +6,11 @@
 #include <stdexcept>
 
 #include "connectome_helpers.h"
-#include "nxr/congruence.h"
-#include "nxr/connectome.h"
-#include "nxr/nearest.h"
+#include "nxr/core/congruence.h"
+#include "nxr/meeg/connectome.h"
+#include "nxr/geometry/surface_maps.h"
 
-using namespace nxr::connectome;
+using namespace nxr::meeg;
 using Dense = Eigen::MatrixXd;
 
 static bool refused(const std::function<void()>& f) { try { f(); } catch (const std::invalid_argument&) { return true; } return false; }
@@ -52,22 +52,22 @@ int main() {
       for (int i = 0; i < 2001; ++i) cloud.push_back(g.range(-1, 1));
       for (int i = 0; i < 900; ++i) q.push_back(g.range(-1.2, 1.2));
       if (pass == 0) {
-        const auto t = nxr::nearest::nearestVertices<double>(cloud, q), r = nxr::nearest::nearestVerticesBrute<double>(cloud, q);
+        const auto t = nxr::geometry::nearest::nearestVertices<double>(cloud, q), r = nxr::geometry::nearest::nearestVerticesBrute<double>(cloud, q);
         EXPECT(t.vertex == r.vertex && t.distance == r.distance, "random cloud, float64: the tree equals the brute force");
       } else {
         const std::vector<float> cf(cloud.begin(), cloud.end()), qf(q.begin(), q.end());
-        const auto t = nxr::nearest::nearestVertices<float>(cf, qf), r = nxr::nearest::nearestVerticesBrute<float>(cf, qf);
+        const auto t = nxr::geometry::nearest::nearestVertices<float>(cf, qf), r = nxr::geometry::nearest::nearestVerticesBrute<float>(cf, qf);
         EXPECT(t.vertex == r.vertex && t.distance == r.distance, "random cloud, float32: the tree equals the brute force");
         static_assert(std::is_same<decltype(t.distance)::value_type, float>::value, "float32 in, float32 out");
       }
     }
     const std::vector<double> lattice = {0, 0, 0, 1, 0, 0, 0, 1, 0, 1, 1, 0}, q = {0.5, 0.5, 0, 0.5, 0, 0, 1, 1, 0.3};
-    const auto r = nxr::nearest::nearestVertices<double>(lattice, q);
+    const auto r = nxr::geometry::nearest::nearestVertices<double>(lattice, q);
     EXPECT(r.vertex[0] == 0 && r.vertex[1] == 0 && r.vertex[2] == 3, "exact ties go to the lowest index");
     EXPECT(std::abs(r.distance[0] - std::sqrt(0.5)) < 1e-15 && std::abs(r.distance[1] - 0.5) < 1e-15 && std::abs(r.distance[2] - 0.3) < 1e-15, "the distances");
     std::vector<double> dup = {1, 1, 1, 0, 0, 0, 0, 0, 0};
-    EXPECT(nxr::nearest::nearestVertices<double>(dup, {0, 0, 0}).vertex[0] == 1, "two vertices at one place: the lower index");
-    EXPECT(refused([&] { nxr::nearest::nearestVertices<double>({}, {0, 0, 0}); }) && refused([&] { nxr::nearest::nearestVertices<double>({0, 0}, {0, 0, 0}); }), "refusals");
+    EXPECT(nxr::geometry::nearest::nearestVertices<double>(dup, {0, 0, 0}).vertex[0] == 1, "two vertices at one place: the lower index");
+    EXPECT(refused([&] { nxr::geometry::nearest::nearestVertices<double>({}, {0, 0, 0}); }) && refused([&] { nxr::geometry::nearest::nearestVertices<double>({0, 0}, {0, 0, 0}); }), "refusals");
   }
 
   std::cout << "=== endConnectome: symmetric; the total is 2 x the fibers with distinct end vertices; a self-pair leaves no entry; two fibers on one pair give 2 ===\n";
@@ -125,13 +125,13 @@ int main() {
     for (int t = 0; t < 4; ++t) {
       const Dense projection = randomSparse(9 + t, 13, 0.3, false), connections = randomSparse(13, 13, 0.25, true);
       const Dense want = projection * connections * projection.transpose();
-      EXPECT((Dense(nxr::algebra::sparseCongruence<double>(fromDense<double>(projection), fromDense<double>(connections))) - want).cwiseAbs().maxCoeff() < 1e-12, "random sparse " << t << ": equals the dense product");
+      EXPECT((Dense(nxr::core::sparseCongruence<double>(fromDense<double>(projection), fromDense<double>(connections))) - want).cwiseAbs().maxCoeff() < 1e-12, "random sparse " << t << ": equals the dense product");
       const double drop = 1.5;
       Dense pr = want;
       for (int i = 0; i < pr.rows(); ++i) for (int j = 0; j < pr.cols(); ++j) if (std::abs(pr(i, j)) < drop) pr(i, j) = 0;
-      EXPECT((Dense(nxr::algebra::sparseCongruenceBlocked<double>(fromDense<double>(projection), fromDense<double>(connections), 4, drop)) - pr).cwiseAbs().maxCoeff() < 1e-12, "random sparse " << t << ": blocked and pruned equals the pruned dense product");
+      EXPECT((Dense(nxr::core::sparseCongruenceBlocked<double>(fromDense<double>(projection), fromDense<double>(connections), 4, drop)) - pr).cwiseAbs().maxCoeff() < 1e-12, "random sparse " << t << ": blocked and pruned equals the pruned dense product");
     }
-    EXPECT(refused([&] { nxr::algebra::sparseCongruence<double>(fromDense<double>(Dense::Ones(2, 3)), fromDense<double>(Dense::Ones(2, 2))); }), "a shape mismatch is refused");
+    EXPECT(refused([&] { nxr::core::sparseCongruence<double>(fromDense<double>(Dense::Ones(2, 3)), fromDense<double>(Dense::Ones(2, 2))); }), "a shape mismatch is refused");
   }
 
   std::cout << "=== pruneBelow, componentsOf, largestComponent: by hand on a 4 x 4, two blocks, a tie, isolated vertices ===\n";
@@ -162,7 +162,7 @@ int main() {
       const auto ref = ctest::referenceEnds(vertexPositions, b);
       // the code under test, through the same chain
       const auto ends = fiberEnds<double>(b.points, b.nP);
-      const auto near = nxr::nearest::nearestVertices<double>(vertexPositions, ends);
+      const auto near = nxr::geometry::nearest::nearestVertices<double>(vertexPositions, ends);
       const auto counts = endConnectome<double>(near.vertex, keepAll(b.nF), nV);
       const Dense refCounts = ctest::withoutDiag(ctest::referenceCounts(ref, nV));
       EXPECT(Dense(counts) == refCounts, "hops " << hops << " prune " << prune << ": fiber counts identical to the reference's (pattern and value)");
@@ -201,7 +201,7 @@ int main() {
     const auto b = ctest::makeBundle(g, 50, 4, 0.08, 0, 0);
     const std::vector<float> posf(vertexPositions.begin(), vertexPositions.end()), ptsf(b.points.begin(), b.points.end());
     const auto ends = fiberEnds<float>(ptsf, 4);
-    const auto near = nxr::nearest::nearestVertices<float>(posf, ends);
+    const auto near = nxr::geometry::nearest::nearestVertices<float>(posf, ends);
     const auto w = connectionWeights<float>(endConnectome<float>(near.vertex, {}, nV), triangles, 2);
     static_assert(std::is_same<decltype(w)::Scalar, float>::value, "float32 weights");
     EXPECT(w.nonZeros() > 0, "float32 chain ran");

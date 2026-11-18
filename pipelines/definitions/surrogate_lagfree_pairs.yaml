@@ -1,0 +1,42 @@
+# THE LAG-FREE PAIRS SURROGATE OF THE BURSTS' LAGGED SHARE (spec docs/specs/2026-11-17-surrogates.md; a measurement over the bursts and a statistic of the recording): per burst, the analytic windows wholly inside it summed
+# (its sensors' second moment Q), the lagged share |Im Q|^2 / |Q|^2, and the same share under lag-free Wishart draws of the burst's own zero-lag second moment (Re Q) with dof = its duration x the band's
+# effective bandwidth (the PSD's through the band's analytic gain): the p and the BH q over the bursts; and the run's mean share against the draws'. A SENSOR-level test: a burst beyond the surrogate has lags
+# beyond sampling noise, not a wave. The analytic windows come first (`nxr-neuro run measure --set analytic_cross_spectrum_tiles`: the complex measurement `sum` over the band's time grid), `windows` names that grid ("<recording> time grid band 8-12 Hz"); the bursts and the recording's Welch PSD too.
+#
+#   nxr-neuro run surrogate_lagfree_pairs --dataset <folder> --subject sub-01 --recording rest --windows "rest time grid band 8-12 Hz" --bursts "rest alpha bursts" --psd rest_psd_welch --band "[8, 12]"
+pipeline: surrogate_lagfree_pairs
+version: 2
+description: per burst, the lagged share of its sensors' second moment against lag-free Wishart draws of its own zero-lag second moment
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  bursts:    {selection: spans, manifold: recording.time, where: {name: $bursts}}
+  psd:       {statistic: welch, where: {name: $psd}}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  windows: {default: null, meaning: "the band's time grid whose members carry the complex measurement `sum` of z z^H (\"<recording> time grid band 8-12 Hz\"; `run measure --set analytic_cross_spectrum_tiles` first)", unit: "-"}
+  bursts: {default: null, meaning: "the bursts (a spans selection on the recording's time line)", unit: "-"}
+  psd: {default: null, meaning: "the recording's Welch PSD (its bandwidth through the band's gain gives the dof)", unit: "-"}
+  band: {default: null, meaning: "the band [lo, hi]", unit: "Hz"}
+  shape: {default: morlet, meaning: "the band's analytic gain: morlet | meyer", unit: "-", choices: [morlet, meyer]}
+  draws: {default: 1000, meaning: "the lag-free Wishart draws a burst (at least 20)", unit: "-"}
+  seed: {default: 0, meaning: "the draws' seed", unit: "-"}
+  name: {default: "surrogate_lagfree_pairs.{bursts}", meaning: "the per-burst measurement's name; the run's statistic is <name>.run", unit: "-"}
+
+steps:
+  before:
+    - {node: synthesis.lagfree_pairs, in: {recording: recording, bursts: bursts, psd: psd}, with: {windows: $windows, band: $band, shape: $shape, draws: $draws, seed: $seed}, out: [per_burst, run]}
+
+outputs:
+  per_burst:
+    kind: measurement
+    name: $name
+    over: bursts
+    of: recording
+  run:
+    kind: statistic
+    name: "$name.run"
+    of: recording
+    axes: [{name: test}]

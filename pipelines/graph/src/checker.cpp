@@ -43,6 +43,8 @@ InPat selection(std::vector<ManifoldRef> f) { return pattern(PortClass::selectio
 InPat selection_any() { InPat p; p.cls = PortClass::selection; return p; }
 InPat statistic_any() { InPat p; p.cls = PortClass::statistic; return p; }
 InPat any_port() { return InPat{}; }
+InPat manifold_port(const ManifoldRef& m) { return pattern(PortClass::manifold, {m}); }
+InPat transition_port() { InPat p; p.cls = PortClass::operator_; return p; }
 InPat operator_(const ManifoldRef& from, const ManifoldRef& to) {
   InPat p;
   p.cls = PortClass::operator_;
@@ -138,7 +140,7 @@ std::string band_key(const Resolution& r) {   // "8-16", the level's name in a m
   return std::string(a) + "-" + b;
 }
 
-// ── the measure move's rule (spec section 5): a partition's members replace the factors it partitions; the only rule that removes a factor
+// ── the measure move's rule (spec section 5): the members of the selection replace the factors it lies on; the only rule that removes a factor
 void measure_rule(Unified& u, const Signature& sg) {
   std::string over_port;
   for (const auto& [name, p] : sg.inputs) if (p.is_over) over_port = name;
@@ -155,8 +157,11 @@ void measure_rule(Unified& u, const Signature& sg) {
     const PortType& P = u.in.at(over_port);
     const SelectionShape sel = P.sel.value_or(SelectionShape{});
     const std::string id = identity_of(u, over_port);
-    if (!(sel.partition || sel.type == "ladder"))
-      u.fail(over_port, "a measure is taken over a partition (its members disjoint); `" + id + "` is a " + sel.type + " selection that is not one");
+    // any selection on factors of x will do: one region or time range is a selection of one member. Two kinds are measured, and the factors a selection covers are the ones the
+    // measurement loses:
+    //   a GRID (sel.partition: a ladder, a tiling, tiles, a joint or product grid) covers the factors it is defined on, in order (a product grid of space x time covers two), at the levels the field
+    //     is limited to (coupled levels: the level IS the band); only a grid has a closed-form hierarchy to roll up through;
+    //   an IRREGULAR selection (detected events, scouts, an atlas: sel.partition false) is measured member by member: its members may overlap and have no levels, so nothing rolls up.
     const auto& pf = P.domain.factors;
     if (sel.type == "ladder") {
       // a time ladder: the level whose band is x's band (the level IS the band)
@@ -184,7 +189,7 @@ void measure_rule(Unified& u, const Signature& sg) {
       const bool streamed_partitioned = x.domain.streamed() && at + pf.size() == xf.size();
       if (streamed_partitioned && u.chunk_node) u.fail(over_port, "the partition `" + id + "` is of the streamed factor; a measure over it needs an accumulate node (a chunk node keeps the stream)");
       dom.assign(xf.begin(), xf.begin() + static_cast<std::ptrdiff_t>(at));
-      dom.push_back(members(id, pf.back(), streamed_partitioned ? Role::time_tiles : Role::none, pf.size() > 1 ? "joint" : ""));
+      dom.push_back(members(id, pf.back(), streamed_partitioned ? Role::time_tiles : Role::none, pf.size() > 1 ? "joint" : "", P.sel && !P.sel->partition));   // an irregular selection's members are marked: nothing rolls up through them
       dom.insert(dom.end(), xf.begin() + static_cast<std::ptrdiff_t>(at + pf.size()), xf.end());
     }
   }
@@ -228,7 +233,7 @@ void gauge_rule(const Unified& u, Types& out, const Signature& sg) {
   if (!x || !op) return;
   if (x->spin != 0 && (op->second.spin != x->spin || op->second.gauge != x->gauge)) {
     u.fail(op_port, "x is spin " + std::to_string(x->spin) + " in gauge " + (x->gauge.empty() ? "(none)" : x->gauge) + "; the operator is spin " + std::to_string(op->second.spin) + " in gauge " +
-                       (op->second.gauge.empty() ? "(none)" : op->second.gauge) + ". Insert frame.rotate, or recompute the stored field (it predates the gauge record).");
+                       (op->second.gauge.empty() ? "(none)" : op->second.gauge) + ". Insert geometry.frame_rotate, or recompute the stored field (it predates the gauge record).");
   }
   if (op->second.spin != 0)
     for (auto& [port, o] : out)
@@ -236,6 +241,24 @@ void gauge_rule(const Unified& u, Types& out, const Signature& sg) {
 }
 
 }  // namespace
+
+
+// ── QUANTITIES, NOT INDICES (spec 2026-11-17-consolidation.md, section 3.1, item 2): a bare level index is never a parameter of a selection or measurement node; a level is stated as a quantity
+// ("20 mm", "8-12 Hz", "2 s") and resolved in closed form. An index is allowed only through the explicitly named `index` chart (`"index:5"`, a string), for diagnostics and tests.
+// The rule is enforced for EVERY node (b2b: every numeric level parameter of the remaining nodes became a quantity resolved by compute's level_of_*): a bare number under one of the names below is refused.
+// A parameter that is a method constant of a node (a Chebyshev order, a package's modes) has another name and stays.
+void refuse_bare_index(const std::string& label, const std::string& node, const Json& params) {
+  static const std::set<std::string> names = {"level", "levels", "space_level", "space_levels", "time_level", "frame_level", "reference_level", "depth", "atlas_depth", "lc_levels", "segment_level", "time_levels", "window_level"};
+  (void)node;                           // every node is checked
+  if (!params.is_object()) return;
+  for (const auto& [k, v] : params.items()) {
+    if (!names.count(k)) continue;
+    const bool bare = v.is_number() || (v.is_array() && !v.empty() && std::all_of(v.begin(), v.end(), [](const Json& e) { return e.is_number(); }));
+    if (bare)
+      throw TypeRefusal(label + ": parameter `" + k + "` is the bare number " + v.dump() + ". A level or depth is never a parameter: state the quantity it comes from (a tile diameter \"20 mm\", a band \"8-12 Hz\", a duration "
+                        "\"2 s\", a wavelength, parts per hemisphere) and the level is resolved from it; the explicit index chart (\"index:5\") is for diagnostics and tests only.");
+  }
+}
 
 // ───────────────────────────────────────────── type_use ─────────────────────────────────────────────
 
@@ -248,6 +271,8 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
   u.out_names = use.out_names;
   u.made_by = use.made_by;
   u.first_out = sg.outputs.empty() || !use.out_names.count(sg.outputs[0].first) ? std::string() : use.out_names.at(sg.outputs[0].first);
+
+  refuse_bare_index(use.label, node, params);
 
   // 1. THE INPUTS: class, value, linearity, quantity, gauge record, then the domain by unification
   for (const auto& [port, pat] : sg.inputs) {
@@ -278,6 +303,15 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
       for (const auto& q : pat.quantity_in) want += (want.empty() ? "" : " or ") + q;
       u.fail(port, "is " + (t.quantity.empty() ? std::string("of no declared quantity") : t.quantity) + "; this node reads " + want + "." + hint);
     }
+    // AWAITS ITS OPERATOR (rule 32; the surrogates spec section 5): a value made unmixed (its facts name `awaits_operator`: what the operator is of) is read only by the node that composes the awaited
+    // operator (a port `pre_operator` wired with an operator of that name), never by another node: it would be used as if it were mixed.
+    if (t.cls == PortClass::field && t.facts.is_object() && t.facts.contains("awaits_operator")) {
+      const auto po = use.in.find("pre_operator");
+      const bool composes = po != use.in.end() && po->second.facts.is_object() && po->second.facts.value("operator_of", Json()) == t.facts["awaits_operator"].value("of", Json());
+      if (!composes)
+        u.fail(port, "awaits its linear operator (" + t.facts["awaits_operator"].dump() + "): an unmixed surrogate is read only by the node that composes the operator (a `pre_operator` of that name, e.g. apply_kernel's); "
+                     "give it as `pre_operator`." + hint);
+    }
     if ((t.cls == PortClass::field || t.cls == PortClass::operator_) && t.spin != 0 && t.gauge.empty())
       u.fail(port, "is a tangent value (spin " + std::to_string(t.spin) + ") that records no gauge; recompute it with a gauge record (G5).");
     std::string why;
@@ -285,6 +319,54 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
       u.fail(port, "lies on " + print(t.domain) + "; " + why + "." + hint);
     if (pat.has_target && !unify(pat.target, t.target, u.bind, why))
       u.fail(port, "reaches " + print(t.target) + "; " + why + "." + hint);
+  }
+
+  // 1b. POSITIONS (T5): the manifolds a node reads positions of lie in ONE coordinate system, or in the one it names. Never a transition of the checker's own.
+  auto position_cs = [&](const std::string& port) {
+    std::vector<std::pair<ManifoldRef, std::string>> found;      // the factors that have positions, with where in the port they are
+    const auto it = use.in.find(port);
+    if (it == use.in.end()) return found;
+    for (const Domain* d : {&it->second.domain, &it->second.target})
+      for (const auto& f : d->factors)
+        if (f && f->cs && f->kind != ManifoldKind::line && f->form != Manifold::Form::members) found.emplace_back(f, port);
+    return found;
+  };
+  auto transition_hint = [&](const ManifoldRef& from, const ManifoldRef& to) {
+    return "No transition is applied by the checker: add `meeg.positions_transition` with the transition operator " + from->cs->space + ": " + from->cs->name + " -> " + to->cs->name +
+           " (a transition is stored when the recording's device-to-head transform was imported), then run again.";
+  };
+  for (const auto& group : sg.position_groups) {
+    ManifoldRef first; std::string first_port;
+    for (const auto& port : group)
+      for (const auto& [m, _] : position_cs(port)) {
+        if (!first) { first = m; first_port = port; continue; }
+        if (first->cs->space != m->cs->space)
+          u.fail(port, "its positions are in the space " + m->cs->space + "; those of `" + first_port + "` in " + first->cs->space + ". Positions of two spaces are not compared.");
+        if (!same_cs(first->cs, m->cs))
+          u.fail(port, "its positions (" + print(m) + ") are in " + m->cs->space + "/" + m->cs->name + " (" + m->cs->unit + "); those of `" + first_port + "` (" + print(first) + ") in " +
+                       first->cs->space + "/" + first->cs->name + " (" + first->cs->unit + "). " +
+                       // the node names the system it needs for one of its ports: the transition goes into that one
+                       [&] { for (const auto& [np, want] : sg.positions_named) if (want == m->cs->name && std::find(group.begin(), group.end(), np) != group.end()) return transition_hint(first, m); return transition_hint(m, first); }());
+      }
+  }
+  for (const auto& [port, want] : sg.positions_named)
+    for (const auto& [m, _] : position_cs(port))
+      if (m->cs->name != want)
+        u.fail(port, "its positions (" + print(m) + ") are in " + m->cs->space + "/" + m->cs->name + "; this node needs " + want + ". " + transition_hint(m, [&] { Manifold x = *m; x.cs = CoordinateSystem{m->cs->space, want, m->cs->unit}; return std::make_shared<const Manifold>(std::move(x)); }()));
+  // 1b. TWO GAUGES NEVER MEET (G5): fields of one spin in two gauges are not combined. The one conversion is `frame.rotate`; an operator is checked by gauge_rule.
+  if (sg.move != Move::apply) {
+    const std::pair<const std::string, PortType>* first = nullptr;
+    for (const auto& kv : use.in) {
+      const PortType& t = kv.second;
+      if (t.cls != PortClass::field || t.spin == 0) continue;
+      if (!first) { first = &kv; continue; }
+      const PortType& a = first->second;
+      if (a.spin != t.spin)
+        u.fail(kv.first, "is spin " + std::to_string(t.spin) + " but `" + first->first + "` is spin " + std::to_string(a.spin) + ": values of different spin are not combined (a tangent vector, a line field and a conjugate transform differently under a change of gauge).");
+      if (a.gauge != t.gauge)
+        u.fail(kv.first, "is in gauge " + (t.gauge.empty() ? std::string("(none)") : t.gauge) + " but `" + first->first + "` is in gauge " + (a.gauge.empty() ? std::string("(none)") : a.gauge) +
+                             ": two gauges never meet. Insert geometry.frame_rotate on one of them, or recompute the stored field (it predates the gauge record).");
+    }
   }
 
   // 2. THE OUTPUTS, made from the signature
@@ -329,9 +411,15 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
   switch (sg.move) {
     case Move::measure: measure_rule(u, sg); break;
     case Move::summarize: {
+      // across a grid's members a statistic is a roll-up through the grid's closed-form hierarchy; across an irregular selection's members it is a `summary` statistic of their measurements
       const auto x = use.in.find("x");
       if (x != use.in.end() && x->second.cls == PortClass::field && sg.reduces.empty())
         u.fail("x", "a field is measured before it is summarized (the cardinal rule: a reduction is a measurement over a partition): measure it over a partition, then summarize the members.");
+      if (sg.rolls_up)                                            // the move is a roll-up through a grid's hierarchy: refused over an irregular selection's members (the family mark), by the move, not by a parameter's name
+        for (const auto& [port, t] : use.in)
+          for (const ManifoldRef& f : t.domain.factors)
+            if (f && f->form == Manifold::Form::members && f->irregular)
+              u.fail(port, "a level roll-up needs a grid: " + print(f) + " is the member set of an irregular selection, which has no levels. Summarise across its members (a `summary` statistic), or measure over a grid and roll that up.");
       break;
     }
     case Move::make:
@@ -356,6 +444,13 @@ Types type_use(const std::string& node, const Signature& sg, const TypeUse& use,
       const PortType& x = use.in.at("x");
       if (x.cls == PortClass::measurement || x.cls == PortClass::field) o.of = OfType{x.quantity, x.res, x.domain};
     }
+    // A STATISTIC IS NEVER OF A SELECTION'S MEMBERS (spec section 6.1): values on members(P) are a MEASUREMENT (the one table `selection_measurement`); a statistic's axes are not members (channels x frequency,
+    // a covariance, a histogram's bins, the summaries across members), and its partition is PROVENANCE only.
+    if (o.cls == PortClass::statistic)
+      for (const ManifoldRef& f : o.domain.factors)
+        if (f && f->form == Manifold::Form::members)
+          throw TypeRefusal(u.label + (u.first_out.empty() ? "" : " -> " + u.first_out) + ": the output `" + port + "` of " + node + " is a statistic whose axes include " + print(f) +
+                            ", the members of a selection. A value over a selection's members is a measurement: declare it `kind: measurement` (a statistic's axes are not members; its partition is where it was computed from).");
     if (!is_quantity(o.quantity))
       throw TypeRefusal(u.label + ": the output `" + port + "` of " + node + " has the quantity '" + o.quantity + "', which is not in the closed vocabulary (docs/reference.md)");
   }
@@ -397,8 +492,17 @@ TypedGraph type_check(const Graph& g, const Types& inputs, const Json& params, c
       tu.in[port] = v->second;
       tu.in_names[port] = value;
     }
-    for (std::size_t i = 0; i < s->outputs.size(); ++i)
-      tu.out_names[s->outputs[i].first] = i < u.out.size() ? u.out[i] : (u.out.empty() ? label : u.out[0]) + "." + s->outputs[i].first;
+    {                                                                   // the names given, in the order of the outputs the use makes (a node that makes a part of its outputs by a parameter: outputs_for)
+      const NodeSpec* spec = registry().find(u.node);
+      const std::vector<std::string> only = spec && spec->outputs_for ? spec->outputs_for(u.with) : std::vector<std::string>();
+      std::size_t k = 0;
+      for (std::size_t i = 0; i < s->outputs.size(); ++i) {
+        const std::string& port = s->outputs[i].first;
+        if (spec && spec->outputs_for && std::find(only.begin(), only.end(), port) == only.end()) continue;
+        tu.out_names[port] = k < u.out.size() ? u.out[k] : (u.out.empty() ? label : u.out[0]) + "." + port;
+        ++k;
+      }
+    }
     Json with = Json::object();
     for (const auto& [k, v] : u.with.items()) {
       if (v.is_string() && !v.get<std::string>().empty() && v.get<std::string>()[0] == '$') {

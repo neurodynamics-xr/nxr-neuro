@@ -9,6 +9,8 @@
 
 #include "check.h"
 #include "nxr/exporters/fif.h"
+#include "nxr/formats/fif_objects.h"
+#include "nxr/formats/byte_source.h"
 #include "nxr/formats/stc.h"
 #include "nxr/io/array_writer.h"
 #include "nxr/io/subject_package.h"
@@ -88,6 +90,20 @@ int main() {
     fo.name = "series"; fo.output = "series"; fo.kind = "map"; fo.manifold_id = product_id; fo.unit = "A/m"; fo.data.shape = {8, T};
     for (int v = 0; v < 8; ++v) for (int k = 0; k < T; ++k) fo.data.f32.push_back(static_cast<float>(series_value(v, k)));
     u.field(fo);
+    // a covariance statistic on 8 "channels" (the cortex's vertices stand in): their names labelling and the channel Selection the statistic's axes name
+    SelectionOut nm;
+    nm.name = "cortex_names"; nm.output = "cortex_names"; nm.type = "partition"; nm.manifold_id = cortex_id;
+    SelectionOut chs;                                                    // the channels the statistic covers: a PICK (indices) of the manifold's elements, not a partition
+    chs.name = "chans"; chs.output = "chans"; chs.type = "indices"; chs.manifold_id = cortex_id;
+    for (int v = 0; v < 8; ++v) { nm.member_of.push_back(v); chs.codes.push_back(v); nm.entries.push_back("EEG" + std::to_string(v + 1)); }   // the names: a member number per element, each member labelled i
+    u.selection(nm);
+    const std::string chans_id = u.selection(chs);
+    StatisticOut cv;
+    cv.name = "cov"; cv.output = "cov"; cv.measure = "covariance"; cv.method = "sample"; cv.unit = "V\xc2\xb2"; cv.dof = 99.0; cv.detached = true;
+    cv.axes = Json::array({Json{{"name", "channel"}, {"selection_id", chans_id}, {"size", 8}}, Json{{"name", "channel"}, {"selection_id", chans_id}, {"size", 8}}});
+    cv.data.shape = {8, 8};
+    for (int i = 0; i < 8; ++i) for (int j = 0; j < 8; ++j) cv.data.f32.push_back(i == j ? 2.0f + i : 0.25f);
+    u.statistic(cv);
     u.commit();
   }
   {   // the same series stored in chunks of 16 samples: three chunks, the last partial
@@ -161,6 +177,30 @@ int main() {
     if (golden && std::string(name) == "series_chunked") {
       for (const char* n : {"series_chunked-lh.stc", "series_chunked-rh.stc"}) fs::copy_file(root / n, fs::path(golden) / n, fs::copy_options::overwrite_existing);
     }
+  }
+
+  // ---- a covariance statistic: -cov.fif, read back with the pure reader (MNE reads it in the parity test)
+  {
+    ex::CovarianceExport o;
+    o.statistic = "cov"; o.out = (root / "cov").string(); o.ctx = ctx_of();
+    const Json r = ex::export_covariance(pkg, o);
+    CHECK_EQ(r["channels"].get<int>(), 8);
+    const nxr::formats::fif::File f(std::make_shared<nxr::formats::FileSource>((root / "cov-cov.fif").string()));
+    const nxr::formats::fif::Covariance c = nxr::formats::fif::read_covariance(f);
+    CHECK_EQ(c.dim, 8);
+    CHECK_EQ(c.nfree, 99);
+    CHECK_EQ(c.names[0], std::string("EEG1"));
+    CHECK_EQ(c.names[7], std::string("EEG8"));
+    CHECK_EQ(c.data[3 * 8 + 3], 5.0);
+    CHECK_EQ(c.data[1 * 8 + 6], 0.25);
+    CHECK_EQ(c.data[6 * 8 + 1], 0.25);
+    std::ifstream sf(r["sidecar"].get<std::string>());
+    CHECK_EQ(Json::parse(sf)["details"]["unit"].get<std::string>(), std::string("V\xc2\xb2"));
+    if (golden) fs::copy_file(root / "cov-cov.fif", fs::path(golden) / "cov-cov.fif", fs::copy_options::overwrite_existing);
+    o.statistic = "series";
+    CHECK_EQ(code_of([&] { ex::export_covariance(pkg, o); }), std::string(code::no_such_row));          // not a statistic
+    o.statistic = "";
+    CHECK_EQ(code_of([&] { ex::export_covariance(pkg, o); }), std::string(code::invalid_argument));
   }
 
   // ---- refusals

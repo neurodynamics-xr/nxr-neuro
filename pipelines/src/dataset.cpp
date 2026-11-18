@@ -1,9 +1,10 @@
 // nxr-pipelines — a dataset made together with its default subject (see dataset.h).
 #include "nxr/pipelines/dataset.h"
+#include "nxr/pipelines/runner.h"
 
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/frames.h"
-#include "nxr/pipelines/tiles.h"
+#include "nxr/pipelines/run_shipped.h"
 
 namespace nxr::pipelines {
 using namespace nxr::io;
@@ -21,15 +22,27 @@ Json create_dataset_with_template(const std::filesystem::path& datastore, const 
     oo.created_by = created_by;
     SubjectWriter dsub = SubjectWriter::open(ds, kDefaultSubject, oo);
     // the canonical frames (north / west, from the registered sphere) and the anatomical frame from FreeSurfer's surface RAS axes (the template every subject's frame is carried from)
-    FramesComputeOptions fo;
-    fo.convention = "ras";
-    out["default_subject"]["frames"] = frames_compute(ds, dsub, fo).info;
-    // the group tree: it names the frames, and carries the Levi-Civita connection between its tile centres
-    GroupTreeOptions g;
-    g.resolution = opt.subject.default_resolution;
-    g.atlas_depth = opt.atlas_depth;
-    g.lc_levels = opt.lc_levels;
-    out["default_subject"]["group_tree"] = group_tree_compute(ds, dsub, g, progress).info;
+    {
+      graph::RunOptions ro;
+      const auto runs = graph::run(ds, dsub, graph::load("surface_frames"), Json{{"surface", "cortex_pial"}, {"convention", "ras"}}, ro, false, progress);
+      out["default_subject"]["frames"] = runs.empty() ? Json() : runs.front();
+    }
+    // the group tree: the default subject's grid (`select_dyadic_surface`, rule group) with the atlas definitions, its finest tile and its default frame density stated as quantities
+    {
+      const auto runs = run_shipped(ds, dsub, "select_dyadic_surface",
+                                    Json{{"surface", "cortex_pial"}, {"rule", "group"}, {"resolution", opt.subject.default_resolution}, {"finest", opt.atlas_finest}, {"atlas_finest", opt.atlas_finest}, {"frame_rate", opt.frame_rate}},
+                                    false, progress);
+      out["default_subject"]["group_tree"] = runs.empty() ? Json() : runs.front();
+    }
+    // the Levi-Civita connection between neighbouring tiles is a measurement (`reduce`, measure levi_civita) over the product of a level with itself, one per stated scale, of the pial's canonical
+    // frames. The maker that makes that product from a grid's level (a `make` with factors resolved to a level of the stored grid) is not built: the maker takes stored selections by input, and a level
+    // is no selection of its own (consolidation spec 6.2). Until it is, each scale is reported as not measured, never dropped silently.
+    {
+      Json lc = Json::array();
+      for (const std::string& scale : opt.lc_scales)
+        lc.push_back(Json{{"scale", scale}, {"measured", false}, {"reason", "the product of a grid's level with itself has no maker yet (select.product takes stored selections, not a level of a grid)"}});
+      out["default_subject"]["levi_civita"] = lc;
+    }
     out["default_subject"]["modes"] = nullptr;
     if (opt.modes) {
       EigenSolveOptions eo;

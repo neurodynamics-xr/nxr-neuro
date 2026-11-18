@@ -134,7 +134,7 @@ classdef IoTest < SliceTestBase
             tc.verifyClass(img.arrays(1).data, 'single');
             tc.verifyClass(img.arrays(2).data, 'int32');
             % a mesh read from a file goes straight into the eigenmodes
-            r = nxr.compute.manifold.eigenmodes(double(img.arrays(1).data), img.arrays(2).data, 2);
+            r = nxr.compute.operators.eigen(double(img.arrays(1).data), img.arrays(2).data, 2);
             tc.verifyEqual(r.n_converged, 2);
         end
 

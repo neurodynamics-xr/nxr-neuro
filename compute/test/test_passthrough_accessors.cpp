@@ -12,28 +12,47 @@
  *      geometry-central's VertexData<double> read element-by-element.
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
 
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::solve;
-using namespace nxr::manifold::ops;
-using namespace nxr::manifold::ops::laplacian::connection;
-using namespace nxr::manifold::transport;
-using namespace nxr::manifold::connection;
-using namespace nxr::manifold::parametrization;
-using namespace nxr::manifold::parametrization::stripes;
-using namespace nxr::manifold::geometry;
-using namespace nxr::manifold::query;
-using namespace nxr::field::generate;
-using namespace nxr::field::interp;
-using namespace nxr::field::op;
-using namespace nxr::field::extract;
+using namespace nxr::geometry;
+using namespace nxr::operators;
+using namespace nxr::operators;
+using namespace nxr::operators::laplacian::connection;
+using namespace nxr::geometry::transport;
+using namespace nxr::geometry::connection;
+using namespace nxr::operators::connection;
+using namespace nxr::geometry::parametrization;
+using namespace nxr::geometry::parametrization::stripes;
+using namespace nxr::geometry;
+using namespace nxr::geometry::query;
+using namespace nxr::synthesis;
+using namespace nxr::signal;
+using namespace nxr::operators;
+using namespace nxr::signal;
 
 static void buildIcosahedron(std::vector<double>& V, std::vector<int32_t>& F) {
     double t = (1.0 + std::sqrt(5.0)) / 2.0;
@@ -80,7 +99,7 @@ int main() {
     const int nF = static_cast<int>(F.size() / 3);
     std::cout << "  mesh: " << nV << " vertices, " << nF << " faces" << std::endl;
 
-    Manifold m(V.data(), nV, F.data(), nF);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
 
     // ── 1. Bit-identical to assembleDECOperators ────────────────
     {
@@ -96,21 +115,13 @@ int main() {
         std::cout << "  ✓ DEC accessors bit-identical to assembleDECOperators" << std::endl;
     }
 
-    // ── 2. Repeat calls return the same reference (no copy) ────
+    // ── 2. Repeat calls assemble the same matrices (nothing is cached: each call is by value) ────
     {
-        const auto& a = d0(m);
-        const auto& b = d0(m);
-        REQUIRE(&a == &b, "d0 returns same reference on repeat call");
+        REQUIRE(sparseDiffNorm(d0(m), d0(m)) == 0.0, "d0 assembled twice is the same matrix");
+        REQUIRE(sparseDiffNorm(hodge1(m), hodge1(m)) == 0.0, "hodge1 assembled twice is the same matrix");
+        REQUIRE((vertexDualAreas(m) - vertexDualAreas(m)).norm() == 0.0, "vertexDualAreas assembled twice is the same vector");
 
-        const auto& h1a = hodge1(m);
-        const auto& h1b = hodge1(m);
-        REQUIRE(&h1a == &h1b, "hodge1 returns same reference on repeat call");
-
-        const auto& va_a = vertexDualAreas(m);
-        const auto& va_b = vertexDualAreas(m);
-        REQUIRE(&va_a == &va_b, "vertexDualAreas returns same reference on repeat call");
-
-        std::cout << "  ✓ Repeat calls return identical reference (zero-copy)" << std::endl;
+        std::cout << "  ✓ Repeat calls give identical matrices" << std::endl;
     }
 
     // ── 3. vertexDualAreas matches assembleManifoldOperators' vertexAreas ──

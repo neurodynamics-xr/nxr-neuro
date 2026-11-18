@@ -1,4 +1,4 @@
-// nxr::phase against nxr's phase reader (golden: test/golden/gen_phase_golden.py, from nxr/detect/core_phase.py's `gradient_and_kernel` GV and `read_out`'s
+// nxr::signal against nxr's phase reader (golden: test/golden/gen_phase_golden.py, from nxr/detect/core_phase.py's `gradient_and_kernel` GV and `read_out`'s
 // formulas): the phase gradient and the velocity of a random complex field on a bumped icosphere (642 vertices, mm), three frames. Then what the maths
 // promises, on a sphere (radius 50 mm):
 //   TRAVELLING  z = e^{-i m λ} (m = 2, λ the longitude): ∇φ along e_λ with |∇φ| = m/ρ, the speed ω ρ/m, the travelling index 1;
@@ -7,7 +7,7 @@
 //               does not leak into the phase: d·∇d = 0);
 //   POINTWISE   every value depends on its own frame only (a frame computed alone equals it computed with others);
 // the phase current lies on the tangent plane; refusals.
-#include "nxr/phase.h"
+#include "nxr/signal/phase_gradient.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,7 +25,7 @@ static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
 
-using namespace nxr::phase;
+using namespace nxr::signal;
 using Faces = Eigen::Matrix<int32_t, Eigen::Dynamic, 3, Eigen::RowMajor>;
 
 static std::map<std::string, std::vector<double>> load(const std::string& path, int& nV, int& nF) {

@@ -1,20 +1,20 @@
-// nxr::pca against its reference (golden: test/golden/pca_golden.txt, gen_pca_golden.py: numpy's SVD of the centred table, the sign convention applied; synthetic data only), and its own properties:
+// nxr::stats against its reference (golden: test/golden/pca_golden.txt, gen_pca_golden.py: numpy's SVD of the centred table, the sign convention applied; synthetic data only), and its own properties:
 // the sign convention, orthonormal components, the variance shares, the reconstruction (full rank returns the table, k = 0 the mean, k components the best rank-k fit), agreement with the eigendecomposition
-// of the table's covariance (nxr::patterns::leading), a rank-deficient table, and the refusals.
+// of the table's covariance (nxr::signal::leading), a rank-deficient table, and the refusals.
 #include <cmath>
 #include <iostream>
 #include <random>
 #include <string>
 
 #include "golden_io.h"
-#include "nxr/patterns.h"
-#include "nxr/pca.h"
+#include "nxr/signal/crossspectral_decomposition.h"
+#include "nxr/stats/pca.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-using namespace nxr::pca;
+using namespace nxr::stats;
 
 static bool refused(const std::function<void()>& f) { try { f(); } catch (const std::invalid_argument&) { return true; } return false; }
 
@@ -87,7 +87,7 @@ int main() {
     // agreement with the eigendecomposition of the covariance (n x n sample covariance of the columns, p = 9)
     const MatrixXd Xc = X.rowwise() - X.colwise().mean();
     const MatrixXd cov = Xc.transpose() * Xc / static_cast<double>(X.rows() - 1);
-    const nxr::patterns::Leading L = nxr::patterns::leading(cov.cast<std::complex<double>>(), 5);
+    const nxr::signal::Leading L = nxr::signal::leading(cov.cast<std::complex<double>>(), 5);
     double ve = 0, vv = 1e300;
     for (int c = 0; c < 5; ++c) {
       ve = std::max(ve, std::abs(L.values[c] - r.explainedVariance[c]) / r.explainedVariance[0]);

@@ -1,0 +1,46 @@
+# A PRODUCT SELECTION on a product manifold: ONE maker (the node `select.product`), as the Studio's D100 `productSelection` and D129 joint partition. Two or more FACTORS (a grid level, a band set, an elements grid, or
+# an irregular set), the code mixed radix FIRST factor fastest (`product_code`); `layout: joint` is the atlas layout, code (tile << bits) | frame, arrays [band x tile x frame]. A box is a multi-axis span.
+#
+# COUPLING (rule 5). A factor may be a grid whose level a band SETS: `{grid: <surface grid>, level_of: band}` (the Weyl level of the band's centre, `space_level_of_band`) or `{grid: <time grid>, level_of: band}` (the
+# time level of the band, `time_level_of_band`). With a band set the product is made per band member, each band its own levels; coupled levels are resolved in closed form at plan time and recorded in the product's
+# factors (schema 53 `selection_factor.level`), never as selections of their own. Roll-ups run only along GRID factors.
+#
+# Every factor's level is a QUANTITY (a tile diameter, a wavelength, a duration, a band), never an index.
+#
+#   nxr-neuro run select_product --dataset <folder> --subject sub-01 --recording rest --surface cortex --band-set "frequency bands" --couple '[{"factor": 1, "band": "alpha"}]'
+pipeline: select_product
+version: 1
+description: the product of grids and band sets on a product manifold (a box, a grid of cells, or the joint partition), with levels coupled to bands in closed form
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}, required: false}
+  surface:   {manifold: surface, where: {name: $surface}, required: false}
+  space:     {selection: ladder, manifold: surface.manifold.0, required: false, hint: "the surface's whole grid (`nxr-neuro run select_dyadic_surface` first): its level is coupled by `couple`"}
+  time:      {selection: any, manifold: recording.time, where: {name: $time_grid}, required: false, hint: "the line's time grid by name (`time_grid`; `nxr-neuro run select_time_grid --rule band --band 8-16Hz` first: a band's tiles are a time grid of their own, found by the rule's name)"}
+  bands:     {selection: spans, where: {name: $band_set}, required: false, hint: "a stored band set whose members couple the levels (`nxr-neuro run select_bands` first)"}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  surface: {default: null, meaning: "the surface by name", unit: "-"}
+  band_set: {default: null, meaning: "a stored band set whose members couple the levels: one product per member, in one pass", unit: "-"}
+  layout: {default: product, meaning: "product = mixed radix, first factor fastest | joint = the atlas layout (tile << bits) | frame, arrays [band x tile x frame]", unit: "-", choices: [product, joint]}
+  time_grid: {default: null, meaning: "the time grid of the line by name, e.g. the band 8-16 Hz grid of the recording (made by `select_time_grid --rule band`)", unit: "-"}
+  couple: {default: null, meaning: "factors whose level is coupled in closed form: a list of {factor: index, band: name of a member of `band_set`, or a frequency band quantity \"8-16 Hz\"} for a time factor (its tile holds the band's cycles), {factor: index, scale: a quantity} for a surface factor (parts per hemisphere, a wavelength, an eigenvalue, an area), or {factor: index, band: name} with an eigenvalue band set", unit: "-"}
+  name: {default: "{recording} {surface} product", meaning: "the product's name", unit: "-"}
+
+steps:
+  before:
+    - {node: select.product, in: {first: space, second: time, bands: bands}, with: {layout: $layout, couple: $couple}, out: [product_space, product]}
+
+outputs:
+  product_space:
+    kind: manifold
+    type: product
+    factors: [surface.manifold.0, recording.time]
+  product:
+    kind: selection
+    type: product
+    name: $name
+    on: product_space
+    factors: [space, time]

@@ -340,8 +340,13 @@ class SubjectWriter {
   std::string statistic(StatisticSpec spec);
   // A SELECTION node (and its spans, extents and measurements).
   std::string selection(SelectionSpec spec);
-  // A selection's measurement row (added to a selection of this subject).
+  // A selection's measurement row (added to a selection of this subject). The selection CRUD (save, load, update, delete, lookup, measurements) is gathered in io's
+  // selection module (selection_store.h, selection_measurement.h); these members are its entry points for a composition and delegate to it.
   void measurement(const std::string& selection_id, const Cols& row);
+  // UPDATES OF A STORED SELECTION (the Studio's selections.setSpans / setExtents / setMeasurements): each replaces what it names, in one transaction
+  void set_spans(const std::string& selection_id, const std::vector<SpanSpec>& spans);            // a spans set's member rows (n_members follows)
+  void set_extents(const std::string& selection_id, const std::vector<ExtentSpec>& extents);      // a span's corners
+  void set_own_measurements(const std::string& selection_id, const std::vector<Cols>& rows);      // its own values (code null); its members' rows are the measurement path's
   // A DICTIONARY by name in its scope, and the CODE each requested name has in it.
   DictionaryResult dictionary(const DictionarySpec& spec);
   // THE ACQUISITION a node was made from or for (D161): the subject's row of that label, made on first use with its BIDS entities.
@@ -365,6 +370,9 @@ class SubjectWriter {
   void write_sparse(const std::string& path, const SparseArrays& parts);
   // DELETE one of this subject's nodes (a row of manifold · field · operator · selection · subject).
   void remove(const std::string& table, const std::string& id);
+  // CHANGE the rows of a stored node of this subject: `body` runs as an update (the whole procedure per call when the subject is immediate, else one transaction).
+  // The selection module's updates (selection_store.h) run through this; the SQL is theirs.
+  void update(const std::function<void()>& body);
 
   // ── reads ──
   std::optional<Row> find(const std::string& table, const std::string& path) const;

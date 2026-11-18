@@ -1,12 +1,29 @@
 // Named-operator eigensolve: eigenProblemFor / eigenOperator + ℍ-multiplet
 // reconstruction + dense verification path.
-#include "nxr/compute.h"
-#include "nxr/facets.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/geometry/parametrization.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
 #include <cmath>
 #include <iostream>
-using namespace nxr::manifold;
+#include "surface_of.h"
+using namespace nxr::geometry;
 
 static int g_failures = 0;
 #define EXPECT(cond, msg) do { \
@@ -37,45 +54,45 @@ static Eigen::SparseMatrix<double> kronOracle(const Eigen::SparseMatrix<double>&
 static void testBlockKronAndProblem() {
     std::cout << "\n=== eigenProblemFor: assembly ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
     const int N = m.nV(), Fn = m.nF();
 
     // blockKron == kron(M, I_b).
-    Eigen::SparseMatrix<double> Mg = m.operators().mass().galerkin();
-    EXPECT((solve::blockKron(Mg, 4) - kronOracle(Mg, 4)).norm() < 1e-12,
+    Eigen::SparseMatrix<double> Mg = nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin);
+    EXPECT((nxr::operators::blockKron(Mg, 4) - kronOracle(Mg, 4)).norm() < 1e-12,
            "blockKron(M,4) == kron(M, I4)");
 
     // dirac problem: K = dirac(τ), M = M_mixedVoronoi ⊗ I4 (the default mass), block 4.
-    Eigen::SparseMatrix<double> Mv = m.operators().mass().mixedVoronoi();
-    solve::EigenProblem p = solve::eigenProblemFor(m, {solve::EigenOperator::Dirac, 0.5});
+    Eigen::SparseMatrix<double> Mv = nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi);
+    nxr::operators::EigenProblem p = nxr::operators::eigenProblemFor(m, {nxr::operators::EigenOperator::Dirac, 0.5});
     EXPECT(p.blockSize == 4 && p.K.rows() == 4*N && p.M.rows() == 4*N, "dirac problem is [4V×4V], block 4");
-    EXPECT((p.K - m.operators().dirac(0.5)).norm() < 1e-12, "dirac K == operators().dirac(τ)");
+    EXPECT((p.K - nxr::operators::diracFamily(m, 0.5)).norm() < 1e-12, "dirac K == operators().dirac(τ)");
     EXPECT((p.M - kronOracle(Mv, 4)).norm() < 1e-12, "dirac M == M_mixedVoronoi ⊗ I4");
 
-    solve::EigenProblem pf = solve::eigenProblemFor(m, {solve::EigenOperator::DiracFace, 1.0});
+    nxr::operators::EigenProblem pf = nxr::operators::eigenProblemFor(m, {nxr::operators::EigenOperator::DiracFace, 1.0});
     EXPECT(pf.blockSize == 4 && pf.K.rows() == 4*Fn, "diracFace problem is [4F×4F], block 4");
 
-    solve::EigenProblem pc = solve::eigenProblemFor(m, {solve::EigenOperator::LaplacianCotan});
+    nxr::operators::EigenProblem pc = nxr::operators::eigenProblemFor(m, {nxr::operators::EigenOperator::LaplacianCotan});
     EXPECT(pc.blockSize == 1 && pc.K.rows() == N, "cotan problem is [V×V], block 1");
 }
 
 static void testCotanMatchesDirect() {
     std::cout << "\n=== eigenOperator(cotan): the shift ladder vs the dense solve (and the old fixed σ = -1e-8) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
     /* THE DEFAULT (no σ) is the scale-aware shift ladder; the truth is the dense generalized solve */
-    solve::EigenResult a = solve::eigenOperator(m, {solve::EigenOperator::LaplacianCotan}, 6);
-    solve::EigenResult d = solve::eigenOperator(m, {solve::EigenOperator::LaplacianCotan}, 6,
-                                                solve::kShiftLadder, true, false, /*dense=*/true);
-    solve::EigenResult f = solve::eigen(m.operators().laplacian().cotan(),
-                                        m.operators().mass().mixedVoronoi(), 6, -1e-8, true);
+    nxr::operators::EigenResult a = nxr::operators::eigenOperator(m, {nxr::operators::EigenOperator::LaplacianCotan}, 6);
+    nxr::operators::EigenResult d = nxr::operators::eigenOperator(m, {nxr::operators::EigenOperator::LaplacianCotan}, 6,
+                                                nxr::operators::kShiftLadder, true, false, /*dense=*/true);
+    nxr::operators::EigenResult f = nxr::operators::eigen(nxr::operators::cotanLaplacian(m),
+                                        nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi), 6, -1e-8, true);
     const double eLadder = (a.eigenvalues - d.eigenvalues).cwiseAbs().maxCoeff();
     const double eFixed  = (f.eigenvalues - d.eigenvalues).cwiseAbs().maxCoeff();
     std::cout << "  max |λ − λ_dense|: ladder " << eLadder << " · fixed σ=-1e-8 " << eFixed << "\n";
     EXPECT(eLadder < 1e-9, "named-operator cotan eigenvalues (the shift ladder) match the dense solve");
     /* an explicit σ is still honoured as a fixed shift: the result is the direct shift-invert's, whatever it gives */
-    solve::EigenResult g = solve::eigenOperator(m, {solve::EigenOperator::LaplacianCotan}, 6, -1e-8);
+    nxr::operators::EigenResult g = nxr::operators::eigenOperator(m, {nxr::operators::EigenOperator::LaplacianCotan}, 6, -1e-8);
     EXPECT((g.eigenvalues - f.eigenvalues).cwiseAbs().maxCoeff() < 1e-12, "an explicit sigma is still a fixed shift");
 }
 
@@ -92,13 +109,13 @@ static double maxMultipletSpread(const Eigen::VectorXd& ev) {
 static void testDiracMultipletsAndDense() {
     std::cout << "\n=== eigenOperator(dirac): ℍ-reconstruction vs dense ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
-    solve::EigenProblem p = solve::eigenProblemFor(m, {solve::EigenOperator::Dirac, 0.5});
+    nxr::operators::EigenProblem p = nxr::operators::eigenProblemFor(m, {nxr::operators::EigenOperator::Dirac, 0.5});
 
     // Reconstructed multiplets: M-orthonormal, exactly 4-fold, ascending.
-    solve::EigenResult rec = solve::eigenOperator(
-        m, {solve::EigenOperator::Dirac, 0.5}, 8,
+    nxr::operators::EigenResult rec = nxr::operators::eigenOperator(
+        m, {nxr::operators::EigenOperator::Dirac, 0.5}, 8,
         -1e-8, /*normalize=*/true, /*reconstructMultiplets=*/true);
     EXPECT(rec.k % 4 == 0 && rec.k >= 8, "reconstructed count is a multiple of 4 (>=8)");
     Eigen::MatrixXd gram = rec.eigenvectors.transpose() * (p.M * rec.eigenvectors);
@@ -107,8 +124,8 @@ static void testDiracMultipletsAndDense() {
     EXPECT(maxMultipletSpread(rec.eigenvalues) < 1e-9, "reconstructed eigenvalues are exact 4-fold multiplets");
 
     // Dense exact solve agrees with the reconstructed spectrum on the lowest 8.
-    solve::EigenResult dns = solve::eigenOperator(
-        m, {solve::EigenOperator::Dirac, 0.5}, 8,
+    nxr::operators::EigenResult dns = nxr::operators::eigenOperator(
+        m, {nxr::operators::EigenOperator::Dirac, 0.5}, 8,
         -1e-8, /*normalize=*/true, /*reconstructMultiplets=*/false, /*dense=*/true);
     EXPECT(dns.eigenvalues.size() == 8, "dense returns the lowest 8");
     double maxDiff = (rec.eigenvalues.head(8) - dns.eigenvalues.head(8)).cwiseAbs().maxCoeff();
@@ -122,16 +139,16 @@ static void testDiracMultipletsAndDense() {
 static void testDiracFaceEigensolve() {
     std::cout << "\n=== eigenOperator(diracFace) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
-    Manifold m(V.data(), 12, F.data(), 20);
+    const auto m = surfaceOf(V.data(), 12, F.data(), 20);
 
-    solve::EigenResult rec = solve::eigenOperator(
-        m, {solve::EigenOperator::DiracFace, 0.5}, 8,
+    nxr::operators::EigenResult rec = nxr::operators::eigenOperator(
+        m, {nxr::operators::EigenOperator::DiracFace, 0.5}, 8,
         -1e-8, true, /*reconstructMultiplets=*/true);
     EXPECT(rec.k % 4 == 0, "diracFace reconstructed count divisible by 4");
     EXPECT(maxMultipletSpread(rec.eigenvalues) < 1e-9, "diracFace exact 4-fold multiplets");
 
-    solve::EigenResult dns = solve::eigenOperator(
-        m, {solve::EigenOperator::DiracFace, 0.5}, 8, -1e-8, true, false, /*dense=*/true);
+    nxr::operators::EigenResult dns = nxr::operators::eigenOperator(
+        m, {nxr::operators::EigenOperator::DiracFace, 0.5}, 8, -1e-8, true, false, /*dense=*/true);
     EXPECT((rec.eigenvalues.head(8) - dns.eigenvalues.head(8)).cwiseAbs().maxCoeff() < 1e-6,
            "diracFace reconstructed == dense (lowest 8)");
 }

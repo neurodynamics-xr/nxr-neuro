@@ -12,5 +12,5 @@ function eig = eigen(mctx, k, sigma)
     if nargin < 3 || isempty(sigma)
         sigma = NaN;
     end
-    eig = nxr_compute('solve', mctx.K, mctx.M, k, sigma);
+    eig = nxr_compute('operators.eigen', mctx.K, mctx.M, k, sigma);
 end

@@ -22,13 +22,13 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "portable_random.h"
-#include "nxr/intervals.h"
+#include "nxr/select/events.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/statistic.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/measure.h"
 #include "nxr/pipelines/patches.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -125,12 +125,12 @@ int main() {
     });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S");
-  const TilesComputeResult tr = tiles_compute(ds, sub, TilesComputeOptions{});
+  const TilesComputeResult tr = nxrtest::make_tiles(ds, sub);
   const int depth = tr.info["depth"].get<int>();
   std::printf("  ladder: %d levels, %d tiles at depth %d\n", tr.info["levels"].get<int>(), tr.info["tiles_at_depth"].get<int>(), depth);
 
-  nxr::ladder::Mesh lm; lm.positions = b.P; lm.faces = b.F; lm.n = nV;
-  const std::vector<double> va = nxr::ladder::vertexAreas(lm);
+  nxr::select::Mesh lm; lm.positions = b.P; lm.faces = b.F; lm.n = nV;
+  const std::vector<double> va = nxr::select::vertexAreas(lm);
   auto field_id = [&](const std::string& n) { return nxr::io::task::Subject::of(sub).require({.cls = nxr::io::task::Cls::field, .name = n, .any_status = true}, n).id; };
   auto sel_row = [&](const std::string& n) { return nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = n, .any_status = true}); };
   auto patch_codes = [&](const std::string& name) { return read_array<std::int32_t>(sub, *sel_row(name)->array_path); };
@@ -146,7 +146,7 @@ int main() {
     Eigen::VectorXd m(T);
     for (int t = 0; t < T; ++t) m(t) = (sgn == "negative" ? -1 : 1) * sx[t] / sw[t];
     if (sgn == "magnitude") m = m.cwiseAbs();
-    const double med = nxr::intervals::median(m), sd = nxr::intervals::mad(m);
+    const double med = nxr::select::median(m), sd = nxr::select::mad(m);
     std::vector<std::set<int>> nb(T);
     for (int f = 0; f < b.nF; ++f) for (int k = 0; k < 3; ++k) { const int a = tile[b.F[3 * f + k]], c = tile[b.F[3 * f + (k + 1) % 3]]; if (a != c) { nb[a].insert(c); nb[c].insert(a); } }
     std::vector<int> lab(T, -1), comp(T, -1);
@@ -252,8 +252,7 @@ int main() {
   // THE SEPARATE ROWS: a plain `measure compute` of the map over the same tiling is its own (of the map, not of its band), and neither overwrites the other
   {
     const auto before = rows_of(tiling, field_id("pet_band_L5"), "mean");
-    MeasureComputeOptions mo; mo.labelling = tiling; mo.fields = "^pet$"; mo.weight = "barycentric"; mo.measures = {"mean"};
-    measure_compute(ds, sub, mo);
+    nxr::pipelines::run_shipped(ds, sub, "measure", Json{{"field", "pet"}, {"over", tiling}, {"weight", "barycentric"}, {"measures", Json::array({"mean"})}}, false);
     const auto plain = rows_of(tiling, field_id("pet"), "mean"), after = rows_of(tiling, field_id("pet_band_L5"), "mean");
     CHECK(before == after && plain.size() == after.size());
     double diff = 0; for (std::size_t t = 0; t < plain.size(); ++t) diff = std::max(diff, std::abs(plain[t] - after[t]));
@@ -359,7 +358,7 @@ int main() {
         w.field(std::move(f));
       }); }
     SubjectWriter w = SubjectWriter::open(d2, "S");
-    tiles_compute(d2, w, TilesComputeOptions{});
+    nxrtest::make_tiles(d2, w);
     PatchesComputeOptions a; a.map = "m"; a.level = 4; a.transform = "exact"; a.enter_sd = 1.0; a.exit_sd = 0.5;
     patches_compute(d2, w, a);
     auto band = [&] { const auto r = nxr::io::task::Subject::of(w).find({.cls = nxr::io::task::Cls::field, .name = "m_band_L4", .any_status = true}); return read_array<double>(w, *r->path); };

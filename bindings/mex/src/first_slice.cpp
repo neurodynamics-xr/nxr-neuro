@@ -11,13 +11,31 @@
 #include <stdexcept>
 
 #include "first_slice_internal.h"
-#include "nxr/compute.h"
-#include "nxr/filter.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_arrays.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/filters.h"
 #ifdef NXR_MEX_WITH_IO
 #include "nxr/io/errors.h"
 #endif
-#include "nxr/pca.h"
-#include "nxr/welch.h"
+#include "nxr/stats/pca.h"
+#include "nxr/signal/spectral.h"
 
 namespace nxr::mex {
 #ifdef NXR_MEX_WITH_IO
@@ -36,42 +54,42 @@ void need(int nrhs, int n, const char* cmd) {
   throw std::invalid_argument(std::string(what) + " '" + got + "' is not one of " + allowed);
 }
 
-nxr::welch::Window parse_window(const std::string& s) {
-  using nxr::welch::Window;
+nxr::signal::spectral::Window parse_window(const std::string& s) {
+  using nxr::signal::spectral::Window;
   if (s == "hann") return Window::Hann;
   if (s == "hamming") return Window::Hamming;
   if (s == "blackman") return Window::Blackman;
   if (s == "rectangular") return Window::Rectangular;
   bad_name("window", s, "hann, hamming, blackman, rectangular");
 }
-nxr::welch::Detrend parse_detrend(const std::string& s) {
-  using nxr::welch::Detrend;
+nxr::signal::spectral::Detrend parse_detrend(const std::string& s) {
+  using nxr::signal::spectral::Detrend;
   if (s == "none") return Detrend::None;
   if (s == "constant") return Detrend::Constant;
   if (s == "linear") return Detrend::Linear;
   bad_name("detrend", s, "none, constant, linear");
 }
-nxr::welch::Scaling parse_scaling(const std::string& s) {
-  using nxr::welch::Scaling;
+nxr::signal::spectral::Scaling parse_scaling(const std::string& s) {
+  using nxr::signal::spectral::Scaling;
   if (s == "density") return Scaling::Density;
   if (s == "spectrum") return Scaling::Spectrum;
   if (s == "chain") return Scaling::Chain;
   bad_name("scaling", s, "density, spectrum, chain");
 }
-nxr::filter::Method parse_method(const std::string& s) {
-  if (s == "fir") return nxr::filter::Method::Fir;
-  if (s == "iir") return nxr::filter::Method::Iir;
+nxr::signal::filters::Method parse_method(const std::string& s) {
+  if (s == "fir") return nxr::signal::filters::Method::Fir;
+  if (s == "iir") return nxr::signal::filters::Method::Iir;
   bad_name("method", s, "fir, iir");
 }
-nxr::filter::Edge parse_edge(const std::string& s) {
-  if (s == "mean_of_transient") return nxr::filter::Edge::MeanOfTransient;
-  if (s == "zeros") return nxr::filter::Edge::Zeros;
+nxr::signal::filters::Edge parse_edge(const std::string& s) {
+  if (s == "mean_of_transient") return nxr::signal::filters::Edge::MeanOfTransient;
+  if (s == "zeros") return nxr::signal::filters::Edge::Zeros;
   bad_name("edge", s, "mean_of_transient, zeros");
 }
 
 // the arguments of a Welch call from a[0]: sfreq, segment_samples, overlap, window, periodic, detrend, scaling
-nxr::welch::WelchOptions welch_options(const mxArray** a) {
-  nxr::welch::WelchOptions o;
+nxr::signal::spectral::WelchOptions welch_options(const mxArray** a) {
+  nxr::signal::spectral::WelchOptions o;
   o.sfreq = get_scalar(a[0], "sfreq");
   const double n = get_scalar(a[1], "segment_samples");
   if (n < 1 || n != std::floor(n)) throw std::invalid_argument("segment_samples must be a positive integer");
@@ -95,16 +113,14 @@ std::vector<std::uint8_t> get_good(const mxArray* a, Eigen::Index samples, bool&
   return g;
 }
 
-// [frequencies, psd, segments, segments_skipped] = compute.welch.psd(x, sfreq, segment_samples, overlap, window, periodic, detrend, scaling, good)
+// [frequencies, psd, segments, segments_skipped] = compute.signal.psd(x, sfreq, segment_samples, overlap, window, periodic, detrend, scaling, good)
 void welchPsd(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 9, "compute.welch.psd");
+  need(nrhs, 9, "compute.signal.psd");
   const Matrix x = get_matrix(prhs[1], "x");
   const auto opt = welch_options(prhs + 2);
   bool given = false;
   const auto good = get_good(prhs[9], x.m.cols(), given);
-  nxr::welch::Welch w(static_cast<int>(x.m.rows()), opt);
-  if (given) w.add(x.m, good); else w.add(x.m);
-  nxr::welch::WelchResult r = w.result();
+  nxr::signal::spectral::WelchResult r = nxr::signal::spectral::psd(x.m, opt, given ? &good : nullptr);
   plhs[0] = give_vector(r.frequencies, false, true);
   plhs[1] = give(r.psd, x.single);
   plhs[2] = give_scalar(static_cast<double>(r.segments));
@@ -127,25 +143,23 @@ mxArray* give_stack(const std::vector<Eigen::MatrixXd>& stack, std::size_t rows,
   return a;
 }
 
-// [frequencies, real, imag, segments, segments_skipped] = compute.welch.cross_spectrum(x, sfreq, segment_samples, overlap, window, periodic, detrend, scaling,
+// [frequencies, real, imag, segments, segments_skipped] = compute.signal.xpsd(x, sfreq, segment_samples, overlap, window, periodic, detrend, scaling,
 //                                                                                 bins, mean, quadrature, good)       bins: [G x 2], 1-based
 void welchCross(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 12, "compute.welch.cross_spectrum");
+  need(nrhs, 12, "compute.signal.xpsd");
   const Matrix x = get_matrix(prhs[1], "x");
   const auto opt = welch_options(prhs + 2);
   const Matrix b = get_matrix(prhs[9], "bins");
   if (b.m.cols() != 2) throw std::invalid_argument("bins is [groups, 2]: first and last bin of each group");
   const bool mean = get_bool(prhs[10], "mean"), quadrature = get_bool(prhs[11], "quadrature");
-  std::vector<nxr::welch::BinGroup> groups;
+  std::vector<nxr::signal::spectral::BinGroup> groups;
   for (Eigen::Index g = 0; g < b.m.rows(); ++g) {
     if (b.m(g, 0) < 1 || b.m(g, 1) < b.m(g, 0)) throw std::invalid_argument("each bin group runs from first to last, 1-based (bin 1 is DC)");
     groups.push_back({static_cast<std::size_t>(b.m(g, 0)) - 1, static_cast<std::size_t>(b.m(g, 1)) - 1, mean});
   }
   bool given = false;
   const auto good = get_good(prhs[12], x.m.cols(), given);
-  nxr::welch::CrossWelch w(static_cast<int>(x.m.rows()), opt, groups, quadrature);
-  if (given) w.add(x.m, good); else w.add(x.m);
-  nxr::welch::CrossWelchResult r = w.result();
+  nxr::signal::spectral::CrossWelchResult r = nxr::signal::spectral::xpsd(x.m, opt, groups, quadrature, given ? &good : nullptr);
   const std::size_t c = static_cast<std::size_t>(x.m.rows());
   plhs[0] = give_vector(r.frequencies, false, true);
   plhs[1] = give_stack(r.S, c, c, x.single);
@@ -154,12 +168,12 @@ void welchCross(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   plhs[4] = give_scalar(static_cast<double>(r.segmentsSkipped));
 }
 
-// y = compute.filter.<kind>(x, sfreq, lower, upper, frequencies, method, ripple, transition_bandwidth, edge, transient_energy, transient_samples, remove_mean,
+// y = compute.signal.<kind>(x, sfreq, lower, upper, frequencies, method, ripple, transition_bandwidth, edge, transient_energy, transient_samples, remove_mean,
 //                       notch_bandwidth, bandstop_order); the kind is the command's last part. [] stands for an option not given.
 void filterApply(const std::string& kind, int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 14, "compute.filter.*");
+  need(nrhs, 14, "compute.signal.*");
   const Matrix x = get_matrix(prhs[1], "x");
-  nxr::filter::FilterOptions o = nxr::filter::brainstormFilterOptions(get_scalar(prhs[2], "sfreq"));
+  nxr::signal::filters::FilterOptions o = nxr::signal::filters::brainstormFilterOptions(get_scalar(prhs[2], "sfreq"));
   const double lower = get_scalar(prhs[3], "lower"), upper = get_scalar(prhs[4], "upper");
   const Eigen::VectorXd freqs = get_vector(prhs[5], "frequencies");
   if (!is_unset(prhs[6])) o.method = parse_method(get_string(prhs[6], "method"));
@@ -176,25 +190,25 @@ void filterApply(const std::string& kind, int, mxArray** plhs, int nrhs, const m
   if (!is_unset(prhs[13])) o.notchBandwidth = get_scalar(prhs[13], "notch_bandwidth");
   o.bandstopOrder = static_cast<int>(get_scalar(prhs[14], "bandstop_order"));
   Eigen::MatrixXd y;
-  if (kind == "lowpass") y = nxr::filter::lowpass(x.m, upper, o);
-  else if (kind == "highpass") y = nxr::filter::highpass(x.m, lower, o);
-  else if (kind == "bandpass") y = nxr::filter::bandpass(x.m, lower, upper, o);
-  else if (kind == "bandstop") y = nxr::filter::bandstop(x.m, lower, upper, o);
-  else if (kind == "notch") y = nxr::filter::notch(x.m, std::vector<double>(freqs.data(), freqs.data() + freqs.size()), o);
+  if (kind == "lowpass") y = nxr::signal::filters::lowpass(x.m, upper, o);
+  else if (kind == "highpass") y = nxr::signal::filters::highpass(x.m, lower, o);
+  else if (kind == "bandpass") y = nxr::signal::filters::bandpass(x.m, lower, upper, o);
+  else if (kind == "bandstop") y = nxr::signal::filters::bandstop(x.m, lower, upper, o);
+  else if (kind == "notch") y = nxr::signal::filters::notch(x.m, std::vector<double>(freqs.data(), freqs.data() + freqs.size()), o);
   else throw std::invalid_argument("filter kind '" + kind + "' is not one of lowpass, highpass, bandpass, bandstop, notch");
   plhs[0] = give(y, x.single);
 }
 
-// [components, singular_values, explained_variance, explained_variance_ratio, scores, mean, scale, rank] = compute.pca.pca(x, scale)
+// [components, singular_values, explained_variance, explained_variance_ratio, scores, mean, scale, rank] = compute.stats.pca(x, scale)
 void pcaFit(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 2, "compute.pca.pca");
+  need(nrhs, 2, "compute.stats.pca");
   const Matrix x = get_matrix(prhs[1], "x");
-  nxr::pca::PcaOptions o;
+  nxr::stats::PcaOptions o;
   const std::string s = get_string(prhs[2], "scale");
-  if (s == "none") o.scale = nxr::pca::Scale::None;
-  else if (s == "unit_variance") o.scale = nxr::pca::Scale::UnitVariance;
+  if (s == "none") o.scale = nxr::stats::Scale::None;
+  else if (s == "unit_variance") o.scale = nxr::stats::Scale::UnitVariance;
   else bad_name("scale", s, "none, unit_variance");
-  nxr::pca::PcaResult r = nxr::pca::pca(x.m, o);
+  nxr::stats::PcaResult r = nxr::stats::pca(x.m, o);
   plhs[0] = give(r.components, x.single);
   plhs[1] = give_vector(r.singularValues, x.single, true);
   plhs[2] = give_vector(r.explainedVariance, x.single, true);
@@ -205,9 +219,9 @@ void pcaFit(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   plhs[7] = give_scalar(static_cast<double>(r.rank));
 }
 
-// y = compute.pca.reconstruct(scores, components, mean, scale, k)
+// y = compute.stats.reconstruct(scores, components, mean, scale, k)
 void pcaReconstruct(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 5, "compute.pca.reconstruct");
+  need(nrhs, 5, "compute.stats.reconstruct");
   const Matrix scores = get_matrix(prhs[1], "scores"), comps = get_matrix(prhs[2], "components");
   const Eigen::VectorXd mean = get_vector(prhs[3], "mean"), scale = get_vector(prhs[4], "scale");
   const double kd = get_scalar(prhs[5], "k");
@@ -215,12 +229,12 @@ void pcaReconstruct(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   if (kd < 0 || kd != std::floor(kd) || k > comps.m.rows() || k > scores.m.cols()) throw std::invalid_argument("k is from 0 to the number of components held");
   if (comps.m.cols() != mean.size() || mean.size() != scale.size()) throw std::invalid_argument("mean and scale hold one value per feature");
   if (scores.m.cols() != comps.m.rows()) throw std::invalid_argument("scores and components hold the same number of components");
-  plhs[0] = give(nxr::pca::reconstruct(scores.m, comps.m, mean, scale, static_cast<int>(k)), scores.single);
+  plhs[0] = give(nxr::stats::reconstruct(scores.m, comps.m, mean, scale, static_cast<int>(k)), scores.single);
 }
 
-// [eigenvalues, eigenvectors, n_converged] = compute.manifold.eigenmodes(vertices, faces, k, sigma, normalize, remove_dc, intrinsic_delaunay); faces 1-based
+// [eigenvalues, eigenvectors, n_converged] = compute.operators.eigen(vertices, faces, k, sigma, normalize, remove_dc, intrinsic_delaunay); faces 1-based
 void manifoldEigenmodes(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  need(nrhs, 7, "compute.manifold.eigenmodes");
+  need(nrhs, 7, "compute.operators.eigen");
   const Matrix v = get_matrix(prhs[1], "vertices");
   const Matrix f = get_matrix(prhs[2], "faces");
   if (v.m.cols() != 3 || f.m.cols() != 3) throw std::invalid_argument("vertices and faces are [n, 3]");
@@ -239,21 +253,81 @@ void manifoldEigenmodes(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   const bool hasSigma = !is_unset(prhs[4]);
   const double sigma = hasSigma ? get_scalar(prhs[4], "sigma") : 0.0;
   const bool normalize = get_bool(prhs[5], "normalize"), removeDc = get_bool(prhs[6], "remove_dc"), delaunay = get_bool(prhs[7], "intrinsic_delaunay");
-  nxr::manifold::Manifold m(xyz.data(), nV, tri.data(), nF, delaunay);
-  auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
-  auto r = nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, k, hasSigma ? sigma : nxr::manifold::solve::kShiftLadder, normalize, removeDc);
+  const nxr::geometry::SurfaceArrays surface = nxr::geometry::surfaceArrays(xyz.data(), nV, tri.data(), nF, nxr::geometry::intrinsicOptions(delaunay));
+  auto ops = nxr::operators::assembleManifoldOperators(surface);
+  auto r = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, k, hasSigma ? sigma : nxr::operators::kShiftLadder, normalize, removeDc);
   plhs[0] = give_vector(r.eigenvalues, false, false);
   plhs[1] = give(r.eigenvectors, false);
   plhs[2] = give_scalar(static_cast<double>(r.nConverged));
 }
 
+// The commands renamed to the toolbox words (one word per thing across the C++ function, the node and the bindings; the test names_across_layers reads this table):
+// an old string is REFUSED with the new name, never answered as an alias.
+const char* const kRetiredCommands[][2] = {
+    {"compute.welch.psd", "compute.signal.psd"},
+    {"compute.welch.cross_spectrum", "compute.signal.xpsd"},
+    {"compute.pca.pca", "compute.stats.pca"},
+    {"compute.pca.reconstruct", "compute.stats.reconstruct"},
+    {"compute.manifold.eigenmodes", "compute.operators.eigen"},
+    // the commands of the former surface class, now the library's functions by toolbox name (array-based: the surface is the data of `geometry.surfaceArrays`)
+    {"assembleManifoldOperators", "operators.assembleManifoldOperators"},
+    {"solve", "operators.eigen"},
+    {"precompute", "operators.eigen"},
+    {"normalize", "operators.normalize"},
+    {"removeDC", "operators.removeDC"},
+    {"fixDelaunay", "geometry.fixDelaunay"},
+    {"parallel", "geometry.parallel"},
+    {"extendScalar", "geometry.extendScalar"},
+    {"logMap", "geometry.logMap"},
+    {"findCenter", "geometry.findCenter"},
+    {"signedHeat", "geometry.signedHeat"},
+    {"heat", "geometry.heat"},
+    {"smoothFace", "geometry.smoothFace"},
+    {"smoothVertex", "geometry.smoothVertex"},
+    {"compute", "geometry.compute"},
+    {"computeFreq", "geometry.computeFreq"},
+    {"assembleDECOperators", "operators.assembleDECOperators"},
+    {"assembleConnectionLaplacian", "operators.assembleConnectionLaplacian"},
+    {"trivialConnectionLaplacian", "operators.assembleTrivialConnectionLaplacian"},
+    {"frames", "geometry.frames"},
+    {"vertexFrames", "geometry.vertexFrames"},
+    {"normals", "geometry.normals"},
+    {"poisson", "operators.poisson"},
+    {"tracePath", "geometry.tracePath"},
+    {"hodge", "signal.hodge"},
+    {"curvatures", "geometry.curvatures"},
+    {"bff", "geometry.bff"},
+    {"isoline", "signal.isoline"},
+    {"directionField", "operators.trivial"},
+    {"trivial", "operators.trivial"},
+    {"streamline", "signal.streamline"},
+    {"whitney", "signal.whitney"},
+    {"gradient", "operators.gradient"},
+    {"heatDiffusion", "synthesis.heatDiffusion"},
+    {"dampedWave", "synthesis.dampedWave"},
+    {"randomDecomposed1Form", "synthesis.randomDecomposed1Form"},
+    {"frameTransport", "operators.frameTransport"},
+    {"liftToWorld", "operators.liftToWorld"},
+    {"liftToFrame", "operators.liftToFrame"},
+    {"operatorInfo", "operators.operatorById"},
+    {"fieldInfo", "operators.fieldById"},
+};
+// The context of the surface class is gone with the class (the surface is data, `geometry.surfaceArrays`, passed to each command): these commands are removed, not renamed.
+const char* const kRemovedContextCommands[] = {"create", "destroy", "topology", "geometry", "gauge", "bundle", "operators", "embedded", "intrinsic", "extrinsic", "facets"};
+// "compute.filter.<kind>" became "compute.signal.<kind>"
+bool retired(const std::string& cmd, std::string& renamed) {
+  for (const auto& r : kRetiredCommands) if (cmd == r[0]) { renamed = r[1]; return true; }
+  if (cmd.rfind("compute.filter.", 0) == 0) { renamed = "compute.signal." + cmd.substr(15); return true; }
+  return false;
+}
+
 bool dispatchOps(const std::string& cmd, int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
-  if (cmd == "compute.welch.psd") welchPsd(nlhs, plhs, nrhs, prhs);
-  else if (cmd == "compute.welch.cross_spectrum") welchCross(nlhs, plhs, nrhs, prhs);
-  else if (cmd.rfind("compute.filter.", 0) == 0) filterApply(cmd.substr(15), nlhs, plhs, nrhs, prhs);
-  else if (cmd == "compute.pca.pca") pcaFit(nlhs, plhs, nrhs, prhs);
-  else if (cmd == "compute.pca.reconstruct") pcaReconstruct(nlhs, plhs, nrhs, prhs);
-  else if (cmd == "compute.manifold.eigenmodes") manifoldEigenmodes(nlhs, plhs, nrhs, prhs);
+  if (cmd == "compute.signal.psd") welchPsd(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.xpsd") welchCross(nlhs, plhs, nrhs, prhs);
+  else if (cmd.rfind("compute.signal.", 0) == 0) filterApply(cmd.substr(15), nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.stats.pca") pcaFit(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.stats.reconstruct") pcaReconstruct(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.operators.eigen") manifoldEigenmodes(nlhs, plhs, nrhs, prhs);
   else return false;
   return true;
 }
@@ -274,6 +348,8 @@ std::string identifier(const std::string& code) {
 bool dispatchFirstSlice(const std::string& cmd, int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
   if (cmd.rfind("compute.", 0) != 0 && cmd.rfind("io.", 0) != 0) return false;
   bool known = true;
+  std::string renamed;
+  if (retired(cmd, renamed)) throw SliceFailure{"nxr:renamed", "The command \"" + cmd + "\" was renamed: use \"" + renamed + "\"."};
   try {
     known = dispatchOps(cmd, nlhs, plhs, nrhs, prhs);
 #ifdef NXR_MEX_WITH_IO
@@ -288,6 +364,20 @@ bool dispatchFirstSlice(const std::string& cmd, int nlhs, mxArray** plhs, int nr
   }
   if (!known) throw SliceFailure{"nxr:unknownCommand", "Unknown command: \"" + cmd + "\"."};
   return true;
+}
+
+bool refusedCommand(const std::string& cmd, std::string& message) {
+  std::string renamed;
+  if (retired(cmd, renamed)) {
+    message = "The command \"" + cmd + "\" was renamed: use \"" + renamed + "\".";
+    return true;
+  }
+  for (const char* r : kRemovedContextCommands)
+    if (cmd == r) {
+      message = "The command \"" + cmd + "\" was removed with the surface class: the surface is now the data of \"geometry.surfaceArrays\" (nxr_compute('geometry.surfaceArrays', V, F)), passed as the first argument to each command.";
+      return true;
+    }
+  return false;
 }
 
 }  // namespace nxr::mex

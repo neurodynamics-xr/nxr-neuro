@@ -18,28 +18,47 @@
  * tolerance (~1e-4), but on this fixture 1e-7 is correct.
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
 
 #include <cassert>
 #include <cmath>
 #include <cstdlib>
 #include <iostream>
 #include <vector>
+#include "surface_of.h"
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::solve;
-using namespace nxr::manifold::ops;
-using namespace nxr::manifold::ops::laplacian::connection;
-using namespace nxr::manifold::transport;
-using namespace nxr::manifold::connection;
-using namespace nxr::manifold::parametrization;
-using namespace nxr::manifold::parametrization::stripes;
-using namespace nxr::manifold::geometry;
-using namespace nxr::manifold::query;
-using namespace nxr::field::generate;
-using namespace nxr::field::interp;
-using namespace nxr::field::op;
-using namespace nxr::field::extract;
+using namespace nxr::geometry;
+using namespace nxr::operators;
+using namespace nxr::operators;
+using namespace nxr::operators::laplacian::connection;
+using namespace nxr::geometry::transport;
+using namespace nxr::geometry::connection;
+using namespace nxr::operators::connection;
+using namespace nxr::geometry::parametrization;
+using namespace nxr::geometry::parametrization::stripes;
+using namespace nxr::geometry;
+using namespace nxr::geometry::query;
+using namespace nxr::synthesis;
+using namespace nxr::signal;
+using namespace nxr::operators;
+using namespace nxr::signal;
 
 #define REQUIRE(cond, msg) do { \
     if (!(cond)) { \
@@ -79,10 +98,10 @@ int main() {
     int nV = static_cast<int>(V.size() / 3);
     int nF = static_cast<int>(F.size() / 3);
 
-    Manifold m(V.data(), nV, F.data(), nF);
+    const auto m = surfaceOf(V.data(), nV, F.data(), nF);
     auto ops = assembleManifoldOperators(m);
     auto dec = assembleDECOperators(m);
-    int nE = m.nE();
+    int nE = nxr::geometry::meshTopology(m).nE;
 
     // ── 1. Delta ─────────────────────────────────────────────
     {
@@ -117,7 +136,7 @@ int main() {
     // ── 3. Eigenmode field: extract column k ─────────────────
     {
         // Solve a few eigenmodes so we have something to extract from.
-        auto eig = solve::eigen(ops.cotanLaplacian, ops.mass, 6);
+        auto eig = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, 6);
         auto phi3 = eigenmodeField(eig, 3);
         REQUIRE(phi3.size() == nV, "eigenmode field has nV entries");
         REQUIRE((phi3 - eig.eigenvectors.col(3)).cwiseAbs().maxCoeff() == 0.0,
@@ -167,8 +186,8 @@ int main() {
                   << genErr << ") ✓" << std::endl;
 
         // 4b. Run hodge.
-        CholeskyCache cache;
-        auto result = hodge(m, dec, cache, omega);
+        auto coexact = coexactFormSolver(dec);
+        auto result = nxr::signal::hodge(m, dec, *exactFormFactor(dec), *coexact, omega);
 
         // 4c. Decomposition identity: ω == dα + δβ + γ algebraically.
         Eigen::VectorXd reconstructed =
@@ -216,8 +235,8 @@ int main() {
 
     // ── Solve eigenmodes for the time-varying tests ──────────
     // Pipeline: solve → M-orthonormalize → removeDC. Same as the addon.
-    auto eigRaw = solve::eigen(ops.cotanLaplacian, ops.mass, 6);
-    eigRaw.eigenvectors = solve::normalize(eigRaw.eigenvectors, ops.mass);
+    auto eigRaw = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, 6);
+    eigRaw.eigenvectors = nxr::operators::normalize(eigRaw.eigenvectors, ops.mass);
     auto eig = removeDC(eigRaw);
     int K = eig.k;
     REQUIRE(K == 5, "icosahedron yields 5 non-DC modes from k=6");

@@ -50,4 +50,34 @@ struct JoinOptions {
 Json split_dataset(const std::filesystem::path& dataset_folder, const SplitOptions& opt);
 Json join_dataset(const std::filesystem::path& dataset_folder, const JoinOptions& opt = {});
 
+// ── THE SELECTIONS' STORAGE (schema 52): label arrays and the JSON form of 2026-11-17 to member numbers + labels beside them, a constant-Q ladder's level code to the power of two
+// of its window (a ladder lacking the window is refused), a spatial dyadic ladder's rule noted; see migrate_selection.cpp. In place, resumable, `dry_run` changes nothing. Run it BEFORE
+// `split_dataset` (a split refuses a dataset not converted). Sets `meta.selection_storage`. Report: counts per subject.
+struct SelectionStorageOptions {
+  bool dry_run = false;
+  std::function<void(const std::string& stage, const std::string& subject)> on_stage;
+};
+Json migrate_selection_storage(const std::filesystem::path& dataset_folder, const SelectionStorageOptions& opt = {});
+
+// ── THE MEASUREMENTS' STORAGE (schema 53; docs/specs/2026-11-17-consolidation.md section 6.3): ONE table holds a value over a selection's members, `selection_measurement`. The `statistic` rows
+// that are a value per member of a partition (their axes_json has an axis on the partition's members) become array-backed measurements; a product made only to couple a level is rewritten as a
+// product of (grid, level); the day-anchored tower tilings are marked read-only. In place, subject by subject, RESUMABLE and verified; WRITTEN, NOT RUN: the fixture alone is migrated, in the final round.
+//   1. For each such statistic: its values are rewritten into [rows x members x components] at `<path>.members` (rows = the other axes in order, components = the trailing parts; the statistic's options,
+//      producer, axes, value type, components and unit in the array's attributes), VERIFIED byte for byte against the source, and one `selection_measurement` row is made (selection_id = the partition,
+//      of_field_id and of_statistic_id as the statistic's, measure, array_path, unit, computed_by). A measurement of that measure already on the partition is a CONFLICT (reported, nothing overwritten).
+//      The statistic is marked in its options (`migrated_to_measurement`) and, by default, LEFT IN PLACE with its array: nothing is deleted unless the removal step is requested.
+//   2. A product whose factor is a LEVEL ROW of a ladder (made only to couple a level) names the ladder and the level instead (`selection_factor.level` = the level's identity, the level row's ordinal, `params_json.product`
+//      entries gain `level`); the codes are unchanged. The level rows stay.
+//   3. A frame tiling on the tower (params_json.atlas.frame_level / frame_code0) gets `retired_grid: "tower"`: its measurements stay readable, new runs use the line's time grid.
+//   4. meta `measurement_storage` = "members" (a dataset made now has it).
+// `remove_statistics` is the EXPLICIT second step, run only when the option is set: each migrated statistic whose measurement is verified is removed (a statistic whose parent was it is re-pointed to the
+// measurement: of_statistic_id null, of_field_id kept, options.of_measurement); the drain then removes the old array by its queued delete job.
+struct MeasurementStorageOptions {
+  bool dry_run = false;                           // report the plan; change nothing
+  bool remove_statistics = false;                 // the second step above (never taken by default)
+  std::function<void(const std::string& stage, const std::string& subject)> on_stage;   // "converted", "products", "tilings", "removed": a test throws from it to stop there
+};
+// The report: per subject the statistics converted, conflicts (by name), products rewritten, tilings marked, statistics removed; the dataset's totals and `dry_run`.
+Json migrate_measurement_storage(const std::filesystem::path& dataset_folder, const MeasurementStorageOptions& opt = {});
+
 }  // namespace nxr::io

@@ -1,5 +1,5 @@
 function gen_filter_golden(out)
-% Brainstorm's temporal filters on synthetic signals: the golden for nxr::filter's Brainstorm option set (test_filter.cpp).
+% Brainstorm's temporal filters on synthetic signals: the golden for nxr::signal::filters's Brainstorm option set (test_filter.cpp).
 % Only Brainstorm's computational functions are called (no database, no GUI): addpath of its toolbox, then
 %   bst_bandpass_hfilter(x, Fs, HighPass, LowPass, isMirror, isRelax)   linear-phase FIR (Kaiser), band-pass / low-pass / high-pass  [also its FiltSpec: coefficients, transient]
 %   process_notch('Compute', x, Fs, FreqList, '', bandWidth)            2nd-order IIR notch, zero phase (filtfilt), one frequency after the other

@@ -1,0 +1,33 @@
+# A FIELD CHAIN (`kind: chain`): the OUTER PRODUCT of a band's analytic signal at the sensors, z z^H per sample (the general A M A^H algebra, its own pointwise form `outer`): field<channels x channels x T; complex>.
+# Composes `band_analytic` then the form `outer` (`field.form`). Composed into `measure` (preset analytic_cross_spectrum_tiles) the sum over a time tile of z z^H is the tile's cross-spectrum.
+#
+# Not materialised by default: a z z^H per sample is channels^2 values a sample; run alone it is for small checks only.
+#
+#   nxr-neuro run measure --dataset <folder> --subject sub-01 --set analytic_cross_spectrum_tiles --recording rest --band "8-12 Hz" --all
+pipeline: band_outer
+kind: chain
+version: 1
+one_of: [band, bands]
+description: the pointwise outer product z z^H of a recording's band analytic signal at the sensors
+scope: subject
+
+inputs:
+  recording: {field: recording, each: true, where: {name: $recording}}
+  z:         {field: analytic signal, chain: band_analytic, chain_parameters: {recording: "{recording}", band: $band, bands: $bands, channels: $channels, shape: $shape, halo: $halo}, hint: "composed in: the band's analytic signal"}
+
+parameters:
+  recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
+  bands: {default: null, meaning: "the band SET by name (a member per band). Exactly one of band, bands", unit: "-"}
+  band: {default: null, meaning: "ONE band as a quantity (\"8-12 Hz\"). Exactly one of band, bands", unit: Hz, chart: linear}
+  channels: {default: null, meaning: "a stored cross-spectrum's name: the analytic signal is made on ITS channels only; null: every channel of the recording", unit: "-"}
+  shape: {default: morlet, meaning: "the band filter: morlet | meyer | power_partition", unit: "-", choices: [morlet, meyer, power_partition]}
+  halo: {default: 8.0, meaning: "the context read on each side of a chunk for the filter", unit: s, chart: clock}
+
+steps:
+  chunks:
+    over: recording
+    do:
+      - {node: signal.field_form, in: {x: z}, with: {form: outer}, out: zz}
+
+outputs:
+  zz: {kind: field, kind_name: outer product, name: "{recording}_band_outer", on: recording.manifold.0, derived_from: recording}

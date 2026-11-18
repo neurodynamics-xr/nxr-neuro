@@ -1,6 +1,6 @@
 % explore_cortex.m — run every nxr.manifold.* function on a real Brainstorm
 % cortical surface and COLLECT every result into one structure `M` (for
-% Manifold) that mirrors the nxr.manifold.* groups, so you can explore,
+% surface context) that mirrors the nxr.manifold.* groups, so you can explore,
 % analyze, and test the outputs afterwards.
 %
 %   After running, your workspace holds `M` with, e.g.:
@@ -207,21 +207,20 @@ fprintf('(nxr keeps 1 residual DC mode — 2 hemispheres; reference removed %g.)
 % A couple of nxr functions have no functional-API leaf yet (gradient,
 % tracePath); drive them via the raw MEX with a transient stateful handle.
 fprintf('\n=== additional analyses ===\n');
-hctx_a = nxr_compute('create', V, F);
-analGuard = onCleanup(@() nxr_compute('destroy', hctx_a)); %#ok<NASGU>
+hctx_a = nxr_compute('geometry.surfaceArrays', V, F);   % the surface as data
 
 % DEC: gradient of the geodesic-distance field → a face-centered vector field
-M.field.gradient_of_distance = nxr_compute('gradient', hctx_a, M.measure.distance);
+M.field.gradient_of_distance = nxr_compute('operators.gradient', hctx_a, M.measure.distance);
 fprintf('  [OK]   %-26s %s\n', 'field.gradient_of_distance', describe(M.field.gradient_of_distance));
 
 % flip-out geodesic path between two vertices in the SAME hemisphere
 % (a cross-component path is undefined): hemi-1 first & middle vertex.
 vA = comps(1).vidx(1);  vB = comps(1).vidx(round(numel(comps(1).vidx)/2));
-M.query.tracePath = nxr_compute('tracePath', hctx_a, int32(vA), int32(vB));
+M.query.tracePath = nxr_compute('geometry.tracePath', hctx_a, int32(vA), int32(vB));
 fprintf('  [OK]   %-26s %s  (verts %d→%d, length=%.4f)\n', 'query.tracePath', ...
     describe(M.query.tracePath), vA, vB, sum(vecnorm(diff(M.query.tracePath,1,1),2,2)));
 
-clear analGuard hctx_a;
+clear hctx_a;
 
 % ── visual validation via nxr.viz (per hemisphere) ───────────
 % The cortex is two disconnected components (left/right hemispheres). For

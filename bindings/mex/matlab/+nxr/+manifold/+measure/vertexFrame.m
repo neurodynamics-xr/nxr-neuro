@@ -8,5 +8,5 @@ function out = vertexFrame(mctx)
 %   3D tangent vector a*e1(i,:) + b*e2(i,:). e1 ⟂ e2, both unit, e2 = n × e1.
 %
 %   See also: nxr.manifold.measure.frame (the per-FACE frame).
-    out = nxr.manifold.impl.withHandle(mctx, @(h) nxr_compute('vertexFrames', h));
+    out = nxr_compute('geometry.vertexFrames', mctx.surface);
 end

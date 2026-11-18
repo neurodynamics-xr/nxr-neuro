@@ -5,14 +5,14 @@
 // initialisation. Re-exports a friendly `initNxrCompute` that returns
 // the loaded module.
 //
-// Two surfaces share the same underlying ContextWrapper:
+// The functions are the library's, by toolbox name, on arrays; the surface is data (nothing is kept between calls):
 //
-//   1. Flat surface (legacy, backward-compatible):
+//   1. Flat surface:
 //        const nxr = await initNxrCompute()
-//        const ctx = nxr.createContext(verts, faces)
-//        ctx.solve(300)
+//        const surface = nxr['geometry.surfaceArrays'](verts, faces)
+//        const d = nxr['geometry.heat'](surface, [0])
 //
-//   2. Six-group nested namespace `nxr.manifold.*` (preferred for new code):
+//   2. Six-group nested namespace `nxr.manifold.*` over the surface data:
 //        const mctx = nxr.createManifoldContext(verts, faces)
 //        mctx.solve.eigen(300)
 //        mctx.operator.d0()
@@ -23,10 +23,11 @@
 //        nxr.nxr.manifold.solve.eigen(mctx, 300)
 //        nxr.nxr.manifold.operator.d0(mctx)
 //
+// An old name (`createContext`, `solve`, `heat`, ...) is refused with an error naming the new one.
+//
 // Repo / package: `@neurodynamics-xr/nxr-compute` (the engine).
 // JS API namespace: `nxr.manifold.*` (the manifold concepts inside the engine).
 // WASM artifact: `nxr_compute.wasm` (unchanged).
-// C++ embind class: `ContextWrapper` (unchanged, flat).
 
 // dist/wasm/ holds the committed prebuilt artifacts (refreshed by
 // scripts/build-wasm.sh from build_wasm/ after a successful build).

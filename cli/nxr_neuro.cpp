@@ -1,8 +1,8 @@
 // nxr-neuro — the command line, the verbs of nxr's: dataset · subject · surface (and read, step 1's reader).
 //
 //   nxr-neuro dataset create --datastore D --name N [--source-tool T --source-protocol P --source-path S] [--store-format 52|51]   (default 52: each subject's small keys in its small_files.sqlite)
-//                            [--templates FS_SUBJECTS [--default fsaverage5] [--modes K] [--atlas-depth 8] [--lc-levels 4,6]]   with the default subject (io/default_subject.h)
-//                            its frames (pipelines/frames.h frames_compute) and its group tree with the Levi-Civita connection (pipelines/tiles.h group_tree_compute)
+//                            [--templates FS_SUBJECTS [--default fsaverage5] [--modes K] [--atlas-finest \"parts 256\"] [--lc-scales \"parts 16,parts 64\"]]   with the default subject (io/default_subject.h)
+//                            its frames (`run surface_frames`), its group tree (`run select_dyadic_surface` rule group) and the Levi-Civita connection (a `measure` over a level x level product)
 //   nxr-neuro dataset list   --datastore D
 //   nxr-neuro dataset show   --dataset D/N
 //   nxr-neuro dataset delete --datastore D --name N
@@ -13,7 +13,7 @@
 //   nxr-neuro subject delete --dataset D/N --subject S [--node PATH]
 //   nxr-neuro surface add    --dataset D/N --subject S FILE [--name N] [--scale F] [--primary | --no-primary]
 //   nxr-neuro convert list|scan|subject|surface ...            (Brainstorm: convert_command.cpp)
-//   nxr-neuro eigen solve --dataset D/N --subject S [--modes K] [--surface N] [--replace]     (pipelines)
+//   nxr-neuro run eigenmodes --dataset D/N --subject S --surface N [--modes K] [--glued] [--replace]     (a definition)
 //   nxr-neuro headmodel compute | noisecov compute | inverse compute | psd compute ...                                           (cli/meeg_command.cpp)
 //   nxr-neuro read <dataset folder> [--array <subject> <path> [--region a:b,c:d] [--out FILE]]
 //
@@ -27,13 +27,11 @@
 #include <set>
 #include <sstream>
 
-#include "nxr/io/constant_q.h"
 #include "nxr/io/default_subject.h"
 #ifdef NXR_NEURO_WITH_PIPELINES
 #include "nxr/pipelines/dataset.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/listing.h"
-#include "nxr/pipelines/tiles.h"
 #endif
 #include "nxr/io/surface.h"
 #include "cli.h"
@@ -54,37 +52,10 @@ namespace fs = std::filesystem;
 int read_command(int argc, char** argv);
 int convert_main(const std::vector<std::string>& argv);
 #ifdef NXR_NEURO_WITH_PIPELINES
-int eigen_main(const std::vector<std::string>& argv);   // pipelines/tools/eigen_command.cpp
-int noisecov_main(const std::vector<std::string>& argv);   // cli/meeg_command.cpp
-int psd_main(const std::vector<std::string>& argv);        // cli/meeg_command.cpp
-int sourcepsd_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
-int sourcetensor_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
-int crossspectrum_main(const std::vector<std::string>& argv);           // cli/meeg_command.cpp
-int phasegradient_main(const std::vector<std::string>& argv); // cli/meeg_command.cpp
-int cyclepattern_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
-int quadrature_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
-int hodgepower_main(const std::vector<std::string>& argv);  // cli/meeg_command.cpp
-int speedspectrum_main(const std::vector<std::string>& argv);  // cli/speedspectrum_command.cpp
 int measure_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
-int statistic_main(const std::vector<std::string>& argv);      // cli/measure_command.cpp
-int patches_main(const std::vector<std::string>& argv);        // cli/measure_command.cpp
-int cellquadrature_main(const std::vector<std::string>& argv); // cli/measure_command.cpp
-int wishart_main(const std::vector<std::string>& argv);          // cli/measure_command.cpp
-int pointspread_main(const std::vector<std::string>& argv);     // cli/measure_command.cpp
-int spatialnull_main(const std::vector<std::string>& argv);     // cli/measure_command.cpp
-int null_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
-int repeat_main(const std::vector<std::string>& argv);         // cli/measure_command.cpp
-int scaleselection_main(const std::vector<std::string>& argv); // cli/measure_command.cpp
-int joint_main(const std::vector<std::string>& argv);          // cli/measure_command.cpp
-int frametiling_main(const std::vector<std::string>& argv);
-int pyramid_main(const std::vector<std::string>& argv);          // cli/measure_command.cpp     // cli/measure_command.cpp
+int surrogate_lagfree_spatial_events_compare_main(const std::vector<std::string>& argv);   // cli/measure_command.cpp
+int surrogate_lagfree_vortex_compare_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
 int run_main(const std::vector<std::string>& argv);            // cli/run_command.cpp
-int opticalflow_main(const std::vector<std::string>& argv);   // cli/meeg_command.cpp
-int frames_main(const std::vector<std::string>& argv);        // cli/meeg_command.cpp
-int tiles_main(const std::vector<std::string>& argv);         // cli/meeg_command.cpp
-int filter_main(const std::string& verb, const std::vector<std::string>& argv);   // cli/meeg_command.cpp
-int inverse_main(const std::vector<std::string>& argv);
-int headmodel_main(const std::vector<std::string>& argv);
 #endif
 
 namespace {
@@ -96,71 +67,19 @@ DatasetWriter dataset_of(const Args& a, bool lock = true) {
 }
 
 // ── nxr-neuro dataset ──
-// nxr-neuro constantq compute --dataset D/N --subject S (--recording R | --line NAME | --all) [--method hertz|cycles] [--voices N] [--cycles C] [--fmax HZ] [--fmin HZ]
-//   THE CONSTANT-Q TILING of a time line (the Studio's time-tile policy; io/include/nxr/io/constant_q.h): a ladder Selection whose members are the levels,
-//   each a closed-form tessellation. The Studio's `backend/scripts/constant-q.mjs`: idempotent (a line that has one keeps it). --recording names a recording
-//   (its time line), --line a time Line by name, --all every recording's time line.
-int constantq_main(const std::vector<std::string>& argv) {
-  if (argv.empty() || argv[0] != "compute") throw Usage("nxr-neuro constantq: error: the following arguments are required: action (compute)");
-  const std::string prog = "nxr-neuro constantq compute";
-  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
-  const Args a = parse(prog, rest, {"--dataset", "--subject", "--recording", "--line", "--method", "--voices", "--cycles", "--fmax", "--fmin"}, {"--all"}, {"--dataset", "--subject"});
-  const int given = (a.maybe("--recording") ? 1 : 0) + (a.maybe("--line") ? 1 : 0) + (a.flag.count("--all") ? 1 : 0);
-  if (given != 1) throw Usage(prog + ": error: name one of --recording R, --line NAME or --all");
-  nxr::io::constantq::Params p;
-  if (const auto v = a.maybe("--method")) {
-    if (*v == "hertz") p.method = nxr::io::constantq::Method::Hertz;
-    else if (*v == "cycles") p.method = nxr::io::constantq::Method::Cycles;
-    else throw Usage(prog + ": error: --method must be hertz or cycles");
-  }
-  if (const auto v = a.maybe("--voices")) p.voices = std::stoi(*v);
-  if (const auto v = a.maybe("--cycles")) p.cycles = std::stod(*v);
-  if (const auto v = a.maybe("--fmax")) p.fMax = std::stod(*v);
-  if (const auto v = a.maybe("--fmin")) p.fMin = std::stod(*v);
-  DatasetWriter ds = open_dataset(a);
-  OpenSubjectOptions oo;
-  oo.created_by = stamp();
-  SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"), oo);
-  // the time lines: a recording's (its product's time factor), a line by name, or every recording's
-  std::vector<std::string> lines;
-  const nxr::io::task::Subject ts = nxr::io::task::Subject::of(sub);
-  if (const auto r = a.maybe("--recording")) {
-    const auto line = ts.recording_time_line(*r);
-    if (!line) throw Usage(prog + ": error: no recording named '" + *r + "' with a time line");
-    lines.push_back(*line);
-  } else if (const auto l = a.maybe("--line")) {
-    const auto line = ts.line_named(*l);
-    if (!line) throw Usage(prog + ": error: no time line named '" + *l + "'");
-    lines.push_back(*line);
-  } else {
-    lines = ts.recording_time_lines();
-  }
-  Json made = Json::array();
-  for (const std::string& line : lines) {
-    nxr::io::constantq::Written w;
-    sub.compose([&] { w = nxr::io::constantq::write(sub, line, p, stamp()); });
-    Json levels = Json::array();
-    for (const auto& lv : w.tiling.levels) levels.push_back(Json{{"level", lv.level}, {"window_samples", lv.window_samples}, {"window_s", lv.window_s}, {"tiles", lv.count},
-                                                               {"resolves_hz", Json::array({lv.resolves_lo, lv.resolves_hi})}});
-    made.push_back(Json{{"ladder", w.name}, {"existed", w.existed}, {"levels", levels}});
-  }
-  emit(Json{{"stage", "result"}, {"ladders", made}});
-  return 0;
-}
-
 int dataset_main(const std::vector<std::string>& argv) {
   if (argv.empty()) throw Usage("nxr-neuro dataset: error: the following arguments are required: action");
   const std::string action = argv[0];
   const std::vector<std::string> rest(argv.begin() + 1, argv.end());
   const std::string prog = "nxr-neuro dataset " + action;
   if (action == "create") {
-    const Args a = parse(prog, rest, {"--dataset", "--datastore", "--name", "--source-tool", "--source-protocol", "--source-path", "--templates", "--default", "--modes", "--atlas-depth", "--lc-levels", "--store-format"}, {}, {});
+    const Args a = parse(prog, rest, {"--dataset", "--datastore", "--name", "--source-tool", "--source-protocol", "--source-path", "--templates", "--default", "--modes", "--atlas-finest", "--lc-scales", "--store-format"}, {}, {});
     // THE DEFAULT FORM: `--dataset PATH` makes a catalogue, the folder of a dataset that holds its subjects' packages (`create subject` adds one; `register package` lists
     // packages made elsewhere). `--datastore DIR --name N` (the old spelling's) still makes the one-database dataset DIR/N; `split dataset` turns it into a catalogue.
     if (a.maybe("--dataset") && a.maybe("--datastore")) throw Usage(prog + ": error: --dataset (a catalogue) and --datastore (a one-database dataset) are alternatives");
     if (!a.maybe("--dataset") && !a.maybe("--datastore")) throw Usage(prog + ": error: the following arguments are required: --dataset");
     if (a.maybe("--dataset")) {
-      for (const char* x : {"--templates", "--default", "--modes", "--atlas-depth", "--lc-levels", "--store-format"})
+      for (const char* x : {"--templates", "--default", "--modes", "--atlas-finest", "--lc-scales", "--store-format"})
         if (a.maybe(x)) throw Usage(prog + ": error: " + x + " belongs to the one-database form (--datastore); a catalogue's template is a template package (`import template`, `list templates`)");
       CreateCatalogueOptions co;
       co.name = a.maybe("--name").value_or(std::filesystem::path(a.get("--dataset")).filename().string());
@@ -176,8 +95,8 @@ int dataset_main(const std::vector<std::string>& argv) {
     }
     if (!a.maybe("--name")) throw Usage(prog + ": error: the following arguments are required: --name (with --datastore)");
     std::cerr << "note: --datastore makes the one-database form; `create dataset --dataset PATH` makes a catalogue of subject packages (the default form).\n";
-    if (!a.maybe("--templates") && (a.maybe("--default") || a.maybe("--modes") || a.maybe("--atlas-depth") || a.maybe("--lc-levels")))
-      throw Usage(prog + ": error: --default, --modes, --atlas-depth and --lc-levels need --templates (the default subject)");
+    if (!a.maybe("--templates") && (a.maybe("--default") || a.maybe("--modes") || a.maybe("--atlas-finest") || a.maybe("--lc-scales")))
+      throw Usage(prog + ": error: --default, --modes, --atlas-finest and --lc-scales need --templates (the default subject)");
     CreateOptions o;
     o.source_tool = a.maybe("--source-tool");
     o.source_protocol = a.maybe("--source-protocol");
@@ -194,16 +113,16 @@ int dataset_main(const std::vector<std::string>& argv) {
       w.dataset = o;
       w.subject.templates = *t;
       if (const auto v = a.maybe("--default")) w.subject.default_resolution = *v;
-      if (const auto v = a.maybe("--atlas-depth")) w.atlas_depth = std::stoi(*v);
-      if (const auto v = a.maybe("--lc-levels")) {             // the levels of the Levi-Civita connection, comma-separated (nxr's --lc-levels)
-        w.lc_levels.clear();
+      if (const auto v = a.maybe("--atlas-finest")) w.atlas_finest = *v;     // a quantity (parts per hemisphere, a tile diameter, a tile area): parsed where the grid is made
+      if (const auto v = a.maybe("--lc-scales")) {             // the tile scales of the Levi-Civita measurement, comma-separated quantities ("parts 16,parts 64")
+        w.lc_scales.clear();
         std::stringstream ss(*v);
         for (std::string x; std::getline(ss, x, ',');) {
-          if (x.empty() || x.find_first_not_of("0123456789") != std::string::npos) throw Usage(prog + ": error: --lc-levels is a comma-separated list of levels (e.g. 4,6), not '" + *v + "'");
-          w.lc_levels.push_back(std::stoi(x));
+          if (x.empty()) throw Usage(prog + ": error: --lc-scales is a comma-separated list of quantities (e.g. \"parts 16,parts 64\" or \"20 mm,40 mm\"), not '" + *v + "'");
+          w.lc_scales.push_back(x);
         }
       }
-      if (const auto v = a.maybe("--modes")) {                 // the number of Hodge–Dirac modes to solve (as `eigen solve --modes`)
+      if (const auto v = a.maybe("--modes")) {                 // the number of Hodge–Dirac modes to solve (as `run eigenmodes --modes`)
         try { w.modes = std::stoi(*v); } catch (...) { throw Usage(prog + ": error: --modes is a whole number (the number of modes to solve), not '" + *v + "'"); }
         if (*w.modes < 1) throw Usage(prog + ": error: --modes is a whole number of at least 1");
       }
@@ -467,6 +386,7 @@ int list_nodes_main(const std::vector<std::string>& argv) {
 int package_main(const std::vector<std::string>& argv);   // cli/package_command.cpp
 int import_main(const std::vector<std::string>& argv);    // cli/import_command.cpp
 int export_main(const std::vector<std::string>& argv);    // cli/export_command.cpp
+int crossspectrum_read_main(const std::vector<std::string>& rest);   // cli/meeg_command.cpp
 int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
   if (cmd == "__list") return list_nodes_main(rest);
   if (cmd == "read") {
@@ -480,24 +400,9 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
     if (cmd == "package") return package_main(rest);
     if (cmd == "__import") return import_main(rest);
     if (cmd == "__export") return export_main(rest);
-    if (cmd == "constantq") return constantq_main(rest);
     if (cmd == "subject") return subject_main(rest);
     if (cmd == "surface") return surface_main(rest);
     if (cmd == "convert") return convert_main(rest);
-    if (cmd == "eigen") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return eigen_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro eigen needs the pipelines (nxr_compute + nxr_io): build with -DNXR_NEURO_BUILD_PIPELINES=ON (README: Pipelines)");
-#endif
-    }
-    if (cmd == "lowpass" || cmd == "highpass" || cmd == "bandpass" || cmd == "bandstop" || cmd == "notch") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return filter_main(cmd, rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro " + cmd + " needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
     if (cmd == "run") {
 #ifdef NXR_NEURO_WITH_PIPELINES
       return run_main(rest);
@@ -505,88 +410,25 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       throw Error(code::unsupported, "nxr-neuro run needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
-    if (cmd == "statistic") {
+    if (cmd == "__surrogate_lagfree_spatial_events_compare") {               // `run surrogate_lagfree_spatial_events_compare` (the command table's internal words)
 #ifdef NXR_NEURO_WITH_PIPELINES
-      return statistic_main(rest);
+      return surrogate_lagfree_spatial_events_compare_main(rest);
 #else
-      throw Error(code::unsupported, "nxr-neuro statistic needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+      throw Error(code::unsupported, "nxr-neuro run surrogate_lagfree_spatial_events_compare needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
-    if (cmd == "pyramid") {
+    if (cmd == "__surrogate_lagfree_vortex_compare") {                       // `run surrogate_lagfree_vortex_compare`
 #ifdef NXR_NEURO_WITH_PIPELINES
-      return pyramid_main(rest);
+      return surrogate_lagfree_vortex_compare_main(rest);
 #else
-      throw Error(code::unsupported, "nxr-neuro pyramid needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+      throw Error(code::unsupported, "nxr-neuro run surrogate_lagfree_vortex_compare needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
-    if (cmd == "frametiling") {
+    if (cmd == "crossspectrum" && !rest.empty() && rest[0] == "read") {       // `read crossspectrum`
 #ifdef NXR_NEURO_WITH_PIPELINES
-      return frametiling_main(rest);
+      return crossspectrum_read_main(std::vector<std::string>(rest.begin() + 1, rest.end()));
 #else
-      throw Error(code::unsupported, "nxr-neuro frametiling needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "joint") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return joint_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro joint needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "wishart") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return wishart_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro wishart needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "pointspread") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return pointspread_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro pointspread needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "spatialnull") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return spatialnull_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro spatialnull needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "null") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return null_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro null needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "repeat") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return repeat_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro repeat needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "cellquadrature") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return cellquadrature_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro cellquadrature needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "scaleselection") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return scaleselection_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro scaleselection needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "patches") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return patches_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro patches needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+      throw Error(code::unsupported, "nxr-neuro read crossspectrum needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "measure") {
@@ -594,20 +436,6 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return measure_main(rest);
 #else
       throw Error(code::unsupported, "nxr-neuro measure needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "speedspectrum") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return speedspectrum_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro speedspectrum needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
-#endif
-    }
-    if (cmd == "noisecov" || cmd == "inverse" || cmd == "headmodel" || cmd == "psd" || cmd == "sourcepsd" || cmd == "sourcetensor" || cmd == "crossspectrum" || cmd == "phasegradient" || cmd == "cyclepattern" || cmd == "quadrature" || cmd == "hodgepower" || cmd == "opticalflow" || cmd == "frames" || cmd == "tiles") {
-#ifdef NXR_NEURO_WITH_PIPELINES
-      return cmd == "noisecov" ? noisecov_main(rest) : cmd == "psd" ? psd_main(rest) : cmd == "sourcepsd" ? sourcepsd_main(rest) : cmd == "sourcetensor" ? sourcetensor_main(rest) : cmd == "crossspectrum" ? crossspectrum_main(rest) : cmd == "phasegradient" ? phasegradient_main(rest) : cmd == "cyclepattern" ? cyclepattern_main(rest) : cmd == "quadrature" ? quadrature_main(rest) : cmd == "hodgepower" ? hodgepower_main(rest) : cmd == "opticalflow" ? opticalflow_main(rest) : cmd == "frames" ? frames_main(rest) : cmd == "tiles" ? tiles_main(rest) : cmd == "inverse" ? inverse_main(rest) : headmodel_main(rest);
-#else
-      throw Error(code::unsupported, "nxr-neuro " + cmd + " needs the pipelines (nxr_compute + nxr_io + nxr_meeg): build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
   throw Usage("nxr-neuro: error: unknown command '" + cmd + "'");

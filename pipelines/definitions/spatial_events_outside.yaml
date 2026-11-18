@@ -6,15 +6,16 @@
 #
 #   nxr-neuro run spatial_events_outside --dataset <folder> --subject sub-01 --bursts '<bursts>' --all
 pipeline: spatial_events_outside
-version: 1
+version: 2
 description: the patch statistics of a band's power above its baseline on the frames OUTSIDE the bursts (the noise reference of the spatial events), a statistic
 scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
   kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
-  tiles:     {selection: ladder, manifold: kernel.to}
-  tiling:    {selection: spans, manifold: recording.time, where: {name: $tiling}}
+  tiles:     {selection: ladder, manifold: kernel.to, hint: "the surface's grid (`nxr-neuro run select_dyadic_surface` first)"}
+  glued:     {manifold: surface, where: {name: $glued_surface}, hint: "the glued cortex (`nxr-neuro run glue` first): the computational manifold for spatiotemporal patterns"}
+  grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid frames ${band} ${frames_per_cycle} per cycle"}, hint: "the band's frame grid (`nxr-neuro run select_time_grid --rule frames --band 8-12Hz` first)"}
   bursts:    {selection: spans, manifold: recording.time, where: {name: $bursts}}
   baseline:  {statistic: mean, where: {name: $baseline_statistic}}
   threshold: {statistic: histogram, where: {name: $threshold_statistic}, required: false}   # read only by `threshold: percentile` (refused there when it is not stored)
@@ -23,24 +24,27 @@ inputs:
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
-  band: {default: [8.0, 12.0], meaning: "the time level's band (its `resolves_hz`)", unit: "Hz"}
+  band: {default: "8-12 Hz", meaning: "the temporal band as a quantity (the frames and the time grid are resolved from it)", unit: Hz, chart: linear}
   shape: {default: morlet, meaning: "the temporal band's shape: morlet | meyer", unit: "-"}
   spatial_shape: {default: mexhat, meaning: "the spatial level's gain: mexhat | meyer", unit: "-"}
-  levels: {default: [2, 3, 4, 5, 6, 7, 8], meaning: "the scale space: one hat each (2 and 3 reach the coarse sizes level 4 cut off;); must be the baseline's", unit: "level"}
-  reference_level: {default: 6, meaning: "the level whose relative power the patches are cut from", unit: "level"}
+  spatial_scales: {default: ["parts 4", "parts 8", "parts 16", "parts 32", "parts 64", "parts 128", "parts 256"], meaning: "the scale space: one hat each, as quantities (parts per hemisphere, a tile diameter in mm, a wavelength in mm or a named scale); must be the baseline's", unit: mm, chart: wavelength}
+  reference_scale: {default: "parts 64", meaning: "the scale whose relative power the patches are cut from (one of spatial_scales)", unit: mm, chart: wavelength}
+  glued_surface: {default: null, meaning: "the glued cortex made by `run glue`, by name; results are restricted back to the original hemispheres", unit: "-"}
   method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
   transform: {default: auto, meaning: "the spatial band's transform: auto | eigen | chebyshev | exact", unit: "-"}
   modes: {default: 0, meaning: "when the eigenmodes are computed: the package's size; 0: the standard 3000, or more when the level needs it", unit: "modes"}
   order: {default: 0, meaning: "chebyshev degree; 0: the smallest of 40 to 5120 within `tolerance` of the band's gain", unit: "degree"}
   tolerance: {default: 0.01, meaning: "the largest difference between the band's gain and the chebyshev series that is accepted", unit: "fraction"}
-  tiling: {default: "{recording} frames 0.00257492 s", meaning: "the frame tiling's name", unit: "-"}
+  frames_per_cycle: {default: 36, meaning: "the frame density: frames to one cycle of the band's centre (the 10 degree step of phase work); the frame is the dyadic tile nearest it", unit: frames/cycle}
+  frames_per_tile: {default: null, meaning: "the frame density per tile of the band instead (a power of two); wins over frames_per_cycle when given", unit: frames/tile}
+  origin: {default: start, meaning: "the frames' origin as a point: start (the recording's first sample) | clock | event (a stored selection's first member)", unit: "-", choices: [start, clock, event]}
   bursts: {default: "global_bursts.bursts_kept.{recording}", meaning: "the spans Selection the run uses, by name", unit: "-"}
   baseline_statistic: {default: "spatial_baseline.baseline.{recording}", meaning: "the stored baseline (`run spatial_baseline`), by name", unit: "-"}
   threshold_statistic: {default: "spatial_threshold.histogram.{recording}", meaning: "the stored distribution of the relative power outside the bursts (`run spatial_threshold`), by name", unit: "-"}
   threshold: {default: percentile, meaning: "percentile (the default: the false-alarm rate, measured) | ratio (a multiple of the vertex's baseline)", unit: "-"}
   percentile: {default: 99.0, meaning: "threshold percentile: the relative power's 99th percentile outside the bursts (about 1 % of vertices above it on frames with no event)", unit: "percentile"}
   ratio: {default: 2.0, meaning: "threshold ratio: the patches are where the relative power is at least this multiple of the vertex's baseline (about 13.5 % of vertices on noise alone)", unit: "ratio"}
-  min_area: {default: 0.0, meaning: "m²: smaller patches are dropped", unit: "m2"}
+  min_area: {default: 0.0, meaning: "smaller patches are dropped, as an area", unit: mm2, chart: area}
   bad_segments: {default: exclude, meaning: "exclude | ignore the recording's bad spans", unit: "-"}
   block_frames: {default: 256, meaning: "the frames cut at once by the finder (memory only: the result does not depend on it)", unit: "frames"}
 
@@ -48,14 +52,13 @@ steps:
   chunks:
     over: recording
     do:
-      - {step: analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
-      - {step: frames, in: {x: z, tiling: tiling}, out: z_frames}
-      - {step: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles}, with: {levels: $levels, glued: true, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
-      - {step: power, in: {x: j}, out: p}
-      - {step: relative, in: {x: p, baseline: baseline}, out: r}
-      - {step: at_level, in: {x: r}, with: {level: $reference_level}, out: r_ref}
-      - {step: scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
-      - step: patches
+      - {node: signal.analytic_frames, in: {x: recording, tiling: grid}, with: {band: $band, shape: $shape, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
+      - {node: meeg.apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
+      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}
+      - {node: measurement.relative, in: {x: p, baseline: baseline}, out: r}
+      - {node: select.at_level, in: {x: r}, with: {scale: $reference_scale}, out: r_ref}
+      - {node: select.scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
+      - node: select.events.patches
         in:   {x: r_ref, scale: sc, outside: bursts, exclude: bad, threshold: threshold}
         with: {threshold: $threshold, percentile: $percentile, ratio: $ratio, min_area: $min_area, block_frames: $block_frames, bad_segments: $bad_segments, events: false}
         out:  [events, frame, burst, centre_vertex, centre, area, diameter_cm, characteristic_level, size_cm, relative_peak, home, summary]

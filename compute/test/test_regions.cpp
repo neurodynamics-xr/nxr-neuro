@@ -1,16 +1,16 @@
-// nxr::regions on synthetic graphs only: the line graph reproduces nxr::intervals::crossings + keepSpans (hysteresis, the time rule), a small planar graph (a
+// nxr::select on synthetic graphs only: the line graph reproduces nxr::select::crossings + keepSpans (hysteresis, the time rule), a small planar graph (a
 // grid) gives connected regions with their weights and peaks, a NaN node breaks a region, the size limits and the entry level drop regions, regions that do not
 // touch are never merged, the sign is the caller's (applySign), refusals.
 #include <cmath>
 #include <iostream>
 #include <random>
 
-#include "nxr/intervals.h"
-#include "nxr/regions.h"
+#include "nxr/select/events.h"
+#include "nxr/select/regions.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
-using namespace nxr::regions;
+using namespace nxr::select;
 using Pairs = std::vector<std::pair<std::int32_t, std::int32_t>>;
 
 int main() {
@@ -25,7 +25,7 @@ int main() {
       for (int i = 0; i < n; ++i) x(i) = nd(rng);
       Pairs line;
       for (int i = 0; i + 1 < n; ++i) line.emplace_back(i, i + 1);
-      const auto spans = nxr::intervals::keepSpans(nxr::intervals::crossings(x, 1.5, 0.5), 3, 40);
+      const auto spans = nxr::select::keepSpans(nxr::select::crossings(x, 1.5, 0.5), 3, 40);
       const auto reg = detectRegions(x, line, Eigen::VectorXd::Ones(n), 1.5, 0.5, 3, 40);
       bool same = spans.size() == reg.regions.size();
       for (std::size_t k = 0; same && k < spans.size(); ++k) {

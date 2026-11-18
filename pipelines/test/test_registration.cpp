@@ -14,7 +14,7 @@
 #include "nxr/io/testing/probe.h"
 #include "nxr/io/templates.h"
 #include "nxr/pipelines/registration.h"
-#include "nxr/sphere_registration.h"
+#include "nxr/operators/resample.h"
 
 using namespace nxr::io;
 namespace fs = std::filesystem;
@@ -141,9 +141,9 @@ int main() {
     CHECK(prod["method"] == method);
     ArrayReader ptr = ArrayReader::open(p.store(), text(fwd, "path") + "/indptr");
     CHECK_EQ(ptr.shape()[0], std::int64_t(1285));
-    nxr::registration::Options ro;
-    ro.method = nxr::registration::parse_method(method);
-    const auto want = nxr::registration::resample_operator<double>(coarse.p, coarse.f, {{0, 162}, {162, 162}}, fine.p, {{0, 642}, {642, 642}}, ro);
+    nxr::operators::registration::Options ro;
+    ro.method = nxr::operators::registration::parse_method(method);
+    const auto want = nxr::operators::registration::resample_operator<double>(coarse.p, coarse.f, {{0, 162}, {162, 162}}, fine.p, {{0, 642}, {642, 642}}, ro);
     CHECK_EQ(integer(fwd, "nnz"), want.nnz());
     ArrayReader dat = ArrayReader::open(p.store(), text(fwd, "path") + "/data");
     const auto raw = dat.read();

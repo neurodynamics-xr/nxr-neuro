@@ -1,5 +1,6 @@
 // The default subject on synthetic data: the FreeSurfer reader, the .npy reader, the surfaces written as any subject's, and the refusals.
 // (Parity with nxr: test/parity/test_default_subject_parity.py. The Hodge–Dirac basis is solved by the pipelines: pipelines/test/test_pipelines.cpp.)
+#include "nxr/io/selection_store.h"
 #include <unistd.h>
 
 #include <cmath>
@@ -150,7 +151,12 @@ int main() {
     const auto structures = ds.db().one("SELECT * FROM selection WHERE path = 'source/cortex_pial_atlases/Structures'");
     CHECK(structures.has_value());
     if (structures) {
-      const auto codes = stored<std::int32_t>(ds.store(), join_key(store, text(*structures, "array_path")));
+      // the array holds a member number per element; the member's label (what the dictionary names) is in the labels array beside it (absent: member i is labelled i)
+      const auto members = stored<std::int32_t>(ds.store(), join_key(store, text(*structures, "array_path")));
+      std::vector<std::int64_t> labels;
+      try { labels = stored<std::int64_t>(ds.store(), join_key(store, nxr::io::selection::member_labels_path(text(*structures, "array_path")))); } catch (const std::exception&) {}
+      std::vector<std::int64_t> codes;
+      for (const std::int32_t m : members) codes.push_back(labels.empty() ? m : labels[static_cast<std::size_t>(m)]);
       const auto e1 = ds.db().one("SELECT name FROM dictionary_entry WHERE dictionary_id = ? AND code = ?", {(*structures).at("dictionary_id"), V(static_cast<std::int64_t>(codes[0]))});
       const auto e2 = ds.db().one("SELECT name FROM dictionary_entry WHERE dictionary_id = ? AND code = ?", {(*structures).at("dictionary_id"), V(static_cast<std::int64_t>(codes[11]))});
       CHECK(codes.size() == 12 && e1 && text(*e1, "name") == "Cortex L" && e2 && text(*e2, "name") == "Cortex R");

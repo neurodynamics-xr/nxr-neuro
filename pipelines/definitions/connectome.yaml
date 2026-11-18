@@ -1,0 +1,45 @@
+# THE STRUCTURAL CONNECTOME OVER A PARTITION (spec docs/specs/2026-11-16-structural-connectome.md; outputs: docs/specs/2026-11-17-definition-outputs.md).
+#
+#   nxr-neuro run connectome --fibers tracts --end-surface pial --over desikan-killiany [--smooth-hops N] [--max-end-distance MM|none] --dataset d --subject s
+#
+# `--fibers`, `--end-surface` and `--over` are REQUIRED (each is a choice of data): their default is `required`, which the reader refuses to run with.
+# The counts are a MEASUREMENT over the partition: the fibers are the elements, the region pairs the members; two codes a row (the region and the other), both orders, the
+# within-region pairs stored (a fiber with both ends in one region adds 2 at its diagonal). Smoothing is pushed onto the memberships (the adjoint of the mesh's smoothing step):
+# the vertex matrix is never formed here. Default smoothing: 0 hops for a partition (3 at the vertex level, `connectome_vertices`).
+# The fibers and the surface keep the precision they are stored in (no widening); a pair stored in different precision is refused, naming both.
+pipeline: connectome
+version: 1
+description: the fiber counts between the regions of a partition of the end surface (a measurement over the partition), from a fiber bundle's ends
+scope: subject
+
+inputs:
+  fibers:    {manifold: curve, where: {name: $fibers}}
+  surface:   {manifold: surface, where: {name: $end_surface}}
+  partition: {selection: set, manifold: surface.manifold.0, where: {name: $over}}
+
+parameters:
+  fibers:       {default: required, meaning: "the fiber bundle's name (the subject's own: `curve/<name>`)", unit: "-"}
+  end_surface:  {default: required, meaning: "the surface the fibers' ends are placed on (a location on the cortex, not a depth)", unit: "-"}
+  over:         {default: required, meaning: "the partition of the end surface the counts are reduced over: a parcellation or a tile level of the ladder", unit: "-"}
+  smooth_hops:  {default: 0, meaning: "hops of the mesh smoothing, applied to the partition's memberships (0: the plain fiber count)", unit: "hops"}
+  max_end_distance: {default: 5, meaning: "a fiber with an end farther than this from the end surface is left out; none: no gate (the reference)", unit: "mm"}
+  points_per_fiber: {default: 0, meaning: "the points of each fiber (read from the bundle when 0)", unit: "points"}
+  name: {default: "{fibers}_{end_surface}_fiber_counts", meaning: "the stored name of the counts", unit: "-"}
+
+steps:
+  before:
+    - {node: meeg.fiber_ends,         in: {fibers: fibers},                                       with: {points_per_fiber: $points_per_fiber}, out: end_points}
+    - {node: meeg.nearest_vertex,     in: {points: end_points, positions: surface},                                                           out: [end_vertex, end_distance]}
+    - {node: meeg.end_gate,           in: {end_distance: end_distance},                           with: {max_end_distance_mm: $max_end_distance}, out: keep}
+    - {node: meeg.smooth_memberships, in: {label: partition, faces: surface},                     with: {hops: $smooth_hops},                  out: memberships}
+    - {node: meeg.partition_counts,   in: {end_vertex: end_vertex, keep: keep, memberships: memberships},                                      out: counts}
+
+outputs:
+  counts:
+    kind: measurement
+    name: $name
+    over: partition
+    of: fibers
+    codes: 2
+    unit: fibers
+    description: "fiber_count (connection_weight when smoothed) between the regions of the partition, both orders, the within-region count at the diagonal"

@@ -1,14 +1,31 @@
 // Parity with the nxr-cortical-flow eigenmode exports (the reference where implementations differ): matrices and the lowest
 // spectra on bunny-closed (default) and on the glued sub-0002 cortex (NXR_CF_CORTEX=1). Skips (exit 0) when the fixtures are
 // absent: NXR_CF_FIXTURES = nxr-cortical-flow/studio/fixtures.
-#include "nxr/compute.h"
-#include "nxr/facets.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
 #include "mesh_helpers.h"
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
-using namespace nxr::manifold;
+#include "surface_of.h"
+using namespace nxr::geometry;
 using SM = Eigen::SparseMatrix<double>;
 
 static std::string FX;
@@ -55,18 +72,18 @@ int main() {
         std::vector<double> P(pf.begin(), pf.end()); std::vector<int32_t> Fi(fu.begin(), fu.end());
         const int nV = (int)P.size() / 3, nF = (int)Fi.size() / 3;
         std::cout << "\n=== bunny-closed: " << nV << " V, " << nF << " F ===\n";
-        Manifold m(P.data(), nV, Fi.data(), nF);
+        const auto m = surfaceOf(P.data(), nV, Fi.data(), nF);
 
         // Crane's Dirac D (Gauss map) and the edge-vector Dirac: matrices
-        EXPECT(rel(ops::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV)) < 1e-9, "diracD matrix == cortical-flow export (rel Frobenius " + num(rel(ops::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV))) + ")");
-        EXPECT(rel(ops::dirac::matrixIntrinsic(m), coo(eb + "/exports/export/diracIntrinsicD", 4 * nF, 4 * nV)) < 1e-9, "diracIntrinsicD matrix == export");
+        EXPECT(rel(nxr::operators::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV)) < 1e-9, "diracD matrix == cortical-flow export (rel Frobenius " + num(rel(nxr::operators::dirac::matrix(m), coo(eb + "/exports/export/diracD", 4 * nF, 4 * nV))) + ")");
+        EXPECT(rel(nxr::operators::dirac::matrixIntrinsic(m), coo(eb + "/exports/export/diracIntrinsicD", 4 * nF, 4 * nV)) < 1e-9, "diracIntrinsicD matrix == export");
 
         // Crane spectrum: sqrt of the eigenvalues of E u = mu^2 M_V u, M_V = barycentric (lumped) x I4
         {
-            SM E = ops::dirac::extrinsicBlock(m);
+            SM E = nxr::operators::dirac::extrinsicBlock(m);
             (void)E;
-            solve::EigenOperatorSpec crane{solve::EigenOperator::Dirac, 1.0, ops::MassMatrixVariant::Barycentric};   // tau = 1: E, mass barycentric x I4
-            auto r = solve::eigenOperator(m, crane, 12, solve::kShiftLadder, true, /*multiplets=*/true);
+            nxr::operators::EigenOperatorSpec crane{nxr::operators::EigenOperator::Dirac, 1.0, nxr::operators::MassMatrixVariant::Barycentric};   // tau = 1: E, mass barycentric x I4
+            auto r = nxr::operators::eigenOperator(m, crane, 12, nxr::operators::kShiftLadder, true, /*multiplets=*/true);
             auto ref = readNpy(eb + "/diracD_mu.npy");
             double d = 0; int cnt = 0;
             for (int i = 0; i < r.k && cnt < 8; ++i) if (r.eigenvalues(i) > 1.0) { d = std::max(d, std::abs(std::sqrt(r.eigenvalues(i)) - ref[4 + cnt]) / ref[4 + cnt]); ++cnt; }
@@ -74,17 +91,17 @@ int main() {
         }
 
         // spin Diracs
-        auto ex = ops::spin::assemble(m, ops::spin::Kind::Extrinsic), hy = ops::spin::assemble(m, ops::spin::Kind::IntrinsicHY), ye = ops::spin::assemble(m, ops::spin::Kind::IntrinsicYe);
+        auto ex = nxr::operators::spin::assemble(m, nxr::operators::spin::Kind::Extrinsic), hy = nxr::operators::spin::assemble(m, nxr::operators::spin::Kind::IntrinsicHY), ye = nxr::operators::spin::assemble(m, nxr::operators::spin::Kind::IntrinsicYe);
         const std::string es = eb + "/exports/export-spin/bunny";
         EXPECT(rel(ex.D, csr(es + ".extrinsic", 4 * nF, 4 * nF)) < 1e-12, "spin extrinsic == export (rel " + num(rel(ex.D, csr(es + ".extrinsic", 4 * nF, 4 * nF))) + ")");
         EXPECT(rel(hy.D, csr(es + ".intrinsicHY", 4 * nF, 4 * nF)) < 1e-12, "spin intrinsicHY == export (rel " + num(rel(hy.D, csr(es + ".intrinsicHY", 4 * nF, 4 * nF))) + ")");
         EXPECT(rel(ye.D, csr(es + ".intrinsicYe", 4 * nF, 4 * nF)) < 1e-12, "spin intrinsicYe == export (rel " + num(rel(ye.D, csr(es + ".intrinsicYe", 4 * nF, 4 * nF))) + ")");
-        EXPECT(rel(ops::spin::vertexToFace(m, true), csr(es + ".Acov", 4 * nF, 4 * nV)) < 1e-9, "vertexToFace covariant == export Acov");
-        EXPECT(rel(ops::spin::vertexToFace(m, false), csr(es + ".Aplain", 4 * nF, 4 * nV)) < 1e-12, "vertexToFace plain == export Aplain");
+        EXPECT(rel(nxr::operators::spin::vertexToFace(m, true), csr(es + ".Acov", 4 * nF, 4 * nV)) < 1e-9, "vertexToFace covariant == export Acov");
+        EXPECT(rel(nxr::operators::spin::vertexToFace(m, false), csr(es + ".Aplain", 4 * nF, 4 * nV)) < 1e-12, "vertexToFace plain == export Aplain");
         auto H = readBin<double>(es + ".H.f64"); double dH = 0; for (int f = 0; f < nF; ++f) dH = std::max(dH, std::abs(H[f] - ex.H(f)));
         EXPECT(dH < 1e-12, "H per face == export (max diff " + num(dH) + ")");
-        for (auto [name, kind] : {std::pair<const char*, ops::spin::Kind>{"intrinsicHY", ops::spin::Kind::IntrinsicHY}, {"extrinsic", ops::spin::Kind::Extrinsic}}) {
-            auto r = solve::eigenSpin(m, kind, 24);
+        for (auto [name, kind] : {std::pair<const char*, nxr::operators::spin::Kind>{"intrinsicHY", nxr::operators::spin::Kind::IntrinsicHY}, {"extrinsic", nxr::operators::spin::Kind::Extrinsic}}) {
+            auto r = nxr::operators::eigenSpin(m, kind, 24);
             auto ref = readNpy(eb + "/spin_" + std::string(name) + "_mu.npy");
             std::vector<double> a(r.eigenvalues.data(), r.eigenvalues.data() + r.k), b(ref);
             std::sort(b.begin(), b.end(), [](double x, double y) { return std::abs(x) < std::abs(y); });
@@ -97,7 +114,7 @@ int main() {
 
         // Hodge-Dirac
         {
-            auto h = ops::hodgedirac::assemble(m);
+            auto h = nxr::operators::hodgedirac::assemble(m);
             const std::string eh = eb + "/exports/export";
             auto mass = readBin<double>(eh + "/hodge.mass.f64");
             EXPECT(h.nV == nV && h.nF == nF && (int)mass.size() == h.K.rows(), "Hodge N = V+E+F = " + std::to_string(h.K.rows()));
@@ -109,7 +126,7 @@ int main() {
             double d1 = 0, d2 = 0; for (size_t i = 0; i < s1.size(); ++i) d1 = std::max(d1, std::abs(s1[i] - m1[i]) / s1[i]); for (size_t i = 0; i < s2.size(); ++i) d2 = std::max(d2, std::abs(s2[i] - m2[i]) / s2[i]);
             EXPECT(d1 < 1e-8 && d2 < 1e-8, "star1, star2 (sorted) == export, max rel " + num(d1) + ", " + num(d2));
             auto ref = positives(readNpy(eb + "/hodge_mu.npy"), 60);
-            auto r = solve::hodgeDiracModes(h, 60, false, [] { solve::HodgeSolveOptions o; o.limit = 60; return o; }());
+            auto r = nxr::operators::hodgeDiracModes(h, 60, false, [] { nxr::operators::HodgeSolveOptions o; o.limit = 60; return o; }());
             double d = 0; for (int i = 0; i < 60; ++i) d = std::max(d, std::abs(r.eigenvalues(i) - ref[i]) / ref[i]);
             EXPECT(d < 1e-6, "lowest 60 +mu == export hodge_mu.npy, max rel " + num(d));
         }
@@ -119,21 +136,21 @@ int main() {
             auto Pc = readBin<double>(xc + ".P.f64"); auto Fc = readBin<int32_t>(xc + ".F.i32");
             const int cV = (int)Pc.size() / 3, cF = (int)Fc.size() / 3;
             std::cout << "\n=== glued sub-0002 cortex: " << cV << " V, " << cF << " F ===\n";
-            Manifold g(Pc.data(), cV, Fc.data(), cF);
-            const double rc = rel(ops::dirac::matrixIntrinsic(g), coo(xc + ".crane", 4 * cF, 4 * cV));
+            const auto g = surfaceOf(Pc.data(), cV, Fc.data(), cF);
+            const double rc = rel(nxr::operators::dirac::matrixIntrinsic(g), coo(xc + ".crane", 4 * cF, 4 * cV));
             EXPECT(rc < 1e-9, "glued: diracIntrinsicD matrix (export crane) == export, rel " + num(rc));
-            auto hy = ops::spin::assemble(g, ops::spin::Kind::IntrinsicHY);
+            auto hy = nxr::operators::spin::assemble(g, nxr::operators::spin::Kind::IntrinsicHY);
             const double rh = rel(hy.D, csr(xc + ".intrinsicHY", 4 * cF, 4 * cF));
             // 8 of 1.9 M entries differ by up to 6e-7 (rel 1e-8): fold-back faces, where tan(theta/2) = sin/(1+cos) amplifies the rounding of cos
             EXPECT(rh < 1e-7, "glued: spin intrinsicHY == export (fold-back rounding aside), rel " + num(rh));
-            auto h = ops::hodgedirac::assemble(g);
+            auto h = nxr::operators::hodgedirac::assemble(g);
             auto mass = readBin<double>(xc + ".hodge.mass.f64");
             std::cout << "  Hodge N " << h.K.rows() << " vs export " << mass.size() << "; star1 clamped " << h.star1Clamped << "\n";
             EXPECT((int)mass.size() == h.K.rows(), "glued: Hodge N == export");
             double d0 = 0; for (int v = 0; v < cV; ++v) d0 = std::max(d0, std::abs(h.star0(v) - mass[v]) / mass[v]);
             EXPECT(d0 < 1e-8, "glued: star0 == export, max rel " + num(d0));
             auto ref = positives(readNpy(ec + "/glued_hodge_mu.npy"), 50);
-            auto r = solve::hodgeDiracModes(h, 50, false, [] { solve::HodgeSolveOptions o; o.limit = 50; return o; }());
+            auto r = nxr::operators::hodgeDiracModes(h, 50, false, [] { nxr::operators::HodgeSolveOptions o; o.limit = 50; return o; }());
             double d = 0; for (int i = 0; i < 50; ++i) d = std::max(d, std::abs(r.eigenvalues(i) - ref[i]) / ref[i]);
             EXPECT(d < 1e-6, "glued: lowest 50 +mu == export glued_hodge_mu.npy, max rel " + num(d));
         }

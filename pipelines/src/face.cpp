@@ -1,8 +1,10 @@
-// nxr-pipelines — what a face asks (face.h). The command line's own calls (pipelines/meeg.h psd_compute, runner.h run, listing.h, io's catalogue and task API) made from a JSON
+// nxr-pipelines — what a face asks (face.h). The command line's own calls (runner.h run, listing.h, io's catalogue and task API) made from a JSON
 // description of the arguments, so the Python wheel and the MATLAB binding hold no logic of their own.
+#include "nxr/io/subject_api.h"
 #include "nxr/pipelines/face.h"
 
 #include <algorithm>
+#include <memory>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -16,11 +18,17 @@
 #include "nxr/io/errors.h"
 #include "nxr/io/task/dataset.h"
 #include "nxr/io/task/task.h"
+#include "nxr/io/default_subject.h"
+#include "nxr/io/selection_store.h"
+#include "nxr/measurement/roll_up.h"
+#include "nxr/measurement/measures.h"
+#include "nxr/pipelines/selection_bridge.h"
+#include "nxr/quantity/quantity.h"
 #include "nxr/pipelines/definition.h"
 #include "nxr/pipelines/listing.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/runner.h"
-#include "nxr/welch.h"
+#include "nxr/signal/spectral.h"
 
 namespace nxr::pipelines::face {
 
@@ -34,111 +42,7 @@ namespace {
 
 [[noreturn]] void refuse(const std::string& m) { throw Error(code::invalid_argument, m); }
 
-// ── the built-in pipeline `psd`: its parameters are PsdOptions' (pipelines/meeg.h), the command line's `run psd` options with the dashes as underscores ──
-struct ParamDoc { const char* name; const char* def; const char* meaning; const char* unit; std::vector<const char*> choices; };
-const std::vector<ParamDoc>& psd_parameters() {
-  static const std::vector<ParamDoc> p = {
-      {"recording", "", "the recording (a Field of kind recording) by name; required", "-", {}},
-      {"name", "", "the stored statistic's name; default <recording>_psd_welch", "-", {}},
-      {"set", "tiles", "the named set of Welch options the other options start from (recorded with the result)", "-", {"tiles", "brainstorm", "scipy", "nxr-chain"}},
-      {"segment_seconds", "4.0", "the segment length in seconds (an alternative to segment_samples and segment_level)", "s", {}},
-      {"segment_samples", "", "the segment length in samples (an alternative to segment_seconds and segment_level)", "samples", {}},
-      {"segment_level", "", "under the set tiles: the segment is 2^segment_level samples (an alternative to the other two)", "-", {}},
-      {"overlap", "", "the fraction of a segment shared with the next, in [0, 1); default the set's", "-", {}},
-      {"window", "", "the taper; default the set's", "-", {"hann", "hamming", "blackman", "rectangular"}},
-      {"periodic", "", "the DFT-even form of the window (true) or the symmetric form (false); default the set's", "-", {}},
-      {"detrend", "", "removed from each segment before the window; default the set's", "-", {"none", "constant", "linear"}},
-      {"scaling", "", "the density's normalisation; default the set's", "-", {"density", "spectrum", "chain"}},
-      {"exclude_bad_segments", "true", "a segment touching one of the recording's bad segments is left out", "-", {}},
-      {"through", "", "the name of a stored rotation-plane Operator: the two-sided (rotary) PSD of its z = fx.X + i fy.X instead of the sensors' PSD", "-", {}},
-  };
-  return p;
-}
 
-nxr::pipelines::PsdOptions psd_options(const Json& p) {
-  using namespace nxr::welch;
-  std::set<std::string> known;
-  for (const auto& d : psd_parameters()) known.insert(d.name);
-  for (auto it = p.begin(); it != p.end(); ++it)
-    if (!known.count(it.key())) {
-      std::string all;
-      for (const auto& d : psd_parameters()) all += (all.empty() ? "" : ", ") + std::string(d.name);
-      refuse("psd has no parameter '" + it.key() + "' (its parameters: " + all + ")");
-    }
-  auto str = [&](const char* k) -> std::optional<std::string> {
-    if (!p.contains(k) || p[k].is_null()) return std::nullopt;
-    if (!p[k].is_string()) refuse(std::string(k) + " must be text");
-    return p[k].get<std::string>();
-  };
-  auto num = [&](const char* k) -> std::optional<double> {
-    if (!p.contains(k) || p[k].is_null()) return std::nullopt;
-    if (!p[k].is_number()) refuse(std::string(k) + " must be a number");
-    return p[k].get<double>();
-  };
-  auto whole = [&](const char* k) -> std::optional<std::int64_t> {
-    const auto v = num(k);
-    if (!v) return std::nullopt;
-    if (*v != std::floor(*v)) refuse(std::string(k) + " must be a whole number");
-    return static_cast<std::int64_t>(*v);
-  };
-  nxr::pipelines::PsdOptions o;
-  const auto rec = str("recording");
-  if (!rec) refuse("psd needs the recording: recording=NAME");
-  o.recording = *rec;
-  o.name = str("name");
-  o.through = str("through");
-  const std::string set = str("set").value_or("tiles");
-  o.option_set = set;
-  if (set == "tiles" || set == "brainstorm") o.welch = brainstormPsdOptions(1.0);
-  else if (set == "scipy") o.welch = scipyWelchOptions(1.0);
-  else if (set == "nxr-chain") o.welch = nxrChainWelchOptions(1.0, 1.0);
-  else refuse("set must be tiles, brainstorm, scipy or nxr-chain");
-  if (const auto v = num("segment_seconds")) o.segment_seconds = *v;
-  if (const auto v = whole("segment_samples")) o.segment_samples = *v;
-  if (const auto v = whole("segment_level")) o.segment_level = static_cast<int>(*v);
-  if ((p.contains("segment_seconds") ? 1 : 0) + (p.contains("segment_samples") ? 1 : 0) + (p.contains("segment_level") ? 1 : 0) > 1)
-    refuse("segment_seconds, segment_samples and segment_level are alternatives");
-  if (const auto v = num("overlap")) o.welch.overlap = *v;
-  if (const auto v = str("window")) {
-    if (*v == "hann") o.welch.window = Window::Hann;
-    else if (*v == "hamming") o.welch.window = Window::Hamming;
-    else if (*v == "blackman") o.welch.window = Window::Blackman;
-    else if (*v == "rectangular") o.welch.window = Window::Rectangular;
-    else refuse("window must be hann, hamming, blackman or rectangular");
-  }
-  if (p.contains("periodic") && !p["periodic"].is_null()) {
-    if (!p["periodic"].is_boolean()) refuse("periodic must be true or false");
-    o.welch.periodic = p["periodic"].get<bool>();
-  }
-  if (const auto v = str("detrend")) {
-    if (*v == "none") o.welch.detrend = Detrend::None;
-    else if (*v == "constant") o.welch.detrend = Detrend::Constant;
-    else if (*v == "linear") o.welch.detrend = Detrend::Linear;
-    else refuse("detrend must be none, constant or linear");
-  }
-  if (const auto v = str("scaling")) {
-    if (*v == "density") o.welch.scaling = Scaling::Density;
-    else if (*v == "spectrum") o.welch.scaling = Scaling::Spectrum;
-    else if (*v == "chain") o.welch.scaling = Scaling::Chain;
-    else refuse("scaling must be density, spectrum or chain");
-  }
-  if (p.contains("exclude_bad_segments") && !p["exclude_bad_segments"].is_null()) {
-    if (!p["exclude_bad_segments"].is_boolean()) refuse("exclude_bad_segments must be true or false");
-    o.exclude_bad_segments = p["exclude_bad_segments"].get<bool>();
-  }
-  return o;
-}
-
-Json doc_of(const ParamDoc& d) {
-  Json c = Json::array();
-  for (const char* x : d.choices) c.push_back(x);
-  Json def = nullptr;
-  const std::string s = d.def;
-  if (!s.empty()) {
-    try { def = Json::parse(s); } catch (...) { def = s; }
-  }
-  return Json{{"name", d.name}, {"default", def}, {"meaning", d.meaning}, {"unit", d.unit}, {"choices", c}};
-}
 
 // the dataset a run works on, as the command line opens it (cli.h open_dataset): a catalogue's subject package, or a one-database dataset
 DatasetWriter open_for(const fs::path& folder, const std::string& subject, bool lock) {
@@ -154,20 +58,19 @@ double seconds_since(const std::chrono::steady_clock::time_point& t0) { return s
 
 Json pipelines() {
   Json out = Json::array();
-  Json psd_params = Json::array();
-  for (const auto& d : psd_parameters()) psd_params.push_back(doc_of(d));
   std::vector<Json> all;
-  all.push_back(Json{{"name", "psd"}, {"form", "built-in"}, {"summary", "The Welch power spectral density of a recording, bad segments left out."}, {"parameters", psd_params}});
   for (const std::string& n : g::available()) {
     const g::Definition d = g::load(n);
     Json params = Json::array();
     for (const auto& [k, v] : d.parameters.items()) {
       const Json doc = d.parameter_docs.contains(k) ? d.parameter_docs[k] : Json::object();
-      params.push_back(Json{{"name", k}, {"default", v}, {"meaning", doc.contains("meaning") ? doc["meaning"] : Json("")}, {"unit", doc.contains("unit") ? doc["unit"] : Json("-")},
+      params.push_back(Json{{"name", k}, {"default", v}, {"meaning", doc.contains("meaning") ? doc["meaning"] : Json("")}, {"unit", doc.contains("unit") ? doc["unit"] : Json("-")}, {"chart", doc.contains("chart") ? doc["chart"] : Json("")},
                             {"choices", doc.contains("choices") ? doc["choices"] : Json::array()}});
     }
     std::string first = d.description.substr(0, d.description.find_first_of(".\n"));
-    all.push_back(Json{{"name", n}, {"form", "definition"}, {"summary", first.empty() ? "Run the pipeline definition " + n + "." : first + "."}, {"parameters", params}});
+    Json presets = Json::array();
+    for (const auto& [pk, pv] : d.presets.items()) { (void)pv; presets.push_back(pk); }
+    all.push_back(Json{{"name", n}, {"form", "definition"}, {"kind", d.kind}, {"scope", d.scope}, {"presets", presets}, {"summary", first.empty() ? "Run the pipeline definition " + n + "." : first + "."}, {"parameters", params}});
   }
   std::sort(all.begin(), all.end(), [](const Json& a, const Json& b) { return a["name"].get<std::string>() < b["name"].get<std::string>(); });
   for (auto& j : all) out.push_back(std::move(j));
@@ -188,20 +91,13 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
   SubjectWriter sub = SubjectWriter::open(ds, subject, oo);
   Json runs = Json::array(), stored = Json::array();
   bool all_hit = true;
-  if (rq.pipeline == "psd") {
-    nxr::pipelines::PsdOptions o = psd_options(rq.parameters);
-    if (rq.from) { o.start = *rq.from; o.stop = *rq.to; }
-    if (rq.all) o.chunks = "all";
-    o.replace = rq.replace;
-    const auto r = nxr::pipelines::psd_compute(ds, sub, o, say);
-    Json info = r.info;
-    info["seconds"] = r.seconds;
-    all_hit = r.hit;
-    runs.push_back(Json{{"cache", r.hit ? "hit" : "computed"}, {"info", info}});
-    stored.push_back(Json{{"output", "psd"}, {"name", info.value("name", "")}, {"id", info.value("id", "")}, {"path", info.value("path", "")}});
-  } else {
+  {
     const g::Definition d = g::load(rq.pipeline);
-    for (auto it = rq.parameters.begin(); it != rq.parameters.end(); ++it)
+    // a face that carries parameters only (the Python and MATLAB `run`) names a preset as the parameter `preset`: it is lifted out here, as the command line's --set NAME is
+    Json params = rq.parameters;
+    std::string preset = rq.preset;
+    if (params.is_object() && params.contains("preset") && !d.parameters.contains("preset")) { preset = params["preset"].get<std::string>(); params.erase("preset"); }
+    for (auto it = params.begin(); it != params.end(); ++it)
       if (!d.parameters.contains(it.key())) {
         std::string all;
         for (const auto& [k, _] : d.parameters.items()) all += (all.empty() ? "" : ", ") + k;
@@ -211,15 +107,234 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
     if (rq.from) { o.start = *rq.from; o.stop = *rq.to; }
     if (rq.all) o.chunks = "all";
     o.replace = rq.replace;
-    for (const Json& r : g::run(ds, sub, d, rq.parameters, o, false, say)) {
+    o.preset = preset;
+    for (const Json& r : g::run(ds, sub, d, params, o, rq.dry_run, say)) {
       const bool hit = r.value("hit", false);
       all_hit = all_hit && hit;
-      runs.push_back(Json{{"cache", hit ? "hit" : "computed"}, {"info", r}});
+      runs.push_back(Json{{"cache", rq.dry_run ? "planned" : hit ? "hit" : "computed"}, {"info", r}});
       if (r.contains("stored"))
-        for (const Json& s : r["stored"]) stored.push_back(Json{{"output", s.value("output", "")}, {"name", s.value("output", "")}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
+        for (const Json& s : r["stored"]) {   // the stored thing's own name: a statistic, a selection or a field by its record; a measurement by what it is over
+          std::string name = s.value("statistic", s.value("selection", s.value("name", std::string())));
+          if (name.empty()) name = s.value("output", "");
+          stored.push_back(Json{{"output", s.value("output", "")}, {"name", name}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
+        }
     }
   }
   return Json{{"pipeline", rq.pipeline}, {"subject", subject}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
+}
+
+Json run_group(const fs::path& dataset, const GroupRunRequest& rq, const Progress& progress) {
+  if (rq.subjects.empty()) refuse("a group run states its subjects (a list of names): there is no default group");
+  if (!rq.parameters.is_object()) refuse("the parameters are a set of names and values");
+  const auto t0 = std::chrono::steady_clock::now();
+  const Progress say = progress ? progress : Progress([](const Json&) {});
+  const g::Definition d = g::load(rq.pipeline);
+  if (d.scope != "group") refuse(d.name + " is not a group definition (scope " + d.scope + "): `run` takes it on one subject");
+  OpenSubjectOptions oo;
+  oo.created_by = stamp();
+  // the members are opened to be read, the group's default subject to be written; a catalogue dataset: each member's package, and the group package the caller names (`into`); a one-database dataset: its one writer
+  std::vector<std::unique_ptr<DatasetWriter>> writers;
+  std::vector<std::unique_ptr<SubjectWriter>> subjects;
+  std::vector<g::GroupMember> members;
+  DatasetWriter* group_ds = nullptr;
+  std::string group_name;
+  if (is_catalogue_dataset(dataset)) {
+    if (rq.into.empty()) refuse("a group run in a catalogue dataset names the group package its results go to (into)");
+    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.into, true)));
+    group_ds = writers.back().get();
+    group_name = rq.into;
+    for (const auto& name : rq.subjects) {
+      writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, name, false)));
+      subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*writers.back(), name)));
+      members.push_back(g::GroupMember{name, writers.back().get(), subjects.back().get()});
+    }
+  } else {
+    writers.push_back(std::make_unique<DatasetWriter>(open_for(dataset, rq.subjects.front(), true)));
+    group_ds = writers.back().get();
+    const auto tpl = group_ds->template_();
+    if (!tpl) refuse("the dataset has no default subject: a group's results are stored in it");
+    group_name = text(*tpl, "name");
+    for (const auto& name : rq.subjects) {
+      subjects.push_back(std::make_unique<SubjectWriter>(SubjectWriter::open(*group_ds, name)));
+      members.push_back(g::GroupMember{name, group_ds, subjects.back().get()});
+    }
+  }
+  SubjectWriter group_sub = SubjectWriter::open(*group_ds, group_name, oo);
+  g::RunOptions o;
+  o.replace = rq.replace;
+  o.preset = rq.preset;
+  Json runs = Json::array(), stored = Json::array();
+  bool all_hit = true;
+  for (const Json& r : g::run_group(*group_ds, group_sub, members, d, rq.parameters, o, rq.dry_run, say)) {
+    const bool hit = r.value("hit", false);
+    all_hit = all_hit && hit;
+    runs.push_back(Json{{"cache", rq.dry_run ? "planned" : hit ? "hit" : "computed"}, {"info", r}});
+    if (r.contains("stored"))
+      for (const Json& s : r["stored"]) {   // the stored thing's own name: a statistic, a selection or a field by its record; a measurement by what it is over
+          std::string name = s.value("statistic", s.value("selection", s.value("name", std::string())));
+          if (name.empty()) name = s.value("output", "");
+          stored.push_back(Json{{"output", s.value("output", "")}, {"name", name}, {"id", s.value("id", "")}, {"path", s.value("path", "")}});
+        }
+  }
+  return Json{{"pipeline", rq.pipeline}, {"subjects", rq.subjects}, {"into", group_name}, {"cache", all_hit ? "hit" : "computed"}, {"stored", stored}, {"runs", runs}, {"seconds", seconds_since(t0)}};
+}
+
+namespace {
+// ── the measurement query's compute side ──
+// ADAPTER (the one place that meets the other batches' names, written to the consolidation spec: io's `measurement ingredients` call and compute's `nxr::measurement`): io hands the FINEST stored
+// ingredients of a measurement and the grid's closed form; compute's `roll_up` and `value` do the arithmetic (the merge rule of each measure is the registry's data, the same io applies in SQL).
+//   io:      Subject::measurement_ingredients({selectionId, ofFieldId?, measure}) -> {rows, members, unit, ingredients: {count, weight, sum, sum_sq, max, min, abs_max: [rows x members]},
+//            grid: {kind: dyadic | time | product, depth, level, factors?: [{name, kind, depth}], levels: [{level, diameter_mm?, area_m2?, seconds?, weyl_band_per_m2?}]}}
+//   compute: nxr::measurement::Ingredients {rows, members, count, weight, sum, sum_sq, max, min, abs_max}; Request {measures, weighting}; coarser_groups(grid, from, to); roll_up; across; value
+nxr::measurement::Ingredients ingredients_of(const Json& fine) {
+  nxr::measurement::Ingredients ing;
+  ing.rows = fine.at("rows").get<std::int64_t>();
+  ing.members = fine.at("members").get<std::int64_t>();
+  const Json& v = fine.at("ingredients");
+  auto take = [&](const char* name, std::vector<double>& into) { if (v.contains(name)) into = v[name].get<std::vector<double>>(); };
+  if (v.contains("count")) ing.count = v["count"].get<std::vector<std::int64_t>>();
+  take("weight", ing.weight); take("sum", ing.sum); take("sum_sq", ing.sum_sq); take("max", ing.max); take("min", ing.min); take("abs_max", ing.abs_max);
+  return ing;
+}
+// The finest stored ingredients of a measure over a selection, in the shape `ingredients_of` reads: each ingredient (count, weight, sum, sum_square, max, min, abs_max) as io's `measurement_values`
+// gives it, [rows x members]; an ingredient the selection does not hold is left out. `grid` carries the selection's own description only: io's level dictionary of a grid (tile diameters, durations,
+// Weyl bands) is io's `Subject::grid_levels`, written by the grid makers; a selection of no grid has none, and a roll-up `to` a physical size then refuses (see level_for).
+Json measurement_ingredients_of(SubjectWriter& sub, const std::string& selection_id, const std::optional<std::string>& field_id, const std::string& measure) {
+  Json out = Json{{"rows", 0}, {"members", 0}, {"ingredients", Json::object()}, {"unit", Json()}};
+  std::vector<std::string> names{"count", "weight", "sum", "sum_square", "max", "min", "abs_max"};
+  (void)measure;
+  for (const auto& n : names) {
+    try {
+      const MeasurementValues mv = measurement_values(sub, selection_id, field_id, std::nullopt, std::nullopt, n);
+      out["rows"] = mv.rows; out["members"] = mv.members;
+      if (!out["unit"].is_string() && mv.unit && n != "count" && n != "weight") out["unit"] = *mv.unit;
+      const std::string key = n == "sum_square" ? "sum_sq" : n;
+      if (n == "count") { std::vector<std::int64_t> c(mv.values.begin(), mv.values.end()); out["ingredients"][key] = c; }
+      else out["ingredients"][key] = mv.values;
+    } catch (const Error&) {}
+  }
+  if (out["rows"].get<std::int64_t>() == 0) throw Error(code::no_such_row, "the selection holds none of the ingredients of '" + measure + "' (count, weight, sum, sum_square, max, min, abs_max)");
+  // the grid's LEVEL DICTIONARY from io (the makers write it: a dyadic tile's diameter in mm and its Weyl band, a constant-Q level's window in s, a time grid's 2^k samples): what a roll-up `to` a physical size reads
+  Json levels = Json::array();
+  for (const Json& e : task::Subject::of(sub).grid_levels(selection_id)) {
+    Json L = Json{{"level", e["level"]}};
+    const Json& at = e["attributes"];
+    if (e.contains("measurement") && e.value("unit", std::string()) == "mm") L["diameter_mm"] = e["measurement"];
+    else if (at.contains("diameter_mm")) L["diameter_mm"] = at["diameter_mm"];
+    if (e.contains("measurement") && e.value("unit", std::string()) == "s") L["seconds"] = e["measurement"];
+    else if (at.contains("window_s")) L["seconds"] = at["window_s"];
+    if (at.contains("weyl_band_per_m2")) L["weyl_band_per_m2"] = at["weyl_band_per_m2"];
+    levels.push_back(std::move(L));
+  }
+  out["grid"] = Json{{"kind", "dyadic"}, {"levels", levels}};
+  return out;
+}
+// the level a stated quantity means on a grid, from the level attributes io returned (consolidation spec 3.3): a tile diameter = the coarsest level whose mean diameter is at most it; a duration = the
+// first level whose tile lasts at least it; a wavelength = the Weyl level holding it; `whole` = -1. The snapped quantity (what the level really is) is returned with it.
+std::pair<int, Json> level_for(const std::string& to, const Json& grid) {
+  if (to == "whole") return {-1, Json{{"whole", true}}};
+  const nxr::quantity::Quantity q = nxr::quantity::parse(to);
+  const Json levels = grid.value("levels", Json::array());
+  for (const Json& L : levels) {
+    const int l = L.at("level").get<int>();
+    if ((q.unit == "mm" && q.chart != "wavelength") && L.contains("diameter_mm") && L["diameter_mm"].get<double>() <= q.hi) return {l, Json{{"diameter_mm", L["diameter_mm"]}}};
+    if (q.unit == "s" && L.contains("seconds") && L["seconds"].get<double>() >= q.lo) return {l, Json{{"seconds", L["seconds"]}}};
+    if (q.chart == "wavelength" && L.contains("weyl_band_per_m2") && L["weyl_band_per_m2"].is_array() && L["weyl_band_per_m2"].size() == 2) {
+      const double lam_per_m2 = std::pow(2.0 * M_PI / (q.lo * 1e-3), 2.0);                 // 1/m2 from a wavelength in mm
+      if (lam_per_m2 >= L["weyl_band_per_m2"][0].get<double>() && lam_per_m2 < L["weyl_band_per_m2"][1].get<double>()) return {l, Json{{"weyl_band_per_m2", L["weyl_band_per_m2"]}}};
+    }
+  }
+  refuse("measurement query: '" + to + "' names no level of this grid (levels: " + std::to_string(levels.size()) + "; give a tile diameter in mm, a duration in s, a wavelength in mm or whole)");
+}
+}  // namespace
+
+Json measurement_query(const fs::path& dataset, const std::string& subject, const MeasurementQuery& q) {
+  if (q.where != "io" && q.where != "compute") refuse("measurement query: where is io (the SQL query) or compute (in memory)");
+  if (q.selection.empty() || q.measure.empty()) refuse("measurement query: name the selection and the measure");
+  DatasetWriter ds = open_for(dataset, subject, false);
+  SubjectWriter sub = SubjectWriter::open(ds, subject);
+  const task::Subject ts = task::Subject::of(sub);
+  const auto sel = ts.by_id_or_name(task::Cls::selection, q.selection);
+  if (!sel) throw Error(code::no_such_row, "no selection named '" + q.selection + "' in subject " + subject);
+  std::string field_id;
+  if (q.of_field) {
+    const auto f = ts.by_id_or_name(task::Cls::field, *q.of_field);
+    if (!f) throw Error(code::no_such_row, "no field named '" + *q.of_field + "' in subject " + subject);
+    field_id = f->id;
+  }
+  Json jq = Json{{"selectionId", sel->id}, {"measure", q.measure}};
+  if (!field_id.empty()) jq["ofFieldId"] = field_id;
+  const bool filtered = q.min_value || q.max_value || q.limit > 0 || !q.order.empty();
+  if (filtered && q.where != "io") throw Error(code::invalid_argument, "measurement query: --min-value, --max-value, --limit and --order are filters of io's query: use --where io");
+  if (q.where == "io" && filtered) {                                        // the value filters, the order and the limit are io's SQL (query::members), the level through the grid's closed-form shift
+    nxr::io::query::Query iq;
+    iq.measure = q.measure;
+    iq.filter.selections = {sel->id};
+    if (!field_id.empty()) iq.filter.of_field = field_id;
+    iq.filter.min_value = q.min_value;
+    iq.filter.max_value = q.max_value;
+    iq.filter.subjects = q.subjects.empty() ? std::vector<std::string>{subject} : q.subjects;
+    iq.order = q.order;
+    iq.limit = q.limit;
+    if (!q.order.empty() && q.order != "asc" && q.order != "desc") throw Error(code::invalid_argument, "measurement query: --order is asc or desc");
+    if (q.to) {
+      Json grid = Json{{"levels", Json::array()}};
+      for (const Json& e : ts.grid_levels(sel->id)) {
+        Json L = Json{{"level", e["level"]}};
+        if (e.contains("measurement") && e.value("unit", std::string()) == "mm") L["diameter_mm"] = e["measurement"];
+        if (e.contains("measurement") && e.value("unit", std::string()) == "s") L["seconds"] = e["measurement"];
+        if (e["attributes"].contains("weyl_band_per_m2")) L["weyl_band_per_m2"] = e["attributes"]["weyl_band_per_m2"];
+        grid["levels"].push_back(L);
+      }
+      const auto [target, snapped] = level_for(*q.to, grid);
+      if (target < 0) iq.roll.whole = true;
+      else iq.roll.shift = std::max(0, static_cast<int>(sel->member_ordinal.value_or(grid["levels"].size() - 1)) - target);   // coarser than the stored level by the difference of the levels
+    }
+    if (!q.subjects.empty() && q.subjects.size() > 1) iq.roll.across_subjects = true;
+    return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "io"}, {"rows", ts.query_members(iq)}};
+  }
+  if (q.where == "io") {                                                    // the SQL query: the roll-up and the derived measures in io's query, across subjects when asked
+    if (q.to) jq["to"] = *q.to;
+    if (q.factor) jq["factor"] = *q.factor;
+    if (!q.subjects.empty()) jq["subjects"] = q.subjects;
+    return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "io"}, {"rows", ts.read_measurements(jq)}};
+  }
+  // compute: the finest ingredients (of each subject asked), summed code for code across subjects, rolled up through the grid's closed form, the measure derived from them
+  std::vector<Json> fines{measurement_ingredients_of(sub, sel->id, field_id.empty() ? std::nullopt : std::optional<std::string>(field_id), q.measure)};
+  for (const auto& other : q.subjects) {
+    if (other == subject) continue;
+    DatasetWriter ods = open_for(dataset, other, false);
+    SubjectWriter osub = SubjectWriter::open(ods, other);
+    const task::Subject ots = task::Subject::of(osub);
+    const auto osel = ots.by_id_or_name(task::Cls::selection, q.selection);
+    if (!osel) throw Error(code::no_such_row, "no selection named '" + q.selection + "' in subject " + other);
+    Json oq = jq;
+    oq["selectionId"] = osel->id;
+    if (q.of_field) { const auto f = ots.by_id_or_name(task::Cls::field, *q.of_field); if (!f) throw Error(code::no_such_row, "no field named '" + *q.of_field + "' in subject " + other); oq["ofFieldId"] = f->id; }
+    fines.push_back(measurement_ingredients_of(osub, osel->id, oq.contains("ofFieldId") ? std::optional<std::string>(oq["ofFieldId"].get<std::string>()) : std::nullopt, q.measure));
+  }
+  nxr::measurement::Request request;
+  request.measures = {q.measure};
+  std::vector<nxr::measurement::Ingredients> all;
+  for (const Json& f : fines) all.push_back(ingredients_of(f));
+  nxr::measurement::Ingredients ing = all.size() == 1 ? all.front() : [&] { std::vector<const nxr::measurement::Ingredients*> ptrs; for (const auto& a : all) ptrs.push_back(&a); return nxr::measurement::across(ptrs, request); }();
+  const Json& grid = fines.front().at("grid");
+  Json level_json = Json::object();
+  if (q.to) {
+    const auto [to_level, snapped] = level_for(*q.to, grid);
+    const int from_level = grid.value("level", grid.value("depth", 0));
+    const nxr::selection::Selection grid_selection = nxr::pipelines::made(nxr::io::selection::load(sub, sel->id).description);
+    const nxr::selection::Elements groups = grid.value("kind", std::string()) == "product" && q.factor
+                                                ? nxr::measurement::coarser_groups(grid_selection, [&] { const Json fs = grid.value("factors", Json::array()); for (std::size_t i = 0; i < fs.size(); ++i) if (fs[i].value("name", std::string()) == *q.factor) return i; refuse("measurement query: the product has no factor '" + *q.factor + "'"); }(), from_level, to_level)
+                                                : nxr::measurement::coarser_groups(grid_selection, from_level, to_level);
+    ing = nxr::measurement::roll_up(ing, groups, request);
+    level_json = Json{{"level", to_level}, {"snapped", snapped}};
+  }
+  std::vector<double> values;
+  for (std::int64_t r = 0; r < ing.rows; ++r)
+    for (std::int64_t m = 0; m < ing.members; ++m) values.push_back(nxr::measurement::value(ing, r, m, q.measure));
+  return Json{{"measure", q.measure}, {"selection", q.selection}, {"where", "compute"}, {"subjects", q.subjects.empty() ? Json::array({subject}) : Json(q.subjects)}, {"to", q.to ? Json(*q.to) : Json()},
+              {"level", level_json}, {"rows", ing.rows}, {"members", ing.members}, {"values", Json{{"shape", Json::array({ing.rows, ing.members})}, {"data", values}}}, {"unit", fines.front().value("unit", Json())}};
 }
 
 Json datasets(const fs::path& datastore) {

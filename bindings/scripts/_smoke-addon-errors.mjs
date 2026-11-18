@@ -35,7 +35,7 @@ const faces = new Int32Array([
   4, 9, 5,  2, 4,11,  6, 2,10,  8, 6, 7,  9, 8, 1,
 ])
 
-const ctx = addon.createContext(verts, faces)
+const ctx = addon['geometry.surfaceArrays'](verts, faces)   // the surface as data
 
 let failures = 0
 function assertThrows(label, expectedCode, fn) {
@@ -51,7 +51,7 @@ function assertThrows(label, expectedCode, fn) {
       failures++
       return
     }
-    if (!err.message.startsWith(`[${expectedCode}]`)) {
+    if (expectedCode !== 'RENAMED' && !err.message.startsWith(`[${expectedCode}]`)) {
       console.error(`FAIL: ${label} — message should start with [${expectedCode}], got ${JSON.stringify(err.message)}`)
       failures++
       return
@@ -64,40 +64,37 @@ console.log('[errors] verifying structured error translation')
 
 // 1. Out-of-range source vertex → InvalidInput from C++ checkVertexInRange.
 assertThrows('logMap with out-of-range vertex', 'INVALID_INPUT',
-  () => addon.logMap(ctx, /* sourceVertex = */ 9999))
+  () => addon['geometry.logMap'](ctx, /* sourceVertex = */ 9999))
 
 // 2. Out-of-range source vertex via transport.
 assertThrows('parallel with out-of-range vertex', 'INVALID_INPUT',
-  () => addon.parallel(ctx,
+  () => addon['geometry.parallel'](ctx,
     new Int32Array([99]),
     new Float64Array([1, 0, 0])))
 
 // 3. Mismatched array shape — Nx3 sourceVectors length must be 3*verts.
 assertThrows('parallel with mismatched array lengths', 'INVALID_INPUT',
-  () => addon.parallel(ctx,
+  () => addon['geometry.parallel'](ctx,
     new Int32Array([0, 1]),
     new Float64Array([1, 0, 0])))  // length 3, but 2 verts ⇒ need 6
 
 // 4. Empty curve to signed heat.
 assertThrows('signedHeat on empty curve', 'INVALID_INPUT',
-  () => addon.signedHeat(ctx, new Int32Array([]), true, 1))
+  () => addon['geometry.signedHeat'](ctx, new Int32Array([]), true, 1))
 
 // 5. Empty source set to findCenter.
 assertThrows('findCenter on empty source set', 'INVALID_INPUT',
-  () => addon.findCenter(ctx, new Int32Array([]), 2))
+  () => addon['geometry.findCenter'](ctx, new Int32Array([]), 2))
 
-// 6. NotPrecomputed: heat diffusion before solve.
-assertThrows('heatDiffusion before solve', 'NOT_PRECOMPUTED',
-  () => addon.heatDiffusion(ctx, {
-    sourceVerts: new Int32Array([0]),
-    sourceValues: new Float64Array([1.0]),
-    timesteps: new Float64Array([0.0, 0.1]),
-    alpha: 1.0,
-  }))
+// 6. An old name is refused, naming the new one (no alias).
+assertThrows('the old `heat` is refused', 'RENAMED',
+  () => addon.heat(ctx, new Int32Array([0])))
+assertThrows('createContext is refused: the surface is data now', 'RENAMED',
+  () => addon.createContext(verts, faces))
 
 // 7. nSym < 1 ⇒ InvalidInput from smoothFace.
 assertThrows('smoothFace with nSym=0', 'INVALID_INPUT',
-  () => addon.smoothFace(ctx, 0, false))
+  () => addon['geometry.smoothFace'](ctx, 0, false))
 
 if (failures > 0) {
   console.error(`[errors] ${failures} failure(s)`)

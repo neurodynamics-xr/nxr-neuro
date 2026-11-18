@@ -198,6 +198,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
     for (const auto& [port, t] : n.in_types) {
       if (it.section == Section::before && t.streamed()) fail("port '" + port + "' takes the streamed value '" + n.in.at(port) + "': a `before` node runs once, on arrays");
       if (it.section == Section::after && t.streamed()) fail("port '" + port + "' takes the block '" + n.in.at(port) + "': an `after` node runs once, on what the blocks reduced");
+      if (it.section != Section::chunks && t.per_block()) fail("port '" + port + "' takes '" + n.in.at(port) + "', a value made once per block: only a node inside the loop reads it (an accumulate node reduces it)");
     }
 
     // parameters: the node's defaults, then `with` ($name from the graph's parameters)
@@ -251,7 +252,15 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
       tu.in = n.in_types;
       tu.in_names = n.in;
       tu.made_by = made_by;
-      for (std::size_t i = 0; i < spec.signature->outputs.size() && i < u.out.size(); ++i) tu.out_names[spec.signature->outputs[i].first] = u.out[i];
+      {                                                                 // the names given, in the order of the outputs the use makes (a node that makes a part of its outputs by a parameter: outputs_for)
+        const std::vector<std::string> only = spec.outputs_for ? spec.outputs_for(n.params) : std::vector<std::string>();
+        std::size_t k = 0;
+        for (std::size_t i = 0; i < spec.signature->outputs.size() && k < u.out.size(); ++i) {
+          const std::string& port = spec.signature->outputs[i].first;
+          if (spec.outputs_for && std::find(only.begin(), only.end(), port) == only.end()) continue;
+          tu.out_names[port] = u.out[k++];
+        }
+      }
       Types made_types;
       try { made_types = type_use(u.node, *spec.signature, tu, n.params); } catch (const TypeRefusal& e) { refuse(e.what()); }
       for (auto& [port, mt] : made_types) {
@@ -259,17 +268,24 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
         if (planned == n.planned.out.end()) { n.planned.out[port] = mt; continue; }
         PortType& dst = planned->second;                 // the plan's type keeps what C1 reads; the typed members are the checker's
         dst.typed = true; dst.components = mt.components; dst.domain = mt.domain; dst.target = mt.target; dst.quantity = mt.quantity; dst.res = mt.res; dst.from_value = mt.from_value;
+        if (dst.cls == PortClass::constant && mt.cls != PortClass::constant) dst.cls = mt.cls;   // the checker's class wins: a Value maps measurements, statistics and spans to the stored-constant class
         dst.spin = mt.spin; dst.gauge = mt.gauge; dst.sel = mt.sel; dst.of = mt.of; dst.transition = mt.transition; dst.complex_parts = mt.complex_parts;
       }
     }
-    if (u.out.size() != spec.outputs.size()) fail("the node makes " + std::to_string(spec.outputs.size()) + " output(s); `out` names " + std::to_string(u.out.size()));
-    for (std::size_t i = 0; i < spec.outputs.size(); ++i) {
-      const std::string& port = spec.outputs[i].name;
+    std::vector<std::string> used;                       // the ports this use makes: all, or the ones its parameters' part makes
+    {
+      const std::vector<std::string> only = spec.outputs_for ? spec.outputs_for(n.params) : std::vector<std::string>();
+      for (const auto& o : spec.outputs) if (!spec.outputs_for || std::find(only.begin(), only.end(), o.name) != only.end()) used.push_back(o.name);
+    }
+    if (u.out.size() != used.size()) fail("the node makes " + std::to_string(used.size()) + " output(s); `out` names " + std::to_string(u.out.size()));
+    for (std::size_t i = 0; i < used.size(); ++i) {
+      const std::string& port = used[i];
       const auto t = n.planned.out.find(port);
       if (t == n.planned.out.end()) fail("its plan gives no type for output '" + port + "'");
       PortType ot = t->second;
       ot.nonlinear = ot.nonlinear || any_nonlinear;
-      if (spec.kind == Kind::chunk && !ot.streamed()) fail("output '" + port + "' of a chunk node must be streamed (axis samples or frames)");
+      if (spec.kind == Kind::chunk && !ot.streamed() && !ot.per_block()) fail("output '" + port + "' of a chunk node must be streamed (axis samples or frames) or made once per block (on a line the node makes)");
+      if (spec.kind != Kind::chunk && ot.per_block()) fail("output '" + port + "' of " + std::string(to_string(spec.kind)) + " node is an array; only a chunk node makes a value once per block");
       if (spec.kind != Kind::chunk && ot.streamed()) fail("output '" + port + "' of " + std::string(to_string(spec.kind)) + " node is an array, not a stream");
       const std::string& name = u.out[i];
       if (c.values.count(name)) fail("`out` names '" + name + "', which already exists");
@@ -277,7 +293,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
       c.values[name] = ot;
       made_by[name] = where;
     }
-    if (spec.kind != Kind::chunk && n.planned.halo != 0) fail("only a chunk node has a halo");
+    if (spec.kind != Kind::chunk && spec.kind != Kind::accumulate && n.planned.halo != 0) fail("only a chunk node or an accumulate node has a halo");   // an accumulate node's is to the right only (a segment family's n - 1)
     if (n.planned.halo < 0) fail("a negative halo");
     if (n.planned.align < 0) fail("a negative span grid");
     c.align = std::max(c.align, n.planned.align);
@@ -289,6 +305,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
   for (const auto& o : g.outputs) {
     if (!c.values.count(o)) refuse("output '" + o + "' is not a value of the graph");
     if (!outs.insert(o).second) refuse("output '" + o + "' is named twice");
+    if (c.values.at(o).per_block()) refuse("output '" + o + "' is made once per block: an accumulate node reduces it across blocks into an output");
   }
 
   // the loop: the chunks section
@@ -308,7 +325,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
   // 6. THE HALO, composed backwards over the chunk nodes
   std::map<std::string, std::vector<std::size_t>> readers;   // value -> the loop positions of the chunk nodes reading it
   for (std::size_t li = 0; li < c.loop.size(); ++li)
-    for (const auto& [_, name] : c.nodes[c.loop[li]].in) if (c.nodes[c.loop[li]].spec->kind == Kind::chunk) readers[name].push_back(li);
+    for (const auto& [_, name] : c.nodes[c.loop[li]].in) if (c.nodes[c.loop[li]].spec->kind == Kind::chunk || c.nodes[c.loop[li]].planned.halo > 0) readers[name].push_back(li);
   for (std::size_t li = c.loop.size(); li-- > 0;) {
     CheckedNode& n = c.nodes[c.loop[li]];
     std::int64_t keep = 0;
@@ -323,10 +340,21 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
     if (reads_input) c.halo = std::max(c.halo, n.planned.halo + n.keep);
   }
   // where the pointwise tail starts: after the last chunk node that needs a halo
-  for (std::size_t li = 0; li < c.loop.size(); ++li) if (c.nodes[c.loop[li]].spec->kind == Kind::chunk && c.nodes[c.loop[li]].planned.halo > 0) c.tail = li + 1;
+  for (std::size_t li = 0; li < c.loop.size(); ++li) if (c.nodes[c.loop[li]].planned.halo > 0) c.tail = li + 1;   // a chunk node's, or an accumulate node's right halo: they read the block with its halo
+  // and after the last node that reads or makes a value of the block (a change of basis): those run on the whole block, never on sub-blocks of samples
+  for (std::size_t li = 0; li < c.loop.size(); ++li) {
+    const CheckedNode& n = c.nodes[c.loop[li]];
+    bool per_block = false;
+    for (const auto& [_, name] : n.in) per_block = per_block || c.values.at(name).per_block();
+    for (const auto& [_, name] : n.out) per_block = per_block || c.values.at(name).per_block();
+    if (per_block) c.tail = std::max(c.tail, li + 1);
+  }
 
   // 7. RETIMING: the nodes after it run on frames, are pointwise, and read no stream of samples
   if (c.retime) {
+    for (std::size_t li = *c.retime + 1; li < c.loop.size(); ++li)
+      for (const auto& [_, name] : c.nodes[c.loop[li]].out)
+        if (c.values.at(name).per_block()) refuse(c.nodes[c.loop[li]].label + ": makes a value once per block after the retiming node; the nodes after it are pointwise on its frames");
     if (c.tail > *c.retime + 1) refuse(c.nodes[c.loop[c.tail - 1]].label + ": a node after the retiming node (" + c.nodes[c.loop[*c.retime]].label + ") needs a halo; the nodes after it are pointwise on its frames");
     for (std::size_t li = *c.retime + 1; li < c.loop.size(); ++li)
       for (const auto& [port, name] : c.nodes[c.loop[li]].in)

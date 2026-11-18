@@ -1,4 +1,4 @@
-"""Writes pca_golden.txt: the reference of nxr::pca, a principal component analysis by numpy's singular value decomposition of the centred table (scikit-learn's PCA with
+"""Writes pca_golden.txt: the reference of nxr::stats, a principal component analysis by numpy's singular value decomposition of the centred table (scikit-learn's PCA with
 svd_solver="full" does the same maths; scikit-learn is not needed here). Synthetic data only: three tables made from planted components plus noise.
   wide    12 x 30   (more features than observations: rank 11 after centring)
   tall    40 x 6

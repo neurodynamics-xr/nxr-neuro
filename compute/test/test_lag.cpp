@@ -1,9 +1,10 @@
-// nxr::lag (lagStatistics, holonomy, pairsAtDistance, circularShift) and timebank::equivalentBandwidth / independentEstimates, synthetic only:
+// nxr::stats (lagStatistics, holonomy, pairsAtDistance, circularShift) and timebank::equivalentBandwidth / independentEstimates, synthetic only:
 //   the equivalent bandwidth of a rectangular band is its width; THE LAG'S STANDARD ERROR against a simulation: two channels sharing a band-limited
 //   signal one sample apart, plus independent noise, 500 trials of 4 s through the Meyer alpha band and crossSpectrum: the spread of the estimated lag
 //   equals se(θ) with n = independentEstimates (B·T), not with 2BT; the coherence's debiasing; holonomy 0 for lags that come from one phase map
 //   (vortices included), ±δ on the two faces of a perturbed edge; pairs at a distance (straight and along the edges); a circular shift keeps each
 //   channel's spectrum and destroys the lag between channels; refusals.
+#include "nxr/signal/wavelet.h"
 #include <Eigen/Dense>
 #include <cmath>
 #include <iostream>
@@ -11,13 +12,14 @@
 #include <set>
 
 #include "mesh_helpers.h"
-#include "nxr/fft.h"
-#include "nxr/lag.h"
-#include "nxr/partition.h"
-#include "nxr/timebank.h"
+#include "nxr/signal/fourier.h"
+#include "nxr/stats/lag.h"
+#include "nxr/select/distance_pairs.h"
+#include "measurement_helpers.h"
+#include "nxr/signal/timefilterbank.h"
 
 using C = std::complex<double>;
-namespace tb = nxr::timebank;
+namespace tb = nxr::signal::timefilterbank;
 
 int main() {
   std::cout << "test_lag\n";
@@ -26,7 +28,7 @@ int main() {
 
   // THE EQUIVALENT BANDWIDTH: a rectangular band [8, 12] Hz is 4 Hz wide
   {
-    tb::TimeBank b{tb::Family::Meyer, 1.0, tb::Sides::Analytic, tb::EdgeBins::Single};
+    tb::TimeFilterbank b{tb::Family::Meyer, 1.0, tb::Sides::Analytic, tb::EdgeBins::Single};
     b.fs = 200;
     tb::Member m;
     m.gain = [](double f) { return std::abs(f) >= 8 && std::abs(f) <= 12 ? 1.0 : 0.0; };
@@ -51,10 +53,10 @@ int main() {
       for (Eigen::Index t = 0; t < x.cols(); ++t) x(0, t) = nd(rng);
       Eigen::MatrixXd y(2, n + 2 * pad);
       for (Eigen::Index t = 0; t < y.cols(); ++t) { y(0, t) = x(0, t + 1) + 0.8 * nd(rng); y(1, t) = x(0, t) + 0.8 * nd(rng); }   // channel 1 one sample behind
-      const auto tr = tb::analysisOfBlock(meyer, y, fs, static_cast<std::size_t>(pad), static_cast<std::size_t>(n));
-      const auto cs = nxr::partition::crossSpectrum(tr.own[0], static_cast<std::size_t>(n), 1);
+      const auto tr = nxr::signal::wtBlock(meyer, y, fs, static_cast<std::size_t>(pad), static_cast<std::size_t>(n));
+      const auto cs = crossSpectrumTiles(tr.own[0], static_cast<std::size_t>(n), 1);
       const auto& S = cs.sum[0];
-      const auto st = nxr::lag::lagStatistics({S(0, 1)}, Eigen::VectorXd::Constant(1, S(0, 0).real()), Eigen::VectorXd::Constant(1, S(1, 1).real()), nEst);
+      const auto st = nxr::stats::lagStatistics({S(0, 1)}, Eigen::VectorXd::Constant(1, S(0, 0).real()), Eigen::VectorXd::Constant(1, S(1, 1).real()), nEst);
       lags.push_back(st.lag(0));
       seSum += st.stderror(0);
       gSum += st.coherence(0);
@@ -73,13 +75,13 @@ int main() {
 
   // lagStatistics: debiasing, no coherence, refusals
   {
-    const auto a = nxr::lag::lagStatistics({C(0.3, 0.1), C(0, 0)}, Eigen::Vector2d(1, 1), Eigen::Vector2d(1, 1), 10, false);
-    const auto b = nxr::lag::lagStatistics({C(0.3, 0.1)}, Eigen::VectorXd::Ones(1), Eigen::VectorXd::Ones(1), 10, true);
+    const auto a = nxr::stats::lagStatistics({C(0.3, 0.1), C(0, 0)}, Eigen::Vector2d(1, 1), Eigen::Vector2d(1, 1), 10, false);
+    const auto b = nxr::stats::lagStatistics({C(0.3, 0.1)}, Eigen::VectorXd::Ones(1), Eigen::VectorXd::Ones(1), 10, true);
     const double g2 = 0.1, d2 = (10 * g2 - 1) / 9;
     EXPECT(std::abs(a.coherence(0) * a.coherence(0) - g2) < 1e-12 && std::abs(b.coherence(0) - std::sqrt(std::max(d2, 0.0))) < 1e-12 && std::isinf(a.stderror(1)) && a.snr(1) == 0,
            "|γ|² = 0.1 at n = 10: debiased " << d2 << " (floored at 0); no coherence: se = ∞, |θ|/se = 0");
     bool threw = false;
-    try { nxr::lag::lagStatistics({C(1, 0)}, Eigen::VectorXd::Ones(2), Eigen::VectorXd::Ones(1), 10); } catch (const std::invalid_argument&) { threw = true; }
+    try { nxr::stats::lagStatistics({C(1, 0)}, Eigen::VectorXd::Ones(2), Eigen::VectorXd::Ones(1), 10); } catch (const std::invalid_argument&) { threw = true; }
     EXPECT(threw, "mismatched sizes refused");
   }
 
@@ -90,9 +92,9 @@ int main() {
   const int nV = static_cast<int>(V.size() / 3);
   std::set<std::pair<int, int>> es;
   for (std::size_t f = 0; f < F.size(); f += 3) for (int c = 0; c < 3; ++c) { const int a = F[f + c], b = F[f + (c + 1) % 3]; es.insert({std::min(a, b), std::max(a, b)}); }
-  nxr::lag::Edges E(static_cast<Eigen::Index>(es.size()), 2);
+  nxr::stats::Edges E(static_cast<Eigen::Index>(es.size()), 2);
   { Eigen::Index i = 0; for (auto [a, b] : es) { E(i, 0) = a; E(i, 1) = b; ++i; } }
-  nxr::lag::Faces Fm(static_cast<Eigen::Index>(F.size() / 3), 3);
+  nxr::stats::Faces Fm(static_cast<Eigen::Index>(F.size() / 3), 3);
   for (std::size_t i = 0; i < F.size(); ++i) Fm(static_cast<Eigen::Index>(i / 3), static_cast<Eigen::Index>(i % 3)) = F[i];
   {
     Eigen::VectorXd th(E.rows());
@@ -100,9 +102,9 @@ int main() {
       const double pa = 3 * std::atan2(V[3 * E(e, 0) + 1], V[3 * E(e, 0)]), pb = 3 * std::atan2(V[3 * E(e, 1) + 1], V[3 * E(e, 1)]);
       th(e) = std::remainder(pa - pb, 2 * M_PI);
     }
-    const Eigen::VectorXd h0 = nxr::lag::holonomy(E, th, Fm);
+    const Eigen::VectorXd h0 = nxr::stats::holonomy(E, th, Fm);
     th(5) += 0.5;
-    const Eigen::VectorXd h1 = nxr::lag::holonomy(E, th, Fm);
+    const Eigen::VectorXd h1 = nxr::stats::holonomy(E, th, Fm);
     int moved = 0;
     double off = 0;
     for (Eigen::Index f = 0; f < h1.size(); ++f) {
@@ -115,8 +117,8 @@ int main() {
   {
     Eigen::MatrixXd P(nV, 3);
     for (int v = 0; v < nV; ++v) for (int d = 0; d < 3; ++d) P(v, d) = V[3 * v + d];
-    const auto s = nxr::lag::pairsAtDistance(P, E, 0.02, 0.1, 4, nxr::lag::Metric::Straight);
-    const auto g = nxr::lag::pairsAtDistance(P, E, 0.02, 0.1, 4, nxr::lag::Metric::AlongEdges);
+    const auto s = nxr::select::pairsAtDistance(P, E, 0.02, 0.1, 4, nxr::select::Metric::Straight);
+    const auto g = nxr::select::pairsAtDistance(P, E, 0.02, 0.1, 4, nxr::select::Metric::AlongEdges);
     bool ok = s.pairs.rows() > nV && g.pairs.rows() > nV;
     std::map<int, int> per;
     std::set<std::pair<int, int>> uniq;
@@ -135,16 +137,16 @@ int main() {
     const Eigen::Index n = 4096;
     Eigen::MatrixXcd Z(2, n);
     for (Eigen::Index t = 0; t < n; ++t) { const C s(nd(rng), nd(rng)); Z(0, t) = s; Z(1, t) = s * std::polar(1.0, 0.6); }   // identical up to a fixed lag
-    const Eigen::MatrixXcd Zs = nxr::lag::circularShift(Z, {0, 1234});
+    const Eigen::MatrixXcd Zs = nxr::stats::circularShift(Z, {0, 1234});
     auto spectrum = [&](const Eigen::MatrixXcd& X, int r) {
       std::vector<C> in(X.cols()), out(X.cols());
       for (Eigen::Index t = 0; t < X.cols(); ++t) in[static_cast<std::size_t>(t)] = X(r, t);
-      nxr::fft::c2c(in.data(), out.data(), {static_cast<std::size_t>(X.cols())}, 0, true);
+      nxr::signal::c2c(in.data(), out.data(), {static_cast<std::size_t>(X.cols())}, 0, true);
       Eigen::VectorXd a(X.cols());
       for (Eigen::Index k = 0; k < X.cols(); ++k) a(k) = std::abs(out[static_cast<std::size_t>(k)]);
       return a;
     };
-    const auto before = nxr::partition::crossSpectrum(Z, static_cast<std::size_t>(n), 1).sum[0], after = nxr::partition::crossSpectrum(Zs, static_cast<std::size_t>(n), 1).sum[0];
+    const auto before = crossSpectrumTiles(Z, static_cast<std::size_t>(n), 1).sum[0], after = crossSpectrumTiles(Zs, static_cast<std::size_t>(n), 1).sum[0];
     const double cohBefore = std::abs(before(0, 1)) / std::sqrt(before(0, 0).real() * before(1, 1).real()), cohAfter = std::abs(after(0, 1)) / std::sqrt(after(0, 0).real() * after(1, 1).real());
     EXPECT((spectrum(Z, 1) - spectrum(Zs, 1)).cwiseAbs().maxCoeff() < 1e-9 * spectrum(Z, 1).maxCoeff() && std::abs(cohBefore - 1) < 1e-12 && cohAfter < 0.1,
            "a circular shift keeps the channel's spectrum (|FFT| equal) and destroys the lag: coherence " << cohBefore << " → " << cohAfter);

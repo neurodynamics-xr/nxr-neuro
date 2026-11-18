@@ -10,6 +10,7 @@
 
 #include "nxr/bst/protocol.h"
 #include "nxr/io/layout.h"
+#include "nxr/io/selection_store.h"
 #include "nxr/io/surface.h"
 
 namespace nxr::bst {
@@ -422,30 +423,19 @@ std::string write_mri(SubjectWriter& sub, const Mri& img) {
     }
     d.entries = entries;
     const auto dr = sub.dictionary(d);
-    const std::int64_t max_code = *std::max_element(dr.codes.begin(), dr.codes.end());
-    std::vector<std::uint16_t> mapped(img.codes.size());
-    std::set<std::uint16_t> distinct;
-    for (std::size_t i = 0; i < mapped.size(); ++i) { mapped[i] = static_cast<std::uint16_t>(dr.codes.at(img.codes[i])); distinct.insert(mapped[i]); }
-    nxr::io::SelectionSpec s;
-    s.name = img.name;
-    s.path = node;
-    s.type = "set";
-    s.manifold_id = nxr::io::text(*va, "id");
-    s.no_elements = true;
-    s.dense = true;
-    std::vector<std::uint8_t> narrow;
-    if (max_code < 256) {
-      narrow.assign(mapped.begin(), mapped.end());
-      s.data = view(narrow, shape);
-      s.meta = nxr::io::array_meta(nxr::io::DType::UInt8, shape, {.chunks = chunks, .compress = true});
-    } else {
-      s.data = view(mapped, shape);
-      s.meta = nxr::io::array_meta(nxr::io::DType::UInt16, shape, {.chunks = chunks, .compress = true});
-    }
+    // an IRREGULAR set per voxel (a label image: regions of arbitrary shape, no levels), as the surface atlases are stored: the member number of each voxel in the volume's
+    // row-major order, each member's label (the dictionary's code) beside it, the dictionary's entries one per label
+    std::vector<std::int32_t> codes(img.codes.size());
+    for (std::size_t i = 0; i < codes.size(); ++i) codes[i] = static_cast<std::int32_t>(dr.codes.at(img.codes[i]));
     std::string desc = "one label per voxel \xe2\x80\x94 the CODE, i.e. the dictionary entry; its source_id is Brainstorm's label value (D123)";
     if (!lab.unlabelled.empty()) desc += "; unlabelled values " + py_int_list(lab.unlabelled);
-    s.cols.set("dictionary_id", dr.id).set("n_elements", total).set("n_members", static_cast<std::int64_t>(distinct.size())).set("description", desc);
-    sub.selection(std::move(s));
+    nxr::io::selection::Placement at;
+    at.name = img.name;
+    at.path = node;
+    at.manifold_id = nxr::io::text(*va, "id");
+    at.dictionary_id = dr.id;
+    at.description = desc;
+    nxr::io::selection::save(sub, nxr::io::selection::set_from_labels(codes), at);
     return node;
   }
 

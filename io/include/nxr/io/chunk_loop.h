@@ -87,10 +87,15 @@ struct LinkedBlocks {
 
 class ChunkSource {
  public:
+  /** what a chunk carries: its samples (the default), or the recording's SHAPE only (its channels, samples and chunk grid, and the good-sample mask), never a sample: a run that makes its own
+   *  values from the sample index (a surrogate's draw; spec docs/specs/2026-11-17-surrogates.md, section 6). The array's header gives the shape. */
+  enum class Reading { samples, shape };
   /** `array`: the recording's key in `store` ([channels x samples]; unused when `linked` is given: a recording read in place from its file); `rows`: the channels handed over, in order (empty: all); `bad`: spans [a, b) in seconds on
    *  the recording's clock (a sample at t0 + i / sfreq is bad when a <= t < b, nxr.pipelines.parameters.bad_mask). */
   ChunkSource(const Store& store, std::string array, std::int64_t width, double sfreq, double t0, std::vector<std::int32_t> rows = {},
-              std::optional<std::vector<std::pair<double, double>>> bad = std::nullopt, std::shared_ptr<const LinkedBlocks> linked = nullptr);
+              std::optional<std::vector<std::pair<double, double>>> bad = std::nullopt, std::shared_ptr<const LinkedBlocks> linked = nullptr, Reading reading = Reading::samples);
+  /** false for a shape-only source: its chunks carry no data (`Chunk::data`, `HaloedChunk::data` empty) */
+  bool reads_samples() const { return reading_ == Reading::samples; }
   std::int64_t width() const { return width_; }
   std::int64_t n_channels() const { return n_channels_; }
   std::int64_t n_samples() const { return n_samples_; }
@@ -98,7 +103,7 @@ class ChunkSource {
   std::int64_t count() const { return (n_samples_ + width_ - 1) / width_; }
   /** chunk k, WHOLE (its first sample in out.first, its length in out.n) */
   void read(std::int64_t k, Chunk& out) const;
-  /** the chunks read so far (each read once per job: what a test counts) */
+  /** the chunks read so far (each read once per job: what a test counts); a shape-only source reads none (0) */
   std::int64_t reads() const;
 
  private:
@@ -110,6 +115,7 @@ class ChunkSource {
   std::vector<std::int32_t> rows_;
   std::optional<std::vector<std::pair<double, double>>> bad_;
   std::shared_ptr<std::atomic<std::int64_t>> reads_ = std::make_shared<std::atomic<std::int64_t>>(0);
+  Reading reading_ = Reading::samples;
 };
 
 /** a job's state, as `progress` sees it after each chunk (the Studio's ChunkJob) */

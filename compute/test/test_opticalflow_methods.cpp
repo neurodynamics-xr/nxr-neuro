@@ -1,4 +1,4 @@
-// nxr::flow methods (opticalflow_methods.h), on synthetic icospheres:
+// nxr::signal methods (opticalflow_methods.h), on synthetic icospheres:
 //  * pcg is the default method and equals direct to its tolerance (both preconditioners); iterations per frame; warm start helps
 //  * perscale separates two rotating patterns of different scale (opposite senses of rotation land in different members)
 //  * FlowEngine(direct) == opticalflowScalar bit for bit
@@ -10,14 +10,14 @@
 #include <random>
 
 #include "mesh_helpers.h"
-#include "nxr/opticalflow_methods.h"
+#include "nxr/signal/opticalflow_methods.h"
 
-using namespace nxr::flow;
+using namespace nxr::signal;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
 struct Sphere {
-    RowMat3 P; FaceMat F; RowMat3 N;
+    RowMat3 P; nxr::operators::FaceMat F; RowMat3 N;
     VectorXd mass;
 };
 
@@ -26,8 +26,8 @@ static Sphere makeSphere(int level) {
     icosphere(level, V, Ff);
     Sphere s;
     s.P = Eigen::Map<RowMat3>(V.data(), V.size() / 3, 3);
-    s.F = Eigen::Map<FaceMat>(Ff.data(), Ff.size() / 3, 3);
-    s.N = vertexNormals(s.P, s.F);
+    s.F = Eigen::Map<nxr::operators::FaceMat>(Ff.data(), Ff.size() / 3, 3);
+    s.N = rheomeVertexNormals(s.P, s.F);
     Eigen::SparseMatrix<double> L;
     embeddedLaplacian(s.P, s.F, L, s.mass);
     return s;
@@ -96,7 +96,7 @@ int main() {
         const auto vd = run(d, A);
         for (int pc = 0; pc < 2; ++pc) {
             FlowMethodOptions o; o.method = FlowMethod::Pcg;
-            o.preconditioner = pc == 0 ? PcgOptions::Preconditioner::Ldlt : PcgOptions::Preconditioner::IncompleteCholesky;
+            o.preconditioner = pc == 0 ? nxr::optimisation::PcgOptions::Preconditioner::Ldlt : nxr::optimisation::PcgOptions::Preconditioner::IncompleteCholesky;
             FlowEngine e(o, s.P, s.F, s.N, 0.05);
             std::vector<FlowStep> st;
             const auto v = run(e, A, &st);
@@ -148,8 +148,8 @@ int main() {
             FlowMethodOptions o = directOptions();
             ms.push_back({"direct", o});
             o.method = FlowMethod::Pcg; ms.push_back({"pcg-ldlt", o});
-            o.preconditioner = PcgOptions::Preconditioner::IncompleteCholesky; ms.push_back({"pcg-ic", o});
-            o.preconditioner = PcgOptions::Preconditioner::Ldlt;
+            o.preconditioner = nxr::optimisation::PcgOptions::Preconditioner::IncompleteCholesky; ms.push_back({"pcg-ic", o});
+            o.preconditioner = nxr::optimisation::PcgOptions::Preconditioner::Ldlt;
             o.method = FlowMethod::Perscale; o.scaleFamily = "logitersine"; o.scaleVoices = 2; ms.push_back({"perscale", o});
             for (auto& [name, mo] : ms) {
                 FlowEngine e(mo, s.P, s.F, s.N, 0.05);

@@ -53,7 +53,7 @@ pass), so readers of `<stem>_<band>` are unchanged.
 |---|---|---|
 | `coherency(C)` | 𝒞(f) per pair and bin | |
 | `phaseSlope(C, f)` | τ per pair (ms), its fit's residual | `weights: coherence \| none` (least squares of the unwrapped phase on f, weighted by |𝒞|² or not); `unwrap: adjacent` |
-| `phaseSlopeIndex(C)` | Ψ per pair | `normalise: none \| std` (Nolte's Ψ / std(Ψ) by jackknife over segments needs the segments' C: a later option) |
+| `phase_slope_index(C)` | Ψ per pair | `normalise: none \| std` (Nolte's Ψ / std(Ψ) by jackknife over segments needs the segments' C: a later option) |
 
 Sign: τ > 0 and Ψ > 0 when the ROW channel leads the column channel (the same sign convention as the stored phase: arg C_ab > 0 when a leads).
 
@@ -67,7 +67,7 @@ Source space follows from linearity (T_ij(f) = K_i C(f) K_jᵀ, per bin as per b
 
 - The per-bin C(f): `CrossWelch` (already golden-tested); a new test that the mean over the `_bins` statistic's bins equals the band
   statistic exactly, and that the result does not depend on the chunk size.
-- `phaseSlopeIndex`: Nolte et al. 2008 (PRL 100, 234101), written from the paper; golden against MNE-Connectivity's `phase_slope_index`
+- `phase_slope_index`: Nolte et al. 2008 (PRL 100, 234101), written from the paper; golden against MNE-Connectivity's `phase_slope_index`
   on a synthetic pair if it can be installed in nxr's environment for the generator, else against a numpy implementation written from the
   paper in the generator.
 - `phaseSlope`: synthetic signals with a known delay (a broadband source and its copy delayed by d ms plus independent noise): τ recovered.

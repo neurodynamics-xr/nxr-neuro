@@ -12,10 +12,28 @@
 #include <string>
 
 #include "arrays.h"
-#include "nxr/compute.h"
-#include "nxr/filter.h"
-#include "nxr/pca.h"
-#include "nxr/welch.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_arrays.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/filters.h"
+#include "nxr/stats/pca.h"
+#include "nxr/signal/spectral.h"
 
 namespace nxrpy {
 
@@ -25,42 +43,42 @@ namespace {
   throw std::invalid_argument(std::string(what) + " '" + got + "' is not one of " + allowed);
 }
 
-nxr::welch::Window parse_window(const std::string& s) {
-  using nxr::welch::Window;
+nxr::signal::spectral::Window parse_window(const std::string& s) {
+  using nxr::signal::spectral::Window;
   if (s == "hann") return Window::Hann;
   if (s == "hamming") return Window::Hamming;
   if (s == "blackman") return Window::Blackman;
   if (s == "rectangular") return Window::Rectangular;
   bad_name("window", s, "hann, hamming, blackman, rectangular");
 }
-nxr::welch::Detrend parse_detrend(const std::string& s) {
-  using nxr::welch::Detrend;
+nxr::signal::spectral::Detrend parse_detrend(const std::string& s) {
+  using nxr::signal::spectral::Detrend;
   if (s == "none") return Detrend::None;
   if (s == "constant") return Detrend::Constant;
   if (s == "linear") return Detrend::Linear;
   bad_name("detrend", s, "none, constant, linear");
 }
-nxr::welch::Scaling parse_scaling(const std::string& s) {
-  using nxr::welch::Scaling;
+nxr::signal::spectral::Scaling parse_scaling(const std::string& s) {
+  using nxr::signal::spectral::Scaling;
   if (s == "density") return Scaling::Density;
   if (s == "spectrum") return Scaling::Spectrum;
   if (s == "chain") return Scaling::Chain;
   bad_name("scaling", s, "density, spectrum, chain");
 }
-nxr::filter::Method parse_method(const std::string& s) {
-  if (s == "fir") return nxr::filter::Method::Fir;
-  if (s == "iir") return nxr::filter::Method::Iir;
+nxr::signal::filters::Method parse_method(const std::string& s) {
+  if (s == "fir") return nxr::signal::filters::Method::Fir;
+  if (s == "iir") return nxr::signal::filters::Method::Iir;
   bad_name("method", s, "fir, iir");
 }
-nxr::filter::Edge parse_edge(const std::string& s) {
-  if (s == "mean_of_transient") return nxr::filter::Edge::MeanOfTransient;
-  if (s == "zeros") return nxr::filter::Edge::Zeros;
+nxr::signal::filters::Edge parse_edge(const std::string& s) {
+  if (s == "mean_of_transient") return nxr::signal::filters::Edge::MeanOfTransient;
+  if (s == "zeros") return nxr::signal::filters::Edge::Zeros;
   bad_name("edge", s, "mean_of_transient, zeros");
 }
 
-nxr::welch::WelchOptions welch_options(double sfreq, size_t segment_samples, double overlap, const std::string& window, bool periodic,
+nxr::signal::spectral::WelchOptions welch_options(double sfreq, size_t segment_samples, double overlap, const std::string& window, bool periodic,
                                        const std::string& detrend, const std::string& scaling) {
-  nxr::welch::WelchOptions o;
+  nxr::signal::spectral::WelchOptions o;
   o.sfreq = sfreq;
   o.segmentSamples = segment_samples;
   o.overlap = overlap;
@@ -87,12 +105,11 @@ nb::tuple welch_psd(const Array2<T>& x, double sfreq, size_t segment_samples, do
   check_good(good, x.shape(1));
   const auto opt = welch_options(sfreq, segment_samples, overlap, window, periodic, detrend, scaling);
   Eigen::MatrixXd X = to_matrix<T>(x);
-  nxr::welch::WelchResult r;
+  nxr::signal::spectral::WelchResult r;
   {
     nb::gil_scoped_release release;
-    nxr::welch::Welch w(static_cast<int>(X.rows()), opt);
-    if (good) w.add(X, good_vector(*good)); else w.add(X);
-    r = w.result();
+    const std::vector<std::uint8_t> mask = good ? good_vector(*good) : std::vector<std::uint8_t>();
+    r = nxr::signal::spectral::psd(X, opt, good ? &mask : nullptr);
   }
   return nb::make_tuple(hand_over(std::move(r.frequencies)), give<T>(std::move(r.psd)), r.segments, r.segmentsSkipped);
 }
@@ -103,15 +120,14 @@ nb::tuple welch_cross_spectrum(const Array2<T>& x, double sfreq, size_t segment_
                                bool mean, bool quadrature, const std::optional<Array1<bool>>& good) {
   check_good(good, x.shape(1));
   const auto opt = welch_options(sfreq, segment_samples, overlap, window, periodic, detrend, scaling);
-  std::vector<nxr::welch::BinGroup> groups;
+  std::vector<nxr::signal::spectral::BinGroup> groups;
   for (const auto& b : bins) groups.push_back({b.first, b.second, mean});
   Eigen::MatrixXd X = to_matrix<T>(x);
-  nxr::welch::CrossWelchResult r;
+  nxr::signal::spectral::CrossWelchResult r;
   {
     nb::gil_scoped_release release;
-    nxr::welch::CrossWelch w(static_cast<int>(X.rows()), opt, groups, quadrature);
-    if (good) w.add(X, good_vector(*good)); else w.add(X);
-    r = w.result();
+    const std::vector<std::uint8_t> mask = good ? good_vector(*good) : std::vector<std::uint8_t>();
+    r = nxr::signal::spectral::xpsd(X, opt, groups, quadrature, good ? &mask : nullptr);
   }
   const size_t c = static_cast<size_t>(X.rows());
   nb::object imag = quadrature ? give_stack<T>(r.Sq, c, c) : nb::none();
@@ -125,7 +141,7 @@ nb::object filter_apply(const std::string& kind, const Array2<T>& x, double sfre
                         const std::optional<std::string>& method, double ripple, const std::optional<double>& transition_bandwidth,
                         const std::string& edge, double transient_energy, const std::optional<size_t>& transient_samples, bool remove_mean,
                         const std::optional<double>& notch_bandwidth, int bandstop_order) {
-  nxr::filter::FilterOptions o = nxr::filter::brainstormFilterOptions(sfreq);
+  nxr::signal::filters::FilterOptions o = nxr::signal::filters::brainstormFilterOptions(sfreq);
   o.sfreq = sfreq;
   if (method) o.method = parse_method(*method);
   o.ripple = ripple;
@@ -140,11 +156,11 @@ nb::object filter_apply(const std::string& kind, const Array2<T>& x, double sfre
   Eigen::MatrixXd Y;
   {
     nb::gil_scoped_release release;
-    if (kind == "lowpass") Y = nxr::filter::lowpass(X, upper, o);
-    else if (kind == "highpass") Y = nxr::filter::highpass(X, lower, o);
-    else if (kind == "bandpass") Y = nxr::filter::bandpass(X, lower, upper, o);
-    else if (kind == "bandstop") Y = nxr::filter::bandstop(X, lower, upper, o);
-    else if (kind == "notch") Y = nxr::filter::notch(X, frequencies, o);
+    if (kind == "lowpass") Y = nxr::signal::filters::lowpass(X, upper, o);
+    else if (kind == "highpass") Y = nxr::signal::filters::highpass(X, lower, o);
+    else if (kind == "bandpass") Y = nxr::signal::filters::bandpass(X, lower, upper, o);
+    else if (kind == "bandstop") Y = nxr::signal::filters::bandstop(X, lower, upper, o);
+    else if (kind == "notch") Y = nxr::signal::filters::notch(X, frequencies, o);
     else throw std::invalid_argument("filter kind '" + kind + "' is not one of lowpass, highpass, bandpass, bandstop, notch");
   }
   return give<T>(std::move(Y));
@@ -154,15 +170,15 @@ nb::object filter_apply(const std::string& kind, const Array2<T>& x, double sfre
 
 template <class T>
 nb::tuple pca_fit(const Array2<T>& x, const std::string& scale) {
-  nxr::pca::PcaOptions o;
-  if (scale == "none") o.scale = nxr::pca::Scale::None;
-  else if (scale == "unit_variance") o.scale = nxr::pca::Scale::UnitVariance;
+  nxr::stats::PcaOptions o;
+  if (scale == "none") o.scale = nxr::stats::Scale::None;
+  else if (scale == "unit_variance") o.scale = nxr::stats::Scale::UnitVariance;
   else bad_name("scale", scale, "none, unit_variance");
   Eigen::MatrixXd X = to_matrix<T>(x);
-  nxr::pca::PcaResult r;
+  nxr::stats::PcaResult r;
   {
     nb::gil_scoped_release release;
-    r = nxr::pca::pca(X, o);
+    r = nxr::stats::pca(X, o);
   }
   return nb::make_tuple(give<T>(std::move(r.components)), give<T>(std::move(r.singularValues)), give<T>(std::move(r.explainedVariance)),
                         give<T>(std::move(r.explainedVarianceRatio)), give<T>(std::move(r.scores)), give<T>(std::move(r.mean)),
@@ -180,7 +196,7 @@ nb::object pca_reconstruct(const Array2<T>& scores, const Array2<T>& components,
   Eigen::MatrixXd out;
   {
     nb::gil_scoped_release release;
-    out = nxr::pca::reconstruct(S, C, mu, sc, k);
+    out = nxr::stats::reconstruct(S, C, mu, sc, k);
   }
   return give<T>(std::move(out));
 }
@@ -194,12 +210,13 @@ nb::tuple manifold_eigenmodes(const Array2<double>& vertices, const Array2<int32
   const int32_t* f = faces.data();
   for (size_t i = 0; i < nF * 3; ++i)
     if (f[i] < 0 || static_cast<size_t>(f[i]) >= nV) throw std::invalid_argument("a face names a vertex outside the mesh (indices are 0-based)");
-  nxr::manifold::solve::EigenResult r;
+  nxr::operators::EigenResult r;
   {
     nb::gil_scoped_release release;
-    nxr::manifold::Manifold m(vertices.data(), static_cast<int>(nV), f, static_cast<int>(nF), intrinsic_delaunay);
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
-    r = nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, k, sigma ? *sigma : nxr::manifold::solve::kShiftLadder, normalize, remove_dc);
+    const nxr::geometry::SurfaceArrays surface =
+        nxr::geometry::surfaceArrays(vertices.data(), static_cast<int>(nV), f, static_cast<int>(nF), nxr::geometry::intrinsicOptions(intrinsic_delaunay));
+    auto ops = nxr::operators::assembleManifoldOperators(surface);
+    r = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, k, sigma ? *sigma : nxr::operators::kShiftLadder, normalize, remove_dc);
   }
   return nb::make_tuple(hand_over(std::move(r.eigenvalues)), hand_over(std::move(r.eigenvectors)), r.nConverged);
 }
@@ -214,16 +231,16 @@ void def_both(nb::module_& m, const char* name, F1 f64, F2 f32, Extra&&... extra
 
 void bind_compute(nb::module_& m) {
   using nb::arg;
-  def_both(m, "welch_psd", &welch_psd<double>, &welch_psd<float>, arg("x"), arg("sfreq"), arg("segment_samples"), arg("overlap"), arg("window"),
+  def_both(m, "signal_psd", &welch_psd<double>, &welch_psd<float>, arg("x"), arg("sfreq"), arg("segment_samples"), arg("overlap"), arg("window"),
            arg("periodic"), arg("detrend"), arg("scaling"), arg("good").none());
-  def_both(m, "welch_cross_spectrum", &welch_cross_spectrum<double>, &welch_cross_spectrum<float>, arg("x"), arg("sfreq"), arg("segment_samples"),
+  def_both(m, "signal_xpsd", &welch_cross_spectrum<double>, &welch_cross_spectrum<float>, arg("x"), arg("sfreq"), arg("segment_samples"),
            arg("overlap"), arg("window"), arg("periodic"), arg("detrend"), arg("scaling"), arg("bins"), arg("mean"), arg("quadrature"), arg("good").none());
-  def_both(m, "filter", &filter_apply<double>, &filter_apply<float>, arg("kind"), arg("x"), arg("sfreq"), arg("lower"), arg("upper"), arg("frequencies"),
+  def_both(m, "signal_filter", &filter_apply<double>, &filter_apply<float>, arg("kind"), arg("x"), arg("sfreq"), arg("lower"), arg("upper"), arg("frequencies"),
            arg("method").none(), arg("ripple"), arg("transition_bandwidth").none(), arg("edge"), arg("transient_energy"), arg("transient_samples").none(),
            arg("remove_mean"), arg("notch_bandwidth").none(), arg("bandstop_order"));
-  def_both(m, "pca", &pca_fit<double>, &pca_fit<float>, arg("x"), arg("scale"));
-  def_both(m, "pca_reconstruct", &pca_reconstruct<double>, &pca_reconstruct<float>, arg("scores"), arg("components"), arg("mean"), arg("scale"), arg("k"));
-  m.def("manifold_eigenmodes", &manifold_eigenmodes, arg("vertices"), arg("faces"), arg("k"), arg("sigma").none(), arg("normalize"), arg("remove_dc"),
+  def_both(m, "stats_pca", &pca_fit<double>, &pca_fit<float>, arg("x"), arg("scale"));
+  def_both(m, "stats_reconstruct", &pca_reconstruct<double>, &pca_reconstruct<float>, arg("scores"), arg("components"), arg("mean"), arg("scale"), arg("k"));
+  m.def("operators_eigen", &manifold_eigenmodes, arg("vertices"), arg("faces"), arg("k"), arg("sigma").none(), arg("normalize"), arg("remove_dc"),
         arg("intrinsic_delaunay"));
 }
 

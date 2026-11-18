@@ -1,4 +1,4 @@
-// nxr::intrinsic on the INTRINSIC complex of a sphere (IntrinsicSurface of an icosphere whose vertices are jittered, so edges flip):
+// nxr::signal on the INTRINSIC complex of a sphere (IntrinsicSurface of an icosphere whose vertices are jittered, so edges flip):
 //   d1·d0 = 0; ⋆1 ≥ 0 (Delaunay); an unflipped edge's direction at each end is the mesh edge's (the signposts embedded through the input's edges);
 //   flat of a GRADIENT field ∇f (f = z, its tangential part) ≈ d0 f, the exact edge differences (the field integrated along each edge);
 //   sharp(flat(J)) ≈ J for smooth tangent fields (a gradient and a rotation n × ẑ), away from nothing (a closed sphere);
@@ -11,8 +11,8 @@
 #include <Eigen/Eigenvalues>
 
 #include "mesh_helpers.h"
-#include "nxr/delaunay.h"
-#include "nxr/intrinsic_forms.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/signal/intrinsic_forms.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
@@ -30,8 +30,8 @@ int main() {
         p.normalize();
         for (int k = 0; k < 3; ++k) V[3 * v + k] = p(k);
     }
-    nxr::manifold::IntrinsicSurface m(V.data(), nV, F.data(), static_cast<int>(F.size() / 3));
-    const nxr::intrinsic::Complex c = nxr::intrinsic::complexOf(m);
+    nxr::geometry::IntrinsicSurface m(V.data(), nV, F.data(), static_cast<int>(F.size() / 3));
+    const nxr::signal::Complex c = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V.data(), nV, F.data(), static_cast<int>(F.size() / 3)));
     std::printf("  %d vertices, %d edges, %d faces; %d flips\n", c.nV, c.nE, c.nF, m.record().flips);
     EXPECT(m.record().flips > 0, "the jittered sphere needed flips");
     EXPECT(Eigen::SparseMatrix<double>(c.d1 * c.d0).norm() == 0.0, "d1 d0 = 0");
@@ -44,8 +44,8 @@ int main() {
             if (std::abs(ch.norm() - c.length(e)) > 1e-6 * c.length(e)) continue;   // a flipped edge: its chord is not its path
             const Eigen::Vector3d na = c.normals.row(a), nb = c.normals.row(b);
             const Eigen::Vector3d ca = (ch - ch.dot(na) * na).normalized(), cb = (ch - ch.dot(nb) * nb).normalized();
-            worst0 = std::max(worst0, 1 - nxr::intrinsic::tangentAt(c, e, false).dot(ca));
-            worst1 = std::max(worst1, 1 - nxr::intrinsic::tangentAt(c, e, true).dot(cb));
+            worst0 = std::max(worst0, 1 - nxr::signal::tangentAt(c, e, false).dot(ca));
+            worst1 = std::max(worst1, 1 - nxr::signal::tangentAt(c, e, true).dot(cb));
             ++n;
         }
         EXPECT(worst0 < 1e-4 && worst1 < 1e-4, "an unflipped edge's direction at each end is the mesh edge's (" << n << " edges; worst 1 - cos " << std::max(worst0, worst1) << ")");
@@ -59,11 +59,11 @@ int main() {
         G.middleRows(3 * v, 3) = z - z.dot(n) * n;
         R.middleRows(3 * v, 3) = n.cross(z);
     }
-    const Eigen::VectorXd w = nxr::intrinsic::flat(c, G).col(0), df = c.d0 * f;
+    const Eigen::VectorXd w = nxr::signal::flat(c, G).col(0), df = c.d0 * f;
     const double eFlat = (w - df).norm() / df.norm();
     EXPECT(eFlat < 0.03, "flat(∇z) = d0 z, the exact edge differences (relative error " << eFlat << ")");
     auto roundTrip = [&](const Eigen::MatrixXd& J) {
-        const Eigen::MatrixXd back = nxr::intrinsic::sharp(c, nxr::intrinsic::flat(c, J));
+        const Eigen::MatrixXd back = nxr::signal::sharp(c, nxr::signal::flat(c, J));
         double num = 0, den = 0;
         for (int v = 0; v < nV; ++v) { num += c.star0(v) * (back.middleRows(3 * v, 3) - J.middleRows(3 * v, 3)).squaredNorm(); den += c.star0(v) * J.middleRows(3 * v, 3).squaredNorm(); }
         return std::sqrt(num / den);
@@ -71,7 +71,7 @@ int main() {
     const double eG = roundTrip(G), eR = roundTrip(R);
     EXPECT(eG < 0.02 && eR < 0.02, "sharp(flat(J)) = J for a gradient (" << eG << ") and a rotation (" << eR << ")");
     const Eigen::MatrixXd one = Eigen::MatrixXd::Ones(nV, 1);
-    const Eigen::MatrixXd s = nxr::intrinsic::area2form(c, one), back = nxr::intrinsic::vertexDensity(c, s);
+    const Eigen::MatrixXd s = nxr::signal::area2form(c, one), back = nxr::signal::vertexDensity(c, s);
     EXPECT(std::abs(s.sum() - c.star2.cwiseInverse().sum()) < 1e-9 && (back.array() - 1).abs().maxCoeff() < 1e-12, "a constant density: integrates to the area, comes back constant");
     // THE WEIGHTED POTENTIAL FITS: a smooth potential's exact edge differences, with large errors on 5 % of the edges weighted down: both fits recover it;
     // weighting every edge alike does not. The modes fit on a smaller sphere whose exact modes (the intrinsic Laplacian's) are solved densely here.
@@ -84,12 +84,12 @@ int main() {
             p += Eigen::Vector3d(nd(rng), nd(rng), nd(rng)) * 0.06; p.normalize();
             for (int k = 0; k < 3; ++k) V3[3 * v + k] = p(k);
         }
-        nxr::manifold::IntrinsicSurface m3(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3));
-        const nxr::intrinsic::Complex c3 = nxr::intrinsic::complexOf(m3);
+        nxr::geometry::IntrinsicSurface m3(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3));
+        const nxr::signal::Complex c3 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3)));
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c3.d0.transpose() * c3.star1.asDiagonal() * c3.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c3.star0.asDiagonal()));
         const int K = 40;
-        nxr::intrinsic::Modes md;
+        nxr::signal::Modes md;
         md.P = ges.eigenvectors().middleCols(1, K) / std::sqrt(2.0);          // ψ/√2, the constant left out
         md.X2 = Eigen::MatrixXd::Zero(c3.nF, K);
         md.mu = ges.eigenvalues().segment(1, K).cwiseSqrt();
@@ -101,9 +101,9 @@ int main() {
         std::uniform_real_distribution<double> ud(0, 1);
         for (int e = 0; e < c3.nE; ++e) if (ud(rng) < 0.05) { om(e) += 3.0 * nd(rng) / 0.15; wgt(e) = 1e-4; }
         auto corr = [&](const Eigen::VectorXd& x) { const Eigen::VectorXd p = x.array() - x.mean(), q = f0.array() - f0.mean(); return p.dot(q) / (p.norm() * q.norm()); };
-        const double rMesh = corr(nxr::intrinsic::weightedPotentialMesh(c3, wgt, om));
-        const double rModes = corr(nxr::intrinsic::weightedPotentialModes(c3, md, std::vector<char>(K, 1), wgt, om));
-        const double rEqual = corr(nxr::intrinsic::weightedPotentialMesh(c3, Eigen::VectorXd::Ones(c3.nE), om));
+        const double rMesh = corr(nxr::signal::weightedPotentialMesh(c3, wgt, om));
+        const double rModes = corr(nxr::signal::weightedPotentialModes(c3, md, std::vector<char>(K, 1), wgt, om));
+        const double rEqual = corr(nxr::signal::weightedPotentialMesh(c3, Eigen::VectorXd::Ones(c3.nE), om));
         std::printf("  weighted fits with 5 %% of edges corrupted and weighted down: mesh r %.5f, modes r %.5f; every edge alike r %.3f\n", rMesh, rModes, rEqual);
         EXPECT(rMesh > 0.9999 && rModes > 0.9999, "the weighted fits recover the potential (mesh " << rMesh << ", modes " << rModes << ")");
         EXPECT(rEqual < 0.99, "weighting every edge alike does not (" << rEqual << ")");
@@ -114,26 +114,26 @@ int main() {
         std::vector<double> V2; std::vector<int32_t> F2;
         icosphere(2, V2, F2, 1.0);
         const int n2 = static_cast<int>(V2.size() / 3);
-        nxr::manifold::IntrinsicSurface m2(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
-        const nxr::intrinsic::Complex c2 = nxr::intrinsic::complexOf(m2);
+        nxr::geometry::IntrinsicSurface m2(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
+        const nxr::signal::Complex c2 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3)));
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c2.d0.transpose() * c2.star1.asDiagonal() * c2.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c2.star0.asDiagonal()));
         const int K = 12;
-        nxr::intrinsic::Modes mp;
+        nxr::signal::Modes mp;
         mp.P = ges.eigenvectors().middleCols(1, K) / std::sqrt(2.0);
         mp.mu = ges.eigenvalues().segment(1, K).cwiseSqrt();
         mp.kind.assign(K, 0);
         mp.kind[3] = 2;                                                        // treated as coexact: its 2-form part a density's area form
         mp.X2 = Eigen::MatrixXd::Zero(c2.nF, K);
-        mp.X2.col(3) = nxr::intrinsic::area2form(c2, Eigen::MatrixXd(mp.P.col(5))).col(0);
+        mp.X2.col(3) = nxr::signal::area2form(c2, Eigen::MatrixXd(mp.P.col(5))).col(0);
         const std::complex<double> cA(0.4, -1.2), cB(2.0, 0.5), cN(-0.3, 0.8);
-        const auto pf = nxr::intrinsic::patternFields(c2, mp, {{3, 1}, {7, 1}, {3, 2}}, Eigen::Vector3cd(cA, cB, cN));
-        const Eigen::MatrixXd d3 = nxr::intrinsic::vertexDensity(c2, Eigen::MatrixXd(mp.X2.col(3)));
+        const auto pf = nxr::signal::patternFields(c2, mp, {{3, 1}, {7, 1}, {3, 2}}, Eigen::Vector3cd(cA, cB, cN));
+        const Eigen::MatrixXd d3 = nxr::signal::vertexDensity(c2, Eigen::MatrixXd(mp.X2.col(3)));
         const double eS = (pf.S - cA * mp.P.col(3).cast<std::complex<double>>() / mp.mu(3)).norm(), eA = (pf.A - cB * mp.P.col(7).cast<std::complex<double>>() / mp.mu(7)).norm();
         const double eN = (pf.rho - cN * d3.col(0).cast<std::complex<double>>()).norm();
         EXPECT(eS < 1e-12 && eA < 1e-12 && eN < 1e-12, "patternFields: S from a coexact tangent coefficient, A from an exact one, rho from a normal one");
         bool bad = false;
-        try { nxr::intrinsic::patternFields(c2, mp, {{7, 2}}, Eigen::VectorXcd::Ones(1)); } catch (const std::invalid_argument&) { bad = true; }
+        try { nxr::signal::patternFields(c2, mp, {{7, 2}}, Eigen::VectorXcd::Ones(1)); } catch (const std::invalid_argument&) { bad = true; }
         EXPECT(bad, "patternFields refuses a normal row of an exact mode");
     }
     std::cout << (failures ? "FAIL" : "PASS") << " test_intrinsic_forms (" << failures << " failures)\n";

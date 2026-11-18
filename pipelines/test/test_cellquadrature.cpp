@@ -16,17 +16,14 @@
 #include "check.h"
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
-#include "nxr/io/constant_q.h"
 #include "nxr/io/array_reader.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/measures.h"
-#include "nxr/ladder.h"
-#include "nxr/partition.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/cellquadrature.h"
-#include "nxr/pipelines/joint.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -116,10 +113,11 @@ int main() {
       kernel("fixed", kid, N, "scalar");
       kernel("free", kfree, 3 * N, "vector3");
     });
-    sub.compose([&] { nxr::io::constantq::write(sub, tid); });
+    /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, sub, TilesComputeOptions{});
+  nxrtest::make_time_grids(ds, sub);
+  nxrtest::make_tiles(ds, sub);
   int timeLevel = -1;
   for (const task::Node& m : task::Subject::of(sub).find_all({.cls = task::Cls::selection, .params_present = {"resolves_hz"}})) {
     if (!m.member_of_id) continue;
@@ -143,7 +141,7 @@ int main() {
   const std::string csname = "rest_crossspectrum_alpha_windows";
 
   // ── THE DENSE REFERENCE: the level's band (exact modes) on the kernel's rows, T = B C Bᵀ formed, its squared norms ──
-  const SurfaceInput S = read_surface(sub, std::nullopt, true);
+  const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   const SurfaceLevel SL = read_surface_level(sub, S, spaceLevel);
   SpatialBandOptions sbo; sbo.transform = "exact";
   const SpatialBand sband = make_spatial_band(S, SL, sbo);
@@ -290,8 +288,8 @@ int main() {
   // ── 3b. AREA WEIGHTS (the default) and the TILE PAIRS ──
   // `weights: none` is the old behaviour: its values (the free-kernel cells above) are what a rerun with the option gives again, after the weighted job has replaced them
   const std::vector<double> before_tot = totf.values, before_quad = qdf.values;
-  nxr::ladder::Mesh whole; whole.n = N; whole.positions = S.vertices; whole.faces = S.faces;
-  const std::vector<double> va = nxr::ladder::vertexAreas(whole);
+  nxr::select::Mesh whole; whole.n = N; whole.positions = S.vertices; whole.faces = S.faces;
+  const std::vector<double> va = nxr::select::vertexAreas(whole);
   CellQuadratureOptions cw = cf; cw.replace = false; cw.weights = "area"; cw.bursts = "test_bursts";
   CHECK(code_of([&] { cellquadrature_compute(ds, sub, cw); }) == std::string(code::already_exists));              // the unweighted rows are another job's
   cw.replace = true;

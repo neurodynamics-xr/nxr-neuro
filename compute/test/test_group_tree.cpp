@@ -1,4 +1,4 @@
-// nxr::ladder::groupTreeFor against nxr's `geom.trees.Template.tree_for` (golden: test/golden/group_tree_golden.txt, gen_group_tree_golden.py; synthetic random spheres and codes):
+// nxr::select::groupTreeFor against nxr's `geom.trees.Template.tree_for` (golden: test/golden/group_tree_golden.txt, gen_group_tree_golden.py; synthetic random spheres and codes):
 // every subject vertex's code at four depths IDENTICAL, the median and maximum match distance to rounding; refusals (a depth beyond the template's finest, a piece-count mismatch).
 #include <cmath>
 #include <fstream>
@@ -7,7 +7,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
@@ -37,7 +37,7 @@ int main() {
       while (s >> x) gold.push_back(x);
       const int nV = static_cast<int>(ssph.size() / 3);
       double m = 0, M = 0;
-      const nxr::ladder::Tree t = nxr::ladder::groupTreeFor(tsph.data(), tcodes.data(), truns, finest, ssph.data(), nV, sruns, depth, &m, &M);
+      const nxr::select::Tree t = nxr::select::groupTreeFor(tsph.data(), tcodes.data(), truns, finest, ssph.data(), nV, sruns, depth, &m, &M);
       EXPECT(t.codes == gold, "codes at depth " << depth << " identical to nxr's tree_for");
       EXPECT(std::abs(m - med) < 1e-13 && std::abs(M - mx) < 1e-13, "match distances at depth " << depth << ": " << m << " " << M);
       EXPECT(t.depth == depth && t.finest == finest && t.runs == sruns, "tree fields");
@@ -47,8 +47,8 @@ int main() {
   EXPECT(checked == 4, "four depths checked");
   bool deep = false, pieces = false;
   const int nV = static_cast<int>(ssph.size() / 3);
-  try { nxr::ladder::groupTreeFor(tsph.data(), tcodes.data(), truns, finest, ssph.data(), nV, sruns, finest + 1); } catch (const std::invalid_argument&) { deep = true; }
-  try { nxr::ladder::groupTreeFor(tsph.data(), tcodes.data(), truns, finest, ssph.data(), nV, {{0, nV}}, 2); } catch (const std::invalid_argument&) { pieces = true; }
+  try { nxr::select::groupTreeFor(tsph.data(), tcodes.data(), truns, finest, ssph.data(), nV, sruns, finest + 1); } catch (const std::invalid_argument&) { deep = true; }
+  try { nxr::select::groupTreeFor(tsph.data(), tcodes.data(), truns, finest, ssph.data(), nV, {{0, nV}}, 2); } catch (const std::invalid_argument&) { pieces = true; }
   EXPECT(deep, "a depth beyond the template's finest is refused");
   EXPECT(pieces, "a piece-count mismatch is refused");
   std::cout << (fails ? "test_group_tree FAILED\n" : "test_group_tree OK\n");

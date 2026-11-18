@@ -1,10 +1,13 @@
 // The runner's side of a node's needs (include/nxr/pipelines/bound.h): the reads a node used to make itself. Each method does exactly the read the node did.
+#include "nxr/io/subject_api.h"
 #include "nxr/pipelines/bound.h"
+#include "nxr/pipelines/task.h"
 
 #include "nxr/io/array_reader.h"
 #include <cstring>
 
 #include "nxr/io/errors.h"
+#include "nxr/io/subject_reads.h"
 
 namespace nxr::pipelines::graph {
 
@@ -94,14 +97,88 @@ std::optional<io::Row> Bound::manifold_named(const std::string& name) const {
   w.name = name;
   return row_or_none(subject_.find(w));
 }
+std::optional<StoredOperator> Bound::stored_operator(const io::Json& key) const {
+  if (!sub_) return std::nullopt;                                          // a plan reads no stored array
+  const auto node = subject_.stored_operator(key);
+  if (!node || !node->path) return std::nullopt;
+  std::vector<std::int64_t> shape;
+  const std::vector<double> v = array_double(*node->path, &shape);
+  if (shape.size() != 2 || static_cast<std::int64_t>(v.size()) != shape[0] * shape[1])
+    throw io::Error(io::code::invalid_argument, "the stored operator " + node->name + " is not a matrix [rows x cols]");
+  StoredOperator out;
+  out.matrix = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(v.data(), shape[0], shape[1]);
+  out.provenance = node->producer;
+  return out;
+}
+void Bound::offer_operator(MadeOperator op) const {
+  if (!op.matrix) return;
+  for (const MadeOperator& have : *offered_) if (have.key == op.key) return;
+  offered_->push_back(std::move(op));
+}
+io::Json Bound::charts(const std::string& manifold_id) const {
+  io::Json out = io::Json::array();
+  for (const auto& c : subject_.charts(manifold_id)) {
+    io::Json j = {{"name", c.name}, {"transition", c.transition ? io::Json(*c.transition) : io::Json(nullptr)}, {"params", c.transition_json}, {"reference", c.is_reference}};
+    j["unit"] = c.unit ? io::Json(*c.unit) : io::Json(nullptr);
+    out.push_back(std::move(j));
+  }
+  return out;
+}
+std::optional<io::Row> Bound::default_subject_manifold(const std::string& name) const {
+  if (ds_)
+    if (const auto tpl = ds_->template_()) {
+      const task::Subject def = task::Subject::of(*ds_, io::text(*tpl, "id"));
+      task::Want w{.cls = task::Cls::manifold};
+      w.name = name;
+      return row_or_none(def.find(w));
+    }
+  return manifold_named(name);                                              // a plan holds no dataset: the subject's own
+}
+std::optional<io::Row> Bound::frequency_line() const { return default_subject_manifold("Frequency"); }
+std::optional<io::Row> Bound::eigenvalue_line() const { return default_subject_manifold("Eigenvalue"); }
+std::optional<GlueMap> Bound::glue_of(const std::string& manifold_id) const { return glue_map_of(writer(), manifold_id); }
 SurfaceInput Bound::surface(const std::optional<std::string>& name, bool as_stored) const { return read_surface(writer(), name, as_stored); }
 SurfaceLevel Bound::surface_level(const SurfaceInput& s, int level) const { return read_surface_level(writer(), s, level); }
 StoredFrames Bound::stored_frames(const std::string& surface_name, std::int64_t n_vertices) const { return read_stored_frames(writer(), surface_name, n_vertices); }
+std::string Bound::subject_kind() const { return io::text(writer().row(), "kind"); }
+std::string Bound::coordinate_unit(const std::string& manifold_id) const { return coordinate_unit_of(writer(), manifold_id); }
+std::string Bound::coordinate_system_key(const std::string& manifold_id) const {
+  const auto m = manifold(manifold_id);
+  if (!m || io::is_null(*m, "geometry_id")) return {};
+  return io::coordinate_system_name_of_geometry(writer(), io::text(*m, "geometry_id")).value_or(std::string());
+}
+std::vector<std::uint8_t> Bound::medial_wall(const SurfaceInput& surface) const { return nxr::pipelines::medial_wall(writer(), surface); }
+GroupTemplate Bound::group_template(const std::string& surface_name) const {
+  if (!ds_) throw io::Error(io::code::invalid_argument, "the group tree is carried from the dataset's default subject: the binding holds no dataset");
+  return read_group_template(*ds_, writer(), surface_name);
+}
 internal::GluedDomain Bound::glued_domain(const SurfaceInput& s) const { return internal::glued_domain(writer(), s); }
 StoredCrossSpectrum Bound::cross_spectrum(const std::string& name) const { return crossspectrum_read(writer(), name); }
+CrossSpectrumWindows Bound::cross_spectrum_windows(const std::string& name) const { return crossspectrum_windows_read(writer(), name, std::nullopt, "stored", std::nullopt); }
+CrossSpectrumWindows Bound::cross_spectrum_windows(const std::string& name, const std::vector<std::int32_t>& channels) const { return crossspectrum_windows_read(writer(), name, channels, "stored", std::nullopt); }
 io::StoredStatistic Bound::statistic(const std::string& name) const { return io::read_statistic(writer(), name); }
+FramesMade Bound::make_frames(const FramesComputeOptions& opt) const { return nxr::pipelines::make_frames(ds_, writer(), opt); }
+io::MeasurementValues Bound::measurement_values(const std::string& selection_id, const std::optional<std::string>& of_field_id, const std::optional<std::string>& of_slice,
+                                                const std::string& measure) const {
+  std::optional<std::string> stat;
+  std::optional<std::int64_t> index;
+  if (of_slice) {
+    const auto sl = task::Subject::of(writer()).map_slice(*of_slice);
+    if (!sl) throw io::Error(io::code::no_such_row, "no band of a map statistic named '" + *of_slice + "'");
+    stat = sl->statistic_id; index = sl->index;
+  }
+  return io::measurement_values(writer(), selection_id, of_field_id, stat, index, measure);
+}
+io::MeasurementValues Bound::measurement_values_of_statistic(const std::string& selection_id, const std::string& statistic_id, const std::string& measure) const {
+  return io::measurement_values(writer(), selection_id, std::nullopt, statistic_id, std::int64_t(0), measure);
+}
 std::vector<std::int32_t> Bound::array_int32(const std::string& path) const { return read_array<std::int32_t>(writer().store(), path); }
 std::vector<float> Bound::array_float(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<float>(writer().store(), path, shape); }
+std::vector<double> Bound::array_double(const std::string& path, std::vector<std::int64_t>* shape) const { return read_array<double>(writer().store(), path, shape); }
+nxr::pipelines::ScaleInputs Bound::scale_inputs(const std::string& recording_id, const std::string& recording_name, const std::vector<int>& space_levels, const std::vector<int>& time_levels,
+                                                const std::string& source, const std::optional<std::string>& surface) const {
+  return read_scale_inputs(writer(), recording_id, recording_name, space_levels, time_levels, source, surface);
+}
 SpatialBandPlan Bound::plan_spatial_band(const SurfaceInput& s, const SurfaceLevel& l, const SpatialBandOptions& o) const { return nxr::pipelines::plan_spatial_band(writer(), s, l, o); }
 SpatialBand Bound::make_spatial_band(const SurfaceInput& s, const SurfaceLevel& l, const SpatialBandOptions& o) const {
   if (!ds_) throw io::Error(io::code::invalid_argument, "a spatial band is prepared with the dataset (the runner may have made its eigenmodes first)");

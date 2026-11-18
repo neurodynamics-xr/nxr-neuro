@@ -11,13 +11,14 @@
 #include "nxr/io/task/task.h"
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
-#include "nxr/delaunay.h"
-#include "nxr/hodge_weights.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/pipelines/speedspectrum.h"
-#include "nxr/welch.h"
+#include "store_at.h"
+#include "run_definition.h"
+#include "nxr/signal/spectral.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -99,47 +100,30 @@ int main() {
       add_kernel("fixed", Kfix, "scalar");
     });
   }
-  SpeedSpectrumOptions o;
-  o.recording = "rest";
-  o.chunks = "0";                      // the first chunk's samples, stated
-  o.kernel = "kern";
-  o.segment_seconds = 4.0;
-  o.fmin = 2; o.fmax = 40;
-  o.graph_family = nxr::filterbank::Family::LogItersine;
-  o.family = nxr::timebank::Family::Itersine;
-  o.gain = 1.0;
-  o.sides = nxr::timebank::Sides::Analytic;
-  o.speed.speedBins = 30;
-  bool refused_family = false;
-  { SpeedSpectrumOptions bad = o; bad.family.reset(); try { speedspectrum_compute(ds, sub, bad); } catch (const Error& e) { refused_family = std::string(e.what()).find("family is required") != std::string::npos; } }
-  CHECK(refused_family);
-  const SpeedSpectrumResult a = speedspectrum_compute(ds, sub, o);
-  CHECK(!a.hit);
-  CHECK_EQ(a.info["statistics"].size(), std::size_t(8));
-  CHECK(a.result.parts.size() == 2);
-  // tiles of a tight bank sum to the power of the bins (2-40 Hz) inside the bank's support, per kind; the histogram holds the same energy
-  for (const auto& p : a.result.parts) {
-    CHECK(p.power > 0);
-    CHECK(p.tileEnergy.sum() <= 1.0000001 * p.power);
-    const double hist = p.histogram.sum() + p.outside.sum();
-    std::printf("  kind %d: power %.4g, tiles %.4g, histogram %.4g\n", p.kind, p.power, p.tileEnergy.sum(), hist);
-    CHECK(std::abs(hist - p.power) / p.power < 1e-6);
-    CHECK(p.quadrature.rows() == p.tileEnergy.rows());
+  // THE DEFINITION `speedspectrum` (the hand-wired verb is gone): the first chunk's samples, stated; the banks have no default family
+  Json o = Json{{"recording", "rest"}, {"kernel", "kern"}, {"segment_seconds", 4.0}, {"fmin", 2.0}, {"fmax", 40.0}, {"graph_family", "logitersine"}, {"family", "itersine"}, {"gain", 1.0}, {"sides", "analytic"}, {"speed_bins", 30}};
+  auto run = [&](const Json& set, bool replace = false) { return nxrtest::run_definition(ds, sub, "speedspectrum", set, replace, "0"); };
+  auto what_of = [&](const Json& set) { try { run(set); } catch (const Error& e) { return std::string(e.what()); } return std::string(); };
+  { Json bad = o; bad["family"] = nullptr; CHECK(what_of(bad).find("family") != std::string::npos); }
+  const auto a = run(o);
+  CHECK(a.size() == 1 && a[0]["hit"] == false);
+  const std::string stem = "rest_kern_speedspectrum";
+  const StoredStatistic energy = read_statistic(sub, stem + "_energy"), hist = read_statistic(sub, stem + "_histogram"), speed = read_statistic(sub, stem + "_tile_speed"), quad = read_statistic(sub, stem + "_quadrature");
+  // two parts (the exact and the coexact modes): tiles of a tight bank sum to at most the power of the bins (2-40 Hz) inside the bank's support, per kind; the histogram holds the energy over the speed bins
+  CHECK(energy.shape.size() == 3 && energy.shape[0] == 2 && hist.shape.size() == 3 && hist.shape[0] == 2 && energy.shape == speed.shape && energy.shape == quad.shape);
+  for (std::int64_t k = 0; k < 2; ++k) {
+    double te = 0, hs = 0;
+    const std::int64_t en = energy.shape[1] * energy.shape[2], hn = hist.shape[1] * hist.shape[2];
+    for (std::int64_t i = 0; i < en; ++i) te += energy.values[static_cast<std::size_t>(k * en + i)];
+    for (std::int64_t i = 0; i < hn; ++i) hs += hist.values[static_cast<std::size_t>(k * hn + i)];
+    std::printf("  kind %lld: tiles %.4g, histogram %.4g\n", static_cast<long long>(k), te, hs);
+    CHECK(te > 0 && hs > 0 && te <= 1.0000001 * hs);
   }
-  // STATISTICS (2026-11-13): each part on the axes graph member x time member (the histogram: x speed bin), from the Welch segment partition
-  {
-    const StoredStatistic st = read_statistic(sub, a.info["statistics"][0].get<std::string>());
-    CHECK(st.shape == (std::vector<std::int64_t>{static_cast<std::int64_t>(a.result.parts[0].tileEnergy.rows()), static_cast<std::int64_t>(a.result.parts[0].tileEnergy.cols())}));
-    CHECK(text(st.row, "measure") == "power" && st.axes[0]["name"] == "graph_member" && st.axes[1]["name"] == "time_member" && !is_null(st.row, "partition_selection_id"));
-    const StoredStatistic h = read_statistic(sub, a.info["statistics"][3].get<std::string>());
-    CHECK(h.axes[1]["name"] == "speed_bin" && text(read_statistic(sub, a.info["statistics"][1].get<std::string>()).row, "measure") == "speed");
-  }
-  CHECK(speedspectrum_compute(ds, sub, o).hit);
-  bool refused = false;
-  SpeedSpectrumOptions fx = o;
-  fx.kernel = "fixed";
-  try { speedspectrum_compute(ds, sub, fx); } catch (const Error& e) { refused = std::string(e.what()).find("fixed-orientation") != std::string::npos; }
-  CHECK(refused);
+  // STATISTICS: each part on the axes graph member x time member (the histogram: x speed bin), from the Welch segment partition
+  CHECK(text(energy.row, "measure") == "power" && energy.axes[1]["name"] == "graph_member" && energy.axes[2]["name"] == "time_member" && !is_null(energy.row, "partition_selection_id"));
+  CHECK(hist.axes[2]["name"] == "speed_bin" && text(speed.row, "measure") == "speed");
+  { const auto again = run(o); CHECK(again.size() == 1 && again[0]["hit"] == true); }
+  { Json fx = o; fx["kernel"] = "fixed"; const std::string w = what_of(fx); CHECK(w.find("not a free-orientation kernel") != std::string::npos); }
   ds.close();
   fs::remove_all(root);
   return nxrtest::finish("test_speedspectrum_pipeline");

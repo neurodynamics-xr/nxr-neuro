@@ -1,5 +1,5 @@
 function gen_opticalflow_golden(out)
-% Rheome's scalar optical flow on a tiny perturbed icosphere: the golden for nxr::flow (test_opticalflow.cpp).
+% Rheome's scalar optical flow on a tiny perturbed icosphere: the golden for nxr::signal (test_opticalflow.cpp).
 % Calls Rheome (MIT-licensed code, on the path): rheome.dynamics.tangent_basis, opticalflow_scalar, flow_readout, rheome.flow.activation.
 % Run:  matlab -batch "gen_opticalflow_golden('<file>')"   (one MATLAB run at a time)
 addpath(getenv('RHEOME_HOME'));

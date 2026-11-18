@@ -14,12 +14,12 @@
 
 #include "check.h"
 #include "mesh_helpers.h"
-#include "nxr/delaunay.h"
-#include "nxr/glue.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_maps.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/pipelines/tiles.h"
+#include "make_grids.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -62,8 +62,8 @@ int main() {
     s.compose([&] { SurfaceOptions so; so.name = "cortex"; so.sphere = U; add_surface(s, so, V, F); });
   }
   SubjectWriter s1 = SubjectWriter::open(ds, "S1");
-  tiles_compute(ds, s1, TilesComputeOptions{});
-  const SurfaceInput S = read_surface(s1, std::nullopt, true);
+  nxrtest::make_tiles(ds, s1);
+  const SurfaceInput S = read_surface(s1, std::string("cortex"), true);
   const int L = 3;
   const SurfaceLevel SL = read_surface_level(s1, S, L);
   const Eigen::MatrixXd X = field(S, 3);
@@ -110,7 +110,7 @@ int main() {
   // forced eigen uses them too (the default and the forced request agree)
   SpatialBandOptions of = o; of.transform = "eigen";
   CHECK(rel(make_spatial_band(ds, s1, S, SL, of).apply(X), b1.apply(X)) < 1e-12);
-  // THE RIESZ PART of the band (the spatial analytic signal, nxr/monogenic.h): R_l = ∇ Δ^{-1/2} F_l; stored eigenmodes = the dense exact reference; the series follows; absent unless asked
+  // THE RIESZ PART of the band (the spatial analytic signal, nxr/signal/riesz.h): R_l = ∇ Δ^{-1/2} F_l; stored eigenmodes = the dense exact reference; the series follows; absent unless asked
   {
     CHECK(!b1.apply_riesz && !make_spatial_band(S, SL, dense).apply_riesz);
     SpatialBandOptions dr = dense; dr.riesz = true;
@@ -163,8 +163,8 @@ int main() {
     s.compose([&] { SurfaceOptions so; so.name = "cortex"; so.sphere = U; add_surface(s, so, V, F); });
   }
   SubjectWriter s2 = SubjectWriter::open(ds, "S2");
-  tiles_compute(ds, s2, TilesComputeOptions{});
-  const SurfaceInput S2 = read_surface(s2, std::nullopt, true);
+  nxrtest::make_tiles(ds, s2);
+  const SurfaceInput S2 = read_surface(s2, std::string("cortex"), true);
   const SurfaceLevel SL2 = read_surface_level(s2, S2, L);
   {
     SpatialBandOptions few; few.modes = 8;      // about 4 exact modes: the level needs about 30 (Weyl)
@@ -201,8 +201,8 @@ int main() {
     }
     // no atlas: not computable; auto falls back (announced), eigen refuses naming the atlas
     SubjectWriter s3 = SubjectWriter::open(ds, "S3");
-    tiles_compute(ds, s3, TilesComputeOptions{});
-    const SurfaceInput S3 = read_surface(s3, std::nullopt, true);
+    nxrtest::make_tiles(ds, s3);
+    const SurfaceInput S3 = read_surface(s3, std::string("cortex"), true);
     const SurfaceLevel SL3 = read_surface_level(s3, S3, L);
     const SpatialBandPlan p3 = plan_spatial_band(s3, S3, SL3, o);
     CHECK(p3.transform == "chebyshev" && p3.warnings.size() == 1 && has(p3.warnings[0], "Desikan-Killiany"));
@@ -211,8 +211,8 @@ int main() {
 
     // THE GLUE: the atlas gives the medial wall; the modes are computed on the glued surface and stored; the band read back on the hemispheres
     SubjectWriter s4 = SubjectWriter::open(ds, "S4");
-    tiles_compute(ds, s4, TilesComputeOptions{});
-    const SurfaceInput S4 = read_surface(s4, std::nullopt, true);
+    nxrtest::make_tiles(ds, s4);
+    const SurfaceInput S4 = read_surface(s4, std::string("cortex"), true);
     const SurfaceLevel SL4 = read_surface_level(s4, S4, L);
     SpatialBandOptions o4 = o; o4.modes = 160;
     const SpatialBand b4 = make_spatial_band(ds, s4, S4, SL4, o4);
@@ -221,12 +221,12 @@ int main() {
     // the reference: the dense band of the glued surface (the same glue, the stored mesh options), zero on the bridge, read on the kept vertices (the wall's vertices get 0)
     std::vector<double> W32(W.size());
     for (std::size_t i = 0; i < W.size(); ++i) W32[i] = static_cast<double>(static_cast<float>(W[i]));
-    const nxr::glue::Glued gm = nxr::glue::glueMesh(W32, G, wall);
+    const nxr::geometry::glue::Glued gm = nxr::geometry::glue::glueMesh(W32, G, wall);
     const int Vg = static_cast<int>(gm.keep.size());
-    namespace dl = nxr::manifold::delaunay;
-    dl::Mesh dm = dl::prepare(gm.positions.data(), Vg, gm.faces.data(), static_cast<int>(gm.faces.size() / 3));
-    Eigen::MatrixXd Ld(dl::cotanLaplacian(dm)), Md = Eigen::MatrixXd::Zero(Vg, Vg);
-    for (int i = 0; i < Vg; ++i) Md(i, i) = dm.mass[static_cast<std::size_t>(i)];
+    nxr::geometry::IntrinsicSurface isurf(gm.positions.data(), Vg, gm.faces.data(), static_cast<int>(gm.faces.size() / 3));
+    const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
+    Eigen::MatrixXd Ld(isurf.cotanLaplacian()), Md = Eigen::MatrixXd::Zero(Vg, Vg);
+    for (int i = 0; i < Vg; ++i) Md(i, i) = dm_mass[static_cast<std::size_t>(i)];
     Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Ld, Md);
     const Eigen::VectorXd lam = es.eigenvalues().cwiseMax(0.0);
     const Eigen::MatrixXd X4 = field(S4, 2);

@@ -36,7 +36,7 @@ struct CacheKey {
   Json params = Json::object();
   Json input = Json::object();
   std::string compute;                       // nxr-compute's version (NXR_COMPUTE_VERSION: package version + commit)
-  Json json() const;                         // {"pipeline","params","input","compute"}
+  Json json() const;                         // {"pipeline","params","input","compute"}; `params` never holds a `preset` (dropped here: the key is the resolved parameters, a preset only a name for them)
   bool operator==(const CacheKey& o) const { return json() == o.json(); }
 };
 

@@ -1,5 +1,5 @@
-// nxr::registration on synthetic spheres (subdivided icosahedra): the three methods, the weights' rules, the pieces, the precision, the refusals.
-#include "nxr/sphere_registration.h"
+// nxr::operators::registration on synthetic spheres (subdivided icosahedra): the three methods, the weights' rules, the pieces, the precision, the refusals.
+#include "nxr/operators/resample.h"
 
 #include <cmath>
 #include <iostream>
@@ -8,7 +8,7 @@
 #include <type_traits>
 #include <stdexcept>
 
-using namespace nxr::registration;
+using namespace nxr::operators::registration;
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)

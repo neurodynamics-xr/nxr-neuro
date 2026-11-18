@@ -1,5 +1,5 @@
 classdef ComputePcaManifoldTest < SliceTestBase
-%OPSPCAMANIFOLDTEST  nxr.compute.pca against the C++ golden (numpy's SVD) and the wheel's test_pca.py; nxr.compute.manifold.eigenmodes against the sphere's
+%OPSPCAMANIFOLDTEST  nxr.compute.pca against the C++ golden (numpy's SVD) and the wheel's test_pca.py; nxr.compute.operators.eigen against the sphere's
 %   spectrum (the wheel's test_manifold.py).
 
     methods (Test)
@@ -8,7 +8,7 @@ classdef ComputePcaManifoldTest < SliceTestBase
             for name = {'wide', 'tall', 'scaled'}
                 p = name{1};
                 scale = "none"; if g.([p '_unit_variance']) ~= 0, scale = "unit_variance"; end
-                r = nxr.compute.pca.pca(g.([p '_X']), scale=scale);
+                r = nxr.compute.stats.pca(g.([p '_X']), scale=scale);
                 tc.verifyEqual(r.rank, g.([p '_rank']), p);
                 tc.verifyEqual(r.components, g.([p '_components']), 'AbsTol', 1e-9, p);
                 tc.verifyEqual(r.singular_values, g.([p '_S']), 'RelTol', 1e-10, p);
@@ -18,7 +18,7 @@ classdef ComputePcaManifoldTest < SliceTestBase
                 tc.verifyEqual(r.mean, g.([p '_mean']), 'AbsTol', 1e-12, p);
                 tc.verifyEqual(r.scale, g.([p '_scale']), 'RelTol', 1e-12, p);
                 for k = g.([p '_ks'])
-                    y = nxr.compute.pca.reconstruct(r.scores, r.components, r.mean, r.scale, k);
+                    y = nxr.compute.stats.reconstruct(r.scores, r.components, r.mean, r.scale, k);
                     tc.verifyEqual(y, g.(sprintf('%s_recon%d', p, k)), 'AbsTol', 1e-8, p);
                 end
             end
@@ -28,7 +28,7 @@ classdef ComputePcaManifoldTest < SliceTestBase
             s = RandStream('twister', 'Seed', 3);
             for unit = [false true]
                 X = randn(s, 40, 12) * randn(s, 12, 12) + 3;
-                r = nxr.compute.pca.pca(X, scale=ifelse(unit, "unit_variance", "none"));
+                r = nxr.compute.stats.pca(X, scale=ifelse(unit, "unit_variance", "none"));
                 mu = mean(X, 1);
                 Xc = X - mu;
                 sc = ones(1, 12); if unit, sc = std(Xc, 0, 1); end
@@ -51,34 +51,34 @@ classdef ComputePcaManifoldTest < SliceTestBase
 
         function rankIsAtMostNMinusOne(tc)
             s = RandStream('twister', 'Seed', 4);
-            tc.verifyEqual(nxr.compute.pca.pca(randn(s, 6, 20)).rank, 5);
+            tc.verifyEqual(nxr.compute.stats.pca(randn(s, 6, 20)).rank, 5);
         end
 
         function reconstructIsTheBestRankKApproximation(tc)
             s = RandStream('twister', 'Seed', 5);
             X = randn(s, 30, 8) + 5;
-            r = nxr.compute.pca.pca(X);
-            tc.verifyEqual(nxr.compute.pca.reconstruct(r.scores, r.components, r.mean, r.scale, r.rank), X, 'AbsTol', 1e-10);
-            tc.verifyEqual(nxr.compute.pca.reconstruct(r.scores, r.components, r.mean, r.scale, 0), repmat(r.mean, 30, 1), 'AbsTol', 1e-12);
-            err = norm(X - nxr.compute.pca.reconstruct(r.scores, r.components, r.mean, r.scale, 2), 'fro');
+            r = nxr.compute.stats.pca(X);
+            tc.verifyEqual(nxr.compute.stats.reconstruct(r.scores, r.components, r.mean, r.scale, r.rank), X, 'AbsTol', 1e-10);
+            tc.verifyEqual(nxr.compute.stats.reconstruct(r.scores, r.components, r.mean, r.scale, 0), repmat(r.mean, 30, 1), 'AbsTol', 1e-12);
+            err = norm(X - nxr.compute.stats.reconstruct(r.scores, r.components, r.mean, r.scale, 2), 'fro');
             tc.verifyEqual(err, sqrt(sum(r.singular_values(3:end).^2)), 'RelTol', 1e-9);   % the error is the discarded singular values
-            tc.verifyError(@() nxr.compute.pca.reconstruct(r.scores, r.components, r.mean, r.scale, 99), 'nxr:invalidArgument');
+            tc.verifyError(@() nxr.compute.stats.reconstruct(r.scores, r.components, r.mean, r.scale, 99), 'nxr:invalidArgument');
         end
 
         function precisionAndRefusals(tc)
             s = RandStream('twister', 'Seed', 6);
             X = single(randn(s, 20, 5));
-            r = nxr.compute.pca.pca(X);
+            r = nxr.compute.stats.pca(X);
             tc.verifyClass(r.components, 'single'); tc.verifyClass(r.scores, 'single'); tc.verifyClass(r.mean, 'single');
             bad = double(X); bad(3, 2) = NaN;
-            tc.verifyError(@() nxr.compute.pca.pca(bad), 'nxr:invalidArgument');
+            tc.verifyError(@() nxr.compute.stats.pca(bad), 'nxr:invalidArgument');
             const = ones(10, 3); const(:, 1) = 1:10;
-            tc.verifyError(@() nxr.compute.pca.pca(const, scale="unit_variance"), 'nxr:invalidArgument');   % a constant column
+            tc.verifyError(@() nxr.compute.stats.pca(const, scale="unit_variance"), 'nxr:invalidArgument');   % a constant column
         end
 
         function sphereSpectrumIsLTimesLPlusOne(tc)
             [v, f] = icosphere(3);                          % 642 vertices, unit radius
-            r = nxr.compute.manifold.eigenmodes(v, f, 25);
+            r = nxr.compute.operators.eigen(v, f, 25);
             want = [0, repmat(2, 1, 3), repmat(6, 1, 5), repmat(12, 1, 7), repmat(20, 1, 9)]';
             tc.verifyEqual(r.n_converged, 25);
             tc.verifyEqual(size(r.eigenvectors), [642 25]);
@@ -92,7 +92,7 @@ classdef ComputePcaManifoldTest < SliceTestBase
             % individual vectors of a multiple eigenvalue are not unique; the SUBSPACE of each shell is: the linear (l = 1) and quadratic (l = 2)
             % harmonics restricted to the vertices lie in the span of the modes of their shell
             [v, f] = icosphere(3);
-            r = nxr.compute.manifold.eigenmodes(v, f, 25, normalize=true);
+            r = nxr.compute.operators.eigen(v, f, 25, normalize=true);
             x = v(:, 1); y = v(:, 2); z = v(:, 3);
             shell1 = r.eigenvectors(:, 2:4);
             shell2 = r.eigenvectors(:, 5:9);
@@ -106,29 +106,29 @@ classdef ComputePcaManifoldTest < SliceTestBase
 
         function removeDcDropsTheConstantMode(tc)
             [v, f] = icosphere(2);
-            r = nxr.compute.manifold.eigenmodes(v, f, 10, remove_dc=true, normalize=true);
+            r = nxr.compute.operators.eigen(v, f, 10, remove_dc=true, normalize=true);
             tc.verifyGreaterThan(r.eigenvalues(1), 1);
             tc.verifyEqual(size(r.eigenvectors), [162 9]);   % the constant mode is gone
         end
 
-        function agreesWithTheKeptHandleCommands(tc)
+        function agreesWithTheSurfaceCommands(tc)
             [v, f] = icosphere(2);
-            r = nxr.compute.manifold.eigenmodes(v, f, 8);
-            h = nxr_compute('create', v, f);
-            c = onCleanup(@() nxr_compute('destroy', h));
-            e = nxr_compute('solve', h, 8);
+            r = nxr.compute.operators.eigen(v, f, 8);
+            s = nxr_compute('geometry.surfaceArrays', v, f);
+            ops = nxr_compute('operators.assembleManifoldOperators', s);
+            e = nxr_compute('operators.eigen', ops.cotanLaplacian, ops.mass, 8);
             tc.verifyEqual(r.eigenvalues, e.eigenvalues(:), 'AbsTol', 1e-8);
         end
 
         function meshErrorsAreValuesNotCrashes(tc)
             [v, f] = icosphere(1);
             bad = f; bad(f == 4) = 999;
-            tc.verifyError(@() nxr.compute.manifold.eigenmodes(v, bad, 3), 'nxr:invalidArgument');
-            tc.verifyError(@() nxr.compute.manifold.eigenmodes(v(:, 1:2), f, 3), 'nxr:invalidArgument');
-            tc.verifyError(@() nxr.compute.manifold.eigenmodes(v, f - 1, 3), 'nxr:invalidArgument');   % 0-based indices are refused: faces are 1-based
+            tc.verifyError(@() nxr.compute.operators.eigen(v, bad, 3), 'nxr:invalidArgument');
+            tc.verifyError(@() nxr.compute.operators.eigen(v(:, 1:2), f, 3), 'nxr:invalidArgument');
+            tc.verifyError(@() nxr.compute.operators.eigen(v, f - 1, 3), 'nxr:invalidArgument');   % 0-based indices are refused: faces are 1-based
             threw = false;
             try
-                nxr.compute.manifold.eigenmodes(v, f, 0);     % the library's own refusal: an error with a code, not a crash
+                nxr.compute.operators.eigen(v, f, 0);     % the library's own refusal: an error with a code, not a crash
             catch e
                 threw = true;
                 tc.verifyTrue(startsWith(e.identifier, 'nxr:'));

@@ -7,15 +7,33 @@
 // Eigenvalues are compared one by one; eigenvectors as subspaces, cluster by cluster, where eigenvalues repeat (the sphere's
 // degree-l multiplets). Meshes: an icosphere (repeated eigenvalues) and a jittered one (none).
 
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/operators/factorization.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/signal/hodge_decomposition.h"
+#include "nxr/operators/assembled.h"
+#include "nxr/synthesis/fields.h"
 #include "synthetic_meshes.h"
 #include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
+#include "surface_of.h"
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::solve;
+using namespace nxr::geometry;
+using namespace nxr::operators;
 
 static int g_fail = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { ++g_fail; std::printf("  FAIL: "); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)
@@ -53,13 +71,13 @@ static void runMesh(const std::string& name, const Mesh& mesh, int k, bool cutMu
     const double tol = 1e-10;
 
     // one-shot: what the one-shot command does
-    Manifold m1(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
-    auto ops1 = ops::assembleManifoldOperators(m1);
+    const auto m1 = surfaceOf(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
+    auto ops1 = nxr::operators::assembleManifoldOperators(m1);
     const EigenResult oneShot = eigen(ops1.cotanLaplacian, ops1.mass, k, kShiftLadder, /*normalize=*/true, /*removeDC=*/true);
 
     // step by step, on a fresh Manifold: assemble, solve, normalize, removeDC
-    Manifold m2(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
-    auto ops2 = ops::assembleManifoldOperators(m2);
+    const auto m2 = surfaceOf(mesh.V.data(), mesh.nV(), mesh.F.data(), mesh.nF());
+    auto ops2 = nxr::operators::assembleManifoldOperators(m2);
     EigenResult raw = eigen(ops2.cotanLaplacian, ops2.mass, k);
     raw.eigenvectors = normalize(raw.eigenvectors, ops2.mass);
     const EigenResult stepped = removeDC(raw);

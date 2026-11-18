@@ -105,6 +105,10 @@ ManifoldRef made(const std::string& label, const std::string& key, ManifoldKind 
   Manifold m; m.form = Manifold::Form::made; m.label = label; m.key = key; m.kind = kind; m.role = role; m.cs = std::move(cs);
   return make_ref(std::move(m));
 }
+ManifoldRef made_line(const std::string& label, const std::string& key, Role role, const std::string& unit, double origin, std::optional<double> rate) {
+  Manifold m; m.form = Manifold::Form::made; m.label = label; m.key = key; m.kind = ManifoldKind::line; m.role = role; m.unit = unit; m.origin = origin; m.rate = rate;
+  return make_ref(std::move(m));
+}
 ManifoldRef restricted(const ManifoldRef& of, const std::string& by) {
   Manifold m; m.form = Manifold::Form::restricted; m.of = of; m.by = by; m.kind = of ? of->kind : ManifoldKind::points; m.role = of ? of->role : Role::none; m.cs = of ? of->cs : std::nullopt;
   return make_ref(std::move(m));
@@ -113,8 +117,8 @@ ManifoldRef members(const std::string& partition) {
   Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = Role::time_tiles;
   return make_ref(std::move(m));
 }
-ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role, const std::string& label) {
-  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = role; m.of = of; m.label = label;
+ManifoldRef members(const std::string& partition, const ManifoldRef& of, Role role, const std::string& label, bool irregular) {
+  Manifold m; m.form = Manifold::Form::members; m.by = partition; m.kind = ManifoldKind::members; m.role = role; m.of = of; m.label = label; m.irregular = irregular;
   return make_ref(std::move(m));
 }
 ManifoldRef members_of_port(const std::string& port) { return members("$" + port); }
@@ -123,14 +127,21 @@ ManifoldRef derived(const std::string& relation, const ManifoldRef& of) {
   return make_ref(std::move(m));
 }
 
+bool same_cs(const std::optional<CoordinateSystem>& a, const std::optional<CoordinateSystem>& b) {
+  if (!a || !b) return true;                                   // a manifold without a recorded system is not told apart by it
+  return a->space == b->space && a->name == b->name && (a->unit.empty() || b->unit.empty() || a->unit == b->unit);
+}
+std::string print_cs(const std::optional<CoordinateSystem>& c) { return c ? c->space + "/" + c->name + (c->unit.empty() ? "" : " (" + c->unit + ")") : std::string("none"); }
+
 bool same(const ManifoldRef& a, const ManifoldRef& b) {
   if (a == b) return true;
   if (!a || !b) return false;
   if (a->form != b->form) return false;
   switch (a->form) {
+    // the coordinate system is part of the manifold's type (T5): one manifold in two systems is two types, and no transition is inserted between them
     case Manifold::Form::id:
-    case Manifold::Form::made: return a->key == b->key && a->label == b->label;      // `sensors(rest)` and `time(rest)` are two manifolds of one recording
-    case Manifold::Form::anonymous:
+    case Manifold::Form::made: return a->key == b->key && a->label == b->label && same_cs(a->cs, b->cs);      // `sensors(rest)` and `time(rest)` are two manifolds of one recording
+    case Manifold::Form::anonymous: return a->key == b->key && same_cs(a->cs, b->cs);
     case Manifold::Form::variable: return a->key == b->key;
     case Manifold::Form::restricted: return a->by == b->by && same(a->of, b->of);
     case Manifold::Form::members: return a->by == b->by;
@@ -230,6 +241,11 @@ const Manifold* Domain::streamed() const {
   if (factors.empty()) return nullptr;
   const Manifold& l = *factors.back();
   return l.role == Role::time || l.role == Role::frames ? &l : nullptr;
+}
+bool PortType::per_block() const {
+  if (streamed() || axis != Axis::none || domain.factors.size() < 2) return false;
+  const Manifold& l = *domain.factors.back();
+  return l.form == Manifold::Form::made && l.kind == ManifoldKind::line && l.role == Role::frequency;
 }
 bool same(const Domain& a, const Domain& b) {
   if (a.cells != b.cells || a.factors.size() != b.factors.size()) return false;
@@ -577,9 +593,19 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
     if (it == b.vars.end()) { b.vars[pattern->key] = actual; return true; }
     const ManifoldRef& bound = it->second;
     if (same(bound, actual)) return true;
+    if (bound->key == actual->key && bound->label == actual->label && !same_cs(bound->cs, actual->cs)) {
+      why = print(actual) + " is the manifold " + print(bound) + " in another coordinate system (" + print_cs(actual->cs) + ", not " + print_cs(bound->cs) +
+            "); no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator " + print_cs(actual->cs) + " to " + print_cs(bound->cs);
+      return false;
+    }
     if (pattern->subsume) {
       // the one implicit move: a source restricted to S accepts the whole manifold it is of (the kernel reads its channels of the recording) and a restriction to the same S
       if (actual->form == Manifold::Form::restricted && same(bound, actual->of)) return true;
+      if (actual->form == Manifold::Form::restricted && actual->of && bound->key == actual->of->key && bound->label == actual->of->label && !same_cs(bound->cs, actual->of->cs)) {
+        why = print(actual) + " is a selection of the manifold " + print(bound) + " in another coordinate system (" + print_cs(actual->of->cs) + ", not " + print_cs(bound->cs) +
+              "); no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator " + print_cs(actual->of->cs) + " to " + print_cs(bound->cs);
+        return false;
+      }
       if (actual->form == Manifold::Form::restricted && bound->form == Manifold::Form::restricted && same(bound->of, actual->of)) {
         why = "it reads " + print(actual) + "; the value lies on " + print(bound) + " (another selection of the same manifold)";
         return false;
@@ -597,7 +623,12 @@ bool unify(const ManifoldRef& pattern, const ManifoldRef& actual, Bindings& b, s
       if (pattern->key != actual->key) { why = print(actual) + " is not " + print(pattern); return false; }
       return unify(pattern->of, actual->of, b, why);
     default:
-      if (!same(pattern, actual)) { why = print(actual) + " is not " + print(pattern); return false; }
+      if (!same(pattern, actual)) {
+        why = print(actual) + " is not " + print(pattern);
+        if (pattern->key == actual->key && pattern->label == actual->label)
+          why += " (the same manifold in another coordinate system: " + print_cs(actual->cs) + ", not " + print_cs(pattern->cs) + "; no transition is applied by the checker: add the node `meeg.positions_transition` with the transition operator)";
+        return false;
+      }
       return true;
   }
 }

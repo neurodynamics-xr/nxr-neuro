@@ -24,4 +24,8 @@ bool dispatchFirstSlice(const std::string& cmd, int nlhs, mxArray** plhs, int nr
 // The pipeline level's commands (names starting with "run.": `nxr.run`, `nxr.list`, `nxr.read`; pipeline_slice.cpp, built when the pipelines are); false when it is not one of them.
 bool dispatchPipeline(const std::string& cmd, int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs);
 
+// A command string the dispatcher no longer takes: an old name (message: "was renamed: use <new>", no alias) or a removed context command (the surface class's create,
+// destroy, topology, ...; message: the surface is now `geometry.surfaceArrays` data passed to each command). False when the command is neither.
+bool refusedCommand(const std::string& cmd, std::string& message);
+
 }  // namespace nxr::mex
