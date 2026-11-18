@@ -734,6 +734,13 @@ void redirect_summarize(StepSpec& sc) {
     Json sj = Json::array();
     for (const auto& n : req.names) sj.push_back(Json{{"name", n}});
     y.meta = Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}, {"members", x.cols}, {"of", x.meta}};
+    // what a DECLARED statistic output is stored from: the measure summarised, its rows and its summaries as axes, the options
+    Json row_values = Json::array();                                       // the rows: the combination they were made into, or (each) the row's number
+    for (Eigen::Index r = 0; r < out.rows(); ++r) row_values.push_back(Json{{"name", combine == "each" ? std::to_string(r) : combine}});
+    y.meta["describe"] = Json{{"measure", x.meta.value("measure", std::string())}, {"method", "summary"}, {"label", "summary"},
+                              {"axes", Json::array({Json{{"name", "row"}, {"size", out.rows()}, {"values", row_values}}, Json{{"name", "summary"}, {"size", out.cols()}, {"values", sj}}})},
+                              {"n_members", x.cols}, {"options", Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}}},
+                              {"description", "the " + x.meta.value("measure", std::string()) + " of " + x.meta.value("name", std::string()) + " summarised (" + combine + ")"}};
     return Arrays{{"y", std::move(y)}};
   };
 }
