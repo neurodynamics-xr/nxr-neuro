@@ -91,6 +91,13 @@ void make_old(const fs::path& datastore) {
     SelectionSpec ps; ps.name = "parcels"; ps.path = "source/parcels"; ps.type = "set"; ps.manifold_id = surf; ps.data = view(codes, {N});
     ps.cols.set("dictionary_id", dict.id).set("cell", "0");
     sub.selection(ps);
+    // a map on the cortex (a value per vertex) for the measurement over the parcels: the statistic of a source PSD is not a field a `measure` reads
+    std::vector<float> amap(static_cast<std::size_t>(N));
+    for (auto& v : amap) v = static_cast<float>(std::abs(nd(rng)));
+    FieldSpec fm;
+    fm.name = "alpha_map"; fm.path = nxr::io::task::Subject::of(sub).node_path(surf, "alpha_map"); fm.kind = "band power"; fm.manifold_id = surf;
+    fm.data = view(amap, {N}); fm.array.compress = false;
+    sub.field(std::move(fm));
     std::vector<std::int32_t> chans = {0, 1, 2, 3};
     SelectionSpec ss; ss.name = "kern_channels"; ss.path = ss.name; ss.type = "indices"; ss.manifold_id = cid; ss.data = view(chans, {M}); ss.picked = true;
     const std::string sel = sub.selection(std::move(ss));
@@ -117,8 +124,8 @@ void run_chains(DatasetWriter& ds, SubjectWriter& sub) {
   fo.filter.lowerEdge = 8; fo.filter.upperEdge = 12;
   nxrtest::filter_compute(ds, sub, fo);
   CHECK(!nxrtest::run_psd(ds, sub, "rest_bandpass").hit);
-  nxr::pipelines::run_shipped(ds, sub, "measure", Json{{"field", "rest_kern_psd_alpha"}, {"over", "parcels"}, {"weight", "none"}, {"measures", Json::array({"mean", "max"})}}, false);   // a measurement over a partition
-  nxr::pipelines::run_shipped(ds, sub, "summarize", Json{{"over", "parcels"}, {"of", "rest_kern_psd_alpha"}, {"measure", "mean"}, {"summaries", Json::array({"median", "mean"})}, {"combine", "pool"}}, false);   // its statistic across the members
+  nxr::pipelines::run_shipped(ds, sub, "measure", Json{{"field", "alpha_map"}, {"over", "parcels"}, {"weight", "none"}, {"measures", Json::array({"mean", "max"})}}, false);   // a measurement over a partition
+  nxr::pipelines::run_shipped(ds, sub, "summarize", Json{{"over", "parcels"}, {"of", "alpha_map"}, {"measure", "mean"}, {"summaries", Json::array({"median", "mean"})}, {"combine", "pool"}}, false);   // its statistic across the members
 }
 
 // every key the subject's store holds, with the bytes of its chunks (zarr.json texts carry ids: only their presence is compared)

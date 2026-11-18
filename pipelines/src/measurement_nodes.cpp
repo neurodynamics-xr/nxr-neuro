@@ -265,6 +265,11 @@ Form form_of(const Json& d, std::int64_t line_samples, ExecContext& c, const std
     f.members = f.size;
     f.member_of.resize(static_cast<std::size_t>(f.size));
     for (std::int64_t i = 0; i < f.size; ++i) f.member_of[static_cast<std::size_t>(i)] = static_cast<std::int32_t>(i);
+  } else if (f.kind == "whole") {                                         // all the elements, one member
+    f.size = d.value("size", std::int64_t(0));
+    f.members = 1;
+    f.kind = "elements";
+    f.member_of.assign(static_cast<std::size_t>(f.size), 0);
   } else if (f.kind == "span") {
     f.rule = ns::Rule{0, line_samples, line_samples, 1, line_samples};
     f.kind = "time";
@@ -729,6 +734,13 @@ void redirect_summarize(StepSpec& sc) {
     Json sj = Json::array();
     for (const auto& n : req.names) sj.push_back(Json{{"name", n}});
     y.meta = Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}, {"members", x.cols}, {"of", x.meta}};
+    // what a DECLARED statistic output is stored from: the measure summarised, its rows and its summaries as axes, the options
+    Json row_values = Json::array();                                       // the rows: the combination they were made into, or (each) the row's number
+    for (Eigen::Index r = 0; r < out.rows(); ++r) row_values.push_back(Json{{"name", combine == "each" ? std::to_string(r) : combine}});
+    y.meta["describe"] = Json{{"measure", x.meta.value("measure", std::string())}, {"method", "summary"}, {"label", "summary"},
+                              {"axes", Json::array({Json{{"name", "row"}, {"size", out.rows()}, {"values", row_values}}, Json{{"name", "summary"}, {"size", out.cols()}, {"values", sj}}})},
+                              {"n_members", x.cols}, {"options", Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}}},
+                              {"description", "the " + x.meta.value("measure", std::string()) + " of " + x.meta.value("name", std::string()) + " summarised (" + combine + ")"}};
     return Arrays{{"y", std::move(y)}};
   };
 }
@@ -755,6 +767,7 @@ StepSpec estimate_node() {
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     const Value& x = ins.at("x");
     need(x.cls == "field" && x.time && x.chunked, "estimate: x must be a field on ... x time, inside the chunk loop");
+    need(!x.complex, "estimate: x is complex; estimate a real quantity of it (give it a form first: field.form magnitude | power | phase_current)");
     need(p["method"] == "histogram" || p["method"] == "sample", "estimate: method " + p["method"].dump() + ": histogram or sample");
     if (p["method"] == "histogram") need(p["edges"].is_array() && p["edges"].size() >= 2, "estimate: histogram needs `edges` (no default: the caller's bins)");
     Value y = made(x);

@@ -599,16 +599,81 @@ void compose_chain(Definition& e, const std::string& input, const Json& chain_na
   }
   e.chains.push_back(Json{{"input", input}, {"chain", C.name}, {"version", C.version}, {"parameters", cp}, {"sha256", nxr::io::sha256_hex(C.text)}});
 }
+// a thing a maker reads (a MANIFOLD input: the line is its own factor `.manifold.0`): an input of the definition, or an output of one of its steps (a chain's field)
+bool is_thing(const Definition& e, const std::string& t) {
+  if (e.inputs.contains(t)) return true;
+  for (const auto* sec : {&e.before, &e.do_, &e.after}) for (const StepUse& u : *sec) if (std::find(u.outs.begin(), u.outs.end(), t) != u.outs.end()) return true;
+  return false;
+}
+// the selection a FACTOR maker stores, and what it lies on (its input's manifold): the run's span on the time line, a set of elements on the space
+struct FactorKind { const char* type; const char* port; const char* on; };
+FactorKind factor_kind_of(const std::string& node, const std::string& w) {
+  if (node == "select.run_span") return {"spans", "line", ".manifold.0"};
+  if (node == "select.elements") return {"set", "space", ".manifold.0"};
+  if (node == "select.time_grid") return {"tiling", "line", ".manifold.0"};
+  err(w, "make.factors: '" + node + "' is not a factor maker (select.run_span, select.elements, select.time_grid), or give {input: NAME} for a selection the definition finds");
+}
+// A PRODUCT made in the run (PI, 2026-11-18: a product's factors are ALWAYS Selections, made by makers and named as factors, never virtual): `make: {node: select.product, factors: [...]}`. A factor is
+// a maker, `{node: select.run_span | select.elements | select.time_grid, in: {line | space: THING}, with: {...}, name: "<template>"}`, stored get-or-create under `name`, or `{input: NAME}`, a selection the
+// definition finds. The product's manifold and the product selection are outputs of the definition: factors, manifold, product.
+void compose_product(Definition& e, const std::string& input, const Json& make, const std::string& w) {
+  if (make["node"] != "select.product") err(w, "make.factors: only select.product takes factors");
+  for (const auto& [k, v] : make.items()) { (void)v; if (k != "node" && k != "factors" && k != "with" && k != "layout" && k != "name") err(w, "make: unknown key '" + k + "' with factors (node, factors, with, layout, name)"); }
+  const Json& fs = make["factors"];
+  if (!fs.is_array() || fs.size() < 2 || fs.size() > 4) err(w, "make.factors: two to four factors");
+  static const char* ports[] = {"first", "second", "third", "fourth"};
+  Json prod_in = Json::object(), manifolds = Json::array(), selections = Json::array();
+  e.inputs.erase(input);
+  for (std::size_t k = 0; k < fs.size(); ++k) {
+    const Json& f = fs[k];
+    if (!f.is_object()) err(w, "make.factors: each factor is a mapping");
+    if (f.contains("input")) {                                              // a selection the definition finds
+      if (!f["input"].is_string() || !e.inputs.contains(f["input"].get<std::string>())) err(w, "make.factors: {input: NAME}: " + f["input"].dump() + " is not an input of this definition");
+      const std::string nm = f["input"].get<std::string>();
+      prod_in[ports[k]] = nm;
+      manifolds.push_back(nm + ".manifold.0");
+      selections.push_back(nm);
+      continue;
+    }
+    if (!f.contains("node") || !f["node"].is_string()) err(w, "make.factors: a factor is {node, in, with, name} or {input}");
+    const std::string node = f["node"].get<std::string>();
+    const FactorKind fk = factor_kind_of(node, w);
+    const Json ins = f.contains("in") ? f["in"] : Json::object();
+    if (!ins.is_object() || !ins.contains(fk.port) || !ins[fk.port].is_string() || !is_thing(e, ins[fk.port].get<std::string>()))
+      err(w, "make.factors: " + node + " reads `" + std::string(fk.port) + "`: an input of this definition (or a step's output)");
+    const std::string thing = ins[fk.port].get<std::string>();
+    const std::string out = input + "_f" + std::to_string(k);
+    e.before.push_back(StepUse{node, ins, f.contains("with") ? f["with"] : Json::object(), {out}, "before", Json()});
+    Json o = Json{{"kind", "selection"}, {"type", fk.type}, {"on", thing + fk.on}, {"get_or_create", true}};
+    o["name"] = f.contains("name") ? f["name"] : Json(out);
+    if (e.outputs.contains(out)) err(w, "an output named '" + out + "' exists already");
+    e.outputs[out] = o;
+    prod_in[ports[k]] = out;
+    manifolds.push_back(thing + fk.on);
+    selections.push_back(out);
+  }
+  const std::string space = input + "_space";
+  Json with = make.contains("with") ? make["with"] : Json::object();
+  if (make.contains("layout")) with["layout"] = make["layout"];
+  e.before.push_back(StepUse{"select.product", prod_in, with, {space, input}, "before", Json()});
+  if (e.outputs.contains(space) || e.outputs.contains(input)) err(w, "an output named '" + input + "' or '" + space + "' exists already");
+  e.outputs[space] = Json{{"kind", "manifold"}, {"type", "product"}, {"factors", manifolds}};
+  Json o = Json{{"kind", "selection"}, {"type", "product"}, {"on", space}, {"factors", selections}, {"get_or_create", true}};
+  o["name"] = make.contains("name") ? make["name"] : Json(input);
+  e.outputs[input] = o;
+  e.made.push_back(Json{{"input", input}, {"node", "select.product"}, {"factors", fs}, {"stored", true}});
+}
 void compose_make(Definition& e, const std::string& input, const Json& make, const std::string& where) {
   const std::string w = where + ": inputs." + input + " (make)";
   if (!make.is_object() || !make.contains("node") || !make["node"].is_string()) err(w, "make: {node: select.*, in: {port: thing}, with: {parameter: value}, store: {type, on, name}}");
-  for (const auto& [k, v] : make.items()) { (void)v; if (k != "node" && k != "in" && k != "with" && k != "store") err(w, "make: unknown key '" + k + "' (node, in, with, store)"); }
+  if (make.contains("factors")) { compose_product(e, input, make, w); return; }
+  for (const auto& [k, v] : make.items()) { (void)v; if (k != "node" && k != "in" && k != "with" && k != "store") err(w, "make: unknown key '" + k + "' (node, in, with, store, or factors for select.product)"); }
   const StepSpec& st = step(make["node"].get<std::string>());
   const Json ins = make.contains("in") ? make["in"] : Json::object(), with = make.contains("with") ? make["with"] : Json::object();
   if (!ins.is_object() || !with.is_object()) err(w, "make: in and with are mappings");
   for (const auto& [port, thing] : ins.items()) {
     if (std::find(st.inputs.begin(), st.inputs.end(), port) == st.inputs.end()) err(w, "make.in: '" + port + "' is not one of " + st.name + "'s ports (" + join(st.inputs) + ")");
-    if (!thing.is_string() || !e.inputs.contains(thing.get<std::string>())) err(w, "make.in." + port + ": " + thing.dump() + " is not an input of this definition (a maker reads manifolds and stored selections the definition names)");
+    if (!thing.is_string() || !is_thing(e, thing.get<std::string>())) err(w, "make.in." + port + ": " + thing.dump() + " is not an input of this definition (a maker reads manifolds and stored selections the definition names)");
   }
   for (const auto& p : st.inputs)
     if (!ins.contains(p) && std::find(st.optional.begin(), st.optional.end(), p) == st.optional.end()) err(w, "make.in: its port " + p + " is not given");

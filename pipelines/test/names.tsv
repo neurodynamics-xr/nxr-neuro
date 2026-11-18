@@ -152,12 +152,14 @@ node	select.scale	-	composite
 node	select.scale_selection	-	composite
 node	select.bands	-	composite
 node	select.dyadic_surface	-	composite
+node	select.elements	-	composite
 node	select.events.cores	-	composite
 node	select.events.patches	-	composite
 node	select.events.regions	-	composite
 node	select.events.spans	-	composite
 node	select.events.tracks	-	composite
 node	select.product	-	composite
+node	select.run_span	-	composite
 node	select.time_grid	-	composite
 node	signal.analytic_bands	-	composite
 node	signal.complex_psd	-	pending B6a: the node takes a complex series: it merges into signal.psd with the streaming accumulators (the C++ function is psd(complex))

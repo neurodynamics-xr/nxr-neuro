@@ -951,6 +951,7 @@ nxr::signal::filters::FilterOptions filter_options(const Json& p, double sfreq) 
   if (const auto v = num("lower")) o.lowerEdge = *v;
   if (const auto v = num("upper")) o.upperEdge = *v;
   if (p.contains("frequencies") && p["frequencies"].is_array()) o.frequencies = p["frequencies"].get<std::vector<double>>();
+  else if (p.contains("frequencies") && p["frequencies"].is_number()) o.frequencies = {p["frequencies"].get<double>()};   // one frequency, as `--frequencies 50`
   if (p.contains("method") && !p["method"].is_null()) o.method = p["method"].get<std::string>() == "iir" ? Method::Iir : Method::Fir;
   if (const auto v = num("ripple")) o.ripple = *v;
   if (const auto v = num("transition")) o.transitionBandwidth = *v;

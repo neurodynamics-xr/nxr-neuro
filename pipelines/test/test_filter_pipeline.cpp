@@ -148,12 +148,13 @@ int main() {
     CHECK_EQ(text(*f, "unit"), std::string("T"));
     CHECK_EQ(text(*f, "manifold_id"), text(*sub.by_name("field", "rest"), "manifold_id"));    // same channels x time product
     const Json pj = Json::parse(text(*f, "producer_json"));
-    CHECK_EQ(pj["filter"]["kind"].get<std::string>(), std::string("bandpass"));
-    CHECK_EQ(pj["filter"]["method"].get<std::string>(), std::string("fir"));
-    CHECK(pj["filter"]["lower_edge"].get<double>() == 2.0 && pj["filter"]["upper_edge"].get<double>() == 40.0);
-    CHECK_EQ(pj["filtered_from"]["name"].get<std::string>(), std::string("rest"));
-    CHECK_EQ(pj["projectors"].size(), static_cast<std::size_t>(2));
-    CHECK(pj["mean_removed"].get<bool>() && !pj["mean_restored"].get<bool>());
+    // the producer record of a recording the runner wrote: the definition, its resolved parameters, the source, and what was carried over
+    CHECK_EQ(pj["pipeline"]["name"].get<std::string>(), std::string("bandpass"));
+    CHECK(pj["parameters"]["lower"].get<double>() == 2.0 && pj["parameters"]["upper"].get<double>() == 40.0);
+    CHECK_EQ(pj["derived_from"]["name"].get<std::string>(), std::string("rest"));
+    bool projectors_carried = false;
+    for (const auto& c : pj["carried_over"]) projectors_carried = projectors_carried || c == "projectors";
+    CHECK(projectors_carried);
     CHECK(sub.find("selection", "time/rest_bandpass_chunks").has_value() || nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_bandpass_chunks", .any_status = true}).has_value());
     const auto sel = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest_bandpass_bad_segments", .any_status = true});
     CHECK(sel.has_value());
@@ -194,23 +195,24 @@ int main() {
     CHECK(worst < 1e-4);
     CHECK_EQ(r.info["name"].get<std::string>(), std::string("rest_notch"));
   }
-  CHECK_EQ(code_of([&] { FilterComputeOptions e = o; e.recording = "nope"; e.name = "x"; filter_compute(ds, sub, e); }), std::string(code::no_such_row));
+  CHECK_EQ(code_of([&] { FilterComputeOptions e = o; e.recording = "nope"; e.name = "x"; filter_compute(ds, sub, e); }), std::string(code::invalid_argument));   // the recording is named by a parameter that matches nothing: the definition refuses it
   CHECK_EQ(code_of([&] { FilterComputeOptions e = o; e.name = "x"; e.filter.upperEdge = 200; filter_compute(ds, sub, e); }), std::string(code::invalid_argument));
   ds.close();
 #ifdef NXR_TEST_CLI
   {
     const std::string cli = NXR_TEST_CLI, d = (root / "demo").string(), log = (root / "cli.log").string();
-    const std::string common = " --dataset " + d + " --subject S1 --recording rest";
-    CHECK_EQ(std::system((cli + " run highpass" + common + " --fpass 5 > " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " run highpass" + common + " --fpass 5 >> " + log).c_str()), 0);   // a hit
-    CHECK_EQ(std::system((cli + " run bandstop" + common + " --fstop 48.5,51.5 --name cli_bs >> " + log).c_str()), 0);
-    CHECK_EQ(std::system((cli + " run notch" + common + " --line 50 --harmonics 1 --name cli_notch --bandwidth 2 >> " + log).c_str()), 0);
-    CHECK(std::system((cli + " run lowpass" + common + " > /dev/null 2>&1").c_str()) != 0);          // --fpass missing
-    CHECK(std::system((cli + " run lowpass" + common + " --fpass 400 --name bad > /dev/null 2>&1").c_str()) != 0);   // beyond Nyquist
+    const std::string common = " --dataset " + d + " --subject S1 --recording rest --all";
+    // the channel means a FIR filter removes were measured by the runs above (the preset channel_span_mean), as the definition's hint says
+    CHECK_EQ(std::system((cli + " run highpass" + common + " --lower 5 > " + log + " 2>&1").c_str()), 0);
+    CHECK_EQ(std::system((cli + " run highpass" + common + " --lower 5 >> " + log).c_str()), 0);   // a hit
+    CHECK_EQ(std::system((cli + " run bandstop" + common + " --lower 48.5 --upper 51.5 --name cli_bs >> " + log).c_str()), 0);
+    CHECK_EQ(std::system((cli + " run notch" + common + " --frequencies 50 --harmonics 1 --name cli_notch --notch-bandwidth 2 >> " + log + " 2>&1").c_str()), 0);
+    CHECK(std::system((cli + " run lowpass" + common + " > /dev/null 2>&1").c_str()) != 0);          // --upper missing
+    CHECK(std::system((cli + " run lowpass" + common + " --upper 400 --name bad > /dev/null 2>&1").c_str()) != 0);   // beyond Nyquist
     std::ifstream in(log);
     std::string line, all;
     while (std::getline(in, line)) all += line + "\n";
-    CHECK(all.find("\"cache\": \"miss\"") != std::string::npos && all.find("\"cache\": \"hit\"") != std::string::npos);
+    CHECK(all.find("\"hit\": false") != std::string::npos && all.find("\"hit\": true") != std::string::npos);
     DatasetWriter d2 = open_writer(root / "demo");
     SubjectWriter s2 = SubjectWriter::open(d2, "S1");
     for (const char* n : {"rest_highpass", "cli_bs", "cli_notch"}) CHECK(nxr::io::task::Subject::of(s2).find({.cls = nxr::io::task::Cls::field, .name = std::string(n), .kind = "recording", .any_status = true}).has_value());

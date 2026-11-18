@@ -847,8 +847,9 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
   const bool of_field = !P.found.count(of) || P.found.at(of).cls == "field";
   if (of_field) st.of_field_id = of_id; else st.of_statistic_id = of_id;
   const std::string acq = acquisition_of(P, of);
-  const Json axes_decl = spec.value("axes", Json::array());
   const Json axes_desc = d.value("axes", Json::array());
+  Json axes_decl = spec.value("axes", Json::array());
+  if (!spec.contains("axes")) for (const auto& ax : axes_desc) axes_decl.push_back(Json{{"name", ax.value("name", std::string())}});   // none declared: the node's own axes, as it describes them
   if (axes_decl.size() != axes_desc.size()) bad(o, "declares " + std::to_string(axes_decl.size()) + " axes, its node describes " + std::to_string(axes_desc.size()));
   std::vector<std::int64_t> shape;
   Json axes = Json::array();

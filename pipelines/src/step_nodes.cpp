@@ -6,7 +6,10 @@
 #include "nxr/pipelines/meeg_steps.h"
 #include "nxr/pipelines/partition_steps.h"
 
+#include <cmath>
 #include <variant>
+
+#include "nxr/quantity/quantity.h"
 
 #include "nxr/io/errors.h"
 
@@ -58,6 +61,17 @@ Values values_of(const ng::Types& in) {
 }
 
 // a step's functions as the node's: the same call, the step's own
+// a step's `band` given as a QUANTITY ("8-16 Hz", a definition's parameter) is the [lo, hi] pair in Hz the steps read
+Json band_normalized(const Json& params) {
+  if (!params.is_object() || !params.contains("band") || !params["band"].is_string()) return params;
+  Json p = params;
+  try {
+    const nxr::quantity::Quantity q = nxr::quantity::parse(params["band"].get<std::string>());
+    if (q.unit == "Hz" || q.chart == "log10") p["band"] = q.chart == "log10" ? Json::array({std::pow(10.0, q.lo), std::pow(10.0, q.hi)}) : Json::array({q.lo, q.hi});
+  } catch (const std::invalid_argument&) {}                                 // left as given: the step refuses it with its own message
+  return p;
+}
+
 ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding) {
   ng::NodeSpec n;
   n.name = st.name;
@@ -71,7 +85,8 @@ ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding
   n.description = st.description;
   const StepSpec* s = &st;
 
-  n.plan = [s, binding](const ng::Types& in, const Json& params) {
+  n.plan = [s, binding](const ng::Types& in, const Json& params_in) {
+    const Json params = band_normalized(params_in);
     const Values ins = values_of(in);
     Values made;
     try {
@@ -106,7 +121,8 @@ ng::NodeSpec node_of(const StepSpec& st, const std::shared_ptr<Binding>& binding
     }
     return out;
   };
-  n.prepare = [s, binding](const ng::Types& in, const ng::Arrays& constants, const Json& params, ng::Shared& shared) {
+  n.prepare = [s, binding](const ng::Types& in, const ng::Arrays& constants, const Json& params_in, ng::Shared& shared) {
+    const Json params = band_normalized(params_in);
     const Values ins = values_of(in);
     ng::Arrays made;                                                // what an earlier node made (a found input is a placeholder: the step reads it through the binding)
     for (const auto& [port, a] : constants) if (!a.meta.value("placeholder", false)) made[port] = a;
