@@ -182,15 +182,15 @@ namespace nxr::signal {
 using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
 
 namespace {
-PhaseGradient phaseGradientOverDisc(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, geometry::ChartKit& kit, int anchor,
-                                    const std::vector<int>& disc, const AnatomicalFrame* anatomy) {
+PhaseGradient phaseGradientOverDisc(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, const geometry::ChartKit& kit, int anchor,
+                                    const std::vector<int>& disc, const Eigen::VectorXd& X, const AnatomicalFrame* anatomy) {
     if (z.size() != ops.nV) throw std::invalid_argument("weightedPhaseGradient: z needs one value per vertex");
     if (faces.rows() != ops.nF || areas.size() != ops.nF) throw std::invalid_argument("weightedPhaseGradient: faces and areas must be the operators' faces");
     if (kit.n() != ops.nV) throw std::invalid_argument("weightedPhaseGradient: the chart kit is of another mesh");
     if (anchor < 0 || anchor >= ops.nV) throw std::invalid_argument("weightedPhaseGradient: the anchor is outside the mesh");
     std::vector<char> in(static_cast<std::size_t>(ops.nV), 0);
     for (int v : disc) in[static_cast<std::size_t>(v)] = 1;
-    const Eigen::VectorXd X = kit.transported(anchor, 0.0);          // the anchor's e1 carried to every vertex, (re, im) in that vertex's basis
+    // X: the anchor's e1 carried to every vertex, (re, im) in that vertex's basis (the caller carried it: geometry::transportedEach)
     const VectorXd zr = z.real(), zi = z.imag();
     VectorXd gr[3], gi[3];
     for (int d = 0; d < 3; ++d) { gr[d] = ops.grad[d] * zr; gi[d] = ops.grad[d] * zi; }
@@ -235,22 +235,30 @@ PhaseGradient phaseGradientOverDisc(const VectorXcd& z, const operators::FaceOpe
 }
 }  // namespace
 
-PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, geometry::ChartKit& kit, int anchor, double radius,
-                                    const AnatomicalFrame* anatomy, double maxRadius) {
-    if (anchor < 0 || anchor >= ops.nV) throw std::invalid_argument("weightedPhaseGradient: the anchor is outside the mesh");
+std::vector<PhaseGradient> weightedPhaseGradients(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, const geometry::ChartKit& kit,
+                                                  const std::vector<int>& anchors, double radius, const AnatomicalFrame* anatomy, double maxRadius) {
     if (kit.n() != ops.nV) throw std::invalid_argument("weightedPhaseGradient: the chart kit is of another mesh");
-    std::vector<int> disc;
-    try { disc = kit.disc(anchor, radius, maxRadius); } catch (const std::exception& e) { throw std::invalid_argument(e.what()); }
-    return phaseGradientOverDisc(z, ops, faces, areas, kit, anchor, disc, anatomy);
+    for (int a : anchors) if (a < 0 || a >= ops.nV) throw std::invalid_argument("weightedPhaseGradient: the anchor is outside the mesh");
+    std::vector<std::vector<int>> disc;
+    try { disc = geometry::discs(kit, anchors, radius, maxRadius); } catch (const std::exception& e) { throw std::invalid_argument(e.what()); }
+    std::vector<PhaseGradient> out(anchors.size());
+    geometry::transportedEach(kit, anchors, {}, [&](std::size_t k, const VectorXd& X) { out[k] = phaseGradientOverDisc(z, ops, faces, areas, kit, anchors[k], disc[k], X, anatomy); });
+    return out;
 }
 
-PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, geometry::ChartKit& kit, int anchor,
+PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, const geometry::ChartKit& kit, int anchor, double radius,
+                                    const AnatomicalFrame* anatomy, double maxRadius) {
+    return weightedPhaseGradients(z, ops, faces, areas, kit, {anchor}, radius, anatomy, maxRadius)[0];
+}
+
+PhaseGradient weightedPhaseGradient(const VectorXcd& z, const operators::FaceOperators& ops, const operators::FaceMat& faces, const VectorXd& areas, const geometry::ChartKit& kit, int anchor,
                                     const selection::Elements& disc, const AnatomicalFrame* anatomy) {
     if (disc.members() != 1) throw std::invalid_argument("weightedPhaseGradient: the neighbourhood is one member (the disc of a distance selection), got " + std::to_string(disc.members()));
     if (disc.size != ops.nV) throw std::invalid_argument("weightedPhaseGradient: the neighbourhood lies on another manifold than the mesh");
+    if (anchor < 0 || anchor >= ops.nV) throw std::invalid_argument("weightedPhaseGradient: the anchor is outside the mesh");
     std::vector<int> v;
     for (std::int64_t i = disc.offsets[0]; i < disc.offsets[1]; ++i) v.push_back(static_cast<int>(disc.elements[static_cast<std::size_t>(i)]));
-    return phaseGradientOverDisc(z, ops, faces, areas, kit, anchor, v, anatomy);
+    return phaseGradientOverDisc(z, ops, faces, areas, kit, anchor, v, geometry::transported(kit, anchor, 0.0), anatomy);
 }
 
 VectorXcd standingSurrogate(const VectorXcd& z) {

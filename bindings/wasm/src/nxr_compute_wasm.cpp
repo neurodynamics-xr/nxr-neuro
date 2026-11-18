@@ -721,7 +721,7 @@ val trivialJS(val surfaceVal, val singVertsArr, val singValuesArr) {
     return guarded([&] {
         const geom::SurfaceArrays surface = valToSurface(surfaceVal);
         const std::map<int, double> singMap = vertexValueMap(singVertsArr, singValuesArr, "operators.trivial");
-        const ops::DECOperators dec = ops::embeddedDEC(surface);
+        const ops::DECOperators dec = ops::assembleDECOperators(surface);
         const std::unique_ptr<ops::CholeskyFactor> exact = ops::exactFormFactor(dec);
         ops::connection::DirectionFieldResult r = ops::connection::trivial(surface, dec, *exact, singMap);
         val o = val::object();
@@ -736,12 +736,12 @@ val trivialJS(val surfaceVal, val singVertsArr, val singValuesArr) {
 
 // ── signal ───────────────────────────────────────────────────
 
-// signal.hodge(surface, omega): omega is a 1-form on the INPUT mesh's edges; the DEC and the two factorizations are made inside.
+// signal.hodge(surface, omega): omega is a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges; the DEC and the two factorizations are made inside.
 val hodgeJS(val surfaceVal, val omegaArr) {
     return guarded([&] {
         const geom::SurfaceArrays surface = valToSurface(surfaceVal);
         Eigen::VectorXd omega = valToEigenVector(omegaArr);
-        const ops::DECOperators dec = ops::embeddedDEC(surface);
+        const ops::DECOperators dec = ops::assembleDECOperators(surface);
         const std::unique_ptr<ops::CholeskyFactor> exact = ops::exactFormFactor(dec);
         const std::unique_ptr<ops::SquareSolver> coexact = ops::coexactFormSolver(dec);
         nxr::signal::HodgeResult h = nxr::signal::hodge(surface, dec, *exact, *coexact, omega);
@@ -782,11 +782,11 @@ val streamlineJS(val surfaceVal, val faceFieldArr, int numSeeds, double stepCoef
     });
 }
 
-// signal.whitney(surface, oneForm): a 1-form on the INPUT mesh's edges to face vectors [nF*3].
+// signal.whitney(surface, oneForm): a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges to face vectors [nF*3].
 val whitneyJS(val surfaceVal, val oneFormArr) {
     return guarded([&] {
         const geom::SurfaceArrays surface = valToSurface(surfaceVal);
-        return eigenMatrixToVal(nxr::signal::whitney(surface, ops::embeddedDEC(surface), valToEigenVector(oneFormArr)));
+        return eigenMatrixToVal(nxr::signal::whitney(surface, ops::assembleDECOperators(surface), valToEigenVector(oneFormArr)));
     });
 }
 
@@ -1026,11 +1026,11 @@ val dampedWaveJS(val eigStruct, val modeIndicesArr, val amplitudesArr, val dampi
     });
 }
 
-// synthesis.randomDecomposed1Form(surface, alphaStrength, betaStrength, gammaStrength, seed) → a 1-form on the INPUT mesh's edges
+// synthesis.randomDecomposed1Form(surface, alphaStrength, betaStrength, gammaStrength, seed) → a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges
 val randomDecomposed1FormJS(val surfaceVal, double alphaStrength, double betaStrength, double gammaStrength, int seed) {
     return guarded([&] {
         const geom::SurfaceArrays surface = valToSurface(surfaceVal);
-        const ops::DECOperators dec = ops::embeddedDEC(surface);
+        const ops::DECOperators dec = ops::assembleDECOperators(surface);
         return eigenVectorToVal(syn::randomDecomposed1Form(dec, surface.nV(), static_cast<int>(dec.d0.rows()), surface.nF(),
                                                            alphaStrength, betaStrength, gammaStrength, static_cast<unsigned int>(seed)));
     });

@@ -166,7 +166,7 @@ static void waves() {
     nxr::geometry::AnatomicalOptions ao; ao.side = nxr::geometry::Side::Left;
     const nxr::geometry::Anatomical anat = nxr::geometry::anatomicalFrame(V.data(), nV, Fv.data(), nF, fn, fe1, fe2, ao);
     const nxr::signal::AnatomicalFrame af{&anat, &fe1, &fe2};
-    EXPECT(kit.disc(pole, rad).size() > 10, "the disc holds vertices");
+    EXPECT(nxr::geometry::disc(kit, pole, rad).size() > 10, "the disc holds vertices");
     for (double deg : {0.0, 60.0, -120.0}) {
         const double a = deg * kPi / 180;
         const Eigen::Vector3d k = 3.0 * Eigen::Vector3d(std::cos(a), std::sin(a), 0);
@@ -243,7 +243,7 @@ static void corrugated() {
     {
         VectorXd gr[3], gi[3];
         for (int d = 0; d < 3; ++d) { gr[d] = ops.grad[d] * VectorXd(z.real()); gi[d] = ops.grad[d] * VectorXd(z.imag()); }
-        const std::vector<int> disc = kit.disc(anchor, rad);
+        const std::vector<int> disc = nxr::geometry::disc(kit, anchor, rad);
         std::vector<char> in(nV, 0); for (int v : disc) in[v] = 1;
         for (int q = 0; q < nF; ++q) {
             if (!(in[fc(q, 0)] && in[fc(q, 1)] && in[fc(q, 2)])) continue;

@@ -144,7 +144,7 @@ VectorXd gaugeAngle(geometry::IntrinsicSurface& surface, const Mat3& d) {
     return out;
 }
 
-VectorXd gaugeAngle(ChartKit& kit, const Mat3& d) {
+VectorXd gaugeAngle(const ChartKit& kit, const Mat3& d) {
     VectorXd out(d.rows());
     for (int i = 0; i < d.rows(); ++i) {
         const double v[3] = {d(i, 0), d(i, 1), d(i, 2)};

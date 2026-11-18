@@ -112,7 +112,7 @@ S   = nxr_compute('geometry.surfaceArrays', V, F);          % once; opts: intrin
 ops = nxr_compute('operators.assembleManifoldOperators', S);
 eig = nxr_compute('operators.eigen', ops.cotanLaplacian, ops.mass, 6, [], true, true);   % K, M, k, sigma ([] = shift ladder), normalize, removeDC
 d   = nxr_compute('geometry.heat', S, 1);                   % geodesic distance; a cell array of source sets gives one column per set
-hd  = nxr_compute('signal.hodge', S, omega);                % omega: a 1-form on the input mesh's edges
+hd  = nxr_compute('signal.hodge', S, omega);                % omega: a 1-form on the operator (intrinsic triangulation) mesh's edges
 cur = nxr_compute('geometry.curvatures', S);
 u0  = nxr_compute('synthesis.delta', ops.nV, 1, 1.0);
 hf  = nxr_compute('synthesis.heatDiffusion', ops.mass, eig, u0, 0:0.1:1, 1.0);
@@ -128,7 +128,7 @@ Commands (indices 1-based):
 - `synthesis.`: `delta`, `heatDiffusion`, `dampedWave`, `randomDecomposed1Form`.
 - Batch forms where the library has them: `geometry.heat` and `geometry.signedHeat` take a cell array of source sets (or curves), `geometry.parallel` cell arrays of
   sources and vectors, `geometry.logMap` a vector of sources (a struct array back).
-- A 1-form (`signal.hodge`, `signal.whitney`, `synthesis.randomDecomposed1Form`) is indexed by the input mesh's edges.
+- A 1-form (`signal.hodge`, `signal.whitney`, `synthesis.randomDecomposed1Form`) is indexed by the operator (intrinsic triangulation) mesh's edges.
 
 **Old names are refused, never aliased.** `nxr_compute('heat', ...)` raises `nxr:renamed`: "The command "heat" was renamed: use "geometry.heat"" (likewise `solve`
 and `precompute`, now `operators.eigen` with its `normalize` and `removeDC` arguments; `hodge`, now `signal.hodge`; and so on). The former context commands

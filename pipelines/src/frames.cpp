@@ -57,15 +57,15 @@ nxr::geometry::Axes axes_of(const std::string& convention) {
 Json vec_json(const Eigen::Vector3d& v) { return Json::array({v.x(), v.y(), v.z()}); }
 }  // namespace
 
-Json gauge_block(nxr::geometry::ChartKit& kit, int n_vertices, const std::string& surface_id) {
-  std::vector<const nxr::geometry::IntrinsicSurface*> seen;
+Json gauge_block(const nxr::geometry::ChartKit& kit, int n_vertices, const std::string& surface_id) {
+  std::vector<const nxr::geometry::SurfaceArrays*> seen;
   std::string fingerprint;
   Json rec;
   for (int v = 0; v < n_vertices; ++v) {
-    nxr::geometry::IntrinsicSurface& s = kit.surfaceOf(v);
+    const nxr::geometry::SurfaceArrays& s = kit.surfaceOf(v);
     if (std::find(seen.begin(), seen.end(), &s) != seen.end()) continue;
     seen.push_back(&s);
-    const nxr::geometry::IntrinsicRecord& r = s.record();
+    const nxr::geometry::IntrinsicRecord& r = s.triangulation.record;
     fingerprint += (fingerprint.empty() ? "" : "+") + r.fingerprint;
     if (rec.is_null()) rec = Json{{"gauge", r.gauge}, {"mollify", r.mollify}, {"epsilon", r.epsilon}, {"flipEps", r.flipEps}, {"mass", r.mass}, {"boundary_vertices", 0}};
     rec["epsilon"] = std::max(rec["epsilon"].get<double>(), r.epsilon);

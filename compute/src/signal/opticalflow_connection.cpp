@@ -9,6 +9,7 @@
 #include <stdexcept>
 
 #include "nxr/core/errors.h"
+#include "nxr/operators/laplacians.h"
 #include "nxr/signal/forms.h"
 
 namespace nxr::signal::connection {
@@ -126,8 +127,11 @@ void embedAt(const Corners& c, const double* nrm, int v, double a, double b, dou
     out[0] = zl * x; out[1] = zl * y; out[2] = zl * z;
 }
 
-Eigen::SparseMatrix<double> realConnectionLaplacian(nxr::geometry::IntrinsicSurface& s) {
-    const Eigen::SparseMatrix<std::complex<double>> K = s.connectionLaplacian(1);
+Eigen::SparseMatrix<double> realConnectionLaplacian(const nxr::geometry::SurfaceArrays& s) {
+    namespace cl = nxr::operators::laplacian::connection;
+    cl::ConnectionLaplacianOptions o;                                    // the operators module's Levi-Civita connection Laplacian, n = 1, with no regularization (the flow adds none)
+    o.domain = cl::ConnectionDomain::Vertex; o.nSym = 1; o.regularization = 0.0; o.format = cl::ConnectionLaplacianFormat::Complex;
+    const Eigen::SparseMatrix<std::complex<double>> K = cl::assembleConnectionLaplacian(s, o).K_complex;
     const int nV = s.nV();
     std::vector<Eigen::Triplet<double>> t;
     t.reserve(4 * static_cast<size_t>(K.nonZeros()));
@@ -147,7 +151,8 @@ Pencil componentPencil(const double* P, int n, const std::vector<int32_t>& F, co
     const int nF = static_cast<int>(F.size() / 3);
     nxr::geometry::IntrinsicOptions io;
     io.mollify = o.mollify; io.flipEps = o.flipEps; io.mass = nxr::geometry::MassKind::InputMixedVoronoi;
-    nxr::geometry::IntrinsicSurface surf(P, n, F.data(), nF, io);   // geometry-central's signpost triangulation: the corners read its input, the operators its flipped mesh
+    const nxr::geometry::SurfaceArrays arrays = nxr::geometry::surfaceArrays(P, n, F.data(), nF, io);   // the signpost triangulation as data: the corners read its input, the operators its flipped mesh
+    nxr::geometry::IntrinsicSurface surf(arrays);
     Pencil p;
     // the corners and normals of the INPUT faces, before the flips rewrite the halfedges
     std::vector<double> N(3 * static_cast<size_t>(n), 0.0);
@@ -168,7 +173,7 @@ Pencil componentPencil(const double* P, int n, const std::vector<int32_t>& F, co
     std::vector<float> Pf(3 * static_cast<size_t>(n));
     for (size_t k = 0; k < Pf.size(); ++k) Pf[k] = static_cast<float>(P[k]);                  // Float32Array.from(P)
     p.grad = assembleFaceGradient(Pf.data(), F.data(), n, nF);
-    p.C = realConnectionLaplacian(surf);
+    p.C = realConnectionLaplacian(arrays);
     const std::vector<double> mass = surf.inputMixedVoronoiMass();                              // lumpedMass: the input's mixed Voronoi mass, recorded before the flips
     p.M = Eigen::Map<const VectorXd>(mass.data(), static_cast<Eigen::Index>(mass.size()));
     return p;

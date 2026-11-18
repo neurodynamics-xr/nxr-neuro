@@ -26,7 +26,7 @@ namespace nxr::operators {
  *
  * - MixedVoronoi (DEFAULT): diagonal; each vertex's mixed Voronoi area (Meyer, Desbrun, Schröder & Barr 2003) of the
  *   mollified INPUT triangulation, recorded before the first flip (`geometry::IntrinsicSurface::inputMixedVoronoiMass`) — the mass of the Studio, nxr and Rheome. With
- *   geometry::MeshKind::Embedded: of the input as it is.
+ *   `IntrinsicOptions::intrinsic = false`: of the input as it is.
  * - Galerkin: full sparse, the L² integrals of piecewise-linear hat functions on the triangulation as it is (per-triangle element
  *   matrix (A_T / 12) · [[2 1 1][1 2 1][1 1 2]]). A named option.
  * - Barycentric: diagonal, M_ii = (Σ adjacent triangle areas) / 3 on the triangulation as it is (geometry-central's "lumped"; renamed to what
@@ -40,33 +40,8 @@ enum class MassMatrixVariant {
     Barycentric     // diagonal; A/3 per vertex on the operator mesh as it is
 };
 
-// ManifoldOperators / DECOperators mix view and value semantics. Field
-// names follow geometry-central's canonical naming for the underlying
-// cached matrices (cotanLaplacian, vertexDualAreas, vertexNormals,
-// d0/d1/hodge*), so the surface here is a 1-to-1 viewer over GC's
-// cache where the concept exists. Variant-aware quantities (mass)
-// keep a generic name because GC has no single matrix covering them.
-//
-//   * View fields (const-references into geometry-central's cached matrices):
-//       ManifoldOperators::cotanLaplacian, all DECOperators fields. Bound by
-//       assembleManifoldOperators / assembleDECOperators after the relevant
-//       require* call pins them on the geometry.
-//
-//   * Owned field:
-//       ManifoldOperators::mass — variant-dependent (MixedVoronoi / Galerkin / Barycentric);
-//       held by value because GC exposes two distinct matrices and we
-//       want a single uniform field shape regardless of which variant
-//       the caller requested.
-//
-// Lifetime contract: bindings must keep the owning geometry::Manifold alive
-// for the entire lifetime of any ManifoldOperators / DECOperators they hold,
-// and must NOT call unrequire* on the underlying geometry while the
-// structs are alive. ContextHolder / ContextWrapper enforce this by
-// keeping the operator structs and the context together.
-//
-// Because of the reference fields, both structs are copy-constructible
-// (refs rebind to the same targets) but not copy-assignable. The
-// bindings hold them via shared_ptr / unique_ptr and never reassign.
+// ManifoldOperators / DECOperators OWN their matrices (copies): nothing in compute is held between calls; whoever reuses a bundle (the pipeline executor, a binding,
+// a test) holds it. The matrices are assembled from a `geometry::SurfaceArrays` (nxr/geometry/surface_arrays.h).
 
 // Row-major V×3 alias. `vertexNormals` is exclusively consumed row-wise
 // (each row is one (x,y,z) triple flattened directly into the §11 V*3
@@ -103,12 +78,12 @@ struct ManifoldOperators {
     // mesh metadata that's already canonical on the context.
 };
 
-/** Assemble operators from a context, on the geometry::Manifold's operator mesh (nxr/geometry/intrinsic_surface.h). Default mass variant is MixedVoronoi. */
+/** Assemble operators from a context, on the surface's operator mesh (nxr/geometry/surface_arrays.h). Default mass variant is MixedVoronoi. */
 ManifoldOperators assembleManifoldOperators(
     const geometry::SurfaceArrays& surface,
     MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);
 
-/** The mass matrix of a variant on the geometry::Manifold's operator mesh (diagonal for MixedVoronoi and Barycentric). */
+/** The mass matrix of a variant on the surface's operator mesh (diagonal for MixedVoronoi and Barycentric). */
 Eigen::SparseMatrix<double> vertexMass(const geometry::SurfaceArrays& surface, MassMatrixVariant variant = MassMatrixVariant::MixedVoronoi);
 
 /** String → enum helper for binding shells (WASM, addon, MEX).
@@ -150,8 +125,8 @@ DecMatrices decMatrices(const geometry::SurfaceArrays& surface);
  *  interpolation on its faces, the trivial connection, the face Dirac). */
 DECOperators embeddedDEC(const geometry::SurfaceArrays& surface);
 
-// The stand-alone DEC FOLLOWS THE MESH OPTION: on the geometry::Manifold's operator mesh (the intrinsic mollified Delaunay mesh by default,
-// the input with geometry::MeshKind::Embedded), so that d0ᵀ ⋆1 d0 == the cotan Laplacian (`cotanLaplacian(m)`) and ⋆0 == the mass of the
+// The stand-alone DEC FOLLOWS THE MESH OPTION: on the surface's operator mesh (the intrinsic mollified Delaunay mesh by default,
+// the input with `IntrinsicOptions::intrinsic = false`), so that d0ᵀ ⋆1 d0 == the cotan Laplacian (`cotanLaplacian(m)`) and ⋆0 == the mass of the
 // default mass (the mixed-Voronoi mass of the mollified input; nxr::operators::massMatrix variants Barycentric and Galerkin are other masses). ⋆1 is the RAW cotan weight, NOT floored
 // (a cocircular edge gives ⋆1 = 0 and hodge1Inverse is then singular; the floored ⋆1 of the Hodge–Dirac pencil is `star1Floor` in
 // nxr::operators::hodgedirac::assemble). Edges and faces are the operator mesh's (the flipped faces under the intrinsic option; edge e keeps its index through

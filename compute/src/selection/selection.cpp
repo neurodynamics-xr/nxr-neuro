@@ -382,13 +382,26 @@ bool disjoint(const Selection& s) {
   return true;
 }
 
-Selection resolve_distance(const Selection& s, geometry::ChartKit& kit) {
-  if (s.type != Type::distance) throw std::invalid_argument(std::string("resolve_distance: a distance, not a ") + type_name(s.type));
-  if (*s.center >= kit.n()) throw std::invalid_argument("resolve_distance: centre " + std::to_string(*s.center) + " outside the surface");
-  std::vector<std::int32_t> out{static_cast<std::int32_t>(*s.center)};   // the centre is always held (a radius 0 holds it alone)
-  for (int v : kit.disc(static_cast<int>(*s.center), s.radius)) out.push_back(static_cast<std::int32_t>(v));
-  return indices(std::move(out), s.code);
+std::vector<Selection> resolve_distances(const std::vector<Selection>& ss, const geometry::ChartKit& kit) {
+  std::vector<int> centres;
+  std::vector<double> radii;
+  for (const Selection& s : ss) {
+    if (s.type != Type::distance) throw std::invalid_argument(std::string("resolve_distance: a distance, not a ") + type_name(s.type));
+    if (*s.center >= kit.n()) throw std::invalid_argument("resolve_distance: centre " + std::to_string(*s.center) + " outside the surface");
+    centres.push_back(static_cast<int>(*s.center));
+    radii.push_back(s.radius);
+  }
+  const std::vector<std::vector<int>> discs = geometry::discs(kit, centres, radii);   // one solver for all
+  std::vector<Selection> result;
+  for (std::size_t k = 0; k < ss.size(); ++k) {
+    std::vector<std::int32_t> out{static_cast<std::int32_t>(centres[k])};   // the centre is always held (a radius 0 holds it alone)
+    for (int v : discs[k]) out.push_back(static_cast<std::int32_t>(v));
+    result.push_back(indices(std::move(out), ss[k].code));
+  }
+  return result;
 }
+
+Selection resolve_distance(const Selection& s, const geometry::ChartKit& kit) { return resolve_distances({s}, kit)[0]; }
 
 // ── levels ────────────────────────────────────────────────────────────────────────────────
 int level_ordinal(const Selection& s, int k) {

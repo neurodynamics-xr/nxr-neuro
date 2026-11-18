@@ -33,7 +33,7 @@ namespace {
 using ComplexTriplet = Eigen::Triplet<std::complex<double>>;
 
 // Vertex connection Laplacian on the n-RoSy bundle: the geometry::IntrinsicSurface's (geometry-central's `vertexConnectionLaplacian` for n = 1; for n > 1 its
-// transport raised to the n-th power with its edge cotangent weights), on the geometry::Manifold's intrinsic triangulation — in geometry-central's gauge. The
+// transport raised to the n-th power with its edge cotangent weights), on the surface's intrinsic triangulation — in geometry-central's gauge. The
 // connection lifts the scalar Laplacian's cotangent weight to the complex tangent bundle.
 void assembleVertexCL(geometry::IntrinsicSurface& surface, int nSym, std::vector<ComplexTriplet>& out) {
     const Eigen::SparseMatrix<std::complex<double>> K = surface.connectionLaplacian(nSym);
@@ -191,7 +191,7 @@ ConnectionLaplacian assembleConnectionLaplacian(
     int N = 0;
     switch (opts.domain) {
         case ConnectionDomain::Vertex:
-            // The intrinsic surface's cotan weights and transport (the signpost intrinsic Delaunay triangulation by default; geometry::MeshKind::Embedded: the input).
+            // The intrinsic surface's cotan weights and transport (the signpost intrinsic Delaunay triangulation by default; `IntrinsicOptions::intrinsic = false`: the input).
             N = surface.nV();
             assembleVertexCL(gs, opts.nSym, triplets);
             break;

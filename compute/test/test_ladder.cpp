@@ -193,7 +193,7 @@ static void meshParity(Golden& g) {
         MatrixXd om = lc.omega, omRef = omG;
         for (int a = 0; a < tiles; ++a) {
             if (cen[a] < 0) continue;
-            const VectorXd da = kit.heatDistance(cen[a]);
+            const VectorXd da = nxr::geometry::heatDistance(kit, cen[a]);
             for (int i = 0; i < n; ++i) if (lab[static_cast<size_t>(i)] == a && da[i] > kFar) { rhoOurs(0, i) = rhoG(0, i); lc.rho[i] = rhoG(0, i); }
             for (int b = 0; b < tiles; ++b) if (cen[b] >= 0 && da[cen[b]] > kFar) om(a, b) = omRef(a, b) = 0;
         }

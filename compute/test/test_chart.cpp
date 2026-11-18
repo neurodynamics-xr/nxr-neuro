@@ -55,7 +55,7 @@ int main() {
     const Eigen::Vector3d p(V[3 * seed], V[3 * seed + 1], V[3 * seed + 2]);
     const nxr::geometry::Basis bs = kit.basis();
     const Eigen::Vector3d E1(bs.e1[3 * seed], bs.e1[3 * seed + 1], bs.e1[3 * seed + 2]), E2(bs.e2[3 * seed], bs.e2[3 * seed + 1], bs.e2[3 * seed + 2]);
-    const nxr::geometry::LogMap lm = kit.logMap(seed);
+    const nxr::geometry::LogMap lm = nxr::geometry::logMap(kit, seed);
     const Eigen::Vector3d z(0, 0, 1), N = (z - z.dot(p) * p).normalized();   // the shared north: z on the tangent plane
     const double N3[3] = {N[0], N[1], N[2]};
     const double hN = kit.gaugeHeading(seed, N3);
@@ -79,28 +79,46 @@ int main() {
     double eh = 0;
     for (double psi : {-3.0, -1.0, 0.0, 0.4, 2.5}) { double w[3]; kit.headingVector(seed, psi, w); eh = std::max(eh, std::abs(wrap(kit.gaugeHeading(seed, w) - psi))); }
     EXPECT(eh < 1e-12, "gaugeHeading(headingVector(psi)) = psi");
-    const VectorXd X0 = kit.transported(seed, 0.0), X1 = kit.transported(seed, 1.1);
+    const VectorXd X0 = nxr::geometry::transported(kit, seed, 0.0), X1 = nxr::geometry::transported(kit, seed, 1.1);
     double el = 0;
     // (the transport's magnitude falls like exp(-d / sqrt t): past d = 1.5 on this sphere its direction is solver noise, which geometry-central normalises away, so it is compared within 1.5)
-    const VectorXd dseed = kit.heatDistance(seed);
+    const VectorXd dseed = nxr::geometry::heatDistance(kit, seed);
     for (int i = 0; i < n; ++i) { if (dseed[i] > 1.5) continue; const std::complex<double> a(X0[2 * i], X0[2 * i + 1]), b(X1[2 * i], X1[2 * i + 1]); el = std::max(el, std::abs(b - a * std::polar(1.0, 1.1))); }
     std::cout << "  transport rotation-linearity: max |diff| " << sci(el) << "\n";
     EXPECT(el < 1e-6, "transported(psi) = e^{i psi} transported(0) (within 1.5 of the source)");
     bool refused = false;
-    try { kit.disc(seed, 0.5, 0.3); } catch (const std::exception&) { refused = true; }
-    EXPECT(refused && !kit.disc(seed, 0.5, 0.6).empty(), "disc refuses a radius past the validity radius");
+    try { nxr::geometry::disc(kit, seed, 0.5, 0.3); } catch (const std::exception&) { refused = true; }
+    EXPECT(refused && !nxr::geometry::disc(kit, seed, 0.5, 0.6).empty(), "disc refuses a radius past the validity radius");
 
+    // (0) the batch forms: many anchors in one call (one solver) give, bit for bit, what one call per anchor gives
+    {
+        const std::vector<int> anchors = {seed, 3, n / 2, n - 5};
+        const std::vector<double> headings = {0.1, 0.2, 0.3, 0.4}, radii = {0.3, 0.4, 0.5, 0.6};
+        std::vector<VectorXd> bd, bt;
+        std::vector<nxr::geometry::LogMap> bl;
+        nxr::geometry::heatDistanceEach(kit, anchors, [&](std::size_t, const VectorXd& d) { bd.push_back(d); });
+        nxr::geometry::transportedEach(kit, anchors, headings, [&](std::size_t, const VectorXd& x) { bt.push_back(x); });
+        nxr::geometry::logMapEach(kit, anchors, [&](std::size_t, const nxr::geometry::LogMap& l) { bl.push_back(l); });
+        const auto bdisc = nxr::geometry::discs(kit, anchors, radii);
+        bool same = bd.size() == 4 && bt.size() == 4 && bl.size() == 4;
+        for (std::size_t k = 0; same && k < anchors.size(); ++k) {
+            const nxr::geometry::LogMap l1 = nxr::geometry::logMap(kit, anchors[k]);
+            same = same && bd[k].isApprox(nxr::geometry::heatDistance(kit, anchors[k]), 0) && bt[k].isApprox(nxr::geometry::transported(kit, anchors[k], headings[k]), 0)
+                   && bl[k].r.isApprox(l1.r, 0) && bl[k].theta.isApprox(l1.theta, 0) && bdisc[k] == nxr::geometry::disc(kit, anchors[k], radii[k]);
+        }
+        EXPECT(same, "batch heat distance, transport, log map and discs = one call per anchor, bitwise");
+    }
     // (1) the wrapper IS geometry-central: the same solvers on the same IntrinsicSurface, to rounding
     {
-        nxr::geometry::IntrinsicSurface& surf = kit.surfaceOf(seed);
+        nxr::geometry::IntrinsicSurface surf(kit.surfaceOf(seed));
         gcs::HeatMethodDistanceSolver hm(surf.geometry());
         gcs::VectorHeatMethodSolver vh(surf.geometry());
         const gcs::VertexData<double> dg = hm.computeDistance(surf.mesh().vertex(static_cast<size_t>(seed)));
-        const VectorXd dk = kit.heatDistance(seed);
+        const VectorXd dk = nxr::geometry::heatDistance(kit, seed);
         double eD = 0, eX = 0, eL = 0, eB = 0;
         for (int i = 0; i < n; ++i) eD = std::max(eD, std::abs(dg[static_cast<size_t>(i)] - dk[i]));
         const auto xg = vh.transportTangentVector(surf.mesh().vertex(static_cast<size_t>(seed)), geometrycentral::Vector2{std::cos(0.7), std::sin(0.7)});
-        const VectorXd xk = kit.transported(seed, 0.7);
+        const VectorXd xk = nxr::geometry::transported(kit, seed, 0.7);
         const auto lg = vh.computeLogMap(surf.mesh().vertex(static_cast<size_t>(seed)), gcs::LogMapStrategy::VectorHeat);
         for (int i = 0; i < n; ++i) {
             eX = std::max({eX, std::abs(xg[static_cast<size_t>(i)].x - xk[2 * i]), std::abs(xg[static_cast<size_t>(i)].y - xk[2 * i + 1])});
@@ -144,7 +162,7 @@ int main() {
         for (int v = 0; v < fx.size(); ++v) eG = std::max({eG, std::abs(gr[3 * v] - 2.0), std::abs(gr[3 * v + 1] + 3.0), std::abs(gr[3 * v + 2])});
         EXPECT(eG < 1e-12, "the surface gradient of a linear function on a plane is its slope, exactly");
         const int c0 = (g / 2) * (g + 1) + g / 2;
-        const VectorXd dp = pk.heatDistance(c0);
+        const VectorXd dp = nxr::geometry::heatDistance(pk, c0);
         double eP = 0; int m = 0;
         for (int v = 0; v < fx.size(); ++v) { const double r = std::hypot(Pp[3 * v] - Pp[3 * c0], Pp[3 * v + 1] - Pp[3 * c0 + 1]); if (r > 0.5 && r < 1.0) { eP = std::max(eP, std::abs(dp[v] - r) / r); ++m; } }
         std::cout << "  plane: heat distance from the centre, relative error (" << m << " vertices) " << sci(eP) << "\n";
@@ -159,30 +177,30 @@ int main() {
         V2.push_back(0); V2.push_back(0); V2.push_back(9);   // a vertex in no face
         const int n2 = 2 * n + 1;
         nxr::geometry::ChartKit k2(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
-        const VectorXd d = k2.heatDistance(seed);
+        const VectorXd d = nxr::geometry::heatDistance(k2, seed);
         bool inf = true, finite = true;
         for (int i = 0; i < n; ++i) finite = finite && std::isfinite(d[i]);
         for (int i = n; i < 2 * n; ++i) inf = inf && std::isinf(d[i]);
         EXPECT(finite && inf, "distance is finite on the seed's piece and Infinity on the other");
-        const nxr::geometry::LogMap l2 = k2.logMap(seed);
+        const nxr::geometry::LogMap l2 = nxr::geometry::logMap(k2, seed);
         bool nan = true, same = true;
         for (int i = n; i < n2; ++i) nan = nan && std::isnan(l2.r[i]) && std::isnan(l2.theta[i]);
         for (int i = 0; i < n; ++i) same = same && std::abs(l2.r[i] - lm.r[i]) < 1e-12;
         EXPECT(nan && same, "the log map is NaN off the seed's piece, and the piece is solved by itself (equal to the single sphere's)");
-        const VectorXd x2 = k2.transported(seed, 0.0);
+        const VectorXd x2 = nxr::geometry::transported(k2, seed, 0.0);
         EXPECT(std::isnan(x2[2 * n]) && std::isnan(x2[2 * (n2 - 1)]), "the transport is NaN off the seed's piece");
         const nxr::geometry::Basis b2 = k2.basis();
         EXPECT(std::isnan(b2.e1[3 * (n2 - 1)]) && std::abs(b2.e1[3 * seed] - bs.e1[3 * seed]) < 1e-15, "the basis is NaN at a vertex in no face and per piece elsewhere");
         bool refusedFree = false;
-        try { k2.heatDistance(n2 - 1); } catch (const std::exception&) { refusedFree = true; }
+        try { nxr::geometry::heatDistance(k2, n2 - 1); } catch (const std::exception&) { refusedFree = true; }
         EXPECT(refusedFree, "a vertex in no face is refused");
-        const VectorXd ds = k2.heatDistance(std::vector<int>{seed, n + 3});
+        const VectorXd ds = nxr::geometry::heatDistanceSet(k2, std::vector<int>{seed, n + 3});
         EXPECT(std::isfinite(ds[0]) && std::isnan(ds[n2 - 1]), "a source set is solved on the first source's piece (NaN elsewhere)");
     }
 
     // (4) the geodesic default (geometry::heat) is the same solver on the same surface: exact again (it was 1e-4 against the port in G3)
     const auto m = surfaceOf(V.data(), n, F.data(), static_cast<int>(F.size() / 3));
-    const VectorXd dDefault = nxr::geometry::heat(m, std::vector<int>{seed}), dInput = nxr::geometry::heat(m, std::vector<int>{seed}, 1.0, nxr::geometry::HeatMesh::Input), dChart = kit.heatDistance(seed);
+    const VectorXd dDefault = nxr::geometry::heat(m, std::vector<int>{seed}), dInput = nxr::geometry::heat(m, std::vector<int>{seed}, 1.0, nxr::geometry::HeatMesh::Input), dChart = nxr::geometry::heatDistance(kit, seed);
     EXPECT((dDefault - dChart).cwiseAbs().maxCoeff() < 1e-10, "the geodesic default (geometry::heat) and the chart's heat distance are the same solver on the same surface (exact)");
     EXPECT(dInput.size() == dDefault.size() && (dInput - dDefault).cwiseAbs().maxCoeff() < 0.05, "HeatMesh::Input stays as the named option (geometry-central, input mesh)");
     std::cout << "  geodesic default vs chart: max |diff| " << sci((dDefault - dChart).cwiseAbs().maxCoeff()) << "; vs input-mesh option on the sphere: " << sci((dInput - dDefault).cwiseAbs().maxCoeff()) << "\n";

@@ -31,7 +31,7 @@ int main() {
         for (int k = 0; k < 3; ++k) V[3 * v + k] = p(k);
     }
     nxr::geometry::IntrinsicSurface m(V.data(), nV, F.data(), static_cast<int>(F.size() / 3));
-    const nxr::signal::Complex c = nxr::signal::complexOf(m);
+    const nxr::signal::Complex c = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V.data(), nV, F.data(), static_cast<int>(F.size() / 3)));
     std::printf("  %d vertices, %d edges, %d faces; %d flips\n", c.nV, c.nE, c.nF, m.record().flips);
     EXPECT(m.record().flips > 0, "the jittered sphere needed flips");
     EXPECT(Eigen::SparseMatrix<double>(c.d1 * c.d0).norm() == 0.0, "d1 d0 = 0");
@@ -85,7 +85,7 @@ int main() {
             for (int k = 0; k < 3; ++k) V3[3 * v + k] = p(k);
         }
         nxr::geometry::IntrinsicSurface m3(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3));
-        const nxr::signal::Complex c3 = nxr::signal::complexOf(m3);
+        const nxr::signal::Complex c3 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V3.data(), n3, F3.data(), static_cast<int>(F3.size() / 3)));
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c3.d0.transpose() * c3.star1.asDiagonal() * c3.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c3.star0.asDiagonal()));
         const int K = 40;
@@ -115,7 +115,7 @@ int main() {
         icosphere(2, V2, F2, 1.0);
         const int n2 = static_cast<int>(V2.size() / 3);
         nxr::geometry::IntrinsicSurface m2(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3));
-        const nxr::signal::Complex c2 = nxr::signal::complexOf(m2);
+        const nxr::signal::Complex c2 = nxr::signal::complexOf(nxr::geometry::surfaceArrays(V2.data(), n2, F2.data(), static_cast<int>(F2.size() / 3)));
         const Eigen::MatrixXd Lap = Eigen::MatrixXd(c2.d0.transpose() * c2.star1.asDiagonal() * c2.d0);
         Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> ges(Lap, Eigen::MatrixXd(c2.star0.asDiagonal()));
         const int K = 12;

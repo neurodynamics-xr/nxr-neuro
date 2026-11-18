@@ -129,7 +129,7 @@ int main() {
     for (std::size_t i = 0; i < codes.size(); ++i) codes[i] = static_cast<std::int32_t>(c.a.at("codes")[i]);
     const std::vector<double>& P = c.a.at("P");
     nxr::geometry::IntrinsicSurface dm(P.data(), c.nV, F.data(), c.nF);
-    const nxr::signal::Complex cx = nxr::signal::complexOf(dm);
+    const nxr::signal::Complex cx = nxr::signal::complexOf(nxr::geometry::surfaceArrays(P.data(), c.nV, F.data(), c.nF));
     Eigen::VectorXd f(c.nV);
     for (int v = 0; v < c.nV; ++v) f(v) = P[static_cast<std::size_t>(3 * v + 2)] / 0.07 + 0.3 * P[static_cast<std::size_t>(3 * v)] / 0.07;   // a smooth function (degree 1: its Laplacian is -2 f / R^2)
     const Eigen::VectorXd u = cx.d0 * f;                                                      // the 1-form of grad f

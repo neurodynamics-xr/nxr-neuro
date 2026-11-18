@@ -109,7 +109,7 @@ export function wrap(mod) {
     'operators.fieldById': (id) => mod['operators.fieldById'](id),
 
     // ── signal ───────────────────────────────────────────────────
-    // omega: a 1-form on the INPUT mesh's edges
+    // omega: a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges
     'signal.hodge': (surface, omega) => mod['signal.hodge'](surface, asF64(omega)),
     'signal.isoline': (surface, scalars, numLevels = 20, minVal = 0, maxVal = 0) => mod['signal.isoline'](surface, asF64(scalars), numLevels, minVal, maxVal),
     'signal.streamline': (surface, faceField, numSeeds = 15, stepCoef = 0.15, maxSteps = 1000) =>

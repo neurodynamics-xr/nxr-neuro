@@ -230,28 +230,25 @@ FreeSurfer cortex) the cotan / connection / covariant Laplacians can be *indefin
 to (extrinsic) Delaunay (`nxr::manifold::fixDelaunay` → GC `fixDelaunay`); same
 vertices, new faces, best-effort PSD (not certified — extrinsic flips perturb the
 surface and needn't fully converge). The *certified*-PSD path is
-`nxr_compute('create', V, F)` — the intrinsic mollified Delaunay mesh (**the default since 2026-11-10**;
+`nxr_compute('geometry.surfaceArrays', V, F)` — the intrinsic mollified Delaunay mesh (**the default since 2026-11-10**;
 `struct('intrinsicDelaunay', false)` is the named option "embedded"). ONE construction, `include/nxr/intrinsic_surface.h` (`IntrinsicSurface` on geometry-central: mollify; the signpost intrinsic triangulation of the mollified
 input; the mixed-Voronoi mass of the mollified input recorded before the first flip and served through the `computeVertexDualAreas` override; flips while the
-cotan weight < −`flipEps`), builds the `Manifold`'s intrinsic surface (`Manifold::intrinsicSurface()`), and EVERY intrinsic operator is built on it: cotan
+cotan weight < −`flipEps`), builds the surface's intrinsic triangulation (`geometry::surfaceArrays`, kept as `SurfaceArrays::triangulation`), and EVERY intrinsic operator is built on it: cotan
 Laplacian, the three masses, the stand-alone DEC (so `d0ᵀ★₁d0 == cotanL` and `hodge0 == mass`), the vertex connection Laplacian (geometry-central's transport;
 n > 1 from its n-th power) and the Hodge–Dirac pencil. ONE gauge: geometry-central's vertex gauge of the (mollified) input (angle 0 along the input's
 `v.halfedge()`, corner angles rescaled to 2π, π at a boundary vertex); `geometry::vertexFrames` is its 3D realisation (`vertexFramesEmbedded` is a deprecated
 alias). The numerical constants are the named, recorded options `mollify` (relative δ, 1e-6) and `flipEps` (1e-6). The line port of the Studio's construction is retired
 (spec `docs/specs/2026-11-17-geometry-central-switch.md`, G7). Still on the INPUT mesh (geometry-central, indexed by the input's
-edges and faces): `operators::embeddedDEC(m)` (Hodge decomposition of a 1-form, the trivial connection and its gauge/combing, the face Diracs), the
-Face/Edge connection domains, the extrinsic Dirac E, and the light `Topology`/`Geometry` bundle (`vertexFramesEmbedded`, `vertexGridEmbedded`).
+edges and faces): `operators::embeddedDEC(surface)` (the trivial connection and its gauge/combing, the face Diracs), the
+Face/Edge connection domains and the extrinsic Dirac E. The bindings' 1-form commands (Hodge decomposition, Whitney, the trivial connection) use the OPERATOR mesh's DEC (`assembleDECOperators`: test_operator_dec).
 (Note `normalize` is the unrelated eigenvector M-orthonormalization, not a mesh op.)
 
-**Manifold geometry facets (C++).** `Manifold` exposes the data facets `topology()/embedded()/intrinsic()/extrinsic()` (per-element *data*, element-first, e.g.
-`embedded().vertex().grid()`, `intrinsic().edge().cotanWeight()`; `include/nxr/geometry/facets.h`) and the raw-input aliases `vertexPositions()`/`faces()`; they slice a
-lazily-cached `geometry::meshGeometry`/`meshTopology`. **Gauge workflow:** `Manifold(V,F)` is Levi-Civita; `Manifold(V,F,singularities)` is trivial (default fixed at
-construction); `setConnection` re-points the active connection. Trivial requires `Σ singularity index == χ` (Gauss–Bonnet, validated; throws InvalidInput).
-**Operators are not held by the Manifold** (a Manifold is a shape). `include/nxr/operators/assembled.h` assembles on demand, by value
-(`activeConnectionLaplacian`, `activeCovariantLaplacian(coupling)`, `diracFamily(τ)`, `diracFaceFamily(τ)`, `connectionGrid`); the cotan Laplacian, the masses, the
-DEC and the first-order Diracs are assembly functions of `operators/dec.h` and `operators/dirac.h`; whoever reuses a matrix (the pipeline executor, a binding, a test)
-holds it, and the factorisation is the caller's `CholeskyCache`. The MEX `operators` command is the string-dispatch veneer over these functions.
-The data facets stay embedded-sourced under the intrinsic mesh option (only the *operators* use the operator mesh), as documented on `IntrinsicFacet`.
+**A surface is plain data (C++).** `geometry::SurfaceArrays` holds the positions, the faces and the intrinsic triangulation (made once by `geometry::surfaceArrays`); every
+geometry and operator function takes it and builds geometry-central's objects inside, holding nothing between calls (`nxr/geometry/surface_arrays.h`). The connection is an
+argument (`vertexConnectionLaplacian(surface, type, singularities)`, `covariantLaplacian(...)`), not a state. `include/nxr/operators/assembled.h` assembles on demand, by value
+(`diracFamily(τ)`, `diracFaceFamily(τ)`, `connectionGrid`); the cotan Laplacian, the masses, the DEC and the first-order Diracs are assembly functions of `operators/dec.h` and
+`operators/dirac.h`; whoever reuses a matrix (the pipeline executor, a binding, a test) holds it, and the factorisations are the caller's (`operators/factorization.h`). Charts
+(`geometry/charts.h`) are data too: heat distance, transport, log maps and discs are batch functions that build one solver per component per call.
 
 **Operator registry (C++).** `include/nxr/operator_registry.h` /
 `src/operator_registry.cpp` are the single source of truth for *operator
@@ -421,7 +418,7 @@ holder mirrors the same fields + lazy `ensure*` + result caches and
 reaches full parity with the `ContextWrapper` surface. A bad/destroyed
 handle throws `Error(InvalidHandle)` → `nxr:invalidHandle`. A MATLAB
 `handle`-class wrapper is intentionally out of scope (application-side,
-like the JS wrappers over WASM's `Manifold`); see
+like the JS wrappers over WASM); see
 `docs/superpowers/specs/2026-05-27-stateful-mex-binding-design.md`.
 
 ---
