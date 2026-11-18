@@ -9,6 +9,7 @@
   {"name": "cross_spectrum", "unit_rule": "(the field's unit)^2", "description": "the cross-spectrum of the rows per bin (Welch's spectrum or chain scaling), Hermitian [rows x rows] (components re, im)"},
   {"name": "cross_spectrum_sum", "unit_rule": "(the field's unit)^2, summed", "description": "per member of a partition (a window), the sum over its samples of z z^H of a band's analytic signal: Hermitian [rows x rows] (complex); the mean is sum / count at read"},
   {"name": "amplitude", "unit_rule": "the field's unit", "description": "the mean |z| of a band's analytic signal"},
+  {"name": "scale_event", "unit_rule": null, "description": "the cross-pair event (its ordinal) that a pair's event belongs to, NaN beyond the pair's events: unitless"},
   {"name": "stokes", "unit_rule": "(the field's unit)^2", "description": "the tangential Stokes parameters of a current's band cross-spectral tensor in the canonical frames: [S0, S1, S2, S3] (a quaternion)"},
   {"name": "share", "unit_rule": null, "description": "a part's share of a whole (the power along the normal over the trace): unitless"},
   {"name": "quadrature_energy", "unit_rule": "(the field's unit)^4 (a product of two spectra)", "description": "per source, the sum over the other sources of (Im C)^2: its share of the quadrature (zero-lag-free) part of the cross-spectrum"},
@@ -60,6 +61,7 @@
   {"name": "sum", "description": "the sum over the partition's members of what the measure is (e.g. the Stokes vector of a mode pair summed over the samples); a ratio of sums (the mean state) is derived at read"},
   {"name": "sphere_histogram", "description": "counts of unit directions over the equal-area cells of the sphere (the Lambert disc about +z of nxr.measure.densities.head_sphere, the Globe's cells), added across chunks: the density of a pair's Stokes states on the Poincare sphere"},
   {"name": "pca", "description": "the principal components across the members of a table of measurements (members x features), by the thin SVD of the centred table: components, singular values and explained variance, scores, the centring; reconstruction at k components is derived at read (nxr::pca; `compute pca`)"},
+  {"name": "scale_selection", "description": "the links of a scale selection: for each pair's event (a labelling's member) the cross-pair event it belongs to, events matched across (spatial level, time level) pairs by the ladders' nesting in space and overlap in time (nxr-neuro `scaleselection`; Rheome detect.blobscale)"},
   {"name": "point_source", "description": "unit point sources planted at vertices and read back through a stored forward model and inverse kernel (the resolution matrix's columns): the instrument's blur, a reference measurement (nxr-neuro `pointspread compute`)"}
  ]
 }

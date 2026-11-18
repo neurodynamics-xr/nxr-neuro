@@ -14,7 +14,7 @@ integration test is small. Decisions: KEEP, REMOVE, MERGE, REWRITE, PORT (kept o
 | guard | 13 | 13 |
 | **total** | **281** | **273** |
 
-The totals include the three PORT tests, which are listed in the table but not built by default (`NXR_BUILD_UNPORTED_TESTS`): the default
+The totals included the three PORT tests (now ported, see below), which were then not built by default: the default
 configure registers 278 tests before and 270 after.
 
 C++: 8 removed, 0 merged, 9 rewritten, 3 left to port. Bindings: 2 scripts removed, 1 Python test rewritten.
@@ -50,15 +50,10 @@ Removed with them: their old-code goldens and generators (`frames_wt_golden.txt`
 | test_isoline_methods | unit | a 10 242-vertex icosphere instead of 163 842, and no timing (performance belongs in `bench/`); the assertion (the same segments) does not depend on size |
 | bindings/python/tests/test_run.py | Python | the assertion on `meta["producer"]["bad_segments"]` dropped; the bad span is checked by the values (the PSD equals the pure function with the span left out, and differs from the plain one) |
 
-## PORT (behind `NXR_BUILD_UNPORTED_TESTS`; written for the hand-wired verbs the definitions replaced)
+## PORT (done)
 
-| test | reason it stays |
-|---|---|
-| test_patches_pipeline | the `patches` definition is live and has no other end-to-end test |
-| test_cellquadrature | the `cellquadrature` definition is live; its node has no other test |
-| test_scale_selection | the `scaleselection` definition is live; its compute functions are unit-tested (test_scale, test_scalespace), the pipeline is not |
-
-Each should be ported to the runner as a small integration test (one synthetic subject, one chunk, one band); the flag goes when all three are done.
+`test_patches_pipeline`, `test_cellquadrature` and `test_scale_selection` now run their definitions (`patches`, `cellquadrature`, `scaleselection`) through the runner on a small synthetic
+subject, as integration tests (one subject, one chunk, one band, seconds); `NXR_BUILD_UNPORTED_TESTS` is gone.
 
 ## Slow tests left as they are
 
