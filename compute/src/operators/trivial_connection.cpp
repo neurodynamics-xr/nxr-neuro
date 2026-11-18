@@ -312,8 +312,9 @@ DirectionFieldResult trivial(
     // 1. Trivial connection φ = δβ
     result.connections = computeTrivialConnection(surface, dec, exactFactor, singularityMap);
 
-    // 2. Euler characteristic from Gauss-Bonnet (curvatures already cached)
+    // 2. Euler characteristic from Gauss-Bonnet
     auto& geom = gs.embedded();
+    geom.requireVertexGaussianCurvatures();
     double totalK = 0.0;
     for (Vertex v : gs.inputMesh().vertices())
         totalK += geom.vertexGaussianCurvatures[v];
