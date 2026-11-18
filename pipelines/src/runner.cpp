@@ -1325,10 +1325,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (!is_declared(P, o)) return pass(v);
       if (ospec_kind(spec) == "operator") return 4;
       if (ospec_kind(spec) == "field" && spec.contains("of_operator")) return 5;
-      if (ospec_kind(spec) == "measurement") return 6;                    // over a partition, of a field stored before them
+      if (ospec_kind(spec) == "selection" && spec.value("type", std::string()) == "product") return 6;   // a product: its factors (selections of this run) are stored before it
+      if (ospec_kind(spec) == "measurement") return 7;                    // over a partition, of a field stored before them
       return pass(v);
     };
-    for (int ps = 0; ps < 7; ++ps)
+    for (int ps = 0; ps < 8; ++ps)
     for (const auto& [o, spec] : d.outputs.items()) {
       const Value& v = P.values.at(o);
       if (declared_pass(o, spec, v) != ps) continue;

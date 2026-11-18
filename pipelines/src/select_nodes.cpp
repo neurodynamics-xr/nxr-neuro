@@ -19,6 +19,7 @@
 #include <cmath>
 #include <cstdio>
 #include <set>
+#include <tuple>
 
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/measurement_nodes.h"
@@ -396,7 +397,7 @@ ng::NodeSpec select_bands() {
 // windows example, an irregular set; roll-ups only along grid factors. COUPLING: with `couple`, a factor's level is the band's (a frequency band sets the time level, the Studio's fitLevelOf; an
 // eigenvalue band sets the dyadic spatial level by Weyl's law), computed in closed form here and recorded in the factor, never stored as a selection of its own.
 ng::Json factor_descriptor(const ng::Array& f, const std::string& who) {
-  const Json prm = f.meta.value("params", Json::object());
+  const Json prm = f.meta.contains("describe") && f.meta["describe"].is_object() && f.meta["describe"].contains("params") ? f.meta["describe"]["params"] : f.meta.value("params", Json::object());   // made in this run (describe) or stored (params)
   if (prm.is_object() && prm.contains("grid")) return prm["grid"];
   if (prm.is_object() && prm.contains("level") && prm.contains("tiles")) {
     std::string surface = prm.value("surface", f.meta.value("surface", std::string()));
@@ -480,7 +481,7 @@ ng::NodeSpec select_product() {
       if (f["kind"] == "time") m = f["count"].get<std::int64_t>();
       else if (f["kind"] == "dyadic") m = f["tiles"].get<std::int64_t>();
       else if (f["kind"] == "elements") m = f["size"].get<std::int64_t>();
-      else if (f["kind"] == "span") m = 1;
+      else if (f["kind"] == "span" || f["kind"] == "whole") m = 1;
       need(m > 0, "select.product: the factor " + f.value("name", std::string("?")) + " has no members");
       pp.counts.push_back(m);
       pp.radices.push_back(m);
@@ -511,7 +512,9 @@ ng::NodeSpec select_product() {
     ng::Array a;
     a.meta["describe"] = Json{{"n_members", members}, {"label", label}, {"family", all_grids ? "grid" : "irregular"}, {"params", Json{{"product", product}}},
                               {"description", "the product " + label + ", FIRST factor fastest (" + pp.layout + "); roll-ups only along grid factors"}};
-    return ng::Arrays{{"product", ng::Array{}}, {"cells", std::move(a)}};
+    ng::Array space;
+    space.meta["describe"] = Json{{"description", "the product manifold of " + label}};
+    return ng::Arrays{{"product", std::move(space)}, {"cells", std::move(a)}};
   };
   return n;
 }
@@ -638,6 +641,95 @@ int level_among(const Json& dictionary, const std::string& unit, const Json& qua
   return l;
 }
 
+
+// ── select.run_span and select.elements: the factors of a product that are not grids ─────────────────────────────────────────────────
+// A product's factors are ALWAYS Selections (PI, 2026-11-18): the run's span, a channel set and a grid level are made by makers and named as factors; none is virtual. These two makers read
+// no data. `select.run_span` is ONE span covering the whole line (the run's span as one member); `select.elements` is the elements of a space (the channels of a recording, the vertices of a
+// surface) as `members` (each element its own member) or `one_member` (all elements in one member). Both describe the grid kind `reduce` folds (params.grid: span, elements, whole).
+StepSpec run_span_step() {
+  StepSpec s;
+  s.name = "select.run_span";
+  s.kind = "setup";
+  s.inputs = {"line"};
+  s.outputs = {"span"};
+  s.parameters = Json::object();
+  s.matches = "the Studio's span selection (one span on a line)";
+  s.description = "The span of the whole line as ONE member (a spans selection of one span on the line): the factor of a product that stands for 'the run'. It reads no data.";
+  s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "no time axis: runs once on numbers (the line's rate and length)");
+  s.plan = [](const Values& ins, const Json&, const PlanContext&) {
+    need(ins.count("line") != 0, "select.run_span: the input `line` (the time line, or a field on it) is missing");
+    const Value& lv = ins.at("line");
+    need(lv.time && lv.rate > 0, "select.run_span: `line` has no time line with a rate");
+    Value v;
+    v.cls = "selection";
+    v.manifolds = {*lv.time};
+    v.facts = Json{{"node", "select.run_span"}, {"port", "span"}, {"family", "grid"}, {"names", Json::object()}};
+    return Values{{"span", v}};
+  };
+  s.prepare = [](const Values& ins, const Json&, ExecContext& ctx) {
+    const Value& lv = ins.at("line");
+    const auto line = ctx.bound.manifold(*lv.time);
+    need(line.has_value(), "select.run_span: the time line is not among the subject's rows");
+    return std::any(std::make_tuple(nxr::io::integer(*line, "n_vertices"), lv.rate, lv.origin));
+  };
+  s.run = [](const std::any& st, const Arrays&, ExecContext&) {
+    const auto& [n, rate, origin] = std::any_cast<const std::tuple<std::int64_t, double, double>&>(st);
+    Json span = Json{{"start", origin}, {"stop", origin + static_cast<double>(n) / rate}, {"code", 0}};
+    Json desc = Json{{"spans", Json::array({span})}, {"n_members", 1}, {"family", "grid"}, {"params", Json{{"grid", Json{{"kind", "span"}, {"size", n}, {"rate", rate}}}}},
+                     {"description", "the run's span as one member (" + std::to_string(n) + " samples)"}};
+    Array out;
+    out.meta = Json{{"describe", desc}};
+    return Arrays{{"span", std::move(out)}};
+  };
+  return s;
+}
+
+StepSpec elements_step() {
+  StepSpec s;
+  s.name = "select.elements";
+  s.kind = "setup";
+  s.inputs = {"space"};
+  s.outputs = {"elements"};
+  s.parameters = Json{{"as", "members"}};
+  s.matches = "the Studio's set selection over a manifold's elements (a channel set, a cortex)";
+  s.description = "The elements of a space (the channels of a recording, the vertices of a surface) as a set: `as: members` (each element its own member, the layout of a measurement per channel) or `as: one_member` "
+                  "(all elements in one member: a mean over the channels). It reads no data; `space` is the manifold, or a field on it (its first factor that is not a time line).";
+  s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "no time axis: labels only");
+  s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
+    need(ins.count("space") != 0, "select.elements: the input `space` (a manifold, or a field on it) is missing");
+    need(p["as"] == "members" || p["as"] == "one_member", "select.elements: as " + p["as"].dump() + ": members or one_member");
+    const Value& sv = ins.at("space");
+    std::string id;
+    for (const auto& m : sv.manifolds) if (!sv.time || m != *sv.time) { id = m; break; }
+    need(!id.empty(), "select.elements: `space` has no factor other than a time line");
+    Value v;
+    v.cls = "selection";
+    v.manifolds = {id};
+    v.facts = Json{{"node", "select.elements"}, {"port", "elements"}, {"family", "grid"}, {"names", Json::object()}};
+    return Values{{"elements", v}};
+  };
+  s.prepare = [](const Values& ins, const Json& p, ExecContext& ctx) {
+    const Value& sv = ins.at("space");
+    std::string id;
+    for (const auto& m : sv.manifolds) if (!sv.time || m != *sv.time) { id = m; break; }
+    const auto m = ctx.bound.manifold(id);
+    need(m.has_value(), "select.elements: the manifold is not among the subject's rows");
+    return std::any(std::make_pair(nxr::io::integer(*m, "n_vertices"), p["as"].get<std::string>()));
+  };
+  s.run = [](const std::any& st, const Arrays&, ExecContext&) {
+    const auto& [n, as] = std::any_cast<const std::pair<std::int64_t, std::string>&>(st);
+    Array out;
+    out.rows = n; out.cols = 1;
+    for (std::int64_t i = 0; i < n; ++i) out.data.push_back(as == "members" ? static_cast<double>(i) : 0.0);
+    const std::int64_t members = as == "members" ? n : 1;
+    Json desc = Json{{"n_members", members}, {"family", "grid"}, {"params", Json{{"grid", Json{{"kind", as == "members" ? "elements" : "whole"}, {"size", n}}}}},
+                     {"description", as == "members" ? "each of the " + std::to_string(n) + " elements its own member" : "the " + std::to_string(n) + " elements as one member"}};
+    out.meta = Json{{"describe", desc}};
+    return Arrays{{"elements", std::move(out)}};
+  };
+  return s;
+}
+
 void register_select_nodes() {
   ng::Registry& r = ng::registry();
   for (ng::NodeSpec n : {select_bands(), select_product()})
@@ -666,6 +758,8 @@ void add_select_nodes(std::vector<StepSpec>& r) {
         }));
   }
   r.push_back(time_grid_step());
+  r.push_back(run_span_step());
+  r.push_back(elements_step());
   // select.events.*: detection makes irregular selections that record the grid they were found over
   {
     std::vector<std::pair<std::string, StepSpec>> parts;

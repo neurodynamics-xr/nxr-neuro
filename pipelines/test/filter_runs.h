@@ -36,11 +36,11 @@ inline FilterComputeResult filter_compute(nxr::io::DatasetWriter& ds, nxr::io::S
   // the method unset is the reference's: FIR, but IIR for bandstop and notch
   const bool fir = o.filter.method ? *o.filter.method == nxr::signal::filters::Method::Fir : (k != Kind::Bandstop && k != Kind::Notch);
   const bool fir_mean = fir && o.filter.removeMean;
-  if (fir_mean && !sub.find("selection", "measurements/" + o.recording + "_channel_mean_members") && !nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = o.recording + "_channel_mean", .any_status = true})) {
+  if (fir_mean) {
     nxr::pipelines::graph::RunOptions mo;
     mo.chunks = "all";
     mo.preset = "channel_span_mean";
-    try { nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("measure"), nxr::io::Json{{"recording", o.recording}}, mo); } catch (const nxr::io::Error& e) { if (e.code() != nxr::io::code::already_exists) throw; }
+    try { nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("measure"), nxr::io::Json{{"field", o.recording}, {"recording", o.recording}}, mo); } catch (const nxr::io::Error& e) { if (e.code() != nxr::io::code::already_exists) throw; }
   }
   nxr::pipelines::graph::RunOptions ro;
   ro.chunks = "all";

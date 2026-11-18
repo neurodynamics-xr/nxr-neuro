@@ -25,6 +25,8 @@ inputs:
   field:   {field: any, each: true, where: {name: $field}, chain: $chain, chain_parameters: $chain_parameters, hint: "a stored field by name (--field), OR a field chain composed in (--chain)"}
   over:    {selection: any, where: {name: $over}, make: $make, hint: "a stored selection by name (--over), OR one made in the run by a maker (--make)"}
   weights: {field: any, required: false, where: {name: $weights}}
+  line:    {manifold: line, is: field.time, required: false, hint: "the field's time line (what a maker of the run's span reads: a `before` node reads arrays, never the streamed field)"}
+  space:   {manifold: any, is: field.manifold.0, required: false, hint: "the field's first manifold (what a maker of its elements reads: the channels, the vertices)"}
   bad:     {selection: spans, manifold: field.time, where: {name: "{field}_bad_segments"}, required: false}
 
 parameters:
@@ -67,10 +69,17 @@ presets:
     chain: band_outer
     make: {node: select.time_grid, rule: band}
     measures: [sum]
+  # the mean of each channel over the whole run: a product of the run's span (ONE member) and the channels (each its own member), both Selections made by makers in the run and stored (--field is the recording)
   channel_span_mean:
-    make: {node: select.product, factors: [{span: run}, {elements: channels}]}
+    make:
+      node: select.product
+      name: "{field} run span x channels"
+      factors:
+        - {node: select.run_span, in: {line: line}, name: "{field} run span"}
+        - {node: select.elements, in: {space: space}, with: {as: members}, name: "{field} channels"}
     measures: [mean]
-    name: "{recording}_channel_mean"
+    weight: none
+    name: "{field}_channel_mean"
   surrogate_lagfree_envelope:
     chain: band_analytic
     chain_parameters: {channels: cross_spectrum}

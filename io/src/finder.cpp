@@ -323,7 +323,8 @@ std::vector<std::map<std::string, Value>> resolve(const Database& db, const std:
         const std::string pk = spec["measurement"].get<std::string>().substr(1);   // an optional measurement whose measure is a parameter left null is not looked for
         if (params.contains(pk) && params[pk].is_null()) continue;
       }
-      if (!spec.value("required", true) && spec.contains("where")) {      // an optional input named by a parameter left null is not looked for (absent)
+      // an optional input named by a parameter left null is not looked for (absent); a MEASUREMENT is found by its key (measure, of, over): its name is only a filter, a null name filters nothing
+      if (!spec.value("required", true) && spec.contains("where") && !spec.contains("measurement")) {
         bool unset = false;
         for (const auto& [k, v] : spec["where"].items())
           if (v.is_string() && v.get<std::string>().rfind('$', 0) == 0) {

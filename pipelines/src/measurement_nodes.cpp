@@ -265,6 +265,11 @@ Form form_of(const Json& d, std::int64_t line_samples, ExecContext& c, const std
     f.members = f.size;
     f.member_of.resize(static_cast<std::size_t>(f.size));
     for (std::int64_t i = 0; i < f.size; ++i) f.member_of[static_cast<std::size_t>(i)] = static_cast<std::int32_t>(i);
+  } else if (f.kind == "whole") {                                         // all the elements, one member
+    f.size = d.value("size", std::int64_t(0));
+    f.members = 1;
+    f.kind = "elements";
+    f.member_of.assign(static_cast<std::size_t>(f.size), 0);
   } else if (f.kind == "span") {
     f.rule = ns::Rule{0, line_samples, line_samples, 1, line_samples};
     f.kind = "time";
