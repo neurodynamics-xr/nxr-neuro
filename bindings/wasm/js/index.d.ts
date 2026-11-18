@@ -338,7 +338,7 @@ export interface NxrCompute {
   'operators.operatorById'(id: string): Record<string, unknown>
   'operators.fieldById'(id: string): Record<string, unknown>
 
-  /** omega: a 1-form on the input mesh's edges */
+  /** omega: a 1-form on the operator (intrinsic triangulation) mesh's edges */
   'signal.hodge'(surface: Surface, omega: Float64Array): HodgeResult
   'signal.isoline'(surface: Surface, scalars: Float64Array, numLevels?: number, minVal?: number, maxVal?: number): SegmentsResult
   'signal.streamline'(surface: Surface, faceField: Float64Array, numSeeds?: number, stepCoef?: number, maxSteps?: number): SegmentsResult

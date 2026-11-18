@@ -962,13 +962,13 @@ Napi::Value HeatJS(const Napi::CallbackInfo& info) {
 }
 
 // ─── signal.hodge(surface, omega?) — returns all scalars + vectors ─
-// omega: a 1-form on the INPUT mesh's edges (a random one when omitted). The DEC and the two factorizations are made inside.
+// omega: a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges (a random one when omitted). The DEC and the two factorizations are made inside.
 
 Napi::Value HodgeJS(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     return nxrSyncCall(env, [&]() -> Napi::Value {
         const geom::SurfaceArrays surface = surfaceArg(info);
-        const ops::DECOperators dec = ops::embeddedDEC(surface);
+        const ops::DECOperators dec = ops::assembleDECOperators(surface);
         const std::unique_ptr<ops::CholeskyFactor> exact = ops::exactFormFactor(dec);
         const std::unique_ptr<ops::SquareSolver> coexact = ops::coexactFormSolver(dec);
 
@@ -1031,14 +1031,14 @@ Napi::Value NormalsJS(const Napi::CallbackInfo& info) {
 }
 
 // ─── signal.whitney(surface, oneForm) → Float64Array [nF*3] ──
-// oneForm: a 1-form on the INPUT mesh's edges.
+// oneForm: a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges.
 
 Napi::Value WhitneyJS(const Napi::CallbackInfo& info) {
     Napi::Env env = info.Env();
     return nxrSyncCall(env, [&]() -> Napi::Value {
         const geom::SurfaceArrays surface = surfaceArg(info);
         Eigen::VectorXd oneForm = vectorArg(info[1], "oneForm");
-        return matrixToFloat64Array(env, nxr::signal::whitney(surface, ops::embeddedDEC(surface), oneForm));
+        return matrixToFloat64Array(env, nxr::signal::whitney(surface, ops::assembleDECOperators(surface), oneForm));
     });
 }
 
@@ -1080,7 +1080,7 @@ Napi::Value TrivialJS(const Napi::CallbackInfo& info) {
     return nxrSyncCall(env, [&]() -> Napi::Value {
         const geom::SurfaceArrays surface = surfaceArg(info);
         const std::map<int, double> singMap = vertexValueMap(info[1], info[2], "operators.trivial");
-        const ops::DECOperators dec = ops::embeddedDEC(surface);
+        const ops::DECOperators dec = ops::assembleDECOperators(surface);
         const std::unique_ptr<ops::CholeskyFactor> exact = ops::exactFormFactor(dec);
 
         ops::connection::DirectionFieldResult result = ops::connection::trivial(surface, dec, *exact, singMap);

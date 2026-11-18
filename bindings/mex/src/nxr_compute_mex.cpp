@@ -494,7 +494,7 @@ void cmdAssembleTrivialConnectionLaplacian(int /*nlhs*/, mxArray** plhs, int nrh
     o.domain = cl::ConnectionDomain::Vertex;
     o.format = cl::ConnectionLaplacianFormat::Complex;
     o = connectionOptions((nrhs >= 5) ? prhs[4] : nullptr, false, o);
-    const ops::DECOperators dec = ops::embeddedDEC(surface);   // indexed by the input's edges, as the singularities' mesh
+    const ops::DECOperators dec = ops::assembleDECOperators(surface);   // the operator mesh (intrinsic triangulation), as before the surface struct
     const std::unique_ptr<ops::CholeskyFactor> exact = ops::exactFormFactor(dec);
     plhs[0] = connectionLaplacianToStruct(cl::assembleTrivialConnectionLaplacian(surface, sing, dec, *exact, o));
 }
@@ -561,12 +561,12 @@ void cmdPoisson(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     plhs[0] = eigenVectorToMx(ops::poisson(K, M, *factor, density));
 }
 
-// signal.hodge(surface, omega): omega is a 1-form on the INPUT mesh's edges; the DEC and the two factorizations are made inside.
+// signal.hodge(surface, omega): omega is a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges; the DEC and the two factorizations are made inside.
 void cmdHodge(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     argCount("signal.hodge", nrhs, 2, 2, "surface, omega");
     const geom::SurfaceArrays surface = structToSurface(prhs[1]);
     Eigen::VectorXd omega = mxToEigenVector(prhs[2]);
-    const ops::DECOperators dec = ops::embeddedDEC(surface);
+    const ops::DECOperators dec = ops::assembleDECOperators(surface);
     const std::unique_ptr<ops::CholeskyFactor> exact = ops::exactFormFactor(dec);
     const std::unique_ptr<ops::SquareSolver> coexact = ops::coexactFormSolver(dec);
     plhs[0] = hodgeResultToStruct(nxr::signal::hodge(surface, dec, *exact, *coexact, omega));
@@ -588,7 +588,7 @@ void cmdTrivial(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     argCount("operators.trivial", nrhs, 3, 3, "surface, singVerts, singValues");
     const geom::SurfaceArrays surface = structToSurface(prhs[1]);
     const std::map<int, double> sing = vertexValueMap(prhs[2], prhs[3], "operators.trivial");
-    const ops::DECOperators dec = ops::embeddedDEC(surface);
+    const ops::DECOperators dec = ops::assembleDECOperators(surface);
     const std::unique_ptr<ops::CholeskyFactor> exact = ops::exactFormFactor(dec);
     plhs[0] = directionFieldResultToStruct(ops::connection::trivial(surface, dec, *exact, sing));
 }
@@ -604,12 +604,12 @@ void cmdStreamline(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs)
     plhs[0] = positionsSegmentsToStruct(r.positions, r.segmentCount);
 }
 
-// signal.whitney(surface, oneForm): a 1-form on the INPUT mesh's edges to face vectors.
+// signal.whitney(surface, oneForm): a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges to face vectors.
 void cmdWhitney(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     argCount("signal.whitney", nrhs, 2, 2, "surface, oneForm");
     const geom::SurfaceArrays surface = structToSurface(prhs[1]);
     Eigen::VectorXd oneForm = mxToEigenVector(prhs[2]);
-    plhs[0] = eigenMatrixToMx(nxr::signal::whitney(surface, ops::embeddedDEC(surface), oneForm));
+    plhs[0] = eigenMatrixToMx(nxr::signal::whitney(surface, ops::assembleDECOperators(surface), oneForm));
 }
 
 void cmdGradient(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
@@ -650,11 +650,11 @@ void cmdDampedWave(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs)
     plhs[0] = eigenMatrixXfToMx(nxr::synthesis::dampedWave(eig, modeIdx, toVec(prhs[3]), toVec(prhs[4]), toVec(prhs[5]), toVec(prhs[6])));
 }
 
-// synthesis.randomDecomposed1Form(surface, alphaStr, betaStr, gammaStr[, seed]) → a 1-form on the INPUT mesh's edges
+// synthesis.randomDecomposed1Form(surface, alphaStr, betaStr, gammaStr[, seed]) → a 1-form on the OPERATOR (intrinsic triangulation) mesh's edges
 void cmdRandomDecomposed1Form(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     argCount("synthesis.randomDecomposed1Form", nrhs, 4, 5, "surface, alphaStr, betaStr, gammaStr[, seed]");
     const geom::SurfaceArrays surface = structToSurface(prhs[1]);
-    const ops::DECOperators dec = ops::embeddedDEC(surface);
+    const ops::DECOperators dec = ops::assembleDECOperators(surface);
     double aS = getDoubleArg(prhs[2]);
     double bS = getDoubleArg(prhs[3]);
     double gS = getDoubleArg(prhs[4]);
