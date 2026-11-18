@@ -33,11 +33,14 @@ binding shells live under `bindings/`:
 | `bindings/mex/src/nxr_compute_mex.cpp` | `nxr_compute.mexw64` (MATLAB MEX) |
 | `bindings/cli/src/main.cpp` | `nxr_compute.exe` (CLI smoke harness) |
 
-All four are **context-based**: each mesh is bound once via
-`createContext(vertices, faces)` and the resulting opaque handle holds
-the assembled operator structs and a `CholeskyCache` for the rest of
-its lifetime. There are no JS-side handles for individual factors —
-the cache is internal to the C++ side.
+All four are **array-based**: every command takes arrays and returns arrays,
+and nothing is kept between calls (no context, no handle, no cache). A
+surface is data: the struct made once by `geometry.surfaceArrays`
+(positions, faces and the intrinsic Delaunay triangulation, the expensive
+step) is passed as the first argument to every surface command, which
+rebuilds the library's `SurfaceArrays` from it. A factorization a command
+needs is made inside it. Commands carry the library's names,
+`<toolbox>.<function>`.
 
 `MeshOperators` and `DECOperators` mix view and value semantics. Field
 names match geometry-central's canonical cache names where the concept
@@ -380,46 +383,16 @@ CurvatureResult     computeCurvatures(ComputeContext&);
 …
 ```
 
-The N-API bindings in `bindings/node/src/addon.cpp` hold a
-`ContextHolder` per JS handle and plumb each call through. The holder
-fields:
-
-```cpp
-struct ContextHolder {
-    std::shared_ptr<ComputeContext>     ctx;
-    std::shared_ptr<MeshOperators>      ops;        // view, lazy via ensureOps()
-    std::shared_ptr<DECOperators>       dec;        // view, lazy via ensureDec()
-    std::shared_ptr<CholeskyCache>      factors;    // pre-factored Cholesky/LU
-    std::shared_ptr<EigenResult>        eigenmodes; // populated by EigenSolveWorker
-    std::shared_ptr<VectorHeatSolver>   vhm;        // lazy via ensureVHM()
-    std::shared_ptr<SignedHeatSolver>   shs;        // lazy via ensureSHS()
-    std::shared_ptr<HeatGeodesicSolver> heatGeo;    // lazy via ensureHeatGeo()
-    std::map<CLCacheKey,
-        std::shared_ptr<ConnectionLaplacian>> connectionLaplacian;     // Pattern-C
-    std::map<SmoothFieldKey, Eigen::MatrixXd>             smoothFaceFieldCache;   // Pattern-C
-    std::map<SmoothFieldKey, SmoothVertexFieldResult>     smoothVertexFieldCache; // Pattern-C
-};
-```
-
-The WASM `ContextWrapper` (`bindings/wasm/src/nxr_compute_wasm.cpp`)
-holds an equivalent set. Both lazy-initialise solver PIMPLs on first
-use; both cache stateless free-function results (connection-Laplacian,
-smooth-direction-field) keyed by all input parameters.
-
-The MEX binding (`bindings/mex/src/nxr_compute_mex.cpp`) is also
-stateful: a file-scope `std::unordered_map<uint64_t, ContextHolder>`
-is the MEX analogue of `ContextWrapper`, and the `uint64` handle
-returned by `nxr_compute('create', V, F)` is the proxy-pointer
-analogue (MEX has no Embind, so it exposes the context through the
-single `nxr_compute('cmd', handle, …)` entry point). Dispatch is
-**additive**: a `uint64` scalar in `prhs[1]` selects the handle path,
-`V, F` arrays select the legacy stateless path (unchanged). The MEX
-holder mirrors the same fields + lazy `ensure*` + result caches and
-reaches full parity with the `ContextWrapper` surface. A bad/destroyed
-handle throws `Error(InvalidHandle)` → `nxr:invalidHandle`. A MATLAB
-`handle`-class wrapper is intentionally out of scope (application-side,
-like the JS wrappers over WASM); see
-`docs/superpowers/specs/2026-05-27-stateful-mex-binding-design.md`.
+The bindings (`bindings/node/src/addon.cpp`, `bindings/wasm/src/nxr_compute_wasm.cpp`,
+`bindings/mex/src/nxr_compute_mex.cpp`) are **faces**: they marshal arrays in
+and out and call the library's functions by their toolbox name; they hold no
+state, no solver and no result cache (there is no context holder and no
+handle). The MEX binding is one `mexFunction` with command dispatch,
+`nxr_compute('<toolbox>.<function>', S, ...)`, where `S` is the surface struct
+made once by `geometry.surfaceArrays`; an old command string (`create`,
+`heat`, `solve`, ...) is refused with an error naming the new name, and the
+former context commands are refused with the reason. A MATLAB wrapper class is
+application-side and out of scope.
 
 ---
 
@@ -442,8 +415,9 @@ and reuse for the same reason.
   factorization sequence the previous inline solvers used. Solves on
   the cached factor are bit-for-bit identical to fresh inline factor +
   solve. Verified by `test/test_cholesky_cache.cpp`.
-- Lifetime: owned by `ContextHolder` in `addon.cpp`; the cache is
-  destroyed when the JS handle releases (i.e. when the mesh changes).
+- Lifetime: a cache lives only as long as the object that owns it (a solver
+  inside one library call, or one the caller keeps); the bindings keep none
+  between calls.
 - Single-threaded. The addon is invoked from Node's main thread; no
   mutex inside the cache.
 
