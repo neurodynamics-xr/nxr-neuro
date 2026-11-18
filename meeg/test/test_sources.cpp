@@ -37,9 +37,6 @@ int main() {
   const MatrixXd Pc = sourcePower(K, {S}, 3, Orientation::Components), Ps = sourcePower(K, {S}, 3, Orientation::Norm);
   CHECK((Pc.col(0) - J.array().square().rowwise().sum().matrix()).cwiseAbs().maxCoeff() < 1e-9);
   CHECK((Ps.col(0) - Jn.array().square().rowwise().sum().matrix()).cwiseAbs().maxCoeff() < 1e-9);
-  const MatrixXd Pr = relativePower(Ps, Ps.col(0) * 2);
-  CHECK(std::abs(Pr(2, 0) - 0.5) < 1e-14);
-  CHECK(brainstormBands().size() == 6 && brainstormBands()[2].name == "alpha" && brainstormBands()[2].lo == 8 && brainstormBands()[2].hi == 12);
   bool threw = false;
   try { applyKernel(K, rnd(M + 1, T)); } catch (const std::invalid_argument&) { threw = true; }
   CHECK(threw);

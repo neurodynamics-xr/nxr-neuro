@@ -15,10 +15,6 @@ static void check(const MatrixXd& K, Eigen::Index channels, int o) {
   if (K.rows() % o != 0) throw std::invalid_argument("sources: the kernel's rows are not a multiple of the orientations per source");
 }
 
-std::vector<Band> brainstormBands() {
-  return {{"delta", 2, 4}, {"theta", 5, 7}, {"alpha", 8, 12}, {"beta", 15, 29}, {"gamma1", 30, 59}, {"gamma2", 60, 90}};
-}
-
 MatrixXd applyKernel(const MatrixXd& K, const MatrixXd& X, int o, Orientation orientation) {
   check(K, X.rows(), o);
   MatrixXd J = K * X;
@@ -67,13 +63,6 @@ MatrixXd sourcePower(const MatrixXd& K, const std::vector<MatrixXd>& S, int o, O
     }
   }
   return P;
-}
-
-MatrixXd relativePower(const MatrixXd& P, const VectorXd& total) {
-  if (total.size() != P.rows()) throw std::invalid_argument("sources: one total per row");
-  MatrixXd out = P;
-  for (Eigen::Index i = 0; i < P.rows(); ++i) { if (total[i] != 0) out.row(i) = P.row(i) / total[i]; else out.row(i).setZero(); }
-  return out;
 }
 
 }  // namespace nxr::meeg

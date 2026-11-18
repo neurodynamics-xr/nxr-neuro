@@ -25,6 +25,7 @@
 #include <cstdio>
 #include <limits>
 #include "nxr/meeg/sources.h"
+#include "nxr/pipelines/meeg.h"
 #include "nxr/meeg/tensor.h"
 #include "nxr/rotary.h"
 #include "nxr/signal/spectral.h"
@@ -513,7 +514,7 @@ ng::NodeSpec welch_source_band_power() {
     if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
     const std::size_t B = pr.bands.size();
     Eigen::MatrixXd maps = nxr::meeg::sourcePower(pr.K, std::vector<Eigen::MatrixXd>(cw.S.begin(), cw.S.begin() + static_cast<std::ptrdiff_t>(B)), pr.orientations, nxr::meeg::Orientation::Norm);
-    if (pr.relative) maps = nxr::meeg::relativePower(maps, nxr::meeg::sourcePower(pr.K, {cw.S.back()}, pr.orientations, nxr::meeg::Orientation::Norm).col(0));
+    if (pr.relative) maps = nxr::pipelines::relativeToTotal(maps, nxr::meeg::sourcePower(pr.K, {cw.S.back()}, pr.orientations, nxr::meeg::Orientation::Norm).col(0));
     const std::int64_t N = maps.rows();
     const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
     const bool density = pr.r.wo.scaling == nw::Scaling::Density;

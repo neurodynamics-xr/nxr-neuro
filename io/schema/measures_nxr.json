@@ -1059,6 +1059,31 @@
     "crossings"
    ],
    "description": "the unbiased rho2 = (|S|^2 - n) / (n (n - 1)) of a tile's n crossings (0 when the directions are independent, 1 when identical, negative below chance; undefined for n < 2): the unbiased estimate of the squared mean resultant, the one to compare places of different counts with (the project's trap of 2026-10-30). Derived at read (nxr-neuro, 2026-11-15)"
+  },
+  {
+   "code": 1127,
+   "name": "total_power",
+   "merge": "sum",
+   "form": "power",
+   "unit": null,
+   "weight": null,
+   "span": "levels",
+   "derived_from": null,
+   "description": "\u03a3|z|\u00b2 of the whole spectrum a band's power is a share of (the denominator of the relative power; stored with the band's power_sum)"
+  },
+  {
+   "code": 1128,
+   "name": "relative_power",
+   "merge": "derived",
+   "form": "none",
+   "unit": null,
+   "weight": null,
+   "span": null,
+   "derived_from": [
+    "power_sum",
+    "total_power"
+   ],
+   "description": "the share of the total power a band holds: power_sum / total_power (Brainstorm's relative power; 0 where the total is 0). A RATIO of sums, derived at read, never a sum of ratios"
   }
  ]
 }

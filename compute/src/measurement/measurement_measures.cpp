@@ -31,7 +31,7 @@ std::vector<MeasureSpec> standard_table() {
       S("amplitude", "magnitude", "sum", M::mean, "n_elements"), S("power", "power", "sum", M::mean, "n_elements"), S("power_sum", "power", "sum", M::sum),
       S("envelope_sum", "magnitude", "sum", M::sum), S("envelope_max", "magnitude", "max", M::max), S("phase_current", "phase_current", "sum", M::sum),
       S("phase_current_1", "phase_current", "sum", M::sum), S("phase_current_2", "phase_current", "sum", M::sum), S("phase_current_magnitude", "phase_current", "sum", M::sum),
-      S("phase_power", "power", "sum", M::sum), S("phase_gradient_power", "power", "sum", M::sum),
+      S("total_power", "power", "sum", M::sum), S("phase_power", "power", "sum", M::sum), S("phase_gradient_power", "power", "sum", M::sum),
       // forms on the complex's edges and faces (the tile integrals)
       S("outflow", "edge_1form", "sum", M::sum), S("circulation", "face_2form", "sum", M::sum),
       // the member's own (no field): area is Σw, n_elements the count
@@ -61,7 +61,7 @@ std::vector<MeasureSpec> standard_table() {
       {"quadrature_fraction", {"cross_spectrum_norm2", "cross_spectrum_quadrature_norm2"}},
       {"tile_pair_quadrature_fraction", {"tile_pair_cross_spectrum_norm2", "tile_pair_cross_spectrum_quadrature_norm2"}},
       {"phase_gradient_x", {"phase_current_x", "power"}}, {"phase_gradient_y", {"phase_current_y", "power"}}, {"phase_gradient_z", {"phase_current_z", "power"}},
-      {"crossing_consistency", {"crossing_sum_x", "crossing_sum_y", "crossing_sum_z", "crossings"}}, {"crossing_rho2", {"crossing_sum_x", "crossing_sum_y", "crossing_sum_z", "crossings"}},
+      {"relative_power", {"power_sum", "total_power"}}, {"crossing_consistency", {"crossing_sum_x", "crossing_sum_y", "crossing_sum_z", "crossings"}}, {"crossing_rho2", {"crossing_sum_x", "crossing_sum_y", "crossing_sum_z", "crossings"}},
   };
   for (const auto& d : derived) t.push_back(S(d.first, "none", "", M::none, "", d.second));
   return t;
@@ -137,6 +137,7 @@ double Registry::derive(const std::string& name, const std::function<double(cons
     if (name == "skewness") v = (m3raw - 3 * m * m2raw + 2 * m * m * m) / std::pow(m2, 1.5);
     else v = (g("mean_fourth") - 4 * m * m3raw + 6 * m * m * m2raw - 3 * m * m * m * m) / (m2 * m2);
   }
+  else if (name == "relative_power") v = g("total_power") != 0 ? g("power_sum") / g("total_power") : 0.0;   // Brainstorm's relative power (a zero total gives 0)
   else if (name == "phase_gradient_1") v = g("phase_current_1") / g("phase_power");
   else if (name == "phase_gradient_2") v = g("phase_current_2") / g("phase_power");
   else if (name == "phase_gradient_magnitude") v = std::hypot(g("phase_current_1"), g("phase_current_2")) / g("phase_power");

@@ -43,6 +43,7 @@ double measure_formula(const std::string& name, const std::map<std::string, doub
   auto g = [&](const char* k) { return m.at(k); };
   constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
   auto ratio = [&](double a, double b) { return b > 0 ? a / b : kNaN; };   // no power on the member: no phase gradient (left out, as a non-finite value)
+  if (name == "relative_power") return g("total_power") != 0 ? g("power_sum") / g("total_power") : 0.0;   // Brainstorm's relative power (a zero total gives 0)
   if (name == "phase_gradient_1") return ratio(g("phase_current_1"), g("phase_power"));
   if (name == "phase_gradient_2") return ratio(g("phase_current_2"), g("phase_power"));
   // the vector phase gradient of the cells and bursts (spec docs/specs/2026-11-13-burst-phase-current.md): each component of the mean phase current over the mean power (rad/m); its negative is the direction the phase travels

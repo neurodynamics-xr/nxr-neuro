@@ -38,7 +38,7 @@ static MatrixXd sum3(const MatrixXd& P) {
 static double rel(const MatrixXd& a, const MatrixXd& b) { return (a - b).cwiseAbs().maxCoeff() / b.cwiseAbs().maxCoeff(); }
 
 int main() {
-  const auto bands = nxr::meeg::brainstormBands();
+  const auto bands = nxr::pipelines::bandsOfPreset("brainstorm");
   {   // (1) Brainstorm
     Golden g(std::string(NXR_TEST_GOLDEN_DIR) + "/source_psd_golden.txt");
     CHECK(g.good());
@@ -58,7 +58,7 @@ int main() {
     // relative power on a fixed-orientation kernel (each row a source, as Brainstorm normalises each row of the file): band mean / the sum of all bins
     const MatrixXd Kf = K.topRows(50);
     const MatrixXd Pf = nxr::meeg::sourcePower(Kf, S, 1, nxr::meeg::Orientation::Norm);
-    const MatrixXd Rf = nxr::meeg::relativePower(Pf, nxr::meeg::sourcePower(Kf, {r.S.back()}, 1, nxr::meeg::Orientation::Norm).col(0));
+    const MatrixXd Rf = nxr::pipelines::relativeToTotal(Pf, nxr::meeg::sourcePower(Kf, {r.S.back()}, 1, nxr::meeg::Orientation::Norm).col(0));
     std::printf("  parity with Brainstorm relative power (fixed kernel): %.2e\n", rel(Rf, relb.topRows(50)));
     CHECK(rel(Rf, relb.topRows(50)) < 1e-6);
   }
