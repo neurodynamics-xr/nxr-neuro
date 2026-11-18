@@ -66,15 +66,6 @@ Eigen::VectorXd spectrumShapingTaps(const Eigen::VectorXd& freq, const Eigen::Ve
   return h / e;
 }
 
-Eigen::MatrixXd convolveValid(const Eigen::MatrixXd& white, const Eigen::VectorXd& taps) {
-  const Eigen::Index L = taps.size();
-  if (L % 2 == 0 || white.cols() < L) throw std::invalid_argument("convolveValid: odd taps and at least as many columns");
-  const Eigen::Index n = white.cols() - L + 1;
-  Eigen::MatrixXd y = Eigen::MatrixXd::Zero(white.rows(), n);
-  for (Eigen::Index k = 0; k < L; ++k) y += taps[k] * white.middleCols(k, n);
-  return y;
-}
-
 Eigen::MatrixXd zeroLagMixing(const Eigen::MatrixXd& realCrossSpectrum) {
   if (realCrossSpectrum.rows() != realCrossSpectrum.cols() || realCrossSpectrum.rows() == 0) throw std::invalid_argument("zeroLagMixing: a square cross-spectrum of at least one channel");
   const double meanVariance = realCrossSpectrum.trace() / static_cast<double>(realCrossSpectrum.rows());
@@ -87,7 +78,7 @@ Eigen::MatrixXd shapedNoiseBlock(const Eigen::VectorXd& taps, std::uint64_t seed
   if (taps.size() % 2 == 0) throw std::invalid_argument("shapedNoiseBlock: odd taps");
   const std::int64_t half = (taps.size() - 1) / 2;
   const Eigen::MatrixXd w = whiteNoiseBlock(seed, rows, first - half, n + 2 * half);
-  Eigen::MatrixXd x = convolveValid(w, taps);
+  Eigen::MatrixXd x = nxr::core::conv(w, taps);
   if (scale.size() != 0) x = x * scale.asDiagonal();
   return x;
 }

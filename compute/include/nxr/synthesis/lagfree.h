@@ -29,8 +29,6 @@ Eigen::MatrixXd whiteNoiseBlock(std::uint64_t seed, int rows, std::int64_t first
 /** zero-phase taps (2 half + 1, symmetric, Hann-windowed, unit energy) whose amplitude response follows sqrt(psd) at `freq` (Hz, increasing; psd power per Hz, interpolated linearly in between;
  *  sampling rate fs). A psd with no power is refused (std::invalid_argument). */
 Eigen::VectorXd spectrumShapingTaps(const Eigen::VectorXd& freq, const Eigen::VectorXd& psd, double fs, int half);
-/** [rows x n] from [rows x (n + 2 half)]: the symmetric taps (2 half + 1) applied along the columns, the valid part only (output column j is centred on input column j + half) */
-Eigen::MatrixXd convolveValid(const Eigen::MatrixXd& white, const Eigen::VectorXd& taps);
 
 /** THE ZERO-LAG MIXING of a band: sqrt(Re C / (trace(Re C) / M)), the symmetric square root of the real cross-spectrum scaled to unit mean channel variance [M x M]. A cross-spectrum with no power is
  *  refused (std::invalid_argument). */

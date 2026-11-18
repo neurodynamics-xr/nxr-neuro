@@ -196,7 +196,7 @@ int main() {
   EXPECT(throws([&] { nxr::synthesis::spectrumShapingTaps(freq, Eigen::VectorXd::Zero(201), fs, 10); }), "a spectrum with no power is refused");
   EXPECT(throws([&] { nxr::synthesis::lagfreeBlock(Rh, taps, 1, 0, 10, Eigen::VectorXd::Ones(9)); }), "a scale of the wrong length is refused");
   EXPECT(throws([&] { nxr::stats::sequentialP(5, 3, 10); }), "more exceedances than draws is refused");
-  EXPECT(throws([&] { nxr::synthesis::convolveValid(Eigen::MatrixXd::Zero(1, 5), Eigen::VectorXd::Ones(7)); }), "a block shorter than the taps is refused");
+  EXPECT(throws([&] { nxr::core::conv(Eigen::MatrixXd::Zero(1, 5), Eigen::VectorXd::Ones(7)); }), "a block shorter than the taps is refused");
 
   if (fails) { std::cout << fails << " failures\n"; return 1; }
   std::cout << "OK test_surrogate\n";

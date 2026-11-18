@@ -62,4 +62,13 @@ MatrixXd symmetricSquareRoot(const MatrixXd& A) {
   return es.eigenvectors() * e.asDiagonal() * es.eigenvectors().transpose();
 }
 
+Eigen::MatrixXd conv(const Eigen::MatrixXd& X, const Eigen::VectorXd& taps) {
+  const Eigen::Index L = taps.size();
+  if (L % 2 == 0 || X.cols() < L) throw std::invalid_argument("conv: odd taps and at least as many columns");
+  const Eigen::Index n = X.cols() - L + 1;
+  Eigen::MatrixXd y = Eigen::MatrixXd::Zero(X.rows(), n);
+  for (Eigen::Index k = 0; k < L; ++k) y += taps[k] * X.middleCols(k, n);
+  return y;
+}
+
 }  // namespace nxr::core
