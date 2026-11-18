@@ -18,6 +18,7 @@
 #include <map>
 #include <set>
 
+#include "nxr/intrinsic_surface.h"
 #include "nxr/ladder.h"
 #include "nxr/measurement/estimate.h"
 #include "nxr/measurement/measures.h"
@@ -391,6 +392,7 @@ StepSpec reduce_node() {
     for (const auto& m : p["measures"]) need(m.is_string(), "reduce: a measure is a name");
     need(p["bad_segments"] == "exclude" || p["bad_segments"] == "ignore", "reduce: bad_segments " + p["bad_segments"].dump() + ": exclude or ignore");
     need(p["weight"] == "none" || p["weight"] == "barycentric" || p["weight"] == "voronoi", "reduce: weight " + p["weight"].dump() + ": none, barycentric or voronoi");
+    for (const auto& m : p["measures"]) need(p["weight"] == "none" || (m != "median" && m != "mad"), "reduce: " + m.get<std::string>() + " is the member's own value and has no weighted form (weight none only)");
     if (ins.count("exclude")) {
       const Value& ex = ins.at("exclude");
       need(x.time.has_value(), "reduce: exclude is a selection on x's time line, and x has none");
@@ -479,8 +481,13 @@ StepSpec reduce_node() {
         if (f.kind != "dyadic" && !(f.kind == "labelled" && fd.contains("surface"))) continue;
         const std::string surface = fd["surface"].get<std::string>();
         const nxr::pipelines::SurfaceInput S = c.bound.surface(surface, true);
-        nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
-        st.weights = nxr::ladder::vertexAreas(mesh);
+        if (p["weight"] == "voronoi") {                                      // the mixed Voronoi mass of the input triangulation (the Studio's, nxr's and Rheome's)
+          nxr::manifold::IntrinsicSurface isurf(S.vertices.data(), static_cast<int>(S.n_vertices()), S.faces.data(), static_cast<int>(S.faces.size() / 3));
+          st.weights = isurf.inputMixedVoronoiMass();
+        } else {
+          nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
+          st.weights = nxr::ladder::vertexAreas(mesh);
+        }
       }
       need(!st.weights.empty(), "reduce: weight " + p["weight"].dump() + " needs a member set of a surface grid to weight its vertices by");
     }
