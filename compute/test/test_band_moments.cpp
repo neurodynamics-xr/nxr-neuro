@@ -60,7 +60,7 @@ int main() {
     X(v, 1) = std::polar(std::cos(40 * z) + 0.3 * x * 20, 0.7);
     X(v, 2) = std::polar(1.0, 60 * x);
   }
-  const Eigen::MatrixXcd c = fb::forward(t, X);
+  const Eigen::MatrixXcd c = fb::gft(t, X);
   const fb::GraphFilterbank meyer = fb::weyl(total_area, 6);
   fb::Range rg; rg.lmax = t.lambda.maxCoeff(); rg.lmin = t.lambda(1);
   fb::DesignOptions o; o.numFilters = 5;

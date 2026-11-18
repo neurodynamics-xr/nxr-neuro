@@ -75,7 +75,7 @@ struct FlowEngine::Impl {
     // the maps filtered by every gain: columns of X [V x 2] -> per gain [V x 2]
     std::vector<MatrixXd> filtered(const MatrixXd& X) const {
         std::vector<MatrixXd> out;
-        for (const fb::Gain& g : gains) out.push_back(cheb->apply(g, X));
+        for (const fb::Gain& g : gains) out.push_back(fb::chebyshev(*cheb, g, X));
         return out;
     }
     // previous and next filtered, reusing the last step's `next` as this step's `previous`

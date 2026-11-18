@@ -1,6 +1,6 @@
 #pragma once
 // nxr::core: general algebra of matrices, with no domain: a Hermitian factor, the symmetric square root, the antisymmetric factor of Im(F F^H), and a diagonal row scaling.
-// (hermitianFactor and quadratureFactor were declared in quadrature.h; divideRows in scaling.h.)
+// (hermitianFactor and skewFactor were declared in quadrature.h; divideRows in scaling.h.)
 #include <Eigen/Dense>
 #include <complex>
 #include <vector>
@@ -27,7 +27,7 @@ struct QuadratureFactor {
     double reference = 0;   // ||F||_F^2 = tr C, the scale of C: a pair weaker than 1e-10 of it is rounding, not quadrature, and planes leaves it out
 };
 /** Im(F F^H) = J R^T - R J^T (F = R + iJ) as Q S Q^T, through the QR of [R J]. nxr's `lagged` (which also scales S to unit norm: S / ||S||_F). */
-QuadratureFactor quadratureFactor(const MatrixXcd& F);
+QuadratureFactor skewFactor(const MatrixXcd& F);
 
 // ── a diagonal scaling of a matrix's rows ───────────────────────────────────────────────────────────────────────────
 // D⁻¹ X, each row i of X divided by d_i: pointwise, it never reduces across rows or columns, so a matrix cut into blocks of columns gives the same result block by block.

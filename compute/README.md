@@ -331,7 +331,7 @@ The toolboxes (ARCHITECTURE.md, "The toolboxes"; namespace `nxr::<toolbox>`, fun
 
 | toolbox | holds |
 |---|---|
-| `core` | types, errors, cancellation, progress, parallel, general matrix algebra (`hermitianFactor`, `quadratureFactor`, `divideRows`, congruence); library `nxr_core` |
+| `core` | types, errors, cancellation, progress, parallel, general matrix algebra (`hermitianFactor`, `skewFactor`, `divideRows`, congruence); library `nxr_core` |
 | `optimisation` | general solvers (`fminsearch`); in `nxr_core` |
 | `stats` | summary statistics, `histogram`, circular statistics (`circ_mean`, `circ_r`, `circ_rtest`), lag, null tests, `pca` |
 | `geometry` | `SurfaceArrays` (a surface as plain data), intrinsic geometry, frames, charts (`ChartKit`), distances (`heat`, `signedHeat`), transport, glue, nearest, parametrization, `faceAreas` |

@@ -140,14 +140,14 @@ struct EigenTransform {
     Eigen::VectorXd lambda;              // [K]
     Eigen::SparseMatrix<double> mass;    // B, [n × n] (0 × 0: identity)
 };
-/** The eigenspectrum, the spatial equivalent of the FFT (Rheome's graphtransform.eigen .forward / .inverse).
- *  forward: field → one coefficient per mode, C = Φᵀ B F  [K × nT]; inverse: C → field, F = Φ C  [n × nT].
- *  Φ mass-orthonormal ⇒ Parseval: ‖C‖² = Fᵀ B F, and inverse(forward(F)) is F's projection onto the K modes (F itself when K = n).
+/** The eigenspectrum, the spatial equivalent of the FFT (Rheome's graphtransform.eigen: gft and igft).
+ *  gft: field → one coefficient per mode, C = Φᵀ B F  [K × nT]; igft: C → field, F = Φ C  [n × nT].
+ *  Φ mass-orthonormal ⇒ Parseval: ‖C‖² = Fᵀ B F, and igft(gft(F)) is F's projection onto the K modes (F itself when K = n).
  *  Trailing time/trial columns pass through. Complex fields (e.g. one FFT bin per column) are transformed part by part. */
-Eigen::MatrixXd forward(const EigenTransform& t, const Eigen::MatrixXd& F);
-Eigen::MatrixXcd forward(const EigenTransform& t, const Eigen::MatrixXcd& F);
-Eigen::MatrixXd inverse(const EigenTransform& t, const Eigen::MatrixXd& C);
-Eigen::MatrixXcd inverse(const EigenTransform& t, const Eigen::MatrixXcd& C);
+Eigen::MatrixXd gft(const EigenTransform& t, const Eigen::MatrixXd& F);
+Eigen::MatrixXcd gft(const EigenTransform& t, const Eigen::MatrixXcd& F);
+Eigen::MatrixXd igft(const EigenTransform& t, const Eigen::MatrixXd& C);
+Eigen::MatrixXcd igft(const EigenTransform& t, const Eigen::MatrixXcd& C);
 
 /** POLYNOMIAL: g(L) as a Chebyshev series in M⁻¹L on [0, λmax] by Clenshaw recursion; no eigenvectors. Factors the mass once. */
 class ChebyshevOperator {
@@ -162,12 +162,14 @@ public:
     int rows() const;
     double lmax() const;
     int order() const;
-    /** g(M⁻¹L) X. */
-    Eigen::MatrixXd apply(const Gain& g, const Eigen::MatrixXd& X) const;
-    Eigen::MatrixXcd apply(const Gain& g, const Eigen::MatrixXcd& X) const;   // real operator: real and imaginary parts apart
+    friend Eigen::MatrixXd chebyshev(const ChebyshevOperator& op, const Gain& g, const Eigen::MatrixXd& X);
 private:
     struct Impl; std::unique_ptr<Impl> p_;
 };
+
+/** g(M⁻¹L) X (Rheome's graphtransform.chebyshev). The complex overload applies the real operator to the real and imaginary parts apart. */
+Eigen::MatrixXd chebyshev(const ChebyshevOperator& op, const Gain& g, const Eigen::MatrixXd& X);
+Eigen::MatrixXcd chebyshev(const ChebyshevOperator& op, const Gain& g, const Eigen::MatrixXcd& X);
 
 /** Largest eigenvalue of the pencil (L, M) by Lanczos (Spectra), as MATLAB's eigs(L, M, 1, 'largestabs'); tolerance 1e-4. 0 on failure. */
 double estimateLmax(const Eigen::SparseMatrix<double>& L, const Eigen::SparseMatrix<double>& mass = {});

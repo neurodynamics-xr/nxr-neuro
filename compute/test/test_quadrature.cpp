@@ -46,9 +46,9 @@ static void parity() {
     close("quadratureEnergy summed over rows (im_rows)", quadratureEnergy(F.topRows(5), F).sum(), g.mat("im_rows")(0, 0), 1e-11);
     const MatrixXd A = g.mat("A_normalised");
     const double nIm = g.mat("norm_imC")(0, 0);
-    const QuadratureFactor f = quadratureFactor(F);
+    const QuadratureFactor f = skewFactor(F);
     EXPECT(relErr(f.Q * f.S * f.Q.transpose(), MatrixXd(C.imag())) < 1e-12, "Im C = Q S Q^T, exactly (" + sci(relErr(f.Q * f.S * f.Q.transpose(), MatrixXd(C.imag()))) + ")");
-    EXPECT(relErr(f.Q * f.S * f.Q.transpose() / f.S.norm(), A) < 1e-12, "quadratureFactor normalised = nxr lagged(F): " + sci(relErr(f.Q * f.S * f.Q.transpose() / f.S.norm(), A)));
+    EXPECT(relErr(f.Q * f.S * f.Q.transpose() / f.S.norm(), A) < 1e-12, "skewFactor normalised = nxr lagged(F): " + sci(relErr(f.Q * f.S * f.Q.transpose() / f.S.norm(), A)));
     EXPECT(std::abs(f.S.norm() - nIm) < 1e-10, "||S||_F = ||Im C||_F");
     EXPECT((f.Q.transpose() * f.Q - MatrixXd::Identity(f.Q.cols(), f.Q.cols())).cwiseAbs().maxCoeff() < 1e-12, "Q orthonormal");
     const auto P = nxr::signal::planes(f, 3);
@@ -293,12 +293,12 @@ static void lag() {
     if (!P.empty()) {
         std::printf("  pair: p = (%.3f, %.3f), q = (%.3f, %.3f), sigma %.4g\n", P[0].p[0], P[0].p[1], P[0].q[0], P[0].q[1], P[0].sigma);
         EXPECT(P[0].p[0] > 0.99 && std::abs(P[0].q[1]) > 0.99 && P[0].q[1] > 0, "p = source 0 (the leader), q = source 1");
-        EXPECT(lagged_share(quadratureFactor(L), P) > 0.9999, "the pair explains all of Im C");
+        EXPECT(lagged_share(skewFactor(L), P) > 0.9999, "the pair explains all of Im C");
         EXPECT(quadratureEnergy(L, L)[0] > 0, "energy in row 0");
     }
-    EXPECT(std::abs(timeLag(S(0, 1), f0) - 0.025) < 5e-4, "timeLag(C_01) = a quarter cycle, 25 ms (" + std::to_string(timeLag(S(0, 1), f0)) + ")");
-    EXPECT(std::abs(timeLag(S(1, 0), f0) + 0.025) < 5e-4, "timeLag(C_10) = -25 ms");
-    EXPECT(std::abs(phaseLag(S(0, 1)) - kPi / 2) < 0.02, "phaseLag = pi/2");
+    EXPECT(std::abs(timeDelay(S(0, 1), f0) - 0.025) < 5e-4, "timeDelay(C_01) = a quarter cycle, 25 ms (" + std::to_string(timeDelay(S(0, 1), f0)) + ")");
+    EXPECT(std::abs(timeDelay(S(1, 0), f0) + 0.025) < 5e-4, "timeDelay(C_10) = -25 ms");
+    EXPECT(std::abs(phaseSpectrum(S(0, 1)) - kPi / 2) < 0.02, "phaseSpectrum = pi/2");
     // the rotary spectrum of z = p.x + i q.x: all at +f
     VectorXcd z(T);
     for (int t = 0; t < T; ++t) z[t] = cd(P[0].p.dot(x.col(t)), P[0].q.dot(x.col(t)));
@@ -306,8 +306,8 @@ static void lag() {
     const double pp = rs.positive.middleCols(300, 1400).mean(), nn = rs.negative.middleCols(300, 1400).mean();
     EXPECT(pp > 100 * nn, "rotarySpectrum: z = p.x + i q.x turns at +f (" + sci(pp) + " vs " + sci(nn) + ")");
     // sensor filters
-    const QuadraturePairFilters pf = quadraturePairFilters(MatrixXd::Identity(2, 2), S);
-    EXPECT(pf.sense == 1 && pf.fx[0] > 0.99 && pf.fy[1] > 0.99 && pf.positive > 100 * pf.negative, "quadraturePairFilters: fx = leader, fy = follower, sense +1");
+    const QuadraturePairFilters pf = rotationPlaneFilters(MatrixXd::Identity(2, 2), S);
+    EXPECT(pf.sense == 1 && pf.fx[0] > 0.99 && pf.fy[1] > 0.99 && pf.positive > 100 * pf.negative, "rotationPlaneFilters: fx = leader, fy = follower, sense +1");
     // a planted delay (not a quarter cycle)
     for (double d : {0.013, -0.031}) {
         MatrixXd y(2, T);
@@ -319,7 +319,7 @@ static void lag() {
         c2.add(y);
         const auto q = c2.result();
         const MatrixXcd Sd = q.S[0].cast<cd>() + cd(0, 1) * q.Sq[0].cast<cd>();
-        EXPECT(std::abs(timeLag(Sd(0, 1), f0) - d) < 6e-4, "timeLag recovers the planted delay " + std::to_string(d) + " s (" + std::to_string(timeLag(Sd(0, 1), f0)) + ")");
+        EXPECT(std::abs(timeDelay(Sd(0, 1), f0) - d) < 6e-4, "timeDelay recovers the planted delay " + std::to_string(d) + " s (" + std::to_string(timeDelay(Sd(0, 1), f0)) + ")");
     }
 }
 

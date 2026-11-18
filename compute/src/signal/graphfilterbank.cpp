@@ -378,12 +378,12 @@ int ChebyshevOperator::rows() const { return static_cast<int>(p_->L.rows()); }
 double ChebyshevOperator::lmax() const { return p_->lmax; }
 int ChebyshevOperator::order() const { return p_->order; }
 
-Eigen::MatrixXd ChebyshevOperator::apply(const Gain& g, const Eigen::MatrixXd& X) const {
-    const int K = p_->order;
-    const Eigen::VectorXd c = chebyshevCoefficients(g, p_->lmax, K);
-    const double a = p_->lmax / 2;
+Eigen::MatrixXd chebyshev(const ChebyshevOperator& op, const Gain& g, const Eigen::MatrixXd& X) {
+    const int K = op.p_->order;
+    const Eigen::VectorXd c = chebyshevCoefficients(g, op.p_->lmax, K);
+    const double a = op.p_->lmax / 2;
     // Clenshaw on Ltil = L/a − I, which maps [0, λmax] onto [−1, 1]
-    auto Ltil = [&](const Eigen::MatrixXd& Y) -> Eigen::MatrixXd { return p_->Aop(Y) / a - Y; };
+    auto Ltil = [&](const Eigen::MatrixXd& Y) -> Eigen::MatrixXd { return op.p_->Aop(Y) / a - Y; };
     Eigen::MatrixXd b2 = Eigen::MatrixXd::Zero(X.rows(), X.cols()), b1 = b2;
     for (int k = K; k >= 1; --k) {
         Eigen::MatrixXd bk = 2 * Ltil(b1) - b2 + c(k) * X;
@@ -392,20 +392,20 @@ Eigen::MatrixXd ChebyshevOperator::apply(const Gain& g, const Eigen::MatrixXd& X
     return Ltil(b1) - b2 + c(0) * X;
 }
 
-Eigen::MatrixXcd ChebyshevOperator::apply(const Gain& g, const Eigen::MatrixXcd& X) const {
+Eigen::MatrixXcd chebyshev(const ChebyshevOperator& op, const Gain& g, const Eigen::MatrixXcd& X) {
     Eigen::MatrixXcd Y(X.rows(), X.cols());
-    Y.real() = apply(g, Eigen::MatrixXd(X.real()));
-    Y.imag() = apply(g, Eigen::MatrixXd(X.imag()));
+    Y.real() = chebyshev(op, g, Eigen::MatrixXd(X.real()));
+    Y.imag() = chebyshev(op, g, Eigen::MatrixXd(X.imag()));
     return Y;
 }
 
 // ── analysis and synthesis ───────────────────────────────────────────────────────────────────────────────────────────────
 
-Eigen::MatrixXd forward(const EigenTransform& t, const Eigen::MatrixXd& F) {
+Eigen::MatrixXd gft(const EigenTransform& t, const Eigen::MatrixXd& F) {
     if (t.phi.rows() != F.rows()) throw std::invalid_argument("filterbank: field rows differ from the eigenbasis rows");
     return t.mass.rows() ? Eigen::MatrixXd(t.phi.transpose() * (t.mass * F)) : Eigen::MatrixXd(t.phi.transpose() * F);
 }
-Eigen::MatrixXcd forward(const EigenTransform& t, const Eigen::MatrixXcd& F) {
+Eigen::MatrixXcd gft(const EigenTransform& t, const Eigen::MatrixXcd& F) {
     if (t.phi.rows() != F.rows()) throw std::invalid_argument("filterbank: field rows differ from the eigenbasis rows");
     const Eigen::MatrixXcd phiT = t.phi.transpose().cast<std::complex<double>>();
     if (!t.mass.rows()) return phiT * F;
@@ -414,11 +414,11 @@ Eigen::MatrixXcd forward(const EigenTransform& t, const Eigen::MatrixXcd& F) {
     BF.imag() = t.mass * Eigen::MatrixXd(F.imag());
     return phiT * BF;
 }
-Eigen::MatrixXd inverse(const EigenTransform& t, const Eigen::MatrixXd& C) {
+Eigen::MatrixXd igft(const EigenTransform& t, const Eigen::MatrixXd& C) {
     if (t.phi.cols() != C.rows()) throw std::invalid_argument("filterbank: coefficient rows differ from the number of modes");
     return t.phi * C;
 }
-Eigen::MatrixXcd inverse(const EigenTransform& t, const Eigen::MatrixXcd& C) {
+Eigen::MatrixXcd igft(const EigenTransform& t, const Eigen::MatrixXcd& C) {
     if (t.phi.cols() != C.rows()) throw std::invalid_argument("filterbank: coefficient rows differ from the number of modes");
     return t.phi.cast<std::complex<double>>() * C;
 }

@@ -183,7 +183,7 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
   }
   auto op = std::make_shared<fb::ChebyshevOperator>(Lap, M, lmax, order);
   out.info["order"] = order; out.info["series_error"] = err; out.info["lambda_top"] = lmax;
-  if (is_hat(opt)) out.apply = [gain, op](const Eigen::MatrixXd& F) { return op->apply(gain, F); };
+  if (is_hat(opt)) out.apply = [gain, op](const Eigen::MatrixXd& F) { return fb::chebyshev(*op, gain, F); };
   else out.apply = [bank, l, op](const Eigen::MatrixXd& F) { return nxr::signal::gwt(bank, l, *op, F); };
   if (opt.riesz) {
     // the series of g/√λ: it must follow ITS gain within the tolerance (a scaling member's gain is not 0 at λ = 0: g/√λ is singular and no series follows it, refused)
@@ -196,7 +196,7 @@ SpatialBand build_mesh_band(const SurfaceInput& S, const SurfaceLevel& L, const 
     if (oR > 5120) invalid("spatial band: no Chebyshev series up to degree 5120 follows the Riesz gain g/sqrt(lambda) of level " + std::to_string(l) + " to within " + std::to_string(opt.tolerance) + " of its peak (error " + std::to_string(eR) + "): raise the tolerance, or use eigenmodes (a scaling level's gain is not 0 at lambda = 0)");
     const auto opR = oR == order ? op : std::make_shared<fb::ChebyshevOperator>(Lap, M, lmax, oR);
     const auto G = std::make_shared<nxr::signal::Gradient>(riesz_gradient(S, {}));
-    out.apply_riesz = [gR, opR, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszTransform(*G, opR->apply(gR, F), 1); };
+    out.apply_riesz = [gR, opR, G](const Eigen::MatrixXd& F) { return nxr::signal::rieszTransform(*G, fb::chebyshev(*opR, gR, F), 1); };
     out.info["riesz"] = Json{{"gain", "g/sqrt(lambda), 0 at the constant mode"}, {"order", oR}, {"series_error", eR}, {"gradient", "P1 faces averaged on the vertices (nxr::signal::vertexGradient), the input mesh"}};
   }
   return out;
