@@ -1,16 +1,18 @@
 # The four classes: Manifold, Field, Selection, Operator, typed as the Cortical Flow Studio types them (spec, 2026-11-17)
 
-Status: documentation only, for decision. No code changes with this spec.
+Status: documentation only. No code changes with this spec. Its decisions are taken (Appendix B).
 
 Decided by the maintainers (2026-11-17), and binding on everything below:
-- The four classes, their typing, their coordinate systems and their measurements are the Cortical Flow Studio's, exactly: the classes, their types,
-  the fields of each class, their relations and their resolution. Where an earlier nxr-neuro design of this round differs (its own five selection types,
-  "a kernel is not a selection", a stored grid/irregular family, and others), the Studio's typing wins for the classes. Each difference is recorded in
-  Appendix A with what happens to it.
+- **The lighter form.** The Cortical Flow Studio's four classes (Manifold, Field, Selection, Operator) are the VOCABULARY wherever typing is CHECKED
+  and EXCHANGED: the YAML definitions (which the Studio will read to build TSL graphs), the pipelines' node ports and type checker (`run`, `compute`),
+  and io's stored rows. The existing pipeline type system (`pipelines/graph/include/nxr/graph/types.h`: `PortType`, `ValueType`, `Domain`, the Manifold
+  term) is RE-BASED on the Studio's terms (value types ℝ / ℂ / ℍ and the storage value types, forms, cells, charts, an operator's from / to cells,
+  measurements, statistics). No new class layer is built beside it.
+- **Not adopted:** the Studio's internals. nxr-neuro's in-memory selection model (five types, the grid / irregular family, member numbers, products) is
+  kept; io already stores the Studio's schema and maps between the two (Appendix A). Nothing stored this round is reversed.
+- **Compute functions stay pure functions of matrices** (4.3).
 - nxr-neuro PROVIDES signal processing, geometry processing and the MEG/EEG compute pipelines. `run` (a pipeline on a subject: find, stream, store) and
-  `compute` (a node or a graph on data handed to it) stay as they are. What changes is their typing: node ports, a definition's inputs and outputs, and
-  compute functions are typed by the four classes.
-- The Studio will read nxr-neuro's YAML definitions to build them as TSL (GPU) graphs. A definition therefore carries the typing the Studio needs.
+  `compute` (a node or a graph on data handed to it) stay as they are; their ports and definitions are typed in the Studio's terms.
 
 Sources. The Studio is cited by its repository-relative paths (`backend/src/entities/*.ts`, `backend/schema/model.sql`, `studio/src/...`, and its
 `CLAUDE.md`, abbreviated **S-CLAUDE**); a bare `model.sql` is the Studio's `backend/schema/model.sql`. nxr-neuro is cited by its own paths. Line numbers are those of 2026-11-17.
@@ -39,14 +41,20 @@ where they are, it does not belong on the class.* `shape`, element counts, a ref
 operator's context width fail. The Studio records one exception, a Field's display colormap, which is runtime-only, never stored, never in its row
 (`backend/src/entities/field.ts:38–47`); nxr-neuro draws nothing and does not carry it.
 
-Why nxr-neuro adopts them. Today nxr-neuro has no Field, Manifold or Operator object: there are io's row structs, the task API's outputs, the graph's
-`PortType` with `cls = field`, and compute's bare matrices; three separate field-type enums; two registries no pipeline uses; and a Selection ported twice
-(compute's and io's mirror). Each of those is a competing route. With one set of classes, a value made by `compute`, stored by `run`, read by the Studio and
-drawn on its GPU is the same object at four sites, and the type a node's port declares is the type the Studio builds its TSL pass from.
+Why nxr-neuro adopts them, and where. Today nxr-neuro types the same things three ways: io's row structs (already the Studio's schema), the graph's
+`PortType` (its own words: `PortClass`, `ValueType`, `Domain`, `SelectionShape`), and three separate field-type enums, beside two registries no
+pipeline uses. The Studio reads two of these: the stored rows, and (from now) the definitions. So the words a port and a definition use must be the
+words the rows use, which are the Studio's. nxr-neuro takes the four classes as that shared vocabulary at the three places typing is checked or
+exchanged (definitions, ports and the checker, io's rows), and nowhere else: compute stays matrices, and the in-memory selection model stays
+nxr-neuro's, mapped by io. A value made by `compute`, stored by `run` and read by the Studio is then typed in one set of words at every site it is
+named.
 
 ---
 
-## 2. The four classes, exactly as the Studio defines them
+## 2. The four classes, as the Studio defines them
+
+This section is the REFERENCE: the Studio's classes as its code and schema define them, so that every term the checker, the definitions and io use has
+one source. It does not say that nxr-neuro rebuilds these entities; 2.10 says which parts nxr-neuro takes and where.
 
 ### 2.0 What every class shares: the entity
 
@@ -299,22 +307,22 @@ the classes are built from it and nothing else. Arrays are read by an **ArrayRea
 optional cast; `rows.ts:60–61`). A model writes through a **ModelWriter**: create an array, put a region, post a row with its children, post
 measurements in bulk (`model.ts:30–36`).
 
-### 2.10 The C++ form in nxr-neuro
+### 2.10 What nxr-neuro takes, and where it lives
 
-One class per Studio class, with the Studio's names, columns and derived properties. Each class holds its row (the columns, generated from
-`io/schema/model.sql` as `io/include/nxr/io/records/rows.h` is today by `tools/gen_record_rows.py`) and the in-memory state of 2.0. The architecture
-decides where each part lives:
+nxr-neuro takes the classes as a VOCABULARY and as io's ROWS, not as a second object model. The classes live in io, as the Studio's entities live with
+its storage; the pipelines use them through io; there is no new library (Appendix B, decided 1).
 
-| part | where | why |
+| part | where | what it is |
 |---|---|---|
-| the classes: `Manifold` (+ `Topology`, `Cells`, `Geometry`, `GeometryDimension`), `Field` (+ `FieldContribution`), `Selection` (+ `SelectionExtent`, `SelectionSpan`), `Operator` (+ `OperatorFactor`), `Space`, `CoordinateSystem`, `Dictionary`, `DictionaryEntry`, `Measurement`, `Statistic`, and `Model` (the identity map) | `nxr::model`, a header-mostly target with no file access and no maths beyond index arithmetic (open question B1 decides its folder) | they are data with identity; compute, io, the graph and the bindings all name them |
-| the index arithmetic the Studio puts on the classes: `indexShape`, `indexAt` / `valueAt`, `axisOffsetOf`, `shape`, `sliceOf`, `resolve` (crop and indices arms), `at(k)`, `count`, `indexAt`, `chunks` (by definition), `productCode` / `productCodes`, `factorMembers`, `factorCodes`, `operatorKind`, `pairProblems` / `chainProblems`, `algebraOf`, cell keys | `nxr::model` | pure functions of rows and small arrays; the Studio has them on the entities |
-| the maths that makes or uses a class: forms, transforms, filters, geodesic distance (`resolve_distance`), the makers of selections (tilings, ladders, dyadic tiles, products, detections), operator assembly | `compute/`, `meeg/` | pure functions of matrices; the pipelines wrap their inputs and outputs in the classes (4.3) |
-| loading and storing: `read` a subject's Bundle into a `Model`, `load(entity, selection?)` (fills `values` / `positions` / an element array, sets `loadedOn`), `create` (bytes first, row last), measurements in bulk, the chunk service | `io/` | io never computes; it fills and writes the classes' state |
-| `buffer` / `bufferOn` | `nxr::model`, an opaque handle | nxr-neuro has no device today; the slot is where a host's GPU copy is recorded (the wasm binding that serves the Studio) |
+| the rows of the four classes and their companions (Manifold + Topology, Cells, Geometry, GeometryDimension; Field + FieldContribution; Selection + SelectionExtent, SelectionSpan; Operator + OperatorFactor; Space, CoordinateSystem, Dictionary, DictionaryEntry, SelectionMeasurement, Statistic) | `io/`, as today: the columns generated from `io/schema/model.sql` into `io/include/nxr/io/records/rows.h` by `tools/gen_record_rows.py` | already the Studio's schema; nothing to rebuild |
+| the VOCABULARY: manifold types, cell keys (parse, format, primal rank, count), storage value types and the algebra mapping (`STORAGE`, `algebraOf`, `widthOf`, 3.1), selection types as the schema names them (eight), operator kinds and the rule that derives them (2.4), measure and statistic names | `io/`, one header of enumerations and small pure functions of rows, with no file access | the words the checker, the definitions and io's rows share; the graph takes them through io (the dependency table already lets the pipelines include io) |
+| the loading contract: find a row, load its arrays (whole or on a Selection), create bytes first and row last, measurements in bulk, the chunk service | `io/`, as today (`find`, `open`, `commit`; `chunk_loop.h`) | named in the classes' terms; no identity map, no `Loadable` objects, no device slot |
+| the in-memory selection model (five types, the grid / irregular family, member numbers, resolved forms, products) | `compute/` (`nxr/selection/`), unchanged | io maps it to and from the stored schema (Appendix A) |
+| the maths: forms, transforms, filters, geodesic distance, the makers of selections, operator assembly | `compute/`, `meeg/`, unchanged | pure functions of matrices (4.3) |
 
-Values keep the stored precision (float32 or float64), as the Studio's `Operator.loadFloat64` does where precision matters (`operator.ts:165–177`);
-`values` is therefore a float32 or a float64 array, never a blanket double.
+Not taken: the Studio's identity map and Bundle, `Loadable`'s `buffer` / `bufferOn`, and its entity classes as C++ objects. They serve a GPU host
+that keeps entities resident; nxr-neuro's io reads and writes rows and arrays per run. Values keep the stored precision (float32 or float64), as the
+Studio's `Operator.loadFloat64` does where precision matters (`operator.ts:165–177`).
 
 ---
 
@@ -341,8 +349,19 @@ Reading the algebra of a stored value (`algebraOf`, `valueType.ts:19–28`): the
 (`studio/src/studio/engine/ingest.ts:221`). `hermitian3` (a complex 3 × 3 Hermitian matrix a cell, `[.., 3, 3, 2]`) is a storage type of statistics and
 fields with no algebra of its own (`backend/src/db/statistic-values.ts:34`).
 
-nxr-neuro adopts both vocabularies and the one mapping: one `Algebra` enum, one `StorageType` enum, `STORAGE`, `algebraOf`, `widthOf`. Values outside
-them (a complex value in TIME, the analytic signal; a complex vector3; the monogenic signal) are open question B3.
+nxr-neuro adopts both vocabularies and the one mapping in io's vocabulary header (2.10): one `Algebra` enum, one `StorageType` enum, `STORAGE`,
+`algebraOf`, `widthOf`. The graph's `ValueType` is re-based on them (4.4).
+
+**Values the Studio cannot type yet** (Appendix B, decided 3) are declared with the schema's storage value types and told apart by their MANIFOLD:
+
+| value | declared as | read as |
+|---|---|---|
+| the analytic signal of a band (a phase in time) | `complex`, `n_components` 1, on a product whose ordered factor is a time line | complex on a time line = an analytic signal, not a tangent vector: no `div` / `curl` offered |
+| the analytic signal of a free current (a complex 3-vector) | `complex`, `n_components` 3 (re / im the last axis) on cortex × time | the same rule, per component |
+| a tangent field on a surface | `vector3` (embedded), as the Studio writes it | complex on a surface = a tangent field (ℂ), the Studio's own reading |
+| the monogenic signal (a band and its Riesz part) | `quaternion` (one number and a 3-vector a vertex) on cortex × time | told from a free current (stored `vector3`) by its storage type; where the manifold and the type do not settle it, by the producer record |
+
+The checker applies the rule from the port's manifold; io writes the producer record. The explicit addition proposed to the Studio is 3.9.
 
 ### 3.2 Forms
 
@@ -360,8 +379,8 @@ is already the line port of this file; it keeps the Studio's ids and names and t
 ### 3.3 Cells
 
 The cell key of 2.2.1 types where a Field's values sit, which cells a Selection indexes, and the two ends of an Operator. Its parse, format, primal rank
-and count are `backend/src/db/cells.ts` (`parseCell`, `cellParts`, `formatCell`, `primalRank`, `cellCount`, `cellMisfit`), ported verbatim into
-`nxr::model`.
+and count are `backend/src/db/cells.ts` (`parseCell`, `cellParts`, `formatCell`, `primalRank`, `cellCount`, `cellMisfit`), ported into io's
+vocabulary header (2.10); the checker's `Domain` carries the key (4.4).
 
 ### 3.4 Products of manifolds
 
@@ -393,32 +412,43 @@ nxr-neuro's graph checker applies exactly these gates, from the classes' types, 
 
 ### 3.7 Selection types, resolution and members
 
-The types are the schema's eight (2.3: point, span, distance, spans, indices, kernel, set, ladder); the resolution is the three arms (crop, indices,
-weights); a member is reached by `at(k)` (spans), by `members` (a set of rows), by its code (a partition: the elements whose code is k), or by
-`productCodes` (a product). Whether a selection is a PARTITION is not stored: it is read off its type and rows (a partition `set`; a `spans` tiling whose
-members tile its line, found by definition as `Field.chunks` does). Appendix A lists what this changes in nxr-neuro.
+Where a Selection is EXCHANGED (a definition's input or output, a port's type, a stored row) its type is named by the schema's eight (2.3: point,
+span, distance, spans, indices, kernel, set, ladder) and its resolution by the three arms (crop, indices, weights) (Appendix B, decided 2). In memory,
+compute keeps its five types (point, span, distance, indices, set), the grid / irregular family, member numbers and its resolved forms; io maps each
+stored type to and from them (Appendix A). A port that takes a partition says so as the schema does (a `set`, a `spans` tiling, a `ladder` level); the
+checker reads the family off io's mapping, never off a separate stored flag of its own.
 
 ### 3.8 Measurements and statistics
 
 A measurement is typed by (selection, member code, field, measure, within) and the measure's registry entry (its unit and reduction). A statistic by
 (measure, method, value type, axes, of). A port of either names these, never an array shape alone.
 
+### 3.9 The addition proposed to the Studio
+
+The Studio's algebra types a value at a cell (ℝ ℂ ℍ) and reads a stored `complex` as a tangent vector. nxr-neuro proposes one explicit addition, so that
+the manifold rule of 3.1 becomes a declared fact instead of an inference:
+- a field's `producer_json.studio` gains `domain_of_complex`: `space` (the Studio's ℂ, a tangent vector) or `time` (an analytic signal: the value's
+  phase is in time), absent meaning `space`;
+- `algebraOf` returns ℂ for `time` too, and the forms of 3.2 that need a tangent vector (`div`, `curl`, `v`, `Jv`, …) refuse it;
+- the monogenic signal is written `quaternion` with `domain_of_complex: time` and a `form: monogenic` note, so ℍ's surface forms are refused as well.
+Until the Studio accepts it, nxr-neuro writes the note and relies on the manifold rule; nothing stored depends on its acceptance.
+
 ---
 
 ## 4. How `compute` and `run` adopt it
 
 `run` still finds, streams the stated time range chunk by chunk, and stores; `compute` still applies a node or a graph to data handed to it. Both now
-speak the classes.
+TYPE their ports and definitions in the classes' words; what flows between nodes is still arrays.
 
-### 4.1 Node ports typed by the classes
+### 4.1 Node ports typed in the classes' terms
 
-A node's port declares its CLASS and that class's type, nothing else:
+A node's port declares its CLASS and that class's type, in the vocabulary of 2.10:
 
 | class | a port's type |
 |---|---|
 | Manifold | `type` (points · line · surface · volume · curve · graph · product), for a line its role (`time` · `spectral` · `parameter`, `ports.ts:72`), for a product its factors |
 | Field | its manifold (a term: a variable, an input's manifold, or one the node makes), `cell`, algebra, storage `value_type`, `n_components`, `unit`; streamed or not (whether its time factor is walked block by block) |
-| Selection | `type` (one of eight), its manifold (or its space and coordinate system), `cell`, and the resolution arm the node takes (crop · indices · weights · members) |
+| Selection | `type` (one of the schema's eight), its manifold (or its space and coordinate system), `cell`, and the resolution arm the node takes (crop · indices · weights · members); io maps it to compute's in-memory type when the node runs |
 | Operator | from (manifold, cell, value type) → to (manifold, cell, value type), `layout`, `method` for an analytic one |
 | Measurement | the selection it is over, the field it is of, the measure (a registry name), `within` |
 | Statistic | measure, method, value type, axes, what it is of |
@@ -482,137 +512,144 @@ has no pass for a node, the node runs on the CPU (nxr-neuro) and its output ente
 ### 4.3 Compute functions stay pure functions of matrices
 
 The classes are adopted where typing is CHECKED and EXCHANGED: the definitions (YAML), the pipelines' node ports and type checker (`run`, `compute`),
-and io's load and store. Compute functions do not take or return the classes.
+and io's rows. Compute functions do not take or return the classes.
 
 - **A compute function is a pure function of matrices:** arrays and the method's parameters in, arrays out, callable with a matrix made anywhere (the
   architecture's test, unchanged). It knows no class, no file, no chunk, no type label.
-- **The type controls live in the pipelines.** A node's ports are typed by the classes (section 4.1); before any data flows the checker verifies every input
-  against its port (section 4.4); the node then hands compute the arrays the classes hold (a Field's values, an Operator's matrix, a Selection's resolved
-  form) and wraps what compute returns in the output port's class (a transient class with `derived_from` / `by_operator` set, which io may later create).
+- **The type controls live in the pipelines.** A node's ports are typed in the classes' terms (section 4.1); before any data flows the checker verifies
+  every input against its port (section 4.4); the node then hands compute arrays (a Field's values, an Operator's matrix, a Selection in compute's own
+  in-memory form, mapped by io) and the output port's type records what compute returned (with `derived_from` / `by_operator`), which io writes as a row.
 - **Where a type decides the maths** (not only what is allowed), compute takes the decision as a plain argument the pipeline reads off the class: e.g. the
   graph Fourier transform takes a basis (eigenvectors, eigenvalues, mass) together with its field type as an enumerated parameter, so that a Hodge–Dirac
   basis reads forms and a connection-Laplacian basis complex fields. The argument is data, never a class.
 - Reductions remain measurements over Selections; the pointwise rule and the cardinal rule of `ARCHITECTURE.md` are unchanged.
-- The makers of selections (tilings, ladders, dyadic tiles, products, detections) are compute functions whose output arrays the pipeline wraps as a
-  Selection of one of the eight types; they are not part of the class.
+- The makers of selections (tilings, ladders, dyadic tiles, products, detections) stay compute functions returning compute's in-memory Selection; io
+  stores it under the schema's type (Appendix A).
 
-### 4.4 The type checker re-based on the classes
+### 4.4 The type checker re-based on the Studio's terms
 
-`pipelines/graph/include/nxr/graph/types.h` keeps its role (what a port carries, checked before any data) and its machinery (terms, unification,
-`print` / `parse_type`), with the classes' types as its content:
+`pipelines/graph/include/nxr/graph/types.h` keeps its role (what a port carries, checked before any data), its structures and its machinery (terms,
+unification, the moves, `print` / `parse_type`). Its CONTENT is re-based on the Studio's terms, in place:
 
-- `PortType.cls` becomes the class (manifold · field · selection · operator · measurement · statistic; `constant` stays for parameters; `partition`
-  goes: a partition is a Selection whose type and rows make it one);
-- `ValueType` becomes the algebra + storage pair of 3.1;
-- `Domain` becomes a Manifold term (a product's factors) + a cell key;
-- `SelectionShape` becomes the selection type of 3.7;
-- an Operator port carries both ends (3.5) and its derived kind;
-- the checker runs the Studio's gates (3.6) and its pair and chain rules (`pairs.ts`), and the D106 lineage rule from each port's lineage.
+- `PortType.cls` (`PortClass`) names the classes: manifold · field · selection · operator · measurement · statistic; `constant` stays for parameters.
+  `partition` stays as the checker's word for a Selection whose (mapped) family is a grid, read through io, not a stored class of its own;
+- `ValueType` becomes the storage value type of the schema (`scalar` · `integer` · `complex` · `vector2` · `vector3` · `matrix3` · `quaternion` ·
+  `hermitian3`) with the algebra read by `algebraOf` (3.1); `monogenic` and `complex_parts` are re-expressed by the declarations of 3.1 (storage type
+  + `n_components` + the manifold rule);
+- `Domain` keeps its Manifold terms (a product's factors) and gains the cell key (3.3); `ManifoldKind` and `Role` take the Studio's names
+  (`manifold.type`; a line's role `time` · `spectral` · `parameter`), with nxr-neuro's extra roles (frames, time tiles, levels) kept as checker facts;
+  `CoordinateSystem` takes the Studio's chart names and transitions (2.5);
+- `SelectionShape.type` uses the schema's eight names (3.7);
+- an Operator port carries both ends (3.5: manifold, cell, value type) and its kind is derived (2.4), never declared;
+- the checker runs the Studio's gates (3.6), its pair and chain rules (`pairs.ts`), and the D106 lineage rule from each port's lineage.
+
+**Checker facts, not class members** (Appendix B, decided 4). The band and spatial level (`Resolution`), spin and gauge (G5), non-linearity
+(`nonlinear`) and `detected_over` stay in `PortType` as facts the checker DERIVES from provenance (the port's lineage and the Selections it references).
+They are not added to any class or stored row (they fail the membership test of section 1); a definition the Studio reads carries them only where the
+checker prints them (`--dry-run`).
 
 ---
 
-## 5. What it replaces in nxr-neuro
+## 5. What it changes in nxr-neuro
 
-| today | replaced by |
+| today | becomes |
 |---|---|
-| `compute/include/nxr/field_registry.h` (`FieldDescriptor`: domain, bundle, field type, n-form, representation, gauge; the conversion graph) | the Field class: `cell` (the n-form and the domain), the algebra and storage value type (bundle and representation), the surface's gauge and a ℂ field's frame (`ports.ts:33–43`, `:149`); a conversion is an Operator (an analytic one, `layout: analytic`, `method`) |
-| `compute/include/nxr/operator_registry.h` (`OperatorVariant`: bundle, holonomy, order, role, field type, domain, gauge, coupling, …) | the Operator class: its ends (manifold, cell, value type), `layout`, `method`, `params_json`, its pair and its factors; its kind derived (2.4); the pairing gates of 3.6. The catalogue's descriptions move to `docs/reference.md`; the Studio removed its own operator registry the same way |
-| the three field-type enums: `nxr::forms::FieldType` (`forms.h:33`), `nxr::manifold::registry::FieldType` (`operator_registry.h:16`), `nxr::graph::ValueType` (`types.h:30`) | ONE `Algebra` (ℝ ℂ ℍ) + ONE `StorageType` (the schema's eight) + `algebraOf` (3.1) |
-| compute's Selection (`compute/include/nxr/selection/selection.h`: five types, `Family`, `Grid`, `member_of`, `member_codes`) | the Selection class (2.3), eight types, the schema's columns; the makers stay in compute as functions producing it (Appendix A) |
-| the resolved forms (`compute/include/nxr/selection/resolved.h`: `Rule`, `Intervals`, `Elements`, `MemberOfElement`, `ProductForm`) | the Studio's resolution and member access: a closed-form `tiling` with `at(k)` / `indexAt` (Rule); `at(k)` resolved to a crop, per member (Intervals); `indices` resolution per member (Elements); `factorCodes` (MemberOfElement); `productCode` / `productCodes` over the factors' codes (ProductForm). The array kernels compute loops over keep their implementations under the Studio's names |
-| io's Description (`io/include/nxr/io/selection_description.h`) and the pipelines' `selection_bridge.h` | gone: io loads and stores the Selection class itself |
-| io's selection entity (`io/include/nxr/io/selection.h`) and store (`selection_store.h`) | io's `read` / `load` / `create` for the classes (2.10); the store's row functions stay inside io |
-| the graph's parallel class labels: `PortClass` (with `partition`), `ManifoldKind` (with `members`), `Role`, `Manifold::Form` (`restricted`, `members`, `derived`), `SelectionShape`, `CoordinateSystem` (`types.h:31–154`) | the classes' types (4.4): `ManifoldKind` → `manifold.type`; `Role` → a line's role; `restricted` → a Selection beside a manifold (an operator's `from_selection_id`; a Field is always on ONE manifold); `members(P)` → a Measurement over P (there is no regions manifold, `operatorKind.ts:40–41`); `made` → a transient Manifold (`saved = false`), a spectral line with `derived_from_id`; `derived` (a glued surface) → a manifold of its own related by an operator; `CoordinateSystem` → the class (2.5) |
-| `compute/include/nxr/quantity.h` `Chart` | the CoordinateSystem class (its `transition`, `transition_json`, `unit`); the quantity parser stays |
-| compute's geometry kit `nxr::manifold::Manifold` (`compute/include/nxr/compute.h`: a mesh and its cached operators) | renamed `SurfaceKit`, the Studio's name for the same thing (`studio/src/engine/compute/runtime/surfaceKit.ts`), so `Manifold` names the class |
-| io's task outputs (`FieldOut` and the like) and the pipelines' `Value` with a class label | the classes |
+| the three field-type enums: `nxr::forms::FieldType` (`forms.h:33`), `nxr::manifold::registry::FieldType` (`operator_registry.h:16`), `nxr::graph::ValueType` (`types.h:30`) | ONE `Algebra` (ℝ ℂ ℍ) + ONE `StorageType` (the schema's eight) + `algebraOf` in io's vocabulary header (3.1); the graph's `ValueType` and `forms.h` take them. Compute's `forms.h` takes its algebra as a plain enumerated argument (4.3) |
+| the graph's own words in `types.h` (`PortClass`, `ManifoldKind`, `Role`, `SelectionShape.type`, `CoordinateSystem`, `Domain` without cells) | the same structures re-based on the Studio's terms (4.4): class names, manifold types, line roles, the schema's selection type names, chart names, cell keys. The structures and their machinery stay |
+| `compute/include/nxr/field_registry.h` (`FieldDescriptor`: domain, bundle, field type, n-form, representation, gauge; the conversion graph) | retired: its content is a Field port's type (manifold, `cell`, storage value type and algebra) plus the checker facts of 4.4 (gauge); a conversion is an Operator port (an analytic one, `layout: analytic`, `method`). Its descriptions move to `docs/reference.md` |
+| `compute/include/nxr/operator_registry.h` (`OperatorVariant`: bundle, holonomy, order, role, field type, domain, gauge, coupling, …) | retired: an Operator port's two ends, `layout`, `method`, its kind derived (2.4), and the pairing gates of 3.6. Its descriptions move to `docs/reference.md`, as the Studio removed its own operator registry |
+| definitions in `pipelines/definitions/` with untyped or partly typed inputs and outputs | inputs and outputs typed in the classes' terms (4.2), most inferred; a JSON schema of definitions published for the Studio |
+| compute's Selection, its resolved forms, io's Description and `selection_bridge.h`, io's selection store | UNCHANGED. io's mapping between the in-memory model and the schema (Appendix A) is the one place the two meet |
+| io's row structs and task API (`find`, `open`, `commit`) | unchanged in shape; named in the classes' terms in their documentation |
 
 ---
 
 ## 6. Migration plan (no code now)
 
-Each step is one batch on one branch, a PR when the batch is done; synthetic tests only; the full suite at the end of the round.
+Each step is one batch on one branch, a PR when the batch is done; synthetic tests only; the full suite at the end of the round. No new library and no
+change to the dependency table.
 
-1. **Decisions.** The open questions of Appendix B are answered; the dependency table in `ARCHITECTURE.md` is amended for the classes' target (B1).
-2. **The classes' target.** Generate the row columns from `io/schema/model.sql` into `nxr::model` (extend `tools/gen_record_rows.py`; io's repositories keep
-   `from_row` and the SQL). Add the classes, the identity map, `Loadable` state, and the index arithmetic of 2.10, with tests ported from the Studio's
-   own (`backend/src/entities/product.test.ts`, `operatorKind.test.ts`, `statistic.test.ts`, `derived.test.ts`, `model.test.ts`) as synthetic goldens.
-3. **Value types.** One `Algebra`, one `StorageType`, `STORAGE`, `algebraOf`, `widthOf`; `forms.h` and the graph take them; the three enums are deleted.
-4. **Selection.** The compute Selection becomes the class (eight types); the makers return it; `resolved.h` is re-expressed under the Studio's names;
-   io's Description and the bridge are deleted. The stored changes of Appendix A (partition arrays of codes, levels as member rows, no `selection_factor`,
-   no `params_json.family`, no elements grid) get a written migration of stored selections, run on development data only.
-5. **Field, Manifold, Operator, Space, CoordinateSystem, Dictionary, Measurement, Statistic.** io's task API returns and takes them: `find` gives a class
-   with its row, `open` loads into it, `commit` creates in the Studio's order. `compute.h`'s kit is renamed `SurfaceKit`.
-6. **The checker.** `types.h` re-based (4.4); node signatures rewritten in the classes' types; the gates of 3.6 and `pairs.ts`'s rules as checker rules.
-7. **Definitions.** Typed ports in every definition in `pipelines/definitions/` (most inferred; 4.2); each node's chain place, linearity, halo and output
-   shape registered; the JSON schema of definitions generated and published; `--dry-run` prints the classes' types.
-8. **Registries retired.** `field_registry.h` and `operator_registry.h` deleted once their content is in the classes and `docs/reference.md`.
-9. **Faces.** The Python and MATLAB bindings expose each class as its row (a dict / struct with the column names) plus its arrays; the `compute` verb accepts a
-   bare array, which the pipeline wraps in the port's class (4.3).
-10. **Docs.** `ARCHITECTURE.md` ("Decided structure") and `CONTRIBUTING.md` state the four classes as the typing of every port; the earlier specs this
-    supersedes (`2026-11-17-type-system.md` §14, `2026-11-17-selection-module.md` §0 items 1, 3, 12) carry a pointer to this spec.
+1. **Vocabulary in io.** One header in io: manifold types, cell keys (from `cells.ts`), `Algebra`, `StorageType`, `STORAGE`, `algebraOf`, `widthOf`,
+   the schema's selection type names, operator kinds and their derivation (`operatorKind.ts`), with tests ported from the Studio's own
+   (`operatorKind.test.ts`, the cell and value-type cases) as synthetic goldens.
+2. **Value types.** The graph's `ValueType`, `forms.h`'s and the operator registry's field types take the vocabulary; `monogenic` and `complex_parts`
+   become the declarations of 3.1; the three enums become one.
+3. **The checker.** `types.h` re-based in place (4.4); node signatures rewritten in the new words; the gates of 3.6 and `pairs.ts`'s rules as checker
+   rules; the checker facts kept and derived from provenance.
+4. **Definitions.** Typed ports in every definition (most inferred; 4.2); each node's chain place, linearity, halo and output shape registered; the
+   JSON schema of definitions generated and published; `--dry-run` prints the types in the classes' terms.
+5. **Registries retired.** `field_registry.h` and `operator_registry.h` deleted once their content is in the ports, the checker and `docs/reference.md`.
+6. **Stored data.** No change to the schema beyond the one migration already planned (schema 53 and `migrate_measurement_storage`,
+   `2026-11-17-consolidation.md` §6). The producer note of 3.9 is written by io from then on; it needs no migration.
+7. **The Studio.** The addition of 3.9 is proposed to the Studio; the mapping of Appendix A is given to the Studio's adapter as the reading of
+   nxr-neuro's stored selections (B6).
+8. **Docs.** `ARCHITECTURE.md` ("Decided structure") and `CONTRIBUTING.md` state that ports, definitions and io's rows are typed in the four classes'
+   terms and that compute stays matrices; `2026-11-17-type-system.md` §14 carries a pointer to this spec.
 
 ---
 
-## Appendix A. This round's nxr-neuro Selection design and the Studio's, difference by difference
+## Appendix A. The in-memory model vs the Studio's schema: how io maps each difference
 
 Sources: nxr-neuro `docs/specs/2026-11-17-selection-module.md` (§0, §8, §9), `docs/specs/2026-11-17-consolidation.md` (§1, §6),
-`compute/include/nxr/selection/selection.h`, `io/include/nxr/io/selection_description.h`, `pipelines/graph/include/nxr/graph/types.h`; the Studio as in 2.3.
+`compute/include/nxr/selection/selection.h`, `io/include/nxr/io/selection_description.h`, `io/schema/model.sql`, `pipelines/graph/include/nxr/graph/types.h`;
+the Studio as in 2.3. Nothing below is reversed: compute keeps its model, the stored rows keep the form schemas 52 and 53 gave them, and io is the one
+place that translates.
 
-| # | topic | this round's nxr-neuro design | the Studio | under "exactly as the Studio" |
+| # | topic | nxr-neuro in memory | the Studio's schema | how io maps it |
 |---|---|---|---|---|
-| A1 | the types | five: `point`, `span`, `distance`, `indices`, `set`; `spans` and `ladder` only stored row types, mapped to a set (`selection-module.md` §0 item 1; `selection.h:56`) | eight: `point`, `span`, `distance`, `spans`, `indices`, `kernel`, `set`, `ladder` (`model.sql:538`) | eight. `spans` and `ladder` are types of the class again |
-| A2 | kernel | "a kernel is not a selection: it is the weights a measurement uses" (`selection.h:14`) | a `kernel` is a Selection: `weight_fn` + `params_json`, resolving to `weights` (`selection.ts:224`); it is also an operator factor (a gain, `model.sql:847–856`) and a brush's tip | a kernel is a Selection. A measurement's weights come from its selection's `weights` arm; a spectral gain is a kernel Selection factor of a composed operator |
-| A3 | ladders and levels | a constant-Q ladder's levels are tilings; a dyadic grid stores only its finest tile codes and a rule (`params_json.grid`), its levels label and band only; a line's time grid is one `ladder` row with every level closed form and no level rows; a product names a level by `selection_factor.level` (`consolidation.md` §6.2) | a `ladder` is top level with a dictionary; its MEMBERS are the levels, each a stored Selection whose code is read with the ladder's dictionary (`model.sql:565–566`): a constant-Q level a closed-form `spans` (`backend/src/entities/constant-q.ts:53`), a surface level a partition `set` with its own tile array (`backend/src/entities/surface-ladder.ts:1–10`) | levels are member Selections. A dyadic ladder stores each level's array (the codes stay dyadic, so `code >> shift` still rolls up); the time grid's levels are closed-form `spans` members (a few rows); a product's factor is the level's own Selection, and `selection_factor.level` goes |
-| A4 | spans | "a set of spans" | `spans` is its own type: rows (events) or closed form (`tiling`); member k is `at(k)` with the derived id `<id>#<k>`; a tiling's ordinal is its code, a row's `code` is its own (an event type) | adopted as the Studio has it |
-| A5 | the partition property | a stored family, `grid` or `irregular` (`params_json.family`; `selection.h:61`); the graph's `SelectionShape.partition` flag (`types.h:151`) | nothing stored: a chunk grid is found BY DEFINITION, by testing that a spans set tiles the axis (`field.ts:99–166`); measurements are stored at a tiling's finest level and rolled up by `code >> shift` (`model.sql:617–619`) | the family and the flag go. Whether a selection partitions its manifold is a derived predicate of its type and rows; a roll-up is refused when the selection is not a dyadic tiling or ladder level, read the same way |
-| A6 | grid versus irregular; the elements grid | two families of sets; an "elements grid" (every channel its own member, `params_json.grid {kind: elements}`) | no families; per-element values over windows are ARRAY-BACKED measurements whose rows are the field's elements (`[rows × members × components]`, D96; `model.sql:620–624`) | no families; the elements grid goes: a value per channel per member is an array-backed measurement on the member selection, its rows the field's channels |
-| A7 | member identity and labels | a set per element stores each element's MEMBER NUMBER, and each member's label in a sibling array `P.labels` (`selection_description.h`; `selection-module.md` §0 item 2) | a partition's array holds each element's CODE, read with the dictionary; its members are "the elements whose code is k" (D48); a measurement's `code` is that code | the array holds codes. Distinct members sharing a label (five bursts of one type) are listed members (`spans` rows, or member `indices` Selections each with its `code`), as the Studio writes them |
-| A8 | irregular members by centre and extent | `span_about` (a span from a centre and an extent per axis); a `distance` on a surface | a span is written by its CORNERS; "centre + width is not how a span is written: that is a distance's rule" (`model.sql:596–601`) | `span_about` stays as a maker whose output is a corner span; nothing stores a span's centre and extent |
-| A9 | products | factors must be sets; a span or a point is refused (`factor_refusal`); `selection_factor` rows name the factors; a product records its family | a product's record is `params_json.product = [{selection, members}]`; a span or point factor has one member; `kernel`, `indices` and `distance` are not partitions and are refused (`product.ts:26–30`, `:53–73`) | the Studio's rules: a span or point may be a factor; `selection_factor` is dropped (`params_json.product` is the record); no family |
-| A10 | the joint partition | `joint(factors)`: time first, its radix rounded up to 2^bits, `code = (tile << bits) \| frame` | the same (`backend/src/db/atlas.ts:11–13`) | unchanged |
-| A11 | resolved forms | `Rule`, `Intervals`, `Elements`, `MemberOfElement`, `ProductForm` (`selection-module.md` §8–9) | `resolve()`: crop · indices · weights; `at(k)`, `indexAt`, `factorCodes`, `factorMembers`, `productCode(s)` | the Studio's names and arms (section 5 maps each form); the array kernels behind the forms stay |
-| A12 | a position on a space | not in compute's Selection | a `point` on a SPACE: `position` in a coordinate system (the time cursor, D95), snapped to a Line by `vertexOn` | added |
-| A13 | a box on a product | a `span` with one extent per factor (`resolve_box`) | the same: an extent's axis is a factor ordinal; on an axis with no closed form the extent is element indices (`selection.ts:187–211`) | unchanged |
-| A14 | `detected_over` | a selection's provenance in its shape (`types.h:153`) | the selection row has no producer column | recorded in the producing run's provenance (the commit unit's producer record), not on the class |
-| A15 | resolving a distance | `resolve_distance` by the heat method, giving the held elements | the entity does not resolve a `distance` (`selection.ts:225`); the toolbox evaluates it | kept as a compute function whose output is an `indices` Selection |
+| A1 | the types | five: `point`, `span`, `distance`, `indices`, `set` (`selection.h:56`) | eight: `point`, `span`, `distance`, `spans`, `indices`, `kernel`, `set`, `ladder` (`model.sql:538`) | point, span, distance, indices: one to one. A set by a rule (a tiling) or of listed span members is stored as `spans`; a set per element as `set`; a grid with levels as `ladder`. Read back, each becomes the in-memory `set` it was (`selection_description.h`). Ports and definitions name the schema's type |
+| A2 | kernel | not a selection: the weights a measurement uses (`selection.h:14`) | a `kernel` Selection (`weight_fn` + `params_json`, resolving to `weights`; `selection.ts:224`), also an operator factor (a gain) | a stored `kernel` row is read as the measurement's weights (or an operator factor's gain), never as an in-memory Selection; a port may name `kernel` for the Studio, and the node receives the weights |
+| A3 | ladders and levels | a dyadic grid stores its finest tile codes and a closed-form rule (`params_json.grid`); a line's time grid is one `ladder` row with every level closed form; a product names a level by `selection_factor.level` (`consolidation.md` §6.2) | a `ladder`'s members are its levels, each a stored Selection (a constant-Q level a closed-form `spans`; a surface level a partition `set` with its own array) | kept as stored. io presents a level to a reader as the Studio does (level k = the finest codes `>> shift`, a closed-form `spans` for time), computing it from the rule; `selection_factor.level` stays and is read as "this factor's level k" |
+| A4 | spans | a set of spans (rule or listed members) | `spans`, its own type: rows (events) or closed form (`tiling`); member k is `at(k)` | stored as `spans` already; io maps it to the in-memory set and back; the member id `<id>#<k>` is the Studio's reading |
+| A5 | the partition property | a family, `grid` or `irregular` (`params_json.family`; `selection.h:61`); the graph's `SelectionShape.partition` | nothing stored: a chunk grid found by definition (`field.ts:99–166`); roll-ups at a tiling's finest level by `code >> shift` | `params_json.family` stays in the row (the Studio ignores unknown `params_json` keys); io derives it when absent, by the Studio's definition. The checker reads the family through io |
+| A6 | the elements grid | every channel its own member, `params_json.grid {kind: elements}`, nothing stored | per-element values over windows are array-backed measurements whose rows are the field's elements (D96) | kept; io presents it as `set` with `n_members` = the elements. Values per channel per member are already array-backed measurements under schema 53 (`migrate_measurement_storage`) |
+| A7 | member identity and labels | a set per element stores each element's MEMBER NUMBER at P, each member's label in `P.labels` (absent when member i is labelled i) | a partition's array holds each element's CODE, read with the dictionary (D48) | kept. io resolves a code as `labels[member]` (the identity when `P.labels` is absent); a measurement's `code` is the member number, its label read through `P.labels`. Where labels and numbers differ, a Studio reader must read `P.labels` (B6) |
+| A8 | centre and extent | `span_about` (a span from a centre and an extent per axis) | a span is written by its CORNERS (`model.sql:596–601`) | `span_about` is a maker; io stores its corners. Nothing stores a centre and extent |
+| A9 | products | factors must be sets (a span or point refused); `selection_factor` rows name the factors | `params_json.product = [{selection, members}]`; a span or point factor has one member (`product.ts:26–30`, `:53–73`) | `selection_factor` stays the record; io writes `params_json.product` beside it so the Studio's reader finds its own form. The in-memory refusal of span and point factors stays nxr-neuro's rule |
+| A10 | the joint partition | time first, its radix rounded up to 2^bits, `code = (tile << bits) \| frame` | the same (`backend/src/db/atlas.ts:11–13`) | identical |
+| A11 | resolved forms | `Rule`, `Intervals`, `Elements`, `MemberOfElement`, `ProductForm` (`selection-module.md` §8–9) | `resolve()`: crop · indices · weights; `at(k)`, `factorCodes`, `productCode(s)` | kept in compute; a port names the Studio's arm (crop · indices · weights · members) and the node takes the matching form: Rule / Intervals = crop, Elements = indices, MemberOfElement = members, ProductForm = members of a product |
+| A12 | a position on a space | not in compute's Selection | a `point` on a SPACE: `position` in a coordinate system (D95) | io reads and writes the row; a port may take it as a parameter (a time position), snapped to a line by the node; no in-memory type is added |
+| A13 | a box on a product | a `span` with one extent per factor (`resolve_box`) | the same (`selection.ts:187–211`) | identical |
+| A14 | `detected_over` | in the graph's `SelectionShape` (`types.h:153`) | no producer column on the selection row | a checker fact derived from the producing run's provenance (4.4) |
+| A15 | resolving a distance | `resolve_distance` by the heat method | not resolved by the entity (`selection.ts:225`) | the row stores the rule; compute resolves it to the held elements |
 
 ---
 
-## Appendix B. Open questions
+## Appendix B. Decided, and what remains
 
-1. **Where the classes live.** The classes are named by compute (functions take and return them), io (it loads and stores them), the graph checker
-   (`nxr_graph`, which today links only nlohmann_json) and the bindings. Under the dependency table, io may never include compute. Options: (a) a target
-   of its own, `nxr_model`, with no file access and no maths beyond index arithmetic, which compute, io, meeg, the graph and the bindings may all include
-   (a dated amendment to the dependency table); (b) the classes in compute, io working in rows and arrays, and the pipelines building the classes from them
-   (today's selection bridge, which keeps two descriptions of every class). Recommendation: (a), in its own folder `model/`.
-2. **Which list is "the Studio's" where the Studio has several.** The Selection types: the schema's eight (`model.sql:538`), S-CLAUDE §1's six words
-   (Span, Point, Labels, Indices, Kernel, SpanSet; lines 34–36, where Span is "centre + extent") and the Studio's input port's four kinds (vertices,
-   partition, spans, cells; `ports.ts:256–260`). The ℂ width: 3 embedded (`fieldForms.ts:76–77`, `valueType.ts:12`) or 2 in a frame (`ports.ts:135`,
-   `surfaceKit.ts:452–453`). Recommendation: the schema and the entities are the typing (the eight types; a span by its corners; ℂ embedded, 3 a vertex);
-   S-CLAUDE §1's words and the port kinds are names for them (Labels = a partition `set`, SpanSet = `spans`), and the 2-in-a-frame ℂ is a port form only.
-3. **Values the Studio's vocabulary does not hold.** nxr-neuro makes complex values in TIME (the analytic signal of a band: a phase), complex vector3 (the
-   analytic signal of a free current) and the monogenic signal. The Studio's ℂ is a tangent vector in SPACE, and `algebraOf` reads a stored `complex` as ℂ,
-   so a typed graph would offer `div` and `curl` of an analytic signal. Options: (a) the algebra stays the value at a cell (ℝ ℂ ℍ) and a separate part
-   of the type says the value is complex in time (stored `complex` × `n_components`, its re/im the last axis), proposed to the Studio as an addition;
-   (b) an analytic signal is two ℝ Fields (re, im) linked by lineage. Recommendation: (a), agreed with the Studio before step 3.
-4. **nxr-neuro's type facts with no place on a class.** The graph types a field's band and spatial level (`Resolution`), its spin and gauge (G5), its
-   non-linearity, and a selection's `detected_over`. The Studio has none of them as class members: a band is a `spans` Selection on the frequency line, a
-   level a ladder member, the gauge a surface attribute and a ℂ field's frame, non-linearity a lineage check. Recommendation: they stay checker facts,
-   derived from the port's lineage and the Selections it references, never class members (they fail the membership test).
-5. **Stored data rewritten by "exactly".** Appendix A changes stored selections that schemas 52 and 53 wrote this round: a partition's array from member
-   numbers to codes (A7), a dyadic ladder's levels as member rows with their arrays (A3), the time grid's levels as rows (A3), `selection_factor` and
-   `params_json.family` dropped (A3, A5, A9), elements grids replaced by array-backed measurements (A6). Recommendation: accept, with a written migration
-   run on development data, and the schema version raised.
+**Decided (2026-11-17), binding:**
+
+1. **Where the classes live.** In io, as the Studio's entities live with its storage: the rows (as today) and the vocabulary header (2.10). The
+   pipelines use them through io. No new library; the dependency table is unchanged.
+2. **Selection types in the exchange.** Definitions, ports and stored rows name Selection types by the Studio's schema: point, span, distance, spans,
+   indices, kernel, set, ladder. io maps them to and from the in-memory model (five types, grid / irregular family, member numbers, products;
+   Appendix A).
+3. **Values the Studio cannot type yet** (an analytic signal in time, complex 3-vectors, the monogenic signal) are declared with the schema's storage
+   value types and told apart by their manifold: complex on a time line = an analytic signal, complex on a surface = a tangent field (3.1). An
+   explicit addition is proposed to the Studio (3.9).
+4. **Band and spatial level, spin and gauge, non-linearity, `detected_over`** stay checker facts derived from provenance, not class members (4.4).
+5. **No reversal** of the stored schemas of this round (52, 53); no migration beyond the one already planned (`migrate_measurement_storage`).
+
+The earlier questions on "which list is the Studio's" are settled by these: the schema and the entities are the vocabulary (the eight types; a span by
+its corners; ℂ embedded, 3 a vertex); S-CLAUDE §1's words (Labels = a partition `set`, SpanSet = `spans`) and the input port's kinds
+(`ports.ts:256–260`) are names for them; ℂ two in a frame (`ports.ts:135`) is a port form only.
+
+**What remains:**
+
+6. **The Studio's reading of nxr-neuro's stored selections.** Where nxr-neuro's rows differ from what the Studio's adapter expects (A3 levels by rule,
+   A7 member numbers with `P.labels`, A9 `selection_factor`), either the adapter reads io's mapping, or io writes the Studio's form beside its own
+   (as A9's `params_json.product`). To agree with the Studio before step 7 of section 6.
+7. **The proposed addition (3.9)** is the Studio's to accept or reshape; until it does, the manifold rule stands.
 
 ---
 
 ## Checklist (the architecture policy)
 
-- Can each new compute function be called with a matrix from anywhere? Yes: compute functions are pure functions of matrices (4.3);
-  only the pipelines carry the classes.
+- Can each new compute function be called with a matrix from anywhere? Yes: compute functions are pure functions of matrices (4.3); only the
+  pipelines' ports and io's rows carry the classes' types.
 - Can the pipeline run the same chain on another input of the same kind just by naming it? Yes: ports are typed by class, and `run`'s find clauses are
   unchanged.
-- Is every loop over samples or chunks, and every file access, inside io? Yes: `load`, `create` and the chunk service are io's; the classes hold state only.
+- Is every loop over samples or chunks, and every file access, inside io? Yes: loading, storing, the mapping of Appendix A and the chunk service are
+  io's; the vocabulary header has no file access.
 - Is every choice of which data made by the caller? Yes: a port declares a class and its type, never a particular row.
 - Reductions remain measurements over Selections (2.7, 4.3); the four classes add no reduction route.
