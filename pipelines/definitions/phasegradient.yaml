@@ -15,7 +15,7 @@ inputs:
   kernel:         {operator: inverse kernel, where: {name: $kernel}}
   surface:        {manifold: surface, is: kernel.to}
   frames:         {field: canonical frames, manifold: kernel.to, hint: "the canonical frames of the kernel's surface (`nxr-neuro run surface_frames` first)"}
-  leaves:         {selection: ladder, manifold: kernel.to, where: {name: "{surface} tiles"}, hint: "the surface's grid (`nxr-neuro run select_dyadic_surface` first)"}
+  leaves:         {selection: ladder, manifold: kernel.to, hint: "the surface's grid (`nxr-neuro run select_dyadic_surface` first)"}
 
 parameters:
   cross_spectrum: {default: null, meaning: "the band cross-spectrum's name (a statistic made by crossspectrum)", unit: "-"}
