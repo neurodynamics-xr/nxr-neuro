@@ -881,16 +881,30 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       if (P.found.count(of) && P.found.at(of).row) of_id = text(*P.found.at(of).row, "id");
       else for (const auto& e : stored) if (e.value("output", std::string()) == of && e.contains("id")) of_id = e["id"].get<std::string>();
     }
-    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of") && !of_id.empty() && P.found.count(ospec["over"].get<std::string>()) && P.found.at(ospec["over"].get<std::string>()).row) {
-      // a declared measurement of a FOUND field (or of the run's own stored field) over a found selection takes no node: it is a hit when every row of the pair was made by this very run (same key)
-      const std::string sel = text(*P.found.at(ospec["over"].get<std::string>()).row, "id"), fld = of_id;
-      auto by = nxr::io::selection::computed_by_over_field(sub.db(), sel, fld);
-      if (by.empty())                                                   // a node may have measured over a member of the found selection (a level's tile set of a grid: describe.over_member)
-        for (const nxr::io::Row& mr : sub.db().all("SELECT id FROM selection WHERE member_of_id = ?", {nxr::io::V(sel)})) { by = nxr::io::selection::computed_by_over_field(sub.db(), text(mr, "id"), fld); if (!by.empty()) break; }
-      if (by.empty() && ospec.value("optional", false)) { stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}, {"stored", false}, {"why", "an optional output this run did not make"}}); continue; }
-      if (by.size() != 1 || by[0] != made_by(key)) { hit = false; break; }
-      stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}});
-      continue;
+    if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of") && !of_id.empty() && ospec["over"].is_string()) {
+      // a declared measurement of a FOUND field (or of the run's own stored field) over a found selection, or over a MAKER's selection of this run (get-or-create: stored by its maker key, so a rerun finds it
+      // at its place) takes no node: it is a hit when every row of the pair was made by this very run (same key)
+      const std::string over = ospec["over"].get<std::string>();
+      std::string sel;
+      if (P.found.count(over) && P.found.at(over).row) sel = text(*P.found.at(over).row, "id");
+      else if (d.outputs.contains(over) && d.outputs[over].value("get_or_create", false)) {
+        // the stored selection of that name made by this very maker (its maker key is in its parameters)
+        task::Want w;
+        w.cls = task::Cls::selection;
+        w.name = declared_name(P, over);
+        w.params.push_back(task::ParamIs{"maker_key", Json(nxr::io::sha256_hex(maker_key(P, over).dump()))});
+        for (const auto& n : task::Subject::of(sub).find_all(w)) sel = n.id;
+        if (sel.empty()) { hit = false; break; }                              // its maker's selection is not stored yet: a first run
+      }
+      if (!sel.empty()) {
+        auto by = nxr::io::selection::computed_by_over_field(sub.db(), sel, of_id);
+        if (by.empty())                                                   // a node may have measured over a member of the found selection (a level's tile set of a grid: describe.over_member)
+          for (const nxr::io::Row& mr : sub.db().all("SELECT id FROM selection WHERE member_of_id = ?", {nxr::io::V(sel)})) { by = nxr::io::selection::computed_by_over_field(sub.db(), text(mr, "id"), of_id); if (!by.empty()) break; }
+        if (by.empty() && ospec.value("optional", false)) { stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}, {"stored", false}, {"why", "an optional output this run did not make"}}); continue; }
+        if (by.size() != 1 || by[0] != made_by(key)) { hit = false; break; }
+        stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}});
+        continue;
+      }
     }
     if (is_declared(P, o)) {                                                // a declared output: each place it takes holds the same key (a manifold is found or made, never a miss)
       Json one = Json{{"output", o}, {"kind", ospec["kind"]}, {"name", declared_name(P, o)}};
