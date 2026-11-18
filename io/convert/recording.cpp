@@ -365,7 +365,7 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
   Json out;
   sub.compose([&] {
     std::map<std::string, std::string> units_by_type;
-    const SensorPlacement place = place_sensors(reader, opt.name + "_channels", opt.acquisition);
+    const SensorPlacement place = place_sensors(reader, opt.name + "_channels", opt.acquisition, &h);
     make_frames(sub, place);
     auto mat = channel_mat(h, place, units_by_type);
     if (!place.digitisation.empty() && !place.headpoints_cs_key.empty()) mat["HeadPoints"] = headpoints_value(place.digitisation);
