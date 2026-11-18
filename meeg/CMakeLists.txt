@@ -1,8 +1,8 @@
-# nxr_meeg — MEG/EEG source imaging. Included by ../CMakeLists.txt. Depends on Eigen only (no nxr_compute, no nxr_io, no file reading).
+# nxr_meeg — MEG/EEG source imaging. Included by ../CMakeLists.txt. Depends on Eigen and nxr_core only (dated amendment 2026-11-17; never nxr_compute, nxr_io, no file reading).
+include(${CMAKE_CURRENT_SOURCE_DIR}/../compute/cmake/nxr_core.cmake)
 add_library(nxr_meeg STATIC
   src/inverse.cpp
   src/covariance.cpp
-  src/minimise.cpp
   src/sphere.cpp
   src/forward.cpp
   src/sources.cpp
@@ -12,7 +12,7 @@ add_library(nxr_meeg STATIC
 )
 target_include_directories(nxr_meeg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(nxr_meeg PUBLIC cxx_std_17)
-target_link_libraries(nxr_meeg PUBLIC Eigen3::Eigen)
+target_link_libraries(nxr_meeg PUBLIC Eigen3::Eigen nxr_core)
 set_target_properties(nxr_meeg PROPERTIES POSITION_INDEPENDENT_CODE ON)
 if(MSVC)
   target_compile_options(nxr_meeg PRIVATE /W4)

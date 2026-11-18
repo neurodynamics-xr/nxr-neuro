@@ -1,5 +1,5 @@
 // nxr::montage — see include/nxr/montage.h for the rule and what it cannot resolve.
-#include "nxr/montage.h"
+#include "nxr/meeg/montage.h"
 
 #include <Eigen/Dense>
 #include <algorithm>
@@ -9,7 +9,7 @@
 #include <stdexcept>
 #include <unordered_map>
 
-namespace nxr::montage {
+namespace nxr::meeg {
 
 namespace {
 
@@ -394,4 +394,4 @@ Placement tenFive(const std::vector<double>& vertices, const std::vector<std::in
   return out;
 }
 
-}  // namespace nxr::montage
+}  // namespace nxr::meeg

@@ -1,5 +1,5 @@
 // nxr::histogram — see include/nxr/histogram.h.
-#include "nxr/histogram.h"
+#include "nxr/stats/histogram.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <utility>
 
-namespace nxr::histogram {
+namespace nxr::stats::histogram {
 
 LogBins logBinsFor(double firstChunkMax, int bins, double factor, double ratio) {
   if (!(firstChunkMax > 0) || !std::isfinite(firstChunkMax)) throw std::invalid_argument("histogram: the first chunk's maximum must be finite and > 0 (an all-zero first chunk sets no bins)");
@@ -82,4 +82,4 @@ double mad(const std::vector<std::int64_t>& counts, const LogBins& b) {
   return dev.back().first;
 }
 
-}  // namespace nxr::histogram
+}  // namespace nxr::stats::histogram

@@ -1,5 +1,5 @@
 // nxr::nulltest — comparing a measurement with its surrogate draws (nulltest.h).
-#include "nxr/nulltest.h"
+#include "nxr/stats/nulltest.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <string>
 
-namespace nxr::nulltest {
+namespace nxr::stats {
 
 namespace {
 const double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -166,4 +166,4 @@ Eigen::VectorXd patchShares(const Eigen::VectorXd& counts, double patches, doubl
   return s;
 }
 
-}  // namespace nxr::nulltest
+}  // namespace nxr::stats

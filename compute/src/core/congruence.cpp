@@ -1,12 +1,12 @@
 // nxr::algebra — congruence on a pattern (congruence.h).
-#include "nxr/congruence.h"
+#include "nxr/core/congruence.h"
 
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
 #include <string>
 
-namespace nxr::algebra {
+namespace nxr::core {
 
 std::vector<std::complex<double>> congruence(const Eigen::MatrixXd& A, const Eigen::MatrixXcd& M, const Pairs& pairs) {
   if (M.rows() != M.cols() || A.cols() != M.rows())
@@ -79,4 +79,4 @@ template Eigen::SparseMatrix<double> sparseCongruence(const Eigen::SparseMatrix<
 template Eigen::SparseMatrix<float> sparseCongruenceBlocked(const Eigen::SparseMatrix<float>&, const Eigen::SparseMatrix<float>&, std::int64_t, float);
 template Eigen::SparseMatrix<double> sparseCongruenceBlocked(const Eigen::SparseMatrix<double>&, const Eigen::SparseMatrix<double>&, std::int64_t, double);
 
-}  // namespace nxr::algebra
+}  // namespace nxr::core

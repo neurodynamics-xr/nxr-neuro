@@ -63,7 +63,8 @@ Studio's chain, and only then write code.
 |---|---|---|
 | `compute/` | `nxr_compute` | Eigen, Spectra, geometry-central, pocketfft (vendored). **No file I/O, never `io`.** Its own guide: `compute/CONTRIBUTING.md` |
 | `io/` (`io/formats/`: `nxr_io_formats`, pure file formats) | `nxr_io` | SQLite, zstd/blosc/zlib, matio, HDF5, nlohmann/json, rapidyaml (vendored; 2026-11-12). **Never `compute`** |
-| `meeg/` | `nxr_meeg` | Eigen only. **No file I/O, never `compute` or `io`** (the pipelines hand it arrays) |
+| `core/` (`compute/include/nxr/core/`, `optimisation/`) | `nxr_core` | Eigen and the platform's threads only (added 2026-11-17): core types, errors, cancellation, progress, parallel, general algebra (congruence, row scaling) and the general solvers of optimisation. **No file I/O, never `compute`, `meeg` or `io`.** Linked by `nxr_compute` and `nxr_meeg` |
+| `meeg/` | `nxr_meeg` | Eigen and `nxr_core` (amended 2026-11-17). **No file I/O, never `compute` or `io`** (the pipelines hand it arrays) |
 | `pipelines/graph/` | `nxr_graph` | `compute`, `meeg`, Eigen, nlohmann/json (amended 2026-11-17). **No file I/O, never `io`**: the graph executor, which knows arrays and parameters only |
 | `pipelines/` | `nxr_pipelines` | `compute`, `io` (**only io's task API**, `nxr/io/task/`, plus the chunk service), `meeg`: **the only place they meet** |
 | `cli/` | `nxr-neuro` | argument parsing and output only, with no maths and no SQL; it reaches data through io's task API |
