@@ -180,29 +180,24 @@ int main() {
   for (std::int64_t v = 0; v < Vg; ++v) for (std::size_t k = 0; k < range; ++k) { const double r = static_cast<double>(rel[static_cast<std::size_t>(v) * outside.size() + k]); if (r > mx) mx = r; }
 
   const nxr::stats::histogram::LogBins lb = nxr::stats::histogram::logBinsFor(mx, 4096);
-  // the stored range is fixed from the run's first 3000 good frames; the frames read in blocks (with a halo) differ from the whole-record direct value by ~1e-3 of the peak (test_frames_wt), most at the record's first
-  // frames where the range's maximum lies: the direct histogram is binned over the STORED range, and the two ranges are compared to 3 %
+  // the stored range is fixed from the run's first 3000 good frames; the frames read in blocks (with the band's full halo) are the whole-record direct value's to the float32 storage:
+  // the direct histogram is binned over the STORED range, and the two ranges are compared
   const nxr::stats::histogram::LogBins lbs{Hs.options["lo"].get<double>(), Hs.options["hi"].get<double>(), 4096};
   const nxr::stats::histogram::Counts dc = histogramTiles(rel.data(), static_cast<std::size_t>(Vg), outside.size(), outside.size(), 1, lbs);
   double l1 = 0, total = 0;
   std::vector<std::int64_t> dcounts(4096);
   for (int k = 0; k < 4096; ++k) { dcounts[static_cast<std::size_t>(k)] = dc.counts[static_cast<std::size_t>(k)]; l1 += std::abs(Hs.values[static_cast<std::size_t>(k)] - dcounts[static_cast<std::size_t>(k)]); total += dcounts[static_cast<std::size_t>(k)]; }
   const double p99 = nxr::stats::histogram::binnedPercentile(dcounts, lbs, 99.0);
-  // the bins are 0.34 % wide and the blocks' values differ from the direct by ~1e-3: counts move between neighbouring bins, so the distributions are compared by their CUMULATIVE share (the largest difference), not bin by bin
-  double cdf_gap = 0, cs = 0, cd = 0;
-  for (int k = 0; k < 4096; ++k) { cs += Hs.values[static_cast<std::size_t>(k)] / total; cd += static_cast<double>(dcounts[static_cast<std::size_t>(k)]) / total; cdf_gap = std::max(cdf_gap, std::abs(cs - cd)); }
-  std::printf("  %lld glued vertices, %zu outside frames; the stored histogram vs the direct one: largest cumulative difference %.3g (L1 %.3g of %.0f counts; frames %lld), direct 99th percentile %.4f\n", static_cast<long long>(Vg), outside.size(), cdf_gap, l1, total,
+  std::printf("  %lld glued vertices, %zu outside frames; the stored histogram vs the direct one: L1 difference %.3g of %.0f counts (frames %lld), direct 99th percentile %.4f\n", static_cast<long long>(Vg), outside.size(), l1, total,
               static_cast<long long>(Hs.options["frames"].get<std::int64_t>()), p99);
   // a frame belongs to the window when its tile is in it: the two frames at the window's edges the direct computation (the sample the instant falls in) puts the other way
-  CHECK(std::abs(Hs.options["frames"].get<std::int64_t>() - static_cast<std::int64_t>(outside.size())) <= 2 && cdf_gap < 5e-3 && std::abs(Hs.options["hi"].get<double>() / lb.hi - 1) < 3e-2);
+  CHECK(std::abs(Hs.options["frames"].get<std::int64_t>() - static_cast<std::int64_t>(outside.size())) <= 2 && l1 < 1e-3 * total && std::abs(Hs.options["hi"].get<double>() / lb.hi - 1) < 1e-4);
   CHECK(Hs.options["chain"]["outside"] == "window" && Hs.options["chain"]["levels"] == lv && Hs.options["chain"]["relative_to"] == "spatial_baseline.baseline.rest");
   // chunk size and block size: the same distribution
-  { auto p99_of = [&](const StoredStatistic& H) {
-      std::vector<std::int64_t> c(H.values.begin(), H.values.end());
-      return nxr::stats::histogram::binnedPercentile(c, nxr::stats::histogram::LogBins{H.options["lo"].get<double>(), H.options["hi"].get<double>(), 4096}, 99.0); };
-    const double d = std::abs(p99_of(Hs) / p99_of(Hb) - 1);
-    std::printf("  chunks of 4096 vs 1000: the 99th percentiles differ by %.3g\n", d);
-    CHECK(d < 1e-2 && Hs.options["frames"] == Hb.options["frames"] && Hs.options["first_frame"] == Hb.options["first_frame"]); }
+  { double d = 0, tot = 0;
+    for (std::size_t i = 0; i < Hs.values.size(); ++i) { d += std::abs(Hs.values[i] - Hb.values[i]); tot += Hs.values[i]; }
+    std::printf("  chunks of 4096 vs 1000: L1 difference %.3g of %.0f\n", d, tot);
+    CHECK(d < 1e-3 * tot && Hs.options["frames"] == Hb.options["frames"] && Hs.options["first_frame"] == Hb.options["first_frame"]); }
   { g::RunOptions small = all; small.block_frames = 100;
     g::run(ds, sub, dthr, tset, small);
     const StoredStatistic H2 = read_statistic(sub, "spatial_threshold.histogram.rest");

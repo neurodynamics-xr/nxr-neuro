@@ -17,12 +17,12 @@ kind: chain
 version: 1
 description: a recording's band read on the cortex through the inverse kernel with the spatial band folded in, a pointwise complex field cortex x bands x time
 scope: subject
+one_of: [band, bands]
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
   kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
-  bands:     {selection: spans, where: {name: $bands}, hint: "the temporal band set (`nxr-neuro run select_bands` first)"}
-  z:         {field: analytic signal, chain: band_analytic, chain_parameters: {recording: "{recording}", bands: $bands, shape: $shape, halo: $halo}, hint: "composed in: the recording's analytic signal in the band set (one transform a block shared by all bands)"}
+  z:         {field: analytic signal, chain: band_analytic, chain_parameters: {recording: "{recording}", band: $band, bands: $bands, shape: $shape, halo: $halo}, hint: "composed in: the recording's analytic signal in the band set (one transform a block shared by all bands)"}
   grid:      {selection: set, manifold: kernel.to, where: {name: $surface_grid}, required: false, hint: "the surface's grid at the spatial scale (`nxr-neuro run select_dyadic_surface` first)"}
   glued:     {manifold: surface, where: {name: $glued_surface}, required: false, hint: "the glued cortex made by `nxr-neuro run glue`, by name (rule 33): the field is made on it and restored to the original hemispheres for storage"}
   canonical: {field: canonical frames, manifold: kernel.to, required: false, hint: "a free-orientation kernel's tensor is read in the canonical frames (`nxr-neuro run surface_frames` first)"}
@@ -31,7 +31,8 @@ parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method`", unit: "-"}
   method: {default: MNE, meaning: "the kernel's inverse method (its params.inverse.measure)", unit: "-"}
-  bands: {default: "frequency bands", meaning: "the temporal band set, by name", unit: "-"}
+  bands: {default: null, meaning: "the temporal band SET, by name (a member per band). Exactly one of band, bands", unit: "-"}
+  band: {default: null, meaning: "ONE temporal band as a quantity (\"8-16 Hz\"). Exactly one of band, bands", unit: Hz, chart: linear}
   surface_grid: {default: null, meaning: "the surface's grid by name (null: the kernel's surface's `tiles`)", unit: "-"}
   glued_surface: {default: null, meaning: "the glued cortex (the derived manifold made by `glue`) by name; null: the surface of record, no bridge", unit: "-"}
   shape: {default: morlet, meaning: "the temporal band's shape: morlet | power_partition (nxr's bank: the band powers add to broadband)", unit: "-", choices: [morlet, power_partition]}

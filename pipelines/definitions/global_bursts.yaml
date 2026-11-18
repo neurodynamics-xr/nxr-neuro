@@ -25,7 +25,7 @@ scope: subject
 
 inputs:
   recording: {field: recording, each: true, where: {name: $recording}}
-  bursts_field: {field: source estimate, chain: cortical_band, chain_parameters: {recording: "{recording}", kernel: $kernel, method: $method, bands: $band, shape: $shape, spatial_scale: $spatial_scale, spatial_shape: $spatial_shape, transform: $transform, envelope: $envelope, modes: $modes, order: $order, tolerance: $tolerance}, hint: "composed in: the band on the cortex (the chain `cortical_band`)"}
+  bursts_field: {field: source estimate, chain: cortical_band, chain_parameters: {recording: "{recording}", kernel: $kernel, method: $method, band: $band, shape: $shape, spatial_scale: $spatial_scale, spatial_shape: $spatial_shape, transform: $transform, envelope: $envelope, modes: $modes, order: $order, tolerance: $tolerance}, hint: "composed in: the band on the cortex (the chain `cortical_band`)"}
   product:   {selection: any, where: {name: $product}, hint: "the product of the spatial tiles at the spatial scale and the time tiles of the band (`nxr-neuro run select_product` first)"}
   grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid band ${band}"}, hint: "the band's time grid (`nxr-neuro run select_time_grid --rule band --band 8-16Hz` first)"}
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}

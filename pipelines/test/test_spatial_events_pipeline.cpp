@@ -176,9 +176,8 @@ int main() {
   double e = 0, top = 0;
   for (std::int64_t i = 0; i < Vg * L; ++i) { top = std::max(top, base_direct(i)); e = std::max(e, std::abs(B.values[static_cast<std::size_t>(i)] - base_direct(i))); }
   std::printf("  the stored baseline vs the direct one (taps, sinc, dense exact hats): max difference %.2e of the largest value\n", e / top);
-  // the frames are read in blocks with the band's halo (the wavelet's tails beyond it are cut), the direct one on the whole record: the two agree to ~1e-2 of the power (test_frames_wt measures it); a frame at the edge of a span is
-  // in or out by its tile (the count differs by one or two frames from the direct instant rule)
-  CHECK(e < 2e-2 * top && top > 0);
+  // the frames are read in blocks with the band's halo (its impulse response down to 1e-12 of its L1 norm), the direct one on the whole record: the two agree to the float32 storage
+  CHECK(e < 5e-4 * top && top > 0);
   { double lvl = 0;                                                            // the levels are distinct (not one operator repeated)
     for (std::int64_t v = 0; v < Vg; ++v) lvl = std::max(lvl, std::abs(B.values[static_cast<std::size_t>(v * L)] - B.values[static_cast<std::size_t>(v * L + 1)]));
     CHECK(lvl > 1e-3 * top); }
@@ -222,7 +221,7 @@ int main() {
       double w = 0, tp = 0;
       for (std::int64_t v = 0; v < Vg; ++v) { const double want = pm(v * L + static_cast<std::int64_t>(li)) / base_direct(v * L + static_cast<std::int64_t>(li)); tp = std::max(tp, want); w = std::max(w, std::abs(got[static_cast<std::size_t>(v)] - want)); }
       std::printf("  level %d: the burst frames' mean of power / baseline vs the direct one: %.2e (largest ratio %.3g)\n", lvs[li], w / tp, tp);
-      CHECK(got.size() == static_cast<std::size_t>(Vg) && w < 2e-2 * tp);
+      CHECK(got.size() == static_cast<std::size_t>(Vg) && w < 1e-3 * tp);
     }
   }
   // a baseline of another chain is no baseline of this one; a field that is no power is refused

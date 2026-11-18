@@ -25,7 +25,7 @@ const Shipped kShipped[] = {
 #include "gen/definitions.inc"
 };
 
-const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw", "kind", "plans"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
+const std::vector<std::string> kHeader = {"pipeline", "version", "description", "scope", "draw", "kind", "plans", "one_of"}, kSections = {"inputs", "parameters", "presets", "steps", "outputs"};
 const std::vector<std::string> kInputClasses = {"field", "operator", "selection", "measurement", "statistic", "manifold"};
 const std::set<std::string> kInputKeys = {"each", "where", "from", "to", "manifold", "is", "required", "description", "hint", "read", "per_subject", "of", "over", "within"}, kStepKeys = {"step", "node", "in", "with", "out", "description"},
                             kOutputKeys = {"kind", "unit", "description", "types",   // types: a span set's event type (outputs of kind spans)
@@ -138,7 +138,7 @@ bool needs_expansion(const Json& doc) {
   if (doc.contains("steps") && has_key_deep(doc["steps"], "when")) return true;
   if (doc.contains("outputs") && has_key_deep(doc["outputs"], "when")) return true;
   if (doc.contains("inputs") && doc["inputs"].is_object())
-    for (const auto& [k, v] : doc["inputs"].items()) { (void)k; if (v.is_object() && (v.contains("chain") || v.contains("make"))) return true; }
+    for (const auto& [k, v] : doc["inputs"].items()) { (void)k; if (v.is_object() && (v.contains("chain") || v.contains("make") || v.contains("when"))) return true; }
   return false;
 }
 // a value with its `$name`s replaced by the run's parameters (a name not declared is refused by the caller)
@@ -316,7 +316,13 @@ Definition parse(const Json& written, const std::string& source, const std::stri
   Json doc = written;
   if (written.contains("parameters") && written["parameters"].is_object()) doc["parameters"] = split_parameters(written["parameters"], parameter_docs, where);
   if (needs_expansion(doc)) {              // written out with the parameters' defaults to check it (`for:` repeated, `when:` decided; `chain:` and `make:` composed only at a run); `expand` writes it out again with a run's own
-    const Json defaults = doc.contains("parameters") && doc["parameters"].is_object() ? doc["parameters"] : Json::object();
+    Json defaults = doc.contains("parameters") && doc["parameters"].is_object() ? doc["parameters"] : Json::object();
+    // `one_of: [a, b]`: exactly one of the parameters is given (checked at a run, `expand`); the defaults, which give none, are written out as if the first were given
+    if (doc.contains("one_of") && doc["one_of"].is_array() && !doc["one_of"].empty() && doc["one_of"][0].is_string()) {
+      bool any = false;
+      for (const auto& n : doc["one_of"]) any = any || (n.is_string() && defaults.contains(n.get<std::string>()) && truthy(defaults[n.get<std::string>()]));
+      if (!any) defaults[doc["one_of"][0].get<std::string>()] = "(one_of)";
+    }
     Definition d = parse(expand_doc(doc, defaults, where), source, text);
     d.templ = doc;
     d.parameter_docs = parameter_docs;
@@ -724,6 +730,11 @@ std::string quantity_for_index_parameter(const std::string& name) {
 Definition expand(const Definition& d, const Json& params) {
   if (d.templ.is_null()) return d;
   const std::string where = d.source.empty() ? "pipeline" : d.source;
+  if (d.templ.contains("one_of") && d.templ["one_of"].is_array()) {
+    std::vector<std::string> names, given;
+    for (const auto& n : d.templ["one_of"]) if (n.is_string()) { names.push_back(n.get<std::string>()); if (params.contains(names.back()) && truthy(params[names.back()])) given.push_back(names.back()); }
+    if (given.size() != 1) err(where, "give exactly one of " + join(names) + (given.empty() ? "; none was given" : "; " + join(given) + " were given"));
+  }
   Json comps = Json::object();
   Definition e = parse(expand_doc(d.templ, params, where, &comps), d.source, d.text);
   e.templ = d.templ;
