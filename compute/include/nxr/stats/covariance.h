@@ -1,5 +1,6 @@
-// nxr::meeg — the sample covariance of channels, accumulated chunk by chunk (docs/specs/2026-11-10-neuro-forward-inverse.md, section 7).
-// Pure: arrays in, arrays out. Depends on Eigen only; the caller reads the recording and hands over its chunks.
+// nxr::stats — the sample covariance of channels, accumulated chunk by chunk (docs/specs/2026-11-10-neuro-forward-inverse.md, section 7).
+// Pure: arrays in, arrays out. Depends on Eigen only; the caller reads the recording and hands over its chunks. An ESTIMATE in the sense of `measurement/estimate.h`: a mean over a family of
+// segments (the blocks), folded chunk by chunk; `cov` is the one-shot form (MATLAB / NumPy `cov`: one block of all the samples).
 //
 //   C = [ sum over blocks b ( sum_t (x_t - m_b)(x_t - m_b)^T ) ] / divisor,     m_b = the mean of block b
 //
@@ -9,7 +10,7 @@
 #include <Eigen/Dense>
 #include <cstdint>
 
-namespace nxr::meeg {
+namespace nxr::stats {
 
 // What the accumulated sum of squares is divided by.
 enum class CovarianceDivisor {
@@ -22,9 +23,9 @@ struct CovarianceOptions {
   CovarianceDivisor divisor = CovarianceDivisor::SamplesMinusBlocks;
 };
 
-class CovarianceAccumulator {
+class CovarianceEstimate {
  public:
-  explicit CovarianceAccumulator(int channels, const CovarianceOptions& opt = {});
+  explicit CovarianceEstimate(int channels, const CovarianceOptions& opt = {});
   // Start a new block (the first one starts itself). Closes the one open.
   void beginBlock();
   // Add a chunk [channels x samples] to the open block. std::invalid_argument for the wrong number of rows or a NaN.
@@ -51,4 +52,7 @@ class CovarianceAccumulator {
   Block open_;
 };
 
-}  // namespace nxr::meeg
+/** The covariance [channels x channels] of x [channels x samples] as ONE block (MATLAB / NumPy `cov`, observations in the columns): the estimate fed the whole matrix. */
+Eigen::MatrixXd cov(const Eigen::MatrixXd& x, const CovarianceOptions& opt = {});
+
+}  // namespace nxr::stats

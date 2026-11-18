@@ -1,4 +1,4 @@
-"""Golden for the chunk-wise noise covariance (nxr::meeg::CovarianceAccumulator): synthetic channels with large DC offsets, MNE-Python's raw covariance
+"""Golden for the chunk-wise noise covariance (nxr::stats::CovarianceEstimate): synthetic channels with large DC offsets, MNE-Python's raw covariance
 (compute_raw_covariance, one block, divisor N - 1) over a time window, written to cov_golden.txt.
 Brainstorm's bst_noisecov needs the Brainstorm database (studies and data files), so it is not a reference here; the numbers of its divisor and DC handling are
 in docs/specs/2026-11-10-neuro-forward-inverse.md section 7.
