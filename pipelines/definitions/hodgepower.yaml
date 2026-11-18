@@ -48,5 +48,5 @@ outputs:
     kind: statistic
     name: $name
     of: recording
-    axes: [{name: mode_part}, {name: band}]
+    axes: [{name: mode_part, on: package.from, parts: [normal, flow]}, {name: band}]
     partition: {tiling: "$name_segments", on: recording.time}

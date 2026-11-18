@@ -793,7 +793,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   std::optional<nxr::io::ChunkSource> source;
   Json span_json = nullptr;
   const auto loop = P.section("do");
-  if (d.over) {
+  const bool static_field = d.over && !P.found.at(*d.over).time;           // a field with no time axis (a map): nothing streams; it is the loop's one block
+  if (d.over && !static_field) {
     const Value& over = P.found.at(*d.over);
     const auto line = sub.db().read("manifold", *over.time);
     int level = 0;                                                          // the grid a node asks of the span (Planned::align): a segment of 2^k samples starts on the line's grid
@@ -1171,7 +1172,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
   Json recording_report;                                                   // a recording output, written as the loop ran
   if (!checked.loop.empty()) {
     const std::int64_t H = ex->halo();
-    say(Json{{"stage", "run"}, {"pipeline", key.pipeline}, {"span", span->what}, {"halo", H}, {"steps", static_cast<std::int64_t>(checked.loop.size())}});
+    say(Json{{"stage", "run"}, {"pipeline", key.pipeline}, {"span", span ? Json(span->what) : Json("the map")}, {"halo", H}, {"steps", static_cast<std::int64_t>(checked.loop.size())}});
     std::int64_t blocks_n = 0;
     // A RECORDING OUTPUT (a filter's): the streamed value written as a new recording as the loop runs, in io's blocks; the source's flags, events, bad segments and projectors
     // carried over by io (add_derived_recording). Nothing else of the run is held in memory.
@@ -1179,6 +1180,17 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     for (const auto& [o, ospec] : d.outputs.items()) if (ospec.value("kind", std::string()) == "recording") rec_out = o;
     nxr::io::ChunkRun cr;
     auto loop_with = [&](const std::function<void(const Blocks&)>& sink) {
+      if (static_field) {                                                  // the map's values as ONE one-sample block: its elements are the rows (a vector's components consecutive)
+        std::vector<std::int64_t> shape;
+        const std::vector<double> f = bound.array_double(text(*P.found.at(*d.over).row, "path"), &shape);
+        Block x{static_cast<std::int64_t>(f.size()), 1, 0, 0, std::vector<float>(f.size()), {}};
+        for (std::size_t i = 0; i < f.size(); ++i) x.re[i] = static_cast<float>(f[i]);
+        const std::vector<std::uint8_t> none;
+        ++blocks_n;
+        const Blocks outs = ex->block(Blocks{{*d.over, std::move(x)}}, Place{0, 1, &none});
+        if (sink) sink(outs);
+        return;
+      }
       cr = nxr::io::haloed_loop(*source, *span, H, [&](const nxr::io::HaloedChunk& h) {
         ++blocks_n;
         const std::int64_t w = h.left + h.n + h.right;

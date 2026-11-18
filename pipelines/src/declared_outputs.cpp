@@ -863,6 +863,8 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       for (const char* key : {"members", "values"}) if (ax.contains(key)) out[key] = ax[key];
     } else if (decl.contains("on")) {
       out["manifold_id"] = link(P, decl["on"].get<std::string>(), &made, o);
+      // an axis of PARTS of each element of the manifold it is linked to (the fused Hodge-Dirac weights: per mode, its normal-current and its flow part): the rows run part-major, size = parts x elements
+      if (decl.contains("parts")) out["parts"] = decl["parts"];
     } else if (decl.contains("line")) {
       if (!ax.contains("line")) bad(o, "axis " + decl["name"].get<std::string>() + " declares a line; its node describes none");
       const Json& l = ax["line"];
