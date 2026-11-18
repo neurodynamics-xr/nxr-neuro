@@ -41,7 +41,7 @@ parameters:
   origin: {default: start, meaning: "the grid's origin as a point: start (the recording's first sample) | clock (seconds from local midnight, given in origin_clock) | event (the stored selection named by origin_event)", unit: "-", choices: [start, clock, event]}
   origin_clock: {default: null, meaning: "origin clock: the time of day of the recording's first sample, as 'HH:MM:SS' or seconds", unit: s, chart: clock}
   origin_event: {default: null, meaning: "origin event: the name of the stored selection whose first member is the origin", unit: "-"}
-  name: {default: "{recording} time grid", meaning: "the line's time-grid row (closed form, all levels)", unit: "-"}
+  name: {default: "{recording} time grid {grid_rule}", meaning: "the grid's row, NAMED BY ITS RULE (`{grid_rule}`: band 8-16 Hz, frames 8-12 Hz 36 per cycle, constant_q 0.5-64 Hz 1 voices, tiles 1 s, ...): several grids coexist on a line and a consumer finds its own by that name", unit: "-"}
 
 steps:
   before:

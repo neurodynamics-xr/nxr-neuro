@@ -519,6 +519,8 @@ Json store_spans(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const 
   const nxr::io::Row& rec = *P.found.at(*d.over).row;
   const std::string name = node_name(d, o, P.found), path = nxr::io::node_path(sub.db(), v.manifolds[0], name);
   nxr::pipelines::clear_stored(ds, sub, {{"selection", path}}, replace, d.name + " output " + o + " (" + path + ")", replaced);
+  if (!a.meta.is_object() || !a.meta.contains("tiles_of") || !a.meta["tiles_of"].is_object() || !a.meta["tiles_of"].contains("width_s") || !a.meta["tiles_of"].contains("origin"))
+    throw nxr::io::Error(nxr::io::code::invalid_argument, "outputs." + o + ": the events record no tile width or origin of the tiles they were found on (meta " + (a.meta.is_object() ? a.meta.value("tiles_of", Json()).dump().substr(0, 300) : std::string("null")) + ")");
   const Json& tiles = a.meta["tiles_of"];
   const double w = tiles["width_s"].get<double>(), t0 = tiles["origin"].get<double>();
   std::vector<nxr::bst::TimeSpan> spans;
@@ -891,6 +893,11 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       Json one = Json{{"output", o}, {"kind", ospec["kind"]}, {"name", declared_name(P, o)}};
       const auto places = declared_places(P, o, sub);
       // an output with no place to look up (a selection on a manifold this run makes, a measurement over it) cannot be shown stored: a miss, never a hit
+      // (a measurement over another output of this run, the run's own events: it is stored with them and a hit with them)
+      if (places.empty() && ospec["kind"] == "measurement" && ospec.contains("over") && ospec["over"].is_string() && d.outputs.contains(ospec["over"].get<std::string>()) && !P.found.count(ospec["over"].get<std::string>())) {
+        stored.push_back(one);
+        continue;
+      }
       if (places.empty() && ospec["kind"] != "manifold" && !ospec.value("optional", false)) { hit = false; break; }
       for (const auto& [cls, path] : places) {
         const auto row = nxr::pipelines::find_cached(sub.db(), sub.id(), task::to_string(cls), key, path);
@@ -1330,7 +1337,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       return pass(v);
     };
     for (int ps = 0; ps < 8; ++ps)
-    for (const auto& [o, spec] : d.outputs.items()) {
+    for (const auto& [o, spec] : d.outputs.items()) try {
       const Value& v = P.values.at(o);
       if (declared_pass(o, spec, v) != ps) continue;
       if (spec.value("kind", std::string()) == "recording") continue;     // written as the loop ran
@@ -1354,7 +1361,12 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         continue;
       }
       if (v.cls == "labelling") { stored.push_back(store_labelling(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)); continue; }
-      if (v.cls == "spans") { stored.push_back(store_spans(ds, sub, P, o, spec, v, data.at(o), producer, key, opt.replace, replaced)); continue; }
+      if (v.cls == "spans") {
+        Json js = store_spans(ds, sub, P, o, spec, v, data.at(o), producer, key, opt.replace, replaced);
+        if (js.contains("id") && js["id"].is_string()) made[o] = js["id"].get<std::string>();   // a measurement declared over these events finds them by their output name
+        stored.push_back(std::move(js));
+        continue;
+      }
       if (v.cls == "statistic") { stored.push_back(data.at(o).meta.contains("generic_statistic") ? store_generic(ds, sub, P, o, data.at(o), producer, key, opt.replace, replaced)
                                                           : data.at(o).meta.contains("histogram") ? store_histogram(ds, sub, P, o, data.at(o), producer, key, opt.replace, replaced)
                                                           : data.at(o).meta.contains("home_map") ? store_home(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)
@@ -1398,6 +1410,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       fs.cols.json("producer_json", pj);
       const std::string fid = sub.field(std::move(fs));
       stored.push_back(Json{{"output", o}, {"path", path}, {"id", fid}, {"on", m ? text(*m, "name") : mid}});
+    } catch (const nlohmann::json::exception& e) {
+      throw nxr::io::Error(nxr::io::code::invalid_argument, "outputs." + o + ": a record it is stored from is incomplete (" + e.what() + ")");
     }
   }
   // THE OPERATORS A NODE BUILT (rule 32, the fused operator of a chain): stored through io as operators with their provenance, under the key they were found by, in this unit; the next run finds them

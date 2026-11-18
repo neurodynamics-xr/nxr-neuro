@@ -105,12 +105,12 @@ Saved save_grid(SubjectWriter& sub, const Placement& ladder, const std::vector<G
 // ── a line's TIME GRID (schema 53) ───────────────────────────────────────────────────────────────────────────────
 /** the closed form of a time grid: sample i at origin + i / rate; level k tiles 2^k samples from the line's FIRST sample (no day-anchored origin), tile i of level k = samples [i 2^k, (i + 1) 2^k) */
 struct TimeGridRule { double origin = 0, rate = 0; std::int64_t samples = 0; };
-/** SAVE a line's time grid, once: the `ladder` row `<line name> time grid` on the line (`manifold_id`), its rule `params_json.grid` {kind "time", origin, rate, samples, levels}, the dictionary of its
+/** SAVE a line's time grid, once: the `ladder` row `<line name> time grid` (with a `rule_name`: `<line name> time grid <rule_name>`, e.g. "band 8-16 Hz": a grid is NAMED BY ITS RULE, so several coexist on a line) on the line (`manifold_id`), its rule `params_json.grid` {kind "time", origin, rate, samples, levels}, the dictionary of its
  *  levels (code = ordinal = k, name `2^k samples`, `measurement` the tile's duration in seconds, unit "s": what a physical-size query reads), nothing stored per level or tile. Found and reused by the line
- *  when one exists with the same rule (get-or-create); another rule on the same line is refused. Inside the caller's composition. */
-Saved save_time_grid(SubjectWriter& sub, const std::string& manifold_id, const TimeGridRule& rule, const std::optional<std::string>& created_by = std::nullopt);
-/** the line's time grid row and its rule, or nothing */
-std::optional<std::pair<records::SelectionRow, TimeGridRule>> find_time_grid(const Database& db, const std::string& manifold_id);
+ *  when one exists under the same name with the same rule (get-or-create); another rule under the same name is refused. Inside the caller's composition. */
+Saved save_time_grid(SubjectWriter& sub, const std::string& manifold_id, const TimeGridRule& rule, const std::optional<std::string>& created_by = std::nullopt, const std::string& rule_name = "");
+/** the line's time grid row and its rule, or nothing: the one named by `rule_name` (`<line> time grid <rule_name>`), or, with none given, the line's first time grid */
+std::optional<std::pair<records::SelectionRow, TimeGridRule>> find_time_grid(const Database& db, const std::string& manifold_id, const std::string& rule_name = "");
 
 // ── a grid's levels in PHYSICAL units (what a query by size reads) ───────────────────────────────────────────────
 /** one level of a stored grid: its identity (`level`, 0 = the finest for a time grid, the coarsest for a dyadic grid, as the grid's own ordinal), its code (its label), and its size as the level dictionary

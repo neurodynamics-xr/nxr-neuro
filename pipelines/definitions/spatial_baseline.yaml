@@ -17,14 +17,14 @@ inputs:
   kernel:    {operator: inverse kernel, from: recording.manifold.0, where: {name: $kernel, params.inverse.measure: $method}}
   tiles:     {selection: ladder, manifold: kernel.to, where: {name: "{surface} tiles"}, hint: "the surface's grid (`nxr-neuro run select_dyadic_surface` first)"}
   glued:     {manifold: surface, where: {name: $glued_surface}, hint: "the glued cortex (`nxr-neuro run glue` first): the computational manifold for spatiotemporal patterns"}
-  grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid"}, hint: "the line's time grid (`nxr-neuro run select_time_grid` first)"}
+  grid:      {selection: any, manifold: recording.time, where: {name: "{recording} time grid frames ${band} ${frames_per_cycle} per cycle"}, hint: "the band's frame grid (`nxr-neuro run select_time_grid --rule frames --band 8-12Hz` first)"}
   bursts:    {selection: spans, manifold: recording.time, where: {name: $bursts}}
   bad:       {selection: spans, manifold: recording.time, where: {name: "{recording}_bad_segments"}, required: false}
 
 parameters:
   recording: {default: none, meaning: "the recording's name, or none: every recording of the subject, one run each", unit: "-"}
   kernel: {default: none, meaning: "the inverse kernel's name, or none: found by `method` (the named kernel must also be of that method: --method)", unit: "-"}
-  band: {default: [8.0, 12.0], meaning: "Hz: the band the power is of", unit: "Hz"}
+  band: {default: "8-12 Hz", meaning: "the band as a quantity (Hz): the band the power is of", unit: "Hz"}
   shape: {default: morlet, meaning: "the temporal band's shape: morlet (the project's fixed-band rule) | meyer", unit: "-"}
   spatial_shape: {default: mexhat, meaning: "the hat levels' gain: mexhat (the level is the Mexican hat) | meyer (the level IS its Weyl band)", unit: "-"}
   spatial_scales: {default: ["parts 4", "parts 8", "parts 16", "parts 32", "parts 64", "parts 128", "parts 256"], meaning: "the scale space: one hat each, as quantities (parts per hemisphere, a tile diameter in mm, a wavelength in mm or a named scale); must be the baseline's", unit: mm, chart: wavelength}

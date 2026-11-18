@@ -214,6 +214,7 @@ struct GridLevelOut {
 struct TimeGridOut {
   double origin = 0, rate = 0;                     // seconds, Hz
   std::int64_t samples = 0;                        // the line's samples
+  std::string rule_name;                           // the grid named by its rule ("band 8-16 Hz"): `<line> time grid <rule_name>`; empty: `<line> time grid`
 };
 // a dyadic GRID with its levels: a `ladder` row (its levels' dictionary) and one `set` row per level; the hierarchy is the closed form, no parent arrays (io's save_grid); or, with `time`, a line's time grid
 struct GridOut {

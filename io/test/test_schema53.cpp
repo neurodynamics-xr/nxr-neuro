@@ -60,6 +60,15 @@ int main() {
     CHECK_EQ(again, grid_id);
     // (a refusal is checked outside a composition: an aborted composition of a writer that owns its subject removes the subject)
     CHECK_EQ(code_of([&] { selection::save_time_grid(sub, line_id, selection::TimeGridRule{0.0, 200.0, 100}); }), std::string(code::invalid_argument));
+    // grids NAMED BY THEIR RULE coexist on the line; each is found by its name
+    std::string named_a, named_b;
+    sub.compose([&] {
+      named_a = selection::save_time_grid(sub, line_id, selection::TimeGridRule{0.0, 100.0, 100}, std::nullopt, "band 8-16 Hz").id;
+      named_b = selection::save_time_grid(sub, line_id, selection::TimeGridRule{0.0, 100.0, 100}, std::nullopt, "tiles 1 s").id;
+    });
+    CHECK(named_a != grid_id && named_b != named_a);
+    CHECK(selection::find_time_grid(db, line_id, "band 8-16 Hz")->first.id == named_a && selection::find_time_grid(db, line_id, "tiles 1 s")->first.id == named_b);
+    CHECK(!selection::find_time_grid(db, line_id, "frames 8-12 Hz 36 per cycle"));
     const auto found = selection::find_time_grid(db, line_id);
     CHECK(found && found->first.id == grid_id && found->second.samples == 100 && found->second.rate == 100.0);
     CHECK(is_null(*db.read("selection", grid_id), "member_of_id") && text(*db.read("selection", grid_id), "type") == "ladder" && selection::is_grid(db, grid_id));
