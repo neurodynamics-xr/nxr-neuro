@@ -660,7 +660,7 @@ Json store_histogram(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
   st.description = "the distribution of |x| over " + std::to_string(st.n_members.value_or(0)) + " good frames of " + text(rec, "name") + " in " + std::to_string(bins) + " log bins, pooled over the vertices \xe2\x80\x94 pipeline " + key.pipeline;
   Json opt = h;
   opt["edges_axis"] = "the bin axis's `edges` are the bins' UPPER edges";
-  opt["percentile"] = "read: the upper edge of the first bin whose cumulative share reaches p (nxr::stats::histogram::percentile)";
+  opt["percentile"] = "read: the upper edge of the first bin whose cumulative share reaches p (nxr::stats::histogram::binnedPercentile)";
   opt["frames_in_range"] = std::min<std::int64_t>(h["range_frames"].get<std::int64_t>(), h["frames"].get<std::int64_t>());
   st.options = opt;
   Json pj = producer;

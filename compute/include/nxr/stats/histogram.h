@@ -9,8 +9,8 @@
 //             the log in float32, × sc and the floor in float64), so a value lands in the reference's bin.
 //   fold      counts per TILE (`measurement::Histogram`, estimate.h: ADDITIVE, so a tile read chunk by chunk is the sum of its parts, and any run of tiles is the sum of theirs); the reference
 //             pools |curl| over every vertex.
-//   read      percentile(p): the reference's `np.geomspace(lo, hi, bins)[searchsorted(cdf, p / 100)]`, the UPPER edge of the first bin whose cumulative
-//             share reaches p (exact to one bin: a relative width of ln(10⁶)/4095 ≈ 0.34 %); median = percentile(50); mad = the median of |x − median|
+//   read      binnedPercentile(p): the reference's `np.geomspace(lo, hi, bins)[searchsorted(cdf, p / 100)]`, the UPPER edge of the first bin whose cumulative
+//             share reaches p (exact to one bin: a relative width of ln(10⁶)/4095 ≈ 0.34 %); binnedMedian = binnedPercentile(50); binnedMad = the median of |x − median|
 //             with each bin's mass at its upper edge (the same edges), exact to one bin.
 // Pure: counts in, numbers out; the edges are the caller's (fixed once, from the first chunk, so every chunk shares them). A negative or non-finite value
 // is not a value of a non-negative series: it is COUNTED (`negative`, `nonfinite`) and left out, never silently binned.
@@ -42,9 +42,9 @@ struct Counts {
 /** the sum of tiles' counts (a run of tiles: their distribution) [bins] */
 std::vector<std::int64_t> sumTiles(const Counts& c, int first, int last);
 /** the p-th percentile (0 < p ≤ 100) of a distribution [bins] (std::invalid_argument when it is empty) */
-double percentile(const std::vector<std::int64_t>& counts, const LogBins& b, double p);
-double median(const std::vector<std::int64_t>& counts, const LogBins& b);
+double binnedPercentile(const std::vector<std::int64_t>& counts, const LogBins& b, double p);
+double binnedMedian(const std::vector<std::int64_t>& counts, const LogBins& b);
 /** the median absolute deviation from the median (not scaled: the robust SD is 1.4826 × it) */
-double mad(const std::vector<std::int64_t>& counts, const LogBins& b);
+double binnedMad(const std::vector<std::int64_t>& counts, const LogBins& b);
 
 }  // namespace nxr::stats::histogram

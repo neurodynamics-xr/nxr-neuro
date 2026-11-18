@@ -247,7 +247,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
     s.inputs = {"x", "threshold", "exclude"}; s.optional = {"exclude"};
     s.outputs = {"spans", "frame", "sense", "centre_vertex", "centre", "area", "peak"};
     s.parameters = Json{{"percentile", 98.0}, {"block_frames", 256}, {"bad_segments", "exclude"}};
-    s.matches = "nxr vortex._core_patches (connected patches of one sense per frame; the |value|·area-weighted centroid); compute nxr::select::corePatches; the threshold nxr::stats::histogram::percentile of the stored histogram";
+    s.matches = "nxr vortex._core_patches (connected patches of one sense per frame; the |value|·area-weighted centroid); compute nxr::select::corePatches; the threshold nxr::stats::histogram::binnedPercentile of the stored histogram";
     s.description = "the VORTEX CORES of a field on the frame tiling (the hatted curl at the burst frames): per frame and per sense (+1 first) the connected vertices with sense·x ≥ the threshold, joined by the mesh's edges "
                     "(no merging of patches that do not touch). The threshold is the `percentile` (98, nxr's) of the stored histogram `threshold` (`core_histogram`, another run's statistic read BY NAME), derived "
                     "here from its counts and edges: a core is cut from a threshold it is given. The cores are POINT EVENTS (point_events.h): a spans Selection, one member per core on its frame (members may share "
@@ -291,7 +291,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
       for (std::size_t i = 0; i < counts.size(); ++i) counts[i] = static_cast<std::int64_t>(std::llround(hs.values[i]));
       nxr::stats::histogram::LogBins lb;
       lb.lo = hs.options["lo"].get<double>(); lb.hi = hs.options["hi"].get<double>(); lb.bins = static_cast<int>(bins);
-      try { st.threshold = nxr::stats::histogram::percentile(counts, lb, st.percentile); } catch (const std::invalid_argument& e) { refuse(std::string("cores: the threshold: ") + e.what()); }
+      try { st.threshold = nxr::stats::histogram::binnedPercentile(counts, lb, st.percentile); } catch (const std::invalid_argument& e) { refuse(std::string("cores: the threshold: ") + e.what()); }
       // THE MESH: x's surface (the glued one for the curl of the one cortex): edges, vertex areas, positions
       const auto man = c.bound.manifold(x.manifolds[0]);
       const nxr::pipelines::SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);

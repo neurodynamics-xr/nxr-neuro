@@ -1,6 +1,8 @@
 // nxr::select — temporal events (intervals.h).
 #include "nxr/select/events.h"
 
+#include "nxr/stats/summary.h"
+
 #include <algorithm>
 #include <cmath>
 #include <limits>
@@ -69,17 +71,12 @@ std::vector<Span> halfWaves(const Eigen::Ref<const Eigen::VectorXd>& x, std::int
 
 double median(const Eigen::Ref<const Eigen::VectorXd>& x) {
   if (x.size() == 0) throw std::invalid_argument("median: an empty series");
-  std::vector<double> v(x.data(), x.data() + x.size());
-  const std::size_t h = v.size() / 2;
-  std::nth_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(h), v.end());
-  if (v.size() % 2) return v[h];
-  const double hi = v[h];
-  return 0.5 * (hi + *std::max_element(v.begin(), v.begin() + static_cast<std::ptrdiff_t>(h)));
+  return nxr::stats::median(std::vector<double>(x.data(), x.data() + x.size()));      // the one copy (stats/summary.h)
 }
 
 double mad(const Eigen::Ref<const Eigen::VectorXd>& x) {
-  const double m = median(x);
-  return 1.4826 * median((x.array() - m).abs().matrix());
+  if (x.size() == 0) throw std::invalid_argument("median: an empty series");
+  return nxr::stats::mad(std::vector<double>(x.data(), x.data() + x.size()));
 }
 
 std::vector<double> eventDurations(const std::vector<TileEvent>& events, double width) {
