@@ -25,7 +25,7 @@
 #include <string>
 #include <vector>
 
-namespace nxr::signal::spectral {
+namespace nxr::signal::spectral_scaling {
 
 enum class Stored { Density, Spectrum, BandPower };
 enum class Target { Stored, Density, Power, Amplitude, AmplitudeDensity, Decibel, DecibelDensity };
@@ -52,4 +52,4 @@ double convert(double value, const Scaling& s, Target t);
 /** The unit of the target, from the power unit (e.g. "A²·m²"): density "A²·m²/Hz", amplitude "√(A²·m²)", db "dB re 1 A²·m²", … ; degree 2 squares it. */
 std::string unitOf(const std::string& powerUnit, const Scaling& s, Target t);
 
-}  // namespace nxr::signal::spectral
+}  // namespace nxr::signal::spectral_scaling

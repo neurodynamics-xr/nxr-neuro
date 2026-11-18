@@ -4,7 +4,7 @@
 #include <limits>
 #include <stdexcept>
 
-namespace nxr::signal {
+namespace nxr::signal::speedspectrum {
 
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -104,4 +104,4 @@ Result compute(const filterbank::Bank& graph, const timebank::TimeBank& time, co
     return r;
 }
 
-}  // namespace nxr::signal
+}  // namespace nxr::signal::speedspectrum

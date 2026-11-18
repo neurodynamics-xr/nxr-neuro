@@ -36,4 +36,18 @@ Eigen::MatrixXcd carrier(const wt::Plan& plan, int member, const wt::Block& bloc
 /** wt: the times of the block's instants, in seconds from sample 0 of the record. */
 Eigen::VectorXd instants(const wt::Plan& plan, int member, const wt::Block& block);
 
+// Moved from quadrature.h (toolbox refactor): declarations unchanged.
+using Eigen::MatrixXcd;
+using Eigen::MatrixXd;
+using Eigen::VectorXcd;
+using Eigen::VectorXd;
+
+// ── standing or circular ───────────────────────────────────────────────────────────────────────────────────────────
+
+/** rho(u) = |u^T u| / (u^H u) in [0, 1]; NaN for the zero pattern. */
+double impropriety(const VectorXcd& u);
+
+/** Z rotated so that sum Z^2 is real and positive, its real part kept, then rotated back: the standing pattern with the same real part up to its best phase (alignment 0 by construction). */
+VectorXcd standingSurrogate(const VectorXcd& z);
+
 }  // namespace nxr::signal

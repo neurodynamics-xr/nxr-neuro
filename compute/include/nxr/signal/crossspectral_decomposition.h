@@ -7,8 +7,17 @@
 //                    frame of largest variance); ‖Im‖² / ‖Re‖² of the result is 0 for a standing pattern and 1 for a pattern that travels evenly
 //   similarity       |⟨u_i, v_i⟩| per column: phase-free (invariant to e^{iθ} on either), 1 for the same pattern
 #include <Eigen/Dense>
+#include <vector>
 
+#include "nxr/signal/quadrature_pending.h"
+
+namespace nxr::signal { using namespace nxr::quadrature; }   // TEMPORARY: QuadratureFactor, hermitianFactor stay in signal/quadrature_pending.h until their toolbox batch moves them
 namespace nxr::signal {
+
+using Eigen::MatrixXcd;
+using Eigen::MatrixXd;
+using Eigen::VectorXcd;
+using Eigen::VectorXd;
 
 struct Leading {
   Eigen::MatrixXcd vectors;    // [n x q] unit-norm eigenvectors, largest eigenvalue first
@@ -22,5 +31,31 @@ Leading leading(const Eigen::MatrixXcd& C, int q);
 Eigen::VectorXcd rotateToLargest(const Eigen::VectorXcd& m);
 /** |⟨U.col(i), V.col(i)⟩| for each column of two [n x q] matrices of unit vectors. Throws std::invalid_argument on a shape mismatch. */
 Eigen::VectorXd similarity(const Eigen::MatrixXcd& U, const Eigen::MatrixXcd& V);
+
+// Moved from quadrature.h (toolbox refactor): declarations unchanged.
+// ── quadrature pairs ───────────────────────────────────────────────────────────────────────────────────────────────
+
+struct QuadraturePair {
+    VectorXd p, q;  // [N] unit, orthogonal; p leads q by a quarter cycle (see above)
+    double sigma = 0;   // the pair's quadrature amplitude (units of the spectrum Im C; nxr's sigma is this over ||Im C||_F)
+};
+/** The k strongest pairs of Im C = Q S Q^T, strongest first (fewer if Im C has fewer nonzero pairs). From the Hermitian matrix -iS, whose eigenvalues are +-sigma. */
+std::vector<QuadraturePair> quadraturePairs(const QuadratureFactor& f, int k);
+/** The strongest pair. */
+QuadraturePair quadraturePair(const QuadratureFactor& f);
+/** nxr's `planes(Q, S, k)` and `top_plane(F)` through the same code: the pairs straight from a complex factor. */
+std::vector<QuadraturePair> quadraturePairs(const MatrixXcd& F, int k);
+
+// ── a read-out's top pair as sensor filters ────────────────────────────────────────────────────────────────────────
+
+struct QuadraturePairFilters {
+    VectorXd fx, fy;    // [C] sensor filters: the pair's patterns read back to the sensors, fx = W^T p, fy = W^T q (negated if the sense came out -1)
+    int sense = 1;      // +1: the rotation fx -> fy is at +f (counter-clockwise); -1 when the pair's rotary power was larger at -f (then fy is negated)
+    double sigma = 0;   // the pair's amplitude (of Im(W S W^H))
+    double positive = 0, negative = 0;   // the rotary power of z = fx.x + i fy.x at +f and -f in the band: w^T S conj(w), w^H S w, w = fx + i fy
+};
+/** The top quadrature pair of the read-out W [R x C] (rows: the modes' weights, a kernel's rows ...) of a band's sensor cross-spectrum S [C x C] (Hermitian): F = W L, S = L L^H.
+ *  nxr's `rotation_plane`, from the band's cross-spectrum instead of a time series. */
+QuadraturePairFilters quadraturePairFilters(const MatrixXd& W, const MatrixXcd& S);
 
 }  // namespace nxr::signal

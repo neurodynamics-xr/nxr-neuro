@@ -13,7 +13,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/jointbank.cpp
   src/signal/spacetime_kernels.cpp
   src/signal/welch.cpp
-  src/quadrature.cpp
+  src/signal/quadrature.cpp
   src/signal/filter.cpp
   src/signal/wt.cpp
   src/signal/analytic.cpp

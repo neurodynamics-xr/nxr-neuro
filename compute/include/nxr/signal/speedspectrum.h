@@ -24,7 +24,7 @@
 #include <Eigen/Dense>
 #include <vector>
 
-namespace nxr::signal {
+namespace nxr::signal::speedspectrum {
 
 /** The mode cross-spectra at the kept frequency bins: S[b] the real part, Sq[b] the imaginary part (antisymmetric), both [K x K]. */
 struct ModeSpectra {
@@ -58,4 +58,4 @@ struct Result {
 /** `mu` [K] and `kind` [K] (0 exact, 2 coexact) of the modes the spectra are on. The bank is the separable product of `graph` and `time`. */
 Result compute(const filterbank::Bank& graph, const timebank::TimeBank& time, const Eigen::VectorXd& mu, const std::vector<int>& kind, const ModeSpectra& spectra, const Options& options = {});
 
-}  // namespace nxr::signal
+}  // namespace nxr::signal::speedspectrum

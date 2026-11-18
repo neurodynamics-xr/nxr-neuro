@@ -3,7 +3,7 @@
 
 #include <stdexcept>
 
-namespace nxr::signal::spectral {
+namespace nxr::signal::spectral_scaling {
 
 Target parseTarget(const std::string& n) {
   if (n == "stored") return Target::Stored;
@@ -90,4 +90,4 @@ std::string unitOf(const std::string& pu, const Scaling& s, Target t) {
   }
 }
 
-}  // namespace nxr::signal::spectral
+}  // namespace nxr::signal::spectral_scaling

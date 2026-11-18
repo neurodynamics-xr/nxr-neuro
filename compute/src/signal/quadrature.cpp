@@ -16,9 +16,19 @@ using cd = std::complex<double>;
 MatrixXd antisymmetricPart(const MatrixXd& S) { return (S - S.transpose()) * 0.5; }
 }  // namespace
 
+}  // namespace nxr::quadrature
+
+namespace nxr::signal {
+using namespace nxr::quadrature;
+using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
+
 MatrixXd coSpectrum(const MatrixXcd& C) { return C.real(); }
 
 MatrixXd quadratureSpectrum(const MatrixXcd& C) { return C.imag(); }
+
+}  // namespace nxr::signal
+
+namespace nxr::quadrature {
 
 MatrixXcd hermitianFactor(const MatrixXcd& S, double tolerance) {
     if (S.rows() != S.cols()) throw std::invalid_argument("hermitianFactor: the matrix must be square");
@@ -50,6 +60,12 @@ QuadratureFactor quadratureFactor(const MatrixXcd& F) {
     return f;
 }
 
+}  // namespace nxr::quadrature
+
+namespace nxr::signal {
+using namespace nxr::quadrature;
+using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
+
 double quadratureFractionFromFactor(const MatrixXcd& F) {
     const MatrixXcd GH = F.adjoint() * F;
     const double c2 = GH.squaredNorm();
@@ -63,6 +79,10 @@ double quadratureFraction(const MatrixXcd& C) {
     const double n = C.norm();
     return n == 0 ? 0 : C.imag().norm() / n;
 }
+
+}  // namespace nxr::signal
+
+namespace nxr::quadrature {
 
 VectorXd quadratureEnergy(const MatrixXcd& Fr, const MatrixXcd& F) {
     if (Fr.cols() != F.cols()) throw std::invalid_argument("quadratureEnergy: Fr and F need the same number of columns");
@@ -78,6 +98,12 @@ VectorXd quadratureEnergy(const MatrixXcd& Fr, const MatrixXcd& F) {
     }
     return e;
 }
+
+}  // namespace nxr::quadrature
+
+namespace nxr::signal {
+using namespace nxr::quadrature;
+using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
 
 namespace {
 // the gauge of a pair: rotate (a, b) in their plane so that the row of largest a^2 + b^2 has q = 0 and p > 0 (the 2-form p q^T - q p^T is unchanged)
@@ -207,6 +233,10 @@ QuadraturePairFilters quadraturePairFilters(const MatrixXd& W, const MatrixXcd& 
     return r;
 }
 
+}  // namespace nxr::signal
+
+namespace nxr::quadrature {
+
 VectorXd faceAreas(const hodge::RowMat3& positions, const hodge::FaceMat& faces) {
     VectorXd a(faces.rows());
     for (Eigen::Index f = 0; f < faces.rows(); ++f) {
@@ -215,6 +245,12 @@ VectorXd faceAreas(const hodge::RowMat3& positions, const hodge::FaceMat& faces)
     }
     return a;
 }
+
+}  // namespace nxr::quadrature
+
+namespace nxr::signal {
+using namespace nxr::quadrature;
+using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
 
 namespace {
 PhaseGradient phaseGradientOverDisc(const VectorXcd& z, const hodge::FaceOperators& ops, const hodge::FaceMat& faces, const VectorXd& areas, chart::ChartKit& kit, int anchor,
@@ -298,6 +334,13 @@ VectorXcd standingSurrogate(const VectorXcd& z) {
     return out;
 }
 
+}  // namespace nxr::signal
+
+namespace nxr::stats {
+using namespace nxr::quadrature;
+using Eigen::VectorXd;
+using cd = std::complex<double>;
+
 double meanResultantLength(const VectorXd& a) {
     if (a.size() == 0) return 0;
     cd m(0, 0);
@@ -320,10 +363,20 @@ Rayleigh rayleighTest(const VectorXd& a) {
     return r;
 }
 
+}  // namespace nxr::stats
+
+namespace nxr::signal {
+using namespace nxr::quadrature;
+using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
+
 MatrixXd phaseLag(const MatrixXcd& C) { return C.unaryExpr([](const cd& c) { return std::arg(c); }); }
 double phaseLag(std::complex<double> c) { return std::arg(c); }
 MatrixXd timeLag(const MatrixXcd& C, double f) { return phaseLag(C) / (2 * kPi * f); }
 double timeLag(std::complex<double> c, double f) { return std::arg(c) / (2 * kPi * f); }
+
+}  // namespace nxr::signal
+
+namespace nxr::quadrature {
 
 namespace {
 // (‖T‖², ‖Im T‖²) of T = B C Bᵀ from the Gram G = BᵀB: tr(X G Xᵀ G) = Σ_ij (X G)_ij (G X)_ji... with X symmetric (Cr) or antisymmetric (Cq) after the symmetrisation, one product each
@@ -342,6 +395,12 @@ CongruenceNorms congruenceNorms(const MatrixXd& B, const MatrixXcd& C) {
     if (C.rows() != C.cols() || C.rows() != B.cols()) throw std::invalid_argument("congruenceNorms: C must be square with as many rows as B has columns");
     return normsFromGram(B.transpose() * B, C);
 }
+
+}  // namespace nxr::quadrature
+
+namespace nxr::measurement {
+using namespace nxr::quadrature;
+using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXcd; using Eigen::VectorXd;
 
 namespace {
 struct GroupGrams {
@@ -443,4 +502,4 @@ PairCongruenceNorms pairCongruenceNorms(const MatrixXd& A, const selection::Memb
     return pairCongruenceNorms(A, groups_of(groups), static_cast<int>(groups.members), pairs, Cs, rowWeights);
 }
 
-}  // namespace nxr::quadrature
+}  // namespace nxr::measurement
