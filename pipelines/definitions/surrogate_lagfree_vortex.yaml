@@ -78,8 +78,7 @@ steps:
         in:   {x: recording, psd: psd, psd_channel_mean: psd_channel_mean, cross_spectrum: cross_spectrum, power_series: power_series}
         with: {band: $band, shape: $shape, taps_half: $taps_half, seed: $seed}
         out:  y
-      - {node: signal.analytic, in: {x: y}, with: {band: $band, shape: $shape}, out: z}
-      - {node: signal.frames, in: {x: z, tiling: grid, within: bursts}, with: {band: $band, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
+      - {node: signal.analytic_frames, in: {x: y, tiling: grid, within: bursts}, with: {band: $band, shape: $shape, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
       - {node: meeg.apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued, pre_operator: mixing}, with: {spatial_scale: $spatial_scale, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, form: curl_tan}, out: curl_frames}
       - node: select.events.cores
         in:   {x: curl_frames, threshold: threshold, exclude: bad}

@@ -25,7 +25,6 @@ target_sources(nxr_compute PRIVATE
   src/signal/phase_gradient.cpp
   src/signal/phase_gradient_sums.cpp
   src/signal/polarisation.cpp
-  src/signal/resample.cpp
   src/signal/riesz.cpp
   src/signal/spectral.cpp
   src/signal/spectral_scaling.cpp
@@ -88,8 +87,10 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   add_executable(test_wt_at test/test_wt_at.cpp)
   target_link_libraries(test_wt_at PRIVATE nxr_compute)
   add_test(NAME test_wt_at COMMAND test_wt_at)
-  add_executable(bench_wt_at_frames test/bench/bench_wt_at_frames.cpp)      # timing, not a test: wt at a frame grid's instants against the band's analytic signal + sinc interpolation
-  target_link_libraries(bench_wt_at_frames PRIVATE nxr_compute)
+  add_executable(test_frames_wt test/test_frames_wt.cpp)
+  target_link_libraries(test_frames_wt PRIVATE nxr_compute)
+  target_compile_definitions(test_frames_wt PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_frames_wt COMMAND test_frames_wt)
   add_executable(test_wt test/test_wt.cpp)
   target_link_libraries(test_wt PRIVATE nxr_compute)
   add_test(NAME test_wt COMMAND test_wt)

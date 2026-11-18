@@ -44,7 +44,6 @@
 
 #include "nxr/signal/graphfilterbank.h"
 #include "nxr/signal/forms.h"
-#include "nxr/signal/resample.h"
 #include "nxr/select/events.h"
 #include "nxr/stats/summary.h"
 #include "nxr/signal/phase_gradient.h"
@@ -291,25 +290,27 @@ std::vector<StepSpec> build() {
                  if (!p["band"].is_null()) y.facts["band"] = p["band"];
                  return Values{{"y", y}};
                }});
-  r.push_back({"signal.frames", "chunk", {"x", "tiling", "within"}, {"within"}, {"y"}, Json{{"half_width", 32}, {"band", nullptr}, {"frames_per_cycle", nullptr}, {"frames_per_tile", nullptr}, {"origin", nullptr}},
-               "nxr vortex.band_at_frames (the band's signal at the frames, by FFT resampling: exact for a band-limited signal); here its local form, a Kaiser-windowed sinc (nxr::signal), at the START of each tower frame (nxr::tower)",
-               "a field sampled on the FRAME TILING (a closed-form spans Selection of TOWER frames, `run frametiling`: the cycles of one tower level, D135, each a dyadic tile; a frame's time is its tile's start). A linear step: the band's signal x, real or complex "
-               "(the analytic signal), is interpolated at each frame's (non-integer) sample position by a Kaiser-windowed sinc of `half_width` samples either side (the step's halo), exact for a signal band-limited well inside the Nyquist band. "
-               "A frame belongs to the chunk holding the sample at or before it, so the result does not depend on the chunk size. The output's columns are FRAMES (axis `frames`): the steps after it are pointwise in time "
-               "(a linear map, a form, |x|², a series kept) and fold frames; a step that reads the samples' own time refuses it. With `within` (a spans Selection of the recording's time line: the bursts, a stage) only the frames "
-               "inside a span are GOOD (the steps after it leave the others out); without it every frame is. Beyond the recording the signal reads 0",
+  r.push_back({"signal.analytic_frames", "chunk", {"x", "tiling", "within"}, {"within"}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"frames_per_cycle", nullptr}, {"frames_per_tile", nullptr}, {"origin", nullptr}},
+               "nxr vortex.band_at_frames (the band's analytic signal at the frames); here the band's wavelet `wt(bank, member, window, instants)` (nxr::signal, Morlet or Meyer, the Studio's gains) evaluated at the START of each frame, exactly (no interpolation)",
+               "the analytic signal of a band of a real field read at the FRAME TILING (a closed-form spans Selection of frames, `select.time_grid` rule frames: a frame's time is its tile's start): ONE step, the band's wavelet transform "
+               "of the chunk's block evaluated at each frame's (non-integer) sample position, a sum over the band's bins, never a signal on every sample interpolated. The band is `band` [lo, hi] Hz with its `shape` (morlet | meyer, "
+               "`half_width` octaves for meyer's edges), the analytic signal of gain 2 as `analytic`. The block is the chunk with the halo the band's response needs (the taps' reach), so the result does not depend on the chunk size; a frame "
+               "belongs to the chunk holding the sample at or before it. The output's columns are FRAMES (axis `frames`): the steps after it are pointwise in time (a linear map, a form, |x|², a series kept) and fold frames; a step that reads the "
+               "samples' own time refuses it. With `within` (a spans Selection of the recording's time line: the bursts, a stage) only the frames inside a span are GOOD (the steps after it leave the others out); without it every frame is. "
+               "Beyond the recording the signal reads 0",
                [](const Values& ins, const Json& p, const PlanContext&) {
                  const Value &x = ins.at("x"), &t = ins.at("tiling");
-                 in_loop(x, "frames");
-                 need(!nonlinear(x), "frames: x was made by a non-linear step (" + x.facts.value("made_by", std::string("?")) + "): its band limit is gone, it cannot be interpolated");
-                 need(t.cls == "selection", "frames: tiling must be the frame grid (`select.time_grid` rule frames)");
+                 in_loop(x, "analytic_frames");
+                 need(!x.complex, "analytic_frames: x is already complex (the band's analytic signal is taken of a real field)");
+                 need(!nonlinear(x), "analytic_frames: x was made by a non-linear step (" + x.facts.value("made_by", std::string("?")) + "): its band limit is gone");
+                 band_check(p, x, "analytic_frames", false);
+                 need(t.cls == "selection", "analytic_frames: tiling must be the frame grid (`select.time_grid` rule frames)");
                  Json tp = Json::object();
                  if (t.row) tp = Json::parse(nxr::io::opt_text(*t.row, "params_json").value_or("{}"), nullptr, false);
                  else if (t.facts.contains("rule")) tp = Json{{"rule", t.facts["rule"]}};
                  need(t.row ? (tp.is_object() && tp.contains("grid") && tp["grid"].value("kind", std::string()) == "time" && tp["grid"].value("rule", std::string()) == "frames") : t.facts.value("rule", std::string()) == "frames",
-                      "frames: " + (t.row ? nxr::io::text(*t.row, "name") : std::string("tiling")) + " is not a frame grid (`select.time_grid` rule frames)");
-                 need(t.manifolds.size() == 1 && x.time && t.manifolds[0] == *x.time, "frames: the frame grid is of another time line than x's");
-                 need(p["half_width"].is_number_integer() && p["half_width"].get<int>() >= 1, "frames: half_width is a whole number of samples, at least 1");
+                      "analytic_frames: " + (t.row ? nxr::io::text(*t.row, "name") : std::string("tiling")) + " is not a frame grid (`select.time_grid` rule frames)");
+                 need(t.manifolds.size() == 1 && x.time && t.manifolds[0] == *x.time, "analytic_frames: the frame grid is of another time line than x's");
                  // `band`, `frames_per_cycle`, `frames_per_tile` and `origin` are NOT how the grid is made (rule 15: the frame grid is found by name, made by `select.time_grid` rule frames): a definition may state them
                  // to say what it expects, and the stored grid must be that (refused with the reason otherwise)
                  if (t.row && tp.contains("quantity") && tp["quantity"].contains("stated")) {
@@ -321,24 +322,27 @@ std::vector<StepSpec> build() {
                    };
                    if (!p["band"].is_null() && st.contains("band") && !st["band"].is_null()) {
                      const auto a = band_of_text(p["band"]), b = band_of_text(st["band"]);
-                     need(std::abs(a.first - b.first) < 1e-9 * std::max(1.0, a.first) && std::abs(a.second - b.second) < 1e-9 * std::max(1.0, a.second), "frames: the run's band " + p["band"].dump() + " is not the frame grid's (" + st["band"].dump() + "): `select.time_grid` rule frames first, with this band");
+                     need(std::abs(a.first - b.first) < 1e-9 * std::max(1.0, a.first) && std::abs(a.second - b.second) < 1e-9 * std::max(1.0, a.second), "analytic_frames: the run's band " + p["band"].dump() + " is not the frame grid's (" + st["band"].dump() + "): `select.time_grid` rule frames first, with this band");
                    }
                    const bool grid_tile = st.contains("frames_per_tile") && st["frames_per_tile"].is_number(), run_tile = p["frames_per_tile"].is_number();
-                   need(grid_tile == run_tile, std::string("frames: the run states frames ") + (run_tile ? "per tile" : "per cycle") + ", the frame grid was made " + (grid_tile ? "per tile" : "per cycle"));
+                   need(grid_tile == run_tile, std::string("analytic_frames: the run states frames ") + (run_tile ? "per tile" : "per cycle") + ", the frame grid was made " + (grid_tile ? "per tile" : "per cycle"));
                    const char* key = run_tile ? "frames_per_tile" : "frames_per_cycle";
-                   need(p[key].is_null() || !st.contains(key) || st[key].is_null() || std::abs(p[key].get<double>() - st[key].get<double>()) < 1e-9, std::string("frames: the run states ") + key + " " + p[key].dump() + ", the frame grid has " + st[key].dump());
+                   need(p[key].is_null() || !st.contains(key) || st[key].is_null() || std::abs(p[key].get<double>() - st[key].get<double>()) < 1e-9, std::string("analytic_frames: the run states ") + key + " " + p[key].dump() + ", the frame grid has " + st[key].dump());
                  }
                  if (ins.count("within")) {
                    const Value& w = ins.at("within");
-                   need(w.cls == "selection" && w.row && nxr::io::text(*w.row, "type") == "spans" && w.manifolds.size() == 1 && w.manifolds[0] == *x.time, "frames: `within` must be a spans Selection of x's time line");
+                   need(w.cls == "selection" && w.row && nxr::io::text(*w.row, "type") == "spans" && w.manifolds.size() == 1 && w.manifolds[0] == *x.time, "analytic_frames: `within` must be a spans Selection of x's time line");
                  }
                  Value y = made(x);
+                 y.complex = true;
+                 y.facts["band"] = p["band"];
+                 y.facts["band_shape"] = p["shape"];
                  y.facts["axis"] = "frames";
                  const Json gd = t.row ? tp["grid"] : Json::object();
                  const double hop_s = t.row ? (gd.contains("hop_exact") ? gd["hop_exact"].get<double>() : static_cast<double>(gd["hop"].get<std::int64_t>())) / x.rate : t.facts.value("hop_s", 0.0);   // frames per cycle are not whole samples (exact, rule 36)
                  const double origin_s = t.row ? x.origin + static_cast<double>(gd["origin"].get<std::int64_t>()) / x.rate : t.facts.value("origin_s", x.origin);
-                 need(hop_s > 0, "frames: the frame grid has no hop");
-                 y.facts["frames"] = Json{{"tiling", t.row ? Json(nxr::io::text(*t.row, "name")) : Json(t.facts.value("node", std::string("select.time_grid")))}, {"level", t.facts.value("level", t.row ? gd.value("level", -1) : -1)}, {"half_width", p["half_width"]},
+                 need(hop_s > 0, "analytic_frames: the frame grid has no hop");
+                 y.facts["frames"] = Json{{"tiling", t.row ? Json(nxr::io::text(*t.row, "name")) : Json(t.facts.value("node", std::string("select.time_grid")))}, {"level", t.facts.value("level", t.row ? gd.value("level", -1) : -1)}, {"shape", p["shape"]},
                                           {"within", ins.count("within") ? Json(nxr::io::text(*ins.at("within").row, "name")) : Json(nullptr)}};
                  y.rate = 1.0 / hop_s;
                  y.origin = origin_s;
@@ -773,7 +777,7 @@ void bind_traits(std::vector<StepSpec>& r) {
   declare("signal.band_filter", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "a zero-phase FIR band filter; float32 taps, each output sample a float64 sum over the window, stored as float32", "the taps' reach: taps.size() - 1 samples each side (set by the band's width; a recording's end is reflected)"));
   declare("signal.analytic", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's even and odd FIR passes (the analytic signal); float64 sums, float32 result", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
   declare("signal.envelope", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the analytic signal's modulus: the same FIR passes, then |z| in double, stored as float32", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
-  declare("signal.frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "samples the band's signal at the frame tiling by a Kaiser-windowed sinc; float64 weights and sum, float32 result", "half_width samples each side of a frame's position (the sinc's reach; default 32)"));
+  declare("signal.analytic_frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's analytic signal at the frame tiling by wt at the frames' instants (a sum over the band's bins of the block's spectrum); float64 throughout, float32 result", "the band's response: the longer of its even and odd taps' reach (timefilterbank::haloOf), samples each side of the chunk"));
   declare("meeg.apply_kernel", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a linear map of the rows (kernel, spatial band) applied to each column independently; the product is formed in double and stored as float32", {}));
   declare("magnitude", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the norm over an element's components, per sample; sums in double, float32 result", {}));
   declare("measurement.collect", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "appends each block's own columns in time order: the order of the blocks fixes the result", {}));
@@ -876,10 +880,10 @@ void bind_execution(std::vector<StepSpec>& r) {
     const auto g = band_gain(p);
     return static_cast<std::int64_t>(std::max(nxr::signal::gainTaps(g, ins.at("x").rate, false).size(), nxr::signal::gainTaps(g, ins.at("x").rate, true).size())) - 1;
   };
-  // the frame tiling: the chunk's analytic field sampled at the frames inside its own samples
+  // the frame tiling: the band's analytic signal of the chunk's block read (wt) at the frames inside its own samples
   // THE FRAME GRID is the time grid the maker `select.time_grid` (rule frames) made: frame j starts at sample origin + j hop (a closed-form Rule on the line, no tower, no day anchor); its time is the frame's START
-  StepSpec& fr = at("signal.frames");
-  struct FramesState { std::int64_t origin = 0, count = 0; double hop = 1, rate = 0, origin_s = 0; int H = 32; std::vector<std::pair<double, double>> within; bool has_within = false;
+  StepSpec& fr = at("signal.analytic_frames");
+  struct FramesState { std::int64_t origin = 0, count = 0; double hop = 1, rate = 0, origin_s = 0; std::int64_t H = 0; nxr::signal::timefilterbank::TimeFilterbank bank; std::vector<std::pair<double, double>> within; bool has_within = false;
     double position(std::int64_t j) const { return static_cast<double>(origin) + static_cast<double>(j) * hop; }          // the frame's start, in samples from the line's first
     std::pair<std::int64_t, std::int64_t> span(std::int64_t first, std::int64_t n) const {            // the frames whose start lies in [first, first + n): a frame belongs to the chunk holding it, so the result does not depend on the chunk size
       auto up = [&](std::int64_t sample) { return std::min(count, std::max<std::int64_t>(0, static_cast<std::int64_t>(std::ceil((static_cast<double>(sample - origin)) / hop - 1e-9)))); };   // first frame at or after the sample (hop in samples, exact)
@@ -888,29 +892,44 @@ void bind_execution(std::vector<StepSpec>& r) {
   fr.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     const Value& x = ins.at("x");
     const Json tp = ins.at("tiling").row ? Json::parse(nxr::io::opt_text(*ins.at("tiling").row, "params_json").value_or("{}"), nullptr, false) : (c.made && c.made->count("tiling") ? c.made->at("tiling").meta.value("describe", Json::object()).value("params", Json::object()) : Json::object());
-    need(tp.is_object() && tp.contains("grid") && tp["grid"].value("kind", std::string()) == "time", "frames: the frame grid records no time grid (`select.time_grid` rule frames)");
+    need(tp.is_object() && tp.contains("grid") && tp["grid"].value("kind", std::string()) == "time", "analytic_frames: the frame grid records no time grid (`select.time_grid` rule frames)");
     const Json& gd = tp["grid"];
     FramesState s;
     s.origin = gd["origin"].get<std::int64_t>(); s.hop = gd.contains("hop_exact") ? gd["hop_exact"].get<double>() : static_cast<double>(gd["hop"].get<std::int64_t>()); s.count = gd["count"].get<std::int64_t>(); s.rate = x.rate;
     s.origin_s = x.origin;
-    if (std::fabs(gd["rate"].get<double>() - x.rate) > 1e-9 * x.rate) refuse("frames: the frame grid was made for " + gd["rate"].dump() + " samples a second, x has " + std::to_string(x.rate));
-    s.H = p["half_width"].get<int>();
+    if (std::fabs(gd["rate"].get<double>() - x.rate) > 1e-9 * x.rate) refuse("analytic_frames: the frame grid was made for " + gd["rate"].dump() + " samples a second, x has " + std::to_string(x.rate));
+    {   // the band's member: Morlet or Meyer, the analytic signal of gain 2 with the edge bins dropped as `analytic` (the bank's grid only fixes the member's support: wt reads it on the block's own grid)
+      namespace tb = nxr::signal::timefilterbank;
+      tb::Design design(p["shape"] == "morlet" ? tb::Family::Morlet : tb::Family::Meyer, 2.0, tb::Sides::Analytic);
+      design.bands = {{p["band"][0].get<double>(), p["band"][1].get<double>()}};
+      design.halfWidth = p["half_width"].get<double>();
+      design.edgeBins = tb::EdgeBins::Drop;
+      s.bank = tb::design(design, std::size_t(1) << 16, x.rate);
+      s.H = static_cast<std::int64_t>(tb::haloOf(s.bank, 0));
+    }
     if (ins.count("within")) {
       s.has_within = true;
       for (const auto& r : c.bound.spans(nxr::io::text(*ins.at("within").row, "id"))) s.within.push_back({r.first, r.second});
     }
     return std::any(std::make_shared<FramesState>(std::move(s)));
   };
-  fr.halo = [](const std::any& st) { return static_cast<std::int64_t>(std::any_cast<const std::shared_ptr<FramesState>&>(st)->H); };
+  fr.halo = [](const std::any& st) { return std::any_cast<const std::shared_ptr<FramesState>&>(st)->H; };
   fr.chunk_at = [](const std::any& st_, const Blocks& ins, std::int64_t keep, const Place& at) {
     const FramesState& st = *std::any_cast<const std::shared_ptr<FramesState>&>(st_);
-    if (keep != 0) refuse("frames: a step after it needs a halo; the steps after the frame grid are pointwise in time");
+    if (keep != 0) refuse("analytic_frames: a step after it needs a halo; the steps after the frame grid are pointwise in time");
     const Block& b = ins.at("x");
     const auto [j0, j1] = st.span(at.first, at.n);
-    std::vector<double> pos;
-    for (std::int64_t j = j0; j < j1; ++j) pos.push_back(st.position(j) - static_cast<double>(at.first - b.left));          // from the block's column 0
-    Block y{b.rows, j1 - j0, 0, 0, nxr::signal::sincInterpolate(b.re.data(), b.rows, b.width, pos, st.H), {}};
-    if (b.complex()) y.im = nxr::signal::sincInterpolate(b.im.data(), b.rows, b.width, pos, st.H);
+    // the block read as the recording is: zero outside. Where the block has less than the band's reach of context (a recording's end) it is padded with zeros to that reach, so the block's circular wrap (wt takes the window periodic)
+    // never brings its far end into the frames at its near end: the frames do not depend on where the chunks cut
+    const std::int64_t pad_left = std::max<std::int64_t>(0, st.H - b.left), pad_right = std::max<std::int64_t>(0, st.H - b.right), width = pad_left + b.width + pad_right;
+    Eigen::VectorXd pos(j1 - j0);
+    for (std::int64_t j = j0; j < j1; ++j) pos(j - j0) = st.position(j) - static_cast<double>(at.first - b.left) + static_cast<double>(pad_left);          // from the padded block's column 0
+    Eigen::MatrixXd x = Eigen::MatrixXd::Zero(b.rows, width);                                                              // the block, [rows x samples]
+    for (std::int64_t r = 0; r < b.rows; ++r) for (std::int64_t t = 0; t < b.width; ++t) x(r, pad_left + t) = b.re[static_cast<std::size_t>(r * b.width + t)];
+    const Eigen::MatrixXcd a = nxr::signal::wt(st.bank, 0, x, pos);                                                       // the band's analytic signal at the frames, [rows x frames]
+    Block y{b.rows, j1 - j0, 0, 0, std::vector<float>(static_cast<std::size_t>(b.rows * (j1 - j0))), std::vector<float>(static_cast<std::size_t>(b.rows * (j1 - j0)))};
+    for (std::int64_t r = 0; r < b.rows; ++r)
+      for (std::int64_t j = 0; j < j1 - j0; ++j) { y.re[static_cast<std::size_t>(r * (j1 - j0) + j)] = static_cast<float>(a(r, j).real()); y.im[static_cast<std::size_t>(r * (j1 - j0) + j)] = static_cast<float>(a(r, j).imag()); }
     return Blocks{{"y", std::move(y)}};
   };
   fr.frame_place = [](const std::any& st_, const Place& at) {
@@ -1553,7 +1572,7 @@ const std::map<std::string, std::string>& retired_steps() {
       {"band_filter", "signal.band_filter"},
       {"envelope", "signal.envelope"},
       {"gradient_power", "signal.gradient_power"},
-      {"frames", "signal.frames"},
+      {"frames", "signal.analytic_frames"}, {"signal.frames", "signal.analytic_frames"},
       {"form", "signal.form"},
       {"field.form", "signal.field_form"},
       {"apply_kernel", "meeg.apply_kernel"},

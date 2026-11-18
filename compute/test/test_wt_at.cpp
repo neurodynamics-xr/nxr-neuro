@@ -1,8 +1,7 @@
 // nxr::signal wt(bank, member, window, instants): the member's analytic signal read at given instants (a frame Selection's, not whole samples), exactly. Synthetic data only.
 //   a tone on a bin of the window's grid: |a(t)| = (G/2) A and the phase 2 pi f t + phi at fractional t, to rounding;
 //   whole-sample instants equal the full-rate wt of the same window (the bank designed on the window's grid);
-//   a band-limited noise read at fractional instants agrees with the sinc interpolation of its full-rate analytic signal to the interpolation's own error.
-#include "nxr/signal/resample.h"
+//   (against the old taps + sinc path: test_frames_wt.)
 #include "nxr/signal/wavelet.h"
 #include "mesh_helpers.h"
 #include <random>
@@ -32,18 +31,6 @@ int main() {
         const MatrixXcd b = wt(bank, 0, z, ints);
         double e = 0; for (int j = 0; j < ints.size(); ++j) e = std::max(e, std::abs(b(0, j) - W[0]((int)ints(j), 0)));
         EXPECT(e < 1e-11, "whole-sample instants equal the full-rate wt of the window " + std::to_string(e));
-    }
-    // sinc interpolation of the band's analytic signal: the same values to its own error (a noise in the band, far from the window's ends)
-    {
-        std::mt19937 g(6); std::uniform_real_distribution<double> U(0, 1); MatrixXd z = MatrixXd::Zero(1, n);
-        for (int k = 0; k < 20; ++k) { const double f = 8.5 + 3 * U(g), ph = 2 * kPi * U(g); for (int i = 0; i < n; ++i) z(0, i) += std::cos(2 * kPi * f * i / fs + ph); }
-        const auto W = wt(bank, MatrixXd(z.transpose()));
-        std::vector<float> re(n), im(n); for (int i = 0; i < n; ++i) { re[i] = (float)W[0](i, 0).real(); im[i] = (float)W[0](i, 0).imag(); }
-        std::vector<double> pos; for (double t = 600; t < 3500; t += 1000.0 / 10 / 36) pos.push_back(t);
-        const auto yr = sincInterpolate(re.data(), 1, n, pos, 64), yi = sincInterpolate(im.data(), 1, n, pos, 64);
-        const MatrixXcd b = wt(bank, 0, z, Eigen::Map<const VectorXd>(pos.data(), (long)pos.size()));
-        double e = 0, m = 0; for (std::size_t j = 0; j < pos.size(); ++j) { e = std::max(e, std::abs(b(0, (long)j) - std::complex<double>(yr[j], yi[j]))); m = std::max(m, std::abs(b(0, (long)j))); }
-        EXPECT(e < 2e-3 * m, "the sinc interpolation of the band's analytic signal (half width 64) agrees with the exact reading to " + std::to_string(e / m) + " of its peak");
     }
     EXPECT([&] { try { wt(bank, 7, x, at); } catch (const std::invalid_argument&) { return true; } return false; }(), "a member outside the bank is refused");
     std::cout << (g_failures ? "FAILED" : "all passed") << " (" << g_failures << " failures)\n";

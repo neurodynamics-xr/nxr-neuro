@@ -24,7 +24,6 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/yaml.h"
 #include "nxr/signal/graphfilterbank.h"
-#include "nxr/signal/resample.h"
 #include "nxr/stats/histogram.h"
 #include "nxr/signal/filters_fir.h"
 #include "nxr/pipelines/eigen.h"
@@ -150,15 +149,11 @@ int main() {
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
   const SpatialBand band = make_spatial_band(ds, sub, S, read_surface_level(sub, S, refl), sbo);
   const std::int64_t Vg = band.glued_vertices;
-  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
-  const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
-  const auto re = nxr::signal::convolveRows(x.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(x.data(), M, T, q, 0, T, true);
   const std::int64_t count = static_cast<std::int64_t>(std::floor(static_cast<double>(T - 1) * fps / sfreq)) + 1;
   std::vector<double> pos(static_cast<std::size_t>(count));
   for (std::int64_t j = 0; j < count; ++j) pos[static_cast<std::size_t>(j)] = static_cast<double>(j) * sfreq / fps;
-  const std::vector<float> Zr = nxr::signal::sincInterpolate(re.data(), M, T, pos, 32), Zi = nxr::signal::sincInterpolate(im.data(), M, T, pos, 32);
-  Eigen::MatrixXd Zre(M, count), Zim(M, count);
-  for (int c = 0; c < M; ++c) for (std::int64_t j = 0; j < count; ++j) { Zre(c, j) = Zr[static_cast<std::size_t>(c * count + j)]; Zim(c, j) = Zi[static_cast<std::size_t>(c * count + j)]; }
+  const Eigen::MatrixXcd Zc = nxrtest::analytic_at_frames(x, M, T, sfreq, 8.0, 12.0, pos);
+  const Eigen::MatrixXd Zre = Zc.real(), Zim = Zc.imag();   // [M x count]
   Eigen::MatrixXd I = Eigen::MatrixXd::Zero(N, M);
   for (int i = 0; i < N; ++i) I(i, i) = 1.0;
   const Eigen::MatrixXd Mc = band.apply_glued(I);

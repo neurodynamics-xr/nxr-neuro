@@ -9,6 +9,8 @@
 
 #include <Eigen/Dense>
 
+#include "nxr/signal/wavelet.h"
+
 #include "nxr/io/array_reader.h"
 #include "nxr/io/subject_reads.h"
 #include "nxr/io/writer.h"
@@ -69,4 +71,14 @@ inline std::optional<Eigen::MatrixXd> stored_map(nxr::io::SubjectWriter& sub, co
   return m;
 }
 
+/** the DIRECT value of the frames step (`signal.analytic_frames`): the band's (Morlet, [lo, hi] Hz) analytic signal of x [M x T] (floats, row-major) read at `pos` (samples, not whole) by wt, [M x J] complex, on the whole record as one block */
+inline Eigen::MatrixXcd analytic_at_frames(const std::vector<float>& x, int M, int T, double fs, double lo, double hi, const std::vector<double>& pos) {
+  namespace tb = nxr::signal::timefilterbank;
+  tb::Design d(tb::Family::Morlet, 2.0, tb::Sides::Analytic);
+  d.bands = {{lo, hi}};
+  d.edgeBins = tb::EdgeBins::Drop;
+  Eigen::MatrixXd X(M, T);
+  for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) X(c, t) = x[static_cast<std::size_t>(c) * T + t];
+  return nxr::signal::wt(tb::design(d, std::size_t(1) << 16, fs), 0, X, Eigen::Map<const Eigen::VectorXd>(pos.data(), static_cast<long>(pos.size())));
+}
 }  // namespace nxrtest

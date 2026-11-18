@@ -104,13 +104,14 @@ void test_apply() {
   CHECK(y5.res.ladder == "tiles" && y5.res.levels == std::vector<int>{5});
   CHECK(refused([&] { use("meeg.apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", selection_t({sensors}, "ladder", false, "tiles")}}, Json{{"level", "index:5"}}); }, {"port `tiles`", "sensors(rest) is not cortex(kernel)"}));
   CHECK(refused([&] { use("meeg.apply_kernel", {{"x", rec}, {"kernel", k}, {"tiles", tiles}}); }, {"`tiles` comes with `level` or `levels`"}));
-  // frames: the interpolation maps the time line onto the frame tiling's members; a non-linear x is refused
+  // analytic_frames: the band's analytic signal read at the frame tiling's members; a non-linear x is refused
+  const auto real_rec = field_t({sensors, time});
   const auto tiling = selection_t({time}, "tiling", true, "tiling");
-  const auto fr = use("signal.frames", {{"x", rec}, {"tiling", tiling}}).at("y");
+  const auto fr = use("signal.analytic_frames", {{"x", real_rec}, {"tiling", tiling}}).at("y");
   CHECK(g::print(fr.domain) == "sensors(rest) × members(tiling)" && fr.axis == g::Axis::frames && fr.domain.factors.back()->role == g::Role::frames);
-  CHECK(refused([&] { use("signal.frames", {{"x", power}, {"tiling", tiling}}); }, {"port `x`", "is non-linear"}));
-  CHECK(refused([&] { use("signal.frames", {{"x", rec}, {"tiling", selection_t({time}, "spans", true, "bad")}}); }, {"not a frame tiling"}));
-  CHECK(refused([&] { use("signal.frames", {{"x", rec}, {"tiling", selection_t({g::time_line("other")}, "tiling", true, "t2")}}); }, {"port `tiling`", "time(other) is not time(rest)"}));
+  CHECK(refused([&] { use("signal.analytic_frames", {{"x", power}, {"tiling", tiling}}); }, {"port `x`", "is non-linear"}));
+  CHECK(refused([&] { use("signal.analytic_frames", {{"x", real_rec}, {"tiling", selection_t({time}, "spans", true, "bad")}}); }, {"not a frame tiling"}));
+  CHECK(refused([&] { use("signal.analytic_frames", {{"x", real_rec}, {"tiling", selection_t({g::time_line("other")}, "tiling", true, "t2")}}); }, {"port `tiling`", "time(other) is not time(rest)"}));
 }
 
 void test_gauge() {

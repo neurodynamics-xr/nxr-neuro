@@ -34,7 +34,6 @@
 #include "nxr/select/cores.h"
 #include "nxr/signal/graphfilterbank.h"
 #include "nxr/signal/forms.h"
-#include "nxr/signal/resample.h"
 #include "nxr/stats/histogram.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
@@ -213,7 +212,7 @@ int main() {
   for (const char* rec : {"rest", "rest_b"}) { nxrtest::make_frames(ds, sub, rec, "8-12 Hz"); }
   const double fps = kFramesPerCycle * std::sqrt(8.0 * 12.0);
 
-  // ── THE DIRECT FIELD: the band's real signal (Morlet taps), the folded operator M = F_l form(K) on the glued surface (dense exact hat), M Re sampled at the frames by the Kaiser-sinc ──
+  // ── THE DIRECT FIELD: the band's real signal (Morlet taps), the folded operator M = F_l form(K) on the glued surface (dense exact hat), M Re of the band's analytic signal read at the frames by wt ──
   const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
   const SurfaceLevel SL = read_surface_level(sub, S, level);
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
@@ -222,7 +221,7 @@ int main() {
   const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
   const auto h = nxr::signal::gainTaps(gain, sfreq, false);
   const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false);
-  Eigen::MatrixXd Re(M, T);
+  Eigen::MatrixXd Re(M, T);                                                      // the band-passed real signal (taps), for the power check below
   for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) Re(c, t) = re[static_cast<std::size_t>(c) * T + t];
   const SurfaceInput S32 = read_surface(sub, std::string("cortex"));
   std::vector<float> P32(S32.vertices.begin(), S32.vertices.end());
@@ -230,13 +229,13 @@ int main() {
   Eigen::MatrixXd Kfree(3 * N, M);
   for (int r = 0; r < 3 * N; ++r) for (int c = 0; c < M; ++c) Kfree(r, c) = kfree[static_cast<std::size_t>(r) * M + c];
   const Eigen::MatrixXd Mop = sband.apply_glued(nxr::signal::formOfFreeColumns(nxr::signal::Form::curl_tan, Kfree, fop));
-  const Eigen::MatrixXd X = Mop * Re;                                           // [Vg × T]
   const std::int64_t count = static_cast<std::int64_t>(std::floor(static_cast<double>(T - 1) * fps / sfreq)) + 1;
-  std::vector<float> Xf(static_cast<std::size_t>(Vg * T));
-  for (std::int64_t v = 0; v < Vg; ++v) for (int t = 0; t < T; ++t) Xf[static_cast<std::size_t>(v * T + t)] = static_cast<float>(X(v, t));
   std::vector<double> pos(static_cast<std::size_t>(count));
   for (std::int64_t j = 0; j < count; ++j) pos[static_cast<std::size_t>(j)] = static_cast<double>(j) * sfreq / fps;
-  const std::vector<float> Cf = nxr::signal::sincInterpolate(Xf.data(), Vg, T, pos, 32);   // [Vg × count]
+  const Eigen::MatrixXd Rf = nxrtest::analytic_at_frames(xf, M, T, sfreq, 8.0, 12.0, pos).real();      // the band's analytic signal's real part at the frames [M x count]
+  const Eigen::MatrixXd X = Mop * Rf;                                                                  // M Re at the frames [Vg x count]
+  std::vector<float> Cf(static_cast<std::size_t>(Vg * count));
+  for (std::int64_t v = 0; v < Vg; ++v) for (std::int64_t j = 0; j < count; ++j) Cf[static_cast<std::size_t>(v * count + j)] = static_cast<float>(X(v, j));   // [Vg x count]
   std::vector<std::int64_t> good;                                              // the burst frames: inside the window, outside the bad span
   for (std::int64_t j = 0; j < count; ++j) {
     const double tj = static_cast<double>(j) / fps, sec = std::floor(pos[static_cast<std::size_t>(j)]) / sfreq;

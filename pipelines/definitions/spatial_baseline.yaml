@@ -1,7 +1,7 @@
 # THE SPATIAL BASELINE (spec docs/specs/2026-11-14-spatial-events.md, piece 1): the band power each glued vertex has at each hat level when no burst is on, stored as a STATISTIC (measure power, method mean, [vertex × level]) and read
 # BY NAME by `relative` (and so by `run spatial_events`). Dividing a burst's power by it removes the depth and sensitivity bias of MEG source power: deep and radial cortex looks weak in raw maps.
 #
-# THE CHAIN (one linear map before any non-linear step, D106), the same as spatial_events' up to the power: analytic (Morlet) → frames (the frame tiling, `run select_time_grid` rule frames; NO `within`: the run's frames) → apply_kernel
+# THE CHAIN (one linear map before any non-linear step, D106), the same as spatial_events' up to the power: analytic_frames (the band's wavelet, Morlet, read at the frame tiling, `run select_time_grid` rule frames; NO `within`: the run's frames) → apply_kernel
 # (no form: the free current as the inverse gives it, no orientation assumed; the hat at each of `levels`, on the GLUED surface: one cortex, the bridge filled) → power (|z|² summed over the components) → baseline.
 # The GOOD frames are the run LEAVING OUT the bad segments and the named bursts (`bursts`, e.g. the kept bursts of `run global_bursts`, or a wider stage): the baseline is what each vertex has with no burst on. A cut of
 # the run (`--from`/`--to`) cuts the baseline.
@@ -44,8 +44,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: signal.analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
-      - {node: signal.frames, in: {x: z, tiling: grid}, with: {band: $band, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
+      - {node: signal.analytic_frames, in: {x: recording, tiling: grid}, with: {band: $band, shape: $shape, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
       - {node: meeg.apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
       - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}
       - {node: measurement.estimate, in: {x: p, exclude: bad, outside: bursts}, with: {method: sample, bad_segments: $bad_segments}, out: baseline}
