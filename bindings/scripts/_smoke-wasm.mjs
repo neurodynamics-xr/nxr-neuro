@@ -13,7 +13,7 @@ import { pathToFileURL, fileURLToPath } from 'node:url'
 const __dirname = path.dirname(fileURLToPath(import.meta.url))
 const repoRoot  = path.resolve(__dirname, '..')
 
-// the module to test: argv[2] (the unified nxr-neuro module, bindings/wasm-io's nxr_io.mjs, has the same Manifold API), else the standalone compute build
+// the module to test: argv[2] (the unified nxr-neuro module, bindings/wasm-io's nxr_io.mjs, has the same toolbox functions), else the standalone compute build
 const wasmJsPath = process.argv[2] ? path.resolve(process.argv[2]) : path.join(repoRoot, 'build_wasm', 'nxr_compute.js')
 const moduleUrl  = pathToFileURL(wasmJsPath).href
 
@@ -47,10 +47,11 @@ const faces = new Int32Array([
   4, 9, 5,  2, 4,11,  6, 2,10,  8, 6, 7,  9, 8, 1,
 ])
 
-// ── Test 1: Manifold + accessors ───────────────────────
-const ctx = new nxrCompute.Manifold(verts, faces)
-const nV = ctx.nV(), nF = ctx.nF(), nE = ctx.nE()
-console.log(`[smoke] context: nV=${nV}, nF=${nF}, nE=${nE}`)
+// ── Test 1: the surface as data (made once) and its sizes ───────────────────────
+const S = nxrCompute['geometry.surfaceArrays'](verts, faces, null)
+const ops0 = nxrCompute['operators.assembleManifoldOperators'](S, '')
+const nV = ops0.nV, nF = ops0.nF, nE = ops0.nE
+console.log(`[smoke] surface: nV=${nV}, nF=${nF}, nE=${nE}`)
 
 function require(cond, msg) {
   if (!cond) {
@@ -64,9 +65,17 @@ require(nE === 30, 'icosahedron has 30 edges')
 
 // ── Test 2: precompute (the visualization-defaults pack) ──────
 const t0 = performance.now()
-const data = ctx.precompute(6, -1e-8)  // k=6 modes
+const Kc = ops0.cotanLaplacian, Mc = ops0.mass
+const eigen = (K, M, k, sigma, normalize, removeDC) =>
+  nxrCompute['operators.eigen'](K.row, K.col, K.data, M.row, M.col, M.data, K.rows, k, sigma, 0, 0, 0, normalize, removeDC)
+const data = {
+  operators: ops0,
+  dec: nxrCompute['operators.assembleDECOperators'](S),
+  eigenmodes: eigen(Kc, Mc, 6, -1e-8, true, true),   // k=6 modes, normalized, DC removed
+  frames: nxrCompute['geometry.frames'](S),
+}
 const elapsedPrecompute = (performance.now() - t0).toFixed(2)
-console.log(`[smoke] precompute({k: 6}): ${elapsedPrecompute} ms`)
+console.log(`[smoke] assemble + eigen(k: 6) + frames: ${elapsedPrecompute} ms`)
 
 // Operators
 require(data.operators.nV === 12, 'operators.nV')
@@ -166,7 +175,7 @@ console.log(`  M-orthonormality ✓ (off-diag max=${maxOffDiag.toExponential(2)}
 // ── Test 4: face-centered scalar gradient ─────────────────────
 const u_t = new Float64Array(nV).fill(0)
 u_t[0] = 1.0       // delta at vertex 0
-const grad = ctx.gradient(u_t)
+const grad = nxrCompute['operators.gradient'](S, u_t)
 require(grad.length === nF * 3, 'gradient length nF*3')
 let maxGradMag = 0
 for (let f = 0; f < nF; f++) {
@@ -177,15 +186,21 @@ require(maxGradMag > 0, 'gradient nontrivial')
 console.log(`  gradient ✓ (max |∇u| = ${maxGradMag.toFixed(4)})`)
 
 // ── Test 5: geodesic distance from a vertex ───────────────────
-const dists = ctx.heat(new Int32Array([0]))
+const dists = nxrCompute['geometry.heat'](S, new Int32Array([0]), 1.0, 'intrinsic')
 require(dists.length === nV, 'geodesic distances length nV')
 require(Math.abs(dists[0]) < 1e-9, `distance at source = 0, got ${dists[0]}`)
 let maxDist = 0
 for (const d of dists) if (d > maxDist) maxDist = d
 console.log(`  heat ✓ (max d = ${maxDist.toFixed(4)})`)
+{
+  // the batch form: one factorization, an Array of fields
+  const both = nxrCompute['geometry.heat'](S, [new Int32Array([0]), new Int32Array([3])], 1.0, 'intrinsic')
+  require(Array.isArray(both) && both.length === 2 && both[0].length === nV, 'heat batch: an Array of two fields')
+  require(both[0].every((x, i) => Math.abs(x - dists[i]) < 1e-9), 'heat batch: the first field is the single-set field')
+}
 
 // ── Test 6: geodesic path between antipodes ───────────────────
-const path0 = ctx.tracePath(0, 3)
+const path0 = nxrCompute['geometry.tracePath'](S, 0, 3)
 require(path0.nPoints >= 2, 'path has at least 2 points')
 require(path0.positions.length === path0.nPoints * 3, 'path positions [N*3]')
 let pathLen = 0
@@ -200,17 +215,19 @@ require(pathLen > 2.0 && pathLen < Math.PI,
 console.log(`  tracePath ✓ (antipode path length ${pathLen.toFixed(4)})`)
 
 // ── Test 6b: the exact (MMP) distance the path's length bounds ─
-const exact03 = ctx.exactDistance(0, 3)
+const exact03 = nxrCompute['geometry.exactDistance'](S, 0, 3)
 require(exact03 > 2.0 && exact03 <= path0.length + 1e-12,
   `exact antipode distance in (chord=2.0, flip-out length ${path0.length}], got ${exact03}`)
-require(ctx.exactDistance(0, 0) === 0, 'exact distance to itself 0')
+require(nxrCompute['geometry.exactDistance'](S, 0, 0) === 0, 'exact distance to itself 0')
 console.log(`  exactDistance ✓ (antipodes ${exact03.toFixed(4)} <= flip-out ${path0.length.toFixed(4)})`)
 
 // ── Test 7: heat diffusion (spectral generator) ───────────────
 const ts = Float64Array.from({ length: 5 }, (_, i) => i * 0.1)
-const heat = ctx.heatDiffusion(
-  new Int32Array([0]),
-  new Float64Array([1.0]),
+const u0 = nxrCompute['synthesis.delta'](nV, new Int32Array([0]), new Float64Array([1.0]))
+const heat = nxrCompute['synthesis.heatDiffusion'](
+  Mc,
+  data.eigenmodes,
+  u0,
   ts,
   /* alpha = */ 1.0,
 )
@@ -222,9 +239,10 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
 
 // ── Test 8: vector heat method ───────────────────────────────
 {
-  const transported = ctx.parallel(
+  const transported = nxrCompute['geometry.parallel'](S,
     new Int32Array([0]),
     new Float64Array([1.0, 0.0, 0.0]),
+    1.0,
   )
   require(transported.length === nV * 3, 'vhm transport length nV*3')
   let maxNorm = 0
@@ -234,18 +252,19 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
   }
   require(maxNorm > 1e-6, 'vhm transport produced non-trivial vectors')
 
-  const extended = ctx.extendScalar(
+  const extended = nxrCompute['geometry.extendScalar'](S,
     new Int32Array([0, 6]),
     new Float64Array([1.0, 0.0]),
+    1.0,
   )
   require(extended.length === nV, 'vhm extendScalar length nV')
 
-  const logmap = ctx.logMap(0, /* AffineLocal */ 1)
+  const logmap = nxrCompute['geometry.logMap'](S, 0, /* AffineLocal */ 1, 1.0)
   require(logmap.logCoords.length === nV * 2, 'logmap V*2')
   require(logmap.sourceE1.length === 3 && logmap.sourceE2.length === 3, 'logmap source frame 3')
   require(Math.hypot(logmap.logCoords[0], logmap.logCoords[1]) < 1e-6, 'logmap zero at source')
 
-  const center = ctx.findCenter(new Int32Array([0, 1, 5]), 2)
+  const center = nxrCompute['geometry.findCenter'](S, new Int32Array([0, 1, 5]), 2, 1.0)
   require(center.length === 3 && center.every(Number.isFinite), 'findCenter xyz finite')
   console.log(`  vectorHeat ✓ (transport max=${maxNorm.toFixed(3)}, ` +
               `center=[${[...center].map(v => v.toFixed(3)).join(', ')}])`)
@@ -253,10 +272,11 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
 
 // ── Test 9: signed heat method ───────────────────────────────
 {
-  const sd = ctx.signedHeat(
+  const sd = nxrCompute['geometry.signedHeat'](S,
     new Int32Array([11, 5, 1, 7, 10]),
     /* isLoop = */ true,
     /* ZeroSet = */ 1,
+    1.0,
   )
   require(sd.length === nV, 'signed distance length nV')
   let mn = Infinity, mx = -Infinity
@@ -267,17 +287,17 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
 
 // ── Test 10: smooth NRoSy direction fields ──────────────────
 {
-  const faceField = ctx.smoothFace(4, false)
+  const faceField = nxrCompute['geometry.smoothFace'](S, 4, false)
   require(faceField.length === nF * 3, 'smooth face field length F*3')
 
-  const vfield = ctx.smoothVertex(2, false)
+  const vfield = nxrCompute['geometry.smoothVertex'](S, 2, false)
   require(vfield.vertexVectors.length  === nV * 3, 'smooth vertex field V*3')
   require(vfield.vertexFieldRaw.length === nV * 2, 'smooth vertex field raw V*2')
   require(vfield.nSym === 2, 'nSym preserved')
   console.log(`  smoothField ✓ (face nF=${nF}, vertex nV=${nV})`)
 
   // ── Test 11: stripe patterns ───────────────────────────────
-  const stripes = ctx.compute(vfield.vertexFieldRaw, 8.0, true)
+  const stripes = nxrCompute['geometry.compute'](S, vfield.vertexFieldRaw, 8.0, true)
   require(stripes.segmentCount >= 0, 'stripes segmentCount non-negative')
   require(stripes.positions.length === stripes.segmentCount * 6,
           'stripes positions length 2*segs*3')
@@ -286,87 +306,58 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
 
 // ── Test 12: high-level wrapper supplies defaults ───────────
 //
-// The raw Embind class above requires every argument. The
+// The raw Embind functions above require every argument. The
 // index.mjs wrapper supplies the optional-argument defaults
 // declared in index.d.ts. Verify the wrapper is loadable AND
 // that calling each new method without its optional args works.
 {
   const wrapped = await wrappedModule()                  // idempotent — re-uses the loaded module
-  const wctx = wrapped.createContext(verts, faces)
+  const wS = wrapped['geometry.surfaceArrays'](verts, faces)
 
   // Defaults: strategy=AffineLocal, p=2, isLoop=true, levelSet=ZeroSet,
   //           nSym=4 (face) / 2 (vertex), connectOnSingularities=true.
-  const lm = wctx.logMap(0)
+  const lm = wrapped['geometry.logMap'](wS, 0)
   require(lm.logCoords.length === nV * 2, 'wrapped logMap default strategy works')
-  const c  = wctx.findCenter([0, 1, 5])
+  const c  = wrapped['geometry.findCenter'](wS, [0, 1, 5])
   require(c.length === 3, 'wrapped findCenter default p works')
-  const sd = wctx.signedHeat([11, 5, 1, 7, 10])
+  const sd = wrapped['geometry.signedHeat'](wS, [11, 5, 1, 7, 10])
   require(sd.length === nV, 'wrapped signedHeat default flags work')
-  const ff = wctx.smoothFace()
+  const ff = wrapped['geometry.smoothFace'](wS)
   require(ff.length === nF * 3, 'wrapped smoothFace default nSym works')
-  const vf = wctx.smoothVertex()
-  const sp = wctx.compute(vf.vertexFieldRaw, 8.0)
+  const vf = wrapped['geometry.smoothVertex'](wS)
+  const sp = wrapped['geometry.compute'](wS, vf.vertexFieldRaw, 8.0)
   require(sp.segmentCount >= 0, 'wrapped stripes default flag works')
-  wctx.delete()
   console.log('  index.mjs defaults ✓')
 }
 
-// ── Test 13: operators() command (Dirac + facet operators) ──────
-//
-// Parity with the MEX 'operators' command. Exercises the raw Embind method
-// directly, then the index.mjs wrapper forwarder (undefined arg → null).
+// ── Test 13: the connection Laplacian, and the old names refused ──────
 {
-  const isCOO = (s, r, c) =>
-    s && s.rows === r && s.cols === c &&
-    s.row instanceof Int32Array && s.data instanceof Float64Array && s.nnz > 0
+  const isCOO = (m, r, c) =>
+    m && m.rows === r && m.cols === c &&
+    m.row instanceof Int32Array && m.data instanceof Float64Array && m.nnz > 0
 
-  // Extrinsic Dirac family + first-order operators.
-  const dirac0 = ctx.operators('dirac', 0.0)
-  require(isCOO(dirac0, 4*nV, 4*nV), 'dirac(0) is [4V×4V] COO')
-  const dirac1 = ctx.operators('dirac', 1.0)
-  require(isCOO(dirac1, 4*nV, 4*nV), 'dirac(1) is [4V×4V] COO')
-  const dFace = ctx.operators('diracFace', 0.5)
-  require(isCOO(dFace, 4*nF, 4*nF), 'diracFace(0.5) is [4F×4F] COO')
-  const dD = ctx.operators('diracD')
-  require(isCOO(dD, 4*nF, 4*nV), 'diracD is [4F×4V] COO')
-  const dFaceD = ctx.operators('diracFaceD')
-  require(isCOO(dFaceD, 4*nV, 4*nF), 'diracFaceD is [4V×4F] COO')
-  const dIntD = ctx.operators('diracIntrinsicD')
-  require(isCOO(dIntD, 4*nF, 4*nV), 'diracIntrinsicD is [4F×4V] COO')
+  const cl = nxrCompute['operators.assembleConnectionLaplacian'](S, { format: 'complex' })
+  require(cl.K.rows === nV && cl.K.realData instanceof Float64Array &&
+          cl.K.imagData instanceof Float64Array, 'the connection Laplacian is complex COO')
+  const dec = data.dec
+  require(isCOO(dec.d0, nE, nV) && isCOO(dec.d1, nF, nE), 'assembleDECOperators returns d0 and d1')
 
-  // Cross-binding anchor (cheap): dirac(0) == cotanL ⊗ I4, so nnz(dirac0) == 4·nnz(cotanL).
-  const cotan = ctx.operators('laplacian', 'cotan')
-  require(isCOO(cotan, nV, nV), 'laplacian cotan is [V×V] COO')
-  require(dirac0.nnz === 4 * cotan.nnz, `dirac(0) nnz == 4·cotan nnz (${dirac0.nnz} vs ${4*cotan.nnz})`)
-
-  // Other facet operators.
-  const grad3D = ctx.operators('gradient3D')
-  require(isCOO(grad3D, 3*nE, 3*nV), 'gradient3D is [3E×3N] COO')
-  const dec = ctx.operators('dec')
-  require(isCOO(dec.d0, nE, nV) && isCOO(dec.d1, nF, nE), 'dec returns {d0,d1}')
-  const conn = ctx.operators('laplacian', 'connection')
-  require(conn.rows === nV && conn.realData instanceof Float64Array &&
-          conn.imagData instanceof Float64Array, 'connection is complex COO')
+  // the wrapper refuses an old name with the new one (no alias)
+  const wrapped = await wrappedModule()
+  for (const [old, now] of [['heat', 'geometry.heat'], ['solve', 'operators.eigen'], ['hodge', 'signal.hodge']]) {
+    let msg = ''
+    try { wrapped[old]() } catch (e) { msg = e.message }
+    require(msg.includes(`'${old}' was renamed '${now}'`), `'${old}' is refused naming '${now}'`)
+  }
+  let removed = ''
+  try { wrapped.createContext() } catch (e) { removed = e.message }
+  require(removed.includes('geometry.surfaceArrays'), 'createContext is refused: the surface is data now')
 
   // Error paths surface as JS Errors with the "[CODE] ..." message shape.
-  let threwTau = false
-  try { ctx.operators('dirac') } catch { threwTau = true }
-  require(threwTau, 'dirac without tau throws')
-  let threwFam = false
-  try { ctx.operators('nope') } catch { threwFam = true }
-  require(threwFam, 'unknown family throws')
-  console.log(`  operators ✓ (dirac0 nnz=${dirac0.nnz}, diracD ${dD.rows}×${dD.cols}, ` +
-              `diracFaceD ${dFaceD.rows}×${dFaceD.cols})`)
-
-  // Wrapper forwarder: omitted optional arg works (undefined → null).
-  const wrapped = await wrappedModule()
-  const wctx = wrapped.createContext(verts, faces)
-  const wD = wctx.operators('diracD')
-  require(isCOO(wD, 4*nF, 4*nV), 'wrapped operators(diracD) works without arg')
-  const wDirac = wctx.operators('dirac', 0.5)
-  require(isCOO(wDirac, 4*nV, 4*nV), 'wrapped operators(dirac, tau) works')
-  wctx.delete()
-  console.log('  operators wrapper ✓')
+  let threwSurface = false
+  try { nxrCompute['geometry.heat']({}, new Int32Array([0]), 1.0, 'intrinsic') } catch { threwSurface = true }
+  require(threwSurface, 'a surface without its arrays throws')
+  console.log('  connection Laplacian and refused names ✓')
 }
 
 // ── Test 14: named-operator eigensolve (Dirac, no JS-side ⊗I₄) ───
@@ -376,18 +367,18 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
 // dense:true cross-checks on this small mesh.
 {
   // Scalar Laplace–Beltrami via the same entry point.
-  const lb = ctx.eigs({ operator: 'laplacian', subtype: 'cotan', k: 6 })
+  const lb = nxrCompute['operators.eigenOperator'](S, { operator: 'laplacian', subtype: 'cotan', k: 6 })
   require(lb.eigenvalues.length === 6 && lb.blockSize === 1, 'eigs(cotan) k=6, blockSize 1')
   require(Math.abs(lb.eigenvalues[0]) < 1e-6, 'cotan lowest eigenvalue ≈ 0 (constant mode)')
 
   // Dirac eigensolve — eigenvectors are [4·nV × k] vMajor.
-  const d = ctx.eigs({ operator: 'dirac', tau: 0.5, k: 8 })
+  const d = nxrCompute['operators.eigenOperator'](S, { operator: 'dirac', tau: 0.5, k: 8 })
   require(d.blockSize === 4, 'eigs(dirac) blockSize 4')
   require(d.eigenvalues.length === d.k, 'eigenvalues length == k')
   require(d.eigenvectors.length === 4 * nV * d.k, 'eigenvectors length 4·nV·k')
 
   // Exact 4-fold multiplets via ℍ-reconstruction.
-  const dm = ctx.eigs({ operator: 'dirac', tau: 0.5, k: 8, multiplets: true })
+  const dm = nxrCompute['operators.eigenOperator'](S, { operator: 'dirac', tau: 0.5, k: 8, multiplets: true })
   require(dm.k % 4 === 0, 'multiplets: k rounded to a multiple of 4')
   const ev = Array.from(dm.eigenvalues)
   let maxSpread = 0
@@ -398,7 +389,7 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
   require(maxSpread < 1e-8, `multiplets are exact 4-fold (spread ${maxSpread.toExponential(2)})`)
 
   // Dense exact solve agrees on the lowest 8.
-  const dd = ctx.eigs({ operator: 'dirac', tau: 0.5, k: 8, dense: true })
+  const dd = nxrCompute['operators.eigenOperator'](S, { operator: 'dirac', tau: 0.5, k: 8, dense: true })
   let maxDiff = 0
   for (let i = 0; i < 8; i++) maxDiff = Math.max(maxDiff, Math.abs(dm.eigenvalues[i] - dd.eigenvalues[i]))
   require(maxDiff < 1e-6, `sparse-reconstruct == dense (lowest 8, Δ=${maxDiff.toExponential(2)})`)
@@ -406,17 +397,15 @@ console.log(`  heatDiffusion ✓ (T=${heat.T}, nV=${heat.nV})`)
           'dirac has a 4-fold zero (constant mode)')
 
   // diracFace eigensolve (closed mesh).
-  const df = ctx.eigs({ operator: 'diracFace', tau: 0.5, k: 8, multiplets: true })
+  const df = nxrCompute['operators.eigenOperator'](S, { operator: 'diracFace', tau: 0.5, k: 8, multiplets: true })
   require(df.k % 4 === 0 && df.eigenvectors.length === 4 * nF * df.k, 'eigs(diracFace) shapes')
 
   // Missing k → throws.
   let threw = false
-  try { ctx.eigs({ operator: 'dirac', tau: 0.5 }) } catch { threw = true }
+  try { nxrCompute['operators.eigenOperator'](S, { operator: 'dirac', tau: 0.5 }) } catch { threw = true }
   require(threw, 'eigs without k throws')
   console.log(`  eigs ✓ (dirac k=${dm.k} multiplets, dense Δ=${maxDiff.toExponential(2)}, ` +
               `cotan λ₁=${lb.eigenvalues[1].toFixed(4)})`)
 }
 
-// ── Cleanup ───────────────────────────────────────────────────
-ctx.delete()
 console.log('[smoke] all assertions passed ✓')

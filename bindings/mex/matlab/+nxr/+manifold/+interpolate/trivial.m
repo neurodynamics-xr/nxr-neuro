@@ -10,6 +10,5 @@ function out = trivial(mctx, singVerts, singValues)
 %
 %   Mirrors the WASM `interpolate.trivial`. (Distinct from the smoothest
 %   NRoSy fields in interpolate.smoothFace / interpolate.smoothVertex.)
-    out = nxr.manifold.impl.withHandle(mctx, @(h) ...
-        nxr_compute('trivial', h, int32(singVerts), singValues));
+    out = nxr_compute('operators.trivial', mctx.surface, int32(singVerts), singValues);
 end

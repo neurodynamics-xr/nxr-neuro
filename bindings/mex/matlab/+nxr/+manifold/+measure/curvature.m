@@ -5,5 +5,5 @@ function out = curvature(mctx)
 %   Returns a struct {gaussian, mean, kMin, kMax, principalDirMax}.
 %   The integrated Gaussian curvature obeys discrete Gauss-Bonnet
 %   (sum(gaussian) = 2πχ).
-    out = nxr.manifold.impl.withHandle(mctx, @(h) nxr_compute('curvatures', h));
+    out = nxr_compute('geometry.curvatures', mctx.surface);
 end

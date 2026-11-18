@@ -23,13 +23,12 @@
 #include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
+#include "nxr/operators/factorization.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/signal/hodge_decomposition.h"
 #include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
@@ -41,6 +40,7 @@
 #include <cstdint>
 #include <iostream>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -103,8 +103,8 @@ int cmdSmoke() {
     };
 
     auto t0 = std::chrono::steady_clock::now();
-    nxr::geometry::Manifold m(verts, 12, faces, 20);
-    auto ops = nxr::operators::assembleManifoldOperators(m);
+    const nxr::geometry::SurfaceArrays surface = nxr::geometry::surfaceArrays(verts, 12, faces, 20);
+    auto ops = nxr::operators::assembleManifoldOperators(surface);
     auto eig = nxr::operators::eigen(
         ops.cotanLaplacian, ops.mass, 6, nxr::operators::kShiftLadder,
         /*normalize=*/true, /*removeDC=*/true, ctrlCToken());
@@ -112,18 +112,16 @@ int cmdSmoke() {
     // Touch the new vector / signed heat / smooth field surfaces so the
     // smoke catches link-time and basic-execution regressions across all
     // four new families.
-    nxr::geometry::transport::VectorHeatSolver vhm(m);
     Eigen::MatrixXd srcVec(1, 3); srcVec << 1.0, 0.0, 0.0;
-    Eigen::MatrixXd transported = nxr::geometry::transport::parallel(vhm, {0}, srcVec);
-    auto logmap = nxr::geometry::transport::logMap(vhm, 0);
-    Eigen::Vector3d center = nxr::geometry::transport::findCenter(vhm, {0, 1, 2});
+    Eigen::MatrixXd transported = nxr::geometry::transport::parallel(surface, std::vector<int>{0}, srcVec);
+    auto logmap = nxr::geometry::transport::logMap(surface, 0);
+    Eigen::Vector3d center = nxr::geometry::transport::findCenter(surface, std::vector<int>{0, 1, 2});
 
-    nxr::geometry::SignedHeatSolver shs(m);
-    Eigen::VectorXd sd = nxr::geometry::signedHeat(shs, {0, 1, 5}, true);
+    Eigen::VectorXd sd = nxr::geometry::signedHeat(surface, std::vector<int>{0, 1, 5}, true);
 
-    Eigen::MatrixXd faceField = nxr::geometry::connection::smoothFace(m, 4);
-    auto vfield = nxr::geometry::connection::smoothVertex(m, 2);
-    auto stripes = nxr::geometry::parametrization::stripes::compute(m, vfield.vertexFieldRaw, 8.0);
+    Eigen::MatrixXd faceField = nxr::geometry::connection::smoothFace(surface, 4);
+    auto vfield = nxr::geometry::connection::smoothVertex(surface, 2);
+    auto stripes = nxr::geometry::parametrization::stripes::compute(surface, vfield.vertexFieldRaw, 8.0);
 
     const double dt = elapsedMs(t0);
 
@@ -134,7 +132,7 @@ int cmdSmoke() {
     std::cout << "[smoke]   signedHeat range=[" << sd.minCoeff() << ", " << sd.maxCoeff() << "]\n";
     std::cout << "[smoke]   smoothFace nF=" << faceField.rows()
               << "  stripes segs=" << stripes.segmentCount << "\n";
-    std::cout << "[smoke]   nV=" << m.nV() << "  nF=" << m.nF()
+    std::cout << "[smoke]   nV=" << surface.nV() << "  nF=" << surface.nF()
               << "  totalArea=" << ops.totalArea << "\n";
     std::cout << "[smoke]   eigenvalues (k=" << eig.k << " post-removeDC):";
     for (int i = 0; i < eig.k; ++i) {

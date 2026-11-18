@@ -11,5 +11,5 @@ function c = center(mctx, sourceVerts, p)
     if nargin < 3
         p = 2;
     end
-    c = nxr_compute('findCenter', mctx.V, mctx.F, int32(sourceVerts), p);
+    c = nxr_compute('geometry.findCenter', mctx.surface, int32(sourceVerts), p);
 end

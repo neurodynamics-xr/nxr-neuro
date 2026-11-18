@@ -9,6 +9,6 @@ function r = smoothVertex(mctx, nSym, alignToCurvature)
 %   `nxr.manifold.uv.stripe` as-is).
     if nargin < 2, nSym = 2;             end
     if nargin < 3, alignToCurvature = false; end
-    r = nxr_compute('smoothVertex', mctx.V, mctx.F, ...
+    r = nxr_compute('geometry.smoothVertex', mctx.surface, ...
                     int32(nSym), logical(alignToCurvature));
 end

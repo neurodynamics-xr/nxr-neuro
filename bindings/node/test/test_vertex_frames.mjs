@@ -37,10 +37,10 @@ function icosphere(levels) {
   return { verts: Float64Array.from(V.flat()), faces: Int32Array.from(F.flat()), nV: V.length }
 }
 const { verts, faces, nV } = icosphere(3)
-const ctx = nxr.createContext(verts, faces)
+const surface = nxr['geometry.surfaceArrays'](verts, faces)
 
 // ── 1. the frame: [nV×3] each, unit, orthonormal, right-handed, deterministic ──
-const vf = nxr.vertexFrames(ctx)
+const vf = nxr['geometry.vertexFrames'](surface)
 check(vf.e1.length === 3 * nV && vf.e2.length === 3 * nV && vf.normals.length === 3 * nV, `e1, e2, normals are [nV×3] (nV = ${nV})`)
 const row = (a, i) => [a[3 * i], a[3 * i + 1], a[3 * i + 2]]
 const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2]
@@ -57,13 +57,13 @@ check(unitErr < 1e-9, `unit length (max err ${unitErr.toExponential(1)})`)
 check(orthoErr < 1e-9, `orthonormal (max |dot| ${orthoErr.toExponential(1)})`)
 check(handErr < 1e-9, `right-handed: e1 × e2 = n (max err ${handErr.toExponential(1)})`)
 check(outward === nV, `normals point outward on the sphere (${outward}/${nV})`)
-const vf2 = nxr.vertexFrames(ctx)
+const vf2 = nxr['geometry.vertexFrames'](surface)
 check(vf.e1.every((x, i) => x === vf2.e1[i]) && vf.e2.every((x, i) => x === vf2.e2[i]), 'deterministic')
 
 // ── 2. the GAUGE: the connection Laplacian's energy of a gradient field is 1 in these frames, and not in any other ──
-const CL = nxr.assembleConnectionLaplacian(ctx, { domain: 'vertex', nSym: 1 })
-const M = nxr.operators(ctx, 'mass', 'mixedVoronoi')
-const Mg = nxr.operators(ctx, 'mass', 'galerkin')
+const CL = nxr['operators.assembleConnectionLaplacian'](surface, { domain: 'vertex', nSym: 1 })
+const M = nxr['operators.assembleManifoldOperators'](surface, 'mixedVoronoi').mass
+const Mg = nxr['operators.assembleManifoldOperators'](surface, 'galerkin').mass
 check(CL.format === 'real2N' && CL.outputDim === 2 * nV, `the connection Laplacian is real2N, [2nV × 2nV] (BLOCK layout: re then im)`)
 const quad = (A, x, y = x) => { let s = 0; for (let k = 0; k < A.data.length; k++) s += x[A.row[k]] * A.data[k] * y[A.col[k]]; return s }
 /** zᴴKz / zᴴMz for the tangent field X written in per-vertex frames (e1, e2) turned by `turn[i]` (and mirrored if `mirror`). */
@@ -99,7 +99,7 @@ const blocked = (A) => {
 }
 /* k = 30 closes three whole levels (6 + 10 + 14). NOTE: a k that cuts INSIDE a degenerate cluster (k = 16 here) returns
    part of that cluster and then modes from the NEXT level — measured: 5 of the ten at 5, then five at 11. Ask for a margin. */
-const eig = await nxr.eigsPencil(CL.K, blocked(M), { k: 30, normalize: true })
+const eig = await nxr['operators.eigen'](CL.K, blocked(M), { k: 30, normalize: true })
 const lam = Array.from(eig.eigenvalues)
 const near = (c, tol) => lam.filter((x) => Math.abs(x - c) < tol).length
 check(near(1, 1e-2) === 6, `eigsPencil(K, mixedVoronoi ⊗ I₂): six modes at l(l+1) − 1 = 1 (${lam.slice(0, 6).map((x) => x.toFixed(3)).join(' ')})`)

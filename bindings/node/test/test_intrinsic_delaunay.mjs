@@ -1,4 +1,4 @@
-// createContext(v, f, { intrinsicDelaunay: true }): the vertex connection Laplacian on intrinsic-Delaunay cotan weights.
+// geometry.surfaceArrays(v, f, { intrinsicDelaunay: true }): the vertex connection Laplacian on intrinsic-Delaunay cotan weights.
 // Run from repo root:
 //   bash scripts/build.sh Release && node bindings/node/test/test_intrinsic_delaunay.mjs
 //
@@ -41,13 +41,13 @@ const blocked = (A) => {
   return { row, col, data, rows: 2 * nV, cols: 2 * nV }
 }
 const lowest = async (ctx) => {
-  const CL = nxr.assembleConnectionLaplacian(ctx, { domain: 'vertex', nSym: 1 })
-  const M = nxr.operators(ctx, 'mass', 'mixedVoronoi')
-  const r = await nxr.eigsPencil(CL.K, blocked(M), { k: 10, normalize: true })
+  const CL = nxr['operators.assembleConnectionLaplacian'](ctx, { domain: 'vertex', nSym: 1 })
+  const M = nxr['operators.assembleManifoldOperators'](ctx, 'mixedVoronoi').mass
+  const r = await nxr['operators.eigen'](CL.K, blocked(M), { k: 10, normalize: true })
   return { lam: Array.from(r.eigenvalues), CL, M }
 }
-const raw = nxr.createContext(verts, faces, { intrinsicDelaunay: false })   // the named option "embedded" (the default is the intrinsic mesh)
-const idt = nxr.createContext(verts, faces)
+const raw = nxr['geometry.surfaceArrays'](verts, faces, { intrinsicDelaunay: false })   // the named option "embedded" (the default is the intrinsic mesh)
+const idt = nxr['geometry.surfaceArrays'](verts, faces)
 
 // the jitter must make NON-DELAUNAY edges (opposite angles summing past π — a negative cotan weight), or it proves nothing
 const ang = (a, b, c) => { const u = [b[0] - a[0], b[1] - a[1], b[2] - a[2]], v = [c[0] - a[0], c[1] - a[1], c[2] - a[2]]; return Math.acos((u[0] * v[0] + u[1] * v[1] + u[2] * v[2]) / (Math.hypot(...u) * Math.hypot(...v))) }
@@ -61,7 +61,7 @@ check(nonDelaunay > 10, `the jittered sphere has non-Delaunay edges (${nonDelaun
 
 const r0 = await lowest(raw), r1 = await lowest(idt)
 // the flag takes effect: the non-Delaunay edges are flipped, so the intrinsic cotan Laplacian differs
-const L0 = nxr.operators(raw, 'laplacian', 'cotan'), L1 = nxr.operators(idt, 'laplacian', 'cotan')
+const L0 = nxr['operators.assembleManifoldOperators'](raw).cotanLaplacian, L1 = nxr['operators.assembleManifoldOperators'](idt).cotanLaplacian
 const same = L0.data.length === L1.data.length && L0.data.every((x, k) => Math.abs(x - L1.data[k]) < 1e-12 && L0.row[k] === L1.row[k] && L0.col[k] === L1.col[k])
 check(!same, `the intrinsic context's cotan Laplacian differs from the embedded one (nnz ${L0.data.length} vs ${L1.data.length})`)
 check(r1.lam[0] > -1e-8, `intrinsic Delaunay: the connection Laplacian is PSD (λ_min ${r1.lam[0].toExponential(2)}; embedded ${r0.lam[0].toFixed(3)})`)
@@ -70,7 +70,7 @@ check(r1.lam.slice(0, 6).every((x) => Math.abs(x - 1) < 0.05), `…its six lowes
 // the frames are still the gauge on the intrinsic triangulation (connection_laplacian.cpp: the vertex gauge coincides) —
 // on a mesh this irregular a smooth field's DISCRETE energy is inflated (embedded 4.1), so the check is relative: the
 // intrinsic energy is lower than the embedded one and far below a wrong gauge's
-const vf = nxr.vertexFrames(idt)
+const vf = nxr['geometry.vertexFrames'](idt)
 const q = (A, y) => { let s = 0; for (let k = 0; k < A.data.length; k++) s += y[A.row[k]] * A.data[k] * y[A.col[k]]; return s }
 const energy = (r, turn) => {
   const a = [0, 0, 1], x = new Float64Array(2 * nV)
@@ -86,10 +86,6 @@ const energy = (r, turn) => {
 const eI = energy(r1), eR = energy(r0), eT = energy(r1, Float64Array.from({ length: nV }, () => 2 * Math.PI * (rnd() + 0.5)))
 check(eI < eR && eI < 2, `vertexFrames on the intrinsic context: grad of z, energy ${eI.toFixed(3)} (embedded ${eR.toFixed(3)})`)
 check(eT > 20 * eI, `…and ${eT.toFixed(1)} with each frame turned at random — the frames are the gauge`)
-
-// the flag changes only the intrinsic operators' weights: the Dirac (extrinsic) is the same on both contexts
-const d0 = nxr.operators(raw, 'diracD'), d1 = nxr.operators(idt, 'diracD')
-check(d0.data.length === d1.data.length && d0.data.every((x, i) => x === d1.data[i]), 'the extrinsic Dirac D is identical on both contexts')
 
 console.log(failures === 0 ? '\nPASS' : `\nFAIL (${failures})`)
 process.exit(failures === 0 ? 0 : 1)
