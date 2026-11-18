@@ -31,6 +31,7 @@ option(NXR_NEURO_BUILD_BINDINGS  "Build the nxr_compute bindings (bindings/: MEX
 option(NXR_NEURO_BUILD_PYTHON    "Build the Python module (bindings/python; the wheel: pip install, scikit-build-core); needs compute and io" OFF)
 option(NXR_NEURO_PYTHON_ONLY      "With NXR_NEURO_BUILD_PYTHON: build the Python module as the only binding (the wheel build: no MATLAB, Node or smoke shells)" OFF)
 option(NXR_NEURO_PORTABLE      "Release build: zstd (c-blosc copy) linked into the binary instead of the system one (SQLite is always the pinned amalgamation)" OFF)
+option(NXR_BUILD_BENCH           "Build the benchmarks (bench/; run by tools/bench.py; never part of the test suite)" OFF)
 option(NXR_NEURO_BUILD_TESTS     "Build the C++ tests of every library built, and register them with ctest" ON)
 
 if(EMSCRIPTEN)   # WebAssembly: every library (compute, io, meeg, pipelines) into one module (bindings/wasm-io); the command line is compiled INTO it, not as a program
@@ -60,6 +61,7 @@ endif()
 if(POLICY CMP0144)
   cmake_policy(SET CMP0144 NEW)   # find_package(Matlab) reads MATLAB_ROOT from the environment
 endif()
+include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/test_kinds.cmake)   # nxr_test_kinds(): the kind of every test (tests/kinds.tsv)
 if(NXR_NEURO_BUILD_TESTS)
   enable_testing()
   # the layering guard: a recording is read and looped over only by the io chunk service (cmake/check_layering.cmake)
@@ -109,3 +111,10 @@ endif()
 if(NXR_NEURO_BUILD_CLI)
   add_subdirectory(cli)
 endif()
+
+if(NXR_BUILD_BENCH AND NXR_NEURO_BUILD_COMPUTE AND NOT EMSCRIPTEN)
+  add_subdirectory(bench)
+endif()
+
+# the kind of the top-level (guard) tests (tests/kinds.tsv)
+nxr_test_kinds()

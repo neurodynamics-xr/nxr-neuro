@@ -1,11 +1,10 @@
-// The two isoline methods (nxr/signal/surface_calculus.h, IsolineMethod) on a cortex-sized synthetic mesh (an icosphere, 163842 vertices): the same
-// segments (each segment's endpoints, as a set, to rounding), and the time of each (printed: the faster is the default).
+// The two isoline methods (nxr/signal/surface_calculus.h, IsolineMethod) on a synthetic mesh (an icosphere, 10242 vertices): the same
+// segments (each segment's endpoints, as a set, to rounding). Their speed is measured in bench/, not here.
 #include "nxr/geometry/surface_arrays.h"
 #include "nxr/signal/surface_calculus.h"
 
 #include <algorithm>
 #include <array>
-#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <iostream>
@@ -38,21 +37,16 @@ static std::vector<Seg> segments(const nxr::signal::IsolineResult& r) {
 }
 
 int main() {
-    const Mesh m = icosphere(7);
+    const Mesh m = icosphere(5);
     std::cout << "mesh: " << m.nV() << " vertices, " << m.nF() << " faces\n";
     const nxr::geometry::SurfaceArrays s = nxr::geometry::surfaceArrays(m.V.data(), m.nV(), m.F.data(), m.nF(), nxr::geometry::intrinsicOptions(false));
     std::mt19937 g(3);
     Eigen::VectorXd f(m.nV());
     for (int v = 0; v < m.nV(); ++v) f(v) = m.V[3 * v + 2] + 0.3 * std::sin(7 * m.V[3 * v]) + 1e-3 * gauss(g);
     const int levels = 20;
-    using clock = std::chrono::steady_clock;
-    auto t0 = clock::now();
     const auto a = nxr::signal::isoline(s, f, levels, 0.0, 0.0, nxr::signal::IsolineMethod::PerTriangle);
-    auto t1 = clock::now();
     const auto b = nxr::signal::isoline(s, f, levels, 0.0, 0.0, nxr::signal::IsolineMethod::MarchingTriangles);
-    auto t2 = clock::now();
-    const double ta = std::chrono::duration<double>(t1 - t0).count(), tb = std::chrono::duration<double>(t2 - t1).count();
-    std::printf("  per-triangle %.3f s, marching triangles %.3f s (each includes rebuilding the mesh from its arrays), %d segments\n", ta, tb, a.segmentCount);
+    std::printf("  %d segments\n", a.segmentCount);
     CHECK(a.segmentCount == b.segmentCount && a.segmentCount > 1000, "the same number of segments");
     const auto sa = segments(a), sb = segments(b);
     double worst = 0.0;

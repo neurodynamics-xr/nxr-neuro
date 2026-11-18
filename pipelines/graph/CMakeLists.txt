@@ -45,3 +45,8 @@ endif()
 
 # CI runs a pull request only the tests of the libraries it touches (.github/workflows/ci.yml): every test added here carries this label.
 set_property(DIRECTORY APPEND PROPERTY LABELS pipelines_graph)
+
+# the kind of every test of this folder (tests/kinds.tsv); a test missing from the table fails the configure
+if(COMMAND nxr_test_kinds)
+  nxr_test_kinds()
+endif()

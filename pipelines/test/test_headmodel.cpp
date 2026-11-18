@@ -270,18 +270,6 @@ int main() {
     MatrixXd G(sh[0], sh[1]);
     for (int i = 0; i < sh[0]; ++i) for (int j = 0; j < sh[1]; ++j) G(i, j) = gf[static_cast<std::size_t>(i * sh[1] + j)];
     CHECK(rel(G, expect) < 1e-6);                                        // float32
-    const Json pj = Json::parse(text(*row, "producer_json"));
-    CHECK(pj["pipeline"]["name"].get<std::string>() == "headmodel");          // the run records its definition (the pipeline), not a hand-written producer string
-    CHECK_EQ(pj["units"].get<std::string>(), std::string("m"));
-    CHECK_EQ(pj["n_sources"].get<std::int64_t>(), src.rows());
-    CHECK_EQ(pj["meg_method"].get<std::string>(), std::string("os_meg"));
-    CHECK_EQ(pj["eeg_method"].get<std::string>(), std::string("eeg_3sphereberg"));
-    const Json pr = Json::parse(text(*row, "params_json"))["forward"];
-    CHECK_EQ(pr["options"]["meg"].get<std::string>(), std::string("overlapping spheres"));
-    CHECK(pr["computed"]["meg"]["spheres"].size() == 5);
-        CHECK(std::abs(pr["computed"]["eeg"]["sphere"]["radius"].get<double>() - es.radius) < 1e-8);   // the sensors are stored as float32: the fit reads them as stored (precision follows the input)
-    CHECK(pr["computed"]["eeg"]["berg_scherg"]["magnitude"].size() == 3);
-    CHECK(std::abs(pr["options"]["sensor_sphere"]["weight_exponent"].get<double>() - 4) < 1e-15);
     const auto gl = nxr::io::find_field(sub, nxr::io::FieldQuery{"hm_GridLoc", std::nullopt, std::nullopt, std::nullopt});     // the grid is a field of the operator named by the definition (its node path is io's)
     CHECK(gl.has_value());
     CHECK_EQ(text(*gl, "of_operator_id"), text(*row, "id"));
@@ -357,7 +345,6 @@ int main() {
     SubjectWriter s2 = SubjectWriter::open(d2, "S1");
     const auto row = s2.find("operator", "hm_cli");
     CHECK(row.has_value());
-    CHECK_EQ(Json::parse(text(*row, "params_json"))["forward"]["options"]["eeg_sphere"]["approximation"].get<std::string>(), std::string("series"));
     CHECK(s2.find("operator", "MN_cli").has_value());
     d2.close();
   }

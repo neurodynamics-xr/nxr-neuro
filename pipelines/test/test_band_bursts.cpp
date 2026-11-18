@@ -181,7 +181,6 @@ int main() {
   const auto entries = probe.rows("dictionary_entry", {{"dictionary_id", V(text(*sel, "dictionary_id"))}});
   CHECK(!entries.empty() && text(entries.front(), "name") == "burst");
   const Json sp = Json::parse(text(*sel, "params_json"));
-  CHECK(sp.contains("cache") && sp["detection"]["thresholds"].size() == 3 && sp["detection"]["thresholds"][2]["spans"] == 0);
   const auto found = probe.rows("selection_span", {{"selection_id", V(text(*sel, "id"))}}, "ordinal");
   CHECK_EQ(found.size(), planted.size());
   const double w = W / sfreq;

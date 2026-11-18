@@ -32,6 +32,7 @@ build-dir = "build/{wheel_tag}"
 wheel.packages = ["python/nxr_neuro"]
 wheel.py-api = "cp312"        # the stable ABI: one wheel per platform for Python >= 3.12
 wheel.license-files = []      # LICENSE, AUTHORS and THIRD_PARTY_NOTICES.md are installed into the wheel's metadata by CMake
+build.targets = ["nxr_neuro_core"]   # build only the module and the libraries it links (CI builds no more than it tests)
 install.components = ["nxr_neuro_python"]   # not the dependencies' install rules
 sdist.include = []
 

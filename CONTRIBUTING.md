@@ -122,6 +122,28 @@ Every problem found and not fixed in the same change is a GitHub issue, so nothi
 - A pull request that fixes an issue says `Fixes #N`; a pull request that leaves known work behind opens its issues and links them under *Known*.
 - Before starting work, look at the open issues of the area (`gh issue list --label <area>`); a duplicate is closed with a link to the first.
 
+## Test kinds
+
+Every ctest test has exactly one kind, listed in `tests/kinds.tsv` (`name<TAB>kind[<TAB>slow]`); the label is set by `cmake/test_kinds.cmake`, and a test missing from the table fails the configure.
+
+| kind | what it is for |
+|---|---|
+| `unit` | one function or class on data made in the test (`compute/`, `meeg/`, `io/`, `io/formats/`, the graph executor in `pipelines/graph/`) |
+| `golden` | a result against a stored reference: tests that read `*/test/golden`, and the `*golden*` and `*parity*` tests |
+| `integration` | a pipeline or the command run end to end (`pipelines/` definition and runner tests, `cli_*`) |
+| `guard` | a rule of the repository checked on its sources (`layering_*`, `test_names_across_layers`, the `check_*.cmake` scripts) |
+
+- **Integration tests are small:** one synthetic subject, one chunk, one band, seconds. They check the wiring (the right nodes, in the right order, storing the right
+  names); the maths lives in unit and golden tests. A test over about 5 s is also labelled `slow` (CI runs those on main only).
+- **A new test is added to `tests/kinds.tsv` with its kind.**
+- **A test checks behaviour:** values, shapes, refusals with their reason. Never the internal layout of a provenance record (`producer_json`, `params_json`
+  options), log text or private names; a binding test checks the binding (a call, its result, names and errors), not the library again.
+- **No refactor gates in the suite:** a comparison of new code against the old code it replaces (a golden recorded from the old code, the old function
+  copied into the test) is run during the refactor and removed with it; only references (scipy, MNE, nxr, Rheome, the Studio, Brainstorm) stay as goldens.
+- **Performance is measured in `bench/`** (`NXR_BUILD_BENCH`, off by default; `tools/bench.py` runs it and compares with a baseline), never in a test.
+- **A new pipeline:** one integration test, plus a unit test for each new node.
+- Select by kind: `tools/tests.py status --kind unit --fast REGEX` (`--kind` is repeatable, `--fast` leaves out `slow`).
+
 ## Build and test
 
 CMake 3.20+, Ninja, C++17. Clone with `--recurse-submodules` (geometry-central). Large build trees may live on another disk: make `build/` a link to it before the first configure. The SQLite engine is always the pinned amalgamation (fetched at configure time, compiled with the same options on every platform), never the system library, so a platform SQLite older than the SQL the code uses cannot break a build; zstd and zlib come from the system unless `NXR_NEURO_PORTABLE` is set.
@@ -152,12 +174,19 @@ the work was done, whatever the change.
   record stays true and no green test runs twice.
 - **The full suite runs at the end of a development round, when the maintainers say so,** not during it. During development: `status`,
   then `run` on what the change reaches.
-- **Continuous integration** (`.github/workflows/ci.yml`): a pull request builds on Linux (compiled objects cached with ccache) and runs **only the
-  tests of the libraries its changes touch** and of what depends on them (each library's tests carry its label: `compute`, `meeg`, `io`,
-  `io_formats`, `pipelines`, `pipelines_graph`, `cli`), plus the layering checks; a change to a shared file (top-level CMake, `cmake/`, CI) runs everything;
-  a change to `tools/` runs the layering checks only (except `tools/gen_record_rows.py`, which io's `records_rows_current` test runs: it runs the io tests). **Documentation-only pull requests run nothing.** Tests labelled `slow` run only on main. The full suite (Linux and macOS,
-  slow tests included) runs on pushes to main, nightly, and when the maintainers ask for it at the end of a round. A test that takes minutes gets
-  `set_tests_properties(<test> PROPERTIES LABELS slow)` next to its `add_test`.
+- **Continuous integration** (`.github/workflows/ci.yml`; selection by `tools/ci_select.py`, build targets by `tools/tests.py targets`): CI builds only what it tests.
+  - **Pull requests (Linux) and pushes to main (Linux and macOS)** run the same scoped selection, slow tests left out (a push to main repeats its pull
+    request's selection, which already passed). A changed test source (`*/test/<name>.cpp`) selects only that test; a changed library source selects that
+    library's tests (every kind) plus the **integration** tests of the libraries that depend on it (not their unit or golden tests); the guards
+    (`^layering_`, kind `guard`) always run. Libraries (labels): `compute`, `meeg`, `io_formats`, `io`, `pipelines_graph`, `pipelines`, `cli`.
+    A shared file (top-level CMake, `cmake/`, the CI workflow) selects everything; a change to `tools/` selects the guards only (except `tools/gen_record_rows.py`,
+    which runs the io tests). Only the selected tests' executables are built (plus `nxr-neuro` for tests that call it); `all` is built only for a scope of all.
+    Documentation-only pull requests run nothing.
+  - **The full suite** (every test, slow ones included, Linux and macOS) runs **only nightly**, on version tags and on demand, and the nightly run first checks
+    whether main changed since the last successful nightly run and does nothing if not.
+  - **The bindings** (`matlab.yml`, `wheels.yml`, `wasm.yml`) run only when their binding changes (and on tags and on demand), build only the binding
+    target and the libraries it links, and have no nightly run.
+  - A test that takes minutes is `slow` in `tests/kinds.tsv`.
 
 - **Test only what the change touches.**
   - A small change runs the tests of the function it changed: the one test file, or `ctest -R <test>`, or `pytest file::test`.

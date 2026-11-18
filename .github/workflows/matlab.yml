@@ -5,6 +5,7 @@ name: matlab
 # - On a version tag (`v*`) and by hand (`workflow_dispatch`): build, test, upload the MEX and the package as workflow artefacts.
 # - On pull requests: ONLY when the binding itself changes (bindings/mex/**, the pipelines' face, this workflow). C++ and compute changes never
 #   run it: compute is tested by its own C++ tests.
+# Only the MEX target and the libraries it links are built (`--target nxr_compute_mex`; no tests, no command line). No nightly: nothing runs unless the binding changes.
 # What runs: the first slice's tests (bindings/mex/test/first_slice: the same functions, inputs and expected values as the Python wheel's tests and the C++
 # goldens; the pipeline level's: nxr.run on a synthetic dataset against the pure function), the symbol check (nothing of HDF5, matio, zlib, zstd or SQLite is exported or shared),
 # and the nxr_compute command tests.

@@ -1,19 +1,19 @@
 0476a4d7f129b3b9c17f5aee348109a01a14a623490800b6d8f0d380942a0f53  ./ds/demo/S1.nxr.zarr/source/extra/c/0
 1e5cca83811a63c9e70e5da01bb35eed61af524b6cae2462e1b6efd63ac50b7e  ./ds/demo/S1.nxr.zarr/source/big_sharded/c/0/0
+2cd12d49d12a8a83978054fe21a6a4f71743a4c48ac25a804fbcc3aa8e3c5fd4  ./ds/catalog.json
 37e72408f7e9b0d89d503bc4f6da80b0159b34a4c77337aac9475e233aee1a89  ./ds/demo/S1.nxr.zarr/source/dense_zeros/zarr.json
 3b1eada6bb87cba36905d0225cf1d108d0b3915e291bc5e0fb211c8427280207  ./ds/demo/S1.nxr.zarr/source/small_sharded/c/0/0
 471daf00a8e255d60491113f84740964b8aa1cf8868cc0b7991161f2546acbb8  ./ds/demo/S1.nxr.zarr/source/big/c/0/0
 4afc29ed25b4a9c0f8697a305208cf13ab3d2c90b8f03ec5641a1e1adfaa3dba  ./ds/demo/S1.nxr.zarr/affine/c/0/0
 54eed9cc08d8103688a9e4e2494415bd0913dac46413f414aba65b3dc2c0249e  ./ds/demo/S1.nxr.zarr/source/big/zarr.json
+5f3aaedcb646dbc014daf9857de3bd2eb51d679ca0891d3f64a2bf2a281700bf  ./ds/demo/zarr.json
 5ff58e66c41d920d5df18ee0d12796149a15b3e359be23a7d17a542573e528ba  ./ds/demo/S1.nxr.zarr/affine/zarr.json
-6344770a67672ba26e36cf7e1adb3de5236ab202cb103e86ece33faf64eaec6f  ./ds/demo/S1.nxr.zarr/zarr.json
 66006210f4f922a011d3745d28a8ea526c6a596613a16571a8d50b486de42dc5  ./ds/demo/S1.nxr.zarr/source/big_sharded/zarr.json
 685c2b027aa3bd512745ca14bdd57d8d8fe875bd00f32a90aaa8c42496bf3ad4  ./ds/demo/S1.nxr.zarr/source/sparse/zarr.json
 685c9641d79854b213c3ea8d69dc63a9fe016cc421ce6772d1a2164e8d87c239  ./ds/demo/S1.nxr.zarr/source/sphere/vertices/c/0/0
 6cd42473746d5dc4032476e21955510025db7c72ef4ba1e76ae28392aafefaa0  ./ds/demo/S1.nxr.zarr/source/sphere/faces/c/0/0
 74f9bad2c3e1d9ee95ca6f4ed700a39c464b43b038937c12f2b9b2620332b54c  ./ds/demo/S1.nxr.zarr/source/sparse/indices/zarr.json
 77c794eeb897214662afec211cf9c701b98b383c0addda7d7d1921b873646e1d  ./ds/demo/S1.nxr.zarr/source/sparse/indptr/c/0
-7de9f2be1e2b3d923dda1828d0c63e3283bdb5a6eead0b3bc46b557233e683e5  ./ds/demo/zarr.json
 85a6f0906bbb529813837e7d153871df73e039bdf2d0fd43a093d376d010cf42  ./ds/demo/S1.nxr.zarr/source/zarr.json
 85a6f0906bbb529813837e7d153871df73e039bdf2d0fd43a093d376d010cf42  ./ds/demo/S1.nxr.zarr/time/zarr.json
 85e9a88d6aee1a0ca8a781968573ed0e58891fa58fbeb041d429d78d28c61d68  ./ds/demo/S1.nxr.zarr/source/sphere/zarr.json
@@ -22,6 +22,7 @@ a0130c3a5a3d8f91625c0eeeaa6ada01e160324467b3a62a411e88c9c888a2cc  ./ds/demo/S1.n
 aaf53669ed66dc394937d2c770657cb04c559d6f4a2f320f5750b85afa1a684d  ./ds/demo/S1.nxr.zarr/source/sparse/indices/c/0
 b7789885ff1d1f927fbc40fde20af5bb436705ccddaf7fd8b5d5662879d64c29  ./ds/demo/S1.nxr.zarr/source/sphere/faces/zarr.json
 ba5a239861534db5f2d4b44e30307d3d9709c5f7800607db99584d680305aaeb  ./ds/demo/S1.nxr.zarr/source/parcels/c/0
+c2bda951a6af5e060ccc02c4b4edd3cf5a7fc2cc90886525e3082558c5dc4fbb  ./ds/demo/S1.nxr.zarr/zarr.json
 c845a2e0eff77aa43881d8052861c400fcaadd762c6b214cdc9d62f60f20e396  ./ds/demo/S1.nxr.zarr/time/t/zarr.json
 cc2786e1f9910a9d811400edcddaf7075195f7a16b216dcbefba3bc7c4f2ae51  ./ds/demo/S1.nxr.zarr/source/dense_zeros/c/0
 cda521463bef5dba826ae252fbc1f4899e83023fcc02b4e59ccf1e416ee6c32a  ./ds/demo/S1.nxr.zarr/source/sparse/indptr/zarr.json
@@ -66,6 +67,5 @@ d ./ds/demo/S1.nxr.zarr/time
 d ./ds/demo/S1.nxr.zarr/time/t
 d048951732428a640abefbca83cae8d41c29fc3607f744e5cd6b3dc98ae2bbd0  ./ds/demo/S1.nxr.zarr/source/extra/zarr.json
 d2e49394052a283cca529c7571d5ec08eed5e17dfa75b2023bf4d8e19923a836  ./ds/demo/S1.nxr.zarr/source/small_sharded/zarr.json
-d2f6b3fbfef11d7aa64258b2e45a10e8adc27b8e884da34ad06c1186f4d9cf38  ./ds/catalog.json
 e6054236a7512ecd8972628b3ceac8dddaa8b639dcb785f2c5f4333eeb6a37fb  ./ds/demo/S1.nxr.zarr/source/parcels/zarr.json
 f80ba7d5de72c374ef9b0df0dc6b146b08747052561e030943689e8819341074  ./ds/demo/S1.nxr.zarr/source/sparse/data/c/0
