@@ -48,7 +48,7 @@
 #include "nxr/select/events.h"
 #include "nxr/stats/summary.h"
 #include "nxr/signal/phase_gradient.h"
-#include "nxr/pyramid.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/select/risefall.h"
 #include "nxr/select/dyadic.h"
 #include "nxr/pipelines/input.h"
@@ -231,7 +231,7 @@ std::vector<std::int32_t> channels_for(const Values& ins, ExecContext& c) {
   }
   return ch;
 }
-struct BandAnalytic { std::vector<std::int32_t> channels; double sfreq = 0; nxr::pyramid::Shape shape = nxr::pyramid::Shape::Morlet; nxr::pyramid::Bands bank; std::int64_t halo = 0; };
+struct BandAnalytic { std::vector<std::int32_t> channels; double sfreq = 0; nxr::signal::timefilterbank::Family shape = nxr::signal::timefilterbank::Family::Morlet; std::vector<std::pair<double, double>> bank; std::int64_t halo = 0; };
 std::vector<StepSpec> build() {
   std::vector<StepSpec> r;
   r.push_back({"band_filter", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}},
@@ -261,7 +261,7 @@ std::vector<StepSpec> build() {
                    need(p["shape"] == "morlet" || p["shape"] == "power_partition", "analytic: bands: shape " + p["shape"].dump() + ": morlet (a Gaussian a band, neighbours overlap) or power_partition (nxr's bank: the band powers add to broadband)");
                    need(p["halo_seconds"].is_number() && p["halo_seconds"].get<double>() >= 0, "analytic: halo_seconds is 0 or more (the filter is circular over the block read: its edge effect lies inside the halo)");
                    for (const auto& b : bank) need(b.second < x.rate / 2, "analytic: band [" + std::to_string(b.first) + ", " + std::to_string(b.second) + ") Hz reaches past Nyquist (" + std::to_string(x.rate / 2) + " Hz)");
-                   try { nxr::pyramid::bandGains(Eigen::VectorXd::Ones(1), bank, nxr::pyramid::shapeOf(p["shape"].get<std::string>())); } catch (const std::invalid_argument& e) { refuse(std::string("analytic: ") + e.what()); }
+                   try { nxr::signal::timefilterbank::bandGains(Eigen::VectorXd::Ones(1), bank, nxr::signal::timefilterbank::bandFamilyOf(p["shape"].get<std::string>())); } catch (const std::invalid_argument& e) { refuse(std::string("analytic: ") + e.what()); }
                    Value y = made(x);
                    y.complex = true;
                    Json names = Json::array();
@@ -794,7 +794,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       BandAnalytic a;
       a.sfreq = ins.at("x").rate;
       a.bank = band_set_of(ins.at("bands"), c.bound, "analytic");
-      a.shape = nxr::pyramid::shapeOf(p["shape"].get<std::string>());
+      a.shape = nxr::signal::timefilterbank::bandFamilyOf(p["shape"].get<std::string>());
       a.channels = channels_for(ins, c);
       a.halo = static_cast<std::int64_t>(std::ceil(p["halo_seconds"].get<double>() * a.sfreq));
       return std::any(std::move(a));
@@ -815,7 +815,7 @@ void bind_execution(std::vector<StepSpec>& r) {
     s.chunk = [env](const std::any& st, const Blocks& ins, std::int64_t keep) {
       const Block& b = ins.at("x");
       if (st.type() == typeid(BandAnalytic)) {
-        // ONE spectrum of the block (the chunk with its halo; circular, the halo holds the edge effect) shared by every band: each band's gain on it, positive frequencies doubled, back (rule 23)
+        // ONE transform of the block (the chunk with its halo; circular, the halo holds the edge effect) shared by every band: each band's gain on its spectrum, positive frequencies doubled, back (rule 23)
         const BandAnalytic& a = std::any_cast<const BandAnalytic&>(st);
         const std::int64_t M = static_cast<std::int64_t>(a.channels.size()), NB = static_cast<std::int64_t>(a.bank.size());
         Eigen::MatrixXd block(b.width, M);                                   // [samples x channels]
@@ -824,12 +824,17 @@ void bind_execution(std::vector<StepSpec>& r) {
           if (ch < 0 || ch >= b.rows) refuse("analytic: a channel (" + std::to_string(ch) + ") is outside the recording's " + std::to_string(b.rows) + " rows");
           for (std::int64_t t = 0; t < b.width; ++t) block(t, i) = b.re[static_cast<std::size_t>(ch * b.width + t)];
         }
-        const nxr::pyramid::Spectrum spec = nxr::pyramid::spectrumOf(block, a.sfreq);
-        const Eigen::MatrixXd gains = nxr::pyramid::bandGains(spec.freq, a.bank, a.shape);   // [bands x bins]
+        // the block's analytic bank (the wavelet filterbank, analytic, gain 2, DC and Nyquist dropped as the band analytic signal always did), one transform of the block shared by all its members
+        namespace tb = nxr::signal::timefilterbank;
+        if (block.rows() < 2) refuse("analytic: a block holds at least 2 samples");
+        tb::Design design(a.shape, 2.0, tb::Sides::Analytic);
+        design.bands = a.bank;
+        design.edgeBins = tb::EdgeBins::Drop;
+        const tb::Coefficients coefficients = tb::analysis(tb::design(design, static_cast<std::size_t>(block.rows()), a.sfreq), block);   // per band: [samples x channels]
         const std::int64_t kl = std::min(keep, b.left), kr = std::min(keep, b.right), w = b.own() + kl + kr, c0 = b.left - kl;
         Block y{NB * M, w, kl, kr, std::vector<float>(static_cast<std::size_t>(NB * M * w)), std::vector<float>(static_cast<std::size_t>(NB * M * w))};
         for (std::int64_t bi = 0; bi < NB; ++bi) {
-          const Eigen::MatrixXcd A = nxr::pyramid::analyticBand(spec, gains.row(static_cast<Eigen::Index>(bi)).transpose());   // [samples x channels]
+          const Eigen::MatrixXcd& A = coefficients[static_cast<std::size_t>(bi)];   // [samples x channels]
           for (std::int64_t i = 0; i < M; ++i)
             for (std::int64_t t = 0; t < w; ++t) {
               const std::complex<double> v = A(c0 + t, i);
@@ -1495,7 +1500,7 @@ const std::map<std::string, std::string>& retired_steps() {
       {"hodge.weights", "operators.hodge_weights"},
       {"positions.transition", "meeg.positions_transition"},
       {"quadrature.source_pairs", "signal.source_planes"},
-      {"rotary.pair", "signal.pair_series"},
+      {"rotary.pair", "signal.linear_map"}, {"signal.pair_series", "signal.linear_map"},
       {"statistic.pca", "stats.pca"},
       {"surface.glue", "geometry.glue"},
       {"surrogate.lagfree", "synthesis.lagfree"},

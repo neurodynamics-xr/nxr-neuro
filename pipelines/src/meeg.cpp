@@ -23,7 +23,6 @@
 #include "nxr/signal/opticalflow.h"
 #include "nxr/select/dyadic.h"
 #include "nxr/signal/fourier.h"
-#include "nxr/rotary.h"
 #include "nxr/signal/timefilterbank.h"
 #include "nxr/signal/crossspectral_decomposition.h"
 #include "nxr/pipelines/spectral_record.h"

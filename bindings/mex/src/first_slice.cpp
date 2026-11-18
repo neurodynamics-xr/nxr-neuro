@@ -119,9 +119,7 @@ void welchPsd(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   const auto opt = welch_options(prhs + 2);
   bool given = false;
   const auto good = get_good(prhs[9], x.m.cols(), given);
-  nxr::signal::spectral::Welch w(static_cast<int>(x.m.rows()), opt);
-  if (given) w.add(x.m, good); else w.add(x.m);
-  nxr::signal::spectral::WelchResult r = w.result();
+  nxr::signal::spectral::WelchResult r = nxr::signal::spectral::psd(x.m, opt, given ? &good : nullptr);
   plhs[0] = give_vector(r.frequencies, false, true);
   plhs[1] = give(r.psd, x.single);
   plhs[2] = give_scalar(static_cast<double>(r.segments));
@@ -160,9 +158,7 @@ void welchCross(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
   }
   bool given = false;
   const auto good = get_good(prhs[12], x.m.cols(), given);
-  nxr::signal::spectral::CrossWelch w(static_cast<int>(x.m.rows()), opt, groups, quadrature);
-  if (given) w.add(x.m, good); else w.add(x.m);
-  nxr::signal::spectral::CrossWelchResult r = w.result();
+  nxr::signal::spectral::CrossWelchResult r = nxr::signal::spectral::xpsd(x.m, opt, groups, quadrature, given ? &good : nullptr);
   const std::size_t c = static_cast<std::size_t>(x.m.rows());
   plhs[0] = give_vector(r.frequencies, false, true);
   plhs[1] = give_stack(r.S, c, c, x.single);

@@ -41,8 +41,8 @@ matlab	compute.signal.bandstop	nxr::signal::bandstop	ok
 matlab	compute.signal.highpass	nxr::signal::highpass	ok
 matlab	compute.signal.lowpass	nxr::signal::lowpass	ok
 matlab	compute.signal.notch	nxr::signal::notch	ok
-matlab	compute.signal.psd	-	pending B6a: Welch, LinearWelch, ComplexWelch and welch become the one function psd
-matlab	compute.signal.xpsd	-	pending B6a: CrossWelch becomes the function xpsd
+matlab	compute.signal.psd	nxr::signal::psd	ok
+matlab	compute.signal.xpsd	nxr::signal::xpsd	ok
 matlab	compute.stats.pca	nxr::stats::pca	ok
 matlab	compute.stats.reconstruct	nxr::stats::reconstruct	ok
 mex	assembleConnectionLaplacian	-	legacy
@@ -52,8 +52,8 @@ mex	bff	-	legacy
 mex	bundle	-	legacy
 mex	compute	-	legacy
 mex	compute.operators.eigen	nxr::operators::eigen	ok
-mex	compute.signal.psd	-	pending B6a: Welch, LinearWelch, ComplexWelch and welch become the one function psd
-mex	compute.signal.xpsd	-	pending B6a: CrossWelch becomes the function xpsd
+mex	compute.signal.psd	nxr::signal::psd	ok
+mex	compute.signal.xpsd	nxr::signal::xpsd	ok
 mex	compute.stats.pca	nxr::stats::pca	ok
 mex	compute.stats.reconstruct	nxr::stats::reconstruct	ok
 mex	computeFreq	-	legacy
@@ -160,8 +160,8 @@ node	select.events.tracks	-	composite
 node	select.product	-	composite
 node	select.time_grid	-	composite
 node	signal.analytic_bands	-	composite
-node	signal.complex_psd	-	pending B6a: complexWelch becomes psd (the complex input)
-node	signal.filter	-	pending B6a: Filter becomes the pure function filter
+node	signal.complex_psd	-	pending B6a: the node takes a complex series: it merges into signal.psd with the streaming accumulators (the C++ function is psd(complex))
+node	signal.filter	nxr::signal::filter	ok
 node	signal.flow_activation	-	composite
 node	signal.flow_hodge_modes	-	composite
 node	signal.flow_max_amplitude	-	composite
@@ -169,12 +169,12 @@ node	signal.flow_series	-	composite
 node	signal.flow_velocity	-	composite
 node	signal.member_analytic	-	composite
 node	signal.mode_cross_spectra	-	composite
-node	signal.pair_series	-	pending B6a: pairSeries becomes the generic linear operator step (rotary.h removed)
-node	signal.psd	-	pending B6a: Welch, LinearWelch, ComplexWelch and welch become the one function psd
-node	signal.rfft	-	pending B6a: rfftColumns and rfft merge into rfft
+node	signal.linear_map	-	composite
+node	signal.psd	nxr::signal::psd	ok
+node	signal.rfft	nxr::signal::rfft	ok
 node	signal.source_planes	-	composite
 node	signal.speed_spectrum	-	composite
-node	signal.xpsd	-	pending B6a: CrossWelch becomes the function xpsd
+node	signal.xpsd	nxr::signal::xpsd	ok
 node	smooth_memberships	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
 node	stats.pca	nxr::stats::pca	ok
 node	summarize	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
@@ -223,9 +223,9 @@ wasm	tracePath	-	legacy
 wasm	trivial	-	legacy
 wasm	vertexFrames	-	legacy
 wasm	whitney	-	legacy
-python	signal_psd	-	pending B6a: Welch, LinearWelch, ComplexWelch and welch become the one function psd
-python	signal_xpsd	-	pending B6a: CrossWelch becomes the function xpsd
-python	signal_filter	-	pending B6a: Filter becomes the pure function filter
+python	signal_psd	nxr::signal::psd	ok
+python	signal_xpsd	nxr::signal::xpsd	ok
+python	signal_filter	nxr::signal::filter	ok
 python	stats_pca	nxr::stats::pca	ok
 python	stats_reconstruct	nxr::stats::reconstruct	ok
 retired	compute.welch.psd	mex	compute.signal.psd
@@ -247,7 +247,8 @@ retired	hodge.speed_spectrum	node	signal.speed_spectrum
 retired	hodge.weights	node	operators.hodge_weights
 retired	positions.transition	node	meeg.positions_transition
 retired	quadrature.source_pairs	node	signal.source_planes
-retired	rotary.pair	node	signal.pair_series
+retired	rotary.pair	node	signal.linear_map
+retired	signal.pair_series	node	signal.linear_map
 retired	statistic.pca	node	stats.pca
 retired	surface.glue	node	geometry.glue
 retired	surrogate.lagfree	node	synthesis.lagfree

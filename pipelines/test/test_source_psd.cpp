@@ -83,7 +83,7 @@ int main() {
         cw.add(x.middleCols(t, n), std::vector<std::uint8_t>(good.begin() + t, good.begin() + t + n));
       }
       const auto r = cw.result();
-      const auto direct = nxr::signal::spectral::welch(K * x, wo, &good);
+      const auto direct = nxr::signal::spectral::psd(Eigen::MatrixXd(K * x), wo, &good);
       CHECK_EQ(r.segments, direct.segments);
       MatrixXd want(3 * N, gr.size());
       for (std::size_t b = 0; b < gr.size(); ++b)
@@ -179,7 +179,7 @@ int main() {
     CHECK(!ra.empty() && !ra[0].value("hit", false));
     const MatrixXd amaps = stat_maps("rest_kern_psd");
     auto wo = nxr::signal::spectral::brainstormPsdOptions(sfreq, 4.0);
-    const auto direct = nxr::signal::spectral::welch(K * X, wo);
+    const auto direct = nxr::signal::spectral::psd(Eigen::MatrixXd(K * X), wo);
     const double df = sfreq / wo.segmentSamples;
     const auto gr = groups_of(bl, df, wo.segmentSamples / 2 + 1, false);
     MatrixXd want(N, 2);

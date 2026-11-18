@@ -991,7 +991,7 @@ const std::vector<ng::ParamSpec>& filter_parameters() {
 
 // (filter.channel_mean is retired: `reduce` measure mean over the run's span, the preset channel_span_mean of the definition measure)
 
-struct FilterPrepared { std::optional<nxr::signal::filters::Filter> f; std::int64_t halo = 0; };
+struct FilterPrepared { nxr::signal::filters::FilterOptions options; nxr::signal::filters::Design design; Eigen::VectorXd mean; std::int64_t halo = 0; };
 ng::NodeSpec filter_apply() {
   ng::NodeSpec n;
   n.name = "signal.filter";
@@ -1002,7 +1002,7 @@ ng::NodeSpec filter_apply() {
   n.parameters = filter_parameters();
   n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input, "each block filtered in double; the output follows the input (float32 stored for float32 input)",
                              "the halo is the design's look-behind and look-ahead (the FIR's half length; the IIR's decayed response at `tolerance`), samples on each side");
-  n.matches = "Brainstorm's process_bandpass / process_notch (bst_bandpass_hfilter, kaiserord+fir1; filtfilt IIR); compute nxr::signal::filters";
+  n.matches = "Brainstorm's process_bandpass / process_notch (bst_bandpass_hfilter, kaiserord+fir1; filtfilt IIR); compute nxr::signal::filter";
   n.description = "a zero-phase filter (lowpass, highpass, bandpass, bandstop, notch) on each block, with the halo its design needs";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed(in, "x", "signal.filter");
@@ -1027,11 +1027,9 @@ ng::NodeSpec filter_apply() {
         ng::refuse("signal.filter: a FIR filter that removes the record's mean needs the channel means (`nxr-neuro run channel_mean` first), or remove_mean false");
       mean = Eigen::Map<const Eigen::VectorXd>(it->second.data.data(), static_cast<Eigen::Index>(it->second.data.size()));
     }
-    std::int64_t rows = x.rows;
-    if (rows <= 0 && x.facts.contains("channels")) rows = x.facts["channels"].value("n_channels", std::int64_t(0));
-    if (rows <= 0) rows = mean.size();
-    if (rows <= 0) ng::refuse("signal.filter: the recording's channel count is not known");
-    pr.f.emplace(static_cast<int>(rows), o, mean);
+    pr.options = o;
+    pr.design = d;
+    pr.mean = mean;
     pr.halo = static_cast<std::int64_t>(std::max(d.lookBehind, d.lookAhead));
     return std::any(std::move(pr));
   };
@@ -1041,7 +1039,7 @@ ng::NodeSpec filter_apply() {
     const Eigen::Map<const RowMajorF> all(b.re.data(), b.rows, b.width);
     const bool at_start = at.first - b.left == 0 && b.left < pr.halo + keep, at_end = b.right < pr.halo + keep;
     const std::int64_t left = b.left - keep, own = b.own() + 2 * keep;
-    const Eigen::MatrixXd yb = pr.f->block(all.cast<double>(), static_cast<std::size_t>(left), static_cast<std::size_t>(own), at_start, at_end);
+    const Eigen::MatrixXd yb = nxr::signal::filters::filter(all.cast<double>(), pr.options, pr.design, pr.mean, static_cast<std::size_t>(left), static_cast<std::size_t>(own), at_start, at_end);
     ng::Block y;
     y.rows = b.rows; y.width = own; y.left = keep; y.right = keep;
     y.re.resize(static_cast<std::size_t>(b.rows * own));

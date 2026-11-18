@@ -59,7 +59,7 @@ int main() {
     cw.add(x);
     const auto r = cw.result();
     const MatrixXd got = nxr::measurement::modePower(B, r.S);
-    const auto direct = nxr::signal::spectral::welch(B * x, wo);
+    const auto direct = nxr::signal::spectral::psd(Eigen::MatrixXd(B * x), wo);
     MatrixXd want(B.rows(), 2);
     for (int i = 0; i < 2; ++i) want.col(i) = direct.psd.middleCols(groups[i].first, groups[i].last - groups[i].first + 1).rowwise().mean();
     (void)bins;

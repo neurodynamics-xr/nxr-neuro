@@ -211,7 +211,7 @@ WelchResult Welch::result() const {
     return r;
 }
 
-WelchResult welch(const MatrixXd& x, const WelchOptions& options, const std::vector<std::uint8_t>* good) {
+WelchResult psd(const MatrixXd& x, const WelchOptions& options, const std::vector<std::uint8_t>* good) {
     Welch w(static_cast<int>(x.rows()), options);
     if (good) w.add(x, *good); else w.add(x);
     return w.result();
@@ -220,13 +220,7 @@ WelchResult welch(const MatrixXd& x, const WelchOptions& options, const std::vec
 
 // ── the two-sided Welch PSD of complex series ────────────────────────────────────────────────────────────────────
 
-VectorXd signedFrequencies(std::size_t n, double sfreq) {
-    const VectorXd f = fftfreq(n, 1.0 / sfreq);   // 0, 1, ..., -floor(n/2), ..., -1 (over n d)
-    const std::size_t neg = n / 2;                      // the number of negative bins
-    VectorXd out(static_cast<Eigen::Index>(n));
-    for (std::size_t k = 0; k < n; ++k) out[static_cast<Eigen::Index>(k)] = f[static_cast<Eigen::Index>((k + n - neg) % n)];
-    return out;
-}
+VectorXd signedFrequencies(std::size_t n, double sfreq) { return fftshift(fftfreq(n, 1.0 / sfreq)); }
 
 // a complex segment's row detrended (the real and imaginary parts each, as scipy's lstsq on complex data does) then windowed, in place
 static void detrendAndWindowC(cd* row, std::size_t n_, Detrend detrend, const VectorXd& win_) {
@@ -331,7 +325,7 @@ ComplexWelchResult ComplexWelch::result() const {
     return r;
 }
 
-ComplexWelchResult complexWelch(const Eigen::MatrixXcd& z, const WelchOptions& options, const std::vector<std::uint8_t>* good) {
+ComplexWelchResult psd(const Eigen::MatrixXcd& z, const WelchOptions& options, const std::vector<std::uint8_t>* good) {
     ComplexWelch w(static_cast<int>(z.rows()), options);
     if (good) w.add(z, *good); else w.add(z);
     return w.result();
@@ -561,6 +555,12 @@ LinearWelchResult LinearWelch::result() const {
 double enbwPerBin(const WelchOptions& o) {
   const Eigen::VectorXd w = windowOf(o.segmentSamples, o.window, o.periodic);
   return o.sfreq * w.squaredNorm() / (w.sum() * w.sum());
+}
+
+CrossWelchResult xpsd(const MatrixXd& x, const WelchOptions& options, const std::vector<BinGroup>& groups, bool withQuadrature, const std::vector<std::uint8_t>* good) {
+    CrossWelch w(static_cast<int>(x.rows()), options, groups, withQuadrature);
+    if (good) w.add(x, *good); else w.add(x);
+    return w.result();
 }
 
 }  // namespace nxr::signal::spectral

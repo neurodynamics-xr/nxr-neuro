@@ -78,7 +78,7 @@ as `describe` in the nodes that set them, in the PR that converts each node's pi
   `segment_samples`, `segment_level`, `segment_rule` (`tile` | `round` | `even`), `overlap` (0.5), `window` (hamming), `periodic` (false), `detrend`
   (constant), `scaling` (density), `bad_segments` (exclude). The maths is `nxr::welch::Welch` unchanged; the segment rule (today's `welch_segment`)
   becomes a pure `nxr::welch::segmentFor(rule, …)` in `compute/`.
-- **`signal.pair_series`** (chunk, pointwise, a linear map): z = a_x·X + i a_y·X from a stored [2 × C] operator. **`signal.complex_psd`** (accumulate): the
+- **`signal.linear_map`** (chunk, pointwise, a linear map): z = a_x·X + i a_y·X from a stored [2 × C] operator. **`signal.complex_psd`** (accumulate): the
   two-sided Welch of z on a signed frequency line.
 - **The span's grid.** Under `segment_rule: tile` a segment is 2^k samples on the line's grid, so the span snaps to level k. A node states it in its
   plan: `Planned::align` (samples); `check` takes the largest over the graph; the runner hands it to the chunk service's span (today's `level`).
@@ -121,7 +121,7 @@ outputs:
     partition: {tiling: "$name_segments", on: recording.time}
 ```
 
-The rotary spectrum is its own definition, `rotary_psd` (`--operator NAME`: `signal.pair_series` then `signal.complex_psd`; axes pair × a signed line): a
+The rotary spectrum is its own definition, `rotary_psd` (`--operator NAME`: `signal.linear_map` then `signal.complex_psd`; axes pair × a signed line): a
 different graph with a different output, not a mode of `psd` (question 1). Stored names, paths and the line are today's (`<recording>_psd_welch`,
 `<name>_segments`, `<recording>_freq`), so every reader (`vortex_null`, `spatial_events_null`, `wishart`) is unchanged. `psd_compute` and its
 command-table entry go. `--no-bad-segments` becomes `--bad-segments ignore`; `--periodic`/`--symmetric` become `--periodic true|false`.
@@ -137,7 +137,7 @@ the stored record (axes, line, partition, scaling, unit, provenance, cache hit o
 |---|---|
 | D0 | this spec |
 | D1 | io: the `Unit` methods of section 4 and their structs (the six kinds, manifolds included), tested on synthetic outputs of every kind; the runner's `store_output` per kind from the declaration and `describe`; the definition reader accepts the declarations (short forms kept); a toy definition per kind in the runner's tests |
-| D2 | `signal.psd`, `signal.pair_series`, `signal.complex_psd` registered in `nxr::graph::registry()` (grouped names; a definition says `node:`); `Planned::align`; presets in the definition reader, `run` and `--help` |
+| D2 | `signal.psd`, `signal.linear_map`, `signal.complex_psd` registered in `nxr::graph::registry()` (grouped names; a definition says `node:`); `Planned::align`; presets in the definition reader, `run` and `--help` |
 | D3 | `psd.yaml` and `rotary_psd.yaml`; `psd_compute` deleted; the tests of section 7; `docs/reference.md`; `CONTRIBUTING.md`: how a verb is converted (outputs, nodes, presets, tests) |
 
 ## 9. Questions, each with a recommendation

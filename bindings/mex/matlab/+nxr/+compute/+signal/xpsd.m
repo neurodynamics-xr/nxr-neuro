@@ -1,5 +1,5 @@
 function r = xpsd(x, sfreq, bins, opts)
-%NXR.COMPUTE.SIGNAL.XPSD  Welch's cross-spectral density between every pair of channels, per group of bins (nxr::signal::spectral::CrossWelch).
+%NXR.COMPUTE.SIGNAL.XPSD  Welch's cross-spectral density between every pair of channels, per group of bins (nxr::signal::spectral::xpsd).
 %   r = nxr.compute.signal.xpsd(x, sfreq, bins)
 %   r = nxr.compute.signal.xpsd(x, sfreq, [1 1; 13 13; 31 41], quadrature=true)
 %

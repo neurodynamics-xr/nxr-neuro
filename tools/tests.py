@@ -22,6 +22,7 @@ import argparse
 import datetime as dt
 import hashlib
 import json
+import os
 import re
 import subprocess
 import sys
@@ -41,6 +42,8 @@ def sh(cmd: list[str], **kw) -> subprocess.CompletedProcess:
 
 
 def build() -> None:
+    if os.environ.get("NXR_TESTS_NO_BUILD"):   # the caller built the targets it needs (a lane builds only its own)
+        return
     r = sh(["cmake", "--build", str(BUILD)])
     if r.returncode != 0:
         sys.exit("the build failed:\n" + "\n".join(r.stdout.splitlines()[-20:] + r.stderr.splitlines()[-20:]))

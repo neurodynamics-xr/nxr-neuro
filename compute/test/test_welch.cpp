@@ -2,11 +2,18 @@
 // and .m, synthetic signals), chunk-size invariance (identical to the last bit), the known levels (a sine of amplitude A, white noise of variance s^2),
 // a bad span left out, and the refusals.
 #include "nxr/signal/spectral.h"
-#include "nxr/rotary.h"
+#include "nxr/signal/linear_map.h"
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include <random>
 #include <optional>
+
+// the pair of rows (x, y) of a rotation plane as ONE complex weight row w = x + i y (the operator nxr::signal::linearMap applies)
+static Eigen::MatrixXcd pairWeights(const Eigen::MatrixXd& rows) {
+    Eigen::MatrixXcd W(1, rows.cols());
+    for (Eigen::Index c = 0; c < rows.cols(); ++c) W(0, c) = std::complex<double>(rows(0, c), rows(1, c));
+    return W;
+}
 using namespace nxr::signal::spectral;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
@@ -39,37 +46,37 @@ static void parity() {
     };
     // scipy.signal.welch defaults (Hann periodic, constant detrend, density) = nxr's qc.sensors.psd with n = 4 s
     WelchOptions o = scipyWelchOptions(fs, 400);
-    check("scipy_hann_const_n400", welch(x, o).psd, 1e-12);
+    check("scipy_hann_const_n400", psd(x, o).psd, 1e-12);
     {
-        const WelchResult r = welch(x, o, &good);
+        const WelchResult r = psd(x, o, &good);
         check("scipy_hann_const_n400_bad", r.psd, 1e-12);
         EXPECT(r.segments == static_cast<std::int64_t>(g.mat("scipy_hann_const_n400_bad_segments")(0, 0)), "segments left in");
     }
     o = scipyWelchOptions(fs, 301); o.overlap = 100.0 / 301; o.window = Window::Hamming; o.detrend = Detrend::Linear;
-    check("scipy_hamming_linear_n301_ov100", welch(x, o).psd, 1e-12);
+    check("scipy_hamming_linear_n301_ov100", psd(x, o).psd, 1e-12);
     o = scipyWelchOptions(fs, 256); o.overlap = 64.0 / 256; o.window = Window::Blackman; o.detrend = Detrend::None; o.scaling = Scaling::Spectrum;
-    check("scipy_blackman_none_spectrum_n256_ov64", welch(x, o).psd, 1e-12);
+    check("scipy_blackman_none_spectrum_n256_ov64", psd(x, o).psd, 1e-12);
     o = scipyWelchOptions(fs, nxr::signal::spectral::segmentSamplesFor(4.0, fs));
-    check("nxr_qc_psd", welch(x, o).psd, 1e-12);
+    check("nxr_qc_psd", psd(x, o).psd, 1e-12);
     // nxr.spectral.chain._welch (2 s segments, no detrend, per-bin chain scaling)
     o = nxrChainWelchOptions(fs, 2.0);
     {
-        const WelchResult r = welch(x, o);
+        const WelchResult r = psd(x, o);
         check("nxr_chain", r.psd, 1e-12);
         EXPECT(r.segments == static_cast<std::int64_t>(g.mat("nxr_chain_segments")(0, 0)), "nxr segments");
-        const WelchResult b = welch(x, o, &good);
+        const WelchResult b = psd(x, o, &good);
         check("nxr_chain_bad", b.psd, 1e-12);
         EXPECT(b.segments == static_cast<std::int64_t>(g.mat("nxr_chain_bad_segments")(0, 0)), "nxr segments with the bad span");
     }
     // Brainstorm's defaults (bst_psd: Hamming, mean removed, power per Hz, 50 %): its output
     auto defaults = [&](double sec, const char* name) {
-        const WelchResult r = welch(x, brainstormPsdOptions(fs, sec));
+        const WelchResult r = psd(x, brainstormPsdOptions(fs, sec));
         check(name, r.psd, 1e-12);
         EXPECT(r.segments == static_cast<std::int64_t>(g.mat(std::string(name) + "_windows")(0, 0)), std::string(name) + " window count");
     };
     defaults(2.0, "bst_default_2s");
     {
-        const WelchResult r = welch(x, brainstormPsdOptions(fs, 2.0), &good);
+        const WelchResult r = psd(x, brainstormPsdOptions(fs, 2.0), &good);
         check("bst_bad_1", r.psd, 1e-12);
         EXPECT(r.segments == static_cast<std::int64_t>(g.mat("bst_bad_1_windows")(0, 0)), "Brainstorm skips the same windows");
     }
@@ -88,7 +95,7 @@ static void chunkInvariance() {
     for (int i = 4000; i < 4003; ++i) good[i] = 0;
     for (const bool withMask : {false, true}) {
         for (const auto& o : {brainstormPsdOptions(100.0, 2.0), nxrChainWelchOptions(100.0, 1.5), scipyWelchOptions(100.0, 301)}) {
-            const WelchResult whole = welch(x, o, withMask ? &good : nullptr);
+            const WelchResult whole = psd(x, o, withMask ? &good : nullptr);
             for (int chunk : {1, 7, 100, 199, 300, 301, 1024, 4999, 5000}) {
                 Welch w(C, o);
                 for (int s = 0; s < T; s += chunk) {
@@ -112,7 +119,7 @@ static void levels() {
     std::normal_distribution<double> nd;
     for (int t = 0; t < T; ++t) { x(0, t) = 3.0 * std::sin(2 * kPi * 12.5 * t / fs); x(1, t) = 2.0 * nd(rng); }
     WelchOptions o = scipyWelchOptions(fs, n);
-    const WelchResult r = welch(x, o);
+    const WelchResult r = psd(x, o);
     EXPECT(r.frequencies.size() == 251 && std::abs(r.frequencies[1] - 0.5) < 1e-12 && std::abs(r.frequencies[250] - 125.0) < 1e-12, "frequencies k fs/n up to Nyquist");
     // the power of a sine (A^2/2) is the PSD's integral; a bin-centred sine puts it in 3 bins of a Hann window (periodic)
     const double power = r.psd.row(0).sum() * (fs / static_cast<double>(n));
@@ -124,15 +131,15 @@ static void levels() {
     EXPECT(std::abs(level / (2 * 4.0 / fs) - 1) < 0.03, "white noise level 2 s^2 / fs, got ratio " + std::to_string(level / (2 * 4.0 / fs)));
     // 'Spectrum' scaling: the peak of a bin-centred sine is A^2/2 with a rectangular window
     WelchOptions rect = scipyWelchOptions(fs, n); rect.window = Window::Rectangular; rect.scaling = Scaling::Spectrum;
-    EXPECT(std::abs(welch(x, rect).psd(0, 25) - 4.5 * 1.0) < 1e-9 * 4.5 * 2, "spectrum scaling: the sine's peak bin is A^2/2 (one-sided, rectangular window)");
+    EXPECT(std::abs(psd(x, rect).psd(0, 25) - 4.5 * 1.0) < 1e-9 * 4.5 * 2, "spectrum scaling: the sine's peak bin is A^2/2 (one-sided, rectangular window)");
     // a bad span: the result equals the average over the segments that miss it
     std::vector<std::uint8_t> good(T, 1);
     for (int i = 6000; i < 6100; ++i) good[i] = 0;
     MatrixXd y = x;
     y.middleCols(6000, 100).setConstant(1e6);   // garbage in the bad span must not matter
-    const WelchResult clean = welch(x, o, &good), junk = welch(y, o, &good);
+    const WelchResult clean = psd(x, o, &good), junk = psd(y, o, &good);
     EXPECT(clean.psd == junk.psd && clean.segments == junk.segments && clean.segmentsSkipped >= 1, "samples under the mask are never read into the estimate");
-    const WelchResult none = welch(x, o);
+    const WelchResult none = psd(x, o);
     EXPECT(clean.segments + clean.segmentsSkipped == none.segments, "segments left in + left out = the segments of the grid");
 }
 
@@ -144,7 +151,7 @@ static void rotary() {
     EXPECT(g.good(), "rotary golden opens");
     const MatrixXd X = g.mat("X"), A = g.mat("A");
     const double fs = g.mat("fs")(0, 0);
-    const Eigen::MatrixXcd z = nxr::rotary::pairSeries(A, X);
+    const Eigen::MatrixXcd z = nxr::signal::linearMap(pairWeights(A), X);
     auto check = [&](const char* fname, const char* name, const ComplexWelchResult& r) {
         const MatrixXd f = g.mat(fname), want = g.mat(name);
         EXPECT((r.frequencies.transpose() - f.row(0)).cwiseAbs().maxCoeff() < 1e-9, std::string(fname) + " the signed frequencies");
@@ -153,9 +160,9 @@ static void rotary() {
         std::cout << "  " << name << ": " << sci(e) << "\n";
     };
     WelchOptions o = scipyWelchOptions(fs, 400);
-    check("rotary_f_n400", "rotary_hann_const_n400", complexWelch(z, o));
+    check("rotary_f_n400", "rotary_hann_const_n400", psd(z, o));
     o = scipyWelchOptions(fs, 301); o.overlap = 100.0 / 301; o.window = Window::Hamming; o.detrend = Detrend::Linear;   // odd: no -fs/2 bin
-    check("rotary_f_n301", "rotary_hamming_linear_n301_ov100", complexWelch(z, o));
+    check("rotary_f_n301", "rotary_hamming_linear_n301_ov100", psd(z, o));
     // the sense: the peak of a forward pair (x = cos, y = sin) at +f, a backward pair at -f
     {
         const int T = 4000;
@@ -163,11 +170,11 @@ static void rotary() {
         for (int t = 0; t < T; ++t) { const double ph = 2 * kPi * 10.0 * t / fs; P(0, t) = std::cos(ph); P(1, t) = std::sin(ph); }
         MatrixXd I = MatrixXd::Identity(2, 2);
         WelchOptions w = scipyWelchOptions(fs, 400);
-        const ComplexWelchResult fwd = complexWelch(nxr::rotary::pairSeries(I, P), w);
+        const ComplexWelchResult fwd = psd(nxr::signal::linearMap(pairWeights(I), P), w);
         Eigen::Index k; fwd.psd.row(0).maxCoeff(&k);
         EXPECT(std::abs(fwd.frequencies[k] - 10.0) < 1e-9, "a forward-rotating pair peaks at +f");
         MatrixXd back = P; back.row(1) *= -1;
-        const ComplexWelchResult bwd = complexWelch(nxr::rotary::pairSeries(I, back), w);
+        const ComplexWelchResult bwd = psd(nxr::signal::linearMap(pairWeights(I), back), w);
         bwd.psd.row(0).maxCoeff(&k);
         EXPECT(std::abs(bwd.frequencies[k] + 10.0) < 1e-9, "a backward-rotating pair peaks at -f");
         EXPECT(fwd.frequencies[0] == -fs / 2, "the signed line starts at -fs/2");
@@ -176,7 +183,7 @@ static void rotary() {
     {
         const Eigen::Index T = z.cols();
         const WelchOptions w = scipyWelchOptions(fs, 256);
-        const ComplexWelchResult whole = complexWelch(z, w);
+        const ComplexWelchResult whole = psd(z, w);
         for (Eigen::Index chunk : {Eigen::Index(1), Eigen::Index(97), Eigen::Index(700), T}) {
             ComplexWelch cw(1, w);
             for (Eigen::Index s = 0; s < T; s += chunk) cw.add(z.middleCols(s, std::min(chunk, T - s)));
@@ -187,11 +194,10 @@ static void rotary() {
         for (int i = 900; i < 1250; ++i) good[static_cast<std::size_t>(i)] = 0;
         Eigen::MatrixXcd junk = z;
         for (int i = 900; i < 1250; ++i) junk(0, i) = std::complex<double>(1e9, -1e9);
-        const ComplexWelchResult clean = complexWelch(z, w, &good), dirty = complexWelch(junk, w, &good);
+        const ComplexWelchResult clean = psd(z, w, &good), dirty = psd(junk, w, &good);
         EXPECT(clean.psd == dirty.psd && clean.segmentsSkipped >= 1 && clean.segments + clean.segmentsSkipped == whole.segments, "samples under the mask are never read");
     }
-    EXPECT(throws([&] { nxr::rotary::pairSeries(MatrixXd::Zero(3, 4), MatrixXd::Zero(4, 9)); }), "a pair is two rows");
-    EXPECT(throws([&] { nxr::rotary::pairSeries(MatrixXd::Zero(2, 3), MatrixXd::Zero(4, 9)); }), "the rows act on the data's channels");
+    EXPECT(throws([&] { nxr::signal::linearMap(Eigen::MatrixXcd::Zero(1, 3), MatrixXd::Zero(4, 9)); }), "the rows act on the data's channels");
     EXPECT(throws([&] { ComplexWelch(1, [] { WelchOptions b = scipyWelchOptions(100.0, 100); b.overlap = 1.0; return b; }()); }), "overlap 1");
 }
 
@@ -227,7 +233,7 @@ static void refusals() {
     Welch w(2, o);
     EXPECT(throws([&] { w.add(MatrixXd::Zero(3, 10)); }), "a chunk with the wrong channels");
     EXPECT(throws([&] { w.add(MatrixXd::Zero(2, 10), std::vector<std::uint8_t>(9, 1)); }), "a mask of the wrong length");
-    const WelchResult empty = welch(MatrixXd::Zero(2, 50), o);
+    const WelchResult empty = psd(MatrixXd(MatrixXd::Zero(2, 50)), o);
     EXPECT(empty.segments == 0 && empty.psd.cols() == 51 && empty.psd.isZero(), "a record shorter than a segment: no segment, a zero PSD");
 }
 
@@ -243,7 +249,7 @@ static void linearMap() {
     for (int i = 700; i < 760; ++i) good[i] = 0;                // a bad stretch: the segments touching it are left out
     for (const char* which : {"brainstorm", "scipy-odd"}) {
         WelchOptions o = std::string(which) == "brainstorm" ? brainstormPsdOptions(100.0, 2.0) : scipyWelchOptions(100.0, 201);   // an even and an odd segment length
-        const WelchResult direct = welch(A * x, o, &good);
+        const WelchResult direct = psd(MatrixXd(A * x), o, &good);
         const std::size_t first = 3, last = 40;
         for (std::size_t group : {std::size_t(1), std::size_t(3)}) {
             LinearWelch lw(A, group, o, first, last);
@@ -269,7 +275,7 @@ static void linearMap() {
     // the whole spectrum with the Nyquist bin and DC (the one-sided doubling): bins 0 .. n/2
     {
         WelchOptions o = scipyWelchOptions(100.0, 100);
-        const WelchResult direct = welch(A * x, o);
+        const WelchResult direct = psd(MatrixXd(A * x), o);
         LinearWelch lw(A, 1, o, 0, 50);
         lw.add(x);
         EXPECT((lw.result().psd - direct.psd).cwiseAbs().maxCoeff() / direct.psd.cwiseAbs().maxCoeff() < 1e-12, "bins 0 .. Nyquist: DC and Nyquist not doubled, the rest doubled, as Welch");

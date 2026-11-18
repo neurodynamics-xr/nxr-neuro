@@ -2,7 +2,7 @@
 // wrapper of the maths of compute/ (nxr::signal::spectral, nxr::rotary): the same function a test calls directly.
 //
 //   welch.psd          accumulate  x [channels x samples] (+ `exclude`: the recording's bad segments)  ->  psd [channels x bins], one-sided, described as a statistic
-//   rotary.pair        chunk       x + a stored [2 x C] operator (its rows a_x, a_y)  ->  z = a_x.X + i a_y.X, one complex series (pointwise, a linear map)
+//   signal.linear_map  chunk       x + a stored [2 x C] operator (its rows a_x, a_y)  ->  z = a_x.X + i a_y.X, one complex series (pointwise, a linear map)
 //   fft.spectrum       chunk       x -> the block's one-sided spectrum, complex channels x bins (axis block)
 //   welch.complex_psd  accumulate  z  ->  psd [1 x n], TWO-SIDED on the signed frequency line (+f: the pair turning from x towards y)
 //
@@ -26,7 +26,7 @@
 #include <limits>
 #include "nxr/meeg/sources.h"
 #include "nxr/meeg/tensor.h"
-#include "nxr/rotary.h"
+#include "nxr/signal/linear_map.h"
 #include "nxr/signal/spectral.h"
 #include "nxr/signal/fourier.h"
 #include "nxr/select/grid.h"
@@ -257,28 +257,28 @@ ng::NodeSpec welch_psd() {
   return n;
 }
 
-// ── rotary.pair ──────────────────────────────────────────────────────────────────────────────────────────────────
+// ── signal.linear_map ──────────────────────────────────────────────────────────────────────────────────────────────────
 
 struct PairPrepared {
-  Eigen::MatrixXd rows;                // [2 x M]: a_x, a_y
+  Eigen::MatrixXcd weights;            // [R x M]: the operator, complex (a pair of real rows a_x, a_y is the one row a_x + i a_y)
   std::vector<std::int32_t> channels;  // the recording's channels the operator's columns are over
 };
 
-ng::NodeSpec rotary_pair() {
+ng::NodeSpec linear_map() {
   ng::NodeSpec n;
-  n.name = "signal.pair_series";
+  n.name = "signal.linear_map";
   n.kind = ng::Kind::chunk;
   n.inputs = {{"x", "the recording: channels x samples (streamed)", false}, {"operator", "a stored 2-row operator over the channels (its rows a_x and a_y: the plane's x and y)", false}};
   n.outputs = {{"z", "z = a_x.X + i a_y.X: one complex series, +f the pair turning from x towards y", false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input, "each sample is mapped on its own: a linear map of the channels, so any block split gives the same values; stored as float32 for float32 input");
   n.linear_map = true;
-  n.matches = "nxr.timefreq (the complex series of a rotary pair); compute nxr::rotary::pairSeries";
+  n.matches = "nxr.timefreq (the complex series of a rotary pair); compute nxr::signal::linearMap";
   n.description = "the complex series of a rotary pair: the operator's two rows applied to the channels, x + i y";
   n.plan = [](const ng::Types& in, const Json&) {
-    const ng::PortType& x = streamed_real(in, "x", "signal.pair_series");
-    if (x.value != ng::ValueType::real) ng::refuse("signal.pair_series: x is a real series");
+    const ng::PortType& x = streamed_real(in, "x", "signal.linear_map");
+    if (x.value != ng::ValueType::real) ng::refuse("signal.linear_map: x is a real series");
     const auto op = in.find("operator");
-    if (op == in.end() || op->second.cls != ng::PortClass::operator_) ng::refuse("signal.pair_series: operator is a stored operator");
+    if (op == in.end() || op->second.cls != ng::PortClass::operator_) ng::refuse("signal.linear_map: operator is a stored operator");
     ng::Planned out;
     ng::PortType z = x;
     z.value = ng::ValueType::complex;
@@ -292,13 +292,15 @@ ng::NodeSpec rotary_pair() {
   };
   n.prepare = [](const ng::Types&, const ng::Arrays& constants, const Json&, ng::Shared&) {
     const auto it = constants.find("operator");
-    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("signal.pair_series: the operator's matrix was not handed over");
+    if (it == constants.end() || it->second.meta.value("placeholder", false)) ng::refuse("signal.linear_map: the operator's matrix was not handed over");
     const ng::Array& a = it->second;
-    if (a.rows != 2) ng::refuse("signal.pair_series: a pair is two rows (the operator has " + std::to_string(a.rows) + ")");
+    if (a.rows != 2) ng::refuse("signal.linear_map: the stored operator is two rows (a_x, a_y: the real and imaginary parts of one complex row) (the operator has " + std::to_string(a.rows) + ")");
     PairPrepared p;
-    p.rows = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(a.data.data(), a.rows, a.cols);
+    const Eigen::MatrixXd rows = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(a.data.data(), a.rows, a.cols);
+    p.weights.resize(1, a.cols);
+    for (Eigen::Index c = 0; c < a.cols; ++c) p.weights(0, c) = std::complex<double>(rows(0, c), rows(1, c));
     for (const auto& c : a.meta.value("channels", Json::array())) p.channels.push_back(c.get<std::int32_t>());
-    if (static_cast<std::int64_t>(p.channels.size()) != a.cols) ng::refuse("signal.pair_series: the operator's channels (" + std::to_string(p.channels.size()) + ") are not its columns (" + std::to_string(a.cols) + ")");
+    if (static_cast<std::int64_t>(p.channels.size()) != a.cols) ng::refuse("signal.linear_map: the operator's channels (" + std::to_string(p.channels.size()) + ") are not its columns (" + std::to_string(a.cols) + ")");
     return std::any(std::move(p));
   };
   n.chunk = [](const std::any& prepared, const ng::Blocks& in, std::int64_t keep, const ng::Place&) {
@@ -308,10 +310,10 @@ ng::NodeSpec rotary_pair() {
     const Eigen::Map<const RowMajor> all(b.re.data(), b.rows, b.width);
     Eigen::MatrixXd X(static_cast<Eigen::Index>(p.channels.size()), w);
     for (std::size_t i = 0; i < p.channels.size(); ++i) {
-      if (p.channels[i] < 0 || p.channels[i] >= b.rows) ng::refuse("signal.pair_series: a channel of the operator is outside the recording's channels");
+      if (p.channels[i] < 0 || p.channels[i] >= b.rows) ng::refuse("signal.linear_map: a channel of the operator is outside the recording's channels");
       X.row(static_cast<Eigen::Index>(i)) = all.row(p.channels[i]).segment(c0, w).cast<double>();
     }
-    const Eigen::MatrixXcd z = nxr::rotary::pairSeries(p.rows, X);
+    const Eigen::MatrixXcd z = nxr::signal::linearMap(p.weights, X);
     ng::Block o{1, w, kl, kr, std::vector<float>(static_cast<std::size_t>(w)), std::vector<float>(static_cast<std::size_t>(w))};
     for (std::int64_t t = 0; t < w; ++t) { o.re[static_cast<std::size_t>(t)] = static_cast<float>(z(0, t).real()); o.im[static_cast<std::size_t>(t)] = static_cast<float>(z(0, t).imag()); }
     return ng::Blocks{{"z", std::move(o)}};
@@ -1104,7 +1106,7 @@ ng::NodeSpec fft_spectrum() {
   n.outputs = {{"spectrum", "the one-sided Fourier transform of every channel of the block, complex channels x bins, made once per block (axis block)", false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "a change of basis of one block: nothing is carried from block to block; the transform runs in double, the value is handed on in float32");
-  n.matches = "numpy.fft.rfft along time (norm backward: unscaled); compute nxr::signal::rfftColumns";
+  n.matches = "numpy.fft.rfft along time (norm backward: unscaled); compute nxr::signal::rfft";
   n.description = "the one-sided FFT of every channel of the block as given: no window, no taper, no detrend, no scaling (X[k] = sum_j x[j] exp(-2 pi i j k / n), n = the block's samples); "
                   "its frequency line is bin k at k x sfreq / n Hz (spacing sfreq / n, origin 0, unit Hz), bins n/2 + 1";
   n.plan = [](const ng::Types& in, const Json&) {
@@ -1126,7 +1128,7 @@ ng::NodeSpec fft_spectrum() {
   n.chunk = [](const std::any&, const ng::Blocks& in, std::int64_t, const ng::Place&) {
     const ng::Block& b = in.at("x");
     const Eigen::MatrixXd x = own_real(b);                                   // channels x n
-    const Eigen::MatrixXcd X = nxr::signal::rfftColumns(x.transpose()).transpose();   // channels x bins
+    const Eigen::MatrixXcd X = nxr::signal::rfft(x.transpose()).transpose();   // channels x bins
     ng::Block o;
     o.rows = X.rows(); o.width = X.cols(); o.left = 0; o.right = 0;
     o.line_samples = x.cols();                                                // the block's samples: the frequency line's spacing is rate / n, whether n is odd or even
@@ -1143,7 +1145,7 @@ ng::NodeSpec fft_spectrum() {
 
 void register_welch_nodes() {
   ng::Registry& r = ng::registry();
-  for (ng::NodeSpec n : {welch_psd(), rotary_pair(), welch_complex_psd(), welch_source_band_power(), welch_source_bins(), welch_source_tensor(), welch_cross_spectrum(), welch_mode_cross_spectra(), fft_spectrum()})
+  for (ng::NodeSpec n : {welch_psd(), linear_map(), welch_complex_psd(), welch_source_band_power(), welch_source_bins(), welch_source_tensor(), welch_cross_spectrum(), welch_mode_cross_spectra(), fft_spectrum()})
     if (!r.find(n.name)) r.add(std::move(n));
 }
 

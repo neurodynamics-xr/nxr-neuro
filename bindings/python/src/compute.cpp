@@ -107,9 +107,8 @@ nb::tuple welch_psd(const Array2<T>& x, double sfreq, size_t segment_samples, do
   nxr::signal::spectral::WelchResult r;
   {
     nb::gil_scoped_release release;
-    nxr::signal::spectral::Welch w(static_cast<int>(X.rows()), opt);
-    if (good) w.add(X, good_vector(*good)); else w.add(X);
-    r = w.result();
+    const std::vector<std::uint8_t> mask = good ? good_vector(*good) : std::vector<std::uint8_t>();
+    r = nxr::signal::spectral::psd(X, opt, good ? &mask : nullptr);
   }
   return nb::make_tuple(hand_over(std::move(r.frequencies)), give<T>(std::move(r.psd)), r.segments, r.segmentsSkipped);
 }
@@ -126,9 +125,8 @@ nb::tuple welch_cross_spectrum(const Array2<T>& x, double sfreq, size_t segment_
   nxr::signal::spectral::CrossWelchResult r;
   {
     nb::gil_scoped_release release;
-    nxr::signal::spectral::CrossWelch w(static_cast<int>(X.rows()), opt, groups, quadrature);
-    if (good) w.add(X, good_vector(*good)); else w.add(X);
-    r = w.result();
+    const std::vector<std::uint8_t> mask = good ? good_vector(*good) : std::vector<std::uint8_t>();
+    r = nxr::signal::spectral::xpsd(X, opt, groups, quadrature, good ? &mask : nullptr);
   }
   const size_t c = static_cast<size_t>(X.rows());
   nb::object imag = quadrature ? give_stack<T>(r.Sq, c, c) : nb::none();
