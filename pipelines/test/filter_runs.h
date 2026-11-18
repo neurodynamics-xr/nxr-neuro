@@ -33,7 +33,7 @@ inline FilterComputeResult filter_compute(nxr::io::DatasetWriter& ds, nxr::io::S
   if (o.filter.notchBandwidth) set["notch_bandwidth"] = *o.filter.notchBandwidth;
   if (o.filter.method == nxr::filter::Method::Iir) set["method"] = "iir";
   set["remove_mean"] = o.filter.removeMean;
-  const bool fir_mean = o.filter.method == nxr::filter::Method::Fir && k != Kind::Notch && k != Kind::Bandstop && o.filter.removeMean;
+  const bool fir_mean = o.filter.method == nxr::filter::Method::Fir && o.filter.removeMean;
   if (fir_mean && !sub.find("selection", "measurements/" + o.recording + "_channel_mean_members") && !nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = o.recording + "_channel_mean", .any_status = true})) {
     nxr::pipelines::graph::RunOptions mo;
     mo.chunks = "all";
