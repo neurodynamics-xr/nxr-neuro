@@ -99,4 +99,36 @@ std::vector<double> eventIntervalNext(const std::vector<TileEvent>& events, doub
   return out;
 }
 
+BurstLengths burstLengths(const BurstOptions& o, double step) {
+  if (!(step > 0) || !std::isfinite(step)) throw std::invalid_argument("burstLengths: step (s between samples) is above 0");
+  // seconds in whole samples: joined when the samples between two spans last <= mergeS; kept when minS <= length * step <= maxS
+  BurstLengths L;
+  L.gap = static_cast<std::int64_t>(std::floor(o.mergeS / step + 1e-9)) + 1;
+  L.minLength = std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(o.minS / step - 1e-9)));
+  L.maxLength = std::isinf(o.maxS) ? std::numeric_limits<std::int64_t>::max() : static_cast<std::int64_t>(std::floor(o.maxS / step + 1e-9));
+  return L;
+}
+
+Bursts detectBursts(const Eigen::Ref<const Eigen::VectorXd>& x, double step, const BurstOptions& o, const std::optional<Baseline>& baseline) {
+  if (!(step > 0) || !std::isfinite(step)) throw std::invalid_argument("detectBursts: step (s between samples) is above 0");
+  if (!(o.mergeS >= 0) || !(o.minS >= 0) || !(o.maxS >= o.minS)) throw std::invalid_argument("detectBursts: 0 <= mergeS, 0 <= minS <= maxS");
+  Bursts b;
+  const BurstLengths L = burstLengths(o, step);
+  b.gap = L.gap; b.minLength = L.minLength; b.maxLength = L.maxLength;
+  std::vector<double> good;
+  for (Eigen::Index t = 0; t < x.size(); ++t) if (std::isfinite(x(t))) good.push_back(x(t));
+  b.good = static_cast<std::int64_t>(good.size());
+  if (good.size() < 2) { b.skipped = "fewer than 2 good samples"; return b; }
+  const Eigen::Map<const Eigen::VectorXd> g(good.data(), static_cast<Eigen::Index>(good.size()));
+  b.median = baseline ? baseline->median : median(g);
+  b.sd = baseline ? baseline->sd : mad(g);
+  if (!(b.sd > 0)) { b.skipped = "no spread (robust SD 0)"; return b; }
+  b.enter = b.median + o.enterSd * b.sd;
+  b.exit = b.median + o.exitSd * b.sd;
+  Eigen::VectorXd z = x;
+  for (Eigen::Index t = 0; t < z.size(); ++t) if (!std::isfinite(z(t))) z(t) = -std::numeric_limits<double>::infinity();   // a bad sample ends a span
+  b.spans = keepSpans(mergeSpans(crossings(z, b.enter, b.exit), b.gap), b.minLength, b.maxLength);
+  return b;
+}
+
 }  // namespace nxr::select

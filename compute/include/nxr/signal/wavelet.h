@@ -47,6 +47,13 @@ Eigen::MatrixXd iwt(const timefilterbank::TimeFilterbank& bank, const timefilter
 /** TwoSided synthesis to the complex record [n x C]. */
 Eigen::MatrixXcd iwtComplex(const timefilterbank::TimeFilterbank& bank, const timefilterbank::Coefficients& W, std::size_t n, graphfilterbank::Synthesis mode = graphfilterbank::Synthesis::Dual);
 
+/** THE ANALYTIC SIGNAL OF BANDS (the transform of the signal.analytic and signal.envelope nodes, the Studio's band of the Signal chain): one member per band [lo, hi] Hz of `shape`
+ *  (Morlet: a Gaussian of full width at half maximum hi − lo; Meyer: Meyer edges, `halfWidth` octaves; PowerPartition: squared gains adding to 1), gain 2 (the one-sided analytic signal), DC and Nyquist
+ *  dropped, designed on x's OWN length: x is the window the caller hands in (periodic on it; the caller's halo holds the edge effect). x [n × C] real → one [n × C] complex block per band. */
+timefilterbank::Coefficients bandAnalytic(const Eigen::MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, timefilterbank::Family shape, double halfWidth = 1.0 / 3.0);
+/** The bands' ENVELOPES: |bandAnalytic(x, ...)|, one [n × C] real block per band. */
+std::vector<Eigen::MatrixXd> bandEnvelope(const Eigen::MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, timefilterbank::Family shape, double halfWidth = 1.0 / 3.0);
+
 /** Rheome's wt of one real signal: per member the coefficients at the member's OWN rate (inverse FFT of its bins alone, oversampled). Analytic only. coef[t] = ifft(bins g) (Nm / nfft) at t = k nfft / (Nm fs). */
 struct OwnRate { Eigen::VectorXcd coef; Eigen::VectorXd t; double rate = 0, weight = 0; };
 std::vector<OwnRate> wtOwnRate(const timefilterbank::TimeFilterbank& bank, const Eigen::VectorXd& x, double oversample = 2.0);

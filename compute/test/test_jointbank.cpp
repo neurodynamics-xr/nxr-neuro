@@ -198,10 +198,33 @@ static void laws() {
     }
 }
 
+static void morletMeyer() {
+    std::cout << "=== Morlet in time x Meyer on the graph, from banks described in data (the bindings' route) ===\n";
+    // a synthetic spectrum: 200 eigenvalues on [0, 2], a Meyer (Weyl) graph bank of 4 octaves, a Morlet time bank of 3 centres
+    VectorXd lam = VectorXd::LinSpaced(200, 0.0, 2.0);
+    fb::NamedBank gs; gs.family = "weyl"; gs.area = 4 * kPi / 0.05; gs.levels = 4;
+    const fb::GraphFilterbank graph = fb::make(gs);
+    EXPECT(graph.size() == 5 && graph.kind == "meyer", "weyl, 4 levels: scaling + 3 wavelets + top");
+    tb::Design td = TD(tb::familyOf("morlet"), 1.0, tb::sidesOf("analytic")); td.centres = {4.0, 8.0, 16.0}; td.cycles = 6;
+    const std::size_t nfft = 256; const double fs = 128;
+    const tb::TimeFilterbank time = tb::design(td, nfft, fs);
+    const JointFilterbank j = make(graph, time);
+    EXPECT(j.size() == graph.size() * time.size() && j.separable(), "every (graph, time) pair, separable");
+    const fb::Bounds plane = framebounds(j, lam, BoundsBy::Plane), prod = framebounds(j, lam, BoundsBy::Product);
+    EXPECT(std::abs(plane.A - prod.A) < 1e-9 * std::max(1.0, prod.B) && std::abs(plane.B - prod.B) < 1e-9 * std::max(1.0, prod.B), "the bounds are the products of the factors' bounds");
+    const MatrixXd C = noise(200, 256, 11);     // [K x T] mode series, T = nfft
+    const auto W = nxr::signal::jwt(j, lam, C);
+    EXPECT(static_cast<int>(W.size()) == j.size() && W[0].rows() == 200 && W[0].cols() == static_cast<Eigen::Index>(nfft), "jwt: one [K x nfft] block per member, on the series handed in");
+    EXPECT(throws([] { fb::NamedBank b; b.family = "gabor"; fb::make(b); }) && throws([] { tb::familyOf("gabor"); }) && throws([] { tb::sidesOf("both"); }), "an unknown family or side is refused");
+    fb::NamedBank mh; mh.family = "mexhat"; mh.range = fb::Range::fromLmax(2.0); mh.options.numFilters = 4;
+    EXPECT(fb::make(mh).size() == 5, "mexhat by name: the scaling function + 4 wavelets");
+}
+
 int main() {
     rheome();
     nxrRidge();
     laws();
+    morletMeyer();
     std::cout << "\n" << (g_failures ? "FAILED" : "all passed") << " (" << g_failures << " failures)\n";
     return g_failures ? 1 : 0;
 }

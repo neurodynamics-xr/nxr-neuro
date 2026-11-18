@@ -214,6 +214,24 @@ static tb::Coefficients analyse(const tb::TimeFilterbank& b, const MatrixXcd& X)
 }
 
 tb::Coefficients wt(const tb::TimeFilterbank& b, const MatrixXd& x) { return analyse(b, tb::spectrum(b, x)); }
+
+tb::Coefficients bandAnalytic(const MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, tb::Family shape, double halfWidth) {
+    if (x.rows() < 2) throw std::invalid_argument("bandAnalytic: x holds at least 2 samples");
+    if (bands.empty()) throw std::invalid_argument("bandAnalytic: at least one band");
+    tb::Design design(shape, 2.0, tb::Sides::Analytic);
+    design.bands = bands;
+    design.halfWidth = halfWidth;
+    design.edgeBins = tb::EdgeBins::Drop;
+    return wt(tb::design(design, static_cast<std::size_t>(x.rows()), fs), x);
+}
+
+std::vector<MatrixXd> bandEnvelope(const MatrixXd& x, double fs, const std::vector<std::pair<double, double>>& bands, tb::Family shape, double halfWidth) {
+    const tb::Coefficients z = bandAnalytic(x, fs, bands, shape, halfWidth);
+    std::vector<MatrixXd> out;
+    out.reserve(z.size());
+    for (const auto& m : z) out.push_back(m.cwiseAbs());
+    return out;
+}
 tb::Coefficients wt(const tb::TimeFilterbank& b, const MatrixXcd& x) { return analyse(b, tb::spectrum(b, x)); }
 
 // sum_m w_m * spec(W_m); w = the dual g/S, or g / S_nominal (G^2, and G^2/2 at an analytic DC / Nyquist under Single) for the tight synthesis

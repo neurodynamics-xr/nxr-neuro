@@ -92,6 +92,10 @@ struct TimeFilterbank {
 /** The family named "morlet" | "power_partition" (the node parameter `shape`); throws std::invalid_argument naming both. */
 Family bandFamilyOf(const std::string& name);
 const char* bandFamilyName(Family family);
+/** Every family by name: "itersine" | "meyer" | "morlet" | "morse" | "amor" | "bump" | "power_partition" (for a Design described in data); throws naming them. */
+Family familyOf(const std::string& name);
+/** "analytic" | "two_sided"; throws naming both. */
+Sides sidesOf(const std::string& name);
 /** [bands x freqs] amplitude gains at |f| (freqs in Hz, any sign) of the band shapes Morlet and PowerPartition (a function of the bands alone, no grid): the gains the bank gives its members, divided by G. */
 Eigen::MatrixXd bandGains(const Eigen::VectorXd& freqs, const std::vector<std::pair<double, double>>& bands, Family family);
 
