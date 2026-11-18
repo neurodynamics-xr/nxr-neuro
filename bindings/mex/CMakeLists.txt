@@ -19,7 +19,7 @@ message(STATUS "nxr-compute-mex: building against MATLAB at ${Matlab_ROOT_DIR}")
 
 matlab_add_mex(
     NAME nxr_compute_mex                # CMake target name (file is nxr_compute.mexw64)
-    SRC src/nxr_compute_mex.cpp src/first_slice.cpp
+    SRC src/nxr_compute_mex.cpp src/first_slice.cpp src/access_slice.cpp
     LINK_TO nxr_compute
     OUTPUT_NAME nxr_compute
     R2018a                      # use the new mxArray API (interleaved complex etc.)
@@ -29,6 +29,7 @@ matlab_add_mex(
 # from LINK_TO, so set the standard explicitly.  nxr-compute is C++17 today
 # (see nxr-compute/CMakeLists.txt for the Emscripten/Eigen reasoning).
 target_compile_features(nxr_compute_mex PRIVATE cxx_std_17)
+target_include_directories(nxr_compute_mex PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/../common)   # what the MATLAB and Python faces share for the wavelet functions
 
 # libut.lib provides utIsInterruptPending() — the canonical Ctrl-C
 # bridge inside MEX functions. Undocumented but stable across MATLAB

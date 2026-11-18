@@ -324,6 +324,24 @@ bool retired(const std::string& cmd, std::string& renamed) {
 bool dispatchOps(const std::string& cmd, int nlhs, mxArray** plhs, int nrhs, const mxArray** prhs) {
   if (cmd == "compute.signal.psd") welchPsd(nlhs, plhs, nrhs, prhs);
   else if (cmd == "compute.signal.xpsd") welchCross(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.band_analytic") access::signalBandAnalytic(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.band_envelope") access::signalBandEnvelope(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.time_bank") access::signalTimeBank(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.wt") access::signalWt(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.iwt") access::signalIwt(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.graph_bank") access::signalGraphBank(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.gwt") access::signalGwt(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.igwt") access::signalIgwt(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.jwt") access::signalJwt(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.signal.ijwt") access::signalIjwt(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.select.median") access::selectMedian(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.select.mad") access::selectMad(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.select.crossings") access::selectCrossings(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.select.merge_spans") access::selectMergeSpans(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.select.keep_spans") access::selectKeepSpans(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.select.detect_bursts") access::selectDetectBursts(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.select.risefall") access::selectRisefall(nlhs, plhs, nrhs, prhs);
+  else if (cmd == "compute.select.stages") access::selectStages(nlhs, plhs, nrhs, prhs);
   else if (cmd.rfind("compute.signal.", 0) == 0) filterApply(cmd.substr(15), nlhs, plhs, nrhs, prhs);
   else if (cmd == "compute.stats.pca") pcaFit(nlhs, plhs, nrhs, prhs);
   else if (cmd == "compute.stats.reconstruct") pcaReconstruct(nlhs, plhs, nrhs, prhs);

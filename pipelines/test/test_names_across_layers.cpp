@@ -144,9 +144,11 @@ int main(int argc, char** argv) {
   for (const auto& s : found(slurp(root + "/bindings/mex/src/nxr_compute_mex.cpp"), "cmd == \"([\\w.]+)\"")) in_sources.insert("mex " + s);
   for (const auto& s : found(slurp(root + "/bindings/node/src/addon.cpp"), "exports\\.Set\\(\"([\\w.]+)\"")) in_sources.insert("addon " + s);
   for (const auto& s : found(slurp(root + "/bindings/wasm/src/nxr_compute_wasm.cpp"), "(?:\\.|::)function\\(\"([\\w.]+)\"")) in_sources.insert("wasm " + s);
-  const std::string py = slurp(root + "/bindings/python/src/compute.cpp");
-  for (const auto& s : found(py, "m\\.def\\(\"(\\w+)\"")) in_sources.insert("python " + s);
-  for (const auto& s : found(py, "def_both\\(m, \"(\\w+)\"")) in_sources.insert("python " + s);
+  for (const char* file : {"compute.cpp", "access.cpp"}) {   // access.cpp: the events and the wavelet and filterbank functions
+    const std::string py = slurp(root + "/bindings/python/src/" + file);
+    for (const auto& s : found(py, "m\\.def\\(\"(\\w+)\"")) in_sources.insert("python " + s);
+    for (const auto& s : found(py, "def_both\\(m, \"(\\w+)\"")) in_sources.insert("python " + s);
+  }
   for (const auto& e : fs::recursive_directory_iterator(root + "/bindings/mex/matlab/+nxr/+compute")) {
     if (e.path().extension() != ".m") continue;
     in_sources.insert("matlab compute." + e.path().parent_path().filename().string().substr(1) + "." + e.path().stem().string());
