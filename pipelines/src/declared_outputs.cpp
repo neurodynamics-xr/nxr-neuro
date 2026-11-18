@@ -862,8 +862,16 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       else bad(o, "axis " + decl["name"].get<std::string>() + ": selection " + so + " is neither an output stored before it (list it first) nor an input found");
       for (const char* key : {"members", "values"}) if (ax.contains(key)) out[key] = ax[key];
     } else if (decl.contains("on")) {
-      out["manifold_id"] = link(P, decl["on"].get<std::string>(), &made, o);
-      // an axis of PARTS of each element of the manifold it is linked to (the fused Hodge-Dirac weights: per mode, its normal-current and its flow part): the rows run part-major, size = parts x elements
+      const std::string axis_manifold = link(P, decl["on"].get<std::string>(), &made, o);
+      // an axis of PARTS of each element of the manifold it is linked to (the fused Hodge-Dirac weights: per mode, its normal-current and its flow part): the rows run part-major, size = parts x elements.
+      // An axis names what it runs along by ONE of manifold_id | values (io's rule): its own entries (a part and a mode each) carry the stored mode axis they are of; an axis with none is that manifold's
+      if (ax.contains("values") && ax["values"].is_array()) {
+        Json vals = ax["values"];
+        for (auto& v : vals) if (v.is_object()) v["manifold_id"] = axis_manifold;
+        out["values"] = vals;
+      } else {
+        out["manifold_id"] = axis_manifold;
+      }
       if (decl.contains("parts")) out["parts"] = decl["parts"];
     } else if (decl.contains("line")) {
       if (!ax.contains("line")) bad(o, "axis " + decl["name"].get<std::string>() + " declares a line; its node describes none");
