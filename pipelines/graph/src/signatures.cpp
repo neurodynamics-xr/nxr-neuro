@@ -169,7 +169,7 @@ void statistic_of_stream(Unified& u, const std::string& port, const std::string&
 // `reduce`: a field over the members of any selection (the only move that removes a factor); its two outputs, the measures' values and the ingredients they are read from, are the same measurement.
 Signature s_reduce() {
   return sig(Move::measure).accumulating()
-      .in("x", field({R, TF}).streamed().value_in({VT::real, VT::vector3}).because("Reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current)."))
+      .in("x", field({R, TF}).streamed().value_in({VT::real, VT::vector3, VT::complex}).because("Reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current), or a complex field by sum or mean."))
       .in("over", selection_any().optional().over())
       .in("exclude", selection({TF}).optional())
       .in("weights", any_port().optional())
@@ -179,6 +179,12 @@ Signature s_reduce() {
         const PortType& x = u.type("x");
         if (!p.contains("measures") || !p["measures"].is_array() || p["measures"].empty()) u.fail("x", "`measures` names what is measured (no default): the caller's, or the preset's");
         const std::string m = p["measures"][0].get<std::string>();
+        // a COMPLEX field is reduced as it is only by the measures linear in its value; the others need a real quantity (an order, a magnitude)
+        if (x.value == VT::complex)
+          for (const auto& mj : p["measures"]) {
+            const std::string mm = mj.is_string() ? mj.get<std::string>() : std::string();
+            if (mm != "sum" && mm != "mean") u.fail("x", "is complex and the measure " + mm + " needs a real quantity (an order or a magnitude); a complex field is reduced by sum or mean, or give it a form first (field.form magnitude | power | phase_current)");
+          }
         static const std::map<std::string, std::vector<std::string>> fits = {{"amplitude", {"amplitude", "envelope"}}, {"envelope_max", {"amplitude", "envelope"}},
                                                                              {"median", {"envelope"}}, {"power", {"power"}}, {"phase_current", {"phase_current"}}};
         const auto f = fits.find(m);
@@ -190,7 +196,7 @@ Signature s_reduce() {
         for (const char* port : {"values", "ingredients"}) {
           PortType& y = u.out.at(port);
           if (is_quantity(m)) y.quantity = m;
-          y.value = m == "phase_current" ? VT::vector3 : VT::real;
+          y.value = m == "phase_current" ? VT::vector3 : x.value == VT::complex ? VT::complex : VT::real;
         }
       });
 }
@@ -206,7 +212,7 @@ Signature s_reduce_members() {
         const PortType& x = u.type("x");
         const PortType& ev = u.type("over");
         if (x.domain.factors.empty() || !member_like(x.domain.factors.back())) u.fail("x", "must be a measurement over a grid's members (a tile level)");
-        if (!ev.sel || ev.sel->type != "spans") u.fail("over", "must be a spans selection");
+        if (!ev.sel || (ev.sel->type != "spans" && ev.sel->type != "set")) u.fail("over", "must be a spans selection, or the set of events `select.events.regions` found on the cells");
         const std::string over = partition_id(x.domain.factors.back());
         if (!ev.sel->detected_over.empty() && ev.sel->detected_over != over)
           u.fail("over", "were detected on the members of `" + ev.sel->detected_over + "`; x is measured over `" + over + "`. Reduce a measurement over the grid the events were found on (or detect them on x's).");
@@ -287,6 +293,7 @@ Signature s_select_time_grid() {
       .out("grid", make_of(PortClass::selection))
       .refine([](Unified& u, const Json& p) {
         PortType& g = u.out.at("grid");
+        if (g.domain.factors.empty() && u.has("line") && !u.in.at("line").domain.factors.empty()) g.domain = u.in.at("line").domain;   // a grid lies on the line it is made on
         g.quantity = "spans";
         g.sel = SelectionShape{p.value("rule", std::string()) == "segments" ? "spans" : "tiling", p.value("rule", std::string()) != "segments", u.out_names.at("grid"), ""};   // a grid is a closed-form partition; segments overlap (a family)
       });
@@ -427,7 +434,7 @@ Signature s_burst_stages() {
 
 Signature s_cell_extent() {
   return sig(Move::detect)
-      .in("x", measurement_any().because("The extent is found on a measurement over a joint partition."))
+      .in("x", measurement_any().because("The extent is found on a measurement over a product of a surface grid and a time grid (the cells)."))
       .in("baseline", statistic_any())
       .in("events", selection_any())
       .out("labels", make_of(PortClass::selection))
@@ -435,7 +442,7 @@ Signature s_cell_extent() {
         const PortType& x = u.type("x");
         const PortType& b = u.type("baseline");
         const PortType& ev = u.type("events");
-        if (x.domain.factors.empty() || !is_joint_members(x.domain.factors[0])) u.fail("x", "must be a measurement over a joint partition");
+        if (x.domain.factors.empty() || !is_members(x.domain.factors[0])) u.fail("x", "must be a measurement over a product of a surface grid and a time grid (the cells)");
         if (!b.of || !same(b.of->on, x.domain)) u.fail("baseline", "is not a statistic of x");
         if (!ev.sel || ev.sel->type != "spans") u.fail("events", "must be spans");
         PortType& l = u.out.at("labels");

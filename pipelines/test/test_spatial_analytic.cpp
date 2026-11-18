@@ -21,6 +21,7 @@
 #include "portable_random.h"
 #include "store_at.h"
 #include "nxr/io.h"
+#include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
@@ -30,6 +31,7 @@
 #include "nxr/signal/filters_fir.h"
 #include "nxr/signal/graphfilterbank.h"
 #include "make_grids.h"
+#include "run_definition.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -59,7 +61,7 @@ int main() {
   const int N = b.n, M = N, T = 12288;
   const double sfreq = 250.0;
   const int L = 4;
-  const std::int64_t W = 256;
+  std::int64_t W = 0;                                     // the band's time tile (samples), read from its grid
   DatasetWriter ds = create_dataset(root, "demo");
   std::string surf, tid, cid_s;
   {
@@ -109,21 +111,11 @@ int main() {
     /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  nxrtest::make_time_grids(ds, sub);
   nxrtest::make_tiles(ds, sub);
   const SurfaceInput S0 = read_surface(sub, std::string("cortex"), true);
   const SurfaceLevel SL = read_surface_level(sub, S0, L);
   SpatialBandOptions sbo; sbo.transform = "exact";
   const SpatialBand sband = make_spatial_band(S0, SL, sbo);
-  int timeLevel = -1;
-  for (const auto& m : nxr::io::task::Subject::of(sub).find_all({.cls = nxr::io::task::Cls::selection, .params_present = {"resolves_hz"}, .any_status = true})) {
-    if (!m.member_of_id) continue;
-    const Json pj = m.params;
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0 && pj["window_samples"] == W) timeLevel = static_cast<int>(*m.member_ordinal);
-  }
-  CHECK(timeLevel >= 0);
-  if (timeLevel < 0) return 1;
-
   // THE PLANTED EPISODES: the level's own pattern of one tile in each hemisphere (left: tile 2; right: tile 16 + 5), 12 Hz under a double sigmoid a = S((t - on)/tr) S(-(t - off)/tf)
   const std::vector<std::int32_t> centres = [&] {
     ArrayReader r = ArrayReader::open(sub.store(), SL.record["node"].get<std::string>() + "/lc/L" + std::to_string(L) + "/centre");
@@ -166,7 +158,18 @@ int main() {
       }
     });
   }
-  // (the joint cells are no longer made by a verb: the definitions make their product themselves, `select.product` with the joint layout)
+  // THE CELLS: each recording's band 8-16 Hz grid and its product with the level's tiles (`select_product`, the level coupled to the scale `parts 16`), measured by the preset `cortical_band_cells`;
+  // the per-sample product `global_bursts` fits the edges on
+  nxrtest::make_time_grids(ds, sub, "band", Json{{"band", "8-16 Hz"}});
+  for (const char* rn : {"rest", "rest_b"}) {
+    nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", rn}, {"surface", "cortex"}, {"time_grid", std::string(rn) + " time grid band 8-16 Hz"}, {"couple", Json::array({Json{{"factor", 0}, {"scale", "parts 16"}}})}});
+    nxrtest::make_sample_product(ds, sub, rn, "cortex", sfreq, "parts 16");
+  }
+  const auto grid_node = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest time grid band 8-16 Hz", .any_status = true});
+  CHECK(grid_node.has_value());
+  if (!grid_node) return 1;
+  W = grid_node->params["grid"]["width"].get<std::int64_t>();
+  CHECK(W > 0);
   const std::int64_t tiles = 2 * (1 << L), frames = T / W;
   const double width_s = static_cast<double>(W) / sfreq;
 
@@ -214,49 +217,72 @@ int main() {
   };
 
   // ── THE RUNS: temporal (named and unnamed: the same run), then spatiotemporal (another recipe: refused unless --replace) ──
-  const g::Definition dc = g::load("cortical_cells");
   g::RunOptions all; all.chunks = "all";
   g::RunOptions rep = all;
   rep.replace = true;
-  const Json set_t = Json{{"space_level", L}, {"transform", "exact"}, {"spatial_shape", "meyer"}, {"method", "MNE"}}, set_tn = Json{{"space_level", L}, {"transform", "exact"}, {"spatial_shape", "meyer"}, {"method", "MNE"}, {"envelope", "temporal"}},
-             set_s = Json{{"space_level", L}, {"transform", "exact"}, {"spatial_shape", "meyer"}, {"method", "MNE"}, {"envelope", "spatiotemporal"}};
-  auto cells_of = [&](const Json& r) { std::vector<std::int64_t> sh; const auto a = nxrtest::read_packed(sub.folder(), out_of(r, "amplitude"), &sh); CHECK(sh == (std::vector<std::int64_t>{tiles, frames, 2})); return a; };
-  const auto rt = g::run(ds, sub, dc, set_t, all);
-  CHECK(rt.size() == 2 && rt[0]["hit"] == false);
-  const std::vector<float> ct = cells_of(rt[0]), ctb = cells_of(rt[1]);
+  g::RunOptions preset = all;
+  preset.preset = "cortical_band_cells";
+  const g::Definition dm = g::load("measure");
+  // the preset's measurement of one recording: its band on the cortex (the chain's own parameters in `chain_parameters`) over the recording's product of coupled tiles
+  auto cells_run = [&](const std::string& recording, const Json& chain, const g::RunOptions& o) {
+    Json cp = Json{{"recording", recording}, {"band", "8-16 Hz"}, {"spatial_scale", "parts 16"}, {"transform", "exact"}, {"spatial_shape", "meyer"}, {"method", "MNE"}};
+    for (const auto& [k, v] : chain.items()) cp[k] = v;
+    return g::run(ds, sub, dm, Json{{"recording", recording}, {"band", "8-16 Hz"}, {"spatial_scale", "parts 16"}, {"chain_parameters", cp}}, o);
+  };
+  const Json no_extra = Json::object(), mono = Json{{"envelope", "spatiotemporal"}}, temporal = Json{{"envelope", "temporal"}};
+  // the stored cells' amplitude of a recording, as (value, count) pairs [tile x frame]
+  auto cells_of = [&](const std::string& recording) {
+    const auto rec = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = recording, .any_status = true});
+    const auto prod = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = recording + " cells 8-16 Hz parts 16", .any_status = true});     // the product the preset makes (its time grid and the level coupled to the scale)
+    CHECK(rec.has_value() && prod.has_value());
+    const MeasurementValues mv = measurement_values(sub, prod->id, rec->id, std::nullopt, std::nullopt, "amplitude");
+    CHECK(mv.members == tiles * frames);
+    std::vector<float> out(static_cast<std::size_t>(tiles * frames * 2), std::nanf(""));
+    for (std::int64_t k = 0; k < frames; ++k) for (std::int64_t s2 = 0; s2 < tiles; ++s2) { out[static_cast<std::size_t>((s2 * frames + k) * 2)] = static_cast<float>(mv.values[static_cast<std::size_t>(s2 + tiles * k)]); out[static_cast<std::size_t>((s2 * frames + k) * 2 + 1)] = 1.0f; }
+    return out;
+  };
+  const auto rt = cells_run("rest", no_extra, preset);
+  CHECK(rt.size() == 1 && rt[0]["hit"] == false);
+  const auto rtb = cells_run("rest_b", no_extra, preset);
+  const std::vector<float> ct = cells_of("rest"), ctb = cells_of("rest_b");
   const std::vector<double> want_t = direct(false), want_s = direct(true);
   const double et = worst(ct, want_t);
   std::printf("  temporal cells vs direct: worst relative error %.2e\n", et);
   CHECK(et < 2e-4);
-  CHECK(g::run(ds, sub, dc, set_tn, all)[0]["hit"] == true);        // the named default is the unnamed one
-  CHECK(code_of([&] { g::run(ds, sub, dc, set_s, all); }) == std::string(code::already_exists));   // another envelope's rows are another recipe's: refused, never silently replaced
-  const auto rs = g::run(ds, sub, dc, set_s, rep);
-  CHECK(rs.size() == 2 && rs[0]["hit"] == false);
-  const std::vector<float> cs = cells_of(rs[0]), csb = cells_of(rs[1]);
+  // (a rerun of the `measure` preset is not a cache hit: the rows exist and are refused without --replace, as another recipe's are; the chain parameters are part of the recipe as written, so naming the default
+  //  envelope is no different: the old verb read a named default as the unnamed one and its rerun was a hit)
+  CHECK(code_of([&] { cells_run("rest", no_extra, preset); }) == std::string(code::already_exists));
+  CHECK(code_of([&] { cells_run("rest", temporal, preset); }) == std::string(code::already_exists));
+  CHECK(code_of([&] { cells_run("rest", mono, preset); }) == std::string(code::already_exists));   // another envelope's rows are another recipe's: refused, never silently replaced
+  g::RunOptions preset_rep = preset;
+  preset_rep.replace = true;
+  const auto rs = cells_run("rest", mono, preset_rep);
+  CHECK(rs.size() == 1 && rs[0]["hit"] == false);
+  cells_run("rest_b", mono, preset_rep);
+  const std::vector<float> cs = cells_of("rest"), csb = cells_of("rest_b");
   const double es = worst(cs, want_s);
   std::printf("  spatiotemporal cells vs direct: worst relative error %.2e\n", es);
   CHECK(es < 5e-4);
   {
-    // the recipe names the envelope; the step's resolved record holds the Riesz part's gain
-    const Json am = out_of(rs[0], "amplitude");
+    // the recipe names the envelope; the measurement's rows record how they were computed
     const auto rec = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::field, .name = "rest", .any_status = true});
-    const auto jsel = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = am["over"].get<std::string>(), .any_status = true});
-    const auto rows = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(jsel->id)}, {"of_field_id", V(rec->id)}, {"measure", V("amplitude")}});
+    const auto cells_product = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = "rest cells 8-16 Hz parts 16", .any_status = true});
+    CHECK(cells_product.has_value());
+    const auto rows = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"selection_id", V(cells_product->id)}, {"of_field_id", V(rec->id)}, {"measure", V("amplitude")}});
     CHECK(!rows.empty() && !text(rows.front(), "computed_by").empty());
-    const Json report = rs[0];
-    const std::string dumped = report.dump();
+    const std::string dumped = rs[0].dump();
     CHECK(dumped.find("spatiotemporal") != std::string::npos);
   }
   // a rerun is a hit; the other chunk width gives the same cells; the temporal rerun is refused again (the rows are the spatiotemporal ones now) unless --replace
-  CHECK(g::run(ds, sub, dc, set_s, all)[0]["hit"] == true);
+  CHECK(code_of([&] { cells_run("rest", mono, preset); }) == std::string(code::already_exists));
   {
     double diff = 0;
     for (std::size_t i = 0; i < cs.size(); ++i) if (!std::isnan(cs[i]) || !std::isnan(csb[i])) diff = std::max(diff, static_cast<double>(std::abs(cs[i] - csb[i])));
     std::printf("  chunk widths 4096 and 1000, spatiotemporal: max difference %.2e\n", diff);
     CHECK(diff < 1e-6);
   }
-  CHECK(code_of([&] { g::run(ds, sub, dc, set_t, all); }) == std::string(code::already_exists));
-  CHECK(code_of([&] { Json bad = set_s; bad["envelope"] = "spatial"; g::run(ds, sub, dc, bad, all); }) != std::string());
+  CHECK(code_of([&] { cells_run("rest", no_extra, preset); }) == std::string(code::already_exists));
+  CHECK(code_of([&] { cells_run("rest", Json{{"envelope", "spatial"}}, preset); }) != std::string());
 
   // ── THE HAND-OVER: the strongest cell's trace (the trace the bursts are detected on, here the max over the tiles) inside the episode (8 s … 17 s) ──
   auto trace = [&](const std::vector<float>& c) {
@@ -276,32 +302,12 @@ int main() {
 
   // a FREE kernel (three components a vertex): the amplitude is the norm over the components of z and of R z, so alpha = (1, 2, 2) gives 3 times the fixed kernel's cells
   {
-    Json sf = set_s; sf["method"] = "dSPM";
-    const auto rf = g::run(ds, sub, dc, sf, rep);
-    const std::vector<float> cf = cells_of(rf[0]);
+    cells_run("rest", Json{{"envelope", "spatiotemporal"}, {"method", "dSPM"}}, preset_rep);
+    const std::vector<float> cf = cells_of("rest");
     double w = 0, top = 0;
     for (std::size_t i = 0; i < cs.size(); i += 2) { if (std::isnan(cs[i])) continue; top = std::max(top, 3.0 * std::abs(static_cast<double>(cs[i]))); w = std::max(w, std::abs(cf[i] - 3.0 * cs[i])); }
     std::printf("  free kernel (1, 2, 2), spatiotemporal: cells vs 3 x the fixed kernel's: worst relative difference %.2e\n", w / top);
     CHECK(w / top < 2e-4);
-  }
-
-  // cortical_cell_pairs takes the same option: its pair (level L, band 8-16) under spatiotemporal gives the cells of cortical_cells
-  {
-    const g::Definition dp = g::load("cortical_cell_pairs");
-    const Json sp = Json{{"space_levels", Json::array({L})}, {"bands", Json::array({Json::array({8.0, 16.0})})}, {"transform", "exact"}, {"method", "MNE"}, {"envelope", "spatiotemporal"}, {"shape", "morlet"}};
-    const auto rp = g::run(ds, sub, dp, sp, rep);
-    CHECK(!rp.empty());
-    std::string name;
-    for (const auto& x : rp[0]["stored"]) if (x["output"].get<std::string>().rfind("amplitude_", 0) == 0) name = x["output"].get<std::string>();
-    const Json amp = out_of(rp[0], name);
-    CHECK(!amp.is_null());
-    if (!amp.is_null()) {
-      const std::vector<float> cp = nxrtest::read_packed(sub.folder(), amp);
-      double w = 0, top = 0;
-      for (std::size_t i = 0; i < cs.size(); i += 2) { if (std::isnan(cs[i])) continue; top = std::max(top, static_cast<double>(std::abs(cs[i]))); w = std::max(w, static_cast<double>(std::abs(cp[i] - cs[i]))); }
-      std::printf("  cortical_cell_pairs, spatiotemporal: cells vs cortical_cells': worst relative difference %.2e\n", w / top);
-      CHECK(w / top < 1e-6);
-    }
   }
 
   // ── THE EVENT: the extent's z = (cell - the tile's median) / the tile's robust SD (as global_bursts does); the exit level between the two envelopes' troughs, found from the stored cells ──
@@ -329,15 +335,18 @@ int main() {
     const double ex = 0.5 * (trough_t + trough_s);
     int cnt[2] = {0, 0};
     for (int e = 0; e < 2; ++e) {
-      Json st = Json{{"space_level", L}, {"transform", "exact"}, {"spatial_shape", "meyer"}, {"method", "MNE"}, {"envelope", e ? "spatiotemporal" : "temporal"}, {"extent_enter_sd", std::min(peak_t, peak_s) * 0.9}, {"extent_exit_sd", ex}, {"min_cells", 2}};
+      const double enter_z = 1.1 * ex,                       // each half of the hand-over, under the temporal envelope, must reach it on its own
+                    area_two = 1.5 * *std::max_element(tarea.begin(), tarea.end());   // an event of at least two cells
+      Json st = Json{{"recording", "rest"}, {"spatial_scale", "parts 16"}, {"product", "rest cortex product"}, {"sample_product", "rest cortex samples product"}, {"transform", "exact"}, {"spatial_shape", "meyer"}, {"method", "MNE"},
+                     {"envelope", e ? "spatiotemporal" : "temporal"}, {"extent_enter_sd", enter_z}, {"extent_exit_sd", ex}, {"min_area", area_two}};
       const auto r = g::run(ds, sub, dg, st, rep);
       const Json x = out_of(r[0], "extents");
       ArrayReader rd = ArrayReader::open(sub.store(), x["path"].get<std::string>());
       const auto raw = rd.read();
-      std::vector<std::int32_t> lab(raw.size() / 4);
+      std::vector<std::int32_t> lab(raw.size() / 4);                                // the cells are numbered s + tiles k
       std::memcpy(lab.data(), raw.data(), raw.size());
       std::set<int> ev;
-      for (int s2 = 0; s2 < 16; ++s2) for (int k = 7; k < 17; ++k) if (lab[static_cast<std::size_t>(s2 * frames + k)] >= 0) ev.insert(lab[static_cast<std::size_t>(s2 * frames + k)]);
+      for (int s2 = 0; s2 < 16; ++s2) for (int k = static_cast<int>(8.0 / width_s); k < static_cast<int>(std::ceil(17.0 / width_s)); ++k) if (lab[static_cast<std::size_t>(s2 + tiles * k)] >= 0) ev.insert(lab[static_cast<std::size_t>(s2 + tiles * k)]);
       cnt[e] = static_cast<int>(ev.size());
     }
     std::printf("  events of the left episode at exit z %.0f: temporal %d, spatiotemporal %d\n", ex, cnt[0], cnt[1]);

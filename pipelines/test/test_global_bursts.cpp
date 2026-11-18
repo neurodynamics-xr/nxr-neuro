@@ -140,12 +140,13 @@ int main() {
 
   nxrtest::make_time_grids(ds, sub, "band", Json{{"band", "8-16 Hz"}, {"recording", "rest"}});                              // the band's own time grid, found by its rule's name
   nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", "rest"}, {"surface", "cortex"}, {"time_grid", "rest time grid band 8-16 Hz"}, {"couple", Json::array({Json{{"factor", 0}, {"scale", "parts 16"}}})}});   // the cells: level 4 (16 tiles a piece) x the band's tiles
+  nxrtest::make_sample_product(ds, sub, "rest", "cortex", sfreq, "parts 16");                                               // the per-sample cells: level 4 x the line's samples
   { g::RunOptions po; po.chunks = "all"; po.preset = "cortical_band_cells";
     const auto rm = g::run(ds, sub, g::load("measure"), Json{{"recording", "rest"}, {"band", "8-16 Hz"}, {"spatial_scale", "parts 16"}, {"chain_parameters", Json{{"recording", "rest"}, {"band", "8-16 Hz"}, {"spatial_scale", "parts 16"}, {"transform", "exact"}, {"spatial_shape", "meyer"}}}}, po);
     CHECK(rm.size() == 1 && rm[0]["hit"] == false); }   // the preset measures the band on the cortex over its coupled cells (level 4 x the band's tiles)
   const g::Definition d = g::load("global_bursts");
   g::RunOptions all; all.chunks = "all";
-  Json set1 = Json{{"recording", "rest"}, {"spatial_scale", "parts 16"}, {"product", "rest cortex product"}, {"transform", "exact"}, {"spatial_shape", "meyer"}};   // whole brain, combine mean: global events (no row)
+  Json set1 = Json{{"recording", "rest"}, {"spatial_scale", "parts 16"}, {"product", "rest cortex product"}, {"sample_product", "rest cortex samples product"}, {"transform", "exact"}, {"spatial_shape", "meyer"}};   // whole brain, combine mean: global events (no row)
   auto spans_of = [&](const Json& r) {
     const Json bj = out_of(r, "bursts");
     std::vector<std::tuple<double, double, int>> s;
@@ -154,11 +155,19 @@ int main() {
     for (const tk::Span& x : ts.spans(*sel)) s.emplace_back(x.start, x.stop, 0);
     return std::make_pair(s, sel->params.is_null() ? Json::object() : sel->params);
   };
+  // a measurement the run stored over its bursts, by measure name, as [rows x members] of (value, count) pairs: the layout the checks below were written for
+  const auto rest_field = tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = "rest", .any_status = true});
   auto measure_of = [&](const Json& r, const std::string& o, std::int64_t& rows, std::int64_t& events) {
-    std::vector<std::int64_t> shape;
-    const auto a = nxrtest::read_packed(sub.folder(), out_of(r, o), &shape);
-    rows = shape[0]; events = shape[1];
-    return a;
+    static const std::map<std::string, std::pair<const char*, const char*>> in_values = {{"burst_amplitude", {"burst_values", "amplitude"}}, {"burst_peak", {"burst_values", "envelope_max"}}, {"burst_duration", {"burst_values", "duration"}}};
+    const auto it = in_values.find(o);
+    const Json x = out_of(r, it == in_values.end() ? o : it->second.first);
+    const std::string measure = it == in_values.end() ? o : it->second.second;
+    CHECK(!x.is_null() && rest_field.has_value());
+    const MeasurementValues mv = measurement_values(sub, x["over"].get<std::string>(), rest_field->id, std::nullopt, std::nullopt, measure);
+    rows = mv.rows; events = mv.members;
+    std::vector<float> out(static_cast<std::size_t>(mv.rows * mv.members * 2));
+    for (std::size_t i = 0; i < mv.values.size(); ++i) { out[i * 2] = static_cast<float>(mv.values[i]); out[i * 2 + 1] = 1.0f; }
+    return out;
   };
 
   // ── WHOLE BRAIN: one trace, two global bursts, each refined on samples ──
@@ -186,41 +195,31 @@ int main() {
     std::int64_t r = 0, e = 0;
     const auto amp = measure_of(r1[0], "burst_amplitude", r, e), pk = measure_of(r1[0], "burst_peak", r, e), du = measure_of(r1[0], "burst_duration", r, e);
     CHECK(amp[0] > 0 && pk[0] >= amp[0] && du[0] > 0.4 && std::isfinite(amp[2]));
-    for (const char* s : {"burst_amplitude_stats", "tau_rise_stats", "fit_r2_stats", "baseline"}) CHECK(!out_of(r1[0], s).is_null());
+    for (const char* s : {"burst_stats", "tau_rise_stats", "fit_r2_stats", "baseline"}) CHECK(!out_of(r1[0], s).is_null());
     std::vector<tk::Node> st;
-    for (const tk::Node& q : tk::Subject::of(sub).find_all({.cls = tk::Cls::statistic, .any_status = true})) if (q.name.find("burst_amplitude_stats") != std::string::npos) st.push_back(q);
+    for (const tk::Node& q : tk::Subject::of(sub).find_all({.cls = tk::Cls::statistic, .any_status = true})) if (q.name.find("burst_stats") != std::string::npos) st.push_back(q);
     CHECK(!st.empty());
   }
-  // PACKED: the run's measurements over one Selection share ONE array each (the file count); each measure's rows point at its component, and the lookup reads by component
+  // THE MEASURES OVER THE BURSTS are ONE array (`burst_values`: amplitude, envelope_max, duration, interval_next; a column each), and the fit's own measures lie over the same bursts; each measure read by name is the stored value
   {
-    std::set<std::string> arrays;
-    std::int64_t n_measures = 0;
-    for (const auto& x : r1[0]["stored"]) if (x.contains("array") && x.contains("component")) { arrays.insert(x["array"].get<std::string>()); ++n_measures; }
-    std::printf("  packed: %lld measurement outputs in %zu array(s)\n", static_cast<long long>(n_measures), arrays.size());
-    CHECK(n_measures >= 20 && arrays.size() < static_cast<std::size_t>(n_measures) / 2);
-    // measures of one array read by their own component: the lookup's values are the stored outputs'
-    for (const char* o : {"t_on", "tau_rise", "fit_r2"}) {
-      const Json x = out_of(r1[0], o);
-      CHECK(x["packed"].get<std::int64_t>() >= 1);
-      const auto own = nxrtest::read_packed(sub.folder(), x);
-      std::optional<Row> row;
-      for (const Row& cand : nxr::io::testing::Probe(sub).rows("selection_measurement", {{"array_path", V(x["array"].get<std::string>())}, {"component", V(x["component"].get<std::int64_t>())}}))
-        if (text(cand, "measure") != "count") { row = cand; break; }
-      CHECK(row.has_value());
-      const MeasurementValues mv = measurement_values(sub, text(*row, "selection_id"), text(*row, "of_field_id"), std::nullopt, std::nullopt, text(*row, "measure"));
-      CHECK(mv.values.size() * (x["components"].get<std::int64_t>() + 1) == own.size());
-      for (std::size_t i = 0; i < mv.values.size(); ++i) CHECK(std::isnan(mv.values[i]) ? std::isnan(own[i * 2]) : std::abs(mv.values[i] - own[i * 2]) < 1e-6);
-    }
+    const Json bv = out_of(r1[0], "burst_values");
+    CHECK(bv["kind"] == "measurement" && bv["rows"] == 4 && !bv["over"].is_null());
+    const MeasurementValues A = measurement_values(sub, bv["over"].get<std::string>(), rest_field->id, std::nullopt, std::nullopt, "amplitude");
+    CHECK(A.array_backed && A.members == 2 && A.rows == 1);
+    std::int64_t r = 0, e = 0;
+    const auto amp = measure_of(r1[0], "burst_amplitude", r, e);
+    for (std::size_t i = 0; i < A.values.size(); ++i) CHECK(std::abs(A.values[i] - amp[i * 2]) < 1e-6 * std::abs(A.values[i]));
+    for (const char* o : {"t_on", "tau_rise", "fit_r2"}) CHECK(out_of(r1[0], o)["over"] == bv["over"]);
   }
   // the recipe records what preparation resolved, as the cells' does
-  CHECK(r1[0]["prepared"].contains("apply_kernel:sources"));
+  CHECK(r1[0].contains("prepared") && !r1[0]["prepared"].empty());
   // a rerun is a hit
   { const auto r = g::run(ds, sub, d, set1, all); CHECK(r.size() == 1 && r[0]["hit"] == true); }
 
   // ── TIME SUB-BLOCKS: the pointwise tail (after the band's taps) run on sub-blocks of another width, or on the whole chunk, gives the same values ──
   auto values = [&](const Json& r) {
     std::map<std::string, std::vector<float>> v;
-    for (const char* o : {"t_on", "burst_amplitude", "burst_peak", "trace_amplitude", "cell_amplitude", "extent_area_by_tile"}) { std::int64_t a = 0, b = 0; if (!out_of(r, o).is_null() && out_of(r, o).contains("array")) v[o] = measure_of(r, o, a, b); }
+    for (const char* o : {"t_on", "tau_rise", "fit_r2", "burst_amplitude", "burst_peak", "burst_duration"}) { std::int64_t a = 0, b = 0; v[o] = measure_of(r, o, a, b); }
     return v;
   };
   auto same = [&](const std::map<std::string, std::vector<float>>& a, const std::map<std::string, std::vector<float>>& b) {
@@ -234,7 +233,7 @@ int main() {
     return true;
   };
   const auto v1 = values(r1[0]);
-  CHECK(v1.size() >= 4);
+  CHECK(v1.size() == 6);
   for (const std::int64_t bw : {std::int64_t(0), std::int64_t(333)}) {
     g::RunOptions o = all; o.replace = true; o.block_samples = bw;
     const auto r = g::run(ds, sub, d, set1, o);

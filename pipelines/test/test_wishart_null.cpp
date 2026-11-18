@@ -1,6 +1,6 @@
-// THE WISHART NULL (`wishart compute`, pipelines/include/nxr/pipelines/wishart_null.h; spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10) on a synthetic 6-channel recording (never a real dataset): a narrow 8-12 Hz band process reaching the channels with NO lag
+// THE LAG-FREE PAIRS SURROGATE (the definition `surrogate_lagfree_pairs`, was `wishart compute`; spec docs/specs/2026-11-14-vortex-cores-port.md, piece 10) on a synthetic 6-channel recording (never a real dataset): a narrow 8-12 Hz band process reaching the channels with NO lag
 // in bursts 0 and 2, and with a lag of 6 samples a channel (24 ms: 87 degrees a step at 10 Hz) in bursts 1 and 3. Shown:
-//   - the stored analytic windows summed over each burst's tiles are the burst's second moment; the lagged share of the lagged bursts is far above the lag-free ones'
+//   - the band's analytic windows are the COMPLEX measurement `sum` of `measure --set analytic_cross_spectrum_tiles` (a complex reduce of z z^H over the band's time grid); summed over each burst's tiles are the burst's second moment; the lagged share of the lagged bursts is far above the lag-free ones'
 //   - the Wishart null calls them: the lagged bursts' p is at most 0.01 (400 draws); the lag-free bursts' are not at that level; the run's mean share is beyond its null
 //   - the effective bandwidth of the band (the PSD through the analytic gain) and the degrees of freedom (duration x bandwidth) are stored; a draw is a function of the seed (the same seed twice is the same result); a rerun is a hit
 //   - the refusals: a recording, windows, bursts and PSD that do not exist, a band that is not LO < HI, too few draws
@@ -19,13 +19,17 @@
 #include "nxr/bst/entities.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
+#include "nxr/io/testing/probe.h"
+#include "nxr/io/array_reader.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/pipelines/wishart_null.h"
+#include "nxr/pipelines/runner.h"
 #include "make_grids.h"
+#include "run_definition.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
 namespace fs = std::filesystem;
+namespace tk = nxr::io::task;
 
 namespace {
 template <class F> std::string what_of(F f) { try { f(); } catch (const Error& e) { return e.what(); } return ""; }
@@ -99,21 +103,59 @@ int main() {
     /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  nxrtest::make_time_grids(ds, sub);
-  nxrtest::run_psd(ds, sub, "rest", Json{{"segment_level", 8}});
-  { CrossSpectrumOptions co; co.recording = "rest"; co.chunks = "all"; co.bands = {{"alpha", 8.0, 12.0}}; co.estimator = "analytic"; co.level = 8; crossspectrum_compute(ds, sub, co); }
-  WishartNullOptions wo;
-  wo.recording = "rest"; wo.windows = "rest_crossspectrum_alpha_windows"; wo.bursts = "bursts"; wo.psd = "rest_psd_welch"; wo.band = {8.0, 12.0}; wo.draws = 400; wo.seed = 3;
-  const auto r = wishart_null_compute(ds, sub, wo);
-  const StoredStatistic W = read_statistic(sub, "surrogate_lagfree_pairs.rest_crossspectrum_alpha_windows.bursts"), Wr = read_statistic(sub, "surrogate_lagfree_pairs.rest_crossspectrum_alpha_windows.bursts.run");
-  std::printf("  effective bandwidth %.2f Hz; %lld bursts used\n", r.info["effective_bandwidth_hz"].get<double>(), static_cast<long long>(r.info["bursts_used"].get<std::int64_t>()));
+  namespace g = nxr::pipelines::graph;
+  nxrtest::run_psd(ds, sub, "rest", Json{{"segment_samples", 256}});
+  const std::string windows = "rest time grid band 8-12 Hz";
+  { g::RunOptions po; po.chunks = "all"; po.preset = "analytic_cross_spectrum_tiles";
+    const auto rm = g::run(ds, sub, g::load("measure"), Json{{"recording", "rest"}, {"band", "8-12 Hz"}}, po);
+    CHECK(rm.size() == 1 && rm[0]["hit"] == false); }
+  // THE COMPLEX MEASUREMENT: a window's sum of z z^H is Hermitian (rows a*M+b, b*M+a conjugate), its diagonal real and positive, and the stored value type is complex
+  {
+    const CrossSpectrumWindows win = crossspectrum_windows_read(sub, windows);
+    CHECK(win.level == 7 && win.channels.size() == static_cast<std::size_t>(M) && win.sum.size() >= 60);
+    double herm = 0, diag_im = 0, big = 0;
+    for (const auto& S : win.sum) { herm = std::max(herm, (S - S.adjoint()).cwiseAbs().maxCoeff()); diag_im = std::max(diag_im, S.diagonal().imag().cwiseAbs().maxCoeff()); big = std::max(big, S.cwiseAbs().maxCoeff()); for (int c = 0; c < M; ++c) CHECK(S(c, c).real() > 0); }
+    std::printf("  windows: %zu whole tiles of 2^%d samples; Hermitian error %.2e, diagonal imaginary %.2e (of %.2f)\n", win.sum.size(), win.level, herm, diag_im, big);
+    CHECK(herm < 1e-4 * big && diag_im < 1e-4 * big);
+    // the stored array says what it is
+    const auto sums = nxr::io::testing::Probe(sub).rows("selection_measurement", {{"measure", V(std::string("sum"))}});
+    CHECK(sums.size() == 1);
+    ArrayReader rd = ArrayReader::open(sub.store(), text(sums[0], "array_path"));
+    CHECK(rd.shape() == std::vector<std::int64_t>({M * M, rd.shape()[1], 2}));
+  }
+  // a complex field is reduced by the measures linear in its value; the others refuse with their reason
+  {
+    const auto why = what_of([&] { g::RunOptions po; po.chunks = "all"; po.preset = "analytic_cross_spectrum_tiles"; po.replace = true;
+                                   g::run(ds, sub, g::load("measure"), Json{{"recording", "rest"}, {"band", "8-12 Hz"}, {"measures", Json::array({"max"})}}, po); });
+    CHECK(why.find("complex") != std::string::npos && why.find("needs a real quantity") != std::string::npos);
+  }
+  Json set = Json{{"recording", "rest"}, {"windows", windows}, {"bursts", "bursts"}, {"psd", "rest_psd_welch"}, {"band", Json::array({8.0, 12.0})}, {"draws", 400}, {"seed", 3}};
+  auto run_pairs = [&](Json st, bool replace) { g::RunOptions ro; ro.chunks = "all"; ro.replace = replace; return g::run(ds, sub, g::load("surrogate_lagfree_pairs"), st, ro); };
+  const auto r = run_pairs(set, false);
+  const std::string nm = "surrogate_lagfree_pairs.bursts";
+  // the per-burst results are a MEASUREMENT of the recording over the bursts (5 measures); the run's, a statistic
+  const std::string bursts_id = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = "bursts", .any_status = true})->id, rec_id = text(*find_field(sub, FieldQuery{"rest", std::nullopt, std::nullopt, true}), "id");
+  struct PerBurst { std::vector<double> values; Row row; };                                  // values [burst x 5]: lagged_share, null_mean, p, q, dof
+  auto read_pairs = [&]() {
+    PerBurst out;
+    std::vector<std::vector<double>> cols;
+    for (const char* m : {"lagged_share", "lagfree_null_mean", "lagfree_p", "lagfree_q", "lagfree_dof"}) {
+      const MeasurementValues mv = measurement_values(sub, bursts_id, rec_id, std::nullopt, std::nullopt, m);
+      cols.push_back(mv.values);
+    }
+    for (std::size_t b = 0; b < cols[0].size(); ++b) for (std::size_t k = 0; k < 5; ++k) out.values.push_back(cols[k][b]);
+    return out;
+  };
+  const PerBurst W = read_pairs();
+  const StoredStatistic Wr = read_statistic(sub, nm + ".run");
+  std::printf("  %zu run(s)\n", r.size());
   double mn_free = 0, mn_lag = 0;
   for (int b = 0; b < 4; ++b) {
-    const double sh = W.values[static_cast<std::size_t>(5 * b)], nm = W.values[static_cast<std::size_t>(5 * b + 1)], p = W.values[static_cast<std::size_t>(5 * b + 2)], q = W.values[static_cast<std::size_t>(5 * b + 3)], dof = W.values[static_cast<std::size_t>(5 * b + 4)];
-    std::printf("  burst %d (%s): lagged share %.3f, null mean %.3f, p %.4f, q %.4f, dof %.1f\n", b, bursts[static_cast<std::size_t>(b)].second ? "lagged" : "lag-free", sh, nm, p, q, dof);
+    const double sh = W.values[static_cast<std::size_t>(5 * b)], nm_ = W.values[static_cast<std::size_t>(5 * b + 1)], p = W.values[static_cast<std::size_t>(5 * b + 2)], q = W.values[static_cast<std::size_t>(5 * b + 3)], dof = W.values[static_cast<std::size_t>(5 * b + 4)];
+    std::printf("  burst %d (%s): lagged share %.3f, null mean %.3f, p %.4f, q %.4f, dof %.1f\n", b, bursts[static_cast<std::size_t>(b)].second ? "lagged" : "lag-free", sh, nm_, p, q, dof);
     (bursts[static_cast<std::size_t>(b)].second ? mn_lag : mn_free) += sh / 2;
   }
-  CHECK(text(W.row, "method") == "lagfree_pairs" && text(W.row, "measure") == "null_p" && W.shape == std::vector<std::int64_t>({4, 5}) && Wr.shape == std::vector<std::int64_t>({4}));
+  CHECK(W.values.size() == 20 && Wr.shape == std::vector<std::int64_t>({4}));
   CHECK(mn_lag > 3 * mn_free);                                                    // the lagged bursts are far more in quadrature
   for (int b = 0; b < 4; ++b) {
     const double p = W.values[static_cast<std::size_t>(5 * b + 2)];
@@ -122,18 +164,18 @@ int main() {
   }
   CHECK(Wr.values[3] <= 3.0 / 401 + 1e-12 && Wr.values[0] > Wr.values[1] + 3 * Wr.values[2]);   // the run's mean share is beyond its null
   // the same seed is the same result; a rerun is a hit; another seed is another set of draws
-  { WishartNullOptions again = wo; CHECK(wishart_null_compute(ds, sub, again).hit);
-    WishartNullOptions other = wo; other.seed = 99; other.replace = true;
-    wishart_null_compute(ds, sub, other);
-    const StoredStatistic W2 = read_statistic(sub, "surrogate_lagfree_pairs.rest_crossspectrum_alpha_windows.bursts");
+  { const auto again = run_pairs(set, false); CHECK(again[0]["hit"] == true);
+    Json other = set; other["seed"] = 99;
+    run_pairs(other, true);
+    const PerBurst W2 = read_pairs();
     CHECK(W2.values != W.values && W2.values[0] == W.values[0]);                  // the data's share is the same, the null's mean differs
-    WishartNullOptions back = wo; back.replace = true; wishart_null_compute(ds, sub, back);
-    CHECK(read_statistic(sub, "surrogate_lagfree_pairs.rest_crossspectrum_alpha_windows.bursts").values == W.values); }
+    run_pairs(set, true);
+    CHECK(read_pairs().values == W.values); }
   // refusals
-  CHECK(what_of([&] { WishartNullOptions b = wo; b.recording = "no_such"; wishart_null_compute(ds, sub, b); }).find("no_such") != std::string::npos);
-  CHECK(!what_of([&] { WishartNullOptions b = wo; b.windows = "no_such"; wishart_null_compute(ds, sub, b); }).empty());
-  CHECK(what_of([&] { WishartNullOptions b = wo; b.bursts = "no_such"; wishart_null_compute(ds, sub, b); }).find("no_such") != std::string::npos);
-  CHECK(what_of([&] { WishartNullOptions b = wo; b.band = {12.0, 8.0}; wishart_null_compute(ds, sub, b); }).find("LO < HI") != std::string::npos);
-  CHECK(what_of([&] { WishartNullOptions b = wo; b.draws = 5; wishart_null_compute(ds, sub, b); }).find("at least 20") != std::string::npos);
+  CHECK(!what_of([&] { Json b = set; b["recording"] = "no_such"; run_pairs(b, false); }).empty());
+  CHECK(!what_of([&] { Json b = set; b["windows"] = "no_such"; run_pairs(b, false); }).empty());
+  CHECK(!what_of([&] { Json b = set; b["bursts"] = "no_such"; run_pairs(b, false); }).empty());
+  CHECK(what_of([&] { Json b = set; b["band"] = Json::array({12.0, 8.0}); run_pairs(b, false); }).find("lo < hi") != std::string::npos);
+  CHECK(what_of([&] { Json b = set; b["draws"] = 5; run_pairs(b, false); }).find("at least 20") != std::string::npos);
   return nxrtest::finish("test_wishart_null") ? 1 : 0;
 }

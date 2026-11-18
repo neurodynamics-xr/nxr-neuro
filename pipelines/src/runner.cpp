@@ -610,7 +610,7 @@ Json store_statistic(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
                  : combine == "each" ? Json{{"name", "row"}, {"manifold_id", nxr::io::finder::factors(sub.db(), text(rec, "manifold_id"))[0]}, {"size", a.rows}}
                                      : Json{{"name", "row"}, {"values", Json::array({Json{{"name", combine}}})}, {"size", a.rows}};
   std::int64_t least = of.value("tiles", a.cols);
-  for (const auto& u : a.meta["members_used"]) least = std::min<std::int64_t>(least, u.get<std::int64_t>());
+  if (a.meta.contains("members_used") && a.meta["members_used"].is_array()) for (const auto& u : a.meta["members_used"]) least = std::min<std::int64_t>(least, u.get<std::int64_t>());
   nxr::io::StatisticSpec st;
   st.name = name; st.path = path; st.measure = v.facts.value("measure", std::string("amplitude")); st.method = "summary";
   st.of_field_id = text(rec, "id");
@@ -633,7 +633,7 @@ Json store_statistic(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
   if (span.is_object() && rate > 0) good_s = (span["stop_sample"].get<double>() - span["start_sample"].get<double>() - producer["run"].value("bad_samples", 0.0)) / rate;
   st.options = Json{{"summaries", a.meta["summaries"]}, {"combine", combine}, {"ddof", a.meta["ddof"]}, {"span", span}, {"good_s", std::isfinite(good_s) ? Json(good_s) : Json()}};
   Json pj = producer;
-  pj["output"] = o; pj["members_used"] = a.meta["members_used"];
+  pj["output"] = o; if (a.meta.contains("members_used")) pj["members_used"] = a.meta["members_used"];
   st.producer = pj;
   const std::string id = sub.statistic(std::move(st));
   return Json{{"output", o}, {"statistic", name}, {"path", path}, {"id", id}};
@@ -1364,7 +1364,12 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
         for (auto& j : store_measurements(sub, unit, P, group, data, made_by(key), opt.replace, replaced)) stored.push_back(std::move(j));
         continue;
       }
-      if (v.cls == "labelling") { stored.push_back(store_labelling(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced)); continue; }
+      if (v.cls == "labelling") {
+        Json lj = store_labelling(ds, sub, P, o, v, data.at(o), producer, key, opt.replace, replaced);
+        if (lj.contains("id") && lj["id"].is_string()) made[o] = lj["id"].get<std::string>();   // a measurement declared over these events finds them by their output name
+        stored.push_back(std::move(lj));
+        continue;
+      }
       if (v.cls == "spans") {
         Json js = store_spans(ds, sub, P, o, spec, v, data.at(o), producer, key, opt.replace, replaced);
         if (js.contains("id") && js["id"].is_string()) made[o] = js["id"].get<std::string>();   // a measurement declared over these events finds them by their output name

@@ -492,8 +492,17 @@ TypedGraph type_check(const Graph& g, const Types& inputs, const Json& params, c
       tu.in[port] = v->second;
       tu.in_names[port] = value;
     }
-    for (std::size_t i = 0; i < s->outputs.size(); ++i)
-      tu.out_names[s->outputs[i].first] = i < u.out.size() ? u.out[i] : (u.out.empty() ? label : u.out[0]) + "." + s->outputs[i].first;
+    {                                                                   // the names given, in the order of the outputs the use makes (a node that makes a part of its outputs by a parameter: outputs_for)
+      const NodeSpec* spec = registry().find(u.node);
+      const std::vector<std::string> only = spec && spec->outputs_for ? spec->outputs_for(u.with) : std::vector<std::string>();
+      std::size_t k = 0;
+      for (std::size_t i = 0; i < s->outputs.size(); ++i) {
+        const std::string& port = s->outputs[i].first;
+        if (spec && spec->outputs_for && std::find(only.begin(), only.end(), port) == only.end()) continue;
+        tu.out_names[port] = k < u.out.size() ? u.out[k] : (u.out.empty() ? label : u.out[0]) + "." + port;
+        ++k;
+      }
+    }
     Json with = Json::object();
     for (const auto& [k, v] : u.with.items()) {
       if (v.is_string() && !v.get<std::string>().empty() && v.get<std::string>()[0] == '$') {

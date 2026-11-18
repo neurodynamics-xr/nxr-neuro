@@ -59,11 +59,11 @@ presets:
     chain_parameters: {recording: $recording, band: $band, spatial_scale: $spatial_scale}
     make:
       node: select.product
-      name: "{field_recording} cells ${band} ${spatial_scale}"
+      name: "{field_recording} cells {band} {spatial_scale}"
       with: {couple: [{factor: 0, scale: $spatial_scale}]}
       factors:
         - {input: tiles}
-        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band ${band}"}
+        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band {band}"}
     form: magnitude
     measures: [amplitude, envelope_max]
     weight: barycentric
@@ -72,11 +72,11 @@ presets:
     chain_parameters: {recording: $recording, band: $band, spatial_scale: $spatial_scale}
     make:
       node: select.product
-      name: "{field_recording} cells ${band} ${spatial_scale}"
+      name: "{field_recording} cells {band} {spatial_scale}"
       with: {couple: [{factor: 0, scale: $spatial_scale}]}
       factors:
         - {input: tiles}
-        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band ${band}"}
+        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band {band}"}
     form: power
     measures: [power]
     weight: barycentric
@@ -85,11 +85,11 @@ presets:
     chain_parameters: {recording: $recording, band: $band, spatial_scale: $spatial_scale}
     make:
       node: select.product
-      name: "{field_recording} cells ${band} ${spatial_scale}"
+      name: "{field_recording} cells {band} {spatial_scale}"
       with: {couple: [{factor: 0, scale: $spatial_scale}]}
       factors:
         - {input: tiles}
-        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band ${band}"}
+        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band {band}"}
     form: phase_current
     measures: [phase_current]
     weight: barycentric
@@ -100,11 +100,11 @@ presets:
     make:
       node: select.product
       layout: joint
-      name: "{field_recording} atlas ${band} ${spatial_scale}"
+      name: "{field_recording} atlas {band} {spatial_scale}"
       with: {couple: [{factor: 0, scale: $spatial_scale}]}
       factors:
         - {input: tiles}
-        - {node: select.time_grid, in: {line: line}, with: {rule: frames, band: $band}, name: "{field_recording} time grid frames ${band}"}
+        - {node: select.time_grid, in: {line: line}, with: {rule: frames, band: $band}, name: "{field_recording} time grid frames {band}"}
     form: power
     measures: [count, power]
     weight: barycentric
@@ -113,9 +113,9 @@ presets:
     chain_parameters: {recording: $recording, band: $band}
     make:
       node: select.product
-      name: "{field_recording} sensor tiles ${band}"
+      name: "{field_recording} sensor tiles {band}"
       factors:
-        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band ${band}"}
+        - {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, name: "{field_recording} time grid band {band}"}
         - {node: select.elements, in: {space: space}, with: {as: members}, name: "{field_recording} channels"}
     form: magnitude
     measures: [amplitude, envelope_max]
@@ -124,7 +124,7 @@ presets:
   analytic_cross_spectrum_tiles:
     chain: band_outer
     chain_parameters: {recording: $recording, band: $band, channels: $channels}
-    make: {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, store: {type: tiling, on: line.manifold.0, name: "{field_recording} time grid band ${band}"}}
+    make: {node: select.time_grid, in: {line: line}, with: {rule: band, band: $band}, store: {type: tiling, on: line.manifold.0, name: "{field_recording} time grid band {band}"}}
     measures: [sum]
     weight: none
   # the mean of each channel over the whole run: a product of the run's span (ONE member) and the channels (each its own member), both Selections made by makers in the run and stored (--field is the recording)
@@ -144,9 +144,9 @@ presets:
     chain_parameters: {recording: $recording, band: $band, channels: $channels}
     make:
       node: select.product
-      name: "{field_recording} envelope tiles ${duration}"
+      name: "{field_recording} envelope tiles {duration}"
       factors:
-        - {node: select.time_grid, in: {line: line}, with: {rule: tiles, duration: $duration}, name: "{field_recording} time grid tiles ${duration}"}
+        - {node: select.time_grid, in: {line: line}, with: {rule: tiles, duration: $duration}, name: "{field_recording} time grid tiles {duration}"}
         - {node: select.elements, in: {space: space}, with: {as: one_member}, name: "{field_recording} channels one member"}
     form: power
     measures: [power]

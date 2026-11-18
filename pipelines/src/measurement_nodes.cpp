@@ -229,7 +229,10 @@ Json product_of_entries(const Json& entries, const ExecContext& c, const std::st
         const auto at = nm.rfind(" tiles");
         need(at != std::string::npos && e.contains("level"), who + ": the surface factor " + nm + " of the stored product names no level");
         d["surface"] = nm.substr(0, at); d["level"] = e["level"]; d["tiles"] = e["members"];
-      } else if (d.value("kind", std::string()) == "time" && !d.contains("size") && d.contains("samples")) d["size"] = d["samples"];
+      } else if (d.value("kind", std::string()) == "time") {
+        if (!d.contains("size") && d.contains("samples")) d["size"] = d["samples"];
+        if (fp.contains("band")) d["band"] = fp["band"];                    // the band the grid is named for: what its tiles resolve
+      }
     } else if (fp.is_object() && fp.value("kind", std::string()) == "elements") d = Json{{"kind", "elements"}, {"size", e.value("members", std::int64_t(0))}};
     else if (fp.is_object() && fp.contains("level") && fp.contains("tiles")) d = Json{{"kind", "dyadic"}, {"surface", fp.value("surface", std::string())}, {"level", fp["level"]}, {"tiles", fp["tiles"]}};
     else refuse(who + ": the factor " + nm + " of the stored product records no grid");
@@ -344,6 +347,7 @@ Array pack_ingredients(const nm::Ingredients& g_in, std::int64_t rows, std::int6
   return a;
 }
 nm::Ingredients unpack_ingredients(const Array& a) {
+  need(!a.meta.contains("imag_offset"), "the ingredients are of a complex field (real and imaginary parts folded alike): rolling up or summarizing a complex measurement is not built; reduce a real quantity of it (a form) for that");
   nm::Ingredients g;
   g.rows = a.rows; g.members = a.cols;
   g.components = a.meta.value("ingredient_components", std::int64_t(1));
@@ -398,6 +402,7 @@ struct ReduceState {
   std::vector<Form> factors;                         // one (a grid) or several (a product, the FIRST fastest)
   std::vector<std::int64_t> radices;
   bool product = false;
+  bool complex = false;                              // x is complex: the imaginary part is folded beside the real one (measures linear in the value only)
   bool static_map = false;                           // the field has no time axis: reduced once over the members of a space selection (Q2)
   ns::ProductForm product_form;
   std::vector<double> weights;
@@ -405,7 +410,7 @@ struct ReduceState {
   std::int64_t members = 0;
   Json over;
 };
-struct ReduceAcc { nm::Ingredients ing; std::int64_t rows = 0; };
+struct ReduceAcc { nm::Ingredients ing, ing_im; std::int64_t rows = 0; };
 
 
 StepSpec reduce_node() {
@@ -424,14 +429,19 @@ StepSpec reduce_node() {
       "at read, never reduced themselves. A member cut by an excluded span or by the run's edge is NaN, never a short mean. `measures` has no default; `weight` is none, or the surface's barycentric "
       "(or voronoi) vertex areas for a member of a surface grid.";
   s.traits = node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "ingredients accumulate in double (sums of float32 samples); the blocks arrive in time order");
-  s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
+  s.plan = [](const Values& ins, const Json& p, const PlanContext& pc) {
     const Value& x = ins.at("x");
     need(x.cls == "field" && x.chunked, "reduce: x must be a field (a streamed one, or a map with no time axis), inside the chunk loop (a measurement over a grid's members is `reduce.members`)");
     // Q2: a field with NO time axis (a map on a surface, a value per channel) is reduced over the members of a selection of its space, once: nothing streams, the map is the one block
     need(x.time || ins.count("over"), "reduce: a field with no time axis is reduced over a selection of its space (`over`); with none there is no member to reduce to");
-    need(!x.complex, "reduce: x is complex; reduce a real quantity of it (give it a form first: field.form magnitude | power | phase_current)");
     need(p["measures"].is_array() && !p["measures"].empty(), "reduce: measures is a list (no default: the caller's or the preset's), e.g. [mean, max]");
     for (const auto& m : p["measures"]) need(m.is_string(), "reduce: a measure is a name");
+    // A COMPLEX field is reduced as it is by the measures that are LINEAR in the value (sum, mean): its real and imaginary parts are folded alike and the result stays complex (value_type complex, parts re, im).
+    // A measure that needs an order or a magnitude (max, min, abs_max, mean_square, median, amplitude, ...) has no complex value: it refuses with its reason (give the field a form first).
+    if (x.complex)
+      for (const auto& m : p["measures"])
+        need(m == "sum" || m == "mean", "reduce: x is complex and " + m.get<std::string>() + " needs a real quantity (an order or a magnitude); a complex field is reduced by the measures linear in its value (sum, mean), "
+                                         "or give it a form first (field.form magnitude | power | phase_current)");
     need(p["bad_segments"] == "exclude" || p["bad_segments"] == "ignore", "reduce: bad_segments " + p["bad_segments"].dump() + ": exclude or ignore");
     need(p["weight"] == "none" || p["weight"] == "barycentric" || p["weight"] == "voronoi", "reduce: weight " + p["weight"].dump() + ": none, barycentric or voronoi");
     for (const auto& m : p["measures"]) need(p["weight"] == "none" || (m != "median" && m != "mad"), "reduce: " + m.get<std::string>() + " is the member's own value and has no weighted form (weight none only)");
@@ -455,6 +465,14 @@ StepSpec reduce_node() {
         const Json pj = Json::parse(nxr::io::opt_text(*ov.row, "params_json").value_or("{}"), nullptr, false);
         if (pj.is_object() && pj.contains("grid")) gd = pj["grid"];
         if (pj.is_object() && pj.contains("band")) band = pj["band"];
+        if (band.is_null() && pj.is_object() && pj.contains("product") && pj["product"].is_array())   // a product's time factor names the band its tiles resolve (the events found on its trace read it)
+          for (const auto& e : pj["product"]) {
+            if (!e.is_object() || !e.contains("selection") || !e["selection"].is_string()) continue;
+            const auto frow = pc.bound.selection(e["selection"].get<std::string>());
+            if (!frow) continue;
+            const Json fp = Json::parse(nxr::io::opt_text(*frow, "params_json").value_or("{}"), nullptr, false);
+            if (fp.is_object() && fp.contains("band") && fp["band"].is_array()) band = fp["band"];
+          }
       } else {                                                               // a grid made earlier in the run: what its maker's port carries (select_nodes.cpp)
         for (const char* k : {"window_samples", "tiles", "width_s", "origin", "resolves_hz", "level"}) if (ov.facts.contains(k)) over[k] = ov.facts[k];
       }
@@ -477,6 +495,7 @@ StepSpec reduce_node() {
     st.req.measures = st.measures;
     st.req.weighting = p["weight"] == "none" ? nm::Weighting::none : nm::Weighting::given;
     st.rate = x.rate; st.origin = x.origin;
+    st.complex = x.complex;
     std::int64_t samples = 0;                                              // a map has no time line: nothing streams
     if (x.time) {
       const auto line = c.bound.manifold(*x.time);
@@ -551,6 +570,7 @@ StepSpec reduce_node() {
       bool hold = false;                                                       // a median keeps the values (exact, unweighted, never rolled up)
       for (const auto& m : st.measures) hold = hold || m == "median" || m == "mad";
       acc.ing = nm::Ingredients(acc.rows, st.members, ncomp, hold);
+      if (st.complex) acc.ing_im = nm::Ingredients(acc.rows, st.members, ncomp, hold);
     }
     nm::Request req = st.req;
     req.per_row = !pooled_rows;
@@ -560,10 +580,14 @@ StepSpec reduce_node() {
       ns::MemberOfElement m;
       m.member_of = st.factors[0].member_of; m.members = st.factors[0].members;
       need(static_cast<std::int64_t>(m.member_of.size()) == elements, "reduce: the selection has " + std::to_string(m.member_of.size()) + " elements, the map " + std::to_string(elements));
-      for (int comp = 0; comp < ncomp; ++comp) {
-        req.component = comp;
-        for (std::int64_t r = 0; r < elements; ++r) run[static_cast<std::size_t>(r)] = b.re[static_cast<std::size_t>((r * ncomp + comp) * b.width + b.left)];
-        nm::reduce(acc.ing, run.data(), 1, elements, m, st.weights.empty() ? nullptr : st.weights.data(), req);
+      for (int part = 0; part < (st.complex ? 2 : 1); ++part) {
+        const std::vector<float>& src = part == 0 ? b.re : b.im;
+        nm::Ingredients& into = part == 0 ? acc.ing : acc.ing_im;
+        for (int comp = 0; comp < ncomp; ++comp) {
+          req.component = comp;
+          for (std::int64_t r = 0; r < elements; ++r) run[static_cast<std::size_t>(r)] = src[static_cast<std::size_t>((r * ncomp + comp) * b.width + b.left)];
+          nm::reduce(into, run.data(), 1, elements, m, st.weights.empty() ? nullptr : st.weights.data(), req);
+        }
       }
       return;
     }
@@ -575,11 +599,15 @@ StepSpec reduce_node() {
       while (e < n && good(e)) ++e;
       const std::int64_t len = e - a;
       run.resize(static_cast<std::size_t>(elements * len));
-      for (int comp = 0; comp < ncomp; ++comp) {
-        req.component = comp;
-        for (std::int64_t r = 0; r < elements; ++r) std::copy_n(b.re.begin() + (r * ncomp + comp) * b.width + b.left + a, len, run.begin() + r * len);
-        if (st.product) nm::reduce(acc.ing, run.data(), elements, len, place.first + a, st.product_form, st.weights.empty() ? nullptr : st.weights.data(), req);
-        else nm::reduce(acc.ing, run.data(), elements, len, place.first + a, st.factors[0].rule, req);
+      for (int part = 0; part < (st.complex ? 2 : 1); ++part) {
+        const std::vector<float>& src = part == 0 ? b.re : b.im;
+        nm::Ingredients& into = part == 0 ? acc.ing : acc.ing_im;
+        for (int comp = 0; comp < ncomp; ++comp) {
+          req.component = comp;
+          for (std::int64_t r = 0; r < elements; ++r) std::copy_n(src.begin() + (r * ncomp + comp) * b.width + b.left + a, len, run.begin() + r * len);
+          if (st.product) nm::reduce(into, run.data(), elements, len, place.first + a, st.product_form, st.weights.empty() ? nullptr : st.weights.data(), req);
+          else nm::reduce(into, run.data(), elements, len, place.first + a, st.factors[0].rule, req);
+        }
       }
       a = e;
     }
@@ -591,6 +619,8 @@ StepSpec reduce_node() {
     const std::int64_t R = acc.rows, T = st.members;
     std::int64_t C = 0;
     for (const int k : st.components) C += k;
+    const std::int64_t C1 = C;                                              // the columns of the REAL part; a complex value has them twice (re, im per measure)
+    if (st.complex) C = 2 * C1;
     Array y{R, T, std::vector<double>(static_cast<std::size_t>(R * T * C), kNaN)};
     y.comps = C;
     // a member WHOLE in the span and free of bad samples has its full count of samples; any other is NaN (a short mean is never a tile's mean)
@@ -606,6 +636,12 @@ StepSpec reduce_node() {
         ++whole;
         std::int64_t off = 0;
         for (std::size_t k = 0; k < st.measures.size(); ++k) {
+          if (st.complex) {                                                 // one measure, two columns: re then im
+            y.data[static_cast<std::size_t>((r * T + m) * C + 2 * off)] = read_value(acc.ing, r, m, st.measures[k], 0);
+            y.data[static_cast<std::size_t>((r * T + m) * C + 2 * off + 1)] = read_value(acc.ing_im, r, m, st.measures[k], 0);
+            off += 1;
+            continue;
+          }
           for (int c = 0; c < st.components[k]; ++c) y.data[static_cast<std::size_t>((r * T + m) * C + off + c)] = read_value(acc.ing, r, m, st.measures[k], c);
           off += st.components[k];
         }
@@ -614,7 +650,13 @@ StepSpec reduce_node() {
     Json comps = Json::array();
     for (std::size_t k = 0; k < st.measures.size(); ++k) comps.push_back(Json{{"measure", st.measures[k]}, {"components", st.components[k]}});
     y.meta = Json{{"measures", comps}, {"members", T}, {"whole_members", whole}, {"over", st.over}, {"radices", st.radices}, {"rate", st.rate}, {"origin", st.origin}};
-    y.meta["describe"] = describe_measures(comps, R, T, C);
+    y.meta["describe"] = describe_measures(comps, R, T, C1);
+    if (st.complex) {                                                       // the stored array is [rows x members x 2] a measure: value_type complex, parts re, im (declared_outputs.cpp)
+      y.meta["describe"]["complex"] = true;
+      y.meta["describe"]["shape"] = Json::array({R, T, C});
+      y.meta["describe"]["value_type"] = "complex";
+      y.meta["describe"]["components"] = Json::array({"re", "im"});
+    }
     if (st.over.is_object() && st.over.value("kind", std::string()) == "time" && st.over.value("width", std::int64_t(0)) > 0 && st.rate > 0) {   // a time grid's tile, as the detection after it reads it
       y.meta["window_samples"] = st.over["width"];
       y.meta["width_s"] = st.over["width"].get<double>() / st.rate;
@@ -623,6 +665,11 @@ StepSpec reduce_node() {
     }
     // the ingredients, packed [rows x members x K] by the measurement module (what is stored, and what rolls up)
     Array g = pack_ingredients(acc.ing, R, T);
+    if (st.complex) {                                                       // the imaginary part's ingredients follow the real part's, same layout (`imag_offset`: where they begin)
+      const Array gi = pack_ingredients(acc.ing_im, R, T);
+      g.meta["imag_offset"] = static_cast<std::int64_t>(g.data.size());
+      g.data.insert(g.data.end(), gi.data.begin(), gi.data.end());
+    }
     for (const auto& [k, v] : y.meta.items()) g.meta[k] = v;               // the values' record beside the ingredients' own layout (ingredient_lengths, ...)
     return Arrays{{"values", std::move(y)}, {"ingredients", std::move(g)}};
   };
@@ -646,7 +693,7 @@ StepSpec reduce_members_node() {
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     const Value &x = ins.at("x"), &ev = ins.at("over");
     need(x.cls == "measurement", "reduce.members: x must be a measurement over a grid's members (`reduce` with a grid)");
-    need(ev.cls == "selection" || ev.cls == "spans", "reduce.members: over must be a selection (events) given on the grid's members");
+    need(ev.cls == "selection" || ev.cls == "spans" || ev.cls == "labelling", "reduce.members: over must be a selection (events) given on the grid's members");
     need(p["measures"].is_array() && !p["measures"].empty(), "reduce.members: measures is a list (no default)");
     Value y = made(x);
     y.facts["measures"] = p["measures"];
@@ -658,25 +705,35 @@ StepSpec reduce_members_node() {
   s.run = [](const std::any& st, const Arrays& ins, ExecContext&) {
     const Json& p = std::any_cast<const Json&>(st);
     const Array& g = ins.at("x");
-    const Array& ev = ins.at("over");                                     // [events x 4]: first tile, stop tile, row (-1: every), peak -- the events' cells as ranges of the grid's members
+    const Array& ev = ins.at("over");                                     // [events x 4]: first tile, stop tile, row (-1: every), peak -- the events' cells as ranges of the grid's members; or a LABELLING of the cells (`cell_extent`)
+    const bool labelled = ev.meta.contains("event_list") && ev.rows == 1 && ev.meta.value("described_by", std::string()) == "centre + extent";
     ns::Elements groups;
     groups.size = g.cols;
+    std::vector<nxr::select::TileEvent> evs;
+    if (labelled) {                                                       // an event is the cells that carry its ordinal; its centre and extent were described when it was made
+      need(ev.cols == g.cols, "reduce.members: the labelling has " + std::to_string(ev.cols) + " cells, x " + std::to_string(g.cols) + " members");
+      const std::int64_t E = ev.meta["events"].get<std::int64_t>();
+      std::vector<std::vector<std::int64_t>> cellsof(static_cast<std::size_t>(E));
+      for (std::int64_t i = 0; i < ev.cols; ++i) { const auto k = static_cast<std::int64_t>(ev.data[static_cast<std::size_t>(i)]); if (k >= 0 && k < E) cellsof[static_cast<std::size_t>(k)].push_back(i); }
+      for (const auto& cs : cellsof) { for (const auto m : cs) groups.elements.push_back(m); groups.offsets.push_back(static_cast<std::int64_t>(groups.elements.size())); }
+      for (const auto& e : ev.meta["event_list"]) evs.push_back({e["first_tile"].get<std::int64_t>(), e["last_tile"].get<std::int64_t>() + 1, std::int64_t(-1)});
+    } else {
     for (std::int64_t k = 0; k < ev.rows; ++k) {
       const double* e = ev.data.data() + k * 4;
       for (std::int64_t m = static_cast<std::int64_t>(e[0]); m < static_cast<std::int64_t>(e[1]); ++m) groups.elements.push_back(m);
       groups.offsets.push_back(static_cast<std::int64_t>(groups.elements.size()));
     }
-    // the measures of the events' CELLS merge by their rule; an event's OWN measures (its duration, the interval to the next event, its tile count) are read from the events' tiles
-    const std::set<std::string> own = {"duration", "interval_next", "n_tiles"};
+    for (std::int64_t k = 0; k < ev.rows; ++k) { const double* e = ev.data.data() + k * 4; evs.push_back({static_cast<std::int64_t>(e[0]), static_cast<std::int64_t>(e[1]), static_cast<std::int64_t>(e[2])}); }
+    }
+    // the measures of the events' CELLS merge by their rule; an event's OWN measures (its duration, the interval to the next event, its tile count) are read from the events' tiles, or (a labelling) from its centre and extent
+    const std::set<std::string> own = {"duration", "interval_next", "n_tiles", "n_cells", "area", "first_cell", "last_cell", "centre", "path_length"};
     nm::Request req;
-    for (const auto& m : p["measures"]) if (!own.count(m.get<std::string>())) req.measures.push_back(m.get<std::string>());
+    for (const auto& m : p["measures"]) if (!(labelled ? own.count(m.get<std::string>()) : (m == "duration" || m == "interval_next" || m == "n_tiles"))) req.measures.push_back(m.get<std::string>());
     const nm::Ingredients fine = unpack_ingredients(g);
     const nm::Ingredients merged = nm::merge(fine, groups, req);
     const Array cells = values_of(merged, req, g.rows, groups.members());
     const std::int64_t E = groups.members(), R = g.rows;
-    const double width_s = g.meta.value("width_s", 0.0);
-    std::vector<nxr::select::TileEvent> evs;
-    for (std::int64_t k = 0; k < ev.rows; ++k) { const double* e = ev.data.data() + k * 4; evs.push_back({static_cast<std::int64_t>(e[0]), static_cast<std::int64_t>(e[1]), static_cast<std::int64_t>(e[2])}); }
+    const double width_s = labelled ? ev.meta.value("width_s", 0.0) : g.meta.value("width_s", 0.0);
     std::int64_t C = 0, Cc = 0;
     Json comps = Json::array();
     for (const auto& m : p["measures"]) { const int k = components_of(m.get<std::string>()); C += k; comps.push_back(Json{{"measure", m}, {"components", k}}); }
@@ -687,10 +744,21 @@ StepSpec reduce_members_node() {
     for (const auto& mj : p["measures"]) {
       const std::string m = mj.get<std::string>();
       const int k = components_of(m);
-      if (own.count(m)) {
-        need(width_s > 0, "reduce_members: " + m + " is read from the events' tiles; x carries no tile width (reduce over a time grid)");
-        const std::vector<double> v = m == "duration" ? nxr::select::eventDurations(evs, width_s) : m == "interval_next" ? nxr::select::eventIntervalNext(evs, width_s) : [&] {
-          std::vector<double> n; for (const auto& e : evs) n.push_back(static_cast<double>(e.stop - e.first)); return n; }();
+      if (labelled ? own.count(m) != 0 : (m == "duration" || m == "interval_next" || m == "n_tiles")) {
+        std::vector<double> v;
+        if (labelled) {
+          for (const auto& e : ev.meta["event_list"]) {
+            const std::string key = m == "first_cell" ? "first_tile" : m == "last_cell" ? "last_tile" : m == "centre" ? "centre_vertex" : m;
+            double val = kNaN;
+            if (m == "centre") val = e["centre"]["vertex"].get<double>();
+            else if (e.contains(key) && e[key].is_number()) val = e[key].get<double>();
+            v.push_back(val);
+          }
+        } else {
+          need(width_s > 0, "reduce_members: " + m + " is read from the events' tiles; x carries no tile width (reduce over a time grid)");
+          v = m == "duration" ? nxr::select::eventDurations(evs, width_s) : m == "interval_next" ? nxr::select::eventIntervalNext(evs, width_s) : [&] {
+            std::vector<double> n; for (const auto& e : evs) n.push_back(static_cast<double>(e.stop - e.first)); return n; }();
+        }
         for (std::int64_t e = 0; e < E; ++e)
           for (std::int64_t r = 0; r < R; ++r)
             if (evs[static_cast<std::size_t>(e)].row < 0 || evs[static_cast<std::size_t>(e)].row == r) y.data[static_cast<std::size_t>((r * E + e) * C + off)] = v[static_cast<std::size_t>(e)];
@@ -702,6 +770,7 @@ StepSpec reduce_members_node() {
       }
       off += k;
     }
+    (void)width_s;
     // an event found on one row (a channel) is measured on that row alone: the other rows hold no value for it (an event of row -1, found on the mean over rows, is measured on every row)
     for (std::int64_t e = 0; e < E; ++e)
       if (evs[static_cast<std::size_t>(e)].row >= 0)
@@ -725,16 +794,18 @@ StepSpec roll_up_node() {
   s.inputs = {"x", "grid"};
   s.optional = {"grid"};
   s.outputs = {"values", "ingredients"};
-  s.parameters = Json{{"to", nullptr}, {"measures", nullptr}, {"factor", 0}};
+  s.parameters = Json{{"to", nullptr}, {"measures", nullptr}, {"factor", 0}, {"merge", nullptr}};
   s.matches = "the Studio's measurement roll-up through a grid's hierarchy (the merge rule of each measure); compute nxr::measurement::roll_up";
   s.description =
       "a measurement's ingredients carried up a GRID's closed-form hierarchy to a coarser level (`to`: a duration such as `2 s`, a tile size such as `40 mm`, `pieces`, or `whole`: one member; "
       "for a product, `factor` names the factor rolled): sums add, maxima merge, means by sum and count, ratios derived at read (the merge rule of each measure is data in the measures "
-      "registry). Refused over an irregular selection (no levels).";
+      "registry). Refused over an irregular selection (no levels). `merge: max` (a product's surface factor, one measure) takes instead the largest of the members' VALUES (the largest tile mean per time member: "
+      "the series of the largest tile's mean, what the rise-fall fit reads; MEMORY: the product's cells, S x samples when the time factor is the sample).";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "runs once on the ingredients: double");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     const Value& x = ins.at("x");
     need(x.cls == "measurement", "roll_up: x must be a measurement (`reduce`)");
+    need(p["merge"].is_null() || (p["merge"] == "max" && p["measures"].is_array() && p["measures"].size() == 1), "roll_up: merge is null (each measure's own rule) or `max` of ONE measure's member values (`measures: [name]`)");
     need(p["to"].is_string() || p["to"].is_number(), "roll_up: `to` is the coarser level as a quantity (e.g. \"2 s\", \"40 mm\", \"pieces\", \"whole\"); a bare level index is only `index:N`");
     if (p["to"].is_string()) {
       const std::string t = p["to"].get<std::string>();
@@ -744,7 +815,8 @@ StepSpec roll_up_node() {
     need(!over.value("irregular", false), "roll_up: x is over an irregular selection (" + over.value("selection", std::string("?")) + "): it has no levels to roll up through; summarize its members instead");
     Value y = made(x);
     y.facts["rolled_to"] = p["to"];
-    if (p["measures"].is_array()) y.facts["measures"] = p["measures"];
+    if (p["merge"] == "max") y.facts["merged_by"] = "max";
+    if (p["measures"].is_array() && !p["measures"].empty()) { y.facts["measures"] = p["measures"]; y.facts["measure"] = p["measures"][0]; }
     return Values{{"values", y}, {"ingredients", y}};
   };
   s.prepare = [](const Values&, const Json& p, ExecContext&) { return std::any(p); };
@@ -753,10 +825,37 @@ StepSpec roll_up_node() {
     const Array& g = ins.at("x");
     nm::Request req;
     for (const auto& m : g.meta.value("measures", Json::array())) req.measures.push_back(m.value("measure", std::string()));
+    if (p["measures"].is_array()) {                                          // the measures wanted: each must be one of x's
+      std::vector<std::string> want;
+      for (const auto& m : p["measures"]) {
+        need(std::find(req.measures.begin(), req.measures.end(), m.get<std::string>()) != req.measures.end(), "roll_up: measure " + m.dump() + " is not one of x's measures");
+        want.push_back(m.get<std::string>());
+      }
+      req.measures = want;
+    }
     const std::string to = p["to"].get<std::string>();
     ns::Elements groups;
     groups.size = g.cols;
-    if (to == "whole") {
+    const Json over0 = g.meta.value("over", Json::object());
+    const bool product = over0.value("kind", std::string()) == "product";
+    std::int64_t out_rows = g.rows, out_members = 0, P = 1, S0 = 1, T0 = 1;
+    if (product) {
+      // A PRODUCT of a surface grid's level (factor 0, the spatial tile fastest) and a time grid: factor 0 is rolled to the whole surface (`whole`) or to each connected piece (`pieces`: one ROW a piece),
+      // the time factor stays (a member a time tile): the trace the bursts are found on
+      need(p["factor"].is_number_integer() && p["factor"].get<int>() == 0, "roll_up: of a product, factor 0 (the surface grid's level) is rolled; the time factor stays");
+      need(to == "whole" || to == "pieces", "roll_up: a product's surface factor rolls to `whole` or `pieces` in this run");
+      need(g.rows == 1 && g.meta.contains("radices") && g.meta["radices"].size() == 2, "roll_up: a product's cells are one row over the product's two factors");
+      S0 = g.meta["radices"][0].get<std::int64_t>(); T0 = g.meta["radices"][1].get<std::int64_t>();
+      const int l = over0["factors"][0].value("level", 0);
+      P = to == "pieces" ? std::max<std::int64_t>(1, S0 >> l) : 1;
+      need(over0["factors"][0].value("kind", std::string()) == "dyadic" && (S0 >> l) >= 1, "roll_up: the product's first factor is a surface grid's level");
+      for (std::int64_t t = 0; t < T0; ++t)
+        for (std::int64_t q = 0; q < P; ++q) {
+          for (std::int64_t sx = 0; sx < S0; ++sx) if (to == "whole" || (sx >> l) == q) groups.elements.push_back(sx + S0 * t);
+          groups.offsets.push_back(static_cast<std::int64_t>(groups.elements.size()));
+        }
+      out_rows = P; out_members = T0;
+    } else if (to == "whole") {
       groups.elements.resize(static_cast<std::size_t>(g.cols));
       for (std::int64_t i = 0; i < g.cols; ++i) groups.elements[static_cast<std::size_t>(i)] = i;
       groups.offsets.push_back(g.cols);
@@ -776,12 +875,53 @@ StepSpec roll_up_node() {
       if (ctx.say) ctx.say(Json{{"stage", "roll_up"}, {"to", to}, {"level", level.level}, {"snapped_s", level.snapped}});
     }
     const nm::Ingredients fine = unpack_ingredients(g);
-    const nm::Ingredients coarse = nm::roll_up(fine, groups, req);
-    Array y = values_of(coarse, req, g.rows, groups.members());
-    y.meta = Json{{"members", groups.members()}, {"rolled_to", to}, {"of", g.meta}, {"measures", g.meta.value("measures", Json::array())}};
+    nm::Ingredients coarse = nm::roll_up(fine, groups, req);
+    if (!product) out_members = groups.members();
+    else if (P > 1) {                                                        // the groups were made (time tile, piece): one ROW a piece, a member a time tile
+      nm::Ingredients re(P, T0, coarse.components, false);
+      re.unassigned = coarse.unassigned;
+      for (std::int64_t t = 0; t < T0; ++t)
+        for (std::int64_t q = 0; q < P; ++q) {
+          const std::size_t from = coarse.at(0, t * P + q), to_ = re.at(q, t);
+          re.count[to_] = coarse.count[from]; re.nonfinite[to_] = coarse.nonfinite[from]; re.weight[to_] = coarse.weight[from]; re.sum_sq[to_] = coarse.sum_sq[from];
+          re.sum_cube[to_] = coarse.sum_cube[from]; re.sum_fourth[to_] = coarse.sum_fourth[from]; re.sum_abs[to_] = coarse.sum_abs[from]; re.sum_sqrt_abs[to_] = coarse.sum_sqrt_abs[from];
+          re.max[to_] = coarse.max[from]; re.min[to_] = coarse.min[from]; re.abs_max[to_] = coarse.abs_max[from];
+          for (std::int64_t c = 0; c < coarse.components; ++c) re.sum[re.at(q, t, c)] = coarse.sum[coarse.at(0, t * P + q, c)];
+        }
+      coarse = std::move(re);
+    }
+    Array y = values_of(coarse, req, out_rows, out_members);
+    if (p["merge"] == "max") {                                               // the largest of the members' values (each member's own value, derived from its ingredients), not the merged ingredients' value
+      need(product && req.measures.size() == 1 && y.comps == 1, "roll_up: merge max is of one measure over a product's surface factor");
+      const nm::Ingredients fine_v = unpack_ingredients(g);
+      const Array fv = values_of(fine_v, req, 1, g.cols);
+      std::fill(y.data.begin(), y.data.end(), kNaN);
+      for (std::int64_t t = 0; t < T0; ++t)
+        for (std::int64_t q = 0; q < P; ++q) {
+          double best = kNaN;
+          for (std::int64_t sx = 0; sx < S0; ++sx) {
+            if (!(P == 1) && (sx >> over0["factors"][0].value("level", 0)) != q) continue;
+            const double v = fv.data[static_cast<std::size_t>(sx + S0 * t)];
+            if (std::isfinite(v) && !(best >= v)) best = v;
+          }
+          y.data[static_cast<std::size_t>(q * T0 + t)] = best;
+        }
+    }
+    Json measures_kept = Json::array();
+    for (const auto& m : g.meta.value("measures", Json::array())) if (std::find(req.measures.begin(), req.measures.end(), m.value("measure", std::string())) != req.measures.end()) measures_kept.push_back(m);
+    y.meta = Json{{"members", out_members}, {"rolled_to", to}, {"of", g.meta}, {"measures", measures_kept}};
+    if (product) {                                                           // what remains is the time factor's tiles: what the events found on them read
+      const Json& tf = over0["factors"][1];
+      const double rate = g.meta.value("rate", 0.0);
+      y.meta["rate"] = rate; y.meta["origin"] = g.meta.value("origin", 0.0);
+      y.meta["window_samples"] = tf.value("width", std::int64_t(0)); y.meta["width_s"] = rate > 0 ? tf.value("width", std::int64_t(0)) / rate : 0.0; y.meta["tiles"] = T0;
+      if (tf.contains("band") && tf["band"].is_array() && tf["band"].size() == 2) y.meta["resolves_hz"] = Json{{"lo", tf["band"][0]}, {"hi", tf["band"][1]}};
+      if (p["merge"] == "max") y.meta["merged_by"] = "max of the members' values";
+      y.meta["rows_are"] = to == "pieces" ? "the connected pieces of the surface (a hemisphere each)" : "the whole surface";
+    }
     { std::int64_t C = 0; for (const auto& m : y.meta["measures"]) C += m.value("components", 1); y.meta["describe"] = describe_measures(y.meta["measures"], y.rows, y.cols, C); }
-    Array gi = pack_ingredients(coarse, g.rows, groups.members());
-    gi.meta = y.meta;
+    Array gi = pack_ingredients(coarse, out_rows, out_members);
+    for (const auto& [kk, vv] : y.meta.items()) gi.meta[kk] = vv;
     return Arrays{{"values", std::move(y)}, {"ingredients", std::move(gi)}};
   };
   return s;
@@ -824,6 +964,7 @@ void redirect_summarize(StepSpec& sc) {
       need(found, "summarize: measure " + p["measure"].dump() + " is not one of x's measures");
     }
     if (static_cast<std::int64_t>(column_names.size()) != C) { column_names.clear(); for (std::int64_t c = 0; c < C; ++c) column_names.push_back(C == 1 ? x.meta.value("measure", std::string()) : "column " + std::to_string(c)); }
+    const int by_factor = p.contains("by_factor") && p["by_factor"].is_number_integer() ? p["by_factor"].get<int>() : -1;
     // no members at all (a run that found no event): one NaN member, so the counts and sums read 0 and the rest NaN
     const std::int64_t S = static_cast<std::int64_t>(req.names.size());
     Array y{x.rows, count * S, std::vector<double>(static_cast<std::size_t>(x.rows * count * S), kNaN)};
@@ -832,6 +973,16 @@ void redirect_summarize(StepSpec& sc) {
       Eigen::MatrixXd values(x.rows, std::max<std::int64_t>(1, x.cols));
       for (std::int64_t r = 0; r < x.rows; ++r)
         for (std::int64_t m = 0; m < values.cols(); ++m) values(r, m) = x.cols ? x.data[static_cast<std::size_t>((r * x.cols + m) * C + c)] : kNaN;
+      if (by_factor >= 0) {                                                // the members of the product (code = c0 + radix0 c1 ...) regrouped: a row per member of the factor, its columns the other factors' members
+        const Json& rad = x.meta["radices"];
+        need(x.rows == 1 && rad.is_array() && rad.size() == 2 && by_factor < 2, "summarize: by_factor needs one row of cells over a product of two factors");
+        const std::int64_t n0 = rad[0].get<std::int64_t>(), n1 = rad[1].get<std::int64_t>();
+        need(x.cols == n0 * n1, "summarize: the cells' members are not the product's radices");
+        const std::int64_t rows = by_factor == 0 ? n0 : n1, cols = by_factor == 0 ? n1 : n0;
+        Eigen::MatrixXd v2(rows, cols);
+        for (std::int64_t i = 0; i < n0; ++i) for (std::int64_t j = 0; j < n1; ++j) { if (by_factor == 0) v2(i, j) = values(0, i + n0 * j); else v2(j, i) = values(0, i + n0 * j); }
+        values = std::move(v2);
+      }
       const Eigen::MatrixXd out = nm::summarize(values, req);               // rows' x summaries
       if (j == 0) { y.rows = out.rows(); y.data.assign(static_cast<std::size_t>(out.rows() * count * S), kNaN); }
       for (Eigen::Index r = 0; r < out.rows(); ++r) for (Eigen::Index k = 0; k < out.cols(); ++k) y.data[static_cast<std::size_t>(r * count * S + j * S + k)] = out(r, k);
@@ -841,7 +992,7 @@ void redirect_summarize(StepSpec& sc) {
     Json measure_values = Json::array();
     std::string measure_text;
     for (std::int64_t j = 0; j < count; ++j) { const std::string& n = column_names[static_cast<std::size_t>(first + j)]; measure_values.push_back(Json{{"name", n}}); measure_text += (j ? "+" : "") + n; }
-    y.meta = Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}, {"members", x.cols}, {"measures", measure_values}, {"of", x.meta}};
+    y.meta = Json{{"summaries", sj}, {"combine", p["combine"]}, {"ddof", p["ddof"]}, {"members", x.cols}, {"measures", measure_values}, {"of", x.meta}, {"by_factor", by_factor >= 0 ? Json(by_factor) : Json(nullptr)}};
     // what a DECLARED statistic output is stored from: the measure(s) summarised, its rows, measures and summaries as axes, the options
     Json row_values = Json::array();                                       // the rows: the combination they were made into, or (each) the row's number
     for (std::int64_t r = 0; r < y.rows; ++r) row_values.push_back(Json{{"name", combine == "each" ? std::to_string(r) : combine}});
