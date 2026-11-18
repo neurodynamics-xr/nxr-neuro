@@ -93,7 +93,11 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
   bool all_hit = true;
   {
     const g::Definition d = g::load(rq.pipeline);
-    for (auto it = rq.parameters.begin(); it != rq.parameters.end(); ++it)
+    // a face that carries parameters only (the Python and MATLAB `run`) names a preset as the parameter `preset`: it is lifted out here, as the command line's --set NAME is
+    Json params = rq.parameters;
+    std::string preset = rq.preset;
+    if (params.is_object() && params.contains("preset") && !d.parameters.contains("preset")) { preset = params["preset"].get<std::string>(); params.erase("preset"); }
+    for (auto it = params.begin(); it != params.end(); ++it)
       if (!d.parameters.contains(it.key())) {
         std::string all;
         for (const auto& [k, _] : d.parameters.items()) all += (all.empty() ? "" : ", ") + k;
@@ -103,8 +107,8 @@ Json run(const fs::path& dataset, const std::string& subject, const RunRequest& 
     if (rq.from) { o.start = *rq.from; o.stop = *rq.to; }
     if (rq.all) o.chunks = "all";
     o.replace = rq.replace;
-    o.preset = rq.preset;
-    for (const Json& r : g::run(ds, sub, d, rq.parameters, o, rq.dry_run, say)) {
+    o.preset = preset;
+    for (const Json& r : g::run(ds, sub, d, params, o, rq.dry_run, say)) {
       const bool hit = r.value("hit", false);
       all_hit = all_hit && hit;
       runs.push_back(Json{{"cache", rq.dry_run ? "planned" : hit ? "hit" : "computed"}, {"info", r}});
