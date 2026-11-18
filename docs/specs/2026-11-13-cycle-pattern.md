@@ -57,7 +57,7 @@ inputs:     recording (by name), channels (of a kernel, --channels-of, as today)
 parameters: band [lo, hi] Hz, family meyer, rate (Hz, the analytic signal's frame rate), window-seconds
 chunks:  over recording (the chunk service, with the filter's halo)
   analytic_band   chunk       ℝ [M x T] → ℂ [M x T]   the band's analytic signal (timebank::analysisOfBlock, Meyer)       the Studio's filter → transform "complex"
-  decimate        chunk       ℂ [M x T] → ℂ [M x T/d] every d-th sample on a GLOBAL grid (sample index ≡ 0 mod d from the span's start; d = round(fs / rate))
+  downsample        chunk       ℂ [M x T] → ℂ [M x T/d] every d-th sample on a GLOBAL grid (sample index ≡ 0 mod d from the span's start; d = round(fs / rate))
   cross_spectrum  accumulate  ℂ [M x T'] → per window: Σ z zᴴ [M x M] and the count   partition::crossSpectrum over the window Selection
 outputs:
   <stem>_<band>_windows   Operator "cross-spectral density" series [W x M x M x 2] (the per-window sums), on `<stem>_channels`
@@ -73,7 +73,7 @@ outputs:
 - **Decimation is not a filter.** The signal is already band-limited to the band (8–12 Hz at 300 Hz is far below Nyquist), so keeping every d-th sample
   aliases nothing. Σ z zᴴ at the decimated rate equals the full-rate sum divided by d, up to the band-limited signal's sampling error (tested). The
   rate is an option (`--rate`); it changes the time frames, not the estimate.
-- **Port:** the Studio's chain has the filter and the complex transform; it has no decimation stage. `decimate` is a new step (registered in the
+- **Port:** the Studio's chain has the filter and the complex transform; it has no decimation stage. `downsample` is a new step (registered in the
   chain-graph spec's table), flagged here for that reason.
 
 ### Stage 2: the cycle patterns (`cyclepattern compute`)
@@ -129,7 +129,7 @@ one [n x q] array on the band's rows. Nothing computed changes.
 
 | function | in → out | test |
 |---|---|---|
-| `nxr::timebank::decimate(Z, d, offset)` | ℂ [M x T] → ℂ [M x ⌈(T − offset)/d⌉] | a band-limited signal: Σ z zᴴ decimated × d = full rate (relative error < 1e-3) |
+| `nxr::timebank::downsample(Z, d, offset)` | ℂ [M x T] → ℂ [M x ⌈(T − offset)/d⌉] | a band-limited signal: Σ z zᴴ decimated × d = full rate (relative error < 1e-3) |
 | `nxr::algebra::congruence(A, M)` (dense overload) | A [n x m], M [m x m] → A M Aᴴ | equals the pattern call on every pair |
 | `nxr::patterns::leading(C, q)` | Hermitian [n x n] → vectors [n x q], λ [q], trace | a planted rank-1 + noise: the vector recovered (similarity > 0.999) |
 | `nxr::patterns::rotateToLargest(m)` | ℂ [n] → ℂ [n] | Re of the result has the largest norm over θ |
@@ -213,7 +213,7 @@ Welch's estimate.
 parameters: band [lo, hi] Hz (Meyer, as before); level k (the window), default: the constant-Q level of the band (below)
 chunks:  over recording (the chunk service, with the filter's halo)
   analytic_band   chunk       ℝ [M x T] → ℂ [M x T]        unchanged
-  decimate        chunk       ℂ [M x T] → ℂ [M x T/d]      d = constantq::strideFor(fs, lo), a power of two; the samples kept are those whose index on the LINE is ≡ 0 mod d
+  downsample        chunk       ℂ [M x T] → ℂ [M x T/d]      d = constantq::strideFor(fs, lo), a power of two; the samples kept are those whose index on the LINE is ≡ 0 mod d
   cross_spectrum  accumulate  ℂ → per tile m of level k: Σ z zᴴ [M x M] and its count (2^k / d when whole)   partition::crossSpectrum over the level-k tiles
 outputs:
   <stem>_<band>_windows   "cross-spectrum series" [W x M x M x 2], the sums over the tiles kept; producer_json.window_index = their ordinals m on the line
@@ -315,7 +315,7 @@ outputs:
 
 ### Checklist (the architecture policy)
 
-- **Compute functions are called with matrices from anywhere:** yes. No compute function changes its signature. `decimate` and
+- **Compute functions are called with matrices from anywhere:** yes. No compute function changes its signature. `downsample` and
   `partition::crossSpectrum` are called with a stride and a width.
 - **The same chain runs on another input by naming it:** yes, unchanged.
 - **Loops and file access are in io:** yes. The tiles and the snap are io's closed forms (`constant_q.h`, `resolve_span`), and the roll-up at read is

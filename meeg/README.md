@@ -7,11 +7,11 @@ Each modality is its own folder (`meeg/` now; `pet/` and others later). This lib
 - the **unconstrained minimum-norm kernel** (imaging kernel, `unconstrainedKernel`): K [3N x M], Ĵ = K b, depth-weighted, with the SNR as Λ,
 - the **sample covariance**, accumulated chunk by chunk (`CovarianceAccumulator`), the mean removed per block.
 
-- the **forward model** of sphere head models (`forward.h`, `sphere.h`, `minimise.h`): MEG by Sarvas in one sphere or overlapping spheres, EEG by the three-shell Berg-Scherg sphere, the sphere fits, a Nelder-Mead simplex, the CTF reference correction (spec section 8).
+- the **forward model** of sphere head models (`forward.h`, `sphere.h`; the simplex is `nxr::optimisation::fminsearch`, `nxr/optimisation/fminsearch.h`): MEG by Sarvas in one sphere or overlapping spheres, EEG by the three-shell Berg-Scherg sphere, the sphere fits, a Nelder-Mead simplex, the CTF reference correction (spec section 8).
 
-Headers: `include/nxr/meeg/inverse.h`, `covariance.h`, `forward.h`, `sphere.h`, `minimise.h`. Maths, options and reference behaviour: `../docs/specs/2026-11-10-neuro-forward-inverse.md`.
+Headers: `include/nxr/meeg/inverse.h`, `covariance.h`, `forward.h`, `sphere.h`. Maths, options and reference behaviour: `../docs/specs/2026-11-10-neuro-forward-inverse.md`.
 
-**Dependency rule: Eigen only.** No `compute/`, no `io/`, no file reading (`../io` reads and writes, `../pipelines` joins them: `noisecov compute`, `inverse compute`).
+**Dependency rule: Eigen and `nxr_core` only** (the small library of `compute/include/nxr/core/` and `optimisation/`; amended 2026-11-17). No `nxr_compute`, no `io/`, no file reading (`../io` reads and writes, `../pipelines` joins them: `noisecov compute`, `inverse compute`).
 Pure: arrays in, arrays out. The code is written from the published maths (Hämäläinen & Ilmoniemi 1994; Lin et al. 2006; Gramfort et al. 2014), **not translated from Brainstorm** (GPLv3);
 Brainstorm and MNE-Python (BSD) are sources of reference outputs only.
 

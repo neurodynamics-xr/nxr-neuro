@@ -319,16 +319,32 @@ accessors.
 ## Layout
 
 ```
-nxr-compute/
-├── include/nxr/             public headers (compute.h, errors.h, …)
-├── src/                     library sources
-├── test/                    13 unit/smoke tests
-├── bindings/{node,wasm,mex,cli}/  binding shells
-├── deps/geometry-central/   git submodule
-├── docs/                    usage, extensions, architecture, recipes
-├── scripts/                 build + smoke entry points
-└── .github/workflows/       CI: cross-platform MEX publishing
+compute/
+├── include/nxr/<toolbox>/   public headers, one folder per toolbox (no header at the top level, no umbrella header)
+├── src/<toolbox>/           the sources of each toolbox
+├── cmake/<toolbox>.cmake    each toolbox's sources, per-file flags and tests (one file per toolbox)
+├── test/                    the unit tests (flat), goldens and their generators in test/golden/
+└── deps/geometry-central/   git submodule
 ```
+
+The toolboxes (ARCHITECTURE.md, "The toolboxes"; namespace `nxr::<toolbox>`, functions flat in it):
+
+| toolbox | holds |
+|---|---|
+| `core` | types, errors, cancellation, progress, parallel, general matrix algebra (`hermitianFactor`, `quadratureFactor`, `divideRows`, congruence); library `nxr_core` |
+| `optimisation` | general solvers (`fminsearch`); in `nxr_core` |
+| `stats` | summary statistics, `histogram`, circular statistics (`circ_mean`, `circ_r`, `circ_rtest`), lag, null tests, `pca` |
+| `geometry` | `Manifold`, intrinsic geometry, frames, charts (`ChartKit`), distances (`heat`, `signedHeat`), transport, glue, nearest, parametrization, `faceAreas` |
+| `operators` | Laplacians, DEC, the Dirac family, `eigen`, Hodge weights, the sphere-registration resample operator, the registries |
+| `selection` | the Selection class, its resolution and lookup |
+| `measurement` | measures over selections, reductions, roll-ups, congruence norms |
+| `select` | the makers of selections: bands, grids, dyadic partitions, events, regions, cores, tracks, crossings, scale selection |
+| `signal` | `fft`, filters, windows, the time, graph and joint filterbanks (`TimeFilterbank`, `GraphFilterbank`, `JointFilterbank`), wavelets, cross-spectral measures (`cospectrum`, `quadspectrum`, `lagged_share`, `planes`), phase gradient, forms, optical flow |
+| `synthesis` | field and surrogate generators |
+| `meeg` | `connectome` and `montage` (still compiled here under `nxr/meeg/`: they use the sphere-registration operator); the rest of meeg is the `nxr_meeg` library (`../meeg/`) |
+
+The includes between toolboxes run one way, checked by the test `layering_toolboxes_follow_the_dag` (`cmake/check_toolboxes.cmake`).
+Top-level headers still present until the behaviour batch deletes them: `pyramid.h`, `rotary.h`, `integrals.h`, `region.h`.
 
 ## Distribution channels
 

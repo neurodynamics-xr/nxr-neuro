@@ -117,7 +117,7 @@ inputs:  recording (each), bad (optional), within (optional: a spans Selection t
          e.g. imported scored N2/N3 stages; never detected here)
 chunks over recording:
   band_filter  (iir: butterworth, order 6, [11 16] Hz, zero phase)       new option
-  decimate     (to the work rate, a dyadic divisor of fs: Q4)             new node
+  downsample     (to the work rate, a dyadic divisor of fs: Q4)             new node
   envelope     (|analytic|)                                               exists
   smooth       (moving mean 0.2 s, movmean convention)                    new node
   collect / store the work-rate trace [channels × samples]                exists (collect) / new (trace as a Field)
@@ -435,9 +435,9 @@ MNE-Python, scipy or `eeg_positions`. Each golden sits next to its generator in 
    - `peakFrequency`;
    - an exact streaming median.
 
-   Goldens: scipy (`butter`, `filtfilt`, `hilbert`, `decimate`) for the filters. The detection blocks are checked through the end-to-end goldens
+   Goldens: scipy (`butter`, `filtfilt`, `hilbert`, `downsample`) for the filters. The detection blocks are checked through the end-to-end goldens
    of PRs 2 and 4.
-2. **`sleep_spindles`, per-channel detection** (nodes `decimate`, `smooth`, sample-level `detect_spans`; the `band_filter` IIR option).
+2. **`sleep_spindles`, per-channel detection** (nodes `downsample`, `smooth`, sample-level `detect_spans`; the `band_filter` IIR option).
    - Golden `gen_spindle_golden.m` calls `rheome.detect.spindle` on synthetic multichannel signals at fs = 800 Hz, so that work rate 100 Hz is
      fs / 8 and dyadic.
    - The signals plant 11–16 Hz bursts in noise, including:
@@ -518,7 +518,7 @@ MNE-Python, scipy or `eeg_positions`. Each golden sits next to its generator in 
   - Per-channel storage is the option `events: per_channel`.
   - Because the reference's output is per channel, the maintainers confirm that the default stores the join.
 - **Q4. The work rate.** Rheome resamples to exactly 100 Hz.
-  - **Recommendation:** decimate by 2^k to the slowest rate at or above 100 Hz (1200 → 150, 1000 → 125, 250 → 125, 200 → 100), so the work-rate
+  - **Recommendation:** downsample by 2^k to the slowest rate at or above 100 Hz (1200 → 150, 1000 → 125, 250 → 125, 200 → 100), so the work-rate
     samples nest in the recording-anchored dyadic tiles (the time-tile rule).
   - Durations are converted to samples at that rate.
   - The goldens run at fs = 800 Hz, where 100 Hz is dyadic.

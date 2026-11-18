@@ -35,6 +35,18 @@ accepted. `docs/reference.md` describes every verb and method, `docs/specs/` the
    - A method's limits go into `producer_json.warnings` and the method's section of `docs/reference.md` (e.g. optical flow: kinematic, aperture-limited, per frame).
    - Do not claim what the measurement cannot show.
 
+## Where a compute function goes, and what it is called (the toolboxes)
+
+- A compute function lives in the toolbox of what it computes: `compute/include/nxr/<toolbox>/<header>.h` with its source in `compute/src/<toolbox>/`, namespace `nxr::<toolbox>`, flat in it (`nxr::signal::fft`).
+  A type whose name two headers of one toolbox share goes in a sub-namespace named after its header. No header at the top of `compute/include/nxr/`; there is no umbrella header.
+- Includes between toolboxes follow the table in ARCHITECTURE.md ("The toolboxes"). The test `layering_toolboxes_follow_the_dag` fails on a new include against the table.
+  The few that predate the cut are counted in `cmake/toolboxes_allow.txt`; a count may only fall.
+- A toolbox's sources, per-file flags and tests are in `compute/cmake/<toolbox>.cmake`.
+- **One word per thing across the layers.** The C++ function (`nxr::signal::lowpass`), the registered node (`signal.lowpass`: toolbox, dot, the function's word) and every binding entry
+  (MEX `compute.signal.lowpass`, the MATLAB package `+nxr/+compute/+signal/lowpass.m`, the Python module `nxr_neuro.compute.signal.lowpass` and its native `signal_lowpass`) use the same word.
+  Add each new entry to `pipelines/test/names.tsv`; the test `test_names_across_layers` fails on a mismatch, on an entry missing from the table and on a table row the sources do not have.
+  A renamed entry is refused under its old name with the new name in the message (`retired` rows), never kept as an alias.
+
 ## Adding a node or a pipeline (inside the paramount architecture and its decided structure)
 
 Every pipeline is a YAML definition of registered nodes (`ARCHITECTURE.md`, "Decided structure"). Do not write a new hand-wired `<x>_compute` C++

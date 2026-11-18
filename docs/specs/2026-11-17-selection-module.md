@@ -276,7 +276,7 @@ not the method. An explicit neighbourhood selection makes this visible, and tell
 ### 7.4 Pointwise (the selection is each element)
 
 `analytic::abs`, `angle`; `rotary`; `scaling`; `phase::power`, `phaseCurrent`, `gradientPower`; `spectral_scaling::convert`, `linearFactor`, `unitOf`;
-`congruence` (A M Aᴴ per sample or pair); `quadrature::coSpectrum`, `quadratureSpectrum`, `phaseLag`, `timeLag`, `meanResultantLength`;
+`congruence` (A M Aᴴ per sample or pair); `quadrature::cospectrum`, `quadspectrum`, `phaseLag`, `timeLag`, `circ_r`;
 `pyramid::bandGains`; `lag::lagStatistics`, `circularShift`; `surrogate::normalAt`, `whiteBlock`, `wishartDraw`.
 
 ### 7.5 Selections already made in compute, not recognised as such

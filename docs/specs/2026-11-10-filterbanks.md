@@ -85,7 +85,7 @@ S = G/2 there: a bin that stands for itself, not for itself and a mirror. Then t
 3e-16 for both gains, both families, even and odd lengths, periodic and padded), Parseval holds for the whole record, and nothing is doubled. `Drop` gives them gain 0 (Rheome's
 `timefilterbank`: "tight up to the DC and Nyquist bins"; the reconstruction then misses exactly that content, tested to 9e-16). Parity with Rheome uses `Drop`.
 
-**Padding.** `Padding::None` (the record is periodic: Rheome, nxr), `FastLen` (zero padding to `nextFastLen(2n)`, no wrap; the Studio pads to `nextPow2(2n)`). `extendSymmetric`
+**Padding.** `Padding::None` (the record is periodic: Rheome, nxr), `FastLen` (zero padding to `next_fast_len(2n)`, no wrap; the Studio pads to `nextPow2(2n)`). `extendSymmetric`
 is `cwtfilterbank`'s symmetric extension (`[x; flip(x)]`; its `wt` keeps the first n rows; verified bit for bit in MATLAB).
 Coefficients live on the padded grid (`nfft` rows); `synthesis` crops to the record.
 
@@ -94,11 +94,11 @@ Coefficients live on the padded grid (`nfft` rows); `synthesis` crops to the rec
 
 ### The joint bank (`jointbank`)
 
-`W_i(lambda, f) = K_k(lambda, f) g_g(lambda) h_t(f)`, every combination, `ig` fastest (Rheome's `ndgrid`). Graph side: any `filterbank::Bank`; time side: any `TimeBank`, signed f when it is
+`W_i(lambda, f) = K_k(lambda, f) g_g(lambda) h_t(f)`, every combination, `ig` fastest (Rheome's `ndgrid`). Graph side: any `filterbank::Bank`; time side: any `TimeFilterbank`, signed f when it is
 two-sided; K optional. Without kernels the bank is separable, S = S_g x S_t, and `productBounds` equals `bounds` (tested to 4e-16): tight iff both factors are. Domains: spectrum
 (`analysisSpectrum` / `synthesisSpectrum`, Rheome `wt` / `iwt`, `jtv.analysis` / `jtv.synthesis`), modes x time, vertices x time through an `EigenTransform` (exact, any kernel) or a
 `ChebyshevOperator` (separable banks only; a bank with a kernel is refused, because a kernel couples lambda and f). `axes` / `compatible` are `jtv.axes` / `jtv.compatible`. Kernels
-carry f in hertz; `speedKernel(c, d)` is Rheome's (omega = 2 pi f); `ridgeKernel(v, width, sense)` is nxr's `ridge_filter` (a signed ridge, which needs a two-sided time axis).
+carry f in hertz; `speedkernel(c, d)` is Rheome's (omega = 2 pi f); `ridgeKernel(v, width, sense)` is nxr's `ridge_filter` (a signed ridge, which needs a two-sided time axis).
 Measured: a +ridge / -ridge pair separates a counter-clockwise from a clockwise travelling pattern by 19:1 on a 36-mode sphere (the lambda = 0 mode sits at f = 0 on both).
 
 ### Parity (all tests pass; rel = max |a-b| / max(1, max |b|))
@@ -123,7 +123,7 @@ Measured: a +ridge / -ridge pair separates a counter-clockwise from a clockwise 
    the interior in amplitude, 1/sqrt 2 in energy split between analysis and synthesis, which is what `Single` does for the tight banks). Studio `meyerFilter`: a real two-sided gain, DC once.
    nxr `rotary_amplitudes` (via `hilbert`): a complex series' DC bin is split half to each sense (|z_dc|/2 in A+ and in A-); the two-sided bank gives DC no sense (own member).
    They agree wherever a record has no DC or Nyquist content; they differ by exactly that content otherwise.
-3. **Padding**: Rheome and nxr periodic; `cwtfilterbank` symmetric extension to 2N; Studio zero padding to `nextPow2(2T)` (and `nextPow2(T)` in `envelope`); here `None` or `nextFastLen(2n)`.
+3. **Padding**: Rheome and nxr periodic; `cwtfilterbank` symmetric extension to 2N; Studio zero padding to `nextPow2(2T)` (and `nextPow2(T)` in `envelope`); here `None` or `next_fast_len(2n)`.
 4. **The cwt's lowest scale** is not the user's: `cwtfilterbank` raises the bottom to where the wavelet's support fits the record (`cwtfreqbounds`; 22 of 24 requested scales on a 128-sample
    record). Not ported: `cwtCentres(fmin, fmax, voices)` builds the geometric grid from fmax, which MATLAB's centres equal to 1e-13, and the caller supplies fmin.
 5. **The Studio's Meyer wavelet bank** (`chain.ts`, `meyerHat`, centres `voices` per octave, scaled 1/sqrt(voices)) is not tight for more than one voice (measured Sum (g/2)^2 in
