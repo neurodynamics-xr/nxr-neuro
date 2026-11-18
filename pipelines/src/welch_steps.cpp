@@ -116,22 +116,40 @@ std::int64_t hop_of(const nw::WelchOptions& wo) {
   return n - static_cast<std::int64_t>(std::floor(static_cast<double>(n) * wo.overlap));
 }
 
+// WHAT AN ACCUMULATING WELCH NODE READS OF A BLOCK: its own columns and, after them, the right halo (a segment family's n - 1 samples), cut short where the span ends (a segment
+// never reaches past it); `good` one flag a column (every one when the run keeps bad segments); `first` the block's position on the segment grid, counted from the span's first sample.
+struct Window {
+  Eigen::Index width = 0, own = 0;
+  std::int64_t first = 0;
+  std::vector<std::uint8_t> good;
+};
+Window halo_window(const ng::Block& b, const ng::Place& at, bool exclude) {
+  Window w;
+  const std::int64_t after = std::max<std::int64_t>(0, std::min<std::int64_t>(b.right, at.end - (at.first + at.n)));
+  w.own = b.own(); w.width = b.own() + after; w.first = at.first - at.origin;
+  w.good.assign(static_cast<std::size_t>(w.width), 1);
+  if (exclude) {
+    if (at.good && !at.good->empty()) std::copy(at.good->begin(), at.good->end(), w.good.begin());
+    if (at.good_after && !at.good_after->empty()) std::copy(at.good_after->begin(), at.good_after->begin() + static_cast<std::ptrdiff_t>(std::min<std::int64_t>(after, static_cast<std::int64_t>(at.good_after->size()))), w.good.begin() + w.own);
+  }
+  return w;
+}
+// the window's columns of a block as [rows x width] doubles
+Eigen::MatrixXd window_real(const ng::Block& b, const Window& w) {
+  const Eigen::Map<const RowMajor> all(b.re.data(), b.rows, b.width);
+  return all.middleCols(b.left, w.width).cast<double>();
+}
+Eigen::MatrixXcd window_complex(const ng::Block& b, const Window& w) {
+  const Eigen::Map<const RowMajor> re(b.re.data(), b.rows, b.width), im(b.im.data(), b.rows, b.width);
+  Eigen::MatrixXcd z(b.rows, w.width);
+  for (Eigen::Index i = 0; i < b.rows; ++i)
+    for (Eigen::Index t = 0; t < w.width; ++t) z(i, t) = std::complex<double>(re(i, b.left + t), b.complex() ? im(i, b.left + t) : 0.0f);
+  return z;
+}
 // the own columns of a block as [rows x own] doubles
 Eigen::MatrixXd own_real(const ng::Block& b) {
   const Eigen::Map<const RowMajor> all(b.re.data(), b.rows, b.width);
   return all.middleCols(b.left, b.own()).cast<double>();
-}
-Eigen::MatrixXcd own_complex(const ng::Block& b) {
-  const Eigen::Map<const RowMajor> re(b.re.data(), b.rows, b.width), im(b.im.data(), b.rows, b.width);
-  Eigen::MatrixXcd z(b.rows, b.own());
-  for (Eigen::Index i = 0; i < b.rows; ++i)
-    for (Eigen::Index t = 0; t < b.own(); ++t) z(i, t) = std::complex<double>(re(i, b.left + t), b.complex() ? im(i, b.left + t) : 0.0f);
-  return z;
-}
-bool all_good(const ng::Place& at) {
-  if (!at.good || at.good->empty()) return true;
-  for (const auto g : *at.good) if (!g) return false;
-  return true;
 }
 
 // the segment tiling a Welch run made: in samples of the recording's line, `first` the span's first sample
@@ -189,7 +207,7 @@ static ng::NodeSpec real_psd() {
   n.outputs = {{"psd", "the one-sided Welch power spectral density, channels x bins, a statistic over the segment partition", false}};
   n.parameters = welch_parameters();
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
-                             "segments are carried across blocks, so blocks meet in time order; the sum over the segments is accumulated in double and finished once");
+                             "a segment belongs to the block that holds its start and reads the right halo (nothing is carried but the sums, folded in time order); the sum over the segments is accumulated in double and finished once");
   n.matches = "scipy.signal.welch, Brainstorm's bst_psd and nxr's spectral chain (the named presets of the pipeline psd); compute nxr::signal::spectral::Welch";
   n.description = "the Welch power spectral density of every channel, streaming: segments (a tile of 2^k samples, or Brainstorm's or scipy's rule) are detrended, windowed, transformed and averaged; a segment touching a bad sample is left out";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -200,6 +218,7 @@ static ng::NodeSpec real_psd() {
     out.out["psd"] = statistic_port();
     out.out["psd"].rows = x.rows;
     out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;   // a tile segment starts on the line's grid: the span snaps to level k
+    out.halo = static_cast<std::int64_t>(r.wo.segmentSamples) - 1;   // a segment family reads n - 1 samples past its block (the right halo)
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays&, const Json& p, ng::Shared&) {
@@ -218,11 +237,11 @@ static ng::NodeSpec real_psd() {
     const PsdPrepared& pr = std::any_cast<const PsdPrepared&>(prepared);
     PsdState& s = std::any_cast<PsdState&>(state);
     const ng::Block& b = in.at("x");
-    const Eigen::MatrixXd chunk = own_real(b);
+    const Window win = halo_window(b, at, pr.r.exclude);
+    const Eigen::MatrixXd chunk = window_real(b, win);
     if (s.first < 0) s.first = at.first;
     if (!s.w) s.w.emplace(static_cast<int>(b.rows), pr.r.wo);
-    if (!pr.r.exclude || all_good(at)) s.w->add(chunk);
-    else s.w->add(chunk, *at.good);
+    s.w->add(chunk, win.good, win.first, win.own);
     s.samples += b.own();
     if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
     return std::make_pair(ng::Blocks{}, std::move(state));
@@ -342,7 +361,7 @@ static ng::NodeSpec complex_psd() {
   n.outputs = {{"psd", "the two-sided Welch power spectral density of z on the signed frequency line, [1 x n], a statistic over the segment partition", false}};
   n.parameters = welch_parameters();
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
-                             "segments are carried across blocks, so blocks meet in time order; accumulated in double and finished once");
+                             "a segment belongs to the block that holds its start and reads the right halo (nothing is carried but the sums, folded in time order); accumulated in double and finished once");
   n.matches = "scipy.signal.welch(z, return_onesided=False), the frequencies ascending (nxr.timefreq.psd of a complex series); compute nxr::signal::spectral::ComplexWelch";
   n.description = "the two-sided Welch power spectral density of a complex series, streaming: no bin is doubled; +f is the pair turning from x towards y";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -353,6 +372,7 @@ static ng::NodeSpec complex_psd() {
     out.out["psd"] = statistic_port();
     out.out["psd"].rows = 1;
     out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    out.halo = static_cast<std::int64_t>(r.wo.segmentSamples) - 1;   // a segment family reads n - 1 samples past its block (the right halo)
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays&, const Json& p, ng::Shared&) {
@@ -368,10 +388,10 @@ static ng::NodeSpec complex_psd() {
     const CPrepared& pr = std::any_cast<const CPrepared&>(prepared);
     CState& s = std::any_cast<CState&>(state);
     const ng::Block& b = in.at("x");
-    const Eigen::MatrixXcd z = own_complex(b);
+    const Window win = halo_window(b, at, pr.r.exclude);
+    const Eigen::MatrixXcd z = window_complex(b, win);
     if (s.first < 0) s.first = at.first;
-    if (!pr.r.exclude || all_good(at)) s.w.add(z);
-    else s.w.add(z, *at.good);
+    s.w.add(z, win.good, win.first, win.own);
     s.samples += b.own();
     if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
     return std::make_pair(ng::Blocks{}, std::move(state));
@@ -478,7 +498,7 @@ ng::NodeSpec welch_source_band_power() {
   n.parameters.push_back({"normalisation", Json("none"), "none = the band power | relative = each band over the source's total power (all bins)", "-", {"none", "relative"}, false});
   n.parameters.push_back({"row_axis", Json("vertex"), "the name of the rows' axis (vertex for a kernel's sources; mode_part for the fused Hodge-Dirac weights)", "-", {}, false});
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
-                             "segments are carried across blocks; the cross-spectra are accumulated in double and the kernel applied once at the end");
+                             "a segment belongs to the block that holds its start and reads the right halo (nothing is carried but the sums, folded in time order); the cross-spectra are accumulated in double and the kernel applied once at the end");
   n.matches = "Brainstorm's band power of sources (bst_psd through the kernel); nxr::signal::spectral::psd of a linear map";
   n.description = "the band power of the sources through an inverse kernel, from the channels' cross-spectral density per band (Welch), orientations summed";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -490,6 +510,7 @@ ng::NodeSpec welch_source_band_power() {
     ng::Planned out;
     out.out["power"] = statistic_port();
     out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    out.halo = static_cast<std::int64_t>(r.wo.segmentSamples) - 1;   // a segment family reads n - 1 samples past its block (the right halo)
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) {
@@ -528,12 +549,13 @@ ng::NodeSpec welch_source_band_power() {
     const SourceBandPrepared& pr = std::any_cast<const SourceBandPrepared&>(prepared);
     SourceBandState& s = std::any_cast<SourceBandState&>(state);
     const ng::Block& b = in.at("x");
-    const Eigen::MatrixXd all = own_real(b);
+    const Window win = halo_window(b, at, pr.r.exclude);
+    const Eigen::MatrixXd all = window_real(b, win);
     Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
     for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
     if (s.first < 0) s.first = at.first;
     if (!s.w) s.w.emplace(static_cast<int>(pr.channels.size()), pr.r.wo, pr.groups);
-    if (!pr.r.exclude || all_good(at)) s.w->add(chunk); else s.w->add(chunk, *at.good);
+    s.w->add(chunk, win.good, win.first, win.own);
     s.samples += b.own();
     if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
     return std::make_pair(ng::Blocks{}, std::move(state));
@@ -636,7 +658,7 @@ ng::NodeSpec welch_source_bins() {
   n.inputs.push_back({"bands", "the named band set select.bands made (spans in Hz): the band is one of its members, read from this edge", false});
   n.parameters.push_back({"band", Json(), "which member of the band set: its name (every Welch bin from its lo to its hi inclusive is kept); no default: a band is the caller's choice", "-", {}, false});
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
-                             "segments are carried across blocks; the kernel is applied to each segment's Fourier coefficients and |K X|^2 accumulated per source and bin, in double");
+                             "a segment belongs to the block that holds its start and reads the right halo (nothing is carried but the sums, folded in time order); the kernel is applied to each segment's Fourier coefficients and |K X|^2 accumulated per source and bin, in double");
   n.matches = "nxr::signal::spectral::LinearWelch: Welch of the kernel applied to the recording, kept for the band's bins";
   n.description = "the power of the sources through an inverse kernel at every Welch bin of a band (nothing reduced over frequency), orientations summed";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -648,6 +670,7 @@ ng::NodeSpec welch_source_bins() {
     ng::Planned out;
     out.out["bins"] = statistic_port();
     out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    out.halo = static_cast<std::int64_t>(r.wo.segmentSamples) - 1;   // a segment family reads n - 1 samples past its block (the right halo)
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) {
@@ -681,12 +704,13 @@ ng::NodeSpec welch_source_bins() {
     const SourceBinsPrepared& pr = std::any_cast<const SourceBinsPrepared&>(prepared);
     SourceBinsState& s = std::any_cast<SourceBinsState&>(state);
     const ng::Block& b = in.at("x");
-    const Eigen::MatrixXd all = own_real(b);
+    const Window win = halo_window(b, at, pr.r.exclude);
+    const Eigen::MatrixXd all = window_real(b, win);
     Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
     for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
     if (s.first < 0) s.first = at.first;
     if (!s.w) s.w.emplace(pr.K, static_cast<std::size_t>(pr.orientations), pr.r.wo, pr.first, pr.last);
-    if (!pr.r.exclude || all_good(at)) s.w->add(chunk); else s.w->add(chunk, *at.good);
+    s.w->add(chunk, win.good, win.first, win.own);
     s.samples += b.own();
     if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
     return std::make_pair(ng::Blocks{}, std::move(state));
@@ -762,6 +786,7 @@ ng::NodeSpec welch_source_tensor() {
     ng::Planned out;
     for (const char* o : {"tensor", "stokes", "normal_power", "normal_share"}) out.out[o] = statistic_port();
     out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    out.halo = static_cast<std::int64_t>(r.wo.segmentSamples) - 1;   // a segment family reads n - 1 samples past its block (the right halo)
     return out;
   };
   const auto base_prepare = n.prepare;
@@ -799,12 +824,13 @@ ng::NodeSpec welch_source_tensor() {
     const SourceBandPrepared& pr = std::any_cast<const SourceTensorPrepared&>(prepared).b;
     SourceBandState& s = std::any_cast<SourceBandState&>(state);
     const ng::Block& b = in.at("x");
-    const Eigen::MatrixXd all = own_real(b);
+    const Window win = halo_window(b, at, pr.r.exclude);
+    const Eigen::MatrixXd all = window_real(b, win);
     Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
     for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
     if (s.first < 0) s.first = at.first;
     if (!s.w) s.w.emplace(static_cast<int>(pr.channels.size()), pr.r.wo, pr.groups, true);
-    if (!pr.r.exclude || all_good(at)) s.w->add(chunk); else s.w->add(chunk, *at.good);
+    s.w->add(chunk, win.good, win.first, win.own);
     s.samples += b.own();
     if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
     return std::make_pair(ng::Blocks{}, std::move(state));
@@ -909,7 +935,7 @@ ng::NodeSpec welch_cross_spectrum() {
   n.parameters.push_back({"bands", Json::array(), "the bands: a list of {name, lo, hi} in Hz (a band holds the bins from lo to hi inclusive)", "Hz", {}, false});
   n.parameters.push_back({"channel_types", Json::array({"MEG", "MEG MAG", "MEG GRAD", "EEG", "SEEG", "ECOG"}), "the channel types covered when channels_of is absent (good channels only)", "-", {}, false});
   n.parameters.push_back({"resolve", Json("band"), "band = each band one member (its bins averaged) | bins = also every bin of each band", "-", {"band", "bins"}, false});
-  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "segments are carried across blocks; the cross-spectra are accumulated in double");
+  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "a segment belongs to the block that holds its start and reads the right halo (nothing is carried but the sums, folded in time order); the cross-spectra are accumulated in double");
   n.matches = "MNE csd_array_fourier / scipy.signal.csd (Welch, averaged over the band's bins); meeg nxr::signal::spectral::CrossWelch";
   n.description = "the sensor cross-spectral density per band (Welch), on a kernel's channels or the good imaging channels";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -922,6 +948,7 @@ ng::NodeSpec welch_cross_spectrum() {
     out.out["spectrum"] = statistic_port();
     out.out["bins"] = statistic_port();
     out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    out.halo = static_cast<std::int64_t>(r.wo.segmentSamples) - 1;   // a segment family reads n - 1 samples past its block (the right halo)
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays& constants, const Json& p, ng::Shared&) {
@@ -952,12 +979,13 @@ ng::NodeSpec welch_cross_spectrum() {
     const CrossPrepared& pr = std::any_cast<const CrossPrepared&>(prepared);
     SourceBandState& s = std::any_cast<SourceBandState&>(state);
     const ng::Block& b = in.at("x");
-    const Eigen::MatrixXd all = own_real(b);
+    const Window win = halo_window(b, at, pr.r.exclude);
+    const Eigen::MatrixXd all = window_real(b, win);
     Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
     for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
     if (s.first < 0) s.first = at.first;
     if (!s.w) s.w.emplace(static_cast<int>(pr.channels.size()), pr.r.wo, pr.groups, true);
-    if (!pr.r.exclude || all_good(at)) s.w->add(chunk); else s.w->add(chunk, *at.good);
+    s.w->add(chunk, win.good, win.first, win.own);
     s.samples += b.own();
     if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
     return std::make_pair(ng::Blocks{}, std::move(state));
@@ -1047,7 +1075,7 @@ ng::NodeSpec welch_mode_cross_spectra() {
   n.parameters.push_back({"fmin", Json(1.0), "the lowest frequency kept (the first bin at or above it, never the DC bin)", "Hz", {}, false});
   n.parameters.push_back({"fmax", Json(40.0), "the highest frequency kept (never the Nyquist bin)", "Hz", {}, false});
   n.parameters.push_back({"rows", Json("flow"), "the weights' rows used: flow (the second half: the modes' flow coefficients) | current (the first half) | all", "-", {"flow", "current", "all"}, false});
-  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "segments carried across blocks; the cross-spectra accumulated in double");
+  n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "a segment belongs to the block that holds its start and reads the right halo (nothing is carried but the sums, folded in time order); the cross-spectra accumulated in double");
   n.matches = "nxr.spectral.chain mode cross-spectra (CrossWelch on the fused weights b, one-bin groups, Re and Im)";
   n.description = "the cross-spectra of a kernel's rows applied to a recording, bin by bin, with their quadrature part";
   n.plan = [](const ng::Types& in, const Json& p) {
@@ -1057,6 +1085,7 @@ ng::NodeSpec welch_mode_cross_spectra() {
     ng::Planned out;
     out.out["spectra"] = statistic_port();
     out.align = r.level > 0 ? (std::int64_t(1) << r.level) : 0;
+    out.halo = static_cast<std::int64_t>(r.wo.segmentSamples) - 1;   // a segment family reads n - 1 samples past its block (the right halo)
     return out;
   };
   n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json& p, ng::Shared&) {
@@ -1084,13 +1113,14 @@ ng::NodeSpec welch_mode_cross_spectra() {
     const ModePrepared& pr = std::any_cast<const ModePrepared&>(prepared);
     SourceBandState& s = std::any_cast<SourceBandState&>(state);
     const ng::Block& b = in.at("x");
-    const Eigen::MatrixXd all = own_real(b);
+    const Window win = halo_window(b, at, pr.r.exclude);
+    const Eigen::MatrixXd all = window_real(b, win);
     Eigen::MatrixXd chunk(static_cast<Eigen::Index>(pr.channels.size()), all.cols());
     for (std::size_t i = 0; i < pr.channels.size(); ++i) chunk.row(static_cast<Eigen::Index>(i)) = all.row(pr.channels[i]);
     const Eigen::MatrixXd modes = pr.B * chunk;
     if (s.first < 0) s.first = at.first;
     if (!s.w) s.w.emplace(static_cast<int>(pr.B.rows()), pr.r.wo, pr.groups, true);
-    if (!pr.r.exclude || all_good(at)) s.w->add(modes); else s.w->add(modes, *at.good);
+    s.w->add(modes, win.good, win.first, win.own);
     s.samples += b.own();
     if (pr.r.exclude && at.good) for (const auto g : *at.good) if (!g) ++s.bad;
     return std::make_pair(ng::Blocks{}, std::move(state));
