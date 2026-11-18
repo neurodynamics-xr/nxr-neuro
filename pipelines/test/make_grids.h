@@ -45,7 +45,7 @@ inline std::vector<nxr::io::Json> make_frames(nxr::io::DatasetWriter& ds, nxr::i
 
 /** the spatial band set of the subject's surface (rule levels, on the Eigenvalue line) */
 inline std::vector<nxr::io::Json> make_spatial_bands(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const std::string& surface) {
-  return nxr::pipelines::run_shipped(ds, sub, "select_bands", nxr::io::Json{{"rule", "levels"}, {"surface", surface}}, false);
+  return nxr::pipelines::run_shipped(ds, sub, "select_bands", nxr::io::Json{{"rule", "levels"}, {"surface", surface}, {"name", surface + " spatial bands"}}, false);
 }
 
 /** a stored map by name as [n x components] (a Field of n values per component, as the tests store them); nullopt when absent or not float/int */

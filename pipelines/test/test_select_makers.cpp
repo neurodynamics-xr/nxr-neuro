@@ -41,7 +41,14 @@ int main() {
   }
   {
     SubjectWriter sub = SubjectWriter::create(ds, "S1");
-    sub.compose([&] { SurfaceOptions so; so.name = "cortex"; so.sphere = b.Sph; add_surface(sub, so, b.P, b.F); });
+    // the Desikan-Killiany atlas with its medial wall (code 0, `unassigned`): the caps facing each other, which the glue's bridge replaces
+    std::vector<std::int32_t> dk(static_cast<std::size_t>(b.n), 1);
+    for (int i = 0; i < b.n; ++i) if (std::abs(b.P[static_cast<std::size_t>(3 * i + 1)]) < 0.6) dk[static_cast<std::size_t>(i)] = 0;
+    sub.compose([&] {
+      SurfaceOptions so; so.name = "cortex"; so.sphere = b.Sph;
+      so.atlases.push_back(AtlasMember{"Desikan-Killiany", dk, {"unassigned", "cortex"}, {{{0, 0, 0}}, {{200, 200, 200}}}});
+      add_surface(sub, so, b.P, b.F);
+    });
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
   nxrtest::run_definition(ds, sub, "surface_frames", Json{{"surface", "cortex"}});

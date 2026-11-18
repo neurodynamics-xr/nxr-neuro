@@ -364,6 +364,7 @@ ng::NodeSpec select_bands() {
     Json members = Json::array();
     for (const auto& m : b.members) members.push_back(m);
     t.facts["set"] = Json{{"type", "spans"}, {"unit", b.members.empty() ? "Hz" : b.members[0].value("unit", std::string("Hz"))}, {"members", members}, {"rule", b.rule}, {"family", b.rule == "levels" ? "grid" : "irregular"}};
+    t.facts["names"] = Json{{"line", b.rule == "frequency" ? "Frequency" : "Eigenvalue"}};   // the shared line of the default subject the set lies on (the output's `on: default.{line}`)
     out.out["bands"] = t;
     return out;
   };
