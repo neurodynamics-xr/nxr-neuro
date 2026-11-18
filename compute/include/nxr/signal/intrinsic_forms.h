@@ -23,7 +23,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "nxr/intrinsic_surface.h"
+#include "nxr/geometry/intrinsic_surface.h"
 
 namespace nxr::signal {
 
@@ -49,12 +49,12 @@ void attachEmbedding(Complex& c, const double* positions, const std::int32_t* in
 
 /** The embedding of the signposts from an IntrinsicSurface (normals: geometry-central's corner-angle-weighted; per vertex its input edges' raw signpost angles
  *  and directions). `complexOf` calls it. */
-void attachEmbedding(Complex& c, nxr::manifold::IntrinsicSurface& surface);
+void attachEmbedding(Complex& c, nxr::geometry::IntrinsicSurface& surface);
 
 /** The complex of an IntrinsicSurface (geometry-central's intrinsic Delaunay triangulation, with signposts): its edges, lengths, d0, d1, the stars (⋆0 the mesh's recorded mass, ⋆1 the
  *  cotan weights, ⋆2 = 1 / area), the signposts, and the embedding (`positions` [3 nV], the INPUT `faces` [3 nF_in] for the area-weighted vertex normals).
  *  What `eigen solve` stores, built in memory (tests; a caller with no stored package). */
-Complex complexOf(nxr::manifold::IntrinsicSurface& surface);
+Complex complexOf(nxr::geometry::IntrinsicSurface& surface);
 
 /** The direction of edge e at its tail (atTip false) or tip (atTip true), pointing ALONG the edge (tail → tip), as an ambient unit vector. */
 Eigen::Vector3d tangentAt(const Complex& c, int e, bool atTip);

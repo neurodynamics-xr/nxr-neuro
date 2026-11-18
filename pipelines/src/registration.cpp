@@ -4,13 +4,13 @@
 #include <set>
 
 #include "nxr/pipelines/input.h"
-#include "nxr/sphere_registration.h"
+#include "nxr/operators/resample.h"
 
 namespace nxr::pipelines {
 
 using namespace nxr::io;
 namespace fs = std::filesystem;
-namespace reg = nxr::registration;
+namespace reg = nxr::operators::registration;
 
 namespace {
 

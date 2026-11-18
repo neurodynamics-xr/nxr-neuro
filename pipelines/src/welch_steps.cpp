@@ -27,15 +27,15 @@
 #include "nxr/meeg/sources.h"
 #include "nxr/meeg/tensor.h"
 #include "nxr/rotary.h"
-#include "nxr/welch.h"
-#include "nxr/fft.h"
-#include "nxr/selection/grid.h"
+#include "nxr/signal/spectral.h"
+#include "nxr/signal/fourier.h"
+#include "nxr/select/grid.h"
 #include "nxr/selection/selection.h"
 
 namespace nxr::pipelines::graph {
 
 namespace ng = nxr::graph;
-namespace nw = nxr::welch;
+namespace nw = nxr::signal::spectral;
 using nxr::graph::Json;
 
 namespace {
@@ -188,7 +188,7 @@ ng::NodeSpec welch_psd() {
   n.parameters = welch_parameters();
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
                              "segments are carried across blocks, so blocks meet in time order; the sum over the segments is accumulated in double and finished once");
-  n.matches = "scipy.signal.welch, Brainstorm's bst_psd and nxr's spectral chain (the named presets of the pipeline psd); compute nxr::welch::Welch";
+  n.matches = "scipy.signal.welch, Brainstorm's bst_psd and nxr's spectral chain (the named presets of the pipeline psd); compute nxr::signal::spectral::Welch";
   n.description = "the Welch power spectral density of every channel, streaming: segments (a tile of 2^k samples, or Brainstorm's or scipy's rule) are detrended, windowed, transformed and averaged; a segment touching a bad sample is left out";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed_real(in, "x", "welch.psd");
@@ -339,7 +339,7 @@ ng::NodeSpec welch_complex_psd() {
   n.parameters = welch_parameters();
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
                              "segments are carried across blocks, so blocks meet in time order; accumulated in double and finished once");
-  n.matches = "scipy.signal.welch(z, return_onesided=False), the frequencies ascending (nxr.timefreq.psd of a complex series); compute nxr::welch::ComplexWelch";
+  n.matches = "scipy.signal.welch(z, return_onesided=False), the frequencies ascending (nxr.timefreq.psd of a complex series); compute nxr::signal::spectral::ComplexWelch";
   n.description = "the two-sided Welch power spectral density of a complex series, streaming: no bin is doubled; +f is the pair turning from x towards y";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& z = streamed_real(in, "z", "welch.complex_psd");
@@ -577,7 +577,7 @@ BandMember band_member(const ng::Types& in, const Json& pick, const std::string&
 // ── welch.source_bins ───────────────────────────────────────────────────────────────────────────────────────────
 // THE FREQUENCY PARTITION OF A BAND RESOLVED (spec docs/specs/2026-11-16-meg-fingerprinting.md, 3.1; the `--resolve bins` of the hand-wired sourcepsd): every Welch bin of ONE band
 // (lo to hi Hz inclusive) per source, nothing reduced over frequency, a statistic with axes [vertex x frequency]; the band's own statistic (`welch.source_band_power`) is the mean of
-// these bins. Accumulated on the SOURCE side (nxr::welch::LinearWelch: the kernel applied to each segment's Fourier coefficients, |K X|^2 summed per source per bin, the orientations'
+// these bins. Accumulated on the SOURCE side (nxr::signal::spectral::LinearWelch: the kernel applied to each segment's Fourier coefficients, |K X|^2 summed per source per bin, the orientations'
 // power summed), because the sensor side would hold channels^2 x bins. Memory held: sources x bins x 8 bytes, plus a block of at most 4096 mapped rows x the bins kept. The same numbers
 // as the cross-spectrum route, to rounding. A band is one member of the frequency partition and one run names it (a band is a selection that selects, resolving frequency within it is
 // this transform): the several bands of sourcepsd are several runs.
@@ -604,7 +604,7 @@ ng::NodeSpec welch_source_bins() {
   n.parameters.push_back({"band", Json(), "which member of the band set: its name (every Welch bin from its lo to its hi inclusive is kept); no default: a band is the caller's choice", "-", {}, false});
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64,
                              "segments are carried across blocks; the kernel is applied to each segment's Fourier coefficients and |K X|^2 accumulated per source and bin, in double");
-  n.matches = "nxr::welch::LinearWelch: Welch of the kernel applied to the recording, kept for the band's bins";
+  n.matches = "nxr::signal::spectral::LinearWelch: Welch of the kernel applied to the recording, kept for the band's bins";
   n.description = "the power of the sources through an inverse kernel at every Welch bin of a band (nothing reduced over frequency), orientations summed";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed_real(in, "x", "welch.source_bins");
@@ -877,7 +877,7 @@ ng::NodeSpec welch_cross_spectrum() {
   n.parameters.push_back({"channel_types", Json::array({"MEG", "MEG MAG", "MEG GRAD", "EEG", "SEEG", "ECOG"}), "the channel types covered when channels_of is absent (good channels only)", "-", {}, false});
   n.parameters.push_back({"resolve", Json("band"), "band = each band one member (its bins averaged) | bins = also every bin of each band", "-", {"band", "bins"}, false});
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "segments are carried across blocks; the cross-spectra are accumulated in double");
-  n.matches = "MNE csd_array_fourier / scipy.signal.csd (Welch, averaged over the band's bins); meeg nxr::welch::CrossWelch";
+  n.matches = "MNE csd_array_fourier / scipy.signal.csd (Welch, averaged over the band's bins); meeg nxr::signal::spectral::CrossWelch";
   n.description = "the sensor cross-spectral density per band (Welch), on a kernel's channels or the good imaging channels";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed_real(in, "x", "welch.cross_spectrum");
@@ -1104,7 +1104,7 @@ ng::NodeSpec fft_spectrum() {
   n.outputs = {{"spectrum", "the one-sided Fourier transform of every channel of the block, complex channels x bins, made once per block (axis block)", false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "a change of basis of one block: nothing is carried from block to block; the transform runs in double, the value is handed on in float32");
-  n.matches = "numpy.fft.rfft along time (norm backward: unscaled); compute nxr::fft::rfftColumns";
+  n.matches = "numpy.fft.rfft along time (norm backward: unscaled); compute nxr::signal::rfftColumns";
   n.description = "the one-sided FFT of every channel of the block as given: no window, no taper, no detrend, no scaling (X[k] = sum_j x[j] exp(-2 pi i j k / n), n = the block's samples); "
                   "its frequency line is bin k at k x sfreq / n Hz (spacing sfreq / n, origin 0, unit Hz), bins n/2 + 1";
   n.plan = [](const ng::Types& in, const Json&) {
@@ -1126,7 +1126,7 @@ ng::NodeSpec fft_spectrum() {
   n.chunk = [](const std::any&, const ng::Blocks& in, std::int64_t, const ng::Place&) {
     const ng::Block& b = in.at("x");
     const Eigen::MatrixXd x = own_real(b);                                   // channels x n
-    const Eigen::MatrixXcd X = nxr::fft::rfftColumns(x.transpose()).transpose();   // channels x bins
+    const Eigen::MatrixXcd X = nxr::signal::rfftColumns(x.transpose()).transpose();   // channels x bins
     ng::Block o;
     o.rows = X.rows(); o.width = X.cols(); o.left = 0; o.right = 0;
     o.line_samples = x.cols();                                                // the block's samples: the frequency line's spacing is rate / n, whether n is odd or even

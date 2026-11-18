@@ -19,7 +19,7 @@
 //                               JOINT partition of space × time (`joint compute`), per CELL (spatial tile × time tile): `amplitude` · `envelope_max` of |z| per vertex, `power` (the power step's |z|²)
 //                               and `phase_current` (the phase_current step's vector: x y z, a [rows x cells x 3] measurement)
 //   fit_gate        after       the bursts `risefall` fitted well: r² ≥ min_r2 (0.7) and the rise and fall times not at their bound → a spans Selection of the kept bursts (the unfiltered spans stay)
-//   burst_stages    after       each burst's stages from its stored fit: onset (t_on ± 2 τ_rise), within (the plateau), offset (t_off ± 2 τ_fall) → three spans Selections (nxr::risefall::stagesOf)
+//   burst_stages    after       each burst's stages from its stored fit: onset (t_on ± 2 τ_rise), within (the plateau), offset (t_off ± 2 τ_fall) → three spans Selections (nxr::select::stagesOf)
 //   detect_spans    after       a measurement's tiles labelled: per row (or the mean over rows) the median and robust SD over the good tiles, hysteresis
 //                               crossings, spans merged and kept by length (nxr::intervals; Rheome detect.spindle's rule) → a span set (a spans Selection)
 #include <sstream>
@@ -30,7 +30,7 @@
 #include "nxr/pipelines/partition_steps.h"
 #include "nxr/pipelines/measurement_nodes.h"
 #include "nxr/pipelines/select_nodes.h"
-#include "nxr/quantity.h"
+#include "nxr/quantity/quantity.h"
 
 #include <algorithm>
 #include <set>
@@ -42,20 +42,20 @@
 #include <map>
 #include <optional>
 
-#include "nxr/filterbank.h"
-#include "nxr/forms.h"
-#include "nxr/frame_tiling.h"
-#include "nxr/intervals.h"
-#include "nxr/stats.h"
-#include "nxr/phase.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/forms.h"
+#include "nxr/signal/resample.h"
+#include "nxr/select/events.h"
+#include "nxr/stats/summary.h"
+#include "nxr/signal/phase_gradient.h"
 #include "nxr/pyramid.h"
-#include "nxr/risefall.h"
-#include "nxr/ladder.h"
+#include "nxr/select/risefall.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/input.h"
-#include "nxr/monogenic.h"
+#include "nxr/signal/riesz.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/pipelines/meeg_internal.h"
-#include "nxr/taps.h"
+#include "nxr/signal/filters_fir.h"
 
 namespace nxr::pipelines::graph {
 
@@ -78,7 +78,7 @@ void need(bool ok, const std::string& msg) { if (!ok) refuse(msg); }
 // THE STORED EVENTS OF A ROLL-UP (maintainers spec docs/specs/2026-11-13-burst-phase-current.md): a spans Selection of this recording's time line (the global bursts `global_bursts` stored), read as the tile events
 // [first, stop) of the tiles x was measured on. A span holds on EVERY row (a global event: it names no channel); one that names a channel is refused (a joint measurement's rows are spatial tiles).
 // The run is refused, naming the span, when the set is of another recording or time line, or a span does not begin and end on a tile edge of x's time level.
-std::vector<nxr::intervals::TileEvent> stored_event_tiles(const Bound& db, const Value& ev, const Value& x, const std::string& who) {
+std::vector<nxr::select::TileEvent> stored_event_tiles(const Bound& db, const Value& ev, const Value& x, const std::string& who) {
   const nxr::io::Row& sr = *ev.row;
   const std::string sname = nxr::io::text(sr, "name");
   need(ev.manifolds.size() == 1 && x.time && ev.manifolds[0] == *x.time, who + ": the spans " + sname + " are on another time line than x's (" + (x.time ? *x.time : std::string("none")) + "): the events must be of x's own recording");
@@ -98,7 +98,7 @@ std::vector<nxr::intervals::TileEvent> stored_event_tiles(const Bound& db, const
   const Json params = Json::parse(nxr::io::opt_text(sr, "params_json").value_or("{}"), nullptr, false);
   const bool channels = params.is_object() && params.contains("channels") && params["channels"].is_object() && !params["channels"].empty();
   need(!channels, who + ": the spans " + sname + " name the channel that found each event (per_hemisphere); a measurement over tiles takes global events only");
-  std::vector<nxr::intervals::TileEvent> out;
+  std::vector<nxr::select::TileEvent> out;
   std::size_t ordinal = 0;
   auto sec = [](double x) { std::ostringstream o; o << x; return o.str(); };   // seconds as written: 0.5, not 0.500000
   for (const auto& r : db.spans(nxr::io::text(sr, "id"))) {
@@ -146,12 +146,12 @@ void in_loop(const Value& x, const std::string& who, bool frames_ok = false) {
   need(frames_ok || x.facts.value("axis", std::string("samples")) == "samples", who + ": x is on the frame tiling (made by `frames`); this step reads the recording's own samples");
 }
 // the Studio's field type of a value (forms.h): ℝ a number, ℂ an embedded tangent vector, ℍ a free-orientation current (vector3 or quaternion)
-nxr::forms::FieldType field_type(const Value& x) {
-  if (x.facts.value("field_type", std::string()) == "complex") return nxr::forms::FieldType::Complex;
-  if (x.value_type == "vector3" || x.value_type == "quaternion") return nxr::forms::FieldType::Quaternion;
-  return nxr::forms::FieldType::Real;
+nxr::signal::FieldType field_type(const Value& x) {
+  if (x.facts.value("field_type", std::string()) == "complex") return nxr::signal::FieldType::Complex;
+  if (x.value_type == "vector3" || x.value_type == "quaternion") return nxr::signal::FieldType::Quaternion;
+  return nxr::signal::FieldType::Real;
 }
-const char* type_name(nxr::forms::FieldType t) { return t == nxr::forms::FieldType::Real ? "ℝ" : t == nxr::forms::FieldType::Complex ? "ℂ" : "ℍ"; }
+const char* type_name(nxr::signal::FieldType t) { return t == nxr::signal::FieldType::Real ? "ℝ" : t == nxr::signal::FieldType::Complex ? "ℂ" : "ℍ"; }
 // the phase's steps read a complex field whose phase is kept, on a surface, with 1 or 3 components a vertex
 void phase_input(const Value& z, const PlanContext& c, const std::string& who) {
   in_loop(z, who, true);
@@ -429,7 +429,7 @@ std::vector<StepSpec> build() {
                  }
                  return Values{{"y", y}};
                }});
-  r.push_back({"magnitude", "chunk", {"x"}, {}, {"y"}, Json::object(), "compute: |x| per element, the norm over its components (the Studio's abs of a ℍ / ℂ field; nxr::phase::power's square root)",
+  r.push_back({"magnitude", "chunk", {"x"}, {}, {"y"}, Json::object(), "compute: |x| per element, the norm over its components (the Studio's abs of a ℍ / ℂ field; nxr::signal::power's square root)",
                "|x| per vertex per sample, the norm over the vertex's components and the complex part (a free current: no orientation assumed): pointwise, non-linear (nothing linear may follow, D106)",
                [](const Values& ins, const Json&, const PlanContext&) {
                  const Value& x = ins.at("x");
@@ -466,7 +466,7 @@ std::vector<StepSpec> build() {
                  const Value &x = ins.at("x"), &ev = ins.at("events");
                  need(x.cls == "series" && x.time, "risefall: x must be the sample series of the run (`collect`)");
                  need(ev.cls == "spans" && ev.facts.contains("detect") && ev.facts.contains("over"), "risefall: events must be the spans `detect_spans` made");
-                 try { nxr::risefall::parseModel(p["model"].is_string() ? p["model"].get<std::string>() : std::string("?")); } catch (const std::invalid_argument& e) { refuse(std::string("risefall: ") + e.what()); }
+                 try { nxr::select::parseModel(p["model"].is_string() ? p["model"].get<std::string>() : std::string("?")); } catch (const std::invalid_argument& e) { refuse(std::string("risefall: ") + e.what()); }
                  need(p["durations"] == "seconds" || p["durations"] == "cycles", "risefall: durations " + p["durations"].dump() + ": seconds (margin, smooth, tau_max) or cycles (margin_cycles, smooth_cycles, tau_max_cycles of the band's centre)");
                  for (const char* k : {"margin", "smooth", "tau_max", "margin_cycles", "smooth_cycles", "tau_max_cycles"}) need(p[k].is_number() && p[k].get<double>() >= 0, std::string("risefall: ") + k + " is a number of at least 0");
                  need(p["tau_max"].get<double>() > 0 && p["tau_max_cycles"].get<double>() > 0, "risefall: tau_max is above 0");
@@ -484,30 +484,30 @@ std::vector<StepSpec> build() {
                  return out;
                }});
   r.push_back({"form", "chunk", {"x"}, {}, {"y"}, Json{{"form", nullptr}},
-               "Studio differential/fieldForms.ts FORMS, formValues (ℂ-extended: compute nxr::forms::formComplex)",
+               "Studio differential/fieldForms.ts FORMS, formValues (ℂ-extended: compute nxr::signal::formComplex)",
                "a form of a field of its type (ℝ f · ℂ abs div curl … v Jv · ℍ absq nx w xt x …): linear forms keep a complex field's phase, abs / absq give its envelope",
                [](const Values& ins, const Json& p, const PlanContext& c) {
                  const Value& x = ins.at("x");
                  need(x.cls == "field", "form: x must be a field");
                  need(p["form"].is_string(), "form: name the form (with: {form: nx})");
-                 const auto id = nxr::forms::formOf(p["form"].get<std::string>());
+                 const auto id = nxr::signal::formOf(p["form"].get<std::string>());
                  const auto t = field_type(x);
                  std::string have;
-                 for (const auto& f : nxr::forms::formsOf(t)) have += (have.empty() ? "" : " ") + std::string(f.key);
-                 const auto info = id ? nxr::forms::formInfo(t, *id) : std::nullopt;
+                 for (const auto& f : nxr::signal::formsOf(t)) have += (have.empty() ? "" : " ") + std::string(f.key);
+                 const auto info = id ? nxr::signal::formInfo(t, *id) : std::nullopt;
                  need(info.has_value(), "form: '" + p["form"].get<std::string>() + "' is not a form of a " + type_name(t) + " field (its forms: " + have + ")");
-                 need(t == nxr::forms::FieldType::Real || manifold_type(c, x.manifolds[0]) == "surface", "form: x's first factor is not a surface (a vector field's forms are taken on the cortex)");
+                 need(t == nxr::signal::FieldType::Real || manifold_type(c, x.manifolds[0]) == "surface", "form: x's first factor is not a surface (a vector field's forms are taken on the cortex)");
                  Value y = made(x);
-                 const bool linear = nxr::forms::isLinear(*id);
-                 y.value_type = info->out == nxr::forms::FieldType::Real ? "scalar" : info->out == nxr::forms::FieldType::Quaternion ? "quaternion" : "vector3";
-                 if (info->out == nxr::forms::FieldType::Complex) y.facts["field_type"] = "complex";
+                 const bool linear = nxr::signal::isLinear(*id);
+                 y.value_type = info->out == nxr::signal::FieldType::Real ? "scalar" : info->out == nxr::signal::FieldType::Quaternion ? "quaternion" : "vector3";
+                 if (info->out == nxr::signal::FieldType::Complex) y.facts["field_type"] = "complex";
                  else y.facts.erase("field_type");
                  y.facts["form"] = p["form"];
                  if (!linear) { y.complex = false; y.facts["nonlinear"] = true; y.facts["made_by"] = "form " + p["form"].get<std::string>(); }
-                 if (!linear || nxr::forms::isDivCurl(*id)) y.unit.reset();
+                 if (!linear || nxr::signal::isDivCurl(*id)) y.unit.reset();
                  return Values{{"y", y}};
                }});
-  r.push_back({"power", "chunk", {"x"}, {}, {"y"}, Json::object(), "compute nxr::phase::power (|z|², summed over the components); the Studio's absq",
+  r.push_back({"power", "chunk", {"x"}, {}, {"y"}, Json::object(), "compute nxr::signal::power (|z|², summed over the components); the Studio's absq",
                "|x|² per element per sample, summed over its components (a real or complex field): pointwise; a reduction over time is a `measure` after it",
                [](const Values& ins, const Json&, const PlanContext&) {
                  const Value& x = ins.at("x");
@@ -522,7 +522,7 @@ std::vector<StepSpec> build() {
                  if (x.unit) y.unit = "(" + *x.unit + ")^2";
                  return Values{{"y", y}};
                }});
-  r.push_back({"phase_current", "chunk", {"x"}, {}, {"y"}, Json::object(), "nxr detect/core_phase.py PhaseReader (Im(conj(z) grad z), the GV gradient); compute nxr::phase::phaseCurrent",
+  r.push_back({"phase_current", "chunk", {"x"}, {}, {"y"}, Json::object(), "nxr detect/core_phase.py PhaseReader (Im(conj(z) grad z), the GV gradient); compute nxr::signal::phaseCurrent",
                "the phase current j = Im(z̄ ∇z) = |z|² ∇φ on the tangent plane, per vertex per sample (three numbers a vertex: x y z)",
                [](const Values& ins, const Json&, const PlanContext& c) {
                  const Value& z = ins.at("x");
@@ -535,7 +535,7 @@ std::vector<StepSpec> build() {
                  y.unit.reset();
                  return Values{{"y", y}};
                }});
-  r.push_back({"gradient_power", "chunk", {"x"}, {}, {"y"}, Json::object(), "nxr detect/core_phase.py (|grad z|²); compute nxr::phase::gradientPower",
+  r.push_back({"gradient_power", "chunk", {"x"}, {}, {"y"}, Json::object(), "nxr detect/core_phase.py (|grad z|²); compute nxr::signal::gradientPower",
                "|∇z|² of the tangent gradient of a complex field, per vertex per sample",
                [](const Values& ins, const Json&, const PlanContext& c) {
                  const Value& z = ins.at("x");
@@ -567,7 +567,7 @@ std::vector<StepSpec> build() {
                  return Values{{"y", y}};
                }});
   r.push_back({"fit_gate", "after", {"events", "fit_r2"}, {}, {"spans"}, Json{{"min_r2", 0.7}},
-               "nxr vortex.burst_stages (a fit is kept when risefall is ok, not at its bound, and r² ≥ min_r2 = labelalpha's 0.7); compute nxr::risefall::passesGate",
+               "nxr vortex.burst_stages (a fit is kept when risefall is ok, not at its bound, and r² ≥ min_r2 = labelalpha's 0.7); compute nxr::select::passesGate",
                "the events `detect_spans` made, kept when their rise-fall fit is good: ok, r² ≥ min_r2 and neither time at its bound (within 1% of tau_max). Gives a spans Selection of the KEPT events (the fits and the unfiltered spans stay "
                "as they are; each kept event's ordinal among the detected ones is recorded)",
                [](const Values& ins, const Json& p, const PlanContext&) {
@@ -580,7 +580,7 @@ std::vector<StepSpec> build() {
                  return Values{{"spans", y}};
                }});
   r.push_back({"burst_stages", "after", {"events", "t_on", "t_off", "tau_rise", "tau_fall", "kept"}, {"kept"}, {"onset", "within", "offset"}, Json::object(),
-               "nxr vortex.burst_stages (the build-up tOn ± 2 tauR, the plateau, the decay tOff ± 2 tauF of rheome.flow.labelalpha's episodes); compute nxr::risefall::stagesOf",
+               "nxr vortex.burst_stages (the build-up tOn ± 2 tauR, the plateau, the decay tOff ± 2 tauF of rheome.flow.labelalpha's episodes); compute nxr::select::stagesOf",
                "each event's STAGES from its stored rise-fall measurements: ONSET [t_on − 2 τ_rise, t_on + 2 τ_rise], WITHIN the plateau [t_on + 2 τ_rise, t_off − 2 τ_fall] (none when they meet), OFFSET [t_off − 2 τ_fall, t_off + 2 τ_fall], "
                "clipped to the run; three spans Selections, one span a stage of an event whose fit is finite (an event with no fit has none). With `kept` (`fit_gate`) only the kept events have stages. The edges are seconds, not tile edges",
                [](const Values& ins, const Json&, const PlanContext&) {
@@ -661,11 +661,11 @@ Block crop(const Block& b, std::int64_t keep) {
   }
   return o;
 }
-// rows convolved with taps (compute nxr::taps::convolveRows) over the own columns and `keep` of the halo
+// rows convolved with taps (compute nxr::signal::convolveRows) over the own columns and `keep` of the halo
 std::vector<float> convolve(const Block& b, const std::vector<float>& taps, std::int64_t keep, bool odd, std::int64_t& kl, std::int64_t& kr) {
   kl = std::min(keep, b.left);
   kr = std::min(keep, b.right);
-  return nxr::taps::convolveRows(b.re.data(), static_cast<std::size_t>(b.rows), static_cast<std::size_t>(b.width), taps, static_cast<std::size_t>(b.left - kl),
+  return nxr::signal::convolveRows(b.re.data(), static_cast<std::size_t>(b.rows), static_cast<std::size_t>(b.width), taps, static_cast<std::size_t>(b.left - kl),
                                  static_cast<std::size_t>(b.own() + kl + kr), odd);
 }
 // a band's gain: shape morlet or meyer (the Studio's
@@ -673,8 +673,8 @@ std::vector<float> convolve(const Block& b, const std::vector<float>& taps, std:
 std::function<double(double)> band_gain(const Json& p) {
   if (p["band"].is_null()) return [](double) { return 1.0; };
   const double lo = p["band"][0].get<double>(), hi = p["band"][1].get<double>(), hw = p["half_width"].get<double>();
-  if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::filterbank::morletBand(f, lo, hi); };
-  return [lo, hi, hw](double f) { return nxr::filterbank::meyerBand(f, lo, hi, hw); };
+  if (p["shape"] == "morlet") return [lo, hi](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
+  return [lo, hi, hw](double f) { return nxr::signal::graphfilterbank::meyerBand(f, lo, hi, hw); };
 }
 struct AnalyticTaps { std::vector<float> even, odd; };
 struct KernelState { std::shared_ptr<const Eigen::MatrixXd> K; Json resolved; };
@@ -725,13 +725,13 @@ std::any compose_pre_operator(const KernelState& base, const nxr::graph::Array& 
 // the Studio's field type and the number of rows a vertex holds
 int per_vertex(const Value& v) { return v.value_type == "scalar" ? 1 : v.value_type == "quaternion" ? 4 : v.value_type == "monogenic" ? 4 * v.facts["monogenic"]["components"].get<int>() : 3; }
 // the surface a field lies on (its first factor), as the Studio's face-gradient operator (positions float32, as the GPU receives them)
-std::shared_ptr<nxr::forms::FaceGradientOperator> surface_operator(ExecContext& c, const std::string& manifold_id) {
+std::shared_ptr<nxr::signal::FaceGradientOperator> surface_operator(ExecContext& c, const std::string& manifold_id) {
   const auto m = c.bound.manifold(manifold_id);
   const auto S = c.bound.surface(m ? std::optional<std::string>(nxr::io::text(*m, "name")) : std::nullopt);
   std::vector<float> P(S.vertices.begin(), S.vertices.end());
-  return std::make_shared<nxr::forms::FaceGradientOperator>(nxr::forms::assembleFaceGradient(P.data(), S.faces.data(), static_cast<int>(S.n_vertices()), static_cast<int>(S.n_faces())));
+  return std::make_shared<nxr::signal::FaceGradientOperator>(nxr::signal::assembleFaceGradient(P.data(), S.faces.data(), static_cast<int>(S.n_vertices()), static_cast<int>(S.n_faces())));
 }
-struct PhaseState { nxr::phase::Gradient G; Eigen::MatrixXd N; int components = 1; };
+struct PhaseState { nxr::signal::Gradient G; Eigen::MatrixXd N; int components = 1; };
 std::shared_ptr<PhaseState> phase_state(const Value& z, ExecContext& c) {
   const auto op = surface_operator(c, z.manifolds[0]);
   const int nV = op->nV;
@@ -739,7 +739,7 @@ std::shared_ptr<PhaseState> phase_state(const Value& z, ExecContext& c) {
   Eigen::Matrix<int32_t, Eigen::Dynamic, 3, Eigen::RowMajor> F(op->nF, 3);
   for (int v = 0; v < nV; ++v) for (int d = 0; d < 3; ++d) { P(v, d) = op->position[3 * v + d]; N(v, d) = op->vertexNormals[3 * v + d]; }   // area-weighted unit normals (nxr core_phase)
   for (int f = 0; f < op->nF; ++f) for (int d = 0; d < 3; ++d) F(f, d) = op->faces[3 * f + d];
-  return std::make_shared<PhaseState>(PhaseState{nxr::phase::vertexGradient(P, F), N, z.value_type == "vector3" ? 3 : 1});
+  return std::make_shared<PhaseState>(PhaseState{nxr::signal::vertexGradient(P, F), N, z.value_type == "vector3" ? 3 : 1});
 }
 // a complex block's own (+ keep) columns as Z [rows x m]
 Eigen::MatrixXcd complex_of(const Block& b) {
@@ -779,7 +779,7 @@ void bind_execution(std::vector<StepSpec>& r) {
   auto taps_halo = [](const std::any& st) { return static_cast<std::int64_t>(std::any_cast<const std::vector<float>&>(st).size()) - 1; };
 
   StepSpec& bf = at("band_filter");
-  bf.prepare = [](const Values& ins, const Json& p, ExecContext&) { return std::any(nxr::taps::gainTaps(band_gain(p), ins.at("x").rate)); };
+  bf.prepare = [](const Values& ins, const Json& p, ExecContext&) { return std::any(nxr::signal::gainTaps(band_gain(p), ins.at("x").rate)); };
   bf.halo = taps_halo;
   bf.chunk = [](const std::any& st, const Blocks& ins, std::int64_t keep) {
     const Block& b = ins.at("x");
@@ -800,7 +800,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       return std::any(std::move(a));
     }
     const auto g = band_gain(p);
-    return std::any(AnalyticTaps{nxr::taps::gainTaps(g, ins.at("x").rate, false), nxr::taps::gainTaps(g, ins.at("x").rate, true)});
+    return std::any(AnalyticTaps{nxr::signal::gainTaps(g, ins.at("x").rate, false), nxr::signal::gainTaps(g, ins.at("x").rate, true)});
   };
   auto analytic_halo = [](const std::any& st) -> std::int64_t {
     if (st.type() == typeid(BandAnalytic)) return std::any_cast<const BandAnalytic&>(st).halo;
@@ -855,7 +855,7 @@ void bind_execution(std::vector<StepSpec>& r) {
   at("analytic").halo_at_plan = [](const Values& ins, const Json& p) -> std::int64_t {
     if (ins.count("bands")) return static_cast<std::int64_t>(std::ceil(p["halo_seconds"].get<double>() * ins.at("x").rate));
     const auto g = band_gain(p);
-    return static_cast<std::int64_t>(std::max(nxr::taps::gainTaps(g, ins.at("x").rate, false).size(), nxr::taps::gainTaps(g, ins.at("x").rate, true).size())) - 1;
+    return static_cast<std::int64_t>(std::max(nxr::signal::gainTaps(g, ins.at("x").rate, false).size(), nxr::signal::gainTaps(g, ins.at("x").rate, true).size())) - 1;
   };
   // the frame tiling: the chunk's analytic field sampled at the frames inside its own samples
   // THE FRAME GRID is the time grid the maker `select.time_grid` (rule frames) made: frame j starts at sample origin + j hop (a closed-form Rule on the line, no tower, no day anchor); its time is the frame's START
@@ -890,8 +890,8 @@ void bind_execution(std::vector<StepSpec>& r) {
     const auto [j0, j1] = st.span(at.first, at.n);
     std::vector<double> pos;
     for (std::int64_t j = j0; j < j1; ++j) pos.push_back(st.position(j) - static_cast<double>(at.first - b.left));          // from the block's column 0
-    Block y{b.rows, j1 - j0, 0, 0, nxr::frametiling::sincInterpolate(b.re.data(), b.rows, b.width, pos, st.H), {}};
-    if (b.complex()) y.im = nxr::frametiling::sincInterpolate(b.im.data(), b.rows, b.width, pos, st.H);
+    Block y{b.rows, j1 - j0, 0, 0, nxr::signal::sincInterpolate(b.re.data(), b.rows, b.width, pos, st.H), {}};
+    if (b.complex()) y.im = nxr::signal::sincInterpolate(b.im.data(), b.rows, b.width, pos, st.H);
     return Blocks{{"y", std::move(y)}};
   };
   fr.frame_place = [](const std::any& st_, const Place& at) {
@@ -971,7 +971,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       const auto op = surface_operator(c, ins.at("kernel").manifolds[1]);
       if (shape[0] != 3 * static_cast<std::int64_t>(op->nV)) refuse("apply_kernel: form: " + kname + ": its " + std::to_string(shape[0]) + " rows are not 3 x the " + std::to_string(op->nV) + " vertices of its target surface");
       const std::string f = p["form"].get<std::string>();
-      K = std::make_shared<Eigen::MatrixXd>(nxr::forms::formOfFreeColumns(f == "curl_tan" ? nxr::forms::Form::curl_tan : f == "div_tan" ? nxr::forms::Form::div_tan : nxr::forms::Form::nx, *K, *op));
+      K = std::make_shared<Eigen::MatrixXd>(nxr::signal::formOfFreeColumns(f == "curl_tan" ? nxr::signal::Form::curl_tan : f == "div_tan" ? nxr::signal::Form::div_tan : nxr::signal::Form::nx, *K, *op));
       shape[0] = op->nV;
       resolved = Json{{"form", f}, {"form_order", "kernel, tangent part, form, spatial band: one linear operator"}};
     }
@@ -1104,7 +1104,7 @@ void bind_execution(std::vector<StepSpec>& r) {
     const std::int64_t V = b.rows / per;
     Block y{V, b.width, b.left, b.right, std::vector<float>(static_cast<std::size_t>(V * b.width)), {}};
     if (zc > 0) {
-      // the spatial amplitude A = sqrt(Σ|z|² + Σ|R z|²) (nxr::monogenic::amplitude), per vertex and sample: the stacked rows split into z and its Riesz part
+      // the spatial amplitude A = sqrt(Σ|z|² + Σ|R z|²) (nxr::signal::amplitude), per vertex and sample: the stacked rows split into z and its Riesz part
       const int rc = 3 * zc;
       Eigen::MatrixXcd Z(V * zc, b.width), R(V * rc, b.width);
       for (std::int64_t v = 0; v < V; ++v)
@@ -1114,7 +1114,7 @@ void bind_execution(std::vector<StepSpec>& r) {
             const std::complex<double> w(b.re[i], b.complex() ? b.im[i] : 0.0f);
             if (r < zc) Z(v * zc + r, t) = w; else R(v * rc + (r - zc), t) = w;
           }
-      const Eigen::MatrixXd A = nxr::monogenic::amplitude(Z, zc, R, rc);
+      const Eigen::MatrixXd A = nxr::signal::amplitude(Z, zc, R, rc);
       for (std::int64_t v = 0; v < V; ++v) for (std::int64_t t = 0; t < b.width; ++t) y.re[static_cast<std::size_t>(v * b.width + t)] = static_cast<float>(A(v, t));
       return Blocks{{"y", std::move(y)}};
     }
@@ -1152,25 +1152,25 @@ void bind_execution(std::vector<StepSpec>& r) {
     return Arrays{{"y", std::move(y)}};
   };
 
-  // a form: the block's columns as the Studio's frames (sample-major), compute nxr::forms::formComplex, back to rows
+  // a form: the block's columns as the Studio's frames (sample-major), compute nxr::signal::formComplex, back to rows
   StepSpec& fm = at("form");
-  struct FormState { std::shared_ptr<nxr::forms::FaceGradientOperator> op; nxr::forms::FieldType t; nxr::forms::Form id; int in_rows, out_rows; };
+  struct FormState { std::shared_ptr<nxr::signal::FaceGradientOperator> op; nxr::signal::FieldType t; nxr::signal::Form id; int in_rows, out_rows; };
   fm.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     const Value& x = ins.at("x");
     FormState s;
     s.t = field_type(x);
-    s.id = *nxr::forms::formOf(p["form"].get<std::string>());
+    s.id = *nxr::signal::formOf(p["form"].get<std::string>());
     s.op = surface_operator(c, x.manifolds[0]);
-    s.in_rows = static_cast<int>(nxr::forms::widthOf(s.t, static_cast<std::size_t>(s.op->nV)));
-    const auto out = nxr::forms::formInfo(s.t, s.id)->out;
-    s.out_rows = static_cast<int>(nxr::forms::widthOf(out, static_cast<std::size_t>(s.op->nV)));
+    s.in_rows = static_cast<int>(nxr::signal::widthOf(s.t, static_cast<std::size_t>(s.op->nV)));
+    const auto out = nxr::signal::formInfo(s.t, s.id)->out;
+    s.out_rows = static_cast<int>(nxr::signal::widthOf(out, static_cast<std::size_t>(s.op->nV)));
     return std::any(std::make_shared<FormState>(s));
   };
   fm.chunk = [](const std::any& st, const Blocks& ins, std::int64_t keep) {
     const FormState& s = *std::any_cast<const std::shared_ptr<FormState>&>(st);
     const Block b = crop(ins.at("x"), keep);
     // the field's rows as the type's frame: a free current's x y z a vertex is ℍ with w = 0
-    const int per = s.t == nxr::forms::FieldType::Quaternion ? 4 : s.t == nxr::forms::FieldType::Complex ? 3 : 1;
+    const int per = s.t == nxr::signal::FieldType::Quaternion ? 4 : s.t == nxr::signal::FieldType::Complex ? 3 : 1;
     const int have = static_cast<int>(b.rows / s.op->nV);
     if (b.rows % s.op->nV != 0 || (have != per && !(per == 4 && have == 3))) refuse("form: the field's rows do not fit its type on the surface");
     std::vector<float> re(static_cast<std::size_t>(s.in_rows * b.width), 0.0f), im;
@@ -1182,7 +1182,7 @@ void bind_execution(std::vector<StepSpec>& r) {
         re[static_cast<std::size_t>(dst)] = b.re[static_cast<std::size_t>(r * b.width + t)];
         if (b.complex()) im[static_cast<std::size_t>(dst)] = b.im[static_cast<std::size_t>(r * b.width + t)];
       }
-    const auto f = nxr::forms::formComplex(s.t, s.id, re.data(), b.complex() ? im.data() : nullptr, re.size(), *s.op);
+    const auto f = nxr::signal::formComplex(s.t, s.id, re.data(), b.complex() ? im.data() : nullptr, re.size(), *s.op);
     Block y{s.out_rows, b.width, b.left, b.right, std::vector<float>(static_cast<std::size_t>(s.out_rows * b.width)), {}};
     if (!f.im.empty()) y.im.resize(y.re.size());
     for (std::int64_t t = 0; t < b.width; ++t)
@@ -1217,7 +1217,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       const PhaseState& ps = *std::any_cast<const std::shared_ptr<PhaseState>&>(st);
       const Block b = crop(ins.at("x"), keep);
       const Eigen::MatrixXcd Z = complex_of(b);
-      const Eigen::MatrixXd Y = current ? nxr::phase::phaseCurrent(Z, ps.components, ps.G, ps.N) : nxr::phase::gradientPower(Z, ps.components, ps.G, ps.N);
+      const Eigen::MatrixXd Y = current ? nxr::signal::phaseCurrent(Z, ps.components, ps.G, ps.N) : nxr::signal::gradientPower(Z, ps.components, ps.G, ps.N);
       return Blocks{{"y", block_of(Y, b.left, b.right)}};
     };
   }
@@ -1236,8 +1236,8 @@ void bind_execution(std::vector<StepSpec>& r) {
     const double fs = x.meta["rate"].get<double>(), origin = x.meta["origin"].get<double>(), first = static_cast<double>(x.meta["first_sample"].get<std::int64_t>());
     const double tw = ev.meta["tiles_of"]["width_s"].get<double>(), t_origin = ev.meta["tiles_of"]["origin"].get<double>();
     const double offset = origin + first / fs;                 // the series' first sample's time on the recording's clock
-    nxr::risefall::Options o;
-    o.model = nxr::risefall::parseModel(p["model"].get<std::string>()); o.margin = p["margin"].get<double>(); o.smooth = p["smooth"].get<double>(); o.tauMax = p["tau_max"].get<double>();
+    nxr::select::Options o;
+    o.model = nxr::select::parseModel(p["model"].get<std::string>()); o.margin = p["margin"].get<double>(); o.smooth = p["smooth"].get<double>(); o.tauMax = p["tau_max"].get<double>();
     // DURATIONS IN CYCLES: a cycle is 1/centre of the band the tiles resolve (nxr burst_stages: margin 10 cycles, smoothing 1 cycle, tau <= 10 cycles)
     Json durations = Json{{"mode", "seconds"}};
     if (p["durations"] == "cycles") {
@@ -1259,7 +1259,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       // an event of row -1 (a global event, `combine mean`) is fitted on the MEAN over the series' rows and holds on every row
       Eigen::VectorXd series = Eigen::Map<const Eigen::VectorXd>(x.data.data() + std::max<std::int64_t>(row, 0) * x.cols, x.cols);
       if (row < 0) { series.setZero(); for (std::int64_t q = 0; q < R; ++q) series += Eigen::Map<const Eigen::VectorXd>(x.data.data() + q * x.cols, x.cols); series /= static_cast<double>(R); }
-      const auto F = nxr::risefall::fit(series, fs, t0, t1, o);
+      const auto F = nxr::select::fit(series, fs, t0, t1, o);
       const bool keep = F.ok && !(p["min_r2"].is_number() && F.r2 < p["min_r2"].get<double>());
       ok += F.ok; bound += F.ok && F.atBound; below += F.ok && !keep;
       fits.push_back(Json{{"event", e}, {"row", row}, {"ok", F.ok}, {"kept", keep}, {"at_bound", F.atBound}, {"r2", F.ok ? Json(F.r2) : Json()}});
@@ -1292,7 +1292,7 @@ void bind_execution(std::vector<StepSpec>& r) {
   // THE FIT GATE and THE STAGES: from the stored fits (risefall's measurements), per event; spans in the detection's own tile units (fractional for a stage: seconds, not tile edges)
   auto event_fit = [](const Arrays& ins, std::int64_t e) {
     const Array& r2 = ins.at("fit_r2");
-    nxr::risefall::Fit F;
+    nxr::select::Fit F;
     const Json& f = r2.meta["risefall"]["fits"][static_cast<std::size_t>(e)];
     F.ok = f.value("ok", false); F.atBound = f.value("at_bound", false); F.r2 = f["r2"].is_number() ? f["r2"].get<double>() : std::numeric_limits<double>::quiet_NaN();
     return F;
@@ -1307,8 +1307,8 @@ void bind_execution(std::vector<StepSpec>& r) {
     Json ordinals = Json::array();
     std::int64_t refused_bound = 0, refused_r2 = 0, refused_fit = 0;
     for (std::int64_t e = 0; e < ev.rows; ++e) {
-      const nxr::risefall::Fit F = event_fit(ins, e);
-      if (nxr::risefall::passesGate(F, min_r2)) {
+      const nxr::select::Fit F = event_fit(ins, e);
+      if (nxr::select::passesGate(F, min_r2)) {
         out.data.insert(out.data.end(), ev.data.begin() + e * 4, ev.data.begin() + e * 4 + 4);
         ++out.rows;
         ordinals.push_back(e);
@@ -1339,7 +1339,7 @@ void bind_execution(std::vector<StepSpec>& r) {
       const std::int64_t row = static_cast<std::int64_t>(ev.data[static_cast<std::size_t>(e * 4 + 2)]), q = std::max<std::int64_t>(row, 0);
       if (q >= R) refuse("burst_stages: an event on row " + std::to_string(row) + " but the fits have " + std::to_string(R) + " rows");
       const auto at = [&](const Array& a) { return a.data[static_cast<std::size_t>(q * a.cols + e)]; };
-      const nxr::risefall::Stages S = nxr::risefall::stagesOf(at(on), at(off), at(tr), at(tf));
+      const nxr::select::Stages S = nxr::select::stagesOf(at(on), at(off), at(tr), at(tf));
       if (!S.valid) continue;
       ++with_stages;
       auto put = [&](const char* n, const double* iv) {
@@ -1406,13 +1406,13 @@ void bind_execution(std::vector<StepSpec>& r) {
       for (Eigen::Index t = 0; t < v.size(); ++t) if (std::isfinite(v(t))) good.push_back(v(t));
       if (good.size() < 2) { thresholds.push_back(Json{{"row", row}, {"skipped", "fewer than 2 good tiles"}}); continue; }
       const Eigen::Map<const Eigen::VectorXd> g(good.data(), static_cast<Eigen::Index>(good.size()));
-      const double med = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmed)] : nxr::intervals::median(g);
-      const double sd = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmad)] : nxr::intervals::mad(g);
+      const double med = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmed)] : nxr::select::median(g);
+      const double sd = base ? base->data[this_series * static_cast<std::size_t>(base->cols) + static_cast<std::size_t>(bmad)] : nxr::select::mad(g);
       if (!(sd > 0)) { thresholds.push_back(Json{{"row", row}, {"median", med}, {"robust_sd", sd}, {"skipped", "no spread (robust SD 0)"}}); continue; }
       const double hi = med + p["enter_sd"].get<double>() * sd, lo = med + p["exit_sd"].get<double>() * sd;
       Eigen::VectorXd z = v;
       for (Eigen::Index t = 0; t < z.size(); ++t) if (!std::isfinite(z(t))) z(t) = -std::numeric_limits<double>::infinity();   // a bad tile ends a span
-      auto spans = nxr::intervals::keepSpans(nxr::intervals::mergeSpans(nxr::intervals::crossings(z, hi, lo), gap), minL, maxL);
+      auto spans = nxr::select::keepSpans(nxr::select::mergeSpans(nxr::select::crossings(z, hi, lo), gap), minL, maxL);
       thresholds.push_back(Json{{"row", row}, {"median", med}, {"robust_sd", sd}, {"enter", hi}, {"exit", lo}, {"good_tiles", static_cast<std::int64_t>(good.size())}, {"spans", static_cast<std::int64_t>(spans.size())}});
       for (const auto& sp : spans) {
         out.data.insert(out.data.end(), {static_cast<double>(sp.start), static_cast<double>(sp.stop), static_cast<double>(row), sp.value});
@@ -1422,7 +1422,7 @@ void bind_execution(std::vector<StepSpec>& r) {
     out.meta = Json{{"tiles_of", x.meta}, {"durations", durations}, {"thresholds", thresholds}, {"tiles_compared", Json{{"merge_gap_tiles_below", gap}, {"min_tiles", minL},
                     {"max_tiles", p["max_s"].is_null() ? Json() : Json(maxL)}, {"width_s", width_s}}},
                     {"statistic", ins.count("baseline") ? "per series: the median and the robust SD (1.4826 x MAD) of the baseline statistic (summarize)" :
-                                                         "per series: the median and the robust SD (1.4826 x MAD) over its good tiles in the run's span (nxr::intervals::median, mad), computed here"}};
+                                                         "per series: the median and the robust SD (1.4826 x MAD) over its good tiles in the run's span (nxr::select::median, mad), computed here"}};
     return Arrays{{"spans", std::move(out)}};
   };
 }

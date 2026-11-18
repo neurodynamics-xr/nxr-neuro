@@ -31,8 +31,8 @@
 //   interior gain / √2, i.e. S = G/2 there — a bin that stands for itself, not for itself and a mirror — so the bank is exactly invertible and Parseval
 //   holds for the whole record; Drop gives them gain 0 (Rheome's timefilterbank: the bank excludes them, Σ‖w‖² = Σx² "up to the DC and Nyquist bins").
 //   Nothing is ever doubled.
-#include "nxr/fft.h"
-#include "nxr/filterbank.h"
+#include "nxr/signal/fourier.h"
+#include "nxr/signal/graphfilterbank.h"
 #include <complex>
 #include <functional>
 #include <limits>
@@ -113,7 +113,7 @@ Eigen::MatrixXd dualGains(const TimeBank& bank);
 Eigen::VectorXd frameOperator(const TimeBank& bank);
 
 /** Frame bounds of S = Σ g² on the interior bins (Analytic: DC and Nyquist excluded, as Rheome; TwoSided: every bin). Raw Σg² — Rheome reports S/2. */
-filterbank::Bounds bounds(const TimeBank& bank);
+signal::graphfilterbank::Bounds bounds(const TimeBank& bank);
 bool isTight(const TimeBank& bank, double tol = 1e-6);
 /** Centre of every member, Hz: the design's, or the g²-weighted centroid of |f| over the support where it has none. */
 Eigen::VectorXd centerFrequencies(const TimeBank& bank);
@@ -124,7 +124,7 @@ std::pair<Eigen::VectorXd, std::vector<std::size_t>> rates(const TimeBank& bank,
 
 /** One [nfft × C] complex block per member (C signals, one per column). Rows beyond the record's n are its zero padding. */
 using Coefficients = std::vector<Eigen::MatrixXcd>;
-using nxr::filterbank::Synthesis;
+using nxr::signal::graphfilterbank::Synthesis;
 
 /** Analytic: a REAL signal x [n × C] (n ≤ nfft; zero-padded). W_m = ifft(rfft(x) · g_m) on the one-sided bins. */
 Coefficients analysis(const TimeBank& bank, const Eigen::MatrixXd& x);

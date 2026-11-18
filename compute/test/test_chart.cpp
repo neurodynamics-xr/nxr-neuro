@@ -11,9 +11,25 @@
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
-#include "nxr/chart.h"
-#include "nxr/compute.h"
-#include "nxr/intrinsic_surface.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/synthesis/fields.h"
 
 #include "geometrycentral/surface/heat_method_distance.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -75,7 +91,7 @@ int main() {
 
     // (1) the wrapper IS geometry-central: the same solvers on the same IntrinsicSurface, to rounding
     {
-        nxr::manifold::IntrinsicSurface& surf = kit.surfaceOf(seed);
+        nxr::geometry::IntrinsicSurface& surf = kit.surfaceOf(seed);
         gcs::HeatMethodDistanceSolver hm(surf.geometry());
         gcs::VectorHeatMethodSolver vh(surf.geometry());
         const gcs::VertexData<double> dg = hm.computeDistance(surf.mesh().vertex(static_cast<size_t>(seed)));
@@ -163,11 +179,11 @@ int main() {
         EXPECT(std::isfinite(ds[0]) && std::isnan(ds[n2 - 1]), "a source set is solved on the first source's piece (NaN elsewhere)");
     }
 
-    // (4) the geodesic default (solve::heat) is the same solver on the same surface: exact again (it was 1e-4 against the port in G3)
-    nxr::manifold::Manifold m(V.data(), n, F.data(), static_cast<int>(F.size() / 3));
-    nxr::manifold::solve::HeatGeodesicSolver sDefault(m), sInput(m, 1.0, nxr::manifold::solve::HeatMesh::Input);
-    const VectorXd dDefault = nxr::manifold::solve::heat(sDefault, {seed}), dInput = nxr::manifold::solve::heat(sInput, {seed}), dChart = kit.heatDistance(seed);
-    EXPECT((dDefault - dChart).cwiseAbs().maxCoeff() < 1e-10, "the geodesic default (solve::heat) and the chart's heat distance are the same solver on the same surface (exact)");
+    // (4) the geodesic default (geometry::heat) is the same solver on the same surface: exact again (it was 1e-4 against the port in G3)
+    nxr::geometry::Manifold m(V.data(), n, F.data(), static_cast<int>(F.size() / 3));
+    nxr::geometry::HeatGeodesicSolver sDefault(m), sInput(m, 1.0, nxr::geometry::HeatMesh::Input);
+    const VectorXd dDefault = nxr::geometry::heat(sDefault, {seed}), dInput = nxr::geometry::heat(sInput, {seed}), dChart = kit.heatDistance(seed);
+    EXPECT((dDefault - dChart).cwiseAbs().maxCoeff() < 1e-10, "the geodesic default (geometry::heat) and the chart's heat distance are the same solver on the same surface (exact)");
     EXPECT(dInput.size() == dDefault.size() && (dInput - dDefault).cwiseAbs().maxCoeff() < 0.05, "HeatMesh::Input stays as the named option (geometry-central, input mesh)");
     std::cout << "  geodesic default vs chart: max |diff| " << sci((dDefault - dChart).cwiseAbs().maxCoeff()) << "; vs input-mesh option on the sphere: " << sci((dInput - dDefault).cwiseAbs().maxCoeff()) << "\n";
     std::cout << (g_failures ? "FAILED\n" : "OK\n");

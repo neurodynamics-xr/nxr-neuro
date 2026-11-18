@@ -1,6 +1,7 @@
 #pragma once
 // Manifold, the mesh handle, and the light halfedge bundles (toolbox refactor P1: moved from compute.h, declarations unchanged).
 #include <complex>
+#include <cstdint>
 #include <limits>
 #include <Eigen/Core>
 #include <Eigen/Sparse>
@@ -9,9 +10,9 @@
 #include <string>
 #include <vector>
 #include "nxr/geometry/intrinsic_surface.h"
-#include "nxr/errors.h"
-#include "nxr/cancellation.h"
-#include "nxr/progress.h"
+#include "nxr/core/errors.h"
+#include "nxr/core/cancellation.h"
+#include "nxr/core/progress.h"
 
 namespace geometrycentral { namespace surface {
 class ManifoldSurfaceMesh;
@@ -359,5 +360,12 @@ struct MeshGeometry {
 };
 
 MeshGeometry meshGeometry(Manifold& m);
+
+using RowMat3 = Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>;
+using FaceMat = Eigen::Matrix<std::int32_t, Eigen::Dynamic, 3, Eigen::RowMajor>;
+
+/** Area [nF] of each face of a mesh (positions [nV x 3], faces [nF x 3]). */
+Eigen::VectorXd faceAreas(const RowMat3& positions, const FaceMat& faces);
+
 } // namespace nxr::geometry
 

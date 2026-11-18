@@ -22,9 +22,9 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/measurement_nodes.h"
-#include "nxr/quantity.h"
-#include "nxr/selection/grid.h"
-#include "nxr/selection/partition.h"
+#include "nxr/quantity/quantity.h"
+#include "nxr/select/grid.h"
+#include "nxr/select/partition.h"
 #include "nxr/selection/selection.h"
 
 namespace nxr::pipelines::graph {
@@ -97,13 +97,13 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
   };
   auto band_level = [&](double lo, double hi) {
     const int maxk = static_cast<int>(std::floor(std::log2(static_cast<double>(std::max<std::int64_t>(1, s.size)))));
-    try { return ns::time_level_of_band(lo, hi, s.rate, p["cycles"].is_number() ? p["cycles"].get<double>() : ns::kJointCycles, maxk); }
+    try { return nxr::select::time_level_of_band(lo, hi, s.rate, p["cycles"].is_number() ? p["cycles"].get<double>() : nxr::select::kJointCycles, maxk); }
     catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
   };
   if (s.rule == "tiles") {
     const nxr::quantity::Quantity q = parse_q(p["duration"], who, "duration");
     need(q.unit == "s", who + ": duration " + p["duration"].dump() + " is in seconds");
-    const auto r = ns::level_of_duration(q.hi, s.rate);                    // the first level whose tile (2^k samples) is at least the duration
+    const auto r = nxr::select::level_of_duration(q.hi, s.rate);                    // the first level whose tile (2^k samples) is at least the duration
     level_grid(r.level);
     s.stated = Json{{"duration", p["duration"]}};
     s.snapped = Json{{"duration_s", r.snapped}, {"samples", s.width}};
@@ -134,13 +134,13 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
         // by compute's time rule; the hop is generally not whole samples, a frame's start is origin + j hop (the frames node interpolates there, rule 36)
         const double fpc = p["frames_per_cycle"].get<double>();
         need(fpc >= 1, who + ": frames_per_cycle is at least 1");
-        ns::TimeRule tr;
-        tr.kind = ns::TimeRule::Kind::frames;
+        nxr::select::TimeRule tr;
+        tr.kind = nxr::select::TimeRule::Kind::frames;
         tr.band_hz = std::make_pair(lo, hi);
         tr.frames_per_cycle = fpc;
         const ns::Line ln{"s", room, s.line_origin + static_cast<double>(s.origin) / s.rate, 1.0 / s.rate};
-        ns::TimeGrid made;
-        try { made = ns::time_rule_resolved(ln, tr); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
+        nxr::select::TimeGrid made;
+        try { made = nxr::select::time_rule_resolved(ln, tr); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
         // a frame finer than the sampling (36 to a cycle at a high frequency) is allowed (PI rule 36): its sample is made by band-limited interpolation (`frames`), so hop and width in whole samples are only the nearest (at least 1)
         s.hop_exact = s.width_exact = made.hop_s * s.rate;
         s.width = made.width_samples > 0 ? made.width_samples : std::max<std::int64_t>(1, static_cast<std::int64_t>(std::llround(s.width_exact)));
@@ -156,7 +156,7 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
   } else if (s.rule == "windows") {
     const nxr::quantity::Quantity w = parse_q(p["window"], who, "window"), h = parse_q(p["step"], who, "step");
     need(w.unit == "s" && h.unit == "s", who + ": window and step are in seconds");
-    const auto rw = ns::level_of_duration(w.hi, s.rate), rh = ns::level_of_duration(h.hi, s.rate);   // width and hop snapped to 2^k samples
+    const auto rw = nxr::select::level_of_duration(w.hi, s.rate), rh = nxr::select::level_of_duration(h.hi, s.rate);   // width and hop snapped to 2^k samples
     s.level = rw.level;
     s.width = std::int64_t(1) << rw.level;
     s.hop = std::int64_t(1) << rh.level;
@@ -169,14 +169,14 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     const nxr::quantity::Quantity d = parse_q(p["segment"], who, "segment");
     need(d.unit == "s", who + ": segment is a duration in seconds");
     need(p["overlap"].is_number() && p["overlap"].get<double>() >= 0 && p["overlap"].get<double>() < 1, who + ": overlap is a fraction in [0, 1)");
-    ns::TimeRule tr;
-    tr.kind = ns::TimeRule::Kind::segments;
+    nxr::select::TimeRule tr;
+    tr.kind = nxr::select::TimeRule::Kind::segments;
     tr.duration_s = d.hi;
     tr.overlap = p["overlap"].get<double>();
     tr.segment_rule = p["preset"].is_string() ? p["preset"].get<std::string>() : std::string("tile");   // tile | round | even (welch::segmentFor)
     const ns::Line ln{"s", s.size, s.line_origin, 1.0 / s.rate};
-    ns::TimeGrid made;
-    try { made = ns::time_rule_resolved(ln, tr); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
+    nxr::select::TimeGrid made;
+    try { made = nxr::select::time_rule_resolved(ln, tr); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
     need(made.grid.tiling.has_value(), who + ": the segments rule made no tiling");
     s.width = made.width_samples;
     s.hop = made.hop_samples;
@@ -186,7 +186,7 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     s.snapped = Json{{"segment_s", static_cast<double>(s.width) / s.rate}, {"hop_s", static_cast<double>(s.hop) / s.rate}};
   } else if (s.rule == "constant_q") {
     // the ladder's levels: one per distinct window, each carrying the Studio's ConstantQLevelInfo attributes (rule 24: low_hz, high_hz, centre, window, ...)
-    ns::ConstantQ m;
+    nxr::select::ConstantQ m;
     if (p["method"].is_string()) m.method = p["method"].get<std::string>();
     if (p["voices"].is_number_integer()) m.voices = p["voices"].get<int>();
     if (p["cycles"].is_number()) m.cycles = p["cycles"].get<double>();
@@ -194,8 +194,8 @@ TimeGridState make_time_grid(const Values& ins, const Json& p, const Bound& boun
     if (p["f_min"].is_string()) m.f_min = parse_q(p["f_min"], who, "f_min").hi;
     if (p["f_max"].is_string()) m.f_max = parse_q(p["f_max"], who, "f_max").hi;
     const ns::Line ln{"s", s.size, s.line_origin, 1.0 / s.rate};
-    ns::ConstantQDesign d;
-    try { d = ns::constant_q_design(ln, m); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
+    nxr::select::ConstantQDesign d;
+    try { d = nxr::select::constant_q_design(ln, m); } catch (const std::invalid_argument& e) { refuse(who + ": " + e.what()); }
     Json levels = Json::array();
     for (const auto& l : d.levels)
       levels.push_back(Json{{"level", l.power}, {"window_samples", l.window_samples}, {"window_s", static_cast<double>(l.window_samples) / s.rate}, {"bands", l.bands}, {"low_hz", l.lo}, {"high_hz", l.hi},
@@ -330,7 +330,7 @@ BandsPrepared bands_of(const ng::Types& in, const ng::Arrays* constants, const J
       for (const auto& e : list) {
         const nxr::quantity::Quantity q = parse_q(e, who, "scale");
         need(q.chart == "parts", who + ": " + e.dump() + " is not a number of parts per hemisphere (\"parts 16\")");
-        levels.push_back(ns::level_of_parts(q.hi, gp["depth"].get<int>()).level);
+        levels.push_back(nxr::select::level_of_parts(q.hi, gp["depth"].get<int>()).level);
       }
     }
     for (std::size_t k = 0; k < levels.size(); ++k) {
@@ -461,7 +461,7 @@ ng::NodeSpec select_product() {
         Json& f = pp.factors[fi];
         if (f["kind"] == "time") {
           need((*band)["unit"] == "Hz", "select.product: a time factor's level is set by a frequency band; " + cp["band"].dump() + " is in " + (*band)["unit"].dump());
-          const int k = ns::time_level_of_band((*band)["lo"].get<double>(), (*band)["hi"].get<double>(), f["rate"].get<double>(), ns::kJointCycles, static_cast<int>(std::floor(std::log2(static_cast<double>(f["size"].get<std::int64_t>())))));
+          const int k = nxr::select::time_level_of_band((*band)["lo"].get<double>(), (*band)["hi"].get<double>(), f["rate"].get<double>(), nxr::select::kJointCycles, static_cast<int>(std::floor(std::log2(static_cast<double>(f["size"].get<std::int64_t>())))));
           f["level"] = k;
           f["width"] = f["hop"] = std::int64_t(1) << k;
           f["count"] = (f["size"].get<std::int64_t>() - f.value("origin", std::int64_t(0)) + f["hop"].get<std::int64_t>() - 1) / f["hop"].get<std::int64_t>();
@@ -469,7 +469,7 @@ ng::NodeSpec select_product() {
         } else if (f["kind"] == "dyadic") {
           need((*band)["unit"] == "1/m2", "select.product: a surface factor's level is set by an eigenvalue band; " + cp["band"].dump() + " is in " + (*band)["unit"].dump());
           need(f.contains("piece_area_m2") && f.contains("depth"), "select.product: couple on a surface needs the whole grid (its record: piece area and depth), not one level");
-          f["level"] = ns::space_level_of_band((*band)["lo"].get<double>(), (*band)["hi"].get<double>(), f["piece_area_m2"].get<double>(), f["depth"].get<int>());
+          f["level"] = nxr::select::space_level_of_band((*band)["lo"].get<double>(), (*band)["hi"].get<double>(), f["piece_area_m2"].get<double>(), f["depth"].get<int>());
           f["snapped"] = Json{{"band", cp["band"]}};
         } else refuse("select.product: a factor of kind " + f["kind"].dump() + " has no level to couple");
         pp.coupled.push_back(Json{{"factor", fi}, {"band", cp["band"]}, {"level", f["level"]}});
@@ -534,21 +534,21 @@ int level_of_quantity(const nxr::selection::Selection& grid, const Json& finest,
   try {
     if (q.chart == "index") { snapped = Json{{"index", nxr::quantity::as_index(q)}}; return static_cast<int>(nxr::quantity::as_index(q)); }
     need(depth >= 0, who + ": the grid has no levels");
-    if (q.chart == "parts") { const auto r = ns::level_of_parts(q.hi, depth); snapped = Json{{"parts_per_hemisphere", r.snapped}}; return r.level; }
+    if (q.chart == "parts") { const auto r = nxr::select::level_of_parts(q.hi, depth); snapped = Json{{"parts_per_hemisphere", r.snapped}}; return r.level; }
     const double A = piece_area_of(grid);
     if (q.chart == "area") {
       std::vector<double> areas;
       for (int l = 0; l <= depth; ++l) areas.push_back(grid.members[static_cast<std::size_t>(l)].tile_area ? *grid.members[static_cast<std::size_t>(l)].tile_area : (A > 0 ? A / std::ldexp(1.0, l) : std::nan("")));
       need(!areas.empty() && std::isfinite(areas.front()), who + ": the grid's level areas are not recorded");
       const double a = q.hi * nxr::quantity::unit_factor(q.unit, unit + "^2");
-      const auto r = ns::level_of_area(areas, a, unit + "^2");
+      const auto r = nxr::select::level_of_area(areas, a, unit + "^2");
       snapped = Json{{"area", r.snapped}, {"unit", unit + "^2"}};
       return r.level;
     }
     if (q.chart == "wavelength" || q.chart == "eigenvalue") {
       need(A > 0, who + ": a wavelength or an eigenvalue needs the piece area (the grid's level dictionary records neither)");
       const double v = q.hi * nxr::quantity::unit_factor(q.unit, q.chart == "wavelength" ? unit : "1/" + unit + "^2");
-      const auto r = q.chart == "wavelength" ? ns::level_of_wavelength(v, A, depth, unit) : ns::level_of_eigenvalue(v, A, depth, unit);
+      const auto r = q.chart == "wavelength" ? nxr::select::level_of_wavelength(v, A, depth, unit) : nxr::select::level_of_eigenvalue(v, A, depth, unit);
       snapped = Json{{"wavelength", r.snapped}, {"unit", unit}};
       return r.level;
     }
@@ -558,7 +558,7 @@ int level_of_quantity(const nxr::selection::Selection& grid, const Json& finest,
       diam.push_back(*grid.members[static_cast<std::size_t>(l)].diameter);
     }
     const double d = q.hi * nxr::quantity::unit_factor(q.unit, unit);          // the coarsest level whose MEASURED mean tile diameter is at most it
-    const auto r = ns::level_of_diameter(diam, d, unit);
+    const auto r = nxr::select::level_of_diameter(diam, d, unit);
     snapped = Json{{"diameter", r.snapped}, {"unit", r.unit.empty() ? unit : r.unit}};
     return r.level;
   } catch (const std::invalid_argument& e) { refuse(who + ": " + finest.get<std::string>() + ": " + e.what()); }

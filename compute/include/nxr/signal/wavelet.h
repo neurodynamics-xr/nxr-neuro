@@ -23,8 +23,8 @@
 // emitted for the instants t in [-L, n + R): the tails beyond the record are coefficients too (they carry what iwt needs to reconstruct the ends); n = the samples fed.
 //
 // iwt: synthesis from those coefficients (Dual g/S or Tight g/G^2, as timebank::synthesis); the same windows, the same margin; it returns x[0, n).
-#include "nxr/filterbank.h"
-#include "nxr/timebank.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include <cstdint>
 #include <vector>
 
@@ -42,7 +42,7 @@ struct Options {
 struct Block { std::int64_t first = 0; Eigen::MatrixXcd coef; };
 
 struct Plan {                                 // what wt and iwt share (a function of the bank and the options alone)
-    timebank::TimeBank bank;
+    signal::timefilterbank::TimeBank bank;
     Options options;
     std::vector<std::size_t> Nm;              // own-rate lengths
     Eigen::VectorXd rate;                     // Hz
@@ -54,12 +54,12 @@ struct Plan {                                 // what wt and iwt share (a functi
     std::vector<std::int64_t> b1, b2;         // member support on the window grid
     std::vector<Eigen::VectorXd> gain;        // g_m on window bins b1..b2 (masked to the support)
     Eigen::VectorXd frame;                    // S = sum g^2 on window bins 0..N/2
-    Plan(const timebank::TimeBank& bank, const Options& options = Options());
+    Plan(const signal::timefilterbank::TimeBank& bank, const Options& options = Options());
 };
 
 class Wt {
 public:
-    Wt(const timebank::TimeBank& bank, int channels, const Options& options = Options());
+    Wt(const signal::timefilterbank::TimeBank& bank, int channels, const Options& options = Options());
     /** Feed [channels x samples] (any size); returns, per member, the coefficients that are now final (possibly empty blocks). */
     std::vector<Block> add(const Eigen::MatrixXd& chunk);
     /** The end of the record: the rest, including the tails. */
@@ -77,7 +77,7 @@ private:
 
 class Iwt {
 public:
-    Iwt(const timebank::TimeBank& bank, int channels, const Options& options = Options(), filterbank::Synthesis mode = filterbank::Synthesis::Dual);
+    Iwt(const signal::timefilterbank::TimeBank& bank, int channels, const Options& options = Options(), signal::graphfilterbank::Synthesis mode = signal::graphfilterbank::Synthesis::Dual);
     /** Feed the coefficients wt returned (any split in time, in order); returns the signal samples now final, [channels x samples]. */
     Eigen::MatrixXd add(const std::vector<Block>& blocks);
     /** The end: `samples` = the record's length n (wt's samplesIn()); returns the rest of x[0, n). */
@@ -85,7 +85,7 @@ public:
     const Plan& plan() const { return plan_; }
 private:
     Eigen::MatrixXd drain(bool final, std::int64_t n);
-    Plan plan_; int channels_; filterbank::Synthesis mode_;
+    Plan plan_; int channels_; signal::graphfilterbank::Synthesis mode_;
     std::vector<std::vector<Eigen::VectorXcd>> have_;   // per member, per channel: the coefficients held, from instant start_[m]
     std::vector<std::int64_t> start_, end_;
     std::int64_t next_ = 0;

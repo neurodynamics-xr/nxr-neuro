@@ -1,4 +1,4 @@
-// nxr::transport (levi_civita, frames, compare), nxr::algebra::blockCongruence and nxr::magnetic::transportLaplacian, synthetic only:
+// nxr::transport (levi_civita, frames, compare), nxr::core::blockCongruence and nxr::operators::transportLaplacian, synthetic only:
 //   the rotations: R n_v = n_u, orthogonal with det 1 (an antiparallel pair too); frames' R e1_v = e1_u; the blocks equal A M Aᴴ's;
 //   A FOLDED SURFACE (z = A sin(2π x / Λ), walls up to 72° steep) carrying a current NORMAL to it with a travelling lag φ(x): the world-frame comparison
 //   tr ⟨J_u J_vᴴ⟩ is off by π for pairs across a fold (normals pointing apart), the transported one tr(T R ᵀ) recovers every lag exactly (strength 1);
@@ -12,9 +12,10 @@
 #include <map>
 #include <set>
 
-#include "nxr/congruence.h"
-#include "nxr/magnetic.h"
-#include "nxr/transport.h"
+#include "nxr/core/congruence.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/geometry/transport.h"
 
 using C = std::complex<double>;
 static int failures = 0;
@@ -32,9 +33,9 @@ int main() {
     Eigen::MatrixXcd B(5, 5);
     for (Eigen::Index i = 0; i < B.size(); ++i) B.data()[i] = C(nd(rng), nd(rng));
     const Eigen::MatrixXcd M = B * B.adjoint(), full = A.cast<C>() * M * A.transpose().cast<C>();
-    nxr::algebra::Pairs P(4, 2);
+    nxr::core::Pairs P(4, 2);
     P << 0, 1, 2, 5, 3, 3, 5, 0;
-    const auto blk = nxr::algebra::blockCongruence(A, M, P, 3);
+    const auto blk = nxr::core::blockCongruence(A, M, P, 3);
     double worst = 0;
     for (Eigen::Index p = 0; p < 4; ++p) worst = std::max(worst, (blk[p] - full.block(3 * P(p, 0), 3 * P(p, 1), 3, 3)).cwiseAbs().maxCoeff());
     EXPECT(worst < 1e-12 * full.cwiseAbs().maxCoeff(), "blockCongruence == the 3 x 3 blocks of A M Aᴴ (worst " << worst << ")");
@@ -45,9 +46,9 @@ int main() {
     Eigen::MatrixXd N(4, 3);
     N << 0, 0, 1, 0.3, 0.1, 0.95, 0, 0, -1, 1, 0, 0;
     for (int i = 0; i < 4; ++i) N.row(i).normalize();
-    nxr::transport::Edges E(3, 2);
+    nxr::geometry::Edges E(3, 2);
     E << 1, 0, 2, 0, 3, 1;                                                   // (u, v): v's normal carried to u's
-    const auto R = nxr::transport::leviCivita(N, E);
+    const auto R = nxr::geometry::leviCivita(N, E);
     double worst = 0;
     for (int e = 0; e < 3; ++e) {
       worst = std::max(worst, (R[e] * N.row(E(e, 1)).transpose() - N.row(E(e, 0)).transpose()).norm());
@@ -59,7 +60,7 @@ int main() {
       p = (p - p.dot(n) * n).normalized();
       e1.row(i) = p; e2.row(i) = n.cross(p);
     }
-    const auto Rf = nxr::transport::frames(e1, e2, N, E);
+    const auto Rf = nxr::geometry::frames(e1, e2, N, E);
     double wf = 0;
     for (int e = 0; e < 3; ++e) wf = std::max(wf, (Rf[e] * e1.row(E(e, 1)).transpose() - e1.row(E(e, 0)).transpose()).norm() + (Rf[e] * N.row(E(e, 1)).transpose() - N.row(E(e, 0)).transpose()).norm());
     EXPECT(worst < 1e-12 && wf < 1e-12, "levi_civita: R n_v = n_u, a rotation (antiparallel normals too); frames: R carries v's frame onto u's");
@@ -90,14 +91,14 @@ int main() {
   std::vector<std::pair<int, int>> pairs;
   for (int j = 0; j < ny; j += 3) for (int i = 0; i < nx; ++i) for (int k = 1; k <= 30 && i + k < nx; k += 3) pairs.push_back({j * nx + i + k, j * nx + i});
   {
-    nxr::transport::Edges E(static_cast<Eigen::Index>(pairs.size()), 2);
+    nxr::geometry::Edges E(static_cast<Eigen::Index>(pairs.size()), 2);
     std::vector<Eigen::MatrixXcd> T;
     Eigen::VectorXd ones = Eigen::VectorXd::Ones(static_cast<Eigen::Index>(pairs.size()));
     for (std::size_t p = 0; p < pairs.size(); ++p) { E(p, 0) = pairs[p].first; E(p, 1) = pairs[p].second; T.push_back(Tof(pairs[p].first, pairs[p].second)); }
-    const auto R = nxr::transport::leviCivita(N, E);
-    const auto c = nxr::transport::compare(T, R, ones, ones);
+    const auto R = nxr::geometry::leviCivita(N, E);
+    const auto c = nxr::geometry::compare(T, R, ones, ones);
     std::vector<Eigen::Matrix3d> Id(pairs.size(), Eigen::Matrix3d::Identity());
-    const auto world = nxr::transport::compare(T, Id, ones, ones);
+    const auto world = nxr::geometry::compare(T, Id, ones, ones);
     int piWorld = 0;
     double worst = 0, worstStrength = 0;
     for (std::size_t p = 0; p < pairs.size(); ++p) {
@@ -114,16 +115,16 @@ int main() {
   {
     std::set<std::pair<int, int>> es;
     for (const auto& f : F) for (int k = 0; k < 3; ++k) { const int a = f[k], b = f[(k + 1) % 3]; es.insert({std::min(a, b), std::max(a, b)}); }
-    nxr::transport::Edges E(static_cast<Eigen::Index>(es.size()), 2);
+    nxr::geometry::Edges E(static_cast<Eigen::Index>(es.size()), 2);
     { Eigen::Index i = 0; for (auto [a, b] : es) { E(i, 0) = a; E(i, 1) = b; ++i; } }
     std::vector<Eigen::MatrixXcd> T;
     for (Eigen::Index e = 0; e < E.rows(); ++e) T.push_back(Tof(E(e, 0), E(e, 1)));
-    const auto R = nxr::transport::leviCivita(N, E);
+    const auto R = nxr::geometry::leviCivita(N, E);
     const Eigen::VectorXd ones = Eigen::VectorXd::Ones(E.rows());
-    const auto c = nxr::transport::compare(T, R, ones, ones);
+    const auto c = nxr::geometry::compare(T, R, ones, ones);
     std::vector<Eigen::MatrixXd> Rx(R.begin(), R.end());
-    const auto L = nxr::magnetic::transportLaplacian(n, E, ones, c.lag, Rx, nxr::magnetic::Normalise::None);
-    const auto ep = nxr::magnetic::hermitianEigs(L, 4);
+    const auto L = nxr::operators::transportLaplacian(n, E, ones, c.lag, Rx, nxr::operators::Normalise::None);
+    const auto ep = nxr::operators::hermitianEigs(L, 4);
     // a developable sheet has THREE parallel fields (normal, along and across the folds): λ₁ = λ₂ = λ₃ = 0, and each null vector's normal component
     // carries the current's lags (the phase map is determined; the vector's direction within the parallel fields is not, by this operator alone)
     double lagErr = 0;
@@ -161,14 +162,14 @@ int main() {
     for (int v = 0; v < ns; ++v) ph[v] = 2.0 * V[v].x() + V[v].z();          // a travelling lag across the sphere
     std::set<std::pair<int, int>> es;
     for (const auto& f : Fs) for (int k = 0; k < 3; ++k) { const int a = f[k], b = f[(k + 1) % 3]; es.insert({std::min(a, b), std::max(a, b)}); }
-    nxr::transport::Edges E(static_cast<Eigen::Index>(es.size()), 2);
+    nxr::geometry::Edges E(static_cast<Eigen::Index>(es.size()), 2);
     { Eigen::Index i = 0; for (auto [a, b] : es) { E(i, 0) = a; E(i, 1) = b; ++i; } }
     std::vector<Eigen::MatrixXcd> T;
     for (Eigen::Index e = 0; e < E.rows(); ++e) T.push_back((Ns.row(E(e, 0)).transpose() * Ns.row(E(e, 1))).cast<C>() * std::polar(1.0, -(ph[E(e, 0)] - ph[E(e, 1)])));
-    const auto R = nxr::transport::leviCivita(Ns, E);
+    const auto R = nxr::geometry::leviCivita(Ns, E);
     const Eigen::VectorXd ones = Eigen::VectorXd::Ones(E.rows());
-    const auto c = nxr::transport::compare(T, R, ones, ones);
-    const auto ep = nxr::magnetic::hermitianEigs(nxr::magnetic::transportLaplacian(ns, E, ones, c.lag, std::vector<Eigen::MatrixXd>(R.begin(), R.end()), nxr::magnetic::Normalise::None), 2);
+    const auto c = nxr::geometry::compare(T, R, ones, ones);
+    const auto ep = nxr::operators::hermitianEigs(nxr::operators::transportLaplacian(ns, E, ones, c.lag, std::vector<Eigen::MatrixXd>(R.begin(), R.end()), nxr::operators::Normalise::None), 2);
     const Eigen::VectorXcd x = ep.vectors.col(0);
     double offNormal = 0, lagErr = 0;
     for (int v = 0; v < ns; ++v) {
@@ -186,12 +187,12 @@ int main() {
   }
   // refusals
   {
-    nxr::transport::Edges E(1, 2);
+    nxr::geometry::Edges E(1, 2);
     E << 0, 0;
     bool a = false, b = false, c2 = false;
-    try { nxr::magnetic::transportLaplacian(2, E, Eigen::VectorXd::Ones(1), Eigen::VectorXd::Zero(1), {Eigen::MatrixXd::Identity(3, 3)}, nxr::magnetic::Normalise::None); } catch (const std::invalid_argument&) { a = true; }
-    try { nxr::transport::transportOf("parallel"); } catch (const std::invalid_argument&) { b = true; }
-    try { nxr::transport::compare({Eigen::MatrixXcd::Zero(2, 2)}, {Eigen::Matrix3d::Identity()}, Eigen::VectorXd::Ones(1), Eigen::VectorXd::Ones(1)); } catch (const std::invalid_argument&) { c2 = true; }
+    try { nxr::operators::transportLaplacian(2, E, Eigen::VectorXd::Ones(1), Eigen::VectorXd::Zero(1), {Eigen::MatrixXd::Identity(3, 3)}, nxr::operators::Normalise::None); } catch (const std::invalid_argument&) { a = true; }
+    try { nxr::geometry::transportOf("parallel"); } catch (const std::invalid_argument&) { b = true; }
+    try { nxr::geometry::compare({Eigen::MatrixXcd::Zero(2, 2)}, {Eigen::Matrix3d::Identity()}, Eigen::VectorXd::Ones(1), Eigen::VectorXd::Ones(1)); } catch (const std::invalid_argument&) { c2 = true; }
     EXPECT(a && b && c2, "a self-loop, an unknown transport and a block that is not 3 x 3 refused");
   }
   std::cout << (failures ? "FAIL" : "PASS") << " test_transport (" << failures << " failures)\n";

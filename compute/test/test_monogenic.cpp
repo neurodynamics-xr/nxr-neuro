@@ -6,18 +6,18 @@
 //   THE ORIENTATION is the pattern's gradient direction (along the meridian, with the sign of P_5');
 //   R by the eigenmodes equals R by a dense reference (the symmetric matrix function Δ^{-1/2}), the Chebyshev series follows it within its tolerance;
 //   a mode's sign flip leaves R and A unchanged;  A is the same for a complex field read part by part (A² adds Re and Im);  refusals.
-#include "nxr/monogenic.h"
+#include "nxr/signal/riesz.h"
 
 #include <Eigen/Eigenvalues>
 #include <cmath>
 #include <iostream>
 
 #include "mesh_helpers.h"
-#include "nxr/intrinsic_surface.h"
-#include "nxr/filterbank.h"
-#include "nxr/phase.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/phase_gradient.h"
 
-using namespace nxr::monogenic;
+using namespace nxr::signal;
 
 static double P5(double x) { return (63 * std::pow(x, 5) - 70 * std::pow(x, 3) + 15 * x) / 8; }
 static double dP5(double x) { return (315 * std::pow(x, 4) - 210 * x * x + 15) / 8; }
@@ -33,9 +33,9 @@ int main() {
   Eigen::Matrix<int32_t, Eigen::Dynamic, 3, Eigen::RowMajor> F(nF, 3);
   for (int i = 0; i < n; ++i) for (int d = 0; d < 3; ++d) P(i, d) = V[3 * i + d];
   for (int f = 0; f < nF; ++f) for (int s = 0; s < 3; ++s) F(f, s) = Fv[3 * f + s];
-  const nxr::phase::Gradient G = nxr::phase::vertexGradient(P, F);
+  const nxr::signal::Gradient G = nxr::signal::vertexGradient(P, F);
 
-  nxr::manifold::IntrinsicSurface isurf(V.data(), n, Fv.data(), nF);
+  nxr::geometry::IntrinsicSurface isurf(V.data(), n, Fv.data(), nF);
   const Eigen::SparseMatrix<double> Lap = isurf.cotanLaplacian();
   const std::vector<double> mass = isurf.inputMixedVoronoiMass();
   Eigen::MatrixXd Ld(Lap), Md = Eigen::MatrixXd::Zero(n, n);
@@ -73,7 +73,7 @@ int main() {
   }
   // the Chebyshev series (the fallback) follows it
   {
-    const nxr::filterbank::ChebyshevOperator op(Lap, Eigen::SparseMatrix<double>(Md.sparseView()), 0, 320);
+    const nxr::signal::graphfilterbank::ChebyshevOperator op(Lap, Eigen::SparseMatrix<double>(Md.sparseView()), 0, 320);
     const Eigen::MatrixXd Sc = op.apply(gR, f0);
     EXPECT((Sc - S).cwiseAbs().maxCoeff() < 2e-3 * S.cwiseAbs().maxCoeff(), "R by the Chebyshev series follows the eigenmodes (" << (Sc - S).cwiseAbs().maxCoeff() / S.cwiseAbs().maxCoeff() << " of the peak)");
   }

@@ -1,4 +1,9 @@
-#include "nxr/compute.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/synthesis/fields.h"
 #include <vector>
 
 #include <Eigen/Cholesky>

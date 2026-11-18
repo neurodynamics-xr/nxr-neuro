@@ -9,9 +9,9 @@
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
-#include "nxr/opticalflow.h"
+#include "nxr/signal/opticalflow.h"
 
-using namespace nxr::flow;
+using namespace nxr::signal;
 using Eigen::MatrixXd;
 
 static double rel(const MatrixXd& a, const MatrixXd& b) { return a.rows() != b.rows() || a.cols() != b.cols() ? 1e9 : (a - b).cwiseAbs().maxCoeff() / std::max(1e-300, b.cwiseAbs().maxCoeff()); }

@@ -9,9 +9,8 @@
 #include <Eigen/Dense>
 #include <vector>
 
-#include "nxr/signal/quadrature_pending.h"
+#include "nxr/core/algebra.h"
 
-namespace nxr::signal { using namespace nxr::quadrature; }   // TEMPORARY: QuadratureFactor, hermitianFactor stay in signal/quadrature_pending.h until their toolbox batch moves them
 namespace nxr::signal {
 
 using Eigen::MatrixXcd;
@@ -40,9 +39,9 @@ struct QuadraturePair {
     double sigma = 0;   // the pair's quadrature amplitude (units of the spectrum Im C; nxr's sigma is this over ||Im C||_F)
 };
 /** The k strongest pairs of Im C = Q S Q^T, strongest first (fewer if Im C has fewer nonzero pairs). From the Hermitian matrix -iS, whose eigenvalues are +-sigma. */
-std::vector<QuadraturePair> quadraturePairs(const QuadratureFactor& f, int k);
+std::vector<QuadraturePair> quadraturePairs(const core::QuadratureFactor& f, int k);
 /** The strongest pair. */
-QuadraturePair quadraturePair(const QuadratureFactor& f);
+QuadraturePair quadraturePair(const core::QuadratureFactor& f);
 /** nxr's `planes(Q, S, k)` and `top_plane(F)` through the same code: the pairs straight from a complex factor. */
 std::vector<QuadraturePair> quadraturePairs(const MatrixXcd& F, int k);
 

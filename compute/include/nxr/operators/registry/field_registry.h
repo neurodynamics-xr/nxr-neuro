@@ -1,5 +1,5 @@
 #pragma once
-#include "nxr/operator_registry.h"   // reuse Domain, Bundle, FieldType, Gauge, OperatorVariant API
+#include "nxr/operators/registry/operator_registry.h"   // reuse Domain, Bundle, FieldType, Gauge, OperatorVariant API
 #include <string>
 #include <string_view>
 #include <vector>

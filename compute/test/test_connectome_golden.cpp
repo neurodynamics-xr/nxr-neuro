@@ -8,14 +8,14 @@
 
 #include "connectome_helpers.h"
 #include "golden_io.h"
-#include "nxr/connectome.h"
-#include "nxr/nearest.h"
+#include "nxr/meeg/connectome.h"
+#include "nxr/geometry/surface_maps.h"
 
 #ifndef NXR_TEST_GOLDEN_DIR
 #error "NXR_TEST_GOLDEN_DIR is not set"
 #endif
 
-using namespace nxr::connectome;
+using namespace nxr::meeg;
 using Dense = Eigen::MatrixXd;
 
 namespace {
@@ -60,7 +60,7 @@ int main() {
     // the chain under test on what the reference read: nearest vertex, counts (gate none)
     std::vector<double> e(static_cast<std::size_t>(6 * nF));   // block order: the first ends, then the last ends
     for (int f = 0; f < nF; ++f) for (int k = 0; k < 3; ++k) { e[static_cast<std::size_t>(3 * f + k)] = ends(f, k); e[static_cast<std::size_t>(3 * (nF + f) + k)] = ends(f, 3 + k); }
-    const auto near = nxr::nearest::nearestVertices<double>(gpos, e);
+    const auto near = nxr::geometry::nearest::nearestVertices<double>(gpos, e);
     const auto counts = endConnectome<double>(near.vertex, keepAll(nF), nV);
     EXPECT(Dense(counts) == symmetricFrom(g.mat("counts_" + h), nV), "fiber counts identical to the reference's (pattern and value)");
 

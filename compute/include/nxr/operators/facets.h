@@ -1,6 +1,7 @@
 #pragma once
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/facets.h"
+#include "nxr/operators/laplacians.h"
 
 namespace nxr::geometry::facet {
 

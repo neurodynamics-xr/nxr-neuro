@@ -8,7 +8,7 @@
 #include <sstream>
 #include <vector>
 
-#include "nxr/risefall.h"
+#include "nxr/select/risefall.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
@@ -30,9 +30,9 @@ int main() {
   for (const char* c : {"lin1", "lin2", "quad1", "quad2"}) {
     const std::string n = c;
     const auto& a = g[n + "_a"];
-    nxr::risefall::Options o;
-    o.model = g[n + "_model"][0] == 1 ? nxr::risefall::Model::Quadrature : nxr::risefall::Model::Linear;
-    const auto F = nxr::risefall::fit(Eigen::Map<const Eigen::VectorXd>(a.data(), static_cast<Eigen::Index>(a.size())), g[n + "_fs"][0], g[n + "_span"][0], g[n + "_span"][1], o);
+    nxr::select::Options o;
+    o.model = g[n + "_model"][0] == 1 ? nxr::select::Model::Quadrature : nxr::select::Model::Linear;
+    const auto F = nxr::select::fit(Eigen::Map<const Eigen::VectorXd>(a.data(), static_cast<Eigen::Index>(a.size())), g[n + "_fs"][0], g[n + "_span"][0], g[n + "_span"][1], o);
     const auto& m = g[n + "_fit"];       // tOn tOff tauR tauF b h r2 ok atBound
     const auto& truth = g[n + "_truth"]; // b h on off tr tf
     double worst_s = std::max({std::abs(F.tOn - m[0]), std::abs(F.tOff - m[1]), std::abs(F.tauR - m[2]), std::abs(F.tauF - m[3])});
@@ -45,13 +45,13 @@ int main() {
   }
   {
     const auto& a = g["short_a"];
-    const auto F = nxr::risefall::fit(Eigen::Map<const Eigen::VectorXd>(a.data(), static_cast<Eigen::Index>(a.size())), 50, 2, 2.1, nxr::risefall::Options{0.0, 0.1, 1.0, nxr::risefall::Model::Linear});
+    const auto F = nxr::select::fit(Eigen::Map<const Eigen::VectorXd>(a.data(), static_cast<Eigen::Index>(a.size())), 50, 2, 2.1, nxr::select::Options{0.0, 0.1, 1.0, nxr::select::Model::Linear});
     EXPECT(!F.ok && g["short_fit"][0] == 0, "a window under 11 samples is not ok, as Rheome's");
     const Eigen::VectorXd z = Eigen::VectorXd::Zero(600);
-    EXPECT(!nxr::risefall::fit(z, 50, 3, 6).ok && g["zero_fit"][0] == 0, "a series of no amplitude is not ok, as Rheome's");
+    EXPECT(!nxr::select::fit(z, 50, 3, 6).ok && g["zero_fit"][0] == 0, "a series of no amplitude is not ok, as Rheome's");
   }
   bool refused = false;
-  try { nxr::risefall::parseModel("posterior"); } catch (const std::invalid_argument& e) { refused = std::string(e.what()).find("not built") != std::string::npos; }
+  try { nxr::select::parseModel("posterior"); } catch (const std::invalid_argument& e) { refused = std::string(e.what()).find("not built") != std::string::npos; }
   EXPECT(refused, "the posterior model is refused by name as not built");
   std::cout << (failures ? "FAILED\n" : "ok\n");
   return failures ? 1 : 0;

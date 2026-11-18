@@ -3,7 +3,7 @@
 
 #include <stdexcept>
 
-#include "nxr/stats.h"
+#include "nxr/stats/summary.h"
 
 namespace nxr::measurement {
 

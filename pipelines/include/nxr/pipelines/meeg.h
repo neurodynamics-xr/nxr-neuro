@@ -17,12 +17,12 @@
 //                     its Field derived from the source, the source's channel flags, events and bad segments (Selections) copied unchanged, its projectors and CTF compensation carried
 //                     into `producer_json`, which also records the filter kind, every option, the option set and the design.
 //   sourcepsd_compute the band power maps of a recording's SOURCES, Brainstorm's way (the PSD (Welch) computed on sources, then "Group in frequency bands": the mean of the PSD over each band's bins,
-//                     optionally "Spectrum normalization: relative"): the recording is read CHUNK BY CHUNK, the sensor cross-spectral density accumulated per band (nxr::welch::CrossWelch), and the
+//                     optionally "Spectrum normalization: relative"): the recording is read CHUNK BY CHUNK, the sensor cross-spectral density accumulated per band (nxr::signal::spectral::CrossWelch), and the
 //                     source PSD is diag(K S K^T) with the three orientations of a free kernel summed. One Field per band `<recording>_<kernel>_psd_<band>` (kind band power, scalar, on the kernel's
 //                     source manifold, folder source), the band a Selection on the Frequency manifold (`producer_json.band`), as the Brainstorm importer and nxr store a band map.
 // The maths and every option: docs/specs/2026-11-10-neuro-forward-inverse.md (the PSD: nxr/welch.h; the filters: nxr/filter.h).
 #pragma once
-#include "nxr/timebank.h"
+#include "nxr/signal/timefilterbank.h"
 #include <Eigen/Dense>
 #include <cstdint>
 #include <limits>
@@ -35,12 +35,20 @@
 #include "nxr/meeg/forward.h"
 #include "nxr/meeg/inverse.h"
 #include "nxr/meeg/sources.h"
-#include "nxr/filter.h"
-#include "nxr/opticalflow.h"
-#include "nxr/opticalflow_methods.h"
-#include "nxr/quadrature.h"
+#include "nxr/signal/filters.h"
+#include "nxr/signal/opticalflow.h"
+#include "nxr/signal/opticalflow_methods.h"
+#include "nxr/core/algebra.h"
+#include "nxr/measurement/congruence_norms.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/signal/complex_signal.h"
+#include "nxr/signal/crossspectral.h"
+#include "nxr/signal/crossspectral_decomposition.h"
+#include "nxr/signal/phase_gradient.h"
+#include "nxr/stats/circular.h"
+#include "nxr/measurement/congruence_norms.h"
 #include "nxr/pipelines/cache.h"
-#include "nxr/welch.h"
+#include "nxr/signal/spectral.h"
 
 namespace nxr::pipelines {
 
@@ -55,7 +63,7 @@ struct SourcePsdOptions {
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;            // wins when given
-  nxr::welch::WelchOptions welch = nxr::welch::brainstormPsdOptions(1.0);
+  nxr::signal::spectral::WelchOptions welch = nxr::signal::spectral::brainstormPsdOptions(1.0);
   std::string option_set = "tiles";
   std::vector<nxr::meeg::Band> bands = nxr::meeg::brainstormBands();   // Brainstorm's default bands; the mean of the bins from lo to hi inclusive
   std::string normalisation = "none";                     // none · relative (each map divided by the source's total PSD: the sum over all bins, 0 to Nyquist)
@@ -84,7 +92,7 @@ struct SourcePsdResult {
 //   Needs the surface's canonical frames (`frames compute`). Cached on the options, the kernel, the recording and the frames.
 
 // ── the sensor CROSS-SPECTRUM of a recording: the root of every source cross-spectral quantity ──
-// Per band, the Welch cross-spectral density of the channels, C = S + i Sq with C_ab = <X_a conj(X_b)> (X a segment's Fourier coefficients; nxr::welch::CrossWelch with the
+// Per band, the Welch cross-spectral density of the channels, C = S + i Sq with C_ab = <X_a conj(X_b)> (X a segment's Fourier coefficients; nxr::signal::spectral::CrossWelch with the
 // quadrature part), the mean over the band's bins, exactly what `sourcepsd`, `sourcetensor`, `quadrature` and `hodgepower` accumulate. Every source quantity of the band is K C K^T
 // read through a kernel: the per-source tensor T_ii, and any block T_ij between two sources (nxr::meeg::crossTensor), without forming the 3N x 3N source cross-spectrum
 // (rank <= channels). C does not depend on a kernel: one stored C serves every kernel whose channels it covers (MNE, dSPM, another noise covariance).
@@ -101,14 +109,14 @@ struct CrossSpectrumOptions {
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;            // wins when given
-  nxr::welch::WelchOptions welch = nxr::welch::brainstormPsdOptions(1.0);
+  nxr::signal::spectral::WelchOptions welch = nxr::signal::spectral::brainstormPsdOptions(1.0);
   std::string option_set = "tiles";
   std::vector<nxr::meeg::Band> bands = nxr::meeg::brainstormBands();   // the mean of the bins from lo to hi inclusive, as sourcepsd
   bool exclude_bad_segments = true;
   bool replace = false;
   // THE ESTIMATOR (spec docs/specs/2026-11-13-cycle-pattern.md, stage 1, and its time-tile amendment of 2026-11-13): "welch" (the default above: the mean
   // over each band's bins of Welch segments) or "analytic": per band, the Meyer band's analytic signal (timebank, gain 2: Re z is the band-passed signal),
-  // decimated by the constant-Q ladder's stride (selection::constantq::strideFor at the band's low edge: a power of two, the samples kept those whose index on the
+  // decimated by the constant-Q ladder's stride (select::constantq::strideFor at the band's low edge: a power of two, the samples kept those whose index on the
   // recording's LINE is a multiple of it), and Σ z zᴴ per TILE of level `level` (2^level samples of the line, counted from its first sample;:
   // time is one dyadic partition). A tile holding a bad sample, or cut by the span's end, is dropped. Stored per band as a series `<stem>_<band>_windows`
   // [W x M x M x 2] (the SUMS; producer_json.window_index = the tiles' ordinals on the line) and the level's tiling of the line, the closed-form Selection
@@ -120,7 +128,7 @@ struct CrossSpectrumOptions {
   // from the same pass; the band statistic is the mean of its bins). Welch only. Memory: F more M x M complex matrices a band (alpha at 4 s: 17; 268 channels: 20 MB).
   std::string resolve = "band";
   std::optional<int> level;                               // analytic: the window's tile level, 0..15; default: the finest of the bands' constant-Q windows
-                                                          // (selection::constantq::windowFor: 6.8 cycles of the low edge rounded up to 2^k; alpha at 1200 Hz: level 10, 0.85 s)
+                                                          // (select::constantq::windowFor: 6.8 cycles of the low edge rounded up to 2^k; alpha at 1200 Hz: level 10, 0.85 s)
   std::optional<double> window_seconds;                   // analytic: or the window in seconds, snapped to the nearest level (constantq::levelOf); not with `level`
 };
 // The windows of an analytic cross-spectrum (`crossspectrum compute --estimator analytic`): per stored window its Σ z zᴴ [M x M] and the samples summed.
@@ -176,7 +184,7 @@ CrossSpectrumWindows crossspectrum_windows_read(nxr::io::SubjectWriter& sub, con
 
 // ── Hodge–Dirac eigenmode power of source maps ──
 // The recording's sensor cross-spectrum per band S_b (Welch, as sourcepsd), read through the FUSED weights B [2K x C] of the stored FREE-orientation kernel and the subject's stored
-// Hodge–Dirac package (nxr.inverse.fused; nxr::hodge::hodgeWeights): power p_b = diag(B S_b B^T), [2K x bands]. Rows 0..K-1 the normal-current weights a (coexact modes; 0 on exact ones),
+// Hodge–Dirac package (nxr.inverse.fused; nxr::operators::hodgeWeights): power p_b = diag(B S_b B^T), [2K x bands]. Rows 0..K-1 the normal-current weights a (coexact modes; 0 on exact ones),
 // rows K..2K-1 the flow weights b. Stored as TWO fields per band on the package's eigen axis (the mu manifold, K points): `<stem>_<band>_current` and `<stem>_<band>_flow`.
 struct HodgePowerOptions {
   std::string recording;                                  // the recording Field by name
@@ -188,7 +196,7 @@ struct HodgePowerOptions {
   std::optional<double> start, stop;                      // or an explicit span [start, stop) in seconds on the recording's clock (both given)
   std::optional<double> segment_seconds = 4.0;
   std::optional<std::int64_t> segment_samples;
-  nxr::welch::WelchOptions welch = nxr::welch::brainstormPsdOptions(1.0);
+  nxr::signal::spectral::WelchOptions welch = nxr::signal::spectral::brainstormPsdOptions(1.0);
   std::string option_set = "tiles";
   std::vector<nxr::meeg::Band> bands = nxr::meeg::brainstormBands();
   bool exclude_bad_segments = true;

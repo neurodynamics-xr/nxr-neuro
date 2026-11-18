@@ -12,7 +12,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/opticalflow.h"
+#include "nxr/signal/opticalflow.h"
 
 namespace nxr::signal {
 

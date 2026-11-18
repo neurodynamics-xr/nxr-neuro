@@ -18,9 +18,9 @@
 //                       A standing oscillation puts energy at (lambda, f) too, but its modes are in phase: Im C = 0. Only a wave that moves has
 //                       modes in quadrature. (Two modes in exact quadrature give 1/sqrt(2).)
 // Frequencies are the one-sided bins of the cross-spectrum (f > 0); the time bank is evaluated there (a two-sided bank's negative members are empty).
-#include "nxr/filterbank.h"
-#include "nxr/jointbank.h"
-#include "nxr/timebank.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/jointfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include <Eigen/Dense>
 #include <vector>
 
@@ -56,6 +56,6 @@ struct Result {
 };
 
 /** `mu` [K] and `kind` [K] (0 exact, 2 coexact) of the modes the spectra are on. The bank is the separable product of `graph` and `time`. */
-Result compute(const filterbank::Bank& graph, const timebank::TimeBank& time, const Eigen::VectorXd& mu, const std::vector<int>& kind, const ModeSpectra& spectra, const Options& options = {});
+Result compute(const signal::graphfilterbank::Bank& graph, const signal::timefilterbank::TimeBank& time, const Eigen::VectorXd& mu, const std::vector<int>& kind, const ModeSpectra& spectra, const Options& options = {});
 
 }  // namespace nxr::signal::speedspectrum

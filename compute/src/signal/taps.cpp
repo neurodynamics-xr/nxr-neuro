@@ -7,7 +7,7 @@
 #include <cstdlib>
 #include <stdexcept>
 
-#include "nxr/fft.h"
+#include "nxr/signal/fourier.h"
 
 namespace nxr::signal {
 
@@ -48,7 +48,7 @@ std::vector<float> gainTaps(const std::function<double(double)>& gain, double fd
     } else {
         for (std::size_t j = 1; j < half; ++j) { spec[j] = cd(0, -G[j]); spec[kGrid - j] = cd(0, G[j]); }
     }
-    nxr::fft::c2c(spec.data(), out.data(), {kGrid}, 0, false);          // numpy's ifft (Backward: 1/N on the inverse)
+    c2c(spec.data(), out.data(), {kGrid}, 0, false);          // numpy's ifft (Backward: 1/N on the inverse)
     std::vector<double> h(kMaxTaps + 1);
     for (std::size_t k = 0; k <= kMaxTaps; ++k) h[k] = out[k].real();
     std::vector<double> sq(kMaxTaps);

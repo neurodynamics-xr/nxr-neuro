@@ -1,11 +1,27 @@
-#include "nxr/compute.h"
-#include "nxr/facets.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/geometry/parametrization.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
 #include <Eigen/Eigenvalues>
 #include <cmath>
 #include <iostream>
-using namespace nxr::manifold;
+using namespace nxr::geometry;
 
 static int g_failures = 0;
 #define EXPECT(cond, msg) do { \
@@ -169,8 +185,8 @@ static void testDiracFaceEigenbasis() {
 
     // B-orthonormal face eigenbasis via the production solver (Spectra path).
     const int k = 8;
-    solve::EigenResult er = solve::eigen(L, B, k);
-    Eigen::MatrixXd Phi = solve::normalize(er.eigenvectors, B);
+    nxr::operators::EigenResult er = nxr::operators::eigen(L, B, k);
+    Eigen::MatrixXd Phi = nxr::operators::normalize(er.eigenvectors, B);
     Eigen::MatrixXd gram = Phi.transpose() * (B * Phi);
     EXPECT((gram - Eigen::MatrixXd::Identity(gram.rows(), gram.cols())).cwiseAbs().maxCoeff() < 1e-9,
            "Phi^T B Phi ~ I (B-orthonormal face eigenbasis)");

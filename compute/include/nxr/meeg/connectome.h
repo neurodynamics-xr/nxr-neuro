@@ -17,7 +17,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "nxr/sphere_registration.h"
+#include "nxr/operators/resample.h"
 
 namespace nxr::meeg {
 
@@ -48,14 +48,14 @@ struct MatchReport {
 /** For each TEMPLATE vertex, the subject vertex that takes the most weight from it in `w` [subject x template] (the largest weight in the vertex's column; the lowest
  *  subject index on a tie); -1 for an empty column. */
 template <class Scalar>
-std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<Scalar>& w);
+std::vector<std::int32_t> strongestDestination(const nxr::operators::registration::Csr<Scalar>& w);
 
 /** The match template vertex -> subject vertex: the Shepard resampling operator between the registered spheres (K nearest template vertices of each subject vertex,
  *  Franke & Nielson weights), `strongestDestination`, and, FOR A TEMPLATE VERTEX WITH NO SUBJECT NEIGHBOUR (an empty column), its NEAREST SUBJECT VERTEX ON THE SPHERE (the
  *  unit-normalised sphere positions, within the vertex's own piece), never subject vertex 0 (the reference's defect, fixed: decided 2026-11-16). Positions are [n x 3]. */
 template <class Scalar>
-std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>& templateSphere, const std::vector<nxr::registration::Piece>& templatePieces, const std::vector<Scalar>& subjectSphere,
-                                            const std::vector<nxr::registration::Piece>& subjectPieces, int neighbours = 8, MatchReport* report = nullptr);
+std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>& templateSphere, const std::vector<nxr::operators::registration::Piece>& templatePieces, const std::vector<Scalar>& subjectSphere,
+                                            const std::vector<nxr::operators::registration::Piece>& subjectPieces, int neighbours = 8, MatchReport* report = nullptr);
 
 /** The subject vertex of each end: match[endVertex]. std::invalid_argument for a vertex outside the match. */
 std::vector<std::int32_t> carryEnds(const std::vector<std::int32_t>& endVertex, const std::vector<std::int32_t>& match);

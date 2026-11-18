@@ -1,9 +1,9 @@
 // nxr-pipelines — `montage create`: the standard 10-05 electrode montage on a template's own scalp, stored in the template's package (spec: docs/audits/2026-11-17-sleep-events-and-montages.md,
 // sections 4.2 and 4.3). This file only PREPARES the inputs and hands them on:
 //
-//   graph        head [V x 3, F x 3] and head_landmarks [NAS, LPA, RPA]  --inion (the recorded convention)-->  4 landmarks  --nxr::montage::tenFive-->  positions [345 x 3]
+//   graph        head [V x 3, F x 3] and head_landmarks [NAS, LPA, RPA]  --inion (the recorded convention)-->  4 landmarks  --nxr::meeg::tenFive-->  positions [345 x 3]
 //   type checks  `head` is a surface and `head_landmarks` a points manifold of three points named NAS, LPA, RPA, in one coordinate system; the montage does not exist yet (or `replace`)
-//   inion        by default `nxr::montage::inionFromLandmarks` (the farthest crossing of the line from the nasion through the midpoint of the preauricular points with the scalp); the
+//   inion        by default `nxr::meeg::inionFromLandmarks` (the farthest crossing of the line from the nasion through the midpoint of the preauricular points with the scalp); the
 //                convention is recorded in the manifold's producer, with how far each landmark moved to reach the scalp. A caller who knows the inion gives it (`inion`).
 //   stored       the points manifold `eeg_1005` (positions in the head's coordinate system, metres), its names as a labelling `eeg_1005_names` (one level per point), the old 10-20 names as
 //                `aliases` in its producer (T3 = T7, T4 = T8, T5 = P7, T6 = P8), the `system` partition `eeg_1005_system` (levels `10-20`, `10-10`, `10-05`: the narrowest system a point belongs to;

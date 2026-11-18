@@ -18,7 +18,7 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "nxr/io.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
@@ -26,8 +26,8 @@
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/run_shipped.h"
-#include "nxr/stats.h"
-#include "nxr/taps.h"
+#include "nxr/stats/summary.h"
+#include "nxr/signal/filters_fir.h"
 #include "make_grids.h"
 
 using namespace nxr::io;
@@ -148,9 +148,9 @@ int main() {
   CHECK_EQ(measured(lvl->id, "envelope_max").size(), std::size_t(1));
   CHECK_EQ(measured(lvl->id, "count").size(), std::size_t(1));
   {
-    const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 16.0); };
-    const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-    const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
+    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+    const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+    const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
     double worst = 0, scale = 0;
     for (int c = 0; c < M; ++c)
       for (std::int64_t t = 0; t < T / W; ++t) {
@@ -208,9 +208,9 @@ int main() {
   // [rows x bursts x 2], on the row of the channel that found it; equal to the direct values over the burst's samples
   {
     const std::int64_t TW = 1024;
-    const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 16.0); };
-    const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-    const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
+    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+    const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+    const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
     auto env = [&](int c, std::int64_t k) { const double a = re[static_cast<std::size_t>(c * T + k)], b = im[static_cast<std::size_t>(c * T + k)]; return static_cast<double>(static_cast<float>(std::sqrt(a * a + b * b))); };
     const auto evs = probe.rows("selection_span", {{"selection_id", V(bs["id"].get<std::string>())}}, "ordinal");
     const Json params = tsub.require_id(tk::Cls::selection, bs["id"].get<std::string>()).params;
@@ -347,9 +347,9 @@ int main() {
         "outputs:\n  med: {kind: measurement}\n  whole: {kind: median envelope}\n";
     const g::Definition dm = g::parse(parse_yaml(yaml, "test.yaml"), "test.yaml", yaml);
     const auto rm = g::run(ds, sub, dm, Json::object(), all);
-    const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 16.0); };
-    const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-    const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
+    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+    const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+    const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
     auto env = [&](int c, std::int64_t k) { const double a = re[static_cast<std::size_t>(c * T + k)], b = im[static_cast<std::size_t>(c * T + k)]; return static_cast<double>(static_cast<float>(std::sqrt(a * a + b * b))); };
     std::vector<float> first;
     for (const char* rec : {"rest", "rest_b"}) {

@@ -16,7 +16,7 @@
 
 #include "check.h"
 #include "nxr/io/task/task.h"
-#include "nxr/glue.h"
+#include "nxr/geometry/surface_maps.h"
 #include "nxr/pipelines/eigen.h"
 
 using namespace nxr::io;
@@ -137,7 +137,7 @@ int main() {
   // the glue the solve used is nxr-compute's glueMesh on the positions as the Studio receives them (float32)
   std::vector<double> W32(W.size());
   for (std::size_t i = 0; i < W.size(); ++i) W32[i] = static_cast<double>(static_cast<float>(W[i]));
-  const nxr::glue::Glued gm = nxr::glue::glueMesh(W32, G, wall);
+  const nxr::geometry::glue::Glued gm = nxr::geometry::glue::glueMesh(W32, G, wall);
   const std::int64_t Vg = static_cast<std::int64_t>(gm.keep.size()), kept = std::count_if(gm.keep.begin(), gm.keep.end(), [](std::int32_t k) { return k >= 0; });
   CHECK(!g.hit && g.info["glued"].get<bool>());
   CHECK(gm.bridge.vertices > 0 && Vg == kept + gm.bridge.vertices);

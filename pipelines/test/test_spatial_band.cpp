@@ -14,8 +14,8 @@
 
 #include "check.h"
 #include "mesh_helpers.h"
-#include "nxr/intrinsic_surface.h"
-#include "nxr/glue.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_maps.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/spatial_band.h"
@@ -221,9 +221,9 @@ int main() {
     // the reference: the dense band of the glued surface (the same glue, the stored mesh options), zero on the bridge, read on the kept vertices (the wall's vertices get 0)
     std::vector<double> W32(W.size());
     for (std::size_t i = 0; i < W.size(); ++i) W32[i] = static_cast<double>(static_cast<float>(W[i]));
-    const nxr::glue::Glued gm = nxr::glue::glueMesh(W32, G, wall);
+    const nxr::geometry::glue::Glued gm = nxr::geometry::glue::glueMesh(W32, G, wall);
     const int Vg = static_cast<int>(gm.keep.size());
-    nxr::manifold::IntrinsicSurface isurf(gm.positions.data(), Vg, gm.faces.data(), static_cast<int>(gm.faces.size() / 3));
+    nxr::geometry::IntrinsicSurface isurf(gm.positions.data(), Vg, gm.faces.data(), static_cast<int>(gm.faces.size() / 3));
     const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
     Eigen::MatrixXd Ld(isurf.cotanLaplacian()), Md = Eigen::MatrixXd::Zero(Vg, Vg);
     for (int i = 0; i < Vg; ++i) Md(i, i) = dm_mass[static_cast<std::size_t>(i)];

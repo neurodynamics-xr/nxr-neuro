@@ -6,7 +6,7 @@
 #include <cstdint>
 #include <vector>
 
-#include "nxr/histogram.h"
+#include "nxr/stats/histogram.h"
 #include "nxr/measurement/estimate.h"
 #include "nxr/measurement/reduce.h"
 
@@ -30,8 +30,8 @@ inline CrossSpectrumTiles crossSpectrumTiles(const Eigen::MatrixXcd& Z, std::siz
 }
 
 // the counts per tile of `width` samples of a [rows x samples] block (row-major float32), pooled over the rows: one `measurement::Histogram` a tile, folded with the same bins
-inline nxr::histogram::Counts histogramTiles(const float* values, std::size_t rows, std::size_t samples, std::size_t width, std::size_t tiles, const nxr::histogram::LogBins& b) {
-  nxr::histogram::Counts c;
+inline nxr::stats::histogram::Counts histogramTiles(const float* values, std::size_t rows, std::size_t samples, std::size_t width, std::size_t tiles, const nxr::stats::histogram::LogBins& b) {
+  nxr::stats::histogram::Counts c;
   c.tiles = static_cast<int>(tiles);
   c.bins = b.bins;
   c.counts.assign(tiles * static_cast<std::size_t>(b.bins), 0);

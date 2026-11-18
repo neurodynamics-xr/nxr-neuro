@@ -13,16 +13,16 @@
 
 #include <Eigen/Dense>
 
-#include "nxr/extent.h"
-#include "nxr/intrinsic_surface.h"
+#include "nxr/select/extent.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/io/finder.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/pipelines/select_nodes.h"
-#include "nxr/quantity.h"
-#include "nxr/selection/grid.h"
+#include "nxr/quantity/quantity.h"
+#include "nxr/select/grid.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/scale.h"
+#include "nxr/select/scale_selection.h"
 
 namespace nxr::pipelines::graph {
 
@@ -51,8 +51,8 @@ std::vector<std::string> strings_of(const Json& j, const std::string& what) {
 // ── scale_selection ─────────────────────────────────────────────────────────────────────────────────────────────
 // EACH EVENT'S OWN SIZE AND RHYTHM across a declared set of (spatial level, time level) pairs (the hand-wired `scaleselection compute` it replaces; spec docs/specs/2026-11-13-cortical-events.md, "Phase 2e"). From STORED
 // rows only, no recording pass: what `run cortical_event_pairs` stored for every pair of the product `space_levels` x `time_levels` (the cells' amplitude on the pair's joint Selection, the cells' per-tile baseline, the
-// labelling of the pair's events on the cells), read by the runner (Bound::scale_inputs). z = (amplitude - median) / SD per tile, the standardization the extents were found on (nxr::extent::standardize); events of
-// different pairs are linked by the ladders' exact nesting in space and overlap in time (nxr::scale::selectScale); the connected components are the cross-pair events: each one's response at every pair (its footprint),
+// labelling of the pair's events on the cells), read by the runner (Bound::scale_inputs). z = (amplitude - median) / SD per tile, the standardization the extents were found on (nxr::select::standardize); events of
+// different pairs are linked by the ladders' exact nesting in space and overlap in time (nxr::select::scale_selection::selectScale); the connected components are the cross-pair events: each one's response at every pair (its footprint),
 // best pair, the response there.
 //
 //   events   a spans Selection of the cross-pair events on the recording's time line (their span in time; one event per cross-pair event)
@@ -73,7 +73,7 @@ StepSpec scale_selection_step() {
   s.inputs = {"recording"};
   s.outputs = {"events", "scale", "links"};
   s.parameters = Json{{"spatial_scales", nullptr}, {"bands", nullptr}, {"source", "cortical_event_pairs"}, {"response", "peak"}, {"min_link", 1}, {"surface", nullptr}};
-  s.matches = "Rheome detect.blobscale (the scale of the largest normalised response); compute nxr::scale::selectScale, nxr::extent::standardize";
+  s.matches = "Rheome detect.blobscale (the scale of the largest normalised response); compute nxr::select::scale_selection::selectScale, nxr::select::standardize";
   s.description = "each event's own size and rhythm across the product of two lists of levels, from the stored cells, baselines and labellings of the pairs: the cross-pair events, each one's footprint and best pair";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored cells");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
@@ -85,7 +85,7 @@ StepSpec scale_selection_step() {
       std::set<std::string> seen;
       for (const auto& x : p[key]) need(seen.insert(x.get<std::string>()).second, "scaleselection: " + x.dump() + " is listed twice");
     }
-    try { (void)nxr::scale::parseResponse(p["response"].get<std::string>()); } catch (const std::invalid_argument& e) { refuse(std::string("scaleselection: ") + e.what()); }
+    try { (void)nxr::select::scale_selection::parseResponse(p["response"].get<std::string>()); } catch (const std::invalid_argument& e) { refuse(std::string("scaleselection: ") + e.what()); }
     need(p["min_link"].is_number_integer() && p["min_link"].get<int>() >= 1, "scaleselection: min_link is at least 1");
     Value ev;
     ev.cls = "selection";
@@ -106,7 +106,7 @@ StepSpec scale_selection_step() {
       for (const auto& q : p["bands"]) {
         const nxr::quantity::Quantity bq = nxr::quantity::parse(q.get<std::string>());
         need(bq.unit == "Hz", "scaleselection: band " + q.dump() + " is in Hz");
-        tl.push_back(nxr::selection::time_level_of_band(bq.lo, bq.hi, st->recording.rate, nxr::selection::kJointCycles));
+        tl.push_back(nxr::select::time_level_of_band(bq.lo, bq.hi, st->recording.rate, nxr::select::kJointCycles));
       }
     }
     st->in = ctx.bound.scale_inputs(text(*st->recording.row, "id"), text(*st->recording.row, "name"), sl, tl, p["source"].get<std::string>(),
@@ -129,7 +129,7 @@ StepSpec scale_selection_step() {
     const double dt = 1.0 / st.recording.rate, t0 = st.recording.origin;
     // each pair: the tiles' area, z = (amplitude - median) / SD per tile
     const SurfaceInput S = ctx.bound.surface(st.in.surface, true);
-    std::vector<nxr::scale::Pair> pairs;
+    std::vector<nxr::select::scale_selection::Pair> pairs;
     std::vector<double> tile_area;
     Json pairs_json = Json::array();
     std::set<int> levels_seen;
@@ -144,9 +144,9 @@ StepSpec scale_selection_step() {
       for (std::int64_t a = 0; a < q.tiles; ++a) for (std::int64_t f = 0; f < q.frames; ++f) amp(a, f) = q.amplitude[static_cast<std::size_t>(a * q.frames + f)];
       Eigen::VectorXd med(q.tiles), sd(q.tiles);
       for (std::int64_t a = 0; a < q.tiles; ++a) { med(a) = q.median[static_cast<std::size_t>(a)]; sd(a) = q.sd[static_cast<std::size_t>(a)]; }
-      nxr::scale::Pair sp;
+      nxr::select::scale_selection::Pair sp;
       sp.level = q.space_level; sp.window = q.window; sp.origin = 0; sp.events = static_cast<int>(q.events);
-      sp.z = nxr::extent::standardize(amp, med, sd);
+      sp.z = nxr::select::standardize(amp, med, sd);
       sp.label.resize(q.tiles, q.frames);
       for (std::int64_t a = 0; a < q.tiles; ++a) for (std::int64_t f = 0; f < q.frames; ++f) sp.label(a, f) = q.labels[static_cast<std::size_t>(a * q.frames + f)];
       pairs.push_back(std::move(sp));
@@ -159,9 +159,9 @@ StepSpec scale_selection_step() {
       std::set<std::pair<int, std::int64_t>> uniq;
       for (const ScalePairInput& q : pr) need(uniq.insert({q.space_level, q.window}).second, "scaleselection: two time levels have time tiles of " + std::to_string(q.window) + " samples (the same pair twice)");
     }
-    const nxr::scale::Response response = nxr::scale::parseResponse(p["response"].get<std::string>());
-    nxr::scale::Selection sel;
-    try { sel = nxr::scale::selectScale(pairs, response, p["min_link"].get<int>()); } catch (const std::invalid_argument& e) { refuse(std::string("scaleselection: ") + e.what()); }
+    const nxr::select::scale_selection::Response response = nxr::select::scale_selection::parseResponse(p["response"].get<std::string>());
+    nxr::select::scale_selection::Selection sel;
+    try { sel = nxr::select::scale_selection::selectScale(pairs, response, p["min_link"].get<int>()); } catch (const std::invalid_argument& e) { refuse(std::string("scaleselection: ") + e.what()); }
     const std::int64_t E = sel.events;
     need(E > 0, "scaleselection: no event in any pair: nothing is stored");
     const int min_level = *levels_seen.begin(), max_level = *levels_seen.rbegin();

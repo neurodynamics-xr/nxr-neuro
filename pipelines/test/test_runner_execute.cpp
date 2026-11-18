@@ -15,11 +15,11 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/runner.h"
-#include "nxr/taps.h"
+#include "nxr/signal/filters_fir.h"
 
 using namespace nxr::io;
 static const std::string kBandPower = std::string(NXR_TEST_DEFINITIONS_DIR) + "/band_power_test.yaml";   // the test fixture definition (not shipped)
@@ -111,10 +111,10 @@ int main() {
   // THE DIRECT COMPUTATION on the whole recording: the band's taps over every sample (reflected at the recording's ends), the kernel, |x|² summed over a
   // source's three rows, the mean over [s0, s1) without the bad samples
   auto direct = [&](const std::vector<float>& K, int rows, int per, double lo, double hi, std::int64_t s0, std::int64_t s1, bool analytic) {
-    const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, lo, hi); };
-    const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-    const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false);
-    const auto im = analytic ? nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true) : std::vector<float>();
+    const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, lo, hi); };
+    const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+    const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false);
+    const auto im = analytic ? nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true) : std::vector<float>();
     std::vector<double> out(static_cast<std::size_t>(rows / per), 0.0);
     std::int64_t n = 0;
     for (std::int64_t t = s0; t < s1; ++t) {

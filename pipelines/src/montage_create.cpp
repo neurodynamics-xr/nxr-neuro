@@ -11,7 +11,7 @@
 #include "nxr/io/subject_package.h"
 #include "nxr/io/subject_reads.h"
 #include "nxr/io/writer.h"
-#include "nxr/montage.h"
+#include "nxr/meeg/montage.h"
 #include "nxr/pipelines/input.h"
 
 namespace nxr::pipelines {
@@ -62,7 +62,7 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
     for (const auto& [code_, name] : nxr::io::selection::lookup_names(sub, text(*lab, "dictionary_id"))) names.push_back(name);
   if (names != std::vector<std::string>({"NAS", "LPA", "RPA"})) invalid("montage create: '" + opt.landmarks + "' names its points " + (names.empty() ? std::string("not at all") : names[0] + ",...") + ", not NAS, LPA, RPA in that order");
 
-  nxr::montage::Landmarks L;
+  nxr::meeg::Landmarks L;
   for (int c = 0; c < 3; ++c) { L.nasion[static_cast<std::size_t>(c)] = lp[static_cast<std::size_t>(c)]; L.lpa[static_cast<std::size_t>(c)] = lp[static_cast<std::size_t>(3 + c)]; L.rpa[static_cast<std::size_t>(c)] = lp[static_cast<std::size_t>(6 + c)]; }
   Json inion_info;
   try {
@@ -70,21 +70,21 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
       L.inion = *opt.inion;
       inion_info = Json{{"convention", "given by the caller"}, {"point", Json::array({L.inion[0], L.inion[1], L.inion[2]})}};
     } else {
-      L.inion = nxr::montage::inionFromLandmarks(scalp.vertices, scalp.faces, L.nasion, L.lpa, L.rpa);
-      inion_info = Json{{"convention", "nxr::montage::inionFromLandmarks: the farthest point where the line from the nasion through the midpoint of the preauricular points crosses the scalp"},
+      L.inion = nxr::meeg::inionFromLandmarks(scalp.vertices, scalp.faces, L.nasion, L.lpa, L.rpa);
+      inion_info = Json{{"convention", "nxr::meeg::inionFromLandmarks: the farthest point where the line from the nasion through the midpoint of the preauricular points crosses the scalp"},
                         {"point", Json::array({L.inion[0], L.inion[1], L.inion[2]})}};
     }
   } catch (const std::invalid_argument& e) { invalid(std::string("montage create: the inion: ") + e.what()); }
-  nxr::montage::Options mo;
+  nxr::meeg::Options mo;
   mo.tolerance = opt.tolerance;
   mo.max_iterations = opt.max_iterations;
-  nxr::montage::Placement P;
-  try { P = nxr::montage::tenFive(scalp.vertices, scalp.faces, L, mo); } catch (const std::invalid_argument& e) { invalid(std::string("montage create: ") + e.what()); }
+  nxr::meeg::Placement P;
+  try { P = nxr::meeg::tenFive(scalp.vertices, scalp.faces, L, mo); } catch (const std::invalid_argument& e) { invalid(std::string("montage create: ") + e.what()); }
   const std::int64_t n = static_cast<std::int64_t>(P.labels.size());
   if (progress) progress(Json{{"stage", "placed"}, {"points", n}, {"cz_iterations", P.iterations}});
 
   // the system partition: the narrowest system of each point
-  const std::set<std::string> s1020(nxr::montage::labels1020().begin(), nxr::montage::labels1020().end()), s1010(nxr::montage::labels1010().begin(), nxr::montage::labels1010().end());
+  const std::set<std::string> s1020(nxr::meeg::labels1020().begin(), nxr::meeg::labels1020().end()), s1010(nxr::meeg::labels1010().begin(), nxr::meeg::labels1010().end());
   std::vector<std::int64_t> sys(static_cast<std::size_t>(n));
   Json counts = Json{{"10-20", 0}, {"10-10", 0}, {"10-05", 0}};
   for (std::int64_t i = 0; i < n; ++i) {
@@ -94,12 +94,12 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
   for (const auto c : sys) counts[c == 0 ? "10-20" : c == 1 ? "10-10" : "10-05"] = counts[c == 0 ? "10-20" : c == 1 ? "10-10" : "10-05"].get<int>() + 1;
 
   Json aliases = Json::object();
-  for (const auto& [old, now] : nxr::montage::oldNames()) aliases[old] = now;
+  for (const auto& [old, now] : nxr::meeg::oldNames()) aliases[old] = now;
   Json shift = Json::array();
   for (const double d : P.landmark_shift) shift.push_back(d);
   const Json warnings = Json::array({"these are the standard system's positions on this head model, not where a cap sits on a person",
                                      "the inion is a stated convention (" + inion_info["convention"].get<std::string>() + "), not the bump the inion is"});
-  const Json producer = Json{{"method", "Oostenveld and Praamstra (2001), the 10-05 rule: nxr::montage::tenFive"}, {"scalp", opt.scalp}, {"landmarks", opt.landmarks}, {"inion", inion_info},
+  const Json producer = Json{{"method", "Oostenveld and Praamstra (2001), the 10-05 rule: nxr::meeg::tenFive"}, {"scalp", opt.scalp}, {"landmarks", opt.landmarks}, {"inion", inion_info},
                              {"landmark_shift", shift}, {"cz_iterations", P.iterations}, {"cz_residual", P.cz_residual}, {"tolerance", opt.tolerance}, {"aliases", aliases},
                              {"systems", Json{{"10-05", n}, {"10-10", static_cast<std::int64_t>(s1010.size())}, {"10-20", static_cast<std::int64_t>(s1020.size())}}},
                              {"unit", "m"}, {"warnings", warnings}, {"computed_by", opt.created_by}};

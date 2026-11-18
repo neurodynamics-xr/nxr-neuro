@@ -9,7 +9,7 @@
 #include <set>
 #include <stdexcept>
 
-#include "nxr/errors.h"
+#include "nxr/core/errors.h"
 
 namespace nxr::select {
 
@@ -46,7 +46,7 @@ std::vector<std::pair<int, int>> tileAdjacency(const int32_t* faces, int nF, con
     return {s.begin(), s.end()};
 }
 
-LeviCivita leviCivita(chart::ChartKit& kit, const Mat3& e1, const Mat3& e2, const VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres) {
+LeviCivita leviCivita(chart::ChartKit& kit, const geometry::Mat3& e1, const geometry::Mat3& e2, const VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres) {
     (void)e1; (void)e2;
     const int V = static_cast<int>(node.size());
     LeviCivita lc;
@@ -86,7 +86,7 @@ Eigen::MatrixXd antisymmetric(const Eigen::MatrixXd& omega) {
     return out;
 }
 
-Eigen::VectorXcd carriedToCentre(const Mat3& e1, const Mat3& e2, const Eigen::VectorXd& rho, const Mat3& v, std::vector<char>* finite) {
+Eigen::VectorXcd carriedToCentre(const geometry::Mat3& e1, const geometry::Mat3& e2, const Eigen::VectorXd& rho, const geometry::Mat3& v, std::vector<char>* finite) {
     const Eigen::Index n = rho.size();
     Eigen::VectorXcd out(n);
     if (finite) finite->assign(static_cast<size_t>(n), 0);

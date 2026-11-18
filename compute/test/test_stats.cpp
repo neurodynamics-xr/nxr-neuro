@@ -8,7 +8,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/stats.h"
+#include "nxr/stats/summary.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)

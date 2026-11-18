@@ -7,9 +7,9 @@
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
-#include "nxr/opticalflow.h"
+#include "nxr/signal/opticalflow.h"
 
-using namespace nxr::flow;
+using namespace nxr::signal;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
@@ -64,12 +64,12 @@ int main() {
 
     // (3) the Hodge–Dirac reading, on the glued icosphere of the hodge-weights golden
     Golden h(std::string(NXR_TEST_GOLDEN_DIR) + "/hodge_weights_golden.txt");
-    nxr::hodge::Basis b;
+    nxr::operators::Basis b;
     const MatrixXd V2 = h.mat("positions"), F2 = h.mat("faces"), P2 = h.mat("P"), mu = h.mat("mu"), kind = h.mat("kind"), mass = h.mat("mass"), keep = h.mat("keep");
     b.P = P2; b.positions = V2; b.faces = F2.cast<std::int32_t>(); b.mu = mu.row(0).transpose(); b.mass = mass.row(0).transpose();
     for (int i = 0; i < kind.cols(); ++i) b.kind.push_back(static_cast<int>(kind(0, i)));
     for (int i = 0; i < keep.cols(); ++i) b.keep.push_back(static_cast<std::int64_t>(keep(0, i)));
-    const nxr::hodge::FaceOperators ops(b.positions, b.faces);
+    const nxr::operators::FaceOperators ops(b.positions, b.faces);
     const int K = static_cast<int>(P2.rows()), V = static_cast<int>(P2.cols());
     int ex = -1, co = -1, exs = 0, cos_ = 0;
     for (int k = 0; k < K; ++k) {
@@ -99,11 +99,11 @@ int main() {
     {
         OpticalflowScalar st(P, Fm, vertexNormals(P, Fm), 0.01, bump.cwiseAbs().maxCoeff());
         const FlowReader fr(P, Fm);
-        const nxr::hodge::WeightsReader wr(b);
+        const nxr::operators::WeightsReader wr(b);
         const FlowReadout full = flowReadout(v, P, Fm);
         double e1 = 0, e2 = 0, e3 = 0;
         const MatrixXd rnd = MatrixXd::Random(3 * V, 3);
-        const MatrixXd all = nxr::hodge::hodgeWeights(b, rnd);
+        const MatrixXd all = nxr::operators::hodgeWeights(b, rnd);
         for (int t = 0; t < 2; ++t) {
             const VectorXd vt = st.step(bump.col(t), bump.col(t + 1));
             e1 = std::max(e1, (vt - v.col(t)).cwiseAbs().maxCoeff());

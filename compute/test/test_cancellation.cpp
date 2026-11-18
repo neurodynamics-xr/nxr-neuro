@@ -14,7 +14,24 @@
  * Run:   ./build/Release/test_cancellation.exe
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
 
 #include <array>
 #include <atomic>
@@ -148,8 +165,8 @@ void test_SolveCancelledBeforeFactorization() {
     int nV = static_cast<int>(mesh.vertices.size() / 3);
     int nF = static_cast<int>(mesh.faces.size() / 3);
 
-    nxr::manifold::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
+    nxr::geometry::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
 
     std::atomic<int32_t> flag{1};  // already cancelled
     nxr::core::CancellationToken tok(&flag);
@@ -157,7 +174,7 @@ void test_SolveCancelledBeforeFactorization() {
     bool threw = false;
     nxr::core::ErrorCode code = nxr::core::ErrorCode::InternalError;
     try {
-        nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, 6, -1e-8, /*normalize=*/false, /*removeDC=*/false, tok);
+        nxr::operators::eigen(ops.cotanLaplacian, ops.mass, 6, -1e-8, /*normalize=*/false, /*removeDC=*/false, tok);
     } catch (const nxr::core::Error& e) {
         threw = true;
         code = e.code();
@@ -172,8 +189,8 @@ void test_SolveCancelledMidIteration() {
     int nV = static_cast<int>(mesh.vertices.size() / 3);
     int nF = static_cast<int>(mesh.faces.size() / 3);
 
-    nxr::manifold::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
+    nxr::geometry::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
 
     // Function-based token: returns true after the first perform_op call,
     // so cancellation fires inside Spectra's iteration. This isolates the
@@ -190,7 +207,7 @@ void test_SolveCancelledMidIteration() {
     bool threw = false;
     nxr::core::ErrorCode code = nxr::core::ErrorCode::InternalError;
     try {
-        nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, 20, -1e-8, /*normalize=*/false, /*removeDC=*/false, tok);
+        nxr::operators::eigen(ops.cotanLaplacian, ops.mass, 20, -1e-8, /*normalize=*/false, /*removeDC=*/false, tok);
     } catch (const nxr::core::Error& e) {
         threw = true;
         code = e.code();
@@ -206,15 +223,15 @@ void test_SolveSucceedsWithIdleToken() {
     int nV = static_cast<int>(mesh.vertices.size() / 3);
     int nF = static_cast<int>(mesh.faces.size() / 3);
 
-    nxr::manifold::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
+    nxr::geometry::Manifold m(mesh.vertices.data(), nV, mesh.faces.data(), nF);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
 
     std::atomic<int32_t> flag{0};
     nxr::core::CancellationToken tok(&flag);
 
     bool ok = false;
     try {
-        auto result = nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, 6, -1e-8, /*normalize=*/false, /*removeDC=*/false, tok);
+        auto result = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, 6, -1e-8, /*normalize=*/false, /*removeDC=*/false, tok);
         ok = (result.k > 0);
     } catch (const nxr::core::Error&) {
         ok = false;

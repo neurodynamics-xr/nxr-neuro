@@ -4,14 +4,14 @@
  * Build: cmake --build build --target test_field_registry
  * Run:   ./build/test_field_registry
  */
-#include "nxr/field_registry.h"
-#include "nxr/operator_registry.h"
-#include "nxr/errors.h"
+#include "nxr/operators/registry/field_registry.h"
+#include "nxr/operators/registry/operator_registry.h"
+#include "nxr/core/errors.h"
 #include <iostream>
 #include <string>
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::registry;
+using namespace nxr::geometry;
+using namespace nxr::operators::registry;
 
 static int g_failures = 0;
 #define CHECK(cond, msg) do { if (!(cond)) { std::cerr << "FAIL: " << (msg) << "\n"; ++g_failures; } } while (0)

@@ -11,10 +11,27 @@
  */
 
 #include <napi.h>
-#include "nxr/compute.h"
-#include "nxr/facets.h"   // OperatorsFacet definition (operators() command)
-#include "nxr/operator_registry.h"
-#include "nxr/field_registry.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/signal/surface_calculus.h"   // OperatorsFacet definition (operators() command)
+#include "nxr/operators/registry/operator_registry.h"
+#include "nxr/operators/registry/field_registry.h"
 
 #include <cstring>
 #include <memory>
@@ -22,21 +39,21 @@
 #include <string>
 #include <vector>
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::solve;
-using namespace nxr::manifold::ops;
-using namespace nxr::manifold::ops::laplacian::connection;
-using namespace nxr::manifold::transport;
-using namespace nxr::manifold::connection;
-using namespace nxr::manifold::parametrization;
-using namespace nxr::manifold::parametrization::stripes;
-using namespace nxr::manifold::geometry;
-using namespace nxr::manifold::query;
-using namespace nxr::field::generate;
-using namespace nxr::field::interp;
-using namespace nxr::field::op;
-using namespace nxr::field::extract;
-namespace solve_ns = nxr::manifold::solve;
+using namespace nxr::geometry;
+using namespace nxr::operators;
+using namespace nxr::operators;
+using namespace nxr::operators::laplacian::connection;
+using namespace nxr::geometry::transport;
+using namespace nxr::geometry::connection;
+using namespace nxr::geometry::parametrization;
+using namespace nxr::geometry::parametrization::stripes;
+using namespace nxr::geometry;
+using namespace nxr::geometry::query;
+using namespace nxr::synthesis;
+using namespace nxr::signal;
+using namespace nxr::operators;
+using namespace nxr::signal;
+namespace solve_ns = nxr::operators;
 
 // ─── Synchronous error translation ──────────────────────────
 //
@@ -280,7 +297,7 @@ Napi::Value CreateContext(const Napi::CallbackInfo& info) {
        and options.flipEps (default 1e-6) are the construction's recorded numerical options. Extrinsic quantities (normals) stay on the
        embedded geometry. */
     bool intrinsicDelaunay = true;
-    nxr::manifold::DelaunayOptions dopt;
+    nxr::geometry::DelaunayOptions dopt;
     if (info.Length() > 2 && info[2].IsObject()) {
         Napi::Object o = info[2].As<Napi::Object>();
         if (o.Has("intrinsicDelaunay")) intrinsicDelaunay = o.Get("intrinsicDelaunay").ToBoolean().Value();
@@ -578,7 +595,7 @@ public:
                 progress.residualMicro   = reinterpret_cast<std::atomic<int32_t>*>(progressPtr_ + 2);
             }
 
-            result_ = solve::eigen(
+            result_ = operators::eigen(
                 holder_->ops->cotanLaplacian, holder_->ops->mass, k_,
                 solve_ns::kShiftLadder, /*normalize=*/true, /*removeDC=*/true, cancel, progress);
             // Cache on the holder so time-varying generators can reuse
@@ -985,7 +1002,7 @@ Napi::Value HodgeDecompose(const Napi::CallbackInfo& info) {
             omega = randomOmega(holder->manifold->nE());
         }
 
-        HodgeResult result = solve::hodge(*holder->manifold, *holder->dec, *holder->factors, omega);
+        HodgeResult result = operators::hodge(*holder->manifold, *holder->dec, *holder->factors, omega);
 
         auto obj = Napi::Object::New(env);
         // Scalar potentials
@@ -1338,7 +1355,7 @@ Napi::Value TracePath(const Napi::CallbackInfo& info) {
     return nxrSyncCall(env, [&]() -> Napi::Value {
         int a = info[1].As<Napi::Number>().Int32Value();
         int b = info[2].As<Napi::Number>().Int32Value();
-        nxr::manifold::query::GeodesicPath path = nxr::manifold::query::tracePathSurface(*holder->manifold, a, b);
+        nxr::geometry::query::GeodesicPath path = nxr::geometry::query::tracePathSurface(*holder->manifold, a, b);
         auto obj = Napi::Object::New(env);
         obj.Set("positions", matrixToFloat64Array(env, path.positions));
         obj.Set("nPoints",   Napi::Number::New(env, static_cast<double>(path.positions.rows())));
@@ -1361,7 +1378,7 @@ Napi::Value ExactDistance(const Napi::CallbackInfo& info) {
     return nxrSyncCall(env, [&]() -> Napi::Value {
         int a = info[1].As<Napi::Number>().Int32Value();
         int b = info[2].As<Napi::Number>().Int32Value();
-        return Napi::Number::New(env, nxr::manifold::query::exactDistance(*holder->manifold, a, b));
+        return Napi::Number::New(env, nxr::geometry::query::exactDistance(*holder->manifold, a, b));
     });
 }
 
@@ -1530,7 +1547,7 @@ Napi::Value VertexFramesJS(const Napi::CallbackInfo& info) {
     auto holder = getContext(info);
     if (!holder) return env.Null();
     return nxrSyncCall(env, [&]() -> Napi::Value {
-        nxr::manifold::geometry::VertexFrames f = nxr::manifold::geometry::vertexFrames(*holder->manifold);
+        nxr::geometry::VertexFrames f = nxr::geometry::vertexFrames(*holder->manifold);
         auto obj = Napi::Object::New(env);
         obj.Set("e1",      matrixToFloat64Array(env, f.e1));
         obj.Set("e2",      matrixToFloat64Array(env, f.e2));
@@ -1548,7 +1565,7 @@ Napi::Value OperatorInfo(const Napi::CallbackInfo& info) {
             throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operatorInfo(id): id must be a string.");
         const std::string id = info[0].As<Napi::String>().Utf8Value();
-        using namespace nxr::manifold::registry;
+        using namespace nxr::operators::registry;
         const OperatorVariant* v = operatorById(id);
         if (!v) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
             "unknown operator id: " + id);
@@ -1587,7 +1604,7 @@ Napi::Value FieldInfo(const Napi::CallbackInfo& info) {
             throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "fieldInfo(id): id must be a string.");
         const std::string id = info[0].As<Napi::String>().Utf8Value();
-        using namespace nxr::manifold::registry;
+        using namespace nxr::operators::registry;
         const FieldVariant* v = fieldById(id);
         if (!v) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
             "unknown field id: " + id);

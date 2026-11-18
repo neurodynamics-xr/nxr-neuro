@@ -5,7 +5,7 @@
 //   cores            accumulate   the connected above-threshold patches of the curl per frame and sense on the (glued) mesh (nxr `_core_patches`), the threshold read BY NAME from the stored histogram;
 //                                 stored as POINT EVENTS (point_events.h): a spans Selection, one member per core on its frame, and the attributes as measurements over it
 //
-// Both read a field on the FRAME TILING (the `frames` step, with `within` the bursts): the good frames are the burst frames. The maths is `nxr::histogram` and `nxr::cores::corePatches` (compute/): pure functions of
+// Both read a field on the FRAME TILING (the `frames` step, with `within` the bursts): the good frames are the burst frames. The maths is `nxr::histogram` and `nxr::select::corePatches` (compute/): pure functions of
 // matrices; this file prepares their inputs (the mesh's edges, areas and positions, the stored threshold), folds the frames block by block and hands the result to the runner, which stores it.
 // The step never reduces across time or space on its own beyond what a statistic over a partition is: the histogram's counts are additive over frames (a measurement over the frame partition).
 #include <algorithm>
@@ -13,10 +13,10 @@
 #include <limits>
 #include <memory>
 
-#include "nxr/cores.h"
-#include "nxr/histogram.h"
+#include "nxr/select/cores.h"
+#include "nxr/stats/histogram.h"
 #include "nxr/measurement/estimate.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/point_events.h"
 #include "nxr/pipelines/registry.h"
@@ -62,7 +62,7 @@ struct HistAcc {
   std::int64_t frames = 0, buffered = 0, first_frame = -1;
   std::vector<float> buffer;                       // |value| of the first `range` good frames, a frame after another [V each]; freed when the bins are fixed
   bool fixed = false;
-  nxr::histogram::LogBins bins;
+  nxr::stats::histogram::LogBins bins;
   std::vector<std::int64_t> counts;
   std::int64_t negative = 0, nonfinite = 0;
 };
@@ -76,7 +76,7 @@ void count_into(HistAcc& a, const float* values, std::size_t rows, std::size_t s
 void fix_bins(HistAcc& a, std::int64_t V, int bins) {
   double mx = 0;
   for (const float v : a.buffer) if (std::isfinite(v)) mx = std::max(mx, static_cast<double>(v));
-  try { a.bins = nxr::histogram::logBinsFor(mx, bins); } catch (const std::invalid_argument& e) { refuse(std::string("core_histogram: ") + e.what()); }
+  try { a.bins = nxr::stats::histogram::logBinsFor(mx, bins); } catch (const std::invalid_argument& e) { refuse(std::string("core_histogram: ") + e.what()); }
   a.counts.assign(static_cast<std::size_t>(bins), 0);
   a.fixed = true;
   if (a.buffered > 0) count_into(a, a.buffer.data(), static_cast<std::size_t>(a.buffered), static_cast<std::size_t>(V));   // the buffer's frames are rows of V values: the pool is over both
@@ -247,7 +247,7 @@ void add_cores_steps(std::vector<StepSpec>& r) {
     s.inputs = {"x", "threshold", "exclude"}; s.optional = {"exclude"};
     s.outputs = {"spans", "frame", "sense", "centre_vertex", "centre", "area", "peak"};
     s.parameters = Json{{"percentile", 98.0}, {"block_frames", 256}, {"bad_segments", "exclude"}};
-    s.matches = "nxr vortex._core_patches (connected patches of one sense per frame; the |value|·area-weighted centroid); compute nxr::cores::corePatches; the threshold nxr::histogram::percentile of the stored histogram";
+    s.matches = "nxr vortex._core_patches (connected patches of one sense per frame; the |value|·area-weighted centroid); compute nxr::select::corePatches; the threshold nxr::stats::histogram::percentile of the stored histogram";
     s.description = "the VORTEX CORES of a field on the frame tiling (the hatted curl at the burst frames): per frame and per sense (+1 first) the connected vertices with sense·x ≥ the threshold, joined by the mesh's edges "
                     "(no merging of patches that do not touch). The threshold is the `percentile` (98, nxr's) of the stored histogram `threshold` (`core_histogram`, another run's statistic read BY NAME), derived "
                     "here from its counts and edges: a core is cut from a threshold it is given. The cores are POINT EVENTS (point_events.h): a spans Selection, one member per core on its frame (members may share "
@@ -289,15 +289,15 @@ void add_cores_steps(std::vector<StepSpec>& r) {
       if (static_cast<std::int64_t>(hs.values.size()) != bins) refuse("cores: " + nxr::io::text(*t.row, "name") + ": " + std::to_string(hs.values.size()) + " counts for " + std::to_string(bins) + " bins");
       std::vector<std::int64_t> counts(hs.values.size());
       for (std::size_t i = 0; i < counts.size(); ++i) counts[i] = static_cast<std::int64_t>(std::llround(hs.values[i]));
-      nxr::histogram::LogBins lb;
+      nxr::stats::histogram::LogBins lb;
       lb.lo = hs.options["lo"].get<double>(); lb.hi = hs.options["hi"].get<double>(); lb.bins = static_cast<int>(bins);
-      try { st.threshold = nxr::histogram::percentile(counts, lb, st.percentile); } catch (const std::invalid_argument& e) { refuse(std::string("cores: the threshold: ") + e.what()); }
+      try { st.threshold = nxr::stats::histogram::percentile(counts, lb, st.percentile); } catch (const std::invalid_argument& e) { refuse(std::string("cores: the threshold: ") + e.what()); }
       // THE MESH: x's surface (the glued one for the curl of the one cortex): edges, vertex areas, positions
       const auto man = c.bound.manifold(x.manifolds[0]);
       const nxr::pipelines::SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);
       st.V = S.n_vertices();
-      nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
-      const std::vector<double> va = nxr::ladder::vertexAreas(mesh);
+      nxr::select::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
+      const std::vector<double> va = nxr::select::vertexAreas(mesh);
       st.area = Eigen::Map<const Eigen::VectorXd>(va.data(), static_cast<Eigen::Index>(va.size()));
       st.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(S.vertices.data(), S.n_vertices(), 3);
       std::vector<std::pair<std::int32_t, std::int32_t>> pr;
@@ -333,8 +333,8 @@ void add_cores_steps(std::vector<StepSpec>& r) {
           const std::size_t col = static_cast<std::size_t>(b.left + cols[s0 + j]);
           for (std::int64_t v = 0; v < st.V; ++v) M(v, static_cast<Eigen::Index>(j)) = b.re[static_cast<std::size_t>(v) * static_cast<std::size_t>(b.width) + col];
         }
-        nxr::cores::Cores C;
-        try { C = nxr::cores::corePatches(M, st.pairs, st.area, st.positions, st.threshold, 0); } catch (const std::invalid_argument& e) { refuse(std::string("cores: ") + e.what()); }
+        nxr::select::Cores C;
+        try { C = nxr::select::corePatches(M, st.pairs, st.area, st.positions, st.threshold, 0); } catch (const std::invalid_argument& e) { refuse(std::string("cores: ") + e.what()); }
         for (std::int64_t i = 0; i < C.size(); ++i) {
           a.frame.push_back(place.first + cols[s0 + static_cast<std::size_t>(C.frame[static_cast<std::size_t>(i)])]);
           a.sense.push_back(C.sense[static_cast<std::size_t>(i)]);

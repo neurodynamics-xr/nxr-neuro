@@ -3,7 +3,7 @@
 #pragma once
 #include <string>
 
-#include "nxr/filter.h"
+#include "nxr/signal/filters.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/definition.h"
 #include "nxr/pipelines/run_shipped.h"
@@ -13,7 +13,7 @@ namespace nxrtest {
 
 struct FilterComputeOptions {
   std::string recording, name;
-  nxr::filter::FilterOptions filter;
+  nxr::signal::filters::FilterOptions filter;
   bool replace = false;
 };
 struct FilterComputeResult {
@@ -22,7 +22,7 @@ struct FilterComputeResult {
 };
 
 inline FilterComputeResult filter_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const FilterComputeOptions& o) {
-  using nxr::filter::Kind;
+  using nxr::signal::filters::Kind;
   const Kind k = o.filter.kind;
   const std::string def = k == Kind::Lowpass ? "lowpass" : k == Kind::Highpass ? "highpass" : k == Kind::Bandpass ? "bandpass" : k == Kind::Bandstop ? "bandstop" : "notch";
   nxr::io::Json set = nxr::io::Json{{"recording", o.recording}};
@@ -31,10 +31,10 @@ inline FilterComputeResult filter_compute(nxr::io::DatasetWriter& ds, nxr::io::S
   if (k == Kind::Highpass || k == Kind::Bandpass || k == Kind::Bandstop) set["lower"] = o.filter.lowerEdge;
   if (k == Kind::Notch) set["frequencies"] = o.filter.frequencies;
   if (o.filter.notchBandwidth) set["notch_bandwidth"] = *o.filter.notchBandwidth;
-  if (o.filter.method == nxr::filter::Method::Iir) set["method"] = "iir";
+  if (o.filter.method == nxr::signal::filters::Method::Iir) set["method"] = "iir";
   set["remove_mean"] = o.filter.removeMean;
   // the method unset is the reference's: FIR, but IIR for bandstop and notch
-  const bool fir = o.filter.method ? *o.filter.method == nxr::filter::Method::Fir : (k != Kind::Bandstop && k != Kind::Notch);
+  const bool fir = o.filter.method ? *o.filter.method == nxr::signal::filters::Method::Fir : (k != Kind::Bandstop && k != Kind::Notch);
   const bool fir_mean = fir && o.filter.removeMean;
   if (fir_mean && !sub.find("selection", "measurements/" + o.recording + "_channel_mean_members") && !nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = o.recording + "_channel_mean", .any_status = true})) {
     nxr::pipelines::graph::RunOptions mo;

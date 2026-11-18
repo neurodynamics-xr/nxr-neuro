@@ -5,10 +5,10 @@
 #include <numeric>
 
 #include "connectome_helpers.h"
-#include "nxr/connectome.h"
-#include "nxr/nearest.h"
+#include "nxr/meeg/connectome.h"
+#include "nxr/geometry/surface_maps.h"
 
-using namespace nxr::connectome;
+using namespace nxr::meeg;
 using Dense = Eigen::MatrixXd;
 
 static Dense directSum(const Dense& vertexMatrix, const std::vector<std::int32_t>& label, int nRegions) {
@@ -26,7 +26,7 @@ int main() {
   ctest::Lcg g(11);
   const auto b = ctest::makeBundle(g, 300, 5, 0.08, 10, 10);
   const auto ends = fiberEnds<double>(b.points, b.nP);
-  const auto near = nxr::nearest::nearestVertices<double>(vertexPositions, ends);
+  const auto near = nxr::geometry::nearest::nearestVertices<double>(vertexPositions, ends);
   const auto ref = ctest::referenceEnds(vertexPositions, b);
   const Dense full = ctest::referenceCounts(ref, nV);   // with the diagonal: a fiber on one vertex adds 2 there
 

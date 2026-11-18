@@ -8,8 +8,8 @@
 #include <stdexcept>
 #include <string>
 
-#include "nxr/congruence.h"
-#include "nxr/nearest.h"
+#include "nxr/core/congruence.h"
+#include "nxr/geometry/surface_maps.h"
 
 namespace nxr::meeg {
 
@@ -62,7 +62,7 @@ std::vector<std::uint8_t> withinGate(const std::vector<Scalar>& d, Scalar maxDis
 }
 
 template <class Scalar>
-std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<Scalar>& w) {
+std::vector<std::int32_t> strongestDestination(const nxr::operators::registration::Csr<Scalar>& w) {
   std::vector<std::int32_t> dest(static_cast<std::size_t>(w.cols), -1);
   std::vector<Scalar> best(static_cast<std::size_t>(w.cols), -std::numeric_limits<Scalar>::infinity());
   for (std::int64_t i = 0; i < w.rows; ++i)   // rows ascend: a tie keeps the lowest
@@ -74,12 +74,12 @@ std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<Scal
 }
 
 template <class Scalar>
-std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>& tSphere, const std::vector<nxr::registration::Piece>& tPieces, const std::vector<Scalar>& sSphere,
-                                            const std::vector<nxr::registration::Piece>& sPieces, int neighbours, MatchReport* report) {
-  nxr::registration::Options opt;
-  opt.method = nxr::registration::Method::Shepard;
+std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>& tSphere, const std::vector<nxr::operators::registration::Piece>& tPieces, const std::vector<Scalar>& sSphere,
+                                            const std::vector<nxr::operators::registration::Piece>& sPieces, int neighbours, MatchReport* report) {
+  nxr::operators::registration::Options opt;
+  opt.method = nxr::operators::registration::Method::Shepard;
   opt.neighbours = neighbours;
-  const auto w = nxr::registration::resample_operator<Scalar>(tSphere, {}, tPieces, sSphere, sPieces, opt);
+  const auto w = nxr::operators::registration::resample_operator<Scalar>(tSphere, {}, tPieces, sSphere, sPieces, opt);
   std::vector<std::int32_t> match = strongestDestination(w);
   // a template vertex no subject vertex takes weight from: its nearest subject vertex on the (unit-normalised) sphere, within its piece
   std::int64_t empty = 0;
@@ -96,7 +96,7 @@ std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>& tSphere, 
     std::vector<Scalar> dst, q;
     for (std::int64_t v = sPieces[k].first; v < sPieces[k].first + sPieces[k].count; ++v) unit(&sSphere[static_cast<std::size_t>(3 * v)], dst);
     for (const std::int64_t v : todo) unit(&tSphere[static_cast<std::size_t>(3 * v)], q);
-    const auto near = nxr::nearest::nearestVertices<Scalar>(dst, q);
+    const auto near = nxr::geometry::nearest::nearestVertices<Scalar>(dst, q);
     for (std::size_t i = 0; i < todo.size(); ++i) match[static_cast<std::size_t>(todo[i])] = static_cast<std::int32_t>(sPieces[k].first) + near.vertex[i];
   }
   if (report) report->empty_columns = empty;
@@ -232,7 +232,7 @@ template <class Scalar>
 Sparse<Scalar> connectionWeights(const Sparse<Scalar>& counts, const std::vector<std::int32_t>& faces, int hops) {
   if (counts.rows() != counts.cols()) refuse("the fiber counts are square");
   const Sparse<Scalar> p = smoothingOperator<Scalar>(faces, counts.rows(), hops);
-  return withoutDiagonal<Scalar>(nxr::algebra::sparseCongruence<Scalar>(p, counts));
+  return withoutDiagonal<Scalar>(nxr::core::sparseCongruence<Scalar>(p, counts));
 }
 
 template <class Scalar>
@@ -298,9 +298,9 @@ std::vector<std::int32_t> largestComponent(const std::vector<std::int32_t>& labe
 #define NXR_CONNECTOME_INSTANTIATE(Scalar)                                                                                                                                      \
   template std::vector<Scalar> fiberEnds(const std::vector<Scalar>&, std::int64_t);                                                                                                  \
   template std::vector<std::uint8_t> withinGate(const std::vector<Scalar>&, Scalar);                                                                                                 \
-  template std::vector<std::int32_t> strongestDestination(const nxr::registration::Csr<Scalar>&);                                                                               \
-  template std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>&, const std::vector<nxr::registration::Piece>&, const std::vector<Scalar>&,                         \
-                                                       const std::vector<nxr::registration::Piece>&, int, MatchReport*);                                                   \
+  template std::vector<std::int32_t> strongestDestination(const nxr::operators::registration::Csr<Scalar>&);                                                                               \
+  template std::vector<std::int32_t> registrationMatch(const std::vector<Scalar>&, const std::vector<nxr::operators::registration::Piece>&, const std::vector<Scalar>&,                         \
+                                                       const std::vector<nxr::operators::registration::Piece>&, int, MatchReport*);                                                   \
   template Sparse<Scalar> smoothingStep(const std::vector<std::int32_t>&, std::int64_t);                                                                                        \
   template Sparse<Scalar> smoothingOperator(const std::vector<std::int32_t>&, std::int64_t, int);                                                                               \
   template Sparse<Scalar> memberships(const std::vector<std::int32_t>&, std::int64_t);                                                                                          \

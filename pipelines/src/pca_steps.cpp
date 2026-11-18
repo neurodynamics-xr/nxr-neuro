@@ -22,7 +22,7 @@
 #include <Eigen/Dense>
 
 #include "nxr/graph/node.h"
-#include "nxr/pca.h"
+#include "nxr/stats/pca.h"
 
 namespace nxr::pipelines::graph {
 
@@ -119,10 +119,10 @@ ng::NodeSpec statistic_pca() {
     for (std::int64_t i = 0; i < n_members; ++i)
       for (std::int64_t j = 0; j < p; ++j) T(i, j) = X.data[static_cast<std::size_t>(a == 0 ? i * p + j : j * n_members + i)];
     const bool unit_variance = X.meta["scale"].get<std::string>() == "unit-variance";
-    nxr::pca::PcaOptions po;
-    po.scale = unit_variance ? nxr::pca::Scale::UnitVariance : nxr::pca::Scale::None;
-    nxr::pca::PcaResult r;
-    try { r = nxr::pca::pca(T, po); } catch (const std::invalid_argument& e) { ng::refuse("pca of '" + name + "': " + e.what()); }
+    nxr::stats::PcaOptions po;
+    po.scale = unit_variance ? nxr::stats::Scale::UnitVariance : nxr::stats::Scale::None;
+    nxr::stats::PcaResult r;
+    try { r = nxr::stats::pca(T, po); } catch (const std::invalid_argument& e) { ng::refuse("pca of '" + name + "': " + e.what()); }
     const std::int64_t k = r.rank;
     Json comp_values = Json::array();                                      // the component axis is its numbers, 1 .. k (the order of decreasing variance)
     for (std::int64_t c = 1; c <= k; ++c) comp_values.push_back(c);

@@ -1,13 +1,13 @@
 // nxr::welch: parity with scipy.signal.welch, nxr (qc.sensors.psd and spectral.chain._welch) and Brainstorm's bst_psd output (goldens from golden/gen_welch_golden.py
 // and .m, synthetic signals), chunk-size invariance (identical to the last bit), the known levels (a sine of amplitude A, white noise of variance s^2),
 // a bad span left out, and the refusals.
-#include "nxr/welch.h"
+#include "nxr/signal/spectral.h"
 #include "nxr/rotary.h"
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include <random>
 #include <optional>
-using namespace nxr::welch;
+using namespace nxr::signal::spectral;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
@@ -49,7 +49,7 @@ static void parity() {
     check("scipy_hamming_linear_n301_ov100", welch(x, o).psd, 1e-12);
     o = scipyWelchOptions(fs, 256); o.overlap = 64.0 / 256; o.window = Window::Blackman; o.detrend = Detrend::None; o.scaling = Scaling::Spectrum;
     check("scipy_blackman_none_spectrum_n256_ov64", welch(x, o).psd, 1e-12);
-    o = scipyWelchOptions(fs, nxr::welch::segmentSamplesFor(4.0, fs));
+    o = scipyWelchOptions(fs, nxr::signal::spectral::segmentSamplesFor(4.0, fs));
     check("nxr_qc_psd", welch(x, o).psd, 1e-12);
     // nxr.spectral.chain._welch (2 s segments, no detrend, per-bin chain scaling)
     o = nxrChainWelchOptions(fs, 2.0);

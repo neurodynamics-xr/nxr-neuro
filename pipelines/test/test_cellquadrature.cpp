@@ -19,7 +19,7 @@
 #include "nxr/io/array_reader.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/measures.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/cellquadrature.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/spatial_band.h"
@@ -288,8 +288,8 @@ int main() {
   // ── 3b. AREA WEIGHTS (the default) and the TILE PAIRS ──
   // `weights: none` is the old behaviour: its values (the free-kernel cells above) are what a rerun with the option gives again, after the weighted job has replaced them
   const std::vector<double> before_tot = totf.values, before_quad = qdf.values;
-  nxr::ladder::Mesh whole; whole.n = N; whole.positions = S.vertices; whole.faces = S.faces;
-  const std::vector<double> va = nxr::ladder::vertexAreas(whole);
+  nxr::select::Mesh whole; whole.n = N; whole.positions = S.vertices; whole.faces = S.faces;
+  const std::vector<double> va = nxr::select::vertexAreas(whole);
   CellQuadratureOptions cw = cf; cw.replace = false; cw.weights = "area"; cw.bursts = "test_bursts";
   CHECK(code_of([&] { cellquadrature_compute(ds, sub, cw); }) == std::string(code::already_exists));              // the unweighted rows are another job's
   cw.replace = true;

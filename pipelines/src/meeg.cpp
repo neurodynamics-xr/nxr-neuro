@@ -15,20 +15,20 @@
 #include <set>
 
 #include "nxr/bst/frequency.h"
-#include "nxr/intrinsic_surface.h"
-#include "nxr/filterbank.h"
-#include "nxr/intrinsic_forms.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/intrinsic_forms.h"
 #include <sstream>
-#include "nxr/hodge_weights.h"
-#include "nxr/opticalflow.h"
-#include "nxr/ladder.h"
-#include "nxr/fft.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
+#include "nxr/signal/opticalflow.h"
+#include "nxr/select/dyadic.h"
+#include "nxr/signal/fourier.h"
 #include "nxr/rotary.h"
-#include "nxr/timebank.h"
-#include "nxr/patterns.h"
+#include "nxr/signal/timefilterbank.h"
+#include "nxr/signal/crossspectral_decomposition.h"
 #include "nxr/pipelines/spectral_record.h"
-#include "nxr/congruence.h"
-#include "nxr/wt.h"
+#include "nxr/core/congruence.h"
+#include "nxr/signal/wavelet.h"
 #include "nxr/bst/inverse.h"
 #include "nxr/bst/session.h"
 #include "nxr/pipelines/input.h"
@@ -40,7 +40,6 @@
 #include "nxr/io/statistic.h"
 #include "nxr/meeg/tensor.h"
 #include "nxr/meeg/wave.h"
-#include "nxr/hodge_weights.h"
 
 #ifndef NXR_COMPUTE_VERSION
 #define NXR_COMPUTE_VERSION "unknown"
@@ -237,12 +236,12 @@ nxr::io::Span span_of(const RecordingInput& rec, const std::optional<std::string
 // start on the line's grid. Every other set keeps its reference's rule (brainstorm: round(seconds · fs) from the span's start; nxr-chain: even). Returns the
 // level the span snaps to (0 for the other sets: no snap).
 int welch_segment(const std::string& who, const std::string& set, const std::optional<std::int64_t>& samples, const std::optional<double>& seconds, const std::optional<int>& level,
-                  double sfreq, nxr::welch::WelchOptions& wo) {
+                  double sfreq, nxr::signal::spectral::WelchOptions& wo) {
   namespace cq = nxr::io::constantq;
   if (set != "tiles") {
     if (level) invalid(who + ": --segment-level applies to --set tiles (the " + set + " set states its segment in seconds or samples)");
     if (samples) wo.segmentSamples = static_cast<std::size_t>(*samples);
-    else if (seconds) wo.segmentSamples = nxr::welch::segmentSamplesFor(*seconds, sfreq, set == "nxr-chain");
+    else if (seconds) wo.segmentSamples = nxr::signal::spectral::segmentSamplesFor(*seconds, sfreq, set == "nxr-chain");
     return 0;
   }
   if (level && samples) invalid(who + ": --segment-level and --segment-samples are alternatives");
@@ -278,16 +277,16 @@ Eigen::MatrixXd matrix_of(const nxr::io::Chunk& c, std::int64_t rows) {
 
 namespace {
 
-const char* window_name(nxr::welch::Window w) {
-  using nxr::welch::Window;
+const char* window_name(nxr::signal::spectral::Window w) {
+  using nxr::signal::spectral::Window;
   return w == Window::Hann ? "hann" : w == Window::Hamming ? "hamming" : w == Window::Blackman ? "blackman" : "rectangular";
 }
-const char* detrend_name(nxr::welch::Detrend d) {
-  using nxr::welch::Detrend;
+const char* detrend_name(nxr::signal::spectral::Detrend d) {
+  using nxr::signal::spectral::Detrend;
   return d == Detrend::None ? "none" : d == Detrend::Constant ? "constant" : "linear";
 }
-const char* scaling_name(nxr::welch::Scaling s) {
-  using nxr::welch::Scaling;
+const char* scaling_name(nxr::signal::spectral::Scaling s) {
+  using nxr::signal::spectral::Scaling;
   return s == Scaling::Density ? "density" : s == Scaling::Spectrum ? "spectrum" : "chain";
 }
 
@@ -321,14 +320,14 @@ Json projector_record(const Row& field) {
 namespace {
 // THE STATISTICS' COMMON PIECES (docs/specs/2026-11-13-statistics.md): where a statistic of a recording lives, and the Welch segment partition a
 // Welch statistic is computed from (its segments as a closed-form spans Selection on the time line: overlapping when the hop is under the width)
-std::int64_t welch_hop(const nxr::welch::WelchOptions& wo) {
+std::int64_t welch_hop(const nxr::signal::spectral::WelchOptions& wo) {
   const std::int64_t n = static_cast<std::int64_t>(wo.segmentSamples);
   return n - static_cast<std::int64_t>(std::floor(static_cast<double>(n) * wo.overlap));
 }
 std::string statistic_path(const RecordingInput& rec, const std::string& name) { return nxr::io::text(rec.field, "path") + "_statistics/" + nxr::io::safe_name(name); }
 std::string segments_path(SubjectWriter& sub, const RecordingInput& rec, const std::string& stem) { return nxr::io::node_path(sub.db(), rec.time_id, stem + "_segments"); }
 std::string welch_segments(SubjectWriter& sub, const RecordingInput& rec, const std::string& stem, const std::string& acq, std::int64_t s0, std::int64_t s1,
-                           const nxr::welch::WelchOptions& wo, std::int64_t segments, std::int64_t skipped) {
+                           const nxr::signal::spectral::WelchOptions& wo, std::int64_t segments, std::int64_t skipped) {
   const std::int64_t n_seg = static_cast<std::int64_t>(wo.segmentSamples), hop = welch_hop(wo);
   // the segments are a closed-form tiling of the recording's time line, stored by the selection store (it writes the tiling into the parameters)
   nxr::io::selection::Description tiles;
@@ -346,7 +345,7 @@ std::string welch_segments(SubjectWriter& sub, const RecordingInput& rec, const 
   return nxr::io::selection::save(sub, tiles, at).id;
 }
 // every Welch option, as a statistic's options record them
-Json welch_options(const nxr::welch::WelchOptions& wo, const std::string& option_set, bool exclude_bad) {
+Json welch_options(const nxr::signal::spectral::WelchOptions& wo, const std::string& option_set, bool exclude_bad) {
   return Json{{"option_set", option_set}, {"segment_samples", static_cast<std::int64_t>(wo.segmentSamples)}, {"hop_samples", welch_hop(wo)}, {"overlap", wo.overlap},
               {"window", window_name(wo.window)}, {"window_form", wo.periodic ? "periodic" : "symmetric"}, {"detrend", detrend_name(wo.detrend)},
               {"scaling", scaling_name(wo.scaling)}, {"exclude_bad_segments", exclude_bad}};
@@ -356,12 +355,12 @@ Json welch_options(const nxr::welch::WelchOptions& wo, const std::string& option
 namespace internal {
 std::string statistic_path_of(SubjectWriter& sub, const std::string& recording, const std::string& name) { return statistic_path(read_recording(sub, recording), name); }
 std::string segments_path_of(SubjectWriter& sub, const std::string& recording, const std::string& stem) { return segments_path(sub, read_recording(sub, recording), stem); }
-std::string welch_segments_of(SubjectWriter& sub, const std::string& recording, const std::string& stem, std::int64_t s0, std::int64_t s1, const nxr::welch::WelchOptions& wo,
+std::string welch_segments_of(SubjectWriter& sub, const std::string& recording, const std::string& stem, std::int64_t s0, std::int64_t s1, const nxr::signal::spectral::WelchOptions& wo,
                               std::int64_t segments, std::int64_t skipped) {
   const RecordingInput rec = read_recording(sub, recording);
   return welch_segments(sub, rec, stem, acquisition_label(sub, rec.acquisition_id), s0, s1, wo, segments, skipped);
 }
-Json welch_options_of(const nxr::welch::WelchOptions& wo, const std::string& option_set, bool exclude_bad) { return welch_options(wo, option_set, exclude_bad); }
+Json welch_options_of(const nxr::signal::spectral::WelchOptions& wo, const std::string& option_set, bool exclude_bad) { return welch_options(wo, option_set, exclude_bad); }
 }  // namespace internal
 
 // ── the sensor cross-spectrum: its readers (the definitions `crossspectrum` and `crossspectrum_analytic` make it) ──────────────────
@@ -469,19 +468,19 @@ StoredCrossSpectrum crossspectrum_read(SubjectWriter& sub, const std::string& na
       out.Sq(i, j) = c[k + 1];
     }
   // the scaling chosen at read (a factor: a cross-spectrum takes only the linear targets)
-  nxr::spectral::Target t;
-  try { t = nxr::spectral::parseTarget(scaling); } catch (const std::invalid_argument& e) { invalid(e.what()); }
+  nxr::signal::spectral_scaling::Target t;
+  try { t = nxr::signal::spectral_scaling::parseTarget(scaling); } catch (const std::invalid_argument& e) { invalid(e.what()); }
   const auto rec = spectral_record(out.producer);
-  if (t != nxr::spectral::Target::Stored) {
+  if (t != nxr::signal::spectral_scaling::Target::Stored) {
     if (!rec) invalid(name + ": its provenance has no spectral scaling record (computed before 2026-11-13, or nxr's chain scaling): read it as stored, or --replace it");
-    if (!nxr::spectral::isLinear(t)) invalid(name + ": a cross-spectrum is converted only to density or power (" + scaling + " applies to a real power)");
+    if (!nxr::signal::spectral_scaling::isLinear(t)) invalid(name + ": a cross-spectrum is converted only to density or power (" + scaling + " applies to a real power)");
     double f = 0;
-    try { f = nxr::spectral::linearFactor(rec->scaling, t); } catch (const std::invalid_argument& e) { invalid(name + ": " + e.what()); }
+    try { f = nxr::signal::spectral_scaling::linearFactor(rec->scaling, t); } catch (const std::invalid_argument& e) { invalid(name + ": " + e.what()); }
     out.S *= f;
     out.Sq *= f;
   }
   out.scaling = scaling;
-  out.unit = rec ? nxr::spectral::unitOf(rec->power_unit, rec->scaling, t) : out.producer.value("units", std::string());
+  out.unit = rec ? nxr::signal::spectral_scaling::unitOf(rec->power_unit, rec->scaling, t) : out.producer.value("units", std::string());
   return out;
 }
 
@@ -642,17 +641,17 @@ CrossSpectrumWindows crossspectrum_windows_read(SubjectWriter& sub, const std::s
     out = std::move(up);
   }
   // the scaling chosen at read: each window's value from its sum (the band power sum / (2 count)), then the factor
-  nxr::spectral::Target t;
-  try { t = nxr::spectral::parseTarget(scaling); } catch (const std::invalid_argument& e) { invalid(e.what()); }
+  nxr::signal::spectral_scaling::Target t;
+  try { t = nxr::signal::spectral_scaling::parseTarget(scaling); } catch (const std::invalid_argument& e) { invalid(e.what()); }
   out.scaling = scaling;
-  if (t != nxr::spectral::Target::Stored) {
+  if (t != nxr::signal::spectral_scaling::Target::Stored) {
     const auto rec = spectral_record(out.producer);
     if (!rec || !rec->per_window_sum) invalid(name + ": its provenance has no analytic scaling record (computed before 2026-11-13): read it as stored, or --replace it");
-    if (!nxr::spectral::isLinear(t)) invalid(name + ": a cross-spectrum is converted only to density or power (" + scaling + " applies to a real power)");
+    if (!nxr::signal::spectral_scaling::isLinear(t)) invalid(name + ": a cross-spectrum is converted only to density or power (" + scaling + " applies to a real power)");
     double f = 0;
-    try { f = nxr::spectral::linearFactor(rec->scaling, t); } catch (const std::invalid_argument& e) { invalid(name + ": " + e.what()); }
+    try { f = nxr::signal::spectral_scaling::linearFactor(rec->scaling, t); } catch (const std::invalid_argument& e) { invalid(name + ": " + e.what()); }
     for (std::size_t w = 0; w < out.sum.size(); ++w) out.value.push_back(out.sum[w] * (f / (2.0 * static_cast<double>(out.count[w]))));
-    out.unit = nxr::spectral::unitOf(rec->power_unit, rec->scaling, t);
+    out.unit = nxr::signal::spectral_scaling::unitOf(rec->power_unit, rec->scaling, t);
   } else {
     out.unit = "channel unit\xc2\xb2 (summed over a window's samples)";
   }
@@ -707,7 +706,7 @@ HodgePackage resolve_hodge_package(SubjectWriter& sub, const Row& smf, const std
 }
 
 // The basis of the first pk.K modes: the stored potentials (the operator is [V_glued x Ktot], row-major), the vertex mass of the glued mesh as the solve took it.
-nxr::hodge::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& pk) {
+nxr::operators::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& pk) {
   const std::int64_t Vg = pk.Vg, Ktot = pk.Ktot, K = pk.K, kept = pk.kept;
   const SurfaceInput& glued = pk.glued;
   const std::string& stem_pkg = pk.stem;
@@ -718,7 +717,7 @@ nxr::hodge::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& pk) {
   std::vector<std::int64_t> eshape;
   const std::vector<float> ev = read_all<float>(sub.store(), text(*opr, "path"), &eshape);
   if (eshape.size() != 2 || eshape[0] != Vg || eshape[1] != Ktot) invalid(stem_pkg + ": the stored eigenvectors are not [" + std::to_string(Vg) + " x " + std::to_string(Ktot) + "]");
-  nxr::hodge::Basis basis;
+  nxr::operators::Basis basis;
   basis.P.resize(K, Vg);
   for (std::int64_t v = 0; v < Vg; ++v) for (std::int64_t k = 0; k < K; ++k) basis.P(k, v) = static_cast<double>(ev[static_cast<std::size_t>(v * Ktot + k)]);
   basis.mu = Eigen::Map<const Eigen::VectorXd>(mu_all.data(), K);
@@ -728,15 +727,15 @@ nxr::hodge::Basis load_hodge_basis(SubjectWriter& sub, const HodgePackage& pk) {
   basis.keep.assign(static_cast<std::size_t>(Vg), -1);
   for (std::int64_t i = 0; i < kept; ++i) basis.keep[static_cast<std::size_t>(i)] = support[static_cast<std::size_t>(i)];
   {
-    nxr::manifold::DelaunayOptions dopt;
+    nxr::geometry::DelaunayOptions dopt;
     const Json prov = Json::parse(opt_text(*opr, "producer_json").value_or("{}"), nullptr, false);
     if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {
       dopt.mollify = prov["solve"]["options"].value("mollify", dopt.mollify);
       dopt.flipEps = prov["solve"]["options"].value("flip_eps", dopt.flipEps);
     }
-    nxr::manifold::IntrinsicOptions io;                                   // the mollified input's mixed-Voronoi mass, as the solve took it
+    nxr::geometry::IntrinsicOptions io;                                   // the mollified input's mixed-Voronoi mass, as the solve took it
     io.mollify = dopt.mollify; io.flipEps = dopt.flipEps;
-    nxr::manifold::IntrinsicSurface isurf(glued.vertices.data(), static_cast<int>(Vg), glued.faces.data(), static_cast<int>(glued.n_faces()), io);
+    nxr::geometry::IntrinsicSurface isurf(glued.vertices.data(), static_cast<int>(Vg), glued.faces.data(), static_cast<int>(glued.n_faces()), io);
     const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
     basis.mass = Eigen::Map<const Eigen::VectorXd>(dm_mass.data(), static_cast<Eigen::Index>(dm_mass.size()));
   }
@@ -827,15 +826,15 @@ LaplaceModes read_laplace_modes(SubjectWriter& sub, const SurfaceInput& S, const
     if (want(mu * mu)) cols.push_back(k);
   }
   // the glued surface's vertex mass as the solve took it (the package's provenance gives its Delaunay options), as load_hodge_basis
-  nxr::manifold::DelaunayOptions dopt;
+  nxr::geometry::DelaunayOptions dopt;
   const Json prov = Json::parse(opt_text(pk.opr, "producer_json").value_or("{}"), nullptr, false);
   if (prov.is_object() && prov.contains("solve") && prov["solve"].is_object() && prov["solve"].contains("options") && prov["solve"]["options"].is_object()) {
     dopt.mollify = prov["solve"]["options"].value("mollify", dopt.mollify);
     dopt.flipEps = prov["solve"]["options"].value("flip_eps", dopt.flipEps);
   }
-  nxr::manifold::IntrinsicOptions io;                                   // the mollified input's mixed-Voronoi mass, as the solve took it
+  nxr::geometry::IntrinsicOptions io;                                   // the mollified input's mixed-Voronoi mass, as the solve took it
     io.mollify = dopt.mollify; io.flipEps = dopt.flipEps;
-    nxr::manifold::IntrinsicSurface isurf(pk.glued.vertices.data(), static_cast<int>(Vg), pk.glued.faces.data(), static_cast<int>(pk.glued.n_faces()), io);
+    nxr::geometry::IntrinsicSurface isurf(pk.glued.vertices.data(), static_cast<int>(Vg), pk.glued.faces.data(), static_cast<int>(pk.glued.n_faces()), io);
     const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
   out.mass = Eigen::Map<const Eigen::VectorXd>(dm_mass.data(), static_cast<Eigen::Index>(dm_mass.size()));
   out.support = pk.support;
@@ -879,9 +878,9 @@ std::string clear_stored_nodes(DatasetWriter& ds, SubjectWriter& sub, const std:
   return clear_stored(ds, sub, nodes, replace, what, replaced);
 }
 std::string producer_string(const char* verb) { return producer_name(verb); }
-const char* window_label(nxr::welch::Window w) { return window_name(w); }
-const char* detrend_label(nxr::welch::Detrend d) { return detrend_name(d); }
-const char* scaling_label(nxr::welch::Scaling s) { return scaling_name(s); }
+const char* window_label(nxr::signal::spectral::Window w) { return window_name(w); }
+const char* detrend_label(nxr::signal::spectral::Detrend d) { return detrend_name(d); }
+const char* scaling_label(nxr::signal::spectral::Scaling s) { return scaling_name(s); }
 }  // namespace internal
 
 // ── temporal filters ─────────────────────────────────────────────────────────────────────────────────────────────

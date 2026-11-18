@@ -3,10 +3,10 @@
 //   at_level   chunk       one hat level of a multi-level field ([vertex × level] → [vertex]), a row selection
 //   baseline   accumulate  the band power each vertex (and level) has over the good frames: the run outside the named bursts and the bad segments, a STATISTIC stored by name (piece 1)
 //   (the threshold's distribution, `relative_histogram`, is registered with the cores' histogram in cores_steps.cpp)
-//   patches    accumulate  the connected patches of a relative power map per frame (`nxr::cores::corePatches`, the vortex cores' finder), stored as POINT EVENTS with place, area, size and peak, and the HOME MAP
+//   patches    accumulate  the connected patches of a relative power map per frame (`nxr::select::corePatches`, the vortex cores' finder), stored as POINT EVENTS with place, area, size and peak, and the HOME MAP
 //                          (per vertex, the good frames it lies in a patch, and the good frames) (pieces 5 and 6)
 //   scale      chunk       the characteristic level of each vertex and frame: the hat level whose scale-normalised power is the largest (Lindeberg; piece 4)
-//   relative   chunk       a power field divided, row by row, by a stored baseline read by name (a diagonal scaling, `nxr::scaling::divideRows`; piece 2)
+//   relative   chunk       a power field divided, row by row, by a stored baseline read by name (a diagonal scaling, `nxr::core::divideRows`; piece 2)
 //
 // Every step here is a node of the graph: a pure function of matrices (compute/) with typed ports, POINTWISE (nothing reduces across time or space on its own; a reduction is a measurement over a partition
 // Selection). The runner binds the constants once and gives each step its blocks (a chunk's, or a block of frames').
@@ -14,13 +14,13 @@
 #include <cmath>
 #include <memory>
 
-#include "nxr/cores.h"
-#include "nxr/histogram.h"
-#include "nxr/ladder.h"
+#include "nxr/select/cores.h"
+#include "nxr/stats/histogram.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/point_events.h"
 #include "nxr/pipelines/select_nodes.h"
-#include "nxr/scaling.h"
-#include "nxr/scalespace.h"
+#include "nxr/core/algebra.h"
+#include "nxr/select/scale_selection.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "nxr/pipelines/registry.h"
@@ -218,7 +218,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
     s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "divides each row by a stored constant, per sample; the quotient is formed in double and stored as float32", {});
     s.inputs = {"x", "baseline"}; s.outputs = {"y"};
     s.parameters = Json::object();
-    s.matches = "nxr-neuro's own (spec 2026-11-14-spatial-events.md, piece 2); compute nxr::scaling::divideRows (a diagonal scaling, general algebra)";
+    s.matches = "nxr-neuro's own (spec 2026-11-14-spatial-events.md, piece 2); compute nxr::core::divideRows (a diagonal scaling, general algebra)";
     s.description = "x divided, row by row, by a stored per-row constant read BY NAME (`baseline`: a statistic of method mean, measure power): the band's power at each vertex in units of that vertex's own baseline "
                     "power. A diagonal scaling bound once in preparation, pointwise in time and in space (it reduces across nothing). The baseline must be of the same chain (band, spatial band and levels, form, glue, "
                     "frame tiling: a power divided by another chain's baseline is refused) and of x's rows; a baseline that is not above 0 at a row is refused. The result is unitless";
@@ -253,7 +253,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       if (b.rows != st.d.size()) refuse("relative: x has " + std::to_string(b.rows) + " rows, the baseline " + st.name + " " + std::to_string(st.d.size()));
       using RM = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
       const Eigen::MatrixXd X = Eigen::Map<const RM>(b.re.data(), b.rows, b.width).cast<double>();
-      const RM Y = nxr::scaling::divideRows(X, st.d).cast<float>();
+      const RM Y = nxr::core::divideRows(X, st.d).cast<float>();
       Block y{b.rows, b.width, b.left, b.right, std::vector<float>(Y.data(), Y.data() + Y.size()), {}};
       return Blocks{{"y", std::move(y)}};
     };
@@ -266,7 +266,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
     s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the characteristic level of each vertex and sample, chosen over the level axis only; double arithmetic, float32 result", {});
     s.inputs = {"x"}; s.outputs = {"y"};
     s.parameters = Json{{"transform", "auto"}, {"modes", 0}, {"order", 0}, {"tolerance", 0.01}};
-    s.matches = "Lindeberg (1998) scale selection with L2-normalised responses (spatial-events spec, decision 4); compute nxr::scalespace::selectLevel; the atoms are nxr `vortex_cores.hat_operator`'s columns (the bands of apply_kernel)";
+    s.matches = "Lindeberg (1998) scale selection with L2-normalised responses (spatial-events spec, decision 4); compute nxr::select::scale_selection::selectLevel; the atoms are nxr `vortex_cores.hat_operator`'s columns (the bands of apply_kernel)";
     s.description = "the CHARACTERISTIC LEVEL of each vertex and frame (): x is the band power of a multi-level field (`apply_kernel` with `levels`, then `power`); at each vertex the level whose power over the "
                     "squared L2 norm of its atom is the largest, as the ladder's level (a float). The atom of a vertex at a level is the operator's column there (the level's hat applied to the native sources, read at that glued "
                     "vertex), its norm the Euclidean norm of that column over the native vertices, computed exactly in preparation (the band applied to the identity, a block of 256 columns at a time; MEMORY: the glued vertices × "
@@ -341,8 +341,8 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       const int NL = static_cast<int>(st.levels.size());
       using RM = Eigen::Matrix<float, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
       const Eigen::MatrixXd P = Eigen::Map<const RM>(b.re.data(), b.rows, b.width).cast<double>();
-      nxr::scalespace::LevelChoice C;
-      try { C = nxr::scalespace::selectLevel(P, st.norm2, NL); } catch (const std::invalid_argument& e) { refuse(std::string("scale: ") + e.what()); }
+      nxr::select::scale_selection::LevelChoice C;
+      try { C = nxr::select::scale_selection::selectLevel(P, st.norm2, NL); } catch (const std::invalid_argument& e) { refuse(std::string("scale: ") + e.what()); }
       Block y{b.rows / NL, b.width, b.left, b.right, std::vector<float>(static_cast<std::size_t>(b.rows / NL * b.width)), {}};
       for (std::int64_t v = 0; v < b.rows / NL; ++v)
         for (std::int64_t t = 0; t < b.width; ++t) y.re[static_cast<std::size_t>(v * b.width + t)] = static_cast<float>(st.levels[static_cast<std::size_t>(C.index(v, t))]);
@@ -358,7 +358,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
     s.inputs = {"x", "scale", "bursts", "outside", "exclude", "threshold"}; s.optional = {"bursts", "outside", "exclude", "threshold"};
     s.outputs = {"spans", "frame", "burst", "centre_vertex", "centre", "area", "diameter_cm", "characteristic_level", "size_cm", "relative_peak", "home", "summary"};
     s.parameters = Json{{"threshold", "percentile"}, {"percentile", 99.0}, {"ratio", 2.0}, {"min_area", 0.0}, {"block_frames", 256}, {"bad_segments", "exclude"}, {"events", true}};
-    s.matches = "compute nxr::cores::corePatches (the vortex cores' patch finder, on relative power instead of the curl); decisions 1-4 of docs/specs/2026-11-14-spatial-events.md";
+    s.matches = "compute nxr::select::corePatches (the vortex cores' patch finder, on relative power instead of the curl); decisions 1-4 of docs/specs/2026-11-14-spatial-events.md";
     s.description = "the SPATIAL EVENTS of a relative band power map on the frame tiling: per frame, the connected vertices of the glued mesh whose relative power is at least the threshold, joined by the mesh's edges. "
                     "THE THRESHOLD is set by its false-alarm rate, measured as the time bursts' is from the envelope's own distribution: `threshold: percentile` (the default) is the `percentile` (99) of the "
                     "relative power OUTSIDE the bursts, derived here from the stored distribution `threshold` (`run spatial_threshold`, another run's statistic read BY NAME; refused when made from another band, levels, "
@@ -435,8 +435,8 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       const auto man = c.bound.manifold(x.manifolds[0]);
       const nxr::pipelines::SurfaceInput S = c.bound.surface(nxr::io::text(*man, "name"), true);
       st.V = S.n_vertices();
-      nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
-      const std::vector<double> va = nxr::ladder::vertexAreas(mesh);
+      nxr::select::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
+      const std::vector<double> va = nxr::select::vertexAreas(mesh);
       st.area = Eigen::Map<const Eigen::VectorXd>(va.data(), static_cast<Eigen::Index>(va.size()));
       st.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(S.vertices.data(), S.n_vertices(), 3);
       std::vector<std::pair<std::int32_t, std::int32_t>> pr;
@@ -468,9 +468,9 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
         if (static_cast<std::int64_t>(hs.values.size()) != bins) refuse("patches: " + nxr::io::text(*t.row, "name") + ": " + std::to_string(hs.values.size()) + " counts for " + std::to_string(bins) + " bins");
         std::vector<std::int64_t> counts(hs.values.size());
         for (std::size_t i = 0; i < counts.size(); ++i) counts[i] = static_cast<std::int64_t>(std::llround(hs.values[i]));
-        nxr::histogram::LogBins lb;
+        nxr::stats::histogram::LogBins lb;
         lb.lo = hs.options["lo"].get<double>(); lb.hi = hs.options["hi"].get<double>(); lb.bins = static_cast<int>(bins);
-        try { st.threshold = nxr::histogram::percentile(counts, lb, p["percentile"].get<double>()); } catch (const std::invalid_argument& e) { refuse(std::string("patches: the threshold: ") + e.what()); }
+        try { st.threshold = nxr::stats::histogram::percentile(counts, lb, p["percentile"].get<double>()); } catch (const std::invalid_argument& e) { refuse(std::string("patches: the threshold: ") + e.what()); }
         rule = Json{{"threshold", st.threshold}, {"threshold_rule", "percentile: the upper edge of the first bin whose cumulative share of the relative power outside the bursts reaches the percentile (exact to one log bin, 0.34 %)"},
                     {"percentile", p["percentile"]}, {"threshold_statistic", Json{{"name", nxr::io::text(*t.row, "name")}, {"id", nxr::io::text(*t.row, "id")}}},
                     {"histogram", Json{{"lo", lb.lo}, {"hi", lb.hi}, {"bins", bins}, {"frames", hs.options.value("frames", Json())}, {"outside", hs.options["chain"].value("outside", Json())}}}};
@@ -478,7 +478,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
       st.record = Json{{"min_area", st.min_area},
                        {"surface", Json{{"name", nxr::io::text(*man, "name")}, {"vertices", st.V}, {"edges", static_cast<std::int64_t>(st.pairs.size())}}},
                        {"levels", sc.facts["scale"]["levels"]}, {"size_cm", st.size_cm}, {"size_rule", "2*pi/sqrt(lambda_c), lambda_c the hat's geometric centre of the level's Weyl band (level 0: hi/sqrt2), in cm"},
-                       {"diameter_rule", "2*sqrt(area/pi), cm"}, {"reference", "nxr::cores::corePatches (nxr vortex._core_patches) on relative power"},
+                       {"diameter_rule", "2*sqrt(area/pi), cm"}, {"reference", "nxr::select::corePatches (nxr vortex._core_patches) on relative power"},
                        {"warnings", Json::array({"a patch is a connected region of band power above the threshold (a percentile of the relative power outside the bursts, or a multiple of the baseline) inside a burst: it describes where the band is strong, not that a local generator is there (volume conduction and the inverse spread power over the cortex)",
                                                  "the size is the hat level of the largest L2-normalised response at the patch's centre: octave-spaced, one level per patch, the instrument's blur inside it"})}};
       for (auto it = rule.begin(); it != rule.end(); ++it) st.record[it.key()] = it.value();
@@ -504,8 +504,8 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
           const std::size_t col = static_cast<std::size_t>(bx.left + cols[s0 + j]);
           for (std::int64_t v = 0; v < st.V; ++v) M(v, static_cast<Eigen::Index>(j)) = bx.re[static_cast<std::size_t>(v) * static_cast<std::size_t>(bx.width) + col];
         }
-        nxr::cores::Cores C;
-        try { C = nxr::cores::corePatches(M, st.pairs, st.area, st.positions, st.threshold, 0); } catch (const std::invalid_argument& e) { refuse(std::string("patches: ") + e.what()); }
+        nxr::select::Cores C;
+        try { C = nxr::select::corePatches(M, st.pairs, st.area, st.positions, st.threshold, 0); } catch (const std::invalid_argument& e) { refuse(std::string("patches: ") + e.what()); }
         for (std::int64_t v = 0; v < st.V; ++v) for (std::size_t j = 0; j < k; ++j) if (M(v, static_cast<Eigen::Index>(j)) >= st.threshold) a.in_patch[static_cast<std::size_t>(v)] += 1.0;
         std::vector<int> in_frame(k, 0);                                             // the patches kept in each frame of this block (the summary's per-frame count)
         if (a.level_count.empty()) a.level_count.assign(st.levels.size(), 0.0);

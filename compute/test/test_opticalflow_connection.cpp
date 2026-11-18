@@ -11,13 +11,13 @@
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
-#include "nxr/opticalflow_connection.h"
-#include "nxr/opticalflow_methods.h"
+#include "nxr/signal/opticalflow_connection.h"
+#include "nxr/signal/opticalflow_methods.h"
 
-using namespace nxr::flow;
+using namespace nxr::signal;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-namespace cn = nxr::flow::connection;
+namespace cn = nxr::signal::connection;
 
 static double maxAbs(const VectorXd& a) { return a.size() ? a.cwiseAbs().maxCoeff() : 0; }
 static double relMax(const VectorXd& a, const VectorXd& b) { return a.size() != b.size() ? 1e9 : maxAbs(a - b) / std::max(1e-300, maxAbs(b)); }

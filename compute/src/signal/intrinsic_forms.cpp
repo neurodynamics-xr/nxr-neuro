@@ -24,7 +24,7 @@ void basisAt(const Complex& c, int v, Eigen::Vector3d& e1, Eigen::Vector3d& e2) 
 }
 }  // namespace
 
-Complex complexOf(nxr::manifold::IntrinsicSurface& surface) {
+Complex complexOf(nxr::geometry::IntrinsicSurface& surface) {
     const auto K = surface.complex();
     Complex c;
     c.nV = surface.nV(); c.nE = static_cast<int>(K.length.size()); c.nF = static_cast<int>(K.faces.size() / 3);
@@ -62,13 +62,13 @@ Complex complexOf(nxr::manifold::IntrinsicSurface& surface) {
 
 void attachEmbedding(Complex& c, const double* positions, const std::int32_t* inputFaces, int nFin) {
     // the input as it is (the same vertices; its own signposts: the same reference halfedges, the same cone angles as the intrinsic mesh's)
-    nxr::manifold::IntrinsicOptions o;
+    nxr::geometry::IntrinsicOptions o;
     o.intrinsic = false;
-    nxr::manifold::IntrinsicSurface input(positions, c.nV, inputFaces, nFin, o);
+    nxr::geometry::IntrinsicSurface input(positions, c.nV, inputFaces, nFin, o);
     attachEmbedding(c, input);
 }
 
-void attachEmbedding(Complex& c, nxr::manifold::IntrinsicSurface& surface) {
+void attachEmbedding(Complex& c, nxr::geometry::IntrinsicSurface& surface) {
     namespace gcs = geometrycentral::surface;
     auto& E = surface.embedded();
     E.requireVertexNormals();

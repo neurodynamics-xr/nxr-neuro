@@ -8,11 +8,11 @@
 #include <numeric>
 #include <stdexcept>
 
-#include "nxr/errors.h"
+#include "nxr/core/errors.h"
 
 namespace nxr::signal::connection {
 using Eigen::VectorXd;
-using Corners0 = nxr::manifold::IntrinsicSurface::InputCorners;
+using Corners0 = nxr::geometry::IntrinsicSurface::InputCorners;
 constexpr double kTwoPi = 6.283185307179586476925286766559;
 constexpr double kAreaEps = 1e-12;   // faceGradient.ts AREA_EPS
 
@@ -146,7 +146,7 @@ void embedAt(const Corners& c, const double* nrm, int v, double a, double b, dou
     out[0] = zl * x; out[1] = zl * y; out[2] = zl * z;
 }
 
-Eigen::SparseMatrix<double> realConnectionLaplacian(nxr::manifold::IntrinsicSurface& s) {
+Eigen::SparseMatrix<double> realConnectionLaplacian(nxr::geometry::IntrinsicSurface& s) {
     const Eigen::SparseMatrix<std::complex<double>> K = s.connectionLaplacian(1);
     const int nV = s.nV();
     std::vector<Eigen::Triplet<double>> t;
@@ -165,9 +165,9 @@ Eigen::SparseMatrix<double> realConnectionLaplacian(nxr::manifold::IntrinsicSurf
 
 Pencil componentPencil(const double* P, int n, const std::vector<int32_t>& F, const DelaunayOptions& o) {
     const int nF = static_cast<int>(F.size() / 3);
-    nxr::manifold::IntrinsicOptions io;
-    io.mollify = o.mollify; io.flipEps = o.flipEps; io.mass = nxr::manifold::MassKind::InputMixedVoronoi;
-    nxr::manifold::IntrinsicSurface surf(P, n, F.data(), nF, io);   // geometry-central's signpost triangulation: the corners read its input, the operators its flipped mesh
+    nxr::geometry::IntrinsicOptions io;
+    io.mollify = o.mollify; io.flipEps = o.flipEps; io.mass = nxr::geometry::MassKind::InputMixedVoronoi;
+    nxr::geometry::IntrinsicSurface surf(P, n, F.data(), nF, io);   // geometry-central's signpost triangulation: the corners read its input, the operators its flipped mesh
     Pencil p;
     // the corners and normals of the INPUT faces, before the flips rewrite the halfedges
     std::vector<double> N(3 * static_cast<size_t>(n), 0.0);

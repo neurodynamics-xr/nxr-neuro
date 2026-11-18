@@ -7,7 +7,7 @@
 //               does not leak into the phase: d·∇d = 0);
 //   POINTWISE   every value depends on its own frame only (a frame computed alone equals it computed with others);
 // the phase current lies on the tangent plane; refusals.
-#include "nxr/phase.h"
+#include "nxr/signal/phase_gradient.h"
 
 #include <algorithm>
 #include <cmath>
@@ -25,7 +25,7 @@ static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
 
-using namespace nxr::phase;
+using namespace nxr::signal;
 using Faces = Eigen::Matrix<int32_t, Eigen::Dynamic, 3, Eigen::RowMajor>;
 
 static std::map<std::string, std::vector<double>> load(const std::string& path, int& nV, int& nF) {

@@ -21,7 +21,7 @@
 #include "nxr/meeg/tensor.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/timebank.h"
+#include "nxr/signal/timefilterbank.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;

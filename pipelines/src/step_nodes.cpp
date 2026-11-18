@@ -1,7 +1,7 @@
 // The registered steps as the executor's nodes (include/nxr/pipelines/step_nodes.h). A node here is a thin shell: its functions are the step's own, called with the
 // description of the inputs a step plans on and the runner's `Bound`. The executor calls these shells through ITS dispatch point; no step is called from anywhere else.
 #include "nxr/pipelines/step_nodes.h"
-#include "nxr/intrinsic_surface.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/pipelines/welch_steps.h"
 #include "nxr/pipelines/meeg_steps.h"
 #include "nxr/pipelines/partition_steps.h"
@@ -181,7 +181,7 @@ void typed_from_rows(ng::PortType& t, const Value& v) {
     const std::string gauge = pj.is_object() && pj.contains("gauge") && pj["gauge"].is_string() ? pj["gauge"].get<std::string>() : std::string();
     if (tangent && gauge.rfind("geometry-central@", 0) != 0)
       throw nxr::io::Error(nxr::io::code::invalid_argument,
-                           name + " is stored in the port's signpost gauge (no gauge record); nxr-neuro now uses geometry-central@" + std::string(nxr::manifold::geometryCentralVersion()) +
+                           name + " is stored in the port's signpost gauge (no gauge record); nxr-neuro now uses geometry-central@" + std::string(nxr::geometry::geometryCentralVersion()) +
                                "/vertex. Recompute it with the pipeline that made it (development data may be recomputed; the old arrays are kept until removed with the format's tools).");
     if (tangent) {
       t.spin = spin;

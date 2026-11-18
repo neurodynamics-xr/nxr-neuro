@@ -23,7 +23,15 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/pipelines/meeg_steps.h"
-#include "nxr/quadrature.h"
+#include "nxr/core/algebra.h"
+#include "nxr/measurement/congruence_norms.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/signal/complex_signal.h"
+#include "nxr/signal/crossspectral.h"
+#include "nxr/signal/crossspectral_decomposition.h"
+#include "nxr/signal/phase_gradient.h"
+#include "nxr/stats/circular.h"
+#include "nxr/measurement/congruence_norms.h"
 
 namespace nxr::pipelines::graph {
 
@@ -89,9 +97,9 @@ ng::NodeSpec source_pairs() {
 
     std::vector<double> fraction(static_cast<std::size_t>(nb)), rank(static_cast<std::size_t>(nb)), cumulative(static_cast<std::size_t>(nb), 0.0);
     Eigen::MatrixXd energy = Eigen::MatrixXd::Zero(N, nb);
-    std::vector<std::vector<nxr::quadrature::QuadraturePair>> pairs(static_cast<std::size_t>(nb));
+    std::vector<std::vector<nxr::signal::QuadraturePair>> pairs(static_cast<std::size_t>(nb));
     std::vector<std::vector<double>> share(static_cast<std::size_t>(nb));
-    std::vector<std::vector<nxr::quadrature::RotaryPower>> rotary(static_cast<std::size_t>(nb));
+    std::vector<std::vector<nxr::signal::RotaryPower>> rotary(static_cast<std::size_t>(nb));
     for (std::int64_t b = 0; b < nb; ++b) {
       Eigen::MatrixXcd Sb(M, M);
       for (std::int64_t i = 0; i < M; ++i)
@@ -99,19 +107,19 @@ ng::NodeSpec source_pairs() {
           const std::size_t at = static_cast<std::size_t>(((b * M + i) * M + j) * 2);
           Sb(i, j) = std::complex<double>(SA.data[at], SA.data[at + 1]);
         }
-      const Eigen::MatrixXcd L = nxr::quadrature::hermitianFactor(Sb);
+      const Eigen::MatrixXcd L = nxr::core::hermitianFactor(Sb);
       rank[static_cast<std::size_t>(b)] = static_cast<double>(L.cols());
       const Eigen::MatrixXcd F = Kc * L;                                          // [(oN) x r]
-      fraction[static_cast<std::size_t>(b)] = nxr::quadrature::quadratureFractionFromFactor(F);
-      const Eigen::VectorXd rows = nxr::quadrature::quadratureEnergy(F, F);
+      fraction[static_cast<std::size_t>(b)] = nxr::signal::quadratureFractionFromFactor(F);
+      const Eigen::VectorXd rows = nxr::measurement::quadratureEnergy(F, F);
       for (std::int64_t i = 0; i < N; ++i) for (int o = 0; o < orientations; ++o) energy(i, b) += rows[orientations * i + o];
-      const nxr::quadrature::QuadratureFactor qf = nxr::quadrature::quadratureFactor(F);
-      pairs[static_cast<std::size_t>(b)] = nxr::quadrature::quadraturePairs(qf, pr.pairs);
+      const nxr::core::QuadratureFactor qf = nxr::core::quadratureFactor(F);
+      pairs[static_cast<std::size_t>(b)] = nxr::signal::quadraturePairs(qf, pr.pairs);
       for (const auto& q : pairs[static_cast<std::size_t>(b)]) {
-        share[static_cast<std::size_t>(b)].push_back(nxr::quadrature::quadratureShare(qf, {q}));
-        rotary[static_cast<std::size_t>(b)].push_back(nxr::quadrature::rotaryPower(F, q.p, q.q));
+        share[static_cast<std::size_t>(b)].push_back(nxr::signal::quadratureShare(qf, {q}));
+        rotary[static_cast<std::size_t>(b)].push_back(nxr::signal::rotaryPower(F, q.p, q.q));
       }
-      cumulative[static_cast<std::size_t>(b)] = nxr::quadrature::quadratureShare(qf, pairs[static_cast<std::size_t>(b)]);
+      cumulative[static_cast<std::size_t>(b)] = nxr::signal::quadratureShare(qf, pairs[static_cast<std::size_t>(b)]);
     }
     std::int64_t total_pairs = 0;
     for (const auto& v : pairs) total_pairs += static_cast<std::int64_t>(v.size());

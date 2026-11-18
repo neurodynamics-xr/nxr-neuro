@@ -12,7 +12,7 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 
 namespace nxr::geometry::glue {
 namespace {
@@ -263,7 +263,7 @@ Glued glueMesh(const std::vector<double>& P, const std::vector<I>& F, const std:
   double area = 0, longest = 0;
   for (std::size_t f = 0; f < bridge.size(); f += 3) {
     const Pt p = at(bridge[f]), q = at(bridge[f + 1]), r = at(bridge[f + 2]), u = sub3(q, p), w = sub3(r, p);
-    area += 0.5 * nxr::ladder::jsHypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]);
+    area += 0.5 * nxr::select::jsHypot(u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0]);
     longest = std::max({longest, dist(p, q), dist(q, r), dist(r, p)});
   }
   g.bridge = Bridge{static_cast<L>(R * N), static_cast<L>(R), area, longest};
@@ -284,7 +284,7 @@ Sources sourcesOf(const std::vector<double>& P, const Glued& g) {
     std::vector<std::pair<double, I>> best;
     for (I v : walls) {
       const auto u = static_cast<size_t>(v);
-      const double d = nxr::ladder::jsHypot(P[3 * u] - x, P[3 * u + 1] - y, P[3 * u + 2] - z);
+      const double d = nxr::select::jsHypot(P[3 * u] - x, P[3 * u + 1] - y, P[3 * u + 2] - z);
       if (best.size() < static_cast<size_t>(K) || d < best.back().first) {
         best.emplace_back(d, v);
         std::stable_sort(best.begin(), best.end(), [](const auto& a, const auto& b) { return a.first < b.first; });

@@ -4,7 +4,7 @@
 #include <Eigen/Dense>
 #include <vector>
 
-#include "nxr/meeg/minimise.h"
+#include "nxr/optimisation/fminsearch.h"
 
 namespace nxr::meeg {
 
@@ -20,7 +20,7 @@ enum class SphereCost {
 };
 struct SphereFitOptions {
   SphereCost cost = SphereCost::Geometric;
-  NelderMeadOptions minimiser = []{ NelderMeadOptions o; o.zeroStep = 0.05; return o; }();   // the centre is searched in units of the points' rms spread about their mean
+  optimisation::NelderMeadOptions minimiser = []{ optimisation::NelderMeadOptions o; o.zeroStep = 0.05; return o; }();   // the centre is searched in units of the points' rms spread about their mean
 };
 
 // The sphere fitted to the points [n x 3] (weights [n], default all 1; non-negative). std::invalid_argument for fewer than 4 points, a NaN, a negative or

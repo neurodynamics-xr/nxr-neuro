@@ -1,4 +1,17 @@
-#include "nxr/compute.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 
@@ -25,7 +38,7 @@ namespace nxr::operators {
 using namespace geometrycentral::surface;
 using nxr::operators::DECOperators;
 using nxr::operators::CholeskyCache;
-using nxr::field::interp::whitney;
+using nxr::signal::whitney;
 
 HodgeResult hodge(
     Manifold& m,
@@ -89,10 +102,10 @@ HodgeResult hodge(
     result.combinedPotential = result.exactPotential + result.coExactPotentialV;
 
     // ── Face-centered vector fields via Whitney interpolation ─
-    result.omegaVectors     = whitney(m, dec, result.omega);
-    result.dAlphaVectors    = whitney(m, dec, result.dAlpha);
-    result.deltaBetaVectors = whitney(m, dec, result.deltaBeta);
-    result.gammaVectors     = whitney(m, dec, result.gamma);
+    result.omegaVectors     = signal::whitney(m, dec, result.omega);
+    result.dAlphaVectors    = signal::whitney(m, dec, result.dAlpha);
+    result.deltaBetaVectors = signal::whitney(m, dec, result.deltaBeta);
+    result.gammaVectors     = signal::whitney(m, dec, result.gamma);
 
     std::cout << "[hodge] Decomposed 1-form. ||dα|| = " << result.dAlpha.norm()
               << ", ||δβ|| = " << result.deltaBeta.norm()

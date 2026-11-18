@@ -4,10 +4,10 @@
 #include <iostream>
 
 #include "connectome_helpers.h"
-#include "nxr/connectome.h"
-#include "nxr/nearest.h"
+#include "nxr/meeg/connectome.h"
+#include "nxr/geometry/surface_maps.h"
 
-using namespace nxr::connectome;
+using namespace nxr::meeg;
 
 int main() {
   std::vector<double> vertexPositions; std::vector<int32_t> triangles;
@@ -23,7 +23,7 @@ int main() {
     for (int k = 0; k < 3; ++k) out[k] = vertexPositions[static_cast<std::size_t>(3 * v + k)] * (1 + mm * 1e-3 / n);
   };
   for (int f = 0; f < nF; ++f) { above(f, offsets_mm[static_cast<std::size_t>(f)], &ends[static_cast<std::size_t>(3 * f)]); above(100 + f, 0.3, &ends[static_cast<std::size_t>(3 * (nF + f))]); }
-  const auto near = nxr::nearest::nearestVertices<double>(vertexPositions, ends);
+  const auto near = nxr::geometry::nearest::nearestVertices<double>(vertexPositions, ends);
   bool right = true;
   for (int f = 0; f < nF; ++f) right = right && near.vertex[static_cast<std::size_t>(f)] == f && near.vertex[static_cast<std::size_t>(nF + f)] == 100 + f && std::abs(near.distance[static_cast<std::size_t>(f)] - offsets_mm[static_cast<std::size_t>(f)] * 1e-3) < 1e-12;
   EXPECT(right, "each end is above its vertex at the distance made: the distances are stored whatever the gate");

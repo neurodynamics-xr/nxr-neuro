@@ -137,9 +137,9 @@ int main() {
   // the expected PSD: nxr::welch on the stored samples, the mask from the span
   std::vector<std::uint8_t> good(T, 1);
   for (int i = 0; i < T; ++i) { const double t = i / sfreq; if (t >= bad_start && t < bad_stop) good[static_cast<std::size_t>(i)] = 0; }
-  auto expect = nxr::welch::brainstormPsdOptions(sfreq, 2.0);
-  const nxr::welch::WelchResult want = nxr::welch::welch(X, expect, &good);
-  const nxr::welch::WelchResult unmasked = nxr::welch::welch(X, expect);
+  auto expect = nxr::signal::spectral::brainstormPsdOptions(sfreq, 2.0);
+  const nxr::signal::spectral::WelchResult want = nxr::signal::spectral::welch(X, expect, &good);
+  const nxr::signal::spectral::WelchResult unmasked = nxr::signal::spectral::welch(X, expect);
 
   const auto stat = [&](const std::string& n) { return read_statistic(sub, n); };
   const double tol = 1e-6;                                                                      // float32 storage
@@ -237,7 +237,7 @@ int main() {
     Eigen::MatrixXd A(2, 3);
     A << 0.5f, -0.2f, 0.1f, 0.3f, 0.8f, -0.05f;                                              // as stored (float32)
     const Eigen::MatrixXcd z = nxr::rotary::pairSeries(A, X);
-    const nxr::welch::ComplexWelchResult rw = nxr::welch::complexWelch(z, expect, &good);
+    const nxr::signal::spectral::ComplexWelchResult rw = nxr::signal::spectral::complexWelch(z, expect, &good);
     const Json rset = Json{{"segment_seconds", 2.0}, {"operator", "plane"}};
     const nxrtest::PsdRun ra = nxrtest::run_definition("rotary_psd", ds, sub, "rest", rset, "brainstorm");
     CHECK(!ra.hit);
@@ -265,7 +265,7 @@ int main() {
     CHECK(nxrtest::psd_values(sub, ra) == nxrtest::psd_values(sub, rb));
     // the sense: fy negated is the mirror spectrum (P'(f) = P(-f)); +f is the operator's x -> y
     Eigen::MatrixXd Am = A; Am.row(1) *= -1;
-    const nxr::welch::ComplexWelchResult mw = nxr::welch::complexWelch(nxr::rotary::pairSeries(Am, X), expect, &good);
+    const nxr::signal::spectral::ComplexWelchResult mw = nxr::signal::spectral::complexWelch(nxr::rotary::pairSeries(Am, X), expect, &good);
     for (int k = 1; k < 200; ++k) CHECK(std::abs(mw.psd(0, k) / rw.psd(0, 200 - k) - 1) < 1e-9);
     CHECK(nxrtest::run_definition("rotary_psd", ds, sub, "rest", rset, "brainstorm").hit);
     CHECK(!refusal([&] { nxrtest::run_definition("rotary_psd", ds, sub, "rest", Json{{"segment_seconds", 2.0}, {"operator", "nope"}}, "brainstorm"); }).empty());
@@ -276,9 +276,9 @@ int main() {
   {
     const Json t = Json{{"segment_seconds", 2.0}, {"name", "tiles"}};
     const nxrtest::PsdRun r = nxrtest::run_psd(ds, sub, "rest", t);
-    auto eo = nxr::welch::brainstormPsdOptions(sfreq, 2.0);
+    auto eo = nxr::signal::spectral::brainstormPsdOptions(sfreq, 2.0);
     eo.segmentSamples = 256;
-    const nxr::welch::WelchResult tw = nxr::welch::welch(X, eo, &good);
+    const nxr::signal::spectral::WelchResult tw = nxr::signal::spectral::welch(X, eo, &good);
     const StoredStatistic st = stat("tiles");
     CHECK(st.options["segment_samples"] == 256 && st.options["segment_rule"] == "tile" && integer(st.row, "n_members") == tw.segments && st.shape == (std::vector<std::int64_t>{M, 129}));
     {

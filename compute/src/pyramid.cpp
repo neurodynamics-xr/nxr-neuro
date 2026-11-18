@@ -5,9 +5,9 @@
 #include <cmath>
 #include <stdexcept>
 
-#include "nxr/fft.h"
-#include "nxr/filterbank.h"
-#include "nxr/parallel.h"
+#include "nxr/signal/fourier.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/core/parallel.h"
 
 namespace nxr::pyramid {
 
@@ -25,7 +25,7 @@ Eigen::MatrixXd bandGains(const Eigen::VectorXd& freqs, const Bands& bands, Shap
   for (const auto& b : bands) if (!(b.second > b.first) || !(b.first > 0)) throw std::invalid_argument("a band needs 0 < lo < hi");
   if (shape == Shape::Morlet) {
     for (Eigen::Index b = 0; b < nb; ++b)
-      for (Eigen::Index k = 0; k < nf; ++k) g(b, k) = freqs(k) == 0 ? 0.0 : nxr::filterbank::morletBand(std::abs(freqs(k)), bands[b].first, bands[b].second);
+      for (Eigen::Index k = 0; k < nf; ++k) g(b, k) = freqs(k) == 0 ? 0.0 : nxr::signal::graphfilterbank::morletBand(std::abs(freqs(k)), bands[b].first, bands[b].second);
     return g;
   }
   // nxr band_gains: edges in log2 f, a cos/sin crossover half an octave wide centred on each shared edge, the outer edges taper to zero the same way
@@ -52,8 +52,8 @@ Spectrum spectrumOf(const Eigen::MatrixXd& block, double sfreq) {
   if (block.rows() < 2) throw std::invalid_argument("spectrumOf: a block holds at least 2 samples");
   Spectrum s;
   s.sfreq = sfreq;
-  s.X = nxr::fft::fftColumns(block.cast<std::complex<double>>(), true);
-  s.freq = nxr::fft::fftfreq(static_cast<std::size_t>(block.rows()), 1.0 / sfreq);
+  s.X = nxr::signal::fftColumns(block.cast<std::complex<double>>(), true);
+  s.freq = nxr::signal::fftfreq(static_cast<std::size_t>(block.rows()), 1.0 / sfreq);
   return s;
 }
 
@@ -64,7 +64,7 @@ Eigen::MatrixXcd analyticBand(const Spectrum& spec, const Eigen::VectorXd& gain)
     const double h = spec.freq(k) > 0 ? 2.0 * gain(k) : 0.0;     // positive frequencies doubled, negatives (and the Nyquist bin of an even length, which fftfreq calls negative) removed
     Y.row(k) *= h;
   }
-  return nxr::fft::fftColumns(Y, false);
+  return nxr::signal::fftColumns(Y, false);
 }
 
 FrameKernel frameKernel(const Eigen::MatrixXd& K3, const Eigen::MatrixXd& e1, const Eigen::MatrixXd& e2, const Eigen::MatrixXd& n, const std::vector<char>& singular, int threads) {
@@ -75,7 +75,7 @@ FrameKernel frameKernel(const Eigen::MatrixXd& K3, const Eigen::MatrixXd& e1, co
   FrameKernel out;
   out.K1.resize(V, M); out.K2.resize(V, M); out.Kn.resize(V, M);
   auto num = [](double x) { return std::isnan(x) ? 0.0 : x; };           // numpy nan_to_num (the frames hold NaN, never inf)
-  parallel::forRanges(V, std::max(1, threads), [&](std::int64_t v0, std::int64_t v1) {         // each vertex writes its own rows: any split is bit-identical
+  core::forRanges(V, std::max(1, threads), [&](std::int64_t v0, std::int64_t v1) {         // each vertex writes its own rows: any split is bit-identical
   for (Eigen::Index v = v0; v < v1; ++v) {
     Eigen::Vector3d a, b, c;
     for (int k = 0; k < 3; ++k) { a[k] = num(e1(v, k)); b[k] = num(e2(v, k)); c[k] = num(n(v, k)); }

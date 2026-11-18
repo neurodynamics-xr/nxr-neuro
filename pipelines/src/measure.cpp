@@ -17,9 +17,9 @@
 #include <regex>
 #include <set>
 
-#include "nxr/intrinsic_surface.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/io/measures.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg_internal.h"
@@ -118,8 +118,8 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
   for (const auto& st : opt.statistics) if (!known.count(st)) invalid("--statistics: " + st + " is not one of mean, sd, variance, rms, mean_square, max, min, abs_max, sum, area, n_elements, "
                                                                      "tensor_* (a hermitian3 Field's sums), normal_share, anisotropy, circularity, axis_deg, power_density (read from them), "
                                                                      "gradient_* (a gradient's sums), gradient_strength, gradient_coherence, gradient_direction_deg (read from them)");
-  nxr::spectral::Target target;
-  try { target = nxr::spectral::parseTarget(opt.scaling); } catch (const std::invalid_argument& e) { invalid(std::string("--scaling ") + e.what()); }
+  nxr::signal::spectral_scaling::Target target;
+  try { target = nxr::signal::spectral_scaling::parseTarget(opt.scaling); } catch (const std::invalid_argument& e) { invalid(std::string("--scaling ") + e.what()); }
   // how a statistic of a Field follows its values: 1 (a factor: mean, max, …, sd), 2 (the factor squared: mean_square, variance), 0 (a ratio, unchanged)
   auto power_of = [](const std::string& st) -> int {
     static const std::set<std::string> one = {"mean", "max", "min", "sum", "abs_max", "sd", "rms", "tensor_11", "tensor_22", "tensor_nn", "tensor_12_re", "tensor_12_im",
@@ -128,11 +128,11 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
     static const std::set<std::string> zero = {"normal_share", "anisotropy", "circularity", "axis_deg"};
     return one.count(st) ? 1 : two.count(st) ? 2 : zero.count(st) ? 0 : -1;
   };
-  if (target != nxr::spectral::Target::Stored)
+  if (target != nxr::signal::spectral_scaling::Target::Stored)
     for (const auto& st : opt.statistics) {
       if (st == "area" || st == "n_elements") continue;
       if (power_of(st) < 0) invalid("--scaling " + opt.scaling + ": the statistic " + st + " is not converted (a gradient's sums): export it with --scaling stored");
-      if (!nxr::spectral::isLinear(target) && st != "mean" && st != "max" && st != "min" && power_of(st) != 0)
+      if (!nxr::signal::spectral_scaling::isLinear(target) && st != "mean" && st != "max" && st != "min" && power_of(st) != 0)
         invalid("--scaling " + opt.scaling + " is non-linear: it applies to mean, max and min (of the stored power), not to " + st);
     }
   std::regex re;
@@ -271,15 +271,15 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
       }
       // the scaling chosen at read, from the Field's producer record
       double factor = 1.0;
-      std::optional<nxr::spectral::Scaling> conv;
-      if (f && target != nxr::spectral::Target::Stored && power_of(st) != 0) {
+      std::optional<nxr::signal::spectral_scaling::Scaling> conv;
+      if (f && target != nxr::signal::spectral_scaling::Target::Stored && power_of(st) != 0) {
         const auto rec = spectral_record(Json::parse(opt_text(*f, "producer_json").value_or("{}"), nullptr, false));
         if (!rec) invalid(sname + ": " + text(*f, "name") + " has no spectral scaling record (not a spectrum, a relative power, or computed before 2026-11-13): export it with --scaling stored");
         try {
-          if (nxr::spectral::isLinear(target)) factor = std::pow(nxr::spectral::linearFactor(rec->scaling, target), power_of(st));
+          if (nxr::signal::spectral_scaling::isLinear(target)) factor = std::pow(nxr::signal::spectral_scaling::linearFactor(rec->scaling, target), power_of(st));
           else conv = rec->scaling;
         } catch (const std::invalid_argument& e) { invalid(sname + ": " + text(*f, "name") + ": " + e.what()); }
-        const std::string base = nxr::spectral::unitOf(rec->power_unit, rec->scaling, target);
+        const std::string base = nxr::signal::spectral_scaling::unitOf(rec->power_unit, rec->scaling, target);
         unit = power_of(st) == 2 ? "(" + base + ")\xc2\xb2" : base;
       }
       for (const auto& r : got) {
@@ -294,7 +294,7 @@ Json measure_export(const std::string& dataset_folder, const MeasureExportOption
         c.unit = unit_text(st, unit).value_or(""); c.recipe = rv; c.field_order = f ? cond_order[cond] : -1; c.member_order = member_order[member]; c.stat_order = st_order;
         if (!r["value"].is_null()) {
           const double v = r["value"].get<double>();
-          values[sname][var] = conv ? nxr::spectral::convert(v, *conv, target) : v * factor;
+          values[sname][var] = conv ? nxr::signal::spectral_scaling::convert(v, *conv, target) : v * factor;
         }
       }
     };

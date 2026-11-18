@@ -9,7 +9,8 @@
 #include <stdexcept>
 #include <string>
 
-#include "nxr/chart.h"
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
 
 namespace nxr::selection {
 

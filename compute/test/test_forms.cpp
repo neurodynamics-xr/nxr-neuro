@@ -3,7 +3,7 @@
 // and EVERY form of every type equal the Studio's, value by value (float32, to the bit). Then the complex extension: a linear form of re + i·im is
 // form(re) + i·form(im); abs / absq give the envelope over every real and imaginary component; a type without the form, or a length that is not whole
 // frames, is refused.
-#include "nxr/forms.h"
+#include "nxr/signal/forms.h"
 
 #include <cmath>
 #include <cstdio>
@@ -20,7 +20,7 @@ static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
 
-using namespace nxr::forms;
+using namespace nxr::signal;
 
 // the golden: one record a line, "<tag words…> <count> <numbers…>"; a float32 written as its shortest double repr reads back to the same bits
 static std::map<std::string, std::vector<double>> load(const std::string& path, int& nV, int& nF, double& volume) {

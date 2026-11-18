@@ -11,7 +11,7 @@
 // so angle(c) is the phase RELATIVE to f_lo, and members (or a member and the FFT) cannot be compared until it is undone: carrier() returns
 // a_m(t_k) = c_m(t_k) e^{+2 pi i f_lo t_k} at the block's instants t_k = k p/q samples (k global), the factor's phase computed exactly in integers
 // (no precision lost hours into a recording).
-#include "nxr/wt.h"
+#include "nxr/signal/wavelet.h"
 
 #include <Eigen/Dense>
 
@@ -30,11 +30,11 @@ Eigen::MatrixXd unwrap(const Eigen::MatrixXd& phase, double tolerance = 3.141592
 Eigen::MatrixXd instfreq(const Eigen::MatrixXcd& z, double rate);
 
 /** wt: member m's shift frequency f_lo in Hz. */
-double carrierFrequency(const wt::Plan& plan, int member);
+double carrierFrequency(const signal::Plan& plan, int member);
 /** wt: the block's coefficients with the baseband shift undone, a_m(t_k) = c e^{+2 pi i f_lo t_k} (rows = instants first, first+1, ...). */
-Eigen::MatrixXcd carrier(const wt::Plan& plan, int member, const wt::Block& block);
+Eigen::MatrixXcd carrier(const signal::Plan& plan, int member, const signal::Block& block);
 /** wt: the times of the block's instants, in seconds from sample 0 of the record. */
-Eigen::VectorXd instants(const wt::Plan& plan, int member, const wt::Block& block);
+Eigen::VectorXd instants(const signal::Plan& plan, int member, const signal::Block& block);
 
 // Moved from quadrature.h (toolbox refactor): declarations unchanged.
 using Eigen::MatrixXcd;

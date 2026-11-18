@@ -1,8 +1,25 @@
 // Spin Diracs (Hoffmann–Ye extrinsic, intrinsic HY, intrinsic Ye) on face spinors; the vertex-spinor quotient eigensolve.
-#include "nxr/compute.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/facets.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/synthesis/fields.h"
 #include "mesh_helpers.h"
 #include <algorithm>
-using namespace nxr::manifold;
+using namespace nxr::geometry;
 using ops::spin::Kind;
 
 int main() {
@@ -22,15 +39,15 @@ int main() {
     EXPECT(std::abs(ex.H.sum() - 4 * M_PI) / (4 * M_PI) < 0.05, "total integrated mean curvature ~ 4 pi (unit sphere: H = 1, area 4 pi)");
 
     std::cout << "\n=== eigenSpin: quotient on vertex spinors; the round sphere has intrinsic +-1 (x4 each), extrinsic 1 and -2 ===\n";
-    auto r = solve::eigenSpin(m, Kind::IntrinsicHY, 12);
+    auto r = nxr::operators::eigenSpin(m, Kind::IntrinsicHY, 12);
     EXPECT(r.k == 12 && std::is_sorted(r.eigenvalues.data(), r.eigenvalues.data() + 12), "12 modes, mu ascending");
     std::cout << "  intrinsicHY mu:"; for (int i = 0; i < 12; ++i) std::cout << " " << r.eigenvalues(i); std::cout << "\n";
     int near1 = 0, pos = 0; for (int i = 0; i < 12; ++i) if (std::abs(std::abs(r.eigenvalues(i)) - 1.0) < 0.12) { ++near1; pos += r.eigenvalues(i) > 0; }
     EXPECT(near1 == 8 && pos == 4, "intrinsicHY: 8 modes |mu| ~ 1 (4 of each sign), got " + std::to_string(near1));
-    auto rye = solve::eigenSpin(m, Kind::IntrinsicYe, 12);
+    auto rye = nxr::operators::eigenSpin(m, Kind::IntrinsicYe, 12);
     int near1ye = 0; for (int i = 0; i < 12; ++i) near1ye += std::abs(std::abs(rye.eigenvalues(i)) - 1.0) < 0.12;
     EXPECT(near1ye == 8, "intrinsicYe: 8 modes |mu| ~ 1, got " + std::to_string(near1ye));
-    auto rx = solve::eigenSpin(m, Kind::Extrinsic, 24);
+    auto rx = nxr::operators::eigenSpin(m, Kind::Extrinsic, 24);
     std::cout << "  extrinsic mu:"; for (int i = 0; i < rx.k; ++i) std::cout << " " << rx.eigenvalues(i); std::cout << "\n";
     int e1 = 0, em2 = 0; for (int i = 0; i < rx.k; ++i) { e1 += std::abs(rx.eigenvalues(i) - 1.0) < 0.12; em2 += std::abs(rx.eigenvalues(i) + 2.0) < 0.2; }
     EXPECT(e1 == 8 && em2 == 4, "extrinsic (k=24): mu ~ 1 (x8) and mu ~ -2 (x4), got " + std::to_string(e1) + " / " + std::to_string(em2));
@@ -40,10 +57,10 @@ int main() {
     EXPECT(q1 - q0 < 1e-6, "the +1 quartet is degenerate to " + std::to_string(q1 - q0));
 
     // eigenOperator routes the spin kinds
-    solve::EigenOperatorSpec spec{solve::EigenOperator::SpinIntrinsicHY};
-    auto viaOp = solve::eigenOperator(m, spec, 12);
+    nxr::operators::EigenOperatorSpec spec{nxr::operators::EigenOperator::SpinIntrinsicHY};
+    auto viaOp = nxr::operators::eigenOperator(m, spec, 12);
     EXPECT((viaOp.eigenvalues - r.eigenvalues).cwiseAbs().maxCoeff() < 1e-9, "eigenOperator(SpinIntrinsicHY) == eigenSpin");
-    bool threw = false; try { solve::eigenProblemFor(m, spec); } catch (const nxr::core::Error&) { threw = true; }
+    bool threw = false; try { nxr::operators::eigenProblemFor(m, spec); } catch (const nxr::core::Error&) { threw = true; }
     EXPECT(threw, "eigenProblemFor refuses the spin quotient (not a (K,M) pencil)");
     std::cout << (g_failures ? "\nFAILURES\n" : "\nALL PASSED\n");
     return g_failures ? 1 : 0;

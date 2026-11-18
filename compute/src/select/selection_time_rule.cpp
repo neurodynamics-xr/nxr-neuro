@@ -6,7 +6,7 @@
 
 #include "nxr/select/grid.h"
 #include "nxr/select/partition.h"
-#include "nxr/welch.h"
+#include "nxr/signal/spectral.h"
 
 namespace nxr::select {
 
@@ -73,7 +73,7 @@ TimeGrid time_rule_resolved(const Line& line, const TimeRule& r) {
     }
     case TimeRule::Kind::segments: {
       if (!(r.overlap >= 0 && r.overlap < 1)) throw std::invalid_argument("time_rule: the overlap is a fraction in [0, 1)");
-      const welch::Segment seg = welch::segmentFor(r.segment_rule, r.duration_s, r.segment_samples, r.segment_level, fs, r.overlap);
+      const signal::spectral::Segment seg = signal::spectral::segmentFor(r.segment_rule, r.duration_s, r.segment_samples, r.segment_level, fs, r.overlap);
       width = static_cast<std::int64_t>(seg.samples);
       hop = width - static_cast<std::int64_t>(std::floor(static_cast<double>(width) * r.overlap));
       out.level = seg.level > 0 ? seg.level : -1;

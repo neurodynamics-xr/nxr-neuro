@@ -21,10 +21,26 @@
  * Error(Cancelled), which surfaces as MException 'nxr:cancelled'.
  */
 
-#include "nxr/compute.h"
-#include "nxr/facets.h"
-#include "nxr/field_registry.h"
-#include "nxr/operator_registry.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/operators/registry/field_registry.h"
+#include "nxr/operators/registry/operator_registry.h"
 #include "first_slice.h"
 #include "marshal.h"
 #include "mex.h"
@@ -47,7 +63,7 @@
 // (libut.lib ships next to libmex.lib in the matlabroot/extern dir).
 extern "C" bool utIsInterruptPending();
 
-using namespace nxr::manifold::mex;
+using namespace nxr::geometry::mex;
 
 namespace {
 
@@ -99,28 +115,28 @@ std::string toMatlabIdentifier(nxr::core::ErrorCode code) {
 // Single-threaded: MEX is invoked from MATLAB's one thread; no mutex.
 
 struct ContextHolder {
-    std::unique_ptr<nxr::manifold::Manifold>                      ctx;
-    std::unique_ptr<nxr::manifold::ops::ManifoldOperators>        ops;       // lazy: ensureOps
-    std::unique_ptr<nxr::manifold::ops::DECOperators>             dec;       // lazy: ensureDec
-    std::unique_ptr<nxr::manifold::ops::CholeskyCache>            cache;     // built at create
-    std::unique_ptr<nxr::manifold::solve::EigenResult>            eigCache;  // set by solve/precompute
-    std::unique_ptr<nxr::manifold::transport::VectorHeatSolver>   vhm;       // lazy: ensureVHM
-    std::unique_ptr<nxr::manifold::solve::SignedHeatSolver>       shs;       // lazy: ensureSHS
-    std::unique_ptr<nxr::manifold::solve::HeatGeodesicSolver>     heatGeo;   // lazy: ensureHeatGeo
+    std::unique_ptr<nxr::geometry::Manifold>                      ctx;
+    std::unique_ptr<nxr::operators::ManifoldOperators>        ops;       // lazy: ensureOps
+    std::unique_ptr<nxr::operators::DECOperators>             dec;       // lazy: ensureDec
+    std::unique_ptr<nxr::operators::CholeskyCache>            cache;     // built at create
+    std::unique_ptr<nxr::operators::EigenResult>            eigCache;  // set by solve/precompute
+    std::unique_ptr<nxr::geometry::transport::VectorHeatSolver>   vhm;       // lazy: ensureVHM
+    std::unique_ptr<nxr::geometry::SignedHeatSolver>       shs;       // lazy: ensureSHS
+    std::unique_ptr<nxr::geometry::HeatGeodesicSolver>     heatGeo;   // lazy: ensureHeatGeo
 
     std::unique_ptr<Eigen::SparseMatrix<double>> graphLap;       // lazy: graphLaplacian
     std::unique_ptr<Eigen::SparseMatrix<double>> massGalerkin;   // lazy: Galerkin mass
 
     std::map<std::pair<int, bool>, Eigen::MatrixXd>              smoothFaceFieldCache;
     std::map<std::pair<int, bool>,
-             nxr::manifold::connection::SmoothVertexFieldResult> smoothVertexFieldCache;
+             nxr::geometry::connection::SmoothVertexFieldResult> smoothVertexFieldCache;
 
     using CLKey = std::tuple<
-        nxr::manifold::ops::laplacian::connection::ConnectionDomain,
+        nxr::operators::laplacian::connection::ConnectionDomain,
         int, double,
-        nxr::manifold::ops::laplacian::connection::ConnectionLaplacianFormat>;
+        nxr::operators::laplacian::connection::ConnectionLaplacianFormat>;
     std::map<CLKey, std::shared_ptr<
-        nxr::manifold::ops::laplacian::connection::ConnectionLaplacian>> clCache;
+        nxr::operators::laplacian::connection::ConnectionLaplacian>> clCache;
 };
 
 static uint64_t sNextHandle = 1;
@@ -149,26 +165,26 @@ ContextHolder& getHolder(const mxArray* arr) {
 }
 
 // Lazy initialisers — construct once, reuse (mirror WASM ensure*).
-nxr::manifold::ops::ManifoldOperators& ensureOps(ContextHolder& h) {
-    if (!h.ops) h.ops = std::make_unique<nxr::manifold::ops::ManifoldOperators>(
-        nxr::manifold::ops::assembleManifoldOperators(*h.ctx));
+nxr::operators::ManifoldOperators& ensureOps(ContextHolder& h) {
+    if (!h.ops) h.ops = std::make_unique<nxr::operators::ManifoldOperators>(
+        nxr::operators::assembleManifoldOperators(*h.ctx));
     return *h.ops;
 }
-nxr::manifold::ops::DECOperators& ensureDec(ContextHolder& h) {
-    if (!h.dec) h.dec = std::make_unique<nxr::manifold::ops::DECOperators>(
-        nxr::manifold::ops::assembleDECOperators(*h.ctx));
+nxr::operators::DECOperators& ensureDec(ContextHolder& h) {
+    if (!h.dec) h.dec = std::make_unique<nxr::operators::DECOperators>(
+        nxr::operators::assembleDECOperators(*h.ctx));
     return *h.dec;
 }
-nxr::manifold::transport::VectorHeatSolver& ensureVHM(ContextHolder& h) {
-    if (!h.vhm) h.vhm = std::make_unique<nxr::manifold::transport::VectorHeatSolver>(*h.ctx);
+nxr::geometry::transport::VectorHeatSolver& ensureVHM(ContextHolder& h) {
+    if (!h.vhm) h.vhm = std::make_unique<nxr::geometry::transport::VectorHeatSolver>(*h.ctx);
     return *h.vhm;
 }
-nxr::manifold::solve::SignedHeatSolver& ensureSHS(ContextHolder& h) {
-    if (!h.shs) h.shs = std::make_unique<nxr::manifold::solve::SignedHeatSolver>(*h.ctx);
+nxr::geometry::SignedHeatSolver& ensureSHS(ContextHolder& h) {
+    if (!h.shs) h.shs = std::make_unique<nxr::geometry::SignedHeatSolver>(*h.ctx);
     return *h.shs;
 }
-nxr::manifold::solve::HeatGeodesicSolver& ensureHeatGeo(ContextHolder& h) {
-    if (!h.heatGeo) h.heatGeo = std::make_unique<nxr::manifold::solve::HeatGeodesicSolver>(*h.ctx);
+nxr::geometry::HeatGeodesicSolver& ensureHeatGeo(ContextHolder& h) {
+    if (!h.heatGeo) h.heatGeo = std::make_unique<nxr::geometry::HeatGeodesicSolver>(*h.ctx);
     return *h.heatGeo;
 }
 
@@ -184,9 +200,9 @@ static bool readOperatorsFlag(const mxArray* opts) {
 
 // Parse the 'coupling' option out of an optional opts struct.
 // Reads opts.coupling string ('product'|'ambient'), default Ambient, throws on unknown.
-static nxr::manifold::ops::laplacian::connection::CovariantCoupling
+static nxr::operators::laplacian::connection::CovariantCoupling
 parseCoupling(const mxArray* opts) {
-    namespace cl = nxr::manifold::ops::laplacian::connection;
+    namespace cl = nxr::operators::laplacian::connection;
     if (opts && mxIsStruct(opts)) {
         const mxArray* f = mxGetField(opts, 0, "coupling");
         if (f && mxIsChar(f)) {
@@ -266,7 +282,7 @@ void cmdCreate(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     // DEFAULT intrinsic (geometry-central's intrinsic mollified Delaunay triangulation, nxr/intrinsic_surface.h); intrinsicDelaunay=false is the named option "embedded".
     // opts.mollify (relative delta, 1e-6) and opts.flipEps (1e-6) are the construction's recorded options.
     bool intrinsicDelaunay = true;
-    nxr::manifold::DelaunayOptions dopt;
+    nxr::geometry::DelaunayOptions dopt;
     if (nrhs >= 4) {
         if (!mxIsStruct(prhs[3]))
             throw std::invalid_argument("nxr_compute('create', V, F, opts): opts must be a struct");
@@ -280,9 +296,9 @@ void cmdCreate(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     }
 
     ContextHolder holder;
-    holder.ctx   = std::make_unique<nxr::manifold::Manifold>(
+    holder.ctx   = std::make_unique<nxr::geometry::Manifold>(
         verts.data(), nV, faces.data(), nF, intrinsicDelaunay, dopt);
-    holder.cache = std::make_unique<nxr::manifold::ops::CholeskyCache>();
+    holder.cache = std::make_unique<nxr::operators::CholeskyCache>();
 
     uint64_t h = sNextHandle++;
     sContexts.emplace(h, std::move(holder));
@@ -319,8 +335,8 @@ void cmdAssembleMeshOperators(int /*nlhs*/, mxArray** plhs,
     auto verts = mxToVertexBuffer(prhs[1], nV);
     auto faces = mxToFaceBuffer(prhs[2], nF);
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
     plhs[0] = meshOperatorsToStruct(ops, m.nV(), m.nE(), m.nF());
 }
 
@@ -336,11 +352,11 @@ void cmdSolveEigenmodes(int /*nlhs*/, mxArray** plhs,
         ContextHolder& h = getHolder(prhs[1]);
         auto& ops = ensureOps(h);
         int k = getIntArg(prhs[2]);
-        double sigma = (nrhs >= 4) ? getDoubleArg(prhs[3]) : nxr::manifold::solve::kShiftLadder;
-        auto result = nxr::manifold::solve::eigen(
+        double sigma = (nrhs >= 4) ? getDoubleArg(prhs[3]) : nxr::operators::kShiftLadder;
+        auto result = nxr::operators::eigen(
             ops.cotanLaplacian, ops.mass, k, sigma,
             /*normalize=*/false, /*removeDC=*/false, makeCtrlCToken());
-        h.eigCache = std::make_unique<nxr::manifold::solve::EigenResult>(result);
+        h.eigCache = std::make_unique<nxr::operators::EigenResult>(result);
         plhs[0] = eigenResultToStruct(result);
         return;
     }
@@ -351,10 +367,10 @@ void cmdSolveEigenmodes(int /*nlhs*/, mxArray** plhs,
     auto K = mxToEigenSparse(prhs[1]);
     auto M = mxToEigenSparse(prhs[2]);
     int k = getIntArg(prhs[3]);
-    double sigma = (nrhs >= 5) ? getDoubleArg(prhs[4]) : nxr::manifold::solve::kShiftLadder;
+    double sigma = (nrhs >= 5) ? getDoubleArg(prhs[4]) : nxr::operators::kShiftLadder;
 
     // Ctrl-C polling lives entirely in the token; nxr-compute doesn't know about MATLAB.
-    auto result = nxr::manifold::solve::eigen(K, M, k, sigma,
+    auto result = nxr::operators::eigen(K, M, k, sigma,
         /*normalize=*/false, /*removeDC=*/false, makeCtrlCToken());
     plhs[0] = eigenResultToStruct(result);
 }
@@ -370,14 +386,14 @@ void cmdNormalizeEigenmodes(int /*nlhs*/, mxArray** plhs,
     auto U = mxToEigenMatrix(prhs[1]);
     auto M = mxToEigenSparse(prhs[2]);
 
-    auto Un = nxr::manifold::solve::normalize(U, M);
+    auto Un = nxr::operators::normalize(U, M);
     plhs[0] = eigenMatrixToMx(Un);
 }
 
 // ── fixDelaunay(V, F) → [V2, F2, nFlips]  (Delaunay edge-flip repair) ──
 //
 // Stateless command. Parses V (Vx3 double, 1-based-OK) and F (Fx3, 1-based),
-// runs nxr::manifold::fixDelaunay, returns:
+// runs nxr::geometry::fixDelaunay, returns:
 //   plhs[0] = V (passthrough via mxDuplicateArray — vertices unchanged)
 //   plhs[1] = F2 (Fx3 double, 1-based)  — only when nlhs >= 2
 //   plhs[2] = nFlips (scalar double)    — only when nlhs >= 3
@@ -390,7 +406,7 @@ void cmdFixDelaunay(int nlhs, mxArray** plhs,
     std::vector<double>        Vbuf = mxToVertexBuffer(prhs[1], nV);   // row-major xyz
     std::vector<std::int32_t>  Fbuf = mxToFaceBuffer(prhs[2], nF);     // 0-based
 
-    auto r = nxr::manifold::fixDelaunay(Vbuf.data(), nV, Fbuf.data(), nF);
+    auto r = nxr::geometry::fixDelaunay(Vbuf.data(), nV, Fbuf.data(), nF);
 
     plhs[0] = mxDuplicateArray(prhs[1]);                         // V2 == V (passthrough)
     if (nlhs >= 2) {
@@ -413,7 +429,7 @@ void cmdRemoveDC(int /*nlhs*/, mxArray** plhs,
             "nxr_compute('removeDC', eig) takes exactly 1 argument");
     }
     auto eig = mxToEigenResult(prhs[1]);
-    auto trimmed = nxr::manifold::solve::removeDC(eig);
+    auto trimmed = nxr::operators::removeDC(eig);
     plhs[0] = eigenResultToStruct(trimmed);
 }
 
@@ -433,9 +449,9 @@ void cmdPrecompute(int /*nlhs*/, mxArray** plhs,
         ContextHolder& h = getHolder(prhs[1]);
         auto& ops = ensureOps(h);
         int k = getIntArg(prhs[2]);
-        auto eig = nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, k, nxr::manifold::solve::kShiftLadder,
+        auto eig = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, k, nxr::operators::kShiftLadder,
             /*normalize=*/true, /*removeDC=*/true, makeCtrlCToken());
-        h.eigCache = std::make_unique<nxr::manifold::solve::EigenResult>(eig);
+        h.eigCache = std::make_unique<nxr::operators::EigenResult>(eig);
         plhs[0] = eigenResultToStruct(eig);
         return;
     }
@@ -448,9 +464,9 @@ void cmdPrecompute(int /*nlhs*/, mxArray** plhs,
     auto faces = mxToFaceBuffer(prhs[2], nF);
     int k = getIntArg(prhs[3]);
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
-    auto eig = nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, k, nxr::manifold::solve::kShiftLadder,
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
+    auto eig = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, k, nxr::operators::kShiftLadder,
         /*normalize=*/true, /*removeDC=*/true, makeCtrlCToken());
 
     plhs[0] = eigenResultToStruct(eig);
@@ -481,7 +497,7 @@ void cmdVectorHeatTransport(int /*nlhs*/, mxArray** plhs,
             throw std::invalid_argument(
                 "sourceVectors must be Nx3 with N = numel(sourceVerts)");
         }
-        Eigen::MatrixXd out = nxr::manifold::transport::parallel(ensureVHM(h), srcIdx, srcVecs);
+        Eigen::MatrixXd out = nxr::geometry::transport::parallel(ensureVHM(h), srcIdx, srcVecs);
         plhs[0] = eigenMatrixToMx(out);
         return;
     }
@@ -501,9 +517,9 @@ void cmdVectorHeatTransport(int /*nlhs*/, mxArray** plhs,
             "sourceVectors must be Nx3 with N = numel(sourceVerts)");
     }
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    nxr::manifold::transport::VectorHeatSolver vhm(m);
-    Eigen::MatrixXd out = nxr::manifold::transport::parallel(vhm, srcIdx, srcVecs);
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    nxr::geometry::transport::VectorHeatSolver vhm(m);
+    Eigen::MatrixXd out = nxr::geometry::transport::parallel(vhm, srcIdx, srcVecs);
     plhs[0] = eigenMatrixToMx(out);             // V×3 column-major (MATLAB native)
 }
 
@@ -522,7 +538,7 @@ void cmdVectorHeatExtendScalar(int /*nlhs*/, mxArray** plhs,
             throw std::invalid_argument(
                 "sourceValues must have the same length as sourceVerts");
         }
-        Eigen::VectorXd out = nxr::manifold::transport::extendScalar(ensureVHM(h), srcIdx, srcVal);
+        Eigen::VectorXd out = nxr::geometry::transport::extendScalar(ensureVHM(h), srcIdx, srcVal);
         plhs[0] = eigenVectorToMx(out);
         return;
     }
@@ -541,9 +557,9 @@ void cmdVectorHeatExtendScalar(int /*nlhs*/, mxArray** plhs,
             "sourceValues must have the same length as sourceVerts");
     }
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    nxr::manifold::transport::VectorHeatSolver vhm(m);
-    Eigen::VectorXd out = nxr::manifold::transport::extendScalar(vhm, srcIdx, srcVal);
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    nxr::geometry::transport::VectorHeatSolver vhm(m);
+    Eigen::VectorXd out = nxr::geometry::transport::extendScalar(vhm, srcIdx, srcVal);
     plhs[0] = eigenVectorToMx(out);
 }
 
@@ -559,10 +575,10 @@ void cmdVectorHeatLogMap(int /*nlhs*/, mxArray** plhs,
         int sourceVertex = getIntArg(prhs[2]) - 1;
         int strategy = (nrhs >= 4)
             ? getIntArg(prhs[3])
-            : static_cast<int>(nxr::manifold::transport::LogMapStrategy::AffineLocal);
-        auto r = nxr::manifold::transport::logMap(
+            : static_cast<int>(nxr::geometry::transport::LogMapStrategy::AffineLocal);
+        auto r = nxr::geometry::transport::logMap(
             ensureVHM(h), sourceVertex,
-            static_cast<nxr::manifold::transport::LogMapStrategy>(strategy));
+            static_cast<nxr::geometry::transport::LogMapStrategy>(strategy));
         const char* fields[] = {"logCoords", "sourceE1", "sourceE2"};
         mxArray* s = mxCreateStructMatrix(1, 1, 3, fields);
         mxSetField(s, 0, "logCoords", eigenMatrixToMx(r.logCoords));
@@ -588,13 +604,13 @@ void cmdVectorHeatLogMap(int /*nlhs*/, mxArray** plhs,
     int sourceVertex = getIntArg(prhs[3]) - 1;  // 1-based → 0-based
     int strategy = (nrhs >= 5)
         ? getIntArg(prhs[4])
-        : static_cast<int>(nxr::manifold::transport::LogMapStrategy::AffineLocal);
+        : static_cast<int>(nxr::geometry::transport::LogMapStrategy::AffineLocal);
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    nxr::manifold::transport::VectorHeatSolver vhm(m);
-    auto r = nxr::manifold::transport::logMap(
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    nxr::geometry::transport::VectorHeatSolver vhm(m);
+    auto r = nxr::geometry::transport::logMap(
         vhm, sourceVertex,
-        static_cast<nxr::manifold::transport::LogMapStrategy>(strategy));
+        static_cast<nxr::geometry::transport::LogMapStrategy>(strategy));
 
     const char* fields[] = {"logCoords", "sourceE1", "sourceE2"};
     mxArray* s = mxCreateStructMatrix(1, 1, 3, fields);
@@ -621,7 +637,7 @@ void cmdVectorHeatFindCenter(int /*nlhs*/, mxArray** plhs,
         ContextHolder& h = getHolder(prhs[1]);
         auto srcIdx = mxToVertexIndices(prhs[2]);
         int p = (nrhs >= 4) ? getIntArg(prhs[3]) : 2;
-        Eigen::Vector3d c = nxr::manifold::transport::findCenter(ensureVHM(h), srcIdx, p);
+        Eigen::Vector3d c = nxr::geometry::transport::findCenter(ensureVHM(h), srcIdx, p);
         mxArray* out = mxCreateDoubleMatrix(1, 3, mxREAL);
         double* op = mxGetPr(out);
         op[0] = c.x(); op[1] = c.y(); op[2] = c.z();
@@ -639,9 +655,9 @@ void cmdVectorHeatFindCenter(int /*nlhs*/, mxArray** plhs,
     auto srcIdx = mxToVertexIndices(prhs[3]);
     int p = (nrhs >= 5) ? getIntArg(prhs[4]) : 2;
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    nxr::manifold::transport::VectorHeatSolver vhm(m);
-    Eigen::Vector3d c = nxr::manifold::transport::findCenter(vhm, srcIdx, p);
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    nxr::geometry::transport::VectorHeatSolver vhm(m);
+    Eigen::Vector3d c = nxr::geometry::transport::findCenter(vhm, srcIdx, p);
     mxArray* out = mxCreateDoubleMatrix(1, 3, mxREAL);
     double* op = mxGetPr(out);
     op[0] = c.x(); op[1] = c.y(); op[2] = c.z();
@@ -663,10 +679,10 @@ void cmdSignedHeatDistance(int /*nlhs*/, mxArray** plhs,
         bool isLoop = getIntArg(prhs[3]) != 0;
         int ls = (nrhs >= 5)
             ? getIntArg(prhs[4])
-            : static_cast<int>(nxr::manifold::solve::SignedHeatLevelSet::ZeroSet);
-        Eigen::VectorXd out = nxr::manifold::solve::signedHeat(
+            : static_cast<int>(nxr::geometry::SignedHeatLevelSet::ZeroSet);
+        Eigen::VectorXd out = nxr::geometry::signedHeat(
             ensureSHS(h), curveIdx, isLoop,
-            static_cast<nxr::manifold::solve::SignedHeatLevelSet>(ls));
+            static_cast<nxr::geometry::SignedHeatLevelSet>(ls));
         plhs[0] = eigenVectorToMx(out);
         return;
     }
@@ -682,13 +698,13 @@ void cmdSignedHeatDistance(int /*nlhs*/, mxArray** plhs,
     bool isLoop = getIntArg(prhs[4]) != 0;
     int  ls     = (nrhs >= 6)
         ? getIntArg(prhs[5])
-        : static_cast<int>(nxr::manifold::solve::SignedHeatLevelSet::ZeroSet);
+        : static_cast<int>(nxr::geometry::SignedHeatLevelSet::ZeroSet);
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    nxr::manifold::solve::SignedHeatSolver shs(m);
-    Eigen::VectorXd out = nxr::manifold::solve::signedHeat(
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    nxr::geometry::SignedHeatSolver shs(m);
+    Eigen::VectorXd out = nxr::geometry::signedHeat(
         shs, curveIdx, isLoop,
-        static_cast<nxr::manifold::solve::SignedHeatLevelSet>(ls));
+        static_cast<nxr::geometry::SignedHeatLevelSet>(ls));
     plhs[0] = eigenVectorToMx(out);
 }
 
@@ -708,7 +724,7 @@ void cmdComputeSmoothFaceField(int /*nlhs*/, mxArray** plhs,
         auto key = std::make_pair(nSym, align);
         auto it = h.smoothFaceFieldCache.find(key);
         if (it == h.smoothFaceFieldCache.end()) {
-            Eigen::MatrixXd v = nxr::manifold::connection::smoothFace(*h.ctx, nSym, align);
+            Eigen::MatrixXd v = nxr::geometry::connection::smoothFace(*h.ctx, nSym, align);
             it = h.smoothFaceFieldCache.emplace(key, std::move(v)).first;
         }
         plhs[0] = eigenMatrixToMx(it->second);
@@ -725,8 +741,8 @@ void cmdComputeSmoothFaceField(int /*nlhs*/, mxArray** plhs,
     int  nSym  = (nrhs >= 4) ? getIntArg(prhs[3])    : 4;
     bool align = (nrhs >= 5) ? (getIntArg(prhs[4]) != 0) : false;
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    Eigen::MatrixXd out = nxr::manifold::connection::smoothFace(m, nSym, align);
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    Eigen::MatrixXd out = nxr::geometry::connection::smoothFace(m, nSym, align);
     plhs[0] = eigenMatrixToMx(out);   // F×3
 }
 
@@ -744,7 +760,7 @@ void cmdComputeSmoothVertexField(int /*nlhs*/, mxArray** plhs,
         auto key = std::make_pair(nSym, align);
         auto it = h.smoothVertexFieldCache.find(key);
         if (it == h.smoothVertexFieldCache.end()) {
-            auto r = nxr::manifold::connection::smoothVertex(*h.ctx, nSym, align);
+            auto r = nxr::geometry::connection::smoothVertex(*h.ctx, nSym, align);
             it = h.smoothVertexFieldCache.emplace(key, std::move(r)).first;
         }
         const auto& r = it->second;
@@ -767,8 +783,8 @@ void cmdComputeSmoothVertexField(int /*nlhs*/, mxArray** plhs,
     int  nSym  = (nrhs >= 4) ? getIntArg(prhs[3])      : 2;
     bool align = (nrhs >= 5) ? (getIntArg(prhs[4]) != 0) : false;
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    auto r = nxr::manifold::connection::smoothVertex(m, nSym, align);
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    auto r = nxr::geometry::connection::smoothVertex(m, nSym, align);
 
     const char* fields[] = {"vertexVectors", "vertexFieldRaw", "nSym"};
     mxArray* s = mxCreateStructMatrix(1, 1, 3, fields);
@@ -784,7 +800,7 @@ void cmdComputeSmoothVertexField(int /*nlhs*/, mxArray** plhs,
 // MATLAB users render with line() / patch() over consecutive pairs.
 
 namespace {
-mxArray* stripePatternResultToStruct(const nxr::manifold::parametrization::stripes::StripePatternResult& r) {
+mxArray* stripePatternResultToStruct(const nxr::geometry::parametrization::stripes::StripePatternResult& r) {
     const char* fields[] = {"positions", "segmentCount"};
     mxArray* s = mxCreateStructMatrix(1, 1, 2, fields);
     mxSetField(s, 0, "positions",    eigenMatrixToMx(r.positions));
@@ -805,7 +821,7 @@ void cmdComputeStripePattern(int /*nlhs*/, mxArray** plhs,
         Eigen::VectorXd raw = mxToEigenVector(prhs[2]);
         double freq = getDoubleArg(prhs[3]);
         bool connect = (nrhs >= 5) ? (getIntArg(prhs[4]) != 0) : true;
-        auto r = nxr::manifold::parametrization::stripes::compute(*h.ctx, raw, freq, connect);
+        auto r = nxr::geometry::parametrization::stripes::compute(*h.ctx, raw, freq, connect);
         plhs[0] = stripePatternResultToStruct(r);
         return;
     }
@@ -821,8 +837,8 @@ void cmdComputeStripePattern(int /*nlhs*/, mxArray** plhs,
     double freq = getDoubleArg(prhs[4]);
     bool connect = (nrhs >= 6) ? (getIntArg(prhs[5]) != 0) : true;
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    auto r = nxr::manifold::parametrization::stripes::compute(m, raw, freq, connect);
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    auto r = nxr::geometry::parametrization::stripes::compute(m, raw, freq, connect);
     plhs[0] = stripePatternResultToStruct(r);
 }
 
@@ -838,7 +854,7 @@ void cmdComputeStripePatternFreq(int /*nlhs*/, mxArray** plhs,
         Eigen::VectorXd raw   = mxToEigenVector(prhs[2]);
         Eigen::VectorXd freqs = mxToEigenVector(prhs[3]);
         bool connect = (nrhs >= 5) ? (getIntArg(prhs[4]) != 0) : true;
-        auto r = nxr::manifold::parametrization::stripes::computeFreq(*h.ctx, raw, freqs, connect);
+        auto r = nxr::geometry::parametrization::stripes::computeFreq(*h.ctx, raw, freqs, connect);
         plhs[0] = stripePatternResultToStruct(r);
         return;
     }
@@ -854,8 +870,8 @@ void cmdComputeStripePatternFreq(int /*nlhs*/, mxArray** plhs,
     Eigen::VectorXd freqs = mxToEigenVector(prhs[4]);
     bool connect = (nrhs >= 6) ? (getIntArg(prhs[5]) != 0) : true;
 
-    nxr::manifold::Manifold m(verts.data(), nV, faces.data(), nF);
-    auto r = nxr::manifold::parametrization::stripes::computeFreq(m, raw, freqs, connect);
+    nxr::geometry::Manifold m(verts.data(), nV, faces.data(), nF);
+    auto r = nxr::geometry::parametrization::stripes::computeFreq(m, raw, freqs, connect);
     plhs[0] = stripePatternResultToStruct(r);
 }
 
@@ -880,7 +896,7 @@ void cmdAssembleConnectionLaplacian(int /*nlhs*/, mxArray** plhs,
             "nxr_compute('assembleConnectionLaplacian', handle, [opts]) "
             "takes 1 or 2 arguments");
     }
-    namespace cl = nxr::manifold::ops::laplacian::connection;
+    namespace cl = nxr::operators::laplacian::connection;
     ContextHolder& h = getHolder(prhs[1]);
     cl::ConnectionLaplacianOptions o;   // value-init → vertex / nSym=1 / 1e-8 / Real2N
     if (nrhs >= 3 && !mxIsEmpty(prhs[2])) {
@@ -908,7 +924,7 @@ void cmdFrames(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
         throw std::invalid_argument("nxr_compute('frames', handle) takes exactly 1 argument");
     }
     ContextHolder& h = getHolder(prhs[1]);
-    plhs[0] = faceFramesToStruct(nxr::manifold::geometry::frames(*h.ctx));
+    plhs[0] = faceFramesToStruct(nxr::geometry::frames(*h.ctx));
 }
 
 void cmdVertexFrames(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
@@ -916,11 +932,11 @@ void cmdVertexFrames(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prh
         throw std::invalid_argument("nxr_compute('vertexFrames', handle) takes exactly 1 argument");
     }
     ContextHolder& h = getHolder(prhs[1]);
-    plhs[0] = vertexFramesToStruct(nxr::manifold::geometry::vertexFrames(*h.ctx));
+    plhs[0] = vertexFramesToStruct(nxr::geometry::vertexFrames(*h.ctx));
 }
 
-nxr::manifold::geometry::NormalType parseNormalType(const std::string& s) {
-    using NT = nxr::manifold::geometry::NormalType;
+nxr::geometry::NormalType parseNormalType(const std::string& s) {
+    using NT = nxr::geometry::NormalType;
     if (s == "angle")  return NT::AngleWeighted;
     if (s == "area")   return NT::AreaWeighted;
     if (s == "equal")  return NT::EqualWeighted;
@@ -937,9 +953,9 @@ void cmdNormals(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
             "nxr_compute('normals', handle, [type]) takes 1 or 2 arguments");
     }
     ContextHolder& h = getHolder(prhs[1]);
-    auto type = nxr::manifold::geometry::NormalType::AngleWeighted;
+    auto type = nxr::geometry::NormalType::AngleWeighted;
     if (nrhs >= 3) type = parseNormalType(getStringArg(prhs[2]));
-    plhs[0] = eigenMatrixToMx(nxr::manifold::geometry::normals(*h.ctx, type));
+    plhs[0] = eigenMatrixToMx(nxr::geometry::normals(*h.ctx, type));
 }
 
 // Group C — solvers
@@ -959,7 +975,7 @@ void cmdPoisson(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     for (std::size_t i = 0; i < idx.size(); ++i) {
         density[idx[i]] = val[static_cast<Eigen::Index>(i)];
     }
-    Eigen::VectorXd phi = nxr::manifold::solve::poisson(ensureOps(h), *h.cache, density);
+    Eigen::VectorXd phi = nxr::operators::poisson(ensureOps(h), *h.cache, density);
     plhs[0] = eigenVectorToMx(phi);
 }
 
@@ -970,7 +986,7 @@ void cmdHeat(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     }
     ContextHolder& h = getHolder(prhs[1]);
     auto idx = mxToVertexIndices(prhs[2]);
-    Eigen::VectorXd d = nxr::manifold::solve::heat(ensureHeatGeo(h), idx);
+    Eigen::VectorXd d = nxr::geometry::heat(ensureHeatGeo(h), idx);
     plhs[0] = eigenVectorToMx(d);
 }
 
@@ -982,7 +998,7 @@ void cmdTracePath(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) 
     ContextHolder& h = getHolder(prhs[1]);
     int a = getIntArg(prhs[2]) - 1;   // 1-based → 0-based
     int b = getIntArg(prhs[3]) - 1;
-    Eigen::MatrixXd pts = nxr::manifold::query::tracePath(*h.ctx, a, b);
+    Eigen::MatrixXd pts = nxr::geometry::query::tracePath(*h.ctx, a, b);
     plhs[0] = eigenMatrixToMx(pts);
 }
 
@@ -993,7 +1009,7 @@ void cmdHodge(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     }
     ContextHolder& h = getHolder(prhs[1]);
     Eigen::VectorXd omega = mxToEigenVector(prhs[2]);
-    auto r = nxr::manifold::solve::hodge(*h.ctx, ensureDec(h), *h.cache, omega);
+    auto r = nxr::operators::hodge(*h.ctx, ensureDec(h), *h.cache, omega);
     plhs[0] = hodgeResultToStruct(r);
 }
 
@@ -1004,7 +1020,7 @@ void cmdCurvatures(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs)
         throw std::invalid_argument("nxr_compute('curvatures', handle) takes exactly 1 argument");
     }
     ContextHolder& h = getHolder(prhs[1]);
-    plhs[0] = curvatureResultToStruct(nxr::manifold::geometry::curvatures(*h.ctx));
+    plhs[0] = curvatureResultToStruct(nxr::geometry::curvatures(*h.ctx));
 }
 
 void cmdBff(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
@@ -1012,7 +1028,7 @@ void cmdBff(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
         throw std::invalid_argument("nxr_compute('bff', handle) takes exactly 1 argument");
     }
     ContextHolder& h = getHolder(prhs[1]);
-    plhs[0] = eigenMatrixToMx(nxr::manifold::parametrization::bff(*h.ctx));   // [V, 2]
+    plhs[0] = eigenMatrixToMx(nxr::geometry::parametrization::bff(*h.ctx));   // [V, 2]
 }
 
 void cmdIsoline(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
@@ -1026,7 +1042,7 @@ void cmdIsoline(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     int    numLevels = (nrhs >= 4) ? getIntArg(prhs[3])    : 20;
     double minV      = (nrhs >= 5) ? getDoubleArg(prhs[4]) : 0.0;
     double maxV      = (nrhs >= 6) ? getDoubleArg(prhs[5]) : 0.0;
-    auto r = nxr::field::extract::isoline(*h.ctx, field, numLevels, minV, maxV);
+    auto r = nxr::signal::isoline(*h.ctx, field, numLevels, minV, maxV);
     plhs[0] = positionsSegmentsToStruct(r.positions, r.segmentCount);
 }
 
@@ -1046,7 +1062,7 @@ void cmdDirectionField(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** p
     for (std::size_t i = 0; i < idx.size(); ++i) {
         sing[idx[i]] = val[static_cast<Eigen::Index>(i)];
     }
-    auto r = nxr::manifold::connection::trivial(*h.ctx, ensureDec(h), *h.cache, sing);
+    auto r = nxr::geometry::connection::trivial(*h.ctx, ensureDec(h), *h.cache, sing);
     plhs[0] = directionFieldResultToStruct(r);
 }
 
@@ -1062,7 +1078,7 @@ void cmdTrivialConnectionLaplacian(int /*nlhs*/, mxArray** plhs,
             "              regularization (default 1e-8), format ('complex'|'real2N')");
     }
 
-    namespace cl = nxr::manifold::ops::laplacian::connection;
+    namespace cl = nxr::operators::laplacian::connection;
     ContextHolder& h = getHolder(prhs[1]);
 
     // Parse singularity map (1-based MATLAB indices → 0-based C++ indices)
@@ -1105,7 +1121,7 @@ void cmdStreamline(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs)
     int    numSeeds = (nrhs >= 4) ? getIntArg(prhs[3])    : 15;
     double stepCoef = (nrhs >= 5) ? getDoubleArg(prhs[4]) : 0.15;
     int    maxSteps = (nrhs >= 6) ? getIntArg(prhs[5])    : 1000;
-    auto r = nxr::field::extract::streamline(*h.ctx, faceField, numSeeds, stepCoef, maxSteps);
+    auto r = nxr::signal::streamline(*h.ctx, faceField, numSeeds, stepCoef, maxSteps);
     plhs[0] = positionsSegmentsToStruct(r.positions, r.segmentCount);
 }
 
@@ -1117,7 +1133,7 @@ void cmdWhitney(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     }
     ContextHolder& h = getHolder(prhs[1]);
     Eigen::VectorXd oneForm = mxToEigenVector(prhs[2]);
-    Eigen::MatrixXd v = nxr::field::interp::whitney(*h.ctx, ensureDec(h), oneForm);
+    Eigen::MatrixXd v = nxr::signal::whitney(*h.ctx, ensureDec(h), oneForm);
     plhs[0] = eigenMatrixToMx(v);
 }
 
@@ -1127,7 +1143,7 @@ void cmdGradient(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
     }
     ContextHolder& h = getHolder(prhs[1]);
     Eigen::VectorXd scalar = mxToEigenVector(prhs[2]);
-    Eigen::MatrixXd g = nxr::field::op::gradient(*h.ctx, scalar);
+    Eigen::MatrixXd g = nxr::operators::gradient(*h.ctx, scalar);
     plhs[0] = eigenMatrixToMx(g);
 }
 
@@ -1155,9 +1171,9 @@ void cmdHeatDiffusion(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** pr
     for (std::size_t i = 0; i < idx.size(); ++i) {
         sources[idx[i]] = val[static_cast<Eigen::Index>(i)];
     }
-    Eigen::VectorXd u0 = nxr::field::generate::delta(h.ctx->nV(), sources);
+    Eigen::VectorXd u0 = nxr::synthesis::delta(h.ctx->nV(), sources);
     std::vector<double> timesteps(ts.data(), ts.data() + ts.size());
-    Eigen::MatrixXf out = nxr::field::generate::heatDiffusion(
+    Eigen::MatrixXf out = nxr::synthesis::heatDiffusion(
         ensureOps(h), *h.eigCache, u0, timesteps, alpha);
     plhs[0] = eigenMatrixXfToMx(out);
 }
@@ -1182,7 +1198,7 @@ void cmdDampedWave(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs)
     std::vector<double> damps  = toVec(prhs[4]);
     std::vector<double> phases = toVec(prhs[5]);
     std::vector<double> ts     = toVec(prhs[6]);
-    Eigen::MatrixXf out = nxr::field::generate::dampedWave(
+    Eigen::MatrixXf out = nxr::synthesis::dampedWave(
         *h.eigCache, modeIdx, amps, damps, phases, ts);
     plhs[0] = eigenMatrixXfToMx(out);
 }
@@ -1199,14 +1215,14 @@ void cmdRandomDecomposed1Form(int /*nlhs*/, mxArray** plhs, int nrhs, const mxAr
     double bS = getDoubleArg(prhs[3]);
     double gS = getDoubleArg(prhs[4]);
     unsigned int seed = (nrhs >= 6) ? static_cast<unsigned int>(getIntArg(prhs[5])) : 42u;
-    Eigen::VectorXd omega = nxr::field::generate::randomDecomposed1Form(
+    Eigen::VectorXd omega = nxr::synthesis::randomDecomposed1Form(
         dec, h.ctx->nV(), h.ctx->nE(), h.ctx->nF(), aS, bS, gS, seed);
     plhs[0] = eigenVectorToMx(omega);
 }
 
 // ── Covariant differential: frameTransport / liftToWorld / liftToFrame ──
 //
-// Thin wrappers around nxr::manifold::differential::* that handle 1-based
+// Thin wrappers around nxr::operators::differential::* that handle 1-based
 // MATLAB index conversion and [nV×3] matrix marshalling via the existing
 // mxToEigenMatrix / eigenMatrixToMx helpers from marshal.h.
 
@@ -1217,7 +1233,7 @@ void cmdFrameTransport(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
     ContextHolder& h = getHolder(prhs[1]);
     int i = static_cast<int>(mxGetScalar(prhs[2])) - 1;   // 1-based -> 0-based
     int j = static_cast<int>(mxGetScalar(prhs[3])) - 1;
-    plhs[0] = eigenMatrixToMx(nxr::manifold::differential::frameTransport(*h.ctx, i, j));
+    plhs[0] = eigenMatrixToMx(nxr::operators::differential::frameTransport(*h.ctx, i, j));
 }
 
 // nxr_compute('liftToWorld', h, Lloc[nV×3]) -> [nV×3]
@@ -1226,7 +1242,7 @@ void cmdLiftToWorld(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
         "liftToWorld: expected nxr_compute('liftToWorld', handle, field[nV x 3]).");
     ContextHolder& h = getHolder(prhs[1]);
     plhs[0] = eigenMatrixToMx(
-        nxr::manifold::differential::liftToWorld(*h.ctx, mxToEigenMatrix(prhs[2])));
+        nxr::operators::differential::liftToWorld(*h.ctx, mxToEigenMatrix(prhs[2])));
 }
 
 // nxr_compute('liftToFrame', h, Lworld[nV×3]) -> [nV×3]
@@ -1235,7 +1251,7 @@ void cmdLiftToFrame(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
         "liftToFrame: expected nxr_compute('liftToFrame', handle, field[nV x 3]).");
     ContextHolder& h = getHolder(prhs[1]);
     plhs[0] = eigenMatrixToMx(
-        nxr::manifold::differential::liftToFrame(*h.ctx, mxToEigenMatrix(prhs[2])));
+        nxr::operators::differential::liftToFrame(*h.ctx, mxToEigenMatrix(prhs[2])));
 }
 
 // ── operator sub-struct builders ─────────────────────────────
@@ -1247,7 +1263,7 @@ void cmdLiftToFrame(int, mxArray** plhs, int nrhs, const mxArray** prhs) {
 mxArray* buildTopologyOperators(ContextHolder& h) {
     if (!h.graphLap)
         h.graphLap = std::make_unique<Eigen::SparseMatrix<double>>(
-            nxr::manifold::ops::graphLaplacian(*h.ctx));
+            nxr::operators::graphLaplacian(*h.ctx));
     auto& dec = ensureDec(h);
     const char* f[] = {"laplacian","dec"};
     mxArray* s = mxCreateStructMatrix(1,1,2,f);
@@ -1264,8 +1280,8 @@ mxArray* buildGeometryOperators(ContextHolder& h) {
     auto& ops = ensureOps(h);
     auto& dec = ensureDec(h);
     if (!h.massGalerkin) {
-        auto g = nxr::manifold::ops::assembleManifoldOperators(
-                     *h.ctx, nxr::manifold::ops::MassMatrixVariant::Galerkin);
+        auto g = nxr::operators::assembleManifoldOperators(
+                     *h.ctx, nxr::operators::MassMatrixVariant::Galerkin);
         h.massGalerkin = std::make_unique<Eigen::SparseMatrix<double>>(g.mass);
     }
     const char* f[] = {"laplacian","mass","hodge"};
@@ -1274,7 +1290,7 @@ mxArray* buildGeometryOperators(ContextHolder& h) {
     const char* mf[] = {"mixedVoronoi","barycentric","galerkin"};
     mxArray* mm = mxCreateStructMatrix(1,1,3,mf);
     mxSetField(mm,0,"mixedVoronoi", eigenSparseToMx(dec.hodge0));
-    mxSetField(mm,0,"barycentric",  eigenSparseToMx(nxr::manifold::ops::vertexMass(*h.ctx, nxr::manifold::ops::MassMatrixVariant::Barycentric)));
+    mxSetField(mm,0,"barycentric",  eigenSparseToMx(nxr::operators::vertexMass(*h.ctx, nxr::operators::MassMatrixVariant::Barycentric)));
     mxSetField(mm,0,"galerkin",     eigenSparseToMx(*h.massGalerkin));
     mxSetField(s,0,"mass", mm);
     const char* hf[] = {"h0","h1","h2","h1inv"};
@@ -1290,9 +1306,9 @@ mxArray* buildGeometryOperators(ContextHolder& h) {
 // type/opts mirror buildGaugeStruct; opts may carry singVerts/singValues for 'trivial'.
 // coupling selects the covariant Laplacian variant (Product or Ambient, default Ambient).
 mxArray* buildGaugeOperators(ContextHolder& h, const std::string& type, const mxArray* opts,
-                              nxr::manifold::ops::laplacian::connection::CovariantCoupling coupling) {
-    namespace cl = nxr::manifold::ops::laplacian::connection;
-    namespace conn = nxr::manifold::connection;
+                              nxr::operators::laplacian::connection::CovariantCoupling coupling) {
+    namespace cl = nxr::operators::laplacian::connection;
+    namespace conn = nxr::geometry::connection;
     cl::ConnectionLaplacianOptions o;
     o.domain = cl::ConnectionDomain::Vertex;
     o.nSym   = 1;
@@ -1300,7 +1316,7 @@ mxArray* buildGaugeOperators(ContextHolder& h, const std::string& type, const mx
     Eigen::SparseMatrix<std::complex<double>> K;
 
     // Realized gauge grid: LC frame for euclidean/levi-civita; trivial rotates each row.
-    Eigen::MatrixXcd grid = nxr::manifold::geometry::vertexGrid(*h.ctx);
+    Eigen::MatrixXcd grid = nxr::geometry::vertexGrid(*h.ctx);
 
     if (type == "trivial") {
         if (!opts || !mxIsStruct(opts))
@@ -1375,8 +1391,8 @@ mxArray* buildGaugeOperators(ContextHolder& h, const std::string& type, const mx
 
 mxArray* buildGaugeStruct(ContextHolder& h, const std::string& type, const mxArray* opts,
                           bool withOps = false) {
-    namespace conn = nxr::manifold::connection;
-    nxr::manifold::Manifold& m = *h.ctx;
+    namespace conn = nxr::geometry::connection;
+    nxr::geometry::Manifold& m = *h.ctx;
 
     const int nV = m.nV();
     const int nF = m.nF();
@@ -1482,8 +1498,8 @@ void cmdGauge(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
 //   G.corner.scaledAngles         [nH x 1]  double
 
 mxArray* buildGeometryStruct(ContextHolder& h, bool withOps = false) {
-    nxr::manifold::geometry::MeshGeometry g =
-        nxr::manifold::geometry::meshGeometry(*h.ctx);
+    nxr::geometry::MeshGeometry g =
+        nxr::geometry::meshGeometry(*h.ctx);
 
     const char* topF[] = {"schemaVersion","totalArea","vertex","edge","face","halfedge","corner"};
     mxArray* s = mxCreateStructMatrix(1, 1, 7, topF);
@@ -1555,7 +1571,7 @@ mxArray* buildGeometryStruct(ContextHolder& h, bool withOps = false) {
 //   E.face.area         [nF x 1]  double            (schemaVersion >= 2)
 
 mxArray* buildEmbeddedStruct(ContextHolder& h) {
-    nxr::manifold::Manifold& m = *h.ctx;
+    nxr::geometry::Manifold& m = *h.ctx;
     auto emb = m.embedded();
     auto vv = emb.vertex();
     auto fv = emb.face();
@@ -1593,7 +1609,7 @@ mxArray* buildEmbeddedStruct(ContextHolder& h) {
 //   I.halfedge.transportAcross[nH x 1]  complex double
 
 mxArray* buildIntrinsicStruct(ContextHolder& h) {
-    nxr::manifold::Manifold& m = *h.ctx;
+    nxr::geometry::Manifold& m = *h.ctx;
     auto intr = m.intrinsic();
     auto vv = intr.vertex();
     auto ev = intr.edge();
@@ -1632,7 +1648,7 @@ mxArray* buildIntrinsicStruct(ContextHolder& h) {
 //   X.edge.dihedralAngle     [nE x 1]  double
 
 mxArray* buildExtrinsicStruct(ContextHolder& h) {
-    nxr::manifold::Manifold& m = *h.ctx;
+    nxr::geometry::Manifold& m = *h.ctx;
     auto ext = m.extrinsic();
     auto vv = ext.vertex();
     auto ev = ext.edge();
@@ -1688,7 +1704,7 @@ void cmdGeometry(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
 //   T.halfedge.isInterior   [nH × 1] logical
 
 mxArray* buildTopologyStruct(ContextHolder& h, bool withOps = false) {
-    auto t = nxr::manifold::geometry::meshTopology(*h.ctx);
+    auto t = nxr::geometry::meshTopology(*h.ctx);
 
     const char* topFields[] = {"schemaVersion","vertex","edge","face","corner","halfedge"};
     mxArray* s = mxCreateStructMatrix(1, 1, 6, topFields);
@@ -1840,7 +1856,7 @@ void cmdVersion(int /*nlhs*/, mxArray** plhs,
 // when no cross-link is present.
 
 void cmdOperatorInfo(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
-    using namespace nxr::manifold::registry;
+    using namespace nxr::operators::registry;
     if (nrhs < 2 || !mxIsChar(prhs[1]))
         throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
             "operatorInfo requires an id string.");
@@ -1898,7 +1914,7 @@ void cmdOperatorInfo(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prh
 // Returns nxr:invalidInput on unknown id.
 
 static void cmdFieldInfo(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) {
-    using namespace nxr::manifold::registry;
+    using namespace nxr::operators::registry;
     if (nrhs < 2 || !mxIsChar(prhs[1]))
         throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
             "fieldInfo requires an id string.");
@@ -1973,7 +1989,7 @@ void cmdOperators(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) 
     // prhs[3] directly (they do not use `sub`).
     std::string sub    = (nrhs >= 4 && mxIsChar(prhs[3])) ? getStringArg(prhs[3]) : "";
     auto ops = m.operators();
-    namespace cl = nxr::manifold::ops::laplacian::connection;
+    namespace cl = nxr::operators::laplacian::connection;
 
     if (family == "laplacian") {
         if      (sub == "cotan")

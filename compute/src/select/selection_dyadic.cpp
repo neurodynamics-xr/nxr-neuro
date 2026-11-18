@@ -1,4 +1,4 @@
-// nxr::selection::bisection — see nxr/selection/dyadic.h. A line port of the Cortical Flow Studio's engine/ladder.ts; compiled with -ffp-contract=off
+// nxr::select::bisection — see nxr/selection/dyadic.h. A line port of the Cortical Flow Studio's engine/ladder.ts; compiled with -ffp-contract=off
 // (JavaScript has no fused multiply-add).
 #include "nxr/select/dyadic.h"
 

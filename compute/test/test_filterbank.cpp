@@ -1,14 +1,14 @@
 // nxr::filterbank: parity with Rheome (@graphfilterbank + +graphtransform, goldens from golden/gen_filterbank_golden.m on a synthetic
 // icosphere), with the Studio's dyadic frame (golden/gen_meyer_golden.mts), and the frame's own laws (tightness, reconstruction,
 // eigenbasis vs Chebyshev). Synthetic data only.
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "mesh_helpers.h"
 #include <cstdlib>
 #include <fstream>
 #include <map>
 #include <sstream>
 #include <string>
-using namespace nxr::filterbank;
+using namespace nxr::signal::graphfilterbank;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 

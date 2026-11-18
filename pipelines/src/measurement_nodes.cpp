@@ -18,15 +18,15 @@
 #include <map>
 #include <set>
 
-#include "nxr/intrinsic_surface.h"
-#include "nxr/ladder.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/measurement/estimate.h"
 #include "nxr/measurement/measures.h"
 #include "nxr/measurement/reduce.h"
 #include "nxr/measurement/roll_up.h"
 #include "nxr/measurement/summarize.h"
-#include "nxr/quantity.h"
-#include "nxr/selection/grid.h"
+#include "nxr/quantity/quantity.h"
+#include "nxr/select/grid.h"
 #include "nxr/selection/resolved.h"
 #include "nxr/selection/selection.h"
 
@@ -160,7 +160,7 @@ StepSpec outer_form() {
   s.inputs = {"x"};
   s.outputs = {"y"};
   s.parameters = Json::object();
-  s.matches = "the Studio's fieldForms.ts `outer` (complex-extended); the channels' cross-spectral density of a window is its mean (nxr::welch::CrossWelch)";
+  s.matches = "the Studio's fieldForms.ts `outer` (complex-extended); the channels' cross-spectral density of a window is its mean (nxr::signal::spectral::CrossWelch)";
   s.description = "z zᴴ per sample: the outer product of the channels' analytic signal (rows a * M + b = z_a conj z_b), pointwise";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float32, OutputPrecision::follows_input, "per-sample outer product in the block's own precision");
   s.plan = [](const Values& ins, const Json&, const PlanContext&) {
@@ -482,11 +482,11 @@ StepSpec reduce_node() {
         const std::string surface = fd["surface"].get<std::string>();
         const nxr::pipelines::SurfaceInput S = c.bound.surface(surface, true);
         if (p["weight"] == "voronoi") {                                      // the mixed Voronoi mass of the input triangulation (the Studio's, nxr's and Rheome's)
-          nxr::manifold::IntrinsicSurface isurf(S.vertices.data(), static_cast<int>(S.n_vertices()), S.faces.data(), static_cast<int>(S.faces.size() / 3));
+          nxr::geometry::IntrinsicSurface isurf(S.vertices.data(), static_cast<int>(S.n_vertices()), S.faces.data(), static_cast<int>(S.faces.size() / 3));
           st.weights = isurf.inputMixedVoronoiMass();
         } else {
-          nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
-          st.weights = nxr::ladder::vertexAreas(mesh);
+          nxr::select::Mesh mesh; mesh.n = static_cast<int>(S.n_vertices()); mesh.positions = S.vertices; mesh.faces = S.faces;
+          st.weights = nxr::select::vertexAreas(mesh);
         }
       }
       need(!st.weights.empty(), "reduce: weight " + p["weight"].dump() + " needs a member set of a surface grid to weight its vertices by");
@@ -683,11 +683,11 @@ StepSpec roll_up_node() {
       const nxr::quantity::Quantity q = nxr::quantity::parse(to);
       const double rate = g.meta.value("rate", 0.0);
       need(rate > 0, "roll_up: the ingredients carry no sampling rate");
-      const auto level = ns::level_of_duration(q.hi, rate);
+      const auto level = nxr::select::level_of_duration(q.hi, rate);
       const int from = static_cast<int>(std::lround(std::log2(static_cast<double>(over.value("width", std::int64_t(1))))));
       need(level.level >= from, "roll_up: " + to + " is finer than the grid's tiles (" + std::to_string(over.value("width", std::int64_t(1))) + " samples): a roll-up goes coarser");
       const ns::Line line{"s", over.value("size", std::int64_t(0)), g.meta.value("origin", 0.0), 1.0 / rate};
-      const ns::Selection grid = ns::time_grid(line, from);
+      const ns::Selection grid = nxr::select::time_grid(line, from);
       groups = nm::coarser_groups(grid, from, level.level);
       if (ctx.say) ctx.say(Json{{"stage", "roll_up"}, {"to", to}, {"level", level.level}, {"snapped_s", level.snapped}});
     }

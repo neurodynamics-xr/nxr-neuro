@@ -3,6 +3,7 @@
 # Included once, by compute/cmake/sources_B4.cmake or meeg/CMakeLists.txt, whichever comes first. Temporary file: consolidated in B5.
 if(NOT TARGET nxr_core)
   add_library(nxr_core STATIC
+    ${CMAKE_CURRENT_LIST_DIR}/../src/core/algebra.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../src/core/congruence.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../src/core/parallel.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../src/optimisation/fminsearch.cpp

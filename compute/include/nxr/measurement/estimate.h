@@ -10,7 +10,7 @@
 #include <set>
 #include <vector>
 
-#include "nxr/histogram.h"
+#include "nxr/stats/histogram.h"
 
 namespace nxr::measurement {
 
@@ -45,8 +45,8 @@ struct Histogram {
   std::vector<double> edges;
   std::vector<std::int64_t> counts;
   std::int64_t negative = 0, nonfinite = 0;
-  std::optional<histogram::LogBins> log;
-  static Histogram log_bins(const histogram::LogBins& bins);
+  std::optional<stats::histogram::LogBins> log;
+  static Histogram log_bins(const stats::histogram::LogBins& bins);
   /** counts the n values into the bins (additive: a distribution read block by block is the blocks' counts added) */
   void add(const float* v, std::int64_t n);
 };

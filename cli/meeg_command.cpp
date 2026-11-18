@@ -120,7 +120,7 @@ std::vector<double> numbers(const std::string& prog, const std::string& flag, co
 // option_set, welch, segment_seconds and segment_samples
 template <class Options>
 void welch_args(const std::string& prog, const cli::Args& a, Options& o) {
-  using namespace nxr::welch;
+  using namespace nxr::signal::spectral;
   const std::string set = a.maybe("--set").value_or("tiles");
   o.option_set = set;
   if (set == "tiles" || set == "brainstorm") o.welch = brainstormPsdOptions(1.0);   // tiles: Brainstorm's taper, overlap, detrend and density on 2^k-sample segments

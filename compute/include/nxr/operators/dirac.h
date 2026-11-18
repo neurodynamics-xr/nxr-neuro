@@ -105,7 +105,7 @@ namespace nxr::operators::spin {
 //   Extrinsic   D_f = ½ Σ_j E_ij − H_i      (spin transformations; kills the constants)
 //   IntrinsicHY D   = ½ Σ_j E_ij            (= D_f + H)
 //   IntrinsicYe D   = ½ Σ_j cos(θ/2) E_ij   (edge lengths only)
-// The eigenproblem is D φ = μ (area ⊗ I₄) φ, solved on VERTEX spinors through vertexToFace (see solve::eigenSpin).
+// The eigenproblem is D φ = μ (area ⊗ I₄) φ, solved on VERTEX spinors through vertexToFace (see operators::eigenSpin).
 enum class Kind { Extrinsic, IntrinsicHY, IntrinsicYe };
 struct SpinDirac {
     Eigen::SparseMatrix<double> D;   // [4F×4F]

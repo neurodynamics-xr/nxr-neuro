@@ -9,10 +9,10 @@
 #include <limits>
 #include <stdexcept>
 
-#include "nxr/quantity.h"
-#include "nxr/selection/bands.h"
-#include "nxr/selection/grid.h"
-#include "nxr/selection/partition.h"
+#include "nxr/quantity/quantity.h"
+#include "nxr/select/bands.h"
+#include "nxr/select/grid.h"
+#include "nxr/select/partition.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
@@ -71,39 +71,39 @@ static void charts() {
 static void levels() {
   std::cout << "=== levels resolved from quantities ===\n";
   const double fs = 1200;
-  const sel::LevelOf d = sel::level_of_duration(2.0, fs);
+  const nxr::select::LevelOf d = nxr::select::level_of_duration(2.0, fs);
   EXPECT(d.level == 12 && std::abs(d.snapped - 4096.0 / fs) < 1e-12 && d.unit == "s", "2 s at 1200 Hz: 2400 samples, tiles of 2^12, snapped to 3.413 s");
-  const sel::LevelOf d2 = sel::level_of_duration(100, fs, 10);
+  const nxr::select::LevelOf d2 = nxr::select::level_of_duration(100, fs, 10);
   EXPECT(d2.level == 10, "held at most the line's level");
   // diameters falling with the level (the surface ladder's measured mean tile diameter)
   const std::vector<double> diam = {200, 120, 70, 40, 22, 12};
-  const sel::LevelOf c = sel::level_of_diameter(diam, 50, "mm");
+  const nxr::select::LevelOf c = nxr::select::level_of_diameter(diam, 50, "mm");
   EXPECT(c.level == 3 && c.snapped == 40, "the coarsest level whose tile is at most 50 mm");
-  EXPECT(refused([&] { sel::level_of_diameter(diam, 5, "mm"); }), "no level is fine enough: refused");
+  EXPECT(refused([&] { nxr::select::level_of_diameter(diam, 5, "mm"); }), "no level is fine enough: refused");
   const std::vector<double> areas = {40000, 14400, 4900, 1600, 484, 144};
-  EXPECT(sel::level_of_area(areas, 2000, "mm").level == 3, "the coarsest level whose tile area is at most 2000 mm^2");
+  EXPECT(nxr::select::level_of_area(areas, 2000, "mm").level == 3, "the coarsest level whose tile area is at most 2000 mm^2");
   // Weyl: level l pairs with [4 pi 2^(l-1) / A, 4 pi 2^l / A); a piece of area 100000 mm^2
   const double A = 100000.0;
-  const sel::LevelOf w = sel::level_of_wavelength(50, A, 8, "mm");
+  const nxr::select::LevelOf w = nxr::select::level_of_wavelength(50, A, 8, "mm");
   const double lambda = std::pow(2 * M_PI / 50.0, 2);
-  EXPECT(w.level == sel::weyl_level(lambda, A) && w.unit == "mm" && w.snapped <= 50.0 + 1e-9, "a wavelength is the Weyl level holding it; snapped to the level's shortest wavelength");
-  EXPECT(sel::level_of_eigenvalue(lambda, A, 8, "mm").level == w.level, "an eigenvalue gives the same level");
-  EXPECT(sel::level_of_parts(16, 6).level == 4 && sel::level_of_parts(16, 6).snapped == 16 && refused([] { sel::level_of_parts(12, 6); }) && refused([] { sel::level_of_parts(128, 6); }), "parts: exact powers of two within the depth");
+  EXPECT(w.level == nxr::select::weyl_level(lambda, A) && w.unit == "mm" && w.snapped <= 50.0 + 1e-9, "a wavelength is the Weyl level holding it; snapped to the level's shortest wavelength");
+  EXPECT(nxr::select::level_of_eigenvalue(lambda, A, 8, "mm").level == w.level, "an eigenvalue gives the same level");
+  EXPECT(nxr::select::level_of_parts(16, 6).level == 4 && nxr::select::level_of_parts(16, 6).snapped == 16 && refused([] { nxr::select::level_of_parts(12, 6); }) && refused([] { nxr::select::level_of_parts(128, 6); }), "parts: exact powers of two within the depth");
 }
 
 static void bands() {
   std::cout << "=== band sets ===\n";
-  const sel::Selection oct = sel::bands_by_frequency(sel::octave_bands());
+  const sel::Selection oct = nxr::select::bands_by_frequency(nxr::select::octave_bands());
   EXPECT(sel::count(oct) == 6 && oct.family == sel::Family::grid, "the octave bank: six bands, adjacent with one ratio: a grid");
-  const sel::Selection named = sel::bands_by_frequency({{"alpha", 8, 12}, {"beta", 13, 30}});
+  const sel::Selection named = nxr::select::bands_by_frequency({{"alpha", 8, 12}, {"beta", 13, 30}});
   EXPECT(named.family == sel::Family::irregular && sel::count(named) == 2 && named.lookup.size() == 2 && named.lookup[0].name == "alpha", "named bands with a gap: irregular, named through the lookup");
-  EXPECT(refused([] { sel::bands_by_frequency({}); }) && refused([] { sel::bands_by_frequency({{"x", 5, 5}}); }), "no bands and an empty band are refused");
-  const sel::Selection wl = sel::bands_by_wavelength({{"region", 20, 80}, {"hemisphere", 80, std::numeric_limits<double>::infinity()}}, "mm");
+  EXPECT(refused([] { nxr::select::bands_by_frequency({}); }) && refused([] { nxr::select::bands_by_frequency({{"x", 5, 5}}); }), "no bands and an empty band are refused");
+  const sel::Selection wl = nxr::select::bands_by_wavelength({{"region", 20, 80}, {"hemisphere", 80, std::numeric_limits<double>::infinity()}}, "mm");
   EXPECT(sel::count(wl) == 2 && wl.unit == "1/mm^2", "scales by wavelength become eigenvalue spans");
-  const sel::Selection parts = sel::bands_by_parts({{"lobe", 2, 8}}, 100000.0, "mm");
+  const sel::Selection parts = nxr::select::bands_by_parts({{"lobe", 2, 8}}, 100000.0, "mm");
   EXPECT(sel::count(parts) == 1, "scales by parts");
-  const sel::BandSpec b{"", 0, 1};
-  EXPECT(refused([&] { sel::bins_of_band(0.1, 0.2, 100, 100); }) && sel::bins_of_band(8, 12, 1024, 1024).first == 8 && sel::bins_of_band(8, 12, 1024, 1024).second == 12, "the bins of a band on a transform's line; a band holding none is refused");
+  const nxr::select::BandSpec b{"", 0, 1};
+  EXPECT(refused([&] { nxr::select::bins_of_band(0.1, 0.2, 100, 100); }) && nxr::select::bins_of_band(8, 12, 1024, 1024).first == 8 && nxr::select::bins_of_band(8, 12, 1024, 1024).second == 12, "the bins of a band on a transform's line; a band holding none is refused");
   (void)b;
 }
 
@@ -111,36 +111,36 @@ static void time_rules() {
   std::cout << "=== the time rule ===\n";
   const double fs = 1000;
   const sel::Line line{"s", 100000, 0.0, 1.0 / fs};
-  sel::TimeRule t;
-  t.kind = sel::TimeRule::Kind::tiles; t.duration_s = 0.5;
-  sel::TimeGrid g = sel::time_rule_resolved(line, t);
+  nxr::select::TimeRule t;
+  t.kind = nxr::select::TimeRule::Kind::tiles; t.duration_s = 0.5;
+  nxr::select::TimeGrid g = nxr::select::time_rule_resolved(line, t);
   EXPECT(g.level == 9 && g.width_samples == 512 && g.hop_samples == 512 && sel::count(g.grid) == 196 && g.grid.level == 9, "tiles of at least 0.5 s: 2^9 samples, 196 tiles, one level of the dyadic time grid");
-  t.kind = sel::TimeRule::Kind::band; t.band_hz = std::make_pair(8.0, 12.0);
-  g = sel::time_rule_resolved(line, t);
-  EXPECT(g.level == sel::time_level_of_band(8, 12, fs), "a band's tile holds 4 cycles of its centre");
-  t.kind = sel::TimeRule::Kind::chunks;
-  EXPECT(sel::time_rule_resolved(line, t).level == 15, "the chunk grid is level 15");
-  sel::TimeRule s;
-  s.kind = sel::TimeRule::Kind::segments; s.duration_s = 4.0; s.overlap = 0.5; s.segment_rule = "round";
-  g = sel::time_rule_resolved(line, s);
+  t.kind = nxr::select::TimeRule::Kind::band; t.band_hz = std::make_pair(8.0, 12.0);
+  g = nxr::select::time_rule_resolved(line, t);
+  EXPECT(g.level == nxr::select::time_level_of_band(8, 12, fs), "a band's tile holds 4 cycles of its centre");
+  t.kind = nxr::select::TimeRule::Kind::chunks;
+  EXPECT(nxr::select::time_rule_resolved(line, t).level == 15, "the chunk grid is level 15");
+  nxr::select::TimeRule s;
+  s.kind = nxr::select::TimeRule::Kind::segments; s.duration_s = 4.0; s.overlap = 0.5; s.segment_rule = "round";
+  g = nxr::select::time_rule_resolved(line, s);
   EXPECT(g.width_samples == 4000 && g.hop_samples == 2000 && sel::count(g.grid) == 49, "Welch segments of 4 s, 50 % overlap: 49 whole segments");
   s.segment_rule = "tile"; s.duration_s = 4.0;
-  g = sel::time_rule_resolved(line, s);
+  g = nxr::select::time_rule_resolved(line, s);
   EXPECT(g.width_samples == 4096 && g.hop_samples == 2048, "the tile rule snaps the segment to 2^12 samples");
-  sel::TimeRule w;
-  w.kind = sel::TimeRule::Kind::windows; w.duration_s = 1.0; w.step_s = 0.25;
-  g = sel::time_rule_resolved(line, w);
+  nxr::select::TimeRule w;
+  w.kind = nxr::select::TimeRule::Kind::windows; w.duration_s = 1.0; w.step_s = 0.25;
+  g = nxr::select::time_rule_resolved(line, w);
   EXPECT(g.width_samples == 1024 && g.hop_samples == 256 && sel::count(g.grid) == (100000 - 1024) / 256 + 1, "windows and steps snapped to 2^k samples");
   // an origin: a point, or an event's span (its start); the grid runs from there
-  sel::TimeRule o = t;
-  o.kind = sel::TimeRule::Kind::tiles; o.duration_s = 0.5; o.origin = sel::point(10000);
-  g = sel::time_rule_resolved(line, o);
+  nxr::select::TimeRule o = t;
+  o.kind = nxr::select::TimeRule::Kind::tiles; o.duration_s = 0.5; o.origin = sel::point(10000);
+  g = nxr::select::time_rule_resolved(line, o);
   EXPECT(g.origin_sample == 10000 && sel::count(g.grid) == (90000 + 511) / 512, "an origin at a point starts the first tile there");
   o.origin = sel::span({sel::Extent{0, 20.0, 30.0}});
-  EXPECT(sel::time_rule_resolved(line, o).origin_sample == 20000, "an origin given as an event: its start");
+  EXPECT(nxr::select::time_rule_resolved(line, o).origin_sample == 20000, "an origin given as an event: its start");
   // a point is refused at its own making when it is negative, and the line refuses one past its end
-  sel::TimeRule bad = o; bad.origin = sel::point(1000000);
-  EXPECT(refused([&] { sel::point(-3); }) && refused([&] { sel::time_rule(line, bad); }) && refused([&] { sel::TimeRule none; none.kind = sel::TimeRule::Kind::tiles; sel::time_rule(line, none); }), "an origin outside the line, and tiles with no duration, are refused");
+  nxr::select::TimeRule bad = o; bad.origin = sel::point(1000000);
+  EXPECT(refused([&] { sel::point(-3); }) && refused([&] { nxr::select::time_rule(line, bad); }) && refused([&] { nxr::select::TimeRule none; none.kind = nxr::select::TimeRule::Kind::tiles; nxr::select::time_rule(line, none); }), "an origin outside the line, and tiles with no duration, are refused");
 }
 
 int main() {

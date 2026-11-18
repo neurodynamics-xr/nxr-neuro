@@ -35,4 +35,17 @@ GroupedCongruenceNorms groupedCongruenceNorms(const MatrixXd& A, const selection
 PairCongruenceNorms pairCongruenceNorms(const MatrixXd& A, const selection::MemberOfElement& groups, const std::vector<std::pair<int, int>>& pairs, const std::vector<MatrixXcd>& Cs,
                                         const VectorXd& rowWeights = VectorXd());
 
+/** The quadrature energy of each row of Fr [n x r] against all rows of F [N x r]: e_i = sum_j (Im C_ij)^2 with C_ij = Fr_i . conj(F_j), from Gram products
+ *  e_i = (Fr_i G Fr_i^H - Re(Fr_i G2 Fr_i^T)) / 2, G = F^H F, G2 = F^H conj(F). Their sum over i is nxr's `im_rows(Fr, F)`. */
+VectorXd quadratureEnergy(const MatrixXcd& Fr, const MatrixXcd& F);
+
+
+/** The two SUMS that make a quadrature fraction: ‖T‖_F² = Σ|T_ij|² and ‖Im T‖_F² = Σ|Im T_ij|², T = B C Bᵀ, B real [n x m], C Hermitian [m x m] (a stored Σ z zᴴ). T [n x n] is never formed: with the
+ *  Gram G = BᵀB [m x m] and C = Cr + i Cq (Cr symmetric, Cq antisymmetric), ‖B X Bᵀ‖² = tr(X G Xᵀ G) for real X, so ‖Re T‖² = tr(Cr G Cr G), ‖Im T‖² = −tr(Cq G Cq G), ‖T‖² = ‖Re T‖² + ‖Im T‖².
+ *  C is symmetrised ((C + Cᴴ)/2) first. These are SUMS OF PRODUCTS and the only things to store; the fraction ‖Im T‖/‖T‖ is their ratio, derived at read (the squares add across what is summed; the roots do not).
+ *  They are NOT additive over a union of blocks (the cross blocks are missing) nor over time (Σ_t ‖T_t‖² ≠ ‖T of Σ_t C_t‖²: sum the C first). */
+struct CongruenceNorms { double total = 0, quadrature = 0; };
+CongruenceNorms congruenceNorms(const MatrixXd& B, const MatrixXcd& C);
+
+
 }  // namespace nxr::measurement

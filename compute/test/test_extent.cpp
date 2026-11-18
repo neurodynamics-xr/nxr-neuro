@@ -5,12 +5,12 @@
 #include <cmath>
 #include <iostream>
 
-#include "nxr/extent.h"
+#include "nxr/select/extent.h"
 #include "nxr/measurement/reduce.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
-using namespace nxr::extent;
+using namespace nxr::select;
 
 template <class F> bool throws(F f) { try { f(); } catch (const std::invalid_argument&) { return true; } return false; }
 

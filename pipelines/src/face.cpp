@@ -23,12 +23,12 @@
 #include "nxr/measurement/roll_up.h"
 #include "nxr/measurement/measures.h"
 #include "nxr/pipelines/selection_bridge.h"
-#include "nxr/quantity.h"
+#include "nxr/quantity/quantity.h"
 #include "nxr/pipelines/definition.h"
 #include "nxr/pipelines/listing.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/runner.h"
-#include "nxr/welch.h"
+#include "nxr/signal/spectral.h"
 
 namespace nxr::pipelines::face {
 

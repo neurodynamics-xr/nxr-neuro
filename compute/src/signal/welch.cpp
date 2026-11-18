@@ -1,6 +1,6 @@
 // nxr::welch — see include/nxr/welch.h.
 #include "nxr/signal/spectral.h"
-#include "nxr/fft.h"
+#include "nxr/signal/fourier.h"
 #include <algorithm>
 #include <cmath>
 #include <stdexcept>
@@ -152,10 +152,10 @@ void Welch::add(const MatrixXd& chunk, const std::vector<std::uint8_t>& good) {
 
 void Welch::consume() {
     const Eigen::Index C = buf_.rows();
-    const std::size_t bins = fft::rfftBins(n_);
+    const std::size_t bins = rfftBins(n_);
     std::size_t start = 0;
     std::vector<double> seg(static_cast<std::size_t>(C) * n_);
-    std::vector<fft::cd> spec(static_cast<std::size_t>(C) * bins);
+    std::vector<cd> spec(static_cast<std::size_t>(C) * bins);
     MatrixXd power(C, static_cast<Eigen::Index>(bins));
     while (start + n_ <= carried_) {
         const std::int64_t id = (dropped_ + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(hop_);   // the segment's number on the stream
@@ -167,7 +167,7 @@ void Welch::consume() {
                 for (std::size_t j = 0; j < n_; ++j) row[j] = buf_(c, static_cast<Eigen::Index>(start + j));
                 detrendAndWindow(row, n_, opt_.detrend, win_);
             }
-            fft::r2c(seg.data(), spec.data(), {static_cast<std::size_t>(C), n_}, 1);
+            r2c(seg.data(), spec.data(), {static_cast<std::size_t>(C), n_}, 1);
             for (Eigen::Index c = 0; c < C; ++c)
                 for (std::size_t k = 0; k < bins; ++k) power(c, static_cast<Eigen::Index>(k)) = std::norm(spec[static_cast<std::size_t>(c) * bins + k]);
             mean_.add_real(id, power);
@@ -193,8 +193,8 @@ void Welch::consume() {
 
 WelchResult Welch::result() const {
     WelchResult r;
-    const std::size_t bins = fft::rfftBins(n_);
-    r.frequencies = fft::rfftfreq(n_, 1.0 / opt_.sfreq);
+    const std::size_t bins = rfftBins(n_);
+    r.frequencies = rfftfreq(n_, 1.0 / opt_.sfreq);
     r.segments = segments_;
     r.segmentsSkipped = skipped_;
     r.psd = MatrixXd::Zero(buf_.rows(), static_cast<Eigen::Index>(bins));
@@ -221,7 +221,7 @@ WelchResult welch(const MatrixXd& x, const WelchOptions& options, const std::vec
 // ── the two-sided Welch PSD of complex series ────────────────────────────────────────────────────────────────────
 
 VectorXd signedFrequencies(std::size_t n, double sfreq) {
-    const VectorXd f = fft::fftfreq(n, 1.0 / sfreq);   // 0, 1, ..., -floor(n/2), ..., -1 (over n d)
+    const VectorXd f = fftfreq(n, 1.0 / sfreq);   // 0, 1, ..., -floor(n/2), ..., -1 (over n d)
     const std::size_t neg = n / 2;                      // the number of negative bins
     VectorXd out(static_cast<Eigen::Index>(n));
     for (std::size_t k = 0; k < n; ++k) out[static_cast<Eigen::Index>(k)] = f[static_cast<Eigen::Index>((k + n - neg) % n)];
@@ -229,8 +229,8 @@ VectorXd signedFrequencies(std::size_t n, double sfreq) {
 }
 
 // a complex segment's row detrended (the real and imaginary parts each, as scipy's lstsq on complex data does) then windowed, in place
-static void detrendAndWindowC(fft::cd* row, std::size_t n_, Detrend detrend, const VectorXd& win_) {
-    using cd = fft::cd;
+static void detrendAndWindowC(cd* row, std::size_t n_, Detrend detrend, const VectorXd& win_) {
+    using cd = cd;
     if (detrend == Detrend::Constant) {
         cd mu = 0;
         for (std::size_t j = 0; j < n_; ++j) mu += row[j];
@@ -278,7 +278,7 @@ void ComplexWelch::add(const Eigen::MatrixXcd& chunk, const std::vector<std::uin
 void ComplexWelch::consume() {
     const Eigen::Index S = buf_.rows();
     std::size_t start = 0;
-    std::vector<fft::cd> seg(static_cast<std::size_t>(S) * n_), spec(static_cast<std::size_t>(S) * n_);
+    std::vector<cd> seg(static_cast<std::size_t>(S) * n_), spec(static_cast<std::size_t>(S) * n_);
     MatrixXd power(S, static_cast<Eigen::Index>(n_));
     while (start + n_ <= carried_) {
         const std::int64_t id = (dropped_ + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(hop_);   // the segment's number on the stream
@@ -286,11 +286,11 @@ void ComplexWelch::consume() {
         for (std::size_t j = start; j < start + n_ && ok; ++j) ok = bufGood_[j] != 0;
         if (ok) {
             for (Eigen::Index c = 0; c < S; ++c) {
-                fft::cd* row = seg.data() + static_cast<std::size_t>(c) * n_;
+                cd* row = seg.data() + static_cast<std::size_t>(c) * n_;
                 for (std::size_t j = 0; j < n_; ++j) row[j] = buf_(c, static_cast<Eigen::Index>(start + j));
                 detrendAndWindowC(row, n_, opt_.detrend, win_);
             }
-            fft::c2c(seg.data(), spec.data(), {static_cast<std::size_t>(S), n_}, 1, true);
+            c2c(seg.data(), spec.data(), {static_cast<std::size_t>(S), n_}, 1, true);
             for (Eigen::Index c = 0; c < S; ++c)
                 for (std::size_t k = 0; k < n_; ++k) power(c, static_cast<Eigen::Index>(k)) = std::norm(spec[static_cast<std::size_t>(c) * n_ + k]);
             mean_.add_real(id, power);
@@ -345,7 +345,7 @@ CrossWelch::CrossWelch(int channels, const WelchOptions& options, const std::vec
     if (n_ < 2) throw std::invalid_argument("welch: a segment holds at least 2 samples");
     if (!(opt_.sfreq > 0)) throw std::invalid_argument("welch: the sampling frequency must be positive");
     if (!(opt_.overlap >= 0 && opt_.overlap < 1)) throw std::invalid_argument("welch: the overlap is a fraction in [0, 1)");
-    const std::size_t bins = fft::rfftBins(n_);
+    const std::size_t bins = rfftBins(n_);
     if (groups_.empty()) throw std::invalid_argument("welch: at least one group of bins");
     for (const BinGroup& g : groups_) if (g.first > g.last || g.last >= bins) throw std::invalid_argument("welch: a group of bins lies outside 0 .. " + std::to_string(bins - 1));
     hop_ = n_ - static_cast<std::size_t>(std::floor(static_cast<double>(n_) * opt_.overlap));
@@ -372,11 +372,11 @@ void CrossWelch::add(const MatrixXd& chunk, const std::vector<std::uint8_t>& goo
 
 void CrossWelch::consume() {
     const Eigen::Index C = buf_.rows();
-    const std::size_t bins = fft::rfftBins(n_);
+    const std::size_t bins = rfftBins(n_);
     const double last = (n_ % 2 == 0) ? static_cast<double>(bins - 1) : static_cast<double>(bins);   // bins 1 .. last-1 are doubled (one-sided), see Welch::result
     std::size_t start = 0;
     std::vector<double> seg(static_cast<std::size_t>(C) * n_);
-    std::vector<fft::cd> spec(static_cast<std::size_t>(C) * bins);
+    std::vector<cd> spec(static_cast<std::size_t>(C) * bins);
     while (start + n_ <= carried_) {
         const std::int64_t id = (dropped_ + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(hop_);   // the segment's number on the stream
         bool ok = true;
@@ -387,7 +387,7 @@ void CrossWelch::consume() {
                 for (std::size_t j = 0; j < n_; ++j) row[j] = buf_(c, static_cast<Eigen::Index>(start + j));
                 detrendAndWindow(row, n_, opt_.detrend, win_);
             }
-            fft::r2c(seg.data(), spec.data(), {static_cast<std::size_t>(C), n_}, 1);
+            r2c(seg.data(), spec.data(), {static_cast<std::size_t>(C), n_}, 1);
             // Re(X_k X_k^H) = A A^T + B B^T (X = A + iB), summed over the group's bins with the one-sided doubling in the weights
             for (std::size_t g = 0; g < groups_.size(); ++g) {
                 const std::size_t nk = groups_[g].last - groups_[g].first + 1;
@@ -396,7 +396,7 @@ void CrossWelch::consume() {
                     for (std::size_t k = 0; k < nk; ++k) {
                         const std::size_t bin = groups_[g].first + k;
                         const double w = std::sqrt((bin >= 1 && static_cast<double>(bin) < last) ? 2.0 : 1.0);
-                        const fft::cd v = spec[static_cast<std::size_t>(c) * bins + bin];
+                        const cd v = spec[static_cast<std::size_t>(c) * bins + bin];
                         A(c, static_cast<Eigen::Index>(k)) = w * v.real();
                         B(c, static_cast<Eigen::Index>(k)) = w * v.imag();
                     }
@@ -427,7 +427,7 @@ void CrossWelch::consume() {
 
 CrossWelchResult CrossWelch::result() const {
     CrossWelchResult r;
-    r.frequencies = fft::rfftfreq(n_, 1.0 / opt_.sfreq);
+    r.frequencies = rfftfreq(n_, 1.0 / opt_.sfreq);
     r.segments = segments_;
     r.segmentsSkipped = skipped_;
     const Eigen::Index C = buf_.rows();
@@ -457,7 +457,7 @@ LinearWelch::LinearWelch(const MatrixXd& map, std::size_t rowsPerOutput, const W
     if (n_ < 2) throw std::invalid_argument("welch: a segment holds at least 2 samples");
     if (!(opt_.sfreq > 0)) throw std::invalid_argument("welch: the sampling frequency must be positive");
     if (!(opt_.overlap >= 0 && opt_.overlap < 1)) throw std::invalid_argument("welch: the overlap is a fraction in [0, 1)");
-    const std::size_t bins = fft::rfftBins(n_);
+    const std::size_t bins = rfftBins(n_);
     if (first_ > last_ || last_ >= bins) throw std::invalid_argument("welch: the bins lie outside 0 .. " + std::to_string(bins - 1));
     hop_ = n_ - static_cast<std::size_t>(std::floor(static_cast<double>(n_) * opt_.overlap));
     win_ = windowOf(n_, opt_.window, opt_.periodic);
@@ -483,13 +483,13 @@ void LinearWelch::add(const MatrixXd& chunk, const std::vector<std::uint8_t>& go
 
 void LinearWelch::consume() {
     const Eigen::Index C = buf_.rows();
-    const std::size_t bins = fft::rfftBins(n_);
+    const std::size_t bins = rfftBins(n_);
     const double lastDoubled = (n_ % 2 == 0) ? static_cast<double>(bins - 1) : static_cast<double>(bins);   // bins 1 .. lastDoubled-1 are doubled (one-sided)
     const Eigen::Index nk = static_cast<Eigen::Index>(last_ - first_ + 1);
     const Eigen::Index blockRows = static_cast<Eigen::Index>(group_) * std::max<Eigen::Index>(1, 4096 / static_cast<Eigen::Index>(group_));
     std::size_t start = 0;
     std::vector<double> seg(static_cast<std::size_t>(C) * n_);
-    std::vector<fft::cd> spec(static_cast<std::size_t>(C) * bins);
+    std::vector<cd> spec(static_cast<std::size_t>(C) * bins);
     MatrixXd A(C, nk), B(C, nk);
     while (start + n_ <= carried_) {
         const std::int64_t id = (dropped_ + static_cast<std::int64_t>(start)) / static_cast<std::int64_t>(hop_);   // the segment's number on the stream
@@ -501,13 +501,13 @@ void LinearWelch::consume() {
                 for (std::size_t j = 0; j < n_; ++j) row[j] = buf_(c, static_cast<Eigen::Index>(start + j));
                 detrendAndWindow(row, n_, opt_.detrend, win_);
             }
-            fft::r2c(seg.data(), spec.data(), {static_cast<std::size_t>(C), n_}, 1);
+            r2c(seg.data(), spec.data(), {static_cast<std::size_t>(C), n_}, 1);
             // X = A + iB over the bins kept, each scaled by sqrt(2) where the one-sided spectrum doubles it (the power is then doubled)
             for (Eigen::Index c = 0; c < C; ++c)
                 for (Eigen::Index k = 0; k < nk; ++k) {
                     const std::size_t bin = first_ + static_cast<std::size_t>(k);
                     const double w = std::sqrt((bin >= 1 && static_cast<double>(bin) < lastDoubled) ? 2.0 : 1.0);
-                    const fft::cd v = spec[static_cast<std::size_t>(c) * bins + bin];
+                    const cd v = spec[static_cast<std::size_t>(c) * bins + bin];
                     A(c, k) = w * v.real();
                     B(c, k) = w * v.imag();
                 }
@@ -542,7 +542,7 @@ void LinearWelch::consume() {
 
 LinearWelchResult LinearWelch::result() const {
     LinearWelchResult r;
-    const VectorXd all = fft::rfftfreq(n_, 1.0 / opt_.sfreq);
+    const VectorXd all = rfftfreq(n_, 1.0 / opt_.sfreq);
     r.frequencies = all.segment(static_cast<Eigen::Index>(first_), static_cast<Eigen::Index>(last_ - first_ + 1));
     r.segments = segments_;
     r.segmentsSkipped = skipped_;

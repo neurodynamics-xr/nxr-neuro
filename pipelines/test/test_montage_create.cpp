@@ -1,5 +1,5 @@
 // `montage create` (pipelines/src/montage_create.cpp) on a synthetic template package: a sphere as the scalp `head` and the landmarks as the points manifold `head_landmarks` (as the template importers
-// store them). The montage is stored as the points manifold `eeg_1005` with its names labelling, the `system` partition, aliases and origin; its positions equal nxr::montage::tenFive with the
+// store them). The montage is stored as the points manifold `eeg_1005` with its names labelling, the `system` partition, aliases and origin; its positions equal nxr::meeg::tenFive with the
 // inion the convention gives; the refusals (a second montage, a missing landmarks manifold, landmarks in another system).
 #include "nxr/io/subject_api.h"
 #include <unistd.h>
@@ -14,7 +14,7 @@
 #include "nxr/io/surface.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/writer.h"
-#include "nxr/montage.h"
+#include "nxr/meeg/montage.h"
 #include "nxr/pipelines/montage_create.h"
 #include "synthetic_meshes.h"
 
@@ -91,10 +91,10 @@ int main() {
     ::Mesh m = ::icosphere(4);
     const double R = 0.095;
     for (auto& x : m.V) x *= R;
-    nxr::montage::Landmarks L;
+    nxr::meeg::Landmarks L;
     L.nasion = {0, double(float(R)), 0}; L.lpa = {-double(float(R)), 0, 0}; L.rpa = {double(float(R)), 0, 0};
-    L.inion = nxr::montage::inionFromLandmarks(m.V, m.F, L.nasion, L.lpa, L.rpa);
-    const auto want = nxr::montage::tenFive(m.V, m.F, L);
+    L.inion = nxr::meeg::inionFromLandmarks(m.V, m.F, L.nasion, L.lpa, L.rpa);
+    const auto want = nxr::meeg::tenFive(m.V, m.F, L);
     CHECK_EQ(want.labels.size(), static_cast<std::size_t>(345));
     for (std::size_t i = 0; i < got.size(); ++i) CHECK(std::abs(got[i] - want.positions[i]) < 1e-6);
     const auto sels = nxr::io::selection_names_on(sub, text(*row, "id"));

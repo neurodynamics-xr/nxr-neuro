@@ -12,7 +12,7 @@
 #include <sstream>
 
 #include "nxr/synthesis/lagfree.h"
-#include "nxr/nulltest.h"
+#include "nxr/stats/nulltest.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
@@ -185,16 +185,16 @@ int main() {
     EXPECT((nxr::synthesis::lagfreeSecondMomentDraw(Q, 20, 4, 1) - nxr::synthesis::lagfreeSecondMomentDraw(Q, 20, 4, 1)).norm() == 0 && (nxr::synthesis::lagfreeSecondMomentDraw(Q, 20, 4, 1) - nxr::synthesis::lagfreeSecondMomentDraw(Q, 20, 4, 2)).norm() > 0, "seeded: one draw is one draw"); }
 
   // THE SEQUENTIAL P, BH
-  { EXPECT(std::abs(nxr::nulltest::sequentialP(10, 40, 10) - 0.25) < 1e-12 && std::abs(nxr::nulltest::sequentialP(0, 99, 10) - 0.01) < 1e-12 && std::abs(nxr::nulltest::sequentialP(3, 19, 10) - 0.2) < 1e-12, "Besag-Clifford: h/n when stopped, (e+1)/(n+1) otherwise");
+  { EXPECT(std::abs(nxr::stats::sequentialP(10, 40, 10) - 0.25) < 1e-12 && std::abs(nxr::stats::sequentialP(0, 99, 10) - 0.01) < 1e-12 && std::abs(nxr::stats::sequentialP(3, 19, 10) - 0.2) < 1e-12, "Besag-Clifford: h/n when stopped, (e+1)/(n+1) otherwise");
     Eigen::VectorXd p(5); p << 0.01, 0.04, 0.03, std::nan(""), 0.5;
-    const Eigen::VectorXd q = nxr::nulltest::benjaminiHochbergQ(p);
+    const Eigen::VectorXd q = nxr::stats::benjaminiHochbergQ(p);
     // sorted 0.01 0.03 0.04 0.5 (m = 4): raw 0.04 0.06 0.0533 0.5; the running minimum from the top: 0.04 0.0533 0.0533 0.5
     EXPECT(std::abs(q[0] - 0.04) < 1e-12 && std::abs(q[2] - 0.16 / 3) < 1e-12 && std::abs(q[1] - 0.16 / 3) < 1e-12 && std::abs(q[4] - 0.5) < 1e-12 && std::isnan(q[3]), "BH q-values (NaN left out)"); }
 
   // REFUSALS
   EXPECT(throws([&] { nxr::synthesis::spectrumShapingTaps(freq, Eigen::VectorXd::Zero(201), fs, 10); }), "a spectrum with no power is refused");
   EXPECT(throws([&] { nxr::synthesis::lagfreeBlock(Rh, taps, 1, 0, 10, Eigen::VectorXd::Ones(9)); }), "a scale of the wrong length is refused");
-  EXPECT(throws([&] { nxr::nulltest::sequentialP(5, 3, 10); }), "more exceedances than draws is refused");
+  EXPECT(throws([&] { nxr::stats::sequentialP(5, 3, 10); }), "more exceedances than draws is refused");
   EXPECT(throws([&] { nxr::synthesis::convolveValid(Eigen::MatrixXd::Zero(1, 5), Eigen::VectorXd::Ones(7)); }), "a block shorter than the taps is refused");
 
   if (fails) { std::cout << fails << " failures\n"; return 1; }

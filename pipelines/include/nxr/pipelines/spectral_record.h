@@ -10,20 +10,20 @@
 #include <string>
 
 #include "nxr/io/json_text.h"
-#include "nxr/spectral_scaling.h"
-#include "nxr/welch.h"
+#include "nxr/signal/spectral_scaling.h"
+#include "nxr/signal/spectral.h"
 
 namespace nxr::pipelines {
 
 /** A Welch estimate's record: density or spectrum as the options scale it; `band_width_hz` the bandwidth one stored value spans (a band of n bins
  *  averaged: n × the resolution; one bin: the resolution); `degree` 2 for a product of two spectra. Null for nxr's chain scaling (not converted). */
-nxr::io::Json welch_scaling_record(const nxr::welch::WelchOptions& wo, double band_width_hz, const std::string& power_unit, int degree = 1);
+nxr::io::Json welch_scaling_record(const nxr::signal::spectral::WelchOptions& wo, double band_width_hz, const std::string& power_unit, int degree = 1);
 /** The analytic estimator's record: a band power (the variance of the band-pass Re z), stored as per-window sums of z zᴴ; B the band-pass's noise
  *  bandwidth (timebank::noiseBandwidth). */
 nxr::io::Json analytic_scaling_record(double noise_bandwidth_hz, const std::string& power_unit);
 
 struct SpectralRecord {
-  nxr::spectral::Scaling scaling;
+  nxr::signal::spectral_scaling::Scaling scaling;
   std::string power_unit;
   bool per_window_sum = false;
 };

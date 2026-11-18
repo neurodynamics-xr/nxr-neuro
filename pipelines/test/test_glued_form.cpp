@@ -15,7 +15,7 @@
 
 #include "check.h"
 #include "mesh_helpers.h"
-#include "nxr/forms.h"
+#include "nxr/signal/forms.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/meeg_internal.h"
@@ -89,10 +89,10 @@ int main() {
   const SurfaceInput S = read_surface(s1, std::string("cortex"), true);
   // the free currents' curl on the native mesh (tested against nxr in test_form_columns), zero on the wall's vertices of the glued domain by construction (the support excludes them)
   std::vector<float> P32(pos.begin(), pos.end());
-  const auto op = nxr::forms::assembleFaceGradient(P32.data(), faces.data(), nv, nf);
+  const auto op = nxr::signal::assembleFaceGradient(P32.data(), faces.data(), nv, nf);
   Eigen::MatrixXd K(3 * nv, cols);
   for (int r = 0; r < 3 * nv; ++r) for (int c = 0; c < cols; ++c) K(r, c) = q[static_cast<std::size_t>(r * cols + c)];
-  const Eigen::MatrixXd X = nxr::forms::formOfFreeColumns(nxr::forms::Form::curl_tan, K, op);
+  const Eigen::MatrixXd X = nxr::signal::formOfFreeColumns(nxr::signal::Form::curl_tan, K, op);
   CHECK(rel(X, curl, cols) < 1e-4);
 
   // a cortex of two pieces with no stored glue: refused, saying what to run

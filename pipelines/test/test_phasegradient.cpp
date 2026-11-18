@@ -20,9 +20,9 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/bst/entities.h"
-#include "nxr/hodge_weights.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
 #include "nxr/io/measures.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/meeg/wave.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
@@ -182,9 +182,9 @@ int main() {
 
   // THE GROUND TRUTH AND THE SUMS, per vertex, computed directly (the chain's own pure functions on the stored cross-spectrum)
   const SurfaceInput S = read_surface(sub, std::string("cortex"), true);
-  const nxr::hodge::RowMat3 Pm = Eigen::Map<const nxr::hodge::RowMat3>(S.vertices.data(), N, 3);
-  const nxr::hodge::FaceMat Fm = Eigen::Map<const nxr::hodge::FaceMat>(S.faces.data(), S.n_faces(), 3);
-  const nxr::hodge::FaceOperators ops(Pm, Fm, false);
+  const nxr::operators::RowMat3 Pm = Eigen::Map<const nxr::operators::RowMat3>(S.vertices.data(), N, 3);
+  const nxr::operators::FaceMat Fm = Eigen::Map<const nxr::operators::FaceMat>(S.faces.data(), S.n_faces(), 3);
+  const nxr::operators::FaceOperators ops(Pm, Fm, false);
   const auto kern = nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::operator_, .name = "free", .any_status = true});
   std::vector<std::int64_t> kshape;
   const std::vector<float> kdata = read_field_at<float>(sub, *kern->path, &kshape);
@@ -207,8 +207,8 @@ int main() {
   const nxr::meeg::PhaseSums sv = vertex_sums("travel_crossspectrum_alpha", false);
   const StoredFrames sf = read_stored_frames(sub, "cortex", N);
   const auto jf = nxr::meeg::phaseCurrentInFrames(sv.phase, sf.e1, sf.e2);
-  nxr::ladder::Mesh mesh; mesh.n = N; mesh.positions = S.vertices; mesh.faces = S.faces;
-  const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
+  nxr::select::Mesh mesh; mesh.n = N; mesh.positions = S.vertices; mesh.faces = S.faces;
+  const std::vector<double> area = nxr::select::vertexAreas(mesh);
   // the tile of every vertex at level D: the finest level's member of the vertex, shifted
   std::vector<std::int32_t> codes;
   {

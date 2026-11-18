@@ -10,9 +10,9 @@
 #include <random>
 
 #include "mesh_helpers.h"
-#include "nxr/opticalflow_methods.h"
+#include "nxr/signal/opticalflow_methods.h"
 
-using namespace nxr::flow;
+using namespace nxr::signal;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 

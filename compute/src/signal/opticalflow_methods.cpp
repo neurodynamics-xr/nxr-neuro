@@ -7,8 +7,8 @@
 #include <numeric>
 #include <stdexcept>
 
-#include "nxr/filterbank.h"
-#include "nxr/opticalflow_connection.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/opticalflow_connection.h"
 
 namespace nxr::signal {
 

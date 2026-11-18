@@ -1,14 +1,30 @@
 // Parity with the nxr-cortical-flow eigenmode exports (the reference where implementations differ): matrices and the lowest
 // spectra on bunny-closed (default) and on the glued sub-0002 cortex (NXR_CF_CORTEX=1). Skips (exit 0) when the fixtures are
 // absent: NXR_CF_FIXTURES = nxr-cortical-flow/studio/fixtures.
-#include "nxr/compute.h"
-#include "nxr/facets.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
 #include "mesh_helpers.h"
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
 #include <sstream>
-using namespace nxr::manifold;
+using namespace nxr::geometry;
 using SM = Eigen::SparseMatrix<double>;
 
 static std::string FX;
@@ -65,8 +81,8 @@ int main() {
         {
             SM E = ops::dirac::extrinsicBlock(m);
             (void)E;
-            solve::EigenOperatorSpec crane{solve::EigenOperator::Dirac, 1.0, ops::MassMatrixVariant::Barycentric};   // tau = 1: E, mass barycentric x I4
-            auto r = solve::eigenOperator(m, crane, 12, solve::kShiftLadder, true, /*multiplets=*/true);
+            nxr::operators::EigenOperatorSpec crane{nxr::operators::EigenOperator::Dirac, 1.0, ops::MassMatrixVariant::Barycentric};   // tau = 1: E, mass barycentric x I4
+            auto r = nxr::operators::eigenOperator(m, crane, 12, nxr::operators::kShiftLadder, true, /*multiplets=*/true);
             auto ref = readNpy(eb + "/diracD_mu.npy");
             double d = 0; int cnt = 0;
             for (int i = 0; i < r.k && cnt < 8; ++i) if (r.eigenvalues(i) > 1.0) { d = std::max(d, std::abs(std::sqrt(r.eigenvalues(i)) - ref[4 + cnt]) / ref[4 + cnt]); ++cnt; }
@@ -84,7 +100,7 @@ int main() {
         auto H = readBin<double>(es + ".H.f64"); double dH = 0; for (int f = 0; f < nF; ++f) dH = std::max(dH, std::abs(H[f] - ex.H(f)));
         EXPECT(dH < 1e-12, "H per face == export (max diff " + num(dH) + ")");
         for (auto [name, kind] : {std::pair<const char*, ops::spin::Kind>{"intrinsicHY", ops::spin::Kind::IntrinsicHY}, {"extrinsic", ops::spin::Kind::Extrinsic}}) {
-            auto r = solve::eigenSpin(m, kind, 24);
+            auto r = nxr::operators::eigenSpin(m, kind, 24);
             auto ref = readNpy(eb + "/spin_" + std::string(name) + "_mu.npy");
             std::vector<double> a(r.eigenvalues.data(), r.eigenvalues.data() + r.k), b(ref);
             std::sort(b.begin(), b.end(), [](double x, double y) { return std::abs(x) < std::abs(y); });
@@ -109,7 +125,7 @@ int main() {
             double d1 = 0, d2 = 0; for (size_t i = 0; i < s1.size(); ++i) d1 = std::max(d1, std::abs(s1[i] - m1[i]) / s1[i]); for (size_t i = 0; i < s2.size(); ++i) d2 = std::max(d2, std::abs(s2[i] - m2[i]) / s2[i]);
             EXPECT(d1 < 1e-8 && d2 < 1e-8, "star1, star2 (sorted) == export, max rel " + num(d1) + ", " + num(d2));
             auto ref = positives(readNpy(eb + "/hodge_mu.npy"), 60);
-            auto r = solve::hodgeDiracModes(h, 60, false, [] { solve::HodgeSolveOptions o; o.limit = 60; return o; }());
+            auto r = nxr::operators::hodgeDiracModes(h, 60, false, [] { nxr::operators::HodgeSolveOptions o; o.limit = 60; return o; }());
             double d = 0; for (int i = 0; i < 60; ++i) d = std::max(d, std::abs(r.eigenvalues(i) - ref[i]) / ref[i]);
             EXPECT(d < 1e-6, "lowest 60 +mu == export hodge_mu.npy, max rel " + num(d));
         }
@@ -133,7 +149,7 @@ int main() {
             double d0 = 0; for (int v = 0; v < cV; ++v) d0 = std::max(d0, std::abs(h.star0(v) - mass[v]) / mass[v]);
             EXPECT(d0 < 1e-8, "glued: star0 == export, max rel " + num(d0));
             auto ref = positives(readNpy(ec + "/glued_hodge_mu.npy"), 50);
-            auto r = solve::hodgeDiracModes(h, 50, false, [] { solve::HodgeSolveOptions o; o.limit = 50; return o; }());
+            auto r = nxr::operators::hodgeDiracModes(h, 50, false, [] { nxr::operators::HodgeSolveOptions o; o.limit = 50; return o; }());
             double d = 0; for (int i = 0; i < 50; ++i) d = std::max(d, std::abs(r.eigenvalues(i) - ref[i]) / ref[i]);
             EXPECT(d < 1e-6, "glued: lowest 50 +mu == export glued_hodge_mu.npy, max rel " + num(d));
         }

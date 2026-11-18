@@ -10,7 +10,7 @@
 
 #include "nxr/bst/entities.h"
 #include "nxr/io/measures.h"
-#include "nxr/histogram.h"
+#include "nxr/stats/histogram.h"
 
 #include <algorithm>
 #include <cmath>
@@ -646,10 +646,10 @@ Json store_histogram(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
   nxr::pipelines::clear_stored(ds, sub, {{"statistic", path}}, replace, d.name + " output " + o + " (" + path + ")", replaced);
   const Json& h = a.meta["histogram"];
   const std::int64_t bins = h["bins"].get<std::int64_t>();
-  nxr::histogram::LogBins lb;
+  nxr::stats::histogram::LogBins lb;
   lb.lo = h["lo"].get<double>(); lb.hi = h["hi"].get<double>(); lb.bins = static_cast<int>(bins);
   Json edges = Json::array();
-  for (int k = 0; k < lb.bins; ++k) edges.push_back(nxr::histogram::upperEdge(lb, k));
+  for (int k = 0; k < lb.bins; ++k) edges.push_back(nxr::stats::histogram::upperEdge(lb, k));
   nxr::io::StatisticSpec st;
   st.name = name; st.path = path; st.measure = "count"; st.method = "histogram";
   st.of_field_id = text(rec, "id");
@@ -660,7 +660,7 @@ Json store_histogram(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, co
   st.description = "the distribution of |x| over " + std::to_string(st.n_members.value_or(0)) + " good frames of " + text(rec, "name") + " in " + std::to_string(bins) + " log bins, pooled over the vertices \xe2\x80\x94 pipeline " + key.pipeline;
   Json opt = h;
   opt["edges_axis"] = "the bin axis's `edges` are the bins' UPPER edges";
-  opt["percentile"] = "read: the upper edge of the first bin whose cumulative share reaches p (nxr::histogram::percentile)";
+  opt["percentile"] = "read: the upper edge of the first bin whose cumulative share reaches p (nxr::stats::histogram::percentile)";
   opt["frames_in_range"] = std::min<std::int64_t>(h["range_frames"].get<std::int64_t>(), h["frames"].get<std::int64_t>());
   st.options = opt;
   Json pj = producer;

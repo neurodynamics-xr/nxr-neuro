@@ -7,8 +7,24 @@
  * Run:   ./build/test_vector_covariant_operators
  */
 
-#include "nxr/compute.h"
-#include "nxr/facets.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/geometry/parametrization.h"
 
 #include <Eigen/Dense>
 #include <Eigen/Sparse>
@@ -20,7 +36,7 @@
 #include <utility>
 #include <vector>
 
-using namespace nxr::manifold::ops::laplacian::connection;
+using namespace nxr::operators::laplacian::connection;
 
 static int g_failures = 0;
 #define CHECK(c, m)                                                      \
@@ -127,9 +143,9 @@ static Eigen::SparseMatrix<double> kronI3(const Eigen::SparseMatrix<double>& L, 
 // Conjugate a LOCAL-frame component-major [3N×3N] operator into WORLD frame:
 // world_block(i,j) = F_i · local_block(i,j) · F_jᵀ, with F_v = [e1|e2|n] (cols).
 static Eigen::SparseMatrix<double> localToWorld(const Eigen::SparseMatrix<double>& A,
-                                                nxr::manifold::Manifold& m) {
+                                                nxr::geometry::Manifold& m) {
     const int N = m.nV();
-    nxr::manifold::geometry::VertexFrames vf = nxr::manifold::geometry::vertexFrames(m);
+    nxr::geometry::VertexFrames vf = nxr::geometry::vertexFrames(m);
     std::vector<Eigen::Matrix3d> F(N);
     for (int v = 0; v < N; ++v) {
         F[v].col(0) = vf.e1.row(v).transpose();
@@ -164,7 +180,7 @@ static Eigen::SparseMatrix<double> localToWorld(const Eigen::SparseMatrix<double
 
 // ── Cell D: extrinsicWeitzenbock — construction, anchors, curvature sensitivity ─
 static void test_cellD_extrinsic_weitzenbock() {
-    using namespace nxr::manifold;
+    using namespace nxr::geometry;
     std::vector<double>   V;
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
@@ -262,16 +278,16 @@ static void test_cellA_squares_to() {
 
     for (int nSym : {1, 2}) {
         // Fresh Manifold per nSym to avoid any cached-state cross-contamination.
-        nxr::manifold::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+        nxr::geometry::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
                                   F.data(), static_cast<int>(F.size()) / 3);
 
         // Assemble the gradient D: [E×V] complex
         Eigen::SparseMatrix<std::complex<double>> D = assembleConnectionGradient(m, nSym);
 
         // ⋆₁ = diag(edgeCotanWeights) — the Hodge-1 star in real form.
-        // nxr::manifold::ops::hodge1(m) returns const SparseMatrix<double>&;
+        // nxr::operators::hodge1(m) returns const SparseMatrix<double>&;
         // cast to complex for the Hermitian product.
-        Eigen::SparseMatrix<std::complex<double>> W = toComplex(nxr::manifold::ops::hodge1(m));
+        Eigen::SparseMatrix<std::complex<double>> W = toComplex(nxr::operators::hodge1(m));
 
         // DᴴWD — squares the gradient to the connection Laplacian.
         Eigen::SparseMatrix<std::complex<double>> sq = (D.adjoint() * W * D).pruned();
@@ -298,7 +314,7 @@ static void test_cellB_shape() {
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
 
-    nxr::manifold::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    nxr::geometry::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
                               F.data(), static_cast<int>(F.size()) / 3);
 
     Eigen::SparseMatrix<std::complex<double>> D = assembleConnectionGradient(m, 1);
@@ -319,7 +335,7 @@ static void test_cellC_invalid_nsym() {
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
 
-    nxr::manifold::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    nxr::geometry::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
                               F.data(), static_cast<int>(F.size()) / 3);
 
     bool threw = false;
@@ -338,13 +354,13 @@ static void test_cellA_facet_accessor() {
     std::vector<int32_t>  F;
     generateIcosphere(V, F);
 
-    nxr::manifold::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
+    nxr::geometry::Manifold m(V.data(), static_cast<int>(V.size()) / 3,
                               F.data(), static_cast<int>(F.size()) / 3);
 
     const auto& G1 = m.operators().connectionGradient(1);
     CHECK(G1.rows() == m.nE() && G1.cols() == m.nV(),
           "connectionGradient(1) shape [E×V]");
-    CHECK(m.isOperatorCached(nxr::manifold::OperatorId::ConnectionGradient),
+    CHECK(m.isOperatorCached(nxr::geometry::OperatorId::ConnectionGradient),
           "cached after access");
 
     // Second call must return the same object (pointer identity).
@@ -352,15 +368,15 @@ static void test_cellA_facet_accessor() {
     CHECK(&G1 == &G1b, "same cached ref for same nSym");
 
     // Release + check no longer cached.
-    m.releaseOperator(nxr::manifold::OperatorId::ConnectionGradient);
-    CHECK(!m.isOperatorCached(nxr::manifold::OperatorId::ConnectionGradient),
+    m.releaseOperator(nxr::geometry::OperatorId::ConnectionGradient);
+    CHECK(!m.isOperatorCached(nxr::geometry::OperatorId::ConnectionGradient),
           "released");
 
     // nSym=2 must produce a different (cached) matrix.
     const auto& G2 = m.operators().connectionGradient(2);
     CHECK(G2.rows() == m.nE() && G2.cols() == m.nV(),
           "connectionGradient(2) shape [E×V]");
-    CHECK(m.isOperatorCached(nxr::manifold::OperatorId::ConnectionGradient),
+    CHECK(m.isOperatorCached(nxr::geometry::OperatorId::ConnectionGradient),
           "cached after nSym=2 access");
     std::cout << "  Cell A2 facet accessor: OK (nV=" << m.nV()
               << " nE=" << m.nE() << ")\n";

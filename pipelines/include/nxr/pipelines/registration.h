@@ -1,6 +1,6 @@
 // nxr-pipelines — `create registration`: the registration between two templates (or a template and a subject) through their REGISTERED SPHERES, stored as a
 // package of kind `registration` (docs/specs/2026-11-16-subject-centred-datasets.md section 4.4). This file only PREPARES the inputs (it finds the two released
-// templates by name, edition and version, reads their spheres, type-checks them), runs the compute node (`nxr::registration::resample_operator`, a pure function
+// templates by name, edition and version, reads their spheres, type-checks them), runs the compute node (`nxr::operators::registration::resample_operator`, a pure function
 // of matrices) and hands the operators to io; no maths, no loop over vertices.
 //
 //   graph        from sphere [Vf x 3], to sphere [Vt x 3]  --resample_operator(method, K)-->  W [Vt x Vf] (CSR), and in the other direction W' [Vf x Vt]

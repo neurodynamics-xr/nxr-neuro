@@ -12,17 +12,25 @@
 
 #include <Eigen/Dense>
 
-#include "nxr/crossings.h"
-#include "nxr/intervals.h"
-#include "nxr/ladder.h"
+#include "nxr/select/track_crossings.h"
+#include "nxr/select/events.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/pipelines/run_repeat.h"
 #include "nxr/pipelines/select_nodes.h"
-#include "nxr/quantity.h"
+#include "nxr/quantity/quantity.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/quadrature.h"
-#include "nxr/regions.h"
-#include "nxr/stats.h"
+#include "nxr/core/algebra.h"
+#include "nxr/measurement/congruence_norms.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/signal/complex_signal.h"
+#include "nxr/signal/crossspectral.h"
+#include "nxr/signal/crossspectral_decomposition.h"
+#include "nxr/signal/phase_gradient.h"
+#include "nxr/stats/circular.h"
+#include "nxr/measurement/congruence_norms.h"
+#include "nxr/select/regions.h"
+#include "nxr/stats/summary.h"
 
 namespace nxr::pipelines::graph {
 
@@ -42,7 +50,7 @@ const double kNaN = std::numeric_limits<double>::quiet_NaN();
 // mean cosine of the tiles' directions (nxr `repeat`, `tile_dot`). Read from the two runs' stored `tile_crossings` measurements over the level's tiles; never a recording.
 struct RunData { nxr::io::MeasurementValues x, y, z, n; };
 // the pooled senses of stage `stage`: rows 2s (sense +1) and 2s+1 (sense -1); the members' last is the bridge, not a tile
-nxr::crossings::Pooled pooled_of(const RunData& d, int stage, std::int64_t tiles) {
+nxr::select::track_crossings::Pooled pooled_of(const RunData& d, int stage, std::int64_t tiles) {
   const std::int64_t M = d.n.members, r0 = 2 * static_cast<std::int64_t>(stage), r1 = r0 + 1;
   Eigen::MatrixXd plus(tiles, 3), minus(tiles, 3);
   Eigen::VectorXd np(tiles), nm(tiles);
@@ -52,7 +60,7 @@ nxr::crossings::Pooled pooled_of(const RunData& d, int stage, std::int64_t tiles
     minus.row(t) << d.x.values[b], d.y.values[b], d.z.values[b];
     np[t] = d.n.values[a]; nm[t] = d.n.values[b];
   }
-  return nxr::crossings::poolSenses(plus, np, minus, nm);
+  return nxr::select::track_crossings::poolSenses(plus, np, minus, nm);
 }
 
 struct RepeatState { Value a, b, over; Json p; };
@@ -63,7 +71,7 @@ StepSpec run_repeat_step() {
   s.inputs = {"a", "b", "over"};
   s.outputs = {"tiles", "whole"};
   s.parameters = Json{{"spatial_scale", nullptr}, {"stage", 0}, {"stage_name", nullptr}, {"min_crossings", 10}};
-  s.matches = "nxr vortex_cores.repeat, tile_dot (NMIN_TILE 10); compute nxr::crossings::repeat";
+  s.matches = "nxr vortex_cores.repeat, tile_dot (NMIN_TILE 10); compute nxr::select::track_crossings::repeat";
   s.description = "per tile of one level, the dot product of two runs' mean resultant crossing vectors, and the count-weighted mean cosine of the directions over the tiles both runs cross enough";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored measurements");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
@@ -108,8 +116,8 @@ StepSpec run_repeat_step() {
       need(d->n.members == tiles + 1 && d->n.rows >= 2 * static_cast<std::int64_t>(sg) + 2,
            "run_repeat: the stored crossings are [" + std::to_string(d->n.rows) + " rows x " + std::to_string(d->n.members) + " members]; the level has " + std::to_string(tiles) + " tiles (and the bridge) and stage " + std::to_string(sg) +
                " needs rows " + std::to_string(2 * sg) + " and " + std::to_string(2 * sg + 1));
-    const nxr::crossings::Pooled pa = pooled_of(A, sa, tiles), pb = pooled_of(B, sb, tiles);
-    const nxr::crossings::Repeat rep = nxr::crossings::repeat(pa, pb, min_crossings);
+    const nxr::select::track_crossings::Pooled pa = pooled_of(A, sa, tiles), pb = pooled_of(B, sb, tiles);
+    const nxr::select::track_crossings::Repeat rep = nxr::select::track_crossings::repeat(pa, pb, min_crossings);
     const Json warnings = Json::array({"a repeat is two runs of one subject agreeing: they share the cortex, the kernel and the instrument's leakage, so it is evidence only against the lag-free null (piece 10), whose p-value this statistic waits for",
                                        "a tile counts only with at least min_crossings crossings in both runs (the senses pooled); the whole recording's cosine is the count-weighted mean over those tiles"});
     Json pj = Json{{"warnings", warnings}, {"reference", "nxr vortex_cores.repeat, tile_dot (NMIN_TILE 10)"}};
@@ -185,7 +193,7 @@ StepSpec cellquadrature_step() {
   s.optional = {"bursts"};
   s.outputs = {"cells", "cell_pairs", "bursts", "burst_pairs"};
   s.parameters = Json{{"spatial_scale", nullptr}, {"weights", "area"}, {"tile_pairs", true}, {"transform", "auto"}, {"modes", nullptr}, {"order", nullptr}, {"tolerance", nullptr}};
-  s.matches = "compute nxr::quadrature::groupedCongruenceNorms, pairCongruenceNorms; the merge rule sum (nxr::measurement)";
+  s.matches = "compute nxr::measurement::groupedCongruenceNorms, pairCongruenceNorms; the merge rule sum (nxr::measurement)";
   s.description = "the quadrature ingredients of the kernel's spatial tiles (and touching tile pairs) per time tile of the joint cells and per burst, from an analytic cross-spectrum";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored windows");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
@@ -306,8 +314,8 @@ StepSpec cellquadrature_step() {
     // the area weights: a row (vertex, component) weighs its vertex's barycentric area (the tiles' areas are sums of these); none: no weights
     Eigen::VectorXd row_w;
     if (weights == "area") {
-      nxr::ladder::Mesh whole; whole.n = static_cast<int>(nV); whole.positions = S.vertices; whole.faces = S.faces;
-      const std::vector<double> va = nxr::ladder::vertexAreas(whole);
+      nxr::select::Mesh whole; whole.n = static_cast<int>(nV); whole.positions = S.vertices; whole.faces = S.faces;
+      const std::vector<double> va = nxr::select::vertexAreas(whole);
       row_w.resize(kshape[0]);
       for (std::int64_t v = 0; v < nV; ++v) for (std::int64_t c = 0; c < comps; ++c) row_w[v * comps + c] = va[static_cast<std::size_t>(v)];
     }
@@ -325,10 +333,10 @@ StepSpec cellquadrature_step() {
     auto norms_of = [&](const std::vector<Eigen::MatrixXcd>& Cs) {
       Norms n;
       if (tile_pairs) {
-        const auto r = quadrature::pairCongruenceNorms(A, tile_members, SL.pairs, Cs, row_w);
+        const auto r = nxr::measurement::pairCongruenceNorms(A, tile_members, SL.pairs, Cs, row_w);
         n.total = r.tiles.total; n.quad = r.tiles.quadrature; n.ptotal = r.pairTotal; n.pquad = r.pairQuadrature;
       } else {
-        const auto r = quadrature::groupedCongruenceNorms(A, tile_members, Cs, row_w);
+        const auto r = nxr::measurement::groupedCongruenceNorms(A, tile_members, Cs, row_w);
         n.total = r.total; n.quad = r.quadrature;
       }
       return n;
@@ -356,7 +364,7 @@ StepSpec cellquadrature_step() {
     {
       const Norms n = norms_of(win.sum);
       out["cells"] = pack(place(n.total), place(n.quad), kTotal, kQuad, text(*st.joint.row, "name"), "the quadrature ingredients per spatial tile and time tile");
-      if (tile_pairs) out["cell_pairs"] = pack(place(n.ptotal), place(n.pquad), kPairTotal, kPairQuad, text(*st.joint.row, "name"), "the quadrature ingredients per pair of touching tiles (nxr::ladder::tileAdjacency order) and time tile");
+      if (tile_pairs) out["cell_pairs"] = pack(place(n.ptotal), place(n.pquad), kPairTotal, kPairQuad, text(*st.joint.row, "name"), "the quadrature ingredients per pair of touching tiles (nxr::select::tileAdjacency order) and time tile");
       if (ctx.say) ctx.say(Json{{"stage", "cells"}, {"rows", tiles}, {"members", frames}});
     }
     // the bursts: C summed over each burst's time tiles FIRST (products add: exact), then the ingredients per spatial tile (and pair)
@@ -385,7 +393,7 @@ StepSpec cellquadrature_step() {
       const Norms n = norms_of(sums);
       const std::string bname = text(*st.bursts->row, "name");
       out["bursts"] = pack(n.total, n.quad, kTotal, kQuad, bname, "the quadrature ingredients per spatial tile and burst");
-      if (tile_pairs) out["burst_pairs"] = pack(n.ptotal, n.pquad, kPairTotal, kPairQuad, bname, "the quadrature ingredients per pair of touching tiles (nxr::ladder::tileAdjacency order) and burst");
+      if (tile_pairs) out["burst_pairs"] = pack(n.ptotal, n.pquad, kPairTotal, kPairQuad, bname, "the quadrature ingredients per pair of touching tiles (nxr::select::tileAdjacency order) and burst");
       if (ctx.say) ctx.say(Json{{"stage", "bursts"}, {"events_read", report}});
     }
     return out;
@@ -407,14 +415,14 @@ StepSpec patches_step() {
   s.outputs = {"band", "tile_measures", "baseline", "patches", "patch_measures", "patch_own", "area", "n_tiles", "mean", "peak"};
   s.parameters = Json{{"spatial_scale", nullptr}, {"sign", "positive"}, {"enter_sd", 1.5}, {"exit_sd", 1.0}, {"min_area", nullptr}, {"max_area", nullptr}, {"transform", "auto"}, {"modes", nullptr}, {"order", nullptr}, {"tolerance", nullptr},
                       {"summaries", Json::array({"count", "sum", "median", "mean", "sd", "percentile:25", "percentile:75", "percentile:90"})}};
-  s.matches = "nxr patches; compute nxr::regions::detectRegions, nxr::intervals::median/mad, nxr::partition";
+  s.matches = "nxr patches; compute nxr::select::detectRegions, nxr::select::median/mad, nxr::partition";
   s.description = "the patches of a scalar map: its band at a level of the surface's ladder, the tiles' measurements and baseline, the regions above it, their measurements and summaries";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     need(ins.count("map") && ins.at("map").row, "patches: map is the stored Field to find patches in");
     need(ins.count("tiles") && ins.at("tiles").row, "patches: tiles is the level's partition (the surface's ladder: `tiles` first)");
     need(p["spatial_scale"].is_string(), "patches: spatial_scale is a quantity (a tile diameter \"20 mm\", \"parts 16\", a wavelength): the scale whose Weyl band the map is filtered to and whose tiles are the partition; a bare level index is never a parameter");
-    try { (void)nxr::regions::parseSign(p.value("sign", std::string("positive"))); } catch (const std::invalid_argument& e) { fail(std::string("patches: ") + e.what()); }
+    try { (void)nxr::select::parseSign(p.value("sign", std::string("positive"))); } catch (const std::invalid_argument& e) { fail(std::string("patches: ") + e.what()); }
     need(p.value("exit_sd", 1.0) <= p.value("enter_sd", 1.5), "patches: exit_sd (" + std::to_string(p.value("exit_sd", 1.0)) + ") is at most enter_sd (" + std::to_string(p.value("enter_sd", 1.5)) + ")");
     { const auto lo = area_m2_of(p["min_area"], "patches", "min_area"), hi = area_m2_of(p["max_area"], "patches", "max_area");
       need(!lo || *lo >= 0, "patches: min_area is at least 0"); need(!hi || *hi >= lo.value_or(0.0), "patches: max_area is at least min_area"); }
@@ -443,7 +451,7 @@ StepSpec patches_step() {
     Json scale_snapped;
     const int l = level_of_ladder(b, st.tiles, p["spatial_scale"], "patches", &scale_snapped);
     const std::string sign_name = p.value("sign", std::string("positive")), mapname = text(*st.map.row, "name");
-    const nxr::regions::Sign sign = nxr::regions::parseSign(sign_name);
+    const nxr::select::Sign sign = nxr::select::parseSign(sign_name);
     const double enter_sd = p.value("enter_sd", 1.5), exit_sd = p.value("exit_sd", 1.0);
     const std::optional<double> min_area = area_m2_of(p["min_area"], "patches", "min_area"), max_area = area_m2_of(p["max_area"], "patches", "max_area");
     // the map: a scalar value per vertex of a surface, every one finite
@@ -463,9 +471,9 @@ StepSpec patches_step() {
     const SurfaceLevel SL = b.surface_level(S, l);                   // the ladder, the level, its tiles and graph, the Weyl pairing checked
     need(SL.level.id == text(*st.tiles.row, "id"), "patches: the tiles found are not the surface's level " + std::to_string(l) + " (" + SL.tiling + ")");
     const std::int64_t nodes = SL.nodes;
-    const nxr::filterbank::Member& member = SL.bank.members[static_cast<std::size_t>(l)];
-    nxr::ladder::Mesh whole; whole.n = static_cast<int>(nV); whole.positions = S.vertices; whole.faces = S.faces;
-    const std::vector<double> vertex_area = nxr::ladder::vertexAreas(whole);
+    const nxr::signal::graphfilterbank::Member& member = SL.bank.members[static_cast<std::size_t>(l)];
+    nxr::select::Mesh whole; whole.n = static_cast<int>(nV); whole.positions = S.vertices; whole.faces = S.faces;
+    const std::vector<double> vertex_area = nxr::select::vertexAreas(whole);
     if (ctx.say) ctx.say(Json{{"stage", "prepared"}, {"map", mapname}, {"surface", S.name}, {"level", l}, {"tiles", nodes}, {"tile_pairs", SL.pairs.size()}, {"band_lambda", Json::array({member.lo, member.hi})}});
     Json warnings = Json::array();
     // the band-passed map
@@ -532,13 +540,13 @@ StepSpec patches_step() {
     }
     Json baseline = Json{{"median", med}, {"sd", sd}, {"over", "the level's tiles, of the band's tile means"}};
     // the sign: the caller's, before the thresholds (a baseline of the SIGNED values)
-    const Eigen::VectorXd signed_v = nxr::regions::applySign(mean, sign);
-    if (sign == nxr::regions::Sign::Negative) med = -med;
-    if (sign == nxr::regions::Sign::Magnitude) {
+    const Eigen::VectorXd signed_v = nxr::select::applySign(mean, sign);
+    if (sign == nxr::select::Sign::Negative) med = -med;
+    if (sign == nxr::select::Sign::Magnitude) {
       std::vector<double> a;
       for (Eigen::Index t = 0; t < signed_v.size(); ++t) if (std::isfinite(signed_v(t))) a.push_back(signed_v(t));
       const Eigen::Map<const Eigen::VectorXd> av(a.data(), static_cast<Eigen::Index>(a.size()));
-      med = nxr::intervals::median(av); sd = nxr::intervals::mad(av);
+      med = nxr::select::median(av); sd = nxr::select::mad(av);
       baseline["note"] = "magnitude: the median and robust SD are of the absolute tile means, computed with the same functions (the stored statistic is of the signed means)";
     }
     baseline["median_used"] = med; baseline["sd_used"] = sd;
@@ -547,15 +555,15 @@ StepSpec patches_step() {
     const double enter = med + enter_sd * sd, exit = med + exit_sd * sd;
     // THE PATCHES: hysteresis over the tile graph
     Eigen::VectorXd w = Eigen::Map<const Eigen::VectorXd>(SL.tile_area.data(), static_cast<Eigen::Index>(SL.tile_area.size()));
-    nxr::regions::Regions R;
+    nxr::select::Regions R;
     try {
-      R = nxr::regions::detectRegions(signed_v, SL.pairs, w, enter, exit, min_area.value_or(0.0), max_area.value_or(std::numeric_limits<double>::infinity()));
+      R = nxr::select::detectRegions(signed_v, SL.pairs, w, enter, exit, min_area.value_or(0.0), max_area.value_or(std::numeric_limits<double>::infinity()));
     } catch (const std::invalid_argument& e) { fail(std::string("patches: ") + e.what()); }
     const std::int64_t n_patches = static_cast<std::int64_t>(R.regions.size());
     std::vector<std::int32_t> pcode(static_cast<std::size_t>(nV), -1);
     for (std::int64_t v = 0; v < nV; ++v) { const std::int32_t t = tile[static_cast<std::size_t>(v)]; if (t >= 0) pcode[static_cast<std::size_t>(v)] = R.label[static_cast<std::size_t>(t)]; }
     std::vector<int> pcode_int(pcode.begin(), pcode.end());
-    const std::vector<int> centres = nxr::ladder::tileCentres(S.vertices.data(), pcode_int, static_cast<int>(n_patches), vertex_area);
+    const std::vector<int> centres = nxr::select::tileCentres(S.vertices.data(), pcode_int, static_cast<int>(n_patches), vertex_area);
     Json entries = Json::array();
     for (std::int64_t k = 0; k < n_patches; ++k) entries.push_back("patch " + std::to_string(k));
     Json pparams = Json{{"pipeline", "patches"}, {"map", mapname}, {"level", l}, {"spatial_scale", Json{{"stated", p["spatial_scale"]}, {"snapped", scale_snapped}}}, {"tiling", SL.tiling}, {"band", sb.info}, {"sign", sign_name}, {"enter_sd", enter_sd}, {"exit_sd", exit_sd},
@@ -590,7 +598,7 @@ StepSpec patches_step() {
       const std::vector<nxr::stats::Summary> sums = nxr::stats::parseSummaries(p["summaries"].get<std::vector<std::string>>());
       Json sjson = Json::array();
       for (const auto& sm : sums) sjson.push_back(sm.name == "percentile" ? Json{{"name", "percentile"}, {"p", sm.p}} : Json{{"name", sm.name}});
-      const int peak_col = sign == nxr::regions::Sign::Positive ? 1 : sign == nxr::regions::Sign::Negative ? 2 : 3;
+      const int peak_col = sign == nxr::select::Sign::Positive ? 1 : sign == nxr::select::Sign::Negative ? 2 : 3;
       auto summarize = [&](const std::vector<double>& vals, const std::string& measure, const std::string& unit, const std::string& what) {
         const std::vector<double> sv = nxr::stats::summarizeRows(vals, 1, n_patches, sums, "each", 1, nullptr);
         Array a;

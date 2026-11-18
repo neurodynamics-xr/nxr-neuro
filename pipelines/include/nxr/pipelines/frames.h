@@ -13,12 +13,13 @@
 // Everything lives in the subject's SCS (x anterior, y left, z up), never RAS; a template's own convention (`convention`) enters once, when ITS frame is made.
 #pragma once
 
-#include "nxr/chart.h"
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include <Eigen/Dense>
 #include <optional>
 #include <string>
 
-#include "nxr/frames.h"
+#include "nxr/geometry/frames.h"
 #include "nxr/io.h"
 
 namespace nxr::pipelines {
@@ -48,8 +49,8 @@ FramesMade make_frames(nxr::io::DatasetWriter* ds, nxr::io::SubjectWriter& sub, 
 // What a surface has stored (read by `opticalflow compute`): the canonical frames and the anatomical frame, or nothing.
 struct StoredFrames {
   bool canonical = false, anatomical = false;
-  nxr::frames::Mat3 e1, e2, n;               // [V x 3] (when canonical; NaN at a singular vertex); n the stored third row
-  nxr::frames::Anatomical anatomy;           // (when anatomical)
+  nxr::geometry::Mat3 e1, e2, n;               // [V x 3] (when canonical; NaN at a singular vertex); n the stored third row
+  nxr::geometry::Anatomical anatomy;           // (when anatomical)
   std::string anatomical_id, anatomical_modified;   // the angle field's identity (a cache key part)
 };
 StoredFrames read_stored_frames(nxr::io::SubjectWriter& sub, const std::string& surface_name, std::int64_t n_vertices);

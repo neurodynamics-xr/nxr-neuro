@@ -23,7 +23,7 @@
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/scaleselection.h"
 #include "nxr/pipelines/spatial_band.h"

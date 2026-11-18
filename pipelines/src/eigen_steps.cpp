@@ -20,8 +20,25 @@
 #include <cstdio>
 #include <numeric>
 
-#include "nxr/compute.h"
-#include "nxr/glue.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/operators/cache.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/surface_maps.h"
 #include "nxr/pipelines/cache.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/registry.h"
@@ -30,7 +47,7 @@ namespace nxr::pipelines::graph {
 
 namespace {
 
-namespace hs = nxr::manifold::solve;
+namespace hs = nxr::operators;
 
 void need(bool ok, const std::string& msg) { if (!ok) refuse(msg); }
 
@@ -152,7 +169,7 @@ StepSpec hodge_dirac_step() {
     const std::int64_t V = S.n_vertices();
     const int pieces = connected_pieces(S.faces, V);
     need(pieces == 1, st.surface + " is " + std::to_string(pieces) + " pieces: the Hodge-Dirac solve takes a surface of one closed piece (a cortex's two hemispheres are glued first by `run glue`, and the glued surface named as the input)");
-    nxr::glue::Glued G;
+    nxr::geometry::glue::Glued G;
     G.positions = S.vertices;
     G.faces = S.faces;
     G.keep.resize(static_cast<std::size_t>(V));
@@ -312,7 +329,7 @@ StepSpec surface_glue_step() {
     const int pieces = connected_pieces(S.faces, S.n_vertices());
     need(pieces == 2, st.surface + " is " + std::to_string(pieces) + " piece(s): `glue` is for a cortex of two pieces (its hemispheres)");
     const std::vector<std::uint8_t> wall = ctx.bound.medial_wall(S);
-    const nxr::glue::Glued G = nxr::glue::glueMesh(S.vertices, S.faces, wall);
+    const nxr::geometry::glue::Glued G = nxr::geometry::glue::glueMesh(S.vertices, S.faces, wall);
     const std::int64_t Vg = static_cast<std::int64_t>(G.keep.size());
     std::int64_t kept = 0;
     for (const auto k : G.keep) if (k >= 0) ++kept;

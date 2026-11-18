@@ -14,4 +14,7 @@ target_sources(nxr_compute PRIVATE
   src/synthesis/lagfree.cpp
   src/stats/nulltest.cpp
   src/stats/pca.cpp
+  src/stats/circular.cpp
+  src/measurement/congruence_norms.cpp
+  src/geometry/face_areas.cpp
 )

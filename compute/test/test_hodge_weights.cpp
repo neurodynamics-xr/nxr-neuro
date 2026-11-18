@@ -5,10 +5,11 @@
 #include <random>
 
 #include "golden_io.h"
-#include "nxr/hodge_weights.h"
-#include "nxr/welch.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
+#include "nxr/measurement/mode_power.h"
+#include "nxr/signal/spectral.h"
 
-using namespace nxr::hodge;
+using namespace nxr::operators;
 using Eigen::MatrixXd;
 static int g_failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++g_failures; } } while (0)
@@ -51,14 +52,14 @@ int main() {
     const int C = static_cast<int>(B.cols()), T = 4000;
     MatrixXd x(C, T);
     for (auto& v : x.reshaped()) v = nd(rng);
-    auto wo = nxr::welch::brainstormPsdOptions(250.0, 4.0);
+    auto wo = nxr::signal::spectral::brainstormPsdOptions(250.0, 4.0);
     const std::size_t bins = wo.segmentSamples / 2 + 1;
-    const std::vector<nxr::welch::BinGroup> groups = {{8, 24, true}, {30, 60, true}};
-    nxr::welch::CrossWelch cw(C, wo, groups);
+    const std::vector<nxr::signal::spectral::BinGroup> groups = {{8, 24, true}, {30, 60, true}};
+    nxr::signal::spectral::CrossWelch cw(C, wo, groups);
     cw.add(x);
     const auto r = cw.result();
-    const MatrixXd got = modePower(B, r.S);
-    const auto direct = nxr::welch::welch(B * x, wo);
+    const MatrixXd got = nxr::measurement::modePower(B, r.S);
+    const auto direct = nxr::signal::spectral::welch(B * x, wo);
     MatrixXd want(B.rows(), 2);
     for (int i = 0; i < 2; ++i) want.col(i) = direct.psd.middleCols(groups[i].first, groups[i].last - groups[i].first + 1).rowwise().mean();
     (void)bins;

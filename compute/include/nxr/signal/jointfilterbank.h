@@ -18,8 +18,8 @@
 // Domains. Spectrum: C [K × F] on the time bank's grid (Rheome's wt/iwt: an elementwise multiply). Modes: a [K × T] series of mode coefficients (time along
 // the columns, as everywhere in nxr::filterbank) — FFT along time, multiply, inverse FFT. Vertices: a field [n × T] through an EigenTransform (exact,
 // any kernel) or a ChebyshevOperator (separable banks only: time filter, then the graph series, no eigenvectors).
-#include "nxr/filterbank.h"
-#include "nxr/timebank.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/timefilterbank.h"
 #include <complex>
 #include <functional>
 #include <string>
@@ -29,13 +29,13 @@ namespace nxr::signal::jointfilterbank {
 
 using cd = std::complex<double>;
 using Kernel = std::function<cd(double /*lambda*/, double /*f, Hz*/)>;
-using nxr::filterbank::Synthesis;
+using nxr::signal::graphfilterbank::Synthesis;
 
 struct Index { std::size_t g = 0, t = 0, k = 0; };
 
 struct JointBank {
-    filterbank::Bank graph;
-    timebank::TimeBank time;
+    signal::graphfilterbank::Bank graph;
+    signal::timefilterbank::TimeBank time;
     std::vector<Kernel> kernels;      // empty: separable (K = 1)
     std::vector<Index> index;         // [Nf], ig fastest
     int size() const { return static_cast<int>(index.size()); }
@@ -43,21 +43,21 @@ struct JointBank {
 };
 
 /** Every combination of the graph bank's members, the time bank's members and the kernels (none = separable). */
-JointBank make(const filterbank::Bank& graph, const timebank::TimeBank& time, std::vector<Kernel> kernels = {});
+JointBank make(const signal::graphfilterbank::Bank& graph, const signal::timefilterbank::TimeBank& time, std::vector<Kernel> kernels = {});
 /** A kernel of (λ, t): a propagator in time LAG. It is not a joint-plane kernel. */
 struct LagKernel { std::function<cd(double /*lambda*/, double /*t, s*/)> g; };
 /** Always throws std::invalid_argument: a (λ, t) kernel acts on a time lag (the response to an impulse as time goes by); it cannot multiply a joint (λ, f)
  *  spectrum and must first be transformed along the time axis. (Rheome: jtv.bank type 'ts'.) */
-JointBank make(const filterbank::Bank& graph, const timebank::TimeBank& time, const std::vector<LagKernel>& lagKernels);
+JointBank make(const signal::graphfilterbank::Bank& graph, const signal::timefilterbank::TimeBank& time, const std::vector<LagKernel>& lagKernels);
 
 /** Member m on the plane at the graph spectrum `lambda` and the time bank's grid → [K × F] (the DC / Nyquist rule of the time bank applies). */
 Eigen::MatrixXcd memberGains(const JointBank& bank, int m, const Eigen::VectorXd& lambda);
 /** S(λ, f) = Σ_i |W_i|²  → [K × F]. */
 Eigen::MatrixXd frameOperator(const JointBank& bank, const Eigen::VectorXd& lambda);
 /** Frame bounds over the plane (analytic: DC and Nyquist bins excluded, as timebank::bounds). */
-filterbank::Bounds bounds(const JointBank& bank, const Eigen::VectorXd& lambda);
+signal::graphfilterbank::Bounds bounds(const JointBank& bank, const Eigen::VectorXd& lambda);
 /** For a separable bank: the product of the factors' bounds (A_g·A_t, B_g·B_t); throws otherwise. Equal to bounds() on the same grid. */
-filterbank::Bounds productBounds(const JointBank& bank, const Eigen::VectorXd& lambda);
+signal::graphfilterbank::Bounds productBounds(const JointBank& bank, const Eigen::VectorXd& lambda);
 bool isTight(const JointBank& bank, const Eigen::VectorXd& lambda, double tol = 1e-6);
 
 // ── the spectrum domain (Rheome: wt / iwt, jtv.analysis / jtv.synthesis) ────────────────────────────────────────────────
@@ -83,15 +83,15 @@ Eigen::MatrixXcd synthesisComplex(const JointBank& bank, const Eigen::VectorXd& 
 // ── vertices × time ────────────────────────────────────────────────────────────────────────────────────────────────────────
 
 /** Exact: W_i = Φ [ g(Λ) ⊙ time-filter(Φᵀ B F) ] — any kernel. F [n × T] real (analytic bank) or complex; blocks [n × nfft]. */
-Coefficients analysis(const JointBank& bank, const filterbank::EigenTransform& t, const Eigen::MatrixXd& F);
-Coefficients analysis(const JointBank& bank, const filterbank::EigenTransform& t, const Eigen::MatrixXcd& F);
-Eigen::MatrixXd synthesis(const JointBank& bank, const filterbank::EigenTransform& t, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
-Eigen::MatrixXcd synthesisComplex(const JointBank& bank, const filterbank::EigenTransform& t, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
+Coefficients analysis(const JointBank& bank, const signal::graphfilterbank::EigenTransform& t, const Eigen::MatrixXd& F);
+Coefficients analysis(const JointBank& bank, const signal::graphfilterbank::EigenTransform& t, const Eigen::MatrixXcd& F);
+Eigen::MatrixXd synthesis(const JointBank& bank, const signal::graphfilterbank::EigenTransform& t, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
+Eigen::MatrixXcd synthesisComplex(const JointBank& bank, const signal::graphfilterbank::EigenTransform& t, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
 /** Polynomial: SEPARABLE banks only (a kernel couples λ and f, which a series in the operator cannot see; refused with a clear error). */
-Coefficients analysis(const JointBank& bank, const filterbank::ChebyshevOperator& t, const Eigen::MatrixXd& F);
-Coefficients analysis(const JointBank& bank, const filterbank::ChebyshevOperator& t, const Eigen::MatrixXcd& F);
-Eigen::MatrixXd synthesis(const JointBank& bank, const filterbank::ChebyshevOperator& t, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
-Eigen::MatrixXcd synthesisComplex(const JointBank& bank, const filterbank::ChebyshevOperator& t, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
+Coefficients analysis(const JointBank& bank, const signal::graphfilterbank::ChebyshevOperator& t, const Eigen::MatrixXd& F);
+Coefficients analysis(const JointBank& bank, const signal::graphfilterbank::ChebyshevOperator& t, const Eigen::MatrixXcd& F);
+Eigen::MatrixXd synthesis(const JointBank& bank, const signal::graphfilterbank::ChebyshevOperator& t, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
+Eigen::MatrixXcd synthesisComplex(const JointBank& bank, const signal::graphfilterbank::ChebyshevOperator& t, const Coefficients& W, std::size_t n, Synthesis mode = Synthesis::Dual);
 
 /** Energy of each member: Σ |W_i|² over vertices (or modes) and time → [Nf]. */
 Eigen::VectorXd energies(const Coefficients& W);
@@ -101,7 +101,7 @@ Eigen::VectorXd energies(const Coefficients& W);
 /** The axes a joint representation lives on, carried with it: Rheome's .lambda .f .half .boundary .fs .nfft. `half` is Analytic (positive half, complex) or
  *  TwoSided (signed). `boundary`: Ring (a plain FFT: periodic) | Path (a padded record). Two representations are combinable only if these agree. */
 enum class Boundary { Ring, Path };
-struct Axes { Eigen::VectorXd lambda, f; double fs = 0; std::size_t nfft = 0; timebank::Sides half = timebank::Sides::Analytic; Boundary boundary = Boundary::Ring; };
+struct Axes { Eigen::VectorXd lambda, f; double fs = 0; std::size_t nfft = 0; signal::timefilterbank::Sides half = signal::timefilterbank::Sides::Analytic; Boundary boundary = Boundary::Ring; };
 /** The axes of a bank on the graph spectrum `lambda`; `padded` marks a Path boundary (a record zero-padded beyond its length). */
 Axes axes(const JointBank& bank, const Eigen::VectorXd& lambda, bool padded = false);
 /** Do two representations live on the same axes? Empty on success, else every mismatch found (sizes agreeing proves nothing: values, half and boundary too). */

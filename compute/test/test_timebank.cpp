@@ -1,15 +1,15 @@
 // nxr::timebank: parity with Rheome's @timefilterbank (goldens/gen_timebank_golden.m) and MATLAB's cwtfilterbank (Morse · Amor · Bump), with nxr's frames.py /
 // kernels.py / joint.py / rotary.py (gen_timebank_nxr.py) and the Studio's windowFrame / chain.ts (gen_timebank_studio.mts), and the frame's own laws
 // (tight reconstruction, DC and Nyquist identical across gain, two-sided rotation sense, refusals). Synthetic data only.
-#include "nxr/timebank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include <random>
-using namespace nxr::timebank;
+using namespace nxr::signal::timefilterbank;
 using Eigen::MatrixXcd;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-namespace fft = nxr::fft;
+namespace fft = nxr::signal;
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static constexpr double kPi = 3.14159265358979323846;
 
@@ -189,7 +189,7 @@ static void laws() {
                     const auto bd = bounds(b);
                     const double G = gn * gn;        // Σ g² = gain² (the gain is the peak)
                     const Coefficients W = analysis(b, x);
-                    const double eT = relErr(synthesis(b, W, n, nxr::filterbank::Synthesis::Tight), x), eD = relErr(synthesis(b, W, n, nxr::filterbank::Synthesis::Dual), x);
+                    const double eT = relErr(synthesis(b, W, n, nxr::signal::graphfilterbank::Synthesis::Tight), x), eD = relErr(synthesis(b, W, n, nxr::signal::graphfilterbank::Synthesis::Dual), x);
                     const double S = frameOperator(b)(1);
                     double en = 0; for (const auto& w : W) en += w.cwiseAbs2().sum();
                     const double eP = std::abs(en - G / 2 * x.squaredNorm()) / x.squaredNorm();
@@ -217,7 +217,7 @@ static void laws() {
         const size_t n = 192; MatrixXd x = noise((int)n, 1, 3); x.array() += 2.0;
         Design d = D(Family::Itersine, 2.0, Sides::Analytic); d.edgeBins = EdgeBins::Drop;
         const TimeBank b = design(d, n, 100);
-        const MatrixXd r = synthesis(b, analysis(b, x), n, nxr::filterbank::Synthesis::Tight);
+        const MatrixXd r = synthesis(b, analysis(b, x), n, nxr::signal::graphfilterbank::Synthesis::Tight);
         MatrixXd lost = x; { MatrixXcd X = fft::rfftColumns(x); const std::complex<double> dc = X(0, 0), ny = X(X.rows() - 1, 0); X.setZero(); X(0, 0) = dc; X(X.rows() - 1, 0) = ny; lost = fft::irfftColumns(X, n); }
         EXPECT(relErr(MatrixXd(x - r), lost) < 1e-12, "EdgeBins::Drop (Rheome): reconstruction misses exactly the DC and Nyquist content " + sci(relErr(MatrixXd(x - r), lost)));
     }
@@ -229,7 +229,7 @@ static void laws() {
         const auto bd = bounds(b);
         const MatrixXcd z = cnoise((int)n, 2, 11);
         const Coefficients W = analysis(b, z);
-        const double eT = relErr(synthesisComplex(b, W, n, nxr::filterbank::Synthesis::Tight), z), eD = relErr(synthesisComplex(b, W, n, nxr::filterbank::Synthesis::Dual), z);
+        const double eT = relErr(synthesisComplex(b, W, n, nxr::signal::graphfilterbank::Synthesis::Tight), z), eD = relErr(synthesisComplex(b, W, n, nxr::signal::graphfilterbank::Synthesis::Dual), z);
         double en = 0; for (const auto& w : W) en += w.cwiseAbs2().sum();
         EXPECT(std::abs(bd.A - gn * gn) < 1e-12 && std::abs(bd.B - gn * gn) < 1e-12 && eT < 1e-12 && eD < 1e-12 && std::abs(en - gn * gn * z.squaredNorm()) < 1e-9 * gn * gn * z.squaredNorm(),
                std::string(fam == Family::Itersine ? "itersine" : "meyer") + " two-sided gain " + std::to_string((int)gn) + ": S = gain^2 on every bin incl. DC and Nyquist, tight " + sci(eT) + ", dual " + sci(eD) + ", Parseval Σ‖w‖² = gain² Σ|z|²");

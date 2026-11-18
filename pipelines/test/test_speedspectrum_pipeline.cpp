@@ -11,13 +11,13 @@
 #include "nxr/io/task/task.h"
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
-#include "nxr/intrinsic_surface.h"
-#include "nxr/hodge_weights.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/speedspectrum.h"
-#include "nxr/welch.h"
+#include "nxr/signal/spectral.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -105,10 +105,10 @@ int main() {
   o.kernel = "kern";
   o.segment_seconds = 4.0;
   o.fmin = 2; o.fmax = 40;
-  o.graph_family = nxr::filterbank::Family::LogItersine;
-  o.family = nxr::timebank::Family::Itersine;
+  o.graph_family = nxr::signal::graphfilterbank::Family::LogItersine;
+  o.family = nxr::signal::timefilterbank::Family::Itersine;
   o.gain = 1.0;
-  o.sides = nxr::timebank::Sides::Analytic;
+  o.sides = nxr::signal::timefilterbank::Sides::Analytic;
   o.speed.speedBins = 30;
   bool refused_family = false;
   { SpeedSpectrumOptions bad = o; bad.family.reset(); try { speedspectrum_compute(ds, sub, bad); } catch (const Error& e) { refused_family = std::string(e.what()).find("family is required") != std::string::npos; } }

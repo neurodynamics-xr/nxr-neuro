@@ -7,13 +7,13 @@
 #include <iostream>
 #include <random>
 
-#include "nxr/spectral_scaling.h"
-#include "nxr/timebank.h"
-#include "nxr/welch.h"
+#include "nxr/signal/spectral_scaling.h"
+#include "nxr/signal/timefilterbank.h"
+#include "nxr/signal/spectral.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
-using namespace nxr::spectral;
+using namespace nxr::signal::spectral_scaling;
 
 int main() {
   std::cout << "test_spectral_scaling\n";
@@ -43,21 +43,21 @@ int main() {
   for (int i = 0; i < n; ++i) x(0, i) = nd(rng);
   double dens = 0, spec = 0, enbw = 0;
   {
-    nxr::welch::WelchOptions wo = nxr::welch::brainstormPsdOptions(1.0); wo.sfreq = fs; wo.segmentSamples = 400;
-    nxr::welch::WelchOptions ws = wo; ws.scaling = nxr::welch::Scaling::Spectrum;
-    nxr::welch::Welch a(1, wo), b(1, ws);
+    nxr::signal::spectral::WelchOptions wo = nxr::signal::spectral::brainstormPsdOptions(1.0); wo.sfreq = fs; wo.segmentSamples = 400;
+    nxr::signal::spectral::WelchOptions ws = wo; ws.scaling = nxr::signal::spectral::Scaling::Spectrum;
+    nxr::signal::spectral::Welch a(1, wo), b(1, ws);
     a.add(x); b.add(x);
     const auto ra = a.result(), rb = b.result();
     int k0 = 40, k1 = 60;                                   // 20 … 30 Hz at 0.5 Hz bins
     for (int k = k0; k <= k1; ++k) { dens += ra.psd(0, k); spec += rb.psd(0, k); }
     dens /= (k1 - k0 + 1); spec /= (k1 - k0 + 1);
-    enbw = nxr::welch::enbwPerBin(ws);
+    enbw = nxr::signal::spectral::enbwPerBin(ws);
   }
   Scaling ws; ws.stored = Stored::Spectrum; ws.binEnbwHz = enbw;
-  nxr::timebank::Design dsg(nxr::timebank::Family::Meyer, 2.0, nxr::timebank::Sides::Analytic); dsg.bands = {{20.0, 30.0}};
-  const nxr::timebank::TimeBank bank = nxr::timebank::design(dsg, static_cast<std::size_t>(n), fs);
-  const Eigen::MatrixXcd z = nxr::timebank::analysis(bank, Eigen::MatrixXd(x.transpose()))[0];
-  Scaling an; an.stored = Stored::BandPower; an.bandWidthHz = nxr::timebank::noiseBandwidth(bank, 0);
+  nxr::signal::timefilterbank::Design dsg(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic); dsg.bands = {{20.0, 30.0}};
+  const nxr::signal::timefilterbank::TimeBank bank = nxr::signal::timefilterbank::design(dsg, static_cast<std::size_t>(n), fs);
+  const Eigen::MatrixXcd z = nxr::signal::timefilterbank::analysis(bank, Eigen::MatrixXd(x.transpose()))[0];
+  Scaling an; an.stored = Stored::BandPower; an.bandWidthHz = nxr::signal::timefilterbank::noiseBandwidth(bank, 0);
   const double analytic = convert(z.squaredNorm() / n / 2, an, Target::Density);
   std::printf("  white noise density %.5f: Welch density %.5f, Welch spectrum / ENBW %.5f, analytic band power / B_n %.5f (B_n %.2f Hz)\n", truth, dens,
               convert(spec, ws, Target::Density), analytic, an.bandWidthHz);

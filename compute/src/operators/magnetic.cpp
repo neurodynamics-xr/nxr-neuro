@@ -12,7 +12,7 @@
 #include <string>
 #include <utility>
 
-#include "nxr/errors.h"
+#include "nxr/core/errors.h"
 
 namespace nxr::operators {
 

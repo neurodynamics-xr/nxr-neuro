@@ -12,12 +12,13 @@
 
 #include "golden_io.h"
 #include "mesh_helpers.h"
-#include "nxr/chart.h"
-#include "nxr/frames.h"
-#include "nxr/ladder.h"
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/measurement/reduce.h"
 
-using namespace nxr::ladder;
+using namespace nxr::select;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
@@ -58,7 +59,7 @@ static ScalarSummary scalarSummary(const std::vector<int32_t>& node, int nodes, 
     return s;
 }
 struct FrameSummary { VectorXd w, c1, c2, cn, c11, c22, c12, mag; };
-static FrameSummary frameSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::ladder::Mat3& e1, const nxr::ladder::Mat3& e2, const nxr::ladder::Mat3& normal, const nxr::ladder::Mat3& v) {
+static FrameSummary frameSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::select::Mat3& e1, const nxr::select::Mat3& e2, const nxr::select::Mat3& normal, const nxr::select::Mat3& v) {
     const size_t n = node.size();
     std::vector<int32_t> nd = node;
     std::vector<double> c1(n), c2(n), cn(n), c11(n), c22(n), c12(n), mag(n);
@@ -77,10 +78,10 @@ static FrameSummary frameSummary(const std::vector<int32_t>& node, int nodes, co
     return f;
 }
 // a tile's resultant: the sum of the vector map carried to the tile centre (carriedToCentre, pointwise) over the tile's vertices; weight and magnitude as the old resultant returned them
-static Eigen::VectorXcd lcResultant(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::ladder::Mat3& e1, const nxr::ladder::Mat3& e2, const VectorXd& rho, const nxr::ladder::Mat3& v,
+static Eigen::VectorXcd lcResultant(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::select::Mat3& e1, const nxr::select::Mat3& e2, const VectorXd& rho, const nxr::select::Mat3& v,
                                     VectorXd* weight = nullptr, VectorXd* magnitude = nullptr) {
     std::vector<char> finite;
-    const Eigen::VectorXcd z = nxr::ladder::carriedToCentre(e1, e2, rho, v, &finite);
+    const Eigen::VectorXcd z = nxr::select::carriedToCentre(e1, e2, rho, v, &finite);
     std::vector<int32_t> nd = node;
     std::vector<double> re(node.size()), im(node.size()), mg(node.size());
     for (size_t r = 0; r < node.size(); ++r) { if (!finite[r]) nd[r] = -1; re[r] = finite[r] ? z[static_cast<Eigen::Index>(r)].real() : 0.0; im[r] = finite[r] ? z[static_cast<Eigen::Index>(r)].imag() : 0.0; mg[r] = finite[r] ? std::abs(z[static_cast<Eigen::Index>(r)]) : 0.0; }
@@ -92,7 +93,7 @@ static Eigen::VectorXcd lcResultant(const std::vector<int32_t>& node, int nodes,
     return out;
 }
 struct VectorSummary { FrameSummary frame; Eigen::VectorXcd transported; VectorXd weight, resultantLength; };
-static VectorSummary vectorSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::ladder::Mat3& e1, const nxr::ladder::Mat3& e2, const nxr::ladder::Mat3& normal, const VectorXd& rho, const nxr::ladder::Mat3& v) {
+static VectorSummary vectorSummary(const std::vector<int32_t>& node, int nodes, const std::vector<double>& area, const nxr::select::Mat3& e1, const nxr::select::Mat3& e2, const nxr::select::Mat3& normal, const VectorXd& rho, const nxr::select::Mat3& v) {
     VectorSummary s;
     s.frame = frameSummary(node, nodes, area, e1, e2, normal, v);
     VectorXd mg;
@@ -159,9 +160,9 @@ static void meshParity(Golden& g) {
     // the vector field, its frame, and the Levi-Civita connection (the golden's meshes both carry them)
     const VectorXd alpha = g.mat("alpha").row(0).transpose();
     const MatrixXd E1 = g.mat("e1"), E2 = g.mat("e2"), NN = g.mat("nrm"), VV = g.mat("v");
-    nxr::ladder::Mat3 e1 = E1, e2 = E2, nrm = NN, v = VV;
+    nxr::select::Mat3 e1 = E1, e2 = E2, nrm = NN, v = VV;
     nxr::chart::ChartKit kit(mesh.positions.data(), n, mesh.faces.data(), nF);
-    const VectorXd gauge = nxr::frames::gaugeAngle(kit, e1);
+    const VectorXd gauge = nxr::geometry::gaugeAngle(kit, e1);
     // the golden's e1 is the Studio's basis turned by alpha (the Studio's gauge); the gauge is geometry-central's now, so `gauge` (the angle of e1 in it) is NOT alpha. rho and Omega are the
     // transported frame angle seen from each vertex's own e1: gauge-free, so they are still compared with the Studio's (the transport is the same maths)
     double eg = 0;
@@ -282,10 +283,10 @@ static void foldedSheet() {
     const int nF = static_cast<int>(F.size() / 3);
     Mesh mesh; mesh.n = n; mesh.positions = P; mesh.faces = F;
     const SurfaceLadder L = surfaceLadder(mesh);
-    const nxr::frames::Mat3 nrm = nxr::frames::vertexNormals(P.data(), n, F.data(), nF);
+    const nxr::geometry::Mat3 nrm = nxr::geometry::vertexNormals(P.data(), n, F.data(), nF);
     nxr::chart::ChartKit kit(P.data(), n, F.data(), nF);
     // the uniform flow: the unit tangent along the sheet's x direction (parallel along the whole sheet: the sheet is a cylinder, flat)
-    nxr::ladder::Mat3 v(n, 3), e1(n, 3), e2(n, 3);
+    nxr::select::Mat3 v(n, 3), e1(n, 3), e2(n, 3);
     for (int j = 0; j < ny; ++j) for (int i = 0; i < nx; ++i) {
         const int q = id(i, j);
         const double x = Lx * i / (nx - 1), s = h * k * std::cos(k * x), nrmv = std::sqrt(1 + s * s);
@@ -298,7 +299,7 @@ static void foldedSheet() {
         e1.row(q) = (std::cos(al) * t + std::sin(al) * tn).transpose();
         e2.row(q) = nn.cross(Eigen::Vector3d(e1.row(q).transpose())).transpose();
     }
-    const VectorXd gauge = nxr::frames::gaugeAngle(kit, e1);
+    const VectorXd gauge = nxr::geometry::gaugeAngle(kit, e1);
     const Mesh& m = mesh;
     bool ok = true;
     for (int level = 1; level <= 2; ++level) {
@@ -329,7 +330,7 @@ static void sphereTransport() {
     icosphere(4, P, F, 1.0);
     const int n = static_cast<int>(P.size() / 3), nF = static_cast<int>(F.size() / 3);
     nxr::chart::ChartKit kit(P.data(), n, F.data(), nF);
-    nxr::ladder::Mat3 e1(n, 3), e2(n, 3);
+    nxr::select::Mat3 e1(n, 3), e2(n, 3);
     const Eigen::Vector3d z(0, 0, 1);
     for (int i = 0; i < n; ++i) {
         const Eigen::Vector3d q(P[3 * i], P[3 * i + 1], P[3 * i + 2]);
@@ -338,7 +339,7 @@ static void sphereTransport() {
         t.normalize();
         e1.row(i) = t.transpose(); e2.row(i) = q.cross(t).transpose();
     }
-    const VectorXd gauge = nxr::frames::gaugeAngle(kit, e1);
+    const VectorXd gauge = nxr::geometry::gaugeAngle(kit, e1);
     const int c = 100;
     const Eigen::Vector3d p(P[3 * c], P[3 * c + 1], P[3 * c + 2]), u = e1.row(c).transpose();
     const std::vector<int32_t> node(static_cast<size_t>(n), 0);

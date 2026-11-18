@@ -1,7 +1,16 @@
-#include "nxr/facets.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/facets.h"
 #include <cmath>
 #include <iostream>
-using namespace nxr::manifold;
+using namespace nxr::geometry;
 
 static int g_failures = 0;
 #define EXPECT(cond, msg) do { \
@@ -67,7 +76,7 @@ static void testGridRealization() {
     // pattern 1: gauge() is LC; grid == raw vertexGrid
     auto gLC = m.connection();
     EXPECT(gLC.type() == ConnectionType::LeviCivita, "active gauge LC");
-    EXPECT((gLC.grid() - geometry::vertexGrid(m)).cwiseAbs().maxCoeff() < 1e-12, "LC grid == vertexGrid");
+    EXPECT((gLC.grid() - nxr::geometry::vertexGrid(m)).cwiseAbs().maxCoeff() < 1e-12, "LC grid == vertexGrid");
 
     // pattern 3: ad-hoc trivial request returns a value; default unchanged
     std::map<int,double> sing{{0,1.0},{3,1.0}};
@@ -76,7 +85,7 @@ static void testGridRealization() {
     Eigen::MatrixXcd triGrid = gTriReq.grid();
     EXPECT(triGrid.rows() == 12 && triGrid.cols() == 3, "trivial grid [12,3]");
     // realized trivial frame stays unit-tangent (|c row| preserved vs LC up to rotation)
-    EXPECT(std::abs(triGrid.row(0).norm() - geometry::vertexGrid(m).row(0).norm()) < 1e-9,
+    EXPECT(std::abs(triGrid.row(0).norm() - nxr::geometry::vertexGrid(m).row(0).norm()) < 1e-9,
            "trivial rotation preserves frame magnitude");
 
     // pattern 2 default trivial equals the pattern-3 value for same singularities

@@ -16,11 +16,12 @@
 #include <limits>
 #include <vector>
 
-#include "nxr/frames.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/intrinsic_surface.h"
 
 namespace nxr::select::track_crossings {
 
-using frames::Mat3;
+using geometry::Mat3;
 constexpr std::int32_t kBridge = -2;      // a vertex's `node` on the bridge; -1: on no tile (a vertex cut away)
 
 struct Steps {
@@ -31,7 +32,7 @@ struct Steps {
 };
 struct Surface {
   Eigen::MatrixXd positions;              // [V x 3] where a step is placed: its nearest vertex
-  Mat3 normals, e1, e2;                   // [V x 3] per vertex (e1, e2: the frame the carried number is written in; NaN where there is none)
+  geometry::Mat3 normals, e1, e2;                   // [V x 3] per vertex (e1, e2: the frame the carried number is written in; NaN where there is none)
   Eigen::VectorXd rho;                    // [V] the frame angle at each tile vertex of its tile centre's e1 carried there (ladder::leviCivita(...).rho; NaN off the centre's component)
   std::vector<std::int32_t> node;         // [V] the vertex's tile (>= 0), -1 (none) or kBridge
 };
@@ -47,7 +48,7 @@ struct Result {
 Result crossings(const Steps& steps, const std::vector<std::uint8_t>& use, const Surface& surface, int tiles);
 
 /** tile sums (complex, in the centres' frames) as 3-D tangent vectors at the centres: c1 e1(centre) + c2 e2(centre) [tiles x 3] (0 where the tile has no centre). */
-Eigen::MatrixXd embedAtCentres(const Eigen::VectorXcd& w, const std::vector<int>& centres, const Mat3& e1, const Mat3& e2);
+Eigen::MatrixXd embedAtCentres(const Eigen::VectorXcd& w, const std::vector<int>& centres, const geometry::Mat3& e1, const geometry::Mat3& e2);
 
 /** the vertex of `positions` nearest each query point [q x 3] (the lowest index on a tie) */
 std::vector<std::int32_t> nearestVertex(const Eigen::MatrixXd& positions, const Eigen::MatrixXd& query);

@@ -16,10 +16,11 @@
 #include <map>
 #include <memory>
 
-#include "nxr/chart.h"
-#include "nxr/crossings.h"
-#include "nxr/frames.h"
-#include "nxr/ladder.h"
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/select/track_crossings.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg_internal.h"
@@ -32,8 +33,8 @@ namespace nxr::pipelines::graph {
 namespace {
 void need(bool ok, const std::string& msg) { if (!ok) refuse(msg); }
 struct CrossState {
-  nxr::crossings::Surface surface;          // over the GLUED vertices: positions, normals, e1, e2, rho of each (the bridge has none), tile
-  nxr::frames::Mat3 e1, e2;                 // the native surface's frames, for the embedding at the centres
+  nxr::select::track_crossings::Surface surface;          // over the GLUED vertices: positions, normals, e1, e2, rho of each (the bridge has none), tile
+  nxr::geometry::Mat3 e1, e2;                 // the native surface's frames, for the embedding at the centres
   std::vector<int> centres;                 // [tiles] the native centre vertex of each tile (-1 empty)
   int tiles = 0;
   std::vector<std::string> stages;
@@ -59,7 +60,7 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
   s.optional = {"onset", "within", "offset"};
   s.outputs = {"crossings"};
   s.parameters = Json{{"spatial_scale", nullptr}, {"stages", Json::array({"burst"})}, {"as", "measurement"}};
-  s.matches = "nxr vortex_cores.Tiles.crossings (a track's steps in one tile, carried to the tile centre by the vector heat method, added, made a unit vector; per tile and sense); compute nxr::crossings, nxr::ladder::leviCivita";
+  s.matches = "nxr vortex_cores.Tiles.crossings (a track's steps in one tile, carried to the tile centre by the vector heat method, added, made a unit vector; per tile and sense); compute nxr::crossings, nxr::select::leviCivita";
   s.description = "the CROSSINGS of the run's tracks through the tiles of the surface ladder at `level`: each core after the first of a stored track is a STEP from the previous core's centre; a crossing is one track's steps in "
                   "one tile and one sense, their unit directions (projected on the tangent plane at the nearest vertex) carried to the tile's centre along the surface (the Levi-Civita form, the vector heat method), added and made a "
                   "unit vector. Per tile, sense and STAGE (`burst`: every step; `onset`, `within`, `offset`: the steps whose frame starts inside that stage's spans, the inputs of those names): the crossings' unit vectors added "
@@ -133,24 +134,24 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
       frame = "gauge";
       if (c.say) c.say(Json{{"stage", "tile_crossings"}, {"message", "no canonical frames stored for " + S.name + " (`frames compute`): the signpost basis carries the crossings"}});
     }
-    const Eigen::VectorXd gaugeAngle = nxr::frames::gaugeAngle(kit, st.e1);
-    nxr::ladder::Mesh mesh; mesh.n = nV; mesh.positions = S.vertices; mesh.faces = S.faces;
-    const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
+    const Eigen::VectorXd gaugeAngle = nxr::geometry::gaugeAngle(kit, st.e1);
+    nxr::select::Mesh mesh; mesh.n = nV; mesh.positions = S.vertices; mesh.faces = S.faces;
+    const std::vector<double> area = nxr::select::vertexAreas(mesh);
     std::vector<char> singular(static_cast<std::size_t>(nV), 0);
     for (int i = 0; i < nV; ++i) singular[static_cast<std::size_t>(i)] = !(std::isfinite(st.e1(i, 0)) && std::isfinite(st.e1(i, 1)) && std::isfinite(st.e1(i, 2)));
-    st.centres = nxr::ladder::tileCentres(S.vertices.data(), SL.tile, st.tiles, area, singular);
-    const nxr::ladder::LeviCivita lc = nxr::ladder::leviCivita(kit, st.e1, st.e2, gaugeAngle, SL.tile, st.tiles, st.centres);
-    const nxr::frames::Mat3 nrm = nxr::frames::vertexNormals(S.vertices.data(), nV, S.faces.data(), nF);
+    st.centres = nxr::select::tileCentres(S.vertices.data(), SL.tile, st.tiles, area, singular);
+    const nxr::select::LeviCivita lc = nxr::select::leviCivita(kit, st.e1, st.e2, gaugeAngle, SL.tile, st.tiles, st.centres);
+    const nxr::geometry::Mat3 nrm = nxr::geometry::vertexNormals(S.vertices.data(), nV, S.faces.data(), nF);
     // the GLUED vertices (the cores live there): the kept ones in `support` order, then the bridge's
     const internal::GluedDomain dom = c.bound.glued_domain(S);
     if (!dom.found) refuse("tile_crossings: " + dom.why);
     const std::int64_t Vg = dom.surface.n_vertices(), kept = static_cast<std::int64_t>(dom.support.size());
-    nxr::crossings::Surface& G = st.surface;
+    nxr::select::track_crossings::Surface& G = st.surface;
     G.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(dom.surface.vertices.data(), Vg, 3);
-    const nxr::frames::Mat3 gn = nxr::frames::vertexNormals(dom.surface.vertices.data(), static_cast<int>(Vg), dom.surface.faces.data(), static_cast<int>(dom.surface.n_faces()));
+    const nxr::geometry::Mat3 gn = nxr::geometry::vertexNormals(dom.surface.vertices.data(), static_cast<int>(Vg), dom.surface.faces.data(), static_cast<int>(dom.surface.n_faces()));
     G.normals = gn; G.e1 = Eigen::MatrixXd::Constant(Vg, 3, std::nan("")); G.e2 = G.e1;
     G.rho = Eigen::VectorXd::Constant(Vg, std::nan(""));
-    G.node.assign(static_cast<std::size_t>(Vg), nxr::crossings::kBridge);
+    G.node.assign(static_cast<std::size_t>(Vg), nxr::select::track_crossings::kBridge);
     for (std::int64_t i = 0; i < kept; ++i) {
       const std::int32_t v = dom.support[static_cast<std::size_t>(i)];
       G.normals.row(i) = nrm.row(v); G.e1.row(i) = st.e1.row(v); G.e2.row(i) = st.e2.row(v);
@@ -179,7 +180,7 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
     if (sn.cols != E || tk.cols != E || ce.cols != E || ce.comps != 3) throw std::invalid_argument("tile_crossings: the cores' attributes are of different lengths");
     const double fps = ev.meta["tiles_of"]["fps"].get<double>(), origin = ev.meta["tiles_of"]["origin"].get<double>();
     // the steps of the stored tracks: each core after the first of its track, from the previous core's centre
-    nxr::crossings::Steps steps;
+    nxr::select::track_crossings::Steps steps;
     std::vector<std::int64_t> sframe;
     std::map<std::int64_t, std::int64_t> last;
     std::vector<std::array<double, 3>> from, disp;
@@ -214,10 +215,10 @@ void add_crossings_steps(std::vector<StepSpec>& r) {
           for (const auto& [a, b] : st.spans[g]) if (tj >= a && tj < b) { use[static_cast<std::size_t>(i)] = 1; break; }
         }
       }
-      const nxr::crossings::Result res = nxr::crossings::crossings(steps, use, st.surface, st.tiles);
+      const nxr::select::track_crossings::Result res = nxr::select::track_crossings::crossings(steps, use, st.surface, st.tiles);
       for (int sx = 0; sx < 2; ++sx) {
         const std::int64_t row = 2 * static_cast<std::int64_t>(g) + sx;
-        const Eigen::MatrixXd v = nxr::crossings::embedAtCentres(res.sum.col(sx), st.centres, st.e1, st.e2);
+        const Eigen::MatrixXd v = nxr::select::track_crossings::embedAtCentres(res.sum.col(sx), st.centres, st.e1, st.e2);
         for (int t = 0; t < st.tiles; ++t) {
           double* o = out.data.data() + ((row * T + t) * C);
           for (int k = 0; k < 3; ++k) o[k] = v(t, k);

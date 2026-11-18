@@ -114,7 +114,7 @@ Result crossings(const Steps& s, const std::vector<std::uint8_t>& use, const Sur
   return r;
 }
 
-Eigen::MatrixXd embedAtCentres(const Eigen::VectorXcd& w, const std::vector<int>& centres, const Mat3& e1, const Mat3& e2) {
+Eigen::MatrixXd embedAtCentres(const Eigen::VectorXcd& w, const std::vector<int>& centres, const geometry::Mat3& e1, const geometry::Mat3& e2) {
   if (static_cast<std::size_t>(w.size()) != centres.size()) throw std::invalid_argument("embedAtCentres: one centre a tile");
   Eigen::MatrixXd out = Eigen::MatrixXd::Zero(w.size(), 3);
   for (Eigen::Index t = 0; t < w.size(); ++t) {

@@ -152,7 +152,7 @@ GeodesicPath tracePathSurface(
  *  GeodesicAlgorithmExact), mesh units. The flip-out path of
  *  `tracePathSurface` is only locally shortest (shortest in the
  *  homotopy class of its Dijkstra start), so its `length` is >= this;
- *  the heat method (`solve::heat`) approximates it. */
+ *  the heat method (`geometry::heat`) approximates it. */
 double exactDistance(
     Manifold& m,
     int vStart,
@@ -192,7 +192,7 @@ PolylineLocus line(Manifold& m, int vStart, int vEnd);
  *  slightly underestimates the true region area, but well-defined and
  *  free of barycentric interpolation.
  *
- *  Constructs a fresh `solve::HeatGeodesicSolver` per call (pays one
+ *  Constructs a fresh `geometry::HeatGeodesicSolver` per call (pays one
  *  Cholesky factor). For repeated queries on the same mesh, callers
  *  that want the cached path should compute the heat-distance scalar
  *  field themselves via the cached solver on `Manifold` and then

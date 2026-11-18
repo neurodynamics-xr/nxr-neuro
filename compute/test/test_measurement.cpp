@@ -15,7 +15,7 @@
 #include "nxr/measurement/reduce.h"
 #include "nxr/measurement/roll_up.h"
 #include "nxr/measurement/summarize.h"
-#include "nxr/selection/partition.h"
+#include "nxr/select/partition.h"
 
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static int fails = 0;
@@ -249,7 +249,7 @@ static void coarser_levels() {
   EXPECT(g.members() == 2 && g.offsets[1] == 4 && g.elements[4] == 4, "level 3 to level 1: tiles 0-3 and 4-7");
   EXPECT(ms::coarser_groups(grid, 3, ms::kWhole).members() == 1, "the whole is one group");
   // a dyadic time grid: tiles of 2^2 samples on 50 samples (13 tiles), to tiles of 2^4 (shift 2)
-  const sel::Selection t2 = sel::time_grid(sel::Line{"s", 50, 0.0, 1.0}, 2);
+  const sel::Selection t2 = nxr::select::time_grid(sel::Line{"s", 50, 0.0, 1.0}, 2);
   const sel::Elements gt = ms::coarser_groups(t2, 2, 4);
   EXPECT(gt.members() == 4 && gt.offsets[4] - gt.offsets[3] == 1, "13 tiles to 4 groups, the last holds the partial tile");
   // an irregular selection never rolls up
@@ -257,7 +257,7 @@ static void coarser_levels() {
   try { ms::coarser_groups(sel::set_of_spans({sel::SpanRow{0, 2, 0}, sel::SpanRow{1, 3, 1}}, "s"), 0, 1); } catch (const std::invalid_argument&) { refused = true; }
   EXPECT(refused, "an irregular selection's members never roll up (refused with the reason)");
   // one factor of a product: tiles (factor 0) x 3 elements
-  const sel::Selection prod = sel::product({sel::time_grid(sel::Line{"s", 16, 0.0, 1.0}, 0), sel::elements_grid(3)});
+  const sel::Selection prod = sel::product({nxr::select::time_grid(sel::Line{"s", 16, 0.0, 1.0}, 0), sel::elements_grid(3)});
   const sel::Elements gp = ms::coarser_groups(prod, 0, 0, 2);
   EXPECT(gp.members() == 4 * 3, "16 tiles to 4 (shift 2) x 3 elements: 12 coarse members");
 }

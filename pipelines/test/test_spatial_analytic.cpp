@@ -24,11 +24,11 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/taps.h"
-#include "nxr/filterbank.h"
+#include "nxr/signal/filters_fir.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "make_grids.h"
 
 using namespace nxr::io;
@@ -174,14 +174,14 @@ int main() {
   //    the area-weighted mean per cell ──
   SpatialBandOptions rbo = sbo; rbo.riesz = true;
   const SpatialBand rband = make_spatial_band(S0, SL, rbo);
-  nxr::ladder::Mesh lm; lm.positions = S0.vertices; lm.faces = S0.faces; lm.n = N;
-  const std::vector<double> va = nxr::ladder::vertexAreas(lm);
+  nxr::select::Mesh lm; lm.positions = S0.vertices; lm.faces = S0.faces; lm.n = N;
+  const std::vector<double> va = nxr::select::vertexAreas(lm);
   std::vector<double> tarea(static_cast<std::size_t>(tiles), 0.0);
   for (int v = 0; v < N; ++v) tarea[static_cast<std::size_t>(SL.tile[static_cast<std::size_t>(v)])] += va[static_cast<std::size_t>(v)];
-  const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 16.0); };
-  const auto hh = nxr::taps::gainTaps(gain, sfreq, false), qq = nxr::taps::gainTaps(gain, sfreq, true);
-  const auto re = nxr::taps::convolveRows(xf.data(), M, T, hh, 0, T, false);
-  const auto im = nxr::taps::convolveRows(xf.data(), M, T, qq, 0, T, true);
+  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 16.0); };
+  const auto hh = nxr::signal::gainTaps(gain, sfreq, false), qq = nxr::signal::gainTaps(gain, sfreq, true);
+  const auto re = nxr::signal::convolveRows(xf.data(), M, T, hh, 0, T, false);
+  const auto im = nxr::signal::convolveRows(xf.data(), M, T, qq, 0, T, true);
   Eigen::MatrixXd Re(N, T), Im(N, T);
   for (int v = 0; v < N; ++v) for (int t = 0; t < T; ++t) { Re(v, t) = re[static_cast<std::size_t>(v) * T + t]; Im(v, t) = im[static_cast<std::size_t>(v) * T + t]; }
   const Eigen::MatrixXd FRe = rband.apply(Re), FIm = rband.apply(Im), RRe = rband.apply_riesz(Re), RIm = rband.apply_riesz(Im);

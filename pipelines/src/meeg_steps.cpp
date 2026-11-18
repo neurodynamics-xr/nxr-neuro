@@ -21,18 +21,18 @@
 #include <Eigen/Dense>
 
 #include "nxr/graph/node.h"
-#include "nxr/selection/constant_q.h"
+#include "nxr/select/constant_q.h"
 #include "nxr/meeg/covariance.h"
-#include "nxr/filter.h"
-#include "nxr/filterbank.h"
-#include "nxr/hodge_weights.h"
-#include "nxr/speedspectrum.h"
-#include "nxr/ladder.h"
+#include "nxr/signal/filters.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
+#include "nxr/signal/speedspectrum.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/meeg/wave.h"
 #include "nxr/measurement/measures.h"
 #include "nxr/measurement/reduce.h"
 #include "nxr/pipelines/spectral_record.h"
-#include "nxr/timebank.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/meeg/inverse.h"
 #include "nxr/meeg/forward.h"
 #include "nxr/meeg/sphere.h"
@@ -386,7 +386,7 @@ ng::NodeSpec minimum_norm() {
 // moments); the sensors are the channels' coils with their weights when stored, else one point a channel. Channels of no computed type keep zero rows.
 using MatRM = Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>;
 Json sphere_record(const nxr::meeg::Sphere& s) { return Json{{"centre", Json::array({s.centre(0), s.centre(1), s.centre(2)})}, {"radius", s.radius}}; }
-Json minimiser_record(const nxr::meeg::NelderMeadOptions& m) {
+Json minimiser_record(const nxr::optimisation::NelderMeadOptions& m) {
   return Json{{"reflection", m.reflection}, {"expansion", m.expansion}, {"contraction", m.contraction}, {"shrink", m.shrink}, {"relative_step", m.relativeStep}, {"zero_step", m.zeroStep},
               {"x_tolerance", m.xTolerance}, {"f_tolerance", m.fTolerance}, {"max_evaluations", m.maxEvaluations}};
 }
@@ -638,16 +638,16 @@ std::vector<std::int32_t> channels_picked(const ng::PortType& x, const ng::Array
   return good_channels(x, p.value("channel_types", Json::array()), who);
 }
 struct AnalyticBands {
-  nxr::timebank::Design design{nxr::timebank::Family::Meyer, 2.0, nxr::timebank::Sides::Analytic};
+  nxr::signal::timefilterbank::Design design{nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic};
   std::vector<std::int32_t> channels;
   double sfreq = 0;
 };
 std::int64_t analytic_halo(const Json& p, double sfreq) {
-  nxr::timebank::Design d(nxr::timebank::Family::Meyer, 2.0, nxr::timebank::Sides::Analytic);
+  nxr::signal::timefilterbank::Design d(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic);
   for (const auto& b : p.value("bands", Json::array())) d.bands.push_back({b.value("lo", b.value("lo_hz", 0.0)), b.value("hi", b.value("hi_hz", 0.0))});
-  const nxr::timebank::TimeBank bank = nxr::timebank::design(d, std::size_t(1) << 15, sfreq);
+  const nxr::signal::timefilterbank::TimeBank bank = nxr::signal::timefilterbank::design(d, std::size_t(1) << 15, sfreq);
   std::size_t H = 0;
-  for (int m = 0; m < static_cast<int>(d.bands.size()); ++m) H = std::max(H, nxr::timebank::haloOf(bank, m));
+  for (int m = 0; m < static_cast<int>(d.bands.size()); ++m) H = std::max(H, nxr::signal::timefilterbank::haloOf(bank, m));
   return static_cast<std::int64_t>(H);
 }
 ng::NodeSpec analytic_bands() {
@@ -659,8 +659,8 @@ ng::NodeSpec analytic_bands() {
   n.parameters = {{"bands", Json::array(), "the bands: a list of {name, lo, hi} in Hz (a Meyer band each, gain 2)", "Hz", {}, false},
                   {"channel_types", Json::array({"MEG", "MEG MAG", "MEG GRAD", "EEG", "SEEG", "ECOG"}), "the channel types kept when channels_of is absent (good channels only)", "-", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input, "the block is transformed in double; the output block follows the input (float32 blocks)",
-                             "the halo is the length of the narrowest band's response (nxr::timebank::haloOf), samples on each side");
-  n.matches = "the Studio's Signal chain meyerBand (toolbox/wavelets/dyadicFrame.ts); compute nxr::timebank::analysisOfBlock";
+                             "the halo is the length of the narrowest band's response (nxr::signal::timefilterbank::haloOf), samples on each side");
+  n.matches = "the Studio's Signal chain meyerBand (toolbox/wavelets/dyadicFrame.ts); compute nxr::signal::timefilterbank::analysisOfBlock";
   n.description = "the analytic signal of each band (Meyer bands), with the halo the narrowest band needs";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed(in, "x", "timebank.analytic_bands");
@@ -695,7 +695,7 @@ ng::NodeSpec analytic_bands() {
     Eigen::MatrixXd block(M, b.width);
     for (std::int64_t i = 0; i < M; ++i) block.row(i) = all.row(a.channels[static_cast<std::size_t>(i)]).cast<double>();
     const std::int64_t left = b.left - keep, own = b.own() + 2 * keep;
-    const auto t = nxr::timebank::analysisOfBlock(a.design, block, a.sfreq, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
+    const auto t = nxr::signal::timefilterbank::analysisOfBlock(a.design, block, a.sfreq, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
     const std::int64_t B = static_cast<std::int64_t>(t.own.size());
     ng::Block z;
     z.rows = B * M; z.width = own; z.left = keep; z.right = keep;
@@ -825,9 +825,9 @@ ng::NodeSpec phase_gradient() {
     StatBand C = band_of(pr.c.at("cross_spectrum"), pr.band, "meeg.phase_gradient");
     reorder(C, chans, "meeg.phase_gradient");
     const std::vector<std::int32_t> faces = SA.meta.value("faces", std::vector<std::int32_t>());
-    const nxr::hodge::RowMat3 P = Eigen::Map<const nxr::hodge::RowMat3>(SA.data.data(), N, 3);
-    const nxr::hodge::FaceMat F = Eigen::Map<const nxr::hodge::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
-    const nxr::hodge::FaceOperators ops(P, F, false);
+    const nxr::operators::RowMat3 P = Eigen::Map<const nxr::operators::RowMat3>(SA.data.data(), N, 3);
+    const nxr::operators::FaceMat F = Eigen::Map<const nxr::operators::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
+    const nxr::operators::FaceOperators ops(P, F, false);
     const Eigen::MatrixXd K = Eigen::Map<const MatRM>(KA.data.data(), KA.rows, M);
     nxr::meeg::PhaseSums sums;
     auto add_signal = [&](const Eigen::MatrixXd& A) {
@@ -855,8 +855,8 @@ ng::NodeSpec phase_gradient() {
     Eigen::MatrixXd e1(N, 3), e2(N, 3);
     for (std::int64_t i = 0; i < N; ++i) for (int k = 0; k < 3; ++k) { e1(i, k) = FA.data[static_cast<std::size_t>(i * 9 + k)]; e2(i, k) = FA.data[static_cast<std::size_t>(i * 9 + 3 + k)]; }
     const nxr::meeg::PhaseCurrentFrames jf = nxr::meeg::phaseCurrentInFrames(sums.phase, e1, e2);
-    nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(N); mesh.positions = SA.data; mesh.faces = faces;
-    const std::vector<double> area = nxr::ladder::vertexAreas(mesh);
+    nxr::select::Mesh mesh; mesh.n = static_cast<int>(N); mesh.positions = SA.data; mesh.faces = faces;
+    const std::vector<double> area = nxr::select::vertexAreas(mesh);
     std::vector<double> wv(static_cast<std::size_t>(N)), vp(wv.size()), vq(wv.size()), v1(wv.size()), v2(wv.size()), vm(wv.size());
     std::int64_t singular = 0;
     for (std::int64_t v = 0; v < N; ++v) {
@@ -941,8 +941,8 @@ ng::NodeSpec phase_gradient() {
 // BRAINSTORM'S FILTERS AS NODES (the hand-wired lowpass, highpass, bandpass, bandstop and notch they replace): a windowed chunk node, each block filtered with the halo the design
 // needs (look-behind, look-ahead), the record's ends padded as the option set says. A FIR filter with remove_mean subtracts the record's channel means first (a statistic made by
 // `filter.channel_mean` in its own run: a first pass) and adds them back when the filter has no high-pass part.
-nxr::filter::FilterOptions filter_options(const Json& p, double sfreq) {
-  using namespace nxr::filter;
+nxr::signal::filters::FilterOptions filter_options(const Json& p, double sfreq) {
+  using namespace nxr::signal::filters;
   FilterOptions o = brainstormFilterOptions(sfreq);
   const std::string kind = p.value("kind", std::string());
   o.kind = kind == "lowpass" ? Kind::Lowpass : kind == "highpass" ? Kind::Highpass : kind == "bandpass" ? Kind::Bandpass : kind == "bandstop" ? Kind::Bandstop : kind == "notch" ? Kind::Notch
@@ -991,7 +991,7 @@ const std::vector<ng::ParamSpec>& filter_parameters() {
 
 // (filter.channel_mean is retired: `reduce` measure mean over the run's span, the preset channel_span_mean of the definition measure)
 
-struct FilterPrepared { std::optional<nxr::filter::Filter> f; std::int64_t halo = 0; };
+struct FilterPrepared { std::optional<nxr::signal::filters::Filter> f; std::int64_t halo = 0; };
 ng::NodeSpec filter_apply() {
   ng::NodeSpec n;
   n.name = "filter.apply";
@@ -1006,8 +1006,8 @@ ng::NodeSpec filter_apply() {
   n.description = "a zero-phase filter (lowpass, highpass, bandpass, bandstop, notch) on each block, with the halo its design needs";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed(in, "x", "filter.apply");
-    nxr::filter::Design d;
-    try { d = nxr::filter::design(filter_options(p, *x.sfreq)); } catch (const std::invalid_argument& e) { ng::refuse(std::string("filter.apply: ") + e.what()); }
+    nxr::signal::filters::Design d;
+    try { d = nxr::signal::filters::design(filter_options(p, *x.sfreq)); } catch (const std::invalid_argument& e) { ng::refuse(std::string("filter.apply: ") + e.what()); }
     ng::Planned out;
     ng::PortType y = x;
     y.facts.erase("channels");
@@ -1018,10 +1018,10 @@ ng::NodeSpec filter_apply() {
   n.prepare = [](const ng::Types& in, const ng::Arrays& c, const Json& p, ng::Shared&) {
     FilterPrepared pr;
     const ng::PortType& x = in.at("x");
-    const nxr::filter::FilterOptions o = filter_options(p, *x.sfreq);
-    const nxr::filter::Design d = nxr::filter::design(o);
+    const nxr::signal::filters::FilterOptions o = filter_options(p, *x.sfreq);
+    const nxr::signal::filters::Design d = nxr::signal::filters::design(o);
     Eigen::VectorXd mean;
-    if (d.method == nxr::filter::Method::Fir && o.removeMean) {
+    if (d.method == nxr::signal::filters::Method::Fir && o.removeMean) {
       const auto it = c.find("mean");
       if (it == c.end() || it->second.meta.value("placeholder", false))
         ng::refuse("filter.apply: a FIR filter that removes the record's mean needs the channel means (`nxr-neuro run channel_mean` first), or remove_mean false");
@@ -1056,8 +1056,8 @@ ng::NodeSpec filter_apply() {
 // THE FUSED HODGE-DIRAC WEIGHTS B [2K x channels] (nxr.inverse.fused fused_weights; nxr-compute hodgeWeights): a free kernel carried onto the package's glued surface, then each
 // mode's coefficients a (normal-current, rows 0..K) and b (flow: an exact mode's divergence potential, a coexact mode's stream function, rows K..2K) as linear maps of the
 // channels. Handed on as an operator from the kernel's channels: a node that applies a kernel applies it (band power, cross-spectra of the modes).
-nxr::hodge::Basis basis_of(const ng::Array& H, std::optional<std::int64_t> modes) {
-  nxr::hodge::Basis b;
+nxr::operators::Basis basis_of(const ng::Array& H, std::optional<std::int64_t> modes) {
+  nxr::operators::Basis b;
   const std::int64_t Ktot = H.rows, Vg = H.cols, K = modes ? std::min(*modes, Ktot) : Ktot;
   b.P.resize(K, Vg);
   for (std::int64_t k = 0; k < K; ++k) for (std::int64_t v = 0; v < Vg; ++v) b.P(k, v) = H.data[static_cast<std::size_t>(k * Vg + v)];
@@ -1068,9 +1068,9 @@ nxr::hodge::Basis basis_of(const ng::Array& H, std::optional<std::int64_t> modes
   const std::vector<double> mass = H.meta.at("mass").get<std::vector<double>>();
   b.mass = Eigen::Map<const Eigen::VectorXd>(mass.data(), static_cast<Eigen::Index>(mass.size()));
   const std::vector<double> pos = H.meta.at("positions").get<std::vector<double>>();
-  b.positions = Eigen::Map<const nxr::hodge::RowMat3>(pos.data(), Vg, 3);
+  b.positions = Eigen::Map<const nxr::operators::RowMat3>(pos.data(), Vg, 3);
   const std::vector<std::int32_t> faces = H.meta.at("faces").get<std::vector<std::int32_t>>();
-  b.faces = Eigen::Map<const nxr::hodge::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
+  b.faces = Eigen::Map<const nxr::operators::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
   b.keep = H.meta.at("keep").get<std::vector<std::int64_t>>();
   return b;
 }
@@ -1083,7 +1083,7 @@ ng::NodeSpec hodge_weights() {
   n.outputs = {{"weights", "B [2K x the kernel's channels]: rows 0..K each mode's normal-current coefficient a, rows K..2K its flow coefficient b (an operator from the channels)", false}};
   n.parameters = {{"modes", Json(), "the first K modes of the package; null: all", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "solved in double, once a run");
-  n.matches = "nxr.inverse.fused fused_weights; compute nxr::hodge::gluedKernel, hodgeWeights";
+  n.matches = "nxr.inverse.fused fused_weights; compute nxr::operators::gluedKernel, hodgeWeights";
   n.description = "the fused Hodge-Dirac weights of a free kernel: each mode's normal-current and flow coefficients as linear maps of the channels";
   n.plan = [](const ng::Types& in, const Json&) {
     for (const char* k : {"kernel", "package"}) if (!in.count(k)) ng::refuse(std::string("hodge.weights: ") + k + " is not given");
@@ -1110,11 +1110,11 @@ ng::NodeSpec hodge_weights() {
     const std::int64_t Vin = static_cast<std::int64_t>(pin.size() / 3);
     if (KA.meta.value("to_value_type", std::string("vector3")) == "scalar" || KA.rows != 3 * Vin || KA.cols != M)
       ng::refuse("hodge.weights: " + KA.meta.value("name", std::string()) + " is not a free-orientation kernel of the package's input surface (" + std::to_string(KA.rows) + " rows for " + std::to_string(Vin) + " sources)");
-    const nxr::hodge::Basis basis = basis_of(w.H, w.modes);
+    const nxr::operators::Basis basis = basis_of(w.H, w.modes);
     if (basis.mu.size() < 2) ng::refuse("hodge.weights: at least 2 modes");
     const Eigen::MatrixXd W = Eigen::Map<const MatRM>(KA.data.data(), KA.rows, M);
-    const Eigen::MatrixXd Wg = nxr::hodge::gluedKernel(W, basis, Eigen::Map<const nxr::hodge::RowMat3>(pin.data(), Vin, 3));
-    const Eigen::MatrixXd B = nxr::hodge::hodgeWeights(basis, Wg);
+    const Eigen::MatrixXd Wg = nxr::operators::gluedKernel(W, basis, Eigen::Map<const nxr::operators::RowMat3>(pin.data(), Vin, 3));
+    const Eigen::MatrixXd B = nxr::operators::hodgeWeights(basis, Wg);
     ng::Array a;
     a.rows = B.rows(); a.cols = B.cols();
     a.data.resize(static_cast<std::size_t>(a.rows * a.cols));
@@ -1164,7 +1164,7 @@ ng::NodeSpec speed_spectrum() {
       {"speed_min", Json(0.0), "the lowest speed; 0: from the spectrum", "length/s", {}, false},
       {"speed_max", Json(0.0), "the highest speed; 0: from the spectrum", "length/s", {}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "from the accumulated cross-spectra, in double");
-  n.matches = "nxr.spectral speed spectrum; compute nxr::speedspectrum::compute";
+  n.matches = "nxr.spectral speed spectrum; compute nxr::signal::speedspectrum::compute";
   n.description = "the speed spectrum of the Hodge-Dirac modes: a joint (wavenumber x frequency) bank's tiles, their energy, speed and quadrature fraction";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"spectra", "weights"}) if (!in.count(k)) ng::refuse(std::string("hodge.speed_spectrum: ") + k + " is not given");
@@ -1178,15 +1178,15 @@ ng::NodeSpec speed_spectrum() {
     return std::any(SpeedPrepared{c.at("spectra"), c.at("weights"), p});
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
-    namespace tb = nxr::timebank;
-    namespace fb = nxr::filterbank;
+    namespace tb = nxr::signal::timefilterbank;
+    namespace fb = nxr::signal::graphfilterbank;
     const SpeedPrepared& sp = std::any_cast<const SpeedPrepared&>(prepared);
     const Json& p = sp.p;
     const std::vector<double> mu_all = sp.weights.meta.at("mu").get<std::vector<double>>();
     const std::vector<int> kind = sp.weights.meta.at("kind").get<std::vector<int>>();
     const std::int64_t K = sp.spectra.meta.value("rows", std::int64_t(0));
     if (K != static_cast<std::int64_t>(mu_all.size())) ng::refuse("hodge.speed_spectrum: the spectra are of " + std::to_string(K) + " rows, the weights of " + std::to_string(mu_all.size()) + " modes (use the flow rows)");
-    nxr::speedspectrum::ModeSpectra ms;
+    nxr::signal::speedspectrum::ModeSpectra ms;
     const std::vector<double> hz = sp.spectra.meta.at("frequencies").get<std::vector<double>>();
     ms.frequencies = Eigen::Map<const Eigen::VectorXd>(hz.data(), static_cast<Eigen::Index>(hz.size()));
     for (std::size_t g = 0; g < hz.size(); ++g) {
@@ -1213,8 +1213,8 @@ ng::NodeSpec speed_spectrum() {
     const fb::Bank graph = fb::design(gfam, fb::Range::fromSpectrum(mu.array().square().matrix()), dop);
     tb::TimeBank time;
     try { time = tb::design(d, nfft, fs); } catch (const std::invalid_argument& e) { ng::refuse(std::string("hodge.speed_spectrum: the time bank: ") + e.what()); }
-    nxr::speedspectrum::Options so; so.speedBins = p.value("speed_bins", 40); so.speedMin = p.value("speed_min", 0.0); so.speedMax = p.value("speed_max", 0.0);
-    const nxr::speedspectrum::Result R = nxr::speedspectrum::compute(graph, time, mu, std::vector<int>(kind.begin(), kind.begin() + K), ms, so);
+    nxr::signal::speedspectrum::Options so; so.speedBins = p.value("speed_bins", 40); so.speedMin = p.value("speed_min", 0.0); so.speedMax = p.value("speed_max", 0.0);
+    const nxr::signal::speedspectrum::Result R = nxr::signal::speedspectrum::compute(graph, time, mu, std::vector<int>(kind.begin(), kind.begin() + K), ms, so);
     const std::int64_t P = static_cast<std::int64_t>(R.parts.size()), G = R.graphCentres.size(), T = R.timeCentres.size(), NB = R.speedCentres.size();
     auto vec = [](const Eigen::VectorXd& v) { return Json(std::vector<double>(v.data(), v.data() + v.size())); };
     Json kinds = Json::array();

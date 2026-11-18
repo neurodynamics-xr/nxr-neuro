@@ -4,8 +4,8 @@
 #include <limits>
 #include <memory>
 
-#include "nxr/extent.h"
-#include "nxr/ladder.h"
+#include "nxr/select/extent.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/pipelines/spatial_band.h"
@@ -24,7 +24,7 @@ struct Geometry {
   nxr::pipelines::SurfaceLevel level;
   std::vector<double> vertex_area;
   Eigen::VectorXd tile_area;
-  nxr::extent::Pairs pairs;
+  nxr::select::Pairs pairs;
 };
 Geometry load_geometry(ExecContext& c, const std::string& joint_selection_id) {
   Geometry g;
@@ -34,8 +34,8 @@ Geometry load_geometry(ExecContext& c, const std::string& joint_selection_id) {
   g.surface = c.bound.surface(g.joint["surface"].get<std::string>(), true);
   g.level = c.bound.surface_level(g.surface, g.joint["space_level"].get<int>());
   if (g.level.nodes != g.joint["tiles"].get<std::int64_t>()) refuse("the joint partition records " + g.joint["tiles"].dump() + " tiles, level " + std::to_string(g.level.l) + " of " + g.surface.name + " has " + std::to_string(g.level.nodes));
-  nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(g.surface.n_vertices()); mesh.positions = g.surface.vertices; mesh.faces = g.surface.faces;
-  g.vertex_area = nxr::ladder::vertexAreas(mesh);
+  nxr::select::Mesh mesh; mesh.n = static_cast<int>(g.surface.n_vertices()); mesh.positions = g.surface.vertices; mesh.faces = g.surface.faces;
+  g.vertex_area = nxr::select::vertexAreas(mesh);
   g.tile_area = Eigen::VectorXd::Zero(g.level.nodes);
   for (std::size_t v = 0; v < g.level.tile.size(); ++v) if (g.level.tile[v] >= 0) g.tile_area(g.level.tile[v]) += g.vertex_area[v];
   for (const auto& [a, b] : g.level.pairs) g.pairs.emplace_back(a, b);
@@ -46,8 +46,8 @@ Eigen::MatrixXd matrix_of(const Array& a) {
   for (std::int64_t r = 0; r < a.rows; ++r) for (std::int64_t c = 0; c < a.cols; ++c) M(r, c) = a.data[static_cast<std::size_t>(r * a.cols + c)];
   return M;
 }
-nxr::extent::Labels labels_of(const Array& a) {
-  nxr::extent::Labels L(a.rows, a.cols);
+nxr::select::Labels labels_of(const Array& a) {
+  nxr::select::Labels L(a.rows, a.cols);
   for (std::int64_t r = 0; r < a.rows; ++r) for (std::int64_t c = 0; c < a.cols; ++c) L(r, c) = static_cast<std::int32_t>(a.data[static_cast<std::size_t>(r * a.cols + c)]);
   return L;
 }
@@ -60,7 +60,7 @@ struct ExtentState { Json p; std::shared_ptr<Geometry> g; std::string groups; };
 
 void add_extent_steps(std::vector<StepSpec>& r) {
   r.push_back({"cell_extent", "after", {"x", "baseline", "events"}, {}, {"labels"}, Json{{"enter_sd", 1.5}, {"exit_sd", 1.0}, {"min_cells", 1}, {"min_area", 0.0}},
-               "docs/specs/2026-11-13-cortical-events.md, Phase 2b; compute nxr::extent (windowRegions on nxr::regions::detectRegions, unchanged) with the tile graph of nxr::ladder::tileAdjacency",
+               "docs/specs/2026-11-13-cortical-events.md, Phase 2b; compute nxr::extent (windowRegions on nxr::select::detectRegions, unchanged) with the tile graph of nxr::select::tileAdjacency",
                "the SPACE × TIME EXTENT of each event of a time span set (the global bursts): on the joint cells of the burst's own time tiles (and, per hemisphere, of its row's tiles), each cell's amplitude standardized "
                "against its spatial tile's baseline (the median and robust SD of a statistic across the run's time tiles), hysteresis regions on the graph of touching tiles within a time tile and a tile with itself in the next; "
                "all regions are events, numbered by burst and then by their lowest cell. Out: a labelling of the joint cells (code = the event's ordinal, -1 none)",
@@ -121,11 +121,11 @@ void add_extent_steps(std::vector<StepSpec>& r) {
     Eigen::VectorXd med(S), sd(S);
     for (int s = 0; s < S; ++s) { med(s) = base.data[static_cast<std::size_t>(s * base.cols + im)]; sd(s) = base.data[static_cast<std::size_t>(s * base.cols + is)]; }
     int skipped = 0;
-    const Eigen::MatrixXd z = nxr::extent::standardize(matrix_of(x), med, sd, &skipped);
+    const Eigen::MatrixXd z = nxr::select::standardize(matrix_of(x), med, sd, &skipped);
     const double enter = st.p["enter_sd"].get<double>(), exit = st.p["exit_sd"].get<double>(), min_area = st.p["min_area"].get<double>();
     const int min_cells = st.p["min_cells"].get<int>();
     Array out{S, T, std::vector<double>(static_cast<std::size_t>(S) * static_cast<std::size_t>(T), -1.0)};
-    nxr::extent::Labels lab = nxr::extent::Labels::Constant(S, T, -1);
+    nxr::select::Labels lab = nxr::select::Labels::Constant(S, T, -1);
     Json bursts = Json::array();
     std::int32_t next = 0;
     std::vector<std::int32_t> burst_of;
@@ -137,7 +137,7 @@ void add_extent_steps(std::vector<StepSpec>& r) {
       Eigen::MatrixXd w = z.middleCols(first, stop - first);
       if (st.groups == "per_hemisphere" && row >= 0)
         for (int s = 0; s < S; ++s) if ((s >> l) != row) w.row(s).setConstant(kNaN);
-      const auto R = nxr::extent::windowRegions(w, g.pairs, g.tile_area, enter, exit, min_cells, min_area);
+      const auto R = nxr::select::windowRegions(w, g.pairs, g.tile_area, enter, exit, min_cells, min_area);
       Json evs = Json::array();
       for (std::size_t k = 0; k < R.regions.size(); ++k) {
         for (const auto n : R.regions[k].nodes) lab(n % S, first + n / S) = next + static_cast<std::int32_t>(k);
@@ -162,13 +162,13 @@ void add_extent_steps(std::vector<StepSpec>& r) {
     Json list = Json::array();
     for (std::int32_t k = 0; k < next; ++k)
       list.push_back(Json{{"ordinal", k}, {"burst", burst_of[static_cast<std::size_t>(k)]}, {"row", row_of[static_cast<std::size_t>(k)]}, {"first_tile", first_tile[static_cast<std::size_t>(k)]}, {"last_tile", last_tile[static_cast<std::size_t>(k)]}, {"n_cells", n_cells[static_cast<std::size_t>(k)]}});
-    const int bits = nxr::extent::bitsFor(T);
+    const int bits = nxr::select::bitsFor(T);
     out.meta = Json{{"events", static_cast<std::int64_t>(next)}, {"bursts", bursts}, {"event_list", list}, {"cells", x.meta}, {"bursts_tiles_of", ev.meta["tiles_of"]}, {"groups", st.groups},
                     {"space_level", l}, {"tiles", S}, {"frames", T}, {"bits", bits}, {"layout", "[spatial tile x time tile]; code = (tile << bits) | time tile"},
                     {"thresholds", Json{{"enter_sd", enter}, {"exit_sd", exit}, {"min_cells", min_cells}, {"min_area", min_area}, {"standardized_by", "per spatial tile: (amplitude - median) / robust SD of the baseline statistic, across the run's time tiles"},
                                         {"tiles_without_spread", skipped}}},
                     {"baseline", Json{{"summaries", base.meta["summaries"]}, {"members_used", base.meta["members_used"]}}},
-                    {"graph", "a cell touches the cells of the level's touching tiles in its time tile (nxr::ladder::tileAdjacency) and its own tile in the next time tile; detection confined to the burst's time tiles"},
+                    {"graph", "a cell touches the cells of the level's touching tiles in its time tile (nxr::select::tileAdjacency) and its own tile in the next time tile; detection confined to the burst's time tiles"},
                     {"warnings", Json::array({"an extent is a set of cells of one pair of levels: its size is quantized to the level's tiles and time tiles; a pattern wider than a tile is placed to within the band's scale",
                                               "a region is a set of cells above their own tile's baseline, not a propagating oscillation: speed and direction are measurements of phase"})}};
     return Arrays{{"labels", std::move(out)}};

@@ -14,7 +14,24 @@
  * (cortical-flow, brainstorm, your code) and bring their own I/O.
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
 
 #include <atomic>
 #include <chrono>
@@ -85,27 +102,27 @@ int cmdSmoke() {
     };
 
     auto t0 = std::chrono::steady_clock::now();
-    nxr::manifold::Manifold m(verts, 12, faces, 20);
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);
-    auto eig = nxr::manifold::solve::eigen(
-        ops.cotanLaplacian, ops.mass, 6, nxr::manifold::solve::kShiftLadder,
+    nxr::geometry::Manifold m(verts, 12, faces, 20);
+    auto ops = nxr::operators::assembleManifoldOperators(m);
+    auto eig = nxr::operators::eigen(
+        ops.cotanLaplacian, ops.mass, 6, nxr::operators::kShiftLadder,
         /*normalize=*/true, /*removeDC=*/true, ctrlCToken());
 
     // Touch the new vector / signed heat / smooth field surfaces so the
     // smoke catches link-time and basic-execution regressions across all
     // four new families.
-    nxr::manifold::transport::VectorHeatSolver vhm(m);
+    nxr::geometry::transport::VectorHeatSolver vhm(m);
     Eigen::MatrixXd srcVec(1, 3); srcVec << 1.0, 0.0, 0.0;
-    Eigen::MatrixXd transported = nxr::manifold::transport::parallel(vhm, {0}, srcVec);
-    auto logmap = nxr::manifold::transport::logMap(vhm, 0);
-    Eigen::Vector3d center = nxr::manifold::transport::findCenter(vhm, {0, 1, 2});
+    Eigen::MatrixXd transported = nxr::geometry::transport::parallel(vhm, {0}, srcVec);
+    auto logmap = nxr::geometry::transport::logMap(vhm, 0);
+    Eigen::Vector3d center = nxr::geometry::transport::findCenter(vhm, {0, 1, 2});
 
-    nxr::manifold::solve::SignedHeatSolver shs(m);
-    Eigen::VectorXd sd = nxr::manifold::solve::signedHeat(shs, {0, 1, 5}, true);
+    nxr::geometry::SignedHeatSolver shs(m);
+    Eigen::VectorXd sd = nxr::geometry::signedHeat(shs, {0, 1, 5}, true);
 
-    Eigen::MatrixXd faceField = nxr::manifold::connection::smoothFace(m, 4);
-    auto vfield = nxr::manifold::connection::smoothVertex(m, 2);
-    auto stripes = nxr::manifold::parametrization::stripes::compute(m, vfield.vertexFieldRaw, 8.0);
+    Eigen::MatrixXd faceField = nxr::geometry::connection::smoothFace(m, 4);
+    auto vfield = nxr::geometry::connection::smoothVertex(m, 2);
+    auto stripes = nxr::geometry::parametrization::stripes::compute(m, vfield.vertexFieldRaw, 8.0);
 
     const double dt = elapsedMs(t0);
 

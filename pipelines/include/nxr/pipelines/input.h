@@ -1,7 +1,7 @@
 // nxr-pipelines — what a pipeline reads from a subject's rows, with nxr-io: a stored surface (its row, positions and faces).
 #pragma once
 
-#include "nxr/hodge_weights.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -51,7 +51,7 @@ std::string coordinate_system_of(nxr::io::SubjectWriter& sub, const std::string&
 std::string coordinate_unit_of(nxr::io::SubjectWriter& sub, const std::string& manifold_id);
 // A HODGE-DIRAC PACKAGE as a node reads it: the basis of its first `modes` modes (null: all), the input surface's positions, the package's identity.
 struct HodgePackageData {
-  nxr::hodge::Basis basis;
+  nxr::operators::Basis basis;
   std::vector<double> input_positions;    // [V_in x 3] the kernel's sources
   std::string input_surface_id, stem, axis_id, id;
 };

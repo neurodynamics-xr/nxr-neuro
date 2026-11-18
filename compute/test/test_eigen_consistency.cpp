@@ -7,15 +7,32 @@
 // Eigenvalues are compared one by one; eigenvectors as subspaces, cluster by cluster, where eigenvalues repeat (the sphere's
 // degree-l multiplets). Meshes: an icosphere (repeated eigenvalues) and a jittered one (none).
 
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
 #include "synthetic_meshes.h"
 #include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::solve;
+using namespace nxr::geometry;
+using namespace nxr::operators;
 
 static int g_fail = 0;
 #define CHECK(cond, ...) do { if (!(cond)) { ++g_fail; std::printf("  FAIL: "); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)

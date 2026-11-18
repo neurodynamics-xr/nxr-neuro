@@ -4,7 +4,7 @@
 // THE HALO (a chunk convolved with K samples of context on each side equals the whole recording's result on its columns, to the bit); THE ANALYTIC SIGNAL
 // (a 10 Hz cosine through the alpha band's even and odd taps is e^{iωt}: a constant amplitude and a phase advancing 2π·10/fs a sample); Σ h = G(0) = 0 for
 // a band-pass; refusals.
-#include "nxr/taps.h"
+#include "nxr/signal/filters_fir.h"
 
 #include <cmath>
 #include <complex>
@@ -18,7 +18,7 @@
 #include <string>
 #include <vector>
 
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static int fails = 0;
@@ -63,7 +63,7 @@ static std::pair<std::size_t, double> diff(const std::vector<float>& got, const 
 }
 
 int main() {
-  using namespace nxr::taps;
+  using namespace nxr::signal;
   const auto g = load(kDir + "/taps_golden.txt");
   const std::vector<double>& xd = g.at("x 3 900");
   std::vector<float> x(xd.begin(), xd.end());
@@ -71,7 +71,7 @@ int main() {
   for (const Case& c : {Case{"alpha1200", 1200.0, 8.0, 12.0}, Case{"beta250", 250.0, 15.0, 29.0}}) {
     for (bool odd : {false, true}) {
       const std::string kind = odd ? "odd" : "even";
-      const auto h = gainTaps([&](double f) { return nxr::filterbank::meyerBand(f, c.lo, c.hi, 1.0 / 3.0); }, c.fs, odd);
+      const auto h = gainTaps([&](double f) { return nxr::signal::graphfilterbank::meyerBand(f, c.lo, c.hi, 1.0 / 3.0); }, c.fs, odd);
       const auto& want = g.at(std::string("taps ") + c.name + " " + kind);
       const auto dt = diff(h, want);
       std::printf("  %s %s taps: %zu of %zu (K %zu, nxr's %zu) differ from nxr's, max %.1e relative\n", c.name, kind.c_str(), dt.first, want.size(), h.size() - 1,
@@ -92,7 +92,7 @@ int main() {
   }
   // Σ h = G(0): a band-pass has no DC
   const double fs = 1200.0;
-  auto alpha = [](double f) { return nxr::filterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
+  auto alpha = [](double f) { return nxr::signal::graphfilterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
   const auto he = gainTaps(alpha, fs, false), ho = gainTaps(alpha, fs, true);
   double dc = he[0];
   for (std::size_t k = 1; k < he.size(); ++k) dc += 2.0 * he[k];

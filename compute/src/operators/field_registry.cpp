@@ -1,5 +1,5 @@
 #include "nxr/operators/registry/field_registry.h"
-#include "nxr/errors.h"
+#include "nxr/core/errors.h"
 
 namespace nxr::operators::registry {
 

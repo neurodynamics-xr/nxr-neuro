@@ -12,12 +12,12 @@
 #include "nxr/io/task/task.h"
 #include "mesh_helpers.h"
 #include "nxr/bst/entities.h"
-#include "nxr/intrinsic_surface.h"
-#include "nxr/hodge_weights.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/welch.h"
+#include "nxr/signal/spectral.h"
 #include "make_grids.h"
 
 using namespace nxr::io;
@@ -109,7 +109,7 @@ int main() {
   // the same from the package and the cross-spectrum, here
   const HodgeDirac& h = pk.modes;
   const std::int64_t Kn = h.n_modes();
-  nxr::hodge::Basis b;
+  nxr::operators::Basis b;
   b.P.resize(Kn, N);
   for (std::int64_t v = 0; v < N; ++v) for (std::int64_t k = 0; k < Kn; ++k) b.P(k, v) = h.eigenvectors[static_cast<std::size_t>(v * Kn + k)];
   b.mu = Eigen::Map<const Eigen::VectorXd>(h.mu.data(), Kn);
@@ -117,12 +117,12 @@ int main() {
   b.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(surf.vertices.data(), N, 3);
   b.faces = Eigen::Map<const Eigen::Matrix<std::int32_t, Eigen::Dynamic, 3, Eigen::RowMajor>>(surf.faces.data(), surf.n_faces(), 3);
   for (std::int64_t i = 0; i < N; ++i) b.keep.push_back(i);
-  nxr::manifold::IntrinsicSurface isurf(surf.vertices.data(), static_cast<int>(N), surf.faces.data(), static_cast<int>(surf.n_faces()));
+  nxr::geometry::IntrinsicSurface isurf(surf.vertices.data(), static_cast<int>(N), surf.faces.data(), static_cast<int>(surf.n_faces()));
   const std::vector<double> dm_mass = isurf.inputMixedVoronoiMass();
   b.mass = Eigen::Map<const Eigen::VectorXd>(dm_mass.data(), static_cast<Eigen::Index>(dm_mass.size()));
-  const MatrixXd B = nxr::hodge::hodgeWeights(b, K);
-  auto wo = nxr::welch::brainstormPsdOptions(sfreq, 4.0);
-  const auto direct = nxr::welch::welch(B * X, wo);
+  const MatrixXd B = nxr::operators::hodgeWeights(b, K);
+  auto wo = nxr::signal::spectral::brainstormPsdOptions(sfreq, 4.0);
+  const auto direct = nxr::signal::spectral::welch(B * X, wo);
   const double df = sfreq / wo.segmentSamples;
   MatrixXd want(2 * Kn, 2);
   const double lo[2] = {8, 15}, hi[2] = {12, 29};

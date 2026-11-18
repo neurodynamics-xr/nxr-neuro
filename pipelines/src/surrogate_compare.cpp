@@ -8,11 +8,11 @@
 #include <limits>
 #include <set>
 
-#include "nxr/crossings.h"
+#include "nxr/select/track_crossings.h"
 #include "nxr/io/hash.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/statistic.h"
-#include "nxr/nulltest.h"
+#include "nxr/stats/nulltest.h"
 #include "nxr/pipelines/cache.h"
 #include "nxr/pipelines/definition.h"
 #include "nxr/pipelines/run_repeat.h"
@@ -25,7 +25,7 @@ using nxr::io::Json;
 using nxr::io::Row;
 using nxr::io::text;
 using nxr::io::V;
-namespace nt = nxr::nulltest;
+namespace nt = nxr::stats;
 
 namespace {
 [[noreturn]] void invalid(const std::string& m) { throw Error(nxr::io::code::invalid_argument, m); }
@@ -49,8 +49,8 @@ Json seeds_of(std::int64_t draws, int batch, bool two) {
 }
 
 // ── the vortex chain ──
-// the pooled senses of stage `stage` from [rows x members x 4] values (x y z count), the bridge member (the last) left out: a selection of the stored array's rows, then nxr::crossings::poolSenses
-nxr::crossings::Pooled pooled_of(const std::vector<double>& v, std::int64_t members, int stage) {
+// the pooled senses of stage `stage` from [rows x members x 4] values (x y z count), the bridge member (the last) left out: a selection of the stored array's rows, then nxr::select::track_crossings::poolSenses
+nxr::select::track_crossings::Pooled pooled_of(const std::vector<double>& v, std::int64_t members, int stage) {
   const std::int64_t tiles = members - 1;
   Eigen::MatrixXd plus(tiles, 3), minus(tiles, 3);
   Eigen::VectorXd np(tiles), nm(tiles);
@@ -59,7 +59,7 @@ nxr::crossings::Pooled pooled_of(const std::vector<double>& v, std::int64_t memb
     plus.row(t) << v[a], v[a + 1], v[a + 2]; np[t] = v[a + 3];
     minus.row(t) << v[b], v[b + 1], v[b + 2]; nm[t] = v[b + 3];
   }
-  return nxr::crossings::poolSenses(plus, np, minus, nm);
+  return nxr::select::track_crossings::poolSenses(plus, np, minus, nm);
 }
 struct Run {
   std::string name, field_id;
@@ -68,7 +68,7 @@ struct Run {
   std::vector<double> data;                  // [rows x members x 4] interleaved (x y z count), as a draw's statistic
   std::vector<std::string> computed_by;
   int stage = 0;
-  nxr::crossings::Pooled pooled;
+  nxr::select::track_crossings::Pooled pooled;
   Eigen::VectorXd cons;                      // the data's unbiased rho2 per tile
   nt::Tally consistency, counts, rx, ry, rz; // the draws' rho2 against the data's; their crossing counts; their mean resultants' components
 };
@@ -169,10 +169,10 @@ SurrogateCompareResult surrogate_lagfree_vortex_compare(nxr::io::DatasetWriter& 
       say(Json{{"stage", "cache"}, {"hit", true}});
       return res;
     }
-  // THE DRAWS, in batches, until every tile is decided (the stopping rule: nxr::nulltest::undecidedMembers)
+  // THE DRAWS, in batches, until every tile is decided (the stopping rule: nxr::stats::undecidedMembers)
   Eigen::VectorXd dot_data = none;
   Eigen::VectorXd cos_data = Eigen::VectorXd::Constant(1, kNaN);
-  if (two) { const auto rp = nxr::crossings::repeat(runs[0].pooled, runs[1].pooled, opt.min_crossings); dot_data = rp.dot; cos_data[0] = rp.cosine; }
+  if (two) { const auto rp = nxr::select::track_crossings::repeat(runs[0].pooled, runs[1].pooled, opt.min_crossings); dot_data = rp.dot; cos_data[0] = rp.cosine; }
   nt::Tally dot_tally = nt::emptyTally(tiles), cos_tally = nt::emptyTally(1);
   graph::RunOptions ro;
   ro.chunks = opt.chunks;
@@ -183,7 +183,7 @@ SurrogateCompareResult surrogate_lagfree_vortex_compare(nxr::io::DatasetWriter& 
   while (nd < opt.max_draws) {
     const std::int64_t upto = std::min<std::int64_t>(nd + opt.batch, opt.max_draws);
     for (std::int64_t i = nd; i < upto; ++i) {
-      std::vector<nxr::crossings::Pooled> draw;
+      std::vector<nxr::select::track_crossings::Pooled> draw;
       for (std::size_t k = 0; k < runs.size(); ++k) {
         Run& r = runs[k];
         const std::int64_t seed = i + static_cast<std::int64_t>(k) * kSeedStride;     // the two runs' draws are independent: the white noise is a function of the seed, so run B's seeds are offset
@@ -201,14 +201,14 @@ SurrogateCompareResult surrogate_lagfree_vortex_compare(nxr::io::DatasetWriter& 
         if (D.shape.size() != 3 || D.shape[1] != r.members || D.shape[2] != 4 || D.shape[0] < 2 * static_cast<std::int64_t>(r.stage) + 2)
           invalid(who + ": the draw " + dname + " is not [stage x sense, " + std::to_string(r.members) + " members, 4] with the data's stage " + std::to_string(r.stage));
         draw.push_back(pooled_of(D.values, r.members, r.stage));
-        const nxr::crossings::Pooled& P = draw.back();
+        const nxr::select::track_crossings::Pooled& P = draw.back();
         r.consistency = nt::tallyDraw(r.consistency, r.cons, nt::unbiasedConsistency(P.sum, P.n, 2));
         r.counts = nt::tallyDraw(r.counts, none, P.n);
         const Eigen::MatrixXd mr = nt::meanResultants(P.sum, P.n);
         r.rx = nt::tallyDraw(r.rx, none, mr.col(0)); r.ry = nt::tallyDraw(r.ry, none, mr.col(1)); r.rz = nt::tallyDraw(r.rz, none, mr.col(2));
       }
       if (two) {
-        const auto rp = nxr::crossings::repeat(draw[0], draw[1], opt.min_crossings);
+        const auto rp = nxr::select::track_crossings::repeat(draw[0], draw[1], opt.min_crossings);
         dot_tally = nt::tallyDraw(dot_tally, dot_data, rp.dot);
         cos_tally = nt::tallyDraw(cos_tally, cos_data, Eigen::VectorXd::Constant(1, rp.cosine));
       }

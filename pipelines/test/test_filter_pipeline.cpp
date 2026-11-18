@@ -120,17 +120,17 @@ int main() {
   const std::int64_t span0 = 1000, span1 = 1250;     // the bad span in samples
   FilterComputeOptions o;
   o.recording = "rest";
-  o.filter = nxr::filter::brainstormFilterOptions(1.0);
-  o.filter.kind = nxr::filter::Kind::Bandpass;
+  o.filter = nxr::signal::filters::brainstormFilterOptions(1.0);
+  o.filter.kind = nxr::signal::filters::Kind::Bandpass;
   o.filter.lowerEdge = 2;
   o.filter.upperEdge = 40;
   const FilterComputeResult a = filter_compute(ds, sub, o);
   CHECK(!a.hit);
   CHECK_EQ(a.info["name"].get<std::string>(), std::string("rest_bandpass"));
   // the stored samples are the whole-record filter of the stored source (float32)
-  nxr::filter::FilterOptions fo = o.filter;
+  nxr::signal::filters::FilterOptions fo = o.filter;
   fo.sfreq = sfreq;
-  const MatrixXd want = nxr::filter::bandpass(X, 2, 40, fo);
+  const MatrixXd want = nxr::signal::filters::bandpass(X, 2, 40, fo);
   {
     std::vector<std::int64_t> shape;
     const std::vector<float> got = read_floats((sub.folder() / (a.info["path"].get<std::string>())), &shape);
@@ -170,11 +170,11 @@ int main() {
   // another chunk size and a low-pass (the mean restored): the same numbers as the whole-record filter
   {
     FilterComputeOptions l = o;
-    l.filter.kind = nxr::filter::Kind::Lowpass;
+    l.filter.kind = nxr::signal::filters::Kind::Lowpass;
     l.filter.upperEdge = 30;
     l.name = "rest_lp";
     const FilterComputeResult r = filter_compute(ds, sub, l);
-    const MatrixXd w2 = nxr::filter::lowpass(X, 30, fo);
+    const MatrixXd w2 = nxr::signal::filters::lowpass(X, 30, fo);
     const std::vector<float> got = read_floats((sub.folder() / (r.info["path"].get<std::string>())));
     double worst = 0;
     for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) worst = std::max(worst, std::abs(got[static_cast<std::size_t>(c * T + t)] - w2(c, t)));
@@ -183,11 +183,11 @@ int main() {
   // a notch (IIR forward-backward, chunked with its margins)
   {
     FilterComputeOptions n = o;
-    n.filter.kind = nxr::filter::Kind::Notch;
+    n.filter.kind = nxr::signal::filters::Kind::Notch;
     n.filter.frequencies = {50};
     n.filter.notchBandwidth = 3.0;
     const FilterComputeResult r = filter_compute(ds, sub, n);
-    const MatrixXd w3 = nxr::filter::notch(X, {50}, [&] { auto p = fo; p.notchBandwidth = 3.0; return p; }());
+    const MatrixXd w3 = nxr::signal::filters::notch(X, {50}, [&] { auto p = fo; p.notchBandwidth = 3.0; return p; }());
     const std::vector<float> got = read_floats((sub.folder() / (r.info["path"].get<std::string>())));
     double worst = 0;
     for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) worst = std::max(worst, std::abs(got[static_cast<std::size_t>(c * T + t)] - w3(c, t)));

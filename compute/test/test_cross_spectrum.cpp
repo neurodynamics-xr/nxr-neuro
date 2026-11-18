@@ -1,4 +1,4 @@
-// crossSpectrumTiles and nxr::timebank::analysisOfBlock, on synthetic signals only:
+// crossSpectrumTiles and nxr::signal::timefilterbank::analysisOfBlock, on synthetic signals only:
 //   the outer form      per tile Σ z zᴴ against a direct sum; Hermitian, its diagonal Σ|z|²; a partial last tile and a tile past the data; ADDITIVE (a
 //                      window cut in two parts, summed, is the window); a known lag read back from the phase of an off-diagonal entry;
 //   analysisOfBlock    chunks with the band's halo (haloOf: its taps' length) transformed one by one give, on their own columns, what the whole record transformed at once
@@ -10,10 +10,10 @@
 #include <iostream>
 #include <random>
 
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "measurement_helpers.h"
-#include "nxr/taps.h"
-#include "nxr/timebank.h"
+#include "nxr/signal/filters_fir.h"
+#include "nxr/signal/timefilterbank.h"
 
 using C = std::complex<double>;
 static int failures = 0;
@@ -58,32 +58,32 @@ int main() {
   Eigen::MatrixXd x(channels, n);
   for (Eigen::Index c = 0; c < channels; ++c)
     for (Eigen::Index s = 0; s < n; ++s) x(c, s) = std::sin(2 * M_PI * 10.0 * s / fs + c) + 0.5 * nd(rng);
-  nxr::timebank::Design meyer(nxr::timebank::Family::Meyer, 2.0, nxr::timebank::Sides::Analytic);
+  nxr::signal::timefilterbank::Design meyer(nxr::signal::timefilterbank::Family::Meyer, 2.0, nxr::signal::timefilterbank::Sides::Analytic);
   meyer.bands = {{8.0, 12.0}};                                   // the Signal chain's alpha band (the Studio's meyerBand), one member
-  auto bandOf = [](const nxr::timebank::TimeBank& b) {
+  auto bandOf = [](const nxr::signal::timefilterbank::TimeBank& b) {
     for (int m = 0; m < b.size(); ++m) if (std::abs(b.members[static_cast<std::size_t>(m)].lo - 8.0) < 1e-9 && std::abs(b.members[static_cast<std::size_t>(m)].hi - 12.0) < 1e-9) return m;
     return -1;
   };
-  const auto whole = nxr::timebank::analysisOfBlock(meyer, x, fs, 0, static_cast<std::size_t>(n));
+  const auto whole = nxr::signal::timefilterbank::analysisOfBlock(meyer, x, fs, 0, static_cast<std::size_t>(n));
   const int band = bandOf(whole.bank);
   EXPECT(band >= 0 && whole.own[static_cast<std::size_t>(band)].rows() == channels && whole.own[static_cast<std::size_t>(band)].cols() == n, "the Meyer band [8, 12] Hz: one member");
   if (band < 0) return 1;
-  const std::size_t H = nxr::timebank::haloOf(whole.bank, band);
+  const std::size_t H = nxr::signal::timefilterbank::haloOf(whole.bank, band);
   double worst = 0, scale = whole.own[static_cast<std::size_t>(band)].cwiseAbs().maxCoeff();
   for (Eigen::Index first = 0; first < n; first += chunk) {
     const Eigen::Index own = std::min(chunk, n - first), left = std::min<Eigen::Index>(static_cast<Eigen::Index>(H), first), right = std::min<Eigen::Index>(static_cast<Eigen::Index>(H), n - first - own);
     if (left < static_cast<Eigen::Index>(H) || right < static_cast<Eigen::Index>(H)) continue;   // the record's ends: no context there (zero-padded), compared below only inside
-    const auto t = nxr::timebank::analysisOfBlock(meyer, x.middleCols(first - left, left + own + right), fs, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
+    const auto t = nxr::signal::timefilterbank::analysisOfBlock(meyer, x.middleCols(first - left, left + own + right), fs, static_cast<std::size_t>(left), static_cast<std::size_t>(own));
     worst = std::max(worst, (t.own[static_cast<std::size_t>(band)] - whole.own[static_cast<std::size_t>(band)].middleCols(first, own)).cwiseAbs().maxCoeff() / scale);
   }
   EXPECT(worst < 1e-3, "chunks of 4096 with the band's halo, haloOf = " << H << " samples == the whole record transformed at once (worst relative " << worst << ")");
   // the FFT route and the taps route: the same Meyer gain
   {
-    const auto gain = [](double f) { return nxr::filterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
-    const auto h = nxr::taps::gainTaps(gain, fs, false), g = nxr::taps::gainTaps(gain, fs, true);
+    const auto gain = [](double f) { return nxr::signal::graphfilterbank::meyerBand(f, 8.0, 12.0, 1.0 / 3.0); };
+    const auto h = nxr::signal::gainTaps(gain, fs, false), g = nxr::signal::gainTaps(gain, fs, true);
     std::vector<float> xf(static_cast<std::size_t>(channels * n));
     for (Eigen::Index c = 0; c < channels; ++c) for (Eigen::Index s = 0; s < n; ++s) xf[static_cast<std::size_t>(c * n + s)] = static_cast<float>(x(c, s));
-    const auto re = nxr::taps::convolveRows(xf.data(), channels, n, h, 0, n, false), im = nxr::taps::convolveRows(xf.data(), channels, n, g, 0, n, true);
+    const auto re = nxr::signal::convolveRows(xf.data(), channels, n, h, 0, n, false), im = nxr::signal::convolveRows(xf.data(), channels, n, g, 0, n, true);
     double d = 0;
     const Eigen::Index margin = 2000;                        // away from the record's ends (zero-padded there, reflected by the taps)
     for (Eigen::Index c = 0; c < channels; ++c)
@@ -95,14 +95,14 @@ int main() {
   {
     Eigen::MatrixXd tone(1, 8000);
     for (Eigen::Index s = 0; s < 8000; ++s) tone(0, s) = 1.5 * std::cos(2 * M_PI * 10.0 * s / fs);
-    nxr::timebank::Design morlet(nxr::timebank::Family::Morlet, 2.0, nxr::timebank::Sides::Analytic);
+    nxr::signal::timefilterbank::Design morlet(nxr::signal::timefilterbank::Family::Morlet, 2.0, nxr::signal::timefilterbank::Sides::Analytic);
     morlet.centres = {10.0};
-    const auto t = nxr::timebank::analysisOfBlock(morlet, tone, fs, 2000, 4000);
+    const auto t = nxr::signal::timefilterbank::analysisOfBlock(morlet, tone, fs, 2000, 4000);
     double lo = 1e9, hi = 0;
     for (Eigen::Index s = 0; s < 4000; ++s) { lo = std::min(lo, std::abs(t.own[0](0, s))); hi = std::max(hi, std::abs(t.own[0](0, s))); }
     EXPECT(t.own.size() == 1 && t.own[0].cols() == 4000 && std::abs(lo - 1.5) < 1e-3 && std::abs(hi - 1.5) < 1e-3, "Morlet at 10 Hz: a tone of amplitude 1.5 comes back with |c| in [" << lo << ", " << hi << "]");
   }
-  EXPECT([&] { try { nxr::timebank::analysisOfBlock(meyer, x.leftCols(100), fs, 50, 60); } catch (const std::invalid_argument&) { return true; } return false; }(), "own columns outside the block refused");
+  EXPECT([&] { try { nxr::signal::timefilterbank::analysisOfBlock(meyer, x.leftCols(100), fs, 50, 60); } catch (const std::invalid_argument&) { return true; } return false; }(), "own columns outside the block refused");
 
   std::cout << (failures ? "FAIL" : "PASS") << " test_cross_spectrum (" << failures << " failures)\n";
   return failures ? 1 : 0;

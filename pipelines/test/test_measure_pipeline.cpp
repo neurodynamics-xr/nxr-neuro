@@ -14,13 +14,13 @@
 
 #include "brain_helpers.h"
 #include "check.h"
-#include "nxr/intrinsic_surface.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/task/task.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/run_shipped.h"
-#include "nxr/stats.h"
+#include "nxr/stats/summary.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
@@ -101,9 +101,9 @@ int main() {
     for (int i = 0; i < nV; ++i) if (codes[i] == code) { const double wi = w.empty() ? 1.0 : w[i]; sw += wi; sx += wi * static_cast<double>(xs[i]); }
     return sx / sw;
   };
-  nxr::ladder::Mesh lm; lm.positions = b.P; lm.faces = b.F; lm.n = nV;
-  const std::vector<double> bary = nxr::ladder::vertexAreas(lm);
-  nxr::manifold::IntrinsicSurface isurf(b.P.data(), nV, b.F.data(), b.nF);
+  nxr::select::Mesh lm; lm.positions = b.P; lm.faces = b.F; lm.n = nV;
+  const std::vector<double> bary = nxr::select::vertexAreas(lm);
+  nxr::geometry::IntrinsicSurface isurf(b.P.data(), nV, b.F.data(), b.nF);
   const std::vector<double> voro = isurf.inputMixedVoronoiMass();
 
   const std::vector<std::string> basic = {"mean", "max", "min", "mean_square", "abs_max", "area", "n_elements"};

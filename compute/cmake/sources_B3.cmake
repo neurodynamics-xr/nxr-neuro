@@ -11,7 +11,6 @@ target_sources(nxr_compute PRIVATE
   src/select/cores.cpp
   src/select/tracks.cpp
   src/select/crossings.cpp
-  src/scaling.cpp
   src/select/scalespace.cpp
   src/integrals.cpp
   src/select/ladder.cpp

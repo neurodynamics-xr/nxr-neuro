@@ -1,3 +1,5 @@
+#include "nxr/geometry/curvature.h"
+#include "nxr/signal/surface_calculus.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/io/subject_reads.h"
 #include "nxr/pipelines/cache.h"
@@ -10,7 +12,22 @@
 #include <cstring>
 #include <numeric>
 
-#include "nxr/compute.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
 
 #ifndef NXR_COMPUTE_VERSION
 #define NXR_COMPUTE_VERSION "unknown"
@@ -42,11 +59,11 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   const int nV = static_cast<int>(vertices.size() / 3), nF = static_cast<int>(faces.size() / 3);
   // the Hodge–Dirac's triangulation: THE one Delaunay construction (mollify, the mixed-Voronoi mass of the mollified input recorded, flip to Delaunay) —
   // exactly as nxr and the Studio prepare a surface; `mollify` and `flip_eps` are the named options
-  nxr::manifold::DelaunayOptions dopt;
+  nxr::geometry::DelaunayOptions dopt;
   dopt.mollify = method.mollify; dopt.flipEps = method.flip_eps;
-  nxr::manifold::Manifold m(vertices.data(), nV, faces.data(), nF, /*intrinsicDelaunay=*/true, dopt);
-  const nxr::manifold::ops::hodgedirac::HodgeDirac hd =
-      nxr::manifold::ops::hodgedirac::assemble(m, method.star1_floor.value_or(0.0), method.mollify, method.flip_eps);
+  nxr::geometry::Manifold m(vertices.data(), nV, faces.data(), nF, /*intrinsicDelaunay=*/true, dopt);
+  const nxr::operators::hodgedirac::HodgeDirac hd =
+      nxr::operators::hodgedirac::assemble(m, method.star1_floor.value_or(0.0), method.mollify, method.flip_eps);
   const int nE = hd.nE;
   const std::int64_t clamped = hd.star1Clamped;
 
@@ -67,7 +84,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   const Eigen::SparseMatrix<double> S2 = B2 * s1_inv.asDiagonal() * B2.transpose();
 
   // both ladders, the constants out, ONE lambda cut, merged by mu: nxr-compute's hodgeLadders (the reference rule)
-  const nxr::manifold::solve::HodgeLadders lad = nxr::manifold::solve::hodgeLadders(L0, M0, S2, star2, modes, method.solve);
+  const nxr::operators::HodgeLadders lad = nxr::operators::hodgeLadders(L0, M0, S2, star2, modes, method.solve);
   const Eigen::MatrixXd& psi = lad.exact.eigenvectors;
   const Eigen::MatrixXd& chi = lad.coexact.eigenvectors;
 
@@ -94,7 +111,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
   out.flips = hd.record.flips;
   std::vector<double> acc(V);
   for (std::size_t j = 0; j < K; ++j) {
-    const nxr::manifold::solve::HodgeLadders::Mode& md = lad.modes[j];
+    const nxr::operators::HodgeLadders::Mode& md = lad.modes[j];
     out.mu[j] = md.mu;
     out.kind[j] = static_cast<std::uint8_t>(md.kind);
     if (md.kind == 0) {
@@ -146,7 +163,7 @@ HodgeDirac solve_hodge_dirac(const std::vector<double>& vertices, const std::vec
     const std::size_t F_ = static_cast<std::size_t>(nF);
     out.forms2.assign(F_ * K, 0.0f);
     for (std::size_t j = 0; j < K; ++j) {
-      const nxr::manifold::solve::HodgeLadders::Mode& md = lad.modes[j];
+      const nxr::operators::HodgeLadders::Mode& md = lad.modes[j];
       if (md.kind != 2) continue;
       for (std::size_t f = 0; f < F_; ++f) out.forms2[f * K + j] = static_cast<float>(chi(static_cast<Eigen::Index>(f), md.col) / r2);
     }
@@ -173,9 +190,9 @@ EigenSolveResult eigen_solve(DatasetWriter& ds, SubjectWriter& sub, const EigenS
     solved = in.name + "_glued";
   }
   const SolveMethod& sm = opt.method;
-  const nxr::manifold::solve::HodgeSolveOptions dflt;
+  const nxr::operators::HodgeSolveOptions dflt;
   Json set = Json{{"surface", solved}, {"modes", opt.modes}, {"mollify", sm.mollify}, {"flip_eps", sm.flip_eps},
-                  {"shift", sm.solve.shift == nxr::manifold::solve::HodgeShift::Absolute ? "absolute" : "relative"}, {"slice", sm.solve.slice}, {"normalize", sm.solve.normalize}};
+                  {"shift", sm.solve.shift == nxr::operators::HodgeShift::Absolute ? "absolute" : "relative"}, {"slice", sm.solve.slice}, {"normalize", sm.solve.normalize}};
   if (sm.solve.sigma != dflt.sigma) set["sigma"] = sm.solve.sigma;       // a default stays unset, as on the command line: the same run, the same cache key
   if (sm.star1_floor) set["star1_floor"] = *sm.star1_floor;
   const std::vector<Json> reports = run_shipped(ds, sub, "eigenmodes", set, opt.replace, progress);

@@ -1,4 +1,4 @@
-// nxr::filterbank::bandMoments / bandPower and the area-weighted memberEnergy, on an icosphere with its FULL eigenbasis (synthetic only):
+// nxr::signal::graphfilterbank::bandMoments / bandPower and the area-weighted memberEnergy, on an icosphere with its FULL eigenbasis (synthetic only):
 //   the band power of a statistic C = c cᴴ (c a field's mode coefficients) equals the area-weighted energy of the band-filtered field (Parseval), for a
 //   tight bank (the Meyer octave frame by Weyl) and a non-tight one (MexHat); a tight bank's band powers add up to the field's power; C_m = G_m C G_m is
 //   Hermitian, its trace the power; a field with no lags (a real pattern times one complex phase) gives real C_m, a travelling pattern does not;
@@ -9,11 +9,27 @@
 #include <random>
 
 #include "mesh_helpers.h"
-#include "nxr/compute.h"
-#include "nxr/facets.h"
-#include "nxr/filterbank.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/signal/graphfilterbank.h"
 
-namespace fb = nxr::filterbank;
+namespace fb = nxr::signal::graphfilterbank;
 using C = std::complex<double>;
 
 int main() {
@@ -23,7 +39,7 @@ int main() {
   icosphere(2, V, F, 0.05);
   for (std::size_t i = 0; i < V.size(); i += 3) V[i] *= 1.4;                         // an ellipsoid: uneven vertex areas
   const int n = static_cast<int>(V.size() / 3);
-  nxr::manifold::Manifold m(V.data(), n, F.data(), static_cast<int>(F.size() / 3), true);
+  nxr::geometry::Manifold m(V.data(), n, F.data(), static_cast<int>(F.size() / 3), true);
   const Eigen::SparseMatrix<double> K = m.operators().laplacian().cotan(), M = m.operators().mass().mixedVoronoi();
   // the full eigenbasis, mass-orthonormal (dense: a small mesh)
   const Eigen::MatrixXd Kd(K), Md(M);

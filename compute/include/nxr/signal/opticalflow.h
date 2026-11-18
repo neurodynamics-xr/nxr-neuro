@@ -33,19 +33,19 @@
 #include <memory>
 #include <vector>
 
-#include "nxr/hodge_weights.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
 
 namespace nxr::signal {
 
 namespace connection { class ConnectionFlow; }
-using nxr::hodge::FaceMat;
-using nxr::hodge::RowMat3;
+using nxr::operators::FaceMat;
+using nxr::operators::RowMat3;
 
 struct TangentBasis {
-    RowMat3 e1, e2, normal;     // [V x 3]
+    operators::RowMat3 e1, e2, normal;     // [V x 3]
 };
 /** Rheome's tangent_basis: from the vertex normals (normalised here). e1 is proportional to axis x n (Rheome's axis is (1,1,1)); any other axis gives another, equally valid frame. */
-TangentBasis tangentBasis(const RowMat3& vertexNormals, const Eigen::Vector3d& axis = Eigen::Vector3d::Ones());
+TangentBasis tangentBasis(const operators::RowMat3& vertexNormals, const Eigen::Vector3d& axis = Eigen::Vector3d::Ones());
 
 /** The smoothness the flow is charged, and the data term's integration. The velocity is v = a e1 + b e2 per vertex (Connection: z = (a, b) in the signpost gauge, embedded).
  *    Connection / Gauge  THE DEFAULT: the Cortical Flow Studio's optical flow (opticalflow_connection.h): alpha v'Cv with C the connection Laplacian of the intrinsic
@@ -65,13 +65,13 @@ struct FlowForm {
     Eigen::Vector3d frameAxis = Eigen::Vector3d::Ones();   // the tangent frames' reference axis (see tangentBasis)
 };
 /** The area-weighted unit vertex normals of a mesh (double positions). */
-RowMat3 vertexNormals(const RowMat3& positions, const FaceMat& faces);
+operators::RowMat3 vertexNormals(const operators::RowMat3& positions, const operators::FaceMat& faces);
 
 /** The embedded cotan Laplacian K (symmetrised, PSD) and the lumped Galerkin mass (row sums) of a mesh: the smoothness and the data weights of the optical flow. */
-void embeddedLaplacian(const RowMat3& positions, const FaceMat& faces, Eigen::SparseMatrix<double>& K, Eigen::VectorXd& mass);
+void embeddedLaplacian(const operators::RowMat3& positions, const operators::FaceMat& faces, Eigen::SparseMatrix<double>& K, Eigen::VectorXd& mass);
 
 /** Rheome's opticalflow_scalar. A [V x T] -> [3V x (T-1)]. `alpha` the smoothness weight (Rheome's default 1). */
-Eigen::MatrixXd opticalflowScalar(const Eigen::MatrixXd& activityMap, const RowMat3& positions, const FaceMat& faces, const RowMat3& vertexNormals, double alpha = 1.0, const FlowForm& form = {});
+Eigen::MatrixXd opticalflowScalar(const Eigen::MatrixXd& activityMap, const operators::RowMat3& positions, const operators::FaceMat& faces, const operators::RowMat3& vertexNormals, double alpha = 1.0, const FlowForm& form = {});
 
 /** Rheome's opticalflow_scalar one frame pair at a time (the streaming form). Everything that does not change between frames is built once: the face operators, the
  *  embedded Laplacian and mass, the tangent basis, the system's sparsity pattern with the smoothness block already in it, and the symbolic analysis of its factorisation.
@@ -87,7 +87,7 @@ struct PcgInfo { int iterations = 0; double residual = 0; bool converged = true;
 
 class OpticalflowScalar {
 public:
-    OpticalflowScalar(const RowMat3& positions, const FaceMat& faces, const RowMat3& vertexNormals, double alpha, double maxAbs, const FlowForm& form = {});
+    OpticalflowScalar(const operators::RowMat3& positions, const operators::FaceMat& faces, const operators::RowMat3& vertexNormals, double alpha, double maxAbs, const FlowForm& form = {});
     ~OpticalflowScalar();
     /** The velocity [3V] (x, y, z per vertex, tangent) between two raw activation maps [V]. */
     Eigen::VectorXd step(const Eigen::VectorXd& previous, const Eigen::VectorXd& next);
@@ -102,11 +102,11 @@ private:
     void makePreconditioner(const PcgOptions& options, double c);
     Eigen::Index nV_;
     FlowForm form_;
-    FaceMat faces_;
+    operators::FaceMat faces_;
     Eigen::VectorXd area_;                                     // [nF] (triangle data term)
     std::vector<Eigen::Index> faceSlot_;                       // [nF x 36] where triangle f's (corner p, corner q, k, l) entry sits in system_.valuePtr()
     double scale_;
-    nxr::hodge::FaceOperators fg_;
+    nxr::operators::FaceOperators fg_;
     Eigen::VectorXd mass_;
     TangentBasis tb_;
     Eigen::SparseMatrix<double> system_;                       // S + the data's four diagonals (values rewritten each frame)
@@ -125,11 +125,11 @@ private:
 /** flowReadout for one velocity [3V] at a time, with the operators built once. */
 class FlowReader {
 public:
-    FlowReader(const RowMat3& positions, const FaceMat& faces);
+    FlowReader(const operators::RowMat3& positions, const operators::FaceMat& faces);
     /** Divergence of the field as given, vorticity of its tangent part, speed |v| ([V] each). */
     void read(const Eigen::VectorXd& velocity, Eigen::VectorXd& divergence, Eigen::VectorXd& vorticity, Eigen::VectorXd& speed) const;
 private:
-    nxr::hodge::FaceOperators fg_;
+    nxr::operators::FaceOperators fg_;
 };
 
 struct FlowReadout {
@@ -167,6 +167,6 @@ struct Apparent {
 Apparent apparent(const Eigen::MatrixXd& A, const RowMat3& positions, const FaceMat& faces, const ApparentOptions& options = {});
 
 /** The flow weights b [K x frames] of a velocity field [3V x frames] on the basis' glued surface. */
-Eigen::MatrixXd flowCoefficients(const nxr::hodge::Basis& basis, const Eigen::MatrixXd& velocity);
+Eigen::MatrixXd flowCoefficients(const nxr::operators::Basis& basis, const Eigen::MatrixXd& velocity);
 
 }  // namespace nxr::signal

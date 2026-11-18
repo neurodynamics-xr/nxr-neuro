@@ -20,7 +20,24 @@
 // defaults to CSC. The index types differ (`mwIndex` vs `int`)
 // so we copy through rather than alias.
 
-#include "nxr/compute.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
 #include "mex.h"
 
 #include <complex>
@@ -29,7 +46,7 @@
 #include <string>
 #include <vector>
 
-namespace nxr::manifold::mex {
+namespace nxr::geometry::mex {
 
 // ── Scalar / string ─────────────────────────────────────────
 
@@ -325,7 +342,7 @@ inline std::vector<std::int32_t> mxToFaceBuffer(const mxArray* arr, int& nFOut) 
 
 // ── Struct builders for compound return values ──────────────
 
-inline mxArray* meshOperatorsToStruct(const nxr::manifold::ops::ManifoldOperators& ops,
+inline mxArray* meshOperatorsToStruct(const nxr::operators::ManifoldOperators& ops,
                                       int nV, int nE, int nF) {
     const char* fields[] = {
         "cotanLaplacian", "mass", "vertexDualAreas", "vertexNormals",
@@ -347,7 +364,7 @@ inline mxArray* meshOperatorsToStruct(const nxr::manifold::ops::ManifoldOperator
     return s;
 }
 
-inline mxArray* eigenResultToStruct(const nxr::manifold::solve::EigenResult& r) {
+inline mxArray* eigenResultToStruct(const nxr::operators::EigenResult& r) {
     const char* fields[] = {"eigenvectors", "eigenvalues", "k", "nConverged"};
     mxArray* s = mxCreateStructMatrix(1, 1, 4, fields);
     mxSetField(s, 0, "eigenvectors", eigenMatrixToMx(r.eigenvectors));
@@ -360,11 +377,11 @@ inline mxArray* eigenResultToStruct(const nxr::manifold::solve::EigenResult& r) 
 /** Read back an EigenResult struct previously returned by
  *  eigenResultToStruct. Used by removeDC, which takes the result
  *  of solve and returns a trimmed copy. */
-inline nxr::manifold::solve::EigenResult mxToEigenResult(const mxArray* s) {
+inline nxr::operators::EigenResult mxToEigenResult(const mxArray* s) {
     if (!mxIsStruct(s)) {
         throw std::invalid_argument("expected an EigenResult struct");
     }
-    nxr::manifold::solve::EigenResult r;
+    nxr::operators::EigenResult r;
     mxArray* uField = mxGetField(s, 0, "eigenvectors");
     mxArray* lField = mxGetField(s, 0, "eigenvalues");
     if (!uField || !lField) {
@@ -383,7 +400,7 @@ inline nxr::manifold::solve::EigenResult mxToEigenResult(const mxArray* s) {
 // mxArray, sparse → CSC, so these builders just forward to the existing
 // eigen*ToMx helpers. Parity with WASM is numerical, not byte-layout.
 
-inline mxArray* decOperatorsToStruct(const nxr::manifold::ops::DECOperators& dec) {
+inline mxArray* decOperatorsToStruct(const nxr::operators::DECOperators& dec) {
     const char* fields[] = {"d0", "d1", "hodge0", "hodge1", "hodge2", "hodge1Inverse"};
     mxArray* s = mxCreateStructMatrix(1, 1, 6, fields);
     mxSetField(s, 0, "d0",            eigenSparseToMx(dec.d0));
@@ -396,8 +413,8 @@ inline mxArray* decOperatorsToStruct(const nxr::manifold::ops::DECOperators& dec
 }
 
 inline mxArray* connectionLaplacianToStruct(
-    const nxr::manifold::ops::laplacian::connection::ConnectionLaplacian& cl) {
-    namespace ns = nxr::manifold::ops::laplacian::connection;
+    const nxr::operators::laplacian::connection::ConnectionLaplacian& cl) {
+    namespace ns = nxr::operators::laplacian::connection;
     const char* fields[] = {"K_real", "K_imag", "frameE1", "frameE2",
                             "baseDim", "outputDim",
                             "nSym", "regularization", "domain", "format"};
@@ -434,7 +451,7 @@ inline mxArray* connectionLaplacianToStruct(
     return s;
 }
 
-inline mxArray* faceFramesToStruct(const nxr::manifold::geometry::FaceFrames& f) {
+inline mxArray* faceFramesToStruct(const nxr::geometry::FaceFrames& f) {
     const char* fields[] = {"e1", "e2", "normals"};
     mxArray* s = mxCreateStructMatrix(1, 1, 3, fields);
     mxSetField(s, 0, "e1",      eigenMatrixToMx(f.e1));
@@ -443,7 +460,7 @@ inline mxArray* faceFramesToStruct(const nxr::manifold::geometry::FaceFrames& f)
     return s;
 }
 
-inline mxArray* vertexFramesToStruct(const nxr::manifold::geometry::VertexFrames& f) {
+inline mxArray* vertexFramesToStruct(const nxr::geometry::VertexFrames& f) {
     const char* fields[] = {"e1", "e2", "normals"};
     mxArray* s = mxCreateStructMatrix(1, 1, 3, fields);
     mxSetField(s, 0, "e1",      eigenMatrixToMx(f.e1));
@@ -452,7 +469,7 @@ inline mxArray* vertexFramesToStruct(const nxr::manifold::geometry::VertexFrames
     return s;
 }
 
-inline mxArray* hodgeResultToStruct(const nxr::manifold::solve::HodgeResult& r) {
+inline mxArray* hodgeResultToStruct(const nxr::operators::HodgeResult& r) {
     const char* fields[] = {
         "exactPotential", "coExactPotentialF", "coExactPotentialV",
         "combinedPotential", "omega", "dAlpha", "deltaBeta", "gamma",
@@ -473,7 +490,7 @@ inline mxArray* hodgeResultToStruct(const nxr::manifold::solve::HodgeResult& r) 
     return s;
 }
 
-inline mxArray* curvatureResultToStruct(const nxr::manifold::geometry::CurvatureResult& r) {
+inline mxArray* curvatureResultToStruct(const nxr::geometry::CurvatureResult& r) {
     const char* fields[] = {"gaussian", "mean", "kMin", "kMax", "principalDirMax"};
     mxArray* s = mxCreateStructMatrix(1, 1, 5, fields);
     mxSetField(s, 0, "gaussian",        eigenVectorToMx(r.gaussian));
@@ -494,7 +511,7 @@ inline mxArray* positionsSegmentsToStruct(const Eigen::MatrixXd& positions, int 
 }
 
 inline mxArray* directionFieldResultToStruct(
-    const nxr::manifold::connection::DirectionFieldResult& r) {
+    const nxr::geometry::connection::DirectionFieldResult& r) {
     const char* fields[] = {"connections", "directionVectors", "orthogonalVectors",
                             "vertexVectors", "vertexOrthogonalVectors",
                             "eulerCharacteristic", "gaussBonnetSatisfied"};
@@ -519,4 +536,4 @@ inline mxArray* eigenMatrixXfToMx(const Eigen::MatrixXf& m) {
     return arr;
 }
 
-} // namespace nxr::manifold::mex
+} // namespace nxr::geometry::mex

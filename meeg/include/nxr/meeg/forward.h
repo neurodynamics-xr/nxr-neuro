@@ -11,7 +11,7 @@
 #include <Eigen/Dense>
 #include <vector>
 
-#include "nxr/meeg/minimise.h"
+#include "nxr/optimisation/fminsearch.h"
 #include "nxr/meeg/sphere.h"
 
 namespace nxr::meeg {
@@ -53,7 +53,7 @@ struct BergFitOptions {
   int dipoles = 3;                 // J
   int terms = 200;                 // the series terms fitted
   int starts = 12;                 // simplex starts (deterministic, spread over (-1, 1)); the best minimum is kept: the fit has local minima
-  NelderMeadOptions minimiser = []{ NelderMeadOptions o; o.zeroStep = 0.05; return o; }();
+  optimisation::NelderMeadOptions minimiser = []{ optimisation::NelderMeadOptions o; o.zeroStep = 0.05; return o; }();
 };
 struct BergScherg {
   Eigen::VectorXd eccentricity;    // mu_j, largest first

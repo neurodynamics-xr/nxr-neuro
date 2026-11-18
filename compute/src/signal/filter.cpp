@@ -1,6 +1,6 @@
 // nxr::filter — see include/nxr/filter.h.
 #include "nxr/signal/filters.h"
-#include "nxr/fft.h"
+#include "nxr/signal/fourier.h"
 #include <algorithm>
 #include <cmath>
 #include <map>
@@ -380,19 +380,19 @@ MatrixXd Filter::firWindow(const MatrixXd& w, bool atStart, bool atEnd) const {
     MatrixXd out(C, W);
     out.setZero();
     if (P < N) return out;
-    const std::size_t nfft = fft::nextFastLen(static_cast<std::size_t>(P), true);
-    const std::size_t nb = fft::rfftBins(nfft);
+    const std::size_t nfft = nextFastLen(static_cast<std::size_t>(P), true);
+    const std::size_t nb = rfftBins(nfft);
     // the filter's spectrum
-    std::vector<fft::cd> H(nb);
+    std::vector<cd> H(nb);
     {
         std::vector<double> hb(nfft, 0.0);
         for (Eigen::Index i = 0; i < N; ++i) hb[static_cast<std::size_t>(i)] = design_.b[i];
-        fft::r2c(hb.data(), H.data(), {nfft}, 0);
+        r2c(hb.data(), H.data(), {nfft}, 0);
     }
     const Eigen::Index K = std::min<Eigen::Index>(static_cast<Eigen::Index>(design_.transient), W);
     const Eigen::Index group = 16;
     RowMat buf(group, static_cast<Eigen::Index>(nfft));
-    std::vector<fft::cd> spec(static_cast<std::size_t>(group) * nb);
+    std::vector<cd> spec(static_cast<std::size_t>(group) * nb);
     for (Eigen::Index c0 = 0; c0 < C; c0 += group) {
         const Eigen::Index g = std::min(group, C - c0);
         buf.setZero();
@@ -417,10 +417,10 @@ MatrixXd Filter::firWindow(const MatrixXd& w, bool atStart, bool atEnd) const {
                 }
             }
         }
-        fft::r2c(buf.data(), spec.data(), {static_cast<std::size_t>(g), nfft}, 1);
+        r2c(buf.data(), spec.data(), {static_cast<std::size_t>(g), nfft}, 1);
         for (Eigen::Index r = 0; r < g; ++r)
             for (std::size_t k = 0; k < nb; ++k) spec[static_cast<std::size_t>(r) * nb + k] *= H[k];
-        fft::c2r(spec.data(), buf.data(), {static_cast<std::size_t>(g), nfft}, 1);
+        c2r(spec.data(), buf.data(), {static_cast<std::size_t>(g), nfft}, 1);
         for (Eigen::Index r = 0; r < g; ++r) {
             const double m = restoreMean_ && mean_.size() ? mean_[c0 + r] : 0.0;
             const double* p = buf.row(r).data();

@@ -1,11 +1,11 @@
 // nxr::kernels: parity with Rheome's +filters (space-time kernels, sphere_kernel, steer, spin, scatter), jointfilterbank.speedkernel / band and filters.psitime
 // (goldens/gen_kernels_golden.m, on a synthetic sphere spectrum and icosphere), plus the kernels' own identities. Synthetic data only.
-#include "nxr/spacetime_kernels.h"
-#include "nxr/jointbank.h"
+#include "nxr/signal/kernels.h"
+#include "nxr/signal/jointfilterbank.h"
 #include "golden_io.h"
 #include "mesh_helpers.h"
-using namespace nxr::kernels;
-namespace fb = nxr::filterbank;
+using namespace nxr::signal;
+namespace fb = nxr::signal::graphfilterbank;
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 using cd = std::complex<double>;
 
@@ -25,7 +25,7 @@ int main() {
     const MatrixXd sf = g.mat("signedFull");
     EXPECT(relErr(MatrixXd(signedFrequencies(half, Half::Positive).transpose()), sh) < 1e-14 && relErr(MatrixXd(signedFrequencies(half, Half::Positive).transpose()), MatrixXd(half.transpose())) < 1e-14,
            "signedFrequencies(one-sided grid, Positive) == Rheome's signedfrequencies(.., 'positive'): unchanged, every bin non-negative (a 20 Hz bin reads +20 Hz)");
-    EXPECT(relErr(MatrixXd(ws.transpose()), sf) < 1e-11 && relErr(MatrixXd(ws), MatrixXd(nxr::fft::fftfreq(grid.size(), 1.0 / 40.0))) < 1e-11,
+    EXPECT(relErr(MatrixXd(ws.transpose()), sf) < 1e-11 && relErr(MatrixXd(ws), MatrixXd(nxr::signal::fftfreq(grid.size(), 1.0 / 40.0))) < 1e-11,
            "signedFrequencies(full grid, Full) == Rheome's, and is fftfreq (Rheome maps +fs/2 to -fs/2 as numpy does)");
     EXPECT(half.minCoeff() >= 0 && signedFrequencies(half, Half::Full)(half.size() - 1) < 0, "  ... what the old unconditional wrap did to the one-sided grid's top bin: " + std::to_string(signedFrequencies(half, Half::Full)(half.size() - 1)) + " Hz for " + std::to_string(half(half.size() - 1)) + " Hz (hence the stated half)");
     eq("gabor", gabor(lam, ws, 20, 10, 2), g.mat("gabor"));
@@ -60,7 +60,7 @@ int main() {
     const VectorXd f1 = g.mat("f1").row(0).transpose();
     eq("raisedCosineBand == filters.psitime", MatrixXd(raisedCosineBand(f1, 8, 14, 1.5).transpose()), g.mat("psitime"));
     eq("raisedCosineBand == jointfilterbank.band(f), f in Hz", MatrixXd(raisedCosineBand(f1, 8, 14, 1.5).transpose()), g.mat("band_hz"));
-    { nxr::jointbank::Kernel K = nxr::jointbank::speedKernel(40, 6); const MatrixXd ref = g.mat("speed"); MatrixXd out(lam.size(), f1.size());
+    { nxr::signal::jointfilterbank::Kernel K = nxr::signal::jointfilterbank::speedKernel(40, 6); const MatrixXd ref = g.mat("speed"); MatrixXd out(lam.size(), f1.size());
       for (int i = 0; i < lam.size(); ++i) for (int j = 0; j < f1.size(); ++j) out(i, j) = K(lam(i), f1(j)).real();
       eq("speedKernel (f in Hz, omega = 2 pi f inside)", out, ref); }
     const MatrixXd Wq = g.mat("Wq"), q0 = g.mat("q0");
@@ -140,9 +140,9 @@ int main() {
                "travwave: sense +1 peaks at +c sqrt(lambda)/2pi, -1 at -, 0 is |f| (the sum of the two); sense 2 is refused");
         // a synthetic travelling pattern each way: z(t) = exp(+-i 2 pi f0 t) on the mode of lambda = k^2, through the signed grid of an FFT
         const int N = 200; const double fs = 100, f0b = 3.0, cb = 2 * 3.14159265358979323846 * f0b / k;
-        VectorXd fb_ = nxr::fft::fftfreq(N, 1.0 / fs); VectorXd lk4(1); lk4 << k * k;
+        VectorXd fb_ = nxr::signal::fftfreq(N, 1.0 / fs); VectorXd lk4(1); lk4 << k * k;
         MatrixXcd Z(1, N), Zl(1, N); for (int j = 0; j < N; ++j) { const double ph = 2 * 3.14159265358979323846 * f0b * j / fs; Z(0, j) = cd(std::cos(ph), std::sin(ph)); Zl(0, j) = std::conj(Z(0, j)); }
-        MatrixXcd SR = nxr::fft::fftColumns(MatrixXcd(Z.transpose()), true).transpose(), SL = nxr::fft::fftColumns(MatrixXcd(Zl.transpose()), true).transpose();
+        MatrixXcd SR = nxr::signal::fftColumns(MatrixXcd(Z.transpose()), true).transpose(), SL = nxr::signal::fftColumns(MatrixXcd(Zl.transpose()), true).transpose();
         auto share = [&](const MatrixXcd& S, int sense) { const MatrixXd G = travwave(lk4, fb_, cb, 1.0, sense); return (S.array().abs2() * G.array().square()).sum() / S.array().abs2().sum(); };
         EXPECT(share(SR, 1) > 0.99 && share(SR, -1) < 1e-12 && share(SL, -1) > 0.99 && share(SL, 1) < 1e-12 && share(SR, 0) > 0.99 && share(SL, 0) > 0.99,
                "a synthetic wave travelling each way: sense +1 keeps the +f one only, -1 the other, 0 both");

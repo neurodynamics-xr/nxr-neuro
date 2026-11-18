@@ -1,7 +1,7 @@
 #pragma once
 // nxr::welch — Welch's power spectral density of sensor recordings, STREAMING: a state fed chunk after chunk.
 //
-// PURE MATHS (arrays in, arrays out; the transform is nxr::fft::r2c). No file I/O.
+// PURE MATHS (arrays in, arrays out; the transform is nxr::r2c). No file I/O.
 //
 // THE ESTIMATE. A record x[0..T) of C channels is cut into segments of `segmentSamples` (n) samples, a new segment every `hop` = n - floor(n * overlap) samples,
 // from sample 0, as many as fit whole (a partial last segment is dropped, as scipy.signal.welch and Brainstorm do). Each segment is detrended, multiplied by a

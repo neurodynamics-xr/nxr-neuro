@@ -1,6 +1,6 @@
 // nxr-pipelines — the registered step of the TRACKS of vortex cores (spec docs/specs/2026-11-14-vortex-cores-port.md, piece 6; family C: a feature followed in time):
 //
-//   tracks   after   links the run's cores frame to frame (nxr `_track_stats`: greedy nearest neighbour, same sense, ≤ link_mm, consecutive frames only; compute nxr::tracks::Linker) and stores
+//   tracks   after   links the run's cores frame to frame (nxr `_track_stats`: greedy nearest neighbour, same sense, ≤ link_mm, consecutive frames only; compute nxr::select::Linker) and stores
 //                    the TRACKS as point events (point_events.h, kind `tracks`): a spans Selection, one member per track, its span the track's first core's frame to its last core's frame, and the track's
 //                    attributes as measurements over it; the labelling core → track is a measurement over the CORES' events (`track`: the track's member ordinal, -1 for a core in no stored track).
 //
@@ -12,7 +12,7 @@
 
 #include "nxr/pipelines/point_events.h"
 #include "nxr/pipelines/registry.h"
-#include "nxr/tracks.h"
+#include "nxr/select/tracks.h"
 
 namespace nxr::pipelines::graph {
 
@@ -82,10 +82,10 @@ void add_tracks_steps(std::vector<StepSpec>& r) {
       sense[static_cast<std::size_t>(i)] = static_cast<std::int8_t>(sn.data[static_cast<std::size_t>(i)] > 0 ? 1 : -1);
       for (int d = 0; d < 3; ++d) centre(i, d) = ce.data[static_cast<std::size_t>(3 * i + d)];
     }
-    nxr::tracks::Linker lk(st.link_m);
+    nxr::select::Linker lk(st.link_m);
     lk.feed(frame, sense, centre);
     lk.finish();
-    const nxr::tracks::TrackStats S = nxr::tracks::trackStats(frame, sense, centre, lk.track(), lk.previous());
+    const nxr::select::TrackStats S = nxr::select::trackStats(frame, sense, centre, lk.track(), lk.previous());
     std::vector<std::int32_t> ordinal(static_cast<std::size_t>(S.size()), -1);
     PointEvents t;
     t.fps = ev.meta["tiles_of"]["fps"].get<double>(); t.origin = ev.meta["tiles_of"]["origin"].get<double>();

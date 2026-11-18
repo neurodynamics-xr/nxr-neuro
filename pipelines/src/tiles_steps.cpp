@@ -13,7 +13,7 @@
 // These two steps are the RULES of the maker `select.dyadic_surface` (select_nodes.cpp: rule subject / group / transfer), no longer registered under their own names. The finest tile is a
 // QUANTITY (`finest`: a tile diameter, area, wavelength or parts per hemisphere), resolved to the depth through the grid's MEASURED level diameters (spec 3.3), never a bare depth. The
 // Levi-Civita connection between neighbouring tiles is not part of the grid: it is a measurement over the product of a level with itself (`reduce`, measure levi_civita; rule 26).
-//   group_tile_grid  setup   surface          -> tiles    nxr::ladder::groupTreeFor: each vertex takes the code of the nearest vertex of the default subject's cortex, piece by piece
+//   group_tile_grid  setup   surface          -> tiles    nxr::select::groupTreeFor: each vertex takes the code of the nearest vertex of the default subject's cortex, piece by piece
 //
 // The Studio's design is kept with its names (backend/src/db/surface-ladder.ts, studio/src/engine/ladder.ts: `surfaceLadder`, the levels, `tileAreas`, `tileCentres`, Weyl's law).
 // What they cannot resolve: a tile is as equal in area as the cut across its geodesic diameter allows (the level's area spread is recorded in the Studio, not here); the Levi-Civita connection between
@@ -21,19 +21,19 @@
 #include <algorithm>
 #include <cmath>
 
-#include "nxr/chart.h"
-#include "nxr/frames.h"
-#include "nxr/ladder.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/measurement/reduce.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/pipelines/select_nodes.h"
-#include "nxr/quantity.h"
-#include "nxr/selection/grid.h"
-#include "nxr/selection/partition.h"
+#include "nxr/quantity/quantity.h"
+#include "nxr/select/grid.h"
+#include "nxr/select/partition.h"
 
 namespace nxr::pipelines::graph {
 
-namespace lad = nxr::ladder;
+namespace lad = nxr::select;
 
 namespace {
 
@@ -156,16 +156,16 @@ StepSpec tile_grid_step() {
     const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
     std::string unit = ctx.bound.coordinate_unit(S.id);
     if (unit.empty()) unit = "m";                                             // a surface of the lab's datasets is stored in metres
-    nxr::selection::Surface surf;
+    nxr::select::Surface surf;
     surf.unit = unit; surf.positions = S.vertices.data(); surf.vertices = nV; surf.faces = S.faces.data(); surf.face_count = nF;
-    nxr::selection::Dyadic method;
+    nxr::select::Dyadic method;
     nxr::selection::Selection grid;
-    try { grid = nxr::selection::dyadic(surf, method); } catch (const std::invalid_argument& e) { refuse(std::string("tiles: ") + e.what()); }
+    try { grid = nxr::select::dyadic(surf, method); } catch (const std::invalid_argument& e) { refuse(std::string("tiles: ") + e.what()); }
     Json snapped = Json::object();
     if (!st.finest.is_null()) {                                            // the stated finest tile, resolved on the grid's MEASURED diameters; the grid is rebuilt to that depth
       const int want = level_of_quantity(grid, st.finest, unit, "tiles", snapped);
       need(want >= 0 && want <= grid.grid->depth, "tiles: finest " + st.finest.get<std::string>() + " is level " + std::to_string(want) + "; the surface's grid reaches level " + std::to_string(grid.grid->depth));
-      if (want < grid.grid->depth) { method.depth = want; try { grid = nxr::selection::dyadic(surf, method); } catch (const std::invalid_argument& e) { refuse(std::string("tiles: ") + e.what()); } }
+      if (want < grid.grid->depth) { method.depth = want; try { grid = nxr::select::dyadic(surf, method); } catch (const std::invalid_argument& e) { refuse(std::string("tiles: ") + e.what()); } }
     }
     const int D = grid.grid->depth;
     const int finest = grid.grid->finest >= 0 ? grid.grid->finest : D;      // the deepest level every piece reaches (compute's `dyadic` returns it)
@@ -288,14 +288,14 @@ StepSpec group_tile_grid_step() {
     if (ctx.say) ctx.say(Json{{"stage", "group tiles"}, {"surface", st.surface}, {"template", T.subject}, {"finest", T.finest}});
     // the template's grid (its codes at its finest level) carried through the registered spheres: compute's `transfer`, which also gives the sphere match's median and maximum chord
     const nxr::selection::Selection from = nxr::selection::dyadic_grid(T.codes, T.finest, T.slots);
-    nxr::selection::Surface surf;
+    nxr::select::Surface surf;
     surf.unit = unit; surf.positions = S.vertices.data(); surf.vertices = nV; surf.faces = S.faces.data(); surf.face_count = nF;
-    nxr::selection::Transfer method;
+    nxr::select::Transfer method;
     method.from = &from; method.from_sphere = T.sphere.data(); method.from_faces = T.faces.data();
     method.from_vertices = static_cast<std::int32_t>(T.n_vertices); method.from_face_count = static_cast<std::int32_t>(T.faces.size() / 3);
     method.sphere = T.subject_sphere.data();
     nxr::selection::Selection grid;
-    try { grid = nxr::selection::transfer(surf, method); } catch (const std::invalid_argument& e) { refuse(st.surface + ": " + e.what()); }
+    try { grid = nxr::select::transfer(surf, method); } catch (const std::invalid_argument& e) { refuse(st.surface + ": " + e.what()); }
     const double med = *grid.grid->match_median, mx = *grid.grid->match_max;
     const std::int64_t pieces = static_cast<std::int64_t>(lad::pieceRuns(S.faces.data(), nF, nV).size());
     lad::Tree tree;

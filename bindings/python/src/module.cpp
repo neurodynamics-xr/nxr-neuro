@@ -5,7 +5,7 @@
 #include <stdexcept>
 #include <string>
 
-#include "nxr/errors.h"
+#include "nxr/core/errors.h"
 #include "nxr/io/errors.h"
 
 namespace nb = nanobind;

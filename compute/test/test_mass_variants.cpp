@@ -20,29 +20,46 @@
  * Run:   ./build/test_mass_variants
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
 #include <iostream>
 #include <iomanip>
 #include <vector>
 #include <cmath>
 #include <string>
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::solve;
-using namespace nxr::manifold::ops;
-using namespace nxr::manifold::ops::laplacian::connection;
-using namespace nxr::manifold::transport;
-using namespace nxr::manifold::connection;
-using namespace nxr::manifold::parametrization;
-using namespace nxr::manifold::parametrization::stripes;
-using namespace nxr::manifold::geometry;
-using namespace nxr::manifold::query;
-using namespace nxr::field::generate;
-using namespace nxr::field::interp;
-using namespace nxr::field::op;
-using namespace nxr::field::extract;
+using namespace nxr::geometry;
+using namespace nxr::operators;
+using namespace nxr::operators;
+using namespace nxr::operators::laplacian::connection;
+using namespace nxr::geometry::transport;
+using namespace nxr::geometry::connection;
+using namespace nxr::geometry::parametrization;
+using namespace nxr::geometry::parametrization::stripes;
+using namespace nxr::geometry;
+using namespace nxr::geometry::query;
+using namespace nxr::synthesis;
+using namespace nxr::signal;
+using namespace nxr::operators;
+using namespace nxr::signal;
 
-using nxr::manifold::ops::MassMatrixVariant;
+using nxr::operators::MassMatrixVariant;
 
 static void generateIcosphere(std::vector<double>& V, std::vector<int32_t>& F) {
     double t = (1.0 + std::sqrt(5.0)) / 2.0;
@@ -103,8 +120,8 @@ int main() {
     // total surface area is fixed by the embedding — compute it from
     // the lumped run as the reference and require all variants match
     // it exactly (within float roundoff).
-    nxr::manifold::Manifold m(V.data(), nV, F.data(), nF);
-    auto refOps = nxr::manifold::ops::assembleManifoldOperators(
+    nxr::geometry::Manifold m(V.data(), nV, F.data(), nF);
+    auto refOps = nxr::operators::assembleManifoldOperators(
         m, MassMatrixVariant::MixedVoronoi);
     const double refArea = refOps.totalArea;
     std::cout << "Reference surface area (mixedVoronoi) = "
@@ -121,8 +138,8 @@ int main() {
         std::cout << "\n── variant: " << variantName(v) << " ─────────\n";
 
         // Fresh context per variant — avoid any state leak between runs.
-        nxr::manifold::Manifold localCtx(V.data(), nV, F.data(), nF);
-        auto ops = nxr::manifold::ops::assembleManifoldOperators(localCtx, v);
+        nxr::geometry::Manifold localCtx(V.data(), nV, F.data(), nF);
+        auto ops = nxr::operators::assembleManifoldOperators(localCtx, v);
 
         check(ops.massVariant == v,                       "ops.massVariant tag");
         check(ops.mass.rows() == nV && ops.mass.cols() == nV,
@@ -169,7 +186,7 @@ int main() {
         // Run the eigensolver. Smallest 6 modes; should converge cheaply
         // on 12 vertices.
         const int k = 6;
-        auto eig = nxr::manifold::solve::eigen(ops.cotanLaplacian, ops.mass, k);
+        auto eig = nxr::operators::eigen(ops.cotanLaplacian, ops.mass, k);
         check(eig.k == k,                                 "k modes returned");
         check(eig.nConverged == k,                        "all modes converged");
 
@@ -196,9 +213,9 @@ int main() {
     auto& ev0 = evalsByVariant[0];   // MixedVoronoi
     auto& ev1 = evalsByVariant[2];   // Galerkin
     {
-        nxr::manifold::Manifold mm(V.data(), nV, F.data(), nF);
-        const Eigen::SparseMatrix<double> a = nxr::manifold::ops::vertexMass(mm, MassMatrixVariant::MixedVoronoi);
-        const Eigen::SparseMatrix<double> b = nxr::manifold::ops::vertexMass(mm, MassMatrixVariant::Barycentric);
+        nxr::geometry::Manifold mm(V.data(), nV, F.data(), nF);
+        const Eigen::SparseMatrix<double> a = nxr::operators::vertexMass(mm, MassMatrixVariant::MixedVoronoi);
+        const Eigen::SparseMatrix<double> b = nxr::operators::vertexMass(mm, MassMatrixVariant::Barycentric);
         check((a - b).norm() < 1e-12 * a.norm(), "regular mesh: mixedVoronoi mass == barycentric mass");
         check((evalsByVariant[0] - evalsByVariant[1]).norm() < 1e-6, "regular mesh: mixedVoronoi == barycentric spectrum (multiplet noise only)");
     }
@@ -213,14 +230,14 @@ int main() {
 
     // Parser round-trip.
     std::cout << "\n── parseMassMatrixVariant() ─────────\n";
-    check(nxr::manifold::ops::parseMassMatrixVariant("mixedVoronoi") == MassMatrixVariant::MixedVoronoi, "mixedVoronoi");
-    check(nxr::manifold::ops::parseMassMatrixVariant("barycentric")  == MassMatrixVariant::Barycentric,  "barycentric");
-    check(nxr::manifold::ops::parseMassMatrixVariant("galerkin")     == MassMatrixVariant::Galerkin,     "galerkin");
+    check(nxr::operators::parseMassMatrixVariant("mixedVoronoi") == MassMatrixVariant::MixedVoronoi, "mixedVoronoi");
+    check(nxr::operators::parseMassMatrixVariant("barycentric")  == MassMatrixVariant::Barycentric,  "barycentric");
+    check(nxr::operators::parseMassMatrixVariant("galerkin")     == MassMatrixVariant::Galerkin,     "galerkin");
 
     // Hard break: old names must throw.
     auto throwsOnName = [](const std::string& s) {
         try {
-            (void) nxr::manifold::ops::parseMassMatrixVariant(s);
+            (void) nxr::operators::parseMassMatrixVariant(s);
         } catch (const nxr::core::Error&) {
             return true;
         }

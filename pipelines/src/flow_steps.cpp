@@ -28,19 +28,19 @@
 
 #include <Eigen/Dense>
 
-#include "nxr/fft.h"
+#include "nxr/signal/fourier.h"
 #include "nxr/graph/node.h"
-#include "nxr/hodge_weights.h"
+#include "nxr/operators/hodge_synthesis_weights.h"
 #include "nxr/meeg/sources.h"
-#include "nxr/opticalflow.h"
-#include "nxr/opticalflow_methods.h"
-#include "nxr/timebank.h"
-#include "nxr/wt.h"
+#include "nxr/signal/opticalflow.h"
+#include "nxr/signal/opticalflow_methods.h"
+#include "nxr/signal/timefilterbank.h"
+#include "nxr/signal/wavelet.h"
 
 namespace nxr::pipelines::graph {
 
 namespace ng = nxr::graph;
-namespace tb = nxr::timebank;
+namespace tb = nxr::signal::timefilterbank;
 using nxr::graph::Json;
 
 namespace {
@@ -100,7 +100,7 @@ ng::Block block_of(const Eigen::MatrixXcd& A) {
 std::int64_t ceil_div(std::int64_t a, std::int64_t b) { return a >= 0 ? (a + b - 1) / b : -((-a) / b); }
 
 // ── the member's filter bank (timebank.member_analytic) ────────────────────────────────────────────────────────────
-struct BankChoice { tb::TimeBank bank; nxr::wt::Options wo; int member = 0; double centre = 0; };
+struct BankChoice { tb::TimeBank bank; nxr::signal::Options wo; int member = 0; double centre = 0; };
 
 tb::Family family_of(const std::string& f, const char* who) {
   if (f == "itersine") return tb::Family::Itersine;
@@ -126,7 +126,7 @@ BankChoice choose_bank(const Json& p, double sfreq, int channels, const char* wh
   if (p.contains("limits") && p["limits"].is_array() && p["limits"].size() == 2) d.limits = std::make_pair(p["limits"][0].get<double>(), p["limits"][1].get<double>());
   d.halfWidth = p["half_width"].get<double>(); d.gamma = p["gamma"].get<double>(); d.timeBandwidth = p["time_bandwidth"].get<double>();
   BankChoice c;
-  const std::size_t nfft = nxr::fft::nextFastLen(static_cast<std::size_t>(std::ceil(sfreq / resolution)), true);
+  const std::size_t nfft = nxr::signal::nextFastLen(static_cast<std::size_t>(std::ceil(sfreq / resolution)), true);
   try { c.bank = tb::design(d, nfft, sfreq); } catch (const std::invalid_argument& e) { ng::refuse(std::string(who) + ": the filter bank: " + e.what()); }
   c.wo.oversample = p["oversample"].get<double>();
   c.wo.tolerance = p.contains("tolerance") && p["tolerance"].is_number() ? p["tolerance"].get<double>() : 1e-7;   // 1e-7: float32 recordings (the blocks are float32); name it for float64
@@ -139,7 +139,7 @@ BankChoice choose_bank(const Json& p, double sfreq, int channels, const char* wh
 }
 
 struct MemberPrepared {
-  nxr::wt::Wt wt;                 // the template: its plan; a block copies it (no state is held between blocks)
+  nxr::signal::Wt wt;                 // the template: its plan; a block copies it (no state is held between blocks)
   int member = 0;
   std::int64_t p = 1, q = 1, P = 1, margin = 0;
   std::int64_t channels = 0, n_samples = 0;
@@ -171,7 +171,7 @@ ng::NodeSpec member_analytic() {
   n.traits = ng::node_traits(ng::TimeBehaviour::windowed, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "each block (own samples and halo) is filtered in double (nxr::wt, overlap-save) and the frames inside the own samples are handed on in float32",
                              "the halo is the filter's margin (tolerance-bound) plus the lattice period on each side; the record's ends are zero padded");
-  n.matches = "Rheome timebank.analysisOwnRate / @timefilterbank wt (the coefficients at the member's own rate); compute nxr::wt::Wt";
+  n.matches = "Rheome timebank.analysisOwnRate / @timefilterbank wt (the coefficients at the member's own rate); compute nxr::signal::Wt";
   n.description = "one filter-bank member's analytic coefficients of the recording's channels at the member's own rate (frames on the lattice g p/q samples), a retiming node";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = need_port(in, "x", "timebank.member_analytic");
@@ -179,8 +179,8 @@ ng::NodeSpec member_analytic() {
     if (x.value != ng::ValueType::real) ng::refuse("timebank.member_analytic: x is a real recording");
     if (!in.count("channels_of")) ng::refuse("timebank.member_analytic: channels_of (the kernel) names the channels kept");
     const BankChoice c = choose_bank(p, *x.sfreq, 0, "timebank.member_analytic");
-    const nxr::wt::Wt w(c.bank, 1, c.wo);
-    const nxr::wt::Plan& plan = w.plan();
+    const nxr::signal::Wt w(c.bank, 1, c.wo);
+    const nxr::signal::Plan& plan = w.plan();
     ng::Planned out;
     ng::PortType z = x;
     z.value = ng::ValueType::complex;
@@ -200,7 +200,7 @@ ng::NodeSpec member_analytic() {
     if (chans.empty()) ng::refuse("timebank.member_analytic: the kernel names no channel");
     const BankChoice c = choose_bank(p, fs, static_cast<int>(chans.size()), "timebank.member_analytic");
     MemberPrepared m(c, static_cast<int>(chans.size()));
-    const nxr::wt::Plan& plan = m.wt.plan();
+    const nxr::signal::Plan& plan = m.wt.plan();
     m.member = c.member; m.p = plan.p[c.member]; m.q = plan.q[c.member]; m.P = plan.P; m.margin = plan.margin;
     m.channels = static_cast<std::int64_t>(chans.size()); m.picked = chans; m.rate = plan.rate[c.member]; m.centre = c.centre;
     return std::any(std::move(m));
@@ -221,16 +221,16 @@ ng::NodeSpec member_analytic() {
       if (ch < 0 || ch >= b.rows) ng::refuse("timebank.member_analytic: a channel of the kernel is outside the recording's channels");
       for (std::int64_t t = 0; t < width; ++t) X(i, t) = b.re[static_cast<std::size_t>(ch * b.width + skip + t)];
     }
-    nxr::wt::Wt w = m.wt;                                                         // a copy of the template: no state is shared between blocks
-    std::vector<nxr::wt::Block> got = w.add(X);
-    std::vector<nxr::wt::Block> rest = w.finish();
+    nxr::signal::Wt w = m.wt;                                                         // a copy of the template: no state is shared between blocks
+    std::vector<nxr::signal::Block> got = w.add(X);
+    std::vector<nxr::signal::Block> rest = w.finish();
     // the frames g (global) with at.first <= g p/q < at.first + at.n; local instant k = g - a_feed q / p (a_feed is a multiple of p: P is a multiple of every p)
     const std::int64_t g0 = ceil_div(at.first * m.q, m.p), g1 = ceil_div((at.first + at.n) * m.q, m.p);
     const std::int64_t offset = a_feed / m.p * m.q;
     Eigen::MatrixXcd Z = Eigen::MatrixXcd::Constant(m.channels, std::max<std::int64_t>(0, g1 - g0), std::complex<double>(0, 0));
     std::vector<char> have(static_cast<std::size_t>(std::max<std::int64_t>(0, g1 - g0)), 0);
     for (const auto* blocks : {&got, &rest}) {
-      const nxr::wt::Block& mb = (*blocks)[static_cast<std::size_t>(m.member)];
+      const nxr::signal::Block& mb = (*blocks)[static_cast<std::size_t>(m.member)];
       for (Eigen::Index r = 0; r < mb.coef.rows(); ++r) {
         const std::int64_t g = mb.first + r + offset;
         if (g < g0 || g >= g1) continue;
@@ -313,7 +313,7 @@ ng::NodeSpec max_amplitude() {
   n.inputs = {{"a", "the activation map of each frame (flow.activation)", false}};
   n.outputs = {{"maximum", "the largest absolute value of the map over the run's frames: one number", false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "a running maximum: it merges whatever the order or the blocks");
-  n.matches = "Rheome flow.apparent (the window's unit amplitude); compute nxr::flow::FlowEngine::observe";
+  n.matches = "Rheome flow.apparent (the window's unit amplitude); compute nxr::signal::FlowEngine::observe";
   n.description = "the maximum of |a| over every frame and source of the run";
   n.plan = [](const ng::Types& in, const Json&) {
     if (need_port(in, "a", "flow.max_amplitude").axis != ng::Axis::frames) ng::refuse("flow.max_amplitude: a is the activation on frames");
@@ -347,14 +347,14 @@ ng::NodeSpec max_amplitude() {
 
 // ── flow.velocity ────────────────────────────────────────────────────────────────────────────────────────────────────
 struct VelocityPrepared {
-  nxr::flow::FlowMethodOptions fo;
-  nxr::hodge::RowMat3 P;
-  nxr::hodge::FaceMat F;
+  nxr::signal::FlowMethodOptions fo;
+  nxr::operators::RowMat3 P;
+  nxr::operators::FaceMat F;
   double alpha = 0.01, scale = 0;
   std::int64_t N = 0;
 };
 struct VelocityState {
-  std::shared_ptr<nxr::flow::FlowEngine> engine;
+  std::shared_ptr<nxr::signal::FlowEngine> engine;
   Eigen::VectorXd prev;
   bool have_prev = false;
 };
@@ -375,16 +375,16 @@ ng::NodeSpec velocity() {
                   {"preconditioner", Json("ldlt"), "ldlt | ic", "-", {"ldlt", "ic"}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::follows_input,
                              "the previous frame's map is the state: blocks must meet in time order; each solve is in double, the velocity stored as float32 for float32 input", "");
-  n.matches = "Rheome opticalflow_scalar (Horn-Schunck on the manifold, frame pairs); compute nxr::flow::FlowEngine";
+  n.matches = "Rheome opticalflow_scalar (Horn-Schunck on the manifold, frame pairs); compute nxr::signal::FlowEngine";
   n.description = "Horn-Schunck optical flow of the activation map between consecutive frames, the unit amplitude the stored window maximum";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& a = need_port(in, "a", "flow.velocity");
     if (a.axis != ng::Axis::frames || a.value != ng::ValueType::real) ng::refuse("flow.velocity: a is the activation on frames (real)");
     for (const char* k : {"surface", "scale"}) if (!in.count(k)) ng::refuse(std::string("flow.velocity: ") + k + " is not given");
     try {
-      const auto r = nxr::flow::parseRegulariser(p["regulariser"].get<std::string>());
-      nxr::flow::resolveDataFit(r, nxr::flow::parseDataFit(p["datafit"].get<std::string>()));
-      nxr::flow::parseFlowMethod(p["method"].get<std::string>());
+      const auto r = nxr::signal::parseRegulariser(p["regulariser"].get<std::string>());
+      nxr::signal::resolveDataFit(r, nxr::signal::parseDataFit(p["datafit"].get<std::string>()));
+      nxr::signal::parseFlowMethod(p["method"].get<std::string>());
     } catch (const std::invalid_argument& e) { ng::refuse(std::string("flow.velocity: ") + e.what()); }
     if (p["method"] == "perscale") ng::refuse("flow.velocity: perscale is one flow per spatial band (a band set): not built here");
     if (p.contains("alpha") && p["alpha"].is_number() && !(p["alpha"].get<double>() > 0)) ng::refuse("flow.velocity: alpha must be positive");
@@ -398,24 +398,24 @@ ng::NodeSpec velocity() {
     VelocityPrepared v;
     const ng::Array& S = constant(c, "surface", "flow.velocity");
     v.N = S.rows;
-    v.P = Eigen::Map<const nxr::hodge::RowMat3>(S.data.data(), S.rows, 3);
+    v.P = Eigen::Map<const nxr::operators::RowMat3>(S.data.data(), S.rows, 3);
     const std::vector<std::int32_t> faces = S.meta.value("faces", std::vector<std::int32_t>());
-    v.F = Eigen::Map<const nxr::hodge::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
+    v.F = Eigen::Map<const nxr::operators::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
     const ng::Array& sc = constant(c, "scale", "flow.velocity");
     if (sc.data.empty() || !(sc.data[0] > 0)) ng::refuse("flow.velocity: the stored amplitude scale '" + sc.meta.value("name", std::string()) + "' holds no positive maximum (`run flow_amplitude` first)");
     v.scale = sc.data[0];
-    v.fo.method = nxr::flow::parseFlowMethod(p["method"].get<std::string>());
-    v.fo.regulariser = nxr::flow::parseRegulariser(p["regulariser"].get<std::string>());
-    v.fo.dataFit = nxr::flow::resolveDataFit(v.fo.regulariser, nxr::flow::parseDataFit(p["datafit"].get<std::string>()));
-    v.alpha = p.contains("alpha") && p["alpha"].is_number() ? p["alpha"].get<double>() : (v.fo.regulariser == nxr::flow::Regulariser::Connection ? 0.01 : 1.0);
+    v.fo.method = nxr::signal::parseFlowMethod(p["method"].get<std::string>());
+    v.fo.regulariser = nxr::signal::parseRegulariser(p["regulariser"].get<std::string>());
+    v.fo.dataFit = nxr::signal::resolveDataFit(v.fo.regulariser, nxr::signal::parseDataFit(p["datafit"].get<std::string>()));
+    v.alpha = p.contains("alpha") && p["alpha"].is_number() ? p["alpha"].get<double>() : (v.fo.regulariser == nxr::signal::Regulariser::Connection ? 0.01 : 1.0);
     v.fo.tolerance = p["flow_tolerance"].get<double>(); v.fo.maxIterations = p["max_iterations"].get<int>();
-    v.fo.preconditioner = p["preconditioner"] == "ic" ? nxr::flow::PcgOptions::Preconditioner::IncompleteCholesky : nxr::flow::PcgOptions::Preconditioner::Ldlt;
+    v.fo.preconditioner = p["preconditioner"] == "ic" ? nxr::signal::PcgOptions::Preconditioner::IncompleteCholesky : nxr::signal::PcgOptions::Preconditioner::Ldlt;
     return std::any(std::move(v));
   };
   n.start = [](const std::any& prepared) {
     const VelocityPrepared& v = std::any_cast<const VelocityPrepared&>(prepared);
     VelocityState s;
-    s.engine = std::make_shared<nxr::flow::FlowEngine>(v.fo, v.P, v.F, nxr::flow::vertexNormals(v.P, v.F), v.alpha);
+    s.engine = std::make_shared<nxr::signal::FlowEngine>(v.fo, v.P, v.F, nxr::signal::vertexNormals(v.P, v.F), v.alpha);
     s.engine->observe(Eigen::VectorXd::Constant(1, v.scale));                      // the window's unit amplitude: the stored maximum, never a second pass
     return std::any(std::move(s));
   };
@@ -438,8 +438,8 @@ ng::NodeSpec velocity() {
 }
 
 // ── flow.hodge_modes · flow.series ───────────────────────────────────────────────────────────────────────────────────
-nxr::hodge::Basis basis_of(const ng::Array& H) {
-  nxr::hodge::Basis b;
+nxr::operators::Basis basis_of(const ng::Array& H) {
+  nxr::operators::Basis b;
   const std::int64_t K = H.rows, Vg = H.cols;
   b.P.resize(K, Vg);
   for (std::int64_t k = 0; k < K; ++k) for (std::int64_t v = 0; v < Vg; ++v) b.P(k, v) = H.data[static_cast<std::size_t>(k * Vg + v)];
@@ -450,15 +450,15 @@ nxr::hodge::Basis basis_of(const ng::Array& H) {
   const std::vector<double> mass = H.meta.at("mass").get<std::vector<double>>();
   b.mass = Eigen::Map<const Eigen::VectorXd>(mass.data(), static_cast<Eigen::Index>(mass.size()));
   const std::vector<double> pos = H.meta.at("positions").get<std::vector<double>>();
-  b.positions = Eigen::Map<const nxr::hodge::RowMat3>(pos.data(), Vg, 3);
+  b.positions = Eigen::Map<const nxr::operators::RowMat3>(pos.data(), Vg, 3);
   const std::vector<std::int32_t> faces = H.meta.at("faces").get<std::vector<std::int32_t>>();
-  b.faces = Eigen::Map<const nxr::hodge::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
+  b.faces = Eigen::Map<const nxr::operators::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
   b.keep = H.meta.at("keep").get<std::vector<std::int64_t>>();
   return b;
 }
 struct ModesPrepared {
-  std::shared_ptr<nxr::hodge::GluedCarry> carry;
-  std::shared_ptr<nxr::hodge::WeightsReader> reader;
+  std::shared_ptr<nxr::operators::GluedCarry> carry;
+  std::shared_ptr<nxr::operators::WeightsReader> reader;
   std::int64_t K = 0, N = 0;
   std::vector<int> kind;
   std::vector<double> mu;
@@ -471,7 +471,7 @@ ng::NodeSpec hodge_modes() {
   n.inputs = {{"v", "the velocity of each frame (flow.velocity): 3N rows", false}, {"package", "a Hodge-Dirac package of the kernel's surface (its eigenvectors, as the runner hands them over)", false}};
   n.outputs = {{"b", "the flow weights [K x frames]: an exact mode's divergence potential (sources and sinks), a coexact mode's stream function (rotation); NaN where the velocity is", false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::follows_input, "each frame on its own: the carry to the glued surface and the fused read are linear; the weights are stored as float32 for float32 input");
-  n.matches = "Rheome flow.apparent (Hodge-Dirac flow weights of the velocity, fused weights); compute nxr::hodge::GluedCarry, WeightsReader";
+  n.matches = "Rheome flow.apparent (Hodge-Dirac flow weights of the velocity, fused weights); compute nxr::operators::GluedCarry, WeightsReader";
   n.description = "the velocity carried to the package's glued surface and read in its modes: the flow weights of each frame";
   n.plan = [](const ng::Types& in, const Json&) {
     const ng::PortType& v = need_port(in, "v", "flow.hodge_modes");
@@ -486,13 +486,13 @@ ng::NodeSpec hodge_modes() {
   n.prepare = [](const ng::Types&, const ng::Arrays& c, const Json&, ng::Shared&) {
     const ng::Array& H = constant(c, "package", "flow.hodge_modes");
     if (!H.meta.value("hodge", false)) ng::refuse("flow.hodge_modes: package is not a Hodge-Dirac package (an operator of kind eigenvectors, <stem>_eigenvectors)");
-    const nxr::hodge::Basis basis = basis_of(H);
+    const nxr::operators::Basis basis = basis_of(H);
     if (basis.mu.size() < 2) ng::refuse("flow.hodge_modes: at least 2 modes");
     const std::vector<double> pin = H.meta.at("input_positions").get<std::vector<double>>();
     const std::int64_t N = static_cast<std::int64_t>(pin.size() / 3);
     ModesPrepared m;
-    m.carry = std::make_shared<nxr::hodge::GluedCarry>(basis, Eigen::Map<const nxr::hodge::RowMat3>(pin.data(), N, 3));
-    m.reader = std::make_shared<nxr::hodge::WeightsReader>(basis);
+    m.carry = std::make_shared<nxr::operators::GluedCarry>(basis, Eigen::Map<const nxr::operators::RowMat3>(pin.data(), N, 3));
+    m.reader = std::make_shared<nxr::operators::WeightsReader>(basis);
     m.K = basis.mu.size(); m.N = N; m.kind = basis.kind;
     m.mu.assign(basis.mu.data(), basis.mu.data() + basis.mu.size());
     return std::any(std::move(m));

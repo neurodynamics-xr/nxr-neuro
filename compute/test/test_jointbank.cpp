@@ -1,16 +1,16 @@
 // nxr::jointbank: parity with Rheome (@jointfilterbank + +jtv, goldens/gen_jointbank_golden.m) on a synthetic sphere spectrum, with nxr's ridge_filter
 // (gen_timebank_nxr.py), and the joint frame's own laws (separable bounds are products, exact and polynomial transforms, rotation sense on a ridge,
 // refusals). Synthetic data only.
-#include "nxr/jointbank.h"
+#include "nxr/signal/jointfilterbank.h"
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include <random>
-using namespace nxr::jointbank;
+using namespace nxr::signal::jointfilterbank;
 using Eigen::MatrixXcd;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
-namespace fb = nxr::filterbank;
-namespace tb = nxr::timebank;
+namespace fb = nxr::signal::graphfilterbank;
+namespace tb = nxr::signal::timefilterbank;
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static constexpr double kPi = 3.14159265358979323846;
 using cd = std::complex<double>;
@@ -78,12 +78,12 @@ static void nxrRidge() {
         const double v = 3.0, width = 1.5;
         const Kernel K = ridgeKernel(v, width, s);
         const int n = (int)Z.cols(); const double fs = 100;
-        const VectorXd f = nxr::fft::fftfreq((size_t)n, 1 / fs);
+        const VectorXd f = nxr::signal::fftfreq((size_t)n, 1 / fs);
         MatrixXcd out(Z.rows(), n);
         for (int p = 0; p < Z.rows(); ++p) {
-            Eigen::VectorXcd X = nxr::fft::fft(Eigen::VectorXcd(Z.row(p).transpose()));
+            Eigen::VectorXcd X = nxr::signal::fft(Eigen::VectorXcd(Z.row(p).transpose()));
             for (int k = 0; k < n; ++k) X(k) *= K(mu(p) * mu(p), f(k));
-            out.row(p) = nxr::fft::ifft(X).transpose();
+            out.row(p) = nxr::signal::ifft(X).transpose();
         }
         const double e = relErr(out, R);
         EXPECT(e < 1e-13, std::string("ridgeKernel sense ") + (s > 0 ? "+1" : "-1") + " == nxr ridge_filter " + sci(e));

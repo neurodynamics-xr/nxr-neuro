@@ -1,10 +1,10 @@
 // nxr::filter: parity with Brainstorm's filters (golden/filter_bst_golden.txt from gen_filter_golden.m) on synthetic signals; the frequency response at known points (passband, stopband, the -6 dB / -3 dB points the references define, DC, Nyquist); zero phase / no delay;
 // chunk-size invariance of the streaming filter (FIR to rounding, IIR to its stated tolerance); the refusals.
-#include "nxr/filter.h"
+#include "nxr/signal/filters.h"
 #include "golden_io.h"
 #include "mesh_helpers.h"
 #include <random>
-using namespace nxr::filter;
+using namespace nxr::signal::filters;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;

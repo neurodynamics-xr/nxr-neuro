@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/task.h"
@@ -36,7 +36,7 @@ struct SurfaceLevel {
   std::vector<double> tile_area;             // [nodes] m²
   std::vector<std::pair<std::int32_t, std::int32_t>> pairs;   // the tiles joined by a mesh edge (a < b)
   double piece_area = 0;                     // the mean connected piece's area (m²): Weyl's A
-  nxr::filterbank::Bank bank;                // weyl(piece_area, max(1, l + 1))
+  nxr::signal::graphfilterbank::Bank bank;                // weyl(piece_area, max(1, l + 1))
   int member = 0;                            // = l: the level's band
 };
 /** Reads and checks (refusing with the reason, as the pipelines do): a ladder of the surface exists, the level exists, its arrays fit the surface, its band is Weyl member l. */

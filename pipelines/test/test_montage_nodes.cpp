@@ -1,4 +1,4 @@
-// The montage node (pipelines/src/montage_steps.cpp) run through the dispatch point on a synthetic sphere: it equals the compute function it wraps (nxr::montage::tenFive), the labels and the
+// The montage node (pipelines/src/montage_steps.cpp) run through the dispatch point on a synthetic sphere: it equals the compute function it wraps (nxr::meeg::tenFive), the labels and the
 // 10-10 and 10-20 subsets travel in the output's meta, precision follows the input, parameters and inputs are refused with their reason, and the node declares its traits.
 #include <unistd.h>
 
@@ -8,7 +8,7 @@
 
 #include "check.h"
 #include "nxr/io/subject_package.h"
-#include "nxr/montage.h"
+#include "nxr/meeg/montage.h"
 #include "nxr/pipelines/dispatch.h"
 #include "nxr/pipelines/registry.h"
 #include "synthetic_meshes.h"
@@ -69,9 +69,9 @@ int main() {
   const g::Arrays out = run(db, Json::object(), ins);
 
   // equal to the function it wraps
-  nxr::montage::Landmarks L;
+  nxr::meeg::Landmarks L;
   L.nasion = {0, R, 0}; L.inion = {0, -R, 0}; L.lpa = {-R, 0, 0}; L.rpa = {R, 0, 0};
-  const auto direct = nxr::montage::tenFive(m.V, m.F, L);
+  const auto direct = nxr::meeg::tenFive(m.V, m.F, L);
   const g::Array& pos = out.at("positions");
   CHECK_EQ(pos.rows, std::int64_t(345));
   CHECK_EQ(pos.cols, std::int64_t(3));

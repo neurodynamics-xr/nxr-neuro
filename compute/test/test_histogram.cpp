@@ -11,11 +11,11 @@
 #include <vector>
 
 #include "measurement_helpers.h"
-#include "nxr/histogram.h"
+#include "nxr/stats/histogram.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
-using namespace nxr::histogram;
+using namespace nxr::stats::histogram;
 
 int main() {
   std::cout << "test_histogram\n";

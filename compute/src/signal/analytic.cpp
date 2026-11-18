@@ -10,7 +10,7 @@ namespace {
 constexpr double kPi = 3.14159265358979323846;
 using i128 = __int128;
 
-void checkMember(const wt::Plan& plan, int m) {
+void checkMember(const signal::Plan& plan, int m) {
     if (m < 0 || m >= static_cast<int>(plan.p.size())) throw std::invalid_argument("analytic: no such member");
 }
 }  // namespace
@@ -52,13 +52,13 @@ Eigen::MatrixXd instfreq(const Eigen::MatrixXcd& z, double rate) {
     return f;
 }
 
-double carrierFrequency(const wt::Plan& plan, int m) {
+double carrierFrequency(const signal::Plan& plan, int m) {
     checkMember(plan, m);
     const auto& b = plan.bank;
     return static_cast<double>(b.support[static_cast<std::size_t>(m)].first) * b.fs / static_cast<double>(b.nfft);
 }
 
-Eigen::VectorXd instants(const wt::Plan& plan, int m, const wt::Block& block) {
+Eigen::VectorXd instants(const signal::Plan& plan, int m, const signal::Block& block) {
     checkMember(plan, m);
     const double p = static_cast<double>(plan.p[static_cast<std::size_t>(m)]), q = static_cast<double>(plan.q[static_cast<std::size_t>(m)]);
     Eigen::VectorXd t(block.coef.rows());
@@ -66,7 +66,7 @@ Eigen::VectorXd instants(const wt::Plan& plan, int m, const wt::Block& block) {
     return t;
 }
 
-Eigen::MatrixXcd carrier(const wt::Plan& plan, int m, const wt::Block& block) {
+Eigen::MatrixXcd carrier(const signal::Plan& plan, int m, const signal::Block& block) {
     checkMember(plan, m);
     // phase in cycles: f_lo t_k = (i1 fs / nfft) (k p / (q fs)) = i1 k p / (q nfft): reduced exactly mod (q nfft) in integers
     const i128 i1 = plan.bank.support[static_cast<std::size_t>(m)].first;

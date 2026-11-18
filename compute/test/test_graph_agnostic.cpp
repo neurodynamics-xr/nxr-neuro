@@ -16,26 +16,43 @@
  * the same way it serves mesh users.
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
 
 #include <cmath>
 #include <iostream>
 #include <vector>
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::solve;
-using namespace nxr::manifold::ops;
-using namespace nxr::manifold::ops::laplacian::connection;
-using namespace nxr::manifold::transport;
-using namespace nxr::manifold::connection;
-using namespace nxr::manifold::parametrization;
-using namespace nxr::manifold::parametrization::stripes;
-using namespace nxr::manifold::geometry;
-using namespace nxr::manifold::query;
-using namespace nxr::field::generate;
-using namespace nxr::field::interp;
-using namespace nxr::field::op;
-using namespace nxr::field::extract;
+using namespace nxr::geometry;
+using namespace nxr::operators;
+using namespace nxr::operators;
+using namespace nxr::operators::laplacian::connection;
+using namespace nxr::geometry::transport;
+using namespace nxr::geometry::connection;
+using namespace nxr::geometry::parametrization;
+using namespace nxr::geometry::parametrization::stripes;
+using namespace nxr::geometry;
+using namespace nxr::geometry::query;
+using namespace nxr::synthesis;
+using namespace nxr::signal;
+using namespace nxr::operators;
+using namespace nxr::signal;
 
 static int testsRun = 0;
 static int testsFailed = 0;
@@ -99,7 +116,7 @@ int main() {
     // ── 1. solve on a graph Laplacian ────────────────
     std::cout << "[1] solve on path graph L\n";
     int k = 6;
-    auto eigRaw = solve::eigen(g.L, g.M, k);
+    auto eigRaw = nxr::operators::eigen(g.L, g.M, k);
     EXPECT(eigRaw.k == k);
     EXPECT(eigRaw.eigenvectors.rows() == n);
     EXPECT(eigRaw.eigenvalues.size() == k);
@@ -116,7 +133,7 @@ int main() {
 
     // ── 2. normalize (M = I) is a no-op up to sign ───
     std::cout << "[2] normalize leaves U M-orthonormal\n";
-    auto Un = solve::normalize(eigRaw.eigenvectors, g.M);
+    auto Un = nxr::operators::normalize(eigRaw.eigenvectors, g.M);
     Eigen::MatrixXd Gram = Un.transpose() * (g.M * Un);
     Eigen::MatrixXd I = Eigen::MatrixXd::Identity(k, k);
     double orthErr = (Gram - I).cwiseAbs().maxCoeff();
@@ -140,7 +157,7 @@ int main() {
     // ── 5. poisson(L, M, cache, …) ────────────────────────
     std::cout << "[5] poisson on graph Laplacian\n";
     std::map<int, double> density = { {0, 1.0}, {n - 1, -1.0} };
-    auto phi = solve::poisson(g.L, g.M, cache, density);
+    auto phi = nxr::operators::poisson(g.L, g.M, cache, density);
     EXPECT(phi.size() == n);
 
     // M-weighted mean of phi should be ≈ 0. The Poisson formulation

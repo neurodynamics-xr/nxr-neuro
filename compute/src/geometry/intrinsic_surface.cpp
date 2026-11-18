@@ -1,7 +1,7 @@
 // nxr::manifold::IntrinsicSurface: see nxr/intrinsic_surface.h and docs/specs/2026-11-17-geometry-central-switch.md.
 #include "nxr/geometry/intrinsic_surface.h"
 
-#include "nxr/errors.h"
+#include "nxr/core/errors.h"
 
 #include "geometrycentral/surface/edge_length_geometry.h"
 #include "geometrycentral/surface/intrinsic_mollification.h"

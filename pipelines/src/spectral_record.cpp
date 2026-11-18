@@ -5,10 +5,10 @@ namespace nxr::pipelines {
 
 using nxr::io::Json;
 
-Json welch_scaling_record(const nxr::welch::WelchOptions& wo, double band_width_hz, const std::string& power_unit, int degree) {
-  if (wo.scaling == nxr::welch::Scaling::Chain) return Json();
-  return Json{{"stored", wo.scaling == nxr::welch::Scaling::Density ? "density" : "spectrum"}, {"degree", degree}, {"band_width_hz", band_width_hz},
-              {"bin_enbw_hz", nxr::welch::enbwPerBin(wo)}, {"power_unit", power_unit},
+Json welch_scaling_record(const nxr::signal::spectral::WelchOptions& wo, double band_width_hz, const std::string& power_unit, int degree) {
+  if (wo.scaling == nxr::signal::spectral::Scaling::Chain) return Json();
+  return Json{{"stored", wo.scaling == nxr::signal::spectral::Scaling::Density ? "density" : "spectrum"}, {"degree", degree}, {"band_width_hz", band_width_hz},
+              {"bin_enbw_hz", nxr::signal::spectral::enbwPerBin(wo)}, {"power_unit", power_unit},
               {"note", "converted at read (nxr::spectral): density = stored (density) or stored / bin_enbw_hz (spectrum); band power = density x band_width_hz (the broadband reading)"}};
 }
 
@@ -21,7 +21,7 @@ std::optional<SpectralRecord> spectral_record(const Json& pj) {
   if (!pj.is_object() || !pj.contains("spectral_scaling") || !pj["spectral_scaling"].is_object()) return std::nullopt;
   const Json& r = pj["spectral_scaling"];
   SpectralRecord out;
-  out.scaling.stored = nxr::spectral::parseStored(r.value("stored", std::string("density")));
+  out.scaling.stored = nxr::signal::spectral_scaling::parseStored(r.value("stored", std::string("density")));
   out.scaling.degree = r.value("degree", 1);
   out.scaling.bandWidthHz = r.contains("band_width_hz") && r["band_width_hz"].is_number() ? r["band_width_hz"].get<double>() : std::nan("");
   out.scaling.binEnbwHz = r.contains("bin_enbw_hz") && r["bin_enbw_hz"].is_number() ? r["bin_enbw_hz"].get<double>() : std::nan("");

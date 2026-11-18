@@ -6,10 +6,10 @@
 #include <limits>
 #include <stdexcept>
 
-#include "nxr/intrinsic_surface.h"
-#include "nxr/errors.h"
-#include "nxr/fft.h"
-#include "nxr/opticalflow_connection.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/core/errors.h"
+#include "nxr/signal/fourier.h"
+#include "nxr/signal/opticalflow_connection.h"
 
 namespace nxr::signal {
 
@@ -40,7 +40,7 @@ TangentBasis tangentBasis(const RowMat3& vertexNormals, const Eigen::Vector3d& a
     return tb;
 }
 
-RowMat3 vertexNormals(const RowMat3& positions, const FaceMat& faces) { return nxr::hodge::FaceOperators(positions, faces, false).normals; }
+RowMat3 vertexNormals(const RowMat3& positions, const FaceMat& faces) { return nxr::operators::FaceOperators(positions, faces, false).normals; }
 
 // The embedded cotan Laplacian and the lumped Galerkin mass (row sums = a third of each incident face's area).
 void embeddedLaplacian(const RowMat3& positions, const FaceMat& faces, Eigen::SparseMatrix<double>& K, VectorXd& mass) {
@@ -48,9 +48,9 @@ void embeddedLaplacian(const RowMat3& positions, const FaceMat& faces, Eigen::Sp
     for (Eigen::Index i = 0; i < positions.rows(); ++i) for (int d = 0; d < 3; ++d) P[static_cast<std::size_t>(3 * i + d)] = positions(i, d);
     std::vector<int32_t> F(static_cast<std::size_t>(faces.size()));
     for (Eigen::Index f = 0; f < faces.rows(); ++f) for (int d = 0; d < 3; ++d) F[static_cast<std::size_t>(3 * f + d)] = faces(f, d);
-    nxr::manifold::IntrinsicOptions io;
+    nxr::geometry::IntrinsicOptions io;
     io.intrinsic = false;                                                 // the embedded mesh: no mollification, no flips
-    nxr::manifold::IntrinsicSurface s(P.data(), static_cast<int>(positions.rows()), F.data(), static_cast<int>(faces.rows()), io);
+    nxr::geometry::IntrinsicSurface s(P.data(), static_cast<int>(positions.rows()), F.data(), static_cast<int>(faces.rows()), io);
     K = s.cotanLaplacian();
     K = (0.5 * (K + Eigen::SparseMatrix<double>(K.transpose()))).eval();
     const Eigen::SparseMatrix<double> M = s.galerkinMassMatrix();
@@ -236,7 +236,7 @@ void FlowReader::read(const VectorXd& velocity, VectorXd& divergence, VectorXd& 
 }
 
 FlowReadout flowReadout(const MatrixXd& velocity, const RowMat3& positions, const FaceMat& faces) {
-    const nxr::hodge::FaceOperators fg(positions, faces, false);
+    const nxr::operators::FaceOperators fg(positions, faces, false);
     const Eigen::Index V = fg.nV, T = velocity.cols();
     if (velocity.rows() != 3 * V) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "flowReadout: the velocity has " + std::to_string(velocity.rows()) + " rows, 3 x " + std::to_string(V) + " expected");
     MatrixXd J[3], Jt[3];
@@ -254,13 +254,13 @@ FlowReadout flowReadout(const MatrixXd& velocity, const RowMat3& positions, cons
 
 Eigen::MatrixXcd hilbertRows(const MatrixXd& X) {
     const Eigen::Index n = X.cols();
-    Eigen::MatrixXcd F = nxr::fft::fftColumns(Eigen::MatrixXcd(X.transpose().cast<std::complex<double>>()), true);   // [T x rows]
+    Eigen::MatrixXcd F = fftColumns(Eigen::MatrixXcd(X.transpose().cast<std::complex<double>>()), true);   // [T x rows]
     VectorXd h = VectorXd::Zero(n);                                      // MATLAB hilbert
     h[0] = 1;
     if (n % 2 == 0) { h.segment(1, n / 2 - 1).setConstant(2); h[n / 2] = 1; }
     else h.segment(1, (n - 1) / 2).setConstant(2);
     for (Eigen::Index j = 0; j < F.cols(); ++j) F.col(j) = F.col(j).cwiseProduct(h.cast<std::complex<double>>());
-    return nxr::fft::fftColumns(F, false).transpose();
+    return fftColumns(F, false).transpose();
 }
 
 std::int64_t hilbertHalo(double sfreq, double lowestHz, double cycles) {
@@ -299,8 +299,8 @@ Apparent apparent(const MatrixXd& A, const RowMat3& positions, const FaceMat& fa
     return r;
 }
 
-MatrixXd flowCoefficients(const nxr::hodge::Basis& basis, const MatrixXd& velocity) {
-    const MatrixXd w = nxr::hodge::hodgeWeights(basis, velocity);
+MatrixXd flowCoefficients(const nxr::operators::Basis& basis, const MatrixXd& velocity) {
+    const MatrixXd w = nxr::operators::hodgeWeights(basis, velocity);
     return w.bottomRows(w.rows() / 2);
 }
 

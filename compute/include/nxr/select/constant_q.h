@@ -1,4 +1,4 @@
-// nxr::selection::constantq (compute) — THE BAND-DESIGN ARITHMETIC OF A CONSTANT-Q LADDER: the rules that turn a sample rate and a frequency into a window, a
+// nxr::select::constantq (compute) — THE BAND-DESIGN ARITHMETIC OF A CONSTANT-Q LADDER: the rules that turn a sample rate and a frequency into a window, a
 // decimation and the anchors of a method (the Cortical Flow Studio's `backend/src/db/constant-q.ts`: `anchorsFor`, `strideFor`, and the window `pow2ceil(cycles ·
 // sfreq / lo)`). Design is compute's: io stores the designed ladder (it keeps only the tile grid's closed form, io/include/nxr/io/constant_q.h) and the pipelines
 // call these for the bands they run. Pure functions of numbers; std::invalid_argument for an argument outside its domain.

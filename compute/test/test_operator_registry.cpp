@@ -3,9 +3,25 @@
  * Build: cmake --build build --target test_operator_registry
  * Run:   ./build/test_operator_registry
  */
-#include "nxr/operator_registry.h"
-#include "nxr/compute.h"
-#include "nxr/facets.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/operators/registry/operator_registry.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/geometry/parametrization.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
 #include <iostream>
@@ -14,10 +30,10 @@
 #include <cmath>
 #include <algorithm>
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::registry;
-using namespace nxr::manifold::ops;
-using namespace nxr::manifold::solve;
+using namespace nxr::geometry;
+using namespace nxr::operators::registry;
+using namespace nxr::operators;
+using namespace nxr::operators;
 
 static int g_failures = 0;
 #define CHECK(cond, msg) do { if (!(cond)) { std::cerr << "FAIL: " << (msg) << "\n"; ++g_failures; } } while (0)

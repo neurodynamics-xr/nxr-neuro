@@ -14,7 +14,7 @@
 #include "brain_helpers.h"
 #include "check.h"
 #include "nxr/bst/frequency.h"
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/spatial_bands.h"
 #include "nxr/io/task/task.h"

@@ -1,4 +1,4 @@
-// nxr::selection::constantq — the band-design arithmetic of a constant-Q ladder (constant_q.h): the Studio's backend/src/db/constant-q.ts (JavaScript's Math.round
+// nxr::select::constantq — the band-design arithmetic of a constant-Q ladder (constant_q.h): the Studio's backend/src/db/constant-q.ts (JavaScript's Math.round
 // rounds halves up).
 #include "nxr/select/constant_q.h"
 

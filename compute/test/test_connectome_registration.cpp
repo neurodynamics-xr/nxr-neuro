@@ -4,12 +4,12 @@
 #include <iostream>
 
 #include "connectome_helpers.h"
-#include "nxr/connectome.h"
-#include "nxr/nearest.h"
-#include "nxr/sphere_registration.h"
+#include "nxr/meeg/connectome.h"
+#include "nxr/geometry/surface_maps.h"
+#include "nxr/operators/resample.h"
 
-using namespace nxr::connectome;
-using nxr::registration::Piece;
+using namespace nxr::meeg;
+using nxr::operators::registration::Piece;
 
 static void glue(const std::vector<double>& positions, const std::vector<int32_t>& triangles, std::vector<double>& GV, std::vector<int32_t>& GF) {
   GV = positions; GV.insert(GV.end(), positions.begin(), positions.end());
@@ -29,8 +29,8 @@ int main() {
     const std::vector<Piece> tp = {{0, 162}, {162, 162}}, sp = {{0, 642}, {642, 642}};
     MatchReport rep;
     const auto match = registrationMatch<double>(templateSphere, tp, subjectSphere, sp, 8, &rep);
-    nxr::registration::Options o;
-    const auto w = nxr::registration::resample_operator<double>(templateSphere, {}, tp, subjectSphere, sp, o);
+    nxr::operators::registration::Options o;
+    const auto w = nxr::operators::registration::resample_operator<double>(templateSphere, {}, tp, subjectSphere, sp, o);
     EXPECT(rep.empty_columns == 0 && strongestDestination(w) == match, "a template not denser than the subject: no empty column; the match is the strongest destination");
     bool pieces = true;
     for (int v = 0; v < 324; ++v) pieces = pieces && (v < 162 ? match[static_cast<std::size_t>(v)] < 642 : match[static_cast<std::size_t>(v)] >= 642);
@@ -50,8 +50,8 @@ int main() {
     const std::vector<Piece> tp = {{0, 642}, {642, 642}}, sp = {{0, ns}, {ns, ns}};
     MatchReport rep;
     const auto match = registrationMatch<double>(templateSphere, tp, subjectSphere, sp, 8, &rep);
-    nxr::registration::Options o;
-    const auto w = nxr::registration::resample_operator<double>(templateSphere, {}, tp, subjectSphere, sp, o);
+    nxr::operators::registration::Options o;
+    const auto w = nxr::operators::registration::resample_operator<double>(templateSphere, {}, tp, subjectSphere, sp, o);
     const auto strongest = strongestDestination(w);
     EXPECT(rep.empty_columns > 0, "pass " << pass << ": a template denser than the subject has empty columns (" << rep.empty_columns << ")");
     std::int64_t empties = 0, to_zero_wrong = 0;

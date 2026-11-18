@@ -17,15 +17,15 @@
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/measure.h"
 #include "nxr/io/measures.h"
-#include "nxr/welch.h"
+#include "nxr/signal/spectral.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
 namespace fs = std::filesystem;
 using Eigen::MatrixXd;
 
-static std::vector<nxr::welch::BinGroup> groups_of(const std::vector<nxr::meeg::Band>& bands, double df, std::size_t bins, bool total) {
-  std::vector<nxr::welch::BinGroup> g;
+static std::vector<nxr::signal::spectral::BinGroup> groups_of(const std::vector<nxr::meeg::Band>& bands, double df, std::size_t bins, bool total) {
+  std::vector<nxr::signal::spectral::BinGroup> g;
   for (const auto& b : bands) g.push_back({static_cast<std::size_t>(std::ceil(b.lo / df - 1e-9)), static_cast<std::size_t>(std::min<double>(std::floor(b.hi / df + 1e-9), bins - 1)), true});
   if (total) g.push_back({0, bins - 1, false});
   return g;
@@ -44,10 +44,10 @@ int main() {
     CHECK(g.good());
     const double fs = g.mat("fs")(0, 0);
     const MatrixXd x = g.mat("x"), K = g.mat("K"), freqs = g.mat("freqs"), bst = g.mat("bands_bst"), rule = g.mat("bands_rule"), relb = g.mat("relative_bst");
-    auto wo = nxr::welch::brainstormPsdOptions(fs, 4.0);
+    auto wo = nxr::signal::spectral::brainstormPsdOptions(fs, 4.0);
     const std::size_t bins = wo.segmentSamples / 2 + 1;
     CHECK_EQ(static_cast<std::size_t>(freqs.cols()), bins);
-    nxr::welch::CrossWelch cw(static_cast<int>(x.rows()), wo, groups_of(bands, fs / wo.segmentSamples, bins, true));
+    nxr::signal::spectral::CrossWelch cw(static_cast<int>(x.rows()), wo, groups_of(bands, fs / wo.segmentSamples, bins, true));
     cw.add(x);
     const auto r = cw.result();
     std::vector<MatrixXd> S(r.S.begin(), r.S.begin() + 6);
@@ -73,17 +73,17 @@ int main() {
       for (auto& v : K.reshaped()) v = nd(rng);
       std::vector<std::uint8_t> good(T, 1);
       for (int i = static_cast<int>(5 * fs); i < static_cast<int>(6 * fs); ++i) good[i] = 0;
-      auto wo = nxr::welch::brainstormPsdOptions(fs, 4.0);
+      auto wo = nxr::signal::spectral::brainstormPsdOptions(fs, 4.0);
       const std::size_t bins = wo.segmentSamples / 2 + 1;
       const double df = fs / wo.segmentSamples;
       const auto gr = groups_of(bands, df, bins, true);
-      nxr::welch::CrossWelch cw(M, wo, gr);
+      nxr::signal::spectral::CrossWelch cw(M, wo, gr);
       for (int t = 0; t < T; t += 333) {
         const int n = std::min(333, T - t);
         cw.add(x.middleCols(t, n), std::vector<std::uint8_t>(good.begin() + t, good.begin() + t + n));
       }
       const auto r = cw.result();
-      const auto direct = nxr::welch::welch(K * x, wo, &good);
+      const auto direct = nxr::signal::spectral::welch(K * x, wo, &good);
       CHECK_EQ(r.segments, direct.segments);
       MatrixXd want(3 * N, gr.size());
       for (std::size_t b = 0; b < gr.size(); ++b)
@@ -178,8 +178,8 @@ int main() {
     const auto ra = run(bset, false);
     CHECK(!ra.empty() && !ra[0].value("hit", false));
     const MatrixXd amaps = stat_maps("rest_kern_psd");
-    auto wo = nxr::welch::brainstormPsdOptions(sfreq, 4.0);
-    const auto direct = nxr::welch::welch(K * X, wo);
+    auto wo = nxr::signal::spectral::brainstormPsdOptions(sfreq, 4.0);
+    const auto direct = nxr::signal::spectral::welch(K * X, wo);
     const double df = sfreq / wo.segmentSamples;
     const auto gr = groups_of(bl, df, wo.segmentSamples / 2 + 1, false);
     MatrixXd want(N, 2);

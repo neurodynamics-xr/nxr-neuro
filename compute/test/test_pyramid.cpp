@@ -15,10 +15,10 @@
 
 #include <algorithm>
 #include <complex>
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/measurement/reduce.h"
 #include "nxr/pyramid.h"
-#include "nxr/selection/bands.h"
+#include "nxr/select/bands.h"
 #include "nxr/selection/resolved.h"
 
 static int fails = 0;
@@ -158,15 +158,15 @@ int main() {
     else if (tag.rfind("T_", 0) == 0 && tag != "T_samples") T[tag.substr(2)] = nums(s);
   }
   EXPECT(static_cast<int>(bands.size()) == nb && nb == 6, "six octave bands");
-  const std::vector<sel::BandSpec> oct = sel::octave_bands();
+  const std::vector<nxr::select::BandSpec> oct = nxr::select::octave_bands();
   for (int b = 0; b < nb; ++b) EXPECT(oct[static_cast<std::size_t>(b)].lo == bands[static_cast<std::size_t>(b)].first && oct[static_cast<std::size_t>(b)].hi == bands[static_cast<std::size_t>(b)].second, "octave_bands = nxr's DEFAULT_BANDS");
 
   // the tree: nxr-neuro's ladder on the same mesh gives nxr's leaf codes and leaf areas
-  ladder::Mesh mesh; mesh.n = V; mesh.positions = P; mesh.faces = F;
-  const ladder::Tree tree = ladder::subjectTree(P.data(), V, F.data(), nF, depth);
+  select::Mesh mesh; mesh.n = V; mesh.positions = P; mesh.faces = F;
+  const select::Tree tree = select::subjectTree(P.data(), V, F.data(), nF, depth);
   EXPECT(tree.finest == finest && tree.depth == depth, "the tree reaches nxr's finest level");
   EXPECT(tree.codes == codes, "the leaf codes are nxr's");
-  const std::vector<double> a = ladder::vertexAreas(mesh);
+  const std::vector<double> a = select::vertexAreas(mesh);
   EXPECT(relmax(a, area) < 1e-12, "the vertex areas are nxr's");
   std::vector<double> wl;                                                       // the leaf areas: the member's own measure `area`, `reduce` with the vertex areas as weights
   {

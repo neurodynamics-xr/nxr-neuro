@@ -88,7 +88,7 @@ int main() {
   // equal to the subject's own SCS-native frame, away from the poles
   const StoredFrames sf = read_stored_frames(s, "cortex", subj.n);
   CHECK(sf.canonical && sf.anatomical);
-  const nxr::frames::Anatomical own = nxr::frames::anatomicalFrame(subj.P.data(), subj.n, subj.F.data(), subj.nF, subj.N, sf.e1, sf.e2, {});
+  const nxr::geometry::Anatomical own = nxr::geometry::anatomicalFrame(subj.P.data(), subj.n, subj.F.data(), subj.nF, subj.N, sf.e1, sf.e2, {});
   int both = 0, close = 0;
   for (int i = 0; i < subj.n; ++i) {
     if (!own.reliable[i] || !sf.anatomy.reliable[static_cast<std::size_t>(i)] || own.projection[i] < 0.6) continue;

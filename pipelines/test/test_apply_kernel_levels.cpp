@@ -18,15 +18,15 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/forms.h"
+#include "nxr/signal/forms.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/yaml.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/filterbank.h"
-#include "nxr/taps.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/filters_fir.h"
 #include "make_grids.h"
 
 using namespace nxr::io;
@@ -134,14 +134,14 @@ int main() {
   const SpatialBand sband = make_spatial_band(ds, sub, S, SL, sbo);
   const std::int64_t Vg = sband.glued_vertices;
   CHECK(Vg > N && sband.glued_surface == "cortex_glued");
-  const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 12.0); };
-  const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-  const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
+  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
+  const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+  const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
   Eigen::MatrixXd Re(M, T), Im(M, T);
   for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) { Re(c, t) = re[static_cast<std::size_t>(c) * T + t]; Im(c, t) = im[static_cast<std::size_t>(c) * T + t]; }
   const SurfaceInput S32 = read_surface(sub, std::string("cortex"));
   std::vector<float> P32(S32.vertices.begin(), S32.vertices.end());
-  const auto op = nxr::forms::assembleFaceGradient(P32.data(), S32.faces.data(), static_cast<int>(S32.n_vertices()), static_cast<int>(S32.n_faces()));
+  const auto op = nxr::signal::assembleFaceGradient(P32.data(), S32.faces.data(), static_cast<int>(S32.n_vertices()), static_cast<int>(S32.n_faces()));
   Eigen::MatrixXd Kfree(3 * N, M);
   for (int r = 0; r < 3 * N; ++r) for (int c = 0; c < M; ++c) Kfree(r, c) = kfree[static_cast<std::size_t>(r) * M + c];
   auto direct = [&](const Eigen::MatrixXd& Mop) {
@@ -155,7 +155,7 @@ int main() {
     for (std::size_t i = 0; i < want.size(); ++i) { top = std::max(top, want[i]); w = std::max(w, std::abs(got[i] - want[i])); }
     return got.size() == want.size() ? w / top : 1e9;
   };
-  using nxr::forms::Form;
+  using nxr::signal::Form;
   const SurfaceLevel SL2 = read_surface_level(sub, S, 2);
   const SpatialBand sband2 = make_spatial_band(ds, sub, S, SL2, sbo);
   CHECK(sband2.glued_vertices == Vg);
@@ -173,7 +173,7 @@ int main() {
     const auto r = run_def(def("curl_tan", "levels: [2, 3]", false, lvs));
     CHECK(r.size() == 1 && r[0]["stored"].size() == 2);
     for (std::size_t k = 0; k < lvs.size(); ++k) {
-      const Eigen::MatrixXd Mop = bands[k]->apply_glued(nxr::forms::formOfFreeColumns(Form::curl_tan, Kfree, op));
+      const Eigen::MatrixXd Mop = bands[k]->apply_glued(nxr::signal::formOfFreeColumns(Form::curl_tan, Kfree, op));
       wants.push_back(direct(Mop));
       const std::vector<float> got = stored_power(r[0], lvs[k]);
       const double e = worst(got, wants.back());

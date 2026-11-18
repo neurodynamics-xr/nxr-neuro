@@ -1,11 +1,28 @@
-#include "nxr/compute.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
 #include <Eigen/Geometry>
 #include <Eigen/Eigenvalues>
 #include <iostream>
 #include <cmath>
 #include <complex>
 
-using nxr::manifold::Manifold;
+using nxr::geometry::Manifold;
 
 static int g_failures = 0;
 #define EXPECT(cond, msg) do { if (!(cond)) { \
@@ -37,10 +54,10 @@ static void testVertexGrid() {
     std::vector<double> V; std::vector<int32_t> F; makeIcosahedron(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
 
-    Eigen::MatrixXcd c = nxr::manifold::geometry::vertexGrid(m);
+    Eigen::MatrixXcd c = nxr::geometry::vertexGrid(m);
     EXPECT(c.rows() == 12 && c.cols() == 3, "vertexGrid is [nV, 3]");
 
-    nxr::manifold::geometry::VertexFrames vf = nxr::manifold::geometry::vertexFrames(m);
+    nxr::geometry::VertexFrames vf = nxr::geometry::vertexFrames(m);
 
     double maxE1Err = 0, maxE2Err = 0, maxDot = 0, maxCrossErr = 0;
     for (int v = 0; v < 12; ++v) {
@@ -62,10 +79,10 @@ static void testFaceGrid() {
     std::vector<double> V; std::vector<int32_t> F; makeIcosahedron(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
 
-    Eigen::MatrixXcd c = nxr::manifold::geometry::faceGrid(m);
+    Eigen::MatrixXcd c = nxr::geometry::faceGrid(m);
     EXPECT(c.rows() == 20 && c.cols() == 3, "faceGrid is [nF, 3]");
 
-    nxr::manifold::geometry::FaceFrames ff = nxr::manifold::geometry::frames(m);
+    nxr::geometry::FaceFrames ff = nxr::geometry::frames(m);
 
     double maxE1Err = 0, maxE2Err = 0, maxDot = 0, maxCrossErr = 0;
     for (int f = 0; f < 20; ++f) {
@@ -87,7 +104,7 @@ static void testVertexCurvature() {
     std::vector<double> V; std::vector<int32_t> F; makeIcosahedron(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
 
-    auto cv = nxr::manifold::geometry::vertexCurvature(m);
+    auto cv = nxr::geometry::vertexCurvature(m);
     EXPECT(cv.deviatoric.size() == 12, "deviatoric length == nV");
     EXPECT(cv.mean.size() == 12, "mean length == nV");
 
@@ -108,7 +125,7 @@ static void testVertexCurvature() {
     EXPECT(allKpos, "extrinsic Gaussian H² − |q|² > 0 (convex)");
 
     // Determinism.
-    auto cv2 = nxr::manifold::geometry::vertexCurvature(m);
+    auto cv2 = nxr::geometry::vertexCurvature(m);
     EXPECT((cv.deviatoric - cv2.deviatoric).cwiseAbs().maxCoeff() < 1e-15 &&
            (cv.mean - cv2.mean).cwiseAbs().maxCoeff() < 1e-15,
            "vertexCurvature deterministic");
@@ -119,12 +136,12 @@ static void testTrivialGaugeRotations() {
     std::vector<double> V; std::vector<int32_t> F; makeIcosahedron(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
 
-    auto dec   = nxr::manifold::ops::assembleDECOperators(m);
-    auto cache = nxr::manifold::ops::CholeskyCache{};
+    auto dec   = nxr::operators::assembleDECOperators(m);
+    auto cache = nxr::operators::CholeskyCache{};
     // χ(sphere) = 2: two index-1 singularities (Gauss-Bonnet satisfied).
     std::map<int, double> sing = {{0, 1.0}, {1, 1.0}};
 
-    auto g = nxr::manifold::connection::integrateTrivialGaugeRotations(m, dec, cache, sing);
+    auto g = nxr::geometry::connection::integrateTrivialGaugeRotations(m, dec, cache, sing);
     EXPECT(g.vertex.size() == 12, "vertex rotation length == nV");
     EXPECT(g.face.size() == 20, "face rotation length == nF");
 
@@ -141,7 +158,7 @@ static void testTrivialGaugeRotations() {
     EXPECT(std::abs(g.face(0) - std::complex<double>(1.0, 0.0)) < 1e-15,
            "root face rotation is identity");
 
-    auto g2 = nxr::manifold::connection::integrateTrivialGaugeRotations(m, dec, cache, sing);
+    auto g2 = nxr::geometry::connection::integrateTrivialGaugeRotations(m, dec, cache, sing);
     EXPECT((g.vertex - g2.vertex).cwiseAbs().maxCoeff() < 1e-15 &&
            (g.face - g2.face).cwiseAbs().maxCoeff() < 1e-15,
            "rotation fields deterministic");
@@ -150,8 +167,8 @@ static void testTrivialGaugeRotations() {
     // The stored rotation is the combing multiplier (conjugate of the
     // accumulated transport), so real(rotation .* grid) must equal the
     // direction field that propagateAngles{,Vertex} integrate from the same φ.
-    auto df = nxr::manifold::connection::trivial(m, dec, cache, sing);
-    Eigen::MatrixXcd vg = nxr::manifold::geometry::vertexGrid(m);   // the trivial gauge combs geometry-central's frame
+    auto df = nxr::geometry::connection::trivial(m, dec, cache, sing);
+    Eigen::MatrixXcd vg = nxr::geometry::vertexGrid(m);   // the trivial gauge combs geometry-central's frame
     double maxVErr = 0;
     for (int v = 0; v < 12; ++v) {
         Eigen::RowVector3d realized = (g.vertex(v) * vg.row(v)).real();
@@ -160,7 +177,7 @@ static void testTrivialGaugeRotations() {
     EXPECT(maxVErr < 1e-12,
            "real(vertex rotation .* vertexGridEmbedded) == trivial parallel field (vertexVectors)");
 
-    Eigen::MatrixXcd fg = nxr::manifold::geometry::faceGrid(m);
+    Eigen::MatrixXcd fg = nxr::geometry::faceGrid(m);
     double maxFErr = 0;
     for (int f = 0; f < 20; ++f) {
         Eigen::RowVector3d realized = (g.face(f) * fg.row(f)).real();
@@ -175,7 +192,7 @@ static void testGraphLaplacian() {
     std::vector<double> V; std::vector<int32_t> F; makeIcosahedron(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
 
-    Eigen::SparseMatrix<double> L = nxr::manifold::ops::graphLaplacian(m);
+    Eigen::SparseMatrix<double> L = nxr::operators::graphLaplacian(m);
     EXPECT(L.rows() == 12 && L.cols() == 12, "graphLaplacian is V×V");
 
     Eigen::SparseMatrix<double> asym = L - Eigen::SparseMatrix<double>(L.transpose());
@@ -199,14 +216,14 @@ static void testGraphLaplacian() {
 
 static void testCovariantLaplacian() {
     std::cout << "\n=== covariantLaplacian ===\n";
-    namespace cl = nxr::manifold::ops::laplacian::connection;
+    namespace cl = nxr::operators::laplacian::connection;
     std::vector<double> V; std::vector<int32_t> F; makeIcosahedron(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
     const int N = 12;
 
-    auto ops = nxr::manifold::ops::assembleManifoldOperators(m);   // cotanLaplacian
+    auto ops = nxr::operators::assembleManifoldOperators(m);   // cotanLaplacian
     Eigen::SparseMatrix<double> L = ops.cotanLaplacian;
-    Eigen::MatrixXcd grid = nxr::manifold::geometry::vertexGrid(m); // V×3 complex (LC frame)
+    Eigen::MatrixXcd grid = nxr::geometry::vertexGrid(m); // V×3 complex (LC frame)
 
     cl::ConnectionLaplacianOptions o; o.domain = cl::ConnectionDomain::Vertex;
     o.nSym = 1; o.format = cl::ConnectionLaplacianFormat::Complex;

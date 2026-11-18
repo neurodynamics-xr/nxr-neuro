@@ -29,13 +29,13 @@ int main() {
     auto rosen = [](const VectorXd& x) { return 100 * std::pow(x(1) - x(0) * x(0), 2) + std::pow(1 - x(0), 2); };
     VectorXd x0(2);
     x0 << -1.2, 1;
-    const MinimiseResult r = nelderMead(rosen, x0);
+    const nxr::optimisation::MinimiseResult r = nxr::optimisation::nelderMead(rosen, x0);
     CHECK(r.converged);
     CHECK((r.x - Vector3d(1, 1, 0).head<2>()).norm() < 1e-5);
-    NelderMeadOptions o;
+    nxr::optimisation::NelderMeadOptions o;
     o.maxEvaluations = 10;
     CHECK(!nelderMead(rosen, x0, o).converged);
-    CHECK(throws([&] { nelderMead(rosen, VectorXd()); }));
+    CHECK(throws([&] { nxr::optimisation::nelderMead(rosen, VectorXd()); }));
   }
   // ---- the sphere fit
   {

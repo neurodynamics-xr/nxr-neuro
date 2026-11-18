@@ -40,7 +40,24 @@
 #include <string>
 #include <vector>
 
-#include "nxr/compute.h"
+#include "nxr/operators/cache.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
 #include "nxr/pipelines/cache.h"
 #include "nxr/pipelines/input.h"
 
@@ -82,7 +99,7 @@ struct HodgeDirac {
 // constants as named, recorded options of the shared names: `mollify` (the mollification margin relative to the mean edge length) and `flip_eps` (an edge is
 // flipped while its cotan weight is below -flip_eps); both in the cache key and the provenance.
 struct SolveMethod {
-  nxr::manifold::solve::HodgeSolveOptions solve;   // shift, sigma, slice, normalize (+ convergence controls tol, ncv, maxit)
+  nxr::operators::HodgeSolveOptions solve;   // shift, sigma, slice, normalize (+ convergence controls tol, ncv, maxit)
   std::optional<double> star1_floor;               // floor of *1 (the cotan weights); unset = none
   double mollify = 1e-6;                           // delta = mollify x the mean edge length (the Studio's `mollify`)
   double flip_eps = 1e-6;                          // the Studio's `flipEps`

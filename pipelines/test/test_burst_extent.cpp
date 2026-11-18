@@ -24,7 +24,7 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "make_grids.h"
@@ -168,8 +168,8 @@ int main() {
   auto cell = [&](int s, int f) { return static_cast<double>(cells[static_cast<std::size_t>((s * F + f) * 2)]); };
   const double width_s = static_cast<double>(W) / sfreq;
   // the tiles' areas and vertex areas, from the mesh directly
-  nxr::ladder::Mesh mesh; mesh.n = N; mesh.positions = S0.vertices; mesh.faces = S0.faces;
-  const std::vector<double> varea = nxr::ladder::vertexAreas(mesh);
+  nxr::select::Mesh mesh; mesh.n = N; mesh.positions = S0.vertices; mesh.faces = S0.faces;
+  const std::vector<double> varea = nxr::select::vertexAreas(mesh);
   std::vector<double> tarea(static_cast<std::size_t>(S), 0.0);
   for (int v = 0; v < N; ++v) if (SL.tile[static_cast<std::size_t>(v)] >= 0) tarea[static_cast<std::size_t>(SL.tile[static_cast<std::size_t>(v)])] += varea[static_cast<std::size_t>(v)];
   std::vector<std::vector<int>> nbr(static_cast<std::size_t>(S));

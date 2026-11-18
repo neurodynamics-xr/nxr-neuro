@@ -1,6 +1,20 @@
 // Hodge–Dirac d + δ on the intrinsic Delaunay triangulation, and its eigenmodes by the exact/coexact split.
 // Reference: nxr-cortical-flow hodgeDirac.ts (+ solve-lb-hodge.py, make-hodge-package.py); ⋆1 floor optional (default off, as nxr; Rheome PR #94 used 1e-6).
-#include "nxr/compute.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
 
 #include <algorithm>

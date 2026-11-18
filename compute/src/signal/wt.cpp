@@ -1,5 +1,5 @@
 #include "nxr/signal/wavelet.h"
-#include "nxr/fft.h"   // the old name nxr::fft (forwarder), until the callers are renamed
+#include "nxr/signal/fourier.h"   // the old name nxr::fft (forwarder), until the callers are renamed
 #include <algorithm>
 #include <cmath>
 #include <numeric>
@@ -14,8 +14,8 @@ static constexpr double kPi = 3.14159265358979323846;
 static i64 roundUp(i64 n, i64 m) { return (n + m - 1) / m * m; }
 
 // the member gains at frequencies f, zero outside the member's support on the bank's grid
-static MatrixXd maskedGains(const timebank::TimeBank& b, const VectorXd& f) {
-    MatrixXd g = timebank::gains(b, f);
+static MatrixXd maskedGains(const signal::timefilterbank::TimeBank& b, const VectorXd& f) {
+    MatrixXd g = signal::timefilterbank::gains(b, f);
     for (int m = 0; m < b.size(); ++m) {
         const double lo = static_cast<double>(b.support[m].first) * b.fs / static_cast<double>(b.nfft) - 1e-9 * b.fs / b.nfft;
         const double hi = static_cast<double>(b.support[m].second) * b.fs / static_cast<double>(b.nfft) + 1e-9 * b.fs / b.nfft;
@@ -24,10 +24,10 @@ static MatrixXd maskedGains(const timebank::TimeBank& b, const VectorXd& f) {
     return g;
 }
 
-Plan::Plan(const timebank::TimeBank& bk, const Options& opt) : bank(bk), options(opt) {
-    if (bank.sides != timebank::Sides::Analytic) throw std::invalid_argument("wt: an analytic bank (a real recording); a two-sided bank has no own-rate sub-bands");
+Plan::Plan(const signal::timefilterbank::TimeBank& bk, const Options& opt) : bank(bk), options(opt) {
+    if (bank.sides != signal::timefilterbank::Sides::Analytic) throw std::invalid_argument("wt: an analytic bank (a real recording); a two-sided bank has no own-rate sub-bands");
     const int M = bank.size();
-    auto [r, nm] = timebank::rates(bank, opt.oversample);
+    auto [r, nm] = signal::timefilterbank::rates(bank, opt.oversample);
     rate = r; Nm = nm;
     for (int m = 0; m < M; ++m) {
         const i64 g = std::gcd<i64, i64>(static_cast<i64>(bank.nfft), static_cast<i64>(Nm[m]));
@@ -36,7 +36,7 @@ Plan::Plan(const timebank::TimeBank& bk, const Options& opt) : bank(bk), options
     }
     // the impulse responses on a fine grid, the grid doubled while a member's tail has not decayed to the tolerance (up to maxMargin)
     std::int64_t L = 0; achieved = 0; tail.assign(M, 0.0); l1.assign(M, 0.0);
-    std::size_t N0 = fft::nextFastLen(std::max<std::size_t>(4 * bank.nfft, 4096), true);
+    std::size_t N0 = nextFastLen(std::max<std::size_t>(4 * bank.nfft, 4096), true);
     for (int m = 0; m < M; ++m) {
         std::size_t g = N0; double tl = 0, total = 0; i64 Lm = 0;
         for (;;) {
@@ -44,7 +44,7 @@ Plan::Plan(const timebank::TimeBank& bk, const Options& opt) : bank(bk), options
             const MatrixXd G0 = maskedGains(bank, f0);
             VectorXcd Y = VectorXcd::Zero(static_cast<Eigen::Index>(g));
             for (Eigen::Index i = 0; i < G0.rows(); ++i) Y(i) = G0(i, m);
-            const VectorXcd h = fft::ifft(Y) * static_cast<double>(g);       // a_m for X = 1 (up to the 1/g of a window)
+            const VectorXcd h = ifft(Y) * static_cast<double>(g);       // a_m for X = 1 (up to the 1/g of a window)
             VectorXd a = VectorXd::Zero(static_cast<Eigen::Index>(g / 2 + 1));   // sum of |h| at |t| = i, both sides
             total = 0;
             for (std::size_t i = 0; i < g; ++i) { const std::size_t t = std::min(i, g - i); a(static_cast<Eigen::Index>(t)) += std::abs(h(static_cast<Eigen::Index>(i))); total += std::abs(h(static_cast<Eigen::Index>(i))); }
@@ -55,7 +55,7 @@ Plan::Plan(const timebank::TimeBank& bk, const Options& opt) : bank(bk), options
             }
             if (Lm >= static_cast<i64>(g / 2) - 1) tl += a(static_cast<Eigen::Index>(Lm));     // did not decay within the grid: report what is seen (a lower bound)
             if (Lm < static_cast<i64>(g / 2) - 1 || static_cast<i64>(g) >= 2 * static_cast<i64>(opt.maxMargin)) break;
-            g = fft::nextFastLen(2 * g, true);
+            g = nextFastLen(2 * g, true);
         }
         Lm = std::min<i64>(Lm, static_cast<i64>(opt.maxMargin));
         tail[m] = tl / total; l1[m] = total / static_cast<double>(g); L = std::max(L, Lm); achieved = std::max(achieved, tail[m]);
@@ -93,7 +93,7 @@ static double phaseCycles(const Plan& pl, int m, i64 sw, i64 j) {
 
 // ── Wt ───────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-Wt::Wt(const timebank::TimeBank& bank, int channels, const Options& options) : plan_(bank, options), channels_(channels), buf_(MatrixXd::Zero(channels, 0)) { next_ = -plan_.margin; }
+Wt::Wt(const signal::timefilterbank::TimeBank& bank, int channels, const Options& options) : plan_(bank, options), channels_(channels), buf_(MatrixXd::Zero(channels, 0)) { next_ = -plan_.margin; }
 
 std::vector<Block> Wt::add(const MatrixXd& chunk) {
     if (finished_) throw std::logic_error("wt: add after finish");
@@ -119,13 +119,13 @@ std::vector<Block> Wt::drain(bool final) {
             const i64 g = sw + i;
             if (g >= 0 && g < n) w.row(i) = buf_.col(g - bufStart_).transpose();
         }
-        const MatrixXcd X = fft::rfftColumns(w);
+        const MatrixXcd X = rfftColumns(w);
         for (int m = 0; m < M; ++m) {
             const i64 Mm = pl.window * pl.q[m] / pl.p[m];
             const i64 nb = pl.b2[m] - pl.b1[m] + 1;
             MatrixXcd Y = MatrixXcd::Zero(Mm, channels_);
             for (i64 r = 0; r < nb; ++r) Y.row(r) = X.row(pl.b1[m] + r) * pl.gain[m](r);
-            const MatrixXcd y = fft::fftColumns(Y, false);
+            const MatrixXcd y = fftColumns(Y, false);
             const i64 j0 = pl.margin * pl.q[m] / pl.p[m];
             i64 j1 = (pl.margin + pl.block) * pl.q[m] / pl.p[m];
             if (final) j1 = std::min<i64>(j1, j0 + (n + pl.margin - next_) * pl.q[m] / pl.p[m] + 1);   // instants with t < n + R
@@ -158,7 +158,7 @@ std::vector<Block> Wt::drain(bool final) {
 
 // ── Iwt ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────
 
-Iwt::Iwt(const timebank::TimeBank& bank, int channels, const Options& options, filterbank::Synthesis mode) : plan_(bank, options), channels_(channels), mode_(mode) {
+Iwt::Iwt(const signal::timefilterbank::TimeBank& bank, int channels, const Options& options, signal::graphfilterbank::Synthesis mode) : plan_(bank, options), channels_(channels), mode_(mode) {
     const int M = bank.size();
     have_.assign(M, std::vector<VectorXcd>(channels));
     start_.assign(M, 0); end_.assign(M, 0);
@@ -205,17 +205,17 @@ Eigen::MatrixXd Iwt::drain(bool final, std::int64_t n) {
                 const cd e(std::cos(ph), std::sin(ph));
                 for (int c = 0; c < channels_; ++c) a(j, c) = have_[m][c](k - start_[m]) * e;
             }
-            const MatrixXcd Y = fft::fftColumns(a, true) * (static_cast<double>(pl.window) / static_cast<double>(Mm));   // = X g
+            const MatrixXcd Y = fftColumns(a, true) * (static_cast<double>(pl.window) / static_cast<double>(Mm));   // = X g
             const i64 nb = pl.b2[m] - pl.b1[m] + 1;
             for (i64 r = 0; r < nb; ++r) {
                 const i64 b = pl.b1[m] + r;
                 const double g = pl.gain[m](r);
-                const double S = mode_ == filterbank::Synthesis::Dual ? pl.frame(b) : pl.bank.gain * pl.bank.gain;
-                if (mode_ == filterbank::Synthesis::Dual && !(S > 1e-12 * pl.frame.maxCoeff())) continue;
+                const double S = mode_ == signal::graphfilterbank::Synthesis::Dual ? pl.frame(b) : pl.bank.gain * pl.bank.gain;
+                if (mode_ == signal::graphfilterbank::Synthesis::Dual && !(S > 1e-12 * pl.frame.maxCoeff())) continue;
                 Xr.row(b) += Y.row(r) * (g / S);
             }
         }
-        const MatrixXd x = fft::irfftColumns(Xr, static_cast<std::size_t>(pl.window));
+        const MatrixXd x = irfftColumns(Xr, static_cast<std::size_t>(pl.window));
         i64 cnt = pl.block; if (final) cnt = std::min<i64>(cnt, n - next_);
         parts.push_back(x.middleRows(pl.margin, cnt).transpose());
         next_ += pl.block;

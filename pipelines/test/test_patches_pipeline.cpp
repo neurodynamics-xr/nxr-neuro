@@ -22,10 +22,10 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "portable_random.h"
-#include "nxr/intervals.h"
+#include "nxr/select/events.h"
 #include "nxr/io/measures.h"
 #include "nxr/io/statistic.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/measure.h"
 #include "nxr/pipelines/patches.h"
 #include "make_grids.h"
@@ -129,8 +129,8 @@ int main() {
   const int depth = tr.info["depth"].get<int>();
   std::printf("  ladder: %d levels, %d tiles at depth %d\n", tr.info["levels"].get<int>(), tr.info["tiles_at_depth"].get<int>(), depth);
 
-  nxr::ladder::Mesh lm; lm.positions = b.P; lm.faces = b.F; lm.n = nV;
-  const std::vector<double> va = nxr::ladder::vertexAreas(lm);
+  nxr::select::Mesh lm; lm.positions = b.P; lm.faces = b.F; lm.n = nV;
+  const std::vector<double> va = nxr::select::vertexAreas(lm);
   auto field_id = [&](const std::string& n) { return nxr::io::task::Subject::of(sub).require({.cls = nxr::io::task::Cls::field, .name = n, .any_status = true}, n).id; };
   auto sel_row = [&](const std::string& n) { return nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::selection, .name = n, .any_status = true}); };
   auto patch_codes = [&](const std::string& name) { return read_array<std::int32_t>(sub, *sel_row(name)->array_path); };
@@ -146,7 +146,7 @@ int main() {
     Eigen::VectorXd m(T);
     for (int t = 0; t < T; ++t) m(t) = (sgn == "negative" ? -1 : 1) * sx[t] / sw[t];
     if (sgn == "magnitude") m = m.cwiseAbs();
-    const double med = nxr::intervals::median(m), sd = nxr::intervals::mad(m);
+    const double med = nxr::select::median(m), sd = nxr::select::mad(m);
     std::vector<std::set<int>> nb(T);
     for (int f = 0; f < b.nF; ++f) for (int k = 0; k < 3; ++k) { const int a = tile[b.F[3 * f + k]], c = tile[b.F[3 * f + (k + 1) % 3]]; if (a != c) { nb[a].insert(c); nb[c].insert(a); } }
     std::vector<int> lab(T, -1), comp(T, -1);

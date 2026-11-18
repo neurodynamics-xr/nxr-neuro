@@ -1,11 +1,11 @@
 // nxr::speedspectrum on synthetic mode series (no data): a travelling wave (a degenerate mode pair in quadrature at f, wavenumber mu) puts the speed
 // histogram's peak at 2 pi f / mu and its tile's quadrature fraction high; a standing oscillation (the same modes in phase) has the same tile energy
 // and quadrature fraction ~0; the tiles of a tight bank sum to the power. The mode series go through the real CrossWelch (one-bin groups).
-#include "nxr/speedspectrum.h"
-#include "nxr/welch.h"
+#include "nxr/signal/speedspectrum.h"
+#include "nxr/signal/spectral.h"
 #include "mesh_helpers.h"
 #include <random>
-namespace ss = nxr::speedspectrum;
+namespace ss = nxr::signal::speedspectrum;
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 static constexpr double kPi = 3.14159265358979323846;
@@ -29,20 +29,20 @@ static Case run(bool travelling) {
         x(4, t) += std::cos(ph);
         x(5, t) += travelling ? std::sin(ph) : std::cos(ph);
     }
-    nxr::welch::WelchOptions wo = nxr::welch::scipyWelchOptions(fs, 256);
-    wo.scaling = nxr::welch::Scaling::Spectrum;
-    std::vector<nxr::welch::BinGroup> groups;
+    nxr::signal::spectral::WelchOptions wo = nxr::signal::spectral::scipyWelchOptions(fs, 256);
+    wo.scaling = nxr::signal::spectral::Scaling::Spectrum;
+    std::vector<nxr::signal::spectral::BinGroup> groups;
     for (std::size_t b = 1; b < 128; ++b) groups.push_back({b, b, true});
-    nxr::welch::CrossWelch w(K, wo, groups, true);
+    nxr::signal::spectral::CrossWelch w(K, wo, groups, true);
     w.add(x);
     const auto cw = w.result();
     ss::ModeSpectra sp;
     sp.frequencies.resize(127);
     for (int b = 1; b < 128; ++b) sp.frequencies(b - 1) = b * fs / 256;
     sp.S = cw.S; sp.Sq = cw.Sq;
-    const auto graph = nxr::filterbank::design(nxr::filterbank::Family::LogItersine, nxr::filterbank::Range::fromSpectrum(mu.array().square()));
-    nxr::timebank::Design td(nxr::timebank::Family::Itersine, 1.0, nxr::timebank::Sides::Analytic);
-    const auto time = nxr::timebank::design(td, 256, fs);
+    const auto graph = nxr::signal::graphfilterbank::design(nxr::signal::graphfilterbank::Family::LogItersine, nxr::signal::graphfilterbank::Range::fromSpectrum(mu.array().square()));
+    nxr::signal::timefilterbank::Design td(nxr::signal::timefilterbank::Family::Itersine, 1.0, nxr::signal::timefilterbank::Sides::Analytic);
+    const auto time = nxr::signal::timefilterbank::design(td, 256, fs);
     ss::Options o; o.speedBins = 60;
     Case c;
     c.r = ss::compute(graph, time, mu, kind, sp, o);

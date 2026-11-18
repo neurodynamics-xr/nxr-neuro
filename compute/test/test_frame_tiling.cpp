@@ -10,45 +10,45 @@
 #include <stdexcept>
 #include <vector>
 
-#include "nxr/frame_tiling.h"
-#include "nxr/selection/grid.h"
-#include "nxr/selection/partition.h"
+#include "nxr/signal/resample.h"
+#include "nxr/select/grid.h"
+#include "nxr/select/partition.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
 
 int main() {
-  using namespace nxr::frametiling;
+  using namespace nxr::signal;
   namespace sel = nxr::selection;
   const double fs = 250.0, f0 = 10.0;
   const std::int64_t n = 5000;
   const sel::Line line{"s", n, 0.0, 1.0 / fs};
-  sel::TimeRule rule;
-  rule.kind = sel::TimeRule::Kind::frames;
+  nxr::select::TimeRule rule;
+  rule.kind = nxr::select::TimeRule::Kind::frames;
   rule.band_hz = std::make_pair(f0, f0);
   rule.frames_per_cycle = 36;
-  const sel::TimeGrid t = sel::time_rule_resolved(line, rule);
+  const nxr::select::TimeGrid t = nxr::select::time_rule_resolved(line, rule);
   const double tile = t.width_s * fs;                                          // the frame in samples, not whole
   const std::int64_t count = sel::count(t.grid);
   EXPECT(std::abs(t.width_s - 1.0 / (f0 * 36)) < 1e-15 && count == static_cast<std::int64_t>(std::ceil(static_cast<double>(n) / tile - 1e-9)), "36 frames a cycle of 10 Hz: the frames the samples touch");
   // an origin is an option: a point of the line (or an event's span) starts the first frame there
-  sel::TimeRule shifted = rule;
+  nxr::select::TimeRule shifted = rule;
   shifted.origin = sel::point(500);
-  const sel::TimeGrid o = sel::time_rule_resolved(line, shifted);
+  const nxr::select::TimeGrid o = nxr::select::time_rule_resolved(line, shifted);
   EXPECT(o.origin_sample == 500 && sel::count(o.grid) == static_cast<std::int64_t>(std::ceil(static_cast<double>(n - 500) / tile - 1e-9)), "frames start at the origin and run to the end of the line");
   // frames per tile are a power of two nested in the band's dyadic level
-  sel::TimeRule nested;
-  nested.kind = sel::TimeRule::Kind::frames;
+  nxr::select::TimeRule nested;
+  nested.kind = nxr::select::TimeRule::Kind::frames;
   nested.band_hz = std::make_pair(8.0, 12.0);
   nested.frames_per_tile = 8;
-  const sel::TimeGrid nd = sel::time_rule_resolved(line, nested);
-  const int fit = sel::time_level_of_band(8.0, 12.0, fs);
+  const nxr::select::TimeGrid nd = nxr::select::time_rule_resolved(line, nested);
+  const int fit = nxr::select::time_level_of_band(8.0, 12.0, fs);
   EXPECT(nd.level == fit - 3 && nd.width_samples == (std::int64_t(1) << (fit - 3)), "8 frames a tile: level " << fit << " - 3, got " << nd.level);
   auto refused = [&](auto f) { try { f(); } catch (const std::invalid_argument&) { return true; } return false; };
-  sel::TimeRule both = rule; both.frames_per_tile = 4;
-  sel::TimeRule odd = nested; odd.frames_per_tile = 6;
-  sel::TimeRule outside = rule; outside.origin = sel::point(n + 5);
-  EXPECT(refused([&] { sel::time_rule(line, both); }) && refused([&] { sel::time_rule(line, odd); }) && refused([&] { sel::time_rule(line, outside); }), "both densities, a non power of two, an origin outside the line are refused");
+  nxr::select::TimeRule both = rule; both.frames_per_tile = 4;
+  nxr::select::TimeRule odd = nested; odd.frames_per_tile = 6;
+  nxr::select::TimeRule outside = rule; outside.origin = sel::point(n + 5);
+  EXPECT(refused([&] { nxr::select::time_rule(line, both); }) && refused([&] { nxr::select::time_rule(line, odd); }) && refused([&] { nxr::select::time_rule(line, outside); }), "both densities, a non power of two, an origin outside the line are refused");
   // a band-limited complex exponential at 10 Hz (a band 8-12) sampled at the frames
   const double phi = 0.4;
   std::vector<float> re(n), im(n);

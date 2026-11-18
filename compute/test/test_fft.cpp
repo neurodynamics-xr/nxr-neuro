@@ -1,10 +1,10 @@
 // nxr::fft against numpy.fft (goldens from golden/gen_fft_golden.py: random inputs, numpy's outputs) and its own round trips.
-#include "nxr/fft.h"
+#include "nxr/signal/fourier.h"
 #include "mesh_helpers.h"
 #include <fstream>
 #include <sstream>
 #include <string>
-using namespace nxr::fft;
+using namespace nxr::signal;
 
 static std::vector<double> readValues(std::istream& is, const std::string& tag) {
     std::string t; is >> t;

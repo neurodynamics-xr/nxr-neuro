@@ -113,7 +113,7 @@ void run_chains(DatasetWriter& ds, SubjectWriter& sub) {
   { const auto r = nxrtest::run_definition(ds, sub, "crossspectrum", Json{{"recording", "rest"}, {"channels_of", "kern"}, {"bands", alpha}}); CHECK(!r.empty() && !r[0].value("hit", false)); }
   nxrtest::FilterComputeOptions fo;                                               // the field chain: a filter, then the PSD of what it wrote
   fo.recording = "rest";
-  fo.filter.kind = nxr::filter::Kind::Bandpass;
+  fo.filter.kind = nxr::signal::filters::Kind::Bandpass;
   fo.filter.lowerEdge = 8; fo.filter.upperEdge = 12;
   nxrtest::filter_compute(ds, sub, fo);
   CHECK(!nxrtest::run_psd(ds, sub, "rest_bandpass").hit);

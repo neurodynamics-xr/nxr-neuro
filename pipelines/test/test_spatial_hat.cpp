@@ -15,8 +15,8 @@
 
 #include "check.h"
 #include "mesh_helpers.h"
-#include "nxr/intrinsic_surface.h"
-#include "nxr/glue.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_maps.h"
 #include "nxr/io.h"
 #include "nxr/pipelines/eigen.h"
 #include "nxr/pipelines/spatial_band.h"

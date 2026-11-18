@@ -3,8 +3,24 @@
 //   A1 sphere Laplacian · A2 connection Laplacian (incl. n-RoSy) · A3 gauge invariance · A4 flat patch · A5 holonomy and Gauss–Bonnet
 //   A6 Hodge decomposition · A8 distance and log map · A9 gauge realisation · A10 the record · the version pin and the gauge fingerprint
 //   A7 Hodge–Dirac on the rebuilt DEC (G3)
-#include "nxr/compute.h"
-#include "nxr/intrinsic_surface.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
 
 #include "geometrycentral/surface/heat_method_distance.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -24,7 +40,7 @@
 #include <string>
 #include <vector>
 
-using namespace nxr::manifold;
+using namespace nxr::geometry;
 namespace gcs = geometrycentral::surface;
 using C = std::complex<double>;
 
@@ -41,7 +57,7 @@ static const char* kMassNames[3] = {"input-mixed-voronoi", "barycentric", "galer
 
 // the k smallest eigenvalues of the cotan Laplacian pencil
 static Eigen::VectorXd laplacianSpectrum(IntrinsicSurface& s, int k) {
-    return solve::eigenSmallest(s.cotanLaplacian(), s.massMatrix(), k, false).eigenvalues;
+    return nxr::operators::eigenSmallest(s.cotanLaplacian(), s.massMatrix(), k, false).eigenvalues;
 }
 // the clusters l = 0..L of the unit sphere: (mean relative error over l = 1..L, worst spread/gap, sizes ok)
 struct Clusters { double relErr = 0, worstSpread = 0; bool sizesOk = true; std::vector<double> signedErr; };
@@ -104,7 +120,7 @@ static Eigen::VectorXd connectionSpectrum(IntrinsicSurface& s, int n, int kCompl
     }
     for (int k = 0; k < M.outerSize(); ++k) for (Eigen::SparseMatrix<double>::InnerIterator it(M, k); it; ++it) { tm.emplace_back(it.row(), it.col(), it.value()); tm.emplace_back(it.row() + V, it.col() + V, it.value()); }
     Eigen::SparseMatrix<double> A(2 * V, 2 * V), B(2 * V, 2 * V); A.setFromTriplets(t.begin(), t.end()); B.setFromTriplets(tm.begin(), tm.end());
-    const Eigen::VectorXd e = solve::eigenSmallest(A, B, 2 * kComplex, false).eigenvalues;
+    const Eigen::VectorXd e = nxr::operators::eigenSmallest(A, B, 2 * kComplex, false).eigenvalues;
     Eigen::VectorXd out(kComplex); for (int i = 0; i < kComplex; ++i) out[i] = 0.5 * (e[2*i] + e[2*i+1]);
     return out;
 }
@@ -278,7 +294,7 @@ static void testManifold() {
     const Mesh m = jitterSphere(icosphere(3), 0.4, 3);
     Manifold M(m.V.data(), m.nV(), m.F.data(), m.nF());
     CHECK(M.intrinsicSurface().record().epsilon == 0.0 && M.intrinsicSurface().record().flips > 0, "the default Manifold flipped " + std::to_string(M.intrinsicSurface().record().flips) + " edges, nothing mollified");
-    const auto vf = geometry::vertexFrames(M);
+    const auto vf = nxr::geometry::vertexFrames(M);
     auto& geom = M.geometry(); geom.requireVertexTangentBasis(); geom.requireVertexNormals();
     double d = 0; for (gcs::Vertex v : M.mesh().vertices()) for (int c = 0; c < 3; ++c) {
         const size_t i = v.getIndex();

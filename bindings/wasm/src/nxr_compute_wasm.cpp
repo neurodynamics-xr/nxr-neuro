@@ -23,10 +23,27 @@
 #include <emscripten/bind.h>
 #include <emscripten/val.h>
 
-#include "nxr/compute.h"
-#include "nxr/facets.h"   // OperatorsFacet definition (operators() command)
-#include "nxr/operator_registry.h"
-#include "nxr/field_registry.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/signal/surface_calculus.h"   // OperatorsFacet definition (operators() command)
+#include "nxr/operators/registry/operator_registry.h"
+#include "nxr/operators/registry/field_registry.h"
 
 #include <atomic>
 #include <cstdint>
@@ -187,7 +204,7 @@ public:
         int nV = static_cast<int>(verts_.size() / 3);
         int nF = static_cast<int>(faces_.size() / 3);
 
-        // nxr::manifold::Manifold takes int32_t* for faces; copy into the
+        // nxr::geometry::Manifold takes int32_t* for faces; copy into the
         // canonical type since convertJSArrayToNumberVector<int> may
         // produce a different underlying integer width on some platforms.
         faces32_.resize(faces_.size());
@@ -195,9 +212,9 @@ public:
             faces32_[i] = static_cast<int32_t>(faces_[i]);
         }
 
-        ctx_ = std::make_unique<nxr::manifold::Manifold>(
+        ctx_ = std::make_unique<nxr::geometry::Manifold>(
             verts_.data(), nV, faces32_.data(), nF);
-        cache_ = std::make_unique<nxr::manifold::ops::CholeskyCache>();
+        cache_ = std::make_unique<nxr::operators::CholeskyCache>();
     }
 
     int nV() const { return ctx_->nV(); }
@@ -211,12 +228,12 @@ public:
     // variants invalidates the cached ManifoldOperators (and any cached
     // factor that depended on the previous mass).
     val assembleManifoldOperators(const std::string& variantName) {
-        nxr::manifold::ops::MassMatrixVariant variant = variantName.empty()
-            ? nxr::manifold::ops::MassMatrixVariant::MixedVoronoi
-            : nxr::manifold::ops::parseMassMatrixVariant(variantName);
+        nxr::operators::MassMatrixVariant variant = variantName.empty()
+            ? nxr::operators::MassMatrixVariant::MixedVoronoi
+            : nxr::operators::parseMassMatrixVariant(variantName);
         if (!ops_ || ops_->massVariant != variant) {
-            ops_ = std::make_unique<nxr::manifold::ops::ManifoldOperators>(
-                nxr::manifold::ops::assembleManifoldOperators(*ctx_, variant));
+            ops_ = std::make_unique<nxr::operators::ManifoldOperators>(
+                nxr::operators::assembleManifoldOperators(*ctx_, variant));
         }
         return meshOpsToVal();
     }
@@ -233,28 +250,28 @@ public:
     // `opts` is a JS object: { domain?, nSym?, regularization?, format? }.
     // Defaults: { domain: 'vertex', nSym: 1, regularization: 1e-8, format: 'real2N' }.
     val assembleConnectionLaplacian(val opts) {
-        nxr::manifold::ops::laplacian::connection::ConnectionLaplacianOptions o;
+        nxr::operators::laplacian::connection::ConnectionLaplacianOptions o;
         if (!opts.isNull() && !opts.isUndefined()) {
             val domainV = opts["domain"];
             val nSymV   = opts["nSym"];
             val regV    = opts["regularization"];
             val fmtV    = opts["format"];
             if (!domainV.isUndefined())
-                o.domain = nxr::manifold::ops::laplacian::connection::parseConnectionDomain(domainV.as<std::string>());
+                o.domain = nxr::operators::laplacian::connection::parseConnectionDomain(domainV.as<std::string>());
             if (!nSymV.isUndefined())
                 o.nSym = nSymV.as<int>();
             if (!regV.isUndefined())
                 o.regularization = regV.as<double>();
             if (!fmtV.isUndefined())
-                o.format = nxr::manifold::ops::laplacian::connection::parseConnectionLaplacianFormat(fmtV.as<std::string>());
+                o.format = nxr::operators::laplacian::connection::parseConnectionLaplacianFormat(fmtV.as<std::string>());
         }
 
         const CLKey key{o.domain, o.nSym, o.regularization, o.format};
         auto it = clCache_.find(key);
         if (it == clCache_.end()) {
             try {
-                auto cl = std::make_shared<nxr::manifold::ops::laplacian::connection::ConnectionLaplacian>(
-                    nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(*ctx_, o));
+                auto cl = std::make_shared<nxr::operators::laplacian::connection::ConnectionLaplacian>(
+                    nxr::operators::laplacian::connection::assembleConnectionLaplacian(*ctx_, o));
                 it = clCache_.emplace(key, std::move(cl)).first;
             } catch (const nxr::core::Error& e) {
                 std::string msg = "[";
@@ -268,17 +285,17 @@ public:
                 throw std::runtime_error(msg);
             }
         }
-        const nxr::manifold::ops::laplacian::connection::ConnectionLaplacian& cl = *it->second;
+        const nxr::operators::laplacian::connection::ConnectionLaplacian& cl = *it->second;
 
         const char* domainStr =
-            cl.domain == nxr::manifold::ops::laplacian::connection::ConnectionDomain::Vertex              ? "vertex" :
-            cl.domain == nxr::manifold::ops::laplacian::connection::ConnectionDomain::Face                ? "face"   :
-            cl.domain == nxr::manifold::ops::laplacian::connection::ConnectionDomain::EdgeCrouzeixRaviart ? "edge"   : "?";
+            cl.domain == nxr::operators::laplacian::connection::ConnectionDomain::Vertex              ? "vertex" :
+            cl.domain == nxr::operators::laplacian::connection::ConnectionDomain::Face                ? "face"   :
+            cl.domain == nxr::operators::laplacian::connection::ConnectionDomain::EdgeCrouzeixRaviart ? "edge"   : "?";
         const char* formatStr =
-            cl.format == nxr::manifold::ops::laplacian::connection::ConnectionLaplacianFormat::Real2N ? "real2N" : "complex";
+            cl.format == nxr::operators::laplacian::connection::ConnectionLaplacianFormat::Real2N ? "real2N" : "complex";
 
         val out = val::object();
-        if (cl.format == nxr::manifold::ops::laplacian::connection::ConnectionLaplacianFormat::Real2N) {
+        if (cl.format == nxr::operators::laplacian::connection::ConnectionLaplacianFormat::Real2N) {
             out.set("K", sparseToVal(cl.K_real));
         } else {
             out.set("K", sparseComplexToVal(cl.K_complex));
@@ -301,8 +318,8 @@ public:
     // ({row,col,realData,imagData}); 'dec' returns { d0, d1 }. Same matrices the
     // internal solvers use (single source of truth — the Manifold operators facet).
     val operators(std::string family, val arg) {
-        namespace cl = nxr::manifold::ops::laplacian::connection;
-        nxr::manifold::Manifold& m = *ctx_;
+        namespace cl = nxr::operators::laplacian::connection;
+        nxr::geometry::Manifold& m = *ctx_;
         const bool hasNum = arg.isNumber();
         const std::string sub = arg.isString() ? arg.as<std::string>() : "";
         try {
@@ -374,7 +391,7 @@ public:
 
     // Named-operator eigensolve — assembles the operator AND its natural
     // generalized mass C++-side (no JS-side ⊗I₄, one boundary crossing) and
-    // eigensolves via the shared solve::eigenOperator (single source of truth).
+    // eigensolves via the shared operators::eigenOperator (single source of truth).
     // opts: { operator: 'laplacian'|'cotan'|'graph'|'dirac'|'diracFace',
     //         subtype?: 'cotan'|'graph',           // when operator === 'laplacian'
     //         tau?: number,                        // dirac / diracFace blend ∈ [0,1]
@@ -389,31 +406,31 @@ public:
         if (opts.isNull() || opts.isUndefined() || opts["operator"].isUndefined())
             throw std::runtime_error("[INVALID_INPUT] eigs: expected { operator, k, ... }.");
         try {
-            nxr::manifold::solve::EigenOperatorSpec spec;
+            nxr::operators::EigenOperatorSpec spec;
             const std::string op = opts["operator"].as<std::string>();
             int blockSize = 1;
             if (op == "laplacian") {
                 const std::string sub = opts["subtype"].isUndefined() ? "" : opts["subtype"].as<std::string>();
-                if      (sub == "cotan") spec.op = nxr::manifold::solve::EigenOperator::LaplacianCotan;
-                else if (sub == "graph") spec.op = nxr::manifold::solve::EigenOperator::LaplacianGraph;
+                if      (sub == "cotan") spec.op = nxr::operators::EigenOperator::LaplacianCotan;
+                else if (sub == "graph") spec.op = nxr::operators::EigenOperator::LaplacianGraph;
                 else throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                     "eigs laplacian: subtype must be cotan|graph.");
             } else if (op == "cotan") {
-                spec.op = nxr::manifold::solve::EigenOperator::LaplacianCotan;
+                spec.op = nxr::operators::EigenOperator::LaplacianCotan;
             } else if (op == "graph") {
-                spec.op = nxr::manifold::solve::EigenOperator::LaplacianGraph;
+                spec.op = nxr::operators::EigenOperator::LaplacianGraph;
             } else if (op == "dirac") {
-                spec.op = nxr::manifold::solve::EigenOperator::Dirac; blockSize = 4;
+                spec.op = nxr::operators::EigenOperator::Dirac; blockSize = 4;
             } else if (op == "diracFace") {
-                spec.op = nxr::manifold::solve::EigenOperator::DiracFace; blockSize = 4;
+                spec.op = nxr::operators::EigenOperator::DiracFace; blockSize = 4;
             } else if (op == "hodgeDirac") {
-                spec.op = nxr::manifold::solve::EigenOperator::HodgeDirac;
+                spec.op = nxr::operators::EigenOperator::HodgeDirac;
             } else if (op == "spinExtrinsic") {
-                spec.op = nxr::manifold::solve::EigenOperator::SpinExtrinsic; blockSize = 4;
+                spec.op = nxr::operators::EigenOperator::SpinExtrinsic; blockSize = 4;
             } else if (op == "spinIntrinsicHY") {
-                spec.op = nxr::manifold::solve::EigenOperator::SpinIntrinsicHY; blockSize = 4;
+                spec.op = nxr::operators::EigenOperator::SpinIntrinsicHY; blockSize = 4;
             } else if (op == "spinIntrinsicYe") {
-                spec.op = nxr::manifold::solve::EigenOperator::SpinIntrinsicYe; blockSize = 4;
+                spec.op = nxr::operators::EigenOperator::SpinIntrinsicYe; blockSize = 4;
             } else {
                 throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                     "eigs: operator must be laplacian|cotan|graph|dirac|diracFace|hodgeDirac|spinExtrinsic|spinIntrinsicHY|spinIntrinsicYe.");
@@ -425,17 +442,17 @@ public:
 
             if (!opts["tau"].isUndefined())  spec.tau  = opts["tau"].as<double>();
             if (!opts["mass"].isUndefined())
-                spec.mass = nxr::manifold::ops::parseMassMatrixVariant(opts["mass"].as<std::string>());
+                spec.mass = nxr::operators::parseMassMatrixVariant(opts["mass"].as<std::string>());
             if (opts["k"].isUndefined())
                 throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "eigs: k is required.");
 
             const int    k          = opts["k"].as<int>();
-            const double sigma      = opts["sigma"].isUndefined()      ? nxr::manifold::solve::kShiftLadder : opts["sigma"].as<double>();
+            const double sigma      = opts["sigma"].isUndefined()      ? nxr::operators::kShiftLadder : opts["sigma"].as<double>();
             const bool   normalize  = opts["normalize"].isUndefined()  ? true  : opts["normalize"].as<bool>();
             const bool   multiplets = opts["multiplets"].isUndefined() ? false : opts["multiplets"].as<bool>();
             const bool   dense      = opts["dense"].isUndefined()      ? false : opts["dense"].as<bool>();
 
-            nxr::manifold::solve::EigenResult r = nxr::manifold::solve::eigenOperator(
+            nxr::operators::EigenResult r = nxr::operators::eigenOperator(
                 *ctx_, spec, k, sigma, normalize, multiplets, dense);
             val out = eigenResultToVal(r);
             out.set("blockSize", blockSize);
@@ -448,7 +465,7 @@ public:
     /** Per-VERTEX tangent frames — the vertex connection Laplacian's gauge
      *  (geometry-central vertexTangentBasis). Parity with node/MEX 'vertexFrames'. */
     val vertexFrames() {
-        auto f = nxr::manifold::geometry::vertexFrames(*ctx_);
+        auto f = nxr::geometry::vertexFrames(*ctx_);
         val obj = val::object();
         obj.set("e1",      eigenMatrixToVal(f.e1));
         obj.set("e2",      eigenMatrixToVal(f.e2));
@@ -457,7 +474,7 @@ public:
     }
 
     val frames() {
-        auto frames = nxr::manifold::geometry::frames(*ctx_);
+        auto frames = nxr::geometry::frames(*ctx_);
         val obj = val::object();
         obj.set("e1",      eigenMatrixToVal(frames.e1));
         obj.set("e2",      eigenMatrixToVal(frames.e2));
@@ -466,8 +483,8 @@ public:
     }
 
     val normals(int type) {
-        nxr::manifold::geometry::NormalType nt = static_cast<nxr::manifold::geometry::NormalType>(type);
-        Eigen::MatrixXd N = nxr::manifold::geometry::normals(*ctx_, nt);
+        nxr::geometry::NormalType nt = static_cast<nxr::geometry::NormalType>(type);
+        Eigen::MatrixXd N = nxr::geometry::normals(*ctx_, nt);
         return eigenMatrixToVal(N);
     }
 
@@ -506,7 +523,7 @@ public:
         }
 
         try {
-            nxr::manifold::solve::EigenResult r = nxr::manifold::solve::eigen(
+            nxr::operators::EigenResult r = nxr::operators::eigen(
                 ops_->cotanLaplacian, ops_->mass, k, sigma,
                 /*normalize=*/false, /*removeDC=*/false, cancel, progress);
             return eigenResultToVal(r);
@@ -538,13 +555,13 @@ public:
                 U(r, c) = vec[r * cols + c];
             }
         }
-        Eigen::MatrixXd Un = nxr::manifold::solve::normalize(U, ops_->mass);
+        Eigen::MatrixXd Un = nxr::operators::normalize(U, ops_->mass);
         return eigenMatrixToVal(Un);
     }
 
     val removeDC(val eigStruct) {
-        nxr::manifold::solve::EigenResult r = valToEigenResult(eigStruct);
-        nxr::manifold::solve::EigenResult t = nxr::manifold::solve::removeDC(r);
+        nxr::operators::EigenResult r = valToEigenResult(eigStruct);
+        nxr::operators::EigenResult t = nxr::operators::removeDC(r);
         return eigenResultToVal(t);
     }
 
@@ -555,12 +572,12 @@ public:
         ensureOps();
         ensureDec();
 
-        nxr::manifold::solve::EigenResult eig = nxr::manifold::solve::eigen(
+        nxr::operators::EigenResult eig = nxr::operators::eigen(
             ops_->cotanLaplacian, ops_->mass, k, sigma,
             /*normalize=*/true, /*removeDC=*/true);
-        eigCache_ = std::make_unique<nxr::manifold::solve::EigenResult>(eig);
+        eigCache_ = std::make_unique<nxr::operators::EigenResult>(eig);
 
-        auto frames = nxr::manifold::geometry::frames(*ctx_);
+        auto frames = nxr::geometry::frames(*ctx_);
 
         val out = val::object();
         out.set("operators",  meshOpsToVal());
@@ -585,19 +602,19 @@ public:
         }
         std::map<int, double> srcMap;
         for (std::size_t i = 0; i < verts.size(); i++) srcMap[verts[i]] = vals[i];
-        Eigen::VectorXd phi = nxr::manifold::solve::poisson(*ops_, *cache_, srcMap);
+        Eigen::VectorXd phi = nxr::operators::poisson(*ops_, *cache_, srcMap);
         return eigenVectorToVal(phi);
     }
 
     val heat(val sourceVertsArr) {
         ensureHeatGeo();
         auto sources = emscripten::convertJSArrayToNumberVector<int>(sourceVertsArr);
-        Eigen::VectorXd d = nxr::manifold::solve::heat(*heatGeo_, sources);
+        Eigen::VectorXd d = nxr::geometry::heat(*heatGeo_, sources);
         return eigenVectorToVal(d);
     }
 
     val tracePath(int vStart, int vEnd) {
-        nxr::manifold::query::GeodesicPath path = nxr::manifold::query::tracePathSurface(*ctx_, vStart, vEnd);
+        nxr::geometry::query::GeodesicPath path = nxr::geometry::query::tracePathSurface(*ctx_, vStart, vEnd);
         val out = val::object();
         out.set("positions", eigenMatrixToVal(path.positions));
         out.set("nPoints",   static_cast<int>(path.positions.rows()));
@@ -613,13 +630,13 @@ public:
 
     // the exact (MMP) geodesic distance between two vertices, mesh units
     double exactDistance(int vStart, int vEnd) {
-        return nxr::manifold::query::exactDistance(*ctx_, vStart, vEnd);
+        return nxr::geometry::query::exactDistance(*ctx_, vStart, vEnd);
     }
 
     val hodge(val omegaArr) {
         ensureDec();
         Eigen::VectorXd omega = valToEigenVector(omegaArr);
-        nxr::manifold::solve::HodgeResult h = nxr::manifold::solve::hodge(*ctx_, *dec_, *cache_, omega);
+        nxr::operators::HodgeResult h = nxr::operators::hodge(*ctx_, *dec_, *cache_, omega);
         val o = val::object();
         o.set("exactPotential",     eigenVectorToVal(h.exactPotential));
         o.set("coExactPotentialV",  eigenVectorToVal(h.coExactPotentialV));
@@ -635,7 +652,7 @@ public:
     }
 
     val curvatures() {
-        nxr::manifold::geometry::CurvatureResult c = nxr::manifold::geometry::curvatures(*ctx_);
+        nxr::geometry::CurvatureResult c = nxr::geometry::curvatures(*ctx_);
         val o = val::object();
         o.set("gaussian",     eigenVectorToVal(c.gaussian));
         o.set("mean",         eigenVectorToVal(c.mean));
@@ -646,13 +663,13 @@ public:
     }
 
     val bff() {
-        Eigen::MatrixXd uvs = nxr::manifold::parametrization::bff(*ctx_);
+        Eigen::MatrixXd uvs = nxr::geometry::parametrization::bff(*ctx_);
         return eigenMatrixToVal(uvs);
     }
 
     val isoline(val scalarsArr, int numLevels, double minVal, double maxVal) {
         Eigen::VectorXd scalars = valToEigenVector(scalarsArr);
-        nxr::field::extract::IsolineResult r = nxr::field::extract::isoline(*ctx_, scalars, numLevels, minVal, maxVal);
+        nxr::signal::IsolineResult r = nxr::signal::isoline(*ctx_, scalars, numLevels, minVal, maxVal);
         val out = val::object();
         out.set("positions",    eigenMatrixToVal(r.positions));
         out.set("segmentCount", r.segmentCount);
@@ -665,7 +682,7 @@ public:
         auto vals  = emscripten::convertJSArrayToNumberVector<double>(singValuesArr);
         std::map<int, double> singMap;
         for (std::size_t i = 0; i < verts.size(); i++) singMap[verts[i]] = vals[i];
-        nxr::manifold::connection::DirectionFieldResult r = nxr::manifold::connection::trivial(*ctx_, *dec_, *cache_, singMap);
+        nxr::geometry::connection::DirectionFieldResult r = nxr::geometry::connection::trivial(*ctx_, *dec_, *cache_, singMap);
         val o = val::object();
         o.set("connections",         eigenVectorToVal(r.connections));
         o.set("directionVectors",    eigenMatrixToVal(r.directionVectors));
@@ -687,7 +704,7 @@ public:
             faceField(i, 1) = vec[i * 3 + 1];
             faceField(i, 2) = vec[i * 3 + 2];
         }
-        nxr::field::extract::StreamlineResult r = nxr::field::extract::streamline(*ctx_, faceField, numSeeds, stepCoef, maxSteps);
+        nxr::signal::StreamlineResult r = nxr::signal::streamline(*ctx_, faceField, numSeeds, stepCoef, maxSteps);
         val o = val::object();
         o.set("positions",    eigenMatrixToVal(r.positions));
         o.set("segmentCount", r.segmentCount);
@@ -699,13 +716,13 @@ public:
     val whitney(val oneFormArr) {
         ensureDec();
         Eigen::VectorXd omega = valToEigenVector(oneFormArr);
-        Eigen::MatrixXd faceVecs = nxr::field::interp::whitney(*ctx_, *dec_, omega);
+        Eigen::MatrixXd faceVecs = nxr::signal::whitney(*ctx_, *dec_, omega);
         return eigenMatrixToVal(faceVecs);
     }
 
     val gradient(val scalarArr) {
         Eigen::VectorXd s = valToEigenVector(scalarArr);
-        Eigen::MatrixXd grad = nxr::field::op::gradient(*ctx_, s);
+        Eigen::MatrixXd grad = nxr::operators::gradient(*ctx_, s);
         return eigenMatrixToVal(grad);
     }
 
@@ -723,9 +740,9 @@ public:
         auto vals  = emscripten::convertJSArrayToNumberVector<double>(sourceValuesArr);
         std::map<int, double> sources;
         for (std::size_t i = 0; i < verts.size(); i++) sources[verts[i]] = vals[i];
-        Eigen::VectorXd u0 = nxr::field::generate::delta(ctx_->nV(), sources);
+        Eigen::VectorXd u0 = nxr::synthesis::delta(ctx_->nV(), sources);
         std::vector<double> ts = valToDoubleVector(timestepsArr);
-        Eigen::MatrixXf field = nxr::field::generate::heatDiffusion(
+        Eigen::MatrixXf field = nxr::synthesis::heatDiffusion(
             *ops_, *eigCache_, u0, ts, alpha);
         val out = val::object();
         out.set("data", eigenMatrixFloat32ToVal(field));
@@ -747,7 +764,7 @@ public:
         auto da  = valToDoubleVector(dampingsArr);
         auto ph  = valToDoubleVector(phasesArr);
         auto ts  = valToDoubleVector(timestepsArr);
-        Eigen::MatrixXf field = nxr::field::generate::dampedWave(
+        Eigen::MatrixXf field = nxr::synthesis::dampedWave(
             *eigCache_, mi, am, da, ph, ts);
         val out = val::object();
         out.set("data", eigenMatrixFloat32ToVal(field));
@@ -759,7 +776,7 @@ public:
     val randomDecomposed1Form(double alphaStrength, double betaStrength,
                                       double gammaStrength, int seed) {
         ensureDec();
-        Eigen::VectorXd omega = nxr::field::generate::randomDecomposed1Form(
+        Eigen::VectorXd omega = nxr::synthesis::randomDecomposed1Form(
             *dec_, ctx_->nV(), ctx_->nE(), ctx_->nF(),
             alphaStrength, betaStrength, gammaStrength,
             static_cast<unsigned int>(seed));
@@ -781,7 +798,7 @@ public:
             S(i, 1) = vecs[i * 3 + 1];
             S(i, 2) = vecs[i * 3 + 2];
         }
-        Eigen::MatrixXd out = nxr::manifold::transport::parallel(*vhm_, verts, S);
+        Eigen::MatrixXd out = nxr::geometry::transport::parallel(*vhm_, verts, S);
         return eigenMatrixToVal(out);
     }
 
@@ -794,14 +811,14 @@ public:
         }
         Eigen::VectorXd vv(vals.size());
         for (std::size_t i = 0; i < vals.size(); i++) vv[i] = vals[i];
-        Eigen::VectorXd out = nxr::manifold::transport::extendScalar(*vhm_, verts, vv);
+        Eigen::VectorXd out = nxr::geometry::transport::extendScalar(*vhm_, verts, vv);
         return eigenVectorToVal(out);
     }
 
     val logMap(int sourceVertex, int strategy) {
         ensureVHM();
-        auto s = static_cast<nxr::manifold::transport::LogMapStrategy>(strategy);
-        nxr::manifold::transport::LogMapResult r = nxr::manifold::transport::logMap(*vhm_, sourceVertex, s);
+        auto s = static_cast<nxr::geometry::transport::LogMapStrategy>(strategy);
+        nxr::geometry::transport::LogMapResult r = nxr::geometry::transport::logMap(*vhm_, sourceVertex, s);
         val obj = val::object();
         obj.set("logCoords", eigenMatrixToVal(r.logCoords));
         double e1[3] = {r.sourceE1.x(), r.sourceE1.y(), r.sourceE1.z()};
@@ -814,7 +831,7 @@ public:
     val findCenter(val sourceVertsArr, int p) {
         ensureVHM();
         auto verts = emscripten::convertJSArrayToNumberVector<int>(sourceVertsArr);
-        Eigen::Vector3d c = nxr::manifold::transport::findCenter(*vhm_, verts, p);
+        Eigen::Vector3d c = nxr::geometry::transport::findCenter(*vhm_, verts, p);
         double xyz[3] = {c.x(), c.y(), c.z()};
         return toJsArrayCopy(xyz, 3);
     }
@@ -824,8 +841,8 @@ public:
     val signedHeat(val curveVertsArr, bool isLoop, int levelSet) {
         ensureSHS();
         auto verts = emscripten::convertJSArrayToNumberVector<int>(curveVertsArr);
-        auto ls    = static_cast<nxr::manifold::solve::SignedHeatLevelSet>(levelSet);
-        Eigen::VectorXd out = nxr::manifold::solve::signedHeat(*shs_, verts, isLoop, ls);
+        auto ls    = static_cast<nxr::geometry::SignedHeatLevelSet>(levelSet);
+        Eigen::VectorXd out = nxr::geometry::signedHeat(*shs_, verts, isLoop, ls);
         return eigenVectorToVal(out);
     }
 
@@ -847,7 +864,7 @@ public:
         if (it != smoothFaceFieldCache_.end()) {
             return eigenMatrixToVal(it->second);
         }
-        Eigen::MatrixXd v = nxr::manifold::connection::smoothFace(*ctx_, nSym, alignToCurvature);
+        Eigen::MatrixXd v = nxr::geometry::connection::smoothFace(*ctx_, nSym, alignToCurvature);
         smoothFaceFieldCache_.emplace(key, v);
         return eigenMatrixToVal(v);
     }
@@ -863,8 +880,8 @@ public:
             obj.set("nSym",           r.nSym);
             return obj;
         }
-        nxr::manifold::connection::SmoothVertexFieldResult r =
-            nxr::manifold::connection::smoothVertex(*ctx_, nSym, alignToCurvature);
+        nxr::geometry::connection::SmoothVertexFieldResult r =
+            nxr::geometry::connection::smoothVertex(*ctx_, nSym, alignToCurvature);
         val obj = val::object();
         obj.set("vertexVectors",  eigenMatrixToVal(r.vertexVectors));
         obj.set("vertexFieldRaw", eigenVectorToVal(r.vertexFieldRaw));
@@ -878,7 +895,7 @@ public:
     val compute(val vertexFieldArr, double uniformFrequency,
                              bool connectOnSingularities) {
         Eigen::VectorXd raw = valToEigenVector(vertexFieldArr);
-        nxr::manifold::parametrization::stripes::StripePatternResult r = nxr::manifold::parametrization::stripes::compute(
+        nxr::geometry::parametrization::stripes::StripePatternResult r = nxr::geometry::parametrization::stripes::compute(
             *ctx_, raw, uniformFrequency, connectOnSingularities);
         val obj = val::object();
         obj.set("positions",    eigenMatrixToVal(r.positions));
@@ -890,7 +907,7 @@ public:
                                  bool connectOnSingularities) {
         Eigen::VectorXd raw   = valToEigenVector(vertexFieldArr);
         Eigen::VectorXd freqs = valToEigenVector(freqsArr);
-        nxr::manifold::parametrization::stripes::StripePatternResult r = nxr::manifold::parametrization::stripes::computeFreq(
+        nxr::geometry::parametrization::stripes::StripePatternResult r = nxr::geometry::parametrization::stripes::computeFreq(
             *ctx_, raw, freqs, connectOnSingularities);
         val obj = val::object();
         obj.set("positions",    eigenMatrixToVal(r.positions));
@@ -901,21 +918,21 @@ public:
 private:
     // Lazy state (matches the addon's ContextHolder caching).
     void ensureOps() {
-        if (!ops_) ops_ = std::make_unique<nxr::manifold::ops::ManifoldOperators>(
-            nxr::manifold::ops::assembleManifoldOperators(*ctx_));
+        if (!ops_) ops_ = std::make_unique<nxr::operators::ManifoldOperators>(
+            nxr::operators::assembleManifoldOperators(*ctx_));
     }
     void ensureDec() {
-        if (!dec_) dec_ = std::make_unique<nxr::manifold::ops::DECOperators>(
-            nxr::manifold::ops::assembleDECOperators(*ctx_));
+        if (!dec_) dec_ = std::make_unique<nxr::operators::DECOperators>(
+            nxr::operators::assembleDECOperators(*ctx_));
     }
     void ensureVHM() {
-        if (!vhm_) vhm_ = std::make_unique<nxr::manifold::transport::VectorHeatSolver>(*ctx_);
+        if (!vhm_) vhm_ = std::make_unique<nxr::geometry::transport::VectorHeatSolver>(*ctx_);
     }
     void ensureSHS() {
-        if (!shs_) shs_ = std::make_unique<nxr::manifold::solve::SignedHeatSolver>(*ctx_);
+        if (!shs_) shs_ = std::make_unique<nxr::geometry::SignedHeatSolver>(*ctx_);
     }
     void ensureHeatGeo() {
-        if (!heatGeo_) heatGeo_ = std::make_unique<nxr::manifold::solve::HeatGeodesicSolver>(*ctx_);
+        if (!heatGeo_) heatGeo_ = std::make_unique<nxr::geometry::HeatGeodesicSolver>(*ctx_);
     }
 
     val meshOpsToVal() {
@@ -924,9 +941,9 @@ private:
         o.set("cotanLaplacian",  sparseToVal(ops_->cotanLaplacian));
         o.set("mass",            sparseToVal(ops_->mass));
         o.set("massVariant",     std::string(
-            ops_->massVariant == nxr::manifold::ops::MassMatrixVariant::MixedVoronoi ? "mixedVoronoi" :
-            ops_->massVariant == nxr::manifold::ops::MassMatrixVariant::Barycentric  ? "barycentric"  :
-            ops_->massVariant == nxr::manifold::ops::MassMatrixVariant::Galerkin     ? "galerkin" : "?"));
+            ops_->massVariant == nxr::operators::MassMatrixVariant::MixedVoronoi ? "mixedVoronoi" :
+            ops_->massVariant == nxr::operators::MassMatrixVariant::Barycentric  ? "barycentric"  :
+            ops_->massVariant == nxr::operators::MassMatrixVariant::Galerkin     ? "galerkin" : "?"));
         o.set("vertexDualAreas", eigenVectorToVal(ops_->vertexDualAreas));
         o.set("vertexNormals",   eigenMatrixToVal(ops_->vertexNormals));
         o.set("totalArea",       ops_->totalArea);
@@ -948,7 +965,7 @@ private:
         return o;
     }
 
-    val eigenResultToVal(const nxr::manifold::solve::EigenResult& r) {
+    val eigenResultToVal(const nxr::operators::EigenResult& r) {
         val o = val::object();
         // vMajor row-major: U[v*K + k]. Matches the cortical-flow
         // Zarr schema (manifold/eigenmodes/eigenvectors stored as
@@ -964,8 +981,8 @@ private:
         return o;
     }
 
-    nxr::manifold::solve::EigenResult valToEigenResult(const val& s) {
-        nxr::manifold::solve::EigenResult r;
+    nxr::operators::EigenResult valToEigenResult(const val& s) {
+        nxr::operators::EigenResult r;
         val uField = s["eigenvectors"];
         val lField = s["eigenvalues"];
         auto uVec = emscripten::convertJSArrayToNumberVector<double>(uField);
@@ -986,28 +1003,28 @@ private:
         return r;
     }
 
-    std::unique_ptr<nxr::manifold::Manifold>     ctx_;
-    std::unique_ptr<nxr::manifold::ops::ManifoldOperators>      ops_;
-    std::unique_ptr<nxr::manifold::ops::DECOperators>       dec_;
-    std::unique_ptr<nxr::manifold::ops::CholeskyCache>      cache_;
-    std::unique_ptr<nxr::manifold::solve::EigenResult>        eigCache_;
-    std::unique_ptr<nxr::manifold::transport::VectorHeatSolver>   vhm_;
-    std::unique_ptr<nxr::manifold::solve::SignedHeatSolver>   shs_;
-    std::unique_ptr<nxr::manifold::solve::HeatGeodesicSolver> heatGeo_;
+    std::unique_ptr<nxr::geometry::Manifold>     ctx_;
+    std::unique_ptr<nxr::operators::ManifoldOperators>      ops_;
+    std::unique_ptr<nxr::operators::DECOperators>       dec_;
+    std::unique_ptr<nxr::operators::CholeskyCache>      cache_;
+    std::unique_ptr<nxr::operators::EigenResult>        eigCache_;
+    std::unique_ptr<nxr::geometry::transport::VectorHeatSolver>   vhm_;
+    std::unique_ptr<nxr::geometry::SignedHeatSolver>   shs_;
+    std::unique_ptr<nxr::geometry::HeatGeodesicSolver> heatGeo_;
     // Smooth-field result caches — keyed by (nSym, alignToCurvature).
     // Stored by value so the cache owns the data; lookups copy back
     // out to JS via toJsArrayCopy on each return.
     std::map<std::pair<int, bool>, Eigen::MatrixXd>                       smoothFaceFieldCache_;
-    std::map<std::pair<int, bool>, nxr::manifold::connection::SmoothVertexFieldResult> smoothVertexFieldCache_;
+    std::map<std::pair<int, bool>, nxr::geometry::connection::SmoothVertexFieldResult> smoothVertexFieldCache_;
     // Connection-Laplacian result cache — keyed by all four assembly
     // options. Stored by shared_ptr so callers can hold references
     // without keeping the entire ContextWrapper alive longer than
     // intended.
-    using CLKey = std::tuple<nxr::manifold::ops::laplacian::connection::ConnectionDomain,
+    using CLKey = std::tuple<nxr::operators::laplacian::connection::ConnectionDomain,
                               int,
                               double,
-                              nxr::manifold::ops::laplacian::connection::ConnectionLaplacianFormat>;
-    std::map<CLKey, std::shared_ptr<nxr::manifold::ops::laplacian::connection::ConnectionLaplacian>>   clCache_;
+                              nxr::operators::laplacian::connection::ConnectionLaplacianFormat>;
+    std::map<CLKey, std::shared_ptr<nxr::operators::laplacian::connection::ConnectionLaplacian>>   clCache_;
     std::vector<double>  verts_;
     std::vector<int>     faces_;
     std::vector<int32_t> faces32_;
@@ -1109,7 +1126,7 @@ val solveEigenmodesFromTriplets(
     }
 
     try {
-        nxr::manifold::solve::EigenResult r = nxr::manifold::solve::eigen(
+        nxr::operators::EigenResult r = nxr::operators::eigen(
             K, M, k, sigma,
             /*normalize=*/false, /*removeDC=*/false, cancel, progress);
         // Build the JS return object inline (mirrors ContextWrapper's
@@ -1141,7 +1158,7 @@ val solveEigenmodesFromTriplets(
 // names match the MEX struct fields exactly so downstream consumers work
 // identically against either binding.
 emscripten::val operatorInfoJS(std::string id) {
-    using namespace nxr::manifold::registry;
+    using namespace nxr::operators::registry;
     const OperatorVariant* v = operatorById(id);
     if (!v) {
         try {
@@ -1181,7 +1198,7 @@ emscripten::val operatorInfoJS(std::string id) {
 // names match the MEX struct fields exactly so downstream consumers work
 // identically against either binding.
 emscripten::val fieldInfoJS(std::string id) {
-    using namespace nxr::manifold::registry;
+    using namespace nxr::operators::registry;
     const FieldVariant* v = fieldById(id);
     if (!v) {
         try {

@@ -4,7 +4,8 @@
 #include <cstring>
 #include <filesystem>
 
-#include "nxr/chart.h"
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/pipelines/task.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg_internal.h"
@@ -13,7 +14,7 @@ namespace nxr::pipelines {
 
 using namespace nxr::io;
 namespace fs = std::filesystem;
-using nxr::frames::Mat3;
+using nxr::geometry::Mat3;
 
 namespace {
 [[noreturn]] void invalid(const std::string& m) { throw Error(code::invalid_argument, m); }
@@ -47,8 +48,8 @@ std::optional<std::vector<std::int32_t>> indices_named(SubjectWriter& sub, const
 std::optional<SurfaceInput> sphere_of(SubjectWriter& sub, const std::string& surface) {
   try { return read_surface(sub, surface + "_sphere", true); } catch (const Error& e) { if (e.code() == code::no_such_row) return std::nullopt; throw; }
 }
-nxr::frames::Axes axes_of(const std::string& convention) {
-  nxr::frames::Axes a;
+nxr::geometry::Axes axes_of(const std::string& convention) {
+  nxr::geometry::Axes a;
   if (convention == "scs") return a;
   if (convention == "ras") { a.anterior = {0, 1, 0}; a.superior = {0, 0, 1}; a.left = {-1, 0, 0}; return a; }
   invalid("frames: convention is scs or ras");
@@ -57,14 +58,14 @@ Json vec_json(const Eigen::Vector3d& v) { return Json::array({v.x(), v.y(), v.z(
 }  // namespace
 
 Json gauge_block(nxr::chart::ChartKit& kit, int n_vertices, const std::string& surface_id) {
-  std::vector<const nxr::manifold::IntrinsicSurface*> seen;
+  std::vector<const nxr::geometry::IntrinsicSurface*> seen;
   std::string fingerprint;
   Json rec;
   for (int v = 0; v < n_vertices; ++v) {
-    nxr::manifold::IntrinsicSurface& s = kit.surfaceOf(v);
+    nxr::geometry::IntrinsicSurface& s = kit.surfaceOf(v);
     if (std::find(seen.begin(), seen.end(), &s) != seen.end()) continue;
     seen.push_back(&s);
-    const nxr::manifold::IntrinsicRecord& r = s.record();
+    const nxr::geometry::IntrinsicRecord& r = s.record();
     fingerprint += (fingerprint.empty() ? "" : "+") + r.fingerprint;
     if (rec.is_null()) rec = Json{{"gauge", r.gauge}, {"mollify", r.mollify}, {"epsilon", r.epsilon}, {"flipEps", r.flipEps}, {"mass", r.mass}, {"boundary_vertices", 0}};
     rec["epsilon"] = std::max(rec["epsilon"].get<double>(), r.epsilon);
@@ -94,7 +95,7 @@ StoredFrames read_stored_frames(SubjectWriter& sub, const std::string& surface, 
     std::vector<char> isrel(static_cast<std::size_t>(N), 0);
     for (std::int32_t i : *rel) if (i >= 0 && i < N) isrel[static_cast<std::size_t>(i)] = 1;
     if (static_cast<std::int64_t>(a.size()) != N) invalid(surface + "_anatomical_angle: " + std::to_string(a.size()) + " values for " + std::to_string(N) + " vertices");
-    nxr::frames::Anatomical& an = s.anatomy;
+    nxr::geometry::Anatomical& an = s.anatomy;
     an.angle.resize(N); an.projection = Eigen::VectorXd::Constant(N, std::numeric_limits<double>::quiet_NaN());
     an.second.resize(static_cast<std::size_t>(N)); an.handed.resize(static_cast<std::size_t>(N)); an.reliable.resize(static_cast<std::size_t>(N));
     for (std::int64_t i = 0; i < N; ++i) {
@@ -118,7 +119,7 @@ FramesMade make_frames(DatasetWriter* dsp, SubjectWriter& sub, const FramesCompu
   const SurfaceInput S = read_surface(sub, opt.surface, true);   // float64 as stored (Rheome and nxr compute the frames in double)
   const int nV = static_cast<int>(S.n_vertices()), nF = static_cast<int>(S.n_faces());
   const std::string sname = S.name;
-  const Mat3 normals = nxr::frames::vertexNormals(S.vertices.data(), nV, S.faces.data(), nF);
+  const Mat3 normals = nxr::geometry::vertexNormals(S.vertices.data(), nV, S.faces.data(), nF);
   const auto sphere = sphere_of(sub, sname);
   FramesMade res;
   StoredFrames have = read_stored_frames(sub, sname, nV);
@@ -127,7 +128,7 @@ FramesMade make_frames(DatasetWriter* dsp, SubjectWriter& sub, const FramesCompu
   Json angle_gauge;                                                     // the gauge record of the gauge angle (G6)
   Mat3 e1, e2;
   Json canonical_info = Json::object();
-  nxr::frames::Canonical canon;
+  nxr::geometry::Canonical canon;
   bool stored_canon = false;
 
   // the canonical frames: read, or computed from the registered sphere
@@ -138,7 +139,7 @@ FramesMade make_frames(DatasetWriter* dsp, SubjectWriter& sub, const FramesCompu
     if (sphere->n_vertices() != nV) invalid(sname + "_sphere has " + std::to_string(sphere->n_vertices()) + " vertices, the surface " + std::to_string(nV));
     std::vector<double> nn(static_cast<std::size_t>(3 * nV));
     for (int i = 0; i < nV; ++i) for (int k = 0; k < 3; ++k) nn[static_cast<std::size_t>(3 * i + k)] = normals(i, k);
-    canon = nxr::frames::canonicalFrames(S.vertices.data(), nV, S.faces.data(), nF, nn.data(), sphere->vertices.data(), Eigen::Vector3d(0, 0, 1), opt.max_condition);
+    canon = nxr::geometry::canonicalFrames(S.vertices.data(), nV, S.faces.data(), nF, nn.data(), sphere->vertices.data(), Eigen::Vector3d(0, 0, 1), opt.max_condition);
     e1 = canon.e1; e2 = canon.e2;
     stored_canon = true;
     int ns = 0;
@@ -160,18 +161,18 @@ FramesMade make_frames(DatasetWriter* dsp, SubjectWriter& sub, const FramesCompu
   }
   if (stored_canon) {
     nxr::chart::ChartKit k2(S.vertices.data(), nV, S.faces.data(), nF);
-    const Eigen::VectorXd g = nxr::frames::gaugeAngle(k2, e1);
+    const Eigen::VectorXd g = nxr::geometry::gaugeAngle(k2, e1);
     angle_gauge = gauge_block(k2, nV, S.id);
     gauge_angle.resize(static_cast<std::size_t>(nV));
     for (int i = 0; i < nV; ++i) gauge_angle[static_cast<std::size_t>(i)] = static_cast<float>(g[i]);
   }
 
   // the anatomical frame: carried from the template, or from the surface's own axes
-  nxr::frames::AnatomicalOptions ao;
+  nxr::geometry::AnatomicalOptions ao;
   ao.axes = axes_of(opt.convention);
   ao.minProjection = opt.min_projection;
-  ao.side = opt.side == "left" ? nxr::frames::Side::Left : opt.side == "right" ? nxr::frames::Side::Right : nxr::frames::Side::Auto;
-  nxr::frames::Anatomical A;
+  ao.side = opt.side == "left" ? nxr::geometry::Side::Left : opt.side == "right" ? nxr::geometry::Side::Right : nxr::geometry::Side::Auto;
+  nxr::geometry::Anatomical A;
   Json axes = Json{{"anterior", vec_json(ao.axes.anterior)}, {"superior", vec_json(ao.axes.superior)}, {"left", vec_json(ao.axes.left)}, {"convention", opt.convention}};
   if (opt.templ) {
     if (!sphere) invalid(sname + ": no registered sphere (" + sname + "_sphere) to carry a template's frame through");
@@ -184,13 +185,13 @@ FramesMade make_frames(DatasetWriter* dsp, SubjectWriter& sub, const FramesCompu
     const StoredFrames th = read_stored_frames(tsub, T.name, T.n_vertices());
     if (!th.anatomical) invalid(*opt.templ + ": no anatomical frame on " + T.name + " (run frames compute on the template first)");
     if (th.anatomy.reference != "canonical frames") invalid(*opt.templ + ": its anatomical frame is not measured from canonical frames");
-    A = nxr::frames::carryAnatomical(th.anatomy, tsphere->vertices.data(), static_cast<int>(T.n_vertices()), nxr::frames::pieces(T.faces.data(), static_cast<int>(T.n_faces()), static_cast<int>(T.n_vertices())),
-                                     sphere->vertices.data(), nV, nxr::frames::pieces(S.faces.data(), nF, nV), e1);
+    A = nxr::geometry::carryAnatomical(th.anatomy, tsphere->vertices.data(), static_cast<int>(T.n_vertices()), nxr::geometry::pieces(T.faces.data(), static_cast<int>(T.n_faces()), static_cast<int>(T.n_vertices())),
+                                     sphere->vertices.data(), nV, nxr::geometry::pieces(S.faces.data(), nF, nV), e1);
     A.definition = "template:" + *opt.templ;
     A.reference = "canonical frames";
     axes = Json{{"template", *opt.templ}, {"template_surface", T.name}, {"template_definition", th.anatomy.definition}};
   } else {
-    A = nxr::frames::anatomicalFrame(S.vertices.data(), nV, S.faces.data(), nF, normals, ref1, ref2, ao);
+    A = nxr::geometry::anatomicalFrame(S.vertices.data(), nV, S.faces.data(), nF, normals, ref1, ref2, ao);
     A.definition = opt.convention;
     A.reference = reference;
   }

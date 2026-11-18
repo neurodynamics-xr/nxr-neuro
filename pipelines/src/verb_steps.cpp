@@ -9,20 +9,20 @@
 
 #include <Eigen/Dense>
 
-#include "nxr/cores.h"
-#include "nxr/filterbank.h"
+#include "nxr/select/cores.h"
+#include "nxr/signal/graphfilterbank.h"
 #include "nxr/synthesis/lagfree.h"
-#include "nxr/nulltest.h"
+#include "nxr/stats/nulltest.h"
 #include <limits>
 #include <map>
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/registry.h"
 #include "nxr/selection/resolved.h"
 #include "nxr/measurement/reduce.h"
 #include "nxr/pipelines/select_nodes.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/scalespace.h"
-#include "nxr/stats.h"
+#include "nxr/select/scale_selection.h"
+#include "nxr/stats/summary.h"
 
 namespace nxr::pipelines::graph {
 
@@ -124,8 +124,8 @@ StepSpec pointspread_step() {
       }
     std::sort(pairs.begin(), pairs.end());
     pairs.erase(std::unique(pairs.begin(), pairs.end()), pairs.end());
-    nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(Vg); mesh.positions = dom.surface.vertices; mesh.faces = dom.surface.faces;
-    const std::vector<double> va = nxr::ladder::vertexAreas(mesh);
+    nxr::select::Mesh mesh; mesh.n = static_cast<int>(Vg); mesh.positions = dom.surface.vertices; mesh.faces = dom.surface.faces;
+    const std::vector<double> va = nxr::select::vertexAreas(mesh);
     const Eigen::VectorXd area = Eigen::Map<const Eigen::VectorXd>(va.data(), static_cast<Eigen::Index>(va.size()));
     const Eigen::MatrixXd pos = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(dom.surface.vertices.data(), Vg, 3);
     std::vector<int> sample = p.value("list", std::vector<int>());
@@ -193,7 +193,7 @@ StepSpec pointspread_step() {
         for (std::int64_t v = 0; v < Vg; ++v) { Pr(v, 0) = P(v * NL + ref, 0); if (Pr(v, 0) > Pr(peak, 0)) peak = v; }
         const double mx = Pr(peak, 0);
         if (!(mx > 0)) continue;
-        const nxr::cores::Cores C = nxr::cores::corePatches(Pr, pairs, area, pos, fraction * mx, 0);
+        const nxr::select::Cores C = nxr::select::corePatches(Pr, pairs, area, pos, fraction * mx, 0);
         std::int64_t pi = -1;
         for (std::int64_t i = 0; i < C.size(); ++i) if (pi < 0 || C.peak[static_cast<std::size_t>(i)] > C.peak[static_cast<std::size_t>(pi)]) pi = i;
         if (pi < 0) continue;
@@ -201,7 +201,7 @@ StepSpec pointspread_step() {
         Eigen::MatrixXd Pc(NL, 1);
         Eigen::VectorXd n2c(NL);
         for (std::int64_t li = 0; li < NL; ++li) { Pc(li, 0) = P(static_cast<std::int64_t>(cv) * NL + li, 0); n2c[li] = norm2(static_cast<std::int64_t>(cv) * NL + li); }
-        const nxr::scalespace::LevelChoice ch = nxr::scalespace::selectLevel(Pc, n2c, 1);
+        const nxr::select::scale_selection::LevelChoice ch = nxr::select::scale_selection::selectLevel(Pc, n2c, 1);
         std::int64_t src = -1;
         for (std::size_t k = 0; k < dom.support.size(); ++k) if (dom.support[k] == sample[static_cast<std::size_t>(si)]) { src = static_cast<std::int64_t>(k); break; }
         double* r = &out.data[static_cast<std::size_t>((si * 3 + o) * 6)];
@@ -244,7 +244,7 @@ StepSpec lagfree_pairs_step() {
   s.inputs = {"recording", "bursts", "psd"};
   s.outputs = {"per_burst", "run"};
   s.parameters = Json{{"windows", nullptr}, {"band", nullptr}, {"shape", "morlet"}, {"draws", 1000}, {"seed", 0}};
-  s.matches = "Rheome +rheome/+cores pairnull, pairshare, pairdof, bh, tilepq; compute nxr::synthesis::lagfreeSecondMomentDraw, laggedShare, effectiveBandwidth; nxr::nulltest::fixedDrawPs, benjaminiHochbergQ, compareMeanOverMembers";
+  s.matches = "Rheome +rheome/+cores pairnull, pairshare, pairdof, bh, tilepq; compute nxr::synthesis::lagfreeSecondMomentDraw, laggedShare, effectiveBandwidth; nxr::stats::fixedDrawPs, benjaminiHochbergQ, compareMeanOverMembers";
   s.description = "per burst, the lagged share of its sensors' second moment against lag-free Wishart draws of its own zero-lag second moment and degrees of freedom; and the run's mean share against the draws'";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored windows");
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
@@ -278,7 +278,7 @@ StepSpec lagfree_pairs_step() {
     const std::string shape = p.value("shape", std::string("morlet"));
     Eigen::VectorXd freq(nf), gain(nf);
     for (std::int64_t k = 0; k < nf; ++k) freq[k] = static_cast<double>(k) * df;
-    for (std::int64_t k = 0; k < nf; ++k) gain[k] = shape == "morlet" ? nxr::filterbank::morletBand(freq[k], band[0], band[1]) : nxr::filterbank::meyerBand(freq[k], band[0], band[1], 1.0 / 3.0);
+    for (std::int64_t k = 0; k < nf; ++k) gain[k] = shape == "morlet" ? nxr::signal::graphfilterbank::morletBand(freq[k], band[0], band[1]) : nxr::signal::graphfilterbank::meyerBand(freq[k], band[0], band[1], 1.0 / 3.0);
     double Beff = 0;
     try { Beff = nxr::synthesis::effectiveBandwidth(freq, channel_mean_spectrum(P.values, P.shape[0], nf, win.channels), gain); } catch (const std::invalid_argument& e) { refuse(std::string("surrogate.lagfree_pairs: ") + e.what()); }
     // each burst's second moment: the windows wholly inside it summed (a selection of the windows by the burst's span: the windows are read, never recomputed)
@@ -314,10 +314,10 @@ StepSpec lagfree_pairs_step() {
       for (int j = 0; j < draws; ++j)
         null_shares(j, k) = nxr::synthesis::laggedShare(nxr::synthesis::lagfreeSecondMomentDraw(R, dof[static_cast<std::size_t>(k)], seed + static_cast<std::uint64_t>(k) * 7919u, static_cast<std::uint64_t>(j)));
     }
-    nxr::nulltest::Tally tally = nxr::nulltest::emptyTally(B);
-    for (int j = 0; j < draws; ++j) tally = nxr::nulltest::tallyDraw(tally, share, null_shares.row(j).transpose());
-    const Eigen::VectorXd pv = nxr::nulltest::fixedDrawPs(share, tally.upper, draws), q = nxr::nulltest::benjaminiHochbergQ(pv), nullmean = nxr::nulltest::nullMean(tally);
-    const nxr::nulltest::MeanComparison run = nxr::nulltest::compareMeanOverMembers(share, null_shares);
+    nxr::stats::Tally tally = nxr::stats::emptyTally(B);
+    for (int j = 0; j < draws; ++j) tally = nxr::stats::tallyDraw(tally, share, null_shares.row(j).transpose());
+    const Eigen::VectorXd pv = nxr::stats::fixedDrawPs(share, tally.upper, draws), q = nxr::stats::benjaminiHochbergQ(pv), nullmean = nxr::stats::nullMean(tally);
+    const nxr::stats::MeanComparison run = nxr::stats::compareMeanOverMembers(share, null_shares);
     const Json warnings = Json::array({"the surrogate is a zero-lag Gaussian process with the burst's own covariance and `dof` independent samples: a burst beyond it has lags beyond sampling noise, not a wave",
                                        "dof = the burst's duration x the band's effective bandwidth (the PSD's, through the analytic gain): a spectrum with structure inside the band changes it",
                                        "the lagged share is a SENSOR-level quantity (the share of the second moment in quadrature between the sensors)"});

@@ -9,9 +9,9 @@
 
 #include "check.h"
 #include "connectome_helpers.h"
-#include "nxr/connectome.h"
+#include "nxr/meeg/connectome.h"
 #include "nxr/io/subject_package.h"
-#include "nxr/nearest.h"
+#include "nxr/geometry/surface_maps.h"
 #include "nxr/pipelines/dispatch.h"
 #include "nxr/pipelines/registry.h"
 
@@ -83,7 +83,7 @@ int main() {
   const auto ends = run(db, "fiber_ends", Json{{"points_per_fiber", 5}}, {{"fibers", dense(b.points, 200 * 5, 3)}});
   CHECK_EQ(ends.at("end_points").rows, std::int64_t(400));
   const auto near = run(db, "nearest_vertex", Json::object(), {{"points", ends.at("end_points")}, {"positions", positions}});
-  const auto want = nxr::nearest::nearestVertices<double>(vertexPositions, ends.at("end_points").data);
+  const auto want = nxr::geometry::nearest::nearestVertices<double>(vertexPositions, ends.at("end_points").data);
   CHECK(std::vector<std::int32_t>(near.at("vertex").data.begin(), near.at("vertex").data.end()) == want.vertex);
   CHECK(near.at("distance").data == want.distance);
   const auto none = run(db, "end_gate", Json{{"max_end_distance_mm", "none"}}, {{"end_distance", near.at("distance")}});

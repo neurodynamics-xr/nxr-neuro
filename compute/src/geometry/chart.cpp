@@ -4,7 +4,7 @@
 #include <cmath>
 #include <numeric>
 
-#include "nxr/errors.h"
+#include "nxr/core/errors.h"
 
 #include "geometrycentral/surface/heat_method_distance.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"

@@ -19,8 +19,8 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/filterbank.h"
-#include "nxr/frame_tiling.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/resample.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/yaml.h"
@@ -28,7 +28,7 @@
 #include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/taps.h"
+#include "nxr/signal/filters_fir.h"
 #include "make_grids.h"
 
 // the frames of the 8-12 Hz band: the definition `select_time_grid` rule frames gives 36 frames to a cycle of the band's centre (the geometric mean of its ends), exactly (not a power-of-two tile)
@@ -131,13 +131,13 @@ int main() {
   std::vector<SpatialBand> bands;
   for (const int l : lvs) bands.push_back(make_spatial_band(ds, sub, S, read_surface_level(sub, S, l), sbo));
   const std::int64_t Vg = bands[0].glued_vertices, L = static_cast<std::int64_t>(lvs.size());
-  const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 12.0); };
-  const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-  const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(xf.data(), M, T, q, 0, T, true);
+  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
+  const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+  const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(xf.data(), M, T, q, 0, T, true);
   const std::int64_t count = static_cast<std::int64_t>(std::floor(static_cast<double>(T - 1) * fps / sfreq)) + 1;
   std::vector<double> pos(static_cast<std::size_t>(count));
   for (std::int64_t j = 0; j < count; ++j) pos[static_cast<std::size_t>(j)] = static_cast<double>(j) * sfreq / fps;
-  const std::vector<float> Zr = nxr::frametiling::sincInterpolate(re.data(), M, T, pos, 32), Zi = nxr::frametiling::sincInterpolate(im.data(), M, T, pos, 32);   // [M x count]
+  const std::vector<float> Zr = nxr::signal::sincInterpolate(re.data(), M, T, pos, 32), Zi = nxr::signal::sincInterpolate(im.data(), M, T, pos, 32);   // [M x count]
   Eigen::MatrixXd Zre(M, count), Zim(M, count);
   for (int c = 0; c < M; ++c) for (std::int64_t j = 0; j < count; ++j) { Zre(c, j) = Zr[static_cast<std::size_t>(c * count + j)]; Zim(c, j) = Zi[static_cast<std::size_t>(c * count + j)]; }
   Eigen::MatrixXd Kfree(3 * N, M);

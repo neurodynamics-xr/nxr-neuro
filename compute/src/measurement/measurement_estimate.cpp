@@ -43,12 +43,12 @@ Eigen::MatrixXcd SegmentMean::mean() const {
 
 Eigen::MatrixXd SegmentMean::mean_real() const { return mean().real(); }
 
-Histogram Histogram::log_bins(const histogram::LogBins& bins) {
+Histogram Histogram::log_bins(const stats::histogram::LogBins& bins) {
   Histogram h;
   h.log = bins;
   h.counts.assign(static_cast<std::size_t>(bins.bins), 0);
   h.edges.resize(static_cast<std::size_t>(bins.bins));
-  for (int k = 0; k < bins.bins; ++k) h.edges[static_cast<std::size_t>(k)] = histogram::upperEdge(bins, k);
+  for (int k = 0; k < bins.bins; ++k) h.edges[static_cast<std::size_t>(k)] = stats::histogram::upperEdge(bins, k);
   return h;
 }
 
@@ -59,7 +59,7 @@ void Histogram::add(const float* v, std::int64_t n) {
     if (!std::isfinite(x)) { ++nonfinite; continue; }
     if (log) {
       if (x < 0) { ++negative; continue; }
-      ++counts[static_cast<std::size_t>(histogram::binOf(*log, x))];
+      ++counts[static_cast<std::size_t>(stats::histogram::binOf(*log, x))];
     } else {
       const auto it = std::upper_bound(edges.begin(), edges.end(), static_cast<double>(x));
       ++counts[static_cast<std::size_t>(it == edges.end() ? edges.size() - 1 : it - edges.begin())];

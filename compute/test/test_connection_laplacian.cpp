@@ -20,7 +20,24 @@
  * Run:   ./build/test_connection_laplacian
  */
 
-#include "nxr/compute.h"
+#include "nxr/geometry/curvature.h"
+#include "nxr/geometry/parametrization.h"
+#include "nxr/signal/surface_calculus.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/mesh.h"
+#include "nxr/geometry/frames.h"
+#include "nxr/geometry/geodesics.h"
+#include "nxr/geometry/direction_fields.h"
+#include "nxr/geometry/transport.h"
+#include "nxr/geometry/facets.h"
+#include "nxr/operators/cache.h"
+#include "nxr/operators/dec.h"
+#include "nxr/operators/dirac.h"
+#include "nxr/operators/laplacians.h"
+#include "nxr/operators/eigen.h"
+#include "nxr/operators/hodge_decomposition.h"
+#include "nxr/operators/facets.h"
+#include "nxr/synthesis/fields.h"
 
 #include <complex>
 #include <iomanip>
@@ -28,24 +45,24 @@
 #include <string>
 #include <vector>
 
-using namespace nxr::manifold;
-using namespace nxr::manifold::solve;
-using namespace nxr::manifold::ops;
-using namespace nxr::manifold::ops::laplacian::connection;
-using namespace nxr::manifold::transport;
-using namespace nxr::manifold::connection;
-using namespace nxr::manifold::parametrization;
-using namespace nxr::manifold::parametrization::stripes;
-using namespace nxr::manifold::geometry;
-using namespace nxr::manifold::query;
-using namespace nxr::field::generate;
-using namespace nxr::field::interp;
-using namespace nxr::field::op;
-using namespace nxr::field::extract;
+using namespace nxr::geometry;
+using namespace nxr::operators;
+using namespace nxr::operators;
+using namespace nxr::operators::laplacian::connection;
+using namespace nxr::geometry::transport;
+using namespace nxr::geometry::connection;
+using namespace nxr::geometry::parametrization;
+using namespace nxr::geometry::parametrization::stripes;
+using namespace nxr::geometry;
+using namespace nxr::geometry::query;
+using namespace nxr::synthesis;
+using namespace nxr::signal;
+using namespace nxr::operators;
+using namespace nxr::signal;
 
-using nxr::manifold::ops::laplacian::connection::ConnectionDomain;
-using nxr::manifold::ops::laplacian::connection::ConnectionLaplacianFormat;
-using nxr::manifold::ops::laplacian::connection::ConnectionLaplacianOptions;
+using nxr::operators::laplacian::connection::ConnectionDomain;
+using nxr::operators::laplacian::connection::ConnectionLaplacianFormat;
+using nxr::operators::laplacian::connection::ConnectionLaplacianOptions;
 
 static int failures = 0;
 
@@ -114,18 +131,18 @@ static double complexFrobeniusAntiHermitian(
 //   5. frameE1/E2 are orthonormal [nV,3] matrices (gauge for eigenvectors)
 //   6. Face domain throws Error(InvalidInput)
 //   7. nSym=0 throws Error(InvalidInput)
-static void testTrivialConnectionLaplacian(nxr::manifold::Manifold& m) {
+static void testTrivialConnectionLaplacian(nxr::geometry::Manifold& m) {
     std::cout << "\n── trivial connection Laplacian ─────────────────────\n";
 
     // Gauss-Bonnet: two index-1 singularities → Σσ = 2 = χ(sphere)
     std::map<int, double> singMap = {{0, 1.0}, {1, 1.0}};
 
-    auto dec = nxr::manifold::ops::assembleDECOperators(m);
-    nxr::manifold::ops::CholeskyCache cache;
+    auto dec = nxr::operators::assembleDECOperators(m);
+    nxr::operators::CholeskyCache cache;
 
     // ── Test 1: phi.size() == nEdges ─────────────────────────────────────
     {
-        Eigen::VectorXd phi = nxr::manifold::connection::computeTrivialConnection(
+        Eigen::VectorXd phi = nxr::geometry::connection::computeTrivialConnection(
             m, dec, cache, singMap);
         check(phi.size() == m.nE(),
               "phi.size() == nEdges");
@@ -137,7 +154,7 @@ static void testTrivialConnectionLaplacian(nxr::manifold::Manifold& m) {
         ConnectionLaplacianOptions opts;
         opts.format = ConnectionLaplacianFormat::Complex;
         opts.nSym   = 1;
-        auto cl = nxr::manifold::ops::laplacian::connection::assembleTrivialConnectionLaplacian(
+        auto cl = nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
             m, singMap, dec, cache, opts);
         check(cl.baseDim  == m.nV(), "TC complex: baseDim == nV");
         check(cl.outputDim == m.nV(), "TC complex: outputDim == nV");
@@ -151,7 +168,7 @@ static void testTrivialConnectionLaplacian(nxr::manifold::Manifold& m) {
         ConnectionLaplacianOptions opts;
         opts.format = ConnectionLaplacianFormat::Real2N;
         opts.nSym   = 1;
-        auto cl = nxr::manifold::ops::laplacian::connection::assembleTrivialConnectionLaplacian(
+        auto cl = nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
             m, singMap, dec, cache, opts);
         check(cl.outputDim == 2 * m.nV(), "TC real2N: outputDim == 2*nV");
         const double symErr = realFrobeniusAsymmetry(cl.K_real);
@@ -185,7 +202,7 @@ static void testTrivialConnectionLaplacian(nxr::manifold::Manifold& m) {
         ConnectionLaplacianOptions opts;
         opts.format = ConnectionLaplacianFormat::Complex;
         opts.nSym   = 1;
-        auto cl = nxr::manifold::ops::laplacian::connection::assembleTrivialConnectionLaplacian(
+        auto cl = nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
             m, singMap, dec, cache, opts);
         int N = cl.baseDim;
         check(cl.frameE1.rows() == N && cl.frameE1.cols() == 3,
@@ -210,7 +227,7 @@ static void testTrivialConnectionLaplacian(nxr::manifold::Manifold& m) {
         opts.nSym   = 1;
         bool threw = false;
         try {
-            nxr::manifold::ops::laplacian::connection::assembleTrivialConnectionLaplacian(
+            nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
                 m, singMap, dec, cache, opts);
         } catch (const nxr::core::Error& e) {
             threw = (e.code() == nxr::core::ErrorCode::InvalidInput);
@@ -224,7 +241,7 @@ static void testTrivialConnectionLaplacian(nxr::manifold::Manifold& m) {
         opts.nSym = 0;
         bool threw = false;
         try {
-            nxr::manifold::ops::laplacian::connection::assembleTrivialConnectionLaplacian(
+            nxr::operators::laplacian::connection::assembleTrivialConnectionLaplacian(
                 m, singMap, dec, cache, opts);
         } catch (const nxr::core::Error& e) {
             threw = (e.code() == nxr::core::ErrorCode::InvalidInput);
@@ -243,7 +260,7 @@ int main() {
     generateIcosphere(V, F);
     int nV = static_cast<int>(V.size() / 3);
     int nF = static_cast<int>(F.size() / 3);
-    nxr::manifold::Manifold m(V.data(), nV, F.data(), nF);
+    nxr::geometry::Manifold m(V.data(), nV, F.data(), nF);
     int nE = m.nE();
 
     std::cout << "\nMesh: icosahedron, " << nV << " V, "
@@ -269,7 +286,7 @@ int main() {
             opts.format = ConnectionLaplacianFormat::Real2N;
             opts.regularization = 1e-8;
 
-            auto cl = nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(m, opts);
+            auto cl = nxr::operators::laplacian::connection::assembleConnectionLaplacian(m, opts);
 
             std::cout << "  nSym=" << nSym << " (real2N):\n";
 
@@ -287,7 +304,7 @@ int main() {
 
             // Complex form: test Hermitian property and complex dimension.
             opts.format = ConnectionLaplacianFormat::Complex;
-            auto clC = nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(m, opts);
+            auto clC = nxr::operators::laplacian::connection::assembleConnectionLaplacian(m, opts);
             check(clC.outputDim == baseDim,
                   "complex outputDim == N");
             check(clC.K_complex.rows() == baseDim &&
@@ -304,7 +321,7 @@ int main() {
             fo.domain = d;
             fo.nSym   = 1;
             fo.format = ConnectionLaplacianFormat::Complex;
-            auto clF = nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(m, fo);
+            auto clF = nxr::operators::laplacian::connection::assembleConnectionLaplacian(m, fo);
 
             check(clF.frameE1.rows() == baseDim && clF.frameE1.cols() == 3,
                   "frameE1 shape == [baseDim, 3]");
@@ -331,7 +348,7 @@ int main() {
             fo.domain = d;
             fo.nSym   = 1;
             fo.format = ConnectionLaplacianFormat::Complex;
-            auto clF = nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(m, fo);
+            auto clF = nxr::operators::laplacian::connection::assembleConnectionLaplacian(m, fo);
             check(clF.frameE1.rows() == 0, "frameE1 empty for EdgeCrouzeixRaviart");
             check(clF.frameE2.rows() == 0, "frameE2 empty for EdgeCrouzeixRaviart");
         }
@@ -352,8 +369,8 @@ int main() {
         o.nSym   = 4;
         o.format = ConnectionLaplacianFormat::Real2N;
 
-        auto a = nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(m, o);
-        auto b = nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(m, o);
+        auto a = nxr::operators::laplacian::connection::assembleConnectionLaplacian(m, o);
+        auto b = nxr::operators::laplacian::connection::assembleConnectionLaplacian(m, o);
 
         check(a.K_real.nonZeros() == b.K_real.nonZeros(),
               "same nnz on repeat assembly");
@@ -379,14 +396,14 @@ int main() {
         o.regularization = 1e-6;   // larger shift so smallest eigenvalue is comfortably > 0
         o.format         = ConnectionLaplacianFormat::Real2N;
 
-        auto cl = nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(m, o);
+        auto cl = nxr::operators::laplacian::connection::assembleConnectionLaplacian(m, o);
 
         // Mass: 2N × 2N identity (block-diagonal of I_V, I_V).
         Eigen::SparseMatrix<double> M(cl.outputDim, cl.outputDim);
         M.setIdentity();
 
         const int k = 6;
-        auto eig = nxr::manifold::solve::eigen(cl.K_real, M, k);
+        auto eig = nxr::operators::eigen(cl.K_real, M, k);
 
         check(eig.k == k,                 "k modes returned");
         check(eig.nConverged == k,        "all modes converged");
@@ -416,23 +433,23 @@ int main() {
     // ── String parsers ────────────────────────────────────────
     {
         std::cout << "\n── parseConnectionDomain / parseConnectionLaplacianFormat ─────\n";
-        check(nxr::manifold::ops::laplacian::connection::parseConnectionDomain("vertex") == ConnectionDomain::Vertex,
+        check(nxr::operators::laplacian::connection::parseConnectionDomain("vertex") == ConnectionDomain::Vertex,
               "'vertex'");
-        check(nxr::manifold::ops::laplacian::connection::parseConnectionDomain("face") == ConnectionDomain::Face,
+        check(nxr::operators::laplacian::connection::parseConnectionDomain("face") == ConnectionDomain::Face,
               "'face'");
-        check(nxr::manifold::ops::laplacian::connection::parseConnectionDomain("edge") == ConnectionDomain::EdgeCrouzeixRaviart,
+        check(nxr::operators::laplacian::connection::parseConnectionDomain("edge") == ConnectionDomain::EdgeCrouzeixRaviart,
               "'edge'");
 
         bool threw = false;
-        try { (void) nxr::manifold::ops::laplacian::connection::parseConnectionDomain("nope"); }
+        try { (void) nxr::operators::laplacian::connection::parseConnectionDomain("nope"); }
         catch (const nxr::core::Error&) { threw = true; }
         check(threw, "unknown domain throws Error");
 
-        check(nxr::manifold::ops::laplacian::connection::parseConnectionLaplacianFormat("real2N")  == ConnectionLaplacianFormat::Real2N,  "'real2N'");
-        check(nxr::manifold::ops::laplacian::connection::parseConnectionLaplacianFormat("complex") == ConnectionLaplacianFormat::Complex, "'complex'");
+        check(nxr::operators::laplacian::connection::parseConnectionLaplacianFormat("real2N")  == ConnectionLaplacianFormat::Real2N,  "'real2N'");
+        check(nxr::operators::laplacian::connection::parseConnectionLaplacianFormat("complex") == ConnectionLaplacianFormat::Complex, "'complex'");
 
         threw = false;
-        try { (void) nxr::manifold::ops::laplacian::connection::parseConnectionLaplacianFormat("???"); }
+        try { (void) nxr::operators::laplacian::connection::parseConnectionLaplacianFormat("???"); }
         catch (const nxr::core::Error&) { threw = true; }
         check(threw, "unknown format throws Error");
 
@@ -441,7 +458,7 @@ int main() {
         try {
             ConnectionLaplacianOptions bad;
             bad.nSym = 0;
-            (void) nxr::manifold::ops::laplacian::connection::assembleConnectionLaplacian(m, bad);
+            (void) nxr::operators::laplacian::connection::assembleConnectionLaplacian(m, bad);
         } catch (const nxr::core::Error&) { threw = true; }
         check(threw, "nSym <= 0 throws Error");
     }

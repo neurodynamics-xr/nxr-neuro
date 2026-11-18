@@ -4,12 +4,12 @@
 #include <iostream>
 #include <random>
 
-#include "nxr/intervals.h"
+#include "nxr/select/events.h"
 #include "nxr/measurement/roll_up.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)
-using namespace nxr::intervals;
+using namespace nxr::select;
 
 int main() {
   std::cout << "test_intervals\n";

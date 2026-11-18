@@ -3,16 +3,16 @@
 //   - `run vortex_core_threshold`: the distribution of |hatted curl| over the burst frames (inside the window, outside the bad span) stored as a STATISTIC (measure count, method histogram): its range fixed from the
 //     first 3000 good frames (the window holds more), its counts equal the DIRECT histogram of the direct field (nxr::histogram on M Re(Z) sampled at the frames)
 //   - `run vortex_cores`: reads that statistic BY NAME as an input, derives the 98th percentile, and stores the cores: a spans Selection with ONE MEMBER PER CORE on its frame (several members share a frame), and the
-//     attributes (frame, sense, centre_vertex, centre, area, peak) as measurements over it, all equal to nxr::cores::corePatches called directly on the direct field with the same threshold
+//     attributes (frame, sense, centre_vertex, centre, area, peak) as measurements over it, all equal to nxr::select::corePatches called directly on the direct field with the same threshold
 //   - the result does not depend on the chunk size: the same samples stored in chunks of 4096 and of 1000 give the same distribution and the same cores
 //   - the percentile is derived at read: another percentile is another threshold from the same stored counts (a lower one finds more cores); a rerun is a hit
 //   - the TRACKS (piece 6): `vortex_cores` links the cores frame to frame (`tracks`, after the chunk loop) and stores a spans Selection `vortex_cores.tracks.<recording>` (one member per track of at least `min_frames`
 //     frames, its span first to last core's frame) with first_frame, last_frame, n_frames, path_length, displacement, sense as measurements, and the labelling `track` (a measurement over the cores); all equal to
-//     nxr::tracks::link called directly on the stored cores; the same tracks from chunks of 1000 and 4096; a longer link distance joins more; min_frames 1 stores the lone cores too; a rerun is a hit
-//   - the CROSSINGS (piece 7): `tile_crossings` stores ONE measurement over the level's tiles (rows stage x sense, members the tiles then `bridge`, components the vector sum then the count), equal to nxr::crossings::crossings
+//     nxr::select::link called directly on the stored cores; the same tracks from chunks of 1000 and 4096; a longer link distance joins more; min_frames 1 stores the lone cores too; a rerun is a hit
+//   - the CROSSINGS (piece 7): `tile_crossings` stores ONE measurement over the level's tiles (rows stage x sense, members the tiles then `bridge`, components the vector sum then the count), equal to nxr::select::track_crossings::crossings
 //     called directly on the stored tracks' steps with the frames and the transport made here; R and the unbiased rho2 are derived at read from them; a rerun is a hit; a stage named without its Selection is refused; `repeat compute --stage NAME` reads the stage names the rows carry
 //   - the RUN-TO-RUN REPEAT (piece 8): `repeat compute` over the two recordings' stored crossings (here the same samples cut in other chunks: the same motion twice) stores the per-tile dot products and the count-weighted mean
-//     cosine as two statistics, equal to nxr::crossings::repeat on the stored arrays, the cosine 1; with one run's vectors reversed it is -1; a rerun is a hit; the same recording twice, a missing run and a stage out of range
+//     cosine as two statistics, equal to nxr::select::track_crossings::repeat on the stored arrays, the cosine 1; with one run's vectors reversed it is -1; a rerun is a hit; the same recording twice, a missing run and a stage out of range
 //     are refused
 //   - the plan: a threshold made from another chain (the spatial shape) is refused, a field not on the frame tiling is refused, a percentile out of range is refused, a threshold that is no histogram is refused
 #include <unistd.h>
@@ -31,32 +31,33 @@
 #include "portable_random.h"
 #include "store_at.h"
 #include "nxr/bst/entities.h"
-#include "nxr/cores.h"
-#include "nxr/filterbank.h"
-#include "nxr/forms.h"
-#include "nxr/frame_tiling.h"
-#include "nxr/histogram.h"
+#include "nxr/select/cores.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/forms.h"
+#include "nxr/signal/resample.h"
+#include "nxr/stats/histogram.h"
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/testing/probe.h"
 #include "nxr/io/yaml.h"
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/eigen.h"
 #include "run_definition.h"
 #include "nxr/pipelines/runner.h"
 #include "nxr/pipelines/spatial_band.h"
-#include "nxr/taps.h"
-#include "nxr/tracks.h"
-#include "nxr/crossings.h"
-#include "nxr/chart.h"
-#include "nxr/frames.h"
+#include "nxr/signal/filters_fir.h"
+#include "nxr/select/tracks.h"
+#include "nxr/select/track_crossings.h"
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/frames.h"
 #include "nxr/io/measures.h"
 #include "nxr/pipelines/meeg_internal.h"
 #include "nxr/pipelines/run_repeat.h"
 #include "measurement_helpers.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/surrogate_compare.h"
-#include "nxr/nulltest.h"
+#include "nxr/stats/nulltest.h"
 #include "make_grids.h"
 
 // the frames of the 8-12 Hz band: the definition `select_time_grid` rule frames gives 36 frames to a cycle of the band's centre (the geometric mean of its ends), exactly (not a power-of-two tile)
@@ -218,24 +219,24 @@ int main() {
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
   const SpatialBand sband = make_spatial_band(ds, sub, S, SL, sbo);
   const std::int64_t Vg = sband.glued_vertices;
-  const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 12.0); };
-  const auto h = nxr::taps::gainTaps(gain, sfreq, false);
-  const auto re = nxr::taps::convolveRows(xf.data(), M, T, h, 0, T, false);
+  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
+  const auto h = nxr::signal::gainTaps(gain, sfreq, false);
+  const auto re = nxr::signal::convolveRows(xf.data(), M, T, h, 0, T, false);
   Eigen::MatrixXd Re(M, T);
   for (int c = 0; c < M; ++c) for (int t = 0; t < T; ++t) Re(c, t) = re[static_cast<std::size_t>(c) * T + t];
   const SurfaceInput S32 = read_surface(sub, std::string("cortex"));
   std::vector<float> P32(S32.vertices.begin(), S32.vertices.end());
-  const auto fop = nxr::forms::assembleFaceGradient(P32.data(), S32.faces.data(), static_cast<int>(S32.n_vertices()), static_cast<int>(S32.n_faces()));
+  const auto fop = nxr::signal::assembleFaceGradient(P32.data(), S32.faces.data(), static_cast<int>(S32.n_vertices()), static_cast<int>(S32.n_faces()));
   Eigen::MatrixXd Kfree(3 * N, M);
   for (int r = 0; r < 3 * N; ++r) for (int c = 0; c < M; ++c) Kfree(r, c) = kfree[static_cast<std::size_t>(r) * M + c];
-  const Eigen::MatrixXd Mop = sband.apply_glued(nxr::forms::formOfFreeColumns(nxr::forms::Form::curl_tan, Kfree, fop));
+  const Eigen::MatrixXd Mop = sband.apply_glued(nxr::signal::formOfFreeColumns(nxr::signal::Form::curl_tan, Kfree, fop));
   const Eigen::MatrixXd X = Mop * Re;                                           // [Vg × T]
   const std::int64_t count = static_cast<std::int64_t>(std::floor(static_cast<double>(T - 1) * fps / sfreq)) + 1;
   std::vector<float> Xf(static_cast<std::size_t>(Vg * T));
   for (std::int64_t v = 0; v < Vg; ++v) for (int t = 0; t < T; ++t) Xf[static_cast<std::size_t>(v * T + t)] = static_cast<float>(X(v, t));
   std::vector<double> pos(static_cast<std::size_t>(count));
   for (std::int64_t j = 0; j < count; ++j) pos[static_cast<std::size_t>(j)] = static_cast<double>(j) * sfreq / fps;
-  const std::vector<float> Cf = nxr::frametiling::sincInterpolate(Xf.data(), Vg, T, pos, 32);   // [Vg × count]
+  const std::vector<float> Cf = nxr::signal::sincInterpolate(Xf.data(), Vg, T, pos, 32);   // [Vg × count]
   std::vector<std::int64_t> good;                                              // the burst frames: inside the window, outside the bad span
   for (std::int64_t j = 0; j < count; ++j) {
     const double tj = static_cast<double>(j) / fps, sec = std::floor(pos[static_cast<std::size_t>(j)]) / sfreq;
@@ -270,15 +271,15 @@ int main() {
   // the direct histogram: the range from the first 3000 good frames' maximum, every good frame counted
   double mx = 0;
   for (std::size_t i = 0; i < 3000; ++i) for (std::int64_t v = 0; v < Vg; ++v) mx = std::max(mx, static_cast<double>(std::abs(Cf[static_cast<std::size_t>(v * count + good[i])])));
-  const nxr::histogram::LogBins lb = nxr::histogram::logBinsFor(mx);
+  const nxr::stats::histogram::LogBins lb = nxr::stats::histogram::logBinsFor(mx);
   std::vector<float> A(static_cast<std::size_t>(Vg) * good.size());
   for (std::int64_t v = 0; v < Vg; ++v) for (std::size_t i = 0; i < good.size(); ++i) A[static_cast<std::size_t>(v) * good.size() + i] = std::abs(Cf[static_cast<std::size_t>(v * count + good[i])]);
-  const nxr::histogram::Counts direct = histogramTiles(A.data(), static_cast<std::size_t>(Vg), good.size(), good.size(), 1, lb);
+  const nxr::stats::histogram::Counts direct = histogramTiles(A.data(), static_cast<std::size_t>(Vg), good.size(), good.size(), 1, lb);
   double l1 = 0, total = 0;
   for (int k = 0; k < 4096; ++k) { l1 += std::abs(H.values[static_cast<std::size_t>(k)] - static_cast<double>(direct.counts[static_cast<std::size_t>(k)])); total += H.values[static_cast<std::size_t>(k)]; }
   std::printf("  the stored histogram vs the direct one: hi %.9g vs %.9g, counts differ by %.0f of %.0f\n", H.options["hi"].get<double>(), lb.hi, l1, total);
   CHECK(total == static_cast<double>(Vg) * static_cast<double>(good.size()) && std::abs(H.options["hi"].get<double>() - lb.hi) < 1e-5 * lb.hi && H.options["lo"].get<double>() > 0 && l1 <= 2e-4 * total);
-  const double dthr98 = nxr::histogram::percentile(direct.counts, lb, 98);
+  const double dthr98 = nxr::stats::histogram::percentile(direct.counts, lb, 98);
   // chunk size independence: the same distribution from chunks of 4096 and of 1000
   { const StoredStatistic& Hb = hist.at("rest_b");
     double lb1 = 0;
@@ -294,19 +295,19 @@ int main() {
   const auto rc = g::run(ds, sub, dcor, base, all);
   CHECK(rc.size() == 2);
   const Stored C = read_cores(sub, "rest", fps, 0.0), Cb = read_cores(sub, "rest_b", fps, 0.0);
-  const double thr = nxr::histogram::percentile([&] { std::vector<std::int64_t> c(4096); for (int k = 0; k < 4096; ++k) c[static_cast<std::size_t>(k)] = std::llround(H.values[static_cast<std::size_t>(k)]); return c; }(),
-                                                  nxr::histogram::LogBins{H.options["lo"].get<double>(), H.options["hi"].get<double>(), 4096}, 98.0);
+  const double thr = nxr::stats::histogram::percentile([&] { std::vector<std::int64_t> c(4096); for (int k = 0; k < 4096; ++k) c[static_cast<std::size_t>(k)] = std::llround(H.values[static_cast<std::size_t>(k)]); return c; }(),
+                                                  nxr::stats::histogram::LogBins{H.options["lo"].get<double>(), H.options["hi"].get<double>(), 4096}, 98.0);
   // DIRECT: corePatches on the burst frames with the same threshold, the glued mesh's edges, vertex areas and positions
-  nxr::ladder::Mesh mesh; mesh.n = static_cast<int>(sband.glued_vertices); const SurfaceInput GS = read_surface(sub, "cortex_glued", true);
+  nxr::select::Mesh mesh; mesh.n = static_cast<int>(sband.glued_vertices); const SurfaceInput GS = read_surface(sub, "cortex_glued", true);
   mesh.positions = GS.vertices; mesh.faces = GS.faces;
-  const std::vector<double> va = nxr::ladder::vertexAreas(mesh);
+  const std::vector<double> va = nxr::select::vertexAreas(mesh);
   std::vector<std::pair<std::int32_t, std::int32_t>> pairs;
   for (std::size_t f = 0; f + 2 < GS.faces.size(); f += 3) for (int k = 0; k < 3; ++k) pairs.emplace_back(GS.faces[f + static_cast<std::size_t>(k)], GS.faces[f + static_cast<std::size_t>((k + 1) % 3)]);
   Eigen::MatrixXd cm(Vg, static_cast<Eigen::Index>(good.size()));
   for (std::int64_t v = 0; v < Vg; ++v) for (std::size_t i = 0; i < good.size(); ++i) cm(v, static_cast<Eigen::Index>(i)) = Cf[static_cast<std::size_t>(v * count + good[i])];
   Eigen::MatrixXd gp(Vg, 3);
   for (std::int64_t v = 0; v < Vg; ++v) for (int d = 0; d < 3; ++d) gp(v, d) = GS.vertices[static_cast<std::size_t>(3 * v + d)];
-  const nxr::cores::Cores want = nxr::cores::corePatches(cm, pairs, Eigen::Map<const Eigen::VectorXd>(va.data(), Vg), gp, thr, 0);
+  const nxr::select::Cores want = nxr::select::corePatches(cm, pairs, Eigen::Map<const Eigen::VectorXd>(va.data(), Vg), gp, thr, 0);
   std::printf("  threshold %.6g (direct histogram's %.6g); %lld cores stored, %lld direct\n", thr, dthr98, static_cast<long long>(C.frame.size()), static_cast<long long>(want.size()));
   CHECK(std::abs(thr - dthr98) <= 0.01 * dthr98);                              // the stored and the direct distributions are within a bin
   CHECK(want.size() > 100 && std::abs(static_cast<double>(C.frame.size()) - static_cast<double>(want.size())) <= 0.02 * static_cast<double>(want.size()));
@@ -382,8 +383,8 @@ int main() {
     std::vector<std::int8_t> cs(C.frame.size());
     Eigen::MatrixXd cc(static_cast<Eigen::Index>(C.frame.size()), 3);
     for (std::size_t k = 0; k < C.frame.size(); ++k) { cs[k] = C.sense[k] > 0 ? 1 : -1; cc(static_cast<Eigen::Index>(k), 0) = C.cx[k]; cc(static_cast<Eigen::Index>(k), 1) = C.cy[k]; cc(static_cast<Eigen::Index>(k), 2) = C.cz[k]; }
-    const nxr::tracks::Linked L = nxr::tracks::link(cf, cs, cc, link_m);
-    const nxr::tracks::TrackStats S = nxr::tracks::trackStats(cf, cs, cc, L.track, L.previous);
+    const nxr::select::Linked L = nxr::select::link(cf, cs, cc, link_m);
+    const nxr::select::TrackStats S = nxr::select::trackStats(cf, cs, cc, L.track, L.previous);
     std::vector<std::int64_t> keep;                                              // the tracks of >= 2 frames, in the order they start
     for (std::int64_t t = 0; t < S.size(); ++t) if (S.n_frames[static_cast<std::size_t>(t)] >= 2) keep.push_back(t);
     std::printf("  tracks: %zu stored (%lld found, %zu of 2+ frames linking the stored cores directly); the longest %.0f frames\n", T.first.size(), static_cast<long long>(L.tracks), keep.size(),
@@ -442,7 +443,7 @@ int main() {
     std::printf("  tile_crossings: [%lld rows x %lld members] (the %lld tiles and the bridge)\n", static_cast<long long>(nn.rows), static_cast<long long>(nn.members), static_cast<long long>(tiles));
     CHECK(nn.array_backed && nn.rows == 2 && nn.members == tiles + 1);
     // DIRECT: the steps of the stored tracks (each core after its track's first, from the previous core's centre), the surface's frames, the transport of each tile centre's frame, the glued domain
-    nxr::crossings::Steps st;
+    nxr::select::track_crossings::Steps st;
     std::map<std::int64_t, std::size_t> last;
     std::vector<std::array<double, 6>> sv;
     for (std::size_t k = 0; k < lab.size(); ++k) {
@@ -462,28 +463,28 @@ int main() {
     const SurfaceLevel NL = read_surface_level(sub, NS, level);
     nxr::chart::ChartKit kit(NS.vertices.data(), nV, NS.faces.data(), static_cast<int>(NS.n_faces()));
     const nxr::chart::Basis B = kit.basis();
-    nxr::frames::Mat3 e1(nV, 3), e2(nV, 3);
+    nxr::geometry::Mat3 e1(nV, 3), e2(nV, 3);
     for (int i = 0; i < nV; ++i) for (int k = 0; k < 3; ++k) { e1(i, k) = B.e1[static_cast<std::size_t>(3 * i + k)]; e2(i, k) = B.e2[static_cast<std::size_t>(3 * i + k)]; }
-    const Eigen::VectorXd gauge = nxr::frames::gaugeAngle(kit, e1);
-    nxr::ladder::Mesh nm; nm.n = nV; nm.positions = NS.vertices; nm.faces = NS.faces;
-    const std::vector<double> narea = nxr::ladder::vertexAreas(nm);
-    const std::vector<int> cen = nxr::ladder::tileCentres(NS.vertices.data(), NL.tile, static_cast<int>(NL.nodes), narea);
-    const nxr::ladder::LeviCivita lc = nxr::ladder::leviCivita(kit, e1, e2, gauge, NL.tile, static_cast<int>(NL.nodes), cen);
-    const nxr::frames::Mat3 nrm = nxr::frames::vertexNormals(NS.vertices.data(), nV, NS.faces.data(), static_cast<int>(NS.n_faces()));
+    const Eigen::VectorXd gauge = nxr::geometry::gaugeAngle(kit, e1);
+    nxr::select::Mesh nm; nm.n = nV; nm.positions = NS.vertices; nm.faces = NS.faces;
+    const std::vector<double> narea = nxr::select::vertexAreas(nm);
+    const std::vector<int> cen = nxr::select::tileCentres(NS.vertices.data(), NL.tile, static_cast<int>(NL.nodes), narea);
+    const nxr::select::LeviCivita lc = nxr::select::leviCivita(kit, e1, e2, gauge, NL.tile, static_cast<int>(NL.nodes), cen);
+    const nxr::geometry::Mat3 nrm = nxr::geometry::vertexNormals(NS.vertices.data(), nV, NS.faces.data(), static_cast<int>(NS.n_faces()));
     const internal::GluedDomain dom = internal::glued_domain(sub, NS);
     CHECK(dom.found);
     const std::int64_t Vg = dom.surface.n_vertices(), kept = static_cast<std::int64_t>(dom.support.size());
-    nxr::crossings::Surface G;
+    nxr::select::track_crossings::Surface G;
     G.positions = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>>(dom.surface.vertices.data(), Vg, 3);
-    G.normals = nxr::frames::vertexNormals(dom.surface.vertices.data(), static_cast<int>(Vg), dom.surface.faces.data(), static_cast<int>(dom.surface.n_faces()));
+    G.normals = nxr::geometry::vertexNormals(dom.surface.vertices.data(), static_cast<int>(Vg), dom.surface.faces.data(), static_cast<int>(dom.surface.n_faces()));
     G.e1 = Eigen::MatrixXd::Constant(Vg, 3, std::nan("")); G.e2 = G.e1; G.rho = Eigen::VectorXd::Constant(Vg, std::nan(""));
-    G.node.assign(static_cast<std::size_t>(Vg), nxr::crossings::kBridge);
+    G.node.assign(static_cast<std::size_t>(Vg), nxr::select::track_crossings::kBridge);
     for (std::int64_t i = 0; i < kept; ++i) { const int v = dom.support[static_cast<std::size_t>(i)]; G.normals.row(i) = nrm.row(v); G.e1.row(i) = e1.row(v); G.e2.row(i) = e2.row(v); G.rho[i] = lc.rho[v]; G.node[static_cast<std::size_t>(i)] = NL.tile[static_cast<std::size_t>(v)]; }
-    const nxr::crossings::Result want = nxr::crossings::crossings(st, {}, G, static_cast<int>(NL.nodes));
+    const nxr::select::track_crossings::Result want = nxr::select::track_crossings::crossings(st, {}, G, static_cast<int>(NL.nodes));
     long total = 0, diff = 0, bridge_total = 0;
     double dsum = 0, smax = 0;
     for (int sg = 0; sg < 2; ++sg) {
-      const Eigen::MatrixXd v = nxr::crossings::embedAtCentres(want.sum.col(sg), cen, e1, e2);
+      const Eigen::MatrixXd v = nxr::select::track_crossings::embedAtCentres(want.sum.col(sg), cen, e1, e2);
       for (std::int64_t t = 0; t < tiles; ++t) {
         const std::size_t at = static_cast<std::size_t>(sg * nn.members + t);
         total += want.n(static_cast<Eigen::Index>(t), sg);
@@ -523,7 +524,7 @@ int main() {
         if (it != last2.end()) { const double tj = static_cast<double>(C.frame[k]) / fps; mask.push_back(tj >= 2.0 && tj < 8.0); ++k2; }
         last2[static_cast<std::int64_t>(lab[k])] = k;
       }
-      const nxr::crossings::Result part = nxr::crossings::crossings(st, mask, G, static_cast<int>(NL.nodes));
+      const nxr::select::track_crossings::Result part = nxr::select::track_crossings::crossings(st, mask, G, static_cast<int>(NL.nodes));
       long before = 0, in_stage = 0, direct = 0, same = 1;
       for (std::int64_t t = 0; t <= tiles; ++t) for (int sg = 0; sg < 2; ++sg) {
         before += static_cast<long>(nn.values[static_cast<std::size_t>(sg * nn.members + t)]);
@@ -566,7 +567,7 @@ int main() {
     RunRepeatOptions ro;
     ro.recording_a = "rest"; ro.recording_b = "rest_b"; ro.min_crossings = 10;
     const auto r1 = run_repeat_compute(ds, sub, ro);
-    // DIRECT: nxr::crossings::repeat on the stored arrays (rows +1 and -1 pooled, the bridge member left out)
+    // DIRECT: nxr::select::track_crossings::repeat on the stored arrays (rows +1 and -1 pooled, the bridge member left out)
     auto pooled = [&](const std::string& field) {
       auto get = [&](const char* m) { return measurement_values(sub, sel, field, std::nullopt, std::nullopt, m); };
       const MeasurementValues x = get("crossing_sum_x"), y = get("crossing_sum_y"), z = get("crossing_sum_z"), n = get("crossings");
@@ -574,9 +575,9 @@ int main() {
       Eigen::MatrixXd p(T, 3), m(T, 3); Eigen::VectorXd np(T), nm(T);
       for (std::int64_t t = 0; t < T; ++t) { p.row(t) << x.values[static_cast<std::size_t>(t)], y.values[static_cast<std::size_t>(t)], z.values[static_cast<std::size_t>(t)]; np[t] = n.values[static_cast<std::size_t>(t)];
         const std::size_t b = static_cast<std::size_t>(n.members + t); m.row(t) << x.values[b], y.values[b], z.values[b]; nm[t] = n.values[b]; }
-      return nxr::crossings::poolSenses(p, np, m, nm);
+      return nxr::select::track_crossings::poolSenses(p, np, m, nm);
     };
-    const nxr::crossings::Repeat want = nxr::crossings::repeat(pooled(fa->id), pooled(fb->id), 10);
+    const nxr::select::track_crossings::Repeat want = nxr::select::track_crossings::repeat(pooled(fa->id), pooled(fb->id), 10);
     const StoredStatistic st = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.tiles"), sw = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.whole");
     bool dots = st.values.size() == static_cast<std::size_t>(want.dot.size());
     for (std::size_t t = 0; dots && t < st.values.size(); ++t) dots = (std::isnan(st.values[t]) && std::isnan(want.dot[static_cast<Eigen::Index>(t)])) || std::abs(st.values[t] - want.dot[static_cast<Eigen::Index>(t)]) < 1e-9;
@@ -680,7 +681,7 @@ int main() {
         Eigen::MatrixXd pl(T2, 3), mi(T2, 3); Eigen::VectorXd np(T2), nmm(T2);
         for (std::int64_t t = 0; t < T2; ++t) { const std::size_t a = static_cast<std::size_t>(t * 4), b = static_cast<std::size_t>((Mm + t) * 4);
           pl.row(t) << D.values[a], D.values[a + 1], D.values[a + 2]; np[t] = D.values[a + 3]; mi.row(t) << D.values[b], D.values[b + 1], D.values[b + 2]; nmm[t] = D.values[b + 3]; }
-        return nxr::crossings::poolSenses(pl, np, mi, nmm);
+        return nxr::select::track_crossings::poolSenses(pl, np, mi, nmm);
       };
       auto data_pooled = [&](const std::string& rec) {
         const auto f2 = tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = rec});
@@ -690,19 +691,19 @@ int main() {
         Eigen::MatrixXd pl(T2, 3), mi(T2, 3); Eigen::VectorXd np(T2), nmm(T2);
         for (std::int64_t t = 0; t < T2; ++t) { const std::size_t a = static_cast<std::size_t>(t), b = static_cast<std::size_t>(n.members + t);
           pl.row(t) << x.values[a], y.values[a], z.values[a]; np[t] = n.values[a]; mi.row(t) << x.values[b], y.values[b], z.values[b]; nmm[t] = n.values[b]; }
-        return nxr::crossings::poolSenses(pl, np, mi, nmm);
+        return nxr::select::track_crossings::poolSenses(pl, np, mi, nmm);
       };
-      auto rho = [](const nxr::crossings::Pooled& p, int minn) { Eigen::VectorXd r(p.n.size()); for (Eigen::Index t = 0; t < p.n.size(); ++t) { const double n = p.n[t]; r[t] = n >= std::max(minn, 2) ? (p.sum.row(t).squaredNorm() - n) / (n * (n - 1)) : std::nan(""); } return r; };
-      const nxr::crossings::Pooled pa = data_pooled("rest"), pbb = data_pooled("rest_b");
+      auto rho = [](const nxr::select::track_crossings::Pooled& p, int minn) { Eigen::VectorXd r(p.n.size()); for (Eigen::Index t = 0; t < p.n.size(); ++t) { const double n = p.n[t]; r[t] = n >= std::max(minn, 2) ? (p.sum.row(t).squaredNorm() - n) / (n * (n - 1)) : std::nan(""); } return r; };
+      const nxr::select::track_crossings::Pooled pa = data_pooled("rest"), pbb = data_pooled("rest_b");
       const Eigen::VectorXd ra = rho(pa, 5);
       Eigen::VectorXd ex = Eigen::VectorXd::Zero(ra.size()), dex = Eigen::VectorXd::Zero(ra.size());
-      const auto rd = nxr::crossings::repeat(pa, pbb, 5);
+      const auto rd = nxr::select::track_crossings::repeat(pa, pbb, 5);
       double nsum = 0, dsum = 0, cex = 0;
       for (std::int64_t i = 0; i < nd; ++i) {
         const auto da = pooled_draw("rest", i), db = pooled_draw("rest_b", i + 100000);      // run B's seeds are offset (independent draws)
         const Eigen::VectorXd rn = rho(da, 2);
         for (Eigen::Index t = 0; t < ra.size(); ++t) if (std::isfinite(ra[t]) && std::isfinite(rn[t]) && rn[t] >= ra[t]) ex[t] += 1;
-        const auto rp = nxr::crossings::repeat(da, db, 5);
+        const auto rp = nxr::select::track_crossings::repeat(da, db, 5);
         for (Eigen::Index t = 0; t < ra.size(); ++t) if (std::isfinite(rd.dot[t]) && std::isfinite(rp.dot[t]) && rp.dot[t] >= rd.dot[t]) dex[t] += 1;
         if (std::isfinite(rd.cosine) && std::isfinite(rp.cosine) && rp.cosine >= rd.cosine) cex += 1;
         nsum += da.n.sum(); dsum += pa.n.sum();
@@ -710,16 +711,16 @@ int main() {
       const StoredStatistic sp = read_statistic(sub, "surrogate_lagfree_vortex_compare.rest.consistency_p"), rp2 = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.p"), wp = read_statistic(sub, "vortex_cores.run_repeat.rest.rest_b.whole_p");
       bool same = sp.values.size() == static_cast<std::size_t>(3 * ra.size()) && rp2.values.size() == sp.values.size();
       for (Eigen::Index t = 0; same && t < ra.size(); ++t) {
-        const double want = std::isfinite(ra[t]) ? nxr::nulltest::sequentialP(static_cast<std::int64_t>(ex[t]), nd, 10) : std::nan(""), wantr = std::isfinite(rd.dot[t]) ? nxr::nulltest::sequentialP(static_cast<std::int64_t>(dex[t]), nd, 10) : std::nan("");
+        const double want = std::isfinite(ra[t]) ? nxr::stats::sequentialP(static_cast<std::int64_t>(ex[t]), nd, 10) : std::nan(""), wantr = std::isfinite(rd.dot[t]) ? nxr::stats::sequentialP(static_cast<std::int64_t>(dex[t]), nd, 10) : std::nan("");
         const double got = sp.values[static_cast<std::size_t>(3 * t)], gotr = rp2.values[static_cast<std::size_t>(3 * t)];
         same = same && ((std::isnan(want) && std::isnan(got)) || std::abs(want - got) < 1e-12) && ((std::isnan(wantr) && std::isnan(gotr)) || std::abs(wantr - gotr) < 1e-12);
         if (std::isfinite(ra[t])) same = same && sp.values[static_cast<std::size_t>(3 * t + 2)] == ex[t];
       }
       std::int64_t tested = 0; for (Eigen::Index t = 0; t < ra.size(); ++t) tested += std::isfinite(ra[t]);
       std::printf("  the stored p and exceedances equal the direct count over the stored draws (%lld tiles tested, repeat tiles %lld): %s; whole p %.3f (direct %.3f)\n", static_cast<long long>(tested), static_cast<long long>(rd.tilesUsed), same ? "yes" : "NO", wp.values[0],
-                  std::isfinite(rd.cosine) ? nxr::nulltest::sequentialP(static_cast<std::int64_t>(cex), nd, 10) : std::nan(""));
+                  std::isfinite(rd.cosine) ? nxr::stats::sequentialP(static_cast<std::int64_t>(cex), nd, 10) : std::nan(""));
       CHECK(same && tested > 0 && text(sp.row, "measure") == "null_p" && text(sp.row, "method") == "besag_clifford");
-      CHECK(!std::isfinite(rd.cosine) || std::abs(wp.values[0] - nxr::nulltest::sequentialP(static_cast<std::int64_t>(cex), nd, 10)) < 1e-12);
+      CHECK(!std::isfinite(rd.cosine) || std::abs(wp.values[0] - nxr::stats::sequentialP(static_cast<std::int64_t>(cex), nd, 10)) < 1e-12);
       const StoredStatistic cr = read_statistic(sub, "surrogate_lagfree_vortex_compare.rest.crossing_ratio"), nrs = read_statistic(sub, "surrogate_lagfree_vortex_compare.rest.resultant");
       std::printf("  data-to-null crossings %.2f (data %.0f, null mean %.1f); the null's mean resultant stored [%lld x %lld]\n", dsum / nsum * static_cast<double>(nd) / static_cast<double>(nd), dsum / static_cast<double>(nd), nsum / static_cast<double>(nd), static_cast<long long>(nrs.shape[0]), static_cast<long long>(nrs.shape[1]));
       CHECK(cr.values.size() == static_cast<std::size_t>(ra.size()) && nrs.shape.size() == 2 && nrs.shape[1] == 4);

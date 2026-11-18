@@ -23,10 +23,10 @@
 #include "nxr/io.h"
 #include "nxr/io/task/task.h"
 #include "nxr/io/yaml.h"
-#include "nxr/filterbank.h"
-#include "nxr/frame_tiling.h"
-#include "nxr/histogram.h"
-#include "nxr/taps.h"
+#include "nxr/signal/graphfilterbank.h"
+#include "nxr/signal/resample.h"
+#include "nxr/stats/histogram.h"
+#include "nxr/signal/filters_fir.h"
 #include "nxr/pipelines/eigen.h"
 #include "run_definition.h"
 #include "nxr/pipelines/runner.h"
@@ -150,13 +150,13 @@ int main() {
   SpatialBandOptions sbo; sbo.transform = "exact"; sbo.spatial_shape = "mexhat"; sbo.glued = true;
   const SpatialBand band = make_spatial_band(ds, sub, S, read_surface_level(sub, S, refl), sbo);
   const std::int64_t Vg = band.glued_vertices;
-  const auto gain = [&](double f) { return nxr::filterbank::morletBand(f, 8.0, 12.0); };
-  const auto h = nxr::taps::gainTaps(gain, sfreq, false), q = nxr::taps::gainTaps(gain, sfreq, true);
-  const auto re = nxr::taps::convolveRows(x.data(), M, T, h, 0, T, false), im = nxr::taps::convolveRows(x.data(), M, T, q, 0, T, true);
+  const auto gain = [&](double f) { return nxr::signal::graphfilterbank::morletBand(f, 8.0, 12.0); };
+  const auto h = nxr::signal::gainTaps(gain, sfreq, false), q = nxr::signal::gainTaps(gain, sfreq, true);
+  const auto re = nxr::signal::convolveRows(x.data(), M, T, h, 0, T, false), im = nxr::signal::convolveRows(x.data(), M, T, q, 0, T, true);
   const std::int64_t count = static_cast<std::int64_t>(std::floor(static_cast<double>(T - 1) * fps / sfreq)) + 1;
   std::vector<double> pos(static_cast<std::size_t>(count));
   for (std::int64_t j = 0; j < count; ++j) pos[static_cast<std::size_t>(j)] = static_cast<double>(j) * sfreq / fps;
-  const std::vector<float> Zr = nxr::frametiling::sincInterpolate(re.data(), M, T, pos, 32), Zi = nxr::frametiling::sincInterpolate(im.data(), M, T, pos, 32);
+  const std::vector<float> Zr = nxr::signal::sincInterpolate(re.data(), M, T, pos, 32), Zi = nxr::signal::sincInterpolate(im.data(), M, T, pos, 32);
   Eigen::MatrixXd Zre(M, count), Zim(M, count);
   for (int c = 0; c < M; ++c) for (std::int64_t j = 0; j < count; ++j) { Zre(c, j) = Zr[static_cast<std::size_t>(c * count + j)]; Zim(c, j) = Zi[static_cast<std::size_t>(c * count + j)]; }
   Eigen::MatrixXd I = Eigen::MatrixXd::Zero(N, M);
@@ -175,12 +175,12 @@ int main() {
   const std::size_t range = 3000;
   double mx = 0;
   for (std::int64_t v = 0; v < Vg; ++v) for (std::size_t k = 0; k < range; ++k) mx = std::max(mx, static_cast<double>(rel[static_cast<std::size_t>(v) * outside.size() + k]));
-  const nxr::histogram::LogBins lb = nxr::histogram::logBinsFor(mx, 4096);
-  const nxr::histogram::Counts dc = histogramTiles(rel.data(), static_cast<std::size_t>(Vg), outside.size(), outside.size(), 1, lb);
+  const nxr::stats::histogram::LogBins lb = nxr::stats::histogram::logBinsFor(mx, 4096);
+  const nxr::stats::histogram::Counts dc = histogramTiles(rel.data(), static_cast<std::size_t>(Vg), outside.size(), outside.size(), 1, lb);
   double l1 = 0, total = 0;
   std::vector<std::int64_t> dcounts(4096);
   for (int k = 0; k < 4096; ++k) { dcounts[static_cast<std::size_t>(k)] = dc.counts[static_cast<std::size_t>(k)]; l1 += std::abs(Hs.values[static_cast<std::size_t>(k)] - dcounts[static_cast<std::size_t>(k)]); total += dcounts[static_cast<std::size_t>(k)]; }
-  const double p99 = nxr::histogram::percentile(dcounts, lb, 99.0);
+  const double p99 = nxr::stats::histogram::percentile(dcounts, lb, 99.0);
   std::printf("  %lld glued vertices, %zu outside frames; the stored histogram vs the direct one: L1 difference %.3g of %.0f counts (frames %lld), direct 99th percentile %.4f\n", static_cast<long long>(Vg), outside.size(), l1, total,
               static_cast<long long>(Hs.options["frames"].get<std::int64_t>()), p99);
   CHECK(Hs.options["frames"].get<std::int64_t>() == static_cast<std::int64_t>(outside.size()) && l1 < 1e-3 * total && std::abs(Hs.options["hi"].get<double>() / lb.hi - 1) < 1e-4);

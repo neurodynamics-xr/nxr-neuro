@@ -6,9 +6,10 @@
 #include <vector>
 #include <Eigen/Dense>
 #include <complex>
-#include "nxr/chart.h"
-#include "nxr/frames.h"
-// nxr::selection::bisection — THE DYADIC EQUAL-AREA PARTITION OF A SURFACE: a line port of the Cortical Flow Studio's `engine/ladder.ts` (`surfaceLadder`,
+#include "nxr/geometry/charts.h"
+#include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/frames.h"
+// nxr::select::bisection — THE DYADIC EQUAL-AREA PARTITION OF A SURFACE: a line port of the Cortical Flow Studio's `engine/ladder.ts` (`surfaceLadder`,
 // `vertexAreas`, `onePiece`, the Weyl pairing), which nxr (`nxr.geom.ladder`, `nxr.geom.trees`) and Rheome (`+geom/surfaceladder.m`) reproduce bit for bit.
 //
 // Each tile is halved by EQUAL MASS across its geodesic diameter (Dijkstra on the input edge graph, two sweeps, a stable sort by d_a - d_b, the cut at half
@@ -128,7 +129,7 @@ std::vector<int> pieces(const int32_t* faces, int nF, int nV);
 
 namespace nxr::select {
 
-using frames::Mat3;
+using geometry::Mat3;
 
 // ── the partition (the partition above, in this header; these names stay visible here) ─────────────
 using namespace nxr::select::bisection;
@@ -147,13 +148,13 @@ struct LeviCivita {
     Eigen::MatrixXd omega;                      // [nodes x nodes] (NaN across pieces and where a centre is missing)
 };
 /** `kit` the surface's charts; `e1`, `e2` the canonical frames (NaN at singular vertices); `gauge` frames::gaugeAngle(kit, e1). The transport is chart::ChartKit::transported (geometry-central's vector heat method, in its gauge), calibrated to the identity at its source; rho is the angle of the transported e1 seen from each vertex's own e1, so it does not depend on the gauge. */
-LeviCivita leviCivita(chart::ChartKit& kit, const Mat3& e1, const Mat3& e2, const Eigen::VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres);
+LeviCivita leviCivita(chart::ChartKit& kit, const geometry::Mat3& e1, const geometry::Mat3& e2, const Eigen::VectorXd& gauge, const std::vector<int32_t>& node, int nodes, const std::vector<int>& centres);
 /** Omega made ANTISYMMETRIC (nxr `joint.antisymmetric`, the same formula since nxr #68): the round trip a -> b -> a misses the identity by d = wrap(Omega_ab + Omega_ba), and half of d is
  *  taken from each direction, so Omega_ba = -Omega_ab. (Halving an angle on the circle, angle(e^{i Omega_ab} e^{-i Omega_ba}) / 2, is ambiguous by pi: it turned every |Omega| > 90 degrees by 180.) NaN stays NaN. */
 Eigen::MatrixXd antisymmetric(const Eigen::MatrixXd& omega);
 /** Per vertex, a vector map `v` [V x 3] carried to its tile centre: (c1 + i c2) e^{-i rho}, c1 = v.e1, c2 = v.e2 (complex, in the centre's frame; the field is real in 3-D and complex in the frame). A vertex with no frame or no
  *  transport (a non-finite rho, c1 or c2) is NaN and 0 in `finite` (when asked): the caller leaves it out of the tile's members, as the sum of the tile's resultant always did. The tile's resultant is the SUM of these over
  *  its vertices (`nxr::measurement::reduce`, area weights). */
-Eigen::VectorXcd carriedToCentre(const Mat3& e1, const Mat3& e2, const Eigen::VectorXd& rho, const Mat3& v, std::vector<char>* finite = nullptr);
+Eigen::VectorXcd carriedToCentre(const geometry::Mat3& e1, const geometry::Mat3& e2, const Eigen::VectorXd& rho, const geometry::Mat3& v, std::vector<char>* finite = nullptr);
 
 }  // namespace nxr::select

@@ -1,5 +1,5 @@
 // The eigenspectrum (filterbank::forward / inverse, Rheome's graphtransform.eigen): round trip, Parseval, projection, complex fields.
-#include "nxr/filterbank.h"
+#include "nxr/signal/graphfilterbank.h"
 
 #include <Eigen/Eigenvalues>
 
@@ -7,7 +7,7 @@
 #include <cstdio>
 #include <random>
 
-using namespace nxr::filterbank;
+using namespace nxr::signal::graphfilterbank;
 
 static int failures = 0;
 static void check(bool ok, const char* what, double value) {

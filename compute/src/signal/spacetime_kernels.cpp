@@ -222,11 +222,11 @@ MatrixXd spin(const MatrixXd& V, const MatrixXd& axis, const VectorXd& theta) {
     return out;
 }
 
-std::vector<bool> lowPass(const filterbank::Bank& bank) {
+std::vector<bool> lowPass(const signal::graphfilterbank::Bank& bank) {
     std::vector<bool> low(bank.members.size(), false);
     if (bank.kind == "heat") return low;
     for (std::size_t m = 0; m < bank.members.size(); ++m) {
-        if (bank.members[m].role == filterbank::Role::Scaling) { low[m] = true; continue; }
+        if (bank.members[m].role == signal::graphfilterbank::Role::Scaling) { low[m] = true; continue; }
         if (!(bank.lmax > 0)) continue;
         double peak = 0, g0 = std::abs(bank.members[m].gain(0.0));
         for (int i = 0; i < 512; ++i) peak = std::max(peak, std::abs(bank.members[m].gain(bank.lmax * i / 511.0)));
@@ -235,11 +235,11 @@ std::vector<bool> lowPass(const filterbank::Bank& bank) {
     return low;
 }
 
-Scatter scatter(const filterbank::Bank& bank, const filterbank::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& poolIn) {
+Scatter scatter(const signal::graphfilterbank::Bank& bank, const signal::graphfilterbank::EigenTransform& t, const MatrixXcd& F, int order, const MatrixXd& poolIn) {
     if (order != 1 && order != 2) throw std::invalid_argument("scatter: order is 1 or 2");
     const Eigen::Index nV = t.phi.rows(), nT = F.cols();
     if (F.rows() != nV) throw std::invalid_argument("scatter: F must have one row per vertex of the basis");
-    const MatrixXd H = filterbank::gains(bank, t.lambda);                    // [K × M]
+    const MatrixXd H = signal::graphfilterbank::gains(bank, t.lambda);                    // [K × M]
     const int M = static_cast<int>(H.cols());
     MatrixXd w;
     if (poolIn.size() == 0) {
@@ -253,7 +253,7 @@ Scatter scatter(const filterbank::Bank& bank, const filterbank::EigenTransform& 
     Scatter S;
     // a member's scale is 1/(its centre wavenumber), defined for every family; the low-pass has none (NaN) and takes no part in the pairing
     VectorXd kc;
-    if (bank.lmax > 0) kc = filterbank::centerWavenumbers(bank);
+    if (bank.lmax > 0) kc = signal::graphfilterbank::centerWavenumbers(bank);
     else {   // a bank with no range of its own (Meyer): the gain-weighted centroid of √λ over the transform's spectrum
         kc = VectorXd::Zero(M);
         for (int m = 0; m < M; ++m) { const double s = H.col(m).cwiseAbs().sum(); if (s > 0) kc(m) = (t.lambda.array().max(0.0).sqrt() * H.col(m).cwiseAbs().array()).sum() / s; }

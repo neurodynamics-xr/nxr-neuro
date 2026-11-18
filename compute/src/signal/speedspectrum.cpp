@@ -9,7 +9,7 @@ namespace nxr::signal::speedspectrum {
 using Eigen::MatrixXd;
 using Eigen::VectorXd;
 
-Result compute(const filterbank::Bank& graph, const timebank::TimeBank& time, const VectorXd& mu, const std::vector<int>& kind, const ModeSpectra& sp, const Options& opt) {
+Result compute(const signal::graphfilterbank::Bank& graph, const signal::timefilterbank::TimeBank& time, const VectorXd& mu, const std::vector<int>& kind, const ModeSpectra& sp, const Options& opt) {
     constexpr double kTwoPi = 6.283185307179586;
     const Eigen::Index K = mu.size(), B = sp.frequencies.size();
     if (static_cast<Eigen::Index>(kind.size()) != K) throw std::invalid_argument("speedspectrum: kind and mu differ in length");
@@ -25,8 +25,8 @@ Result compute(const filterbank::Bank& graph, const timebank::TimeBank& time, co
     if (G < 1 || T < 1) throw std::invalid_argument("speedspectrum: an empty bank");
     // the joint bank (jointbank::make) is separable here, so a member's gain at (lambda, f) is the product of its two factors
     VectorXd lambda = mu.array().square();
-    const MatrixXd gg = filterbank::gains(graph, lambda).transpose();   // [G x K] (the library's is [K x G])
-    const MatrixXd ht = timebank::gains(time, sp.frequencies);       // [B x T]
+    const MatrixXd gg = signal::graphfilterbank::gains(graph, lambda).transpose();   // [G x K] (the library's is [K x G])
+    const MatrixXd ht = signal::timefilterbank::gains(time, sp.frequencies);       // [B x T]
     // the speed range
     double cmin = opt.speedMin, cmax = opt.speedMax;
     if (!(cmin > 0) || !(cmax > cmin)) {
@@ -46,8 +46,8 @@ Result compute(const filterbank::Bank& graph, const timebank::TimeBank& time, co
     const double l0 = std::log(cmin), dl = (std::log(cmax) - l0) / nb;
     for (int i = 0; i <= nb; ++i) r.speedEdges(i) = std::exp(l0 + dl * i);
     for (int i = 0; i < nb; ++i) r.speedCentres(i) = std::exp(l0 + dl * (i + 0.5));
-    r.graphCentres = filterbank::centerWavenumbers(graph);
-    r.timeCentres = timebank::centerFrequencies(time);
+    r.graphCentres = signal::graphfilterbank::centerWavenumbers(graph);
+    r.timeCentres = signal::timefilterbank::centerFrequencies(time);
     for (int ki : {0, 2}) {
         std::vector<Eigen::Index> idx;
         for (Eigen::Index k = 0; k < K; ++k) if (kind[static_cast<std::size_t>(k)] == ki) idx.push_back(k);

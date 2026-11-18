@@ -1,13 +1,13 @@
 // nxr::wt / iwt: the chunked transform equals the whole-record aperiodic transform at the members' instants, for any chunk size; iwt(wt(x)) = x; a tone of amplitude A gives |c| = (G/2) A.
 // Synthetic data only. The reference is a direct sum over the whole record's FFT bins (no chunks), with the same continuous gains.
-#include "nxr/wt.h"
+#include "nxr/signal/wavelet.h"
 #include "mesh_helpers.h"
 #include "golden_io.h"
 #include <random>
-using namespace nxr::wt;
-using namespace nxr::timebank;
+using namespace nxr::signal;
+using namespace nxr::signal::timefilterbank;
 using Eigen::MatrixXcd; using Eigen::MatrixXd; using Eigen::VectorXd;
-namespace fft = nxr::fft;
+namespace fft = nxr::signal;
 static constexpr double kPi = 3.14159265358979323846;
 using cd = std::complex<double>;
 
@@ -24,7 +24,7 @@ static MatrixXd bandNoise(int C, int n, double fs, unsigned seed, double fmax) {
 // whole-record reference: c_m(t_k) = e^{-2 pi i f_lo t} (1/Nr) sum_b X_b g_m(f_b) e^{2 pi i f_b t}, b over the member's support (masked), X the FFT of the zero-padded record
 static MatrixXcd reference(const TimeBank& bk, const Plan& pl, int m, const MatrixXd& x, std::int64_t k0, std::int64_t k1) {
     const std::int64_t n = x.cols();
-    const std::size_t Nr = nxr::fft::nextFastLen(static_cast<std::size_t>(n + 4 * pl.margin + 16), true);
+    const std::size_t Nr = nxr::signal::nextFastLen(static_cast<std::size_t>(n + 4 * pl.margin + 16), true);
     MatrixXd xp = MatrixXd::Zero(Nr, x.rows()); xp.topRows(n) = x.transpose();
     const MatrixXcd X = fft::rfftColumns(xp);
     const double flo = (double)bk.support[m].first * bk.fs / bk.nfft, fhi = (double)bk.support[m].second * bk.fs / bk.nfft;
@@ -100,7 +100,7 @@ int main() {
         EXPECT(dif < 1e-12, std::string(cs.name) + ": chunk size 53 equals the whole record " + sci(dif));
         // reconstruction
         if (std::string(cs.name) != "morlet") {
-            Iwt iw(bk, C, o, nxr::filterbank::Synthesis::Dual);
+            Iwt iw(bk, C, o, nxr::signal::graphfilterbank::Synthesis::Dual);
             const auto W = runWt(bk, x, 100, o);
             // feed in two pieces to exercise the streaming
             Eigen::MatrixXd rec = iw.add(W); rec.conservativeResize(C, rec.cols());

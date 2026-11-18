@@ -11,7 +11,7 @@
 #include <cmath>
 #include <stdexcept>
 
-#include "nxr/montage.h"
+#include "nxr/meeg/montage.h"
 #include "nxr/pipelines/registry.h"
 
 namespace nxr::pipelines::graph {
@@ -42,7 +42,7 @@ void add_montage_steps(std::vector<StepSpec>& r) {
   s.inputs = {"scalp_vertices", "scalp_faces", "landmarks"};
   s.outputs = {"positions"};
   s.parameters = Json{{"tolerance", 1e-7}, {"max_iterations", 100}};
-  s.matches = "Oostenveld R, Praamstra P (2001) Clin Neurophysiol 112:713-719, the 10-05 rule; held equal to MNE-Python's spherical_1005 (eeg_positions) on a sphere (nxr::montage::tenFive)";
+  s.matches = "Oostenveld R, Praamstra P (2001) Clin Neurophysiol 112:713-719, the 10-05 rule; held equal to MNE-Python's spherical_1005 (eeg_positions) on a sphere (nxr::meeg::tenFive)";
   s.description =
       "The 10-05 electrode positions on a closed scalp surface by the published rule: scalp_vertices [V x 3] and scalp_faces [F x 3] (0-based indices as doubles) and landmarks [4 x 3] (rows nasion, inion, LPA, RPA), "
       "all in the scalp's unit → positions [345 x 3], row k named meta.labels[k]; the 10-10 (77 names) and 10-20 (21) are subsets of the names (meta.systems). Parameters: tolerance (when Cz stops moving, a fraction "
@@ -56,23 +56,23 @@ void add_montage_steps(std::vector<StepSpec>& r) {
   s.prepare = [](const Values&, const Json& p, ExecContext&) {
     need(p["tolerance"].is_number() && p["tolerance"].get<double>() > 0, "eeg_montage_1005: tolerance is a fraction of the nasion - inion distance, a number > 0");
     need(p["max_iterations"].is_number_integer() && p["max_iterations"].get<int>() >= 1, "eeg_montage_1005: max_iterations is a count, a whole number >= 1");
-    nxr::montage::Options o;
+    nxr::meeg::Options o;
     o.tolerance = p["tolerance"].get<double>();
     o.max_iterations = p["max_iterations"].get<int>();
     return std::any(o);
   };
   s.run = [](const std::any& st, const Arrays& ins, ExecContext&) {
-    const auto opt = std::any_cast<nxr::montage::Options>(st);
+    const auto opt = std::any_cast<nxr::meeg::Options>(st);
     const Array &V = ins.at("scalp_vertices"), &F = ins.at("scalp_faces"), &L = ins.at("landmarks");
     need(V.cols == 3 && F.cols == 3 && L.cols == 3 && L.rows == 4, "eeg_montage_1005: scalp_vertices [V x 3], scalp_faces [F x 3] and landmarks [4 x 3] (nasion, inion, LPA, RPA)");
     need(is_f32(V) == is_f32(L), "eeg_montage_1005: the scalp and the landmarks are in different precision: convert one explicitly");
     std::vector<std::int32_t> faces(F.data.size());
     for (std::size_t i = 0; i < faces.size(); ++i) faces[i] = static_cast<std::int32_t>(std::llround(F.data[i]));
-    nxr::montage::Landmarks lm;
-    nxr::montage::Point* pts[4] = {&lm.nasion, &lm.inion, &lm.lpa, &lm.rpa};
+    nxr::meeg::Landmarks lm;
+    nxr::meeg::Point* pts[4] = {&lm.nasion, &lm.inion, &lm.lpa, &lm.rpa};
     for (int k = 0; k < 4; ++k) for (int c = 0; c < 3; ++c) (*pts[k])[c] = L.data[static_cast<std::size_t>(3 * k + c)];
-    nxr::montage::Placement p;
-    try { p = nxr::montage::tenFive(V.data, faces, lm, opt); } catch (const std::invalid_argument& e) { refuse(e.what()); }
+    nxr::meeg::Placement p;
+    try { p = nxr::meeg::tenFive(V.data, faces, lm, opt); } catch (const std::invalid_argument& e) { refuse(e.what()); }
     Array out;
     out.rows = static_cast<std::int64_t>(p.labels.size());
     out.cols = 3;
@@ -83,8 +83,8 @@ void add_montage_steps(std::vector<StepSpec>& r) {
     for (const double d : p.landmark_shift) shift.push_back(d);
     out.meta = Json{{"precision", f32 ? "float32" : "float64"},
                     {"labels", p.labels},
-                    {"systems", Json{{"10-10", nxr::montage::labels1010()}, {"10-20", nxr::montage::labels1020()}}},
-                    {"old_names", nxr::montage::oldNames()},
+                    {"systems", Json{{"10-10", nxr::meeg::labels1010()}, {"10-20", nxr::meeg::labels1020()}}},
+                    {"old_names", nxr::meeg::oldNames()},
                     {"cz_iterations", p.iterations},
                     {"cz_residual", p.cz_residual},
                     {"landmark_shift", shift},

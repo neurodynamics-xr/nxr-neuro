@@ -13,14 +13,14 @@
 #include <set>
 #include <sstream>
 
-#include "nxr/montage.h"
+#include "nxr/meeg/montage.h"
 #include "synthetic_meshes.h"
 
 #ifndef NXR_TEST_GOLDEN_DIR
 #error "NXR_TEST_GOLDEN_DIR is not set"
 #endif
 
-using namespace nxr::montage;
+using namespace nxr::meeg;
 using V3 = Eigen::Vector3d;
 
 static int fails = 0;
