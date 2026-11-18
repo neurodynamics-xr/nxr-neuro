@@ -123,9 +123,7 @@ Json convert_condition(SubjectWriter& sub, const fs::path& bst_root, const std::
     else { const auto ch = chan.find("Channel"); for (std::size_t i = 0; ch != chan.end() && i < ch->second.numel(); ++i) flags.push_back(1); }
   }
   const auto entries = projector_entries(chan);
-  Projection projection;                       // the status-1 projectors as one matrix, applied to every recording's samples
-  projection.matrix = applied_matrix(entries);
-  projection.n_channels = chan.count("Channel") ? chan.at("Channel").numel() : 0;
+  Projection projection;                       // the record of the projectors: the samples are stored as recorded (the chunk service applies the active ones on load)
   // SESSION-SCOPED NAMES (D121): shared when the file and the flags are identical, qualified otherwise
   std::string flag_bytes;
   for (auto f : flags) flag_bytes.push_back(static_cast<char>(static_cast<std::int8_t>(f)));

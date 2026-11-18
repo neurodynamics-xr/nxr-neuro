@@ -38,6 +38,7 @@
 #include "nxr/meeg/forward.h"
 #include "nxr/meeg/sphere.h"
 #include "nxr/bst/inverse.h"
+#include "nxr/bst/projectors.h"
 
 namespace nxr::pipelines::graph {
 
@@ -198,12 +199,128 @@ ng::NodeSpec noise_covariance() {
 // Made: the kernel [3N x M] on the pick, the pick, the covariance it was computed with (re-referenced) and its symmetric whitener [M x M] (a PCA whitener is not stored).
 struct MinNormPrepared {
   Eigen::MatrixXd G, C;
+  std::optional<Eigen::MatrixXd> right;      // MNE-Python: the projector the kernel ends with (inv['proj']), [M x M]
   std::vector<std::int32_t> channels;
   std::vector<std::string> types;
   nxr::meeg::KernelOptions opt;
   bool averaged = false;
   std::string forward, covariance, conventions;
+  Json projectors = Json::object();          // which projectors went where (the provenance)
 };
+
+// the projectors handed with the covariance (the runner reads its channels' projector Operators: `meta.projectors`)
+std::vector<nxr::bst::StoredProjector> projectors_of(const Json& meta) {
+  std::vector<nxr::bst::StoredProjector> out;
+  if (!meta.contains("projectors") || !meta["projectors"].is_array()) return out;
+  for (const auto& j : meta["projectors"]) {
+    nxr::bst::StoredProjector p;
+    p.name = j.value("name", std::string());
+    p.kind = j.value("kind", std::string("ssp"));
+    p.method = j.value("method", std::string());
+    p.order = j.value("order", 0);
+    p.status = j.value("status", 0);
+    p.m = j.value("m", std::size_t(0));
+    if (j.contains("vectors")) for (const auto& v : j["vectors"]) p.vectors.push_back(v.get<std::vector<double>>());
+    if (j.contains("matrix")) p.matrix = j["matrix"].get<std::vector<double>>();
+    out.push_back(std::move(p));
+  }
+  return out;
+}
+Eigen::MatrixXd dense(const std::vector<double>& m, std::size_t n) {
+  if (m.empty()) return Eigen::MatrixXd::Identity(static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(n));
+  return Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(m.data(), static_cast<Eigen::Index>(n), static_cast<Eigen::Index>(n));
+}
+
+}  // namespace
+
+MinNormInputs minimum_norm_inputs(const Eigen::MatrixXd& F, const Eigen::MatrixXd& C, const std::vector<std::int32_t>& pick, const std::vector<std::string>& types,
+                                  const std::vector<nxr::bst::StoredProjector>& projectors, const std::vector<std::string>& covariance_projectors, const std::string& conventions,
+                                  bool average_reference) {
+  const Eigen::Index M = static_cast<Eigen::Index>(pick.size()), m = F.rows();
+  if (C.rows() != M || C.cols() != M || static_cast<Eigen::Index>(types.size()) != M) ng::refuse("meeg.minimum_norm: the covariance, its channels and their types do not agree");
+  for (const auto& q : projectors) if (static_cast<Eigen::Index>(q.m) != m) ng::refuse("meeg.minimum_norm: the projector " + q.name + " is on " + std::to_string(q.m) + " channels, the gain on " + std::to_string(m));
+  MinNormInputs out;
+  Json rec = Json::object();
+  // the average reference's families among the pick (EEG, sEEG, ECoG with at least two channels)
+  std::vector<std::vector<int>> families;
+  if (average_reference)
+    for (const char* fam : {"EEG", "SEEG", "ECOG"}) {
+      std::vector<int> idx;
+      for (int i = 0; i < static_cast<int>(M); ++i) if (types[static_cast<std::size_t>(i)] == fam) idx.push_back(i);
+      if (idx.size() >= 2) families.push_back(idx);
+    }
+  out.averaged = !families.empty();
+  if (conventions == "mne") {
+    // MNE-Python (make_inverse_operator: _prepare_forward, prepare_noise_cov / _smart_eigh, prepare_inverse_operator): the projector is made on the picked channels from
+    // EVERY projector of the info (active or not) with each vector cut to the pick and renormalised (_make_projector); the average reference is one of them (an EEG
+    // average-reference projector). The covariance is P C P^T with P from the info's projectors and the covariance's own; the gain is used as it is (the whitener's rows lie in
+    // the projected space, and the depth prior is computed on the gain as it is); the kernel ends with the info's projector (inv['proj']).
+    std::vector<nxr::bst::StoredProjector> info = projectors;
+    int order = 0;
+    for (const auto& q : info) order = std::max(order, q.order);
+    for (const auto& idx : families) {
+      nxr::bst::StoredProjector a;
+      a.name = "average reference (" + types[static_cast<std::size_t>(idx.front())] + ")";
+      a.kind = "ssp"; a.status = 1; a.order = ++order; a.m = static_cast<std::size_t>(m);
+      std::vector<double> v(static_cast<std::size_t>(m), 0.0);
+      for (int i : idx) v[static_cast<std::size_t>(pick[static_cast<std::size_t>(i)])] = 1.0;
+      a.vectors.push_back(v);
+      info.push_back(std::move(a));
+    }
+    std::vector<nxr::bst::StoredProjector> with_cov = info;
+    for (const auto& name : covariance_projectors)
+      for (const auto& q : projectors) if (q.name == name) { nxr::bst::StoredProjector c = q; c.order = ++order; with_cov.push_back(std::move(c)); }
+    nxr::bst::ProjectorRule rule;
+    rule.statuses = {0, 1, 2};
+    for (const auto c : pick) rule.channels.push_back(static_cast<std::size_t>(c));
+    rule.renormalise = true;
+    rule.zero_tiny = false;
+    std::vector<std::string> used_info, used_cov;
+    const Eigen::MatrixXd Pk = dense(nxr::bst::joint_projector(info, rule, &used_info), static_cast<std::size_t>(M));
+    const Eigen::MatrixXd Pc = dense(nxr::bst::joint_projector(with_cov, rule, &used_cov), static_cast<std::size_t>(M));
+    out.G.resize(M, F.cols());
+    for (Eigen::Index i = 0; i < M; ++i) out.G.row(i) = F.row(pick[static_cast<std::size_t>(i)]);
+    out.C = Pc * C * Pc.transpose();
+    if (!used_info.empty()) out.right = Pk;
+    rec = Json{{"rule", "MNE-Python make_inverse_operator: every projector of the info (and the covariance's) on the picked channels, each vector renormalised; P C P^T; the kernel ends with P"},
+               {"covariance", used_cov}, {"kernel", used_info}};
+  } else {
+    // Brainstorm (process_inverse_2018): the channel file's projectors of status 1 and 2 (BuildProjector(Projector, [1 2])) on ALL channels, applied to the gain's rows that
+    // hold no NaN and to both sides of the noise covariance; then the good channels; then the average reference per family, on the gain and both sides of the covariance.
+    nxr::bst::ProjectorRule rule;
+    rule.statuses = {1, 2};
+    std::vector<std::string> used;
+    const std::vector<double> pv = nxr::bst::joint_projector(projectors, rule, &used);
+    std::vector<Eigen::Index> ok;
+    for (Eigen::Index r = 0; r < m; ++r) if (!F.row(r).hasNaN()) ok.push_back(r);
+    out.G.resize(M, F.cols());
+    if (pv.empty()) {
+      for (Eigen::Index i = 0; i < M; ++i) out.G.row(i) = F.row(pick[static_cast<std::size_t>(i)]);
+      out.C = C;
+    } else {
+      const Eigen::MatrixXd P = dense(pv, static_cast<std::size_t>(m));
+      Eigen::MatrixXd Pp(M, M);
+      for (Eigen::Index i = 0; i < M; ++i) {
+        const Eigen::Index r = pick[static_cast<std::size_t>(i)];
+        if (F.row(r).hasNaN()) { out.G.row(i) = F.row(r); }
+        else { out.G.row(i).setZero(); for (const Eigen::Index l : ok) if (P(r, l) != 0.0) out.G.row(i) += P(r, l) * F.row(l); }
+        for (Eigen::Index j = 0; j < M; ++j) Pp(i, j) = P(r, pick[static_cast<std::size_t>(j)]);
+      }
+      out.C = Pp * C * Pp.transpose();
+    }
+    if (out.averaged) {
+      Eigen::MatrixXd A = Eigen::MatrixXd::Identity(M, M);
+      for (const auto& idx : families) for (int a : idx) for (int b : idx) A(a, b) -= 1.0 / static_cast<double>(idx.size());
+      out.G = A * out.G;
+      out.C = A * out.C * A.transpose();
+    }
+    rec = Json{{"rule", "Brainstorm process_inverse_2018: the projectors of status 1 and 2 on all channels, applied to the gain and both sides of the noise covariance"}, {"applied", used}};
+  }
+  out.record = rec;
+  return out;
+}
+
+namespace {
 
 nxr::meeg::KernelOptions kernel_options(const Json& p) {
   using namespace nxr::meeg;
@@ -307,31 +424,24 @@ ng::NodeSpec minimum_norm() {
     pr.types = S.meta.value("channel_types", std::vector<std::string>());
     const std::int64_t M = static_cast<std::int64_t>(pr.channels.size());
     if (M == 0 || S.rows != M || S.cols != M) ng::refuse("meeg.minimum_norm: " + pr.covariance + ": its array does not fit its channels");
-    pr.C = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(S.data.data(), M, M);
-    pr.G.resize(M, F.cols);
-    for (std::int64_t i = 0; i < M; ++i) {
-      const std::int32_t ch = pr.channels[static_cast<std::size_t>(i)];
-      if (ch < 0 || ch >= F.rows) ng::refuse("meeg.minimum_norm: a channel of " + pr.covariance + " is outside the gain's channels");
-      for (std::int64_t j = 0; j < F.cols; ++j) pr.G(i, j) = F.data[static_cast<std::size_t>(ch * F.cols + j)];
-    }
+    const Eigen::MatrixXd C = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(S.data.data(), M, M);
+    for (const std::int32_t ch : pr.channels) if (ch < 0 || ch >= F.rows) ng::refuse("meeg.minimum_norm: a channel of " + pr.covariance + " is outside the gain's channels");
+    const Eigen::MatrixXd Fall = Eigen::Map<const Eigen::Matrix<double, Eigen::Dynamic, Eigen::Dynamic, Eigen::RowMajor>>(F.data.data(), F.rows, F.cols);
     pr.opt = kernel_options(p);
     pr.conventions = p.value("conventions", std::string("brainstorm"));
-    if (p.value("average_reference", true)) {
-      Eigen::MatrixXd A = Eigen::MatrixXd::Identity(M, M);
-      for (const char* fam : {"EEG", "SEEG", "ECOG"}) {
-        std::vector<int> idx;
-        for (int i = 0; i < static_cast<int>(M); ++i) if (pr.types[static_cast<std::size_t>(i)] == fam) idx.push_back(i);
-        if (idx.size() < 2) continue;
-        for (int a : idx) for (int b : idx) A(a, b) -= 1.0 / static_cast<double>(idx.size());
-        pr.averaged = true;
-      }
-      if (pr.averaged) { pr.G = A * pr.G; pr.C = A * pr.C * A.transpose(); }
+    std::vector<std::string> cov_projs;                                  // the projectors the covariance's recording was read with (its run's provenance)
+    if (S.meta.contains("producer") && S.meta["producer"].is_object() && S.meta["producer"].contains("run") && S.meta["producer"]["run"].is_object()) {
+      const Json& r = S.meta["producer"]["run"];
+      if (r.contains("projectors") && r["projectors"].is_object() && r["projectors"].contains("applied")) cov_projs = r["projectors"]["applied"].get<std::vector<std::string>>();
     }
+    const MinNormInputs mi = minimum_norm_inputs(Fall, C, pr.channels, pr.types, projectors_of(S.meta), cov_projs, pr.conventions, p.value("average_reference", true));
+    pr.G = mi.G; pr.C = mi.C; pr.right = mi.right; pr.averaged = mi.averaged; pr.projectors = mi.record;
     return std::any(std::move(pr));
   };
   n.run = [](const std::any& prepared, const ng::Arrays&) {
     const MinNormPrepared& pr = std::any_cast<const MinNormPrepared&>(prepared);
-    const nxr::meeg::Kernel ker = nxr::meeg::unconstrainedKernel(pr.G, pr.C, pr.types, pr.opt);
+    nxr::meeg::Kernel ker = nxr::meeg::unconstrainedKernel(pr.G, pr.C, pr.types, pr.opt);
+    if (pr.right) ker.K = ker.K * *pr.right;                            // MNE-Python's kernel ends with the projector (trans = eigen_fields . whitener . proj)
     const std::int64_t M = static_cast<std::int64_t>(pr.channels.size()), R = ker.K.rows(), N = R / 3;
     const Json options = kernel_options_record(pr.opt);
     const auto& w = pr.opt.whitener;
@@ -340,7 +450,7 @@ ng::NodeSpec minimum_norm() {
                          {"source_ori", "free"}, {"inverse_method", "minnorm"}, {"inverse_measure", "amplitude"}, {"source_orient", Json::array({"free"})},
                          {"use_depth", pr.opt.depth.enabled}, {"noise_method", w.regularisation == nxr::meeg::Regularisation::Ridge ? "reg" : w.regularisation == nxr::meeg::Regularisation::Diagonal ? "diag" : "none"},
                          {"snr_method", "fixed"}, {"snr_fixed", pr.opt.snr}, {"whitener_rank", ker.whitenerRank}, {"lambda", ker.lambda},
-                         {"computed", Json{{"options", options}, {"conventions", pr.conventions}, {"average_reference", pr.averaged}, {"forward", pr.forward}, {"noise_cov", pr.covariance}, {"notes", ker.notes}}}};
+                         {"computed", Json{{"options", options}, {"conventions", pr.conventions}, {"average_reference", pr.averaged}, {"projectors", pr.projectors}, {"forward", pr.forward}, {"noise_cov", pr.covariance}, {"notes", ker.notes}}}};
     if (pr.opt.depth.enabled) { producer["weight_exp"] = pr.opt.depth.exponent; producer["weight_limit"] = pr.opt.depth.limit; }
     if (w.regularisation == nxr::meeg::Regularisation::Ridge) producer["noise_reg"] = w.ridgeFraction;
     const std::optional<Json> inverse = nxr::bst::inverse_method_of(producer);   // the importer's shape, so a computed kernel is found as an imported one is

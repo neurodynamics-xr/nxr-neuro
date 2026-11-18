@@ -1,6 +1,8 @@
 // nxr-io — the chunk service (chunk_loop.h).
 #include "nxr/io/chunk_loop.h"
 
+#include "nxr/bst/projectors.h"
+
 #include <fcntl.h>
 #include <unistd.h>
 #ifndef __EMSCRIPTEN__
@@ -170,9 +172,7 @@ void ChunkSource::read(std::int64_t k, Chunk& out) const {
   out.first = first;
   out.n = n;
   out.data.resize(static_cast<std::size_t>(R * n));
-  for (std::int64_t i = 0; i < R; ++i) {
-    double* dst = out.data.data() + static_cast<std::size_t>(i * n);
-    const std::int64_t row = rows_[static_cast<std::size_t>(i)];
+  auto decode = [&](std::int64_t row, double* dst) {
     switch (dtype) {
       case DType::Float32: widen<float>(raw.data(), row, n, dst); break;
       case DType::Float64: widen<double>(raw.data(), row, n, dst); break;
@@ -180,6 +180,33 @@ void ChunkSource::read(std::int64_t k, Chunk& out) const {
       case DType::Int32: widen<std::int32_t>(raw.data(), row, n, dst); break;
       default: throw Error(code::unsupported, std::string("a recording of type ") + dtype_to_string(dtype) + " is not read here");
     }
+  };
+  if (projection_ && R > 0) {
+    // THE PROJECTORS (P x, in double): a row asked for is the sum over the channels its row of P touches, ascending; a row P leaves alone is copied
+    const std::int64_t C = n_channels_;
+    const std::vector<double>& P = projection_->matrix;
+    std::vector<std::vector<double>> decoded(static_cast<std::size_t>(C));
+    auto row_of = [&](std::int64_t c) -> const std::vector<double>& {
+      auto& d = decoded[static_cast<std::size_t>(c)];
+      if (d.empty()) { d.resize(static_cast<std::size_t>(n)); decode(c, d.data()); }
+      return d;
+    };
+    for (std::int64_t i = 0; i < R; ++i) {
+      double* dst = out.data.data() + static_cast<std::size_t>(i * n);
+      const std::int64_t row = rows_[static_cast<std::size_t>(i)];
+      const double* p = P.data() + static_cast<std::size_t>(row * C);
+      bool alone = true;
+      for (std::int64_t l = 0; l < C && alone; ++l) alone = p[l] == (l == row ? 1.0 : 0.0);
+      if (alone) { decode(row, dst); continue; }
+      std::fill(dst, dst + n, 0.0);
+      for (std::int64_t l = 0; l < C; ++l) {
+        if (p[l] == 0.0) continue;
+        const std::vector<double>& x = row_of(l);
+        for (std::int64_t t = 0; t < n; ++t) dst[t] += p[l] * x[static_cast<std::size_t>(t)];
+      }
+    }
+  } else {
+    for (std::int64_t i = 0; i < R; ++i) decode(rows_[static_cast<std::size_t>(i)], out.data.data() + static_cast<std::size_t>(i * n));
   }
   out.good.clear();
   if (bad_) {
@@ -197,6 +224,45 @@ void ChunkSource::read(std::int64_t k, Chunk& out) const {
 }
 
 std::int64_t ChunkSource::reads() const { return reads_->load(); }
+
+void ChunkSource::project(std::shared_ptr<const LoadProjection> p, Json record) {
+  if (p && (p->n != n_channels_ || p->matrix.size() != static_cast<std::size_t>(n_channels_ * n_channels_)))
+    throw Error(code::invalid_argument, "the projectors act on " + std::to_string(p->n) + " channels, the recording has " + std::to_string(n_channels_));
+  projection_ = std::move(p);
+  projection_record_ = std::move(record);
+}
+
+const char* to_string(Projectors p) { return p == Projectors::none ? "none" : "active"; }
+Projectors projectors_from(const std::string& name) {
+  if (name == "active") return Projectors::active;
+  if (name == "none") return Projectors::none;
+  throw Error(code::invalid_argument, "projectors is active (the recording's active projectors applied on load, the default) or none (the samples as recorded), not '" + name + "'");
+}
+
+ProjectionOf load_projection(const Database& db, const Store& store, const Row& recording, Projectors option) {
+  ProjectionOf out;
+  const auto mid = opt_text(recording, "manifold_id");
+  if (!mid) return out;
+  const auto f = db.one("SELECT d.manifold_id AS manifold_id FROM manifold p JOIN geometry_dimension d ON d.geometry_id = p.geometry_id WHERE p.id = ? ORDER BY d.ordinal LIMIT 1", {V(*mid)});
+  if (!f) return out;
+  const std::vector<nxr::bst::StoredProjector> ps = nxr::bst::stored_projectors(db, store, text(*f, "manifold_id"));
+  Json active = Json::array();
+  for (const auto& p : ps) if (p.status == 1) active.push_back(p.name);
+  if (active.empty()) return out;
+  out.record = Json{{"option", to_string(option)}, {"active", active}, {"applied", Json::array()},
+                    {"rule", "Brainstorm in_fread: the status-1 projectors, SSP vectors stacked and re-orthogonalised (singular values below 1% of the largest dropped), the others in the file's order"}};
+  if (option == Projectors::none) return out;
+  std::vector<std::string> used;
+  nxr::bst::ProjectorRule rule;                                       // status 1, every channel, the vectors as stored (Brainstorm's BuildProjector(Projector, 1))
+  std::vector<double> m = nxr::bst::joint_projector(ps, rule, &used);
+  out.record["applied"] = used;
+  if (m.empty()) return out;
+  auto lp = std::make_shared<LoadProjection>();
+  lp->n = static_cast<std::int64_t>(ps.front().m);
+  lp->matrix = std::move(m);
+  out.projection = std::move(lp);
+  return out;
+}
 
 namespace {
 std::mutex defaults_mutex;

@@ -3,7 +3,8 @@
     NXR=<path to nxr> NXR_NEURO=<build>/cli/nxr-neuro uv run --project $NXR python -m pytest -q test/parity/test_projectors_parity.py
 
 Both tools import a session whose channel file carries SSP and ICA projectors (status 1 · 2 · 0) and a MegRefCoef; every row, every zarr.json and every chunk's
-bytes are equal — the operators, and the samples with the status-1 projectors applied (raw link and imported excerpt, native rate and resampled).
+bytes are equal — the operators, and the samples as recorded (raw link and imported excerpt, native rate and resampled): neither import applies a projector; the
+chunk service applies the status-1 ones on load. (nxr's Python must store the samples as recorded too for the samples' bytes to agree.)
 
 With NXR_IO_BST_PROTOCOL, NXR_IO_BST_SUBJECT and NXR_IO_BST_CHANNEL (a real channel file of ONE subject, read only) set, `test_a_real_channel_file_*` runs the same on it
 with synthetic samples. Unset, it skips.
@@ -114,7 +115,7 @@ def test_projectors_are_nxrs(imported, resample, tmp_path):
     assert [json.loads(ops[f"channel_projector_{k}"][2])["status"] for k in (1, 2, 3, 4)] == [1, 2, 0, 1]
     assert json.loads(ops["channel_projector_4"][2])["kind"] == "ica"
     prod = json.loads(con.execute("SELECT producer_json FROM field WHERE kind = 'recording'").fetchone()[0])
-    assert [p["applied"] for p in prod["projectors"]] == ["applied by the import", "already applied to the samples", "not applied", "applied by the import"]
+    assert [p["applied"] for p in prod["projectors"]] == ["applied on load", "already applied to the samples", "not applied", "applied on load"]
     assert prod["ctf_compensation"]["operator"] == "channel_ctf_compensation"
     assert ("grade" in prod["ctf_compensation"]) == (not imported)
 

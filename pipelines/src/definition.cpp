@@ -68,7 +68,7 @@ void refuse_bare_index(const std::string& name, const Json& doc, const std::stri
     err(where, "parameters: " + name + ": a unit of 'level' or 'index' is a bare index; state the quantity (a duration, a band, a tile size, a wavelength), or `chart: index` for diagnostics");
 }
 // a parameter named as a command-line option the verb reserves cannot be one (the option would be ambiguous): refused when the definition is read
-const std::set<std::string> kReserved = {"dataset", "subject", "from", "to", "all", "replace", "dry_run", "json", "help", "quiet", "no_color", "human", "version", "chunks", "start", "stop"};
+const std::set<std::string> kReserved = {"dataset", "subject", "from", "to", "all", "replace", "dry_run", "json", "help", "quiet", "no_color", "human", "version", "chunks", "start", "stop", "projectors"};
 // the defaults (what the runner reads) and, apart, what each parameter declares about itself
 Json split_parameters(const Json& raw, Json& docs, const std::string& where) {
   Json defaults = Json::object();
