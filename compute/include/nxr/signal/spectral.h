@@ -15,10 +15,11 @@
 // ONE ACCUMULATION: the estimate is the mean over the family of segments of a per-segment quantity, `nxr::measurement::SegmentMean` (estimate.h, spec docs/specs/2026-11-17-consolidation.md);
 // the per-segment quantities (detrend, window, FFT, |X|^2, X X^H, |A X|^2) are the pointwise transforms.
 //
-// STREAMING. `Welch::add(chunk)` takes [channels x samples] blocks of any size. The samples left over at the end of a chunk (the start of the next segment) are
-// CARRIED into the next chunk, so segments cross chunk edges and the result does not depend on how the record was cut: segments are taken in the same order and
-// summed in the same order, so the result is identical to the last bit for any chunk size. Memory: the carried samples (< n + hop) plus one chunk and one segment,
-// whatever the length of the record.
+// BLOCKS WITH A RIGHT HALO. `Welch::add(block, good, first, own)` takes a block of the stream whose first `own` columns are the ones it OWNS (stream position `first`, counted from the
+// span's first sample) and, after them, any right context the caller could read (the halo, at most n - 1 samples; fewer where the span ends: a segment never reaches past what the block
+// holds). A segment belongs to the block that holds its START sample (starts are multiples of the hop); the block forms every segment it owns whose n samples lie inside it, so no segment is
+// counted twice or dropped, and nothing is carried between blocks: the classes hold only the sum of the per-segment quantities (the measurement) and its counts. Segments are added in start
+// order, so the result is identical to the last bit for any cut that gives every block its n - 1 samples of halo. `add(whole)` is the whole record as one block.
 //
 // BAD SAMPLES. `add(chunk, good)` takes a per-sample mask; a segment that touches a sample that is not good is LEFT OUT (Brainstorm's bad segments; nxr's `good`).
 // The segment grid does not move: segments keep their place, those touching a bad sample are skipped (nxr.spectral.chain._welch).
@@ -94,23 +95,15 @@ SegmentFamily segmentFamily(const WelchOptions& options);
 /** The scale that turns the mean over the segments of |X|^2 (or X X^H) into the options' scaling: 1 / (fs sum w^2), 1 / (sum w)^2 or 1 / (n sum w^2). */
 double segmentScale(const WelchOptions& options, const SegmentFamily& family);
 
-/** STFT over a segment family, a block at a time. `block` [rows x width] holds samples of a stream from stream position `first` on (`first` is the start of a segment: a multiple of the hop); `good` one flag
- *  a sample. Every whole segment that starts in the block is transformed (rfft of a real block, the FFT of a complex one) and given to `visit(id, spectrum, bins)`, `spectrum` [rows x bins] row-major
- *  (`id` = the segment's number on the stream, start / hop); a segment touching a sample that is not good is given to `skipped(id)` instead. Returns the samples the block's segments have passed (the
- *  next segment starts there): the caller keeps the rest of the block and its next samples (the segment model: a segment is owned by the block that holds its start). No state: the result does
- *  not depend on how the stream was cut. */
-std::size_t stft(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first,
-                 const std::function<void(std::int64_t id, const std::complex<double>* spectrum, std::size_t bins)>& visit, const std::function<void(std::int64_t id)>& skipped);
-std::size_t stft(const Eigen::MatrixXcd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first,
-                 const std::function<void(std::int64_t id, const std::complex<double>* spectrum, std::size_t bins)>& visit, const std::function<void(std::int64_t id)>& skipped);
-
-/** The samples of a stream a segment has not passed yet: the tail of the last block (the start of the next segment) joined to the next chunk (the segment model of a streamed run). */
-template <class Matrix>
-struct SegmentCarry {
-    Matrix block;                             // [rows x carried]
-    std::vector<std::uint8_t> good;
-    std::int64_t first = 0;                   // the stream position of block's first sample
-};
+/** STFT over a segment family, for the segments a block OWNS. `block` [rows x width] holds samples of a stream from stream position `first` on; its first `own` columns are the block's own, the rest
+ *  (width - own) its right halo. `good` one flag a sample (the halo's too). Every segment whose start (a multiple of the hop) lies in [first, first + own) and whose n samples lie inside the block is
+ *  transformed (rfft of a real block, the FFT of a complex one) and given to `visit(id, spectrum, bins)`, `spectrum` [rows x bins] row-major (`id` = the segment's number on the stream, start / hop),
+ *  in start order; a segment touching a sample that is not good is given to `skipped(id)` instead. A segment that would reach past the block is not formed (the span's end: the next block does not
+ *  own it). No state: the segments do not depend on how the stream was cut. */
+void stft(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first, std::int64_t own,
+          const std::function<void(std::int64_t id, const std::complex<double>* spectrum, std::size_t bins)>& visit, const std::function<void(std::int64_t id)>& skipped);
+void stft(const Eigen::MatrixXcd& block, const std::vector<std::uint8_t>& good, const SegmentFamily& family, std::int64_t first, std::int64_t own,
+          const std::function<void(std::int64_t id, const std::complex<double>* spectrum, std::size_t bins)>& visit, const std::function<void(std::int64_t id)>& skipped);
 
 struct WelchResult {
     Eigen::MatrixXd psd;                      // [channels x frequencies]
@@ -122,10 +115,11 @@ struct WelchResult {
 class Welch {
 public:
     Welch(int channels, const WelchOptions& options);
-    /** Feed the next chunk, [channels x samples]; every sample is good. */
-    void add(const Eigen::MatrixXd& chunk);
-    /** Feed the next chunk with a mask of the same number of samples; a segment touching a false sample is left out. */
-    void add(const Eigen::MatrixXd& chunk, const std::vector<std::uint8_t>& good);
+    /** the whole record as one block: every sample good (the second form: with a mask of one flag a sample) */
+    void add(const Eigen::MatrixXd& whole);
+    void add(const Eigen::MatrixXd& whole, const std::vector<std::uint8_t>& good);
+    /** a block that owns its first `own` columns from stream position `first` and carries the halo after them (see the top of this file) */
+    void add(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own);
     /** The estimate of everything fed so far (the state is not changed: feeding may go on). */
     WelchResult result() const;
     std::int64_t samples() const { return samples_; }
@@ -133,11 +127,11 @@ public:
     const WelchOptions& options() const { return opt_; }
 
 private:
-    void consume();
+    void consume(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own);
     WelchOptions opt_;
     SegmentFamily family_;
     std::size_t n_;
-    SegmentCarry<Eigen::MatrixXd> carry_;     // [channels x carried]: samples from the next unprocessed segment's start on
+    Eigen::Index channels_ = 0;
     measurement::SegmentMean mean_;           // [channels x bins]: the mean over the segments of |X|^2 (before scaling and doubling), `estimate`'s one accumulation (its sum is what the scaling multiplies)
     std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
 };
@@ -163,18 +157,21 @@ class CrossWelch {
 public:
     /** `withQuadrature`: also accumulate the imaginary part Im C (the quadrature spectrum, nxr/signal/crossspectral.h) into `result().Sq`; off, `S` is exactly as before. */
     CrossWelch(int channels, const WelchOptions& options, const std::vector<BinGroup>& groups, bool withQuadrature = false);
-    void add(const Eigen::MatrixXd& chunk);
-    void add(const Eigen::MatrixXd& chunk, const std::vector<std::uint8_t>& good);
+    /** the whole record as one block: every sample good (the second form: with a mask of one flag a sample) */
+    void add(const Eigen::MatrixXd& whole);
+    void add(const Eigen::MatrixXd& whole, const std::vector<std::uint8_t>& good);
+    /** a block that owns its first `own` columns from stream position `first` and carries the halo after them (see the top of this file) */
+    void add(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own);
     CrossWelchResult result() const;
     std::int64_t segments() const { return segments_; }
 
 private:
-    void consume();
+    void consume(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own);
     WelchOptions opt_;
     SegmentFamily family_;
     std::size_t n_;
     std::vector<BinGroup> groups_;
-    SegmentCarry<Eigen::MatrixXd> carry_;
+    Eigen::Index channels_ = 0;
     std::vector<measurement::SegmentMean> mean_;   // per group: Re (the cross-spectral density) and, with the quadrature, Im in the imaginary part
     bool quadrature_ = false;
     std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
@@ -194,19 +191,22 @@ struct LinearWelchResult {
 class LinearWelch {
 public:
     LinearWelch(const Eigen::MatrixXd& map, std::size_t rowsPerOutput, const WelchOptions& options, std::size_t firstBin, std::size_t lastBin);
-    void add(const Eigen::MatrixXd& chunk);
-    void add(const Eigen::MatrixXd& chunk, const std::vector<std::uint8_t>& good);
+    /** the whole record as one block: every sample good (the second form: with a mask of one flag a sample) */
+    void add(const Eigen::MatrixXd& whole);
+    void add(const Eigen::MatrixXd& whole, const std::vector<std::uint8_t>& good);
+    /** a block that owns its first `own` columns from stream position `first` and carries the halo after them (see the top of this file) */
+    void add(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own);
     LinearWelchResult result() const;
     std::int64_t segments() const { return segments_; }
 
 private:
-    void consume();
+    void consume(const Eigen::MatrixXd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own);
     const Eigen::MatrixXd& map_;
     std::size_t group_, first_, last_;
     WelchOptions opt_;
     SegmentFamily family_;
     std::size_t n_;
-    SegmentCarry<Eigen::MatrixXd> carry_;
+    Eigen::Index channels_ = 0;
     measurement::SegmentMean mean_;           // [outputs x bins kept]: the mean over the segments of |A X|^2 (the one-sided doubling in it; the scaling is applied at result)
     Eigen::Index outputs_ = 0;
     std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
@@ -226,17 +226,20 @@ struct ComplexWelchResult {
 class ComplexWelch {
 public:
     ComplexWelch(int series, const WelchOptions& options);
-    void add(const Eigen::MatrixXcd& chunk);
-    void add(const Eigen::MatrixXcd& chunk, const std::vector<std::uint8_t>& good);
+    /** the whole record as one block: every sample good (the second form: with a mask of one flag a sample) */
+    void add(const Eigen::MatrixXcd& whole);
+    void add(const Eigen::MatrixXcd& whole, const std::vector<std::uint8_t>& good);
+    /** a block that owns its first `own` columns from stream position `first` and carries the halo after them (see the top of this file) */
+    void add(const Eigen::MatrixXcd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own);
     ComplexWelchResult result() const;
     std::int64_t segments() const { return segments_; }
 
 private:
-    void consume();
+    void consume(const Eigen::MatrixXcd& block, const std::vector<std::uint8_t>& good, std::int64_t first, std::int64_t own);
     WelchOptions opt_;
     SegmentFamily family_;
     std::size_t n_;
-    SegmentCarry<Eigen::MatrixXcd> carry_;
+    Eigen::Index channels_ = 0;
     measurement::SegmentMean mean_;           // [series x n]: the mean of |X|^2 in the DFT's own order (0, 1, ..., -1)
     std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0;
 };
