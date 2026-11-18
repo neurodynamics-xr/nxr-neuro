@@ -2,6 +2,7 @@
 # Paths are relative to compute/.
 
 target_sources(nxr_compute PRIVATE
+  src/operators/assembled.cpp
   src/operators/cholesky_cache.cpp
   src/operators/connection_laplacian.cpp
   src/operators/covariant_differential.cpp
@@ -23,6 +24,8 @@ target_sources(nxr_compute PRIVATE
   src/operators/poisson_solver.cpp
   src/operators/sphere_registration.cpp
   src/operators/spin_dirac.cpp
+  src/operators/trivial_connection.cpp
+  src/operators/trivial_gauge.cpp
   src/operators/vector_field.cpp
 )
 

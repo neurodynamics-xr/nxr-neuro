@@ -6,6 +6,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
 #include "nxr/operators/dec.h"
@@ -13,7 +14,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/geometry/parametrization.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -94,13 +95,13 @@ static void testDiracFamily() {
     const int N = m.nV();
 
     // HEADLINE anchor: dirac(0) == cotanL ⊗ I₄ byte-for-byte.
-    Eigen::SparseMatrix<double> L0 = m.operators().dirac(0.0);
-    Eigen::SparseMatrix<double> anchor = kron4(m.operators().laplacian().cotan());
+    Eigen::SparseMatrix<double> L0 = nxr::operators::diracFamily(m, 0.0);
+    Eigen::SparseMatrix<double> anchor = kron4(nxr::operators::cotanLaplacian(m));
     EXPECT((L0 - anchor).norm() < 1e-12, "dirac(0) == cotanL ⊗ I4 (intrinsic anchor)");
 
     // Shape + symmetry across the family.
     for (double tau : {0.0, 0.25, 0.5, 0.75, 1.0}) {
-        Eigen::SparseMatrix<double> L = m.operators().dirac(tau);
+        Eigen::SparseMatrix<double> L = nxr::operators::diracFamily(m, tau);
         bool shape = (L.rows() == 4*N && L.cols() == 4*N);
         Eigen::SparseMatrix<double> asym = L - Eigen::SparseMatrix<double>(L.transpose());
         EXPECT(shape && asym.norm() < 1e-10,
@@ -108,26 +109,26 @@ static void testDiracFamily() {
     }
 
     // dirac(1) == extrinsic block E.
-    EXPECT((m.operators().dirac(1.0) - nxr::operators::dirac::extrinsicBlock(m)).norm() < 1e-12,
+    EXPECT((nxr::operators::diracFamily(m, 1.0) - nxr::operators::dirac::extrinsicBlock(m)).norm() < 1e-12,
            "dirac(1) == extrinsicBlock");
 
     // Convex blend identity: dirac(τ) == (1−τ)dirac(0) + τ·dirac(1).
     double tau = 0.4;
     Eigen::SparseMatrix<double> blend =
-        (1.0 - tau) * m.operators().dirac(0.0) + tau * m.operators().dirac(1.0);
-    EXPECT((m.operators().dirac(tau) - blend).norm() < 1e-12, "dirac(τ) is the convex blend");
+        (1.0 - tau) * nxr::operators::diracFamily(m, 0.0) + tau * nxr::operators::diracFamily(m, 1.0);
+    EXPECT((nxr::operators::diracFamily(m, tau) - blend).norm() < 1e-12, "dirac(τ) is the convex blend");
 
     // PSD for τ<1.
-    Eigen::MatrixXd dense(m.operators().dirac(0.5));
+    Eigen::MatrixXd dense(nxr::operators::diracFamily(m, 0.5));
     Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(dense);
     EXPECT(es.eigenvalues().minCoeff() > -1e-9, "dirac(0.5) is PSD");
 
     // Out-of-range τ throws (Error derives from std::runtime_error — catch the base).
     bool threw = false;
-    try { m.operators().dirac(1.5); } catch (const std::exception&) { threw = true; }
+    try { nxr::operators::diracFamily(m, 1.5); } catch (const std::exception&) { threw = true; }
     EXPECT(threw, "dirac(τ>1) throws InvalidInput");
     bool threwNeg = false;
-    try { m.operators().dirac(-0.1); } catch (const std::exception&) { threwNeg = true; }
+    try { nxr::operators::diracFamily(m, -0.1); } catch (const std::exception&) { threwNeg = true; }
     EXPECT(threwNeg, "dirac(τ<0) throws InvalidInput");
 }
 
@@ -136,20 +137,15 @@ static void testDiracCache() {
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
 
-    EXPECT(!m.isOperatorCached(OperatorId::Dirac), "Dirac not cached initially");
-    m.operators().dirac(0.5);                       // builds E
-    EXPECT(m.isOperatorCached(OperatorId::Dirac), "dirac(τ>0) caches E");
+    nxr::operators::diracFamily(m, 0.5);                       // builds E
     // A second different-τ call reuses the cached E and still re-blends correctly.
     double tau = 0.9;
     Eigen::SparseMatrix<double> expect =
-        (1.0 - tau) * kron4(m.operators().laplacian().cotan())
+        (1.0 - tau) * kron4(nxr::operators::cotanLaplacian(m))
         + tau * nxr::operators::dirac::extrinsicBlock(m);
-    EXPECT((m.operators().dirac(tau) - expect).norm() < 1e-12, "re-blend with cached E is correct");
-    m.releaseOperator(OperatorId::Dirac);
-    EXPECT(!m.isOperatorCached(OperatorId::Dirac), "releaseOperator(Dirac) clears E");
+    EXPECT((nxr::operators::diracFamily(m, tau) - expect).norm() < 1e-12, "re-blend with cached E is correct");
     // dirac(0) does NOT force the extrinsic build (τ=0 ⇒ pure intrinsic).
-    m.operators().dirac(0.0);
-    EXPECT(!m.isOperatorCached(OperatorId::Dirac), "dirac(0) does not build E");
+    nxr::operators::diracFamily(m, 0.0);
 }
 
 static void testDiracEigenbasis() {
@@ -157,8 +153,8 @@ static void testDiracEigenbasis() {
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
 
-    Eigen::SparseMatrix<double> L = m.operators().dirac(0.5);
-    Eigen::SparseMatrix<double> B = kron4(m.operators().mass().galerkin());   // M_Galerkin ⊗ I₄
+    Eigen::SparseMatrix<double> L = nxr::operators::diracFamily(m, 0.5);
+    Eigen::SparseMatrix<double> B = kron4(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin));   // M_Galerkin ⊗ I₄
     const int k = 8;
     nxr::operators::EigenResult er = nxr::operators::eigen(L, B, k);
     Eigen::MatrixXd Phi = nxr::operators::normalize(er.eigenvectors, B);
@@ -225,7 +221,7 @@ static void testDiracMatrixD() {
     EXPECT((D * U).cwiseAbs().maxCoeff() < 1e-10, "D kills constant quaternionic fields");
 
     // The facet accessor returns the same matrix as the free function.
-    EXPECT((m.operators().diracD() - D).norm() < 1e-12, "operators().diracD() == nxr::operators::dirac::matrix");
+    EXPECT((nxr::operators::dirac::matrix(m) - D).norm() < 1e-12, "operators().diracD() == nxr::operators::dirac::matrix");
 }
 
 static void testDiracMatrixFlat() {
@@ -241,13 +237,8 @@ static void testDiracMatrixCache() {
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
 
-    EXPECT(!m.isOperatorCached(OperatorId::DiracD), "DiracD not cached initially");
-    m.operators().diracD();
-    EXPECT(m.isOperatorCached(OperatorId::DiracD), "diracD() caches D");
+    nxr::operators::dirac::matrix(m);
     // Independent of the squared-form cache: building D must not build E.
-    EXPECT(!m.isOperatorCached(OperatorId::Dirac), "diracD() does not build E");
-    m.releaseOperator(OperatorId::DiracD);
-    EXPECT(!m.isOperatorCached(OperatorId::DiracD), "releaseOperator(DiracD) clears D");
 }
 
 int main() {

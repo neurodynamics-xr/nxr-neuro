@@ -40,7 +40,7 @@ struct FlowMethodOptions {
     // pcg, perscale
     double tolerance = 1e-8;
     int maxIterations = 500;
-    PcgOptions::Preconditioner preconditioner = PcgOptions::Preconditioner::Ldlt;
+    optimisation::PcgOptions::Preconditioner preconditioner = optimisation::PcgOptions::Preconditioner::Ldlt;
     // perscale: the graph filterbank ("mexhat", "itersine" or "logitersine"; its scaling and top members are low- and high-pass and are left out)
     std::string scaleFamily;
     int scaleVoices = 3;

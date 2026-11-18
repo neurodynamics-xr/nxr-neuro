@@ -3,11 +3,12 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/dec.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include <cmath>
 #include <iostream>
 using namespace nxr::geometry;
@@ -74,15 +75,13 @@ static void testGridRealization() {
     Manifold m(V.data(), 12, F.data(), 20);
 
     // pattern 1: gauge() is LC; grid == raw vertexGrid
-    auto gLC = m.connection();
-    EXPECT(gLC.type() == ConnectionType::LeviCivita, "active gauge LC");
-    EXPECT((gLC.grid() - nxr::geometry::vertexGrid(m)).cwiseAbs().maxCoeff() < 1e-12, "LC grid == vertexGrid");
+    EXPECT(m.activeConnectionType() == ConnectionType::LeviCivita, "active gauge LC");
+    EXPECT((nxr::operators::connectionGrid(m, m.activeConnectionType(), m.activeSingularities()) - nxr::geometry::vertexGrid(m)).cwiseAbs().maxCoeff() < 1e-12, "LC grid == vertexGrid");
 
     // pattern 3: ad-hoc trivial request returns a value; default unchanged
     std::map<int,double> sing{{0,1.0},{3,1.0}};
-    auto gTriReq = m.connection(ConnectionType::Trivial, sing);
     EXPECT(m.activeConnectionType() == ConnectionType::LeviCivita, "ad-hoc gauge() does not mutate default");
-    Eigen::MatrixXcd triGrid = gTriReq.grid();
+    Eigen::MatrixXcd triGrid = nxr::operators::connectionGrid(m, ConnectionType::Trivial, sing);
     EXPECT(triGrid.rows() == 12 && triGrid.cols() == 3, "trivial grid [12,3]");
     // realized trivial frame stays unit-tangent (|c row| preserved vs LC up to rotation)
     EXPECT(std::abs(triGrid.row(0).norm() - nxr::geometry::vertexGrid(m).row(0).norm()) < 1e-9,
@@ -90,12 +89,12 @@ static void testGridRealization() {
 
     // pattern 2 default trivial equals the pattern-3 value for same singularities
     Manifold m2(V.data(), 12, F.data(), 20, sing);
-    EXPECT((m2.connection().grid() - triGrid).cwiseAbs().maxCoeff() < 1e-9,
+    EXPECT((nxr::operators::connectionGrid(m2, m2.activeConnectionType(), m2.activeSingularities()) - triGrid).cwiseAbs().maxCoeff() < 1e-9,
            "pattern 2 default == pattern 3 request (same singularities)");
 
     // setGauge re-points default
     m.setConnection(ConnectionType::Trivial, sing);
-    EXPECT(m.connection().type() == ConnectionType::Trivial, "setGauge re-points active gauge");
+    EXPECT(m.activeConnectionType() == ConnectionType::Trivial, "setGauge re-points active gauge");
 }
 
 int main() {

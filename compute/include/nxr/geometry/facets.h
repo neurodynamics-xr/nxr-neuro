@@ -37,7 +37,7 @@ private:
 // NOTE (intrinsic-Delaunay scope): the intrinsic facet DATA below slices from
 // the embedded-sourced light geometry bundle, so under intrinsicDelaunay=true it
 // is NOT swapped to the Delaunay metric — it stays consistent with the input
-// embedding. The intrinsic OPERATORS (operators().laplacian().cotan(), mass) DO
+// embedding. The intrinsic OPERATORS (operators::cotanLaplacian, mass) DO
 // source from the operator mesh (the one Delaunay construction) and are certified-PSD under it. So
 // edge().cotanWeight() here can differ from the weights backing the cotan
 // operator under the intrinsic mesh option. Routing this data through the operator mesh is

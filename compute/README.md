@@ -221,7 +221,7 @@ Delaunay** mesh, with the **mixed-Voronoi** mass (Meyer et al. 2003) of the moll
   −flipEps, default 1e-6). `Manifold::intrinsicSurface().record()` holds mollify, ε, flipEps, the flip count and the gauge identity.
 
 The stand-alone DEC follows the mesh option (`d0ᵀ⋆1d0 == cotanL`, `hodge0 == mass`). What is indexed by the input's own edges and faces (the
-1-form of a Hodge decomposition, the trivial connection, the face Diracs) uses `Manifold::decEmbedded()`.
+1-form of a Hodge decomposition, the trivial connection, the face Diracs) uses `operators::embeddedDEC(m)`.
 
 ```js
 mctx.assembleManifoldOperators('mixedVoronoi')      // default

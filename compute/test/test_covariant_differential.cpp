@@ -5,6 +5,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
@@ -13,7 +14,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -122,15 +123,12 @@ static void testCovariantGradient() {
 
     namespace cl = nxr::operators::laplacian::connection;
     Eigen::SparseMatrix<double> Camb =
-        m.operators().laplacian().covariant(cl::CovariantCoupling::Ambient);
+        nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Ambient);
     EXPECT((Eigen::MatrixXd(GtWG) - Eigen::MatrixXd(Camb)).cwiseAbs().maxCoeff() < 1e-9,
            "G^T W G == Ambient covariant Laplacian (consistency)");
 
     // gradient3D is cached on the handle via the operators facet (matches the other operators)
-    EXPECT((m.operators().gradient3D() - G).norm() < 1e-12, "operators().gradient3D() == covariantGradient");
-    EXPECT(m.isOperatorCached(OperatorId::Gradient3D), "gradient3D cached after request");
-    m.releaseOperator(OperatorId::Gradient3D);
-    EXPECT(!m.isOperatorCached(OperatorId::Gradient3D), "releaseOperator(Gradient3D) clears the cache");
+    EXPECT((nxr::operators::differential::covariantGradient(m) - G).norm() < 1e-12, "operators().gradient3D() == covariantGradient");
 }
 
 // The motivating case: two frames with OPPOSED normals (opposite sulcal walls). A vector

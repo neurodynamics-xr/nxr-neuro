@@ -196,7 +196,7 @@ int main() {
     nxr::meeg::PhaseSums sums;
     auto add = [&](const Eigen::MatrixXd& A) {
       Eigen::MatrixXd G[3];
-      ops.vertexGradient(A, G);
+      ops.meanFaceGradient(A, G);
       for (int v = 0; v < N; ++v) { const Eigen::RowVectorXd dot = G[0].row(v) * ops.normals(v, 0) + G[1].row(v) * ops.normals(v, 1) + G[2].row(v) * ops.normals(v, 2); for (int d = 0; d < 3; ++d) G[d].row(v) -= dot * ops.normals(v, d); }
       nxr::meeg::addPhaseSums(sums, nxr::meeg::phaseSums(A, G, C.S, C.Sq));
     };

@@ -2,7 +2,7 @@
 // nxr::signal — the apparent motion of an activation pattern on the cortex, and its Hodge–Dirac reading. A line port of Rheome's
 // +dynamics/opticalflow_scalar, tangent_basis, flow_readout and +flow/apparent, activation (same maths, same names; Rheome is MIT-licensed MATLAB code).
 //
-//   tangentBasis(normals)                  -> e1, e2 [V x 3]: an orthonormal frame of each vertex's tangent plane (Brainstorm's optical-flow basis); e2 = n x e1.
+//   rheomeTangentBasis(normals)                  -> e1, e2 [V x 3]: an orthonormal frame of each vertex's tangent plane (Brainstorm's optical-flow basis); e2 = n x e1.
 //   opticalflowScalar(A, ...)              -> the velocity [3V x (T-1)] (rows x, y, z per vertex, tangent) of a scalar activity map A [V x T], by manifold Horn–Schunck:
 //                                             per frame min_v sum_v M_v (dI/dt + v . grad I)^2 + alpha (a'Ka + b'Kb), v = a e1 + b e2; K the embedded cotan Laplacian,
 //                                             M the lumped (row sum of the Galerkin) mass, grad the ambient hat-function face gradient averaged to the vertices
@@ -34,6 +34,7 @@
 #include <vector>
 
 #include "nxr/operators/hodge_synthesis_weights.h"
+#include "nxr/optimisation/pcg.h"
 
 namespace nxr::signal {
 
@@ -44,7 +45,7 @@ struct TangentBasis {
     operators::RowMat3 e1, e2, normal;     // [V x 3]
 };
 /** Rheome's tangent_basis: from the vertex normals (normalised here). e1 is proportional to axis x n (Rheome's axis is (1,1,1)); any other axis gives another, equally valid frame. */
-TangentBasis tangentBasis(const operators::RowMat3& vertexNormals, const Eigen::Vector3d& axis = Eigen::Vector3d::Ones());
+TangentBasis rheomeTangentBasis(const operators::RowMat3& vertexNormals, const Eigen::Vector3d& axis = Eigen::Vector3d::Ones());
 
 /** The smoothness the flow is charged, and the data term's integration. The velocity is v = a e1 + b e2 per vertex (Connection: z = (a, b) in the signpost gauge, embedded).
  *    Connection / Gauge  THE DEFAULT: the Cortical Flow Studio's optical flow (opticalflow_connection.h): alpha v'Cv with C the connection Laplacian of the intrinsic
@@ -61,10 +62,10 @@ enum class DataFit { Triangle, Gauge, Auto };
 struct FlowForm {
     Regulariser regulariser = Regulariser::Connection;  // the Studio's connection Laplacian
     DataFit dataFit = DataFit::Auto;                    // Auto: Gauge for Connection, Triangle for Ambient
-    Eigen::Vector3d frameAxis = Eigen::Vector3d::Ones();   // the tangent frames' reference axis (see tangentBasis)
+    Eigen::Vector3d frameAxis = Eigen::Vector3d::Ones();   // the tangent frames' reference axis (see rheomeTangentBasis)
 };
 /** The area-weighted unit vertex normals of a mesh (double positions). */
-operators::RowMat3 vertexNormals(const operators::RowMat3& positions, const operators::FaceMat& faces);
+operators::RowMat3 rheomeVertexNormals(const operators::RowMat3& positions, const operators::FaceMat& faces);
 
 /** The embedded cotan Laplacian K (symmetrised, PSD) and the lumped Galerkin mass (row sums) of a mesh: the smoothness and the data weights of the optical flow. */
 void embeddedLaplacian(const operators::RowMat3& positions, const operators::FaceMat& faces, Eigen::SparseMatrix<double>& K, Eigen::VectorXd& mass);
@@ -75,15 +76,6 @@ Eigen::MatrixXd opticalflowScalar(const Eigen::MatrixXd& activityMap, const oper
 /** Rheome's opticalflow_scalar one frame pair at a time (the streaming form). Everything that does not change between frames is built once: the face operators, the
  *  embedded Laplacian and mass, the tangent basis, the system's sparsity pattern with the smoothness block already in it, and the symbolic analysis of its factorisation.
  *  `maxAbs` is the window's max |A| (the unit amplitude is taken over the whole window, so it is needed before the first step). Results equal opticalflowScalar's. */
-/** The conjugate-gradient solve of the same per-frame system (opticalflow_methods.h: method `pcg`). Relative residual |r|/|rhs| <= tolerance, at most maxIterations. */
-struct PcgOptions {
-    enum class Preconditioner { Ldlt, IncompleteCholesky };
-    double tolerance = 1e-8;
-    int maxIterations = 500;
-    Preconditioner preconditioner = Preconditioner::Ldlt;   // Ldlt: the exact factor of alpha K (+) alpha K + c M (+) M, built once; IncompleteCholesky: Eigen's, of the same matrix
-};
-struct PcgInfo { int iterations = 0; double residual = 0; bool converged = true; };
-
 class OpticalflowScalar {
 public:
     OpticalflowScalar(const operators::RowMat3& positions, const operators::FaceMat& faces, const operators::RowMat3& vertexNormals, double alpha, double maxAbs, const FlowForm& form = {});
@@ -92,13 +84,13 @@ public:
     Eigen::VectorXd step(const Eigen::VectorXd& previous, const Eigen::VectorXd& next);
     /** The same velocity by preconditioned conjugate gradients, warm-started from `ab` [2V] (the previous solution; any other size starts from zero) and left holding the new [a; b].
      *  `scale` replaces the unit amplitude given at construction when it is not NaN. The preconditioner is built once, on the first call (or by buildPreconditioner). */
-    Eigen::VectorXd stepPcg(const Eigen::VectorXd& previous, const Eigen::VectorXd& next, Eigen::VectorXd& ab, const PcgOptions& options, PcgInfo* info = nullptr, double scale = std::numeric_limits<double>::quiet_NaN());
+    Eigen::VectorXd stepPcg(const Eigen::VectorXd& previous, const Eigen::VectorXd& next, Eigen::VectorXd& ab, const optimisation::PcgOptions& options, optimisation::PcgInfo* info = nullptr, double scale = std::numeric_limits<double>::quiet_NaN());
     /** Builds the preconditioner from a map's gradient (the data term's typical size c), if not built yet. */
-    void buildPreconditioner(const Eigen::VectorXd& map, const PcgOptions& options, double scale = std::numeric_limits<double>::quiet_NaN());
+    void buildPreconditioner(const Eigen::VectorXd& map, const optimisation::PcgOptions& options, double scale = std::numeric_limits<double>::quiet_NaN());
 private:
     void assemble(const Eigen::VectorXd& previous, const Eigen::VectorXd& next, double scale, Eigen::VectorXd& rhs, double* dataScale = nullptr);
     Eigen::VectorXd toVelocity(const Eigen::VectorXd& ab) const;
-    void makePreconditioner(const PcgOptions& options, double c);
+    void makePreconditioner(const optimisation::PcgOptions& options, double c);
     Eigen::Index nV_;
     FlowForm form_;
     operators::FaceMat faces_;
@@ -113,11 +105,7 @@ private:
     std::vector<Eigen::Index> slot_;                           // [4 x V] where the data terms sit in system_.valuePtr()
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt_;
     bool analysed_ = false;
-    Eigen::SparseMatrix<double> pre_;                          // alpha K (+) alpha K + c M (+) M
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> preLdlt_;
-    Eigen::IncompleteCholesky<double> preIc_;
-    PcgOptions::Preconditioner preKind_ = PcgOptions::Preconditioner::Ldlt;
-    bool preBuilt_ = false;
+    optimisation::PcgPreconditioner precond_;                  // the factor of alpha K (+) alpha K + c M (+) M, built once
     std::unique_ptr<connection::ConnectionFlow> conn_;         // the Studio's connection-Laplacian flow (form.regulariser == Connection); the members above are then unused
 };
 

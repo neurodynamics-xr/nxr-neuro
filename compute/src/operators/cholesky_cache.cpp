@@ -3,6 +3,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
@@ -10,7 +11,7 @@
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 
 #include <Eigen/SparseCholesky>
 #include <Eigen/SparseLU>

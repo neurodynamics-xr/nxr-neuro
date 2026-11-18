@@ -3,6 +3,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
@@ -11,7 +12,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
@@ -299,7 +300,7 @@ ConnectionLaplacian assembleTrivialConnectionLaplacian(
     }
 
     Eigen::VectorXd phi =
-        nxr::geometry::connection::computeTrivialConnection(m, dec, cache, singularityMap);
+        nxr::operators::connection::computeTrivialConnection(m, dec, cache, singularityMap);
 
     auto& geometry = m.geometry();
     SurfaceMesh& mesh = m.mesh();

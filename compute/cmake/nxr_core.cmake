@@ -7,6 +7,7 @@ if(NOT TARGET nxr_core)
     ${CMAKE_CURRENT_LIST_DIR}/../src/core/congruence.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../src/core/parallel.cpp
     ${CMAKE_CURRENT_LIST_DIR}/../src/optimisation/fminsearch.cpp
+    ${CMAKE_CURRENT_LIST_DIR}/../src/optimisation/pcg.cpp
   )
   # the headers are in compute/include/nxr/{core,optimisation}/
   target_include_directories(nxr_core PUBLIC ${CMAKE_CURRENT_LIST_DIR}/../include)

@@ -47,7 +47,6 @@ struct DelaunayOptions {
     double mollify = 1e-6;    // the mollification margin δ relative to the mean edge length (0 = no margin; ε is still added where a triangle is invalid)
     double flipEps = 1e-6;    // an edge is flipped while its cotangent weight is below −flipEps
 };
-namespace delaunay { using DelaunayOptions [[deprecated("nxr::geometry::DelaunayOptions")]] = nxr::geometry::DelaunayOptions; }   // the port's name, one release
 
 /** The named, recorded choices of the construction. */
 struct IntrinsicOptions {

@@ -6,6 +6,7 @@
 #include "nxr/geometry/curvature.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
 #include "nxr/operators/dec.h"
@@ -13,7 +14,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/geometry/parametrization.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -126,10 +127,10 @@ static void testFacetAccessors() {
     std::cout << "\n=== facet accessors gradFace()/lapFace() (cached) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
-    const Eigen::SparseMatrix<double>& G1 = m.operators().gradFace();
-    const Eigen::SparseMatrix<double>& G2 = m.operators().gradFace();
-    EXPECT(&G1 == &G2, "gradFace() returns the same cached object");
-    EXPECT(m.operators().lapFace().rows() == m.nF(), "lapFace() cached, [F x F]");
+    const Eigen::SparseMatrix<double>& G1 = nxr::operators::facegrad::gradient(m);
+    const Eigen::SparseMatrix<double>& G2 = nxr::operators::facegrad::gradient(m);
+    EXPECT((G1 - G2).norm() == 0.0, "gradFace() assembled twice is the same matrix");
+    EXPECT(nxr::operators::facegrad::laplacian(m).rows() == m.nF(), "lapFace() cached, [F x F]");
 }
 
 int main() {

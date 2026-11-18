@@ -7,7 +7,7 @@
 #   selection     <- core, geometry                              (the Selection class and its resolution)
 #   measurement   <- core, stats, selection
 #   select        <- core, geometry, stats, selection, measurement   (the makers of selections)
-#   signal        <- core, geometry, operators, stats, selection, measurement
+#   signal        <- core, geometry, operators, stats, selection, measurement, optimisation   (optimisation: pcg for the optical flow, 2026-11-18)
 #   synthesis     <- core, geometry, operators, stats
 #   meeg (the nxr_meeg library: meeg/include, meeg/src)  <- core, optimisation   (Eigen only; never compute)
 #   meeg (connectome, montage: compute/include/nxr/meeg, compute/src/meeg, still in nxr_compute)  <- core, geometry, operators
@@ -29,7 +29,7 @@ set(dag_operators "core;geometry")
 set(dag_selection "core;geometry")
 set(dag_measurement "core;stats;selection")
 set(dag_select "core;geometry;stats;selection;measurement")
-set(dag_signal "core;geometry;operators;stats;selection;measurement")
+set(dag_signal "core;geometry;operators;stats;selection;measurement;optimisation")
 set(dag_synthesis "core;geometry;operators;stats")
 set(dag_meeg "core;optimisation")            # the nxr_meeg library
 set(dag_computemeeg "core;geometry;operators")   # connectome, montage (compute side)

@@ -27,6 +27,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
@@ -36,7 +37,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/operators/registry/field_registry.h"
@@ -1062,7 +1063,7 @@ void cmdDirectionField(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** p
     for (std::size_t i = 0; i < idx.size(); ++i) {
         sing[idx[i]] = val[static_cast<Eigen::Index>(i)];
     }
-    auto r = nxr::geometry::connection::trivial(*h.ctx, ensureDec(h), *h.cache, sing);
+    auto r = nxr::operators::connection::trivial(*h.ctx, ensureDec(h), *h.cache, sing);
     plhs[0] = directionFieldResultToStruct(r);
 }
 
@@ -1308,7 +1309,7 @@ mxArray* buildGeometryOperators(ContextHolder& h) {
 mxArray* buildGaugeOperators(ContextHolder& h, const std::string& type, const mxArray* opts,
                               nxr::operators::laplacian::connection::CovariantCoupling coupling) {
     namespace cl = nxr::operators::laplacian::connection;
-    namespace conn = nxr::geometry::connection;
+    namespace conn = nxr::operators::connection;
     cl::ConnectionLaplacianOptions o;
     o.domain = cl::ConnectionDomain::Vertex;
     o.nSym   = 1;
@@ -1391,7 +1392,7 @@ mxArray* buildGaugeOperators(ContextHolder& h, const std::string& type, const mx
 
 mxArray* buildGaugeStruct(ContextHolder& h, const std::string& type, const mxArray* opts,
                           bool withOps = false) {
-    namespace conn = nxr::geometry::connection;
+    namespace conn = nxr::operators::connection;
     nxr::geometry::Manifold& m = *h.ctx;
 
     const int nV = m.nV();
@@ -1988,45 +1989,44 @@ void cmdOperators(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) 
     // 'dirac' and 'diracFace' families take a numeric tau there instead and read
     // prhs[3] directly (they do not use `sub`).
     std::string sub    = (nrhs >= 4 && mxIsChar(prhs[3])) ? getStringArg(prhs[3]) : "";
-    auto ops = m.operators();
-    namespace cl = nxr::operators::laplacian::connection;
+        namespace cl = nxr::operators::laplacian::connection;
 
     if (family == "laplacian") {
         if      (sub == "cotan")
-            plhs[0] = eigenSparseToMx(ops.laplacian().cotan());
+            plhs[0] = eigenSparseToMx(nxr::operators::cotanLaplacian(m));
         else if (sub == "graph")
-            plhs[0] = eigenSparseToMx(ops.laplacian().graph());
+            plhs[0] = eigenSparseToMx(nxr::operators::graphLaplacian(m));
         else if (sub == "connection")
-            plhs[0] = eigenComplexSparseToMx(ops.laplacian().connection());
+            plhs[0] = eigenComplexSparseToMx(nxr::operators::activeConnectionLaplacian(m));
         else if (sub == "covariant")
             plhs[0] = eigenSparseToMx(
-                ops.laplacian().covariant(cl::CovariantCoupling::Ambient));
+                nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Ambient));
         else
             throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operators laplacian: subtype must be cotan|graph|connection|covariant.");
 
     } else if (family == "mass") {
         if      (sub == "mixedVoronoi")
-            plhs[0] = eigenSparseToMx(ops.mass().mixedVoronoi());
+            plhs[0] = eigenSparseToMx(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi));
         else if (sub == "barycentric")
-            plhs[0] = eigenSparseToMx(ops.mass().barycentric());
+            plhs[0] = eigenSparseToMx(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Barycentric));
         else if (sub == "galerkin")
-            plhs[0] = eigenSparseToMx(ops.mass().galerkin());
+            plhs[0] = eigenSparseToMx(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin));
         else
             throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operators mass: subtype must be mixedVoronoi|galerkin|barycentric.");
 
     } else if (family == "hodge") {
-        if      (sub == "h0")    plhs[0] = eigenSparseToMx(ops.hodge().h0());
-        else if (sub == "h1")    plhs[0] = eigenSparseToMx(ops.hodge().h1());
-        else if (sub == "h2")    plhs[0] = eigenSparseToMx(ops.hodge().h2());
-        else if (sub == "h1inv") plhs[0] = eigenSparseToMx(ops.hodge().h1inv());
+        if      (sub == "h0")    plhs[0] = eigenSparseToMx(nxr::operators::hodge0(m));
+        else if (sub == "h1")    plhs[0] = eigenSparseToMx(nxr::operators::hodge1(m));
+        else if (sub == "h2")    plhs[0] = eigenSparseToMx(nxr::operators::hodge2(m));
+        else if (sub == "h1inv") plhs[0] = eigenSparseToMx(nxr::operators::hodge1Inverse(m));
         else
             throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operators hodge: subtype must be h0|h1|h2|h1inv.");
 
     } else if (family == "dec") {
-        const auto& dec = ops.dec();
+        const auto& dec = nxr::operators::assembleDECOperators(m);
         const char* f[] = {"d0", "d1"};
         mxArray* s = mxCreateStructMatrix(1, 1, 2, f);
         mxSetField(s, 0, "d0", eigenSparseToMx(dec.d0));
@@ -2034,7 +2034,7 @@ void cmdOperators(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) 
         plhs[0] = s;
 
     } else if (family == "gradient3D") {
-        plhs[0] = eigenSparseToMx(m.operators().gradient3D());   // cached on the handle
+        plhs[0] = eigenSparseToMx(nxr::operators::differential::covariantGradient(m));   // cached on the handle
 
     } else if (family == "dirac") {
         if (nrhs < 4)
@@ -2042,7 +2042,7 @@ void cmdOperators(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) 
                 "operators dirac: expected a scalar tau, "
                 "nxr_compute('operators', h, 'dirac', tau).");
         double tau = getDoubleArg(prhs[3]);   // validates real numeric/logical scalar
-        plhs[0] = eigenSparseToMx(m.operators().dirac(tau));   // [4V×4V], caches E on the handle
+        plhs[0] = eigenSparseToMx(nxr::operators::diracFamily(m, tau));   // [4V×4V], caches E on the handle
 
     } else if (family == "diracFace") {
         if (nrhs < 4)
@@ -2050,25 +2050,25 @@ void cmdOperators(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) 
                 "operators diracFace: expected a scalar tau, "
                 "nxr_compute('operators', h, 'diracFace', tau).");
         double tau = getDoubleArg(prhs[3]);
-        plhs[0] = eigenSparseToMx(m.operators().diracFace(tau));   // [4F×4F], caches Ẽ
+        plhs[0] = eigenSparseToMx(nxr::operators::diracFaceFamily(m, tau));   // [4F×4F], caches Ẽ
 
     } else if (family == "diracD") {
-        plhs[0] = eigenSparseToMx(m.operators().diracD());   // [4F×4V], cached first-order D
+        plhs[0] = eigenSparseToMx(nxr::operators::dirac::matrix(m));   // [4F×4V], cached first-order D
 
     } else if (family == "diracFaceD") {
-        plhs[0] = eigenSparseToMx(m.operators().diracFaceD());   // [4V×4F], cached first-order D̃
+        plhs[0] = eigenSparseToMx(nxr::operators::dirac::matrixFace(m));   // [4V×4F], cached first-order D̃
 
     } else if (family == "diracIntrinsicD") {
-        plhs[0] = eigenSparseToMx(m.operators().diracIntrinsicD());   // [4F×4V], cached first-order INTRINSIC D_int
+        plhs[0] = eigenSparseToMx(nxr::operators::dirac::matrixIntrinsic(m));   // [4F×4V], cached first-order INTRINSIC D_int
 
     } else if (family == "diracFaceIntrinsicD") {
-        plhs[0] = eigenSparseToMx(m.operators().diracFaceIntrinsicD());   // [4V×4F], cached first-order INTRINSIC face D̃_int
+        plhs[0] = eigenSparseToMx(nxr::operators::dirac::matrixFaceIntrinsic(m));   // [4V×4F], cached first-order INTRINSIC face D̃_int
 
     } else if (family == "gradFace") {
-        plhs[0] = eigenSparseToMx(m.operators().gradFace());   // [3F×F], cached barycentric dual face gradient
+        plhs[0] = eigenSparseToMx(nxr::operators::facegrad::gradient(m));   // [3F×F], cached barycentric dual face gradient
 
     } else if (family == "lapFace") {
-        plhs[0] = eigenSparseToMx(m.operators().lapFace());    // [F×F], cached face Laplacian K̃ = G̃ᵀ⋆_F G̃
+        plhs[0] = eigenSparseToMx(nxr::operators::facegrad::laplacian(m));    // [F×F], cached face Laplacian K̃ = G̃ᵀ⋆_F G̃
 
     } else if (family == "connectionGradient") {
         // nSym: numeric 4th arg (default 1). Mirrors 'dirac' numeric-arg parsing.
@@ -2080,11 +2080,11 @@ void cmdOperators(int /*nlhs*/, mxArray** plhs, int nrhs, const mxArray** prhs) 
             nSym = static_cast<int>(getDoubleArg(prhs[3]));
         }
         // [E×V] complex sparse — marshal exactly as 'laplacian'/'connection'.
-        plhs[0] = eigenComplexSparseToMx(m.operators().connectionGradient(nSym));
+        plhs[0] = eigenComplexSparseToMx(nxr::operators::laplacian::connection::assembleConnectionGradient(m, nSym));
 
     } else if (family == "extrinsicWeitzenbock") {
         // [3V×3V] real symmetric sparse — ambient extrinsic Weitzenböck, world-frame component-major.
-        plhs[0] = eigenSparseToMx(m.operators().extrinsicWeitzenbock());
+        plhs[0] = eigenSparseToMx(nxr::operators::differential::assembleExtrinsicWeitzenbock(m));
 
     } else {
         throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,

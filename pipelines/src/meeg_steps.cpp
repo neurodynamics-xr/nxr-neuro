@@ -832,7 +832,7 @@ ng::NodeSpec phase_gradient() {
     nxr::meeg::PhaseSums sums;
     auto add_signal = [&](const Eigen::MatrixXd& A) {
       Eigen::MatrixXd G[3];
-      ops.vertexGradient(A, G);
+      ops.meanFaceGradient(A, G);
       for (std::int64_t v = 0; v < N; ++v) {
         const Eigen::RowVectorXd dot = G[0].row(v) * ops.normals(v, 0) + G[1].row(v) * ops.normals(v, 1) + G[2].row(v) * ops.normals(v, 2);
         for (int d = 0; d < 3; ++d) G[d].row(v) -= dot * ops.normals(v, d);

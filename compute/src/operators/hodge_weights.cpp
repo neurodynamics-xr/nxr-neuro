@@ -81,7 +81,7 @@ void FaceOperators::divCurl(const MatrixXd J[3], MatrixXd& div, MatrixXd& curlOu
     curlOut = toVertex * c;
 }
 
-void FaceOperators::vertexGradient(const MatrixXd& x, MatrixXd out[3]) const {
+void FaceOperators::meanFaceGradient(const MatrixXd& x, MatrixXd out[3]) const {
     for (int k = 0; k < 3; ++k) out[k] = toVertex * (grad[k] * x);
 }
 
@@ -170,7 +170,7 @@ WeightsReader::WeightsReader(const Basis& basis, int block, const std::function<
         const Eigen::Index w = std::min<Eigen::Index>(block, n - k0);
         MatrixXd x(V_, w), g[3], fl[3];
         for (Eigen::Index j = 0; j < w; ++j) x.col(j) = basis.P.row(order_[static_cast<std::size_t>(k0 + j)]).transpose();
-        ops_.vertexGradient(x, g);
+        ops_.meanFaceGradient(x, g);
         for (int d = 0; d < 3; ++d) fl[d].resize(V_, w);
         for (Eigen::Index j = 0; j < w; ++j) {
             const bool exact = basis.kind[static_cast<std::size_t>(order_[static_cast<std::size_t>(k0 + j)])] != 2;
@@ -243,8 +243,8 @@ Synthesis hodgeSynthesis(const Basis& basis, const MatrixXd& weights, const Face
         else s.A += p * weights.row(K + k);
     }
     MatrixXd gA[3], gB[3];
-    ops.vertexGradient(s.A, gA);
-    ops.vertexGradient(s.S, gB);
+    ops.meanFaceGradient(s.A, gA);
+    ops.meanFaceGradient(s.S, gB);
     s.J.resize(3 * V, m);
     for (Eigen::Index v = 0; v < V; ++v) {
         const Eigen::Vector3d n = ops.normals.row(v);

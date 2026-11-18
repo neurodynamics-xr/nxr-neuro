@@ -57,7 +57,7 @@ struct FlowEngine::Impl {
     FlowMethodOptions o;
     RowMat3 pos; operators::FaceMat faces; RowMat3 normals;
     double alpha = 1, maxAbs = 0;
-    PcgOptions pcg;
+    optimisation::PcgOptions pcg;
     std::unique_ptr<OpticalflowScalar> flow;
     // perscale
     std::unique_ptr<fb::ChebyshevOperator> cheb;
@@ -166,7 +166,7 @@ FlowStep FlowEngine::step(const VectorXd& prev, const VectorXd& next) {
             break;
         case FlowMethod::Pcg: {
             if (s.ab.empty()) s.ab.resize(1);
-            PcgInfo info;
+            optimisation::PcgInfo info;
             out.velocity.push_back(s.scalar(mx).stepPcg(prev, next, s.ab[0], s.pcg, &info));
             out.iterations.push_back(info.iterations);
             break;
@@ -175,7 +175,7 @@ FlowStep FlowEngine::step(const VectorXd& prev, const VectorXd& next) {
             OpticalflowScalar& f = s.scalar(1.0);
             const std::vector<MatrixXd> fm = s.filteredPair(prev, next);
             for (std::size_t m = 0; m < s.gains.size(); ++m) {
-                PcgInfo info;
+                optimisation::PcgInfo info;
                 const double sc = s.seriesMax[m] > 0 ? s.seriesMax[m] + EPS : 1.0;
                 out.velocity.push_back(f.stepPcg(fm[m].col(0), fm[m].col(1), s.ab[m], s.pcg, &info, sc));
                 out.iterations.push_back(info.iterations);

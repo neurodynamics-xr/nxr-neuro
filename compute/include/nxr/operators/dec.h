@@ -79,20 +79,20 @@ using VertexNormalsMatrix =
     Eigen::Matrix<double, Eigen::Dynamic, 3, Eigen::RowMajor>;
 
 struct ManifoldOperators {
-    ManifoldOperators(const Eigen::SparseMatrix<double>& cotanLaplacian_,
+    ManifoldOperators(Eigen::SparseMatrix<double> cotanLaplacian_,
                       Eigen::SparseMatrix<double> mass_,
                       MassMatrixVariant massVariant_,
                       Eigen::VectorXd vertexDualAreas_,
                       VertexNormalsMatrix vertexNormals_,
                       double totalArea_)
-      : cotanLaplacian(cotanLaplacian_),
+      : cotanLaplacian(std::move(cotanLaplacian_)),
         mass(std::move(mass_)),
         massVariant(massVariant_),
         vertexDualAreas(std::move(vertexDualAreas_)),
         vertexNormals(std::move(vertexNormals_)),
         totalArea(totalArea_) {}
 
-    const Eigen::SparseMatrix<double>& cotanLaplacian;  // view: the operator mesh's cotangent Laplacian (geometry::Manifold::operatorCotan)
+    Eigen::SparseMatrix<double> cotanLaplacian;         // the operator mesh's cotangent Laplacian
     Eigen::SparseMatrix<double> mass;                   // owned: depends on massVariant
     MassMatrixVariant massVariant;                      // which variant produced `mass`
     Eigen::VectorXd vertexDualAreas;                    // [nV] A/3-per-vertex on the operator mesh (variant-independent)
@@ -128,39 +128,45 @@ struct DECOperators {
       : d0(d0_), d1(d1_), hodge0(hodge0_), hodge1(hodge1_),
         hodge2(hodge2_), hodge1Inverse(hodge1Inverse_) {}
 
-    // All fields are views into matrices the geometry::Manifold holds (the operator mesh's DEC, or for decEmbedded() geometry-central's cached
-    // ones) — see the comment block above ManifoldOperators for the lifetime contract. dec.hodge0 is the same matrix as ops.mass when
-    // ops.massVariant == MixedVoronoi (the default).
-    const Eigen::SparseMatrix<double>& d0;      // vertex → edge
-    const Eigen::SparseMatrix<double>& d1;      // edge → face
-    const Eigen::SparseMatrix<double>& hodge0;  // vertex → vertex (diagonal)
-    const Eigen::SparseMatrix<double>& hodge1;  // edge → edge (diagonal)
-    const Eigen::SparseMatrix<double>& hodge2;  // face → face (diagonal)
-    const Eigen::SparseMatrix<double>& hodge1Inverse;
+    // The matrices are OWNED (copies): nothing in compute caches, the caller holds the bundle (the pipeline executor binds it once). dec.hodge0 is the
+    // same matrix as ops.mass when ops.massVariant == MixedVoronoi (the default).
+    Eigen::SparseMatrix<double> d0;      // vertex → edge
+    Eigen::SparseMatrix<double> d1;      // edge → face
+    Eigen::SparseMatrix<double> hodge0;  // vertex → vertex (diagonal)
+    Eigen::SparseMatrix<double> hodge1;  // edge → edge (diagonal)
+    Eigen::SparseMatrix<double> hodge2;  // face → face (diagonal)
+    Eigen::SparseMatrix<double> hodge1Inverse;
 };
 
-// The matrices of the operator mesh's DEC, held by the geometry::Manifold (DECOperators views them).
+// The matrices of the operator mesh's DEC.
 struct DecMatrices {
     Eigen::SparseMatrix<double> d0, d1, hodge0, hodge1, hodge2, hodge1Inverse;
 };
+/** The cotangent Laplacian of the operator mesh (positive semidefinite), by value. */
+Eigen::SparseMatrix<double> cotanLaplacian(geometry::Manifold& m);
+/** The DEC matrices of the operator mesh, by value. */
+DecMatrices decMatrices(geometry::Manifold& m);
+/** The DEC of the INPUT mesh (geometry-central's embedded one): for what is indexed by the input's edges and faces (a 1-form on the input's edges, Whitney
+ *  interpolation on its faces, the trivial connection, the face Dirac). */
+DECOperators embeddedDEC(geometry::Manifold& m);
 
 // The stand-alone DEC FOLLOWS THE MESH OPTION: on the geometry::Manifold's operator mesh (the intrinsic mollified Delaunay mesh by default,
-// the input with geometry::MeshKind::Embedded), so that d0ᵀ ⋆1 d0 == the cotan Laplacian (`operators().laplacian().cotan()`) and ⋆0 == the mass of the
+// the input with geometry::MeshKind::Embedded), so that d0ᵀ ⋆1 d0 == the cotan Laplacian (`cotanLaplacian(m)`) and ⋆0 == the mass of the
 // default mass (the mixed-Voronoi mass of the mollified input; nxr::operators::massMatrix variants Barycentric and Galerkin are other masses). ⋆1 is the RAW cotan weight, NOT floored
 // (a cocircular edge gives ⋆1 = 0 and hodge1Inverse is then singular; the floored ⋆1 of the Hodge–Dirac pencil is `star1Floor` in
 // nxr::operators::hodgedirac::assemble). Edges and faces are the operator mesh's (the flipped faces under the intrinsic option; edge e keeps its index through
-// the flips), vertices are the input's. What is indexed by the INPUT's edges and faces uses `geometry::Manifold::decEmbedded()`.
+// the flips), vertices are the input's. What is indexed by the INPUT's edges and faces uses `embeddedDEC(m)`.
 DECOperators assembleDECOperators(geometry::Manifold& m);
 
-// Zero-copy passthrough accessors, valid for the geometry::Manifold's lifetime, of the operator mesh's DEC (the same matrices as decOperators()).
-const Eigen::SparseMatrix<double>& d0(geometry::Manifold& m);
-const Eigen::SparseMatrix<double>& d1(geometry::Manifold& m);
-const Eigen::SparseMatrix<double>& hodge0(geometry::Manifold& m);
-const Eigen::SparseMatrix<double>& hodge1(geometry::Manifold& m);
-const Eigen::SparseMatrix<double>& hodge2(geometry::Manifold& m);
-const Eigen::SparseMatrix<double>& hodge1Inverse(geometry::Manifold& m);
-// A/3 per vertex on the operator mesh (variant-independent).
-const Eigen::VectorXd&             vertexDualAreas(geometry::Manifold& m);
+// The operator mesh's DEC matrices one at a time, by value (each call assembles; hold the result, or the bundle from assembleDECOperators).
+Eigen::SparseMatrix<double> d0(geometry::Manifold& m);
+Eigen::SparseMatrix<double> d1(geometry::Manifold& m);
+Eigen::SparseMatrix<double> hodge0(geometry::Manifold& m);
+Eigen::SparseMatrix<double> hodge1(geometry::Manifold& m);
+Eigen::SparseMatrix<double> hodge2(geometry::Manifold& m);
+Eigen::SparseMatrix<double> hodge1Inverse(geometry::Manifold& m);
+// A/3 per vertex on the operator mesh (variant-independent), by value.
+Eigen::VectorXd             vertexDualAreas(geometry::Manifold& m);
 } // namespace nxr::operators
 
 namespace nxr::operators::facegrad {

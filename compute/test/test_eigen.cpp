@@ -14,6 +14,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
@@ -23,7 +24,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
 #include <iostream>
@@ -37,6 +38,7 @@ using namespace nxr::operators;
 using namespace nxr::operators::laplacian::connection;
 using namespace nxr::geometry::transport;
 using namespace nxr::geometry::connection;
+using namespace nxr::operators::connection;
 using namespace nxr::geometry::parametrization;
 using namespace nxr::geometry::parametrization::stripes;
 using namespace nxr::geometry;
@@ -184,7 +186,7 @@ int main() {
     std::map<int, double> singularities;
     singularities[0] = 1.0;
     singularities[3] = 1.0;  // Antipodal vertices on icosahedron, sum = 2 = χ
-    auto dirField = nxr::geometry::connection::trivial(m, dec, cache, singularities);
+    auto dirField = nxr::operators::connection::trivial(m, dec, cache, singularities);
     std::cout << "  χ = " << dirField.eulerCharacteristic << std::endl;
     std::cout << "  Gauss-Bonnet: " << (dirField.gaussBonnetSatisfied ? "OK" : "FAIL") << std::endl;
     std::cout << "  Direction at face 0: (" << dirField.directionVectors(0, 0) << ", "

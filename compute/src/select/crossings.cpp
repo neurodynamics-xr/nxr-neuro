@@ -1,5 +1,6 @@
 // nxr::select::track_crossings (crossings.h): nxr `Tiles.crossings`.
 #include "nxr/select/track_crossings.h"
+#include "nxr/geometry/surface_maps.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,55 +11,13 @@
 
 namespace nxr::select::track_crossings {
 
-namespace {
-// a k-d tree over the vertices: the nearest vertex of a point, the lowest index on a tie
-struct KdTree {
-  const Eigen::MatrixXd& P;
-  std::vector<std::int32_t> idx;
-  struct Node { std::int32_t v = -1, left = -1, right = -1; int axis = 0; };
-  std::vector<Node> nodes;
-  explicit KdTree(const Eigen::MatrixXd& p) : P(p), idx(static_cast<std::size_t>(p.rows())) {
-    std::iota(idx.begin(), idx.end(), 0);
-    nodes.reserve(idx.size());
-    build(0, static_cast<std::int32_t>(idx.size()), 0);
-  }
-  std::int32_t build(std::int32_t lo, std::int32_t hi, int depth) {
-    if (lo >= hi) return -1;
-    const int axis = depth % 3;
-    const std::int32_t mid = (lo + hi) / 2;
-    std::nth_element(idx.begin() + lo, idx.begin() + mid, idx.begin() + hi, [&](std::int32_t a, std::int32_t b) { return P(a, axis) < P(b, axis) || (P(a, axis) == P(b, axis) && a < b); });
-    const std::int32_t me = static_cast<std::int32_t>(nodes.size());
-    nodes.push_back(Node{});
-    nodes[static_cast<std::size_t>(me)].v = idx[static_cast<std::size_t>(mid)];
-    nodes[static_cast<std::size_t>(me)].axis = axis;
-    const std::int32_t l = build(lo, mid, depth + 1), r = build(mid + 1, hi, depth + 1);
-    nodes[static_cast<std::size_t>(me)].left = l; nodes[static_cast<std::size_t>(me)].right = r;
-    return me;
-  }
-  void nearest(std::int32_t node, const Eigen::Vector3d& q, std::int32_t& best, double& bd) const {
-    if (node < 0) return;
-    const Node& n = nodes[static_cast<std::size_t>(node)];
-    const double d = (P.row(n.v).transpose() - q).squaredNorm();
-    if (d < bd || (d == bd && n.v < best)) { bd = d; best = n.v; }
-    const double diff = q[n.axis] - P(n.v, n.axis);
-    nearest(diff < 0 ? n.left : n.right, q, best, bd);
-    if (diff * diff <= bd) nearest(diff < 0 ? n.right : n.left, q, best, bd);
-  }
-};
-}  // namespace
 
 std::vector<std::int32_t> nearestVertex(const Eigen::MatrixXd& positions, const Eigen::MatrixXd& query) {
   if (positions.cols() != 3 || (query.rows() > 0 && query.cols() != 3)) throw std::invalid_argument("nearestVertex: points are [n x 3]");
   if (positions.rows() == 0) throw std::invalid_argument("nearestVertex: no vertex");
-  KdTree t(positions);
-  std::vector<std::int32_t> out(static_cast<std::size_t>(query.rows()));
-  for (Eigen::Index i = 0; i < query.rows(); ++i) {
-    std::int32_t best = -1;
-    double bd = std::numeric_limits<double>::infinity();
-    t.nearest(0, query.row(i).transpose(), best, bd);
-    out[static_cast<std::size_t>(i)] = best;
-  }
-  return out;
+  // the one nearest-vertex search (the k-d tree of geometry::nearest; the lowest index on a tie), on flat row-major copies
+  const auto flat = [](const Eigen::MatrixXd& m) { std::vector<double> v(static_cast<std::size_t>(m.size())); for (Eigen::Index i = 0; i < m.rows(); ++i) for (int c = 0; c < 3; ++c) v[static_cast<std::size_t>(3 * i + c)] = m(i, c); return v; };
+  return nxr::geometry::nearest::nearestVertices<double>(flat(positions), flat(query)).vertex;
 }
 
 Result crossings(const Steps& s, const std::vector<std::uint8_t>& use, const Surface& S, int tiles) {
