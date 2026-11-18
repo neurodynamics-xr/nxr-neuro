@@ -56,6 +56,7 @@ int measure_main(const std::vector<std::string>& argv);        // cli/measure_co
 int surrogate_lagfree_spatial_events_compare_main(const std::vector<std::string>& argv);   // cli/measure_command.cpp
 int surrogate_lagfree_vortex_compare_main(const std::vector<std::string>& argv);           // cli/measure_command.cpp
 int run_main(const std::vector<std::string>& argv);            // cli/run_command.cpp
+int montage_main(const std::vector<std::string>& argv);        // cli/meeg_command.cpp
 #endif
 
 namespace {
@@ -429,6 +430,13 @@ int run_legacy(const std::string& cmd, const std::vector<std::string>& rest) {
       return crossspectrum_read_main(std::vector<std::string>(rest.begin() + 1, rest.end()));
 #else
       throw Error(code::unsupported, "nxr-neuro read crossspectrum needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
+#endif
+    }
+    if (cmd == "__montage") {                                                // `create montage`
+#ifdef NXR_NEURO_WITH_PIPELINES
+      return montage_main(rest);
+#else
+      throw Error(code::unsupported, "nxr-neuro create montage needs the pipelines: build with -DNXR_NEURO_BUILD_PIPELINES=ON");
 #endif
     }
     if (cmd == "measure") {

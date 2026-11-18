@@ -1,4 +1,4 @@
-// `montage create` (pipelines/src/montage_create.cpp) on a synthetic template package: a sphere as the scalp `head` and the landmarks as the points manifold `head_landmarks` (as the template importers
+// `create montage` (pipelines/src/montage_create.cpp) on a synthetic template package: a sphere as the scalp `head` and the landmarks as the points manifold `head_landmarks` (as the template importers
 // store them). The montage is stored as the points manifold `eeg_1005` with its names labelling, the `system` partition, aliases and origin; its positions equal nxr::meeg::tenFive with the
 // inion the convention gives; the refusals (a second montage, a missing landmarks manifold, landmarks in another system).
 #include "nxr/io/subject_api.h"

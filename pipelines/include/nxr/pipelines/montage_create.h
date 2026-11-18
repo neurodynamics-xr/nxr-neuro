@@ -1,4 +1,4 @@
-// nxr-pipelines — `montage create`: the standard 10-05 electrode montage on a template's own scalp, stored in the template's package (spec: docs/audits/2026-11-17-sleep-events-and-montages.md,
+// nxr-pipelines — `create montage`: the standard 10-05 electrode montage on a template's own scalp, stored in the template's package (spec: docs/audits/2026-11-17-sleep-events-and-montages.md,
 // sections 4.2 and 4.3). This file only PREPARES the inputs and hands them on:
 //
 //   graph        head [V x 3, F x 3] and head_landmarks [NAS, LPA, RPA]  --inion (the recorded convention)-->  4 landmarks  --nxr::meeg::tenFive-->  positions [345 x 3]

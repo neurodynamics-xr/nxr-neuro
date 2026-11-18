@@ -84,6 +84,7 @@
 //     One command per verb (not `filter <kind>`): the verbs are MATLAB's own names and each takes its own edges, as `psd`, `noisecov` and `inverse` take theirs.
 //
 // JSON lines out, as `nxr-neuro run eigenmodes`; the result line adds "cache": "hit" | "miss".
+#include <array>
 #include <iostream>
 #include <map>
 #include <sstream>
@@ -91,6 +92,7 @@
 #include "cli.h"
 #include "nxr/signal/crossspectral.h"
 #include "nxr/pipelines/meeg.h"
+#include "nxr/pipelines/montage_create.h"
 #include "nxr/pipelines/frames.h"
 
 using namespace nxr::io;
@@ -242,3 +244,35 @@ int crossspectrum_read_main(const std::vector<std::string>& rest) {   // dispatc
 }
 
 
+
+// create montage: the standard 10-05 electrode montage on a template package's own scalp (nxr/pipelines/montage_create.h); dispatched by run_legacy (nxr_neuro.cpp) as `__montage create`.
+// It parses and prints: the positions are nxr::meeg::tenFive's, stored by the library function.
+int montage_main(const std::vector<std::string>& argv) {
+  const std::string prog = "nxr-neuro create montage";
+  if (argv.empty() || argv[0] != "create") throw cli::Usage(prog + ": error: the following arguments are required: action (create)");
+  const std::vector<std::string> rest(argv.begin() + 1, argv.end());
+  const cli::Args a = cli::parse(prog, rest, {"--package", "--subject", "--scalp", "--landmarks", "--name", "--inion", "--tolerance", "--max-iterations"}, {}, {"--package"});
+  nxr::pipelines::MontageCreateOptions o;
+  o.package = a.get("--package");
+  o.subject = a.maybe("--subject").value_or("");
+  if (const auto v = a.maybe("--scalp")) o.scalp = *v;
+  if (const auto v = a.maybe("--landmarks")) o.landmarks = *v;
+  if (const auto v = a.maybe("--name")) o.name = *v;
+  try {
+    if (const auto v = a.maybe("--inion")) {
+      const auto xyz = split(*v, ',');
+      if (xyz.size() != 3) usage(prog, "--inion is X,Y,Z (metres, in the head's coordinates)");
+      o.inion = std::array<double, 3>{std::stod(xyz[0]), std::stod(xyz[1]), std::stod(xyz[2])};
+    }
+    if (const auto v = a.maybe("--tolerance")) o.tolerance = std::stod(*v);
+    if (const auto v = a.maybe("--max-iterations")) o.max_iterations = std::stoi(*v);
+  } catch (const std::logic_error&) {
+    usage(prog, "--inion, --tolerance and --max-iterations are numbers");
+  }
+  o.created_by = cli::stamp();
+  const auto r = nxr::pipelines::montage_create(o, [](const Json& j) { cli::emit(j); });
+  Json out = Json{{"stage", "result"}};
+  for (auto it = r.info.begin(); it != r.info.end(); ++it) out[it.key()] = it.value();
+  cli::emit(out);
+  return 0;
+}

@@ -27,22 +27,22 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
   std::string subject = opt.subject;
   if (subject.empty()) {
     const auto rows = nxr::io::complete_subjects(w);
-    if (rows.size() != 1) invalid("montage create: the package holds " + std::to_string(rows.size()) + " subjects: name one (--subject)");
+    if (rows.size() != 1) invalid("create montage: the package holds " + std::to_string(rows.size()) + " subjects: name one (--subject)");
     subject = text(rows[0], "name");
   }
   SubjectWriter sub = SubjectWriter::open(w, subject);
   // the scalp and the landmarks
   const SurfaceInput scalp = read_surface(sub, opt.scalp);
   const auto lm_found = nxr::io::find_manifold(sub, opt.landmarks, std::string("points"));
-  if (!lm_found) invalid("montage create: " + subject + " has no points manifold '" + opt.landmarks + "' (the nasion, LPA and RPA of the template)");
+  if (!lm_found) invalid("create montage: " + subject + " has no points manifold '" + opt.landmarks + "' (the nasion, LPA and RPA of the template)");
   const auto lm_row = nxr::io::manifold_with_geometry(sub, text(*lm_found, "id"));
-  if (!lm_row) invalid("montage create: '" + opt.landmarks + "' has no geometry");
-  if (integer(*lm_row, "n_vertices") != 3) invalid("montage create: '" + opt.landmarks + "' holds " + std::to_string(integer(*lm_row, "n_vertices")) + " points, not the nasion, LPA and RPA");
-  if (nxr::io::find_manifold(sub, opt.name)) invalid("montage create: " + opt.name + " exists already");
+  if (!lm_row) invalid("create montage: '" + opt.landmarks + "' has no geometry");
+  if (integer(*lm_row, "n_vertices") != 3) invalid("create montage: '" + opt.landmarks + "' holds " + std::to_string(integer(*lm_row, "n_vertices")) + " points, not the nasion, LPA and RPA");
+  if (nxr::io::find_manifold(sub, opt.name)) invalid("create montage: " + opt.name + " exists already");
   // the same coordinate system: the scalp's and the landmarks' (a landmark in another system is not the scalp's landmark)
   const std::string scalp_cs = nxr::io::manifold_coordinate_system_name(sub, scalp.id), lm_cs = nxr::io::manifold_coordinate_system_name(sub, text(*lm_row, "id"));
-  if (scalp_cs.empty() || lm_cs.empty()) invalid("montage create: the scalp or the landmarks have no coordinate system");
-  if (scalp_cs != lm_cs) invalid("montage create: the scalp is in '" + scalp_cs + "' and the landmarks in '" + lm_cs + "': place them in one system first");
+  if (scalp_cs.empty() || lm_cs.empty()) invalid("create montage: the scalp or the landmarks have no coordinate system");
+  if (scalp_cs != lm_cs) invalid("create montage: the scalp is in '" + scalp_cs + "' and the landmarks in '" + lm_cs + "': place them in one system first");
   const std::string cs_key = scalp_cs;
   // landmark names: the landmarks' names labelling's lookup, in order NAS, LPA, RPA (by code)
   const std::vector<double> lp = [&] {
@@ -56,11 +56,11 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
     }
     return out;
   }();
-  if (lp.size() != 9) invalid("montage create: '" + opt.landmarks + "' positions are not [3 x 3]");
+  if (lp.size() != 9) invalid("create montage: '" + opt.landmarks + "' positions are not [3 x 3]");
   std::vector<std::string> names;
   if (const auto lab = nxr::io::selection::labelling_row(sub, opt.landmarks + "_names", text(*lm_row, "id")); lab && !opt_text(*lab, "dictionary_id").value_or("").empty())
     for (const auto& [code_, name] : nxr::io::selection::lookup_names(sub, text(*lab, "dictionary_id"))) names.push_back(name);
-  if (names != std::vector<std::string>({"NAS", "LPA", "RPA"})) invalid("montage create: '" + opt.landmarks + "' names its points " + (names.empty() ? std::string("not at all") : names[0] + ",...") + ", not NAS, LPA, RPA in that order");
+  if (names != std::vector<std::string>({"NAS", "LPA", "RPA"})) invalid("create montage: '" + opt.landmarks + "' names its points " + (names.empty() ? std::string("not at all") : names[0] + ",...") + ", not NAS, LPA, RPA in that order");
 
   nxr::meeg::Landmarks L;
   for (int c = 0; c < 3; ++c) { L.nasion[static_cast<std::size_t>(c)] = lp[static_cast<std::size_t>(c)]; L.lpa[static_cast<std::size_t>(c)] = lp[static_cast<std::size_t>(3 + c)]; L.rpa[static_cast<std::size_t>(c)] = lp[static_cast<std::size_t>(6 + c)]; }
@@ -74,12 +74,12 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
       inion_info = Json{{"convention", "nxr::meeg::inionFromLandmarks: the farthest point where the line from the nasion through the midpoint of the preauricular points crosses the scalp"},
                         {"point", Json::array({L.inion[0], L.inion[1], L.inion[2]})}};
     }
-  } catch (const std::invalid_argument& e) { invalid(std::string("montage create: the inion: ") + e.what()); }
+  } catch (const std::invalid_argument& e) { invalid(std::string("create montage: the inion: ") + e.what()); }
   nxr::meeg::Options mo;
   mo.tolerance = opt.tolerance;
   mo.max_iterations = opt.max_iterations;
   nxr::meeg::Placement P;
-  try { P = nxr::meeg::tenFive(scalp.vertices, scalp.faces, L, mo); } catch (const std::invalid_argument& e) { invalid(std::string("montage create: ") + e.what()); }
+  try { P = nxr::meeg::tenFive(scalp.vertices, scalp.faces, L, mo); } catch (const std::invalid_argument& e) { invalid(std::string("create montage: ") + e.what()); }
   const std::int64_t n = static_cast<std::int64_t>(P.labels.size());
   if (progress) progress(Json{{"stage", "placed"}, {"points", n}, {"cz_iterations", P.iterations}});
 
