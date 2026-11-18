@@ -24,6 +24,7 @@ enum class MegModel { OverlappingSpheres, SingleSphere, None };
 struct HeadModelOptions {
   std::string name = "headmodel", channels = "sensors", sources = "cortex";
   std::optional<std::string> meg_surface, eeg_surface;
+  std::optional<std::vector<double>> eeg_radii, eeg_conductivities;   // the EEG shells: relative radii and conductivities (S/m), innermost to outermost; none: the layers'
   MegModel meg = MegModel::OverlappingSpheres;
   bool eeg = true, replace = false;
 };
@@ -49,6 +50,7 @@ struct NoiseCovResult {
 struct InverseComputeOptions {
   std::string forward, noise_cov, name;
   nxr::meeg::KernelOptions kernel;
+  std::optional<double> snr;                // the amplitude signal-to-noise ratio; none: the conventions'
   bool mne_conventions = false;
   bool replace = false;
 };
@@ -87,6 +89,8 @@ inline HeadModelResult headmodel_compute(nxr::io::DatasetWriter& ds, nxr::io::Su
                                     {"meg", o.meg == MegModel::OverlappingSpheres ? "overlapping_spheres" : o.meg == MegModel::SingleSphere ? "single_sphere" : "none"}};
   if (o.meg_surface) set["meg_surface"] = *o.meg_surface;
   if (o.eeg_surface) set["eeg_surface"] = *o.eeg_surface;
+  if (o.eeg_radii) set["eeg_radii"] = *o.eeg_radii;
+  if (o.eeg_conductivities) set["eeg_conductivities"] = *o.eeg_conductivities;
   const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("headmodel"), set, span_options(std::nullopt, std::nullopt, std::nullopt, o.replace));
   HeadModelResult r;
   r.hit = !runs.empty() && runs[0].value("hit", false);
@@ -124,6 +128,7 @@ inline InverseComputeResult inverse_compute(nxr::io::DatasetWriter& ds, nxr::io:
   if (!o.noise_cov.empty()) set["noise_cov"] = o.noise_cov;
   if (!o.name.empty()) set["name"] = o.name;
   if (!o.kernel.depth.enabled) set["depth_weighting"] = false;
+  if (o.snr) set["snr"] = *o.snr;
   const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("inverse"), set, span_options(std::nullopt, std::nullopt, std::nullopt, o.replace));
   InverseComputeResult r;
   r.hit = !runs.empty() && runs[0].value("hit", false);
