@@ -58,16 +58,16 @@ int firstReaching(const std::vector<std::int64_t>& counts, double q) {
 }
 }  // namespace
 
-double percentile(const std::vector<std::int64_t>& counts, const LogBins& b, double p) {
+double binnedPercentile(const std::vector<std::int64_t>& counts, const LogBins& b, double p) {
   if (!(p > 0 && p <= 100)) throw std::invalid_argument("histogram: a percentile is in (0, 100]");
   if (static_cast<int>(counts.size()) != b.bins) throw std::invalid_argument("histogram: the counts do not have the bins' length");
   return upperEdge(b, firstReaching(counts, p / 100));
 }
 
-double median(const std::vector<std::int64_t>& counts, const LogBins& b) { return percentile(counts, b, 50); }
+double binnedMedian(const std::vector<std::int64_t>& counts, const LogBins& b) { return binnedPercentile(counts, b, 50); }
 
-double mad(const std::vector<std::int64_t>& counts, const LogBins& b) {
-  const double m = median(counts, b);
+double binnedMad(const std::vector<std::int64_t>& counts, const LogBins& b) {
+  const double m = binnedMedian(counts, b);
   std::vector<std::pair<double, std::int64_t>> dev;
   for (int k = 0; k < b.bins; ++k)
     if (counts[static_cast<std::size_t>(k)] > 0) dev.emplace_back(std::abs(upperEdge(b, k) - m), counts[static_cast<std::size_t>(k)]);

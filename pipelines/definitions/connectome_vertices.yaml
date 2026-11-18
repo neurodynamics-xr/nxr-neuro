@@ -25,13 +25,13 @@ parameters:
 
 steps:
   before:
-    - {node: fiber_ends,         in: {fibers: fibers},                                  with: {points_per_fiber: $points_per_fiber},  out: end_points}
-    - {node: nearest_vertex,     in: {points: end_points, positions: surface},                                                         out: [end_vertex, end_distance]}
-    - {node: end_gate,           in: {end_distance: end_distance},                      with: {max_end_distance_mm: $max_end_distance}, out: keep}
-    - {node: end_connectome,     in: {end_vertex: end_vertex, keep: keep},              with: {n_vertices: $n_vertices},              out: fiber_counts}
-    - {node: connection_weights, in: {fiber_counts: fiber_counts, faces: surface},      with: {smooth_hops: $smooth_hops},            out: weights}
-    - {node: prune_below,        in: {connection_weights: weights},                     with: {prune_below: $prune_below},            out: pruned}
-    - {node: largest_component,  in: {connection_weights: pruned},                                                                    out: [component_vertices, component_label]}
+    - {node: meeg.fiber_ends,         in: {fibers: fibers},                                  with: {points_per_fiber: $points_per_fiber},  out: end_points}
+    - {node: meeg.nearest_vertex,     in: {points: end_points, positions: surface},                                                         out: [end_vertex, end_distance]}
+    - {node: meeg.end_gate,           in: {end_distance: end_distance},                      with: {max_end_distance_mm: $max_end_distance}, out: keep}
+    - {node: meeg.end_connectome,     in: {end_vertex: end_vertex, keep: keep},              with: {n_vertices: $n_vertices},              out: fiber_counts}
+    - {node: meeg.connection_weights, in: {fiber_counts: fiber_counts, faces: surface},      with: {smooth_hops: $smooth_hops},            out: weights}
+    - {node: meeg.prune_below,        in: {connection_weights: weights},                     with: {prune_below: $prune_below},            out: pruned}
+    - {node: meeg.largest_component,  in: {connection_weights: pruned},                                                                    out: [component_vertices, component_label]}
 
 outputs:
   pruned:

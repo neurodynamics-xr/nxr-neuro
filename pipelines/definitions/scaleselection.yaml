@@ -27,7 +27,7 @@ parameters:
 
 steps:
   before:
-    - {node: scale_selection, in: {recording: recording}, with: {spatial_scales: $spatial_scales, bands: $bands, source: $source, response: $response, min_link: $min_link, surface: $surface}, out: [events, scale, links]}
+    - {node: select.scale_selection, in: {recording: recording}, with: {spatial_scales: $spatial_scales, bands: $bands, source: $source, response: $response, min_link: $min_link, surface: $surface}, out: [events, scale, links]}
 
 outputs:
   events: {kind: selection, type: spans, name: $name, on: recording.time}

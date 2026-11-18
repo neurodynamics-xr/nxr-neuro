@@ -48,7 +48,7 @@ int main() {
   EXPECT(diff == 0, "the counts equal nxr _core_threshold's, bin for bin (" + std::to_string(diff) + " bins differ)");
   EXPECT(all[0] >= 10 && all[static_cast<std::size_t>(nb - 1)] >= 2, "values below lo in bin 0; values above hi clipped into the top bin");
   double worst = 0;
-  for (const auto& [p, v] : pct) worst = std::max(worst, std::abs(percentile(all, b, p) / v - 1));
+  for (const auto& [p, v] : pct) worst = std::max(worst, std::abs(binnedPercentile(all, b, p) / v - 1));
   std::printf("  percentiles 50, 75, 98 vs nxr: %.2e\n", worst);
   EXPECT(worst < 1e-12, "the percentiles equal nxr's (the upper edge of the bin where the share reaches p)");
   // ADDITIVE: other tilings of the same samples (each folded with the same bins) sum to the same counts
@@ -67,8 +67,8 @@ int main() {
     std::sort(d.begin(), d.end());
     const double madx = 0.5 * (d[n / 2 - 1] + d[n / 2]);
     const double step = std::log(1e6) / (nb - 1);
-    const double em = std::abs(std::log(median(all, b) / med)), ea = std::abs(std::log(mad(all, b) / madx));
-    std::printf("  median %.5f (exact %.5f); mad %.5f (exact %.5f); one bin = %.4f in log\n", median(all, b), med, mad(all, b), madx, step);
+    const double em = std::abs(std::log(binnedMedian(all, b) / med)), ea = std::abs(std::log(binnedMad(all, b) / madx));
+    std::printf("  median %.5f (exact %.5f); mad %.5f (exact %.5f); one bin = %.4f in log\n", binnedMedian(all, b), med, binnedMad(all, b), madx, step);
     EXPECT(em <= step && ea <= 2 * step, "median within one bin, MAD within two (the median's bin and its own)");
   }
   // NEGATIVE AND NON-FINITE values: counted, left out
@@ -82,8 +82,8 @@ int main() {
   }
   // REFUSALS
   auto refused = [](auto f) { try { f(); } catch (const std::invalid_argument&) { return true; } return false; };
-  EXPECT(refused([] { logBinsFor(0); }) && refused([&] { percentile(std::vector<std::int64_t>(static_cast<std::size_t>(nb), 0), b, 50); }) &&
-         refused([&] { percentile(all, b, 0); }) && refused([&] { sumTiles(c, 0, c.tiles); }), "refusals: an all-zero first chunk, an empty distribution, p = 0, tiles out of range");
+  EXPECT(refused([] { logBinsFor(0); }) && refused([&] { binnedPercentile(std::vector<std::int64_t>(static_cast<std::size_t>(nb), 0), b, 50); }) &&
+         refused([&] { binnedPercentile(all, b, 0); }) && refused([&] { sumTiles(c, 0, c.tiles); }), "refusals: an all-zero first chunk, an empty distribution, p = 0, tiles out of range");
   std::cout << (failures ? "FAIL" : "PASS") << " test_histogram (" << failures << " failure(s))\n";
   return failures ? 1 : 0;
 }

@@ -17,8 +17,9 @@
 #include "run_definition.h"
 #include "nxr/io/task/task.h"
 #include "nxr/bst/entities.h"
-#include "nxr/meeg/crossspectrum.h"
-#include "nxr/meeg/tensor.h"
+#include "nxr/signal/crossspectral.h"
+#include "nxr/core/congruence.h"
+#include "nxr/signal/polarisation.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/signal/timefilterbank.h"
@@ -197,7 +198,7 @@ int main() {
   double worst = 0, scale = 0;
   double re[9], im[9];
   for (int v = 0; v < N; ++v) {
-    nxr::meeg::crossTensor(K, C.S, C.Sq, v, v, re, im);
+    nxr::core::crossTensor(K, C.S, C.Sq, v, v, re, im);
     for (int k = 0; k < 9; ++k) {
       worst = std::max({worst, std::abs(re[k] - herm3[static_cast<size_t>(18 * v + 2 * k)]), std::abs(im[k] - herm3[static_cast<size_t>(18 * v + 2 * k + 1)])});
       scale = std::max(scale, std::abs(re[k]));
@@ -270,8 +271,8 @@ int main() {
     for (const char* nm : {"dl_wide_bins", "dl_alpha_bins"}) {
       const StoredCrossSpectrumBins D = crossspectrum_bins_read(sub, nm);
       Eigen::VectorXd fv = Eigen::Map<const Eigen::VectorXd>(D.frequencies.data(), static_cast<Eigen::Index>(D.frequencies.size()));
-      const nxr::meeg::PhaseSlope ps = nxr::meeg::phaseSlope(D.C, fv);
-      const Eigen::MatrixXd psi = nxr::meeg::phase_slope_index(D.C);
+      const nxr::signal::PhaseSlope ps = nxr::signal::phaseSlope(D.C, fv);
+      const Eigen::MatrixXd psi = nxr::signal::phase_slope_index(D.C);
       std::printf("  %s: delay 0->1 %.3f ms (made with 12), 1->0 %.3f, residual %.3f rad, PSI %.3f\n", nm, ps.delayMs(0, 1), ps.delayMs(1, 0), ps.residual(0, 1), psi(0, 1));
       // the wide band (5-30 Hz, 101 bins) recovers the delay; 8-12 Hz holds only a few independent bins of 6 segments, so its slope is the right sign and no more
       CHECK(std::abs(ps.delayMs(1, 0) + ps.delayMs(0, 1)) < 1e-9 && psi(0, 1) > 0 && psi(1, 0) < 0 && ps.delayMs(0, 1) > 0);

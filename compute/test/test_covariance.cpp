@@ -1,4 +1,4 @@
-// nxr::meeg covariance: the chunk-wise accumulator against the direct formula, for any chunking, with blocks, each divisor, and a raw second moment.
+// nxr::stats covariance: the chunk-wise accumulator against the direct formula, for any chunking, with blocks, each divisor, and a raw second moment.
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -6,9 +6,9 @@
 #include <random>
 
 #include "check.h"
-#include "nxr/meeg/covariance.h"
+#include "nxr/stats/covariance.h"
 
-using namespace nxr::meeg;
+using namespace nxr::stats;
 using Eigen::MatrixXd;
 
 namespace {
@@ -42,7 +42,7 @@ int main() {
     }
     const MatrixXd X = gd.at("X"), ref = gd.at("C_mne");
     const int s0 = static_cast<int>(gd.at("window")(0, 0)), s1 = static_cast<int>(gd.at("window")(0, 1));
-    CovarianceAccumulator acc(static_cast<int>(X.rows()));
+    CovarianceEstimate acc(static_cast<int>(X.rows()));
     for (int s = s0; s < s1; s += 37) acc.add(X.middleCols(s, std::min(37, s1 - s)));
     CHECK_EQ(acc.samples(), static_cast<std::int64_t>(gd.at("nsamples_mne")(0, 0)));
     const double e = (acc.covariance() - ref).cwiseAbs().maxCoeff() / ref.cwiseAbs().maxCoeff();
@@ -55,7 +55,7 @@ int main() {
   const MatrixXd a = draw(5, 700, 1e3), b = draw(5, 301, -50);   // large offsets: the shifted sums must hold
   // one block, any chunking
   for (int step : {1, 7, 64, 700}) {
-    CovarianceAccumulator acc(5);
+    CovarianceEstimate acc(5);
     for (int s = 0; s < a.cols(); s += step) acc.add(a.middleCols(s, std::min<int>(step, static_cast<int>(a.cols()) - s)));
     CHECK_EQ(acc.samples(), 700);
     CHECK_EQ(acc.blocks(), 1);
@@ -63,7 +63,7 @@ int main() {
   }
   // two blocks: each block's own mean removed; N - B
   {
-    CovarianceAccumulator acc(5);
+    CovarianceEstimate acc(5);
     acc.add(a.leftCols(300));
     acc.add(a.rightCols(400));
     acc.beginBlock();
@@ -75,7 +75,7 @@ int main() {
   for (auto [dv, want] : {std::pair{CovarianceDivisor::Samples, 1001.0}, std::pair{CovarianceDivisor::SamplesMinusOne, 1000.0}}) {
     CovarianceOptions o;
     o.divisor = dv;
-    CovarianceAccumulator acc(5, o);
+    CovarianceEstimate acc(5, o);
     acc.add(a);
     acc.beginBlock();
     acc.add(b);
@@ -86,14 +86,14 @@ int main() {
     CovarianceOptions o;
     o.removeMean = false;
     o.divisor = CovarianceDivisor::Samples;
-    CovarianceAccumulator acc(5, o);
+    CovarianceEstimate acc(5, o);
     acc.add(a.leftCols(10));
     acc.add(a.rightCols(690));
     CHECK((acc.covariance() - direct({a}, false, 700)).cwiseAbs().maxCoeff() < 1e-6 * 1e6);
   }
   // errors
   {
-    CovarianceAccumulator acc(5);
+    CovarianceEstimate acc(5);
     bool threw = false;
     try { acc.add(MatrixXd::Zero(4, 3)); } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);

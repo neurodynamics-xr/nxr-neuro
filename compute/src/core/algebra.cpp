@@ -55,4 +55,11 @@ Eigen::MatrixXd divideRows(const Eigen::Ref<const Eigen::MatrixXd>& X, const Eig
 }
 
 
+MatrixXd symmetricSquareRoot(const MatrixXd& A) {
+  if (A.rows() != A.cols()) throw std::invalid_argument("symmetricSquareRoot: a square matrix");
+  Eigen::SelfAdjointEigenSolver<MatrixXd> es(0.5 * (A + A.transpose()));
+  const VectorXd e = es.eigenvalues().cwiseMax(0.0).cwiseSqrt();
+  return es.eigenvectors() * e.asDiagonal() * es.eigenvectors().transpose();
+}
+
 }  // namespace nxr::core

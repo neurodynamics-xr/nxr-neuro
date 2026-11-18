@@ -33,7 +33,7 @@ parameters:
 
 steps:
   before:
-    - {node: cellquadrature, in: {cross_spectrum: cross_spectrum, recording: recording, kernel: kernel, joint: joint, bursts: bursts}, with: {spatial_scale: $spatial_scale, weights: $weights, tile_pairs: $tile_pairs, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: [cells, cell_pairs, bursts_q, burst_pairs]}
+    - {node: measurement.cellquadrature, in: {cross_spectrum: cross_spectrum, recording: recording, kernel: kernel, joint: joint, bursts: bursts}, with: {spatial_scale: $spatial_scale, weights: $weights, tile_pairs: $tile_pairs, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: [cells, cell_pairs, bursts_q, burst_pairs]}
 
 outputs:
   cells:

@@ -31,8 +31,6 @@ Eigen::MatrixXd whiteNoiseBlock(std::uint64_t seed, int rows, std::int64_t first
 Eigen::VectorXd spectrumShapingTaps(const Eigen::VectorXd& freq, const Eigen::VectorXd& psd, double fs, int half);
 /** [rows x n] from [rows x (n + 2 half)]: the symmetric taps (2 half + 1) applied along the columns, the valid part only (output column j is centred on input column j + half) */
 Eigen::MatrixXd convolveValid(const Eigen::MatrixXd& white, const Eigen::VectorXd& taps);
-/** the square root of a symmetric positive semi-definite matrix (negative eigenvalues clipped to 0; Rheome pairsqrt) */
-Eigen::MatrixXd symmetricSquareRoot(const Eigen::MatrixXd& A);
 
 /** THE ZERO-LAG MIXING of a band: sqrt(Re C / (trace(Re C) / M)), the symmetric square root of the real cross-spectrum scaled to unit mean channel variance [M x M]. A cross-spectrum with no power is
  *  refused (std::invalid_argument). */

@@ -279,7 +279,7 @@ int main() {
   for (int k = 0; k < 4096; ++k) { l1 += std::abs(H.values[static_cast<std::size_t>(k)] - static_cast<double>(direct.counts[static_cast<std::size_t>(k)])); total += H.values[static_cast<std::size_t>(k)]; }
   std::printf("  the stored histogram vs the direct one: hi %.9g vs %.9g, counts differ by %.0f of %.0f\n", H.options["hi"].get<double>(), lb.hi, l1, total);
   CHECK(total == static_cast<double>(Vg) * static_cast<double>(good.size()) && std::abs(H.options["hi"].get<double>() - lb.hi) < 1e-5 * lb.hi && H.options["lo"].get<double>() > 0 && l1 <= 2e-4 * total);
-  const double dthr98 = nxr::stats::histogram::percentile(direct.counts, lb, 98);
+  const double dthr98 = nxr::stats::histogram::binnedPercentile(direct.counts, lb, 98);
   // chunk size independence: the same distribution from chunks of 4096 and of 1000
   { const StoredStatistic& Hb = hist.at("rest_b");
     double lb1 = 0;
@@ -295,7 +295,7 @@ int main() {
   const auto rc = g::run(ds, sub, dcor, base, all);
   CHECK(rc.size() == 2);
   const Stored C = read_cores(sub, "rest", fps, 0.0), Cb = read_cores(sub, "rest_b", fps, 0.0);
-  const double thr = nxr::stats::histogram::percentile([&] { std::vector<std::int64_t> c(4096); for (int k = 0; k < 4096; ++k) c[static_cast<std::size_t>(k)] = std::llround(H.values[static_cast<std::size_t>(k)]); return c; }(),
+  const double thr = nxr::stats::histogram::binnedPercentile([&] { std::vector<std::int64_t> c(4096); for (int k = 0; k < 4096; ++k) c[static_cast<std::size_t>(k)] = std::llround(H.values[static_cast<std::size_t>(k)]); return c; }(),
                                                   nxr::stats::histogram::LogBins{H.options["lo"].get<double>(), H.options["hi"].get<double>(), 4096}, 98.0);
   // DIRECT: corePatches on the burst frames with the same threshold, the glued mesh's edges, vertex areas and positions
   nxr::select::Mesh mesh; mesh.n = static_cast<int>(sband.glued_vertices); const SurfaceInput GS = read_surface(sub, "cortex_glued", true);

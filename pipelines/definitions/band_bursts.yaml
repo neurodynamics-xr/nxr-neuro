@@ -41,16 +41,16 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: envelope, in: {x: recording}, with: {band: $band, shape: $shape}, out: amp}
-      - {node: reduce, in: {x: amp, over: grid, exclude: bad}, with: {measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: [tiles, tiles_ingredients]}
+      - {node: signal.envelope, in: {x: recording}, with: {band: $band, shape: $shape}, out: amp}
+      - {node: measurement.reduce, in: {x: amp, over: grid, exclude: bad}, with: {measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: [tiles, tiles_ingredients]}
   after:
-    - {node: summarize, in: {x: tiles}, with: {summaries: [median, mad], combine: $combine}, out: baseline}
+    - {node: measurement.summarize, in: {x: tiles}, with: {summaries: [median, mad], combine: $combine}, out: baseline}
     # the bursts: an irregular selection detected over the grid
     - {node: select.events.spans, in: {x: tiles, baseline: baseline}, with: {rule: detect, combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, merge_s: $merge_s, min_s: $min_s, max_s: $max_s, durations: $durations, merge_cycles: $merge_cycles, min_cycles: $min_cycles, max_cycles: $max_cycles}, out: bursts}
     # PER BURST: a measurement over the bursts, by merging the tile measurements they cover (the members' own: duration, interval_next)
-    - {node: reduce.members, in: {x: tiles, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: [burst_values, burst_values_ingredients]}
+    - {node: measurement.reduce_members, in: {x: tiles, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: [burst_values, burst_values_ingredients]}
     # ACROSS THE BURSTS: the statistics of each (the span's good seconds recorded, so rate, occupancy and CV are derived at read)
-    - {node: summarize, in: {x: burst_values}, with: {summaries: $burst_summaries, combine: $combine}, out: burst_stats}
+    - {node: measurement.summarize, in: {x: burst_values}, with: {summaries: $burst_summaries, combine: $combine}, out: burst_stats}
 
 outputs:
   tiles:        {kind: measurement, over: grid, of: recording}

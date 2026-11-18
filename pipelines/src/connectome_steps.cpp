@@ -120,10 +120,10 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   };
   // ── fiber_ends ──
   {
-    StepSpec s = simple("fiber_ends", {"fibers"}, {}, {"end_points"}, Json{{"points_per_fiber", nullptr}}, "nxr::meeg::fiberEnds; the Studio's connectome.ts ends",
+    StepSpec s = simple("meeg.fiber_ends", {"fibers"}, {}, {"end_points"}, Json{{"points_per_fiber", nullptr}}, "nxr::meeg::fiberEnds; the Studio's connectome.ts ends",
                         "The first and the last point of each fiber: fibers [nF·nP x 3] (fiber-major, SCS metres) → end_points [2nF x 3] (row f: the first end; row nF + f: the last). Parameter points_per_fiber (nP, "
                         "points, no default; >= 2).", "indexing only");
-    s.plan = plan_arrays("fiber_ends", {"fibers"}, {"end_points"});
+    s.plan = plan_arrays("meeg.fiber_ends", {"fibers"}, {"end_points"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
       // 0 or none: the bundle's own count, read from the stored fibers (their meta) when the node runs
       const Json& n = p["points_per_fiber"];
@@ -145,10 +145,10 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── nearest_vertex ──
   {
-    StepSpec s = simple("nearest_vertex", {"points", "positions"}, {}, {"vertex", "distance"}, Json::object(), "nxr::geometry::nearest::nearestVertices (k-d tree, Bentley 1975)",
+    StepSpec s = simple("meeg.nearest_vertex", {"points", "positions"}, {}, {"vertex", "distance"}, Json::object(), "nxr::geometry::nearest::nearestVertices (k-d tree, Bentley 1975)",
                         "The vertex of `positions` [vertices x 3] nearest each of `points` [n x 3] (Euclidean; the lowest index on a tie) → vertex [n] and distance [n] in the points' unit (metres for SCS). The distance is "
                         "kept whatever gate follows: it does not depend on one.", "each point is looked up on its own");
-    s.plan = plan_arrays("nearest_vertex", {"points", "positions"}, {"vertex", "distance"});
+    s.plan = plan_arrays("meeg.nearest_vertex", {"points", "positions"}, {"vertex", "distance"});
     s.prepare = [](const Values&, const Json&, ExecContext&) { return std::any(); };
     s.run = [](const std::any&, const Arrays& ins, ExecContext&) {
       const Array &q = ins.at("points"), &pos = ins.at("positions");
@@ -163,12 +163,12 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── end_gate ──
   {
-    StepSpec s = simple("end_gate", {"end_distance"}, {}, {"keep"}, Json{{"max_end_distance_mm", 5}},
+    StepSpec s = simple("meeg.end_gate", {"end_distance"}, {}, {"keep"}, Json{{"max_end_distance_mm", 5}},
                         "the spec's distance gate (decided 2026-11-16); `none` reproduces tess_connectome",
                         "The distance gate: end_distance [2nF] (metres, block order) → keep [nF], 1 for a fiber with both ends within max_end_distance_mm (millimetres; default 5; \"none\" keeps every fiber, as "
                         "the reference does), 0 for a fiber left out. The number left out is in keep's meta (`n_left_out`, `n_fibers`, `max_end_distance_mm`) for the report and the provenance.",
                         "each fiber is gated on its own two distances");
-    s.plan = plan_arrays("end_gate", {"end_distance"}, {"keep"});
+    s.plan = plan_arrays("meeg.end_gate", {"end_distance"}, {"keep"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
       const Json& g = p["max_end_distance_mm"];
       need((g.is_string() && g == "none") || (g.is_number() && g.get<double>() >= 0), "end_gate: max_end_distance_mm is a distance in millimetres >= 0, or \"none\"");
@@ -193,13 +193,13 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── registration_match ──
   {
-    StepSpec s = simple("registration_match", {"template_sphere", "template_pieces", "subject_sphere", "subject_pieces"}, {}, {"match"}, Json{{"neighbours", 8}},
+    StepSpec s = simple("meeg.registration_match", {"template_sphere", "template_pieces", "subject_sphere", "subject_pieces"}, {}, {"match"}, Json{{"neighbours", 8}},
                         "nxr::meeg::registrationMatch (Shepard weights, Franke & Nielson 1980; the quirk of the reference fixed)",
                         "The match of each TEMPLATE vertex to a SUBJECT vertex through the registered spheres, piece by piece (left to left, right to right): the K = `neighbours` (default 8) nearest template "
                         "vertices of each subject vertex with modified Shepard weights, then, for each template vertex, the subject vertex with the largest weight (the lowest index on a tie). A template "
                         "vertex no subject vertex takes weight from goes to its NEAREST subject vertex on the sphere, never to vertex 0 (the reference's defect, fixed 2026-11-16). Pieces are [pieces x 2] "
                         "(first vertex, count). `match` meta carries `empty_columns`.", "a vertex is matched on its own");
-    s.plan = plan_arrays("registration_match", {"template_sphere", "template_pieces", "subject_sphere", "subject_pieces"}, {"match"});
+    s.plan = plan_arrays("meeg.registration_match", {"template_sphere", "template_pieces", "subject_sphere", "subject_pieces"}, {"match"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
       need(p["neighbours"].is_number_integer() && p["neighbours"].get<int>() >= 2, "registration_match: neighbours is a whole number >= 2");
       return std::any(p["neighbours"].get<int>());
@@ -225,20 +225,20 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── carry_ends ──
   {
-    StepSpec s = simple("carry_ends", {"end_vertex", "match"}, {}, {"end_vertex"}, Json::object(), "nxr::meeg::carryEnds", "The subject vertex of each end of a template's fibers: match[end_vertex].",
+    StepSpec s = simple("meeg.carry_ends", {"end_vertex", "match"}, {}, {"end_vertex"}, Json::object(), "nxr::meeg::carryEnds", "The subject vertex of each end of a template's fibers: match[end_vertex].",
                         "each end is carried on its own");
-    s.plan = plan_arrays("carry_ends", {"end_vertex", "match"}, {"end_vertex"});
+    s.plan = plan_arrays("meeg.carry_ends", {"end_vertex", "match"}, {"end_vertex"});
     s.prepare = [](const Values&, const Json&, ExecContext&) { return std::any(); };
     s.run = [](const std::any&, const Arrays& ins, ExecContext&) { return Arrays{{"end_vertex", whole(meeg::carryEnds(indices(ins.at("end_vertex")), indices(ins.at("match"))))}}; };
     r.push_back(std::move(s));
   }
   // ── smooth_memberships ──
   {
-    StepSpec s = simple("smooth_memberships", {"label", "faces"}, {}, {"memberships"}, Json{{"regions", nullptr}, {"hops", 3}}, "nxr::meeg::memberships, smoothingStep, smoothMemberships",
+    StepSpec s = simple("meeg.smooth_memberships", {"label", "faces"}, {}, {"memberships"}, Json{{"regions", nullptr}, {"hops", 3}}, "nxr::meeg::memberships, smoothingStep, smoothMemberships",
                         "The smoothing pushed onto a partition's memberships: label [vertices] (the region ordinal of each vertex, -1 in none) and faces [triangles x 3] → memberships [vertices x regions] (COO), the one-hot memberships "
                         "averaged over the mesh `hops` times (default 3, the reference's; 0: one-hot). `regions` (the number of regions, count) defaults to the largest label + 1. A smoothed membership is a fractional "
                         "membership: how much of the region a vertex's neighbourhood reaches. The vertex matrix is never formed.", "a vertex's membership depends on its neighbourhood only");
-    s.plan = plan_arrays("smooth_memberships", {"label", "faces"}, {"memberships"});
+    s.plan = plan_arrays("meeg.smooth_memberships", {"label", "faces"}, {"memberships"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
       need(p["hops"].is_number_integer() && p["hops"].get<int>() >= 0, "smooth_memberships: hops is a whole number >= 0 (0: no smoothing)");
       need(p["regions"].is_null() || (p["regions"].is_number_integer() && p["regions"].get<int>() >= 1), "smooth_memberships: regions is the number of regions, a whole number >= 1 (default: the largest label + 1)");
@@ -261,12 +261,12 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── partition_counts ──
   {
-    StepSpec s = simple("partition_counts", {"end_vertex", "keep", "memberships"}, {"keep"}, {"counts"}, Json::object(), "nxr::meeg::partitionCounts (the Studio's connectome.ts tileConnectome / frameConnectome)",
+    StepSpec s = simple("meeg.partition_counts", {"end_vertex", "keep", "memberships"}, {"keep"}, {"counts"}, Json::object(), "nxr::meeg::partitionCounts (the Studio's connectome.ts tileConnectome / frameConnectome)",
                         "The fiber counts over a partition: end_vertex [2nF] (block order), keep [nF] (the gate; optional: every fiber) and the (smoothed) memberships [vertices x regions] → counts [regions x regions] (COO, symmetric): for each "
                         "region pair the sum over the kept fibers of (membership of the first end in a)(membership of the second end in b) + the same with the ends swapped. A fiber with both ends in one region "
                         "adds 2 at that region's diagonal (both orders, as the vertex matrix has them): the within-region count. Units: fibers (fractional when smoothed). A measurement over the partition: the "
                         "fibers are its elements, the region pairs its members.", "the fibers are summed in any order");
-    s.plan = plan_arrays("partition_counts", {"end_vertex", "keep", "memberships"}, {"counts"}, {"keep"});
+    s.plan = plan_arrays("meeg.partition_counts", {"end_vertex", "keep", "memberships"}, {"counts"}, {"keep"});
     s.prepare = [](const Values&, const Json&, ExecContext&) { return std::any(); };
     s.run = [](const std::any&, const Arrays& ins, ExecContext&) {
       const Array& m = ins.at("memberships");
@@ -282,10 +282,10 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── end_connectome ──
   {
-    StepSpec s = simple("end_connectome", {"end_vertex", "keep"}, {"keep"}, {"fiber_counts"}, Json{{"n_vertices", nullptr}}, "nxr::meeg::endConnectome",
+    StepSpec s = simple("meeg.end_connectome", {"end_vertex", "keep"}, {"keep"}, {"fiber_counts"}, Json{{"n_vertices", nullptr}}, "nxr::meeg::endConnectome",
                         "The materialised vertex matrix of fiber counts [vertices x vertices] (COO, symmetric): each kept fiber adds 1 at its two end vertices in both orders; a fiber with both ends on one vertex leaves no entry. "
                         "Only on request (--over vertices --store): a partition result never forms it. Parameter n_vertices (the vertex count, no default).", "the fibers are summed in any order");
-    s.plan = plan_arrays("end_connectome", {"end_vertex", "keep"}, {"fiber_counts"}, {"keep"});
+    s.plan = plan_arrays("meeg.end_connectome", {"end_vertex", "keep"}, {"fiber_counts"}, {"keep"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
       need(p["n_vertices"].is_number_integer() && p["n_vertices"].get<int>() >= 1, "end_connectome: n_vertices is the end surface's vertex count, a whole number >= 1");
       return std::any(p["n_vertices"].get<std::int64_t>());
@@ -304,11 +304,11 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── connection_weights ──
   {
-    StepSpec s = simple("connection_weights", {"fiber_counts", "faces"}, {}, {"connection_weights"}, Json{{"smooth_hops", 3}}, "nxr::meeg::connectionWeights (sparse congruence: smoothing · counts · smoothingᵀ, nxr::core::sparseCongruence)",
+    StepSpec s = simple("meeg.connection_weights", {"fiber_counts", "faces"}, {}, {"connection_weights"}, Json{{"smooth_hops", 3}}, "nxr::meeg::connectionWeights (sparse congruence: smoothing · counts · smoothingᵀ, nxr::core::sparseCongruence)",
                         "The connection weights: the fiber counts smoothed over the mesh, smoothing · counts · smoothingᵀ, the smoothing being the mesh's smoothing step raised to smooth_hops (hops, default 3, the reference's; 0: none), the "
                         "diagonal removed. Materialised vertex connectome only. Memory: about 37 non-zeros a row at 3 hops on a regular mesh; the smoothed matrix up to nF times the square of that.",
                         "a matrix product on the whole connectome");
-    s.plan = plan_arrays("connection_weights", {"fiber_counts", "faces"}, {"connection_weights"});
+    s.plan = plan_arrays("meeg.connection_weights", {"fiber_counts", "faces"}, {"connection_weights"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
       need(p["smooth_hops"].is_number_integer() && p["smooth_hops"].get<int>() >= 0, "connection_weights: smooth_hops is a whole number >= 0");
       return std::any(p["smooth_hops"].get<int>());
@@ -326,10 +326,10 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── prune_below ──
   {
-    StepSpec s = simple("prune_below", {"connection_weights"}, {}, {"connection_weights"}, Json{{"prune_below", 1e-4}}, "nxr::meeg::pruneBelow",
+    StepSpec s = simple("meeg.prune_below", {"connection_weights"}, {}, {"connection_weights"}, Json{{"prune_below", 1e-4}}, "nxr::meeg::pruneBelow",
                         "Weak connection weights removed from the pattern: entries below prune_below (a fraction of the strongest weight, default 1e-4, the reference's; 0: none). Materialised vertex connectome only.",
                         "a threshold on the whole matrix (its strongest entry is read first)");
-    s.plan = plan_arrays("prune_below", {"connection_weights"}, {"connection_weights"});
+    s.plan = plan_arrays("meeg.prune_below", {"connection_weights"}, {"connection_weights"});
     s.prepare = [](const Values&, const Json& p, ExecContext&) {
       need(p["prune_below"].is_number() && p["prune_below"].get<double>() >= 0, "prune_below: prune_below is a fraction of the strongest weight, >= 0");
       return std::any(p["prune_below"].get<double>());
@@ -346,11 +346,11 @@ void add_connectome_steps(std::vector<StepSpec>& r) {
   }
   // ── largest_component ──
   {
-    StepSpec s = simple("largest_component", {"connection_weights"}, {}, {"vertices", "label"}, Json::object(), "nxr::meeg::componentsOf, largestComponent",
+    StepSpec s = simple("meeg.largest_component", {"connection_weights"}, {}, {"vertices", "label"}, Json::object(), "nxr::meeg::componentsOf, largestComponent",
                         "The connected components of the graph whose edges are the non-zero connection weights, over all the vertices (an isolated vertex is its own component), numbered by their lowest vertex: "
                         "label [vertices], and the vertices of the biggest (the lowest-numbered on a tie) → vertices. The connection weights themselves are not restricted to it. Materialised vertex connectome only.",
                         "a graph property of the whole connectome");
-    s.plan = plan_arrays("largest_component", {"connection_weights"}, {"vertices", "label"});
+    s.plan = plan_arrays("meeg.largest_component", {"connection_weights"}, {"vertices", "label"});
     s.prepare = [](const Values&, const Json&, ExecContext&) { return std::any(); };
     s.run = [](const std::any&, const Arrays& ins, ExecContext&) {
       const Array& w = ins.at("connection_weights");

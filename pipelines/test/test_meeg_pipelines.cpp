@@ -257,7 +257,7 @@ int main() {
     CHECK(rel(c.covariance, S / static_cast<double>(T - nbk)) < 1e-10);
   }
   // another divisor is another result under the same name: refused, then replaced with the old array moved aside
-  nb.covariance.divisor = nxr::meeg::CovarianceDivisor::Samples;
+  nb.covariance.divisor = nxr::stats::CovarianceDivisor::Samples;
   CHECK_EQ(code_of([&] { noisecov_compute(ds, sub, nb); }), std::string(code::already_exists));
   nb.replace = true;
   const NoiseCovResult c2 = noisecov_compute(ds, sub, nb);

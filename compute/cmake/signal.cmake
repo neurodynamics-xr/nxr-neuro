@@ -3,6 +3,7 @@
 
 target_sources(nxr_compute PRIVATE
   src/signal/complex_signal.cpp
+  src/signal/crossspectral_bins.cpp
   src/signal/crossspectral_decomposition.cpp
   src/signal/crossspectral_measures.cpp
   src/signal/filters.cpp
@@ -19,6 +20,8 @@ target_sources(nxr_compute PRIVATE
   src/signal/opticalflow_connection.cpp
   src/signal/opticalflow_methods.cpp
   src/signal/phase_gradient.cpp
+  src/signal/phase_gradient_sums.cpp
+  src/signal/polarisation.cpp
   src/signal/resample.cpp
   src/signal/riesz.cpp
   src/signal/spectral.cpp
@@ -120,7 +123,7 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_compile_definitions(test_hat PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_hat COMMAND test_hat)
   add_executable(test_pyramid test/test_pyramid.cpp)
-  target_link_libraries(test_pyramid PRIVATE nxr_compute)
+  target_link_libraries(test_pyramid PRIVATE nxr_compute nxr_meeg)
   target_compile_definitions(test_pyramid PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_pyramid COMMAND test_pyramid)
   add_executable(test_frame_tiling test/test_frame_tiling.cpp)
@@ -147,4 +150,10 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_filter PRIVATE nxr_compute)
   target_compile_definitions(test_filter PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_filter COMMAND test_filter)
+  foreach(t test_crossspectrum_bins test_tensor test_wave)   # moved from meeg: they read compute's functions (and meeg's source power)
+    add_executable(${t} test/${t}.cpp)
+    target_link_libraries(${t} PRIVATE nxr_compute nxr_meeg)
+    target_compile_definitions(${t} PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+    add_test(NAME ${t} COMMAND ${t})
+  endforeach()
 endif()

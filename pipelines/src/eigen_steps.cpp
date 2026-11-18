@@ -112,7 +112,7 @@ const char* const kOutputs[] = {"modes", "kind", "eigenvalues", "support", "eige
 
 StepSpec hodge_dirac_step() {
   StepSpec s;
-  s.name = "hodge_dirac";
+  s.name = "operators.hodge_dirac";
   s.kind = "setup";
   s.inputs = {"surface"};
   for (const char* o : kOutputs) s.outputs.push_back(o);

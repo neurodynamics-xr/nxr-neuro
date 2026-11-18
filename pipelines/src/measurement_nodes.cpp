@@ -369,7 +369,7 @@ struct ReduceAcc { nm::Ingredients ing; std::int64_t rows = 0; };
 
 StepSpec reduce_node() {
   StepSpec s;
-  s.name = "reduce";
+  s.name = "measurement.reduce";
   s.kind = "accumulate";
   s.inputs = {"x", "over", "exclude", "weights"};
   s.optional = {"over", "exclude", "weights"};
@@ -587,7 +587,7 @@ StepSpec reduce_node() {
 // of each event are the merge of its cells', never a second pass over the signal (rule 13).
 StepSpec reduce_members_node() {
   StepSpec s;
-  s.name = "reduce.members";
+  s.name = "measurement.reduce_members";
   s.kind = "after";
   s.inputs = {"x", "over"};
   s.outputs = {"values", "ingredients"};
@@ -637,7 +637,7 @@ StepSpec reduce_members_node() {
 // (the same members in several subjects, summed code for code: `across`). The checker refuses an irregular selection (rule 18: the family mark and the move, never a parameter name).
 StepSpec roll_up_node() {
   StepSpec s;
-  s.name = "roll_up";
+  s.name = "measurement.roll_up";
   s.kind = "after";
   s.inputs = {"x", "grid"};
   s.optional = {"grid"};
@@ -742,7 +742,7 @@ struct EstimateAcc { std::optional<nm::Histogram> hist; nm::SegmentMean mean; st
 
 StepSpec estimate_node() {
   StepSpec s;
-  s.name = "estimate";
+  s.name = "measurement.estimate";
   s.kind = "accumulate";
   s.inputs = {"x", "exclude"};
   s.optional = {"exclude"};
@@ -833,7 +833,7 @@ void add_measurement_nodes(std::vector<StepSpec>& r) {
     parts.emplace_back("power", take_step(r, "power"));
     parts.emplace_back("phase_current", take_step(r, "phase_current"));
     parts.emplace_back("outer", outer_form());
-    r.push_back(combine_by_param("field.form", "form", std::move(parts),
+    r.push_back(combine_by_param("signal.field_form", "form", std::move(parts),
         "the pointwise FORM of a field (the Studio's fieldForms.ts, complex-extended): magnitude |z| (per element, over its components), power |z|^2, phase_current Im(z conj grad z) on the tangent "
         "plane, outer z z^H; a reduction over time or space is `reduce` after it, never here. (The Studio's own named forms of a typed field -- curl, div, abs -- stay the node `form`.)"));
   }
@@ -841,7 +841,7 @@ void add_measurement_nodes(std::vector<StepSpec>& r) {
   // (already gone from the registry when the old verbs' steps were dropped: take what is there)
   for (const char* n : {"measure", "tile_max", "reduce_cells", "measure_events"})
     r.erase(std::remove_if(r.begin(), r.end(), [&](const StepSpec& s) { return s.name == n; }), r.end());
-  StepSpec sc = take_step(r, "summarize");
+  StepSpec sc = take_step(r, "measurement.summarize");
   redirect_summarize(sc);
   r.push_back(std::move(sc));
   r.push_back(reduce_node());
@@ -858,7 +858,7 @@ void add_measurement_nodes(std::vector<StepSpec>& r) {
     parts.emplace_back("mean", estimate_node());
     parts.emplace_back("fixed", estimate_node());
     r.push_back(combine_by_param(
-        "estimate", "method", std::move(parts),
+        "measurement.estimate", "method", std::move(parts),
         "a statistic from the stream, by `method`: `sample` = the mean over the good columns of x (the BASELINE of a band's power per vertex and level, left out: `exclude` the bad segments and `outside` the bursts; "
         "any other real field: its mean, samples cut by an excluded span counted); `histogram` = counts of the good frames' values: fixed bins when `edges` are given, else nxr's 4096 log bins (range from the first "
         "`range_frames` good frames) over |curl| of the current (the cores' threshold) or over the relative power outside the bursts (the patches' threshold). Welch's segments are `welch.*` nodes on SegmentMean.",

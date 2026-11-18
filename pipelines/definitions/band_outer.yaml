@@ -26,7 +26,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: field.form, in: {x: z}, with: {form: outer}, out: zz}
+      - {node: signal.field_form, in: {x: z}, with: {form: outer}, out: zz}
 
 outputs:
   zz: {kind: field, kind_name: outer product, name: "{recording}_band_outer", on: recording.manifold.0, derived_from: recording}

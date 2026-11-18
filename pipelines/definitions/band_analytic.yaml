@@ -32,7 +32,7 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: analytic, in: {x: recording, bands: bands, channels_of: channels_of}, with: {shape: $shape, halo_seconds: $halo}, out: z}
+      - {node: signal.analytic, in: {x: recording, bands: bands, channels_of: channels_of}, with: {shape: $shape, halo_seconds: $halo}, out: z}
 
 outputs:
   z: {kind: field, kind_name: analytic signal, name: "{recording}_analytic", on: recording.manifold.0, derived_from: recording}

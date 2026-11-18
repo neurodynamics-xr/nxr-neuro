@@ -303,6 +303,7 @@ static void registry() {
   EXPECT(refused, "an unknown measure is refused, naming the valid ones");
   const ms::Registry custom({ms::MeasureSpec{"my_max", "none", "max", ms::Merge::max, "", {}}});
   EXPECT(custom.at("my_max").merge == ms::Merge::max && custom.find("mean") == nullptr, "a registry made from io's rows");
+  EXPECT(r.derive("relative_power", [](const std::string& n) { return n == "power_sum" ? 3.0 : 12.0; }) == 0.25 && r.derive("relative_power", [](const std::string& n) { return n == "power_sum" ? 3.0 : 0.0; }) == 0.0, "relative_power is power_sum / total_power (0 for no total)");
   const double tr = r.derive("travelling_index", [](const std::string& n) { return n == "phase_current_1" ? 3.0 : (n == "phase_current_2" ? 4.0 : (n == "phase_power" ? 25.0 : 1.0)); });
   EXPECT(std::abs(tr - 5.0 / 5.0) < 1e-12, "travelling index: |sum j| / sqrt(power x gradient power), got " << tr);
 }

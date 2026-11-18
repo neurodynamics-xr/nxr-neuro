@@ -28,11 +28,11 @@ parameters:
 
 steps:
   before:
-    - {node: fiber_ends,         in: {fibers: fibers},                                       with: {points_per_fiber: $points_per_fiber}, out: end_points}
-    - {node: nearest_vertex,     in: {points: end_points, positions: surface},                                                           out: [end_vertex, end_distance]}
-    - {node: end_gate,           in: {end_distance: end_distance},                           with: {max_end_distance_mm: $max_end_distance}, out: keep}
-    - {node: smooth_memberships, in: {label: partition, faces: surface},                     with: {hops: $smooth_hops},                  out: memberships}
-    - {node: partition_counts,   in: {end_vertex: end_vertex, keep: keep, memberships: memberships},                                      out: counts}
+    - {node: meeg.fiber_ends,         in: {fibers: fibers},                                       with: {points_per_fiber: $points_per_fiber}, out: end_points}
+    - {node: meeg.nearest_vertex,     in: {points: end_points, positions: surface},                                                           out: [end_vertex, end_distance]}
+    - {node: meeg.end_gate,           in: {end_distance: end_distance},                           with: {max_end_distance_mm: $max_end_distance}, out: keep}
+    - {node: meeg.smooth_memberships, in: {label: partition, faces: surface},                     with: {hops: $smooth_hops},                  out: memberships}
+    - {node: meeg.partition_counts,   in: {end_vertex: end_vertex, keep: keep, memberships: memberships},                                      out: counts}
 
 outputs:
   counts:

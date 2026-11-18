@@ -180,7 +180,7 @@ int main() {
   double l1 = 0, total = 0;
   std::vector<std::int64_t> dcounts(4096);
   for (int k = 0; k < 4096; ++k) { dcounts[static_cast<std::size_t>(k)] = dc.counts[static_cast<std::size_t>(k)]; l1 += std::abs(Hs.values[static_cast<std::size_t>(k)] - dcounts[static_cast<std::size_t>(k)]); total += dcounts[static_cast<std::size_t>(k)]; }
-  const double p99 = nxr::stats::histogram::percentile(dcounts, lb, 99.0);
+  const double p99 = nxr::stats::histogram::binnedPercentile(dcounts, lb, 99.0);
   std::printf("  %lld glued vertices, %zu outside frames; the stored histogram vs the direct one: L1 difference %.3g of %.0f counts (frames %lld), direct 99th percentile %.4f\n", static_cast<long long>(Vg), outside.size(), l1, total,
               static_cast<long long>(Hs.options["frames"].get<std::int64_t>()), p99);
   CHECK(Hs.options["frames"].get<std::int64_t>() == static_cast<std::int64_t>(outside.size()) && l1 < 1e-3 * total && std::abs(Hs.options["hi"].get<double>() / lb.hi - 1) < 1e-4);

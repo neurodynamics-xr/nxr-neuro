@@ -6,9 +6,10 @@
 #include <random>
 
 #include "check.h"
-#include "nxr/meeg/wave.h"
+#include "nxr/signal/phase_gradient.h"
 
-using namespace nxr::meeg;
+using namespace nxr::signal;
+using namespace nxr::core;
 using Eigen::MatrixXd;
 using cd = std::complex<double>;
 

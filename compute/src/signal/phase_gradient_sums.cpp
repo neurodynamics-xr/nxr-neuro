@@ -1,11 +1,11 @@
-// nxr::meeg — the phase gradient of a band from the sensor cross-spectrum (wave.h).
-#include "nxr/meeg/wave.h"
+// nxr::signal — the phase gradient of a band from the sensor cross-spectrum (wave.h).
+#include "nxr/signal/phase_gradient.h"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
-namespace nxr::meeg {
+namespace nxr::signal {
 
 PhaseSums phaseSums(const Eigen::MatrixXd& A, const Eigen::MatrixXd B[3], const Eigen::MatrixXd& S, const Eigen::MatrixXd& Sq) {
   const Eigen::Index N = A.rows(), M = A.cols();
@@ -69,4 +69,4 @@ PhaseCurrentFrames phaseCurrentInFrames(const Eigen::MatrixXd& H, const Eigen::M
   return f;
 }
 
-}  // namespace nxr::meeg
+}  // namespace nxr::signal

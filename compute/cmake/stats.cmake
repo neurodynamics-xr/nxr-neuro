@@ -3,6 +3,7 @@
 
 target_sources(nxr_compute PRIVATE
   src/stats/circular.cpp
+  src/stats/covariance.cpp
   src/stats/histogram.cpp
   src/stats/lag.cpp
   src/stats/nulltest.cpp
@@ -23,6 +24,10 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_pca PRIVATE nxr_compute)
   target_compile_definitions(test_pca PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_pca COMMAND test_pca)
+  add_executable(test_covariance test/test_covariance.cpp)
+  target_link_libraries(test_covariance PRIVATE nxr_compute)
+  target_compile_definitions(test_covariance PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
+  add_test(NAME test_covariance COMMAND test_covariance)
   add_executable(test_lag test/test_lag.cpp)
   target_link_libraries(test_lag PRIVATE nxr_compute)
   add_test(NAME test_lag COMMAND test_lag)

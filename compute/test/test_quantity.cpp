@@ -97,6 +97,15 @@ static void bands() {
   EXPECT(sel::count(oct) == 6 && oct.family == sel::Family::grid, "the octave bank: six bands, adjacent with one ratio: a grid");
   const sel::Selection named = nxr::select::bands_by_frequency({{"alpha", 8, 12}, {"beta", 13, 30}});
   EXPECT(named.family == sel::Family::irregular && sel::count(named) == 2 && named.lookup.size() == 2 && named.lookup[0].name == "alpha", "named bands with a gap: irregular, named through the lookup");
+  {   // the preset equals the old table (meeg::brainstormBands, removed): the same names and edges, as a labelled band set
+    const std::vector<nxr::select::BandSpec>& bs = nxr::select::band_preset("brainstorm");
+    const double want[6][2] = {{2, 4}, {5, 7}, {8, 12}, {15, 29}, {30, 59}, {60, 90}};
+    const char* names[6] = {"delta", "theta", "alpha", "beta", "gamma1", "gamma2"};
+    bool same = bs.size() == 6;
+    for (std::size_t i = 0; same && i < 6; ++i) same = bs[i].name == names[i] && bs[i].lo == want[i][0] && bs[i].hi == want[i][1];
+    const sel::Selection pre = nxr::select::bands_preset("brainstorm");
+    EXPECT(same && sel::count(pre) == 6 && pre.lookup[2].name == "alpha" && refused([] { nxr::select::band_preset("mne"); }), "the brainstorm preset is the old table, labelled through the lookup");
+  }
   EXPECT(refused([] { nxr::select::bands_by_frequency({}); }) && refused([] { nxr::select::bands_by_frequency({{"x", 5, 5}}); }), "no bands and an empty band are refused");
   const sel::Selection wl = nxr::select::bands_by_wavelength({{"region", 20, 80}, {"hemisphere", 80, std::numeric_limits<double>::infinity()}}, "mm");
   EXPECT(sel::count(wl) == 2 && wl.unit == "1/mm^2", "scales by wavelength become eigenvalue spans");

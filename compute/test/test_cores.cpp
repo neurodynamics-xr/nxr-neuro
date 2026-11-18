@@ -92,7 +92,7 @@ int main() {
         const nxr::stats::histogram::Counts h = histogramTiles(blk.data(), static_cast<std::size_t>(nv), static_cast<std::size_t>(n), static_cast<std::size_t>(n), 1, bins);
         for (int b = 0; b < bins.bins; ++b) total[static_cast<std::size_t>(b)] += h.counts[static_cast<std::size_t>(b)];
       }
-      const double t = nxr::stats::histogram::percentile(total, bins, 98);
+      const double t = nxr::stats::histogram::binnedPercentile(total, bins, 98);
       if (w == 1) ref = t;
       EXPECT(t == ref, "the threshold depends on the block of frames (" + std::to_string(w) + ")");
       EXPECT(t >= thr * (1 - 1e-6) && t <= thr * 1.0036, "the histogram threshold is within one bin of the exact percentile");

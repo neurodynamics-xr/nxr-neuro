@@ -25,7 +25,7 @@ parameters:
 
 steps:
   after:
-    - {node: summarize, in: {x: x}, with: {summaries: $summaries, combine: $combine, ddof: $ddof}, out: statistic}
+    - {node: measurement.summarize, in: {x: x}, with: {summaries: $summaries, combine: $combine, ddof: $ddof}, out: statistic}
 
 outputs:
   statistic:

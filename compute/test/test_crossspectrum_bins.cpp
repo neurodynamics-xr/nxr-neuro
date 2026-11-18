@@ -9,9 +9,10 @@
 #include <vector>
 
 #include "check.h"
-#include "nxr/meeg/crossspectrum.h"
+#include "nxr/signal/crossspectral.h"
 
-using namespace nxr::meeg;
+using namespace nxr::signal;
+using namespace nxr::core;
 using cd = std::complex<double>;
 
 int main() {

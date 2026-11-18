@@ -23,7 +23,7 @@
 #include "nxr/operators/hodge_synthesis_weights.h"
 #include "nxr/io/measures.h"
 #include "nxr/select/dyadic.h"
-#include "nxr/meeg/wave.h"
+#include "nxr/signal/phase_gradient.h"
 #include "nxr/pipelines/frames.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/pipelines/meeg.h"
@@ -193,20 +193,20 @@ int main() {
   for (int i = 0; i < M; ++i) all_chans[static_cast<size_t>(i)] = i;
   auto vertex_sums = [&](const char* cs, bool ambient) {
     const StoredCrossSpectrum C = crossspectrum_read(sub, cs, all_chans);
-    nxr::meeg::PhaseSums sums;
+    nxr::signal::PhaseSums sums;
     auto add = [&](const Eigen::MatrixXd& A) {
       Eigen::MatrixXd G[3];
       ops.meanFaceGradient(A, G);
       for (int v = 0; v < N; ++v) { const Eigen::RowVectorXd dot = G[0].row(v) * ops.normals(v, 0) + G[1].row(v) * ops.normals(v, 1) + G[2].row(v) * ops.normals(v, 2); for (int d = 0; d < 3; ++d) G[d].row(v) -= dot * ops.normals(v, d); }
-      nxr::meeg::addPhaseSums(sums, nxr::meeg::phaseSums(A, G, C.S, C.Sq));
+      nxr::signal::addPhaseSums(sums, nxr::signal::phaseSums(A, G, C.S, C.Sq));
     };
     if (!ambient) { Eigen::MatrixXd A(N, M); for (int v = 0; v < N; ++v) A.row(v) = ops.normals(v, 0) * K.row(3 * v) + ops.normals(v, 1) * K.row(3 * v + 1) + ops.normals(v, 2) * K.row(3 * v + 2); add(A); }
     else for (int c = 0; c < 3; ++c) { Eigen::MatrixXd A(N, M); for (int v = 0; v < N; ++v) A.row(v) = K.row(3 * v + c); add(A); }
     return sums;
   };
-  const nxr::meeg::PhaseSums sv = vertex_sums("travel_crossspectrum_alpha", false);
+  const nxr::signal::PhaseSums sv = vertex_sums("travel_crossspectrum_alpha", false);
   const StoredFrames sf = read_stored_frames(sub, "cortex", N);
-  const auto jf = nxr::meeg::phaseCurrentInFrames(sv.phase, sf.e1, sf.e2);
+  const auto jf = nxr::signal::phaseCurrentInFrames(sv.phase, sf.e1, sf.e2);
   nxr::select::Mesh mesh; mesh.n = N; mesh.positions = S.vertices; mesh.faces = S.faces;
   const std::vector<double> area = nxr::select::vertexAreas(mesh);
   // the tile of every vertex at level D: the finest level's member of the vertex, shifted
@@ -309,7 +309,7 @@ int main() {
                 *std::max_element(err.begin(), err.end()), median(tr), median(st), median(amb));
     CHECK(err.size() > 8 && median(err) < 0.05 && median(tr) > 0.95 && median(st) < 0.1 && median(amb) < 0.05);
     // the vertices' own direction (the stored sums are these, grouped): the velocity along e_lambda
-    nxr::meeg::PhaseReadout ro = nxr::meeg::phaseReadout(sv, omega);
+    nxr::signal::PhaseReadout ro = nxr::signal::phaseReadout(sv, omega);
     std::vector<double> cosang;
     for (int v = 0; v < N; ++v) {
       if (rho[static_cast<size_t>(v)] < 0.5 || !std::isfinite(ro.velocity(v, 0))) continue;

@@ -28,13 +28,16 @@
 #include <limits>
 #include <functional>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <vector>
 
-#include "nxr/meeg/covariance.h"
+#include "nxr/stats/covariance.h"
 #include "nxr/meeg/forward.h"
 #include "nxr/meeg/inverse.h"
 #include "nxr/meeg/sources.h"
+#include "nxr/select/bands.h"
+#include "nxr/measurement/measures.h"
 #include "nxr/signal/filters.h"
 #include "nxr/signal/opticalflow.h"
 #include "nxr/signal/opticalflow_methods.h"
@@ -52,6 +55,25 @@
 
 namespace nxr::pipelines {
 
+/** each value of P [rows x bands] as a share of its row's total: the DERIVED measure `relative_power` (power_sum / total_power; 0 where the total is 0), read from the registry */
+inline Eigen::MatrixXd relativeToTotal(const Eigen::MatrixXd& P, const Eigen::VectorXd& total) {
+  if (total.size() != P.rows()) throw std::invalid_argument("relative power: one total per row");
+  const nxr::measurement::Registry& reg = nxr::measurement::Registry::standard();
+  Eigen::MatrixXd out(P.rows(), P.cols());
+  for (Eigen::Index i = 0; i < P.rows(); ++i)
+    for (Eigen::Index j = 0; j < P.cols(); ++j)
+      out(i, j) = reg.derive("relative_power", [&](const std::string& n) { return n == "power_sum" ? P(i, j) : total(i); });
+  return out;
+}
+
+/** a band preset (`nxr::select::band_preset`) as meeg's bands: the mean of the spectrum's bins from lo to hi inclusive */
+inline std::vector<nxr::meeg::Band> bandsOfPreset(const std::string& name) {
+  std::vector<nxr::meeg::Band> out;
+  for (const nxr::select::BandSpec& b : nxr::select::band_preset(name)) out.push_back({b.name, b.lo, b.hi});
+  return out;
+}
+
+
 // The channel types source imaging uses (the default of `channel_types`).
 std::vector<std::string> imaging_channel_types();
 
@@ -65,7 +87,7 @@ struct SourcePsdOptions {
   std::optional<std::int64_t> segment_samples;            // wins when given
   nxr::signal::spectral::WelchOptions welch = nxr::signal::spectral::brainstormPsdOptions(1.0);
   std::string option_set = "tiles";
-  std::vector<nxr::meeg::Band> bands = nxr::meeg::brainstormBands();   // Brainstorm's default bands; the mean of the bins from lo to hi inclusive
+  std::vector<nxr::meeg::Band> bands = nxr::pipelines::bandsOfPreset("brainstorm");   // Brainstorm's default bands; the mean of the bins from lo to hi inclusive
   std::string normalisation = "none";                     // none · relative (each map divided by the source's total PSD: the sum over all bins, 0 to Nyquist)
   bool exclude_bad_segments = true;
   bool replace = false;
@@ -94,7 +116,7 @@ struct SourcePsdResult {
 // ── the sensor CROSS-SPECTRUM of a recording: the root of every source cross-spectral quantity ──
 // Per band, the Welch cross-spectral density of the channels, C = S + i Sq with C_ab = <X_a conj(X_b)> (X a segment's Fourier coefficients; nxr::signal::spectral::CrossWelch with the
 // quadrature part), the mean over the band's bins, exactly what `sourcepsd`, `sourcetensor`, `quadrature` and `hodgepower` accumulate. Every source quantity of the band is K C K^T
-// read through a kernel: the per-source tensor T_ii, and any block T_ij between two sources (nxr::meeg::crossTensor), without forming the 3N x 3N source cross-spectrum
+// read through a kernel: the per-source tensor T_ii, and any block T_ij between two sources (nxr::core::crossTensor), without forming the 3N x 3N source cross-spectrum
 // (rank <= channels). C does not depend on a kernel: one stored C serves every kernel whose channels it covers (MNE, dSPM, another noise covariance).
 //   Stored, per band b (the stem default `<recording>_crossspectrum`), as the noise covariance is: Operator `<stem>_<b>` of kind "cross-spectral density", channels -> channels on the
 //   Selection `<stem>_channels` (the channels it covers, in order; one for every band), value type complex, float64 [M x M x 2] (real, imaginary), unit (channel unit)^2/Hz.
@@ -111,7 +133,7 @@ struct CrossSpectrumOptions {
   std::optional<std::int64_t> segment_samples;            // wins when given
   nxr::signal::spectral::WelchOptions welch = nxr::signal::spectral::brainstormPsdOptions(1.0);
   std::string option_set = "tiles";
-  std::vector<nxr::meeg::Band> bands = nxr::meeg::brainstormBands();   // the mean of the bins from lo to hi inclusive, as sourcepsd
+  std::vector<nxr::meeg::Band> bands = nxr::pipelines::bandsOfPreset("brainstorm");   // the mean of the bins from lo to hi inclusive, as sourcepsd
   bool exclude_bad_segments = true;
   bool replace = false;
   // THE ESTIMATOR (spec docs/specs/2026-11-13-cycle-pattern.md, stage 1, and its time-tile amendment of 2026-11-13): "welch" (the default above: the mean
@@ -166,7 +188,7 @@ struct StoredCrossSpectrum {
 StoredCrossSpectrum crossspectrum_read(nxr::io::SubjectWriter& sub, const std::string& name, const std::optional<std::vector<std::int32_t>>& channels = std::nullopt,
                                        const std::string& scaling = "stored");
 // The band's cross-spectrum bin by bin (`crossspectrum compute --resolve bins`, the statistic `<stem>_<band>_bins`), C(f) per bin as [M x M] complex, on `channels` in that order
-// (as crossspectrum_read), with the bins' frequencies in Hz. io reads; the readings (coherency, phase slope, PSI) are nxr::meeg's (meeg/include/nxr/meeg/crossspectrum.h).
+// (as crossspectrum_read), with the bins' frequencies in Hz. io reads; the readings (coherency, phase slope, PSI) are nxr::meeg's (meeg/include/nxr/signal/crossspectral.h).
 struct StoredCrossSpectrumBins {
   std::vector<std::int32_t> channels;
   std::vector<double> frequencies;                        // Hz, one per bin
@@ -198,7 +220,7 @@ struct HodgePowerOptions {
   std::optional<std::int64_t> segment_samples;
   nxr::signal::spectral::WelchOptions welch = nxr::signal::spectral::brainstormPsdOptions(1.0);
   std::string option_set = "tiles";
-  std::vector<nxr::meeg::Band> bands = nxr::meeg::brainstormBands();
+  std::vector<nxr::meeg::Band> bands = nxr::pipelines::bandsOfPreset("brainstorm");
   bool exclude_bad_segments = true;
   bool replace = false;
 };

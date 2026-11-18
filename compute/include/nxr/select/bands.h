@@ -43,6 +43,13 @@ Selection bands_by_parts(const std::vector<Scale>& scales, double piece_area, co
 /** rule `levels`: the Weyl band of each level of a dyadic grid (or of any set with levels), one member a level, in level order; the bands must tile the line without gap or overlap */
 Selection bands_by_levels(const Selection& levels);
 
+/** A PRESET band set, DATA not maths: the named bands of a published convention, by name. "brainstorm": Brainstorm's default bands for "Group in time or frequency bands" (tutorial_omega): delta 2-4,
+ *  theta 5-7, alpha 8-12, beta 15-29, gamma1 30-59, gamma2 60-90 Hz; the convention takes the spectrum's bins from lo to hi INCLUSIVE (`bins_of_band` is [lo, hi), so a caller of the convention
+ *  reads the bins itself). std::invalid_argument naming the valid presets for any other name. */
+const std::vector<BandSpec>& band_preset(const std::string& name);
+/** the preset as the rule `frequency`'s band set: one member a band, labelled by its name through the lookup (`bands_by_frequency(band_preset(name), "Hz")`) */
+Selection bands_preset(const std::string& name);
+
 /** the octave bank: [f_lo 2^b, f_lo 2^(b+1)) Hz, b = 0 .. n - 1 (nxr's `octave_bands`: 1-2 ... 32-64 Hz for f_lo 1, n 6). std::invalid_argument for f_lo <= 0 or n < 1. */
 std::vector<BandSpec> octave_bands(double f_lo = 1.0, int n = 6);
 /** a constant-Q design's bands (highest first) as a list for the rule `frequency` */

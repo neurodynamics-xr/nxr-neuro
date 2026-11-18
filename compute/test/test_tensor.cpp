@@ -8,9 +8,12 @@
 
 #include "check.h"
 #include "nxr/meeg/sources.h"
-#include "nxr/meeg/tensor.h"
+#include "nxr/core/congruence.h"
+#include "nxr/signal/polarisation.h"
 
 using namespace nxr::meeg;
+using namespace nxr::signal;
+using namespace nxr::core;
 using Eigen::MatrixXd;
 using cd = std::complex<double>;
 

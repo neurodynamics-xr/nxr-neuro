@@ -104,7 +104,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
   // ───────────────────────── at_level ─────────────────────────
   {
     StepSpec s;
-    s.name = "at_level"; s.kind = "chunk";
+    s.name = "select.at_level"; s.kind = "chunk";
     s.traits = node_traits(TimeBehaviour::pointwise, Precision::float32, OutputPrecision::follows_input, "copies the rows of one level, per sample: no arithmetic", {});
     s.inputs = {"x"}; s.outputs = {"y"};
     s.parameters = Json{{"scale", nullptr}};
@@ -214,7 +214,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
   // ───────────────────────── relative ─────────────────────────
   {
     StepSpec s;
-    s.name = "relative"; s.kind = "chunk";
+    s.name = "measurement.relative"; s.kind = "chunk";
     s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "divides each row by a stored constant, per sample; the quotient is formed in double and stored as float32", {});
     s.inputs = {"x", "baseline"}; s.outputs = {"y"};
     s.parameters = Json::object();
@@ -262,7 +262,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
   // ───────────────────────── scale ─────────────────────────
   {
     StepSpec s;
-    s.name = "scale"; s.kind = "chunk";
+    s.name = "select.scale"; s.kind = "chunk";
     s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the characteristic level of each vertex and sample, chosen over the level axis only; double arithmetic, float32 result", {});
     s.inputs = {"x"}; s.outputs = {"y"};
     s.parameters = Json{{"transform", "auto"}, {"modes", 0}, {"order", 0}, {"tolerance", 0.01}};
@@ -470,7 +470,7 @@ void add_spatial_events_steps(std::vector<StepSpec>& r) {
         for (std::size_t i = 0; i < counts.size(); ++i) counts[i] = static_cast<std::int64_t>(std::llround(hs.values[i]));
         nxr::stats::histogram::LogBins lb;
         lb.lo = hs.options["lo"].get<double>(); lb.hi = hs.options["hi"].get<double>(); lb.bins = static_cast<int>(bins);
-        try { st.threshold = nxr::stats::histogram::percentile(counts, lb, p["percentile"].get<double>()); } catch (const std::invalid_argument& e) { refuse(std::string("patches: the threshold: ") + e.what()); }
+        try { st.threshold = nxr::stats::histogram::binnedPercentile(counts, lb, p["percentile"].get<double>()); } catch (const std::invalid_argument& e) { refuse(std::string("patches: the threshold: ") + e.what()); }
         rule = Json{{"threshold", st.threshold}, {"threshold_rule", "percentile: the upper edge of the first bin whose cumulative share of the relative power outside the bursts reaches the percentile (exact to one log bin, 0.34 %)"},
                     {"percentile", p["percentile"]}, {"threshold_statistic", Json{{"name", nxr::io::text(*t.row, "name")}, {"id", nxr::io::text(*t.row, "id")}}},
                     {"histogram", Json{{"lo", lb.lo}, {"hi", lb.hi}, {"bins", bins}, {"frames", hs.options.value("frames", Json())}, {"outside", hs.options["chain"].value("outside", Json())}}}};

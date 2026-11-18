@@ -227,14 +227,14 @@ int main() {
       {"band_bursts", "events detected on the envelope field, not on its measurement", "is a field; a measurement is wanted",
        [](Case& c) { for (auto& f : c.uses) if (f.use.step == "detect_spans") f.use.ins["x"] = "amp"; }},
       {"global_bursts", "a streamed field summarized", "measure the field over a partition first",
-       [](Case& c) { auto u = step("summarize", {{"x", "mag"}}, "oops"); u.section = "after"; c.uses.push_back({"after", u}); }},
+       [](Case& c) { auto u = step("measurement.summarize", {{"x", "mag"}}, "oops"); u.section = "after"; c.uses.push_back({"after", u}); }},
       {"global_bursts", "the tile ladder of the sensors instead of the cortex", "port `tiles`",
        [](Case& c) { c.inputs["tiles"]["manifold"] = "recording.manifold.0"; }},
       {"global_bursts", "an output declared a measurement that is a statistic", "outputs: baseline is declared a measurement",
        [](Case& c) { c.outputs["baseline"]["kind"] = "measurement"; }},
       {"band_bursts", "a roll-up over events detected on another band's tiles", "were detected on the members of",
        [](Case& c) {
-         c.uses.insert(c.uses.begin() + 2, {"do", step("envelope", {{"x", "recording"}}, "amp2", Json{{"band", Json::array({14.0, 30.0})}})});
+         c.uses.insert(c.uses.begin() + 2, {"do", step("signal.envelope", {{"x", "recording"}}, "amp2", Json{{"band", Json::array({14.0, 30.0})}})});
          c.uses[3].use.ins["x"] = "amp2";
        }},
   };

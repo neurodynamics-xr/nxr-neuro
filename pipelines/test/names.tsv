@@ -103,30 +103,30 @@ mex	trivialConnectionLaplacian	-	legacy
 mex	version	-	legacy
 mex	vertexFrames	-	legacy
 mex	whitney	-	legacy
-node	analytic	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	apply_kernel	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	at_level	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	band_filter	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	carry_ends	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	cellquadrature	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	collect	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	connection_weights	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	eeg_montage_1005	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	end_connectome	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	end_gate	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	envelope	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	estimate	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	fiber_ends	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	field.form	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	form	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	frames	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
+node	signal.analytic	-	composite
+node	meeg.apply_kernel	-	composite
+node	select.at_level	-	composite
+node	signal.band_filter	-	composite
+node	meeg.carry_ends	-	composite
+node	measurement.cellquadrature	-	composite
+node	measurement.collect	-	composite
+node	meeg.connection_weights	-	composite
+node	meeg.eeg_montage_1005	-	composite
+node	meeg.end_connectome	-	composite
+node	meeg.end_gate	-	composite
+node	signal.envelope	-	composite
+node	measurement.estimate	-	composite
+node	meeg.fiber_ends	-	composite
+node	signal.field_form	-	composite
+node	signal.form	-	composite
+node	signal.frames	-	composite
 node	geometry.frame_embed	-	composite
 node	geometry.frame_project	-	composite
 node	geometry.frame_rotate	-	composite
 node	geometry.glue	-	composite
-node	gradient_power	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	hodge_dirac	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	largest_component	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
+node	signal.gradient_power	-	composite
+node	operators.hodge_dirac	-	composite
+node	meeg.largest_component	-	composite
 node	meeg.minimum_norm	-	composite
 node	meeg.noise_covariance	-	composite
 node	meeg.phase_gradient	-	composite
@@ -135,21 +135,21 @@ node	meeg.source_band_power	-	composite
 node	meeg.source_bins	-	composite
 node	meeg.source_tensor	-	composite
 node	meeg.spherical_head_model	-	composite
-node	nearest_vertex	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
+node	meeg.nearest_vertex	-	composite
 node	operators.hodge_weights	-	composite
-node	partition_counts	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	patch_summaries	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	pointspread	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	prune_below	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	reduce	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	reduce.members	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	registration_match	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	relative	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	risefall	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	roll_up	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	run_repeat	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	scale	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	scale_selection	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
+node	meeg.partition_counts	-	composite
+node	select.patch_summaries	-	composite
+node	meeg.pointspread	-	composite
+node	meeg.prune_below	-	composite
+node	measurement.reduce	-	composite
+node	measurement.reduce_members	-	composite
+node	meeg.registration_match	-	composite
+node	measurement.relative	-	composite
+node	select.risefall	-	composite
+node	measurement.roll_up	-	composite
+node	select.run_repeat	-	composite
+node	select.scale	-	composite
+node	select.scale_selection	-	composite
 node	select.bands	-	composite
 node	select.dyadic_surface	-	composite
 node	select.events.cores	-	composite
@@ -175,14 +175,14 @@ node	signal.rfft	nxr::signal::rfft	ok
 node	signal.source_planes	-	composite
 node	signal.speed_spectrum	-	composite
 node	signal.xpsd	nxr::signal::xpsd	ok
-node	smooth_memberships	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
+node	meeg.smooth_memberships	-	composite
 node	stats.pca	nxr::stats::pca	ok
-node	summarize	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
-node	surface_frames	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
+node	measurement.summarize	-	composite
+node	geometry.surface_frames	-	composite
 node	synthesis.lagfree	-	composite
 node	synthesis.lagfree_mixing	-	composite
 node	synthesis.lagfree_pairs	-	composite
-node	tile_crossings	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
+node	select.tile_crossings	-	composite
 python	operators_eigen	nxr::operators::eigen	ok
 wasm	assembleConnectionLaplacian	-	legacy
 wasm	assembleDECOperators	-	legacy
@@ -263,3 +263,41 @@ retired	welch.psd	node	signal.psd
 retired	welch.source_band_power	node	meeg.source_band_power
 retired	welch.source_bins	node	meeg.source_bins
 retired	welch.source_tensor	node	meeg.source_tensor
+retired	analytic	node	signal.analytic
+retired	band_filter	node	signal.band_filter
+retired	envelope	node	signal.envelope
+retired	gradient_power	node	signal.gradient_power
+retired	frames	node	signal.frames
+retired	form	node	signal.form
+retired	field.form	node	signal.field_form
+retired	apply_kernel	node	meeg.apply_kernel
+retired	eeg_montage_1005	node	meeg.eeg_montage_1005
+retired	pointspread	node	meeg.pointspread
+retired	carry_ends	node	meeg.carry_ends
+retired	connection_weights	node	meeg.connection_weights
+retired	end_connectome	node	meeg.end_connectome
+retired	end_gate	node	meeg.end_gate
+retired	fiber_ends	node	meeg.fiber_ends
+retired	largest_component	node	meeg.largest_component
+retired	nearest_vertex	node	meeg.nearest_vertex
+retired	partition_counts	node	meeg.partition_counts
+retired	prune_below	node	meeg.prune_below
+retired	registration_match	node	meeg.registration_match
+retired	smooth_memberships	node	meeg.smooth_memberships
+retired	at_level	node	select.at_level
+retired	patch_summaries	node	select.patch_summaries
+retired	risefall	node	select.risefall
+retired	run_repeat	node	select.run_repeat
+retired	scale	node	select.scale
+retired	scale_selection	node	select.scale_selection
+retired	tile_crossings	node	select.tile_crossings
+retired	cellquadrature	node	measurement.cellquadrature
+retired	estimate	node	measurement.estimate
+retired	reduce	node	measurement.reduce
+retired	reduce.members	node	measurement.reduce_members
+retired	roll_up	node	measurement.roll_up
+retired	summarize	node	measurement.summarize
+retired	relative	node	measurement.relative
+retired	collect	node	measurement.collect
+retired	hodge_dirac	node	operators.hodge_dirac
+retired	surface_frames	node	geometry.surface_frames

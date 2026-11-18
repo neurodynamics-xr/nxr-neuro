@@ -17,8 +17,8 @@
 #include <complex>
 #include "nxr/select/dyadic.h"
 #include "nxr/measurement/reduce.h"
-#include "nxr/pyramid.h"
 #include "nxr/signal/timefilterbank.h"
+#include "nxr/meeg/inverse.h"
 #include "nxr/select/bands.h"
 #include "nxr/selection/resolved.h"
 
@@ -105,7 +105,7 @@ struct TensorCells {
   std::vector<ms::Ingredients> sums;
   explicit TensorCells(std::int64_t cells) : sums(10, ms::Ingredients(1, cells)) {}
 };
-void add_tensor_block(TensorCells& out, const sel::ProductForm& cells, const pyramid::FrameKernel& fk, const Eigen::MatrixXcd& A, const std::uint8_t* good, const double* wt, const double* wtot,
+void add_tensor_block(TensorCells& out, const sel::ProductForm& cells, const nxr::meeg::FrameKernel& fk, const Eigen::MatrixXcd& A, const std::uint8_t* good, const double* wt, const double* wtot,
                       std::int64_t first, std::int64_t sub) {
   ms::Request r; r.measures = {"sum"}; r.weighting = ms::Weighting::given;
   const std::int64_t n = A.rows();
@@ -294,7 +294,7 @@ int main() {
     for (int r = 0; r < 3 * NV; ++r) for (int c = 0; c < M; ++c) K3m(r, c) = K3[static_cast<std::size_t>(r) * M + c];
     std::vector<char> sing(NV, 0);
     for (int i : singular) { sing[i] = 1; for (int k = 0; k < 3; ++k) e1m(i, k) = e2m(i, k) = enm(i, k) = std::numeric_limits<double>::quiet_NaN(); }
-    const pyramid::FrameKernel fk = pyramid::frameKernel(K3m, e1m, e2m, enm, sing);
+    const nxr::meeg::FrameKernel fk = nxr::meeg::frameKernel(K3m, e1m, e2m, enm, sing);
     std::vector<double> wt(NV), wtot = a;
     for (int v = 0; v < NV; ++v) wt[v] = sing[v] ? 0.0 : a[v];                 // a vertex with no frame is out of the nine sums, in the total
     auto runT = [&](std::int64_t sub, std::int64_t cut, std::vector<TensorCells>& o) {

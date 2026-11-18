@@ -67,19 +67,19 @@ steps:
     over: recording
     do:
       # the cells: amplitude and the largest |z| per (spatial tile x time tile), the product coupled to the band and the spatial scale
-      - {node: field.form, in: {x: bursts_field}, with: {form: magnitude}, out: mag}
-      - {node: reduce, in: {x: mag, over: product, exclude: bad}, with: {measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: [cells, cells_ingredients]}
+      - {node: signal.field_form, in: {x: bursts_field}, with: {form: magnitude}, out: mag}
+      - {node: measurement.reduce, in: {x: mag, over: product, exclude: bad}, with: {measures: [amplitude, envelope_max], bad_segments: $bad_segments}, out: [cells, cells_ingredients]}
   after:
-    - {node: roll_up, in: {x: cells}, with: {to: $groups, measures: [envelope_max]}, out: [trace_cells, trace_cells_ingredients]}
-    - {node: summarize, in: {x: trace_cells}, with: {summaries: [median, mad], combine: $combine}, out: baseline}
+    - {node: measurement.roll_up, in: {x: cells}, with: {to: $groups, measures: [envelope_max]}, out: [trace_cells, trace_cells_ingredients]}
+    - {node: measurement.summarize, in: {x: trace_cells}, with: {summaries: [median, mad], combine: $combine}, out: baseline}
     - {node: select.events.spans, in: {x: trace_cells, baseline: baseline}, with: {rule: detect, combine: $combine, enter_sd: $enter_sd, exit_sd: $exit_sd, merge_s: $merge_s, min_s: $min_s, max_s: $max_s, durations: $durations, merge_cycles: $merge_cycles, min_cycles: $min_cycles, max_cycles: $max_cycles}, out: bursts}
-    - {node: reduce.members, in: {x: trace_cells, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: [burst_values, burst_values_ingredients]}
-    - {node: summarize, in: {x: burst_values}, with: {summaries: $burst_summaries, combine: each}, out: burst_stats}
-    - {node: summarize, in: {x: cells},        with: {summaries: [median, mad], combine: each}, out: cell_baseline}
+    - {node: measurement.reduce_members, in: {x: trace_cells, over: bursts}, with: {measures: [amplitude, envelope_max, duration, interval_next]}, out: [burst_values, burst_values_ingredients]}
+    - {node: measurement.summarize, in: {x: burst_values}, with: {summaries: $burst_summaries, combine: each}, out: burst_stats}
+    - {node: measurement.summarize, in: {x: cells},        with: {summaries: [median, mad], combine: each}, out: cell_baseline}
     # WHERE: the extents, regions of the cells standardised against their tile's baseline, within each burst
     - {node: select.events.regions, in: {x: cells, baseline: cell_baseline, events: bursts}, with: {enter_sd: $extent_enter_sd, exit_sd: $extent_exit_sd, min_area: $min_area}, out: extents}
-    - {node: reduce.members, in: {x: cells, over: extents}, with: {measures: [area, amplitude, envelope_max, first_cell, last_cell, duration, path_length, centre]}, out: [extent_values, extent_values_ingredients]}
-    - {node: summarize, in: {x: extent_values}, with: {summaries: $burst_summaries, combine: each}, out: extent_stats}
+    - {node: measurement.reduce_members, in: {x: cells, over: extents}, with: {measures: [area, amplitude, envelope_max, first_cell, last_cell, duration, path_length, centre]}, out: [extent_values, extent_values_ingredients]}
+    - {node: measurement.summarize, in: {x: extent_values}, with: {summaries: $burst_summaries, combine: each}, out: extent_stats}
 
 outputs:
   cells:            {kind: measurement, over: product, of: bursts_field}

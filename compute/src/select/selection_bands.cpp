@@ -53,6 +53,14 @@ Selection make(const std::vector<BandSpec>& bands, const std::string& unit, bool
 
 Selection bands_by_frequency(const std::vector<BandSpec>& bands, const std::string& unit) { return make(bands, unit, false); }
 
+const std::vector<BandSpec>& band_preset(const std::string& name) {
+  static const std::vector<BandSpec> brainstorm = {{"delta", 2, 4}, {"theta", 5, 7}, {"alpha", 8, 12}, {"beta", 15, 29}, {"gamma1", 30, 59}, {"gamma2", 60, 90}};
+  if (name == "brainstorm") return brainstorm;
+  throw std::invalid_argument("the band preset is 'brainstorm', not '" + name + "'");
+}
+
+Selection bands_preset(const std::string& name) { return bands_by_frequency(band_preset(name), "Hz"); }
+
 Selection bands_by_eigenvalue(const std::vector<BandSpec>& bands, const std::string& unit) {
   if (unit.empty()) throw std::invalid_argument("bands_by_eigenvalue: the eigenvalues' unit is needed (1/mm^2, 1/m^2)");
   return make(bands, unit, false);

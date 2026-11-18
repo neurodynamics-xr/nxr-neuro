@@ -64,13 +64,13 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
-      - {node: frames, in: {x: z, tiling: grid, within: bursts}, with: {band: $band, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
-      - {node: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
-      - {node: field.form, in: {x: j}, with: {form: power}, out: p}
-      - {node: relative, in: {x: p, baseline: baseline}, out: r}
-      - {node: at_level, in: {x: r}, with: {scale: $reference_scale}, out: r_ref}
-      - {node: scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
+      - {node: signal.analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
+      - {node: signal.frames, in: {x: z, tiling: grid, within: bursts}, with: {band: $band, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
+      - {node: meeg.apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
+      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}
+      - {node: measurement.relative, in: {x: p, baseline: baseline}, out: r}
+      - {node: select.at_level, in: {x: r}, with: {scale: $reference_scale}, out: r_ref}
+      - {node: select.scale, in: {x: p}, with: {transform: $transform, modes: $modes, order: $order, tolerance: $tolerance}, out: sc}
       - node: select.events.patches
         in:   {x: r_ref, scale: sc, bursts: bursts, exclude: bad, threshold: threshold}
         with: {threshold: $threshold, percentile: $percentile, ratio: $ratio, min_area: $min_area, block_frames: $block_frames, bad_segments: $bad_segments}

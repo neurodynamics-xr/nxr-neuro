@@ -1,5 +1,5 @@
 // nxr-pipelines — THE WELCH NODES (docs/specs/2026-11-17-definition-outputs.md, section 5): the spectra as pure nodes of nxr::graph::registry(), grouped names, each a thin
-// wrapper of the maths of compute/ (nxr::signal::spectral, nxr::rotary): the same function a test calls directly.
+// wrapper of the maths of compute/ (nxr::signal::spectral, nxr::signal::linearMap): the same function a test calls directly.
 //
 //   welch.psd          accumulate  x [channels x samples] (+ `exclude`: the recording's bad segments)  ->  psd [channels x bins], one-sided, described as a statistic
 //   signal.linear_map  chunk       x + a stored [2 x C] operator (its rows a_x, a_y)  ->  z = a_x.X + i a_y.X, one complex series (pointwise, a linear map)
@@ -25,8 +25,10 @@
 #include <cstdio>
 #include <limits>
 #include "nxr/meeg/sources.h"
-#include "nxr/meeg/tensor.h"
 #include "nxr/signal/linear_map.h"
+#include "nxr/pipelines/meeg.h"
+#include "nxr/core/congruence.h"
+#include "nxr/signal/polarisation.h"
 #include "nxr/signal/spectral.h"
 #include "nxr/signal/fourier.h"
 #include "nxr/select/grid.h"
@@ -515,7 +517,7 @@ ng::NodeSpec welch_source_band_power() {
     if (cw.segments == 0) no_segment(pr.r, s.samples, cw.segmentsSkipped);
     const std::size_t B = pr.bands.size();
     Eigen::MatrixXd maps = nxr::meeg::sourcePower(pr.K, std::vector<Eigen::MatrixXd>(cw.S.begin(), cw.S.begin() + static_cast<std::ptrdiff_t>(B)), pr.orientations, nxr::meeg::Orientation::Norm);
-    if (pr.relative) maps = nxr::meeg::relativePower(maps, nxr::meeg::sourcePower(pr.K, {cw.S.back()}, pr.orientations, nxr::meeg::Orientation::Norm).col(0));
+    if (pr.relative) maps = nxr::pipelines::relativeToTotal(maps, nxr::meeg::sourcePower(pr.K, {cw.S.back()}, pr.orientations, nxr::meeg::Orientation::Norm).col(0));
     const std::int64_t N = maps.rows();
     const double df = pr.r.wo.sfreq / static_cast<double>(pr.r.wo.segmentSamples);
     const bool density = pr.r.wo.scaling == nw::Scaling::Density;
@@ -720,7 +722,7 @@ ng::NodeSpec welch_source_tensor() {
                {"normal_power", "the power along the normal, sources x bands", false},
                {"normal_share", "the normal power over the trace, sources x bands", false}};
   n.parameters.erase(std::remove_if(n.parameters.begin(), n.parameters.end(), [](const auto& q) { return q.name == "normalisation"; }), n.parameters.end());
-  n.matches = "meeg nxr::meeg::sourceTensor, stokes, normalPower";
+  n.matches = "meeg nxr::core::sourceTensor, stokes, normalPower";
   n.description = "the band cross-spectral tensor of the current through a free-orientation kernel, its tangential Stokes parameters, its normal power and share";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed_real(in, "x", "meeg.source_tensor");
@@ -797,7 +799,7 @@ ng::NodeSpec welch_source_tensor() {
     T.data.resize(static_cast<std::size_t>(N * T.cols)); Q.data.resize(static_cast<std::size_t>(N * Q.cols)); P.data.resize(static_cast<std::size_t>(N) * B); H.data.resize(static_cast<std::size_t>(N) * B);
     Json entries = pr.bands;
     for (std::size_t b = 0; b < B; ++b) {
-      const nxr::meeg::SourceTensors t = nxr::meeg::sourceTensor(pr.K, cw.S[b], cw.Sq[b]);
+      const nxr::core::SourceTensors t = nxr::core::sourceTensor(pr.K, cw.S[b], cw.Sq[b]);
       entries[b]["spectral_scaling"] = welch_scaling_record(pr.r.wo, static_cast<double>(pr.groups[b].last - pr.groups[b].first + 1) * df, base);
       for (std::int64_t v = 0; v < N; ++v) {
         const std::size_t vb = static_cast<std::size_t>(v) * B + b;
@@ -805,9 +807,9 @@ ng::NodeSpec welch_source_tensor() {
         const bool ok = std::isfinite(tp.e1(v, 0)) && std::isfinite(tp.e2(v, 0));
         std::array<double, 3> e1{}, e2{}, nn{};
         for (int k = 0; k < 3; ++k) { e1[k] = tp.e1(v, k); e2[k] = tp.e2(v, k); nn[k] = tp.normal(v, k); }
-        const nxr::meeg::Stokes st = ok ? nxr::meeg::stokes(t.reOf(v), t.imOf(v), e1, e2) : nxr::meeg::Stokes{nan, nan, nan, nan};
+        const nxr::signal::Stokes st = ok ? nxr::signal::stokes(t.reOf(v), t.imOf(v), e1, e2) : nxr::signal::Stokes{nan, nan, nan, nan};
         Q.data[4 * vb] = st.s0; Q.data[4 * vb + 1] = st.s1; Q.data[4 * vb + 2] = st.s2; Q.data[4 * vb + 3] = st.s3;
-        const double np = nxr::meeg::normalPower(t.reOf(v), nn), tr = nxr::meeg::tracePower(t.reOf(v));
+        const double np = nxr::signal::normalPower(t.reOf(v), nn), tr = nxr::signal::tracePower(t.reOf(v));
         P.data[vb] = np;
         H.data[vb] = tr > 0 ? np / tr : nan;
       }

@@ -90,10 +90,10 @@ steps:
   chunks:
     over: field
     do:
-      - {node: reduce, in: {x: field, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: [values, ingredients]}
+      - {node: measurement.reduce, in: {x: field, over: over, exclude: bad, weights: weights}, with: {measures: $measures, weight: $weight, bad_segments: $bad_segments}, out: [values, ingredients]}
   after:
-    - {node: roll_up, in: {x: ingredients}, with: {to: $rolled_to}, out: [rolled, rolled_ingredients], when: $rolled_to}
-    - {node: summarize, in: {x: values}, with: {summaries: $summaries, combine: $combine}, out: statistics, when: $summaries}
+    - {node: measurement.roll_up, in: {x: ingredients}, with: {to: $rolled_to}, out: [rolled, rolled_ingredients], when: $rolled_to}
+    - {node: measurement.summarize, in: {x: values}, with: {summaries: $summaries, combine: $combine}, out: statistics, when: $summaries}
 
 outputs:
   values:     {kind: measurement, over: over, of: field, name: $name}
