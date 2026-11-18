@@ -285,7 +285,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
       c.values[name] = ot;
       made_by[name] = where;
     }
-    if (spec.kind != Kind::chunk && n.planned.halo != 0) fail("only a chunk node has a halo");
+    if (spec.kind != Kind::chunk && spec.kind != Kind::accumulate && n.planned.halo != 0) fail("only a chunk node or an accumulate node has a halo");   // an accumulate node's is to the right only (a segment family's n - 1)
     if (n.planned.halo < 0) fail("a negative halo");
     if (n.planned.align < 0) fail("a negative span grid");
     c.align = std::max(c.align, n.planned.align);
@@ -317,7 +317,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
   // 6. THE HALO, composed backwards over the chunk nodes
   std::map<std::string, std::vector<std::size_t>> readers;   // value -> the loop positions of the chunk nodes reading it
   for (std::size_t li = 0; li < c.loop.size(); ++li)
-    for (const auto& [_, name] : c.nodes[c.loop[li]].in) if (c.nodes[c.loop[li]].spec->kind == Kind::chunk) readers[name].push_back(li);
+    for (const auto& [_, name] : c.nodes[c.loop[li]].in) if (c.nodes[c.loop[li]].spec->kind == Kind::chunk || c.nodes[c.loop[li]].planned.halo > 0) readers[name].push_back(li);
   for (std::size_t li = c.loop.size(); li-- > 0;) {
     CheckedNode& n = c.nodes[c.loop[li]];
     std::int64_t keep = 0;
@@ -332,7 +332,7 @@ Checked check(const Graph& g, const Types& inputs, const Json& params, const Reg
     if (reads_input) c.halo = std::max(c.halo, n.planned.halo + n.keep);
   }
   // where the pointwise tail starts: after the last chunk node that needs a halo
-  for (std::size_t li = 0; li < c.loop.size(); ++li) if (c.nodes[c.loop[li]].spec->kind == Kind::chunk && c.nodes[c.loop[li]].planned.halo > 0) c.tail = li + 1;
+  for (std::size_t li = 0; li < c.loop.size(); ++li) if (c.nodes[c.loop[li]].planned.halo > 0) c.tail = li + 1;   // a chunk node's, or an accumulate node's right halo: they read the block with its halo
   // and after the last node that reads or makes a value of the block (a change of basis): those run on the whole block, never on sub-blocks of samples
   for (std::size_t li = 0; li < c.loop.size(); ++li) {
     const CheckedNode& n = c.nodes[c.loop[li]];

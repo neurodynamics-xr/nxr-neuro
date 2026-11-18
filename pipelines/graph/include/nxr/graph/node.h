@@ -60,7 +60,7 @@ struct PortSpec { std::string name, meaning; bool optional = false; };
 /** a parameter: its default (null: the caller must set it, unless `optional`), meaning and unit; the command line's help is made from these. `optional`: null is a value, "not given": the node decides what that means (a pipeline's optional bound) */
 struct ParamSpec { std::string name; Json def; std::string meaning, unit; std::vector<std::string> choices; bool optional = false; };
 
-/** what a node's plan gives back: the outputs' types (by output port name) and the halo it needs on each side (a chunk node; 0 otherwise) */
+/** what a node's plan gives back: the outputs' types (by output port name) and the halo it needs on each side (a chunk node), or to the RIGHT only (an accumulate node that forms segments longer than a block: a segment family's n - 1; the node reads own + right columns, `Place` says where the span ends); 0 otherwise */
 struct Planned {
   Types out;
   std::int64_t halo = 0;

@@ -164,7 +164,7 @@ follows them from the start, and no change may move existing code further from t
 - **No pipeline is a hand-wired C++ chain.** A new analysis is new nodes (pure functions, registered with their ports, parameters and traits) plus a
   definition. Never a `<x>_compute` function that finds its own inputs, loops and stores.
 - **A graph of pure functions is itself a pure function.** The graph executor (arrow and port checks, the halo composed from the nodes' traits, state
-  carried across chunks as (block, state) → (output, state)) is pure and io-free (`pipelines/graph/`). The runner only finds, streams and stores.
+  carried across chunks as (block, state) → (output, state)) is pure and io-free (`pipelines/graph/`). An accumulating node may declare a halo to the RIGHT (a segment family's n - 1 samples): the planner adds it to the loop's halo, the executor hands the block with it and the span's end (`Place`), and a segment belongs to the chunk that holds its start, so a Welch estimate carries no segment state between chunks. The runner only finds, streams and stores.
 - **A graph can be wrapped as a new node** (a composite, as TSL's `Fn` composes nodes), reusable in other graphs and by `compute`.
 - A missing derived input the pipeline needs (e.g. a surface's eigenmodes) is made by its own run first, with a message saying what was made and why;
   never stored silently inside another run.
