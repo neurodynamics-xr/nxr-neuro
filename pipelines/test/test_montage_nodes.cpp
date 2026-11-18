@@ -18,7 +18,7 @@ using nxr::io::Json;
 
 namespace {
 g::Arrays run(g::Bound& bound, const Json& with, const g::Arrays& ins) {
-  const g::StepSpec& node = g::step("eeg_montage_1005");
+  const g::StepSpec& node = g::step("meeg.eeg_montage_1005");
   Json p = node.parameters;
   for (auto it = with.begin(); it != with.end(); ++it) p[it.key()] = it.value();
   g::ExecContext ctx{bound, [](const Json&) {}, {}};
@@ -51,7 +51,7 @@ int main() {
   nxr::io::SubjectWriter sub = nxr::io::SubjectWriter::open(pkg, "S");
   g::Bound db(sub, &pkg);
 
-  const g::StepSpec& s = g::step("eeg_montage_1005");
+  const g::StepSpec& s = g::step("meeg.eeg_montage_1005");
   CHECK(s.traits.declared());
   CHECK(!s.inputs.empty() && !s.outputs.empty() && !s.description.empty() && !s.matches.empty());
   CHECK(s.run != nullptr && s.prepare != nullptr && s.plan != nullptr);

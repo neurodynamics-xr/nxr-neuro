@@ -51,13 +51,13 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
-      - {node: frames, in: {x: z, tiling: grid}, with: {band: $band, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
-      - {node: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
-      - {node: field.form, in: {x: j}, with: {form: power}, out: p}
-      - {node: relative, in: {x: p, baseline: baseline}, out: r}
-      - {node: at_level, in: {x: r}, with: {scale: $reference_scale}, out: r_ref}
-      - {node: estimate, in: {x: r_ref, exclude: bad, outside: bursts}, with: {method: histogram, bins: $bins, range_frames: $range_frames, block_frames: $block_frames, bad_segments: $bad_segments}, out: histogram}
+      - {node: signal.analytic, in: {x: recording}, with: {band: $band, shape: $shape}, out: z}
+      - {node: signal.frames, in: {x: z, tiling: grid}, with: {band: $band, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
+      - {node: meeg.apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued}, with: {spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: j}
+      - {node: signal.field_form, in: {x: j}, with: {form: power}, out: p}
+      - {node: measurement.relative, in: {x: p, baseline: baseline}, out: r}
+      - {node: select.at_level, in: {x: r}, with: {scale: $reference_scale}, out: r_ref}
+      - {node: measurement.estimate, in: {x: r_ref, exclude: bad, outside: bursts}, with: {method: histogram, bins: $bins, range_frames: $range_frames, block_frames: $block_frames, bad_segments: $bad_segments}, out: histogram}
 
 outputs:
   histogram: {kind: statistic}

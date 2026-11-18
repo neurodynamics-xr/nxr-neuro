@@ -39,7 +39,7 @@ Array picks(const std::vector<std::int32_t>& x, const std::string& description) 
 struct FramesState { FramesComputeOptions o; };
 StepSpec frames_step() {
   StepSpec s;
-  s.name = "surface_frames";
+  s.name = "geometry.surface_frames";
   s.kind = "setup";
   s.inputs = {"surface"};
   s.outputs = {"canonical", "singular", "gauge_angle", "angle", "second", "handed", "reliable"};

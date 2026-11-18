@@ -37,7 +37,7 @@ g::NodeTraits pointwise() { return g::node_traits(g::TimeBehaviour::pointwise, g
 // three toys carrying the built-in signatures of `analytic`, `field.form` (power) and `apply_kernel` (the signature is the type rule; the node only computes)
 g::Registry toys() {
   g::Registry r;
-  g::NodeSpec a; a.name = "analytic"; a.kind = g::Kind::chunk; a.traits = pointwise(); a.inputs = {{"x", ""}, {"bands", "", true}, {"channels_of", "", true}}; a.outputs = {{"y", ""}};
+  g::NodeSpec a; a.name = "signal.analytic"; a.kind = g::Kind::chunk; a.traits = pointwise(); a.inputs = {{"x", ""}, {"bands", "", true}, {"channels_of", "", true}}; a.outputs = {{"y", ""}};
   a.parameters = {{"band", Json(), "", "Hz", {}, true}};
   a.chunk = [](const std::any&, const g::Blocks& in, std::int64_t keep, const g::Place&) {
     const g::Block& x = in.at("x"); g::Block y = shaped(x, keep, x.rows, true);
@@ -45,14 +45,14 @@ g::Registry toys() {
     return g::Blocks{{"y", y}};
   };
   r.add(a);
-  g::NodeSpec p; p.name = "field.form"; p.parameters = {{"form", Json("power"), "", "", {}, false}}; p.kind = g::Kind::chunk; p.traits = pointwise(); p.inputs = {{"x", ""}}; p.outputs = {{"y", ""}};
+  g::NodeSpec p; p.name = "signal.field_form"; p.parameters = {{"form", Json("power"), "", "", {}, false}}; p.kind = g::Kind::chunk; p.traits = pointwise(); p.inputs = {{"x", ""}}; p.outputs = {{"y", ""}};
   p.chunk = [](const std::any&, const g::Blocks& in, std::int64_t keep, const g::Place&) {
     const g::Block& x = in.at("x"); g::Block y = shaped(x, keep, x.rows);
     for (std::int64_t i = 0; i < y.rows * y.width; ++i) { const float a = x.re[static_cast<std::size_t>(i)], b = x.im[static_cast<std::size_t>(i)]; y.re[static_cast<std::size_t>(i)] = a * a + b * b; }
     return g::Blocks{{"y", y}};
   };
   r.add(p);
-  g::NodeSpec k; k.name = "apply_kernel"; k.kind = g::Kind::chunk; k.traits = pointwise(); k.linear_map = true;
+  g::NodeSpec k; k.name = "meeg.apply_kernel"; k.kind = g::Kind::chunk; k.traits = pointwise(); k.linear_map = true;
   k.inputs = {{"x", ""}, {"kernel", ""}, {"tiles", "", true}, {"pre_operator", "", true}, {"glued", "", true}}; k.outputs = {{"y", ""}};
   k.prepare = [](const g::Types&, const g::Arrays& c, const Json&, g::Shared&) { return std::any(c.at("kernel")); };
   k.chunk = [](const std::any& prepared, const g::Blocks& in, std::int64_t keep, const g::Place&) {
@@ -88,7 +88,7 @@ g::ComputeInput kernel_in(std::int64_t rows, std::int64_t cols, const std::strin
 void test_labels() {
   const g::Registry reg = toys();
   // arrays that share a label lie on one manifold: the kernel reads x's channels, and the output is on the kernel's target, a time line the same as x's
-  auto out = g::compute_node("apply_kernel", {{"x", field_in(4, 20, {"sensors", "time"})}, {"kernel", kernel_in(3, 4, "sensors", "cortex")}}, Json::object(), reg);
+  auto out = g::compute_node("meeg.apply_kernel", {{"x", field_in(4, 20, {"sensors", "time"})}, {"kernel", kernel_in(3, 4, "sensors", "cortex")}}, Json::object(), reg);
   CHECK(out.arrays.at("y").rows == 3 && out.arrays.at("y").cols == 20);
   const std::string printed = g::print(out.types.at("y"));
   CHECK(printed.find("field<") == 0 && printed.find("#") != std::string::npos);
@@ -96,30 +96,30 @@ void test_labels() {
   double want = 0; for (int c = 0; c < 4; ++c) want += (0.5 + (c % 5)) * (1.0 + ((c * 20) % 5));
   CHECK(std::fabs(out.arrays.at("y").data[0] - want) < 1e-4);
   // unlabelled: the kernel's columns are not x's rows (two anonymous manifolds): refused before any data, naming the port and both types
-  CHECK(refused([&] { g::compute_node("apply_kernel", {{"x", field_in(4, 20, {})}, {"kernel", kernel_in(3, 4, "", "")}}, Json::object(), reg); }, {"port `kernel`", "#"}));
+  CHECK(refused([&] { g::compute_node("meeg.apply_kernel", {{"x", field_in(4, 20, {})}, {"kernel", kernel_in(3, 4, "", "")}}, Json::object(), reg); }, {"port `kernel`", "#"}));
   // a label met at two sizes: refused naming it
-  CHECK(refused([&] { g::compute_node("apply_kernel", {{"x", field_in(4, 20, {"sensors", "time"})}, {"kernel", kernel_in(3, 5, "sensors", "cortex")}}, Json::object(), reg); },
+  CHECK(refused([&] { g::compute_node("meeg.apply_kernel", {{"x", field_in(4, 20, {"sensors", "time"})}, {"kernel", kernel_in(3, 5, "sensors", "cortex")}}, Json::object(), reg); },
                 {"label 'sensors'", "4 elements", "5"}));
   // a node that is not a node, an input that is not a port, a port not given
   CHECK(refused([&] { g::compute_node("nothing.here", {{"x", field_in(4, 20, {})}}, Json::object(), reg); }, {"nothing.here"}));
-  CHECK(refused([&] { g::compute_node("field.form", {{"z", field_in(4, 20, {})}}, Json{{"form", "power"}}, reg); }, {"no input port 'z'"}));
-  CHECK(refused([&] { g::compute_node("apply_kernel", {{"x", field_in(4, 20, {})}}, Json::object(), reg); }, {"required input port 'kernel'"}));
+  CHECK(refused([&] { g::compute_node("signal.field_form", {{"z", field_in(4, 20, {})}}, Json{{"form", "power"}}, reg); }, {"no input port 'z'"}));
+  CHECK(refused([&] { g::compute_node("meeg.apply_kernel", {{"x", field_in(4, 20, {})}}, Json::object(), reg); }, {"required input port 'kernel'"}));
 }
 
 void test_chain() {
   const g::Registry reg = toys();
   // a chain without labels: analytic -> power, both the variable M: no label needed
   const g::Graph chain = g::graph_from_json(Json::parse(R"({"name":"chain","inputs":["x"],"outputs":["p"],
-      "chunks":[{"node":"analytic","in":{"x":"x"},"out":"z"},{"node":"field.form","with":{"form":"power"},"in":{"x":"z"},"out":"p"}]})"));
+      "chunks":[{"node":"signal.analytic","in":{"x":"x"},"out":"z"},{"node":"signal.field_form","with":{"form":"power"},"in":{"x":"z"},"out":"p"}]})"));
   auto r = g::compute(chain, {{"x", field_in(2, 16, {})}}, Json::object(), reg);
   CHECK(r.arrays.at("p").rows == 2 && std::fabs(r.arrays.at("p").data[0] - 5.0) < 1e-5);     // x = 1: |1 + 2i|^2
   CHECK(g::print(r.types.at("p")).find("power") != std::string::npos);
   // the real map before the analytic signal is refused: power of a real field
-  const g::Graph bad = g::graph_from_json(Json::parse(R"({"name":"bad","inputs":["x"],"outputs":["p"],"chunks":[{"node":"field.form","with":{"form":"power"},"in":{"x":"x"},"out":"p"}]})"));
-  CHECK(refused([&] { g::compute(bad, {{"x", field_in(2, 16, {})}}, Json::object(), reg); }, {"chunks[0] field.form", "port `x`", "is real", "analytic"}));
+  const g::Graph bad = g::graph_from_json(Json::parse(R"({"name":"bad","inputs":["x"],"outputs":["p"],"chunks":[{"node":"signal.field_form","with":{"form":"power"},"in":{"x":"x"},"out":"p"}]})"));
+  CHECK(refused([&] { g::compute(bad, {{"x", field_in(2, 16, {})}}, Json::object(), reg); }, {"chunks[0] signal.field_form", "port `x`", "is real", "analytic"}));
   // D106 from arrays: a linear map after a non-linear node
   const g::Graph d106 = g::graph_from_json(Json::parse(R"({"name":"d106","inputs":["x","K"],"outputs":["y"],
-      "chunks":[{"node":"analytic","in":{"x":"x"},"out":"z"},{"node":"field.form","with":{"form":"power"},"in":{"x":"z"},"out":"p"},{"node":"apply_kernel","in":{"x":"p","kernel":"K"},"out":"y"}]})"));
+      "chunks":[{"node":"signal.analytic","in":{"x":"x"},"out":"z"},{"node":"signal.field_form","with":{"form":"power"},"in":{"x":"z"},"out":"p"},{"node":"meeg.apply_kernel","in":{"x":"p","kernel":"K"},"out":"y"}]})"));
   CHECK(refused([&] { g::compute(d106, {{"x", field_in(4, 16, {"sensors", "time"})}, {"K", kernel_in(3, 4, "sensors", "cortex")}}, Json::object(), reg); }, {"apply_kernel", "non-linear", "D106"}));
   // the same chain checks without running when only the check is asked for
   const g::Checked ck = g::check_arrays(chain, {{"x", field_in(2, 16, {})}}, Json::object(), reg);
@@ -152,8 +152,8 @@ void test_partition_gauge_sidecar() {
 
   // the sidecar: printed types, read back; two files' `#1` are never one manifold
   const g::Registry reg = toys();
-  auto a = g::compute_node("analytic", {{"x", field_in(4, 20, {"sensors", "time"})}}, Json::object(), reg);
-  auto b = g::compute_node("analytic", {{"x", field_in(4, 20, {"sensors", "time"})}}, Json::object(), reg);
+  auto a = g::compute_node("signal.analytic", {{"x", field_in(4, 20, {"sensors", "time"})}}, Json::object(), reg);
+  auto b = g::compute_node("signal.analytic", {{"x", field_in(4, 20, {"sensors", "time"})}}, Json::object(), reg);
   CHECK(a.sidecar["types"].contains("y") && a.sidecar["nxr_types"] == 1);
   g::PortType ta = g::type_from_sidecar(a.sidecar, "y");
   g::PortType ta2 = g::type_from_sidecar(a.sidecar, "y");
@@ -162,7 +162,7 @@ void test_partition_gauge_sidecar() {
   CHECK(!g::same(ta.domain, g::type_from_sidecar(other, "y").domain));
   // an array read back with its type runs through the checker as typed: power accepts it, the labels are not asked for
   g::ComputeInput back; back.array = a.arrays.at("y"); back.type = ta;
-  auto p = g::compute_node("field.form", {{"x", back}}, Json{{"form", "power"}}, reg);
+  auto p = g::compute_node("signal.field_form", {{"x", back}}, Json{{"form", "power"}}, reg);
   CHECK(p.arrays.at("y").rows == 4);
   CHECK(refused([&] { g::type_from_sidecar(a.sidecar, "nope"); }, {"no type for 'nope'"}));
 }

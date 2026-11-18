@@ -36,7 +36,7 @@ const std::vector<std::string> kWarnings = {
 
 void add_montage_steps(std::vector<StepSpec>& r) {
   StepSpec s;
-  s.name = "eeg_montage_1005";
+  s.name = "meeg.eeg_montage_1005";
   s.kind = "setup";
   s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "no time axis: runs once on arrays; the arcs are computed in double and the positions given back in the scalp's precision");
   s.inputs = {"scalp_vertices", "scalp_faces", "landmarks"};
@@ -50,7 +50,7 @@ void add_montage_steps(std::vector<StepSpec>& r) {
   s.plan = [](const Values& ins, const Json&, const PlanContext&) {
     for (const char* p : {"scalp_vertices", "scalp_faces", "landmarks"}) need(ins.count(p) != 0, std::string("eeg_montage_1005: the input `") + p + "` is missing");
     Values out;
-    out["positions"] = array_value(Json{{"node", "eeg_montage_1005"}, {"port", "positions"}});
+    out["positions"] = array_value(Json{{"node", "meeg.eeg_montage_1005"}, {"port", "positions"}});
     return out;
   };
   s.prepare = [](const Values&, const Json& p, ExecContext&) {

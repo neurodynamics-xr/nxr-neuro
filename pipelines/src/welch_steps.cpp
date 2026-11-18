@@ -26,7 +26,8 @@
 #include <limits>
 #include "nxr/meeg/sources.h"
 #include "nxr/pipelines/meeg.h"
-#include "nxr/meeg/tensor.h"
+#include "nxr/core/congruence.h"
+#include "nxr/signal/polarisation.h"
 #include "nxr/rotary.h"
 #include "nxr/signal/spectral.h"
 #include "nxr/signal/fourier.h"
@@ -719,7 +720,7 @@ ng::NodeSpec welch_source_tensor() {
                {"normal_power", "the power along the normal, sources x bands", false},
                {"normal_share", "the normal power over the trace, sources x bands", false}};
   n.parameters.erase(std::remove_if(n.parameters.begin(), n.parameters.end(), [](const auto& q) { return q.name == "normalisation"; }), n.parameters.end());
-  n.matches = "meeg nxr::meeg::sourceTensor, stokes, normalPower";
+  n.matches = "meeg nxr::core::sourceTensor, stokes, normalPower";
   n.description = "the band cross-spectral tensor of the current through a free-orientation kernel, its tangential Stokes parameters, its normal power and share";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed_real(in, "x", "meeg.source_tensor");
@@ -796,7 +797,7 @@ ng::NodeSpec welch_source_tensor() {
     T.data.resize(static_cast<std::size_t>(N * T.cols)); Q.data.resize(static_cast<std::size_t>(N * Q.cols)); P.data.resize(static_cast<std::size_t>(N) * B); H.data.resize(static_cast<std::size_t>(N) * B);
     Json entries = pr.bands;
     for (std::size_t b = 0; b < B; ++b) {
-      const nxr::meeg::SourceTensors t = nxr::meeg::sourceTensor(pr.K, cw.S[b], cw.Sq[b]);
+      const nxr::core::SourceTensors t = nxr::core::sourceTensor(pr.K, cw.S[b], cw.Sq[b]);
       entries[b]["spectral_scaling"] = welch_scaling_record(pr.r.wo, static_cast<double>(pr.groups[b].last - pr.groups[b].first + 1) * df, base);
       for (std::int64_t v = 0; v < N; ++v) {
         const std::size_t vb = static_cast<std::size_t>(v) * B + b;
@@ -804,9 +805,9 @@ ng::NodeSpec welch_source_tensor() {
         const bool ok = std::isfinite(tp.e1(v, 0)) && std::isfinite(tp.e2(v, 0));
         std::array<double, 3> e1{}, e2{}, nn{};
         for (int k = 0; k < 3; ++k) { e1[k] = tp.e1(v, k); e2[k] = tp.e2(v, k); nn[k] = tp.normal(v, k); }
-        const nxr::meeg::Stokes st = ok ? nxr::meeg::stokes(t.reOf(v), t.imOf(v), e1, e2) : nxr::meeg::Stokes{nan, nan, nan, nan};
+        const nxr::signal::Stokes st = ok ? nxr::signal::stokes(t.reOf(v), t.imOf(v), e1, e2) : nxr::signal::Stokes{nan, nan, nan, nan};
         Q.data[4 * vb] = st.s0; Q.data[4 * vb + 1] = st.s1; Q.data[4 * vb + 2] = st.s2; Q.data[4 * vb + 3] = st.s3;
-        const double np = nxr::meeg::normalPower(t.reOf(v), nn), tr = nxr::meeg::tracePower(t.reOf(v));
+        const double np = nxr::signal::normalPower(t.reOf(v), nn), tr = nxr::signal::tracePower(t.reOf(v));
         P.data[vb] = np;
         H.data[vb] = tr > 0 ? np / tr : nan;
       }

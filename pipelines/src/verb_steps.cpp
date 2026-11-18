@@ -64,7 +64,7 @@ Value statistic_value() { Value v; v.cls = "statistic"; return v; }
 struct SpreadState { Value forward, kernel; Json p; };
 StepSpec pointspread_step() {
   StepSpec s;
-  s.name = "pointspread";
+  s.name = "meeg.pointspread";
   s.kind = "setup";
   s.inputs = {"forward", "kernel"};
   s.outputs = {"spread"};

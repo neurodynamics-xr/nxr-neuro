@@ -23,7 +23,7 @@ parameters:
 
 steps:
   before:
-    - {step: surface_frames, in: {surface: surface}, with: {template: $template, template_surface: $template_surface, convention: $convention, side: $side, min_projection: $min_projection, max_condition: $max_condition}, out: [canonical, singular, gauge_angle, angle, second, handed, reliable]}
+    - {step: geometry.surface_frames, in: {surface: surface}, with: {template: $template, template_surface: $template_surface, convention: $convention, side: $side, min_projection: $min_projection, max_condition: $max_condition}, out: [canonical, singular, gauge_angle, angle, second, handed, reliable]}
 
 outputs:
   canonical:   {kind: field, kind_name: canonical frames, name: "{surface}_canonical_frames", on: surface.manifold.0, optional: true}

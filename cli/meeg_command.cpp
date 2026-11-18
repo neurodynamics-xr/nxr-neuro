@@ -59,7 +59,7 @@
 //     --resolve bins (spec docs/specs/2026-11-15-band-resolved-cross-spectrum.md; Welch only): the same pass also stores, per band, the STATISTIC `<stem>_<band>_bins`, the band's
 //     cross-spectrum bin by bin (axes channel x channel x frequency in Hz, float64 [M x M x F x 2]); the band statistic is the mean of its bins. Default band: as before.
 //   nxr-neuro crossspectrum read --dataset D/N --subject S --name <stem>_<band>_bins (--pair A,B | --seed A) [--reading coherency|imag|phase|delay|psi] [--weights coherence|none]
-//     Derived at read from the stored bins (nxr::meeg::coherency, phaseSlope, phase_slope_index), JSON out. A, B are recording channel indices of the statistic's channels. --pair: one
+//     Derived at read from the stored bins (nxr::signal::coherency, phaseSlope, phase_slope_index), JSON out. A, B are recording channel indices of the statistic's channels. --pair: one
 //     pair (row A, column B); --seed: A against every channel. coherency (default): the coherency per bin (re, im, abs); imag: its imaginary part; phase: arg C_AB per bin (wrapped and
 //     unwrapped, rad); delay: the phase slope over f as a delay in ms and its residual; psi: Nolte's phase-slope index. Positive delay and psi: the row channel (A) leads.
 //
@@ -89,7 +89,7 @@
 #include <sstream>
 
 #include "cli.h"
-#include "nxr/meeg/crossspectrum.h"
+#include "nxr/signal/crossspectral.h"
 #include "nxr/pipelines/meeg.h"
 #include "nxr/pipelines/frames.h"
 
@@ -205,18 +205,18 @@ int crossspectrum_read_main(const std::vector<std::string>& rest) {   // dispatc
     for (std::size_t i = 0; i < rows.size(); ++i) chans.push_back(Json::array({S.channels[static_cast<std::size_t>(rows[i])], S.channels[static_cast<std::size_t>(cols[i])]}));
     out["pairs"] = chans;
     if (reading == "delay") {
-      nxr::meeg::PhaseSlopeOptions po;
-      po.weights = weights == "none" ? nxr::meeg::PhaseSlopeOptions::Weights::None : nxr::meeg::PhaseSlopeOptions::Weights::Coherence;
-      const nxr::meeg::PhaseSlope ps = nxr::meeg::phaseSlope(S.C, f, po);
+      nxr::signal::PhaseSlopeOptions po;
+      po.weights = weights == "none" ? nxr::signal::PhaseSlopeOptions::Weights::None : nxr::signal::PhaseSlopeOptions::Weights::Coherence;
+      const nxr::signal::PhaseSlope ps = nxr::signal::phaseSlope(S.C, f, po);
       Json res = Json::array();
       for (std::size_t i = 0; i < rows.size(); ++i) { vals.push_back(ps.delayMs(rows[i], cols[i])); res.push_back(ps.residual(rows[i], cols[i])); }
       out["delay_ms"] = vals; out["residual_rad"] = res; out["weights"] = weights;
     } else if (reading == "psi") {
-      const Eigen::MatrixXd psi = nxr::meeg::phase_slope_index(S.C);
+      const Eigen::MatrixXd psi = nxr::signal::phase_slope_index(S.C);
       for (std::size_t i = 0; i < rows.size(); ++i) vals.push_back(psi(rows[i], cols[i]));
       out["psi"] = vals;
     } else {
-      const auto H = nxr::meeg::coherency(S.C);
+      const auto H = nxr::signal::coherency(S.C);
       for (std::size_t i = 0; i < rows.size(); ++i) {
         Json re = Json::array(), im = Json::array(), ab = Json::array(), ph = Json::array(), un = Json::array();
         double last = 0;

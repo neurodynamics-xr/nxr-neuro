@@ -78,9 +78,9 @@ steps:
         in:   {x: recording, psd: psd, psd_channel_mean: psd_channel_mean, cross_spectrum: cross_spectrum, power_series: power_series}
         with: {band: $band, shape: $shape, taps_half: $taps_half, seed: $seed}
         out:  y
-      - {node: analytic, in: {x: y}, with: {band: $band, shape: $shape}, out: z}
-      - {node: frames, in: {x: z, tiling: grid, within: bursts}, with: {band: $band, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
-      - {node: apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued, pre_operator: mixing}, with: {spatial_scale: $spatial_scale, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, form: curl_tan}, out: curl_frames}
+      - {node: signal.analytic, in: {x: y}, with: {band: $band, shape: $shape}, out: z}
+      - {node: signal.frames, in: {x: z, tiling: grid, within: bursts}, with: {band: $band, frames_per_cycle: $frames_per_cycle, frames_per_tile: $frames_per_tile, origin: $origin}, out: z_frames}
+      - {node: meeg.apply_kernel, in: {x: z_frames, kernel: kernel, tiles: tiles, glued: glued, pre_operator: mixing}, with: {spatial_scale: $spatial_scale, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, form: curl_tan}, out: curl_frames}
       - node: select.events.cores
         in:   {x: curl_frames, threshold: threshold, exclude: bad}
         with: {percentile: $percentile, block_frames: $block_frames, bad_segments: $bad_segments}
@@ -90,7 +90,7 @@ steps:
       in:   {events: cores, frame: frame, sense: sense, centre: centre}
       with: {link_mm: $link_mm, min_frames: $min_frames}
       out:  [tracks, track_first_frame, track_last_frame, track_n_frames, track_path_length, track_displacement, track_sense, core_track]
-    - node: tile_crossings
+    - node: select.tile_crossings
       in:   {events: cores, frame: frame, sense: sense, centre: centre, track: core_track, tiles: tiles, onset: onset, within: within, offset: offset}
       with: {spatial_scale: $spatial_scale, stages: $stages, as: statistic}
       out:  null_crossings

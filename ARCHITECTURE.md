@@ -42,7 +42,7 @@ composable.
 - **Names say what a function computes** (`phaseCurrent`, `power`, `phaseGradient`), never how the code is organised (`sums`, `readout`).
 - **One measurement system, no competing definitions** (`docs/specs/2026-11-17-consolidation.md`). Every selection is made by one of five maker nodes
   (`select.dyadic_surface`, `select.time_grid`, `select.bands`, `select.product`, `select.events.*`); every reduction is one of four operations, each with ONE
-  implementation (`nxr::measurement`: `reduce`, `roll_up`, `summarize`, `estimate`); values over members live in one table (`selection_measurement`; `statistic`
+  implementation (`nxr::measurement`: `reduce`, `measurement.roll_up`, `summarize`, `estimate`); values over members live in one table (`selection_measurement`; `statistic`
   holds statistics, never a member axis); every measuring pipeline is the one `measure` definition fed by a field chain, its presets only named parameter sets.
   A retired name is refused with the name of what replaces it, never kept as an alias. Every selection parameter is a quantity with a unit in a named chart (a band
   in Hz, a tile in mm, a duration in s), never a bare level index; levels are resolved from quantities in closed form and recorded with the snapped quantity.

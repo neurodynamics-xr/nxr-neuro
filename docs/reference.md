@@ -726,7 +726,7 @@ from lo to hi inclusive).
   median normal share of 0.35, an anisotropy of 0.57 and a circularity of 3 % per vertex in alpha).
 - `run crossspectrum` (named `csd compute` until 2026-11-13; renamed so it is not read as current source density): the sensor cross-spectral density per band, **stored**: the root every quantity above is read from. **Why:** the source cross-spectrum
   between every pair of sources (3N × 3N complex, ~16 GB a band for 15k sources) is K C Kᵀ, so it holds nothing beyond the band's sensor cross-spectrum C
-  (M × M, ~0.7 MB) and the kernel. Stored, any block between two places is read on demand, T_ij = K_i C K_jᵀ (`nxr::meeg::crossTensor`; T_ii is
+  (M × M, ~0.7 MB) and the kernel. Stored, any block between two places is read on demand, T_ij = K_i C K_jᵀ (`nxr::core::crossTensor`; T_ii is
   `sourcetensor`'s), and so is a region-to-region block, (Σ_A K_i) C (Σ_B K_j)ᵀ, without forming the full matrix. C does not depend on a kernel: one C
   serves every kernel whose channels it covers. Welch as `sourcepsd` (the same options, the mean over the band's bins, the quadrature part kept),
   C_ab = ⟨X_a conj(X_b)⟩. Stored as a STATISTIC per band (2026-11-13, `docs/specs/2026-11-13-statistics.md`): `<stem>_<band>` (stem default
@@ -760,7 +760,7 @@ from lo to hi inclusive).
   `--resolve band` is the default, its output and cache key are those of before. With `bins` the run ALSO stores, per band, the STATISTIC `<stem>_<band>_bins` (measure `cross_spectral_density`, method `welch`, OF the
   recording, from `<stem>_segments`), axes channel × channel × frequency (the bins' centres in Hz and `bins: [first, last]`, the PSD's frequency line), complex float64 [M × M × F × 2], Hermitian in the
   first two axes at every bin; `resolve: bins` and every Welch option are in its options, its producer and the cache key. The band statistic is the mean of its bins (tested to 1e-13, and equal to a
-  `--resolve band` run's). Size: M² · F · 16 bytes a band (alpha at 4 s, 268 channels: ~20 MB). Read: `crossspectrum_bins_read` (io only), then the pure functions of `meeg/include/nxr/meeg/crossspectrum.h`:
+  `--resolve band` run's). Size: M² · F · 16 bytes a band (alpha at 4 s, 268 channels: ~20 MB). Read: `crossspectrum_bins_read` (io only), then the pure functions of `meeg/include/nxr/signal/crossspectral.h`:
   `coherency` (C_ab / √(C_aa C_bb) per bin), `phaseSlope` (weighted least squares of the phase, unwrapped by adjacent bins, on f: a delay τ = (1/2π) dφ/df in ms and the fit's rms residual; `weights`
   `coherence` (|coherency|²) or `none`) and `phase_slope_index` (Nolte et al. 2008, PRL 100, 234101: Ψ = Im Σ conj(𝒞(f)) 𝒞(f + δf), written from the paper; not normalised by its jackknife standard
   deviation, which needs the segments' C). Sign: arg C_ab > 0 when a LEADS b, so τ > 0 and Ψ > 0 when the row channel leads the column channel (if a leads b by d, C_ab = |X_a|² e^{+i2πfd}, so τ = +d). `nxr-neuro crossspectrum read --name <stem>_<band>_bins
@@ -774,7 +774,7 @@ from lo to hi inclusive).
   (`nxr.detect.core_phase`, `PhaseReader.read_out`: ∇φ = Im(z̄ ∇z)/|z|², no unwrapping; velocity u = −ω ∇φ/|∇φ|²) in its spectral form, read from a
   stored band cross-spectrum (`--cross-spectrum`, the first reader of `run crossspectrum`) through a free kernel and the mesh's P1 gradient (the area-weighted mean of the
   face gradients, projected on the tangent plane): with z_v = a_v X the signal at v and g_v its tangent gradient, the sums P = ⟨|z|²⟩ = a S aᵀ,
-  H = Im⟨z̄ g⟩ = B Sq aᵀ and Q = ⟨|g|²⟩ = tr(B S Bᵀ) (`nxr/meeg/wave.h`) are power-weighted over the band's segments and bins and add over regions. The
+  H = Im⟨z̄ g⟩ = B Sq aᵀ and Q = ⟨|g|²⟩ = tr(B S Bᵀ) (`nxr/signal/phase_gradient.h`) are power-weighted over the band's segments and bins and add over regions. The
   signal is the full current as the inverse gives it, the x y z components summed (`--signal ambient`, default) or `--signal normal`, the normal current n·J.
   **Stored as measurements over the dyadic tile grid** (spec `docs/specs/2026-11-14-measurement-pyramid.md`: a reduction over space is a measurement over a partition, never a
   per-vertex ratio; the earlier per-vertex Fields broke the cardinal rule and are no longer written; those already in a dataset are untouched):

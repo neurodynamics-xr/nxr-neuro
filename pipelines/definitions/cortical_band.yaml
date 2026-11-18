@@ -52,8 +52,8 @@ steps:
   chunks:
     over: recording
     do:
-      - {node: apply_kernel, in: {x: z, kernel: kernel, tiles: grid, glued: glued}, with: {spatial_scale: $spatial_scale, spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, envelope: $envelope, form: $form}, out: sources}
-      - {node: frames, in: {x: sources, tiling: frames}, out: framed, when: $frame_grid}
+      - {node: meeg.apply_kernel, in: {x: z, kernel: kernel, tiles: grid, glued: glued}, with: {spatial_scale: $spatial_scale, spatial_scales: $spatial_scales, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape, envelope: $envelope, form: $form}, out: sources}
+      - {node: signal.frames, in: {x: sources, tiling: frames}, out: framed, when: $frame_grid}
 
 outputs:
   sources: {kind: field, kind_name: source estimate, name: "{recording} x {kernel} bands", on: kernel.to, derived_from: recording, by_operator: kernel}

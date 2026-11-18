@@ -234,7 +234,7 @@ std::vector<std::int32_t> channels_for(const Values& ins, ExecContext& c) {
 struct BandAnalytic { std::vector<std::int32_t> channels; double sfreq = 0; nxr::pyramid::Shape shape = nxr::pyramid::Shape::Morlet; nxr::pyramid::Bands bank; std::int64_t halo = 0; };
 std::vector<StepSpec> build() {
   std::vector<StepSpec> r;
-  r.push_back({"band_filter", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}},
+  r.push_back({"signal.band_filter", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}},
                "Studio engine/gpu/deviceChain.ts gainTaps · convolveRows (a wavelet band of the Signal chain: toolbox/wavelets/dyadicFrame.ts meyerBand; `shape` morlet, the default: kernels.ts morlet, nxr vortex.morlet_gain); nxr.filters.taps; compute nxr::signal",
                "a field on … × time filtered to a band, zero phase: the band's gain taken to taps once, each chunk convolved with them over its halo",
                [](const Values& ins, const Json& p, const PlanContext&) {
@@ -246,7 +246,7 @@ std::vector<StepSpec> build() {
                  y.facts["band"] = p["band"];
                  return Values{{"y", y}};
                }});
-  r.push_back({"analytic", "chunk", {"x", "bands", "channels_of"}, {"bands", "channels_of"}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"halo_seconds", 8.0}},
+  r.push_back({"signal.analytic", "chunk", {"x", "bands", "channels_of"}, {"bands", "channels_of"}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}, {"halo_seconds", 8.0}},
                "Studio engine/gpu/deviceChain.ts THE ANALYTIC SIGNAL (the band's even taps and its odd taps, hilbertImag, on the same raw rows); compute nxr::signal (gainTaps, convolveRows)",
                "the analytic signal of a band of a real field on … × time (the Signal chain's filter with the transform 'complex'): the band's even taps give the real part, "
                "its odd (Hilbert) taps the imaginary, on the same raw rows; band null: the plain Hilbert, cut at 1024 taps (its lowest frequencies lose their quadrature)",
@@ -277,7 +277,7 @@ std::vector<StepSpec> build() {
                  y.facts["band_shape"] = p["shape"];
                  return Values{{"y", y}};
                }});
-  r.push_back({"envelope", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}}, "Studio engine/gpu/deviceChain.ts THE ENVELOPE (√(re² + im²) of the even and the odd pass)",
+  r.push_back({"signal.envelope", "chunk", {"x"}, {}, {"y"}, Json{{"band", nullptr}, {"shape", "morlet"}, {"half_width", 1.0 / 3.0}}, "Studio engine/gpu/deviceChain.ts THE ENVELOPE (√(re² + im²) of the even and the odd pass)",
                "the envelope of a band of a real field on … × time, |analytic| (non-linear: no linear map may follow it, D106)",
                [](const Values& ins, const Json& p, const PlanContext&) {
                  const Value& x = ins.at("x");
@@ -290,7 +290,7 @@ std::vector<StepSpec> build() {
                  if (!p["band"].is_null()) y.facts["band"] = p["band"];
                  return Values{{"y", y}};
                }});
-  r.push_back({"frames", "chunk", {"x", "tiling", "within"}, {"within"}, {"y"}, Json{{"half_width", 32}, {"band", nullptr}, {"frames_per_cycle", nullptr}, {"frames_per_tile", nullptr}, {"origin", nullptr}},
+  r.push_back({"signal.frames", "chunk", {"x", "tiling", "within"}, {"within"}, {"y"}, Json{{"half_width", 32}, {"band", nullptr}, {"frames_per_cycle", nullptr}, {"frames_per_tile", nullptr}, {"origin", nullptr}},
                "nxr vortex.band_at_frames (the band's signal at the frames, by FFT resampling: exact for a band-limited signal); here its local form, a Kaiser-windowed sinc (nxr::signal), at the START of each tower frame (nxr::tower)",
                "a field sampled on the FRAME TILING (a closed-form spans Selection of TOWER frames, `run frametiling`: the cycles of one tower level, D135, each a dyadic tile; a frame's time is its tile's start). A linear step: the band's signal x, real or complex "
                "(the analytic signal), is interpolated at each frame's (non-integer) sample position by a Kaiser-windowed sinc of `half_width` samples either side (the step's halo), exact for a signal band-limited well inside the Nyquist band. "
@@ -343,7 +343,7 @@ std::vector<StepSpec> build() {
                  y.origin = origin_s;
                  return Values{{"y", y}};
                }});
-  r.push_back({"apply_kernel", "chunk", {"x", "kernel", "tiles", "pre_operator", "glued"}, {"tiles", "pre_operator", "glued"}, {"y"}, Json{{"spatial_scale", nullptr}, {"spatial_scales", nullptr}, {"transform", "auto"}, {"modes", 0}, {"order", 0}, {"tolerance", 0.01}, {"envelope", "temporal"}, {"spatial_shape", "mexhat"}, {"form", "none"}},
+  r.push_back({"meeg.apply_kernel", "chunk", {"x", "kernel", "tiles", "pre_operator", "glued"}, {"tiles", "pre_operator", "glued"}, {"y"}, Json{{"spatial_scale", nullptr}, {"spatial_scales", nullptr}, {"transform", "auto"}, {"modes", 0}, {"order", 0}, {"tolerance", 0.01}, {"envelope", "temporal"}, {"spatial_shape", "mexhat"}, {"form", "none"}},
                "Studio adapters/nxr kernelOf (the kernel padded to every member, its from_selection's columns); nxr.io.adapter.kernel_from_rows; with `tiles`, the level's Weyl band folded into the kernel (nxr::signal::graphfilterbank, pipelines/spatial_band.h)",
                "a linear operator from the field's first factor applied to it: x [members × time] → K x [target × time] (an imaging kernel: sensors → sources). `levels` (; instead of `level`) is ONE operator a hat level, all bound in preparation: the output is [vertex × level] (the rows of a vertex's levels consecutive, then a vertex's components: row = (vertex · levels + level) · components + component; `facts.levels` names them), the scale-space the spatial events' scale selection reads. `glued` (default false; a `form` is always glued) evaluates the band on EVERY vertex of the glued surface for a field with no form too (a free current: each component through the band, the bridge filled). `form` folds a LINEAR form of the free current into the same operator, in preparation: kernel (x y z a vertex) → its tangent part → curl_tan (or div_tan; `normal`: n·x) → the spatial band, ONE linear map before any non-linear step (D106); the output is ONE scalar a vertex (complex when x is: the analytic signal's curl; nxr vortex.Cortex.readings: div_curl(tangent(q)), then the hat of vortex_cores.hat_operator). With `tiles` the output is on EVERY vertex of the GLUED surface. With `tiles` (the target surface's "
                "tile ladder) and `level`: M x with M = (F_l ⊗ I) K, F_l the level's Weyl band on each component of the kernel's rows, bound ONCE in preparation (a linear map reads the chain "
@@ -445,7 +445,7 @@ std::vector<StepSpec> build() {
                  if (x.value_type == "monogenic") y.facts["envelope"] = "spatiotemporal";
                  return Values{{"y", y}};
                }});
-  r.push_back({"collect", "accumulate", {"x"}, {}, {"y"}, Json::object(), "the samples of the run kept in order (the chunk service's own columns): the trace at the recording's rate",
+  r.push_back({"measurement.collect", "accumulate", {"x"}, {}, {"y"}, Json::object(), "the samples of the run kept in order (the chunk service's own columns): the trace at the recording's rate",
                "the own columns of every chunk appended: a [rows × samples] series of the span (MEMORY: rows × samples doubles, held until the run ends). A SERIES, not a reduction: what the sample-level fit (`risefall`) reads.",
                [](const Values& ins, const Json&, const PlanContext&) {
                  const Value& x = ins.at("x");
@@ -456,7 +456,7 @@ std::vector<StepSpec> build() {
                  y.chunked = false;
                  return Values{{"y", y}};
                }});
-  r.push_back({"risefall", "after", {"x", "events"}, {}, {"t_on", "t_off", "tau_rise", "tau_fall", "fit_baseline", "fit_height", "fit_r2", "plateau_duration"},
+  r.push_back({"select.risefall", "after", {"x", "events"}, {}, {"t_on", "t_off", "tau_rise", "tau_fall", "fit_baseline", "fit_height", "fit_r2", "plateau_duration"},
                Json{{"model", "linear"}, {"margin", 1.0}, {"smooth", 0.1}, {"tau_max", 1.0}, {"min_r2", nullptr}, {"durations", "seconds"}, {"margin_cycles", 10.0}, {"smooth_cycles", 1.0}, {"tau_max_cycles", 10.0}},
                "Rheome +rheome/+detect/risefall.m (the double-sigmoid fit; linear and quadrature models; the posterior model is not built); compute nxr::select",
                "each event (the spans `detect_spans` made) fitted on the SAMPLE series (`collect`) over [start − margin, stop + margin]: the half-rise and half-fall times, the rise and fall times, the baseline and height, r², "
@@ -483,7 +483,7 @@ std::vector<StepSpec> build() {
                  }
                  return out;
                }});
-  r.push_back({"form", "chunk", {"x"}, {}, {"y"}, Json{{"form", nullptr}},
+  r.push_back({"signal.form", "chunk", {"x"}, {}, {"y"}, Json{{"form", nullptr}},
                "Studio differential/fieldForms.ts FORMS, formValues (ℂ-extended: compute nxr::signal::formComplex)",
                "a form of a field of its type (ℝ f · ℂ abs div curl … v Jv · ℍ absq nx w xt x …): linear forms keep a complex field's phase, abs / absq give its envelope",
                [](const Values& ins, const Json& p, const PlanContext& c) {
@@ -535,7 +535,7 @@ std::vector<StepSpec> build() {
                  y.unit.reset();
                  return Values{{"y", y}};
                }});
-  r.push_back({"gradient_power", "chunk", {"x"}, {}, {"y"}, Json::object(), "nxr detect/core_phase.py (|grad z|²); compute nxr::signal::gradientPower",
+  r.push_back({"signal.gradient_power", "chunk", {"x"}, {}, {"y"}, Json::object(), "nxr detect/core_phase.py (|grad z|²); compute nxr::signal::gradientPower",
                "|∇z|² of the tangent gradient of a complex field, per vertex per sample",
                [](const Values& ins, const Json&, const PlanContext& c) {
                  const Value& z = ins.at("x");
@@ -547,7 +547,7 @@ std::vector<StepSpec> build() {
                  y.unit.reset();
                  return Values{{"y", y}};
                }});
-  r.push_back({"summarize", "after", {"x"}, {}, {"y"}, Json{{"summaries", Json::array({"median", "mad"})}, {"combine", "each"}, {"ddof", 1}},
+  r.push_back({"measurement.summarize", "after", {"x"}, {}, {"y"}, Json{{"summaries", Json::array({"median", "mad"})}, {"combine", "each"}, {"ddof", 1}},
                "a statistic across a partition's members; the summaries of compute nxr::stats (numpy median and linear percentile, Rheome's robust SD, MATLAB's sd, kurtosis, skewness)",
                "a measurement of the run summarised over its partition's members into a STATISTIC (field -> selection/measurement -> statistic): per row (each), pooled, or of the mean over rows",
                [](const Values& ins, const Json& p, const PlanContext&) {
@@ -756,19 +756,19 @@ Block block_of(const Eigen::MatrixXd& Y, std::int64_t left, std::int64_t right) 
 // every node declares its time behaviour and numeric precision (NodeTraits); the nodes of the other files declare theirs where they are registered
 void bind_traits(std::vector<StepSpec>& r) {
   auto declare = [&](const char* n, NodeTraits t) { for (auto& s : r) if (s.name == n) { s.traits = std::move(t); return; } refuse(std::string("no step ") + n); };
-  declare("band_filter", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "a zero-phase FIR band filter; float32 taps, each output sample a float64 sum over the window, stored as float32", "the taps' reach: taps.size() - 1 samples each side (set by the band's width; a recording's end is reflected)"));
-  declare("analytic", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's even and odd FIR passes (the analytic signal); float64 sums, float32 result", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
-  declare("envelope", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the analytic signal's modulus: the same FIR passes, then |z| in double, stored as float32", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
-  declare("frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "samples the band's signal at the frame tiling by a Kaiser-windowed sinc; float64 weights and sum, float32 result", "half_width samples each side of a frame's position (the sinc's reach; default 32)"));
-  declare("apply_kernel", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a linear map of the rows (kernel, spatial band) applied to each column independently; the product is formed in double and stored as float32", {}));
+  declare("signal.band_filter", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "a zero-phase FIR band filter; float32 taps, each output sample a float64 sum over the window, stored as float32", "the taps' reach: taps.size() - 1 samples each side (set by the band's width; a recording's end is reflected)"));
+  declare("signal.analytic", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the band's even and odd FIR passes (the analytic signal); float64 sums, float32 result", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
+  declare("signal.envelope", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "the analytic signal's modulus: the same FIR passes, then |z| in double, stored as float32", "the longer of the even and odd taps' reach: taps.size() - 1 samples each side"));
+  declare("signal.frames", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::follows_input, "samples the band's signal at the frame tiling by a Kaiser-windowed sinc; float64 weights and sum, float32 result", "half_width samples each side of a frame's position (the sinc's reach; default 32)"));
+  declare("meeg.apply_kernel", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a linear map of the rows (kernel, spatial band) applied to each column independently; the product is formed in double and stored as float32", {}));
   declare("magnitude", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "the norm over an element's components, per sample; sums in double, float32 result", {}));
-  declare("collect", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "appends each block's own columns in time order: the order of the blocks fixes the result", {}));
-  declare("risefall", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64, "fits each event on the series over [start - margin, stop + margin]; events are independent of each other", "the event's span widened by `margin` (seconds, or cycles of the band) on each side"));
-  declare("form", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a differential form of the field (curl, divergence, normal part) per sample: the surface operator applied to each column; double sums, float32 result", {}));
+  declare("measurement.collect", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "appends each block's own columns in time order: the order of the blocks fixes the result", {}));
+  declare("select.risefall", node_traits(TimeBehaviour::windowed, Precision::float64, OutputPrecision::float64, "fits each event on the series over [start - margin, stop + margin]; events are independent of each other", "the event's span widened by `margin` (seconds, or cycles of the band) on each side"));
+  declare("signal.form", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "a differential form of the field (curl, divergence, normal part) per sample: the surface operator applied to each column; double sums, float32 result", {}));
   declare("power", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "|z|^2 summed over an element's components, per sample; double sums, float32 result", {}));
   declare("phase_current", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "Im(conj(z) grad z) per sample on the surface; double, float32 result", {}));
-  declare("gradient_power", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "|grad z|^2 per sample on the surface; double, float32 result", {}));
-  declare("summarize", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "a statistic over all the members of a partition, computed once on the finished series; it is not defined per timestep and must see every member: stateful, confirmed", {}));
+  declare("signal.gradient_power", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, "|grad z|^2 per sample on the surface; double, float32 result", {}));
+  declare("measurement.summarize", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "a statistic over all the members of a partition, computed once on the finished series; it is not defined per timestep and must see every member: stateful, confirmed", {}));
   declare("fit_gate", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "keeps or drops each event on its own fit; events do not interact (the unit is the event, not a timestep): pointwise over events, confirmed", {}));
   declare("burst_stages", node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::float64, "each event's stage spans from its own fit; events do not interact (the unit is the event, not a timestep): pointwise over events, confirmed", {}));
   declare("detect_spans", node_traits(TimeBehaviour::stateful, Precision::float64, OutputPrecision::float64, "a hysteresis scan along each series: the in-span state is carried from tile to tile, then gaps are merged and short spans dropped", {}));
@@ -778,7 +778,7 @@ void bind_execution(std::vector<StepSpec>& r) {
   auto at = [&](const char* n) -> StepSpec& { for (auto& s : r) if (s.name == n) return s; refuse(std::string("no step ") + n); };
   auto taps_halo = [](const std::any& st) { return static_cast<std::int64_t>(std::any_cast<const std::vector<float>&>(st).size()) - 1; };
 
-  StepSpec& bf = at("band_filter");
+  StepSpec& bf = at("signal.band_filter");
   bf.prepare = [](const Values& ins, const Json& p, ExecContext&) { return std::any(nxr::signal::gainTaps(band_gain(p), ins.at("x").rate)); };
   bf.halo = taps_halo;
   bf.chunk = [](const std::any& st, const Blocks& ins, std::int64_t keep) {
@@ -807,9 +807,9 @@ void bind_execution(std::vector<StepSpec>& r) {
     const auto& t = std::any_cast<const AnalyticTaps&>(st);
     return static_cast<std::int64_t>(std::max(t.even.size(), t.odd.size())) - 1;
   };
-  for (const char* n : {"analytic", "envelope"}) {
+  for (const char* n : {"signal.analytic", "signal.envelope"}) {
     StepSpec& s = at(n);
-    const bool env = std::string(n) == "envelope";
+    const bool env = std::string(n) == "signal.envelope";
     s.prepare = analytic_prepare;
     s.halo = analytic_halo;
     s.chunk = [env](const std::any& st, const Blocks& ins, std::int64_t keep) {
@@ -852,14 +852,14 @@ void bind_execution(std::vector<StepSpec>& r) {
   }
 
   // the analytic signal's halo from its request alone (a band set reads stored channels in preparation: the plan must not prepare it): the closed form of the circular block's context, or the taps' reach
-  at("analytic").halo_at_plan = [](const Values& ins, const Json& p) -> std::int64_t {
+  at("signal.analytic").halo_at_plan = [](const Values& ins, const Json& p) -> std::int64_t {
     if (ins.count("bands")) return static_cast<std::int64_t>(std::ceil(p["halo_seconds"].get<double>() * ins.at("x").rate));
     const auto g = band_gain(p);
     return static_cast<std::int64_t>(std::max(nxr::signal::gainTaps(g, ins.at("x").rate, false).size(), nxr::signal::gainTaps(g, ins.at("x").rate, true).size())) - 1;
   };
   // the frame tiling: the chunk's analytic field sampled at the frames inside its own samples
   // THE FRAME GRID is the time grid the maker `select.time_grid` (rule frames) made: frame j starts at sample origin + j hop (a closed-form Rule on the line, no tower, no day anchor); its time is the frame's START
-  StepSpec& fr = at("frames");
+  StepSpec& fr = at("signal.frames");
   struct FramesState { std::int64_t origin = 0, count = 0; double hop = 1, rate = 0, origin_s = 0; int H = 32; std::vector<std::pair<double, double>> within; bool has_within = false;
     double position(std::int64_t j) const { return static_cast<double>(origin) + static_cast<double>(j) * hop; }          // the frame's start, in samples from the line's first
     std::pair<std::int64_t, std::int64_t> span(std::int64_t first, std::int64_t n) const {            // the frames whose start lies in [first, first + n): a frame belongs to the chunk holding it, so the result does not depend on the chunk size
@@ -919,7 +919,7 @@ void bind_execution(std::vector<StepSpec>& r) {
   };
 
   // the kernel padded to every member of the field's first factor (nxr's kernel_from_rows: its from_selection's columns)
-  StepSpec& ak = at("apply_kernel");
+  StepSpec& ak = at("meeg.apply_kernel");
   ak.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     const nxr::io::Row& k = *ins.at("kernel").row;
     // the bound map is a constant of (kernel, the field's first factor, level, transform request): every step that asks for the same one (the same level read by several time bands) shares the first one's.
@@ -1132,7 +1132,7 @@ void bind_execution(std::vector<StepSpec>& r) {
 
   // the run's samples in order: the own columns of every chunk appended
   struct CollectAcc { std::vector<std::vector<double>> rows; std::int64_t first = -1; };
-  StepSpec& cl = at("collect");
+  StepSpec& cl = at("measurement.collect");
   cl.prepare = [](const Values& ins, const Json&, ExecContext&) { return std::any(std::make_pair(ins.at("x").rate, ins.at("x").origin)); };
   cl.start = [](const std::any&) { return std::any(CollectAcc{}); };
   cl.fold = [](const std::any&, std::any& acc_, const Blocks& ins, const Place& place) {
@@ -1153,7 +1153,7 @@ void bind_execution(std::vector<StepSpec>& r) {
   };
 
   // a form: the block's columns as the Studio's frames (sample-major), compute nxr::signal::formComplex, back to rows
-  StepSpec& fm = at("form");
+  StepSpec& fm = at("signal.form");
   struct FormState { std::shared_ptr<nxr::signal::FaceGradientOperator> op; nxr::signal::FieldType t; nxr::signal::Form id; int in_rows, out_rows; };
   fm.prepare = [](const Values& ins, const Json& p, ExecContext& c) {
     const Value& x = ins.at("x");
@@ -1209,7 +1209,7 @@ void bind_execution(std::vector<StepSpec>& r) {
     return Blocks{{"y", std::move(y)}};
   };
 
-  for (const char* n : {"phase_current", "gradient_power"}) {
+  for (const char* n : {"phase_current", "signal.gradient_power"}) {
     StepSpec& s = at(n);
     const bool current = std::string(n) == "phase_current";
     s.prepare = [](const Values& ins, const Json&, ExecContext& c) { return std::any(phase_state(ins.at("x"), c)); };
@@ -1223,11 +1223,11 @@ void bind_execution(std::vector<StepSpec>& r) {
   }
 
   // a measurement of the run summarised (nxr::stats::summarizeRows): [rows' x summaries], the summaries' names and the members used in meta
-  StepSpec& sc = at("summarize");
+  StepSpec& sc = at("measurement.summarize");
   sc.prepare = [](const Values&, const Json& p, ExecContext&) { return std::any(p); };   // its run is nxr::measurement::summarize (measurement_nodes.cpp)
 
   // each event fitted on the sample series (nxr::risefall: Rheome's detect.risefall); the events' tiles give [t0, t1]
-  StepSpec& rf = at("risefall");
+  StepSpec& rf = at("select.risefall");
   rf.prepare = [](const Values&, const Json& p, ExecContext&) { return std::any(p); };
   rf.run = [](const std::any& st, const Arrays& ins, ExecContext&) {
     const Json& p = std::any_cast<const Json&>(st);
@@ -1474,15 +1474,15 @@ const std::map<std::string, std::string>& retired_steps() {
       {"tile_grid", "select.dyadic_surface (rule subject or group)"}, {"group_tile_grid", "select.dyadic_surface (rule transfer)"},
       {"frame_tiling", "select.time_grid (rule frames)"}, {"constantq", "select.time_grid (rule constant_q)"},
       {"pyramid.bands", "select.bands (rule frequency)"}, {"pyramid.spatial_bands", "select.bands (rule levels)"}, {"joint.cells", "select.product"},
-      {"measure.band_amplitude", "reduce (preset sensor_band_amplitude of the definition measure)"},
+      {"measure.band_amplitude", "measurement.reduce (preset sensor_band_amplitude of the definition measure)"},
       {"detect_spans", "select.events.spans (rule detect)"}, {"fit_gate", "select.events.spans (rule keep_where)"}, {"burst_stages", "select.events.spans (rule stages)"},
-      {"cell_extent", "select.events.regions"}, {"extent_measure", "reduce.members (a merge of the events' cells)"}, {"patches", "select.events.patches"}, {"cores", "select.events.cores"}, {"tracks", "select.events.tracks"},
-      {"measure", "reduce"}, {"partition_measures", "reduce"}, {"window_measures", "reduce"}, {"measure_events", "reduce.members"}, {"tile_max", "roll_up (along the space factor, merge max)"},
-      {"reduce_cells", "roll_up (along the space factor, merge max)"}, {"summarize_measurements", "summarize"},
-      {"magnitude", "field.form (form magnitude)"}, {"power", "field.form (form power)"}, {"phase_current", "field.form (form phase_current)"},
-      {"pyramid.band_sums", "reduce over select.product (layout joint)"}, {"pyramid.frame_samples", "reduce over select.product (layout joint)"},
-      {"core_histogram", "estimate (method histogram)"}, {"relative_histogram", "estimate (method histogram)"}, {"baseline", "estimate (method sample)"},
-      {"power_series", "reduce (preset surrogate_lagfree_envelope of the definition measure; synthesis.lagfree reads it by name)"},
+      {"cell_extent", "select.events.regions"}, {"extent_measure", "measurement.reduce_members (a merge of the events' cells)"}, {"patches", "select.events.patches"}, {"cores", "select.events.cores"}, {"tracks", "select.events.tracks"},
+      {"measure", "measurement.reduce"}, {"partition_measures", "measurement.reduce"}, {"window_measures", "measurement.reduce"}, {"measure_events", "measurement.reduce_members"}, {"tile_max", "measurement.roll_up (along the space factor, merge max)"},
+      {"reduce_cells", "measurement.roll_up (along the space factor, merge max)"}, {"summarize_measurements", "measurement.summarize"},
+      {"magnitude", "signal.field_form (form magnitude)"}, {"power", "signal.field_form (form power)"}, {"phase_current", "signal.field_form (form phase_current)"},
+      {"pyramid.band_sums", "measurement.reduce over select.product (layout joint)"}, {"pyramid.frame_samples", "measurement.reduce over select.product (layout joint)"},
+      {"core_histogram", "measurement.estimate (method histogram)"}, {"relative_histogram", "measurement.estimate (method histogram)"}, {"baseline", "measurement.estimate (method sample)"},
+      {"power_series", "measurement.reduce (preset surrogate_lagfree_envelope of the definition measure; synthesis.lagfree reads it by name)"},
       // renamed to the toolbox words (one word per thing across the C++ function, the node and the bindings; the test names_across_layers reads this table)
       {"fft.spectrum", "signal.rfft"},
       {"filter.apply", "signal.filter"},
@@ -1509,7 +1509,46 @@ const std::map<std::string, std::string>& retired_steps() {
       {"welch.psd", "signal.psd"},
       {"welch.source_band_power", "meeg.source_band_power"},
       {"welch.source_bins", "meeg.source_bins"},
-      {"welch.source_tensor", "meeg.source_tensor"}};
+      {"welch.source_tensor", "meeg.source_tensor"},
+      // the nodes that had no toolbox prefix (decided 2026-11-18: the toolbox where the maths lives)
+      {"analytic", "signal.analytic"},
+      {"band_filter", "signal.band_filter"},
+      {"envelope", "signal.envelope"},
+      {"gradient_power", "signal.gradient_power"},
+      {"frames", "signal.frames"},
+      {"form", "signal.form"},
+      {"field.form", "signal.field_form"},
+      {"apply_kernel", "meeg.apply_kernel"},
+      {"eeg_montage_1005", "meeg.eeg_montage_1005"},
+      {"pointspread", "meeg.pointspread"},
+      {"carry_ends", "meeg.carry_ends"},
+      {"connection_weights", "meeg.connection_weights"},
+      {"end_connectome", "meeg.end_connectome"},
+      {"end_gate", "meeg.end_gate"},
+      {"fiber_ends", "meeg.fiber_ends"},
+      {"largest_component", "meeg.largest_component"},
+      {"nearest_vertex", "meeg.nearest_vertex"},
+      {"partition_counts", "meeg.partition_counts"},
+      {"prune_below", "meeg.prune_below"},
+      {"registration_match", "meeg.registration_match"},
+      {"smooth_memberships", "meeg.smooth_memberships"},
+      {"at_level", "select.at_level"},
+      {"patch_summaries", "select.patch_summaries"},
+      {"risefall", "select.risefall"},
+      {"run_repeat", "select.run_repeat"},
+      {"scale", "select.scale"},
+      {"scale_selection", "select.scale_selection"},
+      {"tile_crossings", "select.tile_crossings"},
+      {"cellquadrature", "measurement.cellquadrature"},
+      {"estimate", "measurement.estimate"},
+      {"reduce", "measurement.reduce"},
+      {"reduce.members", "measurement.reduce_members"},
+      {"roll_up", "measurement.roll_up"},
+      {"summarize", "measurement.summarize"},
+      {"relative", "measurement.relative"},
+      {"collect", "measurement.collect"},
+      {"hodge_dirac", "operators.hodge_dirac"},
+      {"surface_frames", "geometry.surface_frames"}};
   return m;
 }
 }  // namespace

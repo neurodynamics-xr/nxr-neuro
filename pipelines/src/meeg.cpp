@@ -38,8 +38,9 @@
 #include "nxr/io/constant_q.h"
 #include "nxr/io/selection_measurement.h"
 #include "nxr/io/statistic.h"
-#include "nxr/meeg/tensor.h"
-#include "nxr/meeg/wave.h"
+#include "nxr/core/congruence.h"
+#include "nxr/signal/polarisation.h"
+#include "nxr/signal/phase_gradient.h"
 
 #ifndef NXR_COMPUTE_VERSION
 #define NXR_COMPUTE_VERSION "unknown"

@@ -66,7 +66,7 @@ nxr::select::track_crossings::Pooled pooled_of(const RunData& d, int stage, std:
 struct RepeatState { Value a, b, over; Json p; };
 StepSpec run_repeat_step() {
   StepSpec s;
-  s.name = "run_repeat";
+  s.name = "select.run_repeat";
   s.kind = "setup";
   s.inputs = {"a", "b", "over"};
   s.outputs = {"tiles", "whole"};
@@ -187,7 +187,7 @@ Json joint_facts(const Json& params, const std::string& who) {
 }
 StepSpec cellquadrature_step() {
   StepSpec s;
-  s.name = "cellquadrature";
+  s.name = "measurement.cellquadrature";
   s.kind = "setup";
   s.inputs = {"cross_spectrum", "recording", "kernel", "joint", "bursts"};
   s.optional = {"bursts"};
@@ -409,7 +409,7 @@ StepSpec cellquadrature_step() {
 struct PatchState { Value map, tiles; Json p; };
 StepSpec patches_step() {
   StepSpec s;
-  s.name = "patch_summaries";
+  s.name = "select.patch_summaries";
   s.kind = "setup";
   s.inputs = {"map", "tiles"};
   s.outputs = {"band", "tile_measures", "baseline", "patches", "patch_measures", "patch_own", "area", "n_tiles", "mean", "peak"};

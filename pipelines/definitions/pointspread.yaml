@@ -31,7 +31,7 @@ parameters:
 
 steps:
   before:
-    - {node: pointspread, in: {forward: forward, kernel: kernel}, with: {spatial_scales: $spatial_scales, reference_scale: $reference_scale, fraction: $fraction, vertices: $vertices, list: $list, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: spread}
+    - {node: meeg.pointspread, in: {forward: forward, kernel: kernel}, with: {spatial_scales: $spatial_scales, reference_scale: $reference_scale, fraction: $fraction, vertices: $vertices, list: $list, transform: $transform, modes: $modes, order: $order, tolerance: $tolerance, spatial_shape: $spatial_shape}, out: spread}
 
 outputs:
   spread:

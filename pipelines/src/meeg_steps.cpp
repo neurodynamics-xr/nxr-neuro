@@ -22,13 +22,13 @@
 
 #include "nxr/graph/node.h"
 #include "nxr/select/constant_q.h"
-#include "nxr/meeg/covariance.h"
+#include "nxr/stats/covariance.h"
 #include "nxr/signal/filters.h"
 #include "nxr/signal/graphfilterbank.h"
 #include "nxr/operators/hodge_synthesis_weights.h"
 #include "nxr/signal/speedspectrum.h"
 #include "nxr/select/dyadic.h"
-#include "nxr/meeg/wave.h"
+#include "nxr/signal/phase_gradient.h"
 #include "nxr/measurement/measures.h"
 #include "nxr/measurement/reduce.h"
 #include "nxr/pipelines/spectral_record.h"
@@ -88,7 +88,7 @@ std::vector<std::int32_t> good_channels(const ng::PortType& x, const Json& types
 // members (each with its own mean removed when remove_mean), the divisor its degrees of freedom. The whitener derived from it is an operator (made by the inverse).
 struct CovPrepared {
   std::vector<std::int32_t> channels;
-  nxr::meeg::CovarianceOptions opt;
+  nxr::stats::CovarianceOptions opt;
   std::int64_t block = 0;   // samples a block; 0: the span is one block
   double sfreq = 0;
   std::string divisor;
@@ -96,7 +96,7 @@ struct CovPrepared {
   std::string unit;
 };
 struct CovState {
-  std::optional<nxr::meeg::CovarianceAccumulator> acc;
+  std::optional<nxr::stats::CovarianceEstimate> acc;
   std::int64_t in_block = 0, first = -1, samples = 0;
 };
 
@@ -113,7 +113,7 @@ ng::NodeSpec noise_covariance() {
       {"remove_mean", Json(true), "remove each block's mean", "-", {}, false},
       {"divisor", Json("samples_minus_blocks"), "the divisor: samples_minus_blocks | samples | samples_minus_one", "-", {"samples_minus_blocks", "samples", "samples_minus_one"}, false}};
   n.traits = ng::node_traits(ng::TimeBehaviour::stateful, ng::Precision::float64, ng::OutputPrecision::float64, "the blocks' sums are carried across chunks in double");
-  n.matches = "MNE compute_raw_covariance (method empirical); Brainstorm's noise covariance (remove DC offset per file); meeg nxr::meeg::CovarianceAccumulator";
+  n.matches = "MNE compute_raw_covariance (method empirical); Brainstorm's noise covariance (remove DC offset per file); meeg nxr::stats::CovarianceEstimate";
   n.description = "the noise covariance of a recording's good imaging channels over a span, as blocks with their own mean removed";
   n.plan = [](const ng::Types& in, const Json& p) {
     const ng::PortType& x = streamed(in, "x", "meeg.noise_covariance");
@@ -132,8 +132,8 @@ ng::NodeSpec noise_covariance() {
     pr.unit = x.unit;
     pr.opt.removeMean = p.value("remove_mean", true);
     pr.divisor = p.value("divisor", std::string("samples_minus_blocks"));
-    pr.opt.divisor = pr.divisor == "samples" ? nxr::meeg::CovarianceDivisor::Samples
-                     : pr.divisor == "samples_minus_one" ? nxr::meeg::CovarianceDivisor::SamplesMinusOne : nxr::meeg::CovarianceDivisor::SamplesMinusBlocks;
+    pr.opt.divisor = pr.divisor == "samples" ? nxr::stats::CovarianceDivisor::Samples
+                     : pr.divisor == "samples_minus_one" ? nxr::stats::CovarianceDivisor::SamplesMinusOne : nxr::stats::CovarianceDivisor::SamplesMinusBlocks;
     if (p.contains("block_seconds") && !p["block_seconds"].is_null())
       pr.block = std::max<std::int64_t>(2, static_cast<std::int64_t>(std::llround(p["block_seconds"].get<double>() * pr.sfreq)));
     return std::any(std::move(pr));
@@ -165,8 +165,8 @@ ng::NodeSpec noise_covariance() {
     if (!s.acc || s.samples < 2) ng::refuse("meeg.noise_covariance: the span holds fewer than 2 samples");
     const Eigen::MatrixXd C = s.acc->covariance();
     const std::int64_t M = C.rows(), N = s.acc->samples(), B = s.acc->blocks();
-    const std::int64_t dof = !pr.opt.removeMean || pr.opt.divisor != nxr::meeg::CovarianceDivisor::SamplesMinusBlocks
-                                 ? (pr.opt.divisor == nxr::meeg::CovarianceDivisor::Samples ? N : N - 1) : N - B;
+    const std::int64_t dof = !pr.opt.removeMean || pr.opt.divisor != nxr::stats::CovarianceDivisor::SamplesMinusBlocks
+                                 ? (pr.opt.divisor == nxr::stats::CovarianceDivisor::Samples ? N : N - 1) : N - B;
     ng::Array ch;
     ch.rows = M; ch.cols = 1;
     for (const auto c : pr.channels) ch.data.push_back(c);
@@ -780,7 +780,7 @@ ng::NodeSpec phase_gradient() {
                   {"signal", Json(), "normal = the current along the surface's normal | ambient = each of its x y z components. NO DEFAULT (PI: an orientation prior is never a default): the caller states it", "-", {"normal", "ambient"}, false},
                   {"finest", Json(), "the leaves measured, as a quantity (a tile diameter, an area, parts per hemisphere), resolved on the grid's measured level diameters; null: the grid's own depth", "-", {}, true}};
   n.traits = ng::node_traits(ng::TimeBehaviour::pointwise, ng::Precision::float64, ng::OutputPrecision::float64, "in double from a stored cross-spectrum (no time axis)");
-  n.matches = "nxr.detect.core_phase PhaseReader.read_out (grad phi = Im(conj z grad z) / |z|^2), power-weighted; meeg nxr::meeg::phaseSums";
+  n.matches = "nxr.detect.core_phase PhaseReader.read_out (grad phi = Im(conj z grad z) / |z|^2), power-weighted; meeg nxr::signal::phaseSums";
   n.description = "a band's phase gradient from its cross-spectrum through a free kernel, as the additive ingredients of the surface's leaves";
   n.plan = [](const ng::Types& in, const Json& p) {
     for (const char* k : {"cross_spectrum", "kernel", "surface", "frames", "leaves"}) if (!in.count(k)) ng::refuse(std::string("meeg.phase_gradient: ") + k + " is not given");
@@ -829,7 +829,7 @@ ng::NodeSpec phase_gradient() {
     const nxr::operators::FaceMat F = Eigen::Map<const nxr::operators::FaceMat>(faces.data(), static_cast<Eigen::Index>(faces.size() / 3), 3);
     const nxr::operators::FaceOperators ops(P, F, false);
     const Eigen::MatrixXd K = Eigen::Map<const MatRM>(KA.data.data(), KA.rows, M);
-    nxr::meeg::PhaseSums sums;
+    nxr::signal::PhaseSums sums;
     auto add_signal = [&](const Eigen::MatrixXd& A) {
       Eigen::MatrixXd G[3];
       ops.vertexGradient(A, G);
@@ -837,8 +837,8 @@ ng::NodeSpec phase_gradient() {
         const Eigen::RowVectorXd dot = G[0].row(v) * ops.normals(v, 0) + G[1].row(v) * ops.normals(v, 1) + G[2].row(v) * ops.normals(v, 2);
         for (int d = 0; d < 3; ++d) G[d].row(v) -= dot * ops.normals(v, d);
       }
-      const nxr::meeg::PhaseSums one = nxr::meeg::phaseSums(A, G, C.S, C.Sq);
-      if (sums.power.size() == 0) sums = one; else nxr::meeg::addPhaseSums(sums, one);
+      const nxr::signal::PhaseSums one = nxr::signal::phaseSums(A, G, C.S, C.Sq);
+      if (sums.power.size() == 0) sums = one; else nxr::signal::addPhaseSums(sums, one);
     };
     if (pr.signal == "normal") {
       Eigen::MatrixXd A(N, M);
@@ -854,7 +854,7 @@ ng::NodeSpec phase_gradient() {
     if (static_cast<std::int64_t>(FA.data.size()) != N * 9) ng::refuse("meeg.phase_gradient: the frames hold " + std::to_string(FA.data.size()) + " values for " + std::to_string(N) + " vertices");
     Eigen::MatrixXd e1(N, 3), e2(N, 3);
     for (std::int64_t i = 0; i < N; ++i) for (int k = 0; k < 3; ++k) { e1(i, k) = FA.data[static_cast<std::size_t>(i * 9 + k)]; e2(i, k) = FA.data[static_cast<std::size_t>(i * 9 + 3 + k)]; }
-    const nxr::meeg::PhaseCurrentFrames jf = nxr::meeg::phaseCurrentInFrames(sums.phase, e1, e2);
+    const nxr::signal::PhaseCurrentFrames jf = nxr::signal::phaseCurrentInFrames(sums.phase, e1, e2);
     nxr::select::Mesh mesh; mesh.n = static_cast<int>(N); mesh.positions = SA.data; mesh.faces = faces;
     const std::vector<double> area = nxr::select::vertexAreas(mesh);
     std::vector<double> wv(static_cast<std::size_t>(N)), vp(wv.size()), vq(wv.size()), v1(wv.size()), v2(wv.size()), vm(wv.size());

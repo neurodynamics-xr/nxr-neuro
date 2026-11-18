@@ -23,18 +23,18 @@ steps:
   chunks:
     over: recording
     do:
-      - node: band_filter
+      - node: signal.band_filter
         in:   {x: recording}
         with: {band: $band, shape: $shape}
         out:  x_band
-      - node: apply_kernel
+      - node: meeg.apply_kernel
         in:   {x: x_band, kernel: kernel}
         out:  sources
-      - node: field.form
+      - node: signal.field_form
         in:   {x: sources}
         with: {form: power}
         out:  source_power
-      - node: estimate
+      - node: measurement.estimate
         in:   {x: source_power, exclude: bad}
         with: {method: sample, bad_segments: $bad_segments}
         out:  band_power

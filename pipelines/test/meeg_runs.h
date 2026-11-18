@@ -12,7 +12,7 @@
 
 #include "nxr/io.h"
 #include "nxr/io/array_reader.h"
-#include "nxr/meeg/covariance.h"
+#include "nxr/stats/covariance.h"
 #include "nxr/meeg/inverse.h"
 #include "nxr/pipelines/definition.h"
 #include "nxr/pipelines/runner.h"
@@ -37,7 +37,7 @@ struct NoiseCovOptions {
   std::optional<double> start, stop;
   std::optional<std::string> chunks;
   std::optional<double> block_seconds;
-  nxr::meeg::CovarianceOptions covariance;
+  nxr::stats::CovarianceOptions covariance;
   bool replace = false;
 };
 struct NoiseCovResult {
@@ -98,7 +98,7 @@ inline HeadModelResult headmodel_compute(nxr::io::DatasetWriter& ds, nxr::io::Su
 
 inline NoiseCovResult noisecov_compute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const NoiseCovOptions& o) {
   nxr::io::Json set = nxr::io::Json{{"recording", o.recording}, {"remove_mean", o.covariance.removeMean},
-                                    {"divisor", o.covariance.divisor == nxr::meeg::CovarianceDivisor::Samples ? "samples" : o.covariance.divisor == nxr::meeg::CovarianceDivisor::SamplesMinusOne ? "samples_minus_one" : "samples_minus_blocks"}};
+                                    {"divisor", o.covariance.divisor == nxr::stats::CovarianceDivisor::Samples ? "samples" : o.covariance.divisor == nxr::stats::CovarianceDivisor::SamplesMinusOne ? "samples_minus_one" : "samples_minus_blocks"}};
   if (!o.name.empty()) set["name"] = o.name;
   if (o.block_seconds) set["block_seconds"] = *o.block_seconds;
   const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("noisecov"), set, span_options(o.chunks, o.start, o.stop, o.replace));

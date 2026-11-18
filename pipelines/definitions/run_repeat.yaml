@@ -29,7 +29,7 @@ parameters:
 
 steps:
   before:
-    - {node: run_repeat, in: {a: recording_a, b: recording_b, over: over}, with: {spatial_scale: $spatial_scale, stage: $stage, stage_name: $stage_name, min_crossings: $min_crossings}, out: [tiles, whole]}
+    - {node: select.run_repeat, in: {a: recording_a, b: recording_b, over: over}, with: {spatial_scale: $spatial_scale, stage: $stage, stage_name: $stage_name, min_crossings: $min_crossings}, out: [tiles, whole]}
 
 outputs:
   tiles:

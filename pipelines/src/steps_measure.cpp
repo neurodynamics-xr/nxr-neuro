@@ -68,7 +68,7 @@ struct ScaleState {
 
 StepSpec scale_selection_step() {
   StepSpec s;
-  s.name = "scale_selection";
+  s.name = "select.scale_selection";
   s.kind = "setup";
   s.inputs = {"recording"};
   s.outputs = {"events", "scale", "links"};
