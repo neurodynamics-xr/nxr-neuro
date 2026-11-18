@@ -112,7 +112,7 @@ inline NoiseCovResult noisecov_compute(nxr::io::DatasetWriter& ds, nxr::io::Subj
   if (const auto ch = nxr::io::selection::named_row(sub, name + "_channels"))                  // a pick of the recording's channels, found by its name (io lays the node out)
     for (const std::int32_t c : nxr::io::selection::read_element_members(sub, nxr::io::text(*ch, "id")).member_of) r.channels.push_back(c);
   r.info = st.producer;
-  r.info["samples"] = st.producer.value("n_samples", std::int64_t(0));
+  r.info["samples"] = st.producer.contains("run") ? st.producer["run"].value("samples_read", std::int64_t(0)) : std::int64_t(0);   // the run's record: the samples read
   r.info["blocks"] = st.row.count("n_members") ? nxr::io::integer(st.row, "n_members") : 1;
   r.info["replaced"] = o.replace && !r.hit;
   return r;
@@ -127,8 +127,8 @@ inline InverseComputeResult inverse_compute(nxr::io::DatasetWriter& ds, nxr::io:
   const auto runs = nxr::pipelines::graph::run(ds, sub, nxr::pipelines::graph::load("inverse"), set, span_options(std::nullopt, std::nullopt, std::nullopt, o.replace));
   InverseComputeResult r;
   r.hit = !runs.empty() && runs[0].value("hit", false);
-  if (const auto k = sub.find("operator", o.name)) {
-    const nxr::io::Json pj = nxr::io::Json::parse(nxr::io::text(*k, "producer_json"), nullptr, false);
+  if (const auto k = sub.by_name("operator", o.name)) {
+    const nxr::io::Json pj = nxr::io::Json::parse(nxr::io::opt_text(*k, "producer_json").value_or("{}"), nullptr, false);
     r.whitener_rank = pj.is_object() ? pj.value("whitener_rank", 0) : 0;
     r.lambda = pj.is_object() ? pj.value("lambda", 0.0) : 0.0;
     r.info = pj;

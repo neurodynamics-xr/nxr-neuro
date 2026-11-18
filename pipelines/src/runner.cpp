@@ -1429,7 +1429,8 @@ std::vector<Json> run(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, c
       if (const auto a = d.anchor()) r["anchor"] = text(*P.found.at(*a).row, "name");
       out.push_back(r);
     } else {
-      out.push_back(execute(ds, sub, P, opt, progress));
+      try { out.push_back(execute(ds, sub, P, opt, progress)); }
+      catch (const std::invalid_argument& e) { refuse(e.what()); }       // a node's refusal (compute throws std::invalid_argument) is the run's: an io error with its code
     }
   }
   return out;

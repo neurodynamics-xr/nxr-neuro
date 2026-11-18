@@ -370,6 +370,9 @@ ng::NodeSpec minimum_norm() {
       W.meta["describe"] = Json{{"from_value_type", "scalar"}, {"to_value_type", "scalar"}, {"precision", "float64"}, {"producer", Json{{"rank", ker.whitenerRank}}},
                                 {"description", "the whitener of the kernel's noise covariance, on its " + std::to_string(M) + " channels"}};
       out["whitener"] = std::move(W);
+    } else {
+      ng::Array none; none.meta["absent"] = true;                          // a PCA whitener is not stored: an optional output this run does not make
+      out["whitener"] = std::move(none);
     }
     return out;
   };

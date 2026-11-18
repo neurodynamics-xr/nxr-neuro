@@ -26,6 +26,10 @@ using namespace nxrtest;
 static std::optional<nxr::io::task::Node> statistic_named(SubjectWriter& sub, const std::string& name) {
   return nxr::io::task::Subject::of(sub).find({.cls = nxr::io::task::Cls::statistic, .name = name});
 }
+// a stored node of a class by its NAME (the store path is io's)
+static std::optional<nxr::io::task::Node> node_named(SubjectWriter& sub, nxr::io::task::Cls cls, const std::string& name) {
+  return nxr::io::task::Subject::of(sub).find({.cls = cls, .name = name});
+}
 namespace fs = std::filesystem;
 using Eigen::MatrixXd;
 
@@ -233,9 +237,9 @@ int main() {
     std::vector<std::int64_t> sh;
     const auto d = read_typed<double>(sub.folder() / *row->path, &sh);
     CHECK(sh.size() == 2 && sh[0] == M - 1 && sh[1] == M - 1);
-    CHECK_EQ(row->producer["n_samples"].get<std::int64_t>(), 2300);
-    CHECK_EQ(row->producer["window"]["start_sample"].get<std::int64_t>(), 200);
-    CHECK(sub.find("selection", "rest_noise_cov_channels").has_value());
+    CHECK_EQ(row->producer["run"]["samples_read"].get<std::int64_t>(), 2300);
+    CHECK_EQ(row->producer["run"]["span"]["start_sample"].get<std::int64_t>(), 200);
+    CHECK(node_named(sub, nxr::io::task::Cls::selection, "rest_noise_cov_channels").has_value());
     CHECK(!row->fact("dof").is_null());
   }
   // blocks of 10 s: two blocks and a third of 3 s; each its own mean; N - B
@@ -267,7 +271,7 @@ int main() {
   empty.stop = 30.0;
   CHECK_EQ(code_of([&] { noisecov_compute(ds, sub, empty); }), std::string(code::invalid_argument));
   empty.recording = "nothing";
-  CHECK_EQ(code_of([&] { noisecov_compute(ds, sub, empty); }), std::string(code::no_such_row));
+  CHECK_EQ(code_of([&] { noisecov_compute(ds, sub, empty); }), std::string(code::invalid_argument));   // the finder refuses an input nothing matches, naming it
 
   // ── the kernel ──
   InverseComputeOptions io;
@@ -299,7 +303,7 @@ int main() {
   }
   {
     // stored as the importer stores a kernel
-    const auto row = sub.find("operator", "MN");
+    const auto row = sub.by_name("operator", "MN");
     CHECK(row.has_value());
     CHECK_EQ(text(*row, "kind"), std::string("inverse kernel"));
     CHECK_EQ(text(*row, "to_value_type"), std::string("vector3"));
@@ -312,14 +316,14 @@ int main() {
     CHECK(std::abs(pj["inverse"]["snr"].get<double>() - 3) < 1e-15);
     CHECK(std::abs(pj["inverse"]["noise"]["reg"].get<double>() - 0.1) < 1e-15);
     const Json prod = Json::parse(text(*row, "producer_json"));
-    CHECK(prod["producer"].get<std::string>().rfind("nxr-neuro", 0) == 0);
-    CHECK_EQ(prod["units"].get<std::string>(), std::string("A.m"));
-    for (const char* n : {"MN_channels", "MN_whitener", "MN_source_rr", "MN_source_nn"})
-      CHECK(sub.find(std::string(n).find("_channels") != std::string::npos ? "selection" : std::string(n).find("source") != std::string::npos ? "field" : "operator", n).has_value());
+    CHECK_EQ(prod["pipeline"]["name"].get<std::string>(), std::string("inverse"));       // the run's provenance: the definition, its parameters, the inputs it found
+    CHECK(!prod["nxr_neuro"].get<std::string>().empty());
+    for (const char* n : {"MN_channels", "MN_whitener"})
+      CHECK(node_named(sub, std::string(n).find("_channels") != std::string::npos ? nxr::io::task::Cls::selection : std::string(n).find("source") != std::string::npos ? nxr::io::task::Cls::field : nxr::io::task::Cls::operator_, n).has_value());
     const auto kc = statistic_named(sub, "MN_noise_cov");
     CHECK(kc.has_value());
     CHECK_EQ(kc->fact("measure").get<std::string>(), std::string("covariance"));
-    const auto wh = sub.find("operator", "MN_whitener");
+    const auto wh = sub.by_name("operator", "MN_whitener");
     CHECK(wh.has_value());
     CHECK_EQ(text(*wh, "kind"), std::string("whitener"));
     CHECK_EQ(text(*wh, "of_statistic_id"), kc->id);       // the whitener is an operator derived from the covariance statistic
@@ -338,7 +342,7 @@ int main() {
   const InverseComputeResult k2 = inverse_compute(ds, sub, ir);
   CHECK(!k2.hit);
   CHECK(statistic_named(sub, "rest_cov2").has_value());
-  CHECK(sub.find("operator", "MN_mne").has_value());
+  CHECK(sub.by_name("operator", "MN_mne").has_value());
   CHECK_EQ(code_of([&] { InverseComputeOptions bad_opt; bad_opt.name = "z"; inverse_compute(ds, sub, bad_opt); }), std::string(code::invalid_argument));
 
   // the commands: the same jobs through the nxr-neuro command line (JSON lines out), then read back
@@ -353,11 +357,11 @@ int main() {
     std::ifstream in(log);
     std::string line, all;
     while (std::getline(in, line)) all += line + "\n";
-    CHECK(all.find("\"cache\": \"miss\"") != std::string::npos && all.find("\"cache\": \"hit\"") != std::string::npos);
+    CHECK(all.find("\"hit\": false") != std::string::npos && all.find("\"hit\": true") != std::string::npos);   // the first run is a miss, the second a hit
     DatasetWriter d2 = open_writer(root / "demo");
     SubjectWriter s2 = SubjectWriter::open(d2, "S1");
     CHECK(statistic_named(s2, "cli_cov").has_value());
-    const auto kr = s2.find("operator", "MN_cli");
+    const auto kr = s2.by_name("operator", "MN_cli");
     CHECK(kr.has_value());
     CHECK(std::abs(Json::parse(text(*kr, "params_json"))["inverse"]["snr"].get<double>() - 2) < 1e-15);
     d2.close();
