@@ -307,7 +307,14 @@ Signature s_select_product() {
   return sig(Move::make)
       .in("first", any_port()).in("second", any_port()).in("third", any_port().optional()).in("fourth", any_port().optional()).in("bands", any_port().optional())
       .out("product", make_of(PortClass::constant)).out("cells", make_of(PortClass::selection))
-      .refine([](Unified& u, const Json&) { u.out.at("cells").sel = SelectionShape{"set", true, u.out_names.at("cells"), ""}; });
+      .refine([](Unified& u, const Json&) {
+        PortType& c = u.out.at("cells");
+        c.sel = SelectionShape{"set", true, u.out_names.at("cells"), ""};
+        c.domain.factors.clear();                                          // the product lies on its factors' manifolds, in the order of the factors
+        for (const char* k : {"first", "second", "third", "fourth"})
+          if (u.has(k)) for (const ManifoldRef& f : u.in.at(k).domain.factors) c.domain.factors.push_back(f);
+        if (c.domain.cells.empty()) c.domain.cells = "0";
+      });
 }
 // select.events.spans: the three rules (detect, keep_where, stages) of one node; each rule's own signature is applied to its own ports
 Signature s_select_events_spans() {

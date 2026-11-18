@@ -283,7 +283,7 @@ Json expand_doc(const Json& doc, const Json& params, const std::string& where, J
       if (!v.is_object()) continue;
       for (const char* key : {"chain", "make", "chain_parameters"})
         if (v.contains(key)) {
-          if (compositions) { if (!compositions->contains(it.key())) (*compositions)[it.key()] = Json::object(); (*compositions)[it.key()][key] = with_params(v[key], params); }
+          if (compositions) { if (!compositions->contains(it.key())) (*compositions)[it.key()] = Json::object(); (*compositions)[it.key()][key] = with_params(with_params(v[key], params), params); }   // twice: a preset's `make` / `chain_parameters` carry `$name`s of their own
           v.erase(key);
         }
     }
@@ -617,6 +617,30 @@ void compose_chain(Definition& e, const std::string& input, const Json& chain_na
   convert(CE.do_, e.do_);
   convert(CE.after, e.after);
   e.inputs = inputs;
+  // what the consumer's other inputs say of the composed field (`field.time`, `field.manifold.0`: a time line, the space a maker reads) is of the recording the chain reads and the chain's own output space
+  {
+    const Json& oo = CE.outputs[out_name];
+    const std::string on = oo.is_object() && oo.contains("on") && oo["on"].is_string() ? renamed(oo["on"].get<std::string>(), to) : std::string();
+    for (auto& [nm, sp] : e.inputs.items()) {
+      (void)nm;
+      if (!sp.is_object()) continue;
+      for (const char* rel : {"from", "to", "is", "manifold"}) {
+        if (!sp.contains(rel) || !sp[rel].is_string()) continue;
+        const std::string r = sp[rel].get<std::string>();
+        if (r == input + ".time" && !chain_anchor.empty()) sp[rel] = chain_anchor + ".time";
+        else if (r == input + ".manifold.0" && !on.empty()) sp[rel] = on;
+      }
+      if (sp.contains("where") && sp["where"].is_object() && !chain_anchor.empty())            // `{field}` in a name: the recording the chain reads
+        for (auto& [wk, wv] : sp["where"].items()) {
+          (void)wk;
+          if (!wv.is_string()) continue;
+          std::string t = wv.get<std::string>();
+          const std::string tag = "{" + input + "}";
+          for (std::size_t at = 0; (at = t.find(tag, at)) != std::string::npos; at += chain_anchor.size() + 2) t.replace(at, tag.size(), "{" + chain_anchor + "}");
+          wv = t;
+        }
+    }
+  }
   // a composed chain stores nothing: a measurement declared of its field is of the recording the chain reads (found, as any measured field)
   if (!chain_anchor.empty())
     for (auto& [name, o] : e.outputs.items()) if (o.is_object() && o.contains("of") && o["of"] == input) o["of"] = chain_anchor;

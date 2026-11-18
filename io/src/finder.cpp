@@ -256,7 +256,7 @@ std::string relation(const std::string& ref, const std::map<std::string, Value>&
     return v.manifolds[what == "from" ? 0 : 1];
   }
   const std::size_t i = std::stoul(m[3].str());
-  if ((v.cls != "field" && v.cls != "manifold") || i >= v.manifolds.size()) refuse(where + ": '" + ref + "': " + base + " has " + std::to_string(v.manifolds.size()) + " factor(s)");
+  if ((v.cls != "field" && v.cls != "manifold" && v.cls != "selection") || i >= v.manifolds.size()) refuse(where + ": '" + ref + "': " + base + " has " + std::to_string(v.manifolds.size()) + " factor(s)");
   return v.manifolds[i];
 }
 

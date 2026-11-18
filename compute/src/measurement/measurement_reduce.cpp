@@ -157,34 +157,36 @@ void over_rule(Ingredients& acc, const T* values, std::int64_t rows, std::int64_
 
 template <class T>
 void over_product(Ingredients& acc, const T* values, std::int64_t rows, std::int64_t samples, std::int64_t first_sample, const ProductForm& cells, const double* weights, const Request& req) {
-  if (cells.factors.size() != 2) refuse("a product here has two factors, time then space (it has " + std::to_string(cells.factors.size()) + ")");
+  if (cells.factors.size() != 2) refuse("a product here has two factors, a time rule and a space (in either order; it has " + std::to_string(cells.factors.size()) + ")");
   Folder f = prepare(acc, req, 1, cells.members(), weights, values != nullptr);
-  // factor 0: the members of each sample of the block
+  // the factor on the block's samples (a rule, or a member number per sample) is `ti`, the one on its rows' elements `si`; the code is c0 + radix0 c1 whichever is first
+  const std::size_t ti = std::holds_alternative<Rule>(cells.factors[1]) && !std::holds_alternative<Rule>(cells.factors[0]) ? 1 : 0, si = 1 - ti;
+  // the factor on the block's samples: the members of each sample
   std::vector<std::int64_t> t0(static_cast<std::size_t>(samples)), t1(static_cast<std::size_t>(samples));
-  if (const Rule* rule = std::get_if<Rule>(&cells.factors[0])) rule_members(*rule, first_sample, samples, t0, t1);
-  else if (const MemberOfElement* mo = std::get_if<MemberOfElement>(&cells.factors[0])) {
+  if (const Rule* rule = std::get_if<Rule>(&cells.factors[ti])) rule_members(*rule, first_sample, samples, t0, t1);
+  else if (const MemberOfElement* mo = std::get_if<MemberOfElement>(&cells.factors[ti])) {
     for (std::int64_t s = 0; s < samples; ++s) {
       const std::int64_t g = first_sample + s;
       const std::int32_t c = g >= 0 && g < mo->size() ? mo->member_of[static_cast<std::size_t>(g)] : -1;
       t0[static_cast<std::size_t>(s)] = c < 0 ? 0 : c;
       t1[static_cast<std::size_t>(s)] = c < 0 ? 0 : c + 1;
     }
-  } else refuse("factor 0 of a product is a rule or a member number per sample on the line (resolve intervals to member numbers first)");
-  // factor 1: the members of each row's element
+  } else refuse("the time factor of a product is a rule or a member number per sample on the line (resolve intervals to member numbers first)");
+  // the other factor: the members of each row's element
   std::int64_t unassigned = 0;
   Memberships sp;
-  if (const MemberOfElement* mo = std::get_if<MemberOfElement>(&cells.factors[1])) { if (mo->size() != rows) refuse("factor 1 covers " + std::to_string(mo->size()) + " elements, the values hold " + std::to_string(rows) + " rows"); sp = memberships_of(*mo, unassigned); }
-  else if (const Elements* el = std::get_if<Elements>(&cells.factors[1])) { if (el->size != rows) refuse("factor 1 lies on " + std::to_string(el->size) + " elements, the values hold " + std::to_string(rows) + " rows"); sp = memberships_of(*el); }
-  else refuse("factor 1 of a product is a member number per element or listed elements");
+  if (const MemberOfElement* mo = std::get_if<MemberOfElement>(&cells.factors[si])) { if (mo->size() != rows) refuse("the space factor covers " + std::to_string(mo->size()) + " elements, the values hold " + std::to_string(rows) + " rows"); sp = memberships_of(*mo, unassigned); }
+  else if (const Elements* el = std::get_if<Elements>(&cells.factors[si])) { if (el->size != rows) refuse("the space factor lies on " + std::to_string(el->size) + " elements, the values hold " + std::to_string(rows) + " rows"); sp = memberships_of(*el); }
+  else refuse("the space factor of a product is a member number per element or listed elements");
   if (f.first) acc.unassigned += unassigned;
-  const std::int64_t radix0 = cells.radices[0], count0 = cells.counts[0];
+  const std::int64_t radix0 = cells.radices[0], count0 = cells.counts[ti];
   for (std::int64_t s = 0; s < samples; ++s)
     for (std::int64_t m_t = t0[static_cast<std::size_t>(s)]; m_t < t1[static_cast<std::size_t>(s)]; ++m_t) {
       if (m_t >= count0) refuse("a sample is in time member " + std::to_string(m_t) + " of " + std::to_string(count0));
       for (std::int64_t r = 0; r < rows; ++r) {
         const auto [b, e] = sp.of(r);
         for (const std::int64_t* m_s = b; m_s != e; ++m_s) {
-          const std::size_t k = static_cast<std::size_t>(m_t + radix0 * *m_s);
+          const std::size_t k = ti == 0 ? static_cast<std::size_t>(m_t + radix0 * *m_s) : static_cast<std::size_t>(*m_s + radix0 * m_t);
           const double w = weights ? weights[r] : 1.0;
           if (values) f.value(k, static_cast<double>(values[static_cast<std::size_t>(r) * static_cast<std::size_t>(samples) + static_cast<std::size_t>(s)]), w);
           else f.geometry(k, w);
