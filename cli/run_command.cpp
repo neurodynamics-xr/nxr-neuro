@@ -62,11 +62,11 @@ int run_main(const std::vector<std::string>& rest) {
     }
   const g::Definition d = g::load(a.pos[0]);
   if (a.flag.count("--dry-run")) {
-    // the planner (pipelines/runner.h: plan_runs, Plan::text) still takes the database handle; the subject is found through the task API
-    Database db = Database::open(std::filesystem::path(a.get("--dataset")) / "dataset.sqlite", false, "nxr-neuro", true);
-    const auto s = nxr::io::task::Dataset::of(db).subject_named(a.get("--subject"));
-    if (!s) throw Error(code::no_such_row, a.get("--subject") + ": no such subject in " + a.get("--dataset"));
-    for (const auto& P : g::plan_runs(d, db, s->id, set, preset)) {
+    // the subject is opened as `run` opens it (a one-database dataset or a catalogue of subject packages: the subject's own database); opening writes nothing and nothing is computed or stored
+    DatasetWriter ds = open_dataset(a);
+    SubjectWriter sub = SubjectWriter::open(ds, a.get("--subject"));
+    const Database& db = sub.db();
+    for (const auto& P : g::plan_runs(d, db, sub.id(), set, preset)) {
       std::cout << P.text(db);
       Json out = Json{{"stage", "plan"}, {"pipeline", d.name + "@" + std::to_string(d.version)}, {"subject", a.get("--subject")}, {"parameters", P.parameters},
                       {"inputs", nxr::io::finder::describe(P.found)}};

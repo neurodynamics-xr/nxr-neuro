@@ -41,7 +41,7 @@ import xml.etree.ElementTree as ET
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-BUILD = ROOT / "build"
+BUILD = Path(os.environ.get("NXR_BUILD_DIR", ROOT / "build"))
 RESULTS = ROOT / "test-results"
 STATUS = RESULTS / "status.json"
 CLI = BUILD / "cli" / "nxr-neuro"
@@ -83,13 +83,25 @@ KINDS = ("unit", "golden", "integration", "guard")
 SEL: dict = {"kinds": None, "fast": False}   # set from the command line (--kind, --fast)
 
 
+def registered_commands() -> dict[str, list[str]]:
+    """name -> command of every add_test in the build's CTestTestfile.cmake files: ctest's JSON omits the command of a test whose executable is not built yet"""
+    out: dict[str, list[str]] = {}
+    for f in BUILD.rglob("CTestTestfile.cmake"):
+        for m in re.finditer(r'^\s*add_test\(\[=\[(.+?)\]=\]\s+(.*?)\)\s*$', f.read_text(errors="ignore"), re.M):
+            out[m.group(1)] = [x or y or z for x, y, z in re.findall(r'"([^"]*)"|\[=\[(.*?)\]=\]|(\S+)', m.group(2))]
+    return out
+
+
 def targets_for(ts: list[dict]) -> list[str]:
     """the build targets of the given ctest tests: each test's executable, and the command line for a test that calls it"""
     out: set[str] = set()
     for t in ts:
         cmd = t.get("command") or []
-        if cmd and "-P" not in cmd:
+        if cmd and "-P" not in cmd and not re.match(r"python[\d.]*$|cmake$|sh$|bash$", Path(cmd[0]).name):   # an interpreter is never a target
             out.add(Path(cmd[0]).name)
+        for a in cmd:                                  # a script test's targets are the executables it is handed (-DCLI=, -DSCENARIO=)
+            if (m := re.match(r"-D(?:CLI|SCENARIO)=(.+)$", a)):
+                out.add(Path(m.group(1)).name)
         if calls_cli(t):
             out.add("nxr-neuro")
     return sorted(out)
@@ -145,7 +157,13 @@ def tracked_sources(h: hashlib._Hash) -> None:
 
 def tests() -> list[dict]:
     r = sh(["ctest", "--show-only=json-v1"], cwd=BUILD)
-    return json.loads(r.stdout)["tests"]
+    ts = json.loads(r.stdout)["tests"]
+    if any(not t.get("command") for t in ts):             # ctest omits the command of a test whose executable is not built yet: take it from the registration
+        reg = registered_commands()
+        for t in ts:
+            if not t.get("command") and reg.get(t["name"]):
+                t["command"] = reg[t["name"]]
+    return ts
 
 
 def fingerprint(t: dict) -> str:
