@@ -142,7 +142,7 @@ int main() {
   nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", "rest"}, {"surface", "cortex"}, {"time_grid", "rest time grid band 8-16 Hz"}, {"couple", Json::array({Json{{"factor", 0}, {"scale", "parts 16"}}})}});   // the cells: level 4 (16 tiles a piece) x the band's tiles
   { g::RunOptions po; po.chunks = "all"; po.preset = "cortical_band_cells";
     const auto rm = g::run(ds, sub, g::load("measure"), Json{{"recording", "rest"}, {"band", "8-16 Hz"}, {"spatial_scale", "parts 16"}, {"chain_parameters", Json{{"recording", "rest"}, {"band", "8-16 Hz"}, {"spatial_scale", "parts 16"}, {"transform", "exact"}, {"spatial_shape", "meyer"}}}}, po);
-    std::printf("PRESET cells: %s\n", rm.empty() ? "none" : rm[0].dump().substr(0, 300).c_str()); }
+    CHECK(rm.size() == 1 && rm[0]["hit"] == false); }   // the preset measures the band on the cortex over its coupled cells (level 4 x the band's tiles)
   const g::Definition d = g::load("global_bursts");
   g::RunOptions all; all.chunks = "all";
   Json set1 = Json{{"recording", "rest"}, {"spatial_scale", "parts 16"}, {"product", "rest cortex product"}, {"transform", "exact"}, {"spatial_shape", "meyer"}};   // whole brain, combine mean: global events (no row)
