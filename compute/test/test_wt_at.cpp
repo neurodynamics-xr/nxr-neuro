@@ -1,7 +1,6 @@
 // nxr::signal wt(bank, member, window, instants): the member's analytic signal read at given instants (a frame Selection's, not whole samples), exactly. Synthetic data only.
 //   a tone on a bin of the window's grid: |a(t)| = (G/2) A and the phase 2 pi f t + phi at fractional t, to rounding;
 //   whole-sample instants equal the full-rate wt of the same window (the bank designed on the window's grid);
-//   (against the old taps + sinc path: test_frames_wt.)
 #include "nxr/signal/wavelet.h"
 #include "mesh_helpers.h"
 #include <random>

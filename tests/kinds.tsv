@@ -89,7 +89,6 @@ test_export_tsv	unit
 test_extent	unit
 test_face	integration
 test_face_gradient	unit
-test_factor_solvers	unit
 test_factorization	unit
 test_fft	golden
 test_fibers	unit
@@ -120,9 +119,7 @@ test_formats_zip	unit
 test_forms	golden
 test_frame_tiling	unit
 test_frames	golden
-test_frames_gc	unit
 test_frames_pipeline	integration
-test_frames_wt	golden
 test_gauge_workflow	unit
 test_geometry_bundle	unit
 test_geometry_central_extras	unit
@@ -193,14 +190,13 @@ test_passthrough_accessors	unit
 test_patches_pipeline	integration
 test_patterns	unit
 test_pca	golden
-test_pcg	unit
 test_phase	golden
 test_phasegradient	integration
 test_pipelines	integration
 test_pointspread	integration
 test_progress	unit
 test_psd_golden	golden
-test_psd_linear_map	golden
+test_psd_linear_map	unit
 test_psd_pipeline	integration	slow
 test_pyramid	golden
 test_quadrature	golden
@@ -209,13 +205,11 @@ test_quantity	unit
 test_query_measure	unit
 test_read_existing	unit
 test_records	unit
-test_refactor_6b	unit
 test_regions	unit
 test_registration	integration
 test_risefall	golden
 test_rollup	golden
 test_rollup_parity	golden
-test_row31_operators	unit
 test_runner_execute	integration
 test_runner_outputs	integration
 test_runner_plan	integration
@@ -229,7 +223,6 @@ test_schema51	unit
 test_schema53	unit
 test_schema54	unit
 test_select_makers	integration
-test_signal_banks_golden	golden
 test_signal_design	golden
 test_signal_grid	golden
 test_small_file_store	unit
@@ -274,7 +267,6 @@ test_visualization_primitives	unit
 test_vortex_cores_pipeline	integration
 test_wave	unit
 test_welch	golden
-test_welch_bits	golden
 test_welch_halo	integration
 test_wishart_null	integration
 test_writer	unit
