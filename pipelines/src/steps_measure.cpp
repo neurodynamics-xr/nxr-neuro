@@ -3,7 +3,7 @@
 // nxr::select, nxr::select::scale_selection); the YAML definitions in pipelines/definitions/ (measure_over_time, measure, scaleselection) are the verbs.
 //
 //   (window_measures and partition_measures are retired: the one `reduce` node, measurement_nodes.cpp, over a time grid or a surface grid)
-//   scale_selection    setup       a recording and the stored pairs of cortical_event_pairs  ->  events (a spans Selection), scale (their measurements), links (a statistic)
+//   scale_selection    setup       a recording and the stored pairs of global_bursts  ->  events (a spans Selection), scale (their measurements), links (a statistic)
 #include <algorithm>
 #include <array>
 #include <cmath>
@@ -50,7 +50,7 @@ std::vector<std::string> strings_of(const Json& j, const std::string& what) {
 
 // ── scale_selection ─────────────────────────────────────────────────────────────────────────────────────────────
 // EACH EVENT'S OWN SIZE AND RHYTHM across a declared set of (spatial level, time level) pairs (the hand-wired `scaleselection compute` it replaces; spec docs/specs/2026-11-13-cortical-events.md, "Phase 2e"). From STORED
-// rows only, no recording pass: what `run cortical_event_pairs` stored for every pair of the product `space_levels` x `time_levels` (the cells' amplitude on the pair's joint Selection, the cells' per-tile baseline, the
+// rows only, no recording pass: what `run global_bursts` stored for every pair of the product `space_levels` x `time_levels` (the cells' amplitude on the pair's product selection, the cells' per-tile baseline, the
 // labelling of the pair's events on the cells), read by the runner (Bound::scale_inputs). z = (amplitude - median) / SD per tile, the standardization the extents were found on (nxr::select::standardize); events of
 // different pairs are linked by the ladders' exact nesting in space and overlap in time (nxr::select::scale_selection::selectScale); the connected components are the cross-pair events: each one's response at every pair (its footprint),
 // best pair, the response there.
@@ -72,7 +72,7 @@ StepSpec scale_selection_step() {
   s.kind = "setup";
   s.inputs = {"recording"};
   s.outputs = {"events", "scale", "links"};
-  s.parameters = Json{{"spatial_scales", nullptr}, {"bands", nullptr}, {"source", "cortical_event_pairs"}, {"response", "peak"}, {"min_link", 1}, {"surface", nullptr}};
+  s.parameters = Json{{"spatial_scales", nullptr}, {"bands", nullptr}, {"source", "global_bursts"}, {"response", "peak"}, {"min_link", 1}, {"surface", nullptr}};
   s.matches = "Rheome detect.blobscale (the scale of the largest normalised response); compute nxr::select::scale_selection::selectScale, nxr::select::standardize";
   s.description = "each event's own size and rhythm across the product of two lists of levels, from the stored cells, baselines and labellings of the pairs: the cross-pair events, each one's footprint and best pair";
   s.traits = nxr::graph::node_traits(nxr::graph::TimeBehaviour::pointwise, nxr::graph::Precision::float64, nxr::graph::OutputPrecision::float64, "in double from stored cells");
@@ -208,8 +208,10 @@ StepSpec scale_selection_step() {
       for (std::int64_t e = 0; e < pr[static_cast<std::size_t>(a)].events; ++e) lk.data[static_cast<std::size_t>(a * maxe + e)] = sel.cross[static_cast<std::size_t>(a)][static_cast<std::size_t>(e)];
     Json prs = Json::array();
     for (const ScalePairInput& q : pr) prs.push_back(Json{{"name", "s" + std::to_string(q.space_level) + "_t" + std::to_string(q.time_level)}, {"labelling", q.labelling_name}});
+    Json event_ordinals = Json::array();                                                                  // the axis runs along each pair's events, by their ordinal in the pair's labelling
+    for (std::int64_t e = 0; e < maxe; ++e) event_ordinals.push_back(e);
     lk.meta["describe"] = Json{{"measure", "scale_event"}, {"method", "scale_selection"}, {"precision", "float64"}, {"n_members", E},
-                               {"axes", Json::array({Json{{"name", "pair"}, {"size", P}, {"values", prs}}, Json{{"name", "event"}, {"size", maxe}}})},
+                               {"axes", Json::array({Json{{"name", "pair"}, {"size", P}, {"values", prs}}, Json{{"name", "event"}, {"size", maxe}, {"values", event_ordinals}}})},
                                {"options", Json{{"response", p["response"]}, {"min_link", p["min_link"]}, {"source", p["source"]}}}, {"producer", Json{{"pairs", pairs_json}, {"warnings", warnings}}},
                                {"description", "for each pair's event (a labelling's member), the cross-pair event it belongs to; NaN beyond the pair's events"}};
     return Arrays{{"events", std::move(ev)}, {"scale", std::move(sc)}, {"links", std::move(lk)}};

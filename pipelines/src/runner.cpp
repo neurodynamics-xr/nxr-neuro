@@ -884,7 +884,10 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     if (is_declared(P, o) && ospec["kind"] == "measurement" && ospec.contains("of") && !of_id.empty() && P.found.count(ospec["over"].get<std::string>()) && P.found.at(ospec["over"].get<std::string>()).row) {
       // a declared measurement of a FOUND field (or of the run's own stored field) over a found selection takes no node: it is a hit when every row of the pair was made by this very run (same key)
       const std::string sel = text(*P.found.at(ospec["over"].get<std::string>()).row, "id"), fld = of_id;
-      const auto by = nxr::io::selection::computed_by_over_field(sub.db(), sel, fld);
+      auto by = nxr::io::selection::computed_by_over_field(sub.db(), sel, fld);
+      if (by.empty())                                                   // a node may have measured over a member of the found selection (a level's tile set of a grid: describe.over_member)
+        for (const nxr::io::Row& mr : sub.db().all("SELECT id FROM selection WHERE member_of_id = ?", {nxr::io::V(sel)})) { by = nxr::io::selection::computed_by_over_field(sub.db(), text(mr, "id"), fld); if (!by.empty()) break; }
+      if (by.empty() && ospec.value("optional", false)) { stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}, {"stored", false}, {"why", "an optional output this run did not make"}}); continue; }
       if (by.size() != 1 || by[0] != made_by(key)) { hit = false; break; }
       stored.push_back(Json{{"output", o}, {"kind", "measurement"}, {"over", sel}});
       continue;
@@ -894,7 +897,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       const auto places = declared_places(P, o, sub);
       // an output with no place to look up (a selection on a manifold this run makes, a measurement over it) cannot be shown stored: a miss, never a hit
       // (a measurement over another output of this run, the run's own events: it is stored with them and a hit with them)
-      if (places.empty() && ospec["kind"] == "measurement" && ospec.contains("over") && ospec["over"].is_string() && d.outputs.contains(ospec["over"].get<std::string>()) && !P.found.count(ospec["over"].get<std::string>()) && !is_declared(P, ospec["over"].get<std::string>())) {
+      if (places.empty() && ospec["kind"] == "measurement" && ospec.contains("over") && ospec["over"].is_string() && d.outputs.contains(ospec["over"].get<std::string>()) && !P.found.count(ospec["over"].get<std::string>()) && (!is_declared(P, ospec["over"].get<std::string>()) || (ospec_kind(d.outputs[ospec["over"].get<std::string>()]) == "selection" && !d.outputs[ospec["over"].get<std::string>()].value("get_or_create", false)))) {   // (a declared selection the run stores itself is checked by its own key, listed before; a maker's is found or made, never a miss)
         stored.push_back(one);
         continue;
       }

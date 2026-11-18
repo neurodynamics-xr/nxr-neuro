@@ -1,16 +1,15 @@
-// scale selection (spec docs/specs/2026-11-13-cortical-events.md, "Phase 2e") on a synthetic source space (never a real dataset): `run cortical_event_pairs` over the product of two spatial levels (3, 4) and two time bands
-// (4-8 Hz, 8-16 Hz), then `scaleselection compute`. Two episodes, in different hemispheres and at different times, each with its OWN size and rhythm: A is the level-3 pattern of one left tile at 6 Hz, B the level-4 pattern of
-// one right tile at 12 Hz. Checks: the stored cells, baselines and labellings of every pair (the per-pair extents are `cell_extent`'s, unchanged, each against its pair's own bursts: the bursts' name is the pair's own);
-// the cross-pair events are the episodes (every pair's events at each episode's time are ONE cross-pair event, linked by the ladders' nesting and time overlap); A's best pair is (level 3, 4-8 Hz) and B's (level 4, 8-16 Hz);
-// the footprint, the response and the events' facts against an independent computation from the stored labellings and cells (z against the tile's own median and robust SD); the tile area, the band, the pair count and
-// the edge flags; the span of each event; scale_event over each pair's labelling; a rerun a hit; another option refused without --replace and made with it; min_link large splits the events; the mean response; the refusals
-// (a missing pair, a missing run, a labelling of another pipeline, a repeated level, unknown recording and response).
+// the `scaleselection` definition run through the runner on a small synthetic subject (never a real dataset): two episodes of a 12 Hz oscillation, each the pattern of ONE tile at its OWN spatial scale: A in the left hemisphere
+// the level-3 pattern of a tile (8 parts a hemisphere), B in the right hemisphere the level-4 pattern (16 parts). The stored pairs are made as a user makes them: `select_product` (the spatial scale x the 8-16 Hz band's
+// time grid, and the one-sample grid) and `global_bursts` at each of the two spatial scales; then `scaleselection` over the pairs, from the stored cells, baselines and labellings only. One band, one chunk.
+// Checks: the cross-pair events are the episodes (the same episode seen at both pairs is ONE event); each one's best pair is the pair it was planted at; its footprint, peak, the pair count and the tile area against an
+// independent computation from the stored cells and labellings (z against the tile's own median and robust SD); the span of each event; a rerun a hit; the mean response; `min_link` large splits the events; the
+// refusals (a pair with no run, a repeated scale, an unknown response, a min_link below 1, a recording that is absent).
 #include <unistd.h>
 
-#include <cmath>
-#include <cstring>
 #include <algorithm>
 #include <array>
+#include <cmath>
+#include <cstring>
 #include <filesystem>
 #include <iostream>
 #include <map>
@@ -21,30 +20,25 @@
 #include "check.h"
 #include "store_at.h"
 #include "nxr/io.h"
+#include "nxr/io/measures.h"
+#include "nxr/io/selection_reads.h"
+#include "nxr/io/selection_store.h"
+#include "nxr/io/statistic.h"
+#include "nxr/io/array_reader.h"
 #include "nxr/io/task/task.h"
-#include "nxr/io/testing/probe.h"
-#include "nxr/select/dyadic.h"
 #include "nxr/pipelines/runner.h"
-#include "nxr/pipelines/scaleselection.h"
 #include "nxr/pipelines/spatial_band.h"
 #include "make_grids.h"
+#include "run_definition.h"
 
 using namespace nxr::io;
 using namespace nxr::pipelines;
 namespace g = nxr::pipelines::graph;
 namespace fs = std::filesystem;
+namespace tk = nxr::io::task;
 
 namespace {
-template <class F> std::string code_of(F f) { try { f(); } catch (const Error& e) { return e.code(); } return ""; }
-template <class F> std::string why_of(F f) { try { f(); } catch (const Error& e) { return e.what(); } return ""; }
-template <class T> std::vector<T> read_vec(const fs::path& p, std::vector<std::int64_t>* shape = nullptr) {
-  ArrayReader r = nxrtest::open_array(p);
-  if (shape) *shape = r.shape();
-  const auto raw = r.read();
-  std::vector<T> v(raw.size() / sizeof(T));
-  std::memcpy(v.data(), raw.data(), v.size() * sizeof(T));
-  return v;
-}
+template <class F> std::string why_of(F f) { try { f(); } catch (const std::exception& e) { return e.what(); } return ""; }
 Json out_of(const Json& r, const std::string& o) { for (const auto& x : r["stored"]) if (x["output"] == o) return x; return Json(); }
 }  // namespace
 
@@ -55,7 +49,7 @@ int main() {
   fs::remove_all(root);
   struct Cleanup { fs::path p; ~Cleanup() { fs::remove_all(p); } } cleanup{root};
   const Brain b = brain(2, false);
-  const int N = b.n, M = N, T = 12288;
+  const int N = b.n, M = N, T = 4096;
   const double sfreq = 250.0;
   DatasetWriter ds = create_dataset(root, "demo");
   std::string surf, tid, cid_s;
@@ -97,27 +91,8 @@ int main() {
     /* the constant-Q time grid is made by `select_time_grid` (rule constant_q) after the subject is reopened */
   }
   SubjectWriter sub = SubjectWriter::open(ds, "S1");
-  nxrtest::make_time_grids(ds, sub);
   nxrtest::make_tiles(ds, sub);
   const SurfaceInput S0 = read_surface(sub, std::string("cortex"), true);
-  // the time levels of the two bands: the constant-Q levels that resolve 4-8 Hz and 8-16 Hz
-  int tl_slow = -1, tl_fast = -1;
-  std::int64_t w_slow = 0, w_fast = 0;
-  const task::Subject tsub = task::Subject::of(sub);
-  for (const task::Node& m : tsub.find_all({.cls = task::Cls::selection, .params_present = {"resolves_hz"}})) {
-    if (!m.member_of_id) continue;
-    const Json& pj = m.params;
-    if (pj["resolves_hz"]["lo"] == 4.0 && pj["resolves_hz"]["hi"] == 8.0) { tl_slow = static_cast<int>(m.member_ordinal.value_or(0)); w_slow = pj["window_samples"].get<std::int64_t>(); }
-    if (pj["resolves_hz"]["lo"] == 8.0 && pj["resolves_hz"]["hi"] == 16.0) { tl_fast = static_cast<int>(m.member_ordinal.value_or(0)); w_fast = pj["window_samples"].get<std::int64_t>(); }
-  }
-  CHECK(tl_slow >= 0 && tl_fast >= 0);
-  if (tl_slow < 0 || tl_fast < 0) return 1;
-  std::printf("  time levels: 4-8 Hz is level %d (%lld samples), 8-16 Hz level %d (%lld samples)\n", tl_slow, static_cast<long long>(w_slow), tl_fast, static_cast<long long>(w_fast));
-  const std::vector<int> levels = {3, 4};
-  const std::vector<int> tlevels = {tl_fast, tl_slow};                         // the declared order: the 8-16 Hz level first
-  const int SP = 2, TP = 2;                                                    // spatial and time level counts: the pairs in the declared order (space level major)
-
-  // THE PLANTED EPISODES. A (left hemisphere): the level-3 pattern of tile 2 at 6 Hz, 8 s to 17 s. B (right hemisphere): the level-4 pattern of tile 16 + 5 at 12 Hz, 30 s to 35 s.
   auto centres_of = [&](int level) {
     const SurfaceLevel sl = read_surface_level(sub, S0, level);
     ArrayReader r = ArrayReader::open(sub.store(), sl.record["node"].get<std::string>() + "/lc/L" + std::to_string(level) + "/centre");
@@ -135,17 +110,18 @@ int main() {
     Eigen::MatrixXd f = sb.apply(e);
     return Eigen::VectorXd(f.col(0) / f.col(0).cwiseAbs().maxCoeff());
   };
-  const Eigen::VectorXd pA = pattern(3, 2), pB = pattern(4, 16 + 5);
+  // THE PLANTED EPISODES, the level-4 pattern of one tile each: A in the left hemisphere (tile 2), 4 s to 7 s; B in the right hemisphere (tile 16 + 5), 11 s to 13.5 s. Both at 12 Hz.
+  const Eigen::VectorXd pA = pattern(4, 2), pB = pattern(4, 16 + 5);
   auto S_ = [](double x) { return 1.0 / (1.0 + std::exp(-x)); };
   std::mt19937 rng(21);
   std::normal_distribution<double> nd;
   std::vector<float> xf(static_cast<std::size_t>(M) * T);
   for (int v = 0; v < M; ++v)
     for (int t = 0; t < T; ++t) {
-      const double s = t / sfreq;
+      const double s = t / sfreq, osc = std::cos(2 * M_PI * 12.0 * s);
       double x = 0.005 * nd(rng);
-      x += pA(v) * S_((s - 8.0) / 0.3) * S_(-(s - 17.0) / 0.4) * std::cos(2 * M_PI * 6.0 * s);
-      x += pB(v) * S_((s - 30.0) / 0.25) * S_(-(s - 35.0) / 0.35) * std::cos(2 * M_PI * 12.0 * s);
+      x += pA(v) * S_((s - 4.0) / 0.3) * S_(-(s - 7.0) / 0.4) * osc;
+      x += pB(v) * S_((s - 11.0) / 0.25) * S_(-(s - 13.5) / 0.35) * osc;
       xf[static_cast<std::size_t>(v) * T + t] = static_cast<float>(x);
     }
   {
@@ -153,214 +129,121 @@ int main() {
     w.compose([&] {
       FieldSpec rec;
       const std::string prod = w.product({cid_s, tid});
-      rec.name = "rest"; rec.path = task::Subject::of(w).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
+      rec.name = "rest"; rec.path = tk::Subject::of(w).node_path(prod, "rest"); rec.kind = "recording"; rec.manifold_id = prod;
       rec.data = view(xf, {M, T}); rec.array.chunks = Shape{M, std::int64_t(4096)}; rec.array.compress = false; rec.cols.set("unit", "A");
       w.field(std::move(rec));
     });
   }
-  for (const int l : levels)
-    for (const int m : tlevels) { JointComputeOptions jo; jo.recording = "rest"; jo.space_level = l; jo.time_level = m; joint_compute(ds, sub, jo); }
-
-  // ── THE RUN: every pair's cells, global bursts and extents, one pass ──
-  const g::Definition d = g::load("cortical_event_pairs");
-  g::RunOptions all; all.chunks = "all";
-  Json set1 = Json{{"space_levels", Json::array({3, 4})}, {"bands", Json::array({Json::array({8.0, 16.0}), Json::array({4.0, 8.0})})}, {"transform", "exact"}, {"extent_enter_sd", 30.0}, {"extent_exit_sd", 15.0}, {"min_cells", 2}};
-  const auto r1 = g::run(ds, sub, d, set1, all);
+  // THE STORED PAIR, made as a user makes it: the band's time grid and the one-sample grid, their products with the surface's level at "parts 16", and `global_bursts` over them
+  const std::string grid = "rest time grid band 8-16 Hz";
+  nxrtest::make_time_grids(ds, sub, "band", Json{{"band", "8-16 Hz"}, {"recording", "rest"}});
+  std::string sgrid;
+  for (const auto& r : nxrtest::make_time_grids(ds, sub, "tiles", Json{{"duration", "0.004 s"}, {"recording", "rest"}})) for (const auto& x : r["stored"]) if (x["output"] == "grid") sgrid = x["name"].get<std::string>();
+  const std::string scale = "parts 16";
+  nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", "rest"}, {"surface", "cortex"}, {"time_grid", grid}, {"couple", Json::array({Json{{"factor", 0}, {"scale", scale}}})}, {"name", "rest cells"}});
+  nxrtest::run_definition(ds, sub, "select_product", Json{{"recording", "rest"}, {"surface", "cortex"}, {"time_grid", sgrid}, {"couple", Json::array({Json{{"factor", 0}, {"scale", scale}}})}, {"name", "rest samples"}});
+  const auto gb = nxrtest::run_definition(ds, sub, "global_bursts", Json{{"recording", "rest"}, {"spatial_scale", scale}, {"product", "rest cells"}, {"sample_product", "rest samples"}, {"transform", "exact"}, {"spatial_shape", "meyer"},
+                                                                        {"extent_enter_sd", 30.0}, {"extent_exit_sd", 15.0}});
+  CHECK(gb.size() == 1 && gb[0]["hit"] == false);
+  const Json sel = Json{{"recording", "rest"}, {"surface", "cortex"}, {"spatial_scales", Json::array({scale})}, {"bands", Json::array({"8-16 Hz"})}};
+  auto run_sel = [&](Json set, bool replace = false) { return nxrtest::run_definition(ds, sub, "scaleselection", set, replace); };
+  const auto r1 = run_sel(sel);
   CHECK(r1.size() == 1 && r1[0]["hit"] == false);
-  const std::vector<std::string> band_name = {"8_16", "4_8"};
-  const std::int64_t windows[2] = {w_fast, w_slow};
-  struct PairData { int l, m, bi; std::int64_t S, F, W; std::vector<float> amp; std::vector<std::int32_t> lab; Eigen::MatrixXd z; Json lab_out; int events; };
-  std::vector<PairData> pd;
-  for (int a = 0; a < SP; ++a)
-    for (int bi = 0; bi < TP; ++bi) {
-      PairData p; p.l = levels[static_cast<std::size_t>(a)]; p.m = tlevels[static_cast<std::size_t>(bi)]; p.bi = bi; p.W = windows[bi];
-      const std::string tag = "l" + std::to_string(p.l) + "_b" + band_name[static_cast<std::size_t>(bi)];
-      std::vector<std::int64_t> sh;
-      p.amp = nxrtest::read_packed(sub.folder(), out_of(r1[0], "amplitude_" + tag), &sh);
-      p.S = sh[0]; p.F = sh[1];
-      p.lab_out = out_of(r1[0], "extents_" + tag);
-      CHECK(!p.lab_out.is_null() && !out_of(r1[0], "bursts_" + tag).is_null() && !out_of(r1[0], "cell_baseline_" + tag).is_null());
-      p.lab = read_vec<std::int32_t>((sub.folder() / (p.lab_out["path"].get<std::string>())), &sh);
-      CHECK(sh == (std::vector<std::int64_t>{p.S, p.F}));
-      p.events = p.lab_out["events"].get<int>();
-      // the independent z: the tile's median and robust SD over the run's time tiles
-      Eigen::MatrixXd a2(p.S, p.F);
-      for (int s = 0; s < p.S; ++s) for (int f = 0; f < p.F; ++f) a2(s, f) = p.amp[static_cast<std::size_t>((s * p.F + f) * 2)];
-      p.z = Eigen::MatrixXd::Constant(p.S, p.F, std::nan(""));
-      auto median = [](std::vector<double> x) { std::sort(x.begin(), x.end()); const std::size_t n = x.size(); return n % 2 ? x[n / 2] : 0.5 * (x[n / 2 - 1] + x[n / 2]); };
-      for (int s = 0; s < p.S; ++s) {
-        std::vector<double> x;
-        for (int f = 0; f < p.F; ++f) if (std::isfinite(a2(s, f))) x.push_back(a2(s, f));
-        const double med = median(x);
-        std::vector<double> dv;
-        for (const double v : x) dv.push_back(std::abs(v - med));
-        const double sd = 1.4826 * median(dv);
-        for (int f = 0; f < p.F; ++f) if (sd > 0 && std::isfinite(a2(s, f))) p.z(s, f) = (a2(s, f) - med) / sd;
-      }
-      std::printf("  pair (level %d, %s Hz): %lld x %lld cells, %d events\n", p.l, band_name[static_cast<std::size_t>(bi)].c_str(), static_cast<long long>(p.S), static_cast<long long>(p.F), p.events);
-      pd.push_back(std::move(p));
-    }
-  // each labelling names the bursts of ITS pair
-  for (const auto& p : pd) {
-    const Json pj = tsub.require_id(task::Cls::selection, p.lab_out["id"].get<std::string>()).params;
-    CHECK(pj["bursts"].is_object() && pj["bursts"]["output"].get<std::string>() == "bursts_l" + std::to_string(p.l) + "_b" + band_name[static_cast<std::size_t>(p.bi)]);
-  }
+  const std::string rid = tk::Subject::of(sub).find({.cls = tk::Cls::field, .name = "rest", .any_status = true})->id;
+  const std::string cells_id = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = "rest cells", .any_status = true})->id;
+  const auto events = tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = "rest_scale_selection", .any_status = true});
+  CHECK(events.has_value());
+  auto measure = [&](const char* m) { return measurement_values(sub, tk::Subject::of(sub).find({.cls = tk::Cls::selection, .name = "rest_scale_selection", .any_status = true})->id, rid, std::nullopt, std::nullopt, m).values; };
 
-  // ── SCALE SELECTION ──
-  ScaleSelectionOptions so;
-  so.recording = "rest"; so.space_levels = levels; so.time_levels = tlevels;
-  auto run_verb = [&](const ScaleSelectionOptions& o) { return scaleselection_compute(ds, sub, o); };
-  const auto v1 = run_verb(so);
-  CHECK(!v1.hit);
-  const std::int64_t E = v1.info["events"].get<std::int64_t>();
-  const std::string sid = v1.info["id"].get<std::string>();
-  const int P = SP * TP;
-  CHECK_EQ(E, 2);
-  auto measure = [&](const std::string& selection, const std::string& name, std::vector<std::int64_t>& shape, int& comp) {
-    const std::string rest_id = tsub.require({.cls = task::Cls::field, .name = "rest"}, "the recording").id;
-    const auto found = testing::Probe(sub).rows("selection_measurement", {{"selection_id", selection}, {"of_field_id", rest_id}, {"measure", name}});
-    const auto row = found.empty() ? std::optional<Row>() : std::optional<Row>(found.front());
-    CHECK(row.has_value());
-    if (!row) return std::vector<double>();
-    comp = static_cast<int>(integer(*row, "component"));
-    return read_vec<double>((sub.folder() / (text(*row, "array_path"))), &shape);
-  };
-  // the planted episodes' time windows in samples, and each pair's events' facts, independent of nxr::select::scale_selection (from the stored labellings and cells)
-  const std::array<std::pair<double, double>, 2> episode = {std::pair<double, double>{8.0 * sfreq, 17.0 * sfreq}, std::pair<double, double>{30.0 * sfreq, 35.0 * sfreq}};
-  struct Fact { double peak = -1e300, mean = 0; int cells = 0; std::int64_t first = 1 << 30, stop = -1; int episode = -1; };
-  std::vector<std::vector<Fact>> facts(static_cast<std::size_t>(P));
-  for (int a = 0; a < P; ++a) {
-    const PairData& p = pd[static_cast<std::size_t>(a)];
-    facts[static_cast<std::size_t>(a)].resize(static_cast<std::size_t>(p.events));
-    for (int s = 0; s < p.S; ++s)
-      for (int f = 0; f < p.F; ++f) {
-        const int e = p.lab[static_cast<std::size_t>(s * p.F + f)];
-        if (e < 0) continue;
-        Fact& x = facts[static_cast<std::size_t>(a)][static_cast<std::size_t>(e)];
-        x.peak = std::max(x.peak, p.z(s, f)); x.mean += p.z(s, f); ++x.cells;
-        x.first = std::min<std::int64_t>(x.first, f * p.W); x.stop = std::max<std::int64_t>(x.stop, (f + 1) * p.W);
-      }
-    for (auto& x : facts[static_cast<std::size_t>(a)]) {
-      x.mean /= x.cells;
-      for (int k = 0; k < 2; ++k) if (x.first < episode[static_cast<std::size_t>(k)].second && episode[static_cast<std::size_t>(k)].first < x.stop) x.episode = k;
+  // ── THE INDEPENDENT FACTS, from the stored cells and the stored labelling: z = (amplitude - the tile's median) / its robust SD (1.4826 mad) over the run's time tiles ──
+  const SurfaceLevel SL = read_surface_level(sub, S0, 4);
+  const std::int64_t tiles = SL.nodes, frames = T / 128, W = 128;
+  const MeasurementValues amp = measurement_values(sub, cells_id, rid, std::nullopt, std::nullopt, "amplitude");
+  CHECK(amp.members == tiles * frames);                                               // the product's order: the space tile fastest, code = tile + tiles x time tile
+  auto median = [](std::vector<double> x) { std::sort(x.begin(), x.end()); const std::size_t n = x.size(); return n % 2 ? x[n / 2] : 0.5 * (x[n / 2 - 1] + x[n / 2]); };
+  Eigen::MatrixXd z(tiles, frames);
+  for (std::int64_t s = 0; s < tiles; ++s) {
+    std::vector<double> x, dev;
+    for (std::int64_t t = 0; t < frames; ++t) x.push_back(amp.values[static_cast<std::size_t>(s + tiles * t)]);
+    const double med = median(x);
+    for (const double v : x) dev.push_back(std::abs(v - med));
+    const double sd = 1.4826 * median(dev);
+    for (std::int64_t t = 0; t < frames; ++t) z(s, t) = (x[static_cast<std::size_t>(t)] - med) / sd;
+  }
+  const Row ext = *sub.db().one("SELECT * FROM selection WHERE name = ?", {V(std::string("global_bursts.extents.rest"))});
+  std::vector<std::int32_t> cell_member;
+  { ArrayReader lr = ArrayReader::open(sub.store(), text(ext, "array_path")); const auto raw = lr.read(); cell_member.resize(raw.size() / 4); std::memcpy(cell_member.data(), raw.data(), raw.size()); }
+  CHECK(static_cast<std::int64_t>(cell_member.size()) == tiles * frames);
+  const std::vector<std::int64_t> event_of_member = nxr::io::selection::member_labels(sub, text(ext, "id"));
+  struct Fact { double peak = -1e300, mean = 0; int cells = 0; std::int64_t first = 1 << 30, last = -1; };
+  std::map<std::int64_t, Fact> by_event;
+  for (std::int64_t s = 0; s < tiles; ++s)
+    for (std::int64_t t = 0; t < frames; ++t) {
+      const std::int32_t m = cell_member[static_cast<std::size_t>(s + tiles * t)];
+      if (m < 0 || static_cast<std::size_t>(m) >= event_of_member.size()) continue;
+      Fact& f = by_event[event_of_member[static_cast<std::size_t>(m)]];
+      f.peak = std::max(f.peak, z(s, t)); f.mean += z(s, t); ++f.cells; f.first = std::min(f.first, t); f.last = std::max(f.last, t);
     }
-    CHECK(p.events == 1 && facts[static_cast<std::size_t>(a)][0].episode >= 0);
-  }
-  // the pair of each episode: the planted one has an event at its own pair; the others, if any, are other pairs' events of the same episode
-  std::printf("  pair events: ");
-  for (int a = 0; a < P; ++a) std::printf("[pair %d: episode %d, peak z %.1f, cells %d] ", a, facts[static_cast<std::size_t>(a)][0].episode, facts[static_cast<std::size_t>(a)][0].peak, facts[static_cast<std::size_t>(a)][0].cells);
-  std::printf("\n");
-  // MATCHING: the cross-pair event of each pair's event (scale_event over the pair's labelling) is the episode's
-  std::vector<int> cross_of_episode = {-1, -1};
-  for (int a = 0; a < P; ++a) {
-    std::vector<std::int64_t> sh; int c = 0;
-    const auto cx = measure(pd[static_cast<std::size_t>(a)].lab_out["id"].get<std::string>(), "scale_event", sh, c);
-    CHECK(sh == (std::vector<std::int64_t>{1, 1, 1}) && cx.size() == 1);
-    const int ep = facts[static_cast<std::size_t>(a)][0].episode;
-    if (cross_of_episode[static_cast<std::size_t>(ep)] < 0) cross_of_episode[static_cast<std::size_t>(ep)] = static_cast<int>(cx[0]);
-    CHECK_EQ(static_cast<int>(cx[0]), cross_of_episode[static_cast<std::size_t>(ep)]);        // the same episode at every pair: ONE cross-pair event
-  }
-  CHECK(cross_of_episode[0] >= 0 && cross_of_episode[1] >= 0 && cross_of_episode[0] != cross_of_episode[1]);
-  CHECK_EQ(cross_of_episode[0], 0);                                                           // numbered by the earliest sample: A (6 s) before B (28 s)
-  CHECK_EQ(cross_of_episode[1], 1);
-  // THE EVENTS' MEASURES (one array [1 x E x 8]) and the footprint [P x E x 1]
-  std::vector<std::int64_t> shE, shF; int cE = 0, cF = 0;
-  const auto spaceLevel = measure(sid, "scale_space_level", shE, cE);
-  CHECK(shE == (std::vector<std::int64_t>{1, E, 8}) && cE == 0);
-  const auto at = [&](const std::vector<double>& v, int comp, int k) { return v[static_cast<std::size_t>(k * 8 + comp)]; };
-  const auto foot = measure(sid, "scale_response", shF, cF);
-  CHECK(shF == (std::vector<std::int64_t>{P, E, 1}));
-  std::printf("  footprint (rows: pairs (3,8-16) (3,4-8) (4,8-16) (4,4-8); columns: A B)\n");
-  for (int a = 0; a < P; ++a) std::printf("    pair %d: %10.1f %10.1f\n", a, foot[static_cast<std::size_t>(a * E + 0)], foot[static_cast<std::size_t>(a * E + 1)]);
-  const int bestExpected[2] = {1, 2};                                                          // A: level 3 x 4-8 Hz (declared pair 1); B: level 4 x 8-16 Hz (declared pair 2)
+  std::vector<Fact> facts;                                                            // the cross-pair events are numbered by their earliest sample
+  for (auto& [e, f] : by_event) { f.mean /= f.cells; facts.push_back(f); }
+  std::sort(facts.begin(), facts.end(), [](const Fact& a, const Fact& b) { return a.first < b.first; });
+  CHECK(facts.size() == 2);                                                           // the two planted episodes, each seen at the one pair
+  if (facts.size() != 2) return 1;
+  std::printf("  pair events: A tiles %lld-%lld peak z %.1f (%d cells); B tiles %lld-%lld peak z %.1f (%d cells)\n", static_cast<long long>(facts[0].first), static_cast<long long>(facts[0].last), facts[0].peak, facts[0].cells,
+              static_cast<long long>(facts[1].first), static_cast<long long>(facts[1].last), facts[1].peak, facts[1].cells);
+  CHECK((facts[0].last + 1) * W / sfreq > 4.0 && facts[0].first * W / sfreq < 7.0 && (facts[1].last + 1) * W / sfreq > 11.0 && facts[1].first * W / sfreq < 13.5);   // each lies on its planted episode
+
+  // ── THE CROSS-PAIR EVENTS: the facts, the pair and the span ──
+  const auto peak = measure("scale_peak"), level = measure("scale_space_level"), tlevel = measure("scale_time_level"), pairs = measure("scale_pairs"), edge = measure("scale_edge"), lo = measure("scale_band_lo"), hi = measure("scale_band_hi"),
+             area = measure("scale_tile_area"), foot = measure("scale_response_s4_t7");
+  CHECK(peak.size() == 2 && foot.size() == 2);
+  double mean_area = 0;
+  for (const double x : SL.tile_area) mean_area += x;
+  mean_area /= static_cast<double>(SL.nodes);
   for (int k = 0; k < 2; ++k) {
-    int best = -1; double mx = -1e300, second = -1e300;
-    for (int a = 0; a < P; ++a) {
-      const double ind = facts[static_cast<std::size_t>(a)][0].episode == k ? facts[static_cast<std::size_t>(a)][0].peak : std::nan("");
-      const double got = foot[static_cast<std::size_t>(a * E + k)];
-      CHECK(std::isnan(ind) == std::isnan(got) && (std::isnan(ind) || std::abs(got - ind) < 1e-4 * std::abs(ind)));   // the footprint = each pair's event's peak z, NaN where none
-      if (std::isfinite(ind)) { if (ind > mx) { second = mx; mx = ind; best = a; } else if (ind > second) second = ind; }
-    }
-    CHECK_EQ(best, bestExpected[k]);
-    CHECK(mx > 2 * second || second < -1e290);                                                // the planted pair is clearly the largest
-    CHECK_EQ(static_cast<int>(at(spaceLevel, 0, k)), pd[static_cast<std::size_t>(best)].l);
-    CHECK_EQ(static_cast<int>(at(spaceLevel, 1, k)), pd[static_cast<std::size_t>(best)].m);
-    CHECK(std::abs(at(spaceLevel, 2, k) - mx) < 1e-4 * mx);
-    const SurfaceLevel sl = read_surface_level(sub, S0, pd[static_cast<std::size_t>(best)].l);
-    double area = 0;
-    for (const double x : sl.tile_area) area += x;
-    CHECK(std::abs(at(spaceLevel, 3, k) - area / static_cast<double>(sl.nodes)) < 1e-9 * area);       // the mean tile area of the best level (m2)
-    CHECK(at(spaceLevel, 4, k) == (pd[static_cast<std::size_t>(best)].bi == 0 ? 8.0 : 4.0) && at(spaceLevel, 5, k) == (pd[static_cast<std::size_t>(best)].bi == 0 ? 16.0 : 8.0));
-    int n = 0;
-    for (int a = 0; a < P; ++a) n += facts[static_cast<std::size_t>(a)][0].episode == k;
-    CHECK_EQ(static_cast<int>(at(spaceLevel, 6, k)), n);
+    CHECK(std::abs(peak[static_cast<std::size_t>(k)] - facts[static_cast<std::size_t>(k)].peak) < 1e-6 * facts[static_cast<std::size_t>(k)].peak);           // the response is the event's peak z
+    CHECK(foot[static_cast<std::size_t>(k)] == peak[static_cast<std::size_t>(k)]);                                                                         // its footprint at the one pair is the same
+    CHECK(level[static_cast<std::size_t>(k)] == 4 && tlevel[static_cast<std::size_t>(k)] == 7 && pairs[static_cast<std::size_t>(k)] == 1 && edge[static_cast<std::size_t>(k)] == 0);
+    CHECK(lo[static_cast<std::size_t>(k)] == 8.0 && hi[static_cast<std::size_t>(k)] == 16.0 && std::abs(area[static_cast<std::size_t>(k)] - mean_area) < 1e-9 * mean_area);
   }
-  CHECK_EQ(static_cast<int>(at(spaceLevel, 7, 0)), 2 | 8);                                    // A: the coarsest level (2) and the longest window (8) of the set: on the set's edge
-  CHECK_EQ(static_cast<int>(at(spaceLevel, 7, 1)), 1 | 4);                                    // B: the finest level (1) and the shortest window (4)
-  {   // the spans Selection: the union of the members' time tiles, in seconds
-    const auto rows = tsub.spans(tsub.require_id(task::Cls::selection, sid));
-    CHECK_EQ(static_cast<int>(rows.size()), 2);
-    for (int k = 0; k < 2; ++k) {
-      std::int64_t first = 1 << 30, stop = -1;
-      for (int a = 0; a < P; ++a) if (facts[static_cast<std::size_t>(a)][0].episode == k) { first = std::min(first, facts[static_cast<std::size_t>(a)][0].first); stop = std::max(stop, facts[static_cast<std::size_t>(a)][0].stop); }
-      CHECK(std::abs(rows[static_cast<std::size_t>(k)].start - first / sfreq) < 1e-6 && std::abs(rows[static_cast<std::size_t>(k)].stop - stop / sfreq) < 1e-6);
-    }
-    const auto sel = tsub.require_id(task::Cls::selection, sid);
-    const Json& pj = sel.params;
-    CHECK(sel.type == "spans" && pj["scale"]["pairs"].size() == 4 && pj["scale"]["response"] == "peak" && pj["scale"]["pairs"][1]["space_level"] == 3 && pj["scale"]["pairs"][1]["time_level"] == tl_slow && pj["scale"]["warnings"].size() == 3);
+  {   // the spans Selection: the event's time tiles, in seconds
+    const auto spans = tk::Subject::of(sub).spans(*events);
+    CHECK(spans.size() == 2);
+    for (std::size_t k = 0; k < spans.size() && k < 2; ++k) CHECK(std::abs(spans[k].start - facts[k].first * W / sfreq) < 1e-6 && std::abs(spans[k].stop - (facts[k].last + 1) * W / sfreq) < 1e-6);
   }
-  // a rerun is a hit; another option is refused without --replace
-  { const auto r = run_verb(so); CHECK(r.hit && r.info["events"].get<int>() == 2); }
-  ScaleSelectionOptions mean = so; mean.response = "mean";
-  CHECK_EQ(code_of([&] { run_verb(mean); }), std::string(code::already_exists));
-  mean.replace = true;
-  {   // the MEAN response: the selection is made on the mean z of the events' cells
-    const auto r = run_verb(mean);
-    CHECK(!r.hit && r.info["events"] == 2);
-    std::vector<std::int64_t> sh; int c = 0;
-    const auto m2 = measure(r.info["id"].get<std::string>(), "scale_peak", sh, c);
-    for (int k = 0; k < 2; ++k) {
-      double mx = -1e300;
-      for (int a = 0; a < P; ++a) if (facts[static_cast<std::size_t>(a)][0].episode == k) mx = std::max(mx, facts[static_cast<std::size_t>(a)][0].mean);
-      CHECK(std::abs(m2[static_cast<std::size_t>(k * 8 + 2)] - mx) < 1e-4 * mx);
-    }
+  {   // the links: the cross-pair event of each of the pair's events
+    const StoredStatistic lk = read_statistic(sub, "rest_scale_selection.links");
+    CHECK(lk.shape == (std::vector<std::int64_t>{1, 2}));
+    std::set<int> cross;
+    for (const double v : lk.values) cross.insert(static_cast<int>(v));
+    CHECK(cross == (std::set<int>{0, 1}));
   }
-  // min_link large: nothing links, so every pair's event stands alone (4 events); a rerun of the first options is a miss under --replace and gives back two
+  // a rerun is a hit; the mean response is another option, made with --replace, and the selection is then on the events' mean z
+  CHECK(run_sel(sel)[0]["hit"] == true);
   {
-    ScaleSelectionOptions ml = so; ml.min_link = 1000000; ml.replace = true;
-    const auto r = run_verb(ml);
-    CHECK_EQ(r.info["events"].get<int>(), 4);
-    ScaleSelectionOptions back = so; back.replace = true;
-    const auto b2 = run_verb(back);
-    CHECK(!b2.hit && b2.info["events"] == 2);
-    const auto b3 = run_verb(so);
-    CHECK(b3.hit);
+    Json mean = sel; mean["response"] = "mean";
+    const auto r = run_sel(mean, true);
+    CHECK(r[0]["hit"] == false);
+    const auto m2 = measure("scale_peak");
+    for (int k = 0; k < 2; ++k) CHECK(std::abs(m2[static_cast<std::size_t>(k)] - facts[static_cast<std::size_t>(k)].mean) < 1e-6 * facts[static_cast<std::size_t>(k)].mean);
   }
-  // REFUSALS
+  // THE REFUSALS, each with its reason
   {
-    ScaleSelectionOptions o = so;
-    o.space_levels = {3, 4, 5};
-    std::string w = why_of([&] { run_verb(o); });
-    CHECK(w.find("no joint Selection") != std::string::npos && w.find("--space-level 5 --time-level " + std::to_string(tl_fast)) != std::string::npos && w.find("--space-level 5 --time-level " + std::to_string(tl_slow)) != std::string::npos);   // EVERY missing pair, its command
-    JointComputeOptions jo5; jo5.recording = "rest"; jo5.space_level = 3; jo5.time_level = 4;
-    joint_compute(ds, sub, jo5);                                                              // a joint Selection with no run over it
-    o = so; o.space_levels = {3}; o.time_levels = {tl_fast, 4};
-    w = why_of([&] { run_verb(o); });
-    CHECK(w.find("no stored cells, baseline and labelling made by cortical_event_pairs") != std::string::npos && w.find("space level 3 x time level 4") != std::string::npos);
-    o = so; o.source = "global_bursts";
-    CHECK(why_of([&] { run_verb(o); }).find("made by global_bursts") != std::string::npos);
-    o = so; o.space_levels = {3, 3};
-    CHECK(why_of([&] { run_verb(o); }).find("listed twice") != std::string::npos);
-    o = so; o.recording = "nope";
-    CHECK_EQ(code_of([&] { run_verb(o); }), std::string(code::no_such_row));
-    o = so; o.response = "max";
-    CHECK(why_of([&] { run_verb(o); }).find("peak") != std::string::npos);
-    o = so; o.min_link = 0;
-    CHECK(why_of([&] { run_verb(o); }).find("min-link") != std::string::npos);
-    o = so; o.space_levels.clear();
-    CHECK(why_of([&] { run_verb(o); }).find("--space-levels") != std::string::npos);
-    o = so; o.time_levels.clear();
-    CHECK(why_of([&] { run_verb(o); }).find("--time-levels") != std::string::npos);
+    Json o = sel; o["spatial_scales"] = Json::array({"parts 8"});
+    const std::string w = why_of([&] { run_sel(o, true); });   // (replace: the refusal of an existing result of other options comes first)
+    CHECK(w.find("space level 3 x time level 7") != std::string::npos && w.find("select_product") != std::string::npos);   // a pair without stored cells: named
+    o = sel; o["bands"] = Json::array({"4-8 Hz"});
+    CHECK(why_of([&] { run_sel(o, true); }).find("space level 4 x time level 8") != std::string::npos);                       // no time grid of that band: the command that makes it
+    o = sel; o["spatial_scales"] = Json::array({scale, scale});
+    CHECK(why_of([&] { run_sel(o); }).find("listed twice") != std::string::npos);
+    o = sel; o["response"] = "max";
+    CHECK(why_of([&] { run_sel(o); }).find("peak") != std::string::npos);
+    o = sel; o["min_link"] = 0;
+    CHECK(why_of([&] { run_sel(o); }).find("min_link") != std::string::npos);
+    o = sel; o["recording"] = "nope";
+    CHECK(!why_of([&] { run_sel(o); }).empty());
+    o = sel; o["source"] = "cortical_band";
+    CHECK(why_of([&] { run_sel(o, true); }).find("cortical_band") != std::string::npos);                          // labellings made by another pipeline are not used
   }
-  return nxrtest::finish("test_scale_selection");
+  return 0;
 }

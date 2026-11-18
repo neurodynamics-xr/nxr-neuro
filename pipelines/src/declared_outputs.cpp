@@ -363,7 +363,8 @@ void check_declared(const Plan& P, const std::string& o) {
     for (const char* key : {"over", "of"}) {
       if (!spec.contains(key)) { if (std::string(key) == "over") bad(o, "a measurement output names the selection it is over (over: INPUT or OUTPUT)"); continue; }
       const std::string r = spec[key].get<std::string>();
-      if (!P.found.count(r) && !P.definition.outputs.contains(r)) bad(o, std::string(key) + ": '" + r + "' is neither a found input nor an output of this definition");
+      const bool optional_absent = !P.found.count(r) && P.definition.inputs.contains(r) && !P.definition.inputs[r].value("required", true);   // an optional input the subject lacks: its outputs are not made (the node hands none)
+      if (!P.found.count(r) && !P.definition.outputs.contains(r) && !optional_absent) bad(o, std::string(key) + ": '" + r + "' is neither a found input nor an output of this definition");
     }
   } else if (k == "operator") {
     link_of(P, spec, "from", nullptr, o);
@@ -419,6 +420,8 @@ std::vector<std::pair<task::Cls, std::string>> declared_places(const Plan& P, co
     const std::string of = statistic_of(P, spec, o, true);
     std::string path = "statistics/" + nxr::io::safe_name(name);
     if (P.found.count(of) && P.found.at(of).row && P.found.at(of).cls == "field") path = text(*P.found.at(of).row, "path") + "_statistics/" + nxr::io::safe_name(name);
+    else if (!P.found.count(of) && P.definition.outputs.contains(of) && kind_of(P.definition.outputs[of]) == "field")        // of a field this run makes: beside it, where it is (or will be) stored
+      for (const auto& [fcls, fpath] : declared_places(P, of, sub)) if (fcls == task::Cls::field) { path = fpath + "_statistics/" + nxr::io::safe_name(name); break; }
     out.emplace_back(task::Cls::statistic, path);
     if (spec.contains("partition")) out.emplace_back(task::Cls::selection, ts.node_path(link_of(P, spec["partition"], "on", nullptr, o), nxr::io::safe_name(fill(P, spec["partition"]["tiling"].get<std::string>()))));
   } else if (k == "operator") {
@@ -629,6 +632,13 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
     if (made.count(over)) { m.selection_id = made.at(over); over_name = declared_name(P, over); }
     else if (P.found.count(over) && P.found.at(over).row) { m.selection_id = text(*P.found.at(over).row, "id"); over_name = text(*P.found.at(over).row, "name"); }
     else bad(o, "over: '" + over + "' is neither a selection stored before it nor an input found");
+    // A MEMBER OF THE FOUND SELECTION (`describe.over_member`: a level's tile set of the grid `over` names, which the node picked by the run's scale): the measurement is over that member
+    if (d.contains("over_member") && d["over_member"].is_string()) {
+      const auto member = sub.db().read("selection", d["over_member"].get<std::string>());
+      if (!member || nxr::io::opt_text(*member, "member_of_id") != std::optional<std::string>(m.selection_id)) bad(o, "its node's over_member is not a member of '" + over_name + "'");
+      m.selection_id = text(*member, "id");
+      over_name = text(*member, "name");
+    }
     // THE GLUED CORTEX: a measurement over a selection that lies on the glued surface is over its twin on the original (the selection restricted back), its provenance saying so
     if (const std::string back = selection_on_original(sub, m.selection_id, o); back != m.selection_id) {
       if (!m.attributes.is_object()) m.attributes = Json::object();
@@ -646,6 +656,11 @@ Json store_declared(task::Unit& unit, nxr::io::SubjectWriter& sub, const Plan& P
       if (made.count(of)) {
         m.of_field_id = made.at(of);
         m.path = made.count("path:" + of) ? made.at("path:" + of) : name;
+        {   // two measurements of one field of this run (over different selections) must not share an array: the second's path carries its selection's name
+          int of_this = 0;
+          for (const auto& [k2, sp2] : P.definition.outputs.items()) if (sp2.value("kind", std::string()) == "measurement" && sp2.contains("over") && sp2.value("of", std::string()) == of) ++of_this;
+          if (of_this > 1) m.path += "_" + nxr::io::safe_name(over_name);
+        }
       } else if (P.found.count(of) && P.found.at(of).row && P.found.at(of).cls == "field") {
         own = true;
         m.of_field_id = text(*P.found.at(of).row, "id");

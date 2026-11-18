@@ -14,7 +14,7 @@ scope: subject
 inputs:
   map:     {field: any, where: {name: $map}}
   surface: {manifold: surface, is: map.manifold.0}
-  tiles:   {selection: set, manifold: map.manifold.0, hint: "the surface's grid (`nxr-neuro run select_dyadic_surface` first)"}
+  tiles:   {selection: ladder, manifold: map.manifold.0, hint: "the surface's grid (`nxr-neuro run select_dyadic_surface` first)"}
 
 parameters:
   map: {default: null, meaning: "the stored field to find patches in (a scalar per vertex of a surface, every value finite)", unit: "-"}
@@ -63,6 +63,7 @@ outputs:
     kind: measurement
     name: "{map}_patches_${spatial_scale}_${sign}_own"
     over: patches
+    of: band
   area:
     kind: statistic
     name: "{map}_patches_${spatial_scale}_${sign}_area"
