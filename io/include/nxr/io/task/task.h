@@ -17,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "nxr/io/chunk_loop.h"
 #include "nxr/io/finder.h"
 #include "nxr/io/json_text.h"
 #include "nxr/io/measurement_query.h"
@@ -413,6 +414,9 @@ class Subject {
   std::int64_t remove_measurements(const std::string& selection_id, const std::optional<std::string>& of_field_id = std::nullopt,
                                    const std::optional<std::string>& measure = std::nullopt, const std::optional<std::string>& of_statistic_id = std::nullopt) const;
   void set_params(const std::string& selection_id, const Json& params) const;              // a selection's parameters, replaced
+  // the projection a reading of recording `field` applies under the `projectors` option, with its provenance record (`load_projection`); the node form gives none when the field has no stored row
+  ProjectionOf projection_of(const Row& field, Projectors projectors) const;
+  std::optional<ProjectionOf> projection_of(const Node& field, Projectors projectors) const;
 
  private:
   friend class Unit;

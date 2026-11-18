@@ -156,6 +156,17 @@ std::int64_t Subject::write_member_rows(const Json& rows, const std::string& com
   return ::nxr::io::write_measurements(*impl_->db, rows, std::optional<std::string>(computed_by));
 }
 
+ProjectionOf Subject::projection_of(const Row& field, Projectors projectors) const {
+  if (!impl_->writer) throw Error(code::unsupported, "a projection is read through a writer's subject");
+  return load_projection(*impl_->db, impl_->writer->store(), field, projectors);
+}
+
+std::optional<ProjectionOf> Subject::projection_of(const Node& field, Projectors projectors) const {
+  const auto row = impl_->db->read("field", field.id);
+  if (!row) return std::nullopt;
+  return projection_of(*row, projectors);
+}
+
 Subject Subject::of(SubjectWriter& sub) {
   Subject s;
   s.impl_ = std::make_shared<Impl>();
