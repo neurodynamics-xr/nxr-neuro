@@ -140,9 +140,13 @@ FlowReadout flowReadout(const Eigen::MatrixXd& velocity, const RowMat3& position
 enum class ActivationMethod { Analytic, Norm };
 /** Rheome's activation: J [3V x T] real (the Hilbert transform is taken here) or complex (already analytic) -> [V x T]. Analytic needs T >= 8. */
 Eigen::MatrixXd activation(const Eigen::MatrixXcd& J, ActivationMethod method = ActivationMethod::Analytic, bool alreadyAnalytic = true);
-/** The analytic signal along the columns' time axis (MATLAB hilbert on each row of X [rows x T]). */
-Eigen::MatrixXcd hilbertRows(const Eigen::MatrixXd& X);
-/** THE EXPLICIT NEIGHBOURHOOD of the FFT Hilbert transform (spec 2026-11-17-selection-module, 7.3 and 8: a halo is a planner fact the node declares, never a selection). hilbertRows takes the whole block it is
+enum class HilbertMethod { Spectral, Fir };
+/** The analytic signal along the columns' time axis, on each row of X [rows x T]. Spectral (MATLAB hilbert): the FFT of the block with the negative frequencies removed and the positive doubled; the result at a
+ *  sample depends on the whole block it is handed (the circular response), so a node cuts its chunks with a halo it declares. Fir: x + i (H * x), H a type III linear-phase Hilbert transformer of
+ *  2 `halfLength` + 1 taps (h_k = 2 / (pi k), odd k, 0 elsewhere, a Kaiser window of shape `beta`), the quadrature part computed where the whole filter lies inside the block (halfLength <= column < T - halfLength) and
+ *  0 elsewhere: the halo a node declares is `halfLength` samples each side, and the result at a sample then depends on those samples alone, whatever the chunk size. */
+Eigen::MatrixXcd hilbert(const Eigen::MatrixXd& X, HilbertMethod method = HilbertMethod::Spectral, std::size_t halfLength = 0, double beta = 8.0);
+/** THE EXPLICIT NEIGHBOURHOOD of the FFT Hilbert transform (spec 2026-11-17-selection-module, 7.3 and 8: a halo is a planner fact the node declares, never a selection). hilbert (Spectral) takes the whole block it is
  *  handed, so its result at a sample depends on where the pipeline cut its chunks. hilbertRowsOwn takes a block that carries `left` samples of halo before its own columns and whatever halo follows, and returns the
  *  analytic signal of the own columns [left, left + own) only: the neighbourhood is the halo the caller read, stated, not the block's accident. hilbertHalo is the halo a node declares for a band whose lowest
  *  frequency is `lowestHz`: `cycles` cycles of it on each side, in samples (the Studio's `supportOf` / `fitLevelOf` use 4 cycles); a signal band-limited above `lowestHz` has its Hilbert response inside that

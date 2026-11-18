@@ -292,72 +292,9 @@ std::complex<double> Design::response(double freqHz, double sfreq) const {
     return g;
 }
 
-// ── the streaming filter ────────────────────────────────────────────────────────────────────────────────────────
+// ── the pure filter ─────────────────────────────────────────────────────────────────────────────────────────────
 
-Filter::Filter(int channels, const FilterOptions& options, const VectorXd& mean) : opt_(options), design_(design(options)), channels_(channels), mean_(mean) {
-    if (channels < 1) bad("at least one channel");
-    const bool highpassPart = options.kind == Kind::Highpass || options.kind == Kind::Bandpass;
-    if (design_.method == Method::Fir && options.removeMean) {
-        if (mean.size() != channels) bad("the record's channel means are needed (removeMean): " + std::to_string(mean.size()) + " given for " + std::to_string(channels) + " channels");
-        restoreMean_ = !highpassPart;
-    } else {
-        mean_.resize(0);
-    }
-    minBlock_ = std::max<std::size_t>(design_.lookAhead, 1024);
-    buf_.resize(channels, 0);
-}
-
-MatrixXd Filter::add(const MatrixXd& chunk) {
-    if (finished_) bad("add after finish");
-    if (chunk.rows() != channels_) bad("a chunk of " + std::to_string(chunk.rows()) + " channels for a filter of " + std::to_string(channels_));
-    if (chunk.cols() == 0) return MatrixXd(channels_, 0);
-    MatrixXd nb(channels_, buf_.cols() + chunk.cols());
-    nb << buf_, chunk;
-    buf_ = std::move(nb);
-    total_ += chunk.cols();
-    return drain(false);
-}
-
-MatrixXd Filter::finish() {
-    if (finished_) return MatrixXd(channels_, 0);
-    MatrixXd out = drain(true);
-    finished_ = true;
-    return out;
-}
-
-MatrixXd Filter::drain(bool final) {
-    const std::int64_t avail = total_ - emitted_;
-    std::int64_t outLen;
-    if (final) outLen = avail;
-    else {
-        const std::int64_t need = avail - static_cast<std::int64_t>(design_.lookAhead);
-        if (need < static_cast<std::int64_t>(minBlock_)) return MatrixXd(channels_, 0);
-        outLen = need;
-    }
-    if (outLen <= 0) return MatrixXd(channels_, 0);
-    const std::int64_t ws = std::max<std::int64_t>(0, emitted_ - static_cast<std::int64_t>(design_.lookBehind));
-    const MatrixXd win = buf_.middleCols(ws - bufStart_, total_ - ws);
-    const MatrixXd res = window(win, ws == 0, final);
-    MatrixXd out = res.middleCols(emitted_ - ws, outLen);
-    emitted_ += outLen;
-    const std::int64_t keep = std::max<std::int64_t>(0, emitted_ - static_cast<std::int64_t>(design_.lookBehind));
-    if (keep > bufStart_) {
-        buf_ = MatrixXd(buf_.middleCols(keep - bufStart_, total_ - keep));
-        bufStart_ = keep;
-    }
-    return out;
-}
-
-MatrixXd Filter::block(const MatrixXd& w, std::size_t left, std::size_t own, bool atStart, bool atEnd) const {
-    if (w.rows() != channels_) bad("a block of " + std::to_string(w.rows()) + " channels for a filter of " + std::to_string(channels_));
-    if (static_cast<Eigen::Index>(left + own) > w.cols()) bad("a block's own columns lie outside it");
-    return window(w, atStart, atEnd).middleCols(static_cast<Eigen::Index>(left), static_cast<Eigen::Index>(own));
-}
-MatrixXd Filter::window(const MatrixXd& w, bool atStart, bool atEnd) const {
-    return design_.method == Method::Fir ? firWindow(w, atStart, atEnd) : iirWindow(w);
-}
-
-MatrixXd Filter::iirWindow(const MatrixXd& w) const {
+static MatrixXd iirWindow(const MatrixXd& w, const Design& design_) {
     MatrixXd out(w.rows(), w.cols());
     std::vector<double> x(static_cast<std::size_t>(w.cols())), y(x.size());
     for (Eigen::Index c = 0; c < w.rows(); ++c) {
@@ -373,7 +310,7 @@ MatrixXd Filter::iirWindow(const MatrixXd& w) const {
 
 // The window's FIR output at the positions that have a whole filter around them; the ends of the record (atStart / atEnd) are padded as the option set says first.
 // Positions of the window with the filter's support outside the window and not an end of the record are not valid: the caller never asks for them.
-MatrixXd Filter::firWindow(const MatrixXd& w, bool atStart, bool atEnd) const {
+static MatrixXd firWindow(const MatrixXd& w, const FilterOptions& opt_, const Design& design_, const VectorXd& mean_, bool restoreMean_, bool atStart, bool atEnd) {
     const Eigen::Index W = w.cols(), N = design_.b.size(), h = N / 2, C = w.rows();
     const Eigen::Index lp = atStart ? h : 0, rp = atEnd ? h : 0;
     const Eigen::Index P = lp + W + rp;
@@ -435,15 +372,44 @@ MatrixXd Filter::firWindow(const MatrixXd& w, bool atStart, bool atEnd) const {
     return out;
 }
 
+MatrixXd filter(const MatrixXd& w, const FilterOptions& options, const Design& design_, const VectorXd& meanIn, std::size_t left, std::size_t own, bool atStart, bool atEnd) {
+    if (static_cast<Eigen::Index>(left + own) > w.cols()) bad("a window's own columns lie outside it");
+    const bool highpassPart = options.kind == Kind::Highpass || options.kind == Kind::Bandpass;
+    VectorXd mean;
+    bool restoreMean = false;
+    if (design_.method == Method::Fir && options.removeMean) {
+        if (meanIn.size() != w.rows()) bad("the record's channel means are needed (removeMean): " + std::to_string(meanIn.size()) + " given for " + std::to_string(w.rows()) + " channels");
+        mean = meanIn;
+        restoreMean = !highpassPart;
+    }
+    const MatrixXd y = design_.method == Method::Fir ? firWindow(w, options, design_, mean, restoreMean, atStart, atEnd) : iirWindow(w, design_);
+    return y.middleCols(static_cast<Eigen::Index>(left), static_cast<Eigen::Index>(own));
+}
+MatrixXd filter(const MatrixXd& w, const FilterOptions& options, const VectorXd& mean, std::size_t left, std::size_t own, bool atStart, bool atEnd) {
+    return filter(w, options, design(options), mean, left, own, atStart, atEnd);
+}
+
 // ── whole-record verbs ──────────────────────────────────────────────────────────────────────────────────────────
 
+// The record in at most two windows, as the former streaming filter drained it: the first `n - lookAhead` samples (when that is at least the minimum block) with the record's end still ahead, then the
+// rest with the record's end reached (a window of the last lookBehind samples before it as the halo).
 static MatrixXd runWhole(const MatrixXd& x, const FilterOptions& o) {
+    if (x.rows() < 1) bad("at least one channel");
     VectorXd mean;
     if (o.removeMean) mean = x.rowwise().mean();
-    Filter f(static_cast<int>(x.rows()), o, mean);
-    MatrixXd a = f.add(x), b = f.finish();
-    MatrixXd out(x.rows(), a.cols() + b.cols());
-    out << a, b;
+    const Design d = design(o);
+    const std::int64_t n = x.cols(), minBlock = static_cast<std::int64_t>(std::max<std::size_t>(d.lookAhead, 1024));
+    const std::int64_t need = n - static_cast<std::int64_t>(d.lookAhead);
+    MatrixXd out(x.rows(), n);
+    if (n == 0) return out;
+    std::int64_t done = 0;
+    if (need >= minBlock) {
+        out.leftCols(need) = filter(x, o, d, mean, 0, static_cast<std::size_t>(need), true, false);
+        done = need;
+    }
+    const std::int64_t ws = std::max<std::int64_t>(0, done - static_cast<std::int64_t>(d.lookBehind));
+    const MatrixXd win = x.middleCols(ws, n - ws);
+    out.middleCols(done, n - done) = filter(win, o, d, mean, static_cast<std::size_t>(done - ws), static_cast<std::size_t>(n - done), ws == 0, true);
     return out;
 }
 

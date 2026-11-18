@@ -26,7 +26,7 @@ static MatrixXcd reference(const TimeFilterbank& bk, const Plan& pl, int m, cons
     const std::int64_t n = x.cols();
     const std::size_t Nr = nxr::signal::next_fast_len(static_cast<std::size_t>(n + 4 * pl.margin + 16), true);
     MatrixXd xp = MatrixXd::Zero(Nr, x.rows()); xp.topRows(n) = x.transpose();
-    const MatrixXcd X = fft::rfftColumns(xp);
+    const MatrixXcd X = fft::rfft(xp);
     const double flo = (double)bk.support[m].first * bk.fs / bk.nfft, fhi = (double)bk.support[m].second * bk.fs / bk.nfft;
     MatrixXcd out(k1 - k0, x.rows()); out.setZero();
     const double D = (double)pl.p[m] / pl.q[m];

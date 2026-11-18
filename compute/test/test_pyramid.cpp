@@ -18,12 +18,34 @@
 #include "nxr/select/dyadic.h"
 #include "nxr/measurement/reduce.h"
 #include "nxr/pyramid.h"
+#include "nxr/signal/timefilterbank.h"
 #include "nxr/select/bands.h"
 #include "nxr/selection/resolved.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)
 using namespace nxr;
+namespace tb = nxr::signal::timefilterbank;
+
+namespace {
+using Bands = std::vector<std::pair<double, double>>;
+// A block [samples x channels] and the frequencies of its spectrum (numpy's fftfreq).
+struct Spec { Eigen::MatrixXd block; Eigen::VectorXd freq; double sfreq = 0; };
+Spec spectrumOf(const Eigen::MatrixXd& block, double sfreq) { return {block, nxr::signal::fftfreq(static_cast<std::size_t>(block.rows()), 1.0 / sfreq), sfreq}; }
+// The analytic signal of band `b` of `bands` (shape `family`): the wavelet filterbank, analytic, gain 2, DC and Nyquist dropped (the band's gain on positive frequencies, doubled; what the pyramid's analyticBand was).
+Eigen::MatrixXcd bandAnalytic(const Spec& s, const Bands& bands, tb::Family family, std::size_t b) {
+  tb::Design d(family, 2.0, tb::Sides::Analytic);
+  d.bands = bands;
+  d.edgeBins = tb::EdgeBins::Drop;
+  return tb::analysis(tb::design(d, static_cast<std::size_t>(s.block.rows()), s.sfreq), s.block)[b];
+}
+// The broadband analytic signal: positive frequencies doubled, the rest 0 (the plain FFT Hilbert).
+Eigen::MatrixXcd analyticBroadband(const Spec& s) {
+  Eigen::MatrixXcd Y = nxr::signal::fft(s.block.cast<std::complex<double>>());
+  for (Eigen::Index k = 0; k < Y.rows(); ++k) Y.row(k) *= s.freq(k) > 0 ? 2.0 : 0.0;
+  return nxr::signal::ifft(Y);
+}
+}  // namespace
 
 namespace {
 std::vector<double> nums(std::istringstream& s) { std::vector<double> v; double x; while (s >> x) v.push_back(x); return v; }
@@ -114,7 +136,7 @@ int main() {
   std::vector<std::int32_t> F, codes, sampleCodes;
   std::vector<std::uint8_t> good;
   std::vector<std::vector<double>> gains;
-  pyramid::Bands bands;
+  Bands bands;
   std::vector<double> power, env, envmax, w, samples, are, aim;
   int analyticBand = -1;
   std::vector<int> singular;
@@ -180,20 +202,20 @@ int main() {
 
   // the power-partition gains
   Eigen::VectorXd fr = Eigen::Map<const Eigen::VectorXd>(freqs.data(), static_cast<Eigen::Index>(freqs.size()));
-  const Eigen::MatrixXd g = pyramid::bandGains(fr, bands, pyramid::Shape::PowerPartition);
+  const Eigen::MatrixXd g = tb::bandGains(fr, bands, tb::Family::PowerPartition);
   for (int b = 0; b < nb; ++b) { std::vector<double> gb(g.cols()); for (int k = 0; k < g.cols(); ++k) gb[k] = g(b, k); EXPECT(relmax(gb, gains[b]) < 1e-12, "gain of band " << b << " is nxr's band_gains"); }
   { // squares sum to one inside [1, 64] away from the outer tapers
     Eigen::VectorXd f2(3); f2 << 3.0, 9.0, 20.0;
-    const Eigen::MatrixXd g2 = pyramid::bandGains(f2, bands, pyramid::Shape::PowerPartition);
+    const Eigen::MatrixXd g2 = tb::bandGains(f2, bands, tb::Family::PowerPartition);
     for (int k = 0; k < 3; ++k) EXPECT(std::abs(g2.col(k).squaredNorm() - 1) < 1e-12, "power partition: the squared gains sum to 1");
   }
   // whole record, one block
   Eigen::MatrixXd Kmat(V, M); for (int v = 0; v < V; ++v) for (int c = 0; c < M; ++c) Kmat(v, c) = K[static_cast<std::size_t>(v) * M + c];
   Eigen::MatrixXd block(n, M); for (int c = 0; c < M; ++c) for (int t = 0; t < n; ++t) block(t, c) = X[static_cast<std::size_t>(c) * n + t];
-  const pyramid::Spectrum spec = pyramid::spectrumOf(block, sfreq);
-  const Eigen::MatrixXd gn = pyramid::bandGains(spec.freq, bands, pyramid::Shape::PowerPartition);
+  const Spec spec = spectrumOf(block, sfreq);
+  const Eigen::MatrixXd gn = tb::bandGains(spec.freq, bands, tb::Family::PowerPartition);
   for (const auto& an : analytic) {
-    const Eigen::MatrixXcd A = pyramid::analyticBand(spec, gn.row(an.first).transpose());
+    const Eigen::MatrixXcd A = bandAnalytic(spec, bands, tb::Family::PowerPartition, static_cast<std::size_t>(an.first));
     std::vector<double> re, im, gre = an.second.first, gim = an.second.second;
     for (int c = 0; c < 2; ++c) for (int t = 0; t < n; ++t) { re.push_back(A(t, c).real()); im.push_back(A(t, c).imag()); }
     EXPECT(relmax(re, gre) < 1e-5 && relmax(im, gim) < 1e-5, "analytic signal of band " << an.first << " (nxr float32): " << relmax(re, gre) << " " << relmax(im, gim));
@@ -206,11 +228,10 @@ int main() {
   for (int i = 0; i < n; ++i) if (good[static_cast<std::size_t>(i)]) ++counts[static_cast<std::size_t>(fidx[static_cast<std::size_t>(i)])];
   { std::vector<double> c(counts.begin(), counts.end()); EXPECT(relmax(c, samples) < 1e-12, "the good samples a frame are nxr's"); }
   const sel::ProductForm cells = joint_cells(fidx, nFrames, tree.codes, tree.nLeaves());
-  auto run = [&](pyramid::Shape shape, std::int64_t sub, std::vector<BandCells>& outs, std::int64_t cut) {
+  auto run = [&](tb::Family shape, std::int64_t sub, std::vector<BandCells>& outs, std::int64_t cut) {
     outs.assign(static_cast<std::size_t>(nb), BandCells(cells.members()));
-    const Eigen::MatrixXd gs = pyramid::bandGains(spec.freq, bands, shape);
     for (int b = 0; b < nb; ++b) {
-      const Eigen::MatrixXcd A = pyramid::analyticBand(spec, gs.row(b).transpose());
+      const Eigen::MatrixXcd A = bandAnalytic(spec, bands, shape, static_cast<std::size_t>(b));
       for (std::int64_t s0 = 0; s0 < n; s0 += cut) {                  // the record handed over in pieces: frames cut by an edge are completed by the next piece
         const std::int64_t w2 = std::min<std::int64_t>(cut, n - s0);
         add_block(outs[static_cast<std::size_t>(b)], cells, Kmat, A.middleRows(s0, w2), good.data() + s0, a.data(), s0, sub);
@@ -218,7 +239,7 @@ int main() {
     }
   };
   std::vector<BandCells> r1, r2;
-  run(pyramid::Shape::PowerPartition, 512, r1, n);
+  run(tb::Family::PowerPartition, 512, r1, n);
   std::vector<double> gotp, gote, gotm;
   for (int b = 0; b < nb; ++b) for (int l = 0; l < nLeaves; ++l) for (int f = 0; f < nFrames; ++f) {
     const std::size_t at = static_cast<std::size_t>(f) + static_cast<std::size_t>(nFrames) * static_cast<std::size_t>(l);      // the product's code, the first factor (frames) fastest
@@ -229,7 +250,7 @@ int main() {
   EXPECT(ep < 2e-5 && ee < 2e-5 && em < 2e-5, "power, env, envmax per (band, leaf, frame) are nxr's");
   for (std::size_t i = 0; i < gotm.size(); ++i) if (std::isinf(envmax[i]) != std::isinf(gotm[i])) { EXPECT(false, "an empty leaf keeps envmax = -inf as nxr's"); break; }
   // block size independence
-  run(pyramid::Shape::PowerPartition, 37, r2, 211);
+  run(tb::Family::PowerPartition, 37, r2, 211);
   double d = 0;
   for (int b = 0; b < nb; ++b) for (std::size_t i = 0; i < r1[static_cast<std::size_t>(b)].power.sum.size(); ++i) {
     const auto& x1 = r1[static_cast<std::size_t>(b)]; const auto& x2 = r2[static_cast<std::size_t>(b)];
@@ -242,12 +263,10 @@ int main() {
   {
     Eigen::MatrixXd tone(n, 1);
     for (int t = 0; t < n; ++t) tone(t, 0) = std::sin(2 * M_PI * 9.3 * t / sfreq);     // a tone inside the bank
-    const pyramid::Spectrum st = pyramid::spectrumOf(tone, sfreq);
-    const Eigen::MatrixXd gs = pyramid::bandGains(st.freq, bands, pyramid::Shape::PowerPartition);
+    const Spec st = spectrumOf(tone, sfreq);
     double total = 0, broad = 0;
-    for (int b = 0; b < nb; ++b) total += pyramid::analyticBand(st, gs.row(b).transpose()).cwiseAbs2().sum();
-    Eigen::VectorXd ones = Eigen::VectorXd::Ones(st.freq.size());
-    broad = pyramid::analyticBand(st, ones).cwiseAbs2().sum();
+    for (int b = 0; b < nb; ++b) total += bandAnalytic(st, bands, tb::Family::PowerPartition, static_cast<std::size_t>(b)).cwiseAbs2().sum();
+    broad = analyticBroadband(st).cwiseAbs2().sum();
     EXPECT(std::abs(total / broad - 1) < 1e-3, "band powers add to broadband: " << total / broad);
   }
   // Morlet: a halo'd block (the chunk service's way) equals the whole-record filter over the samples kept
@@ -255,13 +274,13 @@ int main() {
     const int N = 6000;
     Eigen::MatrixXd x(N, 2);
     for (int t = 0; t < N; ++t) { x(t, 0) = std::sin(2 * M_PI * 10.7 * t / 250.0) + 0.3 * std::sin(2 * M_PI * 3.1 * t / 250.0 + 1) + 0.2 * std::cos(t * 0.37); x(t, 1) = std::cos(2 * M_PI * 6.1 * t / 250.0); }
-    const pyramid::Bands bd{{8.0, 16.0}};
-    const pyramid::Spectrum whole = pyramid::spectrumOf(x, 250.0);
-    const Eigen::MatrixXcd Aw = pyramid::analyticBand(whole, pyramid::bandGains(whole.freq, bd, pyramid::Shape::Morlet).row(0).transpose());
+    const Bands bd{{8.0, 16.0}};
+    const Spec whole = spectrumOf(x, 250.0);
+    const Eigen::MatrixXcd Aw = bandAnalytic(whole, bd, tb::Family::Morlet, 0);
     const int own0 = 2000, own1 = 3500, halo = 8 * 250;                             // 8 s of context
     const Eigen::MatrixXd part = x.middleRows(own0 - halo, own1 - own0 + 2 * halo);
-    const pyramid::Spectrum sp = pyramid::spectrumOf(part, 250.0);
-    const Eigen::MatrixXcd Ap = pyramid::analyticBand(sp, pyramid::bandGains(sp.freq, bd, pyramid::Shape::Morlet).row(0).transpose());
+    const Spec sp = spectrumOf(part, 250.0);
+    const Eigen::MatrixXcd Ap = bandAnalytic(sp, bd, tb::Family::Morlet, 0);
     double e = 0, sc = 0;
     for (int t = 0; t < own1 - own0; ++t) for (int c = 0; c < 2; ++c) { e = std::max(e, std::abs(Ap(halo + t, c) - Aw(own0 + t, c))); sc = std::max(sc, std::abs(Aw(own0 + t, c))); }
     std::cout << "  morlet 8-16 Hz, 8 s halo vs whole record: max rel error " << e / sc << "\n";
@@ -278,11 +297,10 @@ int main() {
     const pyramid::FrameKernel fk = pyramid::frameKernel(K3m, e1m, e2m, enm, sing);
     std::vector<double> wt(NV), wtot = a;
     for (int v = 0; v < NV; ++v) wt[v] = sing[v] ? 0.0 : a[v];                 // a vertex with no frame is out of the nine sums, in the total
-    const Eigen::MatrixXd gs = pyramid::bandGains(spec.freq, bands, pyramid::Shape::PowerPartition);
     auto runT = [&](std::int64_t sub, std::int64_t cut, std::vector<TensorCells>& o) {
       o.assign(static_cast<std::size_t>(nb), TensorCells(cells.members()));
       for (int b = 0; b < nb; ++b) {
-        const Eigen::MatrixXcd A = pyramid::analyticBand(spec, gs.row(b).transpose());
+        const Eigen::MatrixXcd A = bandAnalytic(spec, bands, tb::Family::PowerPartition, static_cast<std::size_t>(b));
         for (std::int64_t s0 = 0; s0 < n; s0 += cut) add_tensor_block(o[static_cast<std::size_t>(b)], cells, fk, A.middleRows(s0, std::min<std::int64_t>(cut, n - s0)), good.data() + s0, wt.data(), wtot.data(), s0, sub);
       }
     };
@@ -309,8 +327,8 @@ int main() {
     EXPECT(tot > tr, "a vertex with no frame is in the total only");
   }
   // refusals
-  { bool threw = false; try { pyramid::shapeOf("meyer"); } catch (const std::invalid_argument&) { threw = true; } EXPECT(threw, "an unknown shape is refused"); }
-  { bool threw = false; try { pyramid::bandGains(fr, {{1, 2}, {3, 4}}, pyramid::Shape::PowerPartition); } catch (const std::invalid_argument&) { threw = true; } EXPECT(threw, "non-adjacent bands are refused for a power partition"); }
+  { bool threw = false; try { tb::bandFamilyOf("meyer"); } catch (const std::invalid_argument&) { threw = true; } EXPECT(threw, "an unknown shape is refused"); }
+  { bool threw = false; try { tb::bandGains(fr, {{1, 2}, {3, 4}}, tb::Family::PowerPartition); } catch (const std::invalid_argument&) { threw = true; } EXPECT(threw, "non-adjacent bands are refused for a power partition"); }
   if (fails) { std::cout << fails << " failed\n"; return 1; }
   std::cout << "test_pyramid: ok\n";
   return 0;

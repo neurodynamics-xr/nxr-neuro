@@ -122,7 +122,7 @@ int main() {
   b.mass = Eigen::Map<const Eigen::VectorXd>(dm_mass.data(), static_cast<Eigen::Index>(dm_mass.size()));
   const MatrixXd B = nxr::operators::hodgeWeights(b, K);
   auto wo = nxr::signal::spectral::brainstormPsdOptions(sfreq, 4.0);
-  const auto direct = nxr::signal::spectral::welch(B * X, wo);
+  const auto direct = nxr::signal::spectral::psd(Eigen::MatrixXd(B * X), wo);
   const double df = sfreq / wo.segmentSamples;
   MatrixXd want(2 * Kn, 2);
   const double lo[2] = {8, 15}, hi[2] = {12, 29};

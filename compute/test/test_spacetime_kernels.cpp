@@ -142,7 +142,7 @@ int main() {
         const int N = 200; const double fs = 100, f0b = 3.0, cb = 2 * 3.14159265358979323846 * f0b / k;
         VectorXd fb_ = nxr::signal::fftfreq(N, 1.0 / fs); VectorXd lk4(1); lk4 << k * k;
         MatrixXcd Z(1, N), Zl(1, N); for (int j = 0; j < N; ++j) { const double ph = 2 * 3.14159265358979323846 * f0b * j / fs; Z(0, j) = cd(std::cos(ph), std::sin(ph)); Zl(0, j) = std::conj(Z(0, j)); }
-        MatrixXcd SR = nxr::signal::fftColumns(MatrixXcd(Z.transpose()), true).transpose(), SL = nxr::signal::fftColumns(MatrixXcd(Zl.transpose()), true).transpose();
+        MatrixXcd SR = nxr::signal::fft(MatrixXcd(Z.transpose())).transpose(), SL = nxr::signal::fft(MatrixXcd(Zl.transpose())).transpose();
         auto share = [&](const MatrixXcd& S, int sense) { const MatrixXd G = travwave(lk4, fb_, cb, 1.0, sense); return (S.array().abs2() * G.array().square()).sum() / S.array().abs2().sum(); };
         EXPECT(share(SR, 1) > 0.99 && share(SR, -1) < 1e-12 && share(SL, -1) > 0.99 && share(SL, 1) < 1e-12 && share(SR, 0) > 0.99 && share(SL, 0) > 0.99,
                "a synthetic wave travelling each way: sense +1 keeps the +f one only, -1 the other, 0 both");

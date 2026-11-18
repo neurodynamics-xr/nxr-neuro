@@ -221,13 +221,16 @@ private:
     std::int64_t samples_ = 0, segments_ = 0, skipped_ = 0, dropped_ = 0;
 };
 
-/** The whole complex series in one call. */
-ComplexWelchResult complexWelch(const Eigen::MatrixXcd& z, const WelchOptions& options, const std::vector<std::uint8_t>* good = nullptr);
+/** `psd` of a COMPLEX series (two-sided), the whole series in one call. */
+ComplexWelchResult psd(const Eigen::MatrixXcd& z, const WelchOptions& options, const std::vector<std::uint8_t>* good = nullptr);
 
 /** The signed frequencies of a two-sided spectrum of n samples at fs, ascending (fftshift(fftfreq)). */
 Eigen::VectorXd signedFrequencies(std::size_t n, double sfreq);
 
-/** The whole record in one call (a Welch fed once). */
-WelchResult welch(const Eigen::MatrixXd& x, const WelchOptions& options, const std::vector<std::uint8_t>* good = nullptr);
+/** `psd`: Welch's power spectral density of every channel of the whole record in one call (the `Welch` accumulator fed once; samples where `good` is false leave out every segment they touch). */
+WelchResult psd(const Eigen::MatrixXd& x, const WelchOptions& options, const std::vector<std::uint8_t>* good = nullptr);
+
+/** `xpsd`: Welch's cross-spectral density of the whole record in one call (the `CrossWelch` accumulator fed once): per group of bins, the real part (and with `withQuadrature` the imaginary part). */
+CrossWelchResult xpsd(const Eigen::MatrixXd& x, const WelchOptions& options, const std::vector<BinGroup>& groups, bool withQuadrature = false, const std::vector<std::uint8_t>* good = nullptr);
 
 }  // namespace nxr::signal::spectral

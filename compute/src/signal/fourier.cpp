@@ -65,6 +65,13 @@ Eigen::VectorXd fftfreq(std::size_t n, double d) {
     return f;
 }
 
+Eigen::VectorXd fftshift(const Eigen::VectorXd& x) {
+    const std::size_t n = static_cast<std::size_t>(x.size()), neg = n / 2;   // the last n/2 elements (the negative bins) come first
+    Eigen::VectorXd out(x.size());
+    for (std::size_t k = 0; k < n; ++k) out[static_cast<Eigen::Index>(k)] = x[static_cast<Eigen::Index>((k + n - neg) % n)];
+    return out;
+}
+
 Eigen::VectorXd rfftfreq(std::size_t n, double d) {
     const std::size_t m = n / 2 + 1;
     Eigen::VectorXd f(static_cast<Eigen::Index>(m));
@@ -84,30 +91,37 @@ std::size_t next_fast_len(std::size_t n, bool real) {
     }
 }
 
-// Column-major [n x m] = row-major {m, n}; the transform axis is the last.
-Eigen::MatrixXcd rfftColumns(const Eigen::MatrixXd& x, Norm norm) {
+// Column-major [n x m] = row-major {m, n}; the transform axis is the last. axis 1 transforms the rows: the transpose is the same array read the other way.
+namespace {
+void checkAxis(int axis, const char* who) { if (axis != 0 && axis != 1) throw std::invalid_argument(std::string("fft::") + who + ": axis is 0 (down the columns) or 1 (along the rows)"); }
+
+Eigen::MatrixXcd c2cMatrix(const Eigen::MatrixXcd& x, int axis, bool forward, Norm norm) {
+    if (axis == 1) return c2cMatrix(Eigen::MatrixXcd(x.transpose()), 0, forward, norm).transpose();
+    Eigen::MatrixXcd y(x.rows(), x.cols());
+    if (x.size()) c2c(x.data(), y.data(), {static_cast<std::size_t>(x.cols()), static_cast<std::size_t>(x.rows())}, 1, forward, norm);
+    return y;
+}
+}  // namespace
+
+Eigen::MatrixXcd rfft(const Eigen::MatrixXd& x, int axis, Norm norm) {
+    checkAxis(axis, "rfft");
+    if (axis == 1) return rfft(Eigen::MatrixXd(x.transpose()), 0, norm).transpose();
     const std::size_t n = static_cast<std::size_t>(x.rows()), m = static_cast<std::size_t>(x.cols());
     Eigen::MatrixXcd X(static_cast<Eigen::Index>(rfftBins(n)), x.cols());
     if (n && m) r2c(x.data(), X.data(), {m, n}, 1, norm);
     return X;
 }
 
-Eigen::MatrixXd irfftColumns(const Eigen::MatrixXcd& X, std::size_t n, Norm norm) {
-    if (static_cast<std::size_t>(X.rows()) != rfftBins(n)) throw std::invalid_argument("fft::irfftColumns: rows must be n/2 + 1");
+Eigen::MatrixXd irfft(const Eigen::MatrixXcd& X, std::size_t n, int axis, Norm norm) {
+    checkAxis(axis, "irfft");
+    if (axis == 1) return irfft(Eigen::MatrixXcd(X.transpose()), n, 0, norm).transpose();
+    if (static_cast<std::size_t>(X.rows()) != rfftBins(n)) throw std::invalid_argument("fft::irfft: the transformed axis must hold n/2 + 1 bins");
     Eigen::MatrixXd x(static_cast<Eigen::Index>(n), X.cols());
     if (n && X.cols()) c2r(X.data(), x.data(), {static_cast<std::size_t>(X.cols()), n}, 1, norm);
     return x;
 }
 
-Eigen::MatrixXcd fftColumns(const Eigen::MatrixXcd& x, bool forward, Norm norm) {
-    Eigen::MatrixXcd y(x.rows(), x.cols());
-    if (x.size()) c2c(x.data(), y.data(), {static_cast<std::size_t>(x.cols()), static_cast<std::size_t>(x.rows())}, 1, forward, norm);
-    return y;
-}
-
-Eigen::VectorXcd rfft(const Eigen::VectorXd& x, Norm norm) { return rfftColumns(x, norm).col(0); }
-Eigen::VectorXd irfft(const Eigen::VectorXcd& X, std::size_t n, Norm norm) { return irfftColumns(X, n, norm).col(0); }
-Eigen::VectorXcd fft(const Eigen::VectorXcd& x, Norm norm) { return fftColumns(x, true, norm).col(0); }
-Eigen::VectorXcd ifft(const Eigen::VectorXcd& X, Norm norm) { return fftColumns(X, false, norm).col(0); }
+Eigen::MatrixXcd fft(const Eigen::MatrixXcd& x, int axis, Norm norm) { checkAxis(axis, "fft"); return c2cMatrix(x, axis, true, norm); }
+Eigen::MatrixXcd ifft(const Eigen::MatrixXcd& X, int axis, Norm norm) { checkAxis(axis, "ifft"); return c2cMatrix(X, axis, false, norm); }
 
 }  // namespace nxr::signal

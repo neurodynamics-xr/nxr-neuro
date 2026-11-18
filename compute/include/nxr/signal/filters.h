@@ -95,42 +95,17 @@ private:
     std::int64_t n_ = 0;
 };
 
-class Filter {
-public:
-    /** `mean`: the record's channel means (only read when options.removeMean; empty = each window's own mean is not used: no removal). */
-    Filter(int channels, const FilterOptions& options, const Eigen::VectorXd& mean = Eigen::VectorXd());
-    /** Feed the next chunk, [channels x samples]; returns the output samples that are final (maybe none), in order. */
-    Eigen::MatrixXd add(const Eigen::MatrixXd& chunk);
-    /** The end of the record: the rest of the output. No more chunks after this. */
-    Eigen::MatrixXd finish();
-    std::int64_t samplesIn() const { return total_; }
-    std::int64_t samplesOut() const { return emitted_; }
-    const FilterOptions& options() const { return opt_; }
-    const Design& filterDesign() const { return design_; }
-    std::size_t lookBehind() const { return design_.lookBehind; }
-    std::size_t lookAhead() const { return design_.lookAhead; }
-    /** ONE BLOCK with its halo (a windowed node): `w` [channels x width] whose own columns are [left, left + own); the filtered own columns. `atStart` / `atEnd`: the block
-     *  reaches the record's first / last sample (its ends padded as the option set says). With a halo of lookBehind() on the left and lookAhead() on the right (or an end of
-     *  the record), the own columns are what the streaming filter gives there. Stateless: blocks in any order. */
-    Eigen::MatrixXd block(const Eigen::MatrixXd& w, std::size_t left, std::size_t own, bool atStart, bool atEnd) const;
+/** THE PURE FILTER (zero-phase: forward-backward IIR, centred FIR; Brainstorm's process_bandpass / process_notch): one window of a record, `w` [channels x width], whose OWN columns
+ *  are [left, left + own); returns those own columns filtered. `atStart` / `atEnd`: the window reaches the record's first / last sample (its ends are padded as the option set says).
+ *  With a halo of design.lookBehind on the left and design.lookAhead on the right (or an end of the record) the own columns are what the whole record gives there (FIR: to rounding of the
+ *  FFT; IIR: to the `tolerance` of the design); the halo is what the calling node declares. STATELESS: windows in any order. `mean`: the record's channel means (read only when
+ *  options.removeMean on a FIR design: removed first, restored unless the filter has a high-pass part); empty otherwise.
+ *  A whole record in one call is `lowpass` ... `notch` below. */
+Eigen::MatrixXd filter(const Eigen::MatrixXd& w, const FilterOptions& options, const Design& design, const Eigen::VectorXd& mean, std::size_t left, std::size_t own, bool atStart, bool atEnd);
+/** The same, designing from `options` first (design(options) costs: a node designs once and passes it to the form above). */
+Eigen::MatrixXd filter(const Eigen::MatrixXd& w, const FilterOptions& options, const Eigen::VectorXd& mean, std::size_t left, std::size_t own, bool atStart, bool atEnd);
 
-private:
-    Eigen::MatrixXd drain(bool final);
-    Eigen::MatrixXd window(const Eigen::MatrixXd& w, bool atStart, bool atEnd) const;     // the filtered window; rows = channels
-    Eigen::MatrixXd firWindow(const Eigen::MatrixXd& w, bool atStart, bool atEnd) const;
-    Eigen::MatrixXd iirWindow(const Eigen::MatrixXd& w) const;
-    FilterOptions opt_;
-    Design design_;
-    int channels_;
-    Eigen::VectorXd mean_;
-    bool restoreMean_ = false;
-    std::size_t minBlock_ = 1;
-    Eigen::MatrixXd buf_;                     // [channels x held]: the samples from bufStart_ on
-    std::int64_t bufStart_ = 0, total_ = 0, emitted_ = 0;
-    bool finished_ = false;
-};
-
-// The whole record in one call (a Filter fed once); the record's own channel means are used when options.removeMean.
+// The whole record in one call (two windows of `filter` at most: the record, then its tail); the record's own channel means are used when options.removeMean.
 Eigen::MatrixXd lowpass(const Eigen::MatrixXd& x, double upperEdge, FilterOptions options);
 Eigen::MatrixXd highpass(const Eigen::MatrixXd& x, double lowerEdge, FilterOptions options);
 Eigen::MatrixXd bandpass(const Eigen::MatrixXd& x, double lowerEdge, double upperEdge, FilterOptions options);
