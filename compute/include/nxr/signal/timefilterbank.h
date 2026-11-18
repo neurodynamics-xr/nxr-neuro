@@ -175,4 +175,8 @@ double noiseBandwidth(const TimeFilterbank& bank, int member, int grid = 1 << 16
  *  band-limited signal's sampling error. */
 Eigen::MatrixXcd downsample(const Eigen::MatrixXcd& Z, int d, int offset = 0);
 
+/** The kind of each member (Rheome's `kinds`): "lowpass" (the low-pass and the scaling member), "band" (a band or a wavelet), "highpass" (the high-pass and the top member), or "dc" (the DC bin
+ *  of a two-sided bank, which has no sense). One entry per member, in the bank's order. */
+std::vector<std::string> kinds(const TimeFilterbank& bank);
+
 }  // namespace nxr::signal::timefilterbank
