@@ -15,7 +15,7 @@
 // THE GAUGE of nxr-neuro is geometry-central's vertex gauge of the (mollified) input mesh: angle 0 along the input's `v.halfedge()`, corner angles
 // rescaled by `cornerScaledAngles` (2π; π at a boundary vertex), realised in 3D by `tangentBasis()` (equal to `vertexTangentBasis` when ε = 0).
 //
-// Pure: arrays in, the object out. No file access, no io. Not thread-safe to share between threads while a quantity is first required.
+// Pure: arrays in, the object out. Built inside a function from `SurfaceArrays` and dropped on return; never held across calls. No file access, no io. Not thread-safe to share between threads while a quantity is first required.
 #pragma once
 
 #include <Eigen/Sparse>
@@ -79,11 +79,17 @@ const char* geometryCentralVersion();
 /** The 3D realisation of the gauge: at each vertex the unit normal and the tangent basis (e1 at angle 0, e2 = n × e1), [3 nV] row-major. */
 struct TangentBasis { std::vector<double> e1, e2, n; };
 
+struct IntrinsicTriangulation;
+struct SurfaceArrays;
+
 class IntrinsicSurface {
 public:
     /** Throws core::Error(InvalidInput) on a face index outside [0, nV), a non-triangle input, a non-manifold or inconsistently oriented edge,
      *  or a non-finite or non-positive input edge length (refused before the mollification). */
     IntrinsicSurface(const double* positions, int nV, const int32_t* faces, int nF, const IntrinsicOptions& o = {});
+    /** geometry-central's objects REBUILT from the arrays (nxr/geometry/surface_arrays.h): no mollification, no flip; the triangulation is the one exported,
+     *  with the same numbering, lengths and gauge, so every quantity is bit-identical to the original's. The arrays must outlive the object. */
+    explicit IntrinsicSurface(const SurfaceArrays& s);
     ~IntrinsicSurface();
     IntrinsicSurface(const IntrinsicSurface&) = delete;
     IntrinsicSurface& operator=(const IntrinsicSurface&) = delete;
@@ -145,6 +151,8 @@ public:
         std::vector<uint8_t> boundary;          // [nV]
     };
     InputCorners inputCorners();
+    /** The triangulation as arrays (the data product; nxr/geometry/surface_arrays.h). */
+    IntrinsicTriangulation triangulation();
     /** The raw signpost angle of each of the INPUT mesh's halfedges (mollified input), indexed by halfedge index: the same coordinate as `Complex::angle`. */
     std::vector<double> inputSignpostAngles();
 
