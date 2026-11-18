@@ -69,6 +69,8 @@ void need_over(Unified& u, const std::string& port, const std::string& id, const
 Signature s_analytic() {
   return sig(Move::pointwise)
       .in("x", field({M, T}).streamed().value(VT::real).because("The analytic signal is taken of a real field."))
+      .in("bands", any_port().optional().because("The temporal band set (a spans selection) when several bands are made in one pass."))
+      .in("channels_of", any_port().optional().because("The channels of a stored statistic or operator the recording is picked to."))
       .out("y", like("x").with_value(VT::complex))
       .refine([](Unified& u, const Json& p) { if (auto b = band_of(p.value("band", Json()))) u.out.at("y").res.band = b; });
 }
@@ -109,6 +111,7 @@ Signature s_apply_kernel() {
       .in("kernel", operator_(from_or_restriction_of(A), B).because("The kernel reads the channels of x; make the cross-spectrum or the recording with `--channels-of <kernel>`."))
       .in("tiles", selection({B}).optional().because("The tile ladder must be the ladder of the kernel's target surface."))
       .in("pre_operator", any_port().optional().because("A linear operator on x's rows made by an earlier node (a surrogate's zero-lag mixing), composed into the kernel's operator."))
+      .in("glued", any_port().optional().because("The glued surface (made by `glue`) the field is made on and restored from."))
       .out("y", like("x").on({B, R, TF}))
       .refine([](Unified& u, const Json& p) {
         const PortType& x = u.type("x");
@@ -244,6 +247,7 @@ Signature s_estimate() {
   return sig(Move::summarize).accumulating().reduces_over("the good samples")
       .in("x", field({R, TF}).streamed())
       .in("exclude", selection_any().optional())
+      .in("outside", selection_any().optional().because("Samples outside these spans only (the estimate of what is not in an event)."))
       .out("y", make_of(PortClass::statistic))
       .refine([](Unified& u, const Json& p) { statistic_of_stream(u, "y", p.value("method", std::string("mean")), nullptr); });
 }
@@ -607,7 +611,7 @@ Signature s_surrogate_lagfree() {
   // awaits the zero-lag mixing, composed into the first linear map (apply_kernel's `pre_operator`)
   return sig(Move::apply)
       .in("x", field({A, R, T}).streamed())
-      .in("psd", statistic_any()).in("cross_spectrum", statistic_any()).in("power_series", statistic_any())
+      .in("psd", statistic_any()).in("cross_spectrum", statistic_any()).in("power_series", statistic_any()).in("psd_channel_mean", statistic_any())
       .out("y", like("x").with_quantity("surrogate"))
       .refine([](Unified& u, const Json&) {
         const PortType& x = u.type("x");

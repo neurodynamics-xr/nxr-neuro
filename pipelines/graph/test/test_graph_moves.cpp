@@ -240,7 +240,7 @@ g::NodeSpec toy_analytic() {
   g::NodeSpec n;
   n.name = "toy.analytic";
   n.kind = g::Kind::chunk;
-  n.inputs = {{"x", "", false}};
+  n.inputs = {{"x", "", false}, {"bands", "", true}, {"channels_of", "", true}};
   n.outputs = {{"y", "", false}};
   n.traits = g::node_traits(g::TimeBehaviour::pointwise, g::Precision::float32, g::OutputPrecision::follows_input, "each column on its own");
   n.plan = [](const g::Types& in, const Json&) { g::Planned p; g::PortType t = in.at("x"); t.value = VT::complex; p.out["y"] = t; return p; };
@@ -271,7 +271,7 @@ void test_in_check() {
   g::Registry r2;
   r2.add(n);
   CHECK(r2.unmatched_signatures().size() == 1 && !r2.at("analytic").signature);
-  n.inputs = {{"x", "", false}};
+  n.inputs = {{"x", "", false}, {"bands", "", true}, {"channels_of", "", true}};
   g::Registry r3;
   r3.add(n);
   CHECK(r3.unmatched_signatures().empty() && r3.at("analytic").signature);

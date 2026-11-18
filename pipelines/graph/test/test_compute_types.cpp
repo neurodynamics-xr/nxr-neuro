@@ -37,7 +37,7 @@ g::NodeTraits pointwise() { return g::node_traits(g::TimeBehaviour::pointwise, g
 // three toys carrying the built-in signatures of `analytic`, `field.form` (power) and `apply_kernel` (the signature is the type rule; the node only computes)
 g::Registry toys() {
   g::Registry r;
-  g::NodeSpec a; a.name = "analytic"; a.kind = g::Kind::chunk; a.traits = pointwise(); a.inputs = {{"x", ""}}; a.outputs = {{"y", ""}};
+  g::NodeSpec a; a.name = "analytic"; a.kind = g::Kind::chunk; a.traits = pointwise(); a.inputs = {{"x", ""}, {"bands", "", true}, {"channels_of", "", true}}; a.outputs = {{"y", ""}};
   a.parameters = {{"band", Json(), "", "Hz", {}, true}};
   a.chunk = [](const std::any&, const g::Blocks& in, std::int64_t keep, const g::Place&) {
     const g::Block& x = in.at("x"); g::Block y = shaped(x, keep, x.rows, true);
@@ -53,7 +53,7 @@ g::Registry toys() {
   };
   r.add(p);
   g::NodeSpec k; k.name = "apply_kernel"; k.kind = g::Kind::chunk; k.traits = pointwise(); k.linear_map = true;
-  k.inputs = {{"x", ""}, {"kernel", ""}, {"tiles", "", true}, {"pre_operator", "", true}}; k.outputs = {{"y", ""}};
+  k.inputs = {{"x", ""}, {"kernel", ""}, {"tiles", "", true}, {"pre_operator", "", true}, {"glued", "", true}}; k.outputs = {{"y", ""}};
   k.prepare = [](const g::Types&, const g::Arrays& c, const Json&, g::Shared&) { return std::any(c.at("kernel")); };
   k.chunk = [](const std::any& prepared, const g::Blocks& in, std::int64_t keep, const g::Place&) {
     const g::Array& K = std::any_cast<const g::Array&>(prepared);
