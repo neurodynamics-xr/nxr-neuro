@@ -22,6 +22,7 @@ std::vector<Row> complete_subjects(DatasetWriter& ds);
 std::optional<Row> find_manifold(SubjectWriter& sub, const std::string& name, const std::optional<std::string>& type = std::nullopt);
 std::optional<Row> manifold_with_geometry(SubjectWriter& sub, const std::string& manifold_id);
 std::string manifold_coordinate_system(SubjectWriter& sub, const std::string& manifold_id);
+std::string manifold_coordinate_system_name(SubjectWriter& sub, const std::string& manifold_id);
 std::optional<Row> find_field(SubjectWriter& sub, const FieldQuery& q);
 /** the names of the subject's complete surfaces (with geometry), by name */
 std::vector<std::string> surface_names(SubjectWriter& sub);

@@ -71,6 +71,11 @@ std::string manifold_coordinate_system(const Database& db, const std::string& ma
   return r ? opt_text(*r, "cs").value_or("") : std::string();
 }
 
+std::string manifold_coordinate_system_name(const Database& db, const std::string& manifold_id) {
+  const auto r = db.one("SELECT cs.name AS name FROM manifold m JOIN geometry g ON g.id = m.geometry_id JOIN coordinate_system cs ON cs.id = g.coordinate_system_id WHERE m.id = ?", {V(manifold_id)});
+  return r ? opt_text(*r, "name").value_or("") : std::string();
+}
+
 std::optional<std::string> coordinate_system_name_of_geometry(const Database& db, const std::string& geometry_id) {
   const auto c = db.one("SELECT c.name FROM geometry g JOIN coordinate_system c ON c.id = g.coordinate_system_id WHERE g.id = ?", {V(geometry_id)});
   if (!c) return std::nullopt;

@@ -54,8 +54,8 @@ void make(const fs::path& pkg, const std::string& lm_cs) {
   const SurfaceInfo si = add_surface(sub, so, std::vector<double>(m.V), std::vector<std::int32_t>(m.F));
   add_landmarks(sub, lm_cs, {0, float(R), 0, -float(R), 0, 0, float(R), 0, 0});   // NAS, LPA, RPA
   set_origin(w, "manifold", si.id, OriginRecord{"fixture:scalp", "CC-BY-4.0", "A. Author", true});
+  sub.complete();                                                    // (a manifold is found by name once it is complete)
   if (const auto r = nxr::io::find_manifold(sub, "head_landmarks")) set_origin(w, "manifold", text(*r, "id"), OriginRecord{"fixture:landmarks", "CC-BY-4.0", "A. Author", true});
-  sub.complete();
 }
 }  // namespace
 

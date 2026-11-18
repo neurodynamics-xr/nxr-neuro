@@ -40,7 +40,7 @@ MontageCreateResult montage_create(const MontageCreateOptions& opt, const std::f
   if (integer(*lm_row, "n_vertices") != 3) invalid("montage create: '" + opt.landmarks + "' holds " + std::to_string(integer(*lm_row, "n_vertices")) + " points, not the nasion, LPA and RPA");
   if (nxr::io::find_manifold(sub, opt.name)) invalid("montage create: " + opt.name + " exists already");
   // the same coordinate system: the scalp's and the landmarks' (a landmark in another system is not the scalp's landmark)
-  const std::string scalp_cs = nxr::io::manifold_coordinate_system(sub, scalp.id), lm_cs = nxr::io::manifold_coordinate_system(sub, text(*lm_row, "id"));
+  const std::string scalp_cs = nxr::io::manifold_coordinate_system_name(sub, scalp.id), lm_cs = nxr::io::manifold_coordinate_system_name(sub, text(*lm_row, "id"));
   if (scalp_cs.empty() || lm_cs.empty()) invalid("montage create: the scalp or the landmarks have no coordinate system");
   if (scalp_cs != lm_cs) invalid("montage create: the scalp is in '" + scalp_cs + "' and the landmarks in '" + lm_cs + "': place them in one system first");
   const std::string cs_key = scalp_cs;

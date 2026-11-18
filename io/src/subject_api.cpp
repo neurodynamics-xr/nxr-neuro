@@ -8,6 +8,7 @@ std::vector<Row> complete_subjects(DatasetWriter& ds) { return complete_subjects
 std::optional<Row> find_manifold(SubjectWriter& sub, const std::string& name, const std::optional<std::string>& type) { return find_manifold(sub.db(), sub.id(), name, type); }
 std::optional<Row> manifold_with_geometry(SubjectWriter& sub, const std::string& manifold_id) { return manifold_with_geometry(sub.db(), manifold_id); }
 std::string manifold_coordinate_system(SubjectWriter& sub, const std::string& manifold_id) { return manifold_coordinate_system(sub.db(), manifold_id); }
+std::string manifold_coordinate_system_name(SubjectWriter& sub, const std::string& manifold_id) { return manifold_coordinate_system_name(sub.db(), manifold_id); }
 std::optional<Row> find_field(SubjectWriter& sub, const FieldQuery& q) { return find_field(sub.db(), sub.id(), q); }
 std::vector<std::string> surface_names(SubjectWriter& sub) {
   std::vector<std::string> out;

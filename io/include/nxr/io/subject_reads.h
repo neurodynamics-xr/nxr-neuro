@@ -46,6 +46,8 @@ std::optional<std::string> topology_faces_path(const Database& db, const std::st
 std::string manifold_coordinate_unit(const Database& db, const std::string& manifold_id);
 /** the coordinate system a manifold's geometry is in ("" when it records none) */
 std::string manifold_coordinate_system(const Database& db, const std::string& manifold_id);
+/** the NAME of the coordinate system a manifold's geometry is in (the key a stored montage or kernel records), "" when it records none */
+std::string manifold_coordinate_system_name(const Database& db, const std::string& manifold_id);
 /** the name of a geometry's coordinate system */
 std::optional<std::string> coordinate_system_name_of_geometry(const Database& db, const std::string& geometry_id);
 /** the manifolds a product manifold's geometry is made of, by factor */
