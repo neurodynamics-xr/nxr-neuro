@@ -64,7 +64,7 @@ int main() {
         const Eigen::VectorXd lam = t.lambda;
         for (int m = 0; m < ob.bank.size(); ++m) {
             const auto& gain = ob.bank.members[m].gain;
-            const Eigen::VectorXd poly = ob.transform.apply(gain, Eigen::MatrixXd(f)).col(0);
+            const Eigen::VectorXd poly = gt::chebyshev(ob.transform, gain, Eigen::MatrixXd(f)).col(0);
             Eigen::VectorXd c = t.phi.transpose() * f;
             for (int k = 0; k < c.size(); ++k) c(k) *= gain(lam(k));
             worst = std::max(worst, (poly - t.phi * c).cwiseAbs().maxCoeff());
