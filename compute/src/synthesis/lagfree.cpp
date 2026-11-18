@@ -1,6 +1,7 @@
 // nxr::synthesis — the lag-free surrogates (synthesis/lagfree.h).
 #include "nxr/synthesis/lagfree.h"
 
+#include "nxr/core/algebra.h"
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -73,18 +74,11 @@ Eigen::MatrixXd convolveValid(const Eigen::MatrixXd& white, const Eigen::VectorX
   return y;
 }
 
-Eigen::MatrixXd symmetricSquareRoot(const Eigen::MatrixXd& A) {
-  if (A.rows() != A.cols()) throw std::invalid_argument("symmetricSquareRoot: a square matrix");
-  Eigen::SelfAdjointEigenSolver<Eigen::MatrixXd> es(0.5 * (A + A.transpose()));
-  const Eigen::VectorXd e = es.eigenvalues().cwiseMax(0.0).cwiseSqrt();
-  return es.eigenvectors() * e.asDiagonal() * es.eigenvectors().transpose();
-}
-
 Eigen::MatrixXd zeroLagMixing(const Eigen::MatrixXd& realCrossSpectrum) {
   if (realCrossSpectrum.rows() != realCrossSpectrum.cols() || realCrossSpectrum.rows() == 0) throw std::invalid_argument("zeroLagMixing: a square cross-spectrum of at least one channel");
   const double meanVariance = realCrossSpectrum.trace() / static_cast<double>(realCrossSpectrum.rows());
   if (!(meanVariance > 0)) throw std::invalid_argument("zeroLagMixing: the cross-spectrum holds no power");
-  return symmetricSquareRoot(realCrossSpectrum / meanVariance);
+  return nxr::core::symmetricSquareRoot(realCrossSpectrum / meanVariance);
 }
 
 Eigen::MatrixXd shapedNoiseBlock(const Eigen::VectorXd& taps, std::uint64_t seed, int rows, std::int64_t first, std::int64_t n, const Eigen::VectorXd& scale) {
@@ -143,7 +137,7 @@ double effectiveBandwidth(const Eigen::VectorXd& freq, const Eigen::VectorXd& ps
 Eigen::MatrixXcd lagfreeSecondMomentDraw(const Eigen::MatrixXd& ReQ0, double dof, std::uint64_t seed, std::uint64_t draw) {
   if (ReQ0.rows() != ReQ0.cols()) throw std::invalid_argument("lagfreeSecondMomentDraw: a square matrix");
   const int k = std::max(static_cast<int>(std::lround(dof)), 2), C = static_cast<int>(ReQ0.rows());
-  const Eigen::MatrixXd L = symmetricSquareRoot(ReQ0);
+  const Eigen::MatrixXd L = nxr::core::symmetricSquareRoot(ReQ0);
   Eigen::MatrixXcd Z(C, k);
   const std::uint64_t s = seed ^ (0x517cc1b727220a95ULL * (draw + 1));
   for (int r = 0; r < C; ++r)

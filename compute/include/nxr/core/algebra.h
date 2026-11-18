@@ -1,5 +1,5 @@
 #pragma once
-// nxr::core: general algebra of matrices, with no domain: a Hermitian factor, the antisymmetric factor of Im(F F^H), and a diagonal row scaling.
+// nxr::core: general algebra of matrices, with no domain: a Hermitian factor, the symmetric square root, the antisymmetric factor of Im(F F^H), and a diagonal row scaling.
 // (hermitianFactor and quadratureFactor were declared in quadrature.h; divideRows in scaling.h.)
 #include <Eigen/Dense>
 #include <complex>
@@ -14,6 +14,10 @@ using Eigen::VectorXd;
 
 /** A factor L [N x r] of a Hermitian positive semi-definite S = L L^H from its eigendecomposition (L = V sqrt(max(e,0))); eigenvalues below `tolerance` x the largest are dropped, so r <= N is its rank. */
 MatrixXcd hermitianFactor(const MatrixXcd& S, double tolerance = 1e-12);
+
+/** The SYMMETRIC square root of a real symmetric positive semi-definite matrix (the symmetrised input; negative eigenvalues clipped to 0; Rheome pairsqrt): the one root R = R^T with R R = A.
+ *  Not `hermitianFactor`: a factor L with S = L L^H is not unique (any L U, U unitary, is one), the symmetric root is; they are different objects and stay two functions. */
+MatrixXd symmetricSquareRoot(const MatrixXd& A);
 
 // ── the quadrature spectrum in factored form ────────────────────────────────────────────────────────────────────────
 

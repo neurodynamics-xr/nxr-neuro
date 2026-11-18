@@ -4,6 +4,7 @@
 //   - the surrogate is LAG-FREE: its cross-spectrum's imaginary part is zero within its sampling error, where the same noise with one channel delayed has a large one (the test has teeth)
 //   - the scale is pointwise: a doubled scale in a stretch doubles the samples there and nowhere else
 //   - the series interpolation, the effective bandwidth (a flat spectrum of width B gives B), the Wishart draw (mean Re Q0, no lag, its degrees of freedom), the sequential p and Benjamini-Hochberg; refusals
+#include "nxr/core/algebra.h"
 #include <algorithm>
 #include <cmath>
 #include <complex>
@@ -57,7 +58,7 @@ int main() {
   const Eigen::VectorXd taps = nxr::synthesis::spectrumShapingTaps(freq, psd, fs, half);
   EXPECT(taps.size() == 2 * half + 1 && std::abs(taps.squaredNorm() - 1) < 1e-12 && (taps - taps.reverse()).norm() < 1e-12, "the taps are symmetric with unit energy");
   Eigen::MatrixXd R(2, 2); R << 1.0, 0.6, 0.6, 1.0;
-  const Eigen::MatrixXd Rh = nxr::synthesis::symmetricSquareRoot(R);
+  const Eigen::MatrixXd Rh = nxr::core::symmetricSquareRoot(R);
   EXPECT((Rh * Rh - R).norm() < 1e-12, "sqrtPsd squares back");
 
   // CHUNK INDEPENDENCE
@@ -128,7 +129,7 @@ int main() {
       const Eigen::VectorXd Pd = pspec(X);
       Eigen::VectorXd f(nb); for (int k = 0; k < nb; ++k) f[k] = k * 100.0 / seg;
       const Eigen::VectorXd tp = nxr::synthesis::spectrumShapingTaps(f, Pd, 100.0, 200);
-      const Eigen::MatrixXd Rh = nxr::synthesis::symmetricSquareRoot(cov);
+      const Eigen::MatrixXd Rh = nxr::core::symmetricSquareRoot(cov);
       auto oneCycle = [&](const Eigen::MatrixXd& x) -> Eigen::VectorXd { Eigen::VectorXd v(x.cols()), o(x.cols()); for (Eigen::Index t = 0; t < x.cols(); ++t) v[t] = x.col(t).squaredNorm() / x.rows();
         for (Eigen::Index t = 0; t < x.cols(); ++t) { double a = 0; for (Eigen::Index j = t - 5; j <= t + 4; ++j) if (j >= 0 && j < x.cols()) a += v[j]; o[t] = std::sqrt(a / 10); } return o; };
       const Eigen::VectorXd ed = oneCycle(X);
