@@ -38,4 +38,21 @@ Eigen::SparseMatrix<Scalar> sparseCongruence(const Eigen::SparseMatrix<Scalar>& 
 template <class Scalar>
 Eigen::SparseMatrix<Scalar> sparseCongruenceBlocked(const Eigen::SparseMatrix<Scalar>& projection, const Eigen::SparseMatrix<Scalar>& connections, std::int64_t block, Scalar drop_below);
 
+// ── the K C K^T blocks of a free-orientation kernel (from meeg/tensor.h): the cross-spectral TENSOR of a source current ──
+//   sourceTensor(K, S, Sq)   per source v, the complex 3x3 Hermitian T_v = K_v (S + i Sq) K_v^T, K_v the source's three kernel rows (x y z), S + i Sq a band's sensor cross-spectral density
+//                            (S its real part, Sq its imaginary part Im(X X^H)). Re T is symmetric, Im T antisymmetric; tr T = the source's band power summed over its orientations. Never a
+//                            source time series: channels^2 per band.
+//   crossTensor(K, S, Sq, i, j)   the 3x3 block BETWEEN two sources, T_ij = K_i (S + i Sq) K_j^T (T_ji = T_ij^H; T_ii is sourceTensor's), read on demand: the full 3N x 3N matrix is never formed.
+/** [N] tensors, each 9 real and 9 imaginary parts, row-major 3x3 (x y z). */
+struct SourceTensors {
+  Eigen::Index sources = 0;
+  std::vector<double> re, im;                 // [N x 9] each
+  const double* reOf(Eigen::Index v) const { return re.data() + 9 * v; }
+  const double* imOf(Eigen::Index v) const { return im.data() + 9 * v; }
+};
+/** K [3N x M] (three rows a source: x y z), S and Sq [M x M] (Sq antisymmetric). Throws std::invalid_argument on a shape mismatch. */
+SourceTensors sourceTensor(const Eigen::MatrixXd& K, const Eigen::MatrixXd& S, const Eigen::MatrixXd& Sq);
+/** The block T_ij (re, im: 9 each, row-major) between sources i and j of K [3N x M]. Throws std::invalid_argument on a shape mismatch or a source outside K. */
+void crossTensor(const Eigen::MatrixXd& K, const Eigen::MatrixXd& S, const Eigen::MatrixXd& Sq, Eigen::Index i, Eigen::Index j, double* re, double* im);
+
 }  // namespace nxr::core

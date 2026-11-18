@@ -79,4 +79,35 @@ template Eigen::SparseMatrix<double> sparseCongruence(const Eigen::SparseMatrix<
 template Eigen::SparseMatrix<float> sparseCongruenceBlocked(const Eigen::SparseMatrix<float>&, const Eigen::SparseMatrix<float>&, std::int64_t, float);
 template Eigen::SparseMatrix<double> sparseCongruenceBlocked(const Eigen::SparseMatrix<double>&, const Eigen::SparseMatrix<double>&, std::int64_t, double);
 
+SourceTensors sourceTensor(const Eigen::MatrixXd& K, const Eigen::MatrixXd& S, const Eigen::MatrixXd& Sq) {
+  if (K.rows() % 3 != 0) throw std::invalid_argument("sourceTensor: a free-orientation kernel has three rows a source");
+  if (S.rows() != K.cols() || S.cols() != K.cols() || Sq.rows() != K.cols() || Sq.cols() != K.cols())
+    throw std::invalid_argument("sourceTensor: the cross-spectrum is not channels x channels");
+  const Eigen::Index N = K.rows() / 3;
+  const Eigen::MatrixXd KS = K * S, KQ = K * Sq;            // [3N x M]: one product a part, then three dot products a pair of rows
+  SourceTensors t;
+  t.sources = N;
+  t.re.assign(static_cast<std::size_t>(9 * N), 0.0);
+  t.im.assign(static_cast<std::size_t>(9 * N), 0.0);
+  for (Eigen::Index v = 0; v < N; ++v)
+    for (int a = 0; a < 3; ++a)
+      for (int b = 0; b < 3; ++b) {
+        const std::size_t k = static_cast<std::size_t>(9 * v + 3 * a + b);
+        t.re[k] = KS.row(3 * v + a).dot(K.row(3 * v + b));
+        t.im[k] = KQ.row(3 * v + a).dot(K.row(3 * v + b));
+      }
+  return t;
+}
+
+void crossTensor(const Eigen::MatrixXd& K, const Eigen::MatrixXd& S, const Eigen::MatrixXd& Sq, Eigen::Index i, Eigen::Index j, double* re, double* im) {
+  if (K.rows() % 3 != 0) throw std::invalid_argument("crossTensor: a free-orientation kernel has three rows a source");
+  if (S.rows() != K.cols() || S.cols() != K.cols() || Sq.rows() != K.cols() || Sq.cols() != K.cols())
+    throw std::invalid_argument("crossTensor: the cross-spectrum is not channels x channels");
+  const Eigen::Index N = K.rows() / 3;
+  if (i < 0 || j < 0 || i >= N || j >= N) throw std::invalid_argument("crossTensor: a source outside the kernel");
+  const Eigen::MatrixXd Ki = K.middleRows(3 * i, 3), Kj = K.middleRows(3 * j, 3);
+  const Eigen::Matrix3d R = Ki * S * Kj.transpose(), Q = Ki * Sq * Kj.transpose();
+  for (int a = 0; a < 3; ++a) for (int b = 0; b < 3; ++b) { re[3 * a + b] = R(a, b); im[3 * a + b] = Q(a, b); }
+}
+
 }  // namespace nxr::core

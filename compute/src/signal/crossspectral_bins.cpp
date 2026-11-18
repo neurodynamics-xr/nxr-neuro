@@ -1,10 +1,10 @@
-#include "nxr/meeg/crossspectrum.h"
+#include "nxr/signal/crossspectral.h"
 
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
-namespace nxr::meeg {
+namespace nxr::signal {
 
 namespace {
 const double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -83,4 +83,4 @@ Eigen::MatrixXd phase_slope_index(const std::vector<Eigen::MatrixXcd>& C) {
   return psi;
 }
 
-}  // namespace nxr::meeg
+}  // namespace nxr::signal

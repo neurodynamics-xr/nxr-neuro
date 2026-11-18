@@ -2,13 +2,9 @@
 include(${CMAKE_CURRENT_SOURCE_DIR}/../compute/cmake/nxr_core.cmake)
 add_library(nxr_meeg STATIC
   src/inverse.cpp
-  src/covariance.cpp
   src/sphere.cpp
   src/forward.cpp
   src/sources.cpp
-  src/tensor.cpp
-  src/wave.cpp
-  src/crossspectrum.cpp
 )
 target_include_directories(nxr_meeg PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
 target_compile_features(nxr_meeg PUBLIC cxx_std_17)
@@ -21,7 +17,7 @@ else()
 endif()
 
 if(NXR_NEURO_BUILD_TESTS)
-  foreach(t test_inverse test_covariance test_inverse_parity test_forward test_forward_parity test_sources test_tensor test_wave test_crossspectrum_bins)
+  foreach(t test_inverse test_inverse_parity test_forward test_forward_parity test_sources)
     add_executable(${t} test/${t}.cpp)
     target_link_libraries(${t} PRIVATE nxr_meeg)
     target_compile_definitions(${t} PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
