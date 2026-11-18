@@ -18,6 +18,7 @@
 #include <vector>
 
 #include "nxr/graph/graph.h"
+#include "nxr/io/chunk_loop.h"
 #include "nxr/io/database.h"
 #include "nxr/io/writer.h"
 #include "nxr/pipelines/definition.h"
@@ -74,6 +75,9 @@ struct RunOptions {
    *  in frame order. The result does not depend on it (a frame's value is its own); only memory does. MEMORY held by the tail: (the tail's rows, e.g. the glued vertices x the levels x the components a
    *  vertex) x block_frames x 8 bytes per complex value alive at once, a few times over (the operator's product in double, the float copy). The steps BEFORE the tiling see the sensors only. 0: the whole chunk's frames. */
   std::int64_t block_frames = 256;
+  /** the recording's projectors on load (the chunk service): active (the default: its status-1 projectors applied to every block) or none (the samples as recorded). What was applied
+   *  is in the run's provenance (`run.projectors`) and, when the recording has active projectors, in its cache key. */
+  nxr::io::Projectors projectors = nxr::io::Projectors::active;
 };
 /** The per-subject inputs of a GROUP run (a definition of `scope: group`), stacked over the member subjects: for each `per_subject` selection input, the members' measurements (the measures the run's `measures`
  *  parameter names, of the field the member's `per_subject` field input found, when there is one) as ONE array [subjects x measures x rows x members]; the ids of what each member's input found, in the caller's order. */

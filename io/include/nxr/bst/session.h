@@ -56,11 +56,9 @@ Json import_events(nxr::io::SubjectWriter& sub, const std::filesystem::path& bst
 // resample_poly (scipy), `step` channels at a time: read(c0, c1) -> [c1-c0, n_t] float64 row-major; returns [n_chan, ceil(n_t*to/fs)] float32
 std::vector<float> resample_rows(const std::function<std::vector<double>(std::int64_t, std::int64_t)>& read, std::int64_t n_chan, std::int64_t n_t, double fs, double to,
                                  std::int64_t& n_new, std::int64_t step = 16);
-// D168: what an import does with the channel file's projectors: the matrix of the status-1 ones (applied to every block as it is copied; empty = none) and the record
-// the recording's provenance keeps (`projectors`, `ctf_compensation`)
+// D168: what the recording's provenance keeps of the channel file's projectors (`projectors`, `ctf_compensation`). The samples are stored as recorded: no projector is
+// applied by an import; the chunk service applies the status-1 ones on load.
 struct Projection {
-  std::vector<double> matrix;
-  std::size_t n_channels = 0;
   Json record = Json::object();
 };
 Json add_resampled(nxr::io::SubjectWriter& sub, const std::string& recording, double to, const std::optional<std::string>& name, const Emit& progress);

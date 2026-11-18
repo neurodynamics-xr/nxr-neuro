@@ -10,6 +10,7 @@
 //   --set        a parameter overridden, NAME=VALUE with VALUE read as YAML (8, [15, 29], dSPM); repeatable (what `--<parameter> VALUE` is turned into).
 //                `--set NAME` alone chooses one of the definition's presets (named parameter sets): defaults < the preset < the caller's own values
 //   --chunks / --start --stop   the span read (io's chunk service: one chunk by default)
+//   --projectors active|none   the recording's active projectors applied to every block loaded (active, the default) or the samples as recorded (none)
 //   --replace    another job's outputs of the same names are moved aside (never deleted) and replaced; without it they are refused. A rerun with the same
 //                definition, parameters, inputs and span is a cache hit (nothing computed).
 //   --dry-run    the plan: inputs found, every arrow checked, every output's place known; nothing read beyond the rows, nothing written
@@ -36,7 +37,7 @@ namespace {
 int run_main(const std::vector<std::string>& rest) {
   const std::string prog = "nxr-neuro run";
   const bool list = std::find(rest.begin(), rest.end(), "--list") != rest.end();
-  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--chunks", "--start", "--stop", "--block-samples", "--block-frames"}, {"--dry-run", "--list", "--replace"}, {}, list ? 0 : 1, {"--set"}, "DEFINITION");
+  const cli::Args a = cli::parse(prog, rest, {"--dataset", "--subject", "--chunks", "--start", "--stop", "--block-samples", "--block-frames", "--projectors"}, {"--dry-run", "--list", "--replace"}, {}, list ? 0 : 1, {"--set"}, "DEFINITION");
   if (a.flag.count("--list")) {
     Json defs = Json::array(), all = Json::array();
     for (const auto& n : g::available()) defs.push_back(n);
@@ -82,6 +83,10 @@ int run_main(const std::vector<std::string>& rest) {
   o.preset = preset;
   if (const auto v = a.maybe("--block-samples")) o.block_samples = std::stoll(*v);
   if (const auto v = a.maybe("--block-frames")) o.block_frames = std::stoll(*v);
+  if (const auto v = a.maybe("--projectors")) {
+    if (*v != "active" && *v != "none") usage(prog, "--projectors is active (the recording's active projectors applied on load, the default) or none (the samples as recorded)");
+    o.projectors = nxr::io::projectors_from(*v);
+  }
   DatasetWriter ds = open_dataset(a);
   OpenSubjectOptions oo;
   oo.created_by = cli::stamp();

@@ -270,6 +270,8 @@ R"TBL(--no-small-files		Stop at the sharded layout; do not also move each subjec
 --prefer@import scan	protocol.mat|walk	Which reader to use for the protocol: its protocol.mat file or a walk of the folders.	automatic (protocol.mat when present)	-
 --primary		Mark the added mesh as the subject's primary surface	on	-
 --primary@add surface		Mark the added surface as the subject's primary surface (the one other commands use when no --surface is named).	on	-
+--projectors	active|none	The recording's projectors (SSP, ICA) when it is read: active applies its active projectors to every block loaded, as Brainstorm and MNE-Python do on reading; none reads the samples as recorded. Recorded in the provenance and the cache key.	active	-
+--projectors@run	active|none	The recording's active projectors applied to every block loaded (active), or the samples read as recorded (none); recorded in the run's provenance and cache key.	active	-
 --provenance	FILE	A JSON file of provenance to store with the imported maps.	none	-
 --provenance@import map	FILE	A JSON file of provenance to store with each imported map.	none	-
 --psd	NAME	The recording's stored Welch spectrum, whose shape gives the band's effective bandwidth.	none (required)	-

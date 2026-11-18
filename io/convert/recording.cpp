@@ -361,7 +361,6 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
   producer["origin"] = origin;
 
   RecordingOperators ops = operators_of(reader);
-  const std::vector<double> projection = applied_projection(ops);     // the active projectors, applied as the samples are copied
   Json out;
   sub.compose([&] {
     std::map<std::string, std::string> units_by_type;
@@ -410,12 +409,7 @@ Json import_recording(nxr::io::DatasetWriter& w, nxr::io::SubjectWriter& sub, co
     b.linked = opt.in_place;
     b.read = [&](std::int64_t s0, std::int64_t n, std::vector<float>& blk) {
       blk.resize(static_cast<std::size_t>(n_chan * n));
-      reader.read(static_cast<std::uint64_t>(s0), static_cast<std::uint64_t>(n), 0, static_cast<std::size_t>(n_chan), blk.data());
-      if (!projection.empty()) {
-        std::vector<float> y;
-        nxr::bst::project(projection, static_cast<std::size_t>(n_chan), blk, static_cast<std::size_t>(n), y);
-        blk.swap(y);
-      }
+      reader.read(static_cast<std::uint64_t>(s0), static_cast<std::uint64_t>(n), 0, static_cast<std::size_t>(n_chan), blk.data());   // as recorded: the projectors are applied on load
     };
     out = nxr::bst::write_recording_blocks(sub, b);
     out["channels"] = si.name;

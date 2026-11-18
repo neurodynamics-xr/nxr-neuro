@@ -152,6 +152,7 @@ test_intervals	unit
 test_intrinsic_delaunay	unit
 test_intrinsic_forms	unit
 test_intrinsic_surface	unit
+test_inverse_projectors	golden
 test_io_eigen	unit
 test_isoline_methods	unit
 test_jointbank	golden

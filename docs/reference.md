@@ -537,6 +537,11 @@ one place a recording is read and looped over.
 - **What a pipeline does.** It declares the recording, its rows and its span, and folds each chunk handed to it into its accumulators: Welch, the covariance, the
   filters, the wavelet bank. The maths never sees a chunk, only a matrix. A computation's own windows are its own choice: a Welch segment's length, taper and
   overlap set the frequency resolution and are carried across chunk edges, so a result does not depend on the chunk width (tested).
+- **The projectors.** An import stores the samples as recorded and the recording's projectors (SSP, ICA) as Operators with their status. The chunk service applies
+  the ACTIVE ones (status 1) to every block it loads, by default, as Brainstorm's `in_fread` and MNE-Python's reading do: the selected SSP vectors stacked and
+  re-orthogonalised together (a vector whose singular value is below 1% of the largest is dropped), the others (ICA) in the file's order. `--projectors none` reads
+  the samples as recorded. What was applied is in each run's provenance (`run.projectors`) and, when the recording has active projectors, in its cache key. A
+  projector is idempotent (P P = P), so samples that already carry one are read back unchanged up to rounding.
 - **What is recorded.** Each producer record states the span (`analysis_window.chunks`) and the chunks read (`chunks_read`, first and last).
 - **The halo** (the Studio's `haloOf`): samples of context a computation needs on each side of its span, so its edges are computed with real samples, never a
   reflection. The service reads them from the neighbouring chunks and clips them where the recording ends (`with_halo`). Its size is the computation's: optical
@@ -585,6 +590,11 @@ When a dataset has no head model from import, `run headmodel` computes a sphere 
 When a dataset has no inverse kernel from import, `run inverse` makes one: the **unconstrained minimum-norm kernel with depth weighting** from the stored head model (the gain) and a
 noise covariance. When it has no noise covariance either, `run noisecov` estimates one from a recording (the good channels over a time window, the mean removed per block, read chunk by
 chunk). The defaults reproduce Brainstorm's default output (depth exponent 0.5, limit 10, SNR 3, regularisation 'reg' 0.1, per-type whitening); `--mne` and the named options give MNE-Python's.
+**The projectors.** The kernel applies the channels' projectors as each reference does. Brainstorm (the default, `process_inverse_2018`): the projectors of status 1 and 2
+on all the channels, applied to the gain and to both sides of the noise covariance, then the good channels and the average reference. MNE-Python (`--mne`, `make_inverse_operator`):
+every projector of the channels (the average reference one of them) on the picked channels, each vector renormalised; the covariance projected with those and with the ones its
+recording was read with; the gain used as it is; the kernel ending with the projector. A covariance of the data as recorded and one of the projected data give the same kernel.
+Goldens: `meeg/test/golden/gen_kernel_projectors_golden.py`/`.m` (one active SSP projector, both covariances), checked to 1e-12 (measured 4e-15 against Brainstorm, 6e-14 against MNE-Python).
 The kernel and its `_channels`, `_noise_cov`, `_whitener` and `_source_rr/_nn` are stored as the importer stores them, so a reader tells a computed kernel from an imported one by its producer string
 only. The maths is written from the papers, not translated from Brainstorm (GPLv3); Brainstorm and MNE-Python are reference outputs (goldens in `meeg/test/golden/`, with their generators).
 
@@ -661,7 +671,7 @@ measure `power_density` (`power` for the spectrum and chain scalings), method `w
 `<name>_segments` (Welch's segments as a closed-form spans Selection on the time line: width, hop, count) and resting on `n_members` segments
 (`members_skipped` left out for a bad sample), axes channel × the frequency line `<recording>_freq`, float32, unit `<unit>^2/Hz`, the span, every Welch
 option in `options_json`, the spectral scaling record, and in `producer_json` the cache key, the share of samples excluded and the
-projectors the recording carries (which are in the samples). All channels are kept, the bad ones too.
+projectors applied on load (`run.projectors`). All channels are kept, the bad ones too.
 
 ### `run rotary_psd --operator OPERATOR`: the rotary spectrum (2026-11-16; nxr's `docs/specs/2026-11-15-nxr-scopes.md`, "Rotary spectra ..."; its own definition since 2026-11-17, the old `psd --through`)
 

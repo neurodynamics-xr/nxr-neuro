@@ -349,23 +349,21 @@ Json export_raw_timeseries(SubjectWriter& sub, const std::string& name, const Va
     producer["resample"] = Json{{"from", sfreq}, {"to", *resample}, {"method", "resample_poly"}};
     n_t = n_new;
     sfreq = *resample;
-    r.write = [&resampled, n_chan, n_t, &projection](EnvelopeTee& tee) {
-      std::vector<float> blk, out;
+    r.write = [&resampled, n_chan, n_t](EnvelopeTee& tee) {
+      std::vector<float> blk;
       for (std::int64_t s0 = 0; s0 < n_t; s0 += kBlock) {
         const std::int64_t n = std::min(kBlock, n_t - s0);
         blk.resize(static_cast<std::size_t>(n_chan * n));
         for (std::int64_t c = 0; c < n_chan; ++c) std::copy(resampled.begin() + c * n_t + s0, resampled.begin() + c * n_t + s0 + n, blk.begin() + c * n);
-        if (!projection.matrix.empty()) { project(projection.matrix, static_cast<std::size_t>(n_chan), blk, static_cast<std::size_t>(n), out); blk.swap(out); }
         tee.write(s0, blk, n);
       }
     };
   } else {
-    r.write = [&reader, &name, n_t, n_chan, &progress, &projection](EnvelopeTee& tee) {
-      std::vector<float> blk, out;
+    r.write = [&reader, &name, n_t, n_chan, &progress](EnvelopeTee& tee) {
+      std::vector<float> blk;
       for (std::int64_t s0 = 0; s0 < n_t; s0 += kBlock) {
         const std::int64_t n = std::min(kBlock, n_t - s0);
         reader.read(s0, n, 0, n_chan, blk);
-        if (!projection.matrix.empty()) { project(projection.matrix, static_cast<std::size_t>(n_chan), blk, static_cast<std::size_t>(n), out); blk.swap(out); }
         tee.write(s0, blk, n);
         if (progress) progress(Json{{"stage", "raw-stream"}, {"name", name}, {"written", s0 + n}, {"of", n_t}});
       }
@@ -423,23 +421,21 @@ Json export_timeseries(SubjectWriter& sub, const std::string& name, const fs::pa
     }, n_chan, n_t, sfreq, *resample, n_new);
     n_t = n_new;
     sfreq = *resample;
-    r.write = [&resampled, n_chan, n_t, &projection](EnvelopeTee& tee) {
-      std::vector<float> blk, out;
+    r.write = [&resampled, n_chan, n_t](EnvelopeTee& tee) {
+      std::vector<float> blk;
       for (std::int64_t s0 = 0; s0 < n_t; s0 += kBlock) {
         const std::int64_t n = std::min(kBlock, n_t - s0);
         blk.resize(static_cast<std::size_t>(n_chan * n));
         for (std::int64_t c = 0; c < n_chan; ++c) std::copy(resampled.begin() + c * n_t + s0, resampled.begin() + c * n_t + s0 + n, blk.begin() + c * n);
-        if (!projection.matrix.empty()) { project(projection.matrix, static_cast<std::size_t>(n_chan), blk, static_cast<std::size_t>(n), out); blk.swap(out); }
         tee.write(s0, blk, n);
       }
     };
   } else {
-    r.write = [&mf, n_t, n_chan, &projection](EnvelopeTee& tee) {
-      std::vector<float> blk, out;
+    r.write = [&mf, n_t, n_chan](EnvelopeTee& tee) {
+      std::vector<float> blk;
       for (std::int64_t s0 = 0; s0 < n_t; s0 += kBlock) {
         const std::int64_t n = std::min(kBlock, n_t - s0);
         mf.read_columns_f32("F", static_cast<std::size_t>(s0), static_cast<std::size_t>(n), blk);
-        if (!projection.matrix.empty()) { project(projection.matrix, static_cast<std::size_t>(n_chan), blk, static_cast<std::size_t>(n), out); blk.swap(out); }
         tee.write(s0, blk, n);
       }
     };

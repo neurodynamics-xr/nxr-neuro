@@ -5,6 +5,8 @@
 // nxr-pipelines — the runner (runner.h): nxr's nxr/pipelines/runner.py `plan` and the planning half of `run`. The execution (before · the chunk loop · after
 // · store) is the next PR of the spec's order.
 #include "nxr/pipelines/runner.h"
+
+#include "nxr/bst/projectors.h"
 #include "nxr/pipelines/input.h"
 #include "nxr/bst/session.h"
 
@@ -827,7 +829,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
     // `read: shape` (a surrogate's draw): the chunk service hands the recording's shape and good samples, never a sample (spec 2026-11-17-surrogates.md, section 6)
     if (d.inputs.at(*d.over).value("read", std::string("samples")) == "shape") source.emplace(nxr::pipelines::shape_source_of(sub, *over.row, over.rate, over.origin, bad));
-    else source.emplace(nxr::pipelines::source_of(sub, *over.row, over.rate, over.origin, {}, bad));
+    else source.emplace(nxr::pipelines::source_of(sub, *over.row, over.rate, over.origin, {}, bad, opt.projectors));
   }
   // THE CACHE KEY: the definition, its parameters, the inputs, the span (a rerun with all four the same is a hit)
   nxr::pipelines::CacheKey key;
@@ -861,6 +863,8 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
     }
   }
   key.input = Json{{"inputs", ids}, {"span", span_json}};
+  const Json projection_json = source ? source->projection_record() : Json();   // the projectors the load applied (null: the recording has no active projector)
+  if (!projection_json.is_null()) key.input["projectors"] = projection_json;
   key.compute = NXR_COMPUTE_VERSION;
   Json stored = Json::array();
   bool hit = true;
@@ -1095,6 +1099,15 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
             Json types = Json::array();
             for (const auto c : ch) types.push_back(c >= 0 && static_cast<std::size_t>(c) < all.size() ? all[static_cast<std::size_t>(c)] : std::string());
             a.meta["channel_types"] = types;
+            // the channels' projector Operators (SSP, ICA), for a node that applies them as its reference does (the inverse kernel)
+            Json projs = Json::array();
+            for (const auto& q : nxr::bst::stored_projectors(sub.db(), sub.store(), mid)) {
+              Json j{{"name", q.name}, {"kind", q.kind}, {"method", q.method}, {"order", q.order}, {"status", q.status}, {"m", q.m}};
+              if (!q.vectors.empty()) j["vectors"] = q.vectors;
+              if (!q.matrix.empty()) j["matrix"] = q.matrix;
+              projs.push_back(std::move(j));
+            }
+            if (!projs.empty()) a.meta["projectors"] = projs;
           }
         constants[name] = std::move(a);
       } else if (v.cls == "measurement") {                              // a stored measurement found by its key: its values [rows x members], the key in meta
@@ -1284,7 +1297,7 @@ Json execute(nxr::io::DatasetWriter& ds, nxr::io::SubjectWriter& sub, const Plan
       });
       recording_report = Json{{"output", *rec_out}, {"kind", "recording"}, {"name", rname}, {"samples", written}};
     }
-    facts = Json{{"span", span_json}, {"halo", H}, {"blocks", blocks_n}, {"block_samples", opt.block_samples}, {"block_frames", opt.block_frames}, {"chunks_read", cr.visited}, {"samples_read", cr.samples}, {"bad_samples", cr.bad_samples}};
+    facts = Json{{"span", span_json}, {"projectors", projection_json}, {"halo", H}, {"blocks", blocks_n}, {"block_samples", opt.block_samples}, {"block_frames", opt.block_frames}, {"chunks_read", cr.visited}, {"samples_read", cr.samples}, {"bad_samples", cr.bad_samples}};
   }
   const nxr::graph::Arrays data = ex->finish();
   // what each step's preparation resolved (a degree chosen from a tolerance …): reported by the step (`record`), generic, into the provenance below
