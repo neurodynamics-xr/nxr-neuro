@@ -527,7 +527,7 @@ R"TBL(--transform	auto|eigen|chebyshev|exact	How the spatial band is applied: au
 --windows	NAME	The stored analytic cross-spectrum windows (named <stem>_<band>_windows) the bursts are read from.	none (required)	-
 --acquisition@import recording	NAME	The session of the subject the recording is stored under.	rest	-
 --anonymize@import recording		Drop the identifying header fields (the file's start time, subject, experimenter, patient and recording identification) instead of keeping them as the file has them.	off (the header is kept as the file has it)	-
---montage@import recording	NAME	A montage stored in the subject (a points manifold such as `eeg_1005`, made by `create montage`): each channel's name is matched to the montage's labels EXACTLY (case as written; the montage's recorded aliases, e.g. T3 = T7, count and are marked as such); the montage and the match are recorded with the recording, and the channels no label matches are listed. Nothing is guessed: no prefix or suffix is stripped, no channel is placed that no label names.	none (no montage recorded)	-
+--montage@import recording	NAME	A montage stored in the subject (a points manifold such as `eeg_1005`, made by `montage create`): each channel's name is matched to the montage's labels EXACTLY (case as written; the montage's recorded aliases, e.g. T3 = T7, count and are marked as such); the montage and the match are recorded with the recording, and the channels no label matches are listed. Nothing is guessed: no prefix or suffix is stripped, no channel is placed that no label names.	none (no montage recorded)	-
 --format@import recording	FORMAT	The file's format: fif, edf, bdf, brainvision, eeglab, ctf or kit.	from the file's extension	-
 --anonymize@import bids		Drop the identifying header fields of every recording and the sidecar's institution and device-serial keys.	off (kept as the files have them)	-
 --dataset@import bids	PATH	The folder of the new dataset (made by the import; refused if it holds a catalogue): one subject package per BIDS subject, registered in its catalogue.	required	-
@@ -1078,24 +1078,6 @@ group: Surrogates
 summary: The vortex cores' tile crossings against lag-free surrogate draws (draws with early stopping): per-tile p and q, the run repeat.
 span: yes
 opts: --batch --chunks --dataset* --exceedances=--h --max-draws --min-crossings --min-draws --over --recording-a* --recording-b --replace --set+ --stage --start --stop --subject* --templates+
-)TBL",
-R"TBL(--inion	X,Y,Z	The inion in the head's coordinates (metres), when you know it; create montage.	the farthest crossing of the line from the nasion through the midpoint of the preauricular points with the scalp (recorded in the montage)	m
---landmarks	NAME	The points manifold of the nasion, LPA and RPA of the template (create montage).	head_landmarks	-
---package@create montage	PATH	The template (or any subject) package that holds the scalp and its landmarks; the montage is added to it (a working copy, not a frozen release).	required	-
---subject@create montage	NAME	The subject of the package the montage is added to.	the package's only subject	-
---scalp@create montage	NAME	The closed scalp surface the positions are placed on.	head	-
---landmarks@create montage	NAME	The points manifold of the nasion, LPA and RPA, in the scalp's coordinate system.	head_landmarks	-
---name@create montage	NAME	Name of the stored points manifold (its names, system partition and aliases are stored beside it).	eeg_1005	-
---inion@create montage	X,Y,Z	The inion in the head's coordinates (metres), when you know it; the convention otherwise: the farthest crossing of the line from the nasion through the midpoint of the preauricular points with the scalp.	the convention (recorded in the montage)	m
---tolerance@create montage	T	Cz stops moving when it moves less than this fraction of the nasion-inion distance.	1e-7	-
---max-iterations@create montage	N	The most Cz iterations before refusing.	100	iterations
-)TBL",
-R"TBL(@ create montage
-old: __montage create
-alias: no
-summary: Place the standard 10-05 electrode montage (345 positions; the 10-10 and 10-20 are subsets of its names) on a template's own scalp, stored in its package as a points manifold with its names, for `import recording --montage`.
-opts: --inion --landmarks --max-iterations --name --package* --scalp --subject --tolerance
-example: nxr-neuro create montage --package work/icbm152.nxr.zarr --name eeg_1005
 )TBL",
   };
 }
