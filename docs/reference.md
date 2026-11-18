@@ -197,8 +197,8 @@ tools (`bindings/python/pyproject.toml`): nanobind 3.1.0, scikit-build-core 1.1.
     cd bindings/python && python -m build --wheel      # or: pip wheel .   (CMake, a C++17 compiler and the fetched dependencies, as the main build)
 
 A binding only binds: each Python function is one call into the library (`nxr_compute` for the maths, `nxr_io_formats` for the formats); the options
-carry the library's names and defaults, and their docstrings are the options structs' comments. This slice does **not** read the dataset format: `open`,
-`subject`, `nn.compute.<verb>` (the command's `compute` verbs), the importers and the exporters come with it.
+carry the library's names and defaults, and their docstrings are the options structs' comments. Beyond the pure functions it has the **pipeline level**, `nn.run`, `nn.read` and `nn.list` (the command's `run`, a stored result read back, and `list`), over the same library calls, so a result made in
+Python is the cached result the command finds; see `bindings/python/README.md` and the [guide](guide.md). The importers and exporters are the command's.
 
 **Arrays.** A signal is `[channels, samples]`, C-ordered. float32 and float64 are accepted (anything else is converted to float64); the library computes
 in float64 and the result comes back in the input's precision. float64 results are handed over without a copy and may be Fortran-ordered. The C++ releases
@@ -206,7 +206,7 @@ the GIL while it runs. Errors are `nxr_neuro.Error` (with `.code`) and its subcl
 `InvalidArgumentError` (also `ValueError`), `IOError_` (also `OSError`), `NotConvergedError`, `CancelledError`; an option name that is not one of the library's is a `ValueError`.
 
 **`nn.compute`** (the pure functions: no file, no dataset, no recording):
-*(Named `nn.ops` in the first wheel; named `compute`, the same in MATLAB as `nxr.compute`. `nn.ops` stays one release as a deprecated alias that warns. Pipelines will be `run`, later.)*
+*(Named `nn.ops` in the first wheel; named `compute`, the same in MATLAB as `nxr.compute`. `nn.ops` stays one release as a deprecated alias that warns.)*
 
 | function | the library's | what |
 |---|---|---|
@@ -248,7 +248,7 @@ linked statically and hidden (`nxr_io_hide_static_symbols`), zlib too where a st
 
 **Tests and CI.** `bindings/mex/test/first_slice` (class-based `matlab.unittest`): the first slice against the C++ goldens (scipy, Brainstorm, numpy, MNE-Python, nibabel, pandas) and the same synthetic inputs and
 expected values as `bindings/python/tests`. `.github/workflows/matlab.yml` builds the MEX on Linux x86_64 and macOS arm64 and runs them with `matlab-actions/setup-matlab` and `run-tests` (tags, dispatch, and pull
-requests touching `bindings/mex/**`). Not in this slice: the pipeline commands (`nxr.compute.<verb>`), which wait for io's task-level API.
+requests touching `bindings/mex/**`). The pipeline level is `nxr.run`, `nxr.read` and `nxr.list.*` (the command's `run`, a stored result read back, and `list`), over the same library calls as the command and the wheel.
 
 ## Exporters
 
