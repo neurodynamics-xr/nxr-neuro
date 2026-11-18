@@ -767,6 +767,7 @@ StepSpec estimate_node() {
   s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
     const Value& x = ins.at("x");
     need(x.cls == "field" && x.time && x.chunked, "estimate: x must be a field on ... x time, inside the chunk loop");
+    need(!x.complex, "estimate: x is complex; estimate a real quantity of it (give it a form first: field.form magnitude | power | phase_current)");
     need(p["method"] == "histogram" || p["method"] == "sample", "estimate: method " + p["method"].dump() + ": histogram or sample");
     if (p["method"] == "histogram") need(p["edges"].is_array() && p["edges"].size() >= 2, "estimate: histogram needs `edges` (no default: the caller's bins)");
     Value y = made(x);

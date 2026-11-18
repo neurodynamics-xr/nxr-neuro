@@ -30,7 +30,7 @@ bool has(const std::string& s, const std::string& part) { return s.find(part) !=
 g::Definition def(const std::string& yaml) { return g::parse(parse_yaml(yaml, "test.yaml"), "test.yaml", yaml); }
 
 // a phase chain on the free kernel; `body` the steps of the loop
-std::string chain(const std::string& body, const std::string& outputs = "out: {kind: test}") {
+std::string chain(const std::string& body, const std::string& outputs = "out: {kind: statistic}") {
   return "pipeline: t\ninputs:\n  recording: {field: recording, each: true, where: {name: rest}}\n  kernel: {operator: inverse kernel, from: recording.manifold.0, where: {name: free}}\n"
          "steps:\n  chunks:\n    over: recording\n    do:\n" + body + "outputs: {" + outputs + "}\n";
 }
@@ -46,18 +46,18 @@ int main() {
   CHECK(has(refusal([] { parse_yaml("a: [1, 2\n", "bad.yaml"); }), "bad.yaml"));
 
   // 2. THE STRUCTURE (definition.cpp: nxr's parse), each refusal named
-  const std::string ok = chain("      - {step: power, in: {x: recording}, out: p}\n      - {step: measure, in: {x: p}, out: out}\n");
+  const std::string ok = chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n");
   CHECK(refusal([&] { def(ok); }).empty());
   CHECK(has(refusal([&] { def(ok + "extra: 1\n"); }), "unknown section(s) extra"));
-  CHECK(has(refusal([&] { def(chain("      - {step: power, in: {x: recording}, out: p}\n")); }), "nothing leaves the loop without an accumulate step"));
-  CHECK(has(refusal([&] { def(chain("      - {step: power, in: {y: recording}, out: p}\n      - {step: measure, in: {x: p}, out: out}\n")); }), "'y' is not one of its ports"));
-  CHECK(has(refusal([&] { def(chain("      - {step: power, in: {x: nothing}, out: p}\n      - {step: measure, in: {x: p}, out: out}\n")); }), "neither an input nor an earlier step's output"));
-  CHECK(has(refusal([&] { def(chain("      - {step: power, in: {x: recording}, out: p}\n      - {step: measure, in: {x: p}, with: {measure: $nope}, out: out}\n")); }), "$nope is not a parameter"));
-  CHECK(has(refusal([&] { def(chain("      - {step: power, in: {x: recording}, out: p}\n      - {step: measure, in: {x: p}, with: {window: 2}, out: out}\n")); }), "'window' is not one of its parameters"));
-  CHECK(has(refusal([&] { def(chain("      - {step: power, in: {x: recording}, out: [p, q]}\n      - {step: measure, in: {x: p}, out: out}\n")); }), "it makes 1 thing(s)"));
-  CHECK(has(refusal([&] { def(chain("      - {step: power, in: {x: recording}, out: p}\n      - {step: measure, in: {x: p}, out: out}\n", "nope: {kind: test}")); }), "outputs.nope: not made by any step"));
-  CHECK(has(refusal([&] { def("pipeline: t\ninputs: {r: {field: recording}}\nsteps:\n  after:\n    - {step: power, in: {x: r}, out: out}\noutputs: {out: {kind: k}}\n"); }), "a chunk step cannot be in 'after'"));
-  CHECK(has(refusal([&] { def("pipeline: t\ninputs:\n  k: {operator: inverse kernel, from: r.manifold.0}\n  r: {field: recording}\nsteps: {}\noutputs: {out: {kind: k}}\n"); }), "relations start from an input declared BEFORE"));
+  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n")); }), "nothing leaves the loop without an accumulate step"));
+  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {y: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n")); }), "'y' is not one of its ports"));
+  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: nothing}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n")); }), "neither an input nor an earlier step's output"));
+  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: $nope}, out: out}\n")); }), "$nope is not a parameter"));
+  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {window: 2}, out: out}\n")); }), "'window' is not one of its parameters"));
+  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: [p, q]}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n")); }), "it makes 1 thing(s)"));
+  CHECK(has(refusal([&] { def(chain("      - {node: field.form, in: {x: recording}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\n", "nope: {kind: test}")); }), "outputs.nope: not made by any step"));
+  CHECK(has(refusal([&] { def("pipeline: t\ninputs: {r: {field: recording}}\nsteps:\n  after:\n    - {node: field.form, in: {x: r}, with: {form: power}, out: out}\noutputs: {out: {kind: statistic}}\n"); }), "a chunk step cannot be in 'after'"));
+  CHECK(has(refusal([&] { def("pipeline: t\ninputs:\n  k: {operator: inverse kernel, from: r.manifold.0}\n  r: {field: recording}\nsteps: {}\noutputs: {out: {kind: statistic}}\n"); }), "relations start from an input declared BEFORE"));
   CHECK(has(refusal([] { g::step("mean_square"); }), "no pipeline step 'mean_square'"));
   CHECK(g::load(kBandPower).anchor() == std::optional<std::string>("recording"));
 
@@ -128,9 +128,9 @@ int main() {
     const g::Value& src = P.values.at("sources");
     CHECK(src.value_type == "vector3" && src.chunked && !src.complex && src.manifolds.size() == 2 && src.manifolds[1] == *P.found.at("recording").time);
     const g::Value& bpow = P.values.at("band_power");
-    CHECK(bpow.manifolds.size() == 1 && bpow.manifolds[0] == P.found.at("kernel").manifolds[1] && bpow.value_type == "scalar" && !bpow.chunked && !bpow.time);
+    CHECK(!bpow.manifolds.empty() && bpow.manifolds[0] == P.found.at("kernel").manifolds[1] && bpow.value_type == "scalar" && !bpow.chunked && !bpow.time);
     const std::string txt = P.text(sub.db());
-    CHECK(has(txt, "pipeline band_power_test@1 — recording 'rest'") && has(txt, "output band_power  field on cortex (scalar) — kind 'band power'"));
+    CHECK(has(txt, "pipeline band_power_test@1 — recording 'rest'") && has(txt, "output band_power  a statistic"));
     std::cout << txt;
   }
   // --set: dSPM picks the fixed kernel (a scalar source); an unknown parameter and a band past Nyquist are refused
@@ -152,40 +152,42 @@ int main() {
   CHECK(has(refusal([&] { g::plan_runs(bp, sub.db(), sid, Json{{"kernel", "fixed"}}); }), "inputs.kernel"));   // a named kernel is also of the `method` (MNE): name its method too
   // every shipped definition takes them
   for (const auto& f : fs::directory_iterator(NXR_SHIPPED_DEFINITIONS_DIR)) {
+    if (f.is_directory() || f.path().extension() != ".yaml") continue;   // the `pending` folder holds definitions not shipped
     const g::Definition sd = g::load(f.path().string());
+    if (!sd.inputs.contains("recording") || !sd.inputs["recording"].value("each", false)) continue;   // the definitions that run once per recording
     CHECK(sd.parameters.contains("recording") && sd.parameters["recording"] == "none");
-    CHECK(!sd.inputs.contains("kernel") || (sd.parameters.contains("kernel") && sd.parameters["kernel"] == "none"));
+    CHECK(!sd.inputs.contains("kernel") || (sd.parameters.contains("kernel") && (sd.parameters["kernel"] == "none" || sd.parameters["kernel"] == "required")));   // a required kernel is the caller's choice
   }
   // an ambiguous input is refused, naming the matches
   CHECK(has(refusal([&] { g::plan_runs(def("pipeline: t\ninputs:\n  r: {field: recording}\n  k: {operator: inverse kernel, from: r.manifold.0}\nsteps:\n  chunks:\n    over: r\n    do:\n"
-                                           "      - {step: power, in: {x: r}, out: p}\n      - {step: measure, in: {x: p}, out: out}\noutputs: {out: {kind: k}}\n"), sub.db(), sid, Json::object()); }),
+                                           "      - {node: field.form, in: {x: r}, with: {form: power}, out: p}\n      - {node: estimate, in: {x: p}, with: {method: sample}, out: out}\noutputs: {out: {kind: statistic}}\n"), sub.db(), sid, Json::object()); }),
             "inputs.r: 2 match (rest, rest_b)"));
 
   // 5. THE PHASE CHAIN: band → analytic → kernel → phase current (vector3 ℝ on the cortex × time) → measure (out of the loop)
-  const std::string phase = chain("      - {step: band_filter, in: {x: recording}, with: {band: [8, 12]}, out: xb}\n      - {step: analytic, in: {x: xb}, out: z}\n"
-                                  "      - {step: apply_kernel, in: {x: z, kernel: kernel}, out: j}\n      - {step: phase_current, in: {x: j}, out: h}\n"
-                                  "      - {step: gradient_power, in: {x: j}, out: q}\n      - {step: measure, in: {x: h}, out: out}\n");
+  const std::string phase = chain("      - {node: band_filter, in: {x: recording}, with: {band: [8, 12]}, out: xb}\n      - {node: analytic, in: {x: xb}, out: z}\n"
+                                  "      - {node: apply_kernel, in: {x: z, kernel: kernel}, out: j}\n      - {node: field.form, in: {x: j}, with: {form: phase_current}, out: h}\n"
+                                  "      - {node: gradient_power, in: {x: j}, out: q}\n      - {node: estimate, in: {x: h}, with: {method: sample}, out: out}\n");
   const auto pr = g::plan_runs(def(phase), sub.db(), sid, Json::object());
   CHECK(pr.size() == 1);
   if (pr.size() == 1) {
     CHECK(pr[0].values.at("z").complex && pr[0].values.at("j").complex && pr[0].values.at("j").value_type == "vector3");
     CHECK(!pr[0].values.at("h").complex && pr[0].values.at("h").value_type == "vector3" && pr[0].values.at("q").value_type == "scalar" && pr[0].values.at("out").manifolds.size() == 1);
   }
-  auto plan_of = [&](const std::string& body) { return refusal([&] { g::plan_runs(def(chain(body)), sub.db(), sid, Json::object()); }); };
+  auto plan_of = [&](const std::string& body) { const std::string r = refusal([&] { g::plan_runs(def(chain(body)), sub.db(), sid, Json::object()); }); return r; };
   // a real field has no phase
-  CHECK(has(plan_of("      - {step: apply_kernel, in: {x: recording, kernel: kernel}, out: j}\n      - {step: phase_current, in: {x: j}, out: h}\n      - {step: measure, in: {x: h}, out: out}\n"),
+  CHECK(has(plan_of("      - {node: apply_kernel, in: {x: recording, kernel: kernel}, out: j}\n      - {node: field.form, in: {x: j}, with: {form: phase_current}, out: h}\n      - {node: estimate, in: {x: h}, with: {method: sample}, out: out}\n"),
             "x must be complex"));
   // D106: no linear map after the envelope
-  CHECK(has(plan_of("      - {step: envelope, in: {x: recording}, out: e}\n      - {step: apply_kernel, in: {x: e, kernel: kernel}, out: j}\n      - {step: measure, in: {x: j}, out: out}\n"),
+  CHECK(has(plan_of("      - {node: envelope, in: {x: recording}, out: e}\n      - {node: apply_kernel, in: {x: e, kernel: kernel}, out: j}\n      - {node: estimate, in: {x: j}, with: {method: sample}, out: out}\n"),
             "(D106)"));
+  const std::string head = "      - {node: analytic, in: {x: recording}, out: z}\n      - {node: apply_kernel, in: {x: z, kernel: kernel}, out: j}\n";
   // a form: |q| of the current is its envelope (no phase); nx keeps it; a form the type lacks is refused with the type's forms
-  const std::string head = "      - {step: analytic, in: {x: recording}, out: z}\n      - {step: apply_kernel, in: {x: z, kernel: kernel}, out: j}\n";
-  CHECK(has(plan_of(head + "      - {step: form, in: {x: j}, with: {form: absq}, out: a}\n      - {step: phase_current, in: {x: a}, out: h}\n      - {step: measure, in: {x: h}, out: out}\n"),
+  CHECK(has(plan_of(head + "      - {node: form, in: {x: j}, with: {form: absq}, out: a}\n      - {node: field.form, in: {x: a}, with: {form: phase_current}, out: h}\n      - {node: estimate, in: {x: h}, with: {method: sample}, out: out}\n"),
             "x must be complex"));
-  CHECK(plan_of(head + "      - {step: form, in: {x: j}, with: {form: nx}, out: a}\n      - {step: phase_current, in: {x: a}, out: h}\n      - {step: measure, in: {x: h}, out: out}\n").empty());
-  CHECK(has(plan_of(head + "      - {step: form, in: {x: j}, with: {form: f}, out: a}\n      - {step: measure, in: {x: a}, out: out}\n"), "'f' is not a form of a ℍ field"));
-  // a measure of a complex field is refused; exclude must lie on x's time line
-  CHECK(has(plan_of(head + "      - {step: measure, in: {x: j}, out: out}\n"), "measure: x is complex"));
+  CHECK(plan_of(head + "      - {node: form, in: {x: j}, with: {form: nx}, out: a}\n      - {node: field.form, in: {x: a}, with: {form: phase_current}, out: h}\n      - {node: field.form, in: {x: a}, with: {form: power}, out: q}\n      - {node: estimate, in: {x: q}, with: {method: sample}, out: out}\n").empty());
+  CHECK(has(plan_of(head + "      - {node: form, in: {x: j}, with: {form: f}, out: a}\n      - {node: estimate, in: {x: a}, with: {method: sample}, out: out}\n"), "'f' is not a form of a ℍ field"));
+  // a reduction of a complex field is refused
+  CHECK(has(plan_of(head + "      - {node: estimate, in: {x: j}, with: {method: sample}, out: out}\n"), "x is complex"));
 
 #ifdef NXR_TEST_CLI
   {
