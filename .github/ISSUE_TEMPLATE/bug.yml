@@ -1,0 +1,25 @@
+name: Bug
+description: Something nxr-neuro does wrong, refuses wrongly, or that a page documents but the code does not do.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens, and what should happen
+      description: The observed behaviour against the expected one, with the exact error text.
+    validations: {required: true}
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce
+      description: The smallest commands or code that show it, on SYNTHETIC data (never a real recording, dataset name or private path).
+    validations: {required: true}
+  - type: input
+    id: where
+    attributes:
+      label: Where
+      description: The verb, pipeline, node, binding or file (e.g. `run headmodel`, `io/convert/bids.cpp`).
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
