@@ -6,6 +6,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
@@ -14,7 +15,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include <Eigen/Geometry>
 #include <Eigen/Eigenvalues>
@@ -141,7 +142,7 @@ static void testTrivialGaugeRotations() {
     // χ(sphere) = 2: two index-1 singularities (Gauss-Bonnet satisfied).
     std::map<int, double> sing = {{0, 1.0}, {1, 1.0}};
 
-    auto g = nxr::geometry::connection::integrateTrivialGaugeRotations(m, dec, cache, sing);
+    auto g = nxr::operators::connection::integrateTrivialGaugeRotations(m, dec, cache, sing);
     EXPECT(g.vertex.size() == 12, "vertex rotation length == nV");
     EXPECT(g.face.size() == 20, "face rotation length == nF");
 
@@ -158,7 +159,7 @@ static void testTrivialGaugeRotations() {
     EXPECT(std::abs(g.face(0) - std::complex<double>(1.0, 0.0)) < 1e-15,
            "root face rotation is identity");
 
-    auto g2 = nxr::geometry::connection::integrateTrivialGaugeRotations(m, dec, cache, sing);
+    auto g2 = nxr::operators::connection::integrateTrivialGaugeRotations(m, dec, cache, sing);
     EXPECT((g.vertex - g2.vertex).cwiseAbs().maxCoeff() < 1e-15 &&
            (g.face - g2.face).cwiseAbs().maxCoeff() < 1e-15,
            "rotation fields deterministic");
@@ -167,7 +168,7 @@ static void testTrivialGaugeRotations() {
     // The stored rotation is the combing multiplier (conjugate of the
     // accumulated transport), so real(rotation .* grid) must equal the
     // direction field that propagateAngles{,Vertex} integrate from the same φ.
-    auto df = nxr::geometry::connection::trivial(m, dec, cache, sing);
+    auto df = nxr::operators::connection::trivial(m, dec, cache, sing);
     Eigen::MatrixXcd vg = nxr::geometry::vertexGrid(m);   // the trivial gauge combs geometry-central's frame
     double maxVErr = 0;
     for (int v = 0; v < 12; ++v) {

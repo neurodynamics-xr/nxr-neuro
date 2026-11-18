@@ -10,6 +10,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
@@ -19,7 +20,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
 #include "geometrycentral/surface/heat_method_distance.h"
@@ -303,7 +304,7 @@ static void testManifold() {
     CHECK(d < 1e-12, "vertexFrames is geometry-central's vertexTangentBasis (" + fmt("%.1e", d) + ")");
     auto& surf = M.intrinsicSurface();
     const Eigen::SparseMatrix<double> L = surf.cotanLaplacian();
-    CHECK((L - M.operatorCotan()).norm() < 1e-12 * L.norm(), "the Manifold's cotan Laplacian is the surface's");
+    CHECK((L - nxr::operators::cotanLaplacian(M)).norm() < 1e-12 * L.norm(), "the operators' cotan Laplacian is the surface's");
     auto dec = nxr::operators::assembleDECOperators(M);
     const Eigen::SparseMatrix<double> L2 = dec.d0.transpose() * dec.hodge1 * dec.d0;
     CHECK((L - L2).norm() < 1e-10 * L.norm(), "d0^T *1 d0 is the cotan Laplacian (DEC of the intrinsic triangulation)");

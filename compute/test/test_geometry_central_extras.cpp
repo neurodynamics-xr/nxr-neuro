@@ -20,6 +20,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
@@ -29,7 +30,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
 
@@ -46,6 +47,7 @@ using namespace nxr::operators;
 using namespace nxr::operators::laplacian::connection;
 using namespace nxr::geometry::transport;
 using namespace nxr::geometry::connection;
+using namespace nxr::operators::connection;
 using namespace nxr::geometry::parametrization;
 using namespace nxr::geometry::parametrization::stripes;
 using namespace nxr::geometry;

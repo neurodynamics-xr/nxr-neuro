@@ -9,7 +9,6 @@
 #include <string>
 #include <vector>
 #include "nxr/geometry/mesh.h"
-#include "nxr/operators/cache.h"
 
 namespace nxr::geometry {
 // ── Geodesic Distance (Heat Method) ──────────────────────────

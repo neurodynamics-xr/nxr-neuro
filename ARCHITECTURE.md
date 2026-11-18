@@ -214,7 +214,7 @@ Namespaces follow the folder: one namespace per toolbox, `nxr::<toolbox>` (`nxr:
 | `selection` | the Selection class and its resolution | `core`, `geometry` |
 | `measurement` | measures over selections, reductions, roll-ups | `core`, `stats`, `selection` |
 | `select` | the makers of selections (bands, grids, dyadic partitions, events, regions, cores, tracks) | `core`, `geometry`, `stats`, `selection`, `measurement` |
-| `signal` | transforms and filters of signals (Fourier, filters, windows, filter banks, wavelets, cross-spectral measures, phase gradient, optical flow) | `core`, `geometry`, `operators`, `stats`, `selection`, `measurement` |
+| `signal` | transforms and filters of signals (Fourier, filters, windows, filter banks, wavelets, cross-spectral measures, phase gradient, optical flow) | `core`, `geometry`, `operators`, `stats`, `selection`, `measurement`, `optimisation` |
 | `synthesis` | generators of fields and surrogates | `core`, `geometry`, `operators`, `stats` |
 | `meeg` (`nxr_meeg`) | forward and inverse models, covariance, cross-spectra of sensors and sources | `core`, `optimisation` (never compute); the connectome and montage code that still needs geometry stays in `nxr_compute` under `nxr/meeg/` |
 

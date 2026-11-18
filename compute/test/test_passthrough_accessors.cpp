@@ -14,6 +14,7 @@
 
 #include "nxr/geometry/curvature.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/signal/surface_calculus.h"
@@ -28,7 +29,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 
 #include <cassert>
@@ -43,6 +44,7 @@ using namespace nxr::operators;
 using namespace nxr::operators::laplacian::connection;
 using namespace nxr::geometry::transport;
 using namespace nxr::geometry::connection;
+using namespace nxr::operators::connection;
 using namespace nxr::geometry::parametrization;
 using namespace nxr::geometry::parametrization::stripes;
 using namespace nxr::geometry;
@@ -113,21 +115,13 @@ int main() {
         std::cout << "  ✓ DEC accessors bit-identical to assembleDECOperators" << std::endl;
     }
 
-    // ── 2. Repeat calls return the same reference (no copy) ────
+    // ── 2. Repeat calls assemble the same matrices (nothing is cached: each call is by value) ────
     {
-        const auto& a = d0(m);
-        const auto& b = d0(m);
-        REQUIRE(&a == &b, "d0 returns same reference on repeat call");
+        REQUIRE(sparseDiffNorm(d0(m), d0(m)) == 0.0, "d0 assembled twice is the same matrix");
+        REQUIRE(sparseDiffNorm(hodge1(m), hodge1(m)) == 0.0, "hodge1 assembled twice is the same matrix");
+        REQUIRE((vertexDualAreas(m) - vertexDualAreas(m)).norm() == 0.0, "vertexDualAreas assembled twice is the same vector");
 
-        const auto& h1a = hodge1(m);
-        const auto& h1b = hodge1(m);
-        REQUIRE(&h1a == &h1b, "hodge1 returns same reference on repeat call");
-
-        const auto& va_a = vertexDualAreas(m);
-        const auto& va_b = vertexDualAreas(m);
-        REQUIRE(&va_a == &va_b, "vertexDualAreas returns same reference on repeat call");
-
-        std::cout << "  ✓ Repeat calls return identical reference (zero-copy)" << std::endl;
+        std::cout << "  ✓ Repeat calls give identical matrices" << std::endl;
     }
 
     // ── 3. vertexDualAreas matches assembleManifoldOperators' vertexAreas ──

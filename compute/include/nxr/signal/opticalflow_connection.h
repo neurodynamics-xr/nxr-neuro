@@ -74,8 +74,8 @@ public:
     /** The embedded velocity [3V] between two raw maps [V] (LDLT); the gauge solution z [2V] is `gauge()`. */
     Eigen::VectorXd step(const Eigen::VectorXd& previous, const Eigen::VectorXd& next);
     /** The same by preconditioned CG warm-started from `z` [2V] (left holding the new z). `scale` replaces the construction's unit amplitude when not NaN. */
-    Eigen::VectorXd stepPcg(const Eigen::VectorXd& previous, const Eigen::VectorXd& next, Eigen::VectorXd& z, const PcgOptions& options, PcgInfo* info = nullptr, double scale = std::numeric_limits<double>::quiet_NaN());
-    void buildPreconditioner(const Eigen::VectorXd& map, const PcgOptions& options, double scale = std::numeric_limits<double>::quiet_NaN());
+    Eigen::VectorXd stepPcg(const Eigen::VectorXd& previous, const Eigen::VectorXd& next, Eigen::VectorXd& z, const optimisation::PcgOptions& options, optimisation::PcgInfo* info = nullptr, double scale = std::numeric_limits<double>::quiet_NaN());
+    void buildPreconditioner(const Eigen::VectorXd& map, const optimisation::PcgOptions& options, double scale = std::numeric_limits<double>::quiet_NaN());
     const Eigen::VectorXd& gauge() const;                 // the last LDLT solution z [2V]
     const Eigen::VectorXd& mass() const;                  // M [V]
     /** The system's smoothness part alpha C (2V x 2V, global numbering) */

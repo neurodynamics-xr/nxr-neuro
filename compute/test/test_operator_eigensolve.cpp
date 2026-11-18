@@ -4,6 +4,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/dirac.h"
@@ -15,7 +16,7 @@
 #include "nxr/operators/dec.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/geometry/parametrization.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -57,15 +58,15 @@ static void testBlockKronAndProblem() {
     const int N = m.nV(), Fn = m.nF();
 
     // blockKron == kron(M, I_b).
-    Eigen::SparseMatrix<double> Mg = m.operators().mass().galerkin();
+    Eigen::SparseMatrix<double> Mg = nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin);
     EXPECT((nxr::operators::blockKron(Mg, 4) - kronOracle(Mg, 4)).norm() < 1e-12,
            "blockKron(M,4) == kron(M, I4)");
 
     // dirac problem: K = dirac(τ), M = M_mixedVoronoi ⊗ I4 (the default mass), block 4.
-    Eigen::SparseMatrix<double> Mv = m.operators().mass().mixedVoronoi();
+    Eigen::SparseMatrix<double> Mv = nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi);
     nxr::operators::EigenProblem p = nxr::operators::eigenProblemFor(m, {nxr::operators::EigenOperator::Dirac, 0.5});
     EXPECT(p.blockSize == 4 && p.K.rows() == 4*N && p.M.rows() == 4*N, "dirac problem is [4V×4V], block 4");
-    EXPECT((p.K - m.operators().dirac(0.5)).norm() < 1e-12, "dirac K == operators().dirac(τ)");
+    EXPECT((p.K - nxr::operators::diracFamily(m, 0.5)).norm() < 1e-12, "dirac K == operators().dirac(τ)");
     EXPECT((p.M - kronOracle(Mv, 4)).norm() < 1e-12, "dirac M == M_mixedVoronoi ⊗ I4");
 
     nxr::operators::EigenProblem pf = nxr::operators::eigenProblemFor(m, {nxr::operators::EigenOperator::DiracFace, 1.0});
@@ -84,8 +85,8 @@ static void testCotanMatchesDirect() {
     nxr::operators::EigenResult a = nxr::operators::eigenOperator(m, {nxr::operators::EigenOperator::LaplacianCotan}, 6);
     nxr::operators::EigenResult d = nxr::operators::eigenOperator(m, {nxr::operators::EigenOperator::LaplacianCotan}, 6,
                                                 nxr::operators::kShiftLadder, true, false, /*dense=*/true);
-    nxr::operators::EigenResult f = nxr::operators::eigen(m.operators().laplacian().cotan(),
-                                        m.operators().mass().mixedVoronoi(), 6, -1e-8, true);
+    nxr::operators::EigenResult f = nxr::operators::eigen(nxr::operators::cotanLaplacian(m),
+                                        nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi), 6, -1e-8, true);
     const double eLadder = (a.eigenvalues - d.eigenvalues).cwiseAbs().maxCoeff();
     const double eFixed  = (f.eigenvalues - d.eigenvalues).cwiseAbs().maxCoeff();
     std::cout << "  max |λ − λ_dense|: ladder " << eLadder << " · fixed σ=-1e-8 " << eFixed << "\n";

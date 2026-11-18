@@ -17,6 +17,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
@@ -26,7 +27,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/signal/surface_calculus.h"   // OperatorsFacet definition (operators() command)
@@ -45,6 +46,7 @@ using namespace nxr::operators;
 using namespace nxr::operators::laplacian::connection;
 using namespace nxr::geometry::transport;
 using namespace nxr::geometry::connection;
+using namespace nxr::operators::connection;
 using namespace nxr::geometry::parametrization;
 using namespace nxr::geometry::parametrization::stripes;
 using namespace nxr::geometry;
@@ -472,58 +474,58 @@ Napi::Value Operators(const Napi::CallbackInfo& info) {
         Manifold& m = *holder->manifold;
 
         if (family == "laplacian") {
-            if (sub == "cotan")      return sparseToCOO(env, m.operators().laplacian().cotan());
-            if (sub == "graph")      return sparseToCOO(env, m.operators().laplacian().graph());
-            if (sub == "connection") return sparseComplexToCOO(env, m.operators().laplacian().connection());
-            if (sub == "covariant")  return sparseToCOO(env, m.operators().laplacian().covariant(CovariantCoupling::Ambient));
+            if (sub == "cotan")      return sparseToCOO(env, nxr::operators::cotanLaplacian(m));
+            if (sub == "graph")      return sparseToCOO(env, nxr::operators::graphLaplacian(m));
+            if (sub == "connection") return sparseComplexToCOO(env, nxr::operators::activeConnectionLaplacian(m));
+            if (sub == "covariant")  return sparseToCOO(env, nxr::operators::activeCovariantLaplacian(m, CovariantCoupling::Ambient));
             throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operators laplacian: subtype must be cotan|graph|connection|covariant.");
         } else if (family == "mass") {
-            if (sub == "mixedVoronoi") return sparseToCOO(env, m.operators().mass().mixedVoronoi());
-            if (sub == "barycentric")  return sparseToCOO(env, m.operators().mass().barycentric());
-            if (sub == "galerkin")     return sparseToCOO(env, m.operators().mass().galerkin());
+            if (sub == "mixedVoronoi") return sparseToCOO(env, nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi));
+            if (sub == "barycentric")  return sparseToCOO(env, nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Barycentric));
+            if (sub == "galerkin")     return sparseToCOO(env, nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin));
             throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operators mass: subtype must be mixedVoronoi|galerkin|barycentric.");
         } else if (family == "hodge") {
-            if (sub == "h0")    return sparseToCOO(env, m.operators().hodge().h0());
-            if (sub == "h1")    return sparseToCOO(env, m.operators().hodge().h1());
-            if (sub == "h2")    return sparseToCOO(env, m.operators().hodge().h2());
-            if (sub == "h1inv") return sparseToCOO(env, m.operators().hodge().h1inv());
+            if (sub == "h0")    return sparseToCOO(env, nxr::operators::hodge0(m));
+            if (sub == "h1")    return sparseToCOO(env, nxr::operators::hodge1(m));
+            if (sub == "h2")    return sparseToCOO(env, nxr::operators::hodge2(m));
+            if (sub == "h1inv") return sparseToCOO(env, nxr::operators::hodge1Inverse(m));
             throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operators hodge: subtype must be h0|h1|h2|h1inv.");
         } else if (family == "dec") {
-            const auto& dec = m.operators().dec();
+            const auto& dec = nxr::operators::assembleDECOperators(m);
             auto obj = Napi::Object::New(env);
             obj.Set("d0", sparseToCOO(env, dec.d0));
             obj.Set("d1", sparseToCOO(env, dec.d1));
             return obj;
         } else if (family == "gradient3D") {
-            return sparseToCOO(env, m.operators().gradient3D());
+            return sparseToCOO(env, nxr::operators::differential::covariantGradient(m));
         } else if (family == "dirac") {
             if (!hasNum) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operators dirac: expected a numeric tau, operators('dirac', tau).");
-            return sparseToCOO(env, m.operators().dirac(num));
+            return sparseToCOO(env, nxr::operators::diracFamily(m, num));
         } else if (family == "diracFace") {
             if (!hasNum) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operators diracFace: expected a numeric tau, operators('diracFace', tau).");
-            return sparseToCOO(env, m.operators().diracFace(num));
+            return sparseToCOO(env, nxr::operators::diracFaceFamily(m, num));
         } else if (family == "diracD") {
-            return sparseToCOO(env, m.operators().diracD());
+            return sparseToCOO(env, nxr::operators::dirac::matrix(m));
         } else if (family == "diracFaceD") {
-            return sparseToCOO(env, m.operators().diracFaceD());
+            return sparseToCOO(env, nxr::operators::dirac::matrixFace(m));
         } else if (family == "diracIntrinsicD") {
-            return sparseToCOO(env, m.operators().diracIntrinsicD());
+            return sparseToCOO(env, nxr::operators::dirac::matrixIntrinsic(m));
         } else if (family == "diracFaceIntrinsicD") {
-            return sparseToCOO(env, m.operators().diracFaceIntrinsicD());
+            return sparseToCOO(env, nxr::operators::dirac::matrixFaceIntrinsic(m));
         } else if (family == "gradFace") {
-            return sparseToCOO(env, m.operators().gradFace());
+            return sparseToCOO(env, nxr::operators::facegrad::gradient(m));
         } else if (family == "lapFace") {
-            return sparseToCOO(env, m.operators().lapFace());
+            return sparseToCOO(env, nxr::operators::facegrad::laplacian(m));
         } else if (family == "connectionGradient") {
             int nSym = hasNum ? static_cast<int>(num) : 1;
-            return sparseComplexToCOO(env, m.operators().connectionGradient(nSym));
+            return sparseComplexToCOO(env, nxr::operators::laplacian::connection::assembleConnectionGradient(m, nSym));
         } else if (family == "extrinsicWeitzenbock") {
-            return sparseToCOO(env, m.operators().extrinsicWeitzenbock());
+            return sparseToCOO(env, nxr::operators::differential::assembleExtrinsicWeitzenbock(m));
         }
         throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
             "operators: family must be "

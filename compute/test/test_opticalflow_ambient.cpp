@@ -23,7 +23,7 @@ int main() {
     const MatrixXd b1 = g.mat("bst_1_1"); g.mat("bst_1_2"); g.mat("bst_1_3");
     const RowMat3 pos = Vg;
     const nxr::operators::FaceMat faces = Fg.cast<std::int32_t>();
-    const RowMat3 nrm = vertexNormals(pos, faces);
+    const RowMat3 nrm = rheomeVertexNormals(pos, faces);
     const FlowForm lb{Regulariser::Ambient, DataFit::Triangle};
     {
         const MatrixXd v = opticalflowScalar(A, pos, faces, nrm, 1.0, lb);

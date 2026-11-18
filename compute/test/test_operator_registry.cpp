@@ -11,6 +11,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
@@ -19,7 +20,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/geometry/parametrization.h"
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -92,7 +93,7 @@ static void test_cross_link_identities() {
     {
         const Eigen::SparseMatrix<double>& D0 = d0(m);
         Eigen::SparseMatrix<double> sq = (D0.transpose() * D0).pruned();
-        Eigen::SparseMatrix<double> gl = m.operators().laplacian().graph();
+        Eigen::SparseMatrix<double> gl = nxr::operators::graphLaplacian(m);
         double diff = maxAbsDiff(sq, gl);
         std::cout << "  [1] graphLaplacian == d0^T d0 (exact):      maxAbsDiff = " << diff << "\n";
         CHECK(diff < 1e-9, "graphLaplacian == d0^T d0 (exact)");
@@ -100,8 +101,8 @@ static void test_cross_link_identities() {
 
     // 2. relativeDirac@tau=0 == cotanL ⊗ I4  (exact built-in anchor)
     {
-        Eigen::SparseMatrix<double> d0tau = m.operators().dirac(0.0);
-        Eigen::SparseMatrix<double> kron  = blockKron(m.operators().laplacian().cotan(), 4);
+        Eigen::SparseMatrix<double> d0tau = nxr::operators::diracFamily(m, 0.0);
+        Eigen::SparseMatrix<double> kron  = blockKron(nxr::operators::cotanLaplacian(m), 4);
         double diff = maxAbsDiff(d0tau, kron);
         std::cout << "  [2] relativeDirac(0) == cotanL⊗I4 (exact): maxAbsDiff = " << diff << "\n";
         CHECK(diff < 1e-9, "relativeDirac(0) == cotanL⊗I4 (exact)");
@@ -109,8 +110,8 @@ static void test_cross_link_identities() {
 
     // 3. squared preset: 2*relativeDirac(1/2) == relativeDirac(0)+relativeDirac(1) (exact)
     {
-        Eigen::SparseMatrix<double> half    = m.operators().dirac(0.5);
-        Eigen::SparseMatrix<double> sum     = m.operators().dirac(0.0) + m.operators().dirac(1.0);
+        Eigen::SparseMatrix<double> half    = nxr::operators::diracFamily(m, 0.5);
+        Eigen::SparseMatrix<double> sum     = nxr::operators::diracFamily(m, 0.0) + nxr::operators::diracFamily(m, 1.0);
         Eigen::SparseMatrix<double> twoHalf = 2.0 * half;
         double diff = maxAbsDiff(twoHalf, sum);
         std::cout << "  [3] 2*relativeDirac(1/2)==D(0)+D(1) (exact):maxAbsDiff = " << diff << "\n";
@@ -120,7 +121,7 @@ static void test_cross_link_identities() {
     // 4. intrinsicDirac squares_to laplaceBeltrami (principal_part):
     //    scalar block (w-component) of D_int^T (diag(faceArea)⊗I4) D_int == cotanL
     {
-        const Eigen::SparseMatrix<double>& Dint = m.operators().diracIntrinsicD(); // [4F x 4V]
+        const Eigen::SparseMatrix<double>& Dint = nxr::operators::dirac::matrixIntrinsic(m); // [4F x 4V]
         auto& geom = m.geometry();
         geom.requireFaceAreas();
         // Build W_F = diag(faceArea) ⊗ I4  [4F x 4F]
@@ -144,7 +145,7 @@ static void test_cross_link_identities() {
         Eigen::SparseMatrix<double> scalarPart(nV, nV);
         scalarPart.setFromTriplets(Ts.begin(), Ts.end());
 
-        Eigen::SparseMatrix<double> cotanL = m.operators().laplacian().cotan();
+        Eigen::SparseMatrix<double> cotanL = nxr::operators::cotanLaplacian(m);
         double diff = maxAbsDiff(scalarPart, cotanL);
         std::cout << "  [4] intrinsicDirac scalar block==cotanL (principal_part): maxAbsDiff = "
                   << diff << "\n";
@@ -257,7 +258,7 @@ static void test_eigenproblem_uses_registry_mass() {
         const OperatorVariant* lb = operatorById("laplaceBeltrami");
         CHECK(lb && lb->natural_mass == "massMixedVoronoi",
               "registry says mixed Voronoi mass for laplaceBeltrami");
-        Eigen::SparseMatrix<double> Mg = m.operators().mass().mixedVoronoi();
+        Eigen::SparseMatrix<double> Mg = nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi);
         CHECK(maxAbsDiff(p.M, Mg) < 1e-12,
               "LaplacianCotan eigenProblemFor M == registry-named massMixedVoronoi (byte-identical)");
     }
@@ -283,7 +284,7 @@ static void test_eigenproblem_uses_registry_mass() {
         const OperatorVariant* rd = operatorById("relativeDirac");
         CHECK(rd && rd->natural_mass == "massMixedVoronoi*I4",
               "registry says massMixedVoronoi*I4 for relativeDirac");
-        Eigen::SparseMatrix<double> M4 = blockKron(m.operators().mass().mixedVoronoi(), 4);
+        Eigen::SparseMatrix<double> M4 = blockKron(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi), 4);
         CHECK(maxAbsDiff(p.M, M4) < 1e-12,
               "Dirac eigenProblemFor M == registry-named massMixedVoronoi*I4 (byte-identical)");
     }

@@ -27,7 +27,7 @@ static Sphere makeSphere(int level) {
     Sphere s;
     s.P = Eigen::Map<RowMat3>(V.data(), V.size() / 3, 3);
     s.F = Eigen::Map<nxr::operators::FaceMat>(Ff.data(), Ff.size() / 3, 3);
-    s.N = vertexNormals(s.P, s.F);
+    s.N = rheomeVertexNormals(s.P, s.F);
     Eigen::SparseMatrix<double> L;
     embeddedLaplacian(s.P, s.F, L, s.mass);
     return s;
@@ -96,7 +96,7 @@ int main() {
         const auto vd = run(d, A);
         for (int pc = 0; pc < 2; ++pc) {
             FlowMethodOptions o; o.method = FlowMethod::Pcg;
-            o.preconditioner = pc == 0 ? PcgOptions::Preconditioner::Ldlt : PcgOptions::Preconditioner::IncompleteCholesky;
+            o.preconditioner = pc == 0 ? nxr::optimisation::PcgOptions::Preconditioner::Ldlt : nxr::optimisation::PcgOptions::Preconditioner::IncompleteCholesky;
             FlowEngine e(o, s.P, s.F, s.N, 0.05);
             std::vector<FlowStep> st;
             const auto v = run(e, A, &st);
@@ -148,8 +148,8 @@ int main() {
             FlowMethodOptions o = directOptions();
             ms.push_back({"direct", o});
             o.method = FlowMethod::Pcg; ms.push_back({"pcg-ldlt", o});
-            o.preconditioner = PcgOptions::Preconditioner::IncompleteCholesky; ms.push_back({"pcg-ic", o});
-            o.preconditioner = PcgOptions::Preconditioner::Ldlt;
+            o.preconditioner = nxr::optimisation::PcgOptions::Preconditioner::IncompleteCholesky; ms.push_back({"pcg-ic", o});
+            o.preconditioner = nxr::optimisation::PcgOptions::Preconditioner::Ldlt;
             o.method = FlowMethod::Perscale; o.scaleFamily = "logitersine"; o.scaleVoices = 2; ms.push_back({"perscale", o});
             for (auto& [name, mo] : ms) {
                 FlowEngine e(mo, s.P, s.F, s.N, 0.05);

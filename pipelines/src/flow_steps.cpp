@@ -409,13 +409,13 @@ ng::NodeSpec velocity() {
     v.fo.dataFit = nxr::signal::resolveDataFit(v.fo.regulariser, nxr::signal::parseDataFit(p["datafit"].get<std::string>()));
     v.alpha = p.contains("alpha") && p["alpha"].is_number() ? p["alpha"].get<double>() : (v.fo.regulariser == nxr::signal::Regulariser::Connection ? 0.01 : 1.0);
     v.fo.tolerance = p["flow_tolerance"].get<double>(); v.fo.maxIterations = p["max_iterations"].get<int>();
-    v.fo.preconditioner = p["preconditioner"] == "ic" ? nxr::signal::PcgOptions::Preconditioner::IncompleteCholesky : nxr::signal::PcgOptions::Preconditioner::Ldlt;
+    v.fo.preconditioner = p["preconditioner"] == "ic" ? nxr::optimisation::PcgOptions::Preconditioner::IncompleteCholesky : nxr::optimisation::PcgOptions::Preconditioner::Ldlt;
     return std::any(std::move(v));
   };
   n.start = [](const std::any& prepared) {
     const VelocityPrepared& v = std::any_cast<const VelocityPrepared&>(prepared);
     VelocityState s;
-    s.engine = std::make_shared<nxr::signal::FlowEngine>(v.fo, v.P, v.F, nxr::signal::vertexNormals(v.P, v.F), v.alpha);
+    s.engine = std::make_shared<nxr::signal::FlowEngine>(v.fo, v.P, v.F, nxr::signal::rheomeVertexNormals(v.P, v.F), v.alpha);
     s.engine->observe(Eigen::VectorXd::Constant(1, v.scale));                      // the window's unit amplitude: the stored maximum, never a second pass
     return std::any(std::move(s));
   };

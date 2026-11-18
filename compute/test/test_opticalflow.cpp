@@ -24,10 +24,10 @@ int main() {
     const nxr::operators::FaceMat faces = Fg.cast<std::int32_t>();
     const RowMat3 nrm = N;
     {
-        const TangentBasis tb = tangentBasis(nrm);
+        const TangentBasis tb = rheomeTangentBasis(nrm);
         std::printf("  tangent basis vs Rheome: %.2e\n", std::max(rel(tb.e1, e1), rel(tb.e2, e2)));
         EXPECT(std::max(rel(tb.e1, e1), rel(tb.e2, e2)) < 1e-12, "tangentBasis matches Rheome");
-        EXPECT(rel(vertexNormals(pos, faces), N) < 1e-12, "vertexNormals are Rheome's area-weighted normals");
+        EXPECT(rel(rheomeVertexNormals(pos, faces), N) < 1e-12, "vertexNormals are Rheome's area-weighted normals");
     }
     const FlowReadout r = flowReadout(v1, pos, faces);
     std::printf("  flowReadout vs Rheome: div %.2e curl %.2e speed %.2e\n", rel(r.divergence, dv), rel(r.vorticity, cu), rel(r.speed, sp));
@@ -49,7 +49,7 @@ int main() {
         const Eigen::Vector3d c = Eigen::AngleAxisd(theta * t, Eigen::Vector3d::UnitZ()) * c0;
         for (Eigen::Index i = 0; i < P.rows(); ++i) bump(i, t) = 0.1 + std::exp(-(P.row(i).transpose() - c).squaredNorm() / 0.3);
     }
-    const MatrixXd v = opticalflowScalar(bump, P, Fm, vertexNormals(P, Fm), 0.01);
+    const MatrixXd v = opticalflowScalar(bump, P, Fm, rheomeVertexNormals(P, Fm), 0.01);
     double num = 0, den = 0, cosSum = 0, wsum = 0;
     for (Eigen::Index i = 0; i < P.rows(); ++i) {
         const Eigen::Vector3d x = P.row(i), truth = Eigen::Vector3d::UnitZ().cross(x) * theta, est = v.block<3, 1>(3 * i, 0);
@@ -78,7 +78,7 @@ int main() {
     std::printf("  basis: %d modes (%d exact, %d coexact); using exact %d, coexact %d\n", K, exs, cos_, ex, co);
     auto flowOf = [&](int k, bool rotational) {
         MatrixXd g[3];
-        ops.vertexGradient(P2.row(k).transpose(), g);
+        ops.meanFaceGradient(P2.row(k).transpose(), g);
         MatrixXd vel(3 * V, 1);
         for (int i = 0; i < V; ++i) {
             const Eigen::Vector3d gr(g[0](i, 0), g[1](i, 0), g[2](i, 0)), n = ops.normals.row(i), f = rotational ? Eigen::Vector3d(n.cross(gr)) : Eigen::Vector3d(-gr);
@@ -97,7 +97,7 @@ int main() {
     }
     // (4) the streaming forms equal the all-at-once ones: OpticalflowScalar::step, FlowReader::read, WeightsReader::flow
     {
-        OpticalflowScalar st(P, Fm, vertexNormals(P, Fm), 0.01, bump.cwiseAbs().maxCoeff());
+        OpticalflowScalar st(P, Fm, rheomeVertexNormals(P, Fm), 0.01, bump.cwiseAbs().maxCoeff());
         const FlowReader fr(P, Fm);
         const nxr::operators::WeightsReader wr(b);
         const FlowReadout full = flowReadout(v, P, Fm);

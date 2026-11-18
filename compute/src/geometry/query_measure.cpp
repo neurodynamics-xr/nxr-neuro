@@ -4,13 +4,6 @@
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/facets.h"
-#include "nxr/operators/cache.h"
-#include "nxr/operators/dec.h"
-#include "nxr/operators/dirac.h"
-#include "nxr/operators/laplacians.h"
-#include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
 
 #include <geometrycentral/surface/manifold_surface_mesh.h>
 #include <geometrycentral/surface/vertex_position_geometry.h>

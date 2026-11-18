@@ -9,12 +9,12 @@
 #include <stdexcept>
 
 #include "nxr/core/errors.h"
+#include "nxr/signal/forms.h"
 
 namespace nxr::signal::connection {
 using Eigen::VectorXd;
 using Corners0 = nxr::geometry::IntrinsicSurface::InputCorners;
 constexpr double kTwoPi = 6.283185307179586476925286766559;
-constexpr double kAreaEps = 1e-12;   // faceGradient.ts AREA_EPS
 
 namespace {
 double coneTarget(const Corners0& m, int v) { return m.boundary[static_cast<size_t>(v)] ? m.angleSum[static_cast<size_t>(v)] : kTwoPi; }   // connectionLaplacian.ts
@@ -61,31 +61,11 @@ Corners cornersOf(const Corners0& m, const double* P, const int32_t* F) {
     return c;
 }
 
+// The face gradients come from forms.cpp's `assembleFaceGradient` (the one float32 port of faceGradient.ts; built without FMA contraction): the flow reads its `grads`.
 FaceGradient assembleFaceGradient(const float* position, const int32_t* index, int nV, int nF) {
-    (void)nV;
     FaceGradient g;
     g.nF = nF;
-    g.grads.assign(9 * static_cast<size_t>(nF), 0.0f);
-    for (int f = 0; f < nF; ++f) {
-        const int i0 = index[3 * f], i1 = index[3 * f + 1], i2 = index[3 * f + 2];
-        const double ax = position[3 * i0], ay = position[3 * i0 + 1], az = position[3 * i0 + 2];
-        const double bx = position[3 * i1], by = position[3 * i1 + 1], bz = position[3 * i1 + 2];
-        const double px = position[3 * i2], py = position[3 * i2 + 1], pz = position[3 * i2 + 2];
-        const double e1x = bx - ax, e1y = by - ay, e1z = bz - az, e2x = px - ax, e2y = py - ay, e2z = pz - az;
-        const double nx = e1y * e2z - e1z * e2y, ny = e1z * e2x - e1x * e2z, nz = e1x * e2y - e1y * e2x;
-        const double twoA = std::hypot(nx, ny, nz);
-        if (!(twoA > kAreaEps)) continue;
-        const double ux = nx / twoA, uy = ny / twoA, uz = nz / twoA;
-        const size_t o = 9 * static_cast<size_t>(f);
-        auto put = [&](int slot, double ex, double ey, double ez) {
-            g.grads[o + 3 * static_cast<size_t>(slot)] = static_cast<float>((uy * ez - uz * ey) / twoA);
-            g.grads[o + 3 * static_cast<size_t>(slot) + 1] = static_cast<float>((uz * ex - ux * ez) / twoA);
-            g.grads[o + 3 * static_cast<size_t>(slot) + 2] = static_cast<float>((ux * ey - uy * ex) / twoA);
-        };
-        put(0, px - bx, py - by, pz - bz);
-        put(1, ax - px, ay - py, az - pz);
-        put(2, bx - ax, by - ay, bz - az);
-    }
+    g.grads = nxr::signal::assembleFaceGradient(position, index, nV, nF).grads;
     return g;
 }
 
@@ -209,11 +189,7 @@ struct ConnectionFlow::Impl {
     Eigen::VectorXd M, z;
     Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> ldlt;
     bool analysed = false;
-    Eigen::SparseMatrix<double> pre;
-    Eigen::SimplicialLDLT<Eigen::SparseMatrix<double>> preLdlt;
-    Eigen::IncompleteCholesky<double> preIc;
-    PcgOptions::Preconditioner preKind = PcgOptions::Preconditioner::Ldlt;
-    bool preBuilt = false;
+    optimisation::PcgPreconditioner precond;
 
     // the frame's data term: blocks into `system`'s slots and the right side; false when no gradient. dataScale: mean data weight per component
     void assemble(const VectorXd& previous, const VectorXd& next, double sc, VectorXd& rhs, double* dataScale) {
@@ -250,15 +226,12 @@ struct ConnectionFlow::Impl {
             }
         return out;
     }
-    void makePreconditioner(const PcgOptions& o, double cdata) {
-        pre = system;
+    void makePreconditioner(const optimisation::PcgOptions& o, double cdata) {
+        Eigen::SparseMatrix<double> pre = system;
         double* val = pre.valuePtr();
         std::copy(smoothValues.begin(), smoothValues.end(), val);
         for (Eigen::Index v = 0; v < V; ++v) { val[slot[static_cast<size_t>(4 * v)]] += cdata * M[v]; val[slot[static_cast<size_t>(4 * v + 3)]] += cdata * M[v]; }
-        preKind = o.preconditioner;
-        if (preKind == PcgOptions::Preconditioner::Ldlt) { preLdlt.analyzePattern(pre); preLdlt.factorize(pre); }
-        else preIc.compute(pre);
-        preBuilt = true;
+        precond.build(pre, o.preconditioner);
     }
 };
 
@@ -376,44 +349,22 @@ VectorXd ConnectionFlow::step(const VectorXd& previous, const VectorXd& next) {
     return s.embed(z);
 }
 
-void ConnectionFlow::buildPreconditioner(const VectorXd& map, const PcgOptions& o, double sc) {
+void ConnectionFlow::buildPreconditioner(const VectorXd& map, const optimisation::PcgOptions& o, double sc) {
     Impl& s = *p_;
-    if (s.preBuilt) return;
+    if (s.precond.built()) return;
     VectorXd rhs; double c = 0;
     s.assemble(map, map, sc, rhs, &c);
     s.makePreconditioner(o, std::max(c, 1e-12));
 }
 
-VectorXd ConnectionFlow::stepPcg(const VectorXd& previous, const VectorXd& next, VectorXd& zw, const PcgOptions& o, PcgInfo* info, double sc) {
+VectorXd ConnectionFlow::stepPcg(const VectorXd& previous, const VectorXd& next, VectorXd& zw, const optimisation::PcgOptions& o, optimisation::PcgInfo* info, double sc) {
     Impl& s = *p_;
     if (!((std::isnan(sc) ? s.scale : sc) > 0)) { zw = VectorXd::Zero(2 * s.V); return VectorXd::Zero(3 * s.V); }
     VectorXd rhs; double c = 0;
     s.assemble(previous, next, sc, rhs, &c);
-    if (!s.preBuilt) s.makePreconditioner(o, std::max(c, 1e-12));
-    auto precond = [&](const VectorXd& r) { return s.preKind == PcgOptions::Preconditioner::Ldlt ? VectorXd(s.preLdlt.solve(r)) : VectorXd(s.preIc.solve(r)); };
-    VectorXd x = zw.size() == rhs.size() ? zw : VectorXd::Zero(rhs.size());
-    const double bn = rhs.norm();
-    PcgInfo pi;
-    if (!(bn > 0)) { x.setZero(); pi.residual = 0; }
-    else {
-        VectorXd r = rhs - s.system * x, z = precond(r), p = z;
-        double rz = r.dot(z);
-        while (r.norm() > o.tolerance * bn && pi.iterations < o.maxIterations) {
-            const VectorXd Ap = s.system * p;
-            const double pAp = p.dot(Ap);
-            if (!(pAp > 0)) break;
-            const double a = rz / pAp;
-            x += a * p; r -= a * Ap;
-            z = precond(r);
-            const double rz2 = r.dot(z);
-            p = z + (rz2 / rz) * p; rz = rz2;
-            ++pi.iterations;
-        }
-        pi.residual = r.norm() / bn;
-        pi.converged = pi.residual <= o.tolerance;
-    }
+    if (!s.precond.built()) s.makePreconditioner(o, std::max(c, 1e-12));
+    const VectorXd x = optimisation::pcg(s.system, rhs, zw, s.precond, o, info);
     zw = x; s.z = x;
-    if (info) *info = pi;
     return s.embed(x);
 }
 

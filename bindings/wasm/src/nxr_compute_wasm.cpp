@@ -29,6 +29,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
@@ -38,7 +39,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/signal/surface_calculus.h"   // OperatorsFacet definition (operators() command)
@@ -324,62 +325,62 @@ public:
         const std::string sub = arg.isString() ? arg.as<std::string>() : "";
         try {
             if (family == "laplacian") {
-                if (sub == "cotan")      return sparseToVal(m.operators().laplacian().cotan());
-                if (sub == "graph")      return sparseToVal(m.operators().laplacian().graph());
-                if (sub == "connection") return sparseComplexToVal(m.operators().laplacian().connection());
-                if (sub == "covariant")  return sparseToVal(m.operators().laplacian().covariant(cl::CovariantCoupling::Ambient));
+                if (sub == "cotan")      return sparseToVal(nxr::operators::cotanLaplacian(m));
+                if (sub == "graph")      return sparseToVal(nxr::operators::graphLaplacian(m));
+                if (sub == "connection") return sparseComplexToVal(nxr::operators::activeConnectionLaplacian(m));
+                if (sub == "covariant")  return sparseToVal(nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Ambient));
                 throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                     "operators laplacian: subtype must be cotan|graph|connection|covariant.");
             } else if (family == "mass") {
-                if (sub == "mixedVoronoi") return sparseToVal(m.operators().mass().mixedVoronoi());
-                if (sub == "barycentric")  return sparseToVal(m.operators().mass().barycentric());
-                if (sub == "galerkin")     return sparseToVal(m.operators().mass().galerkin());
+                if (sub == "mixedVoronoi") return sparseToVal(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi));
+                if (sub == "barycentric")  return sparseToVal(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Barycentric));
+                if (sub == "galerkin")     return sparseToVal(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin));
                 throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                     "operators mass: subtype must be mixedVoronoi|galerkin|barycentric.");
             } else if (family == "hodge") {
-                if (sub == "h0")    return sparseToVal(m.operators().hodge().h0());
-                if (sub == "h1")    return sparseToVal(m.operators().hodge().h1());
-                if (sub == "h2")    return sparseToVal(m.operators().hodge().h2());
-                if (sub == "h1inv") return sparseToVal(m.operators().hodge().h1inv());
+                if (sub == "h0")    return sparseToVal(nxr::operators::hodge0(m));
+                if (sub == "h1")    return sparseToVal(nxr::operators::hodge1(m));
+                if (sub == "h2")    return sparseToVal(nxr::operators::hodge2(m));
+                if (sub == "h1inv") return sparseToVal(nxr::operators::hodge1Inverse(m));
                 throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                     "operators hodge: subtype must be h0|h1|h2|h1inv.");
             } else if (family == "dec") {
-                const auto& dec = m.operators().dec();
+                const auto& dec = nxr::operators::assembleDECOperators(m);
                 val obj = val::object();
                 obj.set("d0", sparseToVal(dec.d0));
                 obj.set("d1", sparseToVal(dec.d1));
                 return obj;
             } else if (family == "gradient3D") {
-                return sparseToVal(m.operators().gradient3D());
+                return sparseToVal(nxr::operators::differential::covariantGradient(m));
             } else if (family == "dirac") {
                 if (!hasNum)
                     throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                         "operators dirac: expected a numeric tau, operators('dirac', tau).");
-                return sparseToVal(m.operators().dirac(arg.as<double>()));
+                return sparseToVal(nxr::operators::diracFamily(m, arg.as<double>()));
             } else if (family == "diracFace") {
                 if (!hasNum)
                     throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                         "operators diracFace: expected a numeric tau, operators('diracFace', tau).");
-                return sparseToVal(m.operators().diracFace(arg.as<double>()));
+                return sparseToVal(nxr::operators::diracFaceFamily(m, arg.as<double>()));
             } else if (family == "diracD") {
-                return sparseToVal(m.operators().diracD());
+                return sparseToVal(nxr::operators::dirac::matrix(m));
             } else if (family == "diracFaceD") {
-                return sparseToVal(m.operators().diracFaceD());
+                return sparseToVal(nxr::operators::dirac::matrixFace(m));
             } else if (family == "diracIntrinsicD") {
-                return sparseToVal(m.operators().diracIntrinsicD());
+                return sparseToVal(nxr::operators::dirac::matrixIntrinsic(m));
             } else if (family == "diracFaceIntrinsicD") {
-                return sparseToVal(m.operators().diracFaceIntrinsicD());
+                return sparseToVal(nxr::operators::dirac::matrixFaceIntrinsic(m));
             } else if (family == "gradFace") {
-                return sparseToVal(m.operators().gradFace());
+                return sparseToVal(nxr::operators::facegrad::gradient(m));
             } else if (family == "lapFace") {
-                return sparseToVal(m.operators().lapFace());
+                return sparseToVal(nxr::operators::facegrad::laplacian(m));
             } else if (family == "connectionGradient") {
                 // nSym: numeric arg (default 1). Returns complex COO — mirrors 'laplacian'/'connection'.
                 int nSym = hasNum ? static_cast<int>(arg.as<double>()) : 1;
-                return sparseComplexToVal(m.operators().connectionGradient(nSym));
+                return sparseComplexToVal(nxr::operators::laplacian::connection::assembleConnectionGradient(m, nSym));
             } else if (family == "extrinsicWeitzenbock") {
                 // [3V×3V] real symmetric sparse — ambient extrinsic Weitzenböck, world-frame component-major.
-                return sparseToVal(m.operators().extrinsicWeitzenbock());
+                return sparseToVal(nxr::operators::differential::assembleExtrinsicWeitzenbock(m));
             }
             throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput,
                 "operators: family must be "
@@ -682,7 +683,7 @@ public:
         auto vals  = emscripten::convertJSArrayToNumberVector<double>(singValuesArr);
         std::map<int, double> singMap;
         for (std::size_t i = 0; i < verts.size(); i++) singMap[verts[i]] = vals[i];
-        nxr::geometry::connection::DirectionFieldResult r = nxr::geometry::connection::trivial(*ctx_, *dec_, *cache_, singMap);
+        nxr::operators::connection::DirectionFieldResult r = nxr::operators::connection::trivial(*ctx_, *dec_, *cache_, singMap);
         val o = val::object();
         o.set("connections",         eigenVectorToVal(r.connections));
         o.set("directionVectors",    eigenMatrixToVal(r.directionVectors));

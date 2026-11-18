@@ -7,7 +7,7 @@
 #include "nxr/operators/dec.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 
 #include <iostream>
 

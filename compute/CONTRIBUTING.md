@@ -239,28 +239,19 @@ n > 1 from its n-th power) and the Hodge–Dirac pencil. ONE gauge: geometry-cen
 `v.halfedge()`, corner angles rescaled to 2π, π at a boundary vertex); `geometry::vertexFrames` is its 3D realisation (`vertexFramesEmbedded` is a deprecated
 alias). The numerical constants are the named, recorded options `mollify` (relative δ, 1e-6) and `flipEps` (1e-6). The line port of the Studio's construction is retired
 (spec `docs/specs/2026-11-17-geometry-central-switch.md`, G7). Still on the INPUT mesh (geometry-central, indexed by the input's
-edges and faces): `Manifold::decEmbedded()` (Hodge decomposition of a 1-form, the trivial connection and its gauge/combing, the face Diracs), the
+edges and faces): `operators::embeddedDEC(m)` (Hodge decomposition of a 1-form, the trivial connection and its gauge/combing, the face Diracs), the
 Face/Edge connection domains, the extrinsic Dirac E, and the light `Topology`/`Geometry` bundle (`vertexFramesEmbedded`, `vertexGridEmbedded`).
 (Note `normalize` is the unrelated eigenvector M-orthonormalization, not a mesh op.)
 
-**Manifold geometry facets (C++).** `Manifold` exposes a GC-faithful, embedding-rooted
-facet layer (`include/nxr/facets.h`, `src/facets.cpp`; design/plan
-`docs/superpowers/{specs,plans}/2026-06-09-manifold-geometry-facets*`): typed views
-`topology()/embedded()/intrinsic()/extrinsic()` (per-element *data*, element-first —
-e.g. `embedded().vertex().grid()`, `intrinsic().edge().cotanWeight()`), `gauge()`
-(frame *transforms*), and `operators()` (assembled *matrices*). Raw-input aliases
-`vertexPositions()`/`faces()`. Additive — the existing `mesh()/geometry()/operatorGeometry()`
-accessors are unchanged; data facets slice a lazily-cached `geometry::meshGeometry`/
-`meshTopology`. **Gauge workflow:** three patterns over one mechanism — `Manifold(V,F)` →
-Levi-Civita; `Manifold(V,F,singularities)` → trivial (default fixed at construction);
-ad-hoc `gauge(type,sing)` returns a pure value; `setGauge` re-points the active gauge.
-Trivial requires `Σ singularity index == χ` (Gauss–Bonnet, validated; throws InvalidInput).
-**Operators facet:** independent per-operator lazy cache (requesting `cotan` never builds
-`mass`; the three masses are independent), `releaseOperator`/`isOperatorCached` (GC `require`/`unrequire`
-model); `laplacian().connection()/covariant(coupling)` build in the *active gauge* and are
-invalidated by `setGauge`; covariant cache keys on coupling. The MEX `operators` command
-(above) is the string-dispatch veneer over this typed core. NOTE the intrinsic facet *data*
-stays embedded-sourced under the intrinsic mesh option (only the *operators* use the operator mesh) — documented on `IntrinsicFacet`.
+**Manifold geometry facets (C++).** `Manifold` exposes the data facets `topology()/embedded()/intrinsic()/extrinsic()` (per-element *data*, element-first, e.g.
+`embedded().vertex().grid()`, `intrinsic().edge().cotanWeight()`; `include/nxr/geometry/facets.h`) and the raw-input aliases `vertexPositions()`/`faces()`; they slice a
+lazily-cached `geometry::meshGeometry`/`meshTopology`. **Gauge workflow:** `Manifold(V,F)` is Levi-Civita; `Manifold(V,F,singularities)` is trivial (default fixed at
+construction); `setConnection` re-points the active connection. Trivial requires `Σ singularity index == χ` (Gauss–Bonnet, validated; throws InvalidInput).
+**Operators are not held by the Manifold** (a Manifold is a shape). `include/nxr/operators/assembled.h` assembles on demand, by value
+(`activeConnectionLaplacian`, `activeCovariantLaplacian(coupling)`, `diracFamily(τ)`, `diracFaceFamily(τ)`, `connectionGrid`); the cotan Laplacian, the masses, the
+DEC and the first-order Diracs are assembly functions of `operators/dec.h` and `operators/dirac.h`; whoever reuses a matrix (the pipeline executor, a binding, a test)
+holds it, and the factorisation is the caller's `CholeskyCache`. The MEX `operators` command is the string-dispatch veneer over these functions.
+The data facets stay embedded-sourced under the intrinsic mesh option (only the *operators* use the operator mesh), as documented on `IntrinsicFacet`.
 
 **Operator registry (C++).** `include/nxr/operator_registry.h` /
 `src/operator_registry.cpp` are the single source of truth for *operator

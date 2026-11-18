@@ -16,6 +16,7 @@
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/transport.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
@@ -23,7 +24,7 @@
 #include "nxr/operators/dirac.h"
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
 #include "nxr/geometry/parametrization.h"
@@ -40,7 +41,7 @@ int main() {
   for (std::size_t i = 0; i < V.size(); i += 3) V[i] *= 1.4;                         // an ellipsoid: uneven vertex areas
   const int n = static_cast<int>(V.size() / 3);
   nxr::geometry::Manifold m(V.data(), n, F.data(), static_cast<int>(F.size() / 3), true);
-  const Eigen::SparseMatrix<double> K = m.operators().laplacian().cotan(), M = m.operators().mass().mixedVoronoi();
+  const Eigen::SparseMatrix<double> K = nxr::operators::cotanLaplacian(m), M = nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi);
   // the full eigenbasis, mass-orthonormal (dense: a small mesh)
   const Eigen::MatrixXd Kd(K), Md(M);
   Eigen::GeneralizedSelfAdjointEigenSolver<Eigen::MatrixXd> es(Kd, Md);

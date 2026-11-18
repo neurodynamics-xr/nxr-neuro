@@ -3,7 +3,6 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/geometry/facets.h"
-#include "nxr/operators/dirac.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/utilities/utilities.h"

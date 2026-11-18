@@ -12,6 +12,7 @@
 #include <string>
 #include <vector>
 #include "nxr/geometry/mesh.h"
+#include "nxr/operators/cache.h"
 #include "nxr/operators/dec.h"
 
 namespace nxr::operators {

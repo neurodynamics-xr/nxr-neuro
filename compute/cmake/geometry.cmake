@@ -4,12 +4,11 @@
 target_sources(nxr_compute PRIVATE
   src/geometry/chart.cpp
   src/geometry/curvatures.cpp
-  src/geometry/direction_field.cpp
   src/geometry/face_areas.cpp
   src/geometry/face_frames.cpp
   src/geometry/facets.cpp
   src/geometry/frames.cpp
-  src/geometry/gauge.cpp
+  src/geometry/manifold.cpp
   src/geometry/geodesic.cpp
   src/geometry/geodesic_path.cpp
   src/geometry/geometry_bundle.cpp

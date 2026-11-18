@@ -2,6 +2,7 @@
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/dec.h"
@@ -10,6 +11,8 @@
 #include "nxr/signal/surface_calculus.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
+#include "geometrycentral/surface/marching_triangles.h"
+#include "geometrycentral/surface/surface_point.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
 
 #include <vector>
@@ -22,9 +25,8 @@ namespace nxr::signal {
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
 
-// Port of bioctreeapp/src/lib/compute/visualization/isoline.ts
-// For each triangle, for each contour level, find the exactly 2 edges
-// where the level crosses and emit a line segment between those crossings.
+// Contour lines of a per-vertex scalar field (the Studio's isoline.ts, now on geometry-central's marching triangles: the segments are the same
+// edge crossings, in the order of the curves rather than of the faces).
 IsolineResult isoline(
     geometry::Manifold& m,
     const Eigen::VectorXd& scalarField,
@@ -65,61 +67,20 @@ IsolineResult isoline(
 
     double levelSpacing = range / numLevels;
 
-    // Collect segments into a dynamic vector of (x,y,z) endpoints
+    // Collect segments into a dynamic vector of (x,y,z) endpoints. One level at a time: geometry-central's marching triangles (a level's curves, as
+    // surface points on the input's edges), each curve's consecutive points a segment.
     std::vector<double> pts;
-
-    for (Face f : mesh.faces()) {
-        Halfedge h = f.halfedge();
-        Vertex v0 = h.tailVertex();
-        Vertex v1 = h.next().tailVertex();
-        Vertex v2 = h.next().next().tailVertex();
-
-        int i0 = static_cast<int>(v0.getIndex());
-        int i1 = static_cast<int>(v1.getIndex());
-        int i2 = static_cast<int>(v2.getIndex());
-
-        double d0 = scalarField(i0);
-        double d1 = scalarField(i1);
-        double d2 = scalarField(i2);
-
-        Vector3 p0 = geom.inputVertexPositions[v0];
-        Vector3 p1 = geom.inputVertexPositions[v1];
-        Vector3 p2 = geom.inputVertexPositions[v2];
-
-        // Three edges: (v0,v1), (v1,v2), (v2,v0)
-        struct Edge { int a, b; double da, db; Vector3 pa, pb; };
-        Edge edges[3] = {
-            {i0, i1, d0, d1, p0, p1},
-            {i1, i2, d1, d2, p1, p2},
-            {i2, i0, d2, d0, p2, p0},
-        };
-
-        for (int level = 1; level < numLevels; level++) {
-            double levelValue = lo + level * levelSpacing;
-
-            Vector3 crossings[2];
-            int crossCount = 0;
-
-            for (int e = 0; e < 3; e++) {
-                double edgeLo = std::min(edges[e].da, edges[e].db);
-                double edgeHi = std::max(edges[e].da, edges[e].db);
-                if (levelValue > edgeLo && levelValue < edgeHi) {
-                    double t = (levelValue - edges[e].da) / (edges[e].db - edges[e].da);
-                    Vector3 p = edges[e].pa + (edges[e].pb - edges[e].pa) * t;
-                    if (crossCount < 2) crossings[crossCount] = p;
-                    crossCount++;
-                }
+    VertexData<double> u(mesh);
+    for (int i = 0; i < nV; ++i) u[mesh.vertex(static_cast<size_t>(i))] = scalarField(i);
+    for (int level = 1; level < numLevels; level++) {
+        const double levelValue = lo + level * levelSpacing;
+        const std::vector<std::vector<SurfacePoint>> curves = marchingTriangles(geom, u, levelValue);
+        for (const auto& curve : curves)
+            for (size_t k = 0; k + 1 < curve.size(); ++k) {
+                const Vector3 a = curve[k].interpolate(geom.inputVertexPositions), b = curve[k + 1].interpolate(geom.inputVertexPositions);
+                pts.push_back(a.x); pts.push_back(a.y); pts.push_back(a.z);
+                pts.push_back(b.x); pts.push_back(b.y); pts.push_back(b.z);
             }
-
-            if (crossCount == 2) {
-                pts.push_back(crossings[0].x);
-                pts.push_back(crossings[0].y);
-                pts.push_back(crossings[0].z);
-                pts.push_back(crossings[1].x);
-                pts.push_back(crossings[1].y);
-                pts.push_back(crossings[1].z);
-            }
-        }
     }
 
     int segCount = static_cast<int>(pts.size() / 6);

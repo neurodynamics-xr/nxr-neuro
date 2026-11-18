@@ -49,7 +49,7 @@ public:
     /** divergence and curl of the TANGENT part of J (three [V x m] blocks: x, y, z) at the vertices. */
     void divCurl(const Eigen::MatrixXd J[3], Eigen::MatrixXd& div, Eigen::MatrixXd& curl) const;
     /** the area-weighted mean of the face gradients of x [V x m]: three [V x m] blocks. */
-    void vertexGradient(const Eigen::MatrixXd& x, Eigen::MatrixXd out[3]) const;
+    void meanFaceGradient(const Eigen::MatrixXd& x, Eigen::MatrixXd out[3]) const;
 };
 
 /** A kernel [3 V_input x C] (rows x, y, z per vertex) on the glued surface [3 V_glued x C]. */

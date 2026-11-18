@@ -1,19 +1,8 @@
 #include "nxr/geometry/intrinsic_surface.h"
 #include "nxr/geometry/mesh.h"
-#include "nxr/geometry/frames.h"
-#include "nxr/geometry/geodesics.h"
-#include "nxr/geometry/direction_fields.h"
-#include "nxr/geometry/transport.h"
-#include "nxr/geometry/parametrization.h"
-#include "nxr/geometry/facets.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/operators/cache.h"
 #include "nxr/operators/dec.h"
-#include "nxr/operators/dirac.h"
-#include "nxr/operators/laplacians.h"
-#include "nxr/operators/eigen.h"
-#include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
-#include "nxr/synthesis/fields.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"
@@ -24,10 +13,11 @@
 #include <cmath>
 #include <array>
 
-namespace nxr::geometry::connection {
+namespace nxr::operators::connection {
 
 using namespace geometrycentral;
 using namespace geometrycentral::surface;
+using geometry::Manifold;
 
 // ── Face-basis helpers — copied from direction_field.cpp (keep in sync) ──
 // Same conventions as faceOrthonormalBasis / transportNoRotation there, so
@@ -202,4 +192,4 @@ GaugeRotations integrateTrivialGaugeRotations(
     return out;
 }
 
-} // namespace nxr::geometry::connection
+} // namespace nxr::operators::connection

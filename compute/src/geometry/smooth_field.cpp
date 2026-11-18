@@ -4,11 +4,6 @@
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
 #include "nxr/geometry/facets.h"
-#include "nxr/operators/dec.h"
-#include "nxr/operators/dirac.h"
-#include "nxr/operators/laplacians.h"
-#include "nxr/operators/eigen.h"
-#include "nxr/operators/facets.h"
 #include "nxr/synthesis/fields.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"

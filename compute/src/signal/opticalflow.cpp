@@ -17,7 +17,7 @@ using Eigen::MatrixXd;
 using Eigen::VectorXd;
 constexpr double EPS = 2.220446049250313e-16;   // MATLAB eps
 
-TangentBasis tangentBasis(const RowMat3& vertexNormals, const Eigen::Vector3d& axis) {
+TangentBasis rheomeTangentBasis(const RowMat3& vertexNormals, const Eigen::Vector3d& axis) {
     const bool rheome = axis == Eigen::Vector3d::Ones();
     const Eigen::Index V = vertexNormals.rows();
     TangentBasis tb;
@@ -40,7 +40,7 @@ TangentBasis tangentBasis(const RowMat3& vertexNormals, const Eigen::Vector3d& a
     return tb;
 }
 
-RowMat3 vertexNormals(const RowMat3& positions, const operators::FaceMat& faces) { return nxr::operators::FaceOperators(positions, faces, false).normals; }
+RowMat3 rheomeVertexNormals(const RowMat3& positions, const operators::FaceMat& faces) { return nxr::operators::FaceOperators(positions, faces, false).normals; }
 
 // The embedded cotan Laplacian and the lumped Galerkin mass (row sums = a third of each incident face's area).
 void embeddedLaplacian(const RowMat3& positions, const operators::FaceMat& faces, Eigen::SparseMatrix<double>& K, VectorXd& mass) {
@@ -58,7 +58,7 @@ void embeddedLaplacian(const RowMat3& positions, const operators::FaceMat& faces
 }
 
 OpticalflowScalar::OpticalflowScalar(const RowMat3& positions, const operators::FaceMat& faces, const RowMat3& normals, double alpha, double maxAbs, const FlowForm& form)
-    : nV_(positions.rows()), form_(form), faces_(faces), scale_(maxAbs + EPS), fg_(positions, faces, false), tb_(tangentBasis(normals, form.frameAxis)) {
+    : nV_(positions.rows()), form_(form), faces_(faces), scale_(maxAbs + EPS), fg_(positions, faces, false), tb_(rheomeTangentBasis(normals, form.frameAxis)) {
     if (form_.dataFit == DataFit::Auto) form_.dataFit = form_.regulariser == Regulariser::Connection ? DataFit::Gauge : DataFit::Triangle;
     if ((form_.regulariser == Regulariser::Connection) != (form_.dataFit == DataFit::Gauge))
         throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "OpticalflowScalar: the gauge data term goes with the connection regulariser, and only with it");
@@ -154,57 +154,32 @@ VectorXd OpticalflowScalar::step(const VectorXd& previous, const VectorXd& next)
     return toVelocity(ab);
 }
 
-void OpticalflowScalar::makePreconditioner(const PcgOptions& o, double c) {
-    pre_ = system_;
-    double* val = pre_.valuePtr();
+void OpticalflowScalar::makePreconditioner(const optimisation::PcgOptions& o, double c) {
+    Eigen::SparseMatrix<double> pre = system_;   // alpha K (+) alpha K + c M (+) M
+    double* val = pre.valuePtr();
     std::copy(smoothValues_.begin(), smoothValues_.end(), val);
     for (Eigen::Index i = 0; i < nV_; ++i) {
         val[slot_[static_cast<std::size_t>(4 * i)]] += c * mass_[i];
         val[slot_[static_cast<std::size_t>(4 * i + 3)]] += c * mass_[i];
     }
-    preKind_ = o.preconditioner;
-    if (preKind_ == PcgOptions::Preconditioner::Ldlt) { preLdlt_.analyzePattern(pre_); preLdlt_.factorize(pre_); }
-    else preIc_.compute(pre_);
-    preBuilt_ = true;
+    precond_.build(pre, o.preconditioner);
 }
 
-void OpticalflowScalar::buildPreconditioner(const VectorXd& map, const PcgOptions& o, double scale) {
+void OpticalflowScalar::buildPreconditioner(const VectorXd& map, const optimisation::PcgOptions& o, double scale) {
     if (conn_) { conn_->buildPreconditioner(map, o, scale); return; }
-    if (preBuilt_) return;
+    if (precond_.built()) return;
     VectorXd rhs; double c = 0;
     assemble(map, map, scale, rhs, &c);
     makePreconditioner(o, std::max(c, 1e-12));
 }
 
-VectorXd OpticalflowScalar::stepPcg(const VectorXd& previous, const VectorXd& next, VectorXd& ab, const PcgOptions& o, PcgInfo* info, double scale) {
+VectorXd OpticalflowScalar::stepPcg(const VectorXd& previous, const VectorXd& next, VectorXd& ab, const optimisation::PcgOptions& o, optimisation::PcgInfo* info, double scale) {
     if (conn_) return conn_->stepPcg(previous, next, ab, o, info, scale);
     VectorXd rhs; double c = 0;
     assemble(previous, next, scale, rhs, &c);
-    if (!preBuilt_) makePreconditioner(o, std::max(c, 1e-12));
-    auto precond = [&](const VectorXd& r) { return preKind_ == PcgOptions::Preconditioner::Ldlt ? VectorXd(preLdlt_.solve(r)) : VectorXd(preIc_.solve(r)); };
-    VectorXd x = ab.size() == rhs.size() ? ab : VectorXd::Zero(rhs.size());
-    const double bn = rhs.norm();
-    PcgInfo pi;
-    if (!(bn > 0)) { x.setZero(); pi.residual = 0; }
-    else {
-        VectorXd r = rhs - system_ * x, z = precond(r), p = z;
-        double rz = r.dot(z);
-        while (r.norm() > o.tolerance * bn && pi.iterations < o.maxIterations) {
-            const VectorXd Ap = system_ * p;
-            const double pAp = p.dot(Ap);
-            if (!(pAp > 0)) break;
-            const double a = rz / pAp;
-            x += a * p; r -= a * Ap;
-            z = precond(r);
-            const double rz2 = r.dot(z);
-            p = z + (rz2 / rz) * p; rz = rz2;
-            ++pi.iterations;
-        }
-        pi.residual = r.norm() / bn;
-        pi.converged = pi.residual <= o.tolerance;
-    }
+    if (!precond_.built()) makePreconditioner(o, std::max(c, 1e-12));
+    const VectorXd x = optimisation::pcg(system_, rhs, ab, precond_, o, info);
     ab = x;
-    if (info) *info = pi;
     return toVelocity(x);
 }
 
@@ -292,7 +267,7 @@ Apparent apparent(const MatrixXd& A, const RowMat3& positions, const operators::
     if (A.cols() < 2) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "apparent: optical flow needs at least two frames; got " + std::to_string(A.cols()));
     if (!(o.alpha > 0)) throw nxr::core::Error(nxr::core::ErrorCode::InvalidInput, "apparent: alpha must be positive");
     Apparent r;
-    r.velocity = opticalflowScalar(A, positions, faces, vertexNormals(positions, faces), o.alpha, o.form);
+    r.velocity = opticalflowScalar(A, positions, faces, rheomeVertexNormals(positions, faces), o.alpha, o.form);
     FlowReadout rd = flowReadout(r.velocity, positions, faces);
     r.divergence = std::move(rd.divergence); r.vorticity = std::move(rd.vorticity); r.speedPerFrame = std::move(rd.speed);
     if (std::isfinite(o.rate)) r.speed = r.speedPerFrame * o.rate;

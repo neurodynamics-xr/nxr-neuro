@@ -2,7 +2,6 @@
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/curvature.h"
 #include "nxr/geometry/geodesics.h"
-#include "nxr/operators/laplacians.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
 #include "geometrycentral/surface/vertex_position_geometry.h"

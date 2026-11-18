@@ -9,6 +9,7 @@
 #include "nxr/geometry/frames.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/parametrization.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
@@ -17,7 +18,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include "nxr/operators/registry/operator_registry.h"
 
@@ -67,9 +68,9 @@ Eigen::SparseMatrix<double> naturalVertexMass(geometry::Manifold& m, const char*
         throw Error(ErrorCode::InvalidInput,
             std::string("eigenProblemFor: registry natural_mass of '") + id + "' disagrees with the vertex-mass family used to build it");
     switch (variant) {
-        case nxr::operators::MassMatrixVariant::MixedVoronoi: return m.operators().mass().mixedVoronoi();
-        case nxr::operators::MassMatrixVariant::Barycentric:  return m.operators().mass().barycentric();
-        case nxr::operators::MassMatrixVariant::Galerkin:     return m.operators().mass().galerkin();
+        case nxr::operators::MassMatrixVariant::MixedVoronoi: return nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi);
+        case nxr::operators::MassMatrixVariant::Barycentric:  return nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Barycentric);
+        case nxr::operators::MassMatrixVariant::Galerkin:     return nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin);
     }
     throw Error(ErrorCode::InvalidInput, "eigenProblemFor: unknown mass variant");
 }
@@ -80,14 +81,14 @@ EigenProblem eigenProblemFor(geometry::Manifold& m, const EigenOperatorSpec& spe
     p.sigma = kShiftLadder;   // no fixed shift on the null space — the ladder (compute.h)
     switch (spec.op) {
         case EigenOperator::LaplacianCotan: {
-            p.K = m.operators().laplacian().cotan();
+            p.K = nxr::operators::cotanLaplacian(m);
             // Registry documents natural_mass == "massMixedVoronoi" for laplaceBeltrami.
             p.M = naturalVertexMass(m, "laplaceBeltrami", spec.mass);
             p.blockSize = 1;
             break;
         }
         case EigenOperator::LaplacianGraph: {
-            p.K = m.operators().laplacian().graph();
+            p.K = nxr::operators::graphLaplacian(m);
             const int n = m.nV();
             p.M.resize(n, n);
             if (spec.graphDegreeMass) {     // random-walk form L φ = λ D φ; registry "graphLaplacianDegreeMass"
@@ -101,7 +102,7 @@ EigenProblem eigenProblemFor(geometry::Manifold& m, const EigenOperatorSpec& spe
             break;
         }
         case EigenOperator::Dirac: {
-            p.K = m.operators().dirac(spec.tau);              // [4V×4V] (caches E)
+            p.K = nxr::operators::diracFamily(m, spec.tau);   // [4V×4V]
             // Registry documents natural_mass == "massMixedVoronoi*I4" for relativeDirac.
             const Eigen::SparseMatrix<double> Mv =
                 naturalVertexMass(m, "relativeDirac", spec.mass);
@@ -110,7 +111,7 @@ EigenProblem eigenProblemFor(geometry::Manifold& m, const EigenOperatorSpec& spe
             break;
         }
         case EigenOperator::DiracFace: {
-            p.K = m.operators().diracFace(spec.tau);          // [4F×4F]; throws on open boundary
+            p.K = nxr::operators::diracFaceFamily(m, spec.tau);   // [4F×4F]; throws on open boundary
             // Registry documents natural_mass == "diag(faceArea)*I4" for relativeFaceDirac.
             auto& geom = m.geometry();
             geom.requireFaceAreas();

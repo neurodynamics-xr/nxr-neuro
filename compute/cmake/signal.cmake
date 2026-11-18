@@ -12,6 +12,7 @@ target_sources(nxr_compute PRIVATE
   src/signal/graphfilterbank.cpp
   src/signal/intrinsic_forms.cpp
   src/signal/isolines.cpp
+  src/signal/streamlines.cpp
   src/signal/jointfilterbank.cpp
   src/signal/kernels.cpp
   src/signal/opticalflow.cpp
@@ -133,6 +134,12 @@ if(NOT EMSCRIPTEN AND NXR_COMPUTE_BUILD_TESTS)
   target_link_libraries(test_forms PRIVATE nxr_compute)
   target_compile_definitions(test_forms PRIVATE NXR_TEST_GOLDEN_DIR="${CMAKE_CURRENT_SOURCE_DIR}/test/golden")
   add_test(NAME test_forms COMMAND test_forms)
+  add_executable(test_refactor_6b test/test_refactor_6b.cpp)
+  target_link_libraries(test_refactor_6b PRIVATE nxr_compute)
+  add_test(NAME test_refactor_6b COMMAND test_refactor_6b)
+  add_executable(test_pcg test/test_pcg.cpp)
+  target_link_libraries(test_pcg PRIVATE nxr_compute)
+  add_test(NAME test_pcg COMMAND test_pcg)
   add_executable(test_opticalflow_methods test/test_opticalflow_methods.cpp)
   target_link_libraries(test_opticalflow_methods PRIVATE nxr_compute)
   add_test(NAME test_opticalflow_methods COMMAND test_opticalflow_methods)

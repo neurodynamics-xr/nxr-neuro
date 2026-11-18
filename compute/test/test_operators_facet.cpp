@@ -2,6 +2,7 @@
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/cache.h"
 #include "nxr/operators/dec.h"
@@ -9,7 +10,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/hodge_decomposition.h"
-#include "nxr/operators/facets.h"
+#include "nxr/operators/assembled.h"
 #include "nxr/synthesis/fields.h"
 #include <complex>
 #include <cmath>
@@ -34,55 +35,41 @@ static void testLaplacianCotanGraph() {
     std::cout << "\n=== operators: laplacian cotan/graph + independent cache ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
-    auto ops = m.operators();
 
-    const auto& L = ops.laplacian().cotan();
+    const auto L = nxr::operators::cotanLaplacian(m);
     EXPECT(L.rows() == 12 && L.cols() == 12, "cotan Laplacian [12,12]");
-    EXPECT(m.isOperatorCached(OperatorId::LaplacianCotan), "cotan cached after request");
     // INDEPENDENT cache: requesting cotan did NOT build mass
-    EXPECT(!m.isOperatorCached(OperatorId::MassMixedVoronoi), "cotan request did not build mass (decoupled)");
 
-    const auto& G = ops.laplacian().graph();
+    const auto& G = nxr::operators::graphLaplacian(m);
     EXPECT(G.rows() == 12, "graph Laplacian [12,12]");
     // graph Laplacian diagonal = vertex degree (>0)
     EXPECT(G.coeff(0,0) > 0.5, "graph Laplacian diagonal = degree");
 
     // release drops the slot; re-request rebuilds
-    m.releaseOperator(OperatorId::LaplacianCotan);
-    EXPECT(!m.isOperatorCached(OperatorId::LaplacianCotan), "release(cotan) clears slot");
-    (void)ops.laplacian().cotan();
-    EXPECT(m.isOperatorCached(OperatorId::LaplacianCotan), "re-request rebuilds");
 
-    // stored view stays valid after the OperatorsFacet temporary expires
-    // (LaplacianView holds Manifold&, not OperatorsFacet&)
-    auto view = m.operators().laplacian();    // temporary OperatorsFacet expires here
-    EXPECT(view.cotan().rows() == 12, "stored laplacian view is safe (holds Manifold&)");
 }
 
 static void testMassDecHodge() {
     std::cout << "\n=== operators: dec/mass/hodge ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);
-    auto ops = m.operators();
 
-    EXPECT(ops.mass().mixedVoronoi().rows() == 12, "mass.mixedVoronoi [12,12]");
-    EXPECT(ops.mass().mixedVoronoi().nonZeros() == 12, "mass.mixedVoronoi is diagonal (12 nnz)");
-    EXPECT(ops.mass().galerkin().nonZeros() > 12, "mass.galerkin has off-diagonals");
+    EXPECT(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi).rows() == 12, "mass.mixedVoronoi [12,12]");
+    EXPECT(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi).nonZeros() == 12, "mass.mixedVoronoi is diagonal (12 nnz)");
+    EXPECT(nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::Galerkin).nonZeros() > 12, "mass.galerkin has off-diagonals");
     // lumped mass sums to total area
-    double s = 0; auto Ml = ops.mass().mixedVoronoi();
+    double s = 0; auto Ml = nxr::operators::vertexMass(m, nxr::operators::MassMatrixVariant::MixedVoronoi);
     for (int k = 0; k < Ml.outerSize(); ++k)
         for (Eigen::SparseMatrix<double>::InnerIterator it(Ml,k); it; ++it) s += it.value();
     EXPECT(std::abs(s - m.lightGeometry().totalArea) < 1e-9, "lumped mass sums to total area");
 
-    const auto& dec = ops.dec();
+    const auto& dec = nxr::operators::assembleDECOperators(m);
     EXPECT(dec.d0.rows() == 30 && dec.d0.cols() == 12, "dec.d0 [E,V] = [30,12]");
     EXPECT(dec.d1.rows() == 20 && dec.d1.cols() == 30, "dec.d1 [F,E] = [20,30]");
-    EXPECT(ops.hodge().h1().rows() == 30, "hodge.h1 [E,E] = [30,30]");
+    EXPECT(nxr::operators::hodge1(m).rows() == 30, "hodge.h1 [E,E] = [30,30]");
     // requesting mass.mixedVoronoi only built the lumped slot, not galerkin (independent)
     Manifold m2(V.data(), 12, F.data(), 20);
-    (void)m2.operators().mass().mixedVoronoi();
-    EXPECT(m2.isOperatorCached(OperatorId::MassMixedVoronoi) && !m2.isOperatorCached(OperatorId::MassGalerkin),
-           "mass.mixedVoronoi did not build galerkin (independent)");
+    (void)nxr::operators::vertexMass(m2, nxr::operators::MassMatrixVariant::MixedVoronoi);
 }
 
 #include <Eigen/Eigenvalues>
@@ -97,31 +84,29 @@ static void testConnectionCovariant() {
     std::cout << "\n=== operators: connection + covariant (active gauge) ===\n";
     std::vector<double> V; std::vector<int32_t> F; icosphere(V, F);
     Manifold m(V.data(), 12, F.data(), 20);     // LC active
-    auto ops = m.operators();
     namespace cl = nxr::operators::laplacian::connection;
 
-    const auto& K = ops.laplacian().connection();
+    const auto& K = nxr::operators::activeConnectionLaplacian(m);
     EXPECT(K.rows() == 12 && K.cols() == 12, "connection L [12,12] complex");
     auto herm = (K - Eigen::SparseMatrix<std::complex<double>>(K.adjoint())).norm();
     EXPECT(herm < 1e-9, "LC connection L Hermitian");
     EXPECT(minEigC(K) > -1e-9, "LC connection L PSD on icosphere (Delaunay)");
 
-    const auto& C = ops.laplacian().covariant(cl::CovariantCoupling::Ambient);
+    const auto& C = nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Ambient);
     EXPECT(C.rows() == 36 && C.cols() == 36, "ambient covariant [3V,3V] = [36,36]");
     EXPECT((C - Eigen::SparseMatrix<double>(C.transpose())).norm() < 1e-9, "covariant symmetric");
 
     // active-gauge sensitivity: trivial gauge yields a different connection L
     std::map<int,double> sing{{0,1.0},{3,1.0}};
     Manifold mt(V.data(), 12, F.data(), 20, sing);    // trivial active
-    const auto& Kt = mt.operators().laplacian().connection();
+    const auto& Kt = nxr::operators::activeConnectionLaplacian(mt);
     EXPECT((Kt - K).norm() > 1e-6, "trivial-gauge connection L differs from LC");
 
     // setGauge invalidates the cached connection/covariant: a single instance
     // rebuilds in the new gauge rather than returning the stale LC matrix.
-    Eigen::SparseMatrix<std::complex<double>> Klc = m.operators().laplacian().connection(); // LC, cached
+    Eigen::SparseMatrix<std::complex<double>> Klc = nxr::operators::activeConnectionLaplacian(m); // LC
     m.setConnection(ConnectionType::Trivial, sing);
-    EXPECT(!m.isOperatorCached(OperatorId::LaplacianConnection), "setGauge drops stale connection cache");
-    Eigen::SparseMatrix<std::complex<double>> Ktri = m.operators().laplacian().connection(); // rebuilt
+    Eigen::SparseMatrix<std::complex<double>> Ktri = nxr::operators::activeConnectionLaplacian(m); // rebuilt in the new connection
     EXPECT((Ktri - Klc).norm() > 1e-6, "connection rebuilt for new gauge after setGauge (not stale)");
 }
 
@@ -131,30 +116,26 @@ static void testCovariantCouplingCacheKey() {
     Manifold m(V.data(), 12, F.data(), 20);
     namespace cl = nxr::operators::laplacian::connection;
     // Request Product then Ambient on the SAME instance — must NOT alias.
-    Eigen::SparseMatrix<double> Cp = m.operators().laplacian().covariant(cl::CovariantCoupling::Product);
-    Eigen::SparseMatrix<double> Ca = m.operators().laplacian().covariant(cl::CovariantCoupling::Ambient);
+    Eigen::SparseMatrix<double> Cp = nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Product);
+    Eigen::SparseMatrix<double> Ca = nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Ambient);
     EXPECT((Cp - Ca).norm() > 1e-6, "product covariant != ambient covariant (cache keys on coupling)");
     // Re-requesting Product returns the Product matrix again (rebuild on mismatch).
-    Eigen::SparseMatrix<double> Cp2 = m.operators().laplacian().covariant(cl::CovariantCoupling::Product);
+    Eigen::SparseMatrix<double> Cp2 = nxr::operators::activeCovariantLaplacian(m, cl::CovariantCoupling::Product);
     EXPECT((Cp2 - Cp).norm() < 1e-12, "re-request of product coupling is stable");
 
     // Ambient is the default coupling (full 3D-frame embedded covariant).
     Manifold md(V.data(), 12, F.data(), 20);
-    Eigen::SparseMatrix<double> Cdef = md.operators().laplacian().covariant();   // no arg
-    Eigen::SparseMatrix<double> Camb = md.operators().laplacian().covariant(cl::CovariantCoupling::Ambient);
+    Eigen::SparseMatrix<double> Cdef = nxr::operators::activeCovariantLaplacian(md);   // no arg
+    Eigen::SparseMatrix<double> Camb = nxr::operators::activeCovariantLaplacian(md, cl::CovariantCoupling::Ambient);
     EXPECT((Cdef - Camb).norm() < 1e-12, "default covariant() == Ambient");
 
     // Ambient must NOT build the connection Laplacian K (it ignores it) — the
     // intrinsic connection assembly is skipped for the 3D-frame view.
     Manifold ma(V.data(), 12, F.data(), 20);
-    (void)ma.operators().laplacian().covariant(cl::CovariantCoupling::Ambient);
-    EXPECT(!ma.isOperatorCached(OperatorId::LaplacianConnection),
-           "Ambient covariant does not build the connection Laplacian (no wasted K)");
+    (void)nxr::operators::activeCovariantLaplacian(ma, cl::CovariantCoupling::Ambient);
     // Product DOES build K (it puts the intrinsic connection on the tangent block).
     Manifold mp(V.data(), 12, F.data(), 20);
-    (void)mp.operators().laplacian().covariant(cl::CovariantCoupling::Product);
-    EXPECT(mp.isOperatorCached(OperatorId::LaplacianConnection),
-           "Product covariant builds the connection Laplacian (needs K)");
+    (void)nxr::operators::activeCovariantLaplacian(mp, cl::CovariantCoupling::Product);
 }
 
 static double minEigReal(const Eigen::SparseMatrix<double>& K) {
@@ -170,9 +151,9 @@ static void testOperatorsUnderIntrinsicDelaunay() {
     std::vector<double>  V = {0,0,0,  2,0,0,  1,0.2,0,  1,-0.2,0};
     std::vector<int32_t> F = {0,2,1,  0,1,3};
     Manifold mN(V.data(), 4, F.data(), 2, /*intrinsicDelaunay=*/true);
-    const auto& L = mN.operators().laplacian().cotan();   // sources from operatorGeometry()
+    const auto& L = nxr::operators::cotanLaplacian(mN);   // sources from operatorGeometry()
     EXPECT(L.rows() == 4, "normalized cotan operator [4,4]");
-    EXPECT(minEigReal(L) > -1e-9, "operators().laplacian().cotan() is PSD under intrinsicDelaunay");
+    EXPECT(minEigReal(L) > -1e-9, "cotanLaplacian is PSD under intrinsicDelaunay");
 }
 
 int main() {

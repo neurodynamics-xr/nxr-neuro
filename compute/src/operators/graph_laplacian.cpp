@@ -1,6 +1,7 @@
 #include "nxr/geometry/mesh.h"
 #include "nxr/geometry/geodesics.h"
 #include "nxr/geometry/direction_fields.h"
+#include "nxr/operators/trivial_connection.h"
 #include "nxr/geometry/facets.h"
 #include "nxr/operators/laplacians.h"
 

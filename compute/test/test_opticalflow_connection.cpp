@@ -60,7 +60,7 @@ static Read readMiddle(const RowMat3& P, const VectorXd& vel, double mid, double
     return {med(cs), med(got) / med(want), static_cast<int>(cs.size())};
 }
 static VectorXd flowOf(const Mesh& m, const VectorXd& a, const VectorXd& b, double alpha, double peak, Regulariser r = Regulariser::Connection, DataFit d = DataFit::Auto) {
-    OpticalflowScalar f(m.P, m.F, vertexNormals(m.P, m.F), alpha, peak, FlowForm{r, d});
+    OpticalflowScalar f(m.P, m.F, rheomeVertexNormals(m.P, m.F), alpha, peak, FlowForm{r, d});
     return f.step(a, b);
 }
 
@@ -229,7 +229,7 @@ int main() {
         EXPECT(refused, "connection with another data term is refused");
         const Mesh T = sphere(3, R);
         const VectorXd a = bumpAt(T.P, 0, R), b = bumpAt(T.P, 1, R);
-        FlowEngine ed(d, T.P, T.F, vertexNormals(T.P, T.F), 0.05), ep(p, T.P, T.F, vertexNormals(T.P, T.F), 0.05);
+        FlowEngine ed(d, T.P, T.F, rheomeVertexNormals(T.P, T.F), 0.05), ep(p, T.P, T.F, rheomeVertexNormals(T.P, T.F), 0.05);
         ed.observe(a); ed.observe(b); ep.observe(a); ep.observe(b);
         const FlowStep sd = ed.step(a, b), sp = ep.step(a, b);
         const double e = relMax(sp.velocity[0], sd.velocity[0]);
