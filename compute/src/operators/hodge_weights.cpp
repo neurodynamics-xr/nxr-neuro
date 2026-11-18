@@ -1,5 +1,6 @@
 // nxr::hodge — see hodge_weights.h. A port of nxr.inverse.fused.
 #include "nxr/operators/hodge_synthesis_weights.h"
+#include "nxr/measurement/mode_power.h"
 
 #include <algorithm>
 #include <cmath>
@@ -259,10 +260,15 @@ Synthesis hodgeSynthesis(const Basis& basis, const MatrixXd& weights, const Face
     return s;
 }
 
+}  // namespace nxr::operators
+
+namespace nxr::measurement {
+using Eigen::MatrixXd;
+
 MatrixXd modePower(const MatrixXd& B, const std::vector<MatrixXd>& S) {
     MatrixXd out(B.rows(), S.size());
     for (std::size_t b = 0; b < S.size(); ++b) out.col(static_cast<Eigen::Index>(b)) = ((B * S[b]).cwiseProduct(B)).rowwise().sum();
     return out;
 }
 
-}  // namespace nxr::hodge
+}  // namespace nxr::measurement

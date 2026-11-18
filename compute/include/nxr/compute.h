@@ -21,20 +21,24 @@
 #include "nxr/synthesis/fields.h"
 #include "nxr/signal/surface_calculus.h"
 
-namespace nxr::manifold { using namespace nxr::geometry; }
-namespace nxr::manifold::geometry { using namespace nxr::geometry; }
-namespace nxr::manifold::ops { using namespace nxr::operators; }
+namespace nxr::manifold {
+using namespace nxr::geometry;
+namespace geometry = nxr::geometry;
+namespace ops = nxr::operators;
+namespace query = nxr::geometry::query;
+namespace measure = nxr::geometry::measure;
+namespace transport = nxr::geometry::transport;
+namespace connection = nxr::geometry::connection;
+namespace parametrization = nxr::geometry::parametrization;
+namespace differential = nxr::operators::differential;
+}
 namespace nxr::manifold::solve { using namespace nxr::operators; using namespace nxr::geometry; }
-namespace nxr::manifold::query { using namespace nxr::geometry::query; }
-namespace nxr::manifold::measure { using namespace nxr::geometry::measure; }
-namespace nxr::manifold::transport { using namespace nxr::geometry::transport; }
-namespace nxr::manifold::connection { using namespace nxr::geometry::connection; }
-namespace nxr::manifold::parametrization { using namespace nxr::geometry::parametrization; }
-namespace nxr::manifold::differential { using namespace nxr::operators::differential; }
-namespace nxr::field::generate { using namespace nxr::synthesis; }
-namespace nxr::field::interp { using namespace nxr::signal; }
-namespace nxr::field::extract { using namespace nxr::signal; }
-namespace nxr::field::op { using namespace nxr::operators; }
+namespace nxr::field {
+namespace generate = nxr::synthesis;
+namespace interp = nxr::signal;
+namespace extract = nxr::signal;
+namespace op = nxr::operators;
+}
 
 namespace nxr::manifold {
     // Type using-declarations only — function using-decls conflict with
