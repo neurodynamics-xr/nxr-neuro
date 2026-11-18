@@ -402,6 +402,7 @@ std::vector<StepSpec> build() {
                  }
                  need(p["spatial_scale"].is_null() || p["spatial_scales"].is_null(), "apply_kernel: `spatial_scale` (one hat) or `spatial_scales` (a list of hats), not both");
                  need(ins.count("tiles") == ((p["spatial_scale"].is_null() && p["spatial_scales"].is_null()) ? 0u : 1u), "apply_kernel: `tiles` (the target surface's tile grid) and `spatial_scale` (or `spatial_scales`) come together: the scale's band is the grid's");
+                 need(!ins.count("glued") || ins.count("tiles") || p["form"] != "none", "apply_kernel: `glued` needs `tiles` and `spatial_scale` (the hat that is evaluated on the glued surface), or a form");
                  if (ins.count("tiles")) {
                    const Value& t = ins.at("tiles");
                    need(t.cls == "selection" && t.row && nxr::io::text(*t.row, "type") == "ladder" && t.manifolds[0] == k.manifolds[1],
