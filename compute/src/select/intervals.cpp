@@ -1,12 +1,12 @@
 // nxr::intervals — temporal events (intervals.h).
-#include "nxr/intervals.h"
+#include "nxr/select/events.h"
 
 #include <algorithm>
 #include <cmath>
 #include <limits>
 #include <stdexcept>
 
-namespace nxr::intervals {
+namespace nxr::select {
 
 std::vector<Span> crossings(const Eigen::Ref<const Eigen::VectorXd>& x, double entry, double exit) {
   if (!(exit <= entry)) throw std::invalid_argument("crossings: the exit level is at most the entry level");
@@ -102,4 +102,4 @@ std::vector<double> eventIntervalNext(const std::vector<TileEvent>& events, doub
   return out;
 }
 
-}  // namespace nxr::intervals
+}  // namespace nxr::select

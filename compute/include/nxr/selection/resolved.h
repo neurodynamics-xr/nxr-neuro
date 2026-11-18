@@ -36,14 +36,21 @@
 #pragma once
 #include <cstdint>
 #include <optional>
+#include <string>
 #include <utility>
 #include <variant>
 #include <vector>
 
-#include "nxr/selection/partition.h"
 #include "nxr/selection/selection.h"
 
 namespace nxr::selection {
+
+/** a line (the makers in select/partition.h take it too) of `count` points `spacing` apart from `origin`, in `unit` (a time line: spacing = 1 / sfreq, unit s) */
+struct Line {
+  std::string unit = "s";
+  std::int64_t count = 0;
+  double origin = 0, spacing = 0;
+};
 
 // ── the forms ─────────────────────────────────────────────────────────────────────────────
 /** CLOSED FORM on a line of `size` points: member k (0 <= k < count) is [origin + k hop, origin + k hop + width) clipped to [0, size). origin may be
@@ -165,3 +172,7 @@ ProductForm resolve_product(const Selection& product, const std::vector<Space>& 
 ProductForm resolve_box(const Selection& span, const std::vector<Line>& axes);
 
 }  // namespace nxr::selection
+
+// TEMPORARY (toolbox refactor, removed in batch B5 with the forwarders): callers that reached the makers (time_grid, ...) through this header keep compiling.
+// The class side does not depend on them; the dependency runs select -> selection (partition.h includes this header).
+#include "nxr/select/partition.h"

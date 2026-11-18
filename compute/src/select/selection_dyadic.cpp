@@ -1,6 +1,6 @@
 // nxr::selection::bisection — see nxr/selection/dyadic.h. A line port of the Cortical Flow Studio's engine/ladder.ts; compiled with -ffp-contract=off
 // (JavaScript has no fused multiply-add).
-#include "nxr/selection/dyadic.h"
+#include "nxr/select/dyadic.h"
 
 #include <Eigen/Dense>
 #include <algorithm>
@@ -11,7 +11,7 @@
 #include <set>
 #include <stdexcept>
 
-namespace nxr::selection::bisection {
+namespace nxr::select::bisection {
 
 namespace {
 constexpr double kInf = std::numeric_limits<double>::infinity();
@@ -377,4 +377,4 @@ Tree groupTreeFor(const double* tplSphere, const int32_t* tplCodes, const std::v
     return t;
 }
 
-}  // namespace nxr::selection::bisection
+}  // namespace nxr::select::bisection

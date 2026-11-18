@@ -1,5 +1,5 @@
 // nxr::ladder — see nxr/ladder.h. A line port of the Cortical Flow Studio's engine/ladder.ts; compiled with -ffp-contract=off (JavaScript has no fused multiply-add).
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 
 #include <algorithm>
 #include <cmath>
@@ -11,7 +11,7 @@
 
 #include "nxr/errors.h"
 
-namespace nxr::ladder {
+namespace nxr::select {
 
 using Eigen::VectorXd;
 constexpr double kInf = std::numeric_limits<double>::infinity();
@@ -99,4 +99,4 @@ Eigen::VectorXcd carriedToCentre(const Mat3& e1, const Mat3& e2, const Eigen::Ve
     return out;
 }
 
-}  // namespace nxr::ladder
+}  // namespace nxr::select

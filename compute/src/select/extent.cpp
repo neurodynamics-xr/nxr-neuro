@@ -1,5 +1,5 @@
 // nxr::extent — the space × time extent of an event on the joint cells (extent.h).
-#include "nxr/extent.h"
+#include "nxr/select/extent.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,9 +7,9 @@
 #include <stdexcept>
 #include <string>
 
-#include "nxr/ladder.h"
+#include "nxr/select/dyadic.h"
 
-namespace nxr::extent {
+namespace nxr::select {
 
 namespace {
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -75,7 +75,7 @@ WindowRegions windowRegions(const Eigen::MatrixXd& z, const Pairs& tilePairs, co
   const Eigen::VectorXd values = Eigen::Map<const Eigen::VectorXd>(z.data(), z.size());
   Eigen::VectorXd w(z.size());
   for (int f = 0; f < F; ++f) w.segment(static_cast<Eigen::Index>(f) * S, S) = tileArea;
-  const regions::Regions R = regions::detectRegions(values, spaceTimePairs(tilePairs, S, F), w, enter, exit, minArea);
+  const Regions R = detectRegions(values, spaceTimePairs(tilePairs, S, F), w, enter, exit, minArea);
   for (const auto& g : R.regions) {
     if (static_cast<int>(g.nodes.size()) < minCells) continue;
     const std::int32_t k = static_cast<std::int32_t>(out.regions.size());
@@ -99,7 +99,7 @@ Eigen::Matrix<std::int32_t, Eigen::Dynamic, Eigen::Dynamic> centres(const Labels
     for (Eigen::Index s = 0; s < label.rows(); ++s) any = any || label(s, f) >= 0;
     if (!any) continue;
     for (std::size_t v = 0; v < V; ++v) node[v] = tileOfVertex[v] >= 0 ? label(tileOfVertex[v], f) : -1;
-    const std::vector<int> ce = ladder::tileCentres(positions.data(), node, events, vertexArea);
+    const std::vector<int> ce = tileCentres(positions.data(), node, events, vertexArea);
     for (int e = 0; e < events; ++e) c(e, f) = ce[static_cast<std::size_t>(e)];
   }
   return c;
@@ -122,4 +122,4 @@ Eigen::VectorXd pathLength(const Eigen::Matrix<std::int32_t, Eigen::Dynamic, Eig
   return len;
 }
 
-}  // namespace nxr::extent
+}  // namespace nxr::select

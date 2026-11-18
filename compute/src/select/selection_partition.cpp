@@ -1,5 +1,5 @@
 // nxr::selection (compute) — the partition methods (partition.h).
-#include "nxr/selection/partition.h"
+#include "nxr/select/partition.h"
 
 #include <algorithm>
 #include <cmath>
@@ -10,10 +10,10 @@
 #include <string>
 #include <vector>
 
-#include "nxr/selection/constant_q.h"
-#include "nxr/selection/dyadic.h"
+#include "nxr/select/constant_q.h"
+#include "nxr/select/dyadic.h"
 
-namespace nxr::selection {
+namespace nxr::select {
 
 namespace {
 int k_of(double samples) { return static_cast<int>(std::lround(std::ceil(std::log2(samples)))); }   // the power of two a window is rounded up to
@@ -166,4 +166,4 @@ Selection transfer(const Surface& s, const Transfer& o) {
   return p;
 }
 
-}  // namespace nxr::selection
+}  // namespace nxr::select

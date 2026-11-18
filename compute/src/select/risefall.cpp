@@ -1,5 +1,5 @@
 // nxr::risefall — the double-sigmoid fit of Rheome's detect.risefall (risefall.h).
-#include "nxr/risefall.h"
+#include "nxr/select/risefall.h"
 
 #include <algorithm>
 #include <cmath>
@@ -7,7 +7,7 @@
 #include <stdexcept>
 #include <vector>
 
-namespace nxr::risefall {
+namespace nxr::select {
 
 Model parseModel(const std::string& name) {
   if (name == "linear") return Model::Linear;
@@ -139,4 +139,4 @@ Stages stagesOf(double tOn, double tOff, double tauR, double tauF) {
 
 bool passesGate(const Fit& f, double minR2) { return f.ok && !f.atBound && std::isfinite(f.r2) && f.r2 >= minR2; }
 
-}  // namespace nxr::risefall
+}  // namespace nxr::select

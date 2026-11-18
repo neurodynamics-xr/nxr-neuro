@@ -1,10 +1,10 @@
-#include "nxr/scalespace.h"
+#include "nxr/select/scale_selection.h"
 
 #include <cmath>
 #include <stdexcept>
 #include <string>
 
-namespace nxr::scalespace {
+namespace nxr::select::scale_selection {
 
 LevelChoice selectLevel(const Eigen::Ref<const Eigen::MatrixXd>& power, const Eigen::Ref<const Eigen::VectorXd>& norm2, int levels) {
   if (levels < 1) throw std::invalid_argument("selectLevel: at least one level");
@@ -32,4 +32,4 @@ LevelChoice selectLevel(const Eigen::Ref<const Eigen::MatrixXd>& power, const Ei
   return out;
 }
 
-}  // namespace nxr::scalespace
+}  // namespace nxr::select::scale_selection
