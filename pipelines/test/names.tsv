@@ -152,12 +152,14 @@ node	scale	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs
 node	scale_selection	-	pending prefix: the node is not yet named <toolbox>.<word> (it runs the functions of one toolbox: its prefix is to be chosen by the maintainers)
 node	select.bands	-	composite
 node	select.dyadic_surface	-	composite
+node	select.elements	-	composite
 node	select.events.cores	-	composite
 node	select.events.patches	-	composite
 node	select.events.regions	-	composite
 node	select.events.spans	-	composite
 node	select.events.tracks	-	composite
 node	select.product	-	composite
+node	select.run_span	-	composite
 node	select.time_grid	-	composite
 node	signal.analytic_bands	-	composite
 node	signal.complex_psd	-	pending B6a: complexWelch becomes psd (the complex input)
