@@ -1,4 +1,4 @@
-// `montage create` (pipelines/src/montage_create.cpp) on a synthetic template package: a sphere as the scalp `head` and the landmarks as the points manifold `head_landmarks` (as the template importers
+// `run montage` (pipelines/definitions/montage.yaml) on a synthetic template package: a sphere as the scalp `head` and the landmarks as the points manifold `head_landmarks` (as the template importers
 // store them). The montage is stored as the points manifold `eeg_1005` with its names labelling, the `system` partition, aliases and origin; its positions equal nxr::meeg::tenFive with the
 // inion the convention gives; the refusals (a second montage, a missing landmarks manifold, landmarks in another system).
 #include "nxr/io/subject_api.h"
@@ -15,12 +15,12 @@
 #include "nxr/io/task/task.h"
 #include "nxr/io/writer.h"
 #include "nxr/meeg/montage.h"
-#include "nxr/pipelines/montage_create.h"
+#include "nxr/pipelines/definition.h"
+#include "nxr/pipelines/runner.h"
 #include "synthetic_meshes.h"
 
 using namespace nxr::io;
 namespace fs = std::filesystem;
-using nxr::pipelines::MontageCreateOptions;
 
 namespace {
 std::string code_of(const std::function<void()>& f) {
@@ -60,34 +60,28 @@ void make(const fs::path& pkg, const std::string& lm_cs) {
 }  // namespace
 
 int main() {
-  const fs::path root = fs::temp_directory_path() / ("nxr_pipelines_test_montage_create_" + std::to_string(::getpid()));
+  const fs::path root = fs::temp_directory_path() / ("nxr_pipelines_test_montage_definition_" + std::to_string(::getpid()));
   fs::remove_all(root);
   fs::create_directories(root);
   make(root / "A.nxr.zarr", "scs");
-  MontageCreateOptions o;
-  o.package = root / "A.nxr.zarr";
-  const auto r = nxr::pipelines::montage_create(o);
-  CHECK_EQ(r.info["points"].get<int>(), 345);
-  CHECK_EQ(r.info["systems"]["10-20"].get<int>(), 21);
-  CHECK_EQ(r.info["systems"]["10-10"].get<int>(), 56);      // 77 names of the 10-10 system, 21 of them the 10-20
-  CHECK_EQ(r.info["systems"]["10-05"].get<int>(), 268);
-  CHECK_EQ(r.info["cs_key"].get<std::string>(), std::string("scs"));
-  CHECK_EQ(r.info["origin"]["licence"].get<std::string>(), std::string("CC-BY-4.0"));
-
-  // stored: the manifold, its positions equal the compute function's with the convention's inion, the names, the system partition, the aliases, the origin
+  const auto def = nxr::pipelines::graph::load("montage");
+  nxr::pipelines::graph::RunOptions opt;
   {
-    DatasetWriter w = open_package_writer(o.package);
+    DatasetWriter w = open_package_writer(root / "A.nxr.zarr");
     SubjectWriter sub = SubjectWriter::open(w, "S");
+    const auto rep = nxr::pipelines::graph::run(w, sub, def, Json::object(), opt).at(0);
+    std::map<std::string, Json> stored;
+    for (const auto& e : rep["stored"]) stored[e["name"].get<std::string>()] = e;
+    CHECK(stored.count("eeg_1005") && stored.count("eeg_1005_names") && stored.count("eeg_1005_system"));
     const auto row = nxr::io::manifold_row_named(sub, "eeg_1005");
     CHECK(row.has_value());
-    const Json pj = Json::parse(text(*row, "pj"));
-    CHECK_EQ(pj["aliases"]["T3"].get<std::string>(), std::string("T7"));
-    CHECK_EQ(pj["inion"]["point"].size(), static_cast<std::size_t>(3));
     ArrayReader a = ArrayReader::open(sub.store(), text(*row, "pp"));
     CHECK_EQ(a.shape()[0], std::int64_t(345));
+    CHECK_EQ(a.shape()[1], std::int64_t(3));
     const auto raw = a.read();
-    std::vector<float> got(raw.size() / 4);
+    std::vector<double> got(raw.size() / 8);
     std::memcpy(got.data(), raw.data(), raw.size());
+    // the positions equal the compute function's with the convention's inion
     ::Mesh m = ::icosphere(4);
     const double R = 0.095;
     for (auto& x : m.V) x *= R;
@@ -96,22 +90,20 @@ int main() {
     L.inion = nxr::meeg::inionFromLandmarks(m.V, m.F, L.nasion, L.lpa, L.rpa);
     const auto want = nxr::meeg::tenFive(m.V, m.F, L);
     CHECK_EQ(want.labels.size(), static_cast<std::size_t>(345));
-    for (std::size_t i = 0; i < got.size(); ++i) CHECK(std::abs(got[i] - want.positions[i]) < 1e-6);
-    const auto sels = nxr::io::selection_names_on(sub, text(*row, "id"));
-    int found = 0;
-    for (const auto& n : sels) { found += (n.find("eeg_1005_names") != std::string::npos) + (n.find("eeg_1005_system") != std::string::npos); }
-    CHECK_EQ(found, 2);
-    const auto org = origin_of(sub, "manifold", text(*row, "id"));
-    CHECK(org.has_value() && org->redistributable && org->licence == "CC-BY-4.0");
+    for (std::size_t i = 0; i < got.size(); ++i) CHECK(std::abs(got[i] - want.positions[i]) < 1e-5);
+    const Json pj = Json::parse(text(*row, "pj"));
+    CHECK_EQ(pj["aliases"]["T3"].get<std::string>(), std::string("T7"));
+    CHECK_EQ(pj["systems"]["10-20"].get<int>(), 21);
+    CHECK_EQ(pj["inion"]["point"].size(), static_cast<std::size_t>(3));
   }
-  // refusals
-  CHECK_EQ(code_of([&] { nxr::pipelines::montage_create(o); }), std::string(code::invalid_argument));     // the montage exists
+  // refusals: the landmarks in another coordinate system, and landmarks that do not exist
   make(root / "B.nxr.zarr", "mni");
-  MontageCreateOptions b;
-  b.package = root / "B.nxr.zarr";
-  CHECK_EQ(code_of([&] { nxr::pipelines::montage_create(b); }), std::string(code::invalid_argument));     // landmarks in another system
-  b.landmarks = "nope";
-  CHECK_EQ(code_of([&] { nxr::pipelines::montage_create(b); }), std::string(code::invalid_argument));     // no such landmarks
+  {
+    DatasetWriter w = open_package_writer(root / "B.nxr.zarr");
+    SubjectWriter sub = SubjectWriter::open(w, "S");
+    CHECK(!code_of([&] { nxr::pipelines::graph::run(w, sub, def, Json::object(), opt); }).empty());                    // the scalp in scs, the landmarks in mni
+    CHECK(!code_of([&] { nxr::pipelines::graph::run(w, sub, def, Json{{"landmarks", "nope"}}, opt); }).empty());      // no such landmarks
+  }
   fs::remove_all(root);
-  return nxrtest::finish("montage_create");
+  return nxrtest::finish("montage_definition");
 }

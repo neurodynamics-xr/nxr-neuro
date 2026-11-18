@@ -9,6 +9,7 @@
 //
 // What it cannot resolve: see the method's section in docs/reference.md (the system's positions on a head model, not a cap's placement; arcs along a triangle mesh).
 #include <cmath>
+#include <set>
 #include <stdexcept>
 
 #include "nxr/meeg/montage.h"
@@ -34,7 +35,130 @@ const std::vector<std::string> kWarnings = {
 
 }  // namespace
 
+namespace {
+const std::vector<std::string> kLandmarkNames = {"NAS", "LPA", "RPA"};
+
+Array column_of(const std::vector<double>& x, const std::vector<std::string>& entries, const std::string& description) {
+  Array a;
+  a.rows = static_cast<std::int64_t>(x.size()); a.cols = 1;
+  a.data = x;
+  a.meta["describe"] = Json{{"entries", entries}, {"description", description}};
+  return a;
+}
+StepSpec setup_step(const std::string& name, std::vector<std::string> ins, std::vector<std::string> outs, Json params, const std::string& description, const std::string& why, bool reads_arrays) {
+  StepSpec s;
+  s.name = name; s.kind = "setup";
+  s.traits = node_traits(TimeBehaviour::pointwise, Precision::float64, OutputPrecision::follows_input, why);
+  s.inputs = std::move(ins); s.outputs = std::move(outs);
+  s.parameters = std::move(params);
+  s.description = description;
+  s.reads_arrays = reads_arrays;
+  s.prepare = [](const Values&, const Json& p, ExecContext&) { return std::any(p); };
+  return s;
+}
+}  // namespace
+
 void add_montage_steps(std::vector<StepSpec>& r) {
+  // ── geometry.surface_parts: a stored surface as its two arrays ──
+  {
+    StepSpec s = setup_step("geometry.surface_parts", {"surface"}, {"vertices", "faces"}, Json::object(),
+                            "A surface as two arrays: vertices [V x 3] in the surface's unit (its precision and coordinate system in meta) and faces [F x 3] (0-based indices as doubles).", "indexing only", true);
+    s.matches = "the surface's stored vertices and faces";
+    s.plan = [](const Values& ins, const Json&, const PlanContext&) {
+      need(ins.count("surface") != 0, "surface_parts: the input `surface` is missing");
+      Values out;
+      for (const char* o : {"vertices", "faces"}) out[o] = array_value(Json{{"node", "geometry.surface_parts"}, {"port", o}});
+      return out;
+    };
+    s.run = [](const std::any&, const Arrays& ins, ExecContext& ctx) {
+      const Array& S = ins.at("surface");
+      Array V, F;
+      V.rows = S.rows; V.cols = 3; V.data = S.data;
+      V.meta = Json{{"precision", S.meta.value("precision", std::string("float64"))}, {"unit", S.meta.value("unit", std::string())}, {"name", S.meta.value("name", std::string())},
+                    {"cs", ctx.bound.coordinate_system_key(S.meta.value("id", std::string()))}};
+      const auto faces = S.meta.value("faces", std::vector<std::int32_t>());
+      need(faces.size() % 3 == 0 && !faces.empty(), "surface_parts: the surface has no triangles");
+      F.rows = static_cast<std::int64_t>(faces.size() / 3); F.cols = 3;
+      for (const auto f : faces) F.data.push_back(f);
+      Arrays o;
+      o["vertices"] = std::move(V); o["faces"] = std::move(F);
+      return o;
+    };
+    r.push_back(std::move(s));
+  }
+  // ── meeg.inion_from_landmarks ──
+  {
+    StepSpec s = setup_step("meeg.inion_from_landmarks", {"vertices", "faces", "landmarks"}, {"landmarks_with_inion"}, Json{{"inion", nullptr}},
+                            "The four landmarks the 10-05 rule needs: landmarks [3 x 3] (rows NAS, LPA, RPA, named in meta.names) on a scalp (vertices, faces) with the inion added -> landmarks_with_inion [4 x 3] (nasion, inion, LPA, RPA). "
+                            "The inion is by default `nxr::meeg::inionFromLandmarks` (the farthest crossing of the line from the nasion through the midpoint of the preauricular points with the scalp); the parameter `inion` "
+                            "([x, y, z] in the scalp's unit) gives it instead. The convention is in meta.inion. The landmarks and the scalp must be in one coordinate system.", "no time axis: runs once on arrays", true);
+    s.matches = "nxr::meeg::inionFromLandmarks (a stated convention, not the bump the inion is)";
+    s.plan = [](const Values& ins, const Json& p, const PlanContext&) {
+      for (const char* k : {"vertices", "faces", "landmarks"}) need(ins.count(k) != 0, std::string("inion_from_landmarks: the input `") + k + "` is missing");
+      need(p["inion"].is_null() || (p["inion"].is_array() && p["inion"].size() == 3), "inion_from_landmarks: inion is [x, y, z] in the scalp's unit, or null for the convention");
+      Values out;
+      out["landmarks_with_inion"] = array_value(Json{{"node", "meeg.inion_from_landmarks"}, {"port", "landmarks_with_inion"}});
+      return out;
+    };
+    s.run = [](const std::any& st, const Arrays& ins, ExecContext& ctx) {
+      const Json& p = std::any_cast<const Json&>(st);
+      const Array &V = ins.at("vertices"), &F = ins.at("faces"), &L = ins.at("landmarks");
+      need(L.cols == 3 && L.rows == 3, "inion_from_landmarks: the landmarks hold " + std::to_string(L.rows) + " points, not the nasion, LPA and RPA");
+      const auto names = L.meta.value("names", std::vector<std::string>());
+      need(names == kLandmarkNames, "inion_from_landmarks: the landmarks name their points " + (names.empty() ? std::string("not at all") : names[0] + ",...") + ", not NAS, LPA, RPA in that order");
+      const std::string scs = V.meta.value("cs", std::string()), lcs = ctx.bound.coordinate_system_key(L.meta.value("id", std::string()));
+      need(!scs.empty() && !lcs.empty(), "inion_from_landmarks: the scalp or the landmarks have no coordinate system");
+      need(scs == lcs, "inion_from_landmarks: the scalp is in '" + scs + "' and the landmarks in '" + lcs + "': place them in one system first");
+      std::vector<std::int32_t> faces(F.data.size());
+      for (std::size_t i = 0; i < faces.size(); ++i) faces[i] = static_cast<std::int32_t>(std::llround(F.data[i]));
+      nxr::meeg::Point nas, lpa, rpa, inion;
+      for (int c = 0; c < 3; ++c) { nas[c] = L.data[static_cast<std::size_t>(c)]; lpa[c] = L.data[static_cast<std::size_t>(3 + c)]; rpa[c] = L.data[static_cast<std::size_t>(6 + c)]; }
+      Json info;
+      if (p["inion"].is_array()) {
+        for (int c = 0; c < 3; ++c) inion[c] = p["inion"][static_cast<std::size_t>(c)].get<double>();
+        info = Json{{"convention", "given by the caller"}};
+      } else {
+        try { inion = nxr::meeg::inionFromLandmarks(V.data, faces, nas, lpa, rpa); } catch (const std::invalid_argument& e) { refuse(std::string("inion_from_landmarks: ") + e.what()); }
+        info = Json{{"convention", "nxr::meeg::inionFromLandmarks: the farthest point where the line from the nasion through the midpoint of the preauricular points crosses the scalp"}};
+      }
+      info["point"] = Json::array({inion[0], inion[1], inion[2]});
+      Array out;
+      out.rows = 4; out.cols = 3;
+      for (const auto* q : {&nas, &inion, &lpa, &rpa}) for (int c = 0; c < 3; ++c) out.data.push_back((*q)[c]);
+      out.meta = Json{{"precision", V.meta.value("precision", std::string("float64"))}, {"inion", info}};
+      Arrays o;
+      o["landmarks_with_inion"] = std::move(out);
+      return o;
+    };
+    r.push_back(std::move(s));
+  }
+  // ── meeg.montage_labels ──
+  {
+    StepSpec s = setup_step("meeg.montage_labels", {"positions"}, {"names", "system"}, Json::object(),
+                            "The labellings of a montage: positions [n x 3] (meta.labels, meta.systems) -> names [n] (one level per point, the 10-05 name) and system [n] (the narrowest standard system a point belongs to: level 0 `10-20`, 1 `10-10`, "
+                            "2 `10-05`; the 10-10 system is levels 0 and 1 together, the 10-05 all).", "each point is named on its own", false);
+    s.matches = "Oostenveld and Praamstra (2001); Jurcak, Tsuzuki and Dan (2007) for the 10-10 names";
+    s.plan = [](const Values& ins, const Json&, const PlanContext&) {
+      need(ins.count("positions") != 0, "montage_labels: the input `positions` is missing");
+      Values out;
+      for (const char* o : {"names", "system"}) out[o] = array_value(Json{{"node", "meeg.montage_labels"}, {"port", o}});
+      return out;
+    };
+    s.run = [](const std::any&, const Arrays& ins, ExecContext&) {
+      const Array& P = ins.at("positions");
+      const auto labels = P.meta.value("labels", std::vector<std::string>());
+      need(static_cast<std::int64_t>(labels.size()) == P.rows && P.rows > 0, "montage_labels: the positions carry no name for each point (meta.labels)");
+      const std::set<std::string> s1020(nxr::meeg::labels1020().begin(), nxr::meeg::labels1020().end()), s1010(nxr::meeg::labels1010().begin(), nxr::meeg::labels1010().end());
+      std::vector<double> codes, sys;
+      for (std::size_t i = 0; i < labels.size(); ++i) { codes.push_back(static_cast<double>(i)); sys.push_back(s1020.count(labels[i]) ? 0 : s1010.count(labels[i]) ? 1 : 2); }
+      Arrays o;
+      o["names"] = column_of(codes, labels, "the 10-05 names, one level per point; the old 10-20 names (T3, T4, T5, T6) are aliases listed in the montage's producer");
+      o["system"] = column_of(sys, {"10-20", "10-10", "10-05"}, "the narrowest standard system each point belongs to: 10-20, then 10-10 (the 10-10 system is both), then 10-05 (the whole montage)");
+      return o;
+    };
+    r.push_back(std::move(s));
+  }
+
   StepSpec s;
   s.name = "meeg.eeg_montage_1005";
   s.kind = "setup";
@@ -89,6 +213,12 @@ void add_montage_steps(std::vector<StepSpec>& r) {
                     {"cz_residual", p.cz_residual},
                     {"landmark_shift", shift},
                     {"warnings", kWarnings}};
+    Json inion = L.meta.is_object() && L.meta.contains("inion") ? L.meta["inion"] : Json();
+    const Json counts = Json{{"10-05", static_cast<std::int64_t>(p.labels.size())}, {"10-10", static_cast<std::int64_t>(nxr::meeg::labels1010().size())}, {"10-20", static_cast<std::int64_t>(nxr::meeg::labels1020().size())}};
+    out.meta["describe"] = Json{{"cs", V.meta.is_object() ? V.meta.value("cs", std::string()) : std::string()}, {"unit", V.meta.is_object() ? V.meta.value("unit", std::string("m")) : std::string("m")},
+        {"description", "the standard 10-05 electrode positions on the scalp, one point per name (10-10 and 10-20 are subsets of the names)"},
+        {"producer", Json{{"method", "Oostenveld and Praamstra (2001), the 10-05 rule: nxr::meeg::tenFive"}, {"inion", inion}, {"landmark_shift", shift}, {"cz_iterations", p.iterations}, {"cz_residual", p.cz_residual},
+                          {"tolerance", opt.tolerance}, {"aliases", nxr::meeg::oldNames()}, {"systems", counts}, {"warnings", kWarnings}}}};
     Arrays o;
     o["positions"] = std::move(out);
     return o;

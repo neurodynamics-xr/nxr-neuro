@@ -57,6 +57,9 @@ struct HodgePackageData {
 };
 HodgePackageData hodge_package_data(nxr::io::SubjectWriter& sub, const std::string& eigenvectors_name, const std::optional<std::int64_t>& modes);
 // The type of each channel of a channels manifold (its 'type' labelling); empty when there is none.
+/** the positions of a points manifold with no channel types (the landmarks of a template: nasion, LPA, RPA): [n x 3] and each point's name from its `<manifold>_names` labelling (empty when it has none) */
+struct NamedPoints { std::string id, name; std::vector<double> positions; std::vector<std::string> names; };
+NamedPoints named_points(nxr::io::SubjectWriter& sub, const std::string& points_id);
 std::vector<std::string> channel_types_of(nxr::io::SubjectWriter& sub, const std::string& channels_id);
 
 // How many connected pieces the faces make (a cortex: its two hemispheres; a mesh or a sphere: one).

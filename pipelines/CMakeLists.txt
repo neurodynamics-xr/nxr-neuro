@@ -68,7 +68,6 @@ add_library(nxr_pipelines
   src/eigen_steps.cpp
   src/frames.cpp
   src/registration.cpp
-  src/montage_create.cpp
   src/dataset.cpp
   src/listing.cpp
   src/measure.cpp
@@ -104,10 +103,10 @@ if(NXR_NEURO_BUILD_TESTS)
   target_link_libraries(test_dataset_with_template PRIVATE nxr_pipelines)
   target_include_directories(test_dataset_with_template PRIVATE ${CMAKE_SOURCE_DIR}/io/test)
   add_test(NAME test_dataset_with_template COMMAND test_dataset_with_template)
-  add_executable(test_montage_create test/test_montage_create.cpp)
-  target_link_libraries(test_montage_create PRIVATE nxr_pipelines)
-  target_include_directories(test_montage_create PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
-  add_test(NAME test_montage_create COMMAND test_montage_create)
+  add_executable(test_montage_definition test/test_montage_definition.cpp)
+  target_link_libraries(test_montage_definition PRIVATE nxr_pipelines)
+  target_include_directories(test_montage_definition PRIVATE ${CMAKE_SOURCE_DIR}/io/test ${CMAKE_SOURCE_DIR}/compute/test)
+  add_test(NAME test_montage_definition COMMAND test_montage_definition)
   add_executable(test_registration test/test_registration.cpp)
   target_link_libraries(test_registration PRIVATE nxr_pipelines)
   target_include_directories(test_registration PRIVATE ${CMAKE_SOURCE_DIR}/io/test)

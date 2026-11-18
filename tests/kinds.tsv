@@ -169,7 +169,7 @@ test_migrate	unit
 test_migrate_measurement	unit
 test_monogenic	unit
 test_montage	golden
-test_montage_create	integration
+test_montage_definition	integration
 test_montage_nodes	integration
 test_morlet	golden
 test_names_across_layers	guard
