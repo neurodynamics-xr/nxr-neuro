@@ -37,7 +37,9 @@ struct Basis {
     std::int64_t kept() const;         // the number of kept vertices
 };
 
-/** The face gradient of hat functions on a mesh (faceGradient.ts `assembleFaceGradient`) as sparse matrices. */
+/** The face gradient of hat functions on a mesh (faceGradient.ts `assembleFaceGradient`) as sparse matrices. KEPT AS THE STUDIO'S REFERENCE: its positions are float32 (the default) and its
+ *  gradient, curl and area weights are rounded as the Studio's are, so it is not the operators module's `gradient` / DEC (those are double and differ in the last bits); the double form
+ *  (`roundToSingle = false`) is what the optical flow reads. */
 class FaceOperators {
 public:
     /** `roundToSingle`: the Studio's positions are float32 (default); false keeps double (Rheome's face_gradient on double vertices: the optical flow). */

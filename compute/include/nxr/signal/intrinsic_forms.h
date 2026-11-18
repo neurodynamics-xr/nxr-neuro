@@ -24,6 +24,7 @@
 #include <vector>
 
 #include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/geometry/surface_arrays.h"
 
 namespace nxr::signal {
 
@@ -51,10 +52,10 @@ void attachEmbedding(Complex& c, const double* positions, const std::int32_t* in
  *  and directions). `complexOf` calls it. */
 void attachEmbedding(Complex& c, nxr::geometry::IntrinsicSurface& surface);
 
-/** The complex of an geometry::IntrinsicSurface (geometry-central's intrinsic Delaunay triangulation, with signposts): its edges, lengths, d0, d1, the stars (⋆0 the mesh's recorded mass, ⋆1 the
+/** The complex of a surface's arrays (geometry-central's intrinsic Delaunay triangulation, with signposts): its edges, lengths, d0, d1, the stars (⋆0 the mesh's recorded mass, ⋆1 the
  *  cotan weights, ⋆2 = 1 / area), the signposts, and the embedding (`positions` [3 nV], the INPUT `faces` [3 nF_in] for the area-weighted vertex normals).
  *  What `eigen solve` stores, built in memory (tests; a caller with no stored package). */
-Complex complexOf(nxr::geometry::IntrinsicSurface& surface);
+Complex complexOf(const nxr::geometry::SurfaceArrays& surface);
 
 /** The direction of edge e at its tail (atTip false) or tip (atTip true), pointing ALONG the edge (tail → tip), as an ambient unit vector. */
 Eigen::Vector3d tangentAt(const Complex& c, int e, bool atTip);

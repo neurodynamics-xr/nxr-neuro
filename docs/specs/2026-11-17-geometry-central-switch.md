@@ -61,7 +61,7 @@ A thin class in `compute/` (working name `nxr::manifold::IntrinsicSurface`, head
 the intrinsic triangulation, and is the only place the construction is written. It is pure (arrays in, the object out) and keeps the port's record.
 
 Construction, in this order (each step names the geometry-central call):
-1. `makeManifoldSurfaceMeshAndGeometry` (or the `ManifoldSurfaceMesh` + `VertexPositionGeometry` the `Manifold` already holds): the input mesh and
+1. `makeManifoldSurfaceMeshAndGeometry` (or the `ManifoldSurfaceMesh` + `VertexPositionGeometry` built from the `SurfaceArrays`): the input mesh and
    its embedded geometry.
 2. An `EdgeLengthGeometry` of the input mesh with the input's `edgeLengths`, then `mollifyIntrinsic(mesh, edgeLengths, mollify)` on **those
    input lengths** (option `mollify`, section 3). ε is recorded as the length added (the difference before and after; 0 when nothing was needed).
@@ -73,7 +73,7 @@ Construction, in this order (each step names the geometry-central call):
    keeps no count); `isDelaunay()` is checked after.
 6. The record: `mollify`, ε, `flipEps`, flips, the mass option, the geometry-central version (section 7), and the gauge identity (section 5.1).
 
-With the named option `mesh = embedded` (today's `MeshKind::Embedded`), steps 2 to 5 are skipped and every operator is the input geometry's.
+With the named option `mesh = embedded` (`IntrinsicOptions::intrinsic = false`), steps 2 to 5 are skipped and every operator is the input geometry's.
 
 Each connected piece of a surface is one `IntrinsicSurface` (as `ChartKit` solves each piece by itself today), so the heat and vector heat solvers
 never see a disconnected Laplacian; values off a piece stay NaN as now.
@@ -132,7 +132,7 @@ lines in `IntrinsicSurface`, with a test that it equals `vertexTangentBasis` to 
 
 ## 3. Method choices: named options, defaults stated
 
-The port's deliberate choices stay explicit: each is a named, recorded option of `IntrinsicSurface` (and of `ManifoldOptions`), reproduced through
+The port's deliberate choices stay explicit: each is a named, recorded option of `IntrinsicSurface` (and of the surface's `IntrinsicOptions`), reproduced through
 geometry-central where possible.
 
 | option | default | through geometry-central | reproduced? |

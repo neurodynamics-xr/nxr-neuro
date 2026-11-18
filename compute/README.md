@@ -210,15 +210,15 @@ M   = nxr.manifold.operator.mass(mctx);
 Every operator (cotan Laplacian, masses, DEC, vertex connection Laplacian, Hodge–Dirac) is built on **one** mesh, made by **one** construction
 (`include/nxr/intrinsic_surface.h`: geometry-central's signpost intrinsic triangulation): the intrinsic **mollified
 Delaunay** mesh, with the **mixed-Voronoi** mass (Meyer et al. 2003) of the mollified input, recorded before the first flip. That is the DEFAULT
-(`create(V, F)`, `Manifold(V, nV, F, nF)`). The others are named options, never silent defaults:
+(`geometry::surfaceArrays(V, nV, F, nF)`, whose `SurfaceArrays` every function takes). The others are named options, never silent defaults:
 
-- mesh: `intrinsicDelaunay: true` (default) · `false` = the input as it is (`MeshKind::Embedded`: no mollification, no flips);
+- mesh: `intrinsicDelaunay: true` (default) · `false` = the input as it is (`IntrinsicOptions::intrinsic = false`: no mollification, no flips);
 - mass: `"mixedVoronoi"` (default; diagonal) · `"galerkin"` (sparse FEM: `(A_T / 12) · [[2 1 1][1 2 1][1 1 2]]` on the operator mesh) ·
   `"barycentric"` (diagonal, `A_T/3` per vertex on the operator mesh; this is what was called `"lumped"` — the name is retired, no alias: "lumped"
   means the mixed-Voronoi mass in nxr and the Studio);
 - the construction's two numerical constants, named and recorded with the shared names: **`mollify`** (relative δ, default 1e-6 × the mean edge
   length; ε = max over corners of l_C − l_A − l_B + δ, added to every edge if positive) and **`flipEps`** (flip while the cotan weight is below
-  −flipEps, default 1e-6). `Manifold::intrinsicSurface().record()` holds mollify, ε, flipEps, the flip count and the gauge identity.
+  −flipEps, default 1e-6). `SurfaceArrays::triangulation.record` holds mollify, ε, flipEps, the flip count and the gauge identity.
 
 The stand-alone DEC follows the mesh option (`d0ᵀ⋆1d0 == cotanL`, `hodge0 == mass`). What is indexed by the input's own edges and faces (the
 1-form of a Hodge decomposition, the trivial connection, the face Diracs) uses `operators::embeddedDEC(m)`.
@@ -334,7 +334,7 @@ The toolboxes (ARCHITECTURE.md, "The toolboxes"; namespace `nxr::<toolbox>`, fun
 | `core` | types, errors, cancellation, progress, parallel, general matrix algebra (`hermitianFactor`, `quadratureFactor`, `divideRows`, congruence); library `nxr_core` |
 | `optimisation` | general solvers (`fminsearch`); in `nxr_core` |
 | `stats` | summary statistics, `histogram`, circular statistics (`circ_mean`, `circ_r`, `circ_rtest`), lag, null tests, `pca` |
-| `geometry` | `Manifold`, intrinsic geometry, frames, charts (`ChartKit`), distances (`heat`, `signedHeat`), transport, glue, nearest, parametrization, `faceAreas` |
+| `geometry` | `SurfaceArrays` (a surface as plain data), intrinsic geometry, frames, charts (`ChartKit`), distances (`heat`, `signedHeat`), transport, glue, nearest, parametrization, `faceAreas` |
 | `operators` | Laplacians, DEC, the Dirac family, `eigen`, Hodge weights, the sphere-registration resample operator, the registries |
 | `selection` | the Selection class, its resolution and lookup |
 | `measurement` | measures over selections, reductions, roll-ups, congruence norms |

@@ -81,7 +81,7 @@ struct HodgeDirac {
     // the raw signpost angles of each corner's halfedge, the cone angles and the reference neighbours (angle 0 of the gauge)
     geometry::IntrinsicSurface::Complex complex;
 };
-// Uses the geometry::Manifold's operator mesh when it is the intrinsic one built with these options, else builds its own by the same construction.
+// Uses the surface's operator mesh (the arrays' intrinsic triangulation).
 HodgeDirac assemble(const geometry::SurfaceArrays& surface, double star1Floor = 0.0, double mollify = 1e-6, double flipEps = 1e-6);
 Eigen::SparseMatrix<double> massMatrix(const HodgeDirac& h);   // diag(M)
 } // namespace nxr::operators::hodgedirac

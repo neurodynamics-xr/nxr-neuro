@@ -12,7 +12,7 @@
 #include "nxr/operators/laplacians.h"
 #include "nxr/operators/eigen.h"
 #include "nxr/operators/assembled.h"
-#include "nxr/synthesis/fields.h"          // OperatorId, geometry::Manifold
+#include "nxr/synthesis/fields.h"          // OperatorId
 #include <string>
 #include <string_view>
 #include <vector>
@@ -20,7 +20,7 @@
 
 namespace nxr::operators::registry {
 
-// The catalogue's operator slots (what the operator registry lists; the Manifold holds none of them).
+// The catalogue's operator slots (what the operator registry lists; a surface holds none of them).
 enum class OperatorId {
     LaplacianCotan, LaplacianGraph, LaplacianConnection, LaplacianCovariant,
     Dec, MassMixedVoronoi, MassBarycentric, MassGalerkin, Gradient3D, Dirac, DiracFace,

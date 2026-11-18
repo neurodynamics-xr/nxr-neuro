@@ -1,4 +1,5 @@
 #include "nxr/signal/intrinsic_forms.h"
+#include "nxr/operators/dec.h"
 #include "geometrycentral/surface/intrinsic_geometry_interface.h"
 
 #include "geometrycentral/surface/manifold_surface_mesh.h"
@@ -24,31 +25,19 @@ void basisAt(const Complex& c, int v, Eigen::Vector3d& e1, Eigen::Vector3d& e2) 
 }
 }  // namespace
 
-Complex complexOf(nxr::geometry::IntrinsicSurface& surface) {
+Complex complexOf(const nxr::geometry::SurfaceArrays& arrays) {
+    nxr::geometry::IntrinsicSurface surface(arrays);
     const auto K = surface.complex();
     Complex c;
     c.nV = surface.nV(); c.nE = static_cast<int>(K.length.size()); c.nF = static_cast<int>(K.faces.size() / 3);
     c.edges = K.edges;
-    std::vector<Eigen::Triplet<double>> t0, t1;
-    for (int e = 0; e < c.nE; ++e) {
-        t0.emplace_back(e, K.edges[2 * static_cast<std::size_t>(e)], -1.0);
-        t0.emplace_back(e, K.edges[2 * static_cast<std::size_t>(e) + 1], 1.0);
-    }
-    for (int h = 0; h < 3 * c.nF; ++h) {
-        const int se = K.faceEdges[static_cast<std::size_t>(h)];
-        t1.emplace_back(h / 3, std::abs(se) - 1, se > 0 ? 1.0 : -1.0);
-    }
-    c.d0.resize(c.nE, c.nV); c.d0.setFromTriplets(t0.begin(), t0.end());
-    c.d1.resize(c.nF, c.nE); c.d1.setFromTriplets(t1.begin(), t1.end());
+    // d0, d1, ⋆1 (the cotangent weights) and ⋆2 (1 / area) are the operators module's DEC of the triangulation; ⋆0 its recorded mass
+    const nxr::operators::DecMatrices dec = nxr::operators::decMatrices(arrays);
+    c.d0 = dec.d0; c.d1 = dec.d1;
     c.length = Eigen::Map<const VectorXd>(K.length.data(), c.nE);
-    const std::vector<double> mass = surface.massDiagonal();
-    c.star0 = Eigen::Map<const VectorXd>(mass.data(), c.nV);
-    // ⋆1 = the cotangent weights and ⋆2 = 1 / area of geometry-central's DEC on the triangulation
-    auto& g = surface.geometry();
-    g.requireDECOperators();
-    c.star1 = g.hodge1.diagonal();
-    c.star2 = g.hodge2.diagonal();
-    g.unrequireDECOperators();
+    c.star0 = nxr::operators::vertexMass(arrays, nxr::operators::MassMatrixVariant::MixedVoronoi).diagonal();
+    c.star1 = dec.hodge1.diagonal();
+    c.star2 = dec.hodge2.diagonal();
     c.angleTail.resize(c.nE); c.angleTip.resize(c.nE);
     for (int h = 0; h < 3 * c.nF; ++h) {
         const int se = K.faceEdges[static_cast<std::size_t>(h)], e = std::abs(se) - 1;

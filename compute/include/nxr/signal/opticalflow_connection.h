@@ -61,7 +61,7 @@ struct Pencil {
 };
 Pencil componentPencil(const double* positions, int n, const std::vector<int32_t>& faces, const geometry::DelaunayOptions& o = {});
 /** The connection Laplacian of the intrinsic surface as the real symmetric 2n x 2n matrix (complex entry a+ib -> [[a, −b], [b, a]]). */
-Eigen::SparseMatrix<double> realConnectionLaplacian(nxr::geometry::IntrinsicSurface& s);
+Eigen::SparseMatrix<double> realConnectionLaplacian(const nxr::geometry::SurfaceArrays& s);
 
 /** The flow itself: built once per mesh (components found, pencils, the system's pattern and its symbolic factorisation). */
 class ConnectionFlow {

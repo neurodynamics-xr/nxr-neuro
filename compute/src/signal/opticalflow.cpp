@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "nxr/geometry/intrinsic_surface.h"
+#include "nxr/operators/dec.h"
 #include "nxr/core/errors.h"
 #include "nxr/signal/fourier.h"
 #include "nxr/signal/filters.h"
@@ -45,16 +46,12 @@ RowMat3 rheomeVertexNormals(const RowMat3& positions, const operators::FaceMat& 
 
 // The embedded cotan Laplacian and the lumped Galerkin mass (row sums = a third of each incident face's area).
 void embeddedLaplacian(const RowMat3& positions, const operators::FaceMat& faces, Eigen::SparseMatrix<double>& K, VectorXd& mass) {
-    std::vector<double> P(static_cast<std::size_t>(positions.size()));
-    for (Eigen::Index i = 0; i < positions.rows(); ++i) for (int d = 0; d < 3; ++d) P[static_cast<std::size_t>(3 * i + d)] = positions(i, d);
-    std::vector<int32_t> F(static_cast<std::size_t>(faces.size()));
-    for (Eigen::Index f = 0; f < faces.rows(); ++f) for (int d = 0; d < 3; ++d) F[static_cast<std::size_t>(3 * f + d)] = faces(f, d);
     nxr::geometry::IntrinsicOptions io;
     io.intrinsic = false;                                                 // the embedded mesh: no mollification, no flips
-    nxr::geometry::IntrinsicSurface s(P.data(), static_cast<int>(positions.rows()), F.data(), static_cast<int>(faces.rows()), io);
-    K = s.cotanLaplacian();
+    const nxr::geometry::SurfaceArrays surface = nxr::geometry::surfaceArrays(positions, faces, io);
+    K = nxr::operators::cotanLaplacian(surface);                          // the operators module's cotan Laplacian and Galerkin mass
     K = (0.5 * (K + Eigen::SparseMatrix<double>(K.transpose()))).eval();
-    const Eigen::SparseMatrix<double> M = s.galerkinMassMatrix();
+    const Eigen::SparseMatrix<double> M = nxr::operators::vertexMass(surface, nxr::operators::MassMatrixVariant::Galerkin);
     mass = M * VectorXd::Ones(M.cols());
 }
 
