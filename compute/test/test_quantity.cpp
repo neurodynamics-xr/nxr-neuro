@@ -9,10 +9,10 @@
 #include <limits>
 #include <stdexcept>
 
-#include "nxr/quantity/quantity.h"
-#include "nxr/select/bands.h"
-#include "nxr/select/grid.h"
-#include "nxr/select/partition.h"
+#include "nxr/quantity.h"
+#include "nxr/selection/bands.h"
+#include "nxr/selection/grid.h"
+#include "nxr/selection/partition.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)

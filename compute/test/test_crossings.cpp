@@ -15,9 +15,9 @@
 #include <vector>
 
 #include "nxr/chart.h"
-#include "nxr/select/track_crossings.h"
+#include "nxr/crossings.h"
 #include "nxr/frames.h"
-#include "nxr/select/dyadic.h"
+#include "nxr/ladder.h"
 
 static int fails = 0;
 #define EXPECT(c, m) do { if (!(c)) { ++fails; std::cout << "  [FAIL] " << m << "\n"; } } while (0)

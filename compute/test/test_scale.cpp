@@ -4,7 +4,7 @@
 #include <cmath>
 #include <iostream>
 
-#include "nxr/select/scale_selection.h"
+#include "nxr/scale.h"
 
 static int failures = 0;
 #define EXPECT(cond, msg) do { if (cond) std::cout << "  [PASS] " << msg << "\n"; else { std::cout << "  [FAIL] " << msg << "\n"; ++failures; } } while (0)

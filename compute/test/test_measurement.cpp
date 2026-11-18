@@ -15,7 +15,7 @@
 #include "nxr/measurement/reduce.h"
 #include "nxr/measurement/roll_up.h"
 #include "nxr/measurement/summarize.h"
-#include "nxr/select/partition.h"
+#include "nxr/selection/partition.h"
 
 static const std::string kDir = NXR_TEST_GOLDEN_DIR;
 static int fails = 0;

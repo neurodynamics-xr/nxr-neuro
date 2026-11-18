@@ -4,7 +4,7 @@
 #include <iostream>
 #include <random>
 
-#include "nxr/select/events.h"
+#include "nxr/intervals.h"
 #include "nxr/measurement/roll_up.h"
 
 static int failures = 0;
